@@ -19,6 +19,10 @@ export interface ServerToClientEvents {
   stateDiff: (payload: { gameId: GameID; diff: StateDiff<ClientGameView> }) => void;
   priority: (payload: { gameId: GameID; player: PlayerID }) => void;
   error: (payload: { code: string; message: string }) => void;
+
+  // Optional events referenced in server code
+  automationErrorReported?: (payload: { message: string }) => void;
+  gameStateUpdated?: (payload: ClientGameView | unknown) => void;
 }
 
 export interface InterServerEvents {

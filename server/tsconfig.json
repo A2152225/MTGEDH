@@ -1,7 +1,7 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
-    "module": "ESNext",
+    "module": "node18",
     "outDir": "dist",
     "sourceMap": true,
     "resolveJsonModule": true,

@@ -3,92 +3,182 @@ export type GameID = string;
 export type PlayerID = string;
 export type SeatIndex = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
-export type Format =
-  | "commander"
-  | "standard"
-  | "vintage"
-  | "modern"
-  | "custom";
+// Canonical formats; keep enum to allow value usage (e.g., GameFormat.COMMANDER)
+export enum GameFormat {
+  COMMANDER = "COMMANDER",
+  STANDARD = "STANDARD",
+  MODERN = "MODERN",
+  VINTAGE = "VINTAGE",
+  LEGACY = "LEGACY",
+  PAUPER = "PAUPER",
+  CUSTOM = "CUSTOM"
+}
 
+// Back-compat alias
+export type Format = `${GameFormat}`;
+
+// Player references visible to clients
 export interface PlayerRef {
-  readonly id: PlayerID;
-  readonly name: string;
-  readonly seat: SeatIndex;
-  readonly isSpectator?: boolean;
+  id: PlayerID;
+  name: string;
+  seat: SeatIndex;
+  isSpectator?: boolean;
+}
+
+// Server-side richer player shape (superset; still safe for client views)
+export interface Player extends PlayerRef {
+  socketId?: string;
+  connected?: boolean;
+  library?: string[]; // card ids
+  hand?: string[]; // card ids
+  graveyard?: string[]; // card ids
+  life?: number;
+  hasPriority?: boolean;
+  startingLife?: number;
 }
 
 // Visibility model
 export type Visibility = "owner" | "controller" | "public" | "none";
 
 export interface HiddenCardRef {
-  readonly id: string; // opaque id
-  readonly faceDown: true;
-  readonly zone: "battlefield" | "exile" | "stack" | "library" | "hand" | "graveyard" | "command";
-  readonly visibility: Visibility;
+  id: string; // opaque id
+  faceDown: true;
+  zone: "battlefield" | "exile" | "stack" | "library" | "hand" | "graveyard" | "command";
+  visibility: Visibility;
 }
 
 export interface KnownCardRef {
-  readonly id: string;
-  readonly name: string;
-  readonly oracle_id?: string;
-  readonly cmc?: number;
-  readonly mana_cost?: string;
-  readonly zone: HiddenCardRef["zone"];
-  readonly faceDown?: false;
+  id: string;
+  name: string;
+  oracle_id?: string;
+  cmc?: number;
+  mana_cost?: string;
+  zone: HiddenCardRef["zone"];
+  faceDown?: false;
 }
 
 export type CardRef = HiddenCardRef | KnownCardRef;
 
 export interface LifeTotals {
-  readonly [playerId: PlayerID]: number;
+  [playerId: PlayerID]: number;
 }
 
 export interface CommanderInfo {
-  readonly commanderIds: readonly string[];
-  readonly tax: number; // total extra generic cost applied
+  commanderIds: readonly string[];
+  tax: number; // total extra generic cost applied
 }
 
 export interface BattlefieldPermanent {
-  readonly id: string;
-  readonly controller: PlayerID;
-  readonly owner: PlayerID;
-  readonly tapped: boolean;
-  readonly counters?: Readonly<Record<string, number>>;
-  readonly card: CardRef; // may be face-down
+  id: string;
+  controller: PlayerID;
+  owner: PlayerID;
+  tapped: boolean;
+  counters?: Readonly<Record<string, number>>;
+  card: CardRef; // may be face-down
 }
 
 export interface StackItem {
-  readonly id: string;
-  readonly type: "spell" | "ability";
-  readonly controller: PlayerID;
-  readonly card?: CardRef; // spells have card, abilities may not
-  readonly targets?: readonly string[];
+  id: string;
+  type: "spell" | "ability";
+  controller: PlayerID;
+  card?: CardRef; // spells have card, abilities may not
+  targets?: readonly string[];
 }
 
+// Phases/steps as enums to allow value usage in code
+export enum GamePhase {
+  BEGINNING = "BEGINNING",
+  PRECOMBAT_MAIN = "PRECOMBAT_MAIN",
+  COMBAT = "COMBAT",
+  POSTCOMBAT_MAIN = "POSTCOMBAT_MAIN",
+  END = "END"
+}
+
+export enum GameStep {
+  UNTAP = "UNTAP",
+  UPKEEP = "UPKEEP",
+  DRAW = "DRAW",
+  MAIN1 = "MAIN1",
+  BEGIN_COMBAT = "BEGIN_COMBAT",
+  DECLARE_ATTACKERS = "DECLARE_ATTACKERS",
+  DECLARE_BLOCKERS = "DECLARE_BLOCKERS",
+  DAMAGE = "DAMAGE",
+  END_COMBAT = "END_COMBAT",
+  MAIN2 = "MAIN2",
+  END = "END",
+  CLEANUP = "CLEANUP"
+}
+
+export enum GameStatus {
+  WAITING = "WAITING",
+  IN_PROGRESS = "IN_PROGRESS",
+  FINISHED = "FINISHED"
+}
+
+// Authoritative server state (mutable for server code)
 export interface GameState {
-  readonly id: GameID;
-  readonly format: Format;
-  readonly players: readonly PlayerRef[];
-  readonly startingLife: number;
-  readonly life: LifeTotals;
-  readonly turnPlayer: PlayerID;
-  readonly priority: PlayerID;
-  readonly stack: readonly StackItem[];
-  readonly battlefield: readonly BattlefieldPermanent[];
-  readonly commandZone: Readonly<Record<PlayerID, CommanderInfo>>;
-  readonly phase: "begin" | "precombat_main" | "combat" | "postcombat_main" | "end";
-  readonly active: boolean;
+  id: GameID;
+  format: GameFormat | Format;
+  players: Player[]; // server mutates this
+  startingLife: number;
+  life: LifeTotals;
+  turnPlayer: PlayerID;
+  priority: PlayerID;
+  stack: StackItem[];
+  battlefield: BattlefieldPermanent[];
+  commandZone: Record<PlayerID, CommanderInfo>;
+  phase: GamePhase;
+  step?: GameStep;
+  active: boolean;
+
+  // Common server-side fields used by your code
+  status?: GameStatus;
+  turnOrder?: PlayerID[];
+  startedAt?: number;
+  turn?: number;
+  activePlayerIndex?: number;
 }
 
 // Client-scoped view (after visibility filtering)
-export type ClientGameView = Omit<GameState, "battlefield" | "stack"> & {
-  readonly battlefield: readonly BattlefieldPermanent[];
-  readonly stack: readonly StackItem[];
+export type ClientGameView = Omit<GameState, "battlefield" | "stack" | "players"> & {
+  battlefield: BattlefieldPermanent[];
+  stack: StackItem[];
+  players: PlayerRef[]; // clients get the narrow shape
 };
 
 // Diff envelope
 export interface StateDiff<T> {
-  readonly full?: T;
-  readonly patch?: Partial<T>;
-  readonly seq: number;
+  full?: T;
+  patch?: Partial<T>;
+  seq: number;
+}
+
+// Actions and automation types (expanded for back-compat)
+export type GameActionType = string;
+
+export interface GameAction {
+  id: string;
+  type: GameActionType;
+  actor: PlayerID;
+  gameId: GameID;
+  payload?: Record<string, unknown>;
+  createdAt?: number;
+}
+
+export type AutomationStatus = "OPEN" | "ACKNOWLEDGED" | "RESOLVED";
+
+export interface AutomationErrorReport {
+  id?: string;
+  gameId: GameID;
+  reporter?: PlayerID;
+  playerId?: PlayerID; // back-compat alias
+  description: string;
+  expectedBehavior?: string;
+  actionType?: string;
+  cardInvolved?: string;
+  gameState?: unknown;
+  rulesReferences?: string[];
+  status?: AutomationStatus;
+  reportedAt?: number;
+  createdAt?: number;
 }
