@@ -1,1 +1,28 @@
-{\n  "name": "mtgedh",\n  "version": "1.0.0",\n  "private": true,\n  "workspaces": [\n    "server",\n    "client",\n    "shared",\n    "rules-engine"\n  ],\n  "scripts": {\n    "dev": "concurrently \"npm run dev --workspace=server\" \"npm run dev --workspace=client\"",\n    "build": "concurrently \"npm run build --workspace=server\" \"npm run build --workspace=client\"",\n    "test": "concurrently \"npm run test --workspace=server\" \"npm run test --workspace=client\""\n  },\n  "devDependencies": {\n    "concurrently": "^6.0.0",\n    "typescript": "^4.0.0"\n  }\n}
+{
+  "name": "mtgedh",
+  "version": "0.1.0",
+  "description": "Magic: The Gathering multiplayer platform with rules automation",
+  "private": true,
+  "workspaces": [
+    "server",
+    "client",
+    "shared",
+    "rules-engine"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "npm run dev --workspace=server",
+    "dev:client": "npm run dev --workspace=client",
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "lint": "npm run lint --workspaces"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}
