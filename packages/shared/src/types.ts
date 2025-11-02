@@ -83,6 +83,6 @@ export enum GameFormat {
 export interface GameAction {
   type: string;
   playerId: string;
-  data: any;
+  data: Record<string, unknown>;
   timestamp: Date;
 }

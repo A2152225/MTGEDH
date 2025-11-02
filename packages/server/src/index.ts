@@ -3,9 +3,9 @@
  */
 import express from 'express';
 import cors from 'cors';
-import { config } from './config';
-import { setupRoutes } from './routes';
-import { setupWebSocket } from './websocket';
+import { config } from './config.js';
+import { setupRoutes } from './routes.js';
+import { setupWebSocket } from './websocket.js';
 
 const app = express();
 

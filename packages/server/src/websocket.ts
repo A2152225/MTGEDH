@@ -3,7 +3,7 @@
  */
 import { Server as HttpServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
-import { config } from './config';
+import { config } from './config.js';
 
 export function setupWebSocket(httpServer: HttpServer): SocketIOServer {
   const io = new SocketIOServer(httpServer, {
