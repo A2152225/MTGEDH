@@ -2,7 +2,7 @@ import type { ClientGameView, GameID, PlayerID, StateDiff } from "./types";
 
 // Socket.IO event contracts
 export interface ClientToServerEvents {
-  joinGame: (payload: { gameId: GameID; playerName: string; spectator?: boolean }) => void;
+  joinGame: (payload: { gameId: GameID; playerName: string; spectator?: boolean; seatToken?: string }) => void;
   leaveGame: (payload: { gameId: GameID }) => void;
   passPriority: (payload: { gameId: GameID }) => void;
   requestState: (payload: { gameId: GameID }) => void;
@@ -14,7 +14,7 @@ export interface ClientToServerEvents {
 }
 
 export interface ServerToClientEvents {
-  joined: (payload: { gameId: GameID; you: PlayerID }) => void;
+  joined: (payload: { gameId: GameID; you: PlayerID; seatToken?: string }) => void;
   state: (payload: { gameId: GameID; view: ClientGameView; seq: number }) => void;
   stateDiff: (payload: { gameId: GameID; diff: StateDiff<ClientGameView> }) => void;
   priority: (payload: { gameId: GameID; player: PlayerID }) => void;

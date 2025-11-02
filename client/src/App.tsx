@@ -2,6 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { socket } from './socket';
 import type { ClientGameView, GameID, PlayerID } from '../../shared/src';
 
+function seatTokenKey(gameId: GameID) {
+  return `mtgedh:seatToken:${gameId}`;
+}
+
 export function App() {
   const [connected, setConnected] = useState(false);
   const [gameId, setGameId] = useState<GameID>('demo');
@@ -15,11 +19,15 @@ export function App() {
     const onDisconnect = () => setConnected(false);
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
-    socket.on('joined', ({ you }) => setYou(you));
+    socket.on('joined', ({ you, seatToken, gameId }) => {
+      setYou(you);
+      if (seatToken) {
+        localStorage.setItem(seatTokenKey(gameId), seatToken);
+      }
+    });
     socket.on('state', ({ view }) => setView(view));
     socket.on('stateDiff', ({ diff }) => {
       if (diff.full) setView(diff.full);
-      // patch handling later
     });
     socket.on('priority', ({ player }) => setPriority(player));
 
@@ -38,6 +46,11 @@ export function App() {
     return view.priority === you;
   }, [view, you]);
 
+  const handleJoin = () => {
+    const token = localStorage.getItem(seatTokenKey(gameId)) || undefined;
+    socket.emit('joinGame', { gameId, playerName: name, seatToken: token });
+  };
+
   return (
     <div style={{ fontFamily: 'system-ui', padding: 16 }}>
       <h1>MTGEDH</h1>
@@ -46,10 +59,7 @@ export function App() {
       <div style={{ marginTop: 12 }}>
         <input value={gameId} onChange={e => setGameId(e.target.value)} placeholder="Game ID" />
         <input value={name} onChange={e => setName(e.target.value)} placeholder="Name" />
-        <button
-          onClick={() => socket.emit('joinGame', { gameId, playerName: name })}
-          disabled={!connected}
-        >
+        <button onClick={handleJoin} disabled={!connected}>
           Join
         </button>
         <button onClick={() => socket.emit('requestState', { gameId })} disabled={!connected}>
@@ -59,18 +69,20 @@ export function App() {
 
       {view && (
         <div style={{ marginTop: 16 }}>
-          <div>Game: {view.id} | Format: {view.format} | Turn: {view.turnPlayer}</div>
+          <div>Game: {view.id} | Format: {String(view.format)} | Turn: {view.turnPlayer}</div>
           <div>Priority: {priority ?? view.priority}</div>
+
           <h3>Players</h3>
           <ul>
             {view.players.map(p => (
-              <li key={p.id}>
+              <li key={p.id} style={{ marginBottom: 8 }}>
                 {p.name} (seat {p.seat}) — life {view.life[p.id] ?? '-'}
                 {you === p.id ? ' (you)' : ''}
               </li>
             ))}
           </ul>
-          <button onClick={() => socket.emit('passPriority', { gameId })} disabled={!canPass}>
+
+          <button onClick={() => socket.emit('passPriority', { gameId: view.id })} disabled={!canPass}>
             Pass Priority
           </button>
         </div>
