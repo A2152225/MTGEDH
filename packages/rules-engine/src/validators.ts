@@ -7,7 +7,7 @@ export class GameValidator {
   /**
    * Check if a player can play a card
    */
-  static canPlayCard(gameState: GameState, playerId: string, card: Card): boolean {
+  static canPlayCard(_gameState: GameState, _playerId: string, _card: Card): boolean {
     // TODO: Implement card playability checks
     // - Check priority
     // - Check mana availability
@@ -25,7 +25,7 @@ export class GameValidator {
   /**
    * Validate game action
    */
-  static validateAction(gameState: GameState, action: GameAction): boolean {
+  static validateAction(_gameState: GameState, _action: GameAction): boolean {
     // TODO: Implement comprehensive action validation
     return true;
   }

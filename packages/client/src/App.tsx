@@ -1,7 +1,6 @@
 /**
  * Main App component
  */
-import React from 'react';
 import { GameFormat } from '@mtgedh/shared';
 
 function App() {

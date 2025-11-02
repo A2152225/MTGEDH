@@ -2,6 +2,7 @@
   "name": "@mtgedh/shared",
   "version": "1.0.0",
   "description": "Shared types and utilities for MTGEDH",
+  "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {

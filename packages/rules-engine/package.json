@@ -2,6 +2,7 @@
   "name": "@mtgedh/rules-engine",
   "version": "1.0.0",
   "description": "MTG rules automation engine",
+  "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
