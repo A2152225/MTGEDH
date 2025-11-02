@@ -9,3 +9,5 @@ build/
 coverage/
 .vscode/
 .idea/
+*.tsbuildinfo
+package-lock.json
