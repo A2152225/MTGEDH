@@ -5,7 +5,11 @@ import type {
   PlayerRef,
   GameState,
   ClientGameView,
-  CommanderInfo
+  CommanderInfo,
+  PlayerZones,
+  CardRef,
+  KnownCardRef,
+  HiddenCardRef
 } from '../../../shared/src';
 
 function uid(prefix = 'id'): string {
@@ -39,11 +43,14 @@ export interface InMemoryGame {
   passPriority: (playerId: PlayerID) => boolean;
   applyEvent: (e: GameEvent) => void;
   replay: (events: GameEvent[]) => void;
+  grantSpectatorAccess: (owner: PlayerID, spectator: PlayerID) => void;
+  viewFor: (viewer: PlayerID, spectator: boolean) => ClientGameView;
 }
 
 export function createInitialGameState(gameId: GameID): InMemoryGame {
   const players: PlayerRef[] = [];
   const commandZone: Record<PlayerID, CommanderInfo> = {} as Record<PlayerID, CommanderInfo>;
+  const zones: Record<PlayerID, PlayerZones> = {};
   let turnPlayer = '' as PlayerID;
   let priority = '' as PlayerID;
   const life: Record<PlayerID, number> = {};
@@ -61,6 +68,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     commandZone: commandZone,
     phase: GamePhase.BEGINNING,
     active: true,
+    zones,
     status: undefined,
     turnOrder: [],
     startedAt: undefined,
@@ -73,6 +81,8 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
   // Seat token maps for secure reconnect
   const tokenToPlayer = new Map<string, PlayerID>();
   const playerToToken = new Map<PlayerID, string>();
+  // Owner -> set of spectator ids that can view owner's hidden info
+  const grants = new Map<PlayerID, Set<PlayerID>>();
 
   let seq = 0;
 
@@ -80,7 +90,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     return participantsList.slice();
   }
 
-  // Helper: add a player to roster if missing, returns their seat
+  // Helper: add a player to roster/zones if missing, returns their seat
   function addPlayerIfMissing(id: PlayerID, name: string, desiredSeat?: number): number {
     const existing = players.find(p => p.id === id);
     if (existing) return existing.seat;
@@ -88,6 +98,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     const ref: PlayerRef = { id, name, seat };
     (players as PlayerRef[]).push(ref);
     life[id] = state.startingLife;
+    zones[id] = zones[id] ?? { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
     if (!state.turnPlayer) state.turnPlayer = id;
     if (!state.priority) state.priority = id;
     (commandZone as Record<PlayerID, CommanderInfo>)[id] = { commanderIds: [], tax: 0 };
@@ -117,12 +128,10 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
       // 1) Token-based claim
       if (seatToken && tokenToPlayer.has(seatToken)) {
         playerId = tokenToPlayer.get(seatToken)!;
-        // Ensure roster contains this player (important on process restart)
+        // Ensure roster exists (important on restart)
         seat = addPlayerIfMissing(playerId, normalizedName);
         // Ensure mappings exist
-        if (!playerToToken.get(playerId)) {
-          playerToToken.set(playerId, seatToken);
-        }
+        if (!playerToToken.get(playerId)) playerToToken.set(playerId, seatToken);
       } else {
         // 2) Reuse by fixed id or by name
         if (!playerId) {
@@ -130,7 +139,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
           if (byName) playerId = byName.id as PlayerID;
         }
         if (playerId) {
-          // Make sure mappings exist for existing seats
+          // Ensure mappings exist
           const existingToken = playerToToken.get(playerId);
           if (existingToken) seatToken = existingToken;
           else {
@@ -138,6 +147,8 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
             tokenToPlayer.set(seatToken, playerId);
             playerToToken.set(playerId, seatToken);
           }
+          // Ensure zones exist
+          zones[playerId] = zones[playerId] ?? { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
         }
         // 3) Create new seat if still no id
         if (!playerId) {
@@ -169,6 +180,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
       (players as PlayerRef[]).splice(idx, 1);
       delete life[playerId];
       delete (commandZone as Record<string, unknown>)[playerId];
+      delete zones[playerId];
       if (state.turnPlayer === playerId) state.turnPlayer = (players[0]?.id ?? '') as PlayerID;
       if (state.priority === playerId) state.priority = (players[0]?.id ?? '') as PlayerID;
       const token = playerToToken.get(playerId);
@@ -176,6 +188,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
         playerToToken.delete(playerId);
         tokenToPlayer.delete(token);
       }
+      grants.delete(playerId);
       seq++;
       return true;
     }
@@ -205,14 +218,74 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     return true;
   }
 
+  function grantSpectatorAccess(owner: PlayerID, spectator: PlayerID) {
+    let set = grants.get(owner);
+    if (!set) {
+      set = new Set<PlayerID>();
+      grants.set(owner, set);
+    }
+    set.add(spectator);
+    seq++; // trigger a view refresh
+  }
+
+  // Visibility helpers
+  function canSeeOwnersHidden(viewer: PlayerID, owner: PlayerID): boolean {
+    if (viewer === owner) return true;
+    const set = grants.get(owner);
+    return !!set && set.has(viewer);
+  }
+
+  function maskCardForViewer(card: CardRef, viewer: PlayerID, owner: PlayerID): CardRef {
+    // If the card is explicitly face-down (or we don't know), mask unless owner/granted
+    const isFaceDown = (card as HiddenCardRef).faceDown === true || (card as KnownCardRef).faceDown === true;
+    if (isFaceDown && !canSeeOwnersHidden(viewer, owner)) {
+      return {
+        id: card.id,
+        faceDown: true,
+        zone: card.zone,
+        visibility: 'owner'
+      } as HiddenCardRef;
+    }
+    return card;
+  }
+
+  function viewFor(viewer: PlayerID, spectator: boolean): ClientGameView {
+    // Battlefield and stack: mask face-down to non-owners/non-granted
+    const filteredBattlefield = state.battlefield.map(perm => ({
+      ...perm,
+      card: maskCardForViewer(perm.card, viewer, perm.owner)
+    }));
+
+    // Zones filtering per rules
+    const filteredZones: Record<PlayerID, PlayerZones> = {};
+    for (const p of state.players) {
+      const z = state.zones?.[p.id] ?? { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+      const canSee = canSeeOwnersHidden(viewer, p.id);
+      filteredZones[p.id] = {
+        hand: canSee ? z.hand : [],
+        handCount: z.handCount ?? z.hand.length ?? 0,
+        libraryCount: z.libraryCount ?? 0,
+        graveyard: z.graveyard, // graveyard is public
+        graveyardCount: z.graveyardCount ?? z.graveyard.length ?? 0,
+        exile: z.exile
+          ? (canSee ? z.exile.map(c => maskCardForViewer(c, viewer, p.id))
+                    : z.exile.map(c => ({ id: c.id, faceDown: true, zone: c.zone, visibility: 'owner' } as HiddenCardRef)))
+          : undefined
+      };
+    }
+
+    return {
+      ...state,
+      battlefield: filteredBattlefield,
+      stack: state.stack.slice(),
+      players: state.players.map(p => ({ id: p.id, name: p.name, seat: p.seat })),
+      zones: filteredZones
+    };
+  }
+
   function applyEvent(e: GameEvent) {
     switch (e.type) {
       case 'join': {
-        // Seed mappings and roster deterministically on replay
-        if (e.seatToken) {
-          tokenToPlayer.set(e.seatToken, e.playerId);
-          playerToToken.set(e.playerId, e.seatToken);
-        }
         addPlayerIfMissing(e.playerId, e.name, e.seat);
         break;
       }
@@ -238,15 +311,19 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     participants,
     passPriority,
     applyEvent,
-    replay
+    replay,
+    grantSpectatorAccess,
+    viewFor
   };
 }
 
+// Deprecated legacy export retained for compatibility; not used by socket layer anymore.
 export function filterViewForParticipant(state: GameState, _playerId: PlayerID, _spectator: boolean): ClientGameView {
   return {
     ...state,
-    battlefield: [...state.battlefield],
-    stack: [...state.stack],
-    players: state.players.map(p => ({ id: p.id, name: p.name, seat: p.seat }))
+    battlefield: state.battlefield.slice(),
+    stack: state.stack.slice(),
+    players: state.players.map(p => ({ id: p.id, name: p.name, seat: p.seat })),
+    zones: state.zones ? { ...state.zones } : undefined
   };
 }

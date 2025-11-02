@@ -115,6 +115,16 @@ export enum GameStatus {
   FINISHED = "FINISHED"
 }
 
+// Player zones and counts (visibility-aware in filtered views)
+export interface PlayerZones {
+  hand: CardRef[];              // owner: cards; others: []
+  handCount: number;            // everyone sees count
+  libraryCount: number;         // everyone sees count
+  graveyard: KnownCardRef[];    // owner/opponents: known info; others may receive only count in future
+  graveyardCount: number;       // everyone sees count
+  exile?: CardRef[];            // visible/hidden depending on effects (faceDown respected)
+}
+
 // Authoritative server state (mutable for server code)
 export interface GameState {
   id: GameID;
@@ -131,7 +141,10 @@ export interface GameState {
   step?: GameStep;
   active: boolean;
 
-  // Common server-side fields used by your code
+  // Optional per-player zones; included when relevant
+  zones?: Record<PlayerID, PlayerZones>;
+
+  // Common server-side fields used by code
   status?: GameStatus;
   turnOrder?: PlayerID[];
   startedAt?: number;
@@ -140,10 +153,11 @@ export interface GameState {
 }
 
 // Client-scoped view (after visibility filtering)
-export type ClientGameView = Omit<GameState, "battlefield" | "stack" | "players"> & {
+export type ClientGameView = Omit<GameState, "battlefield" | "stack" | "players" | "zones"> & {
   battlefield: BattlefieldPermanent[];
   stack: StackItem[];
   players: PlayerRef[]; // clients get the narrow shape
+  zones?: Record<PlayerID, PlayerZones>; // filtered/masked
 };
 
 // Diff envelope

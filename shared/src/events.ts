@@ -11,6 +11,9 @@ export interface ClientToServerEvents {
   castSpell: (payload: { gameId: GameID; cardId: string; targets?: string[] }) => void;
   playLand: (payload: { gameId: GameID; cardId: string }) => void;
   concede: (payload: { gameId: GameID }) => void;
+
+  // Visibility control: owner grants a spectator elevated access to their hidden info
+  grantSpectatorAccess: (payload: { gameId: GameID; spectatorId: PlayerID }) => void;
 }
 
 export interface ServerToClientEvents {
@@ -19,6 +22,9 @@ export interface ServerToClientEvents {
   stateDiff: (payload: { gameId: GameID; diff: StateDiff<ClientGameView> }) => void;
   priority: (payload: { gameId: GameID; player: PlayerID }) => void;
   error: (payload: { code: string; message: string }) => void;
+
+  // Chat/messages (includes system notices like spectator access grants)
+  chat: (payload: { id: string; gameId: GameID; from: PlayerID | "system"; message: string; ts: number }) => void;
 
   // Optional events referenced in server code
   automationErrorReported?: (payload: { message: string }) => void;

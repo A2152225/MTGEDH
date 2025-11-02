@@ -8,7 +8,7 @@ import type {
   ClientGameView,
   PlayerID
 } from '../../shared/src';
-import { createInitialGameState, filterViewForParticipant, type InMemoryGame, type GameEvent } from './state/gameState';
+import { createInitialGameState, type InMemoryGame, type GameEvent } from './state/gameState';
 import { computeDiff } from './utils/diff';
 import { createGameIfNotExists, getEvents, appendEvent } from './db';
 
@@ -43,7 +43,7 @@ function ensureGame(gameId: GameID): InMemoryGame {
 function broadcastGame(io: TypedServer, game: InMemoryGame, gameId: GameID) {
   const participants = game.participants();
   for (const p of participants) {
-    const view = filterViewForParticipant(game.state, p.playerId, p.spectator);
+    const view = game.viewFor(p.playerId, p.spectator);
     io.to(p.socketId).emit('stateDiff', {
       gameId,
       diff: computeDiff<ClientGameView>(undefined, view, game.seq)
@@ -55,7 +55,7 @@ export function registerSocketHandlers(io: TypedServer) {
   io.on('connection', (socket: Socket) => {
     socket.on('joinGame', ({ gameId, playerName, spectator, seatToken }) => {
       const game = ensureGame(gameId);
-      const { playerId, added, seatToken: resolvedToken, seat } = game.join(
+      const { playerId, added, seatToken: resolvedToken } = game.join(
         socket.id,
         playerName,
         Boolean(spectator),
@@ -70,7 +70,7 @@ export function registerSocketHandlers(io: TypedServer) {
       socket.join(gameId);
       socket.emit('joined', { gameId, you: playerId, seatToken: resolvedToken });
 
-      const view = filterViewForParticipant(game.state, playerId, Boolean(spectator));
+      const view = game.viewFor(playerId, Boolean(spectator));
       socket.emit('state', { gameId, view, seq: game.seq });
 
       if (!spectator && added) {
@@ -78,7 +78,7 @@ export function registerSocketHandlers(io: TypedServer) {
         appendEvent(gameId, seq, 'join', {
           playerId,
           name: playerName,
-          seat,
+          seat: view.players.find(p => p.id === playerId)?.seat,
           seatToken: resolvedToken
         });
       }
@@ -104,7 +104,7 @@ export function registerSocketHandlers(io: TypedServer) {
     socket.on('requestState', ({ gameId }) => {
       const game = games.get(gameId);
       if (!game || !socket.data.playerId) return;
-      const view = filterViewForParticipant(game.state, socket.data.playerId, Boolean(socket.data.spectator));
+      const view = game.viewFor(socket.data.playerId, Boolean(socket.data.spectator));
       socket.emit('state', { gameId, view, seq: game.seq });
     });
 
@@ -118,6 +118,25 @@ export function registerSocketHandlers(io: TypedServer) {
       appendEvent(gameId, game.seq, 'passPriority', { by: pid });
       broadcastGame(io, game, gameId);
       io.to(gameId).emit('priority', { gameId, player: game.state.priority });
+    });
+
+    socket.on('grantSpectatorAccess', ({ gameId, spectatorId }) => {
+      const game = games.get(gameId);
+      const owner = socket.data.playerId as PlayerID | undefined;
+      if (!game || !owner || !spectatorId) return;
+
+      game.grantSpectatorAccess(owner, spectatorId);
+
+      // System chat notice
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `Player ${owner} granted hidden-info access to spectator ${spectatorId}`,
+        ts: Date.now()
+      });
+
+      broadcastGame(io, game, gameId);
     });
 
     socket.on('disconnect', () => {
