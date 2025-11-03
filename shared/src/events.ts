@@ -1,35 +1,61 @@
-import type { ClientGameView, GameID, PlayerID, StateDiff, KnownCardRef } from "./types";
+import type { ClientGameView, GameID, PlayerID, StateDiff, KnownCardRef, TargetRef } from "./types";
 
-// Socket.IO event contracts
 export interface ClientToServerEvents {
+  // Session
   joinGame: (payload: { gameId: GameID; playerName: string; spectator?: boolean; seatToken?: string }) => void;
   leaveGame: (payload: { gameId: GameID }) => void;
-  passPriority: (payload: { gameId: GameID }) => void;
   requestState: (payload: { gameId: GameID }) => void;
 
-  // Game admin
+  // Turn / priority
+  passPriority: (payload: { gameId: GameID }) => void;
+  toggleTurnDirection: (payload: { gameId: GameID }) => void;
+
+  // Admin
   restartGame: (payload: { gameId: GameID; preservePlayers?: boolean }) => void;
   removePlayer: (payload: { gameId: GameID; playerId: PlayerID }) => void;
   skipPlayer: (payload: { gameId: GameID; playerId: PlayerID }) => void;
   unskipPlayer: (payload: { gameId: GameID; playerId: PlayerID }) => void;
 
-  // Visibility control
+  // Visibility
   grantSpectatorAccess: (payload: { gameId: GameID; spectatorId: PlayerID }) => void;
   revokeSpectatorAccess: (payload: { gameId: GameID; spectatorId: PlayerID }) => void;
 
-  // Deck import and library ops
+  // Library and deck
   importDeck: (payload: { gameId: GameID; list: string }) => void;
   shuffleLibrary: (payload: { gameId: GameID }) => void;
   drawCards: (payload: { gameId: GameID; count: number }) => void;
-
-  // NEW: move the entire hand back into library and shuffle
   shuffleHandIntoLibrary: (payload: { gameId: GameID }) => void;
 
-  // Search library (private to requester)
+  // Search (owner only)
   searchLibrary: (payload: { gameId: GameID; query: string; limit?: number }) => void;
-  selectFromSearch: (payload: { gameId: GameID; cardIds: string[]; moveTo: 'hand' | 'graveyard' | 'exile' | 'battlefield'; reveal?: boolean }) => void;
+  selectFromSearch: (payload: {
+    gameId: GameID;
+    cardIds: string[];
+    moveTo: 'hand' | 'graveyard' | 'exile' | 'battlefield';
+    reveal?: boolean;
+  }) => void;
 
-  // Minimal actions scaffolding (reserved)
+  // Commander
+  setCommander: (payload: { gameId: GameID; commanderNames: string[] }) => void;
+  castCommander: (payload: { gameId: GameID; commanderNameOrId: string }) => void;
+  moveCommanderToCommandZone: (payload: { gameId: GameID; commanderNameOrId: string }) => void;
+
+  // Counters / tokens
+  updateCounters: (payload: { gameId: GameID; permanentId: string; deltas: Record<string, number> }) => void;
+  updateCountersBulk: (payload: { gameId: GameID; updates: { permanentId: string; deltas: Record<string, number> }[] }) => void;
+  createToken: (payload: { gameId: GameID; name: string; count?: number; basePower?: number; baseToughness?: number }) => void;
+  removePermanent: (payload: { gameId: GameID; permanentId: string }) => void;
+
+  // Damage
+  dealDamage: (payload: { gameId: GameID; targetPermanentId: string; amount: number; wither?: boolean; infect?: boolean }) => void;
+
+  // Targeting & casting
+  beginCast: (payload: { gameId: GameID; cardId: string }) => void;
+  chooseTargets: (payload: { gameId: GameID; spellId: string; chosen: TargetRef[] }) => void;
+  cancelCast: (payload: { gameId: GameID; spellId: string }) => void;
+  confirmCast: (payload: { gameId: GameID; spellId: string }) => void;
+
+  // Reserved
   castSpell: (payload: { gameId: GameID; cardId: string; targets?: string[] }) => void;
   playLand: (payload: { gameId: GameID; cardId: string }) => void;
   concede: (payload: { gameId: GameID }) => void;
@@ -42,13 +68,22 @@ export interface ServerToClientEvents {
   priority: (payload: { gameId: GameID; player: PlayerID }) => void;
   error: (payload: { code: string; message: string }) => void;
 
-  // Chat/messages (system notices, admin actions)
+  // Chat/messages
   chat: (payload: { id: string; gameId: GameID; from: PlayerID | "system"; message: string; ts: number }) => void;
 
-  // Private search results (only to requester)
+  // Private search results
   searchResults: (payload: { gameId: GameID; cards: Pick<KnownCardRef, 'id' | 'name'>[]; total: number }) => void;
 
-  // Optional
+  // Private to caster: valid targets
+  validTargets: (payload: {
+    gameId: GameID;
+    spellId: string;
+    minTargets: number;
+    maxTargets: number;
+    targets: TargetRef[];
+    note?: string;
+  }) => void;
+
   automationErrorReported?: (payload: { message: string }) => void;
   gameStateUpdated?: (payload: ClientGameView | unknown) => void;
 }

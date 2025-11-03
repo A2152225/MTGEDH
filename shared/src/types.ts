@@ -3,7 +3,7 @@ export type GameID = string;
 export type PlayerID = string;
 export type SeatIndex = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
-// Canonical formats; keep enum to allow value usage (e.g., GameFormat.COMMANDER)
+// Canonical formats
 export enum GameFormat {
   COMMANDER = "COMMANDER",
   STANDARD = "STANDARD",
@@ -11,10 +11,8 @@ export enum GameFormat {
   VINTAGE = "VINTAGE",
   LEGACY = "LEGACY",
   PAUPER = "PAUPER",
-  CUSTOM = "CUSTOM"
+  CUSTOM = "CUSTOM",
 }
-
-// Back-compat alias
 export type Format = `${GameFormat}`;
 
 // Player references visible to clients
@@ -23,20 +21,17 @@ export interface PlayerRef {
   name: string;
   seat: SeatIndex;
   isSpectator?: boolean;
-  // Status flags (server may set)
-  inactive?: boolean;   // temporarily skipped (AFK)
-  eliminated?: boolean; // out of the game
+  inactive?: boolean;
+  eliminated?: boolean;
 }
 
-// Spectators exposed in views (for convenience UI actions)
 export interface SpectatorRef {
   id: PlayerID;
   name: string;
-  // True if the viewer (the client receiving the view) has granted this spectator hidden-info access
   hasAccessToYou?: boolean;
 }
 
-// Server-side richer player shape (superset; still safe for client views)
+// Server-side richer player shape (not sent to clients verbatim)
 export interface Player extends PlayerRef {
   socketId?: string;
   connected?: boolean;
@@ -58,14 +53,23 @@ export interface HiddenCardRef {
   visibility: Visibility;
 }
 
+// Scryfall image URIs
+export interface ImageUris {
+  small?: string;
+  normal?: string;
+  art_crop?: string;
+}
+
+// Visible card reference
 export interface KnownCardRef {
   id: string;
   name: string;
   oracle_id?: string;
   cmc?: number;
   mana_cost?: string;
-  type_line?: string;     // added for richer search
-  oracle_text?: string;   // added for richer search
+  type_line?: string;
+  oracle_text?: string;
+  image_uris?: ImageUris;
   zone: HiddenCardRef["zone"];
   faceDown?: false;
 }
@@ -76,20 +80,28 @@ export interface LifeTotals {
   [playerId: PlayerID]: number;
 }
 
+// Commander info per player
 export interface CommanderInfo {
   commanderIds: readonly string[];
-  tax: number;
+  commanderNames?: readonly string[];
+  tax?: number; // aggregate
+  taxById?: Readonly<Record<string, number>>;
 }
 
+// Battlefield permanent
 export interface BattlefieldPermanent {
   id: string;
   controller: PlayerID;
   owner: PlayerID;
   tapped: boolean;
   counters?: Readonly<Record<string, number>>;
+  basePower?: number;
+  baseToughness?: number;
+  attachedTo?: string; // aura/equipment attachments target permanent id
   card: CardRef;
 }
 
+// Stack item
 export interface StackItem {
   id: string;
   type: "spell" | "ability";
@@ -98,15 +110,13 @@ export interface StackItem {
   targets?: readonly string[];
 }
 
-// Phases/steps
 export enum GamePhase {
   BEGINNING = "BEGINNING",
   PRECOMBAT_MAIN = "PRECOMBAT_MAIN",
   COMBAT = "COMBAT",
   POSTCOMBAT_MAIN = "POSTCOMBAT_MAIN",
-  END = "END"
+  END = "END",
 }
-
 export enum GameStep {
   UNTAP = "UNTAP",
   UPKEEP = "UPKEEP",
@@ -119,16 +129,15 @@ export enum GameStep {
   END_COMBAT = "END_COMBAT",
   MAIN2 = "MAIN2",
   END = "END",
-  CLEANUP = "CLEANUP"
+  CLEANUP = "CLEANUP",
 }
-
 export enum GameStatus {
   WAITING = "WAITING",
   IN_PROGRESS = "IN_PROGRESS",
-  FINISHED = "FINISHED"
+  FINISHED = "FINISHED",
 }
 
-// Player zones and counts (visibility-aware in filtered views)
+// Player zones and counts
 export interface PlayerZones {
   hand: CardRef[];
   handCount: number;
@@ -147,15 +156,15 @@ export interface GameState {
   life: LifeTotals;
   turnPlayer: PlayerID;
   priority: PlayerID;
+  // +1 = clockwise, -1 = counter-clockwise
+  turnDirection?: 1 | -1;
   stack: StackItem[];
   battlefield: BattlefieldPermanent[];
   commandZone: Record<PlayerID, CommanderInfo>;
   phase: GamePhase;
   step?: GameStep;
   active: boolean;
-
   zones?: Record<PlayerID, PlayerZones>;
-
   status?: GameStatus;
   turnOrder?: PlayerID[];
   startedAt?: number;
@@ -178,6 +187,12 @@ export interface StateDiff<T> {
   patch?: Partial<T>;
   seq: number;
 }
+
+// Target reference (server validates)
+export type TargetRef =
+  | { kind: 'player'; id: PlayerID }
+  | { kind: 'permanent'; id: string }
+  | { kind: 'stack'; id: string };
 
 // Actions and automation
 export type GameActionType = string;
