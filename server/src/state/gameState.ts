@@ -15,7 +15,7 @@ import type {
 } from '../../../shared/src';
 import { mulberry32, hashStringToSeed } from '../utils/rng';
 import { applyStateBasedActions, evaluateAction, type EngineEffect as DmgEffect } from '../rules-engine';
-import { categorizeSpell, resolveSpell, type SpellSpec, type EngineEffect as TargetEffect } from '../rules-engine/targeting';
+import { resolveSpell, type SpellSpec, type EngineEffect as TargetEffect } from '../rules-engine/targeting';
 
 function uid(prefix = 'id'): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
@@ -462,7 +462,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     const next: Record<string, number> = {};
     for (const id of commanderIds) next[id] = prev[id] ?? 0;
     info.taxById = next;
-    info.tax = Object.values(next).reduce((a, b) => a + b, 0);
+    info.tax = Object.values(info.taxById).reduce((a, b) => a + b, 0);
     commandZone[playerId] = info;
     seq++;
   }
@@ -715,7 +715,6 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
         break;
       }
       case 'resolveSpell': {
-        // Spec may be reconstructed via categorizeSpell if needed; we trust persisted spec here.
         const effects = resolveSpell(e.spec, e.chosen, state);
         applyTargetEffects(effects);
         break;
