@@ -1,4 +1,4 @@
-import type { ClientGameView, GameID, PlayerID, StateDiff } from "./types";
+import type { ClientGameView, GameID, PlayerID, StateDiff, KnownCardRef } from "./types";
 
 // Socket.IO event contracts
 export interface ClientToServerEvents {
@@ -7,13 +7,32 @@ export interface ClientToServerEvents {
   passPriority: (payload: { gameId: GameID }) => void;
   requestState: (payload: { gameId: GameID }) => void;
 
-  // Minimal actions scaffolding
+  // Game admin
+  restartGame: (payload: { gameId: GameID; preservePlayers?: boolean }) => void;
+  removePlayer: (payload: { gameId: GameID; playerId: PlayerID }) => void;
+  skipPlayer: (payload: { gameId: GameID; playerId: PlayerID }) => void;
+  unskipPlayer: (payload: { gameId: GameID; playerId: PlayerID }) => void;
+
+  // Visibility control
+  grantSpectatorAccess: (payload: { gameId: GameID; spectatorId: PlayerID }) => void;
+  revokeSpectatorAccess: (payload: { gameId: GameID; spectatorId: PlayerID }) => void;
+
+  // Deck import and library ops
+  importDeck: (payload: { gameId: GameID; list: string }) => void;
+  shuffleLibrary: (payload: { gameId: GameID }) => void;
+  drawCards: (payload: { gameId: GameID; count: number }) => void;
+
+  // NEW: move the entire hand back into library and shuffle
+  shuffleHandIntoLibrary: (payload: { gameId: GameID }) => void;
+
+  // Search library (private to requester)
+  searchLibrary: (payload: { gameId: GameID; query: string; limit?: number }) => void;
+  selectFromSearch: (payload: { gameId: GameID; cardIds: string[]; moveTo: 'hand' | 'graveyard' | 'exile' | 'battlefield'; reveal?: boolean }) => void;
+
+  // Minimal actions scaffolding (reserved)
   castSpell: (payload: { gameId: GameID; cardId: string; targets?: string[] }) => void;
   playLand: (payload: { gameId: GameID; cardId: string }) => void;
   concede: (payload: { gameId: GameID }) => void;
-
-  // Visibility control: owner grants a spectator elevated access to their hidden info
-  grantSpectatorAccess: (payload: { gameId: GameID; spectatorId: PlayerID }) => void;
 }
 
 export interface ServerToClientEvents {
@@ -23,10 +42,13 @@ export interface ServerToClientEvents {
   priority: (payload: { gameId: GameID; player: PlayerID }) => void;
   error: (payload: { code: string; message: string }) => void;
 
-  // Chat/messages (includes system notices like spectator access grants)
+  // Chat/messages (system notices, admin actions)
   chat: (payload: { id: string; gameId: GameID; from: PlayerID | "system"; message: string; ts: number }) => void;
 
-  // Optional events referenced in server code
+  // Private search results (only to requester)
+  searchResults: (payload: { gameId: GameID; cards: Pick<KnownCardRef, 'id' | 'name'>[]; total: number }) => void;
+
+  // Optional
   automationErrorReported?: (payload: { message: string }) => void;
   gameStateUpdated?: (payload: ClientGameView | unknown) => void;
 }

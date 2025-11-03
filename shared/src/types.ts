@@ -23,15 +23,26 @@ export interface PlayerRef {
   name: string;
   seat: SeatIndex;
   isSpectator?: boolean;
+  // Status flags (server may set)
+  inactive?: boolean;   // temporarily skipped (AFK)
+  eliminated?: boolean; // out of the game
+}
+
+// Spectators exposed in views (for convenience UI actions)
+export interface SpectatorRef {
+  id: PlayerID;
+  name: string;
+  // True if the viewer (the client receiving the view) has granted this spectator hidden-info access
+  hasAccessToYou?: boolean;
 }
 
 // Server-side richer player shape (superset; still safe for client views)
 export interface Player extends PlayerRef {
   socketId?: string;
   connected?: boolean;
-  library?: string[]; // card ids
-  hand?: string[]; // card ids
-  graveyard?: string[]; // card ids
+  library?: string[];
+  hand?: string[];
+  graveyard?: string[];
   life?: number;
   hasPriority?: boolean;
   startingLife?: number;
@@ -41,7 +52,7 @@ export interface Player extends PlayerRef {
 export type Visibility = "owner" | "controller" | "public" | "none";
 
 export interface HiddenCardRef {
-  id: string; // opaque id
+  id: string;
   faceDown: true;
   zone: "battlefield" | "exile" | "stack" | "library" | "hand" | "graveyard" | "command";
   visibility: Visibility;
@@ -53,6 +64,8 @@ export interface KnownCardRef {
   oracle_id?: string;
   cmc?: number;
   mana_cost?: string;
+  type_line?: string;     // added for richer search
+  oracle_text?: string;   // added for richer search
   zone: HiddenCardRef["zone"];
   faceDown?: false;
 }
@@ -65,7 +78,7 @@ export interface LifeTotals {
 
 export interface CommanderInfo {
   commanderIds: readonly string[];
-  tax: number; // total extra generic cost applied
+  tax: number;
 }
 
 export interface BattlefieldPermanent {
@@ -74,18 +87,18 @@ export interface BattlefieldPermanent {
   owner: PlayerID;
   tapped: boolean;
   counters?: Readonly<Record<string, number>>;
-  card: CardRef; // may be face-down
+  card: CardRef;
 }
 
 export interface StackItem {
   id: string;
   type: "spell" | "ability";
   controller: PlayerID;
-  card?: CardRef; // spells have card, abilities may not
+  card?: CardRef;
   targets?: readonly string[];
 }
 
-// Phases/steps as enums to allow value usage in code
+// Phases/steps
 export enum GamePhase {
   BEGINNING = "BEGINNING",
   PRECOMBAT_MAIN = "PRECOMBAT_MAIN",
@@ -117,19 +130,19 @@ export enum GameStatus {
 
 // Player zones and counts (visibility-aware in filtered views)
 export interface PlayerZones {
-  hand: CardRef[];              // owner: cards; others: []
-  handCount: number;            // everyone sees count
-  libraryCount: number;         // everyone sees count
-  graveyard: KnownCardRef[];    // owner/opponents: known info; others may receive only count in future
-  graveyardCount: number;       // everyone sees count
-  exile?: CardRef[];            // visible/hidden depending on effects (faceDown respected)
+  hand: CardRef[];
+  handCount: number;
+  libraryCount: number;
+  graveyard: KnownCardRef[];
+  graveyardCount: number;
+  exile?: CardRef[];
 }
 
-// Authoritative server state (mutable for server code)
+// Authoritative server state
 export interface GameState {
   id: GameID;
   format: GameFormat | Format;
-  players: Player[]; // server mutates this
+  players: Player[];
   startingLife: number;
   life: LifeTotals;
   turnPlayer: PlayerID;
@@ -141,10 +154,8 @@ export interface GameState {
   step?: GameStep;
   active: boolean;
 
-  // Optional per-player zones; included when relevant
   zones?: Record<PlayerID, PlayerZones>;
 
-  // Common server-side fields used by code
   status?: GameStatus;
   turnOrder?: PlayerID[];
   startedAt?: number;
@@ -152,22 +163,23 @@ export interface GameState {
   activePlayerIndex?: number;
 }
 
-// Client-scoped view (after visibility filtering)
+// Client-scoped view
 export type ClientGameView = Omit<GameState, "battlefield" | "stack" | "players" | "zones"> & {
   battlefield: BattlefieldPermanent[];
   stack: StackItem[];
-  players: PlayerRef[]; // clients get the narrow shape
-  zones?: Record<PlayerID, PlayerZones>; // filtered/masked
+  players: PlayerRef[];
+  zones?: Record<PlayerID, PlayerZones>;
+  spectators?: readonly SpectatorRef[];
 };
 
-// Diff envelope
+// Diff
 export interface StateDiff<T> {
   full?: T;
   patch?: Partial<T>;
   seq: number;
 }
 
-// Actions and automation types (expanded for back-compat)
+// Actions and automation
 export type GameActionType = string;
 
 export interface GameAction {
@@ -185,7 +197,7 @@ export interface AutomationErrorReport {
   id?: string;
   gameId: GameID;
   reporter?: PlayerID;
-  playerId?: PlayerID; // back-compat alias
+  playerId?: PlayerID;
   description: string;
   expectedBehavior?: string;
   actionType?: string;
