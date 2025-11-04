@@ -37,20 +37,15 @@ export function PaymentPanel(props: {
     const pay = Math.min(remaining.colors[c], pool[c] || 0);
     remaining.colors[c] -= pay;
   }
-  const totalLeft = COLORS.reduce((a, c) => a + (pool[c] || 0) - ((cost.colors[c] || 0) - remaining.colors[c]), 0);
-  const genericCovered = Math.max(0, totalLeft);
-  const genericRem = Math.max(0, remaining.generic - genericCovered);
-
-  const stillNeeded = genericRem + COLORS.reduce((a,c)=>a+(remaining.colors[c]||0),0);
+  const leftoverPool = COLORS.reduce((a, c) => a + Math.max(0, (pool[c] || 0) - (cost.colors[c] - remaining.colors[c])), 0);
+  const genericRem = Math.max(0, remaining.generic - leftoverPool);
 
   return (
     <div style={{ borderTop: '1px dashed #ccc', paddingTop: 8, marginTop: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <div>Cost: {manaCost || '—'}</div>
         <div style={{ fontSize: 12, opacity: 0.8 }}>
-          Remaining: {(['W','U','B','R','G','C'] as Color[])
-            .map(c => `${c}:${remaining.colors[c]}`)
-            .join(' ')} gen:{genericRem}
+          Remaining: W:{remaining.colors.W} U:{remaining.colors.U} B:{remaining.colors.B} R:{remaining.colors.R} G:{remaining.colors.G} C:{remaining.colors.C} gen:{genericRem}
         </div>
       </div>
 
@@ -80,7 +75,7 @@ export function PaymentPanel(props: {
       </div>
 
       <div style={{ fontSize: 12, opacity: 0.7, marginTop: 6 }}>
-        Note: only single-mana sources parsed from “Add {…}” are supported in this slice. Multi-mana producers will be added next.
+        Tip: select colored mana first; generic can be paid by any remaining source.
       </div>
     </div>
   );

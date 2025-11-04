@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { socket } from './socket';
 import type {
   ClientGameView,
@@ -32,6 +32,9 @@ export function App() {
   const [name, setName] = useState('Player');
   const [joinAsSpectator, setJoinAsSpectator] = useState(false);
 
+  // Remember last successful join to auto-rejoin on reconnect
+  const lastJoinRef = useRef<{ gameId: GameID; name: string; spectator: boolean } | null>(null);
+
   // Live state
   const [you, setYou] = useState<PlayerID | null>(null);
   const [view, setView] = useState<ClientGameView | null>(null);
@@ -61,7 +64,23 @@ export function App() {
 
   // Socket wiring
   useEffect(() => {
-    const onConnect = () => setConnected(true);
+    const onConnect = () => {
+      setConnected(true);
+      // Auto-rejoin the last game on reconnect (restores server-side socket.data and room)
+      const last = lastJoinRef.current;
+      if (last) {
+        const token = sessionStorage.getItem(seatTokenKey(last.gameId, last.name)) || undefined;
+        socket.emit('joinGame', { gameId: last.gameId, playerName: last.name, spectator: last.spectator, seatToken: token });
+      } else if (view) {
+        // Fallback: if we already have a view but no recorded last join, attempt to rejoin current view
+        const token = sessionStorage.getItem(seatTokenKey(view.id, name)) || undefined;
+        socket.emit('joinGame', { gameId: view.id, playerName: name, spectator: joinAsSpectator, seatToken: token });
+      }
+      // Also request a fresh state to reconcile any drift
+      if (view) {
+        socket.emit('requestState', { gameId: view.id });
+      }
+    };
     const onDisconnect = () => setConnected(false);
 
     socket.on('connect', onConnect);
@@ -69,6 +88,8 @@ export function App() {
 
     socket.on('joined', ({ you, seatToken, gameId }) => {
       setYou(you);
+      // Record last join so we can auto-rejoin later
+      lastJoinRef.current = { gameId, name, spectator: joinAsSpectator };
       if (seatToken) sessionStorage.setItem(seatTokenKey(gameId, name), seatToken);
     });
 
@@ -94,7 +115,26 @@ export function App() {
       socket.off('validTargets');
       socket.off('error');
     };
-  }, [name]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name, joinAsSpectator, view?.id]);
+
+  // Refresh state when tab becomes visible or window regains focus (covers tab switch throttling)
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === 'visible' && view) {
+        socket.emit('requestState', { gameId: view.id });
+      }
+    };
+    const onFocus = () => {
+      if (view) socket.emit('requestState', { gameId: view.id });
+    };
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [view]);
 
   // Derived flags/data
   const canPass = useMemo(() => !!view && !!you && view.priority === you, [view, you]);
@@ -181,6 +221,8 @@ export function App() {
 
   // Actions
   const handleJoin = () => {
+    // Record intended join before emitting (for reconnect auto-join)
+    lastJoinRef.current = { gameId, name, spectator: joinAsSpectator };
     const token = sessionStorage.getItem(seatTokenKey(gameId, name)) || undefined;
     socket.emit('joinGame', { gameId, playerName: name, spectator: joinAsSpectator, seatToken: token });
   };

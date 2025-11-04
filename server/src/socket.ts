@@ -53,47 +53,9 @@ function ensureGame(gameId: GameID): InMemoryGame {
   if (!game) {
     game = createInitialGameState(gameId);
     createGameIfNotExists(gameId, String(game.state.format), game.state.startingLife);
-
     const persisted = getEvents(gameId);
-    const replayEvents: GameEvent[] = persisted.map(e => {
-      switch (e.type) {
-        case 'rngSeed':
-        case 'setTurnDirection':
-        case 'join':
-        case 'leave':
-        case 'passPriority':
-        case 'restart':
-        case 'removePlayer':
-        case 'skipPlayer':
-        case 'unskipPlayer':
-        case 'spectatorGrant':
-        case 'spectatorRevoke':
-        case 'deckImportResolved':
-        case 'shuffleLibrary':
-        case 'drawCards':
-        case 'selectFromLibrary':
-        case 'handIntoLibrary':
-        case 'setCommander':
-        case 'castCommander':
-        case 'moveCommanderToCZ':
-        case 'updateCounters':
-        case 'updateCountersBulk':
-        case 'createToken':
-        case 'removePermanent':
-        case 'dealDamage':
-        case 'resolveSpell':
-        case 'pushStack':
-        case 'resolveTopOfStack':
-        case 'playLand':
-        case 'nextTurn':
-        case 'nextStep':
-          return { type: e.type, ...(e.payload || {}) } as GameEvent;
-        default:
-          return e.payload as GameEvent;
-      }
-    });
+    const replayEvents: GameEvent[] = persisted.map(e => ({ type: e.type as any, ...(e.payload || {}) }));
     game.replay(replayEvents);
-
     games.set(gameId, game);
   }
   return game;
@@ -143,6 +105,24 @@ function parseManaOptionsFromOracle(oracle: string): Color[] {
   }
   return Array.from(opts);
 }
+// NEW: fallback from type_line to handle basic lands and Wastes
+function fallbackOptionsFromTypeLine(typeLine: string): Color[] {
+  const tl = (typeLine || '').toLowerCase();
+  const opts = new Set<Color>();
+  if (/\bplains\b/.test(tl)) opts.add('W');
+  if (/\bisland\b/.test(tl)) opts.add('U');
+  if (/\bswamp\b/.test(tl)) opts.add('B');
+  if (/\bmountain\b/.test(tl)) opts.add('R');
+  if (/\bforest\b/.test(tl)) opts.add('G');
+  if (/\bwastes\b/.test(tl)) opts.add('C');
+  return Array.from(opts);
+}
+function manaOptionsForPermanent(perm: any): Color[] {
+  const oracle = ((perm.card as any)?.oracle_text || '') as string;
+  const typeLine = ((perm.card as any)?.type_line || '') as string;
+  const byOracle = parseManaOptionsFromOracle(oracle);
+  return byOracle.length ? byOracle : fallbackOptionsFromTypeLine(typeLine);
+}
 function canPay(cost: { colors: Record<Color, number>; generic: number }, pool: Record<Color, number>): boolean {
   const left: Record<Color, number> = { W: pool.W, U: pool.U, B: pool.B, R: pool.R, G: pool.G, C: pool.C };
   for (const c of COLORS) {
@@ -158,6 +138,39 @@ function paymentToPool(payment?: PaymentItem[]): Record<Color, number> {
     if (COLORS.includes(p.mana as Color)) pool[p.mana as Color] += 1;
   }
   return pool;
+}
+
+// NEW: simple greedy auto-payment if client sends none (colored first, then generic)
+function autoSelectPayment(
+  sources: Array<{ id: string; options: Color[] }>,
+  cost: { colors: Record<Color, number>; generic: number }
+): PaymentItem[] | null {
+  const remainingColors: Record<Color, number> = { W: cost.colors.W, U: cost.colors.U, B: cost.colors.B, R: cost.colors.R, G: cost.colors.G, C: cost.colors.C };
+  let remainingGeneric = cost.generic;
+  const unused = sources.slice();
+  const payment: PaymentItem[] = [];
+
+  // Colored first
+  for (const c of ['W', 'U', 'B', 'R', 'G', 'C'] as Color[]) {
+    while (remainingColors[c] > 0) {
+      const idx = unused.findIndex(s => s.options.includes(c));
+      if (idx < 0) return null;
+      const src = unused.splice(idx, 1)[0];
+      payment.push({ permanentId: src.id, mana: c });
+      remainingColors[c] -= 1;
+    }
+  }
+
+  // Generic
+  const remainingNeeded = Math.max(0, remainingGeneric);
+  for (let i = 0; i < remainingNeeded; i++) {
+    if (unused.length === 0) return null;
+    const src = unused.shift()!;
+    const mana = src.options[0]; // any available
+    payment.push({ permanentId: src.id, mana });
+  }
+
+  return payment;
 }
 
 export function registerSocketHandlers(io: TypedServer) {
@@ -202,19 +215,6 @@ export function registerSocketHandlers(io: TypedServer) {
       socket.to(gameId).emit('stateDiff', { gameId, diff: computeDiff<ClientGameView>(undefined, view, game.seq) });
     });
 
-    function ensureGame(gameId: GameID): InMemoryGame {
-      let game = games.get(gameId);
-      if (!game) {
-        game = createInitialGameState(gameId);
-        createGameIfNotExists(gameId, String(game.state.format), game.state.startingLife);
-        const persisted = getEvents(gameId);
-        const replayEvents: GameEvent[] = persisted.map(e => ({ type: e.type as any, ...(e.payload || {}) }));
-        game.replay(replayEvents);
-        games.set(gameId, game);
-      }
-      return game;
-    }
-
     // Request state refresh
     socket.on('requestState', ({ gameId }) => {
       const game = games.get(gameId);
@@ -228,14 +228,13 @@ export function registerSocketHandlers(io: TypedServer) {
       const pid = socket.data.playerId as PlayerID | undefined;
       if (!pid || socket.data.spectator) return;
       const game = ensureGame(gameId);
-      // Resolve names -> ids via Scryfall
       const ids: string[] = [];
       for (const name of commanderNames) {
         try {
           const card = await fetchCardByExactNameStrict(name);
           if (card?.id) ids.push(card.id);
         } catch {
-          // ignore missing
+          // ignore
         }
       }
       game.applyEvent({ type: 'setCommander', playerId: pid, commanderNames, commanderIds: ids });
@@ -247,7 +246,6 @@ export function registerSocketHandlers(io: TypedServer) {
       const pid = socket.data.playerId as PlayerID | undefined;
       if (!pid || socket.data.spectator) return;
       const game = ensureGame(gameId);
-      // For this slice, just increment tax (visual feedback). Full command zone cast flow will be wired later.
       const info = game.state.commandZone?.[pid];
       const id = info?.commanderIds?.find(x => x === commanderNameOrId) || commanderNameOrId;
       game.applyEvent({ type: 'castCommander', playerId: pid, commanderId: id });
@@ -367,7 +365,7 @@ export function registerSocketHandlers(io: TypedServer) {
         id: `m_${Date.now()}`,
         gameId,
         from: 'system',
-        message: `Game restarted (${Boolean(preservePlayers) ? 'keeping players' : 'cleared roster'})`,
+        message: `Game restarted (${Boolean(preservePlayers) ? 'keeping players; opening hands drawn' : 'cleared roster'})`,
         ts: Date.now()
       });
       broadcastGame(io, game, gameId);
@@ -591,12 +589,11 @@ export function registerSocketHandlers(io: TypedServer) {
         }
       }
 
-      // Compute payment sources
+      // Compute payment sources (with fallback for basic lands)
       const sources = (game.state.battlefield || [])
         .filter(p => p.controller === pid && !p.tapped)
         .map(p => {
-          const opts = parseManaOptionsFromOracle(((p.card as any)?.oracle_text || '') as string)
-            .filter(x => (['W','U','B','R','G','C'] as string[]).includes(x)) as Color[];
+          const opts = manaOptionsForPermanent(p);
           if (opts.length === 0) return null;
           const name = ((p.card as any)?.name) || p.id;
           return { id: p.id, name, options: opts };
@@ -673,7 +670,7 @@ export function registerSocketHandlers(io: TypedServer) {
       }
       const card = hand[idxInHand];
 
-      // Sorcery-speed
+      // Sorcery-speed enforcement
       const typeLine = (card?.type_line || '').toLowerCase();
       const isSorcery = /\bsorcery\b/.test(typeLine);
       if (isSorcery) {
@@ -691,34 +688,48 @@ export function registerSocketHandlers(io: TypedServer) {
         }
       }
 
-      // Payment validation (fail closed)
+      // Payment validation (with auto-pay fallback)
       const manaCostStr = pending.manaCost || (await (async () => {
         try { const scry = await fetchCardByExactNameStrict(card.name); return scry?.mana_cost || ''; } catch { return ''; }
       })());
       const cost = parseManaCost(manaCostStr);
 
-      // Build pool
-      const pool = paymentToPool(payment);
-      // Verify each source legality (untapped, belongs to player, can produce chosen mana)
-      for (const p of (payment || [])) {
+      // If no payment provided, attempt auto-selection from available sources
+      let paymentList: PaymentItem[] = Array.isArray(payment) ? payment : [];
+      if (!paymentList.length) {
+        const sources = (game.state.battlefield || [])
+          .filter(p => p.controller === pid && !p.tapped)
+          .map(p => ({ id: p.id, options: manaOptionsForPermanent(p) }))
+          .filter(s => s.options.length > 0);
+        const auto = autoSelectPayment(sources, cost);
+        if (!auto) {
+          socket.emit('error', { code: 'PAY', message: 'Costs cannot be fully met with available untapped sources' });
+          return;
+        }
+        paymentList = auto;
+      }
+
+      // Verify each source legality now (uses fallback-aware options)
+      for (const p of paymentList) {
         const perm = game.state.battlefield.find(b => b.id === p.permanentId);
         if (!perm) { socket.emit('error', { code: 'PAY', message: 'Invalid payment source' }); return; }
         if (perm.controller !== pid) { socket.emit('error', { code: 'PAY', message: 'You do not control a payment source' }); return; }
         if (perm.tapped) { socket.emit('error', { code: 'PAY', message: 'A chosen source is already tapped' }); return; }
-        const oracle = ((perm.card as any)?.oracle_text || '') as string;
-        const opts = parseManaOptionsFromOracle(oracle);
+        const opts = manaOptionsForPermanent(perm);
         if (!opts.includes(p.mana as Color)) {
           socket.emit('error', { code: 'PAY', message: `Source cannot produce ${p.mana}` });
           return;
         }
       }
+
+      const pool = paymentToPool(paymentList);
       if (!canPay(cost, pool)) {
         socket.emit('error', { code: 'PAY', message: 'Costs cannot be fully met with selected payment' });
         return;
       }
 
       // Apply taps
-      for (const p of (payment || [])) {
+      for (const p of paymentList) {
         const perm = game.state.battlefield.find(b => b.id === p.permanentId);
         if (perm) perm.tapped = true;
       }

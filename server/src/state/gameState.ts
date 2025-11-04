@@ -555,6 +555,30 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     return moved;
   }
 
+  // NEW: reconcile hands vs counts after resume/replay
+  function reconcileZonesConsistency() {
+    for (const p of (state.players as any as PlayerRef[])) {
+      const pid = p.id as PlayerID;
+      const z =
+        state.zones![pid] ||
+        (state.zones![pid] = { hand: [], handCount: 0, libraryCount: libraries.get(pid)?.length ?? 0, graveyard: [], graveyardCount: 0 });
+      const lib = libraries.get(pid) || [];
+      const handArr = Array.isArray(z.hand) ? (z.hand as any[]) : (z.hand = []);
+      const handCountStored = z.handCount ?? handArr.length ?? 0;
+      if (handArr.length < handCountStored) {
+        const need = Math.max(0, handCountStored - handArr.length);
+        const take = Math.min(need, lib.length);
+        for (let i = 0; i < take; i++) {
+          const card = lib.shift()!;
+          handArr.push({ ...card, zone: 'hand' });
+        }
+        z.libraryCount = lib.length;
+      }
+      // Normalize: array is source of truth
+      z.handCount = handArr.length;
+    }
+  }
+
   // Search (owner only)
   function searchLibrary(playerId: PlayerID, query: string, limit: number) {
     const lib = libraries.get(playerId) || [];
@@ -693,9 +717,13 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
       const libCount = libraries.get(p.id)?.length ?? z.libraryCount ?? 0;
       const isSelf = viewer === p.id;
       const canSee = isSelf || canSeeOwnersHidden(viewer, p.id);
+      const visibleHand = (isSelf || canSee) ? (z.hand as any[]) : [];
+      const visibleHandCount = (isSelf || canSee)
+        ? (Array.isArray(z.hand) ? (z.hand as any[]).length : (z.handCount ?? 0))
+        : (z.handCount ?? 0);
       filteredZones[p.id] = {
-        hand: isSelf ? z.hand : canSee ? z.hand : [],
-        handCount: z.handCount ?? (z.hand as any[])?.length ?? 0,
+        hand: visibleHand,
+        handCount: visibleHandCount,
         libraryCount: libCount,
         graveyard: z.graveyard,
         graveyardCount: z.graveyardCount ?? (z.graveyard as any[])?.length ?? 0,
@@ -741,7 +769,6 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
           graveyard: [],
           graveyardCount: 0,
         };
-        commandZone[p.id] = { commanderIds: [], tax: 0, taxById: {} };
       }
       for (const pid of Object.keys(zones)) {
         if (!(state.players as any as PlayerRef[]).find((p) => p.id === pid)) delete zones[pid as PlayerID];
@@ -1126,6 +1153,8 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
         applyEvent(e);
       }
     }
+    // Reconcile any mismatches after replay (resume after server restart)
+    reconcileZonesConsistency();
   }
 
   return {

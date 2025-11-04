@@ -21,7 +21,7 @@ export interface ClientToServerEvents {
   skipPlayer: (payload: { gameId: GameID; playerId: PlayerID }) => void;
   unskipPlayer: (payload: { gameId: GameID; playerId: PlayerID }) => void;
 
-  // Visibility (commander hidden-info grants handled separately)
+  // Visibility
   grantSpectatorAccess: (payload: { gameId: GameID; spectatorId: PlayerID }) => void;
   revokeSpectatorAccess: (payload: { gameId: GameID; spectatorId: PlayerID }) => void;
 
@@ -54,10 +54,11 @@ export interface ClientToServerEvents {
   // Damage
   dealDamage: (payload: { gameId: GameID; targetPermanentId: string; amount: number; wither?: boolean; infect?: boolean }) => void;
 
-  // Targeting & casting with payment
+  // Targeting & casting
   beginCast: (payload: { gameId: GameID; cardId: string }) => void;
   chooseTargets: (payload: { gameId: GameID; spellId: string; chosen: TargetRef[] }) => void;
   cancelCast: (payload: { gameId: GameID; spellId: string }) => void;
+  // Optional payment; server may ignore if not enabled yet
   confirmCast: (payload: { gameId: GameID; spellId: string; payment?: PaymentItem[] }) => void;
 
   // Lands
@@ -82,7 +83,7 @@ export interface ServerToClientEvents {
   // Private search results
   searchResults: (payload: { gameId: GameID; cards: Pick<KnownCardRef, 'id' | 'name'>[]; total: number }) => void;
 
-  // Private to caster: valid targets + payment context (optional fields for backward-compat)
+  // Private to caster: valid targets (+ optional payment context)
   validTargets: (payload: {
     gameId: GameID;
     spellId: string;
@@ -90,7 +91,7 @@ export interface ServerToClientEvents {
     maxTargets: number;
     targets: TargetRef[];
     note?: string;
-    manaCost?: string; // Scryfall-style, e.g., "{2}{R}"
+    manaCost?: string; // e.g., "{2}{R}{R}"
     paymentSources?: Array<{ id: string; name: string; options: Array<'W' | 'U' | 'B' | 'R' | 'G' | 'C'> }>;
   }) => void;
 

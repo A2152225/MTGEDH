@@ -27,6 +27,7 @@ export function BattlefieldGrid(props: {
         const isHighlight = highlightTargets?.has(p.id) ?? false;
         const isSelected = selectedTargets?.has(p.id) ?? false;
         const isHovered = hovered === p.id;
+		const isTapped = !!p.tapped;
 
         const baseBorder = isSelected ? '#2b6cb0' : isHighlight ? '#38a169' : '#ddd';
         const borderColor = isHovered && isHighlight && !isSelected ? '#2ecc71' : baseBorder;
@@ -57,9 +58,11 @@ export function BattlefieldGrid(props: {
               background: '#f6f6f6',
               cursor: onCardClick ? 'pointer' : 'default',
               boxShadow,
+			  transform: isTapped ? 'rotate(14deg)' : 'none',
+			  transformOrigin: '50% 50%',
               transition: 'box-shadow 120ms ease, border-color 120ms ease',
             }}
-            title={name}
+            title={`${name}${isTapped ? ' (tapped)' : ''}`}
           >
             {img ? (
               <img src={img} alt={name} style={{ width: '100%', display: 'block', aspectRatio: '0.72', objectFit: 'cover' }} />
@@ -74,6 +77,20 @@ export function BattlefieldGrid(props: {
                 </div>
               )}
             </div>
+			 {isTapped && (
+              <div style={{
+                position: 'absolute',
+                top: 6,
+                left: 6,
+                background: 'rgba(0,0,0,0.6)',
+                color: '#fff',
+                fontSize: 10,
+                padding: '2px 6px',
+                borderRadius: 4
+              }}>
+                Tapped
+              </div>
+            )}
             {(onCounter || onRemove) && (
               <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4 }}>
                 {onCounter && (
