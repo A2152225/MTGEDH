@@ -5,13 +5,15 @@ import type {
   GameID,
   PlayerID,
   BattlefieldPermanent,
-  TargetRef
+  TargetRef,
+  PaymentItem
 } from '../../shared/src';
 import { BattlefieldGrid, type ImagePref } from './components/BattlefieldGrid';
 import { TokenGroups } from './components/TokenGroups';
 import { TableLayout } from './components/TableLayout';
 import { HandGallery } from './components/HandGallery';
 import { CardPreviewLayer, showCardPreview, hideCardPreview } from './components/CardPreviewLayer';
+import { PaymentPicker } from './components/PaymentPicker';
 
 function seatTokenKey(gameId: GameID, name: string) {
   return `mtgedh:seatToken:${gameId}:${name.trim().toLowerCase()}`;
@@ -21,8 +23,40 @@ type ChatMsg = { id: string; gameId: GameID; from: PlayerID | 'system'; message:
 type SearchItem = { id: string; name: string };
 type LayoutMode = 'rows' | 'table';
 
+type Color = PaymentItem['mana'];
+
 function isMainPhase(phase?: any, step?: any): boolean {
   return phase === 'PRECOMBAT_MAIN' || phase === 'POSTCOMBAT_MAIN' || step === 'MAIN1' || step === 'MAIN2';
+}
+
+function parseManaCost(manaCost?: string): { colors: Record<Color, number>; generic: number } {
+  const res: { colors: Record<Color, number>; generic: number } = { colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 }, generic: 0 };
+  if (!manaCost) return res;
+  const tokens = manaCost.match(/\{[^}]+\}/g) || [];
+  for (const t of tokens) {
+    const sym = t.replace(/[{}]/g, '');
+    if (/^\d+$/.test(sym)) { res.generic += parseInt(sym, 10); continue; }
+    if ((['W','U','B','R','G','C'] as const).includes(sym as Color)) {
+      res.colors[sym as Color] += 1;
+      continue;
+    }
+  }
+  return res;
+}
+function paymentToPool(payment: PaymentItem[]): Record<Color, number> {
+  return payment.reduce<Record<Color, number>>((acc, p) => {
+    acc[p.mana] = (acc[p.mana] || 0) + 1;
+    return acc;
+  }, { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 });
+}
+function canPay(cost: { colors: Record<Color, number>; generic: number }, pool: Record<Color, number>): boolean {
+  const left: Record<Color, number> = { W: pool.W, U: pool.U, B: pool.B, R: pool.R, G: pool.G, C: pool.C };
+  for (const c of (['W','U','B','R','G','C'] as const)) {
+    if (left[c] < cost.colors[c]) return false;
+    left[c] -= cost.colors[c];
+  }
+  const total = (['W','U','B','R','G','C'] as const).reduce((a, c) => a + left[c], 0);
+  return total >= cost.generic;
 }
 
 export function App() {
@@ -60,6 +94,9 @@ export function App() {
     max: number;
     targets: TargetRef[];
     chosen: Set<string>;
+    manaCost?: string;
+    sources?: Array<{ id: string; name: string; options: Color[] }>;
+    payment: PaymentItem[];
   } | null>(null);
 
   // Socket wiring
@@ -98,8 +135,17 @@ export function App() {
     socket.on('priority', ({ player }) => setPriority(player));
     socket.on('chat', (msg: ChatMsg) => setChat(prev => [...prev.slice(-99), msg]));
     socket.on('searchResults', ({ cards }) => setSearchResults(cards));
-    socket.on('validTargets', ({ spellId, minTargets, maxTargets, targets }) => {
-      setTargeting({ spellId, min: minTargets, max: maxTargets, targets, chosen: new Set() });
+    socket.on('validTargets', ({ spellId, minTargets, maxTargets, targets, manaCost, paymentSources }) => {
+      setTargeting({
+        spellId,
+        min: minTargets,
+        max: maxTargets,
+        targets,
+        chosen: new Set(),
+        manaCost,
+        sources: paymentSources as any,
+        payment: []
+      });
     });
     socket.on('error', ({ message }) => setLastError(message || 'Error'));
 
@@ -281,7 +327,13 @@ export function App() {
   };
 
   const cancelCast = () => { if (view && targeting) socket.emit('cancelCast', { gameId: view.id, spellId: targeting.spellId }); setTargeting(null); };
-  const confirmCast = () => { if (view && targeting) socket.emit('confirmCast', { gameId: view.id, spellId: targeting.spellId }); setTargeting(null); };
+  const confirmCast = () => {
+    if (view && targeting) {
+      const payment = targeting.payment.length ? targeting.payment : undefined;
+      socket.emit('confirmCast', { gameId: view.id, spellId: targeting.spellId, payment });
+      setTargeting(null);
+    }
+  };
 
   // Keybindings for targeting: Esc cancels, Enter confirms
   useEffect(() => {
@@ -343,6 +395,15 @@ export function App() {
     if (targeting.chosen.size < targeting.min) return `Select at least ${targeting.min} target(s)`;
     if (targeting.chosen.size > targeting.max) return `Select at most ${targeting.max} target(s)`;
     if (view.priority !== you) return 'You must have priority to confirm';
+    // If a mana cost is provided:
+    // - If user picked no payment, allow confirm (server will auto-pay).
+    // - If user picked some payment, require it to cover the cost.
+    if (targeting.manaCost) {
+      if (targeting.payment.length === 0) return '';
+      const cost = parseManaCost(targeting.manaCost);
+      const pool = paymentToPool(targeting.payment);
+      if (!canPay(cost, pool)) return 'Select mana to pay the cost (or Clear to auto-pay)';
+    }
     return '';
   }, [targeting, view, you]);
 
@@ -690,18 +751,28 @@ export function App() {
                 position: 'fixed', left: 0, right: 0, bottom: 0, background: '#fff',
                 borderTop: '1px solid #ddd', padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 50
               }}>
-                <div>
-                  Select {targeting.min === targeting.max ? targeting.max : `${targeting.min}–${targeting.max}`} target(s)
-                  <span style={{ marginLeft: 8, fontSize: 12, opacity: 0.7 }}>
-                    Chosen: {targeting.chosen.size}/{targeting.max}
-                  </span>
-                  {confirmDisabledReason && (
-                    <span style={{ marginLeft: 12, fontSize: 12, color: '#a00' }}>
-                      {confirmDisabledReason}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div>
+                    Select {targeting.min === targeting.max ? targeting.max : `${targeting.min}–${targeting.max}`} target(s)
+                    <span style={{ marginLeft: 8, fontSize: 12, opacity: 0.7 }}>
+                      Chosen: {targeting.chosen.size}/{targeting.max}
                     </span>
+                    {confirmDisabledReason && (
+                      <span style={{ marginLeft: 12, fontSize: 12, color: '#a00' }}>
+                        {confirmDisabledReason}
+                      </span>
+                    )}
+                  </div>
+                  {(targeting.manaCost || (targeting.sources && targeting.sources.length > 0)) && (
+                    <PaymentPicker
+                      manaCost={targeting.manaCost}
+                      sources={targeting.sources || []}
+                      chosen={targeting.payment}
+                      onChange={(next) => setTargeting(prev => prev ? { ...prev, payment: next } : prev)}
+                    />
                   )}
                 </div>
-                <div style={{ display: 'inline-flex', gap: 8 }}>
+                <div style={{ display: 'inline-flex', gap: 8, alignItems: 'flex-start' }}>
                   <button onClick={cancelCast}>Cancel</button>
                   <button
                     onClick={confirmCast}

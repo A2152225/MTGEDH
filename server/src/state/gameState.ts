@@ -992,6 +992,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     for (const p of (state.players as any as PlayerRef[])) state.landsPlayedThisTurn[p.id] = 0;
     passesInRow = 0;
     seq++;
+	applyStartOfStepActions();
   }
 
   function applyStartOfStepActions() {
