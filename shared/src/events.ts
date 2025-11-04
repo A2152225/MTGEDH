@@ -9,6 +9,7 @@ export interface ClientToServerEvents {
   // Turn / priority
   passPriority: (payload: { gameId: GameID }) => void;
   toggleTurnDirection: (payload: { gameId: GameID }) => void;
+  nextTurn: (payload: { gameId: GameID }) => void;
 
   // Admin
   restartGame: (payload: { gameId: GameID; preservePlayers?: boolean }) => void;
@@ -55,9 +56,12 @@ export interface ClientToServerEvents {
   cancelCast: (payload: { gameId: GameID; spellId: string }) => void;
   confirmCast: (payload: { gameId: GameID; spellId: string }) => void;
 
+  // Lands
+  playLand: (payload: { gameId: GameID; cardId: string }) => void;
+
   // Reserved
   castSpell: (payload: { gameId: GameID; cardId: string; targets?: string[] }) => void;
-  playLand: (payload: { gameId: GameID; cardId: string }) => void;
+  playLandLegacy?: (payload: { gameId: GameID; cardId: string }) => void;
   concede: (payload: { gameId: GameID }) => void;
 }
 

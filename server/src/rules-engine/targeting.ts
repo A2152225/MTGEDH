@@ -88,6 +88,8 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
 export type EngineEffect =
   | { kind: 'DestroyPermanent'; id: string }
   | { kind: 'MoveToExile'; id: string }
+  | { kind: 'DamagePermanent'; id: string; amount: number }
+  | { kind: 'DamagePlayer'; playerId: PlayerID; amount: number }
   | { kind: 'Broadcast'; message: string };
 
 export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], state: Readonly<GameState>): readonly EngineEffect[] {
@@ -114,12 +116,22 @@ export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], stat
     case 'EXILE_ALL':
       applyAll('MoveToExile');
       break;
-    case 'DAMAGE_EACH':
-      eff.push({ kind: 'Broadcast', message: `Stub: ${spec.amount ?? 0} damage to each creature` });
+    case 'DAMAGE_EACH': {
+      const amt = spec.amount ?? 0;
+      for (const p of state.battlefield) {
+        if (!isCreature(p)) continue;
+        eff.push({ kind: 'DamagePermanent', id: p.id, amount: amt });
+      }
       break;
-    case 'ANY_TARGET_DAMAGE':
-      eff.push({ kind: 'Broadcast', message: `Stub: ${spec.amount ?? 0} damage to chosen target(s)` });
+    }
+    case 'ANY_TARGET_DAMAGE': {
+      const amt = spec.amount ?? 0;
+      for (const t of chosen) {
+        if (t.kind === 'player') eff.push({ kind: 'DamagePlayer', playerId: t.id as PlayerID, amount: amt });
+        else if (t.kind === 'permanent') eff.push({ kind: 'DamagePermanent', id: t.id, amount: amt });
+      }
       break;
+    }
   }
   return eff;
 }

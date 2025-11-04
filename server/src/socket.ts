@@ -10,6 +10,7 @@ import type {
   KnownCardRef,
   TargetRef
 } from '../../shared/src';
+import { GamePhase } from '../../shared/src'; // for sorcery-speed and land checks
 import { createInitialGameState, type InMemoryGame, type GameEvent } from './state/gameState';
 import { computeDiff } from './utils/diff';
 import { createGameIfNotExists, getEvents, appendEvent } from './db';
@@ -26,12 +27,11 @@ type TypedServer = Server<ClientToServerEvents, ServerToClientEvents, InterServe
 
 const games: Map<GameID, InMemoryGame> = new Map();
 
-// Pending casts are ephemeral and not persisted; only final resolveSpell is persisted.
 type PendingCast = {
   spellId: string;
   caster: PlayerID;
   cardId: string;
-  spec: NonNullable<ReturnType<typeof categorizeSpell>>;
+  spec: NonNullable<ReturnType<typeof categorizeSpell>> | null;
   valid: TargetRef[];
   chosen: TargetRef[];
   min: number;
@@ -39,6 +39,7 @@ type PendingCast = {
 };
 const pendingByGame: Map<GameID, Map<string, PendingCast>> = new Map();
 const newSpellId = () => `sp_${Math.random().toString(36).slice(2, 9)}`;
+const newStackId = () => `st_${Math.random().toString(36).slice(2, 9)}`;
 
 function ensureGame(gameId: GameID): InMemoryGame {
   let game = games.get(gameId);
@@ -74,9 +75,12 @@ function ensureGame(gameId: GameID): InMemoryGame {
         case 'removePermanent':
         case 'dealDamage':
         case 'resolveSpell':
+        case 'pushStack':
+        case 'resolveTopOfStack':
+        case 'playLand':
+        case 'nextTurn':
           return { type: e.type, ...(e.payload || {}) } as GameEvent;
         default:
-          // Fallback for any unknown legacy event payloads
           return e.payload as GameEvent;
       }
     });
@@ -98,13 +102,16 @@ function broadcastGame(io: TypedServer, game: InMemoryGame, gameId: GameID) {
   }
 }
 
+function isMainPhase(phase?: any): boolean {
+  return phase === GamePhase.PRECOMBAT_MAIN || phase === GamePhase.POSTCOMBAT_MAIN;
+}
+
 export function registerSocketHandlers(io: TypedServer) {
   io.on('connection', (socket: Socket) => {
     // Join
     socket.on('joinGame', ({ gameId, playerName, spectator, seatToken }) => {
       const game = ensureGame(gameId);
 
-      // Seed RNG if needed
       if (!game.hasRngSeed()) {
         const seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
         game.seedRng(seed);
@@ -138,7 +145,6 @@ export function registerSocketHandlers(io: TypedServer) {
         });
       }
 
-      // Let others get the current snapshot as diff
       socket.to(gameId).emit('stateDiff', { gameId, diff: computeDiff<ClientGameView>(undefined, view, game.seq) });
     });
 
@@ -155,9 +161,46 @@ export function registerSocketHandlers(io: TypedServer) {
       const game = games.get(gameId);
       const pid = socket.data.playerId as PlayerID | undefined;
       if (!game || !pid) return;
-      const changed = game.passPriority(pid);
+      const { changed, resolvedNow } = game.passPriority(pid);
       if (!changed) return;
       appendEvent(gameId, game.seq, 'passPriority', { by: pid });
+      if (resolvedNow) {
+        game.applyEvent({ type: 'resolveTopOfStack' });
+        appendEvent(gameId, game.seq, 'resolveTopOfStack', {});
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: 'Top of stack resolved.',
+          ts: Date.now()
+        });
+      }
+      broadcastGame(io, game, gameId);
+      io.to(gameId).emit('priority', { gameId, player: game.state.priority });
+    });
+
+    // Next turn
+    socket.on('nextTurn', ({ gameId }) => {
+      const pid = socket.data.playerId as PlayerID | undefined;
+      const game = ensureGame(gameId);
+      if (!pid || socket.data.spectator) return;
+      if (game.state.turnPlayer !== pid) {
+        socket.emit('error', { code: 'TURN', message: 'Only the active player can advance the turn' });
+        return;
+      }
+      if (game.state.stack.length > 0) {
+        socket.emit('error', { code: 'TURN', message: 'Cannot advance turn while the stack is not empty' });
+        return;
+      }
+      game.nextTurn();
+      appendEvent(gameId, game.seq, 'nextTurn', {});
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `Turn advanced. Active player: ${game.state.turnPlayer}`,
+        ts: Date.now()
+      });
       broadcastGame(io, game, gameId);
       io.to(gameId).emit('priority', { gameId, player: game.state.priority });
     });
@@ -280,7 +323,7 @@ export function registerSocketHandlers(io: TypedServer) {
       broadcastGame(io, game, gameId);
     });
 
-    // Deck import (batch + validate + strict retry for misses)
+    // Deck import
     socket.on('importDeck', async ({ gameId, list }) => {
       const pid = socket.data.playerId as PlayerID | undefined;
       if (!pid || socket.data.spectator) return;
@@ -335,7 +378,7 @@ export function registerSocketHandlers(io: TypedServer) {
               });
             }
           } catch {
-            // keep missing; warn below
+            // keep missing
           }
         }
       }
@@ -448,161 +491,18 @@ export function registerSocketHandlers(io: TypedServer) {
       broadcastGame(io, game, gameId);
     });
 
-    // Commander core
-    socket.on('setCommander', ({ gameId, commanderNames }) => {
-      const pid = socket.data.playerId as PlayerID | undefined;
-      if (!pid || socket.data.spectator) return;
-      const game = ensureGame(gameId);
-
-      // Best-effort resolve names to ids from visible zones (hand, graveyard) and owned battlefield permanents
-      const zones = game.state.zones?.[pid];
-      const candidates: { id: string; name: string }[] = [];
-      const push = (arr?: any[]) => (arr || []).forEach((c: any) => candidates.push({ id: c.id, name: c.name }));
-      push(zones?.hand as any[]);
-      push(zones?.graveyard as any[]);
-      for (const perm of game.state.battlefield) {
-        if (perm.owner === pid && (perm.card as any).name) {
-          candidates.push({ id: (perm.card as any).id, name: (perm.card as any).name });
-        }
-      }
-      const ids: string[] = [];
-      for (const name of commanderNames) {
-        const found = candidates.find(c => c.name.toLowerCase() === name.trim().toLowerCase());
-        ids.push(found?.id ?? `cmd_${name.trim().toLowerCase()}`);
-      }
-
-      game.setCommander(pid, commanderNames, ids);
-      appendEvent(gameId, game.seq, 'setCommander', { playerId: pid, commanderNames, commanderIds: ids });
-      io.to(gameId).emit('chat', {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: 'system',
-        message: `Player ${pid} set commander(s): ${commanderNames.join(' / ')}`,
-        ts: Date.now()
-      });
-      broadcastGame(io, game, gameId);
-    });
-
-    socket.on('castCommander', ({ gameId, commanderNameOrId }) => {
-      const pid = socket.data.playerId as PlayerID | undefined;
-      if (!pid || socket.data.spectator) return;
-      const game = ensureGame(gameId);
-      const info = game.state.commandZone[pid];
-      if (!info) return;
-      const id =
-        info.commanderIds.find(cid => cid === commanderNameOrId) ||
-        info.commanderIds[
-          info.commanderNames?.findIndex(n => n?.toLowerCase() === commanderNameOrId.trim().toLowerCase()) ?? -1
-        ];
-      if (!id) return;
-      game.castCommander(pid, id);
-      appendEvent(gameId, game.seq, 'castCommander', { playerId: pid, commanderId: id });
-      io.to(gameId).emit('chat', {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: 'system',
-        message: `Player ${pid} cast their commander (${info.commanderNames?.[info.commanderIds.indexOf(id)] ?? id}); tax now ${game.state.commandZone[pid].taxById?.[id] ?? 0}`,
-        ts: Date.now()
-      });
-      broadcastGame(io, game, gameId);
-    });
-
-    socket.on('moveCommanderToCommandZone', ({ gameId, commanderNameOrId }) => {
-      const pid = socket.data.playerId as PlayerID | undefined;
-      if (!pid || socket.data.spectator) return;
-      const game = ensureGame(gameId);
-      const info = game.state.commandZone[pid];
-      if (!info) return;
-      const id =
-        info.commanderIds.find(cid => cid === commanderNameOrId) ||
-        info.commanderIds[
-          info.commanderNames?.findIndex(n => n?.toLowerCase() === commanderNameOrId.trim().toLowerCase()) ?? -1
-        ];
-      if (!id) return;
-      game.moveCommanderToCZ(pid, id);
-      appendEvent(gameId, game.seq, 'moveCommanderToCZ', { playerId: pid, commanderId: id });
-      io.to(gameId).emit('chat', {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: 'system',
-        message: `Player ${pid} moved commander back to command zone`,
-        ts: Date.now()
-      });
-      broadcastGame(io, game, gameId);
-    });
-
-    // Counters/tokens
-    socket.on('updateCounters', ({ gameId, permanentId, deltas }) => {
-      const pid = socket.data.playerId as PlayerID | undefined;
-      if (!pid || socket.data.spectator) return;
-      const game = ensureGame(gameId);
-      game.updateCounters(permanentId, deltas);
-      appendEvent(gameId, game.seq, 'updateCounters', { permanentId, deltas });
-      broadcastGame(io, game, gameId);
-    });
-
-    socket.on('updateCountersBulk', ({ gameId, updates }) => {
-      const pid = socket.data.playerId as PlayerID | undefined;
-      if (!pid || socket.data.spectator) return;
-      const game = ensureGame(gameId);
-      // Apply via event to keep replay deterministic
-      if (updates?.length) {
-        game.applyEvent({ type: 'updateCountersBulk', updates });
-        appendEvent(gameId, game.seq, 'updateCountersBulk', { updates });
-        broadcastGame(io, game, gameId);
-      }
-    });
-
-    socket.on('createToken', ({ gameId, name, count, basePower, baseToughness }) => {
-      const pid = socket.data.playerId as PlayerID | undefined;
-      if (!pid || socket.data.spectator) return;
-      const game = ensureGame(gameId);
-      game.createToken(pid, name, count, basePower, baseToughness);
-      appendEvent(gameId, game.seq, 'createToken', { controller: pid, name, count, basePower, baseToughness });
-      io.to(gameId).emit('chat', {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: 'system',
-        message: `Player ${pid} created ${count ?? 1} ${name} token(s)`,
-        ts: Date.now()
-      });
-      broadcastGame(io, game, gameId);
-    });
-
-    socket.on('removePermanent', ({ gameId, permanentId }) => {
-      const pid = socket.data.playerId as PlayerID | undefined;
-      if (!pid || socket.data.spectator) return;
-      const game = ensureGame(gameId);
-      game.removePermanent(permanentId);
-      appendEvent(gameId, game.seq, 'removePermanent', { permanentId });
-      broadcastGame(io, game, gameId);
-    });
-
-    // Rules-engine damage (wither/infect path already exists server-side)
-    socket.on('dealDamage', ({ gameId, targetPermanentId, amount, wither, infect }) => {
-      const pid = socket.data.playerId as PlayerID | undefined;
-      if (!pid || socket.data.spectator) return;
-      const game = ensureGame(gameId);
-      const a = Math.max(0, amount | 0);
-      game.applyEvent({ type: 'dealDamage', targetPermanentId, amount: a, wither, infect });
-      appendEvent(gameId, game.seq, 'dealDamage', { targetPermanentId, amount: a, wither: Boolean(wither), infect: Boolean(infect) });
-      io.to(gameId).emit('chat', {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: 'system',
-        message: `Damage: ${a} to ${targetPermanentId}${wither ? ' (Wither)' : ''}${infect ? ' (Infect)' : ''}`,
-        ts: Date.now()
-      });
-      broadcastGame(io, game, gameId);
-    });
-
     // Targeting + casting flow
     socket.on('beginCast', ({ gameId, cardId }) => {
       const game = ensureGame(gameId);
       const pid = socket.data.playerId as PlayerID | undefined;
       if (!pid || socket.data.spectator) return;
 
-      // Validate card is in hand
+      // Priority enforcement
+      if (game.state.priority !== pid) {
+        socket.emit('error', { code: 'CAST', message: 'You must have priority to cast a spell' });
+        return;
+      }
+
       const z = game.state.zones?.[pid];
       const hand = (z?.hand ?? []) as any[];
       const card = hand.find(c => c.id === cardId);
@@ -612,12 +512,7 @@ export function registerSocketHandlers(io: TypedServer) {
       }
 
       const spec = categorizeSpell(card.name, card.oracle_text);
-      if (!spec) {
-        socket.emit('error', { code: 'CAST', message: 'This card is not supported for auto-targeting yet' });
-        return;
-      }
-
-      const valid = evalTargets(game.state, pid, spec);
+      const valid = spec ? evalTargets(game.state, pid, spec) : [];
       const spellId = newSpellId();
       let map = pendingByGame.get(gameId);
       if (!map) {
@@ -628,20 +523,20 @@ export function registerSocketHandlers(io: TypedServer) {
         spellId,
         caster: pid,
         cardId,
-        spec,
+        spec: spec ?? null,
         valid,
         chosen: [],
-        min: spec.minTargets,
-        max: spec.maxTargets
+        min: spec?.minTargets ?? 0,
+        max: spec?.maxTargets ?? 0
       });
 
       socket.emit('validTargets', {
         gameId,
         spellId,
-        minTargets: spec.minTargets,
-        maxTargets: spec.maxTargets,
+        minTargets: spec?.minTargets ?? 0,
+        maxTargets: spec?.maxTargets ?? 0,
         targets: valid,
-        note: spec.minTargets === 0 && spec.maxTargets === 0 ? 'No selection required; confirm to resolve' : undefined
+        note: !spec ? 'No targets required' : (spec.minTargets === 0 && spec.maxTargets === 0 ? 'No selection required; confirm to put on stack' : undefined)
       });
     });
 
@@ -652,9 +547,10 @@ export function registerSocketHandlers(io: TypedServer) {
       const pending = map?.get(spellId);
       if (!pending || pending.caster !== pid) return;
 
-      // Validate chosen are subset of valid and enforce max
       const allow = new Set(pending.valid.map(t => `${t.kind}:${t.id}`));
-      const filtered = chosen.filter(t => allow.has(`${t.kind}:${t.id}`)).slice(0, pending.max);
+      const filtered = pending.spec
+        ? chosen.filter(t => allow.has(`${t.kind}:${t.id}`)).slice(0, pending.max)
+        : []; // no targets for non-target spells
       pending.chosen = filtered;
     });
 
@@ -674,44 +570,137 @@ export function registerSocketHandlers(io: TypedServer) {
       const pending = map?.get(spellId);
       if (!pending || pending.caster !== pid) return;
 
+      // Must still have priority to finalize cast
+      if (game.state.priority !== pid) {
+        socket.emit('error', { code: 'CAST', message: 'You must have priority to cast a spell' });
+        return;
+      }
+
+      // Sorcery-speed gating for sorceries: stack must be empty, you must be the turn player, and main phase
+      // Determine from the card snapshot in hand
+      const z = game.state.zones?.[pid];
+      const hand = (z?.hand ?? []) as any[];
+      const inHand = hand.find(c => c.id === pending.cardId);
+      const typeLine = (inHand?.type_line || '').toLowerCase();
+      const isSorcery = /\bsorcery\b/.test(typeLine);
+      if (isSorcery) {
+        if (game.state.stack.length > 0) {
+          socket.emit('error', { code: 'CAST', message: 'Sorceries can only be cast when the stack is empty' });
+          return;
+        }
+        if (game.state.turnPlayer !== pid) {
+          socket.emit('error', { code: 'CAST', message: 'Sorceries can only be cast during your turn' });
+          return;
+        }
+        if (!isMainPhase(game.state.phase)) {
+          socket.emit('error', { code: 'CAST', message: 'Sorceries can only be cast during a main phase' });
+          return;
+        }
+      }
+
       if (pending.min > 0 && pending.chosen.length < pending.min) {
         socket.emit('error', { code: 'CAST', message: `Select at least ${pending.min} target(s)` });
         return;
       }
 
-      // Move the card from hand to graveyard (simple resolution path)
-      const z = game.state.zones?.[pid];
-      const hand = (z?.hand ?? []) as any[];
+      // Move the card from hand to stack snapshot
       const i = hand.findIndex(c => c.id === pending.cardId);
-      if (i >= 0) {
-        const card = hand.splice(i, 1)[0];
-        z!.handCount = hand.length;
-        z!.graveyard.push({
+      if (i < 0) {
+        socket.emit('error', { code: 'CAST', message: `Card not in hand` });
+        return;
+      }
+      const card = hand.splice(i, 1)[0];
+      z!.handCount = hand.length;
+
+      const targetsEncoded = pending.chosen.map(t => `${t.kind}:${t.id}`);
+      const stackId = newStackId();
+      const item = {
+        id: stackId,
+        controller: pid,
+        card: {
           id: card.id,
           name: card.name,
           type_line: card.type_line,
           oracle_text: card.oracle_text,
-          zone: 'graveyard'
-        });
-        z!.graveyardCount = z!.graveyard.length;
-      }
+          image_uris: card.image_uris
+        },
+        targets: targetsEncoded
+      };
+      game.applyEvent({ type: 'pushStack', item });
+      appendEvent(gameId, game.seq, 'pushStack', { item });
 
-      // Persist and apply resolution (effects handled in gameState applyEvent)
-      game.applyEvent({
-        type: 'resolveSpell',
-        caster: pid,
-        cardId: pending.cardId,
-        spec: pending.spec,
-        chosen: pending.chosen
-      });
-      appendEvent(gameId, game.seq, 'resolveSpell', {
-        caster: pid,
-        cardId: pending.cardId,
-        spec: pending.spec,
-        chosen: pending.chosen
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `Player ${pid} cast ${card.name || 'a spell'}`,
+        ts: Date.now()
       });
 
       map!.delete(spellId);
+      broadcastGame(io, game, gameId);
+    });
+
+    // Lands: play directly to battlefield (with enforcement)
+    socket.on('playLand', ({ gameId, cardId }) => {
+      const game = ensureGame(gameId);
+      const pid = socket.data.playerId as PlayerID | undefined;
+      if (!pid || socket.data.spectator) return;
+
+      // Basic checks
+      if (game.state.priority !== pid) {
+        socket.emit('error', { code: 'PLAY', message: 'You must have priority to play a land' });
+        return;
+      }
+      if (game.state.turnPlayer !== pid) {
+        socket.emit('error', { code: 'PLAY', message: 'You can only play lands during your turn' });
+        return;
+      }
+      if (!isMainPhase(game.state.phase)) {
+        socket.emit('error', { code: 'PLAY', message: 'You can only play lands during a main phase' });
+        return;
+      }
+      if ((game.state.stack ?? []).length > 0) {
+        socket.emit('error', { code: 'PLAY', message: 'You can only play lands when the stack is empty' });
+        return;
+      }
+      const played = game.state.landsPlayedThisTurn?.[pid] ?? 0;
+      if (played >= 1) {
+        socket.emit('error', { code: 'PLAY', message: 'You have already played a land this turn' });
+        return;
+      }
+
+      const z = game.state.zones?.[pid];
+      const hand = (z?.hand ?? []) as any[];
+      const idx = hand.findIndex(c => c.id === cardId);
+      if (idx < 0) { socket.emit('error', { code: 'PLAY', message: 'Land not in hand' }); return; }
+      const card = hand[idx];
+      const typeLine = (card.type_line || '').toLowerCase();
+      if (!/\bland\b/.test(typeLine)) {
+        socket.emit('error', { code: 'PLAY', message: 'Only lands can be played with Play Land' });
+        return;
+      }
+      hand.splice(idx, 1);
+      z!.handCount = hand.length;
+
+      const snapshot = {
+        id: card.id,
+        name: card.name,
+        type_line: card.type_line,
+        oracle_text: card.oracle_text,
+        image_uris: card.image_uris
+      };
+      game.applyEvent({ type: 'playLand', playerId: pid, card: snapshot });
+      appendEvent(gameId, game.seq, 'playLand', { playerId: pid, card: snapshot });
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `Player ${pid} played ${card.name}`,
+        ts: Date.now()
+      });
+
       broadcastGame(io, game, gameId);
     });
 

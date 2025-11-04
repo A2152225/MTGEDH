@@ -170,6 +170,9 @@ export interface GameState {
   startedAt?: number;
   turn?: number;
   activePlayerIndex?: number;
+
+  // Turn-based limits (optional projection to clients)
+  landsPlayedThisTurn?: Record<PlayerID, number>;
 }
 
 // Client-scoped view

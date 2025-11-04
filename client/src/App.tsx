@@ -10,6 +10,8 @@ import type {
 import { BattlefieldGrid, type ImagePref } from './components/BattlefieldGrid';
 import { TokenGroups } from './components/TokenGroups';
 import { TableLayout } from './components/TableLayout';
+import { HandGallery } from './components/HandGallery';
+import { CardPreviewLayer, showCardPreview, hideCardPreview } from './components/CardPreviewLayer';
 
 function seatTokenKey(gameId: GameID, name: string) {
   return `mtgedh:seatToken:${gameId}:${name.trim().toLowerCase()}`;
@@ -18,6 +20,10 @@ function seatTokenKey(gameId: GameID, name: string) {
 type ChatMsg = { id: string; gameId: GameID; from: PlayerID | 'system'; message: string; ts: number };
 type SearchItem = { id: string; name: string };
 type LayoutMode = 'rows' | 'table';
+
+function isMainPhase(phase?: any): boolean {
+  return phase === 'PRECOMBAT_MAIN' || phase === 'POSTCOMBAT_MAIN';
+}
 
 export function App() {
   // Connection/session
@@ -31,6 +37,7 @@ export function App() {
   const [view, setView] = useState<ClientGameView | null>(null);
   const [priority, setPriority] = useState<PlayerID | null>(null);
   const [chat, setChat] = useState<ChatMsg[]>([]);
+  const [lastError, setLastError] = useState<string | null>(null);
 
   // Deck/search
   const [deckText, setDeckText] = useState('');
@@ -73,6 +80,7 @@ export function App() {
     socket.on('validTargets', ({ spellId, minTargets, maxTargets, targets }) => {
       setTargeting({ spellId, min: minTargets, max: maxTargets, targets, chosen: new Set() });
     });
+    socket.on('error', ({ message }) => setLastError(message || 'Error'));
 
     return () => {
       socket.off('connect', onConnect);
@@ -84,6 +92,7 @@ export function App() {
       socket.off('chat');
       socket.off('searchResults');
       socket.off('validTargets');
+      socket.off('error');
     };
   }, [name]);
 
@@ -112,6 +121,64 @@ export function App() {
 
   const turnDirLabel = useMemo(() => (view?.turnDirection ?? 1) === 1 ? 'Clockwise' : 'Counter-clockwise', [view?.turnDirection]);
 
+  // Targeting-derived sets and handlers
+  const validPermanentTargets = useMemo(() => {
+    if (!targeting) return new Set<string>();
+    return new Set(targeting.targets.filter(t => t.kind === 'permanent').map(t => t.id));
+  }, [targeting]);
+
+  const selectedPermanentTargets = useMemo(() => {
+    if (!targeting) return new Set<string>();
+    const ids = Array.from(targeting.chosen)
+      .filter(k => k.startsWith('permanent:'))
+      .map(k => k.split(':')[1]);
+    return new Set(ids);
+  }, [targeting]);
+
+  const validPlayerTargets = useMemo(() => {
+    if (!targeting) return new Set<string>();
+    return new Set(targeting.targets.filter(t => t.kind === 'player').map(t => t.id));
+  }, [targeting]);
+
+  const selectedPlayerTargets = useMemo(() => {
+    if (!targeting) return new Set<string>();
+    const ids = Array.from(targeting.chosen)
+      .filter(k => k.startsWith('player:'))
+      .map(k => k.split(':')[1]);
+    return new Set(ids);
+  }, [targeting]);
+
+  const yourLandsPlayed = useMemo(() => {
+    if (!view || !you) return 0;
+    return view.landsPlayedThisTurn?.[you] ?? 0;
+  }, [view, you]);
+
+  // Affordance helpers
+  const reasonCannotPlayLand = (card: { type_line?: string }) => {
+    if (!view || !you) return 'Not connected';
+    const type = (card.type_line || '').toLowerCase();
+    if (!/\bland\b/.test(type)) return 'Not a land';
+    if (view.priority !== you) return 'You must have priority';
+    if (view.turnPlayer !== you) return 'Only on your turn';
+    if (!isMainPhase(view.phase)) return 'Only during a main phase';
+    if ((view.stack?.length ?? 0) > 0) return 'Stack must be empty';
+    if ((view.landsPlayedThisTurn?.[you] ?? 0) >= 1) return 'Already played a land this turn';
+    return null;
+  };
+
+  const reasonCannotCast = (card: { type_line?: string }) => {
+    if (!view || !you) return 'Not connected';
+    if (view.priority !== you) return 'You must have priority';
+    const tl = (card.type_line || '').toLowerCase();
+    const isSorcery = /\bsorcery\b/.test(tl);
+    if (isSorcery) {
+      if (view.turnPlayer !== you) return 'Sorceries only on your turn';
+      if (!isMainPhase(view.phase)) return 'Sorceries only during a main phase';
+      if ((view.stack?.length ?? 0) > 0) return 'Stack must be empty for sorceries';
+    }
+    return null;
+  };
+
   // Actions
   const handleJoin = () => {
     const token = sessionStorage.getItem(seatTokenKey(gameId, name)) || undefined;
@@ -128,9 +195,6 @@ export function App() {
   const removePlayer = (playerId: PlayerID) => view && socket.emit('removePlayer', { gameId: view.id, playerId });
   const toggleSkip = (playerId: PlayerID, inactive: boolean | undefined) =>
     view && socket.emit(inactive ? 'unskipPlayer' : 'skipPlayer', { gameId: view.id, playerId });
-
-  const grantAccess = (spectatorId: PlayerID) => view && socket.emit('grantSpectatorAccess', { gameId: view.id, spectatorId });
-  const revokeAccess = (spectatorId: PlayerID) => view && socket.emit('revokeSpectatorAccess', { gameId: view.id, spectatorId });
 
   const importDeck = () => { if (view) { socket.emit('importDeck', { gameId: view.id, list: deckText }); setSearchResults([]); } };
   const shuffleLibrary = () => { if (view) { socket.emit('shuffleLibrary', { gameId: view.id }); setSearchResults([]); } };
@@ -152,30 +216,103 @@ export function App() {
 
   // Targeting flow
   const beginCast = (cardId: string) => view && socket.emit('beginCast', { gameId: view.id, cardId });
+
+  const syncChosen = (next: Set<string>, spellId: string) => {
+    if (!view) return;
+    const chosenArr: TargetRef[] = Array.from(next).map(k => {
+      const [kind, id] = k.split(':');
+      return { kind: kind as TargetRef['kind'], id } as TargetRef;
+    });
+    socket.emit('chooseTargets', { gameId: view.id, spellId, chosen: chosenArr });
+  };
+
   const toggleChoose = (t: TargetRef) => {
     setTargeting(prev => {
-      if (!prev || !view) return prev;
+      if (!prev) return prev;
       const key = `${t.kind}:${t.id}`;
       const next = new Set(prev.chosen);
       if (next.has(key)) next.delete(key);
       else if (next.size < prev.max) next.add(key);
-
-      const chosenArr: TargetRef[] = Array.from(next).map(k => {
-        const [kind, id] = k.split(':');
-        return { kind: kind as TargetRef['kind'], id } as TargetRef;
-      });
-      socket.emit('chooseTargets', { gameId: view.id, spellId: prev.spellId, chosen: chosenArr });
+      syncChosen(next, prev.spellId);
       return { ...prev, chosen: next };
     });
   };
+
   const cancelCast = () => { if (view && targeting) socket.emit('cancelCast', { gameId: view.id, spellId: targeting.spellId }); setTargeting(null); };
   const confirmCast = () => { if (view && targeting) socket.emit('confirmCast', { gameId: view.id, spellId: targeting.spellId }); setTargeting(null); };
+
+  // Keybindings for targeting: Esc cancels, Enter confirms
+  useEffect(() => {
+    if (!targeting) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        cancelCast();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (targeting.chosen.size >= targeting.min && targeting.chosen.size <= targeting.max) {
+          confirmCast();
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targeting]);
+
+  // Click handlers for board
+  const onPermanentClick = (id: string) => {
+    if (!targeting) return;
+    if (!validPermanentTargets.has(id)) return;
+    toggleChoose({ kind: 'permanent', id });
+  };
+  const onPlayerClick = (playerId: string) => {
+    if (!targeting) return;
+    if (!validPlayerTargets.has(playerId)) return;
+    toggleChoose({ kind: 'player', id: playerId });
+  };
+
+  const nextTurn = () => { if (view) socket.emit('nextTurn', { gameId: view.id }); };
+
+  // Stack helpers
+  const labelForTarget = (t: string) => {
+    if (!view) return t;
+    const [kind, id] = t.split(':');
+    if (kind === 'player') {
+      const p = view.players.find(x => x.id === id);
+      return p ? `Player: ${p.name}` : `Player: ${id}`;
+    }
+    if (kind === 'permanent') {
+      const perm = (view.battlefield || []).find(b => b.id === id);
+      const name = ((perm?.card as any)?.name) || id;
+      return `Permanent: ${name}`;
+    }
+    if (kind === 'stack') {
+      const s = (view.stack || []).find(x => x.id === id);
+      const n = ((s?.card as any)?.name) || id;
+      return `Spell: ${n}`;
+    }
+    return t;
+  };
+
+  const confirmDisabledReason = useMemo(() => {
+    if (!targeting || !view || !you) return '';
+    if (targeting.chosen.size < targeting.min) return `Select at least ${targeting.min} target(s)`;
+    if (targeting.chosen.size > targeting.max) return `Select at most ${targeting.max} target(s)`;
+    if (view.priority !== you) return 'You must have priority to confirm';
+    return '';
+  }, [targeting, view, you]);
 
   return (
     <div style={{ fontFamily: 'system-ui', padding: 16, display: 'grid', gridTemplateColumns: '1fr 420px', gap: 16 }}>
       <div>
         <h1>MTGEDH</h1>
         <div>Status: {connected ? 'connected' : 'disconnected'}</div>
+        {lastError && (
+          <div style={{ marginTop: 8, padding: 8, background: '#fdecea', color: '#611a15', border: '1px solid #f5c2c0', borderRadius: 6 }}>
+            {lastError} <button onClick={() => setLastError(null)} style={{ marginLeft: 8 }}>Dismiss</button>
+          </div>
+        )}
 
         <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <input value={gameId} onChange={e => setGameId(e.target.value)} placeholder="Game ID" />
@@ -194,6 +331,7 @@ export function App() {
               <div>Game: {view.id} | Format: {String(view.format)} | Turn: {view.turnPlayer}</div>
               <div>Priority: {priority ?? view.priority}</div>
               <div>Turn order: {turnDirLabel}</div>
+              <div>Phase: {String(view.phase)}</div>
               <button onClick={() => socket.emit('toggleTurnDirection', { gameId: view.id })}>Reverse turn order</button>
               <label>Layout:
                 <select value={layout} onChange={e => setLayoutPref(e.target.value as LayoutMode)} style={{ marginLeft: 6 }}>
@@ -208,13 +346,12 @@ export function App() {
                   <option value="art_crop">art_crop</option>
                 </select>
               </label>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <input type="checkbox" checked={groupTokensByCounters} onChange={e => setGroupTokensByCounters(e.target.checked)} />
-                Group tokens by counters
-              </label>
-              <span style={{ fontSize: 12, opacity: 0.7 }}>
-                Card images courtesy of <a href="https://scryfall.com/docs/api" target="_blank" rel="noreferrer">Scryfall</a>
-              </span>
+              {you === view.turnPlayer && (
+                <>
+                  <button onClick={nextTurn} disabled={(view.stack?.length ?? 0) > 0}>Next Turn</button>
+                  <span style={{ fontSize: 12, opacity: 0.8 }}>Lands played: {yourLandsPlayed}/1</span>
+                </>
+              )}
             </div>
 
             {/* Admin/basic actions */}
@@ -224,6 +361,78 @@ export function App() {
               <button onClick={() => socket.emit('passPriority', { gameId: view.id })} disabled={!canPass}>Pass Priority</button>
             </div>
 
+            {/* Stack */}
+            <h3 style={{ marginTop: 16 }}>Stack</h3>
+            <div style={{ border: '1px solid #ddd', padding: 8, minHeight: 40 }}>
+              {(view.stack ?? []).length === 0 && <div style={{ opacity: 0.6 }}>Empty</div>}
+              {(view.stack ?? []).map((s, i) => {
+                const name = (s.card as any)?.name || s.id;
+                const tline = (s.card as any)?.type_line || '';
+                const key = `stack:${s.id}`;
+                const canTarget = !!targeting && targeting.targets.some(t => t.kind === 'stack' && t.id === s.id);
+                const isSelected = !!targeting && targeting.chosen.has(key);
+                const targets = (s.targets || []);
+                const targetsLabel = targets.length ? targets.map(labelForTarget).join(', ') : '';
+
+                const onClick = () => {
+                  if (!targeting || !canTarget) return;
+                  if (isSelected) {
+                    const next = new Set(targeting.chosen);
+                    next.delete(key);
+                    const arr = Array.from(next).map(k => {
+                      const [kind, id] = k.split(':'); // FIXED: added missing dot
+                      return { kind: kind as TargetRef['kind'], id } as TargetRef;
+                    });
+                    socket.emit('chooseTargets', { gameId: view.id, spellId: targeting.spellId, chosen: arr });
+                    setTargeting({ ...targeting, chosen: next });
+                  } else {
+                    if (targeting.chosen.size >= targeting.max) return;
+                    const next = new Set(targeting.chosen);
+                    next.add(key);
+                    const arr = Array.from(next).map(k => {
+                      const [kind, id] = k.split(':');
+                      return { kind: kind as TargetRef['kind'], id } as TargetRef;
+                    });
+                    socket.emit('chooseTargets', { gameId: view.id, spellId: targeting.spellId, chosen: arr });
+                    setTargeting({ ...targeting, chosen: next });
+                  }
+                };
+
+                return (
+                  <div
+                    key={s.id}
+                    onClick={onClick}
+                    onMouseEnter={(e) => { showCardPreview(e.currentTarget as HTMLElement, s.card as any, { prefer: 'above', anchorPadding: 0 }); }}
+                    onMouseLeave={() => hideCardPreview()}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr auto',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '6px 8px',
+                      borderRadius: 6,
+                      border: '1px solid',
+                      marginBottom: i < (view.stack.length - 1) ? 6 : 0,
+                      cursor: targeting && canTarget ? 'pointer' : 'default',
+                      borderColor: isSelected ? '#2b6cb0' : canTarget ? '#38a169' : '#eee',
+                      background: isSelected ? 'rgba(43,108,176,0.1)' : 'transparent'
+                    }}
+                    title={canTarget ? 'Click to target this spell' : undefined}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name} — {tline}</div>
+                      {targetsLabel && (
+                        <div style={{ fontSize: 12, color: '#555', marginTop: 2 }}>
+                          → targets: {targetsLabel}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 12, opacity: 0.7, textAlign: 'right' }}>by {s.controller}</div>
+                  </div>
+                );
+              })}
+            </div>
+
             {/* Per-player controls */}
             <h3 style={{ marginTop: 16 }}>Players</h3>
             <ul>
@@ -231,17 +440,32 @@ export function App() {
                 const z = view.zones?.[p.id];
                 const counts = `hand ${z?.handCount ?? 0} | library ${z?.libraryCount ?? 0} | graveyard ${z?.graveyardCount ?? 0}`;
                 const isYouRow = you === p.id;
+                const canTargetPlayer = validPlayerTargets.has(p.id);
+                const sel = selectedPlayerTargets.has(p.id);
                 return (
-                  <li key={p.id} style={{ marginBottom: 8 }}>
+                  <li key={p.id} style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span>
                       {p.name} (seat {p.seat}) — life {view.life[p.id] ?? '-'}
                       {isYouRow ? ' (you)' : ''} — {counts}
                       {p.inactive ? ' — [SKIPPED]' : ''}
                     </span>
-                    <span style={{ marginLeft: 8, display: 'inline-flex', gap: 6 }}>
-                      <button onClick={() => toggleSkip(p.id, p.inactive)}>{p.inactive ? 'Unskip' : 'Skip'}</button>
-                      <button onClick={() => removePlayer(p.id)}>Remove</button>
-                    </span>
+                    {targeting && (
+                      <button
+                        onClick={() => onPlayerClick(p.id)}
+                        disabled={!canTargetPlayer}
+                        style={{
+                          border: '1px solid',
+                          borderColor: sel ? '#2b6cb0' : canTargetPlayer ? '#38a169' : '#ccc',
+                          background: 'transparent',
+                          color: sel ? '#2b6cb0' : canTargetPlayer ? '#38a169' : '#aaa',
+                          padding: '2px 8px',
+                          borderRadius: 6
+                        }}
+                        title={canTargetPlayer ? 'Target player' : 'Not a valid player target'}
+                      >
+                        {sel ? 'Selected' : 'Target'}
+                      </button>
+                    )}
                   </li>
                 );
               })}
@@ -302,26 +526,32 @@ export function App() {
                   </div>
                 </div>
 
-                {/* Your Hand with Cast button */}
+                {/* Your Hand as image thumbnails */}
                 <h3 style={{ marginTop: 16 }}>Your Hand</h3>
-                <ul style={{ border: '1px solid #ddd', padding: 8, maxHeight: 160, overflow: 'auto' }}>
+                <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 8, maxHeight: 320, overflow: 'auto', background: '#0b0b0b' }}>
                   {(() => {
                     const z = view?.zones?.[you as PlayerID];
-                    const hand = (z?.hand ?? []) as any as Array<{ id: string; name?: string }>;
-                    return hand.length > 0 ? (
-                      hand.map((c, idx) => (
-                        <li key={`${c.id}-${idx}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                          <span>{c.name ?? 'Card'}</span>
-                          <span style={{ display: 'inline-flex', gap: 6 }}>
-                            <button onClick={() => beginCast(c.id)}>Cast</button>
-                          </span>
-                        </li>
-                      ))
-                    ) : (
-                      <li style={{ opacity: 0.6 }}>Empty</li>
+                    const hand = (z?.hand ?? []) as any as Array<{
+                      id: string;
+                      name?: string;
+                      type_line?: string;
+                      image_uris?: { small?: string; normal?: string; art_crop?: string };
+                      faceDown?: boolean;
+                    }>;
+                    return (
+                      <HandGallery
+                        cards={hand}
+                        imagePref={imagePref}
+                        onPlayLand={(cardId) => socket.emit('playLand', { gameId: view!.id, cardId })}
+                        onCast={(cardId) => beginCast(cardId)}
+                        reasonCannotPlayLand={reasonCannotPlayLand}
+                        reasonCannotCast={reasonCannotCast}
+                        thumbWidth={110}
+                        zoomScale={1}
+                      />
                     );
                   })()}
-                </ul>
+                </div>
               </>
             )}
 
@@ -337,6 +567,12 @@ export function App() {
                   onCounter={addCounter}
                   onBulkCounter={bulkCounter}
                   groupTokensByCounters={groupTokensByCounters}
+                  highlightPermTargets={targeting ? validPermanentTargets : undefined}
+                  selectedPermTargets={targeting ? selectedPermanentTargets : undefined}
+                  onPermanentClick={targeting ? onPermanentClick : undefined}
+                  highlightPlayerTargets={targeting ? validPlayerTargets : undefined}
+                  selectedPlayerTargets={targeting ? selectedPlayerTargets : undefined}
+                  onPlayerClick={targeting ? onPlayerClick : undefined}
                 />
               </div>
             ) : (
@@ -345,9 +581,30 @@ export function App() {
                   const perms = battlefieldByPlayer.get(p.id) || [];
                   const tokens = perms.filter(x => (x.card as any)?.type_line === 'Token');
                   const nonTokens = perms.filter(x => (x.card as any)?.type_line !== 'Token');
+                  const canTargetPlayer = validPlayerTargets.has(p.id);
+                  const selPlayer = selectedPlayerTargets.has(p.id);
                   return (
                     <div key={p.id}>
-                      <div style={{ fontWeight: 700, marginBottom: 8 }}>{p.name} — {p.id === you ? 'Your board' : 'Opponent'}</div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <div style={{ fontWeight: 700 }}>{p.name} — {p.id === you ? 'Your board' : 'Opponent'}</div>
+                        {targeting && (
+                          <button
+                            onClick={() => onPlayerClick(p.id)}
+                            disabled={!canTargetPlayer}
+                            style={{
+                              border: '1px solid',
+                              borderColor: selPlayer ? '#2b6cb0' : canTargetPlayer ? '#38a169' : '#ccc',
+                              background: 'transparent',
+                              color: selPlayer ? '#2b6cb0' : canTargetPlayer ? '#38a169' : '#aaa',
+                              padding: '2px 8px',
+                              borderRadius: 6
+                            }}
+                            title={canTargetPlayer ? 'Target player' : 'Not a valid player target'}
+                          >
+                            {selPlayer ? 'Selected' : 'Target'}
+                          </button>
+                        )}
+                      </div>
                       {nonTokens.length > 0 && (
                         <>
                           <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 6 }}>Permanents</div>
@@ -356,6 +613,9 @@ export function App() {
                             imagePref={imagePref}
                             onRemove={isYouPlayer ? (id => removePermanent(id)) : undefined}
                             onCounter={isYouPlayer ? ((id, kind, delta) => addCounter(id, kind, delta)) : undefined}
+                            highlightTargets={targeting ? validPermanentTargets : undefined}
+                            selectedTargets={targeting ? selectedPermanentTargets : undefined}
+                            onCardClick={targeting ? onPermanentClick : undefined}
                           />
                         </>
                       )}
@@ -367,6 +627,9 @@ export function App() {
                             groupMode={groupTokensByCounters ? 'name+counters+pt+attach' : 'name+pt+attach'}
                             attachedToSet={attachedToSet}
                             onBulkCounter={(ids, deltas) => bulkCounter(ids, deltas)}
+                            highlightTargets={targeting ? validPermanentTargets : undefined}
+                            selectedTargets={targeting ? selectedPermanentTargets : undefined}
+                            onTokenClick={targeting ? onPermanentClick : undefined}
                           />
                         </>
                       )}
@@ -374,6 +637,36 @@ export function App() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+
+            {/* Targeting footer bar */}
+            {targeting && (
+              <div style={{
+                position: 'fixed', left: 0, right: 0, bottom: 0, background: '#fff',
+                borderTop: '1px solid #ddd', padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 50
+              }}>
+                <div>
+                  Select {targeting.min === targeting.max ? targeting.max : `${targeting.min}–${targeting.max}`} target(s)
+                  <span style={{ marginLeft: 8, fontSize: 12, opacity: 0.7 }}>
+                    Chosen: {targeting.chosen.size}/{targeting.max}
+                  </span>
+                  {confirmDisabledReason && (
+                    <span style={{ marginLeft: 12, fontSize: 12, color: '#a00' }}>
+                      {confirmDisabledReason}
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: 'inline-flex', gap: 8 }}>
+                  <button onClick={cancelCast}>Cancel</button>
+                  <button
+                    onClick={confirmCast}
+                    disabled={!!confirmDisabledReason}
+                    title={confirmDisabledReason || 'Put on Stack'}
+                  >
+                    Put on Stack
+                  </button>
+                </div>
               </div>
             )}
           </>
@@ -393,44 +686,8 @@ export function App() {
         </div>
       </div>
 
-      {/* Targeting overlay */}
-      {targeting && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999
-        }}>
-          <div style={{ background: '#fff', borderRadius: 8, padding: 16, width: 520, maxHeight: '70vh', overflow: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3>Select targets</h3>
-              <button onClick={cancelCast}>Close</button>
-            </div>
-            <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 8 }}>
-              Choose {targeting.min === targeting.max ? targeting.max : `${targeting.min}–${targeting.max}`} target(s)
-            </div>
-            <div style={{ display: 'grid', gap: 6 }}>
-              {targeting.targets.map(t => {
-                const key = `${t.kind}:${t.id}`;
-                const checked = targeting.chosen.has(key);
-                return (
-                  <label key={key} style={{ display: 'flex', gap: 8, alignItems: 'center', border: '1px solid #eee', borderRadius: 6, padding: 6 }}>
-                    <input type="checkbox" checked={checked} onChange={() => toggleChoose(t)} />
-                    <span>{t.kind} — {t.id}</span>
-                  </label>
-                );
-              })}
-            </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
-              <button onClick={cancelCast}>Cancel</button>
-              <button
-                onClick={confirmCast}
-                disabled={targeting.chosen.size < targeting.min || targeting.chosen.size > targeting.max}
-              >
-                Confirm
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Global card preview portal */}
+      <CardPreviewLayer />
     </div>
   );
 }
