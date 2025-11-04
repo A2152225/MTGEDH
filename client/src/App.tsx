@@ -14,6 +14,8 @@ import { TableLayout } from './components/TableLayout';
 import { HandGallery } from './components/HandGallery';
 import { CardPreviewLayer, showCardPreview, hideCardPreview } from './components/CardPreviewLayer';
 import { PaymentPicker } from './components/PaymentPicker';
+import { CommanderPanel } from './components/CommanderPanel';
+import { ZonesPanel } from './components/ZonesPanel';
 
 function seatTokenKey(gameId: GameID, name: string) {
   return `mtgedh:seatToken:${gameId}:${name.trim().toLowerCase()}`;
@@ -29,13 +31,29 @@ function isMainPhase(phase?: any, step?: any): boolean {
   return phase === 'PRECOMBAT_MAIN' || phase === 'POSTCOMBAT_MAIN' || step === 'MAIN1' || step === 'MAIN2';
 }
 
-function parseManaCost(manaCost?: string): { colors: Record<Color, number>; generic: number } {
-  const res: { colors: Record<Color, number>; generic: number } = { colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 }, generic: 0 };
+function parseManaCost(manaCost?: string): { colors: Record<Color, number>; generic: number; hybrids: Color[][]; hasX: boolean } {
+  const res: { colors: Record<Color, number>; generic: number; hybrids: Color[][]; hasX: boolean } =
+    { colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 }, generic: 0, hybrids: [], hasX: false };
   if (!manaCost) return res;
   const tokens = manaCost.match(/\{[^}]+\}/g) || [];
   for (const t of tokens) {
-    const sym = t.replace(/[{}]/g, '');
+    const sym = t.replace(/[{}]/g, '').toUpperCase();
+    if (sym === 'X') { res.hasX = true; continue; }
     if (/^\d+$/.test(sym)) { res.generic += parseInt(sym, 10); continue; }
+    if (sym.includes('/')) {
+      const parts = sym.split('/');
+      if (parts.length === 2 && parts[1] === 'P') {
+        const c = parts[0] as Color;
+        if ((['W','U','B','R','G','C'] as const).includes(c)) res.colors[c] += 1;
+        continue;
+      }
+      if (parts.length === 2 && (['W','U','B','R','G','C'] as const).includes(parts[0] as Color) && (['W','U','B','R','G','C'] as const).includes(parts[1] as Color)) {
+        res.hybrids.push([parts[0] as Color, parts[1] as Color]);
+        continue;
+      }
+      const num = parseInt(parts[0], 10);
+      if (!Number.isNaN(num)) { res.generic += num; continue; }
+    }
     if ((['W','U','B','R','G','C'] as const).includes(sym as Color)) {
       res.colors[sym as Color] += 1;
       continue;
@@ -49,11 +67,18 @@ function paymentToPool(payment: PaymentItem[]): Record<Color, number> {
     return acc;
   }, { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 });
 }
-function canPay(cost: { colors: Record<Color, number>; generic: number }, pool: Record<Color, number>): boolean {
+function canPayEnhanced(cost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] }, pool: Record<Color, number>): boolean {
   const left: Record<Color, number> = { W: pool.W, U: pool.U, B: pool.B, R: pool.R, G: pool.G, C: pool.C };
   for (const c of (['W','U','B','R','G','C'] as const)) {
     if (left[c] < cost.colors[c]) return false;
     left[c] -= cost.colors[c];
+  }
+  for (const group of cost.hybrids) {
+    let satisfied = false;
+    for (const c of group) {
+      if (left[c] > 0) { left[c] -= 1; satisfied = true; break; }
+    }
+    if (!satisfied) return false;
   }
   const total = (['W','U','B','R','G','C'] as const).reduce((a, c) => a + left[c], 0);
   return total >= cost.generic;
@@ -97,23 +122,21 @@ export function App() {
     manaCost?: string;
     sources?: Array<{ id: string; name: string; options: Color[] }>;
     payment: PaymentItem[];
+    xValue: number;
   } | null>(null);
 
   // Socket wiring
   useEffect(() => {
     const onConnect = () => {
       setConnected(true);
-      // Auto-rejoin the last game on reconnect (restores server-side socket.data and room)
       const last = lastJoinRef.current;
       if (last) {
         const token = sessionStorage.getItem(seatTokenKey(last.gameId, last.name)) || undefined;
         socket.emit('joinGame', { gameId: last.gameId, playerName: last.name, spectator: last.spectator, seatToken: token });
       } else if (view) {
-        // Fallback: if we already have a view but no recorded last join, attempt to rejoin current view
         const token = sessionStorage.getItem(seatTokenKey(view.id, name)) || undefined;
         socket.emit('joinGame', { gameId: view.id, playerName: name, spectator: joinAsSpectator, seatToken: token });
       }
-      // Also request a fresh state to reconcile any drift
       if (view) {
         socket.emit('requestState', { gameId: view.id });
       }
@@ -125,7 +148,6 @@ export function App() {
 
     socket.on('joined', ({ you, seatToken, gameId }) => {
       setYou(you);
-      // Record last join so we can auto-rejoin later
       lastJoinRef.current = { gameId, name, spectator: joinAsSpectator };
       if (seatToken) sessionStorage.setItem(seatTokenKey(gameId, name), seatToken);
     });
@@ -144,7 +166,8 @@ export function App() {
         chosen: new Set(),
         manaCost,
         sources: paymentSources as any,
-        payment: []
+        payment: [],
+        xValue: 0
       });
     });
     socket.on('error', ({ message }) => setLastError(message || 'Error'));
@@ -164,7 +187,7 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name, joinAsSpectator, view?.id]);
 
-  // Refresh state when tab becomes visible or window regains focus (covers tab switch throttling)
+  // Refresh state when tab becomes visible or window regains focus
   useEffect(() => {
     const onVis = () => {
       if (document.visibilityState === 'visible' && view) {
@@ -234,6 +257,11 @@ export function App() {
     return new Set(ids);
   }, [targeting]);
 
+  const paymentSelectedPerms = useMemo(() => {
+    if (!targeting) return new Set<string>();
+    return new Set((targeting.payment || []).map(p => p.permanentId));
+  }, [targeting]);
+
   const yourLandsPlayed = useMemo(() => {
     if (!view || !you) return 0;
     return view.landsPlayedThisTurn?.[you] ?? 0;
@@ -267,7 +295,6 @@ export function App() {
 
   // Actions
   const handleJoin = () => {
-    // Record intended join before emitting (for reconnect auto-join)
     lastJoinRef.current = { gameId, name, spectator: joinAsSpectator };
     const token = sessionStorage.getItem(seatTokenKey(gameId, name)) || undefined;
     socket.emit('joinGame', { gameId, playerName: name, spectator: joinAsSpectator, seatToken: token });
@@ -330,7 +357,8 @@ export function App() {
   const confirmCast = () => {
     if (view && targeting) {
       const payment = targeting.payment.length ? targeting.payment : undefined;
-      socket.emit('confirmCast', { gameId: view.id, spellId: targeting.spellId, payment });
+      const xValue = targeting.xValue || undefined;
+      socket.emit('confirmCast', { gameId: view.id, spellId: targeting.spellId, payment, xValue });
       setTargeting(null);
     }
   };
@@ -395,14 +423,12 @@ export function App() {
     if (targeting.chosen.size < targeting.min) return `Select at least ${targeting.min} target(s)`;
     if (targeting.chosen.size > targeting.max) return `Select at most ${targeting.max} target(s)`;
     if (view.priority !== you) return 'You must have priority to confirm';
-    // If a mana cost is provided:
-    // - If user picked no payment, allow confirm (server will auto-pay).
-    // - If user picked some payment, require it to cover the cost.
     if (targeting.manaCost) {
-      if (targeting.payment.length === 0) return '';
-      const cost = parseManaCost(targeting.manaCost);
+      if (targeting.payment.length === 0) return ''; // allow server auto-pay
+      const parsed = parseManaCost(targeting.manaCost);
+      const cost = { colors: parsed.colors, generic: parsed.generic + Math.max(0, Number(targeting.xValue || 0) | 0), hybrids: parsed.hybrids };
       const pool = paymentToPool(targeting.payment);
-      if (!canPay(cost, pool)) return 'Select mana to pay the cost (or Clear to auto-pay)';
+      if (!canPayEnhanced(cost, pool)) return 'Select mana to pay the cost (or Clear to auto-pay)';
     }
     return '';
   }, [targeting, view, you]);
@@ -458,6 +484,13 @@ export function App() {
                 </>
               )}
             </div>
+
+            {/* Commander panel for you */}
+            {isYouPlayer && you && (
+              <div style={{ marginTop: 12 }}>
+                <CommanderPanel view={view} you={you} isYouPlayer={isYouPlayer} />
+              </div>
+            )}
 
             {/* Admin/basic actions */}
             <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
@@ -538,129 +571,7 @@ export function App() {
               })}
             </div>
 
-            {/* Per-player controls */}
-            <h3 style={{ marginTop: 16 }}>Players</h3>
-            <ul>
-              {view.players.map(p => {
-                const z = view.zones?.[p.id];
-                const counts = `hand ${z?.handCount ?? 0} | library ${z?.libraryCount ?? 0} | graveyard ${z?.graveyardCount ?? 0}`;
-                const isYouRow = you === p.id;
-                const canTargetPlayer = validPlayerTargets.has(p.id);
-                const sel = selectedPlayerTargets.has(p.id);
-                return (
-                  <li key={p.id} style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span>
-                      {p.name} (seat {p.seat}) — life {view.life[p.id] ?? '-'}
-                      {isYouRow ? ' (you)' : ''} — {counts}
-                      {p.inactive ? ' — [SKIPPED]' : ''}
-                    </span>
-                    {targeting && (
-                      <button
-                        onClick={() => onPlayerClick(p.id)}
-                        disabled={!canTargetPlayer}
-                        style={{
-                          border: '1px solid',
-                          borderColor: sel ? '#2b6cb0' : canTargetPlayer ? '#38a169' : '#ccc',
-                          background: 'transparent',
-                          color: sel ? '#2b6cb0' : canTargetPlayer ? '#38a169' : '#aaa',
-                          padding: '2px 8px',
-                          borderRadius: 6
-                        }}
-                        title={canTargetPlayer ? 'Target player' : 'Not a valid player target'}
-                      >
-                        {sel ? 'Selected' : 'Target'}
-                      </button>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-
-            {isYouPlayer && (
-              <>
-                <h3 style={{ marginTop: 16 }}>Your Library</h3>
-                <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-                  <button onClick={shuffleLibrary}>Shuffle</button>
-                  <button onClick={drawOne}>Draw 1</button>
-                  <button onClick={handToLibraryShuffle}>Hand → Library + Shuffle</button>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div>
-                    <div>Import deck</div>
-                    <textarea
-                      value={deckText}
-                      onChange={e => setDeckText(e.target.value)}
-                      placeholder="Paste decklist (e.g., '1x Sol Ring' or 'Island x96')"
-                      rows={6}
-                      style={{ width: '100%' }}
-                    />
-                    <div style={{ marginTop: 8 }}>
-                      <button onClick={importDeck}>Import</button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div>Search library</div>
-                    <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-                      <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Name / type / rules text..." />
-                      <input
-                        type="number"
-                        value={searchLimit}
-                        min={1}
-                        max={200}
-                        onChange={e => setSearchLimit(Math.max(1, Math.min(200, Number(e.target.value) || 1)))}
-                        style={{ width: 72 }}
-                        title="Max results"
-                      />
-                      <button onClick={() => { setSearchResults([]); doSearch(); }}>Search</button>
-                      <button onClick={clearSearch}>Clear</button>
-                    </div>
-                    <ul style={{ maxHeight: 180, overflow: 'auto', border: '1px solid #ddd', padding: 8 }}>
-                      {searchResults.map(r => (
-                        <li key={r.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                          <span>{r.name}</span>
-                          <span style={{ display: 'inline-flex', gap: 6 }}>
-                            <button onClick={() => takeFromSearch(r.id, false)}>Take</button>
-                            <button onClick={() => takeFromSearch(r.id, true)}>Reveal+Take</button>
-                          </span>
-                        </li>
-                      ))}
-                      {searchResults.length === 0 && <li style={{ opacity: 0.6 }}>No results</li>}
-                    </ul>
-                  </div>
-                </div>
-
-                {/* Your Hand as image thumbnails */}
-                <h3 style={{ marginTop: 16 }}>Your Hand</h3>
-                <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 8, maxHeight: 320, overflow: 'auto', background: '#0b0b0b' }}>
-                  {(() => {
-                    const z = view?.zones?.[you as PlayerID];
-                    const hand = (z?.hand ?? []) as any as Array<{
-                      id: string;
-                      name?: string;
-                      type_line?: string;
-                      image_uris?: { small?: string; normal?: string; art_crop?: string };
-                      faceDown?: boolean;
-                    }>;
-                    return (
-                      <HandGallery
-                        cards={hand}
-                        imagePref={imagePref}
-                        onPlayLand={(cardId) => socket.emit('playLand', { gameId: view!.id, cardId })}
-                        onCast={(cardId) => beginCast(cardId)}
-                        reasonCannotPlayLand={reasonCannotPlayLand}
-                        reasonCannotCast={reasonCannotCast}
-                        thumbWidth={110}
-                        zoomScale={1}
-                      />
-                    );
-                  })()}
-                </div>
-              </>
-            )}
-
-            {/* Board */}
+            {/* Players and board */}
             {layout === 'table' ? (
               <div style={{ marginTop: 16 }}>
                 <TableLayout
@@ -672,8 +583,8 @@ export function App() {
                   onCounter={addCounter}
                   onBulkCounter={bulkCounter}
                   groupTokensByCounters={groupTokensByCounters}
-                  highlightPermTargets={targeting ? validPermanentTargets : undefined}
-                  selectedPermTargets={targeting ? selectedPermanentTargets : undefined}
+                  highlightPermTargets={targeting ? new Set([...validPermanentTargets]) : undefined}
+                  selectedPermTargets={targeting ? new Set([...selectedPermanentTargets, ...paymentSelectedPerms]) : undefined}
                   onPermanentClick={targeting ? onPermanentClick : undefined}
                   highlightPlayerTargets={targeting ? validPlayerTargets : undefined}
                   selectedPlayerTargets={targeting ? selectedPlayerTargets : undefined}
@@ -686,8 +597,8 @@ export function App() {
                   const perms = battlefieldByPlayer.get(p.id) || [];
                   const tokens = perms.filter(x => (x.card as any)?.type_line === 'Token');
                   const nonTokens = perms.filter(x => (x.card as any)?.type_line !== 'Token');
-                  const canTargetPlayer = validPlayerTargets.has(p.id);
-                  const selPlayer = selectedPlayerTargets.has(p.id);
+                  const canTargetPlayer = targeting ? validPlayerTargets.has(p.id) : false;
+                  const selPlayer = targeting ? selectedPlayerTargets.has(p.id) : false;
                   return (
                     <div key={p.id}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -718,8 +629,8 @@ export function App() {
                             imagePref={imagePref}
                             onRemove={isYouPlayer ? (id => removePermanent(id)) : undefined}
                             onCounter={isYouPlayer ? ((id, kind, delta) => addCounter(id, kind, delta)) : undefined}
-                            highlightTargets={targeting ? validPermanentTargets : undefined}
-                            selectedTargets={targeting ? selectedPermanentTargets : undefined}
+                            highlightTargets={targeting ? new Set([...validPermanentTargets]) : undefined}
+                            selectedTargets={targeting ? new Set([...selectedPermanentTargets, ...paymentSelectedPerms]) : undefined}
                             onCardClick={targeting ? onPermanentClick : undefined}
                           />
                         </>
@@ -732,8 +643,8 @@ export function App() {
                             groupMode={groupTokensByCounters ? 'name+counters+pt+attach' : 'name+pt+attach'}
                             attachedToSet={attachedToSet}
                             onBulkCounter={(ids, deltas) => bulkCounter(ids, deltas)}
-                            highlightTargets={targeting ? validPermanentTargets : undefined}
-                            selectedTargets={targeting ? selectedPermanentTargets : undefined}
+                            highlightTargets={targeting ? new Set([...validPermanentTargets]) : undefined}
+                            selectedTargets={targeting ? new Set([...selectedPermanentTargets, ...paymentSelectedPerms]) : undefined}
                             onTokenClick={targeting ? onPermanentClick : undefined}
                           />
                         </>
@@ -766,8 +677,11 @@ export function App() {
                   {(targeting.manaCost || (targeting.sources && targeting.sources.length > 0)) && (
                     <PaymentPicker
                       manaCost={targeting.manaCost}
+                      manaCostDisplay={targeting.manaCost}
                       sources={targeting.sources || []}
                       chosen={targeting.payment}
+                      xValue={targeting.xValue}
+                      onChangeX={(x) => setTargeting(prev => prev ? { ...prev, xValue: x } : prev)}
                       onChange={(next) => setTargeting(prev => prev ? { ...prev, payment: next } : prev)}
                     />
                   )}
@@ -791,7 +705,7 @@ export function App() {
       {/* Sidebar */}
       <div>
         <h3>Chat</h3>
-        <div style={{ border: '1px solid #ccc', padding: 8, height: 360, overflow: 'auto', background: '#fafafa' }}>
+        <div style={{ border: '1px solid #ccc', padding: 8, height: 260, overflow: 'auto', background: '#fafafa' }}>
           {chat.map(m => (
             <div key={m.id} style={{ fontSize: 12 }}>
               <b>{m.from}</b>: {m.message} <span style={{ opacity: 0.6 }}>({new Date(m.ts).toLocaleTimeString()})</span>
@@ -799,6 +713,11 @@ export function App() {
           ))}
           {chat.length === 0 && <div style={{ opacity: 0.6 }}>No messages</div>}
         </div>
+
+        {/* Zones panel (Library/Graveyard/Exile) */}
+        {view && (
+          <ZonesPanel view={view} you={you} isYouPlayer={!!isYouPlayer} />
+        )}
       </div>
 
       {/* Global card preview portal */}

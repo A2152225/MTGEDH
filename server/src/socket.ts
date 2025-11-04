@@ -31,16 +31,17 @@ const games: Map<GameID, InMemoryGame> = new Map();
 type PendingCast = {
   spellId: string;
   caster: PlayerID;
-  cardId: string;
+  fromZone: 'hand' | 'commandZone';
+  cardInHandId?: string; // present for hand-cast
+  cardSnapshot: Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'>;
   spec: NonNullable<ReturnType<typeof categorizeSpell>> | null;
   valid: TargetRef[];
   chosen: TargetRef[];
   min: number;
   max: number;
-  manaCost?: string;
+  manaCost?: string; // display string (augmented with commander tax if any)
 };
 
-// import categorize/eval/resolve from rules-engine targeting
 import { categorizeSpell, evaluateTargeting as evalTargets } from './rules-engine/targeting';
 
 // helpers
@@ -76,24 +77,48 @@ function isMainPhase(phase?: any, step?: any): boolean {
   return phase === GamePhase.PRECOMBAT_MAIN || phase === GamePhase.POSTCOMBAT_MAIN || step === GameStep.MAIN1 || step === GameStep.MAIN2;
 }
 
-// Payment: derive manaCost from scryfall (by name), compute payment sources from battlefield
+// Payment/mana helpers
 type Color = 'W' | 'U' | 'B' | 'R' | 'G' | 'C';
 const COLORS: Color[] = ['W', 'U', 'B', 'R', 'G', 'C'];
 
-function parseManaCost(manaCost?: string): { colors: Record<Color, number>; generic: number } {
-  const res: { colors: Record<Color, number>; generic: number } = { colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 }, generic: 0 };
+// Parse {1}{W}{U/B}{W/P}{X}
+function parseManaCost(manaCost?: string): {
+  colors: Record<Color, number>;
+  generic: number;
+  hybrids: Color[][];
+  hasX: boolean;
+} {
+  const res = { colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 } as Record<Color, number>, generic: 0, hybrids: [] as Color[][], hasX: false };
   if (!manaCost) return res;
   const tokens = manaCost.match(/\{[^}]+\}/g) || [];
   for (const t of tokens) {
-    const sym = t.replace(/[{}]/g, '');
+    const sym = t.replace(/[{}]/g, '').toUpperCase();
+    if (sym === 'X') { res.hasX = true; continue; }
     if (/^\d+$/.test(sym)) { res.generic += parseInt(sym, 10); continue; }
-    if ((COLORS as readonly string[]).includes(sym)) {
-      res.colors[sym as Color] += 1;
-      continue;
+    if (sym.includes('/')) {
+      // hybrid or phyrexian; treat W/P as W, and two-color hybrids like W/U as flexible
+      const parts = sym.split('/');
+      if (parts.length === 2 && parts[1] === 'P') {
+        const c = parts[0] as Color;
+        if ((COLORS as readonly string[]).includes(c)) res.colors[c] += 1;
+        continue;
+      }
+      // Only handle simple 2-color hybrids; ignore two-brid (e.g. 2/W) by treating as generic 2
+      if (parts.length === 2 && (COLORS as readonly string[]).includes(parts[0] as Color) && (COLORS as readonly string[]).includes(parts[1] as Color)) {
+        const a = parts[0] as Color;
+        const b = parts[1] as Color;
+        res.hybrids.push([a, b]);
+        continue;
+      }
+      // Two-brid fallback: count as generic equal to the numeric part
+      const num = parseInt(parts[0], 10);
+      if (!Number.isNaN(num)) { res.generic += num; continue; }
     }
+    if ((COLORS as readonly string[]).includes(sym)) { res.colors[sym as Color] += 1; continue; }
   }
   return res;
 }
+
 function parseManaOptionsFromOracle(oracle: string): Color[] {
   const opts = new Set<Color>();
   const lines = oracle.split('\n');
@@ -105,7 +130,7 @@ function parseManaOptionsFromOracle(oracle: string): Color[] {
   }
   return Array.from(opts);
 }
-// NEW: fallback from type_line to handle basic lands and Wastes
+// fallback from type_line to handle basics and Wastes
 function fallbackOptionsFromTypeLine(typeLine: string): Color[] {
   const tl = (typeLine || '').toLowerCase();
   const opts = new Set<Color>();
@@ -123,15 +148,6 @@ function manaOptionsForPermanent(perm: any): Color[] {
   const byOracle = parseManaOptionsFromOracle(oracle);
   return byOracle.length ? byOracle : fallbackOptionsFromTypeLine(typeLine);
 }
-function canPay(cost: { colors: Record<Color, number>; generic: number }, pool: Record<Color, number>): boolean {
-  const left: Record<Color, number> = { W: pool.W, U: pool.U, B: pool.B, R: pool.R, G: pool.G, C: pool.C };
-  for (const c of COLORS) {
-    if (left[c] < cost.colors[c]) return false;
-    left[c] -= cost.colors[c];
-  }
-  const totalRemaining = COLORS.reduce((a, c) => a + (left[c] || 0), 0);
-  return totalRemaining >= cost.generic;
-}
 function paymentToPool(payment?: PaymentItem[]): Record<Color, number> {
   const pool: Record<Color, number> = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
   for (const p of (payment || [])) {
@@ -139,19 +155,42 @@ function paymentToPool(payment?: PaymentItem[]): Record<Color, number> {
   }
   return pool;
 }
+function canPayEnhanced(
+  baseCost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] },
+  pool: Record<Color, number>
+): boolean {
+  // copy
+  const leftPool: Record<Color, number> = { W: pool.W, U: pool.U, B: pool.B, R: pool.R, G: pool.G, C: pool.C };
+  // pay fixed colors
+  for (const c of COLORS) {
+    if (leftPool[c] < baseCost.colors[c]) return false;
+    leftPool[c] -= baseCost.colors[c];
+  }
+  // satisfy hybrids greedily from pool
+  for (const group of baseCost.hybrids) {
+    let satisfied = false;
+    for (const c of group) {
+      if (leftPool[c] > 0) { leftPool[c] -= 1; satisfied = true; break; }
+    }
+    if (!satisfied) return false;
+  }
+  // generic last
+  const totalRemaining = COLORS.reduce((a, c) => a + (leftPool[c] || 0), 0);
+  return totalRemaining >= baseCost.generic;
+}
 
-// NEW: simple greedy auto-payment if client sends none (colored first, then generic)
+// NEW: simple greedy auto-payment for non-hybrid costs; colored first, then generic
 function autoSelectPayment(
   sources: Array<{ id: string; options: Color[] }>,
-  cost: { colors: Record<Color, number>; generic: number }
+  cost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] }
 ): PaymentItem[] | null {
+  if ((cost.hybrids || []).length > 0) return null; // require manual for hybrids for now
   const remainingColors: Record<Color, number> = { W: cost.colors.W, U: cost.colors.U, B: cost.colors.B, R: cost.colors.R, G: cost.colors.G, C: cost.colors.C };
   let remainingGeneric = cost.generic;
   const unused = sources.slice();
   const payment: PaymentItem[] = [];
-
   // Colored first
-  for (const c of ['W', 'U', 'B', 'R', 'G', 'C'] as Color[]) {
+  for (const c of COLORS) {
     while (remainingColors[c] > 0) {
       const idx = unused.findIndex(s => s.options.includes(c));
       if (idx < 0) return null;
@@ -160,17 +199,25 @@ function autoSelectPayment(
       remainingColors[c] -= 1;
     }
   }
-
   // Generic
-  const remainingNeeded = Math.max(0, remainingGeneric);
-  for (let i = 0; i < remainingNeeded; i++) {
+  for (let i = 0; i < remainingGeneric; i++) {
     if (unused.length === 0) return null;
     const src = unused.shift()!;
-    const mana = src.options[0]; // any available
+    const mana = src.options[0]!;
     payment.push({ permanentId: src.id, mana });
   }
-
   return payment;
+}
+
+function appendGenericToCostString(manaCost: string | undefined, genericAdd: number): string | undefined {
+  if (!manaCost) return genericAdd > 0 ? `{${genericAdd}}` : undefined;
+  if (genericAdd <= 0) return manaCost;
+  // Commander tax increases in steps of 2; append repeated {2}
+  const parts: string[] = [];
+  let left = genericAdd;
+  while (left >= 2) { parts.push('{2}'); left -= 2; }
+  if (left === 1) parts.push('{1}');
+  return `${manaCost}${parts.join('')}`;
 }
 
 export function registerSocketHandlers(io: TypedServer) {
@@ -242,16 +289,82 @@ export function registerSocketHandlers(io: TypedServer) {
       broadcastGame(io, game, gameId);
     });
 
-    socket.on('castCommander', ({ gameId, commanderNameOrId }) => {
+    // Reworked: initiate commander cast flow (like beginCast but from command zone)
+    socket.on('castCommander', async ({ gameId, commanderNameOrId }) => {
       const pid = socket.data.playerId as PlayerID | undefined;
       if (!pid || socket.data.spectator) return;
       const game = ensureGame(gameId);
+
+      if (game.state.priority !== pid) {
+        socket.emit('error', { code: 'CAST', message: 'You must have priority to cast a spell' });
+        return;
+      }
+
       const info = game.state.commandZone?.[pid];
-      const id = info?.commanderIds?.find(x => x === commanderNameOrId) || commanderNameOrId;
-      game.applyEvent({ type: 'castCommander', playerId: pid, commanderId: id });
-      appendEvent(gameId, game.seq, 'castCommander', { playerId: pid, commanderId: id });
-      io.to(gameId).emit('chat', { id: `m_${Date.now()}`, gameId, from: 'system', message: `Commander cast declared for ${commanderNameOrId} (tax updated)`, ts: Date.now() });
-      broadcastGame(io, game, gameId);
+      if (!info) { socket.emit('error', { code: 'CMD', message: 'No commander set' }); return; }
+      const idOrName = commanderNameOrId;
+      let card: any | null = null;
+      try {
+        // Try to fetch by name or id. We rely on scryfall data for mana_cost/oracle.
+        card = await fetchCardByExactNameStrict(idOrName);
+      } catch {
+        // ignore; we will error if card remains null
+      }
+      if (!card) {
+        socket.emit('error', { code: 'CMD', message: `Commander "${commanderNameOrId}" not found` });
+        return;
+      }
+
+      const baseManaCost = card.mana_cost as string | undefined;
+      const tax = Number(info.tax || 0) || 0;
+      const displayCost = appendGenericToCostString(baseManaCost, tax);
+
+      const spec = categorizeSpell(card.name, card.oracle_text);
+      const valid = spec ? evalTargets(game.state, pid, spec) : [];
+      const spellId = newSpellId();
+
+      // Compute payment sources (with fallback for basics)
+      const sources = (game.state.battlefield || [])
+        .filter(p => p.controller === pid && !p.tapped)
+        .map(p => {
+          const opts = manaOptionsForPermanent(p);
+          if (opts.length === 0) return null;
+          const name = ((p.card as any)?.name) || p.id;
+          return { id: p.id, name, options: opts };
+        })
+        .filter(Boolean) as Array<{ id: string; name: string; options: Color[] }>;
+
+      let map = pendingByGame.get(gameId);
+      if (!map) { map = new Map(); pendingByGame.set(gameId, map); }
+      map.set(spellId, {
+        spellId,
+        caster: pid,
+        fromZone: 'commandZone',
+        cardSnapshot: {
+          id: card.id,
+          name: card.name,
+          type_line: card.type_line,
+          oracle_text: card.oracle_text,
+          image_uris: card.image_uris
+        },
+        spec: spec ?? null,
+        valid,
+        chosen: [],
+        min: spec?.minTargets ?? 0,
+        max: spec?.maxTargets ?? 0,
+        manaCost: displayCost
+      });
+
+      socket.emit('validTargets', {
+        gameId,
+        spellId,
+        minTargets: spec?.minTargets ?? 0,
+        maxTargets: spec?.maxTargets ?? 0,
+        targets: valid,
+        note: !spec ? 'No targets required' : (spec.minTargets === 0 && spec.maxTargets === 0 ? 'No selection required; confirm to put on stack' : undefined),
+        manaCost: displayCost,
+        paymentSources: sources
+      });
     });
 
     socket.on('moveCommanderToCommandZone', ({ gameId, commanderNameOrId }) => {
@@ -578,7 +691,6 @@ export function registerSocketHandlers(io: TypedServer) {
       const valid = spec ? evalTargets(game.state, pid, spec) : [];
       const spellId = newSpellId();
 
-      // Compute manaCost via Scryfall if missing
       let manaCost: string | undefined = (card as any).mana_cost;
       if (!manaCost) {
         try {
@@ -589,7 +701,6 @@ export function registerSocketHandlers(io: TypedServer) {
         }
       }
 
-      // Compute payment sources (with fallback for basic lands)
       const sources = (game.state.battlefield || [])
         .filter(p => p.controller === pid && !p.tapped)
         .map(p => {
@@ -605,7 +716,15 @@ export function registerSocketHandlers(io: TypedServer) {
       map.set(spellId, {
         spellId,
         caster: pid,
-        cardId,
+        fromZone: 'hand',
+        cardInHandId: card.id,
+        cardSnapshot: {
+          id: card.id,
+          name: card.name,
+          type_line: card.type_line,
+          oracle_text: card.oracle_text,
+          image_uris: card.image_uris
+        },
         spec: spec ?? null,
         valid,
         chosen: [],
@@ -648,7 +767,7 @@ export function registerSocketHandlers(io: TypedServer) {
       map!.delete(spellId);
     });
 
-    socket.on('confirmCast', async ({ gameId, spellId, payment }) => {
+    socket.on('confirmCast', async ({ gameId, spellId, payment, xValue }) => {
       const game = ensureGame(gameId);
       const pid = socket.data.playerId as PlayerID | undefined;
       if (!pid) return;
@@ -661,14 +780,19 @@ export function registerSocketHandlers(io: TypedServer) {
         return;
       }
 
-      const z = game.state.zones?.[pid];
-      const hand = (z?.hand ?? []) as any[];
-      const idxInHand = hand.findIndex(c => c.id === pending.cardId);
-      if (idxInHand < 0) {
-        socket.emit('error', { code: 'CAST', message: `Card not in hand` });
-        return;
+      let isFromHand = pending.fromZone === 'hand';
+      let hand: any[] = [];
+      let z = game.state.zones?.[pid];
+      if (isFromHand) {
+        hand = (z?.hand ?? []) as any[];
+        const idxInHand = hand.findIndex(c => c.id === pending.cardInHandId);
+        if (idxInHand < 0) {
+          socket.emit('error', { code: 'CAST', message: `Card not in hand` });
+          return;
+        }
       }
-      const card = hand[idxInHand];
+
+      const card = pending.cardSnapshot;
 
       // Sorcery-speed enforcement
       const typeLine = (card?.type_line || '').toLowerCase();
@@ -692,18 +816,25 @@ export function registerSocketHandlers(io: TypedServer) {
       const manaCostStr = pending.manaCost || (await (async () => {
         try { const scry = await fetchCardByExactNameStrict(card.name); return scry?.mana_cost || ''; } catch { return ''; }
       })());
-      const cost = parseManaCost(manaCostStr);
 
-      // If no payment provided, attempt auto-selection from available sources
+      const parsed = parseManaCost(manaCostStr);
+      const x = Math.max(0, Number(xValue || 0) | 0);
+      const costForPay: { colors: Record<Color, number>; generic: number; hybrids: Color[][] } = {
+        colors: { ...parsed.colors },
+        generic: parsed.generic + x,
+        hybrids: parsed.hybrids.slice()
+      };
+
+      // If no payment provided, attempt auto-selection (hybrid requires manual)
       let paymentList: PaymentItem[] = Array.isArray(payment) ? payment : [];
       if (!paymentList.length) {
         const sources = (game.state.battlefield || [])
           .filter(p => p.controller === pid && !p.tapped)
           .map(p => ({ id: p.id, options: manaOptionsForPermanent(p) }))
           .filter(s => s.options.length > 0);
-        const auto = autoSelectPayment(sources, cost);
+        const auto = autoSelectPayment(sources, costForPay);
         if (!auto) {
-          socket.emit('error', { code: 'PAY', message: 'Costs cannot be fully met with available untapped sources' });
+          socket.emit('error', { code: 'PAY', message: costForPay.hybrids.length ? 'Hybrid mana requires manual selection' : 'Costs cannot be fully met with available untapped sources' });
           return;
         }
         paymentList = auto;
@@ -722,8 +853,9 @@ export function registerSocketHandlers(io: TypedServer) {
         }
       }
 
+      // Resolve hybrids against chosen payment pool flexibly
       const pool = paymentToPool(paymentList);
-      if (!canPay(cost, pool)) {
+      if (!canPayEnhanced(costForPay, pool)) {
         socket.emit('error', { code: 'PAY', message: 'Costs cannot be fully met with selected payment' });
         return;
       }
@@ -734,10 +866,22 @@ export function registerSocketHandlers(io: TypedServer) {
         if (perm) perm.tapped = true;
       }
 
-      // Move the card from hand to stack snapshot
-      hand.splice(idxInHand, 1);
-      z!.handCount = hand.length;
+      // Move the card from hand if needed
+      if (isFromHand) {
+        const idxInHand = hand.findIndex(c => c.id === pending.cardInHandId);
+        if (idxInHand >= 0) {
+          hand.splice(idxInHand, 1);
+          z!.handCount = hand.length;
+        }
+      } else {
+        // Commander: bump commander tax now that cast is declared
+        const info = game.state.commandZone?.[pid];
+        const id = info?.commanderIds?.find(x => x === card.id) || card.id;
+        game.applyEvent({ type: 'castCommander', playerId: pid, commanderId: id });
+        appendEvent(gameId, game.seq, 'castCommander', { playerId: pid, commanderId: id });
+      }
 
+      // Push to stack
       const targetsEncoded = pending.chosen.map(t => `${t.kind}:${t.id}`);
       const stackId = newStackId();
       const item = {
@@ -748,7 +892,7 @@ export function registerSocketHandlers(io: TypedServer) {
           name: card.name,
           type_line: card.type_line,
           oracle_text: card.oracle_text,
-          image_uris: card.image_uris
+          image_uris: (card as any).image_uris
         },
         targets: targetsEncoded
       };

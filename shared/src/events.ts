@@ -31,6 +31,12 @@ export interface ClientToServerEvents {
   drawCards: (payload: { gameId: GameID; count: number }) => void;
   shuffleHandIntoLibrary: (payload: { gameId: GameID }) => void;
 
+  // Hand management (owner only)
+  // Reorder hand by positions. order[i] = old index that moves to new index i. Must be a permutation of 0..n-1
+  reorderHand: (payload: { gameId: GameID; order: number[] }) => void;
+  // Shuffle your hand (server RNG).
+  shuffleHand: (payload: { gameId: GameID }) => void;
+
   // Search (owner only)
   searchLibrary: (payload: { gameId: GameID; query: string; limit?: number }) => void;
   selectFromSearch: (payload: {
@@ -58,7 +64,6 @@ export interface ClientToServerEvents {
   beginCast: (payload: { gameId: GameID; cardId: string }) => void;
   chooseTargets: (payload: { gameId: GameID; spellId: string; chosen: TargetRef[] }) => void;
   cancelCast: (payload: { gameId: GameID; spellId: string }) => void;
-  // Optional payment; server may ignore if not enabled yet
   confirmCast: (payload: { gameId: GameID; spellId: string; payment?: PaymentItem[] }) => void;
 
   // Lands

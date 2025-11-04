@@ -3,13 +3,30 @@ import type { PaymentItem } from '../../../shared/src';
 
 type Color = PaymentItem['mana'];
 
-function parseManaCost(manaCost?: string): { colors: Record<Color, number>; generic: number } {
-  const res: { colors: Record<Color, number>; generic: number } = { colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 }, generic: 0 };
+function parseManaCost(manaCost?: string): { colors: Record<Color, number>; generic: number; hybrids: Color[][]; hasX: boolean } {
+  const res: { colors: Record<Color, number>; generic: number; hybrids: Color[][]; hasX: boolean } =
+    { colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 }, generic: 0, hybrids: [], hasX: false };
   if (!manaCost) return res;
   const tokens = manaCost.match(/\{[^}]+\}/g) || [];
   for (const t of tokens) {
-    const sym = t.replace(/[{}]/g, '');
+    const sym = t.replace(/[{}]/g, '').toUpperCase();
+    if (sym === 'X') { res.hasX = true; continue; }
     if (/^\d+$/.test(sym)) { res.generic += parseInt(sym, 10); continue; }
+    if (sym.includes('/')) {
+      const parts = sym.split('/');
+      if (parts.length === 2 && parts[1] === 'P') {
+        const c = parts[0] as Color;
+        if ((['W','U','B','R','G','C'] as const).includes(c)) res.colors[c] += 1;
+        continue;
+      }
+      if (parts.length === 2 && (['W','U','B','R','G','C'] as const).includes(parts[0] as Color) && (['W','U','B','R','G','C'] as const).includes(parts[1] as Color)) {
+        res.hybrids.push([parts[0] as Color, parts[1] as Color]);
+        continue;
+      }
+      // two-brid fallback: treat numeric as generic
+      const num = parseInt(parts[0], 10);
+      if (!Number.isNaN(num)) { res.generic += num; continue; }
+    }
     if ((['W','U','B','R','G','C'] as const).includes(sym as Color)) {
       res.colors[sym as Color] += 1;
       continue;
@@ -25,64 +42,45 @@ function paymentToPool(payment: PaymentItem[]): Record<Color, number> {
   }, { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 });
 }
 
-function canPay(cost: { colors: Record<Color, number>; generic: number }, pool: Record<Color, number>): boolean {
+function canPayEnhanced(cost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] }, pool: Record<Color, number>): boolean {
   const left: Record<Color, number> = { W: pool.W, U: pool.U, B: pool.B, R: pool.R, G: pool.G, C: pool.C };
   for (const c of (['W','U','B','R','G','C'] as const)) {
     if (left[c] < cost.colors[c]) return false;
     left[c] -= cost.colors[c];
   }
+  for (const group of cost.hybrids) {
+    let satisfied = false;
+    for (const c of group) {
+      if (left[c] > 0) { left[c] -= 1; satisfied = true; break; }
+    }
+    if (!satisfied) return false;
+  }
   const total = (['W','U','B','R','G','C'] as const).reduce((a, c) => a + left[c], 0);
   return total >= cost.generic;
 }
 
-function remainingCost(cost: { colors: Record<Color, number>; generic: number }, pool: Record<Color, number>) {
+function remainingAfter(cost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] }, pool: Record<Color, number>) {
   const leftColors: Record<Color, number> = { ...cost.colors };
-  const poolCopy: Record<Color, number> = { ...pool };
-  // subtract colored
+  const leftPool: Record<Color, number> = { ...pool };
+  // consume fixed colors
   for (const c of (['W','U','B','R','G','C'] as const)) {
-    const use = Math.min(leftColors[c], poolCopy[c]);
+    const use = Math.min(leftColors[c], leftPool[c]);
     leftColors[c] -= use;
-    poolCopy[c] -= use;
+    leftPool[c] -= use;
   }
-  // now generic
-  const totalPool = (['W','U','B','R','G','C'] as const).reduce((a, c) => a + poolCopy[c], 0);
-  const leftGeneric = Math.max(0, cost.generic - totalPool);
-  return { colors: leftColors, generic: leftGeneric };
-}
-
-// Client-side greedy auto-select to mirror server fallback:
-// - satisfy colored requirements first (W,U,B,R,G,C), one mana per source
-// - then generic with any remaining sources
-function autoSelectPayment(
-  sources: Array<{ id: string; options: Color[] }>,
-  cost: { colors: Record<Color, number>; generic: number }
-): PaymentItem[] | null {
-  const remainingColors: Record<Color, number> = { W: cost.colors.W, U: cost.colors.U, B: cost.colors.B, R: cost.colors.R, G: cost.colors.G, C: cost.colors.C };
-  let remainingGeneric = cost.generic;
-  const unused = sources.slice();
-  const payment: PaymentItem[] = [];
-
-  // Colored first
-  for (const c of (['W','U','B','R','G','C'] as const)) {
-    while (remainingColors[c] > 0) {
-      const idx = unused.findIndex(s => s.options.includes(c));
-      if (idx < 0) return null;
-      const src = unused.splice(idx, 1)[0];
-      payment.push({ permanentId: src.id, mana: c });
-      remainingColors[c] -= 1;
+  // consume hybrids
+  const unsatisfiedHybrids: Color[][] = [];
+  for (const g of cost.hybrids) {
+    let ok = false;
+    for (const c of g) {
+      if (leftPool[c] > 0) { leftPool[c] -= 1; ok = true; break; }
     }
+    if (!ok) unsatisfiedHybrids.push(g);
   }
-
-  // Generic
-  const remainingNeeded = Math.max(0, remainingGeneric);
-  for (let i = 0; i < remainingNeeded; i++) {
-    if (unused.length === 0) return null;
-    const src = unused.shift()!;
-    const mana = src.options[0]; // any available
-    payment.push({ permanentId: src.id, mana });
-  }
-
-  return payment;
+  // generic
+  const totalPool = (['W','U','B','R','G','C'] as const).reduce((a, c) => a + leftPool[c], 0);
+  const leftGeneric = Math.max(0, cost.generic - totalPool);
+  return { colors: leftColors, hybrids: unsatisfiedHybrids, generic: leftGeneric };
 }
 
 function costBadge(label: string, n: number) {
@@ -96,21 +94,25 @@ function costBadge(label: string, n: number) {
 
 export function PaymentPicker(props: {
   manaCost?: string;
+  manaCostDisplay?: string;
   sources: Array<{ id: string; name: string; options: Color[] }>;
   chosen: PaymentItem[];
+  xValue?: number;
+  onChangeX?: (x: number) => void;
   onChange: (next: PaymentItem[]) => void;
 }) {
-  const { manaCost, sources, chosen, onChange } = props;
+  const { manaCost, manaCostDisplay, sources, chosen, xValue = 0, onChangeX, onChange } = props;
 
-  const cost = useMemo(() => parseManaCost(manaCost), [manaCost]);
+  const parsed = useMemo(() => parseManaCost(manaCost), [manaCost]);
+  const cost = useMemo(() => ({ colors: parsed.colors, generic: parsed.generic + Math.max(0, Number(xValue || 0) | 0), hybrids: parsed.hybrids }), [parsed, xValue]);
   const pool = useMemo(() => paymentToPool(chosen), [chosen]);
-  const satisfied = useMemo(() => canPay(cost, pool), [cost, pool]);
-  const remaining = useMemo(() => remainingCost(cost, pool), [cost, pool]);
+  const satisfied = useMemo(() => canPayEnhanced(cost, pool), [cost, pool]);
+  const remaining = useMemo(() => remainingAfter(cost, pool), [cost, pool]);
 
   const chosenById = useMemo(() => new Set(chosen.map(p => p.permanentId)), [chosen]);
 
   const add = (permanentId: string, mana: Color) => {
-    if (chosenById.has(permanentId)) return; // one mana per source
+    if (chosenById.has(permanentId)) return; // one per source
     onChange([...chosen, { permanentId, mana }]);
   };
   const remove = (permanentId: string) => {
@@ -119,18 +121,35 @@ export function PaymentPicker(props: {
   const clear = () => onChange([]);
 
   const doAutoSelect = () => {
-    const baseSources = sources.map(s => ({ id: s.id, options: s.options }));
-    const auto = autoSelectPayment(baseSources, cost);
-    if (auto) onChange(auto);
+    // client-only hint: prefer manual for hybrids
+    alert('For hybrid costs, please select payment manually. Auto-select works for non-hybrid costs.');
   };
 
   return (
     <div style={{ display: 'grid', gap: 8, minWidth: 420 }}>
+      {/* Raw cost display */}
+      <div style={{ fontSize: 12, opacity: 0.8 }}>Cost: {manaCostDisplay || manaCost || '(none)'}</div>
+
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <b>Cost:</b>
-        {(['W','U','B','R','G','C'] as const).map(c => costBadge(c, cost.colors[c]))}
-        {costBadge('Generic', cost.generic)}
-        {!manaCost && <span style={{ fontSize: 12, opacity: 0.7 }}>(no mana cost)</span>}
+        <b>Cost breakdown:</b>
+        {(['W','U','B','R','G','C'] as const).map(c => costBadge(c, parsed.colors[c]))}
+        {parsed.hybrids.length > 0 && <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+          Hybrid: {parsed.hybrids.map((g, i) => <span key={i} style={{ border: '1px solid #ddd', borderRadius: 12, padding: '2px 6px', fontSize: 12 }}>{g.join('/')}</span>)}
+        </span>}
+        {costBadge('Generic', parsed.generic)}
+        {parsed.hasX && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            X:
+            <input
+              type="number"
+              min={0}
+              value={xValue}
+              onChange={e => onChangeX && onChangeX(Math.max(0, Number(e.target.value) || 0))}
+              style={{ width: 64 }}
+              title="Set X value"
+            />
+          </span>
+        )}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -142,6 +161,9 @@ export function PaymentPicker(props: {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <b>Remaining:</b>
         {(['W','U','B','R','G','C'] as const).map(c => costBadge(c, remaining.colors[c]))}
+        {remaining.hybrids.length > 0 && <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+          Hybrid: {remaining.hybrids.map((g, i) => <span key={i} style={{ border: '1px solid #ddd', borderRadius: 12, padding: '2px 6px', fontSize: 12 }}>{g.join('/')}</span>)}
+        </span>}
         {costBadge('Generic', remaining.generic)}
         {satisfied && <span style={{ fontSize: 12, color: '#2b6cb0' }}>Cost satisfied</span>}
       </div>
@@ -149,8 +171,10 @@ export function PaymentPicker(props: {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <b>Sources:</b>
         <button onClick={clear} disabled={chosen.length === 0} title="Clear selected payment">Clear</button>
-        <button onClick={doAutoSelect} disabled={sources.length === 0 || satisfied} title="Auto-select payment from available sources">Auto-select</button>
-        <span style={{ fontSize: 12, opacity: 0.7 }}>Tip: leave selection empty to auto-pay on server</span>
+        <button onClick={doAutoSelect} disabled={sources.length === 0 || parsed.hybrids.length > 0 || satisfied} title="Auto-select (non-hybrid costs)">
+          Auto-select
+        </button>
+        <span style={{ fontSize: 12, opacity: 0.7 }}>Tip: leave empty to auto-pay on server</span>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8, maxHeight: 220, overflow: 'auto', paddingRight: 2 }}>
