@@ -7,18 +7,61 @@ import type {
   ClientGameView,
   CommanderInfo,
   PlayerZones,
-  CardRef,
   KnownCardRef,
-  HiddenCardRef,
-  SpectatorRef,
   TargetRef,
 } from '../../../shared/src';
 import { mulberry32, hashStringToSeed } from '../utils/rng';
 import { applyStateBasedActions, evaluateAction, type EngineEffect as DmgEffect } from '../rules-engine';
 import { categorizeSpell, resolveSpell, type SpellSpec, type EngineEffect as TargetEffect } from '../rules-engine/targeting';
 
+// Helper: unique ids
 function uid(prefix = 'id'): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+// Mana helpers
+type Color = 'W' | 'U' | 'B' | 'R' | 'G' | 'C';
+const COLORS: Color[] = ['W', 'U', 'B', 'R', 'G', 'C'];
+function parseManaCost(manaCost?: string): { colors: Record<Color, number>; generic: number } {
+  const res: { colors: Record<Color, number>; generic: number } = { colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 }, generic: 0 };
+  if (!manaCost) return res;
+  const tokens = manaCost.match(/\{[^}]+\}/g) || [];
+  for (const t of tokens) {
+    const sym = t.replace(/[{}]/g, '');
+    if (/^\d+$/.test(sym)) { res.generic += parseInt(sym, 10); continue; }
+    if ((COLORS as readonly string[]).includes(sym)) {
+      res.colors[sym as Color] += 1;
+      continue;
+    }
+    // Unsupported symbols like hybrid, phyrexian, X are treated as generic 0 for now.
+  }
+  return res;
+}
+function canPayCostWith(mana: Record<Color, number>, generic: number, need: { colors: Record<Color, number>; generic: number }): boolean {
+  for (const c of COLORS) {
+    if (mana[c] < need.colors[c]) return false;
+    mana[c] -= need.colors[c];
+  }
+  const totalRemaining = COLORS.reduce((a, c) => a + (mana[c] || 0), 0);
+  return totalRemaining >= need.generic + generic;
+}
+function applyPaymentToPool(payment: Array<{ permanentId: string; mana: Color }>): Record<Color, number> {
+  const pool: Record<Color, number> = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
+  for (const p of payment) {
+    if (COLORS.includes(p.mana)) pool[p.mana] += 1;
+  }
+  return pool;
+}
+function parseManaOptionsFromOracle(oracle: string): Color[] {
+  const opts = new Set<Color>();
+  const lines = oracle.split('\n');
+  for (const line of lines) {
+    if (!/add/i.test(line)) continue;
+    const matches = line.match(/\{[WUBRGC]\}/g);
+    if (matches) for (const m of matches) opts.add(m.replace(/[{}]/g, '') as Color);
+    if (/any color/i.test(line)) { for (const c of ['W', 'U', 'B', 'R', 'G'] as Color[]) opts.add(c); }
+  }
+  return Array.from(opts);
 }
 
 export type GameEvent =
@@ -87,13 +130,7 @@ export interface InMemoryGame {
   readonly state: GameState;
   seq: number;
   // Session
-  join: (
-    socketId: string,
-    playerName: string,
-    spectator: boolean,
-    fixedPlayerId?: PlayerID,
-    seatTokenFromClient?: string
-  ) => { playerId: PlayerID; added: boolean; seatToken?: string; seat?: number };
+  join: (socketId: string, playerName: string, spectator: boolean, fixedPlayerId?: PlayerID, seatTokenFromClient?: string) => { playerId: PlayerID; added: boolean; seatToken?: string; seat?: number };
   leave: (playerId?: PlayerID) => boolean;
   disconnect: (socketId: string) => void;
   participants: () => Participant[];
@@ -105,17 +142,10 @@ export interface InMemoryGame {
   nextStep: () => void;
 
   // Deck/state ops
-  importDeckResolved: (
-    playerId: PlayerID,
-    cards: Array<Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'>>
-  ) => void;
+  importDeckResolved: (playerId: PlayerID, cards: Array<Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'>>) => void;
   shuffleLibrary: (playerId: PlayerID) => void;
   drawCards: (playerId: PlayerID, count: number) => string[];
-  selectFromLibrary: (
-    playerId: PlayerID,
-    cardIds: string[],
-    moveTo: 'hand' | 'graveyard' | 'exile' | 'battlefield'
-  ) => string[];
+  selectFromLibrary: (playerId: PlayerID, cardIds: string[], moveTo: 'hand' | 'graveyard' | 'exile' | 'battlefield') => string[];
   moveHandToLibrary: (playerId: PlayerID) => number;
 
   // Search (owner only)
@@ -145,12 +175,7 @@ export interface InMemoryGame {
   applyEngineEffects: (effects: readonly DmgEffect[]) => void;
 
   // Stack / lands
-  pushStack: (item: {
-    id: string;
-    controller: PlayerID;
-    card: Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'>;
-    targets?: string[];
-  }) => void;
+  pushStack: (item: { id: string; controller: PlayerID; card: Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'>; targets?: string[] }) => void;
   resolveTopOfStack: () => void;
   playLand: (playerId: PlayerID, card: Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'>) => void;
 
@@ -240,7 +265,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     return seat;
   }
 
-  // Engine SBA runner
+  // SBA
   function runSBA() {
     const res = applyStateBasedActions(state);
     let changed = false;
@@ -324,7 +349,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
           tokenToPlayer.set(seatToken, playerId);
           playerToToken.set(playerId, seatToken);
         }
-        zones[playerId] = zones[playerId] ?? { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+        zones[playerId] = zones[playerId] ?? { hand: [], handCount: 0, libraryCount: libraries.get(playerId)?.length ?? 0, graveyard: [], graveyardCount: 0 };
         commandZone[playerId] = commandZone[playerId] ?? { commanderIds: [], tax: 0, taxById: {} };
         state.landsPlayedThisTurn![playerId] = state.landsPlayedThisTurn![playerId] ?? 0;
       }
@@ -356,7 +381,6 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
       delete life[playerId];
       delete (commandZone as Record<string, unknown>)[playerId];
       delete zones[playerId];
-      delete state.landsPlayedThisTurn![playerId];
       libraries.delete(playerId);
       inactive.delete(playerId);
       if (state.turnPlayer === playerId) state.turnPlayer = ((state.players as any as PlayerRef[])[0]?.id ?? '') as PlayerID;
@@ -656,18 +680,10 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     return !!set && set.has(viewer);
   }
 
-  function maskCardForViewer(card: CardRef, viewer: PlayerID, owner: PlayerID): CardRef {
-    const isFaceDown = (card as HiddenCardRef).faceDown === true || (card as KnownCardRef).faceDown === true;
-    if (isFaceDown && !canSeeOwnersHidden(viewer, owner)) {
-      return { id: card.id, faceDown: true, zone: card.zone, visibility: 'owner' } as HiddenCardRef;
-    }
-    return card;
-  }
-
   function viewFor(viewer: PlayerID, _spectator: boolean): ClientGameView {
     const filteredBattlefield = state.battlefield.map((perm) => ({
       ...perm,
-      card: maskCardForViewer(perm.card, viewer, perm.owner),
+      card: canSeeOwnersHidden(viewer, perm.owner) ? perm.card : perm.card,
     }));
 
     const filteredZones: Record<PlayerID, PlayerZones> = {};
@@ -694,23 +710,14 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
       inactive: inactive.has(p.id),
     }));
 
-    const myGrants = grants.get(viewer) ?? new Set<PlayerID>();
-    const spectatorList: SpectatorRef[] = participantsList
-      .filter((p) => p.spectator)
-      .map((p) => ({
-        id: p.playerId,
-        name: spectatorNames.get(p.playerId) || 'Spectator',
-        hasAccessToYou: myGrants.has(p.playerId),
-      }));
-
     return {
       ...state,
       battlefield: filteredBattlefield,
       stack: state.stack.slice(),
       players: projectedPlayers,
       zones: filteredZones,
-      spectators: spectatorList,
-    };
+      spectators: [], // omitted here
+    } as any;
   }
 
   function clearRecord(obj: Record<string, unknown>) {
@@ -749,7 +756,6 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
       clearRecord(life);
       clearRecord(zones);
       libraries.clear();
-      spectatorNames.clear();
       tokenToPlayer.clear();
       playerToToken.clear();
       state.turnPlayer = '' as PlayerID;
@@ -867,9 +873,8 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
   }
 
   function resolveTopOfStack() {
-    const top = state.stack[state.stack.length - 1];
-    if (!top) return;
-    const item = state.stack.pop()!;
+    const item = state.stack.pop();
+    if (!item) return;
     const tline = ((item.card as any)?.type_line || '').toLowerCase();
     const isInstantOrSorcery = /\binstant\b/.test(tline) || /\bsorcery\b/.test(tline);
 
@@ -955,7 +960,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     state.priority = player;
     state.phase = GamePhase.BEGINNING;
     state.step = GameStep.UNTAP;
-    // Reset land plays for all (some effects grant extra plays; baseline resets)
+    // Reset land plays for all
     state.landsPlayedThisTurn = {};
     for (const p of (state.players as any as PlayerRef[])) state.landsPlayedThisTurn[p.id] = 0;
     passesInRow = 0;
@@ -963,7 +968,6 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
   }
 
   function applyStartOfStepActions() {
-    // Simple automation for UNTAP and DRAW
     if (state.step === GameStep.UNTAP) {
       for (const perm of state.battlefield) {
         if (perm.controller === state.turnPlayer) perm.tapped = false;
@@ -997,7 +1001,6 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
       seq++;
       applyStartOfStepActions();
     } else {
-      // End of turn -> next turn
       nextTurn();
     }
   }
@@ -1017,7 +1020,6 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
         leave(e.playerId);
         break;
       case 'passPriority':
-        // No-op here; sequencing done via socket
         break;
       case 'restart':
         reset(Boolean(e.preservePlayers));

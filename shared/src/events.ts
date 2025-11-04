@@ -1,5 +1,8 @@
 import type { ClientGameView, GameID, PlayerID, StateDiff, KnownCardRef, TargetRef } from "./types";
 
+// Minimal payment item: one tapped source produces one mana symbol (W/U/B/R/G/C)
+export type PaymentItem = { permanentId: string; mana: 'W' | 'U' | 'B' | 'R' | 'G' | 'C' };
+
 export interface ClientToServerEvents {
   // Session
   joinGame: (payload: { gameId: GameID; playerName: string; spectator?: boolean; seatToken?: string }) => void;
@@ -18,7 +21,7 @@ export interface ClientToServerEvents {
   skipPlayer: (payload: { gameId: GameID; playerId: PlayerID }) => void;
   unskipPlayer: (payload: { gameId: GameID; playerId: PlayerID }) => void;
 
-  // Visibility
+  // Visibility (commander hidden-info grants handled separately)
   grantSpectatorAccess: (payload: { gameId: GameID; spectatorId: PlayerID }) => void;
   revokeSpectatorAccess: (payload: { gameId: GameID; spectatorId: PlayerID }) => void;
 
@@ -51,11 +54,11 @@ export interface ClientToServerEvents {
   // Damage
   dealDamage: (payload: { gameId: GameID; targetPermanentId: string; amount: number; wither?: boolean; infect?: boolean }) => void;
 
-  // Targeting & casting
+  // Targeting & casting with payment
   beginCast: (payload: { gameId: GameID; cardId: string }) => void;
   chooseTargets: (payload: { gameId: GameID; spellId: string; chosen: TargetRef[] }) => void;
   cancelCast: (payload: { gameId: GameID; spellId: string }) => void;
-  confirmCast: (payload: { gameId: GameID; spellId: string }) => void;
+  confirmCast: (payload: { gameId: GameID; spellId: string; payment?: PaymentItem[] }) => void;
 
   // Lands
   playLand: (payload: { gameId: GameID; cardId: string }) => void;
@@ -79,7 +82,7 @@ export interface ServerToClientEvents {
   // Private search results
   searchResults: (payload: { gameId: GameID; cards: Pick<KnownCardRef, 'id' | 'name'>[]; total: number }) => void;
 
-  // Private to caster: valid targets
+  // Private to caster: valid targets + payment context (optional fields for backward-compat)
   validTargets: (payload: {
     gameId: GameID;
     spellId: string;
@@ -87,6 +90,8 @@ export interface ServerToClientEvents {
     maxTargets: number;
     targets: TargetRef[];
     note?: string;
+    manaCost?: string; // Scryfall-style, e.g., "{2}{R}"
+    paymentSources?: Array<{ id: string; name: string; options: Array<'W' | 'U' | 'B' | 'R' | 'G' | 'C'> }>;
   }) => void;
 
   automationErrorReported?: (payload: { message: string }) => void;

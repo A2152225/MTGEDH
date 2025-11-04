@@ -8,9 +8,10 @@ import type {
   ClientGameView,
   PlayerID,
   KnownCardRef,
-  TargetRef
+  TargetRef,
+  PaymentItem
 } from '../../shared/src';
-import { GamePhase, GameStep } from '../../shared/src'; // for sorcery/land checks
+import { GamePhase, GameStep } from '../../shared/src';
 import { createInitialGameState, type InMemoryGame, type GameEvent } from './state/gameState';
 import { computeDiff } from './utils/diff';
 import { createGameIfNotExists, getEvents, appendEvent } from './db';
@@ -21,8 +22,8 @@ import {
   normalizeName,
   fetchCardByExactNameStrict
 } from './services/scryfall';
-import { categorizeSpell, evaluateTargeting as evalTargets } from './rules-engine/targeting';
 
+// types
 type TypedServer = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 
 const games: Map<GameID, InMemoryGame> = new Map();
@@ -36,7 +37,13 @@ type PendingCast = {
   chosen: TargetRef[];
   min: number;
   max: number;
+  manaCost?: string;
 };
+
+// import categorize/eval/resolve from rules-engine targeting
+import { categorizeSpell, evaluateTargeting as evalTargets } from './rules-engine/targeting';
+
+// helpers
 const pendingByGame: Map<GameID, Map<string, PendingCast>> = new Map();
 const newSpellId = () => `sp_${Math.random().toString(36).slice(2, 9)}`;
 const newStackId = () => `st_${Math.random().toString(36).slice(2, 9)}`;
@@ -104,8 +111,53 @@ function broadcastGame(io: TypedServer, game: InMemoryGame, gameId: GameID) {
 }
 
 function isMainPhase(phase?: any, step?: any): boolean {
-  // Consider either phase flags or specific step markers
   return phase === GamePhase.PRECOMBAT_MAIN || phase === GamePhase.POSTCOMBAT_MAIN || step === GameStep.MAIN1 || step === GameStep.MAIN2;
+}
+
+// Payment: derive manaCost from scryfall (by name), compute payment sources from battlefield
+type Color = 'W' | 'U' | 'B' | 'R' | 'G' | 'C';
+const COLORS: Color[] = ['W', 'U', 'B', 'R', 'G', 'C'];
+
+function parseManaCost(manaCost?: string): { colors: Record<Color, number>; generic: number } {
+  const res: { colors: Record<Color, number>; generic: number } = { colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 }, generic: 0 };
+  if (!manaCost) return res;
+  const tokens = manaCost.match(/\{[^}]+\}/g) || [];
+  for (const t of tokens) {
+    const sym = t.replace(/[{}]/g, '');
+    if (/^\d+$/.test(sym)) { res.generic += parseInt(sym, 10); continue; }
+    if ((COLORS as readonly string[]).includes(sym)) {
+      res.colors[sym as Color] += 1;
+      continue;
+    }
+  }
+  return res;
+}
+function parseManaOptionsFromOracle(oracle: string): Color[] {
+  const opts = new Set<Color>();
+  const lines = oracle.split('\n');
+  for (const line of lines) {
+    if (!/add/i.test(line)) continue;
+    const matches = line.match(/\{[WUBRGC]\}/g);
+    if (matches) for (const m of matches) opts.add(m.replace(/[{}]/g, '') as Color);
+    if (/any color/i.test(line)) { for (const c of ['W', 'U', 'B', 'R', 'G'] as Color[]) opts.add(c); }
+  }
+  return Array.from(opts);
+}
+function canPay(cost: { colors: Record<Color, number>; generic: number }, pool: Record<Color, number>): boolean {
+  const left: Record<Color, number> = { W: pool.W, U: pool.U, B: pool.B, R: pool.R, G: pool.G, C: pool.C };
+  for (const c of COLORS) {
+    if (left[c] < cost.colors[c]) return false;
+    left[c] -= cost.colors[c];
+  }
+  const totalRemaining = COLORS.reduce((a, c) => a + (left[c] || 0), 0);
+  return totalRemaining >= cost.generic;
+}
+function paymentToPool(payment?: PaymentItem[]): Record<Color, number> {
+  const pool: Record<Color, number> = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
+  for (const p of (payment || [])) {
+    if (COLORS.includes(p.mana as Color)) pool[p.mana as Color] += 1;
+  }
+  return pool;
 }
 
 export function registerSocketHandlers(io: TypedServer) {
@@ -150,12 +202,69 @@ export function registerSocketHandlers(io: TypedServer) {
       socket.to(gameId).emit('stateDiff', { gameId, diff: computeDiff<ClientGameView>(undefined, view, game.seq) });
     });
 
+    function ensureGame(gameId: GameID): InMemoryGame {
+      let game = games.get(gameId);
+      if (!game) {
+        game = createInitialGameState(gameId);
+        createGameIfNotExists(gameId, String(game.state.format), game.state.startingLife);
+        const persisted = getEvents(gameId);
+        const replayEvents: GameEvent[] = persisted.map(e => ({ type: e.type as any, ...(e.payload || {}) }));
+        game.replay(replayEvents);
+        games.set(gameId, game);
+      }
+      return game;
+    }
+
     // Request state refresh
     socket.on('requestState', ({ gameId }) => {
       const game = games.get(gameId);
       if (!game || !socket.data.playerId) return;
       const view = game.viewFor(socket.data.playerId, Boolean(socket.data.spectator));
       socket.emit('state', { gameId, view, seq: game.seq });
+    });
+
+    // Commander: set/cast/move
+    socket.on('setCommander', async ({ gameId, commanderNames }) => {
+      const pid = socket.data.playerId as PlayerID | undefined;
+      if (!pid || socket.data.spectator) return;
+      const game = ensureGame(gameId);
+      // Resolve names -> ids via Scryfall
+      const ids: string[] = [];
+      for (const name of commanderNames) {
+        try {
+          const card = await fetchCardByExactNameStrict(name);
+          if (card?.id) ids.push(card.id);
+        } catch {
+          // ignore missing
+        }
+      }
+      game.applyEvent({ type: 'setCommander', playerId: pid, commanderNames, commanderIds: ids });
+      appendEvent(gameId, game.seq, 'setCommander', { playerId: pid, commanderNames, commanderIds: ids });
+      broadcastGame(io, game, gameId);
+    });
+
+    socket.on('castCommander', ({ gameId, commanderNameOrId }) => {
+      const pid = socket.data.playerId as PlayerID | undefined;
+      if (!pid || socket.data.spectator) return;
+      const game = ensureGame(gameId);
+      // For this slice, just increment tax (visual feedback). Full command zone cast flow will be wired later.
+      const info = game.state.commandZone?.[pid];
+      const id = info?.commanderIds?.find(x => x === commanderNameOrId) || commanderNameOrId;
+      game.applyEvent({ type: 'castCommander', playerId: pid, commanderId: id });
+      appendEvent(gameId, game.seq, 'castCommander', { playerId: pid, commanderId: id });
+      io.to(gameId).emit('chat', { id: `m_${Date.now()}`, gameId, from: 'system', message: `Commander cast declared for ${commanderNameOrId} (tax updated)`, ts: Date.now() });
+      broadcastGame(io, game, gameId);
+    });
+
+    socket.on('moveCommanderToCommandZone', ({ gameId, commanderNameOrId }) => {
+      const pid = socket.data.playerId as PlayerID | undefined;
+      if (!pid || socket.data.spectator) return;
+      const game = ensureGame(gameId);
+      const info = game.state.commandZone?.[pid];
+      const id = info?.commanderIds?.find(x => x === commanderNameOrId) || commanderNameOrId;
+      game.applyEvent({ type: 'moveCommanderToCZ', playerId: pid, commanderId: id });
+      appendEvent(gameId, game.seq, 'moveCommanderToCZ', { playerId: pid, commanderId: id });
+      broadcastGame(io, game, gameId);
     });
 
     // Priority
@@ -181,7 +290,7 @@ export function registerSocketHandlers(io: TypedServer) {
       io.to(gameId).emit('priority', { gameId, player: game.state.priority });
     });
 
-    // Next turn
+    // Next turn/step
     socket.on('nextTurn', ({ gameId }) => {
       const pid = socket.data.playerId as PlayerID | undefined;
       const game = ensureGame(gameId);
@@ -207,7 +316,6 @@ export function registerSocketHandlers(io: TypedServer) {
       io.to(gameId).emit('priority', { gameId, player: game.state.priority });
     });
 
-    // Next step
     socket.on('nextStep', ({ gameId }) => {
       const pid = socket.data.playerId as PlayerID | undefined;
       const game = ensureGame(gameId);
@@ -305,49 +413,6 @@ export function registerSocketHandlers(io: TypedServer) {
         message: `Player ${playerId} is no longer skipped`,
         ts: Date.now()
       });
-      broadcastGame(io, game, gameId);
-    });
-
-    // Visibility control (players only)
-    socket.on('grantSpectatorAccess', ({ gameId, spectatorId }) => {
-      const game = games.get(gameId);
-      const owner = socket.data.playerId as PlayerID | undefined;
-      if (!game || !owner || socket.data.spectator) return;
-      const isPlayer = game.state.players.some(p => p.id === owner);
-      if (!isPlayer) return;
-
-      game.grantSpectatorAccess(owner, spectatorId);
-      appendEvent(gameId, game.seq, 'spectatorGrant', { owner, spectator: spectatorId });
-
-      io.to(gameId).emit('chat', {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: 'system',
-        message: `Player ${owner} granted hidden-info access to spectator ${spectatorId}`,
-        ts: Date.now()
-      });
-
-      broadcastGame(io, game, gameId);
-    });
-
-    socket.on('revokeSpectatorAccess', ({ gameId, spectatorId }) => {
-      const game = games.get(gameId);
-      const owner = socket.data.playerId as PlayerID | undefined;
-      if (!game || !owner || socket.data.spectator) return;
-      const isPlayer = game.state.players.some(p => p.id === owner);
-      if (!isPlayer) return;
-
-      game.revokeSpectatorAccess(owner, spectatorId);
-      appendEvent(gameId, game.seq, 'spectatorRevoke', { owner, spectator: spectatorId });
-
-      io.to(gameId).emit('chat', {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: 'system',
-        message: `Player ${owner} revoked hidden-info access from spectator ${spectatorId}`,
-        ts: Date.now()
-      });
-
       broadcastGame(io, game, gameId);
     });
 
@@ -492,40 +557,12 @@ export function registerSocketHandlers(io: TypedServer) {
       broadcastGame(io, game, gameId);
     });
 
-    // Search/select (owner only)
-    socket.on('searchLibrary', ({ gameId, query, limit }) => {
-      const pid = socket.data.playerId as PlayerID | undefined;
-      if (!pid || socket.data.spectator) return;
-      const game = ensureGame(gameId);
-      const results = game.searchLibrary(pid, query || '', Math.max(1, Math.min(200, limit ?? 100)));
-      io.to(socket.id).emit('searchResults', { gameId, cards: results, total: results.length });
-    });
-
-    socket.on('selectFromSearch', ({ gameId, cardIds, moveTo, reveal }) => {
-      const pid = socket.data.playerId as PlayerID | undefined;
-      if (!pid || socket.data.spectator) return;
-      const game = ensureGame(gameId);
-      const movedNames = game.selectFromLibrary(pid, cardIds, moveTo);
-      appendEvent(gameId, game.seq, 'selectFromLibrary', { playerId: pid, cardIds, moveTo, reveal: Boolean(reveal) });
-      if (reveal && movedNames.length) {
-        io.to(gameId).emit('chat', {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: 'system',
-          message: `Revealed: ${movedNames.join(', ')}`,
-          ts: Date.now()
-        });
-      }
-      broadcastGame(io, game, gameId);
-    });
-
-    // Targeting + casting flow
-    socket.on('beginCast', ({ gameId, cardId }) => {
+    // Targeting + casting flow with payment
+    socket.on('beginCast', async ({ gameId, cardId }) => {
       const game = ensureGame(gameId);
       const pid = socket.data.playerId as PlayerID | undefined;
       if (!pid || socket.data.spectator) return;
 
-      // Priority enforcement
       if (game.state.priority !== pid) {
         socket.emit('error', { code: 'CAST', message: 'You must have priority to cast a spell' });
         return;
@@ -542,11 +579,32 @@ export function registerSocketHandlers(io: TypedServer) {
       const spec = categorizeSpell(card.name, card.oracle_text);
       const valid = spec ? evalTargets(game.state, pid, spec) : [];
       const spellId = newSpellId();
-      let map = pendingByGame.get(gameId);
-      if (!map) {
-        map = new Map();
-        pendingByGame.set(gameId, map);
+
+      // Compute manaCost via Scryfall if missing
+      let manaCost: string | undefined = (card as any).mana_cost;
+      if (!manaCost) {
+        try {
+          const scry = await fetchCardByExactNameStrict(card.name);
+          manaCost = scry?.mana_cost || undefined;
+        } catch {
+          manaCost = undefined;
+        }
       }
+
+      // Compute payment sources
+      const sources = (game.state.battlefield || [])
+        .filter(p => p.controller === pid && !p.tapped)
+        .map(p => {
+          const opts = parseManaOptionsFromOracle(((p.card as any)?.oracle_text || '') as string)
+            .filter(x => (['W','U','B','R','G','C'] as string[]).includes(x)) as Color[];
+          if (opts.length === 0) return null;
+          const name = ((p.card as any)?.name) || p.id;
+          return { id: p.id, name, options: opts };
+        })
+        .filter(Boolean) as Array<{ id: string; name: string; options: Color[] }>;
+
+      let map = pendingByGame.get(gameId);
+      if (!map) { map = new Map(); pendingByGame.set(gameId, map); }
       map.set(spellId, {
         spellId,
         caster: pid,
@@ -555,7 +613,8 @@ export function registerSocketHandlers(io: TypedServer) {
         valid,
         chosen: [],
         min: spec?.minTargets ?? 0,
-        max: spec?.maxTargets ?? 0
+        max: spec?.maxTargets ?? 0,
+        manaCost
       });
 
       socket.emit('validTargets', {
@@ -564,7 +623,9 @@ export function registerSocketHandlers(io: TypedServer) {
         minTargets: spec?.minTargets ?? 0,
         maxTargets: spec?.maxTargets ?? 0,
         targets: valid,
-        note: !spec ? 'No targets required' : (spec.minTargets === 0 && spec.maxTargets === 0 ? 'No selection required; confirm to put on stack' : undefined)
+        note: !spec ? 'No targets required' : (spec.minTargets === 0 && spec.maxTargets === 0 ? 'No selection required; confirm to put on stack' : undefined),
+        manaCost,
+        paymentSources: sources
       });
     });
 
@@ -578,7 +639,7 @@ export function registerSocketHandlers(io: TypedServer) {
       const allow = new Set(pending.valid.map(t => `${t.kind}:${t.id}`));
       const filtered = pending.spec
         ? chosen.filter(t => allow.has(`${t.kind}:${t.id}`)).slice(0, pending.max)
-        : []; // no targets for non-target spells
+        : [];
       pending.chosen = filtered;
     });
 
@@ -590,7 +651,7 @@ export function registerSocketHandlers(io: TypedServer) {
       map!.delete(spellId);
     });
 
-    socket.on('confirmCast', ({ gameId, spellId }) => {
+    socket.on('confirmCast', async ({ gameId, spellId, payment }) => {
       const game = ensureGame(gameId);
       const pid = socket.data.playerId as PlayerID | undefined;
       if (!pid) return;
@@ -598,17 +659,22 @@ export function registerSocketHandlers(io: TypedServer) {
       const pending = map?.get(spellId);
       if (!pending || pending.caster !== pid) return;
 
-      // Must still have priority to finalize cast
       if (game.state.priority !== pid) {
         socket.emit('error', { code: 'CAST', message: 'You must have priority to cast a spell' });
         return;
       }
 
-      // Sorcery-speed gating for sorceries: stack must be empty, you must be the turn player, and main phase
       const z = game.state.zones?.[pid];
       const hand = (z?.hand ?? []) as any[];
-      const inHand = hand.find(c => c.id === pending.cardId);
-      const typeLine = (inHand?.type_line || '').toLowerCase();
+      const idxInHand = hand.findIndex(c => c.id === pending.cardId);
+      if (idxInHand < 0) {
+        socket.emit('error', { code: 'CAST', message: `Card not in hand` });
+        return;
+      }
+      const card = hand[idxInHand];
+
+      // Sorcery-speed
+      const typeLine = (card?.type_line || '').toLowerCase();
       const isSorcery = /\bsorcery\b/.test(typeLine);
       if (isSorcery) {
         if (game.state.stack.length > 0) {
@@ -625,18 +691,40 @@ export function registerSocketHandlers(io: TypedServer) {
         }
       }
 
-      if (pending.min > 0 && pending.chosen.length < pending.min) {
-        socket.emit('error', { code: 'CAST', message: `Select at least ${pending.min} target(s)` });
+      // Payment validation (fail closed)
+      const manaCostStr = pending.manaCost || (await (async () => {
+        try { const scry = await fetchCardByExactNameStrict(card.name); return scry?.mana_cost || ''; } catch { return ''; }
+      })());
+      const cost = parseManaCost(manaCostStr);
+
+      // Build pool
+      const pool = paymentToPool(payment);
+      // Verify each source legality (untapped, belongs to player, can produce chosen mana)
+      for (const p of (payment || [])) {
+        const perm = game.state.battlefield.find(b => b.id === p.permanentId);
+        if (!perm) { socket.emit('error', { code: 'PAY', message: 'Invalid payment source' }); return; }
+        if (perm.controller !== pid) { socket.emit('error', { code: 'PAY', message: 'You do not control a payment source' }); return; }
+        if (perm.tapped) { socket.emit('error', { code: 'PAY', message: 'A chosen source is already tapped' }); return; }
+        const oracle = ((perm.card as any)?.oracle_text || '') as string;
+        const opts = parseManaOptionsFromOracle(oracle);
+        if (!opts.includes(p.mana as Color)) {
+          socket.emit('error', { code: 'PAY', message: `Source cannot produce ${p.mana}` });
+          return;
+        }
+      }
+      if (!canPay(cost, pool)) {
+        socket.emit('error', { code: 'PAY', message: 'Costs cannot be fully met with selected payment' });
         return;
       }
 
-      // Move the card from hand to stack snapshot
-      const i = hand.findIndex(c => c.id === pending.cardId);
-      if (i < 0) {
-        socket.emit('error', { code: 'CAST', message: `Card not in hand` });
-        return;
+      // Apply taps
+      for (const p of (payment || [])) {
+        const perm = game.state.battlefield.find(b => b.id === p.permanentId);
+        if (perm) perm.tapped = true;
       }
-      const card = hand.splice(i, 1)[0];
+
+      // Move the card from hand to stack snapshot
+      hand.splice(idxInHand, 1);
       z!.handCount = hand.length;
 
       const targetsEncoded = pending.chosen.map(t => `${t.kind}:${t.id}`);
@@ -668,13 +756,12 @@ export function registerSocketHandlers(io: TypedServer) {
       broadcastGame(io, game, gameId);
     });
 
-    // Lands: play directly to battlefield (with enforcement)
+    // Lands
     socket.on('playLand', ({ gameId, cardId }) => {
       const game = ensureGame(gameId);
       const pid = socket.data.playerId as PlayerID | undefined;
       if (!pid || socket.data.spectator) return;
 
-      // Basic checks
       if (game.state.priority !== pid) {
         socket.emit('error', { code: 'PLAY', message: 'You must have priority to play a land' });
         return;
@@ -731,7 +818,7 @@ export function registerSocketHandlers(io: TypedServer) {
       broadcastGame(io, game, gameId);
     });
 
-    // Leave
+    // Leave/disconnect
     socket.on('leaveGame', ({ gameId }) => {
       const game = games.get(gameId);
       if (!game) return;
@@ -743,7 +830,6 @@ export function registerSocketHandlers(io: TypedServer) {
       }
     });
 
-    // Disconnect
     socket.on('disconnect', () => {
       const { gameId } = socket.data;
       if (!gameId) return;
