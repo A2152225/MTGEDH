@@ -10,7 +10,7 @@ import type {
   KnownCardRef,
   TargetRef
 } from '../../shared/src';
-import { GamePhase } from '../../shared/src'; // for sorcery-speed and land checks
+import { GamePhase, GameStep } from '../../shared/src'; // for sorcery/land checks
 import { createInitialGameState, type InMemoryGame, type GameEvent } from './state/gameState';
 import { computeDiff } from './utils/diff';
 import { createGameIfNotExists, getEvents, appendEvent } from './db';
@@ -79,6 +79,7 @@ function ensureGame(gameId: GameID): InMemoryGame {
         case 'resolveTopOfStack':
         case 'playLand':
         case 'nextTurn':
+        case 'nextStep':
           return { type: e.type, ...(e.payload || {}) } as GameEvent;
         default:
           return e.payload as GameEvent;
@@ -102,8 +103,9 @@ function broadcastGame(io: TypedServer, game: InMemoryGame, gameId: GameID) {
   }
 }
 
-function isMainPhase(phase?: any): boolean {
-  return phase === GamePhase.PRECOMBAT_MAIN || phase === GamePhase.POSTCOMBAT_MAIN;
+function isMainPhase(phase?: any, step?: any): boolean {
+  // Consider either phase flags or specific step markers
+  return phase === GamePhase.PRECOMBAT_MAIN || phase === GamePhase.POSTCOMBAT_MAIN || step === GameStep.MAIN1 || step === GameStep.MAIN2;
 }
 
 export function registerSocketHandlers(io: TypedServer) {
@@ -199,6 +201,32 @@ export function registerSocketHandlers(io: TypedServer) {
         gameId,
         from: 'system',
         message: `Turn advanced. Active player: ${game.state.turnPlayer}`,
+        ts: Date.now()
+      });
+      broadcastGame(io, game, gameId);
+      io.to(gameId).emit('priority', { gameId, player: game.state.priority });
+    });
+
+    // Next step
+    socket.on('nextStep', ({ gameId }) => {
+      const pid = socket.data.playerId as PlayerID | undefined;
+      const game = ensureGame(gameId);
+      if (!pid || socket.data.spectator) return;
+      if (game.state.turnPlayer !== pid) {
+        socket.emit('error', { code: 'TURN', message: 'Only the active player can advance the step' });
+        return;
+      }
+      if ((game.state.stack ?? []).length > 0) {
+        socket.emit('error', { code: 'TURN', message: 'Cannot advance step while the stack is not empty' });
+        return;
+      }
+      game.nextStep();
+      appendEvent(gameId, game.seq, 'nextStep', {});
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `Step advanced: ${String(game.state.phase)} / ${String(game.state.step)}`,
         ts: Date.now()
       });
       broadcastGame(io, game, gameId);
@@ -577,7 +605,6 @@ export function registerSocketHandlers(io: TypedServer) {
       }
 
       // Sorcery-speed gating for sorceries: stack must be empty, you must be the turn player, and main phase
-      // Determine from the card snapshot in hand
       const z = game.state.zones?.[pid];
       const hand = (z?.hand ?? []) as any[];
       const inHand = hand.find(c => c.id === pending.cardId);
@@ -592,7 +619,7 @@ export function registerSocketHandlers(io: TypedServer) {
           socket.emit('error', { code: 'CAST', message: 'Sorceries can only be cast during your turn' });
           return;
         }
-        if (!isMainPhase(game.state.phase)) {
+        if (!isMainPhase(game.state.phase, game.state.step)) {
           socket.emit('error', { code: 'CAST', message: 'Sorceries can only be cast during a main phase' });
           return;
         }
@@ -656,7 +683,7 @@ export function registerSocketHandlers(io: TypedServer) {
         socket.emit('error', { code: 'PLAY', message: 'You can only play lands during your turn' });
         return;
       }
-      if (!isMainPhase(game.state.phase)) {
+      if (!isMainPhase(game.state.phase, game.state.step)) {
         socket.emit('error', { code: 'PLAY', message: 'You can only play lands during a main phase' });
         return;
       }

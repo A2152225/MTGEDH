@@ -10,6 +10,7 @@ export interface ClientToServerEvents {
   passPriority: (payload: { gameId: GameID }) => void;
   toggleTurnDirection: (payload: { gameId: GameID }) => void;
   nextTurn: (payload: { gameId: GameID }) => void;
+  nextStep: (payload: { gameId: GameID }) => void;
 
   // Admin
   restartGame: (payload: { gameId: GameID; preservePlayers?: boolean }) => void;

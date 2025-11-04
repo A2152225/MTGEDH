@@ -21,8 +21,8 @@ type ChatMsg = { id: string; gameId: GameID; from: PlayerID | 'system'; message:
 type SearchItem = { id: string; name: string };
 type LayoutMode = 'rows' | 'table';
 
-function isMainPhase(phase?: any): boolean {
-  return phase === 'PRECOMBAT_MAIN' || phase === 'POSTCOMBAT_MAIN';
+function isMainPhase(phase?: any, step?: any): boolean {
+  return phase === 'PRECOMBAT_MAIN' || phase === 'POSTCOMBAT_MAIN' || step === 'MAIN1' || step === 'MAIN2';
 }
 
 export function App() {
@@ -160,7 +160,7 @@ export function App() {
     if (!/\bland\b/.test(type)) return 'Not a land';
     if (view.priority !== you) return 'You must have priority';
     if (view.turnPlayer !== you) return 'Only on your turn';
-    if (!isMainPhase(view.phase)) return 'Only during a main phase';
+    if (!isMainPhase(view.phase, view.step)) return 'Only during a main phase';
     if ((view.stack?.length ?? 0) > 0) return 'Stack must be empty';
     if ((view.landsPlayedThisTurn?.[you] ?? 0) >= 1) return 'Already played a land this turn';
     return null;
@@ -173,7 +173,7 @@ export function App() {
     const isSorcery = /\bsorcery\b/.test(tl);
     if (isSorcery) {
       if (view.turnPlayer !== you) return 'Sorceries only on your turn';
-      if (!isMainPhase(view.phase)) return 'Sorceries only during a main phase';
+      if (!isMainPhase(view.phase, view.step)) return 'Sorceries only during a main phase';
       if ((view.stack?.length ?? 0) > 0) return 'Stack must be empty for sorceries';
     }
     return null;
@@ -273,6 +273,7 @@ export function App() {
   };
 
   const nextTurn = () => { if (view) socket.emit('nextTurn', { gameId: view.id }); };
+  const nextStep = () => { if (view) socket.emit('nextStep', { gameId: view.id }); };
 
   // Stack helpers
   const labelForTarget = (t: string) => {
@@ -331,16 +332,16 @@ export function App() {
               <div>Game: {view.id} | Format: {String(view.format)} | Turn: {view.turnPlayer}</div>
               <div>Priority: {priority ?? view.priority}</div>
               <div>Turn order: {turnDirLabel}</div>
-              <div>Phase: {String(view.phase)}</div>
+              <div>Phase: {String(view.phase)} {view.step ? `• Step: ${String(view.step)}` : ''}</div>
               <button onClick={() => socket.emit('toggleTurnDirection', { gameId: view.id })}>Reverse turn order</button>
               <label>Layout:
-                <select value={layout} onChange={e => setLayoutPref(e.target.value as LayoutMode)} style={{ marginLeft: 6 }}>
+                <select value={layout} onChange={e => setLayout(e.target.value as LayoutMode)} style={{ marginLeft: 6 }}>
                   <option value="rows">Rows</option>
                   <option value="table">Table</option>
                 </select>
               </label>
               <label>Image:
-                <select value={imagePref} onChange={e => setPref(e.target.value as ImagePref)} style={{ marginLeft: 6 }}>
+                <select value={imagePref} onChange={e => setImagePref(e.target.value as ImagePref)} style={{ marginLeft: 6 }}>
                   <option value="small">small</option>
                   <option value="normal">normal</option>
                   <option value="art_crop">art_crop</option>
@@ -348,6 +349,7 @@ export function App() {
               </label>
               {you === view.turnPlayer && (
                 <>
+                  <button onClick={nextStep} disabled={(view.stack?.length ?? 0) > 0}>Next Step</button>
                   <button onClick={nextTurn} disabled={(view.stack?.length ?? 0) > 0}>Next Turn</button>
                   <span style={{ fontSize: 12, opacity: 0.8 }}>Lands played: {yourLandsPlayed}/1</span>
                 </>
@@ -380,7 +382,7 @@ export function App() {
                     const next = new Set(targeting.chosen);
                     next.delete(key);
                     const arr = Array.from(next).map(k => {
-                      const [kind, id] = k.split(':'); // FIXED: added missing dot
+                      const [kind, id] = k.split(':');
                       return { kind: kind as TargetRef['kind'], id } as TargetRef;
                     });
                     socket.emit('chooseTargets', { gameId: view.id, spellId: targeting.spellId, chosen: arr });

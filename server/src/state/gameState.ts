@@ -1,4 +1,4 @@
-import { GameFormat, GamePhase } from '../../../shared/src';
+import { GameFormat, GamePhase, GameStep } from '../../../shared/src';
 import type {
   GameID,
   PlayerID,
@@ -37,7 +37,7 @@ export type GameEvent =
   | {
       type: 'deckImportResolved';
       playerId: PlayerID;
-      cards: Array<Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'>>;
+      cards: Array<Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'>>
     }
   | { type: 'shuffleLibrary'; playerId: PlayerID }
   | { type: 'drawCards'; playerId: PlayerID; count: number }
@@ -74,7 +74,8 @@ export type GameEvent =
     }
   | { type: 'resolveTopOfStack' }
   | { type: 'playLand'; playerId: PlayerID; card: Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'> }
-  | { type: 'nextTurn' };
+  | { type: 'nextTurn' }
+  | { type: 'nextStep' };
 
 export interface Participant {
   readonly socketId: string;
@@ -85,7 +86,6 @@ export interface Participant {
 export interface InMemoryGame {
   readonly state: GameState;
   seq: number;
-
   // Session
   join: (
     socketId: string,
@@ -102,6 +102,7 @@ export interface InMemoryGame {
   passPriority: (playerId: PlayerID) => { changed: boolean; resolvedNow: boolean };
   setTurnDirection: (dir: 1 | -1) => void;
   nextTurn: () => void;
+  nextStep: () => void;
 
   // Deck/state ops
   importDeckResolved: (
@@ -183,6 +184,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     battlefield: [],
     commandZone,
     phase: GamePhase.BEGINNING,
+    step: undefined,
     active: true,
     zones,
     status: undefined,
@@ -669,7 +671,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     }));
 
     const filteredZones: Record<PlayerID, PlayerZones> = {};
-    for (const p of (state.players as any as PlayerRef[])) {
+    for (const p of (state.players as any as PlayerRef)) {
       const z =
         state.zones?.[p.id] ?? { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
       const libCount = libraries.get(p.id)?.length ?? z.libraryCount ?? 0;
@@ -719,6 +721,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     state.stack = [];
     state.battlefield = [];
     state.phase = GamePhase.BEGINNING;
+    state.step = undefined;
     inactive.clear();
     clearRecord(commandZone);
     if (preservePlayers) {
@@ -926,18 +929,77 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     runSBA();
   }
 
+  // Phase/step engine
+  const stepOrder: ReadonlyArray<{ phase: GamePhase; step: GameStep }> = [
+    { phase: GamePhase.BEGINNING, step: GameStep.UNTAP },
+    { phase: GamePhase.BEGINNING, step: GameStep.UPKEEP },
+    { phase: GamePhase.BEGINNING, step: GameStep.DRAW },
+    { phase: GamePhase.PRECOMBAT_MAIN, step: GameStep.MAIN1 },
+    { phase: GamePhase.COMBAT, step: GameStep.BEGIN_COMBAT },
+    { phase: GamePhase.COMBAT, step: GameStep.DECLARE_ATTACKERS },
+    { phase: GamePhase.COMBAT, step: GameStep.DECLARE_BLOCKERS },
+    { phase: GamePhase.COMBAT, step: GameStep.DAMAGE },
+    { phase: GamePhase.COMBAT, step: GameStep.END_COMBAT },
+    { phase: GamePhase.POSTCOMBAT_MAIN, step: GameStep.MAIN2 },
+    { phase: GamePhase.END, step: GameStep.END },
+    { phase: GamePhase.END, step: GameStep.CLEANUP },
+  ];
+
+  function indexOfCurrentStep(): number {
+    const idx = stepOrder.findIndex((s) => s.phase === state.phase && s.step === state.step);
+    return idx >= 0 ? idx : 0;
+  }
+
+  function beginTurnFor(player: PlayerID) {
+    state.turnPlayer = player;
+    state.priority = player;
+    state.phase = GamePhase.BEGINNING;
+    state.step = GameStep.UNTAP;
+    // Reset land plays for all (some effects grant extra plays; baseline resets)
+    state.landsPlayedThisTurn = {};
+    for (const p of (state.players as any as PlayerRef[])) state.landsPlayedThisTurn[p.id] = 0;
+    passesInRow = 0;
+    seq++;
+  }
+
+  function applyStartOfStepActions() {
+    // Simple automation for UNTAP and DRAW
+    if (state.step === GameStep.UNTAP) {
+      for (const perm of state.battlefield) {
+        if (perm.controller === state.turnPlayer) perm.tapped = false;
+      }
+      seq++;
+    } else if (state.step === GameStep.DRAW) {
+      drawCards(state.turnPlayer, 1);
+    }
+  }
+
   function nextTurn() {
     const current = state.turnPlayer;
     const next = current ? advancePriorityClockwise(current) : ((state.players as any as PlayerRef[])[0]?.id as PlayerID);
-    state.turnPlayer = next;
-    state.priority = next;
-    state.phase = GamePhase.PRECOMBAT_MAIN;
-    state.turn = (state.turn ?? 0) + 1;
-    passesInRow = 0;
-    // Reset land plays (simplified)
-    state.landsPlayedThisTurn = {};
-    for (const p of (state.players as any as PlayerRef[])) state.landsPlayedThisTurn[p.id] = 0;
-    seq++;
+    beginTurnFor(next);
+  }
+
+  function nextStep() {
+    if (!state.step) {
+      state.phase = GamePhase.BEGINNING;
+      state.step = GameStep.UNTAP;
+      applyStartOfStepActions();
+      return;
+    }
+    const idx = indexOfCurrentStep();
+    if (idx < stepOrder.length - 1) {
+      const next = stepOrder[idx + 1];
+      state.phase = next.phase;
+      state.step = next.step;
+      state.priority = state.turnPlayer; // AP gets priority at new step start
+      passesInRow = 0;
+      seq++;
+      applyStartOfStepActions();
+    } else {
+      // End of turn -> next turn
+      nextTurn();
+    }
   }
 
   function applyEvent(e: GameEvent) {
@@ -1048,6 +1110,9 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
       case 'nextTurn':
         nextTurn();
         break;
+      case 'nextStep':
+        nextStep();
+        break;
     }
   }
 
@@ -1073,6 +1138,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     passPriority,
     setTurnDirection,
     nextTurn,
+    nextStep,
     // deck/state
     importDeckResolved,
     shuffleLibrary,
