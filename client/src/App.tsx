@@ -16,6 +16,7 @@ import { CardPreviewLayer, showCardPreview, hideCardPreview } from './components
 import { PaymentPicker } from './components/PaymentPicker';
 import { CommanderPanel } from './components/CommanderPanel';
 import { ZonesPanel } from './components/ZonesPanel';
+import { ScrySurveilModal } from './components/ScrySurveilModal';
 
 function seatTokenKey(gameId: GameID, name: string) {
   return `mtgedh:seatToken:${gameId}:${name.trim().toLowerCase()}`;
@@ -29,6 +30,9 @@ type Color = PaymentItem['mana'];
 
 function isMainPhase(phase?: any, step?: any): boolean {
   return phase === 'PRECOMBAT_MAIN' || phase === 'POSTCOMBAT_MAIN' || step === 'MAIN1' || step === 'MAIN2';
+}
+function isLandTypeLine(tl?: string) {
+  return /\bland\b/i.test(tl || '');
 }
 
 function parseManaCost(manaCost?: string): { colors: Record<Color, number>; generic: number; hybrids: Color[][]; hasX: boolean } {
@@ -91,7 +95,6 @@ export function App() {
   const [name, setName] = useState('Player');
   const [joinAsSpectator, setJoinAsSpectator] = useState(false);
 
-  // Remember last successful join to auto-rejoin on reconnect
   const lastJoinRef = useRef<{ gameId: GameID; name: string; spectator: boolean } | null>(null);
 
   // Live state
@@ -101,16 +104,14 @@ export function App() {
   const [chat, setChat] = useState<ChatMsg[]>([]);
   const [lastError, setLastError] = useState<string | null>(null);
 
-  // Deck/search
-  const [deckText, setDeckText] = useState('');
+  // Search
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchItem[]>([]);
   const [searchLimit, setSearchLimit] = useState(100);
 
   // Visual prefs
   const [imagePref, setImagePref] = useState<ImagePref>(() => (localStorage.getItem('mtgedh:imagePref') as ImagePref) || 'normal');
-  const [groupTokensByCounters, setGroupTokensByCounters] = useState(false);
-  const [layout, setLayout] = useState<LayoutMode>(() => (localStorage.getItem('mtgedh:layout') as LayoutMode) || 'rows');
+  const [layout, setLayout] = useState<LayoutMode>(() => (localStorage.getItem('mtgedh:layout') as LayoutMode) || 'table');
 
   // Targeting overlay state
   const [targeting, setTargeting] = useState<{
@@ -125,6 +126,27 @@ export function App() {
     xValue: number;
   } | null>(null);
 
+  // Scry/Surveil (manual UI toggle; peeks modal)
+  const [enableManualScrySurveil, setEnableManualScrySurveil] = useState<boolean>(() => localStorage.getItem('mtgedh:manualScrySurveil') === '1');
+  useEffect(() => { localStorage.setItem('mtgedh:manualScrySurveil', enableManualScrySurveil ? '1' : '0'); }, [enableManualScrySurveil]);
+  const [peek, setPeek] = useState<{ mode: 'scry' | 'surveil'; cards: any[] } | null>(null);
+
+  // 3D table mode (CSS only)
+  const [table3D, setTable3D] = useState<boolean>(() => localStorage.getItem('mtgedh:table3D') === '1');
+  const [rotX, setRotX] = useState<number>(() => Number(localStorage.getItem('mtgedh:table3D:rx') || 10));
+  const [rotY, setRotY] = useState<number>(() => Number(localStorage.getItem('mtgedh:table3D:ry') || 0));
+  useEffect(() => { localStorage.setItem('mtgedh:table3D', table3D ? '1' : '0'); }, [table3D]);
+  useEffect(() => { localStorage.setItem('mtgedh:table3D:rx', String(rotX)); }, [rotX]);
+  useEffect(() => { localStorage.setItem('mtgedh:table3D:ry', String(rotY)); }, [rotY]);
+
+  // Table cloth image URL (optional)
+  const [clothUrl, setClothUrl] = useState<string>(() => localStorage.getItem('mtgedh:clothUrl') || '');
+  useEffect(() => { localStorage.setItem('mtgedh:clothUrl', clothUrl); }, [clothUrl]);
+
+  // Sidebar expanders for per-player hand/graveyard
+  const [expandedHands, setExpandedHands] = useState<Set<PlayerID>>(new Set());
+  const [expandedGYs, setExpandedGYs] = useState<Set<PlayerID>>(new Set());
+
   // Socket wiring
   useEffect(() => {
     const onConnect = () => {
@@ -137,9 +159,7 @@ export function App() {
         const token = sessionStorage.getItem(seatTokenKey(view.id, name)) || undefined;
         socket.emit('joinGame', { gameId: view.id, playerName: name, spectator: joinAsSpectator, seatToken: token });
       }
-      if (view) {
-        socket.emit('requestState', { gameId: view.id });
-      }
+      if (view) socket.emit('requestState', { gameId: view.id });
     };
     const onDisconnect = () => setConnected(false);
 
@@ -153,7 +173,7 @@ export function App() {
     });
 
     socket.on('state', ({ view }) => setView(view));
-    socket.on('stateDiff', ({ diff }) => { if (diff.full) setView(diff.full); });
+    socket.on('stateDiff', ({ diff }) => { if ((diff as any)?.full) setView((diff as any).full); else if ((diff as any)?.after) setView((diff as any).after); });
     socket.on('priority', ({ player }) => setPriority(player));
     socket.on('chat', (msg: ChatMsg) => setChat(prev => [...prev.slice(-99), msg]));
     socket.on('searchResults', ({ cards }) => setSearchResults(cards));
@@ -170,6 +190,8 @@ export function App() {
         xValue: 0
       });
     });
+    socket.on('scryPeek', ({ cards }) => setPeek({ mode: 'scry', cards }));
+    socket.on('surveilPeek', ({ cards }) => setPeek({ mode: 'surveil', cards }));
     socket.on('error', ({ message }) => setLastError(message || 'Error'));
 
     return () => {
@@ -182,21 +204,17 @@ export function App() {
       socket.off('chat');
       socket.off('searchResults');
       socket.off('validTargets');
+      socket.off('scryPeek');
+      socket.off('surveilPeek');
       socket.off('error');
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name, joinAsSpectator, view?.id]);
 
-  // Refresh state when tab becomes visible or window regains focus
+  // Refresh on visibility/focus
   useEffect(() => {
-    const onVis = () => {
-      if (document.visibilityState === 'visible' && view) {
-        socket.emit('requestState', { gameId: view.id });
-      }
-    };
-    const onFocus = () => {
-      if (view) socket.emit('requestState', { gameId: view.id });
-    };
+    const onVis = () => { if (document.visibilityState === 'visible' && view) socket.emit('requestState', { gameId: view.id }); };
+    const onFocus = () => { if (view) socket.emit('requestState', { gameId: view.id }); };
     document.addEventListener('visibilitychange', onVis);
     window.addEventListener('focus', onFocus);
     return () => {
@@ -205,7 +223,7 @@ export function App() {
     };
   }, [view]);
 
-  // Derived flags/data
+  // Derived
   const canPass = useMemo(() => !!view && !!you && view.priority === you, [view, you]);
   const isYouPlayer = useMemo(() => !!view && !!you && view.players.some(p => p.id === you), [view, you]);
 
@@ -223,6 +241,7 @@ export function App() {
   const attachedToSet = useMemo(() => {
     const set = new Set<string>();
     for (const perm of (view?.battlefield ?? [])) {
+      if ((perm as any).attachedTo) set.add((perm as any).attachedTo);
       if (perm.attachedTo) set.add(perm.attachedTo);
     }
     return set;
@@ -230,44 +249,24 @@ export function App() {
 
   const turnDirLabel = useMemo(() => (view?.turnDirection ?? 1) === 1 ? 'Clockwise' : 'Counter-clockwise', [view?.turnDirection]);
 
-  // Targeting-derived sets and handlers
-  const validPermanentTargets = useMemo(() => {
-    if (!targeting) return new Set<string>();
-    return new Set(targeting.targets.filter(t => t.kind === 'permanent').map(t => t.id));
-  }, [targeting]);
-
+  // Targeting-derived
+  const validPermanentTargets = useMemo(() => new Set(targeting ? targeting.targets.filter(t => t.kind === 'permanent').map(t => t.id) : []), [targeting]);
   const selectedPermanentTargets = useMemo(() => {
     if (!targeting) return new Set<string>();
-    const ids = Array.from(targeting.chosen)
-      .filter(k => k.startsWith('permanent:'))
-      .map(k => k.split(':')[1]);
+    const ids = Array.from(targeting.chosen).filter(k => k.startsWith('permanent:')).map(k => k.split(':')[1]);
     return new Set(ids);
   }, [targeting]);
-
-  const validPlayerTargets = useMemo(() => {
-    if (!targeting) return new Set<string>();
-    return new Set(targeting.targets.filter(t => t.kind === 'player').map(t => t.id));
-  }, [targeting]);
-
+  const validPlayerTargets = useMemo(() => new Set(targeting ? targeting.targets.filter(t => t.kind === 'player').map(t => t.id) : []), [targeting]);
   const selectedPlayerTargets = useMemo(() => {
     if (!targeting) return new Set<string>();
-    const ids = Array.from(targeting.chosen)
-      .filter(k => k.startsWith('player:'))
-      .map(k => k.split(':')[1]);
+    const ids = Array.from(targeting.chosen).filter(k => k.startsWith('player:')).map(k => k.split(':')[1]);
     return new Set(ids);
   }, [targeting]);
+  const paymentSelectedPerms = useMemo(() => new Set(targeting ? (targeting.payment || []).map(p => p.permanentId) : []), [targeting]);
 
-  const paymentSelectedPerms = useMemo(() => {
-    if (!targeting) return new Set<string>();
-    return new Set((targeting.payment || []).map(p => p.permanentId));
-  }, [targeting]);
+  const yourLandsPlayed = useMemo(() => (!view || !you) ? 0 : (view.landsPlayedThisTurn?.[you] ?? 0), [view, you]);
 
-  const yourLandsPlayed = useMemo(() => {
-    if (!view || !you) return 0;
-    return view.landsPlayedThisTurn?.[you] ?? 0;
-  }, [view, you]);
-
-  // Affordance helpers
+  // Affordances
   const reasonCannotPlayLand = (card: { type_line?: string }) => {
     if (!view || !you) return 'Not connected';
     const type = (card.type_line || '').toLowerCase();
@@ -279,7 +278,6 @@ export function App() {
     if ((view.landsPlayedThisTurn?.[you] ?? 0) >= 1) return 'Already played a land this turn';
     return null;
   };
-
   const reasonCannotCast = (card: { type_line?: string }) => {
     if (!view || !you) return 'Not connected';
     if (view.priority !== you) return 'You must have priority';
@@ -299,7 +297,6 @@ export function App() {
     const token = sessionStorage.getItem(seatTokenKey(gameId, name)) || undefined;
     socket.emit('joinGame', { gameId, playerName: name, spectator: joinAsSpectator, seatToken: token });
   };
-
   const restart = (preservePlayers: boolean) => {
     if (!view) return;
     socket.emit('restartGame', { gameId: view.id, preservePlayers });
@@ -307,14 +304,9 @@ export function App() {
     setSearchResults([]);
   };
 
-  const removePlayer = (playerId: PlayerID) => view && socket.emit('removePlayer', { gameId: view.id, playerId });
-  const toggleSkip = (playerId: PlayerID, inactive: boolean | undefined) =>
-    view && socket.emit(inactive ? 'unskipPlayer' : 'skipPlayer', { gameId: view.id, playerId });
-
-  const importDeck = () => { if (view) { socket.emit('importDeck', { gameId: view.id, list: deckText }); setSearchResults([]); } };
-  const shuffleLibrary = () => { if (view) { socket.emit('shuffleLibrary', { gameId: view.id }); setSearchResults([]); } };
-  const drawOne = () => { if (view) { socket.emit('drawCards', { gameId: view.id, count: 1 }); setSearchResults([]); } };
-  const handToLibraryShuffle = () => { if (view) { socket.emit('shuffleHandIntoLibrary', { gameId: view.id }); setSearchResults([]); } };
+  const shuffleLibrary = () => { if (view) socket.emit('shuffleLibrary', { gameId: view.id }); };
+  const drawOne = () => { if (view) socket.emit('drawCards', { gameId: view.id, count: 1 }); };
+  const handToLibraryShuffle = () => { if (view) socket.emit('shuffleHandIntoLibrary', { gameId: view.id }); };
 
   const doSearch = () => view && socket.emit('searchLibrary', { gameId: view!.id, query: searchQuery, limit: searchLimit });
   const clearSearch = () => setSearchResults([]);
@@ -327,7 +319,6 @@ export function App() {
   const removePermanent = (permId: string) => view && socket.emit('removePermanent', { gameId: view.id, permanentId: permId });
 
   const setPref = (pref: ImagePref) => { setImagePref(pref); localStorage.setItem('mtgedh:imagePref', pref); };
-  const setLayoutPref = (m: LayoutMode) => { setLayout(m); localStorage.setItem('mtgedh:layout', m); };
 
   // Targeting flow
   const beginCast = (cardId: string) => view && socket.emit('beginCast', { gameId: view.id, cardId });
@@ -363,18 +354,14 @@ export function App() {
     }
   };
 
-  // Keybindings for targeting: Esc cancels, Enter confirms
+  // Keybindings for targeting
   useEffect(() => {
     if (!targeting) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape') { e.preventDefault(); cancelCast(); }
+      else if (e.key === 'Enter') {
         e.preventDefault();
-        cancelCast();
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        if (targeting.chosen.size >= targeting.min && targeting.chosen.size <= targeting.max) {
-          confirmCast();
-        }
+        if (targeting.chosen.size >= targeting.min && targeting.chosen.size <= targeting.max) confirmCast();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -382,7 +369,7 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targeting]);
 
-  // Click handlers for board
+  // Click handlers
   const onPermanentClick = (id: string) => {
     if (!targeting) return;
     if (!validPermanentTargets.has(id)) return;
@@ -397,7 +384,6 @@ export function App() {
   const nextTurn = () => { if (view) socket.emit('nextTurn', { gameId: view.id }); };
   const nextStep = () => { if (view) socket.emit('nextStep', { gameId: view.id }); };
 
-  // Stack helpers
   const labelForTarget = (t: string) => {
     if (!view) return t;
     const [kind, id] = t.split(':');
@@ -433,6 +419,8 @@ export function App() {
     return '';
   }, [targeting, view, you]);
 
+  const reorderEnabled = !!isYouPlayer && !targeting;
+
   return (
     <div style={{ fontFamily: 'system-ui', padding: 16, display: 'grid', gridTemplateColumns: '1fr 420px', gap: 16 }}>
       <div>
@@ -464,39 +452,89 @@ export function App() {
               <div>Phase: {String(view.phase)} {view.step ? `• Step: ${String(view.step)}` : ''}</div>
               <button onClick={() => socket.emit('toggleTurnDirection', { gameId: view.id })}>Reverse turn order</button>
               <label>Layout:
-                <select value={layout} onChange={e => setLayout(e.target.value as LayoutMode)} style={{ marginLeft: 6 }}>
+                <select value={layout} onChange={e => { const v = e.target.value as LayoutMode; setLayout(v); localStorage.setItem('mtgedh:layout', v); }} style={{ marginLeft: 6 }}>
                   <option value="rows">Rows</option>
                   <option value="table">Table</option>
                 </select>
               </label>
               <label>Image:
-                <select value={imagePref} onChange={e => setImagePref(e.target.value as ImagePref)} style={{ marginLeft: 6 }}>
+                <select value={imagePref} onChange={e => setPref(e.target.value as ImagePref)} style={{ marginLeft: 6 }}>
                   <option value="small">small</option>
                   <option value="normal">normal</option>
                   <option value="art_crop">art_crop</option>
                 </select>
               </label>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <input type="checkbox" checked={table3D} onChange={e => setTable3D(e.target.checked)} />
+                3D table (beta)
+              </label>
+              {table3D && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <label>Pitch
+                    <input type="range" min={-30} max={30} value={rotX} onChange={e => setRotX(Number(e.target.value))} />
+                  </label>
+                  <label>Yaw
+                    <input type="range" min={-180} max={180} value={rotY} onChange={e => setRotY(Number(e.target.value))} />
+                  </label>
+                </span>
+              )}
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <input type="checkbox" checked={enableManualScrySurveil} onChange={e => setEnableManualScrySurveil(e.target.checked)} />
+                Enable manual Scry/Surveil tools
+              </label>
+              {/* Cloth image URL */}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <input
+                  value={clothUrl}
+                  onChange={e => setClothUrl(e.target.value)}
+                  placeholder="Table cloth image URL (optional)"
+                  style={{ width: 280 }}
+                />
+                {clothUrl && <button onClick={() => setClothUrl('')}>Clear Cloth</button>}
+              </span>
               {you === view.turnPlayer && (
                 <>
-                  <button onClick={nextStep} disabled={(view.stack?.length ?? 0) > 0}>Next Step</button>
-                  <button onClick={nextTurn} disabled={(view.stack?.length ?? 0) > 0}>Next Turn</button>
+                  <button onClick={() => socket.emit('nextStep', { gameId: view.id })} disabled={(view.stack?.length ?? 0) > 0}>Next Step</button>
+                  <button onClick={() => socket.emit('nextTurn', { gameId: view.id })} disabled={(view.stack?.length ?? 0) > 0}>Next Turn</button>
                   <span style={{ fontSize: 12, opacity: 0.8 }}>Lands played: {yourLandsPlayed}/1</span>
                 </>
               )}
             </div>
 
-            {/* Commander panel for you */}
-            {isYouPlayer && you && (
-              <div style={{ marginTop: 12 }}>
-                <CommanderPanel view={view} you={you} isYouPlayer={isYouPlayer} />
+            {/* Manual Scry/Surveil controls (optional) */}
+            {enableManualScrySurveil && (
+              <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 600 }}>Manual Tools:</span>
+                <label>
+                  N:
+                  <input id="scryN" type="number" min={0} max={10} defaultValue={1} style={{ width: 60, marginLeft: 6 }} />
+                </label>
+                <button onClick={() => {
+                  if (!view) return;
+                  const n = Number((document.getElementById('scryN') as HTMLInputElement)?.value || 1) | 0;
+                  socket.emit('beginScry', { gameId: view.id, count: n });
+                }}>Scry</button>
+                <button onClick={() => {
+                  if (!view) return;
+                  const n = Number((document.getElementById('scryN') as HTMLInputElement)?.value || 1) | 0;
+                  socket.emit('beginSurveil', { gameId: view.id, count: n });
+                }}>Surveil</button>
               </div>
             )}
 
-            {/* Admin/basic actions */}
-            <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+            {/* Quick actions */}
+            <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button onClick={() => restart(true)}>Restart (keep players)</button>
               <button onClick={() => restart(false)}>Restart (clear roster)</button>
               <button onClick={() => socket.emit('passPriority', { gameId: view.id })} disabled={!canPass}>Pass Priority</button>
+              <button onClick={shuffleLibrary}>Shuffle Library</button>
+              <button onClick={drawOne}>Draw 1</button>
+              <button onClick={handToLibraryShuffle}>Hand → Library + Shuffle</button>
+              <span style={{ marginLeft: 8 }}>
+                <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search library…" />
+                <button onClick={doSearch}>Search</button>
+                <button onClick={clearSearch}>Clear</button>
+              </span>
             </div>
 
             {/* Stack */}
@@ -573,32 +611,53 @@ export function App() {
 
             {/* Players and board */}
             {layout === 'table' ? (
-              <div style={{ marginTop: 16 }}>
-                <TableLayout
-                  players={view.players}
-                  permanentsByPlayer={battlefieldByPlayer}
-                  imagePref={imagePref}
-                  isYouPlayer={!!isYouPlayer}
-                  onRemove={removePermanent}
-                  onCounter={addCounter}
-                  onBulkCounter={bulkCounter}
-                  groupTokensByCounters={groupTokensByCounters}
-                  highlightPermTargets={targeting ? new Set([...validPermanentTargets]) : undefined}
-                  selectedPermTargets={targeting ? new Set([...selectedPermanentTargets, ...paymentSelectedPerms]) : undefined}
-                  onPermanentClick={targeting ? onPermanentClick : undefined}
-                  highlightPlayerTargets={targeting ? validPlayerTargets : undefined}
-                  selectedPlayerTargets={targeting ? selectedPlayerTargets : undefined}
-                  onPlayerClick={targeting ? onPlayerClick : undefined}
-                />
+  <div style={{ marginTop: 16 }}>
+    <TableLayout
+      players={view.players}
+      permanentsByPlayer={battlefieldByPlayer}
+      imagePref={imagePref}
+      isYouPlayer={!!isYouPlayer}
+      splitLands
+      enableReorderForYou={reorderEnabled}
+      you={you || undefined}
+      zones={view.zones}
+      commandZone={view.commandZone as any}
+      format={String(view.format || '')}
+      showYourHandBelow
+      onReorderHand={(order) => view && socket.emit('reorderHand', { gameId: view.id, order })}
+      onShuffleHand={() => view && socket.emit('shuffleHand', { gameId: view.id })}
+      onRemove={removePermanent}
+      onCounter={addCounter}
+      onBulkCounter={bulkCounter}
+      highlightPermTargets={targeting ? new Set([...validPermanentTargets]) : undefined}
+      selectedPermTargets={targeting ? new Set([...selectedPermanentTargets, ...paymentSelectedPerms]) : undefined}
+      onPermanentClick={targeting ? onPermanentClick : undefined}
+      highlightPlayerTargets={targeting ? validPlayerTargets : undefined}
+      selectedPlayerTargets={targeting ? selectedPlayerTargets : undefined}
+      onPlayerClick={targeting ? onPlayerClick : undefined}
+      onPlayLandFromHand={(cardId) => socket.emit('playLand', { gameId: view!.id, cardId })}
+      onCastFromHand={(cardId) => beginCast(cardId)}
+      reasonCannotPlayLand={reasonCannotPlayLand}
+      reasonCannotCast={reasonCannotCast}
+      threeD={table3D ? { enabled: true, rotateXDeg: rotX, rotateYDeg: rotY, perspectivePx: 1100 } : undefined}
+      enablePanZoom
+      tableCloth={{ imageUrl: clothUrl || undefined }}
+    />
               </div>
             ) : (
+              // Rows layout remains as before (not shown here to keep focus on table view)
               <div style={{ marginTop: 16, display: 'grid', gap: 16 }}>
                 {(view.players ?? []).map(p => {
                   const perms = battlefieldByPlayer.get(p.id) || [];
                   const tokens = perms.filter(x => (x.card as any)?.type_line === 'Token');
                   const nonTokens = perms.filter(x => (x.card as any)?.type_line !== 'Token');
+
+                  const lands = nonTokens.filter(x => isLandTypeLine((x.card as any)?.type_line));
+                  const others = nonTokens.filter(x => !isLandTypeLine((x.card as any)?.type_line));
+
                   const canTargetPlayer = targeting ? validPlayerTargets.has(p.id) : false;
                   const selPlayer = targeting ? selectedPlayerTargets.has(p.id) : false;
+
                   return (
                     <div key={p.id}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -621,26 +680,48 @@ export function App() {
                           </button>
                         )}
                       </div>
-                      {nonTokens.length > 0 && (
+
+                      {others.length > 0 && (
                         <>
-                          <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 6 }}>Permanents</div>
+                          <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 6 }}>Non-lands</div>
                           <BattlefieldGrid
-                            perms={nonTokens}
+                            perms={others}
                             imagePref={imagePref}
                             onRemove={isYouPlayer ? (id => removePermanent(id)) : undefined}
                             onCounter={isYouPlayer ? ((id, kind, delta) => addCounter(id, kind, delta)) : undefined}
                             highlightTargets={targeting ? new Set([...validPermanentTargets]) : undefined}
                             selectedTargets={targeting ? new Set([...selectedPermanentTargets, ...paymentSelectedPerms]) : undefined}
                             onCardClick={targeting ? onPermanentClick : undefined}
+                            layout='grid'
+                            tileWidth={95}
                           />
                         </>
                       )}
+
+                      {lands.length > 0 && (
+                        <>
+                          <div style={{ fontSize: 12, opacity: 0.7, margin: '12px 0 6px' }}>Lands</div>
+                          <BattlefieldGrid
+                            perms={lands}
+                            imagePref={imagePref}
+                            onRemove={isYouPlayer ? (id => removePermanent(id)) : undefined}
+                            onCounter={isYouPlayer ? ((id, kind, delta) => addCounter(id, kind, delta)) : undefined}
+                            highlightTargets={targeting ? new Set([...validPermanentTargets]) : undefined}
+                            selectedTargets={targeting ? new Set([...selectedPermanentTargets, ...paymentSelectedPerms]) : undefined}
+                            onCardClick={targeting ? onPermanentClick : undefined}
+                            layout='row'
+                            tileWidth={95}
+                            rowOverlapPx={0}
+                          />
+                        </>
+                      )}
+
                       {tokens.length > 0 && (
                         <>
                           <div style={{ fontSize: 12, opacity: 0.7, margin: '12px 0 6px' }}>Tokens</div>
                           <TokenGroups
                             tokens={tokens}
-                            groupMode={groupTokensByCounters ? 'name+counters+pt+attach' : 'name+pt+attach'}
+                            groupMode='name+pt+attach'
                             attachedToSet={attachedToSet}
                             onBulkCounter={(ids, deltas) => bulkCounter(ids, deltas)}
                             highlightTargets={targeting ? new Set([...validPermanentTargets]) : undefined}
@@ -649,6 +730,7 @@ export function App() {
                           />
                         </>
                       )}
+
                       {perms.length === 0 && <div style={{ opacity: 0.6 }}>Empty battlefield</div>}
                     </div>
                   );
@@ -668,9 +750,9 @@ export function App() {
                     <span style={{ marginLeft: 8, fontSize: 12, opacity: 0.7 }}>
                       Chosen: {targeting.chosen.size}/{targeting.max}
                     </span>
-                    {confirmDisabledReason && (
+                    {lastError && (
                       <span style={{ marginLeft: 12, fontSize: 12, color: '#a00' }}>
-                        {confirmDisabledReason}
+                        {lastError}
                       </span>
                     )}
                   </div>
@@ -705,7 +787,7 @@ export function App() {
       {/* Sidebar */}
       <div>
         <h3>Chat</h3>
-        <div style={{ border: '1px solid #ccc', padding: 8, height: 260, overflow: 'auto', background: '#fafafa' }}>
+        <div style={{ border: '1px solid #ccc', padding: 8, height: 220, overflow: 'auto', background: '#fafafa' }}>
           {chat.map(m => (
             <div key={m.id} style={{ fontSize: 12 }}>
               <b>{m.from}</b>: {m.message} <span style={{ opacity: 0.6 }}>({new Date(m.ts).toLocaleTimeString()})</span>
@@ -714,14 +796,141 @@ export function App() {
           {chat.length === 0 && <div style={{ opacity: 0.6 }}>No messages</div>}
         </div>
 
-        {/* Zones panel (Library/Graveyard/Exile) */}
+        {/* Players' zones quick panel */}
         {view && (
-          <ZonesPanel view={view} you={you} isYouPlayer={!!isYouPlayer} />
+          <div style={{ marginTop: 12 }}>
+            <h3>Players</h3>
+            <div style={{ border: '1px solid #ccc', borderRadius: 8, overflow: 'hidden' }}>
+              {(view.players ?? []).map((p) => {
+                const z = view.zones?.[p.id];
+                const handVisible = Array.isArray(z?.hand) && (z!.hand as any[]).length >= 0; // visible if server grants
+                const handCountShown = typeof z?.handCount === 'number' ? z!.handCount : (handVisible ? (z!.hand as any[]).length : 0);
+                const gyCountShown = typeof z?.graveyardCount === 'number' ? z!.graveyardCount : ((z?.graveyard as any[])?.length ?? 0);
+                const isYourself = you === p.id;
+                const isHandExpanded = expandedHands.has(p.id);
+                const isGYExpanded = expandedGYs.has(p.id);
+
+                const visibleHandList = handVisible ? ((z?.hand as any[]) || []) : [];
+                const gyList = ((z?.graveyard as any[]) || []).slice().reverse(); // newest first
+
+                return (
+                  <div key={p.id} style={{ borderTop: '1px solid #eee', padding: 8 }}>
+                    <div style={{ fontWeight: 600 }}>{p.name}{isYourself ? ' (You)' : ''}</div>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+                      <button
+                        onClick={() => {
+                          const next = new Set(expandedHands);
+                          if (isHandExpanded) next.delete(p.id); else next.add(p.id);
+                          setExpandedHands(next);
+                        }}
+                        disabled={!handVisible || (visibleHandList.length === 0)}
+                        title={handVisible ? 'Toggle hand view' : 'Hand is hidden (no visibility)'}
+                      >
+                        Hand: {handCountShown}{handVisible ? '' : ' (hidden)'}
+                      </button>
+                      <button
+                        onClick={() => {
+                          const next = new Set(expandedGYs);
+                          if (isGYExpanded) next.delete(p.id); else next.add(p.id);
+                          setExpandedGYs(next);
+                        }}
+                        disabled={(gyList.length === 0)}
+                        title="Toggle graveyard view (newest → oldest)"
+                      >
+                        Graveyard: {gyCountShown}
+                      </button>
+                    </div>
+
+                    {/* Hand viewer (if visibility granted) */}
+                    {isHandExpanded && handVisible && visibleHandList.length > 0 && (
+                      <div style={{ marginTop: 6, padding: 6, background: '#0b0b0b', borderRadius: 6, maxHeight: 160, overflow: 'auto' }}>
+                        <div style={{ fontSize: 12, color: '#ddd', marginBottom: 4 }}>
+                          Hand (in order shown by server)
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 6 }}>
+                          {visibleHandList.map((c: any, idx: number) => {
+                            const img = c?.image_uris?.[imagePref] || c?.image_uris?.normal || c?.image_uris?.small;
+                            return (
+                              <div
+                                key={`${c.id}-${idx}`}
+                                onMouseEnter={(e) => showCardPreview(e.currentTarget as HTMLElement, c, { prefer: 'above', anchorPadding: 0 })}
+                                onMouseLeave={(e) => hideCardPreview(e.currentTarget as HTMLElement)}
+                                style={{ position: 'relative', height: 140, border: '1px solid #333', borderRadius: 6, background: '#111', overflow: 'hidden' }}
+                              >
+                                {img ? (
+                                  <img src={img} alt={c?.name || c.id} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                                ) : (
+                                  <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#eee', fontSize: 12 }}>
+                                    {c?.name || 'Card'}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Graveyard viewer (newest → oldest) */}
+                    {isGYExpanded && gyList.length > 0 && (
+                      <div style={{ marginTop: 6, padding: 6, background: '#fafafa', borderRadius: 6, maxHeight: 200, overflow: 'auto' }}>
+                        <div style={{ fontSize: 12, color: '#333', marginBottom: 4 }}>
+                          Graveyard (newest → oldest)
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 4 }}>
+                          {gyList.map((c: any, idx: number) => {
+                            const orderNum = idx + 1; // 1 = newest
+                            return (
+                              <div
+                                key={`${c.id}-${idx}`}
+                                onMouseEnter={(e) => showCardPreview(e.currentTarget as HTMLElement, c, { prefer: 'above', anchorPadding: 0 })}
+                                onMouseLeave={(e) => hideCardPreview(e.currentTarget as HTMLElement)}
+                                style={{ display: 'grid', gridTemplateColumns: '24px 1fr', gap: 8, alignItems: 'center', padding: '2px 4px', borderBottom: '1px solid #eee' }}
+                              >
+                                <div style={{ fontSize: 12, color: '#666', textAlign: 'right' }}>{orderNum}.</div>
+                                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c?.name || c.id}</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Zones panel (Library/Graveyard/Exile) for you */}
+        {view && (
+          <div style={{ marginTop: 12 }}>
+            <ZonesPanel view={view} you={you} isYouPlayer={!!isYouPlayer} />
+          </div>
         )}
       </div>
 
       {/* Global card preview portal */}
       <CardPreviewLayer />
+
+      {/* Scry/Surveil modal */}
+      {peek && (
+        <ScrySurveilModal
+          mode={peek.mode}
+          cards={peek.cards}
+          imagePref={imagePref}
+          onCancel={() => setPeek(null)}
+          onConfirm={(res) => {
+            if (!view) return;
+            if (peek.mode === 'scry') {
+              socket.emit('confirmScry', { gameId: view.id, keepTopOrder: res.keepTopOrder, bottomOrder: res.bottomOrder || [] });
+            } else {
+              socket.emit('confirmSurveil', { gameId: view.id, toGraveyard: res.toGraveyard || [], keepTopOrder: res.keepTopOrder });
+            }
+            setPeek(null);
+          }}
+        />
+      )}
     </div>
   );
 }

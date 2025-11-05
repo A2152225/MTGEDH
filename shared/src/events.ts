@@ -3,6 +3,9 @@ import type { ClientGameView, GameID, PlayerID, StateDiff, KnownCardRef, TargetR
 // Minimal payment item: one tapped source produces one mana symbol (W/U/B/R/G/C)
 export type PaymentItem = { permanentId: string; mana: 'W' | 'U' | 'B' | 'R' | 'G' | 'C' };
 
+// Private peek shape used for scry/surveil
+export type PeekCard = Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'>;
+
 export interface ClientToServerEvents {
   // Session
   joinGame: (payload: { gameId: GameID; playerName: string; spectator?: boolean; seatToken?: string }) => void;
@@ -64,10 +67,17 @@ export interface ClientToServerEvents {
   beginCast: (payload: { gameId: GameID; cardId: string }) => void;
   chooseTargets: (payload: { gameId: GameID; spellId: string; chosen: TargetRef[] }) => void;
   cancelCast: (payload: { gameId: GameID; spellId: string }) => void;
-  confirmCast: (payload: { gameId: GameID; spellId: string; payment?: PaymentItem[] }) => void;
+  // Optional payment; server may ignore if not enabled yet
+  confirmCast: (payload: { gameId: GameID; spellId: string; payment?: PaymentItem[]; xValue?: number }) => void;
 
   // Lands
   playLand: (payload: { gameId: GameID; cardId: string }) => void;
+
+  // Scry/Surveil (owner only; manual UI optional client-side)
+  beginScry: (payload: { gameId: GameID; count: number }) => void;
+  confirmScry: (payload: { gameId: GameID; keepTopOrder: string[]; bottomOrder: string[] }) => void;
+  beginSurveil: (payload: { gameId: GameID; count: number }) => void;
+  confirmSurveil: (payload: { gameId: GameID; toGraveyard: string[]; keepTopOrder: string[] }) => void;
 
   // Reserved
   castSpell: (payload: { gameId: GameID; cardId: string; targets?: string[] }) => void;
@@ -99,6 +109,10 @@ export interface ServerToClientEvents {
     manaCost?: string; // e.g., "{2}{R}{R}"
     paymentSources?: Array<{ id: string; name: string; options: Array<'W' | 'U' | 'B' | 'R' | 'G' | 'C'> }>;
   }) => void;
+
+  // Private library peeks for Scry/Surveil
+  scryPeek: (payload: { gameId: GameID; cards: PeekCard[] }) => void;
+  surveilPeek: (payload: { gameId: GameID; cards: PeekCard[] }) => void;
 
   automationErrorReported?: (payload: { message: string }) => void;
   gameStateUpdated?: (payload: ClientGameView | unknown) => void;

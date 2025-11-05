@@ -118,7 +118,13 @@ export type GameEvent =
   | { type: 'resolveTopOfStack' }
   | { type: 'playLand'; playerId: PlayerID; card: Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'> }
   | { type: 'nextTurn' }
-  | { type: 'nextStep' };
+  | { type: 'nextStep' }
+  // Hand ops
+  | { type: 'reorderHand'; playerId: PlayerID; order: number[] }
+  | { type: 'shuffleHand'; playerId: PlayerID }
+  // Library peeks finalization
+  | { type: 'scryResolve'; playerId: PlayerID; keepTopOrder: string[]; bottomOrder: string[] }
+  | { type: 'surveilResolve'; playerId: PlayerID; toGraveyard: string[]; keepTopOrder: string[] };
 
 export interface Participant {
   readonly socketId: string;
@@ -188,6 +194,15 @@ export interface InMemoryGame {
   skip: (playerId: PlayerID) => void;
   unskip: (playerId: PlayerID) => void;
   remove: (playerId: PlayerID) => void;
+
+  // Hand ops (server authoritative)
+  reorderHand: (playerId: PlayerID, order: number[]) => boolean;
+  shuffleHand: (playerId: PlayerID) => void;
+
+  // Library peeks helpers
+  peekTopN: (playerId: PlayerID, n: number) => Array<Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'>>;
+  applyScry: (playerId: PlayerID, keepTopOrder: string[], bottomOrder: string[]) => void;
+  applySurveil: (playerId: PlayerID, toGraveyard: string[], keepTopOrder: string[]) => void;
 }
 
 export function createInitialGameState(gameId: GameID): InMemoryGame {
@@ -299,10 +314,10 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     for (const eff of effects) {
       switch (eff.kind) {
         case 'AddCounters':
-          updateCounters(eff.permanentId, { [eff.counter]: eff.amount });
+          updateCounters(e.permanentId, { [eff.counter]: eff.amount });
           break;
         case 'DestroyPermanent':
-          removePermanent(eff.permanentId);
+          removePermanent(e.permanentId);
           break;
       }
     }
@@ -992,7 +1007,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     for (const p of (state.players as any as PlayerRef[])) state.landsPlayedThisTurn[p.id] = 0;
     passesInRow = 0;
     seq++;
-	applyStartOfStepActions();
+    applyStartOfStepActions();
   }
 
   function applyStartOfStepActions() {
@@ -1143,6 +1158,18 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
       case 'nextStep':
         nextStep();
         break;
+      case 'reorderHand':
+        reorderHand(e.playerId, e.order);
+        break;
+      case 'shuffleHand':
+        shuffleHand(e.playerId);
+        break;
+      case 'scryResolve':
+        applyScry(e.playerId, e.keepTopOrder, e.bottomOrder);
+        break;
+      case 'surveilResolve':
+        applySurveil(e.playerId, e.toGraveyard, e.keepTopOrder);
+        break;
     }
   }
 
@@ -1156,6 +1183,108 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     }
     // Reconcile any mismatches after replay (resume after server restart)
     reconcileZonesConsistency();
+  }
+
+  // Hand ops (server authoritative)
+  function reorderHand(playerId: PlayerID, order: number[]) {
+    const z = state.zones?.[playerId];
+    if (!z) return false;
+    const hand = (z.hand as any[]) || [];
+    const n = hand.length;
+    if (order.length !== n) return false;
+    const seen = new Set<number>();
+    for (const v of order) {
+      if (typeof v !== 'number' || v < 0 || v >= n || seen.has(v)) return false;
+      seen.add(v);
+    }
+    const next: any[] = new Array(n);
+    for (let i = 0; i < n; i++) next[i] = hand[order[i]];
+    z.hand = next as any;
+    z.handCount = next.length;
+    seq++;
+    return true;
+  }
+
+  function shuffleHand(playerId: PlayerID) {
+    const z = state.zones?.[playerId];
+    if (!z) return;
+    const hand = (z.hand as any[]) || [];
+    for (let i = hand.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [hand[i], hand[j]] = [hand[j], hand[i]];
+    }
+    z.hand = hand as any;
+    z.handCount = hand.length;
+    seq++;
+  }
+
+  // Library peeks helpers
+  function peekTopN(playerId: PlayerID, n: number) {
+    const lib = libraries.get(playerId) || [];
+    return lib.slice(0, Math.max(0, n | 0)).map((c) => ({
+      id: c.id,
+      name: c.name,
+      type_line: c.type_line,
+      oracle_text: c.oracle_text,
+      image_uris: (c as any).image_uris
+    }));
+  }
+
+  function applyScry(playerId: PlayerID, keepTopOrder: string[], bottomOrder: string[]) {
+    const lib = libraries.get(playerId) || [];
+    if (keepTopOrder.length + bottomOrder.length === 0) return;
+    const byId = new Map<string, KnownCardRef>();
+    for (const id of [...keepTopOrder, ...bottomOrder]) {
+      const idx = lib.findIndex((c) => c.id === id);
+      if (idx >= 0) {
+        const [c] = lib.splice(idx, 1);
+        byId.set(id, c);
+      }
+    }
+    for (const id of bottomOrder) {
+      const c = byId.get(id);
+      if (c) lib.push({ ...c, zone: 'library' });
+    }
+    for (let i = keepTopOrder.length - 1; i >= 0; i--) {
+      const id = keepTopOrder[i];
+      const c = byId.get(id);
+      if (c) lib.unshift({ ...c, zone: 'library' });
+    }
+    zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+    zones[playerId]!.libraryCount = lib.length;
+    libraries.set(playerId, lib);
+    seq++;
+  }
+
+  function applySurveil(playerId: PlayerID, toGraveyard: string[], keepTopOrder: string[]) {
+    const lib = libraries.get(playerId) || [];
+    if (toGraveyard.length + keepTopOrder.length === 0) return;
+    const byId = new Map<string, KnownCardRef>();
+    for (const id of [...toGraveyard, ...keepTopOrder]) {
+      const idx = lib.findIndex((c) => c.id === id);
+      if (idx >= 0) {
+        const [c] = lib.splice(idx, 1);
+        byId.set(id, c);
+      }
+    }
+    const z =
+      zones[playerId] ||
+      (zones[playerId] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 });
+    for (const id of toGraveyard) {
+      const c = byId.get(id);
+      if (c) {
+        z.graveyard.push({ ...c, zone: 'graveyard', faceDown: false });
+      }
+    }
+    z.graveyardCount = z.graveyard.length;
+    for (let i = keepTopOrder.length - 1; i >= 0; i--) {
+      const id = keepTopOrder[i];
+      const c = byId.get(id);
+      if (c) lib.unshift({ ...c, zone: 'library' });
+    }
+    z.libraryCount = lib.length;
+    libraries.set(playerId, lib);
+    seq++;
   }
 
   return {
@@ -1219,5 +1348,12 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     skip,
     unskip,
     remove: leave,
+    // hand ops
+    reorderHand,
+    shuffleHand,
+    // library peeks
+    peekTopN,
+    applyScry,
+    applySurveil,
   };
 }

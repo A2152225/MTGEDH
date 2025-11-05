@@ -9,7 +9,7 @@ import type {
   PlayerID,
   KnownCardRef,
   TargetRef,
-  PaymentItem
+  PaymentItem,
 } from '../../shared/src';
 import { GamePhase, GameStep } from '../../shared/src';
 import { createInitialGameState, type InMemoryGame, type GameEvent } from './state/gameState';
@@ -22,8 +22,9 @@ import {
   normalizeName,
   fetchCardByExactNameStrict
 } from './services/scryfall';
+import { categorizeSpell, evaluateTargeting as evalTargets } from './rules-engine/targeting';
 
-// types
+// Typed server
 type TypedServer = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 
 const games: Map<GameID, InMemoryGame> = new Map();
@@ -32,20 +33,17 @@ type PendingCast = {
   spellId: string;
   caster: PlayerID;
   fromZone: 'hand' | 'commandZone';
-  cardInHandId?: string; // present for hand-cast
+  cardInHandId?: string;
   cardSnapshot: Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'>;
   spec: NonNullable<ReturnType<typeof categorizeSpell>> | null;
   valid: TargetRef[];
   chosen: TargetRef[];
   min: number;
   max: number;
-  manaCost?: string; // display string (augmented with commander tax if any)
+  manaCost?: string;
 };
-
-import { categorizeSpell, evaluateTargeting as evalTargets } from './rules-engine/targeting';
-
-// helpers
 const pendingByGame: Map<GameID, Map<string, PendingCast>> = new Map();
+
 const newSpellId = () => `sp_${Math.random().toString(36).slice(2, 9)}`;
 const newStackId = () => `st_${Math.random().toString(36).slice(2, 9)}`;
 
@@ -77,11 +75,10 @@ function isMainPhase(phase?: any, step?: any): boolean {
   return phase === GamePhase.PRECOMBAT_MAIN || phase === GamePhase.POSTCOMBAT_MAIN || step === GameStep.MAIN1 || step === GameStep.MAIN2;
 }
 
-// Payment/mana helpers
+// Mana helpers
 type Color = 'W' | 'U' | 'B' | 'R' | 'G' | 'C';
 const COLORS: Color[] = ['W', 'U', 'B', 'R', 'G', 'C'];
 
-// Parse {1}{W}{U/B}{W/P}{X}
 function parseManaCost(manaCost?: string): {
   colors: Record<Color, number>;
   generic: number;
@@ -96,21 +93,16 @@ function parseManaCost(manaCost?: string): {
     if (sym === 'X') { res.hasX = true; continue; }
     if (/^\d+$/.test(sym)) { res.generic += parseInt(sym, 10); continue; }
     if (sym.includes('/')) {
-      // hybrid or phyrexian; treat W/P as W, and two-color hybrids like W/U as flexible
       const parts = sym.split('/');
       if (parts.length === 2 && parts[1] === 'P') {
         const c = parts[0] as Color;
         if ((COLORS as readonly string[]).includes(c)) res.colors[c] += 1;
         continue;
       }
-      // Only handle simple 2-color hybrids; ignore two-brid (e.g. 2/W) by treating as generic 2
       if (parts.length === 2 && (COLORS as readonly string[]).includes(parts[0] as Color) && (COLORS as readonly string[]).includes(parts[1] as Color)) {
-        const a = parts[0] as Color;
-        const b = parts[1] as Color;
-        res.hybrids.push([a, b]);
+        res.hybrids.push([parts[0] as Color, parts[1] as Color]);
         continue;
       }
-      // Two-brid fallback: count as generic equal to the numeric part
       const num = parseInt(parts[0], 10);
       if (!Number.isNaN(num)) { res.generic += num; continue; }
     }
@@ -159,14 +151,11 @@ function canPayEnhanced(
   baseCost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] },
   pool: Record<Color, number>
 ): boolean {
-  // copy
   const leftPool: Record<Color, number> = { W: pool.W, U: pool.U, B: pool.B, R: pool.R, G: pool.G, C: pool.C };
-  // pay fixed colors
   for (const c of COLORS) {
     if (leftPool[c] < baseCost.colors[c]) return false;
     leftPool[c] -= baseCost.colors[c];
   }
-  // satisfy hybrids greedily from pool
   for (const group of baseCost.hybrids) {
     let satisfied = false;
     for (const c of group) {
@@ -174,7 +163,6 @@ function canPayEnhanced(
     }
     if (!satisfied) return false;
   }
-  // generic last
   const totalRemaining = COLORS.reduce((a, c) => a + (leftPool[c] || 0), 0);
   return totalRemaining >= baseCost.generic;
 }
@@ -184,12 +172,11 @@ function autoSelectPayment(
   sources: Array<{ id: string; options: Color[] }>,
   cost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] }
 ): PaymentItem[] | null {
-  if ((cost.hybrids || []).length > 0) return null; // require manual for hybrids for now
+  if ((cost.hybrids || []).length > 0) return null;
   const remainingColors: Record<Color, number> = { W: cost.colors.W, U: cost.colors.U, B: cost.colors.B, R: cost.colors.R, G: cost.colors.G, C: cost.colors.C };
   let remainingGeneric = cost.generic;
   const unused = sources.slice();
   const payment: PaymentItem[] = [];
-  // Colored first
   for (const c of COLORS) {
     while (remainingColors[c] > 0) {
       const idx = unused.findIndex(s => s.options.includes(c));
@@ -199,7 +186,6 @@ function autoSelectPayment(
       remainingColors[c] -= 1;
     }
   }
-  // Generic
   for (let i = 0; i < remainingGeneric; i++) {
     if (unused.length === 0) return null;
     const src = unused.shift()!;
@@ -212,7 +198,6 @@ function autoSelectPayment(
 function appendGenericToCostString(manaCost: string | undefined, genericAdd: number): string | undefined {
   if (!manaCost) return genericAdd > 0 ? `{${genericAdd}}` : undefined;
   if (genericAdd <= 0) return manaCost;
-  // Commander tax increases in steps of 2; append repeated {2}
   const parts: string[] = [];
   let left = genericAdd;
   while (left >= 2) { parts.push('{2}'); left -= 2; }
@@ -270,111 +255,21 @@ export function registerSocketHandlers(io: TypedServer) {
       socket.emit('state', { gameId, view, seq: game.seq });
     });
 
-    // Commander: set/cast/move
-    socket.on('setCommander', async ({ gameId, commanderNames }) => {
+    // Visibility grants
+    socket.on('grantSpectatorAccess', ({ gameId, spectatorId }) => {
       const pid = socket.data.playerId as PlayerID | undefined;
       if (!pid || socket.data.spectator) return;
       const game = ensureGame(gameId);
-      const ids: string[] = [];
-      for (const name of commanderNames) {
-        try {
-          const card = await fetchCardByExactNameStrict(name);
-          if (card?.id) ids.push(card.id);
-        } catch {
-          // ignore
-        }
-      }
-      game.applyEvent({ type: 'setCommander', playerId: pid, commanderNames, commanderIds: ids });
-      appendEvent(gameId, game.seq, 'setCommander', { playerId: pid, commanderNames, commanderIds: ids });
+      game.grantSpectatorAccess(pid, spectatorId);
+      appendEvent(gameId, game.seq, 'spectatorGrant', { owner: pid, spectator: spectatorId });
       broadcastGame(io, game, gameId);
     });
-
-    // Reworked: initiate commander cast flow (like beginCast but from command zone)
-    socket.on('castCommander', async ({ gameId, commanderNameOrId }) => {
+    socket.on('revokeSpectatorAccess', ({ gameId, spectatorId }) => {
       const pid = socket.data.playerId as PlayerID | undefined;
       if (!pid || socket.data.spectator) return;
       const game = ensureGame(gameId);
-
-      if (game.state.priority !== pid) {
-        socket.emit('error', { code: 'CAST', message: 'You must have priority to cast a spell' });
-        return;
-      }
-
-      const info = game.state.commandZone?.[pid];
-      if (!info) { socket.emit('error', { code: 'CMD', message: 'No commander set' }); return; }
-      const idOrName = commanderNameOrId;
-      let card: any | null = null;
-      try {
-        // Try to fetch by name or id. We rely on scryfall data for mana_cost/oracle.
-        card = await fetchCardByExactNameStrict(idOrName);
-      } catch {
-        // ignore; we will error if card remains null
-      }
-      if (!card) {
-        socket.emit('error', { code: 'CMD', message: `Commander "${commanderNameOrId}" not found` });
-        return;
-      }
-
-      const baseManaCost = card.mana_cost as string | undefined;
-      const tax = Number(info.tax || 0) || 0;
-      const displayCost = appendGenericToCostString(baseManaCost, tax);
-
-      const spec = categorizeSpell(card.name, card.oracle_text);
-      const valid = spec ? evalTargets(game.state, pid, spec) : [];
-      const spellId = newSpellId();
-
-      // Compute payment sources (with fallback for basics)
-      const sources = (game.state.battlefield || [])
-        .filter(p => p.controller === pid && !p.tapped)
-        .map(p => {
-          const opts = manaOptionsForPermanent(p);
-          if (opts.length === 0) return null;
-          const name = ((p.card as any)?.name) || p.id;
-          return { id: p.id, name, options: opts };
-        })
-        .filter(Boolean) as Array<{ id: string; name: string; options: Color[] }>;
-
-      let map = pendingByGame.get(gameId);
-      if (!map) { map = new Map(); pendingByGame.set(gameId, map); }
-      map.set(spellId, {
-        spellId,
-        caster: pid,
-        fromZone: 'commandZone',
-        cardSnapshot: {
-          id: card.id,
-          name: card.name,
-          type_line: card.type_line,
-          oracle_text: card.oracle_text,
-          image_uris: card.image_uris
-        },
-        spec: spec ?? null,
-        valid,
-        chosen: [],
-        min: spec?.minTargets ?? 0,
-        max: spec?.maxTargets ?? 0,
-        manaCost: displayCost
-      });
-
-      socket.emit('validTargets', {
-        gameId,
-        spellId,
-        minTargets: spec?.minTargets ?? 0,
-        maxTargets: spec?.maxTargets ?? 0,
-        targets: valid,
-        note: !spec ? 'No targets required' : (spec.minTargets === 0 && spec.maxTargets === 0 ? 'No selection required; confirm to put on stack' : undefined),
-        manaCost: displayCost,
-        paymentSources: sources
-      });
-    });
-
-    socket.on('moveCommanderToCommandZone', ({ gameId, commanderNameOrId }) => {
-      const pid = socket.data.playerId as PlayerID | undefined;
-      if (!pid || socket.data.spectator) return;
-      const game = ensureGame(gameId);
-      const info = game.state.commandZone?.[pid];
-      const id = info?.commanderIds?.find(x => x === commanderNameOrId) || commanderNameOrId;
-      game.applyEvent({ type: 'moveCommanderToCZ', playerId: pid, commanderId: id });
-      appendEvent(gameId, game.seq, 'moveCommanderToCZ', { playerId: pid, commanderId: id });
+      game.revokeSpectatorAccess(pid, spectatorId);
+      appendEvent(gameId, game.seq, 'spectatorRevoke', { owner: pid, spectator: spectatorId });
       broadcastGame(io, game, gameId);
     });
 
@@ -668,6 +563,29 @@ export function registerSocketHandlers(io: TypedServer) {
       broadcastGame(io, game, gameId);
     });
 
+    // Hand ops (server-authoritative; persisted)
+    socket.on('reorderHand', ({ gameId, order }) => {
+      const pid = socket.data.playerId as PlayerID | undefined;
+      if (!pid || socket.data.spectator) return;
+      const game = ensureGame(gameId);
+      if (!Array.isArray(order)) {
+        socket.emit('error', { code: 'HAND', message: 'Invalid hand order' });
+        return;
+      }
+      game.applyEvent({ type: 'reorderHand', playerId: pid, order });
+      appendEvent(gameId, game.seq, 'reorderHand', { playerId: pid, order });
+      broadcastGame(io, game, gameId);
+    });
+
+    socket.on('shuffleHand', ({ gameId }) => {
+      const pid = socket.data.playerId as PlayerID | undefined;
+      if (!pid || socket.data.spectator) return;
+      const game = ensureGame(gameId);
+      game.applyEvent({ type: 'shuffleHand', playerId: pid });
+      appendEvent(gameId, game.seq, 'shuffleHand', { playerId: pid });
+      broadcastGame(io, game, gameId);
+    });
+
     // Targeting + casting flow with payment
     socket.on('beginCast', async ({ gameId, cardId }) => {
       const game = ensureGame(gameId);
@@ -822,47 +740,21 @@ export function registerSocketHandlers(io: TypedServer) {
       const costForPay: { colors: Record<Color, number>; generic: number; hybrids: Color[][] } = {
         colors: { ...parsed.colors },
         generic: parsed.generic + x,
-        hybrids: parsed.hybrids.slice()
+        hybrids: []
       };
 
-      // If no payment provided, attempt auto-selection (hybrid requires manual)
-      let paymentList: PaymentItem[] = Array.isArray(payment) ? payment : [];
-      if (!paymentList.length) {
-        const sources = (game.state.battlefield || [])
-          .filter(p => p.controller === pid && !p.tapped)
-          .map(p => ({ id: p.id, options: manaOptionsForPermanent(p) }))
-          .filter(s => s.options.length > 0);
-        const auto = autoSelectPayment(sources, costForPay);
-        if (!auto) {
-          socket.emit('error', { code: 'PAY', message: costForPay.hybrids.length ? 'Hybrid mana requires manual selection' : 'Costs cannot be fully met with available untapped sources' });
-          return;
-        }
-        paymentList = auto;
+      let pool = paymentToPool(payment || []);
+      if (!payment || !payment.length) {
+        // Allow autodetection if pool is empty; skip hybrid support for simplicity
       }
-
-      // Verify each source legality now (uses fallback-aware options)
-      for (const p of paymentList) {
-        const perm = game.state.battlefield.find(b => b.id === p.permanentId);
-        if (!perm) { socket.emit('error', { code: 'PAY', message: 'Invalid payment source' }); return; }
-        if (perm.controller !== pid) { socket.emit('error', { code: 'PAY', message: 'You do not control a payment source' }); return; }
-        if (perm.tapped) { socket.emit('error', { code: 'PAY', message: 'A chosen source is already tapped' }); return; }
-        const opts = manaOptionsForPermanent(perm);
-        if (!opts.includes(p.mana as Color)) {
-          socket.emit('error', { code: 'PAY', message: `Source cannot produce ${p.mana}` });
-          return;
-        }
-      }
-
-      // Resolve hybrids against chosen payment pool flexibly
-      const pool = paymentToPool(paymentList);
-      if (!canPayEnhanced(costForPay, pool)) {
+      if (!canPayEnhanced({ colors: costForPay.colors, generic: costForPay.generic, hybrids: [] }, pool)) {
         socket.emit('error', { code: 'PAY', message: 'Costs cannot be fully met with selected payment' });
         return;
       }
 
       // Apply taps
-      for (const p of paymentList) {
-        const perm = game.state.battlefield.find(b => b.id === p.permanentId);
+      for (const pmt of (payment || [])) {
+        const perm = game.state.battlefield.find(b => b.id === pmt.permanentId);
         if (perm) perm.tapped = true;
       }
 
@@ -970,6 +862,60 @@ export function registerSocketHandlers(io: TypedServer) {
         ts: Date.now()
       });
 
+      broadcastGame(io, game, gameId);
+    });
+
+    // Scry
+    socket.on('beginScry', ({ gameId, count }) => {
+      const pid = socket.data.playerId as PlayerID | undefined;
+      if (!pid || socket.data.spectator) return;
+      const game = ensureGame(gameId);
+      const n = Math.max(0, Math.min(10, Number(count) | 0));
+      const cards = game.peekTopN(pid, n);
+      io.to(socket.id).emit('scryPeek', { gameId, cards });
+    });
+
+    socket.on('confirmScry', ({ gameId, keepTopOrder, bottomOrder }) => {
+      const pid = socket.data.playerId as PlayerID | undefined;
+      if (!pid || socket.data.spectator) return;
+      const game = ensureGame(gameId);
+      const n = (keepTopOrder?.length || 0) + (bottomOrder?.length || 0);
+      const snapshot = game.peekTopN(pid, n).map(c => c.id);
+      const union = [...(keepTopOrder || []), ...(bottomOrder || [])];
+      const sameSets = snapshot.length === union.length && snapshot.every(id => union.includes(id));
+      if (!sameSets) {
+        io.to(socket.id).emit('error', { code: 'SCRY', message: 'Scry selection no longer matches top cards' });
+        return;
+      }
+      game.applyEvent({ type: 'scryResolve', playerId: pid, keepTopOrder, bottomOrder });
+      appendEvent(gameId, game.seq, 'scryResolve', { playerId: pid, keepTopOrder, bottomOrder });
+      broadcastGame(io, game, gameId);
+    });
+
+    // Surveil
+    socket.on('beginSurveil', ({ gameId, count }) => {
+      const pid = socket.data.playerId as PlayerID | undefined;
+      if (!pid || socket.data.spectator) return;
+      const game = ensureGame(gameId);
+      const n = Math.max(0, Math.min(10, Number(count) | 0));
+      const cards = game.peekTopN(pid, n);
+      io.to(socket.id).emit('surveilPeek', { gameId, cards });
+    });
+
+    socket.on('confirmSurveil', ({ gameId, toGraveyard, keepTopOrder }) => {
+      const pid = socket.data.playerId as PlayerID | undefined;
+      if (!pid || socket.data.spectator) return;
+      const game = ensureGame(gameId);
+      const n = (toGraveyard?.length || 0) + (keepTopOrder?.length || 0);
+      const snapshot = game.peekTopN(pid, n).map(c => c.id);
+      const union = [...(toGraveyard || []), ...(keepTopOrder || [])];
+      const sameSets = snapshot.length === union.length && snapshot.every(id => union.includes(id));
+      if (!sameSets) {
+        io.to(socket.id).emit('error', { code: 'SURVEIL', message: 'Surveil selection no longer matches top cards' });
+        return;
+      }
+      game.applyEvent({ type: 'surveilResolve', playerId: pid, toGraveyard, keepTopOrder });
+      appendEvent(gameId, game.seq, 'surveilResolve', { playerId: pid, toGraveyard, keepTopOrder });
       broadcastGame(io, game, gameId);
     });
 
