@@ -53,7 +53,11 @@ export function LandRow(props: {
   const [hovered, setHovered] = useState<string | null>(null);
 
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
+    <div
+      style={{ display: 'flex', alignItems: 'flex-start', gap: 8, overflowX: 'auto', paddingBottom: 4, overscrollBehavior: 'contain' as any }}
+      data-no-zoom
+      onWheel={(e) => e.stopPropagation()}
+    >
       {items.map((it, idx) => {
         const prev = items[idx - 1];
         const sameTypeAsPrev = prev && prev.key === it.key;

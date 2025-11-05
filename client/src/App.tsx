@@ -143,6 +143,10 @@ export function App() {
   const [clothUrl, setClothUrl] = useState<string>(() => localStorage.getItem('mtgedh:clothUrl') || '');
   useEffect(() => { localStorage.setItem('mtgedh:clothUrl', clothUrl); }, [clothUrl]);
 
+  // World size (cloth plane)
+  const [worldSize, setWorldSize] = useState<number>(() => Number(localStorage.getItem('mtgedh:worldSize') || 12000));
+  useEffect(() => { localStorage.setItem('mtgedh:worldSize', String(worldSize)); }, [worldSize]);
+
   // Sidebar expanders for per-player hand/graveyard
   const [expandedHands, setExpandedHands] = useState<Set<PlayerID>>(new Set());
   const [expandedGYs, setExpandedGYs] = useState<Set<PlayerID>>(new Set());
@@ -242,7 +246,7 @@ export function App() {
     const set = new Set<string>();
     for (const perm of (view?.battlefield ?? [])) {
       if ((perm as any).attachedTo) set.add((perm as any).attachedTo);
-      if (perm.attachedTo) set.add(perm.attachedTo);
+      if ((perm as any).attachedTo) set.add((perm as any).attachedTo);
     }
     return set;
   }, [view]);
@@ -492,6 +496,12 @@ export function App() {
                 />
                 {clothUrl && <button onClick={() => setClothUrl('')}>Clear Cloth</button>}
               </span>
+              {/* World size */}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <label>World
+                  <input type="number" value={worldSize} onChange={e => setWorldSize(Math.max(2000, Number(e.target.value) || 12000))} style={{ width: 100, marginLeft: 6 }} />
+                </label>
+              </span>
               {you === view.turnPlayer && (
                 <>
                   <button onClick={() => socket.emit('nextStep', { gameId: view.id })} disabled={(view.stack?.length ?? 0) > 0}>Next Step</button>
@@ -611,41 +621,42 @@ export function App() {
 
             {/* Players and board */}
             {layout === 'table' ? (
-  <div style={{ marginTop: 16 }}>
-    <TableLayout
-      players={view.players}
-      permanentsByPlayer={battlefieldByPlayer}
-      imagePref={imagePref}
-      isYouPlayer={!!isYouPlayer}
-      splitLands
-      enableReorderForYou={reorderEnabled}
-      you={you || undefined}
-      zones={view.zones}
-      commandZone={view.commandZone as any}
-      format={String(view.format || '')}
-      showYourHandBelow
-      onReorderHand={(order) => view && socket.emit('reorderHand', { gameId: view.id, order })}
-      onShuffleHand={() => view && socket.emit('shuffleHand', { gameId: view.id })}
-      onRemove={removePermanent}
-      onCounter={addCounter}
-      onBulkCounter={bulkCounter}
-      highlightPermTargets={targeting ? new Set([...validPermanentTargets]) : undefined}
-      selectedPermTargets={targeting ? new Set([...selectedPermanentTargets, ...paymentSelectedPerms]) : undefined}
-      onPermanentClick={targeting ? onPermanentClick : undefined}
-      highlightPlayerTargets={targeting ? validPlayerTargets : undefined}
-      selectedPlayerTargets={targeting ? selectedPlayerTargets : undefined}
-      onPlayerClick={targeting ? onPlayerClick : undefined}
-      onPlayLandFromHand={(cardId) => socket.emit('playLand', { gameId: view!.id, cardId })}
-      onCastFromHand={(cardId) => beginCast(cardId)}
-      reasonCannotPlayLand={reasonCannotPlayLand}
-      reasonCannotCast={reasonCannotCast}
-      threeD={table3D ? { enabled: true, rotateXDeg: rotX, rotateYDeg: rotY, perspectivePx: 1100 } : undefined}
-      enablePanZoom
-      tableCloth={{ imageUrl: clothUrl || undefined }}
-    />
+              <div style={{ marginTop: 16 }}>
+                <TableLayout
+                  players={view.players}
+                  permanentsByPlayer={battlefieldByPlayer}
+                  imagePref={imagePref}
+                  isYouPlayer={!!isYouPlayer}
+                  splitLands
+                  enableReorderForYou={reorderEnabled}
+                  you={you || undefined}
+                  zones={view.zones}
+                  commandZone={view.commandZone as any}
+                  format={String(view.format || '')}
+                  showYourHandBelow
+                  onReorderHand={(order) => view && socket.emit('reorderHand', { gameId: view.id, order })}
+                  onShuffleHand={() => view && socket.emit('shuffleHand', { gameId: view.id })}
+                  onRemove={removePermanent}
+                  onCounter={addCounter}
+                  onBulkCounter={bulkCounter}
+                  highlightPermTargets={targeting ? new Set([...validPermanentTargets]) : undefined}
+                  selectedPermTargets={targeting ? new Set([...selectedPermanentTargets, ...paymentSelectedPerms]) : undefined}
+                  onPermanentClick={targeting ? onPermanentClick : undefined}
+                  highlightPlayerTargets={targeting ? validPlayerTargets : undefined}
+                  selectedPlayerTargets={targeting ? selectedPlayerTargets : undefined}
+                  onPlayerClick={targeting ? onPlayerClick : undefined}
+                  onPlayLandFromHand={(cardId) => socket.emit('playLand', { gameId: view!.id, cardId })}
+                  onCastFromHand={(cardId) => beginCast(cardId)}
+                  reasonCannotPlayLand={reasonCannotPlayLand}
+                  reasonCannotCast={reasonCannotCast}
+                  threeD={table3D ? { enabled: true, rotateXDeg: rotX, rotateYDeg: rotY, perspectivePx: 1100 } : undefined}
+                  enablePanZoom
+                  tableCloth={{ imageUrl: clothUrl || undefined }}
+                  worldSize={worldSize}
+                  onUpdatePermPos={(id, x, y, z) => view && socket.emit('updatePermanentPos', { gameId: view.id, permanentId: id, x, y, z })}
+                />
               </div>
             ) : (
-              // Rows layout remains as before (not shown here to keep focus on table view)
               <div style={{ marginTop: 16, display: 'grid', gap: 16 }}>
                 {(view.players ?? []).map(p => {
                   const perms = battlefieldByPlayer.get(p.id) || [];
@@ -693,7 +704,8 @@ export function App() {
                             selectedTargets={targeting ? new Set([...selectedPermanentTargets, ...paymentSelectedPerms]) : undefined}
                             onCardClick={targeting ? onPermanentClick : undefined}
                             layout='grid'
-                            tileWidth={95}
+                            tileWidth={110}
+                            gapPx={10}
                           />
                         </>
                       )}
@@ -710,7 +722,7 @@ export function App() {
                             selectedTargets={targeting ? new Set([...selectedPermanentTargets, ...paymentSelectedPerms]) : undefined}
                             onCardClick={targeting ? onPermanentClick : undefined}
                             layout='row'
-                            tileWidth={95}
+                            tileWidth={110}
                             rowOverlapPx={0}
                           />
                         </>

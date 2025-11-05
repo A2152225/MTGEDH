@@ -6,9 +6,11 @@ export type ImagePref = 'small' | 'normal' | 'art_crop';
 
 type LayoutMode = 'grid' | 'row';
 
+// Compute current power/toughness shown on a creature by taking base P/T and applying +1/+1 and -1/-1 counters.
+// If basePower/baseToughness are not present, return null and omit the overlay.
 function currentPT(perm: BattlefieldPermanent): { p: number; t: number } | null {
-  const baseP = typeof perm.basePower === 'number' ? perm.basePower : undefined;
-  const baseT = typeof perm.baseToughness === 'number' ? perm.baseToughness : undefined;
+  const baseP = typeof (perm as any).basePower === 'number' ? (perm as any).basePower : undefined;
+  const baseT = typeof (perm as any).baseToughness === 'number' ? (perm as any).baseToughness : undefined;
   if (baseP === undefined || baseT === undefined) return null;
   const plus = perm.counters?.['+1/+1'] ?? 0;
   const minus = perm.counters?.['-1/-1'] ?? 0;
@@ -21,12 +23,13 @@ export function BattlefieldGrid(props: {
   onRemove?: (id: string) => void;
   onCounter?: (id: string, kind: string, delta: number) => void;
   // Targeting support
-  highlightTargets?: ReadonlySet<string>;
-  selectedTargets?: ReadonlySet<string>;
-  onCardClick?: (id: string) => void;
+  highlightTargets?: ReadonlySet<string>;   // permanent ids that are valid targets
+  selectedTargets?: ReadonlySet<string>;    // permanent ids that are already selected
+  onCardClick?: (id: string) => void;       // toggle choose / open actions
+
   // Layout controls
-  layout?: LayoutMode;          // 'grid' (default) or 'row'
-  tileWidth?: number;           // default 110 for consistency with hand
+  layout?: LayoutMode;          // 'grid' (default) or 'row' (single horizontal line)
+  tileWidth?: number;           // pixel width of a tile (default 110 for consistency with hand and lands)
   rowOverlapPx?: number;        // if layout='row', overlap amount in px (e.g., 16). 0 = no overlap.
   gapPx?: number;               // grid gap, default 10
 }) {
@@ -43,7 +46,7 @@ export function BattlefieldGrid(props: {
 
   const tw = typeof tileWidth === 'number'
     ? Math.max(60, Math.min(220, tileWidth | 0))
-    : (layout === 'row' ? 110 : 110);
+    : 110;
 
   const isRow = layout === 'row';
 
@@ -86,9 +89,9 @@ export function BattlefieldGrid(props: {
             : 'none';
         const boxShadow = isHovered && isHighlight && !isSelected ? '0 0 0 3px rgba(46,204,113,0.5)' : baseShadow;
 
-        const pt = currentPT(p);
         const tl = (kc?.type_line || '').toLowerCase();
         const isCreature = /\bcreature\b/.test(tl);
+        const pt = currentPT(p);
 
         return (
           <div
@@ -135,7 +138,7 @@ export function BattlefieldGrid(props: {
               </div>
             )}
 
-            {/* Name ribbon */}
+            {/* Name / info ribbon */}
             <div style={{
               position: 'absolute',
               left: 0, right: 0, bottom: 0,
@@ -148,14 +151,19 @@ export function BattlefieldGrid(props: {
               pointerEvents: 'none'
             }}>
               <div title={name} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</div>
+              {Object.keys(counters).length > 0 && (
+                <div style={{ marginTop: 2 }}>
+                  {Object.entries(counters).map(([k, v]) => <span key={k} style={{ marginRight: 8 }}>{k}:{v as number}</span>)}
+                </div>
+              )}
             </div>
 
-            {/* P/T overlay for creatures */}
+            {/* P/T overlay for creatures (bottom-right, above ribbon) */}
             {isCreature && pt && (
               <div style={{
                 position: 'absolute',
                 right: 6,
-                bottom: 26, // above the name ribbon
+                bottom: 26,
                 padding: '2px 6px',
                 fontSize: 12,
                 fontWeight: 700,
@@ -184,6 +192,22 @@ export function BattlefieldGrid(props: {
               </div>
             )}
 
+            {/* Attached badge */}
+            {(p as any).attachedTo && (
+              <div style={{
+                position: 'absolute',
+                top: 6,
+                left: 6,
+                background: 'rgba(0,0,0,0.6)',
+                color: '#fff',
+                fontSize: 10,
+                padding: '2px 4px',
+                borderRadius: 4
+              }}>
+                Attached
+              </div>
+            )}
+
             {/* Controls (only on hover) */}
             {isHovered && (onCounter || onRemove) && (
               <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4 }}>
@@ -196,15 +220,10 @@ export function BattlefieldGrid(props: {
                 {onRemove && <button onClick={(e) => { e.stopPropagation(); onRemove(p.id); }} title="Remove">✕</button>}
               </div>
             )}
-
-            {(p as any).attachedTo && (
-              <div style={{ position: 'absolute', top: 6, left: 6, background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 10, padding: '2px 4px', borderRadius: 4 }}>
-                Attached
-              </div>
-            )}
           </div>
         );
       })}
+      {perms.length === 0 && <div style={{ opacity: 0.6, color: '#ccc' }}>Empty</div>}
     </div>
   );
 }

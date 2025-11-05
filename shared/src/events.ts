@@ -3,9 +3,6 @@ import type { ClientGameView, GameID, PlayerID, StateDiff, KnownCardRef, TargetR
 // Minimal payment item: one tapped source produces one mana symbol (W/U/B/R/G/C)
 export type PaymentItem = { permanentId: string; mana: 'W' | 'U' | 'B' | 'R' | 'G' | 'C' };
 
-// Private peek shape used for scry/surveil
-export type PeekCard = Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'>;
-
 export interface ClientToServerEvents {
   // Session
   joinGame: (payload: { gameId: GameID; playerName: string; spectator?: boolean; seatToken?: string }) => void;
@@ -35,9 +32,7 @@ export interface ClientToServerEvents {
   shuffleHandIntoLibrary: (payload: { gameId: GameID }) => void;
 
   // Hand management (owner only)
-  // Reorder hand by positions. order[i] = old index that moves to new index i. Must be a permutation of 0..n-1
   reorderHand: (payload: { gameId: GameID; order: number[] }) => void;
-  // Shuffle your hand (server RNG).
   shuffleHand: (payload: { gameId: GameID }) => void;
 
   // Search (owner only)
@@ -67,17 +62,25 @@ export interface ClientToServerEvents {
   beginCast: (payload: { gameId: GameID; cardId: string }) => void;
   chooseTargets: (payload: { gameId: GameID; spellId: string; chosen: TargetRef[] }) => void;
   cancelCast: (payload: { gameId: GameID; spellId: string }) => void;
-  // Optional payment; server may ignore if not enabled yet
   confirmCast: (payload: { gameId: GameID; spellId: string; payment?: PaymentItem[]; xValue?: number }) => void;
 
   // Lands
   playLand: (payload: { gameId: GameID; cardId: string }) => void;
 
-  // Scry/Surveil (owner only; manual UI optional client-side)
+  // Library peeks (owner only; manual UI optional client-side)
   beginScry: (payload: { gameId: GameID; count: number }) => void;
   confirmScry: (payload: { gameId: GameID; keepTopOrder: string[]; bottomOrder: string[] }) => void;
   beginSurveil: (payload: { gameId: GameID; count: number }) => void;
   confirmSurveil: (payload: { gameId: GameID; toGraveyard: string[]; keepTopOrder: string[] }) => void;
+
+  // Battlefield positioning (owner-only for their permanents)
+  updatePermanentPos: (payload: {
+    gameId: GameID;
+    permanentId: string;
+    x: number; // board-local px
+    y: number; // board-local px
+    z?: number; // optional layer
+  }) => void;
 
   // Reserved
   castSpell: (payload: { gameId: GameID; cardId: string; targets?: string[] }) => void;
@@ -111,8 +114,8 @@ export interface ServerToClientEvents {
   }) => void;
 
   // Private library peeks for Scry/Surveil
-  scryPeek: (payload: { gameId: GameID; cards: PeekCard[] }) => void;
-  surveilPeek: (payload: { gameId: GameID; cards: PeekCard[] }) => void;
+  scryPeek: (payload: { gameId: GameID; cards: Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'>[] }) => void;
+  surveilPeek: (payload: { gameId: GameID; cards: Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'>[] }) => void;
 
   automationErrorReported?: (payload: { message: string }) => void;
   gameStateUpdated?: (payload: ClientGameView | unknown) => void;

@@ -11,6 +11,7 @@ type HandCard = {
   faceDown?: boolean;
 };
 
+// Build stable per-occurrence keys so duplicates are distinguishable: "<id>#<n>"
 function buildOccurrenceKeys(cards: HandCard[]): string[] {
   const counts = new Map<string, number>();
   const keys: string[] = [];
@@ -132,19 +133,20 @@ export function HandGallery(props: {
   const isWrap2 = layout === 'wrap2';
 
   const containerStyle: React.CSSProperties = isRow
-    ? { display: 'flex', alignItems: 'flex-start', gap: overlapPx > 0 ? 0 : rowGapPx, overflowX: 'auto', paddingBottom: 4 }
+    ? { display: 'flex', alignItems: 'flex-start', gap: overlapPx > 0 ? 0 : rowGapPx, overflowX: 'auto', paddingBottom: 4, overscrollBehavior: 'contain' as any }
     : isWrap2
       ? {
           display: 'flex',
           flexWrap: 'wrap',
           gap: rowGapPx,
           maxHeight: `calc(${(thumbWidth / 0.72).toFixed(0)}px * 2 + ${rowGapPx}px)`,
-          overflowY: 'auto'
+          overflowY: 'auto',
+          overscrollBehavior: 'contain' as any
         }
       : { display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${thumbWidth}px, 1fr))`, gap: 8 };
 
   return (
-    <div style={containerStyle}>
+    <div style={containerStyle} data-no-zoom onWheel={(e) => e.stopPropagation()}>
       {orderedCards.map((c, viewIdx) => {
         let occ = 0;
         for (let i = 0; i <= viewIdx; i++) {

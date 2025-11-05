@@ -124,7 +124,9 @@ export type GameEvent =
   | { type: 'shuffleHand'; playerId: PlayerID }
   // Library peeks finalization
   | { type: 'scryResolve'; playerId: PlayerID; keepTopOrder: string[]; bottomOrder: string[] }
-  | { type: 'surveilResolve'; playerId: PlayerID; toGraveyard: string[]; keepTopOrder: string[] };
+  | { type: 'surveilResolve'; playerId: PlayerID; toGraveyard: string[]; keepTopOrder: string[] }
+  // Free positioning
+  | { type: 'updatePermanentPos'; permanentId: string; x: number; y: number; z?: number };
 
 export interface Participant {
   readonly socketId: string;
@@ -559,6 +561,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
         name: (c as any).name ?? 'Card',
         type_line: (c as any).type_line,
         oracle_text: (c as any).oracle_text,
+        image_uris: (c as any).image_uris,
         zone: 'library',
       } as KnownCardRef);
     }
@@ -759,7 +762,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
       stack: state.stack.slice(),
       players: projectedPlayers,
       zones: filteredZones,
-      spectators: [], // omitted here
+      spectators: [],
     } as any;
   }
 
@@ -867,7 +870,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
           const idx = state.stack.findIndex((s) => s.id === eff.id);
           if (idx >= 0) {
             const item = state.stack.splice(idx, 1)[0];
-            // Move countered spell to its controller's graveyard
+            // Move countered spell to its controller's graveyard (preserve images)
             const ctrl = item.controller;
             const z =
               state.zones?.[ctrl] ||
@@ -883,6 +886,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
               name: (item.card as any).name,
               type_line: (item.card as any).type_line,
               oracle_text: (item.card as any).oracle_text,
+              image_uris: (item.card as any).image_uris,
               zone: 'graveyard',
             });
             z.graveyardCount = z.graveyard.length;
@@ -930,7 +934,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
         const effects = resolveSpell(spec, chosen, state);
         applyTargetEffects(effects);
       }
-      // Move spell to graveyard
+      // Move spell to graveyard (preserve images)
       const ctrl = item.controller;
       const z =
         state.zones?.[ctrl] ||
@@ -940,6 +944,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
         name: (item.card as any).name,
         type_line: (item.card as any).type_line,
         oracle_text: (item.card as any).oracle_text,
+        image_uris: (item.card as any).image_uris,
         zone: 'graveyard',
       });
       z.graveyardCount = z.graveyard.length;
@@ -1046,6 +1051,14 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     } else {
       nextTurn();
     }
+  }
+
+  // Free positioning
+  function updatePermanentPos(permanentId: string, x: number, y: number, z?: number) {
+    const p = state.battlefield.find(b => b.id === permanentId);
+    if (!p) return;
+    (p as any).pos = { x: Math.round(x), y: Math.round(y), z: typeof z === 'number' ? Math.round(z) : (p as any).pos?.z };
+    seq++;
   }
 
   function applyEvent(e: GameEvent) {
@@ -1169,6 +1182,9 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
         break;
       case 'surveilResolve':
         applySurveil(e.playerId, e.toGraveyard, e.keepTopOrder);
+        break;
+      case 'updatePermanentPos':
+        updatePermanentPos(e.permanentId, e.x, e.y, e.z);
         break;
     }
   }

@@ -21,7 +21,6 @@ export function ZonesPiles(props: {
   const exTop = exArr.length > 0 ? exArr[exArr.length - 1] : null;
 
   const cmdNames = (isCommanderFormat ? (commander as any)?.commanderNames : undefined) as string[] | undefined;
-  const cmdCount = isCommanderFormat ? ((commander?.commanderIds?.length ?? 0)) : 0;
 
   const PileStack = (p: { label: string; count: number; color: string; title?: string }) => {
     const h = pileHeightPx(p.count);

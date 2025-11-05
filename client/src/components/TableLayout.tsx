@@ -6,6 +6,7 @@ import { AttachmentLines } from './AttachmentLines';
 import { HandGallery } from './HandGallery';
 import { LandRow } from './LandRow';
 import { ZonesPiles } from './ZonesPiles';
+import { FreeField } from './FreeField';
 
 type PlayerBoard = {
   player: PlayerRef;
@@ -63,6 +64,8 @@ export function TableLayout(props: {
   threeD?: { enabled: boolean; rotateXDeg: number; rotateYDeg: number; perspectivePx?: number };
   enablePanZoom?: boolean;
   tableCloth?: { imageUrl?: string; color?: string };
+  worldSize?: number;
+  onUpdatePermPos?: (id: string, x: number, y: number, z?: number) => void;
 }) {
   const {
     players, permanentsByPlayer, imagePref, isYouPlayer,
@@ -75,7 +78,9 @@ export function TableLayout(props: {
     onReorderHand, onShuffleHand,
     threeD,
     enablePanZoom = true,
-    tableCloth
+    tableCloth,
+    worldSize,
+    onUpdatePermPos
   } = props;
 
   const ordered = useMemo<PlayerBoard[]>(() => {
@@ -121,25 +126,28 @@ export function TableLayout(props: {
     // compute fit
     const total = Math.max(ordered.length, 1);
     const TILE_W = 110;
+    const tileH = Math.round(TILE_W / 0.72);
     const ZONES_W = 96;
-    const CONTENT_W = 6 * TILE_W + 5 * 8 + 16;
+    const CONTENT_W = 6 * TILE_W + 5 * 10 + 16;
     const BOARD_W = CONTENT_W + ZONES_W + 24;
+    const BOARD_H = Math.round(3 * tileH + 220); // approx height
     const minGap = 40;
     const denom = total > 1 ? Math.sin(Math.PI / total) : 1;
-    const chordRadius = denom > 0 ? (BOARD_W + minGap) / (2 * denom) : 0;
-    const baseRadius = 1800;
-    const radius = Math.max(baseRadius, chordRadius);
-    const R = radius + BOARD_W / 2 + 40;
+    const radius = Math.max(1800, denom > 0 ? (BOARD_W + minGap) / (2 * denom) : 0);
+    const R_x = radius + BOARD_W / 2 + 40;
+    const R_y = radius + BOARD_H / 2 + 40;
     const margin = 40;
-    const zx = (container.w / 2 - margin) / R;
-    const zy = (container.h / 2 - margin) / R;
-    const fitZ = clamp(Math.min(zx, zy), 0.2, 2.0);
+    const zx = (container.w / 2 - margin) / R_x;
+    const zy = (container.h / 2 - margin) / R_y;
+    const fitZ = Math.max(0.2, Math.min(2.0, Math.min(zx, zy)));
     setCam({ x: 0, y: 0, z: fitZ });
     didFit.current = true;
   }, [container.w, container.h, ordered.length]);
 
   const onWheel = (e: React.WheelEvent) => {
     if (!enablePanZoom) return;
+    const el = e.target as HTMLElement;
+    if (el && el.closest('[data-no-zoom]')) return;
     e.preventDefault();
     const rect = containerRef.current!.getBoundingClientRect();
     const sx = e.clientX - rect.left;
@@ -191,8 +199,9 @@ export function TableLayout(props: {
 
   // Layout sizing
   const TILE_W = 110;
+  const tileH = Math.round(TILE_W / 0.72);
   const ZONES_W = 96;
-  const CONTENT_W = 6 * TILE_W + 5 * 8 + 16;
+  const CONTENT_W = 6 * TILE_W + 5 * 10 + 16;
   const BOARD_W = CONTENT_W + ZONES_W + 24;
 
   const layout = useMemo(() => {
@@ -210,7 +219,7 @@ export function TableLayout(props: {
     for (const arr of permanentsByPlayer.values()) {
       for (const perm of arr) {
         if ((perm as any).attachedTo) set.add((perm as any).attachedTo);
-        if (perm.attachedTo) set.add(perm.attachedTo);
+        if ((perm as any).attachedTo) set.add((perm as any).attachedTo);
       }
     }
     return set;
@@ -225,10 +234,11 @@ export function TableLayout(props: {
     ? { backgroundImage: `url(${tableCloth.imageUrl})`, backgroundSize: 'cover', backgroundRepeat: 'no-repeat', backgroundPosition: 'center' }
     : { background: 'radial-gradient(ellipse at center, rgba(0,128,64,0.9) 0%, rgba(3,62,35,0.95) 60%, rgba(2,40,22,1) 100%)' };
 
-  const WORLD_SIZE = 12000;
+  const WORLD_SIZE = Math.max(2000, Math.floor((worldSize ?? 12000)));
 
-  // Transparent overlay to capture panning when Space held (so child stopPropagation doesn't block)
-  const panOverlayActive = panKey;
+  const sendMove = (id: string, x: number, y: number, z?: number) => {
+    if (onUpdatePermPos) onUpdatePermPos(id, x, y, z);
+  };
 
   return (
     <div
@@ -250,16 +260,6 @@ export function TableLayout(props: {
         cursor: enablePanZoom ? (dragRef.current ? 'grabbing' : (panKey ? 'grab' : 'default')) : 'default'
       }}
     >
-      {/* Pan overlay for Space+drag */}
-      {panOverlayActive && (
-        <div
-          onPointerDown={beginPan}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          style={{ position: 'absolute', inset: 0, zIndex: 10, background: 'transparent' }}
-        />
-      )}
-
       <div
         style={{
           position: 'absolute',
@@ -301,8 +301,9 @@ export function TableLayout(props: {
                 const total = Math.max(ordered.length, 1);
                 const { x, y, rotateDeg } = polarPos(i, total, layout.radius, Math.PI / 2);
 
-                const tokens = pb.permanents.filter(x => (x.card as any)?.type_line === 'Token');
-                const nonTokens = pb.permanents.filter(x => (x.card as any)?.type_line !== 'Token');
+                const perms = pb.permanents;
+                const tokens = perms.filter(x => (x.card as any)?.type_line === 'Token');
+                const nonTokens = perms.filter(x => (x.card as any)?.type_line !== 'Token');
 
                 const lands = splitLands ? nonTokens.filter(x => isLandTypeLine((x.card as any)?.type_line)) : [];
                 const others = splitLands ? nonTokens.filter(x => !isLandTypeLine((x.card as any)?.type_line)) : nonTokens;
@@ -315,26 +316,19 @@ export function TableLayout(props: {
                 const allowReorderHere = Boolean(isYouThis && enableReorderForYou && !onPermanentClick);
 
                 const yourHand = (isYouThis && zones?.[you!]?.hand ? (zones![you!].hand as any as Array<{
-                  id: string; name?: string; type_line?: string;
-                  image_uris?: { small?: string; normal?: string; art_crop?: string }; faceDown?: boolean;
+                  id: string; name?: string; type_line?: string; image_uris?: { small?: string; normal?: string; art_crop?: string }; faceDown?: boolean;
                 }>) : []) || [];
 
                 const zObj = zones?.[pb.player.id];
                 const cmdObj = commandZone?.[pb.player.id];
                 const isCommander = (format || '').toLowerCase() === 'commander';
 
+                // Free-field size
+                const FREE_W = CONTENT_W;
+                const FREE_H = Math.round(2 * tileH + 80);
+
                 return (
-                  <div
-                    key={pb.player.id}
-                    style={{
-                      position: 'absolute',
-                      left: 0, top: 0,
-                      width: layout.boardWidth,
-                      transform: `translate(${x}px, ${y}px) rotate(${rotateDeg}deg)`,
-                      transformOrigin: '50% 50%',
-                      pointerEvents: 'auto'
-                    }}
-                  >
+                  <div key={pb.player.id} style={{ position: 'absolute', left: 0, top: 0, width: layout.boardWidth, transform: `translate(${x}px, ${y}px) rotate(${rotateDeg}deg)`, transformOrigin: '50% 50%', pointerEvents: 'auto' }}>
                     <div
                       ref={sectionRef}
                       style={{
@@ -354,9 +348,7 @@ export function TableLayout(props: {
                       {/* Main column */}
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                          <div style={{ fontWeight: 700, color: '#fff' }}>
-                            {pb.player.name}
-                          </div>
+                          <div style={{ fontWeight: 700, color: '#fff' }}>{pb.player.name}</div>
                           {onPlayerClick && (
                             <button
                               onClick={() => onPlayerClick(pb.player.id)}
@@ -379,26 +371,23 @@ export function TableLayout(props: {
 
                         <AttachmentLines containerRef={sectionRef as any} permanents={pb.permanents} opacity={0.5} />
 
-                        {others.length > 0 && (
-                          <>
-                            {splitLands && <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 6 }}>Non-lands</div>}
-                            <BattlefieldGrid
-                              perms={others}
-                              imagePref={imagePref}
-                              onRemove={isYouPlayer ? onRemove : undefined}
-                              onCounter={isYouPlayer ? onCounter : undefined}
-                              highlightTargets={highlightPermTargets}
-                              selectedTargets={selectedPermTargets}
-                              onCardClick={onPermanentClick}
-                              layout='grid'
-                              tileWidth={TILE_W}
-                              gapPx={10}
-                            />
-                          </>
-                        )}
+                        {/* Free-position non-lands */}
+                        <FreeField
+                          perms={others}
+                          imagePref={imagePref}
+                          tileWidth={TILE_W}
+                          widthPx={FREE_W}
+                          heightPx={FREE_H}
+                          draggable={!!isYouThis}
+                          onMove={(id, xx, yy, zz) => sendMove(id, xx, yy, zz)}
+                          highlightTargets={highlightPermTargets}
+                          selectedTargets={selectedPermTargets}
+                          onCardClick={onPermanentClick}
+                        />
 
+                        {/* Lands row */}
                         {lands.length > 0 && (
-                          <div style={{ marginTop: 12 }}>
+                          <div style={{ marginTop: 12 }} data-no-zoom onWheel={(e) => e.stopPropagation()}>
                             <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 6 }}>Lands</div>
                             <LandRow
                               lands={lands}
@@ -414,6 +403,7 @@ export function TableLayout(props: {
                           </div>
                         )}
 
+                        {/* Tokens */}
                         {tokens.length > 0 && (
                           <div style={{ marginTop: 12 }}>
                             <TokenGroups
@@ -428,17 +418,12 @@ export function TableLayout(props: {
                           </div>
                         )}
 
-                        {pb.permanents.length === 0 && <div style={{ color: '#999', fontSize: 12 }}>Empty</div>}
-
+                        {/* Hand */}
                         {isYouThis && showYourHandBelow && zones && (
-                          <div style={{ marginTop: 12, background: 'rgba(0,0,0,0.7)', border: '1px solid #333', borderRadius: 8, padding: 8 }}>
+                          <div style={{ marginTop: 12, background: 'rgba(0,0,0,0.7)', border: '1px solid #333', borderRadius: 8, padding: 8 }} data-no-zoom onWheel={(e) => e.stopPropagation()}>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                               <div style={{ fontSize: 12, color: '#ddd' }}>Your Hand</div>
-                              {onShuffleHand && (
-                                <button onClick={() => onShuffleHand()} style={{ fontSize: 12, padding: '2px 8px' }}>
-                                  Shuffle hand
-                                </button>
-                              )}
+                              {onShuffleHand && (<button onClick={() => onShuffleHand()} style={{ fontSize: 12, padding: '2px 8px' }}>Shuffle hand</button>)}
                             </div>
                             <HandGallery
                               cards={yourHand}
@@ -451,7 +436,7 @@ export function TableLayout(props: {
                               zoomScale={1}
                               layout='wrap2'
                               overlapPx={0}
-                              rowGapPx={8}
+                              rowGapPx={10}
                               enableReorder={Boolean(allowReorderHere)}
                               onReorder={onReorderHand}
                             />
@@ -461,13 +446,7 @@ export function TableLayout(props: {
 
                       {/* Zones column */}
                       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center' }}>
-                        {zObj && (
-                          <ZonesPiles
-                            zones={zObj}
-                            commander={cmdObj}
-                            isCommanderFormat={isCommander}
-                          />
-                        )}
+                        {zObj && (<ZonesPiles zones={zObj} commander={cmdObj} isCommanderFormat={isCommander} />)}
                       </div>
                     </div>
                   </div>
@@ -480,26 +459,21 @@ export function TableLayout(props: {
 
       {/* Overlay camera controls */}
       {enablePanZoom && (
-        <div style={{
-          position: 'absolute', left: 8, bottom: 8, zIndex: 12,
-          display: 'inline-flex', gap: 6, alignItems: 'center',
-          background: 'rgba(0,0,0,0.5)', color: '#fff', padding: '6px 8px', borderRadius: 6, fontSize: 12
-        }}>
+        <div style={{ position: 'absolute', left: 8, bottom: 8, zIndex: 12, display: 'inline-flex', gap: 6, alignItems: 'center', background: 'rgba(0,0,0,0.5)', color: '#fff', padding: '6px 8px', borderRadius: 6, fontSize: 12 }}>
           <button onClick={() => setCam(prev => ({ ...prev, z: clamp(prev.z * 1.15, 0.2, 2.0) }))} title="Zoom in">+</button>
           <button onClick={() => setCam(prev => ({ ...prev, z: clamp(prev.z / 1.15, 0.2, 2.0) }))} title="Zoom out">−</button>
           <button onClick={() => setCam({ x: 0, y: 0, z: 1 })} title="Reset view">Reset</button>
           <button onClick={() => {
             const total = Math.max(ordered.length, 1);
-            const minGap = 40;
             const denom = total > 1 ? Math.sin(Math.PI / total) : 1;
-            const chordRadius = denom > 0 ? (BOARD_W + minGap) / (2 * denom) : 0;
-            const baseRadius = 1800;
-            const radius = Math.max(baseRadius, chordRadius);
-            const R = radius + BOARD_W / 2 + 40;
+            const radius = Math.max(1800, denom > 0 ? (BOARD_W + 40) / (2 * denom) : 0);
+            const BOARD_H = Math.round(3 * tileH + 220);
+            const R_x = radius + BOARD_W / 2 + 40;
+            const R_y = radius + BOARD_H / 2 + 40;
             const margin = 40;
-            const zx = (container.w / 2 - margin) / R;
-            const zy = (container.h / 2 - margin) / R;
-            const fitZ = clamp(Math.min(zx, zy), 0.2, 2.0);
+            const zx = (container.w / 2 - margin) / R_x;
+            const zy = (container.h / 2 - margin) / R_y;
+            const fitZ = Math.max(0.2, Math.min(2.0, Math.min(zx, zy)));
             setCam({ x: 0, y: 0, z: fitZ });
           }} title="Fit all seats">Fit All</button>
           <span style={{ opacity: 0.8 }}>Zoom: {cam.z.toFixed(2)} • Pan: Right/Middle or Space+Drag</span>
