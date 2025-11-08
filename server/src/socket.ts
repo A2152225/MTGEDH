@@ -340,12 +340,15 @@ export function registerSocketHandlers(io: TypedServer) {
         caster: pid,
         fromZone: 'commandZone',
         cardSnapshot: {
-          id: card.id,
-          name: card.name,
-          type_line: card.type_line,
-          oracle_text: card.oracle_text,
-          image_uris: card.image_uris
-        },
+  id: card.id,
+  name: card.name,
+  type_line: card.type_line,
+  oracle_text: card.oracle_text,
+  image_uris: card.image_uris,
+  mana_cost: card.mana_cost,
+  power: card.power,
+  toughness: card.toughness
+},
         spec: spec ?? null,
         valid,
         chosen: [],
@@ -951,13 +954,16 @@ export function registerSocketHandlers(io: TypedServer) {
       hand.splice(idx, 1);
       z!.handCount = hand.length;
 
-      const snapshot = {
-        id: card.id,
-        name: card.name,
-        type_line: card.type_line,
-        oracle_text: card.oracle_text,
-        image_uris: card.image_uris
-      };
+const snapshot = {
+  id: card.id,
+  name: card.name,
+  type_line: card.type_line,
+  oracle_text: card.oracle_text,
+  image_uris: card.image_uris,
+  mana_cost: card.mana_cost,
+  power: card.power,
+  toughness: card.toughness
+};
       game.applyEvent({ type: 'playLand', playerId: pid, card: snapshot });
       appendEvent(gameId, game.seq, 'playLand', { playerId: pid, card: snapshot });
 

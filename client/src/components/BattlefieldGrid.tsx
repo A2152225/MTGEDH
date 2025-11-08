@@ -3,18 +3,39 @@ import type { BattlefieldPermanent, KnownCardRef } from '../../../shared/src';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 
 export type ImagePref = 'small' | 'normal' | 'art_crop';
-
 type LayoutMode = 'grid' | 'row';
 
-// Compute current power/toughness shown on a creature by taking base P/T and applying +1/+1 and -1/-1 counters.
-// If basePower/baseToughness are not present, return null and omit the overlay.
-function currentPT(perm: BattlefieldPermanent): { p: number; t: number } | null {
-  const baseP = typeof (perm as any).basePower === 'number' ? (perm as any).basePower : undefined;
-  const baseT = typeof (perm as any).baseToughness === 'number' ? (perm as any).baseToughness : undefined;
+function parsePT(raw?: string): number | undefined {
+  if (!raw) return undefined;
+  if (/^\d+$/.test(raw)) return parseInt(raw, 10);
+  return undefined;
+}
+
+function currentPT(perm: BattlefieldPermanent): { p: number; t: number; delta: number } | null {
+  // Prefer explicit basePower/baseToughness stored on permanent.
+  let baseP = typeof perm.basePower === 'number' ? perm.basePower : undefined;
+  let baseT = typeof perm.baseToughness === 'number' ? perm.baseToughness : undefined;
+
+  const kc = perm.card as KnownCardRef;
+  if ((baseP === undefined || baseT === undefined) && kc) {
+    const p = parsePT(kc.power);
+    const t = parsePT(kc.toughness);
+    if (p !== undefined && t !== undefined) {
+      baseP = baseP ?? p;
+      baseT = baseT ?? t;
+    }
+  }
   if (baseP === undefined || baseT === undefined) return null;
   const plus = perm.counters?.['+1/+1'] ?? 0;
   const minus = perm.counters?.['-1/-1'] ?? 0;
-  return { p: baseP + (plus - minus), t: baseT + (plus - minus) };
+  const adj = plus - minus;
+  return { p: baseP + adj, t: baseT + adj, delta: adj };
+}
+
+function ptBadgeColors(delta: number): { bg: string; border: string } {
+  if (delta > 0) return { bg: 'rgba(56,161,105,0.85)', border: 'rgba(46,204,113,0.95)' };
+  if (delta < 0) return { bg: 'rgba(229,62,62,0.85)', border: 'rgba(245,101,101,0.95)' };
+  return { bg: 'rgba(0,0,0,0.65)', border: 'rgba(255,255,255,0.25)' };
 }
 
 export function BattlefieldGrid(props: {
@@ -22,52 +43,38 @@ export function BattlefieldGrid(props: {
   imagePref: ImagePref;
   onRemove?: (id: string) => void;
   onCounter?: (id: string, kind: string, delta: number) => void;
-  // Targeting support
-  highlightTargets?: ReadonlySet<string>;   // permanent ids that are valid targets
-  selectedTargets?: ReadonlySet<string>;    // permanent ids that are already selected
-  onCardClick?: (id: string) => void;       // toggle choose / open actions
-
-  // Layout controls
-  layout?: LayoutMode;          // 'grid' (default) or 'row' (single horizontal line)
-  tileWidth?: number;           // pixel width of a tile (default 110 for consistency with hand and lands)
-  rowOverlapPx?: number;        // if layout='row', overlap amount in px (e.g., 16). 0 = no overlap.
-  gapPx?: number;               // grid gap, default 10
+  highlightTargets?: ReadonlySet<string>;
+  selectedTargets?: ReadonlySet<string>;
+  onCardClick?: (id: string) => void;
+  layout?: LayoutMode;
+  tileWidth?: number;
+  rowOverlapPx?: number;
+  gapPx?: number;
 }) {
   const {
     perms, imagePref, onRemove, onCounter,
     highlightTargets, selectedTargets, onCardClick,
-    layout = 'grid',
-    tileWidth,
-    rowOverlapPx = 0,
-    gapPx = 10
+    layout = 'grid', tileWidth, rowOverlapPx = 0, gapPx = 10
   } = props;
 
   const [hovered, setHovered] = useState<string | null>(null);
-
-  const tw = typeof tileWidth === 'number'
-    ? Math.max(60, Math.min(220, tileWidth | 0))
-    : 110;
-
+  const tw = typeof tileWidth === 'number' ? Math.max(60, Math.min(220, tileWidth | 0)) : 110;
   const isRow = layout === 'row';
 
   return (
     <div
-      style={
-        isRow
-          ? {
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: rowOverlapPx > 0 ? 0 : 8,
-              overflowX: 'auto',
-              paddingBottom: 4
-            }
-          : {
-              display: 'grid',
-              gridTemplateColumns: `repeat(auto-fill, minmax(${tw}px, 1fr))`,
-              gap: gapPx,
-              position: 'relative'
-            }
-      }
+      style={isRow ? {
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: rowOverlapPx > 0 ? 0 : 8,
+        overflowX: 'auto',
+        paddingBottom: 4
+      } : {
+        display: 'grid',
+        gridTemplateColumns: `repeat(auto-fill, minmax(${tw}px, 1fr))`,
+        gap: gapPx,
+        position: 'relative'
+      }}
     >
       {perms.map((p, idx) => {
         const kc = p.card as KnownCardRef;
@@ -81,7 +88,6 @@ export function BattlefieldGrid(props: {
 
         const baseBorder = isSelected ? '#2b6cb0' : isHighlight ? '#38a169' : '#2b2b2b';
         const borderColor = isHovered && isHighlight && !isSelected ? '#2ecc71' : baseBorder;
-
         const baseShadow = isSelected
           ? '0 0 0 2px rgba(43,108,176,0.6)'
           : isHighlight
@@ -91,12 +97,12 @@ export function BattlefieldGrid(props: {
 
         const tl = (kc?.type_line || '').toLowerCase();
         const isCreature = /\bcreature\b/.test(tl);
-        const pt = currentPT(p);
+        const pt = isCreature ? currentPT(p) : null;
+        const colors = pt ? ptBadgeColors(pt.delta) : null;
 
         return (
           <div
             key={p.id}
-            data-perm-id={p.id}
             onMouseEnter={(e) => {
               setHovered(p.id);
               showCardPreview(e.currentTarget as HTMLElement, p.card as any, { prefer: 'above', anchorPadding: 0 });
@@ -121,36 +127,21 @@ export function BattlefieldGrid(props: {
             title={`${name}${isTapped ? ' (tapped)' : ''}`}
           >
             {img ? (
-              <img
-                src={img}
-                alt={name}
-                style={{
-                  position: 'absolute',
-                  inset: 0,
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover'
-                }}
-              />
+              <img src={img} alt={name} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
             ) : (
               <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, padding: 8, color: '#eee' }}>
                 {name}
               </div>
             )}
 
-            {/* Name / info ribbon */}
             <div style={{
-              position: 'absolute',
-              left: 0, right: 0, bottom: 0,
+              position: 'absolute', left: 0, right: 0, bottom: 0,
               background: 'linear-gradient(transparent, rgba(0,0,0,0.6))',
-              color: '#fff',
-              fontSize: 12,
-              padding: '6px 8px',
-              borderBottomLeftRadius: 6,
-              borderBottomRightRadius: 6,
+              color: '#fff', fontSize: 12, padding: '6px 8px',
+              borderBottomLeftRadius: 6, borderBottomRightRadius: 6,
               pointerEvents: 'none'
             }}>
-              <div title={name} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</div>
+              <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</div>
               {Object.keys(counters).length > 0 && (
                 <div style={{ marginTop: 2 }}>
                   {Object.entries(counters).map(([k, v]) => <span key={k} style={{ marginRight: 8 }}>{k}:{v as number}</span>)}
@@ -158,7 +149,6 @@ export function BattlefieldGrid(props: {
               )}
             </div>
 
-            {/* P/T overlay for creatures (bottom-right, above ribbon) */}
             {isCreature && pt && (
               <div style={{
                 position: 'absolute',
@@ -168,15 +158,14 @@ export function BattlefieldGrid(props: {
                 fontSize: 12,
                 fontWeight: 700,
                 color: '#fff',
-                background: 'rgba(0,0,0,0.65)',
-                border: '1px solid rgba(255,255,255,0.25)',
+                background: colors!.bg,
+                border: `1px solid ${colors!.border}`,
                 borderRadius: 6
               }}>
                 {pt.p}/{pt.t}
               </div>
             )}
 
-            {/* Tapped badge */}
             {isTapped && (
               <div style={{
                 position: 'absolute',
@@ -192,7 +181,6 @@ export function BattlefieldGrid(props: {
               </div>
             )}
 
-            {/* Attached badge */}
             {(p as any).attachedTo && (
               <div style={{
                 position: 'absolute',
@@ -208,16 +196,15 @@ export function BattlefieldGrid(props: {
               </div>
             )}
 
-            {/* Controls (only on hover) */}
             {isHovered && (onCounter || onRemove) && (
               <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4 }}>
                 {onCounter && (
                   <>
-                    <button onClick={(e) => { e.stopPropagation(); onCounter(p.id, '+1/+1', +1); }} title="+1/+1 +1">+1</button>
-                    <button onClick={(e) => { e.stopPropagation(); onCounter(p.id, '+1/+1', -1); }} title="+1/+1 -1">-1</button>
+                    <button onClick={(e) => { e.stopPropagation(); onCounter(p.id, '+1/+1', +1); }}>+1</button>
+                    <button onClick={(e) => { e.stopPropagation(); onCounter(p.id, '+1/+1', -1); }}>-1</button>
                   </>
                 )}
-                {onRemove && <button onClick={(e) => { e.stopPropagation(); onRemove(p.id); }} title="Remove">✕</button>}
+                {onRemove && <button onClick={(e) => { e.stopPropagation(); onRemove(p.id); }}>✕</button>}
               </div>
             )}
           </div>

@@ -31,7 +31,7 @@ export interface SpectatorRef {
   hasAccessToYou?: boolean;
 }
 
-// Server-side richer player shape (not sent to clients verbatim)
+// Server-side richer player shape
 export interface Player extends PlayerRef {
   socketId?: string;
   connected?: boolean;
@@ -53,7 +53,6 @@ export interface HiddenCardRef {
   visibility: Visibility;
 }
 
-// Scryfall image URIs
 export interface ImageUris {
   small?: string;
   normal?: string;
@@ -70,6 +69,8 @@ export interface KnownCardRef {
   type_line?: string;
   oracle_text?: string;
   image_uris?: ImageUris;
+  power?: string;
+  toughness?: string;
   zone: HiddenCardRef["zone"];
   faceDown?: false;
 }
@@ -84,7 +85,7 @@ export interface LifeTotals {
 export interface CommanderInfo {
   commanderIds: readonly string[];
   commanderNames?: readonly string[];
-  tax?: number; // aggregate
+  tax?: number;
   taxById?: Readonly<Record<string, number>>;
 }
 
@@ -97,7 +98,7 @@ export interface BattlefieldPermanent {
   counters?: Readonly<Record<string, number>>;
   basePower?: number;
   baseToughness?: number;
-  attachedTo?: string; // aura/equipment attachments target permanent id
+  attachedTo?: string;
   card: CardRef;
 }
 
@@ -145,6 +146,8 @@ export interface PlayerZones {
   graveyard: KnownCardRef[];
   graveyardCount: number;
   exile?: CardRef[];
+  // Optional visible top card of library (only if viewer is authorized to look).
+  libraryTop?: KnownCardRef;
 }
 
 // Authoritative server state
@@ -156,7 +159,6 @@ export interface GameState {
   life: LifeTotals;
   turnPlayer: PlayerID;
   priority: PlayerID;
-  // +1 = clockwise, -1 = counter-clockwise
   turnDirection?: 1 | -1;
   stack: StackItem[];
   battlefield: BattlefieldPermanent[];
@@ -170,8 +172,6 @@ export interface GameState {
   startedAt?: number;
   turn?: number;
   activePlayerIndex?: number;
-
-  // Turn-based limits (optional projection to clients)
   landsPlayedThisTurn?: Record<PlayerID, number>;
 }
 
@@ -191,13 +191,13 @@ export interface StateDiff<T> {
   seq: number;
 }
 
-// Target reference (server validates)
+// Target reference
 export type TargetRef =
   | { kind: 'player'; id: PlayerID }
   | { kind: 'permanent'; id: string }
   | { kind: 'stack'; id: string };
 
-// Actions and automation
+// Actions and automation (placeholders for future)
 export type GameActionType = string;
 
 export interface GameAction {
