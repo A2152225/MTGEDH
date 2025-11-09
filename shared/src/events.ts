@@ -3,6 +3,23 @@ import type { ClientGameView, GameID, PlayerID, StateDiff, KnownCardRef, TargetR
 // Minimal payment item: one tapped source produces one mana symbol (W/U/B/R/G/C)
 export type PaymentItem = { permanentId: string; mana: 'W' | 'U' | 'B' | 'R' | 'G' | 'C' };
 
+/**
+ * Server-wide saved deck pool types
+ * Visible to players (non-spectators) when importing; general pool (not per-user)
+ */
+export interface SavedDeckSummary {
+  id: string;
+  name: string;
+  created_at: number;
+  created_by_id: string;
+  created_by_name: string;
+  card_count: number;
+}
+export interface SavedDeckDetail extends SavedDeckSummary {
+  text: string;
+  entries: Array<{ name: string; count: number }>;
+}
+
 export interface ClientToServerEvents {
   // Session
   joinGame: (payload: { gameId: GameID; playerName: string; spectator?: boolean; seatToken?: string }) => void;
@@ -26,7 +43,16 @@ export interface ClientToServerEvents {
   revokeSpectatorAccess: (payload: { gameId: GameID; spectatorId: PlayerID }) => void;
 
   // Library and deck
-  importDeck: (payload: { gameId: GameID; list: string }) => void;
+  importDeck: (payload: { gameId: GameID; list: string; deckName?: string }) => void;
+
+  // Saved deck pool (players only)
+  listSavedDecks: (payload: { gameId: GameID }) => void;
+  saveDeck: (payload: { gameId: GameID; name: string; list: string }) => void;
+  getSavedDeck: (payload: { gameId: GameID; deckId: string }) => void;
+  useSavedDeck: (payload: { gameId: GameID; deckId: string }) => void;
+  renameSavedDeck: (payload: { gameId: GameID; deckId: string; name: string }) => void;
+  deleteSavedDeck: (payload: { gameId: GameID; deckId: string }) => void;
+
   shuffleLibrary: (payload: { gameId: GameID }) => void;
   drawCards: (payload: { gameId: GameID; count: number }) => void;
   shuffleHandIntoLibrary: (payload: { gameId: GameID }) => void;
@@ -112,6 +138,17 @@ export interface ServerToClientEvents {
     manaCost?: string; // e.g., "{2}{R}{R}"
     paymentSources?: Array<{ id: string; name: string; options: Array<'W' | 'U' | 'B' | 'R' | 'G' | 'C'> }>;
   }) => void;
+
+  // Saved deck pool responses
+  savedDecksList: (payload: { gameId: GameID; decks: SavedDeckSummary[] }) => void;
+  savedDeckDetail: (payload: { gameId: GameID; deck: SavedDeckDetail }) => void;
+  deckSaved: (payload: { gameId: GameID; deck: SavedDeckSummary }) => void;
+  deckRenamed: (payload: { gameId: GameID; deck: SavedDeckSummary }) => void;
+  deckDeleted: (payload: { gameId: GameID; deckId: string }) => void;
+  deckError: (payload: { gameId: GameID; message: string }) => void;
+
+  // Optional: structured import summary in addition to chat (not required by UI)
+  deckImportReport?: (payload: { gameId: GameID; summary: string[] }) => void;
 
   // Private library peeks for Scry/Surveil
   scryPeek: (payload: { gameId: GameID; cards: Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'>[] }) => void;

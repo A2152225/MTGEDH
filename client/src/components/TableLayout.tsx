@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import type { BattlefieldPermanent, PlayerRef, PlayerID, PlayerZones, CommanderInfo } from '../../../shared/src';
+import type { BattlefieldPermanent, PlayerRef, PlayerID, PlayerZones, CommanderInfo, GameID } from '../../../shared/src';
 import type { ImagePref } from './BattlefieldGrid';
 import { TokenGroups } from './TokenGroups';
 import { AttachmentLines } from './AttachmentLines';
@@ -7,6 +7,7 @@ import { HandGallery } from './HandGallery';
 import { LandRow } from './LandRow';
 import { ZonesPiles } from './ZonesPiles';
 import { FreeField } from './FreeField';
+import { DeckManagerModal } from './DeckManagerModal';
 
 type PlayerBoard = {
   player: PlayerRef;
@@ -15,17 +16,17 @@ type PlayerBoard = {
 
 function clamp(n: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, n)); }
 function isLandTypeLine(tl?: string) { return /\bland\b/i.test(tl || ''); }
-type Side = 0 | 1 | 2 | 3; // bottom, right, top, left (clockwise)
 
-// Side plan: for up to 8 seats in turn order after rotation to 'you'
+// Side mapping: 0 = bottom, 1 = top, 2 = right, 3 = left
+type Side = 0 | 1 | 2 | 3;
+
+/**
+ * Seat plan: repeat Bottom, Top, Right, Left (B, T, R, L),
+ * then rotate players so local viewer is bottom.
+ */
 function sidePlan(total: number): Side[] {
-  // For exactly 8: 3 bottom, 1 right, 3 top, 1 left (clockwise)
-  if (total === 8) return [0, 0, 0, 2, 1, 1, 1, 3];
-  // For fewer players distribute clockwise: bottom, right, top, left repeating.
-  const order: Side[] = [];
-  const seq: Side[] = [0, 2, 1, 3];
-  for (let i = 0; i < total; i++) order.push(seq[i % seq.length]);
-  return order;
+  const pattern: Side[] = [0, 1, 2, 3];
+  return Array.from({ length: total }, (_, i) => pattern[i % pattern.length]);
 }
 
 function buildPositions(opts: {
@@ -39,6 +40,7 @@ function buildPositions(opts: {
   sideOrder.forEach(s => counts[s]++);
   const stepX = boardW + seatGapX;
   const stepY = boardH + seatGapY;
+
   function offsets(count: number, step: number) {
     if (count <= 0) return [];
     if (count === 1) return [0];
@@ -46,6 +48,7 @@ function buildPositions(opts: {
     const start = -span / 2;
     return Array.from({ length: count }, (_, i) => start + i * step);
   }
+
   const xBottoms = offsets(counts[0], stepX);
   const xTops = offsets(counts[1], stepX);
   const yRights = offsets(counts[2], stepY);
@@ -61,7 +64,6 @@ function buildPositions(opts: {
     (counts[3] ? ((counts[3] - 1) / 2) * stepY + boardH / 2 : 0)
   ) + centerClearY + sidePad;
 
-  // Same heights for top/bottom, columns midway between them
   const yBottom =  halfGapY + boardH / 2;
   const yTop    = -halfGapY - boardH / 2;
   const xRight  =  halfGapX + boardW / 2;
@@ -74,10 +76,10 @@ function buildPositions(opts: {
     const side = sideOrder[i];
     const idx = nextIdx[side]++;
     switch (side) {
-      case 0: positions.push({ x: xBottoms[idx] ?? 0, y: yBottom, rotateDeg: 0, side }); break;      // bottom faces up
-      case 1: positions.push({ x: xTops[idx] ?? 0,   y: yTop,   rotateDeg: 180, side }); break;     // top faces down
-      case 2: positions.push({ x: xRight,            y: yRights[idx] ?? 0, rotateDeg: -90, side }); break; // right faces left
-      case 3: positions.push({ x: xLeft,             y: yLefts[idx]  ?? 0, rotateDeg: 90,  side }); break; // left faces right
+      case 0: positions.push({ x: xBottoms[idx] ?? 0, y: yBottom, rotateDeg: 0, side }); break;
+      case 1: positions.push({ x: xTops[idx] ?? 0,   y: yTop,   rotateDeg: 180, side }); break;
+      case 2: positions.push({ x: xRight,            y: yRights[idx] ?? 0, rotateDeg: -90, side }); break;
+      case 3: positions.push({ x: xLeft,             y: yLefts[idx]  ?? 0, rotateDeg: 90,  side }); break;
     }
   }
   return positions;
@@ -104,6 +106,7 @@ export function TableLayout(props: {
   commandZone?: Record<PlayerID, CommanderInfo>;
   format?: string;
   showYourHandBelow?: boolean;
+
   onRemove?: (id: string) => void;
   onCounter?: (id: string, kind: string, delta: number) => void;
   onBulkCounter?: (ids: string[], deltas: Record<string, number>) => void;
@@ -113,17 +116,22 @@ export function TableLayout(props: {
   highlightPlayerTargets?: ReadonlySet<string>;
   selectedPlayerTargets?: ReadonlySet<string>;
   onPlayerClick?: (playerId: string) => void;
+
   onPlayLandFromHand?: (cardId: string) => void;
   onCastFromHand?: (cardId: string) => void;
   reasonCannotPlayLand?: (card: { type_line?: string }) => string | null;
   reasonCannotCast?: (card: { type_line?: string }) => string | null;
   onReorderHand?: (order: number[]) => void;
   onShuffleHand?: () => void;
+
   threeD?: { enabled: boolean; rotateXDeg: number; rotateYDeg: number; perspectivePx?: number };
   enablePanZoom?: boolean;
   tableCloth?: { imageUrl?: string; color?: string };
   worldSize?: number;
   onUpdatePermPos?: (id: string, x: number, y: number, z?: number) => void;
+
+  onImportDeckText?: (text: string, name?: string) => void;
+  gameId?: GameID;
 }) {
   const {
     players, permanentsByPlayer, imagePref, isYouPlayer,
@@ -135,10 +143,10 @@ export function TableLayout(props: {
     onPlayLandFromHand, onCastFromHand, reasonCannotPlayLand, reasonCannotCast,
     onReorderHand, onShuffleHand,
     threeD, enablePanZoom = true,
-    tableCloth, worldSize, onUpdatePermPos
+    tableCloth, worldSize, onUpdatePermPos,
+    onImportDeckText, gameId
   } = props;
 
-  // Turn order by seat, rotated so 'you' first, and preserved around the rectangle
   const ordered = useMemo<PlayerBoard[]>(() => {
     const ps = [...players].sort((a, b) => a.seat - b.seat);
     const idxYou = you ? ps.findIndex(p => p.id === you) : -1;
@@ -148,7 +156,7 @@ export function TableLayout(props: {
 
   const sideOrder = useMemo(() => sidePlan(ordered.length), [ordered.length]);
 
-  // Visual constants (shared with other components)
+  // Layout constants
   const TILE_W = 110;
   const tileH = Math.round(TILE_W / 0.72);
   const ZONES_W = 96;
@@ -158,7 +166,6 @@ export function TableLayout(props: {
   const BOARD_W = FREE_W + ZONES_W + 24;
   const BOARD_H = Math.round(FREE_H + tileH + 220);
 
-  // Spacing / center clearance (tuned to avoid overlap and keep a visible center gap)
   const SEAT_GAP_X = 72;
   const SEAT_GAP_Y = 72;
   const CENTER_CLEAR_X = 120;
@@ -179,7 +186,7 @@ export function TableLayout(props: {
 
   const { halfW, halfH } = useMemo(() => computeExtents(seatPositions, BOARD_W, BOARD_H), [seatPositions]);
 
-  // Container and camera (pan/zoom)
+  // Pan / zoom state
   const containerRef = useRef<HTMLDivElement>(null);
   const [container, setContainer] = useState({ w: 1200, h: 800 });
 
@@ -197,6 +204,9 @@ export function TableLayout(props: {
   }, []);
 
   const [cam, setCam] = useState({ x: 0, y: 0, z: 1 });
+  const camRef = useRef(cam);
+  useEffect(() => { camRef.current = cam; }, [cam]);
+
   const dragRef = useRef<{ id: number; sx: number; sy: number; cx: number; cy: number; active: boolean } | null>(null);
   const [panKey, setPanKey] = useState(false);
 
@@ -208,48 +218,48 @@ export function TableLayout(props: {
     return () => { window.removeEventListener('keydown', kd); window.removeEventListener('keyup', ku); };
   }, []);
 
-  // Prevent page scroll while zooming: use capture phase + CSS overscroll-behavior
-  const onWheelCapture = (e: React.WheelEvent) => {
-    if (!enablePanZoom) return;
-    // Allow internal scroll for elements explicitly marked as "no zoom" containers
-    const t = e.target as HTMLElement;
-    if (t && t.closest('[data-no-zoom]')) {
-      // Ensure scroll chaining doesn't bubble to the page
-      (t.closest('[data-no-zoom]') as HTMLElement).style.overscrollBehavior = 'contain';
-      return;
-    }
-    e.preventDefault();
-    e.stopPropagation();
-  };
+  // Precise wheel zoom (focus at cursor). Attaches non-passive listener to container div.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
 
-  const onWheel = (e: React.WheelEvent) => {
-    if (!enablePanZoom) return;
-    const t = e.target as HTMLElement;
-    if (t && t.closest('[data-no-zoom]')) return; // let inner scrollers handle their own wheel
-    e.preventDefault();
-    e.stopPropagation();
+    const onWheel = (e: WheelEvent) => {
+      if (!enablePanZoom) return;
+      const target = e.target as HTMLElement;
+      if (target.closest('[data-no-zoom]')) return; // allow native scroll in exempt areas
+      e.preventDefault();
 
-    const rect = containerRef.current!.getBoundingClientRect();
-    const sx = e.clientX - rect.left;
-    const sy = e.clientY - rect.top;
-    const cx = container.w / 2;
-    const cy = container.h / 2;
+      // Current camera
+      const { x, y, z } = camRef.current;
 
-    const wx = cam.x + (sx - cx) / cam.z;
-    const wy = cam.y + (sy - cy) / cam.z;
+      const rect = el.getBoundingClientRect();
+      const sx = e.clientX - rect.left;
+      const sy = e.clientY - rect.top;
+      const cx = container.w / 2;
+      const cy = container.h / 2;
 
-    const factor = Math.exp(-e.deltaY * 0.0015);
-    const newZ = clamp(cam.z * factor, 0.2, 2.0);
+      // World coords of cursor before zoom
+      const wx = x + (sx - cx) / z;
+      const wy = y + (sy - cy) / z;
 
-    const newCamX = wx - (sx - cx) / newZ;
-    const newCamY = wy - (sy - cy) / newZ;
+      // Trackpad-friendly scaling
+      const factor = Math.exp(-(e.deltaY) * 0.00125);
+      const newZ = clamp(z * factor, 0.15, 2.5);
 
-    setCam({ x: newCamX, y: newCamY, z: newZ });
-  };
+      // Re-center so cursor remains anchored
+      const newCamX = wx - (sx - cx) / newZ;
+      const newCamY = wy - (sy - cy) / newZ;
+
+      setCam({ x: newCamX, y: newCamY, z: newZ });
+    };
+
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [enablePanZoom, container.w, container.h]);
 
   const beginPan = (e: React.PointerEvent) => {
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    dragRef.current = { id: e.pointerId, sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y, active: true };
+    dragRef.current = { id: e.pointerId, sx: e.clientX, sy: e.clientY, cx: camRef.current.x, cy: camRef.current.y, active: true };
   };
   const onPointerDown = (e: React.PointerEvent) => {
     if (!enablePanZoom) return;
@@ -262,8 +272,8 @@ export function TableLayout(props: {
   const onPointerMove = (e: React.PointerEvent) => {
     const d = dragRef.current;
     if (!d || !d.active || d.id !== e.pointerId) return;
-    const dx = (e.clientX - d.sx) / cam.z;
-    const dy = (e.clientY - d.sy) / cam.z;
+    const dx = (e.clientX - d.sx) / camRef.current.z;
+    const dy = (e.clientY - d.sy) / camRef.current.z;
     setCam(prev => ({ ...prev, x: d.cx - dx, y: d.cy - dy }));
   };
   const onPointerUp = (e: React.PointerEvent) => {
@@ -311,11 +321,11 @@ export function TableLayout(props: {
     ? { backgroundImage: `url(${tableCloth.imageUrl})`, backgroundSize: 'cover', backgroundRepeat: 'no-repeat', backgroundPosition: 'center' }
     : { background: 'radial-gradient(ellipse at center, rgba(0,128,64,0.9) 0%, rgba(3,62,35,0.95) 60%, rgba(2,40,22,1) 100%)' };
 
+  const [deckMgrOpen, setDeckMgrOpen] = useState(false);
+
   return (
     <div
       ref={containerRef}
-      onWheelCapture={onWheelCapture}
-      onWheel={onWheel}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -330,7 +340,6 @@ export function TableLayout(props: {
         borderRadius: 12,
         userSelect: 'none',
         cursor: enablePanZoom ? (dragRef.current ? 'grabbing' : (panKey ? 'grab' : 'default')) : 'default',
-        // Prevent scroll chaining to the page while zooming/panning inside the viewport
         overscrollBehavior: 'none'
       }}
     >
@@ -341,7 +350,6 @@ export function TableLayout(props: {
           transform: cameraTransform,
           transformOrigin: '0 0',
           willChange: 'transform',
-          // Also contain any scroll chain within the viewport container
           overscrollBehavior: 'none'
         }}
       >
@@ -363,6 +371,7 @@ export function TableLayout(props: {
               zIndex: 0
             }}
           >
+            {/* Cloth background */}
             <div
               style={{
                 position: 'absolute',
@@ -376,6 +385,7 @@ export function TableLayout(props: {
                 pointerEvents: 'none'
               }}
             />
+            {/* Center marker */}
             <div
               style={{
                 position: 'absolute', left: -50, top: -50, width: 100, height: 100,
@@ -386,6 +396,7 @@ export function TableLayout(props: {
               Table
             </div>
 
+            {/* Boards */}
             <div style={{ position: 'relative', zIndex: 2 }}>
               {ordered.map((pb, i) => {
                 const pos = seatPositions[i];
@@ -418,7 +429,6 @@ export function TableLayout(props: {
                       position: 'absolute',
                       left: 0, top: 0,
                       width: BOARD_W,
-                      // Your board remains upright; others face center
                       transform: `translate(${pos.x}px, ${pos.y}px) rotate(${isYouThis ? 0 : pos.rotateDeg}deg)`,
                       transformOrigin: '50% 50%',
                       pointerEvents: 'auto'
@@ -428,8 +438,6 @@ export function TableLayout(props: {
                       ref={sectionRef}
                       style={{
                         position: 'relative',
-                        // Do not counter-rotate others; show content facing center
-                        transform: isYouThis ? 'none' : 'none',
                         background: 'rgba(255,255,255,0.045)',
                         backdropFilter: 'blur(2px)',
                         borderRadius: 10,
@@ -443,7 +451,18 @@ export function TableLayout(props: {
                     >
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                          <div style={{ fontWeight: 700, color: '#fff' }}>{pb.player.name}</div>
+                          <div style={{ fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span>{pb.player.name}</span>
+                            {isYouThis && (
+                              <button
+                                onClick={() => setDeckMgrOpen(true)}
+                                style={{ fontSize: 11 }}
+                                title="Manage / Import Deck"
+                              >
+                                Decks
+                              </button>
+                            )}
+                          </div>
                           {onPlayerClick && (
                             <button
                               onClick={() => onPlayerClick(pb.player.id)}
@@ -480,11 +499,7 @@ export function TableLayout(props: {
 
                         {lands.length > 0 && (
                           <div
-                            style={{
-                              marginTop: 12,
-                              // Prevent scroll chaining if this area becomes scrollable
-                              overscrollBehavior: 'contain'
-                            }}
+                            style={{ marginTop: 12, overscrollBehavior: 'contain' }}
                             data-no-zoom
                             onWheel={(e) => e.stopPropagation()}
                           >
@@ -504,11 +519,7 @@ export function TableLayout(props: {
                         )}
 
                         {tokens.length > 0 && (
-                          <div
-                            style={{ marginTop: 12, overscrollBehavior: 'contain' }}
-                            data-no-zoom
-                            onWheel={(e) => e.stopPropagation()}
-                          >
+                          <div style={{ marginTop: 12, overscrollBehavior: 'contain' }} data-no-zoom onWheel={(e) => e.stopPropagation()}>
                             <TokenGroups
                               tokens={tokens}
                               groupMode='name+pt+attach'
@@ -529,7 +540,6 @@ export function TableLayout(props: {
                               border: '1px solid #333',
                               borderRadius: 8,
                               padding: 8,
-                              // Let hand scroll internally without scrolling page
                               maxHeight: '32vh',
                               overflowY: 'auto',
                               overscrollBehavior: 'contain'
@@ -572,6 +582,14 @@ export function TableLayout(props: {
                 );
               })}
             </div>
+
+            <DeckManagerModal
+              open={!!deckMgrOpen}
+              onClose={() => setDeckMgrOpen(false)}
+              onImportText={(txt, nm) => { onImportDeckText?.(txt, nm); setDeckMgrOpen(false); }}
+              gameId={gameId}
+              canServer={!!isYouPlayer}
+            />
           </div>
         </div>
       </div>
@@ -581,20 +599,19 @@ export function TableLayout(props: {
           position: 'absolute', left: 8, bottom: 8, zIndex: 12,
           display: 'inline-flex', gap: 6, alignItems: 'center',
           background: 'rgba(0,0,0,0.5)', color: '#fff', padding: '6px 8px', borderRadius: 6, fontSize: 12,
-          // Make sure this control bar itself doesn't cause page scroll when wheel happens over it
           overscrollBehavior: 'contain'
         }}>
-          <button onClick={() => setCam(prev => ({ ...prev, z: clamp(prev.z * 1.15, 0.2, 2.0) }))} title="Zoom in">+</button>
-          <button onClick={() => setCam(prev => ({ ...prev, z: clamp(prev.z / 1.15, 0.2, 2.0) }))} title="Zoom out">−</button>
+          <button onClick={() => setCam(prev => ({ ...prev, z: clamp(prev.z * 1.15, 0.2, 2.5) }))} title="Zoom in">+</button>
+            <button onClick={() => setCam(prev => ({ ...prev, z: clamp(prev.z / 1.15, 0.15, 2.5) }))} title="Zoom out">−</button>
           <button onClick={() => setCam({ x: 0, y: 0, z: 1 })} title="Reset view">Reset</button>
           <button onClick={() => {
             const margin = 24;
             const zx = (container.w / 2 - margin) / (halfW + 40);
             const zy = (container.h / 2 - margin) / (halfH + 40);
-            const fitZ = clamp(Math.min(zx, zy), 0.2, 2.0);
+            const fitZ = clamp(Math.min(zx, zy), 0.15, 2.5);
             setCam({ x: 0, y: 0, z: fitZ });
           }} title="Fit all seats">Fit All</button>
-          <span style={{ opacity: 0.85 }}>Zoom: {cam.z.toFixed(2)} • Pan: Right/Middle or Space+Drag</span>
+          <span style={{ opacity: 0.85 }}>Zoom: {cam.z.toFixed(2)} • Pan: Right/Middle or Space+Drag • Wheel: zoom</span>
         </div>
       )}
     </div>

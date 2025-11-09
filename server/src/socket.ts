@@ -24,6 +24,9 @@ import {
 } from './services/scryfall';
 import { categorizeSpell, evaluateTargeting as evalTargets } from './rules-engine/targeting';
 
+// Saved deck pool (SQLite-backed; general pool)
+import { saveDeck as saveDeckDB, listDecks, getDeck as getDeckDB, renameDeck as renameDeckDB, deleteDeck as deleteDeckDB } from './db/decks';
+
 // types
 type TypedServer = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 
@@ -34,7 +37,11 @@ type PendingCast = {
   caster: PlayerID;
   fromZone: 'hand' | 'commandZone';
   cardInHandId?: string; // present for hand-cast
-  cardSnapshot: Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'>;
+  cardSnapshot: Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'> & {
+    mana_cost?: string;
+    power?: string | number;
+    toughness?: string | number;
+  };
   spec: NonNullable<ReturnType<typeof categorizeSpell>> | null;
   valid: TargetRef[];
   chosen: TargetRef[];
@@ -46,6 +53,7 @@ type PendingCast = {
 const pendingByGame: Map<GameID, Map<string, PendingCast>> = new Map();
 const newSpellId = () => `sp_${Math.random().toString(36).slice(2, 9)}`;
 const newStackId = () => `st_${Math.random().toString(36).slice(2, 9)}`;
+const newDeckId = () => `deck_${Math.random().toString(36).slice(2, 10)}`;
 
 function ensureGame(gameId: GameID): InMemoryGame {
   let game = games.get(gameId);
@@ -340,15 +348,15 @@ export function registerSocketHandlers(io: TypedServer) {
         caster: pid,
         fromZone: 'commandZone',
         cardSnapshot: {
-  id: card.id,
-  name: card.name,
-  type_line: card.type_line,
-  oracle_text: card.oracle_text,
-  image_uris: card.image_uris,
-  mana_cost: card.mana_cost,
-  power: card.power,
-  toughness: card.toughness
-},
+          id: card.id,
+          name: card.name,
+          type_line: card.type_line,
+          oracle_text: card.oracle_text,
+          image_uris: card.image_uris,
+          mana_cost: card.mana_cost,
+          power: card.power,
+          toughness: card.toughness
+        },
         spec: spec ?? null,
         valid,
         chosen: [],
@@ -529,8 +537,8 @@ export function registerSocketHandlers(io: TypedServer) {
       broadcastGame(io, game, gameId);
     });
 
-    // Deck import
-    socket.on('importDeck', async ({ gameId, list }) => {
+    // Deck import (now supports deckName; will auto-save if provided)
+    socket.on('importDeck', async ({ gameId, list, deckName }) => {
       const pid = socket.data.playerId as PlayerID | undefined;
       if (!pid || socket.data.spectator) return;
       const game = ensureGame(gameId);
@@ -621,6 +629,126 @@ export function registerSocketHandlers(io: TypedServer) {
         ts: Date.now()
       });
       broadcastGame(io, game, gameId);
+
+      // Auto-save to server pool if a deckName was provided
+      if (deckName && deckName.trim()) {
+        try {
+          const id = newDeckId();
+          const name = deckName.trim();
+          const created_by_name = (game.state.players as any[])?.find(p => p.id === pid)?.name || String(pid);
+          const card_count = parsed.reduce((a, p) => a + (p.count || 0), 0);
+          saveDeckDB({
+            id,
+            name,
+            text: list,
+            created_by_id: pid,
+            created_by_name,
+            card_count
+          });
+          const d = getDeckDB(id);
+          if (d) {
+            const { text: _omit, entries: _omit2, ...summary } = d as any;
+            socket.emit('deckSaved', { gameId, deck: summary });
+            // broadcast updated list to all players in game
+            io.to(gameId).emit('savedDecksList', { gameId, decks: listDecks() });
+          }
+        } catch {
+          socket.emit('deckError', { gameId, message: 'Auto-save failed.' });
+        }
+      }
+    });
+
+    // Saved deck pool (players only; spectators ignored)
+    socket.on('listSavedDecks', ({ gameId }) => {
+      const pid = socket.data.playerId as PlayerID | undefined;
+      if (!pid || socket.data.spectator) return;
+      const decks = listDecks();
+      socket.emit('savedDecksList', { gameId, decks });
+    });
+
+    socket.on('getSavedDeck', ({ gameId, deckId }) => {
+      const pid = socket.data.playerId as PlayerID | undefined;
+      if (!pid || socket.data.spectator) return;
+      const deck = getDeckDB(deckId);
+      if (!deck) {
+        socket.emit('deckError', { gameId, message: 'Deck not found.' });
+        return;
+      }
+      socket.emit('savedDeckDetail', { gameId, deck });
+    });
+
+    socket.on('useSavedDeck', ({ gameId, deckId }) => {
+      const pid = socket.data.playerId as PlayerID | undefined;
+      if (!pid || socket.data.spectator) {
+        socket.emit('deckError', { gameId, message: 'Spectators cannot use saved decks.' });
+        return;
+      }
+      const deck = getDeckDB(deckId);
+      if (!deck) {
+        socket.emit('deckError', { gameId, message: 'Deck not found.' });
+        return;
+      }
+      // Reuse import path by invoking same socket event (keeps validation and report)
+      socket.emit('importDeck', { gameId, list: deck.text, deckName: deck.name });
+    });
+
+    socket.on('saveDeck', ({ gameId, name, list }) => {
+      const pid = socket.data.playerId as PlayerID | undefined;
+      if (!pid || socket.data.spectator) {
+        socket.emit('deckError', { gameId, message: 'Spectators cannot save decks.' });
+        return;
+      }
+      if (!name || !name.trim()) { socket.emit('deckError', { gameId, message: 'Deck name required.' }); return; }
+      if (!list || !list.trim()) { socket.emit('deckError', { gameId, message: 'Deck list empty.' }); return; }
+      if (list.length > 400_000) { socket.emit('deckError', { gameId, message: 'Deck text too large.' }); return; }
+
+      try {
+        const id = newDeckId();
+        const game = ensureGame(gameId);
+        const created_by_name = (game.state.players as any[])?.find(p => p.id === pid)?.name || String(pid);
+        const parsed = parseDecklist(list);
+        const card_count = parsed.reduce((a, p) => a + (p.count || 0), 0);
+
+        saveDeckDB({
+          id,
+          name: name.trim(),
+          text: list,
+          created_by_id: pid,
+          created_by_name,
+          card_count
+        });
+        const d = getDeckDB(id);
+        if (d) {
+          const { text: _omit, entries: _omit2, ...summary } = d as any;
+          socket.emit('deckSaved', { gameId, deck: summary });
+          io.to(gameId).emit('savedDecksList', { gameId, decks: listDecks() });
+        }
+      } catch {
+        socket.emit('deckError', { gameId, message: 'Save failed.' });
+      }
+    });
+
+    // Anyone can rename (by request)
+    socket.on('renameSavedDeck', ({ gameId, deckId, name }) => {
+      const pid = socket.data.playerId as PlayerID | undefined;
+      if (!pid || socket.data.spectator) return;
+      if (!name || !name.trim()) { socket.emit('deckError', { gameId, message: 'Name required.' }); return; }
+      const updated = renameDeckDB(deckId, name.trim());
+      if (!updated) { socket.emit('deckError', { gameId, message: 'Rename failed or deck not found.' }); return; }
+      socket.emit('deckRenamed', { gameId, deck: updated });
+      io.to(gameId).emit('savedDecksList', { gameId, decks: listDecks() });
+    });
+
+    // Delete remains creator-only (can relax later if desired)
+    socket.on('deleteSavedDeck', ({ gameId, deckId }) => {
+      const pid = socket.data.playerId as PlayerID | undefined;
+      if (!pid || socket.data.spectator) return;
+      const deck = getDeckDB(deckId);
+      if (!deck) { socket.emit('deckError', { gameId, message: 'Deck not found.' }); return; }
+      if (deck.created_by_id !== pid) { socket.emit('deckError', { gameId, message: 'Only creator can delete.' }); return; }
+      if (!deleteDeckDB(deckId)) { socket.emit('deckError', { gameId, message: 'Delete failed.' }); return; }
+      socket.emit('deckDeleted', { gameId, deckId });
+      io.to(gameId).emit('savedDecksList', { gameId, decks: listDecks() });
     });
 
     // Library ops
@@ -954,16 +1082,16 @@ export function registerSocketHandlers(io: TypedServer) {
       hand.splice(idx, 1);
       z!.handCount = hand.length;
 
-const snapshot = {
-  id: card.id,
-  name: card.name,
-  type_line: card.type_line,
-  oracle_text: card.oracle_text,
-  image_uris: card.image_uris,
-  mana_cost: card.mana_cost,
-  power: card.power,
-  toughness: card.toughness
-};
+      const snapshot = {
+        id: card.id,
+        name: card.name,
+        type_line: card.type_line,
+        oracle_text: card.oracle_text,
+        image_uris: card.image_uris,
+        mana_cost: card.mana_cost,
+        power: card.power,
+        toughness: card.toughness
+      };
       game.applyEvent({ type: 'playLand', playerId: pid, card: snapshot });
       appendEvent(gameId, game.seq, 'playLand', { playerId: pid, card: snapshot });
 

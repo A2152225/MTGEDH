@@ -425,6 +425,12 @@ export function App() {
 
   const reorderEnabled = !!isYouPlayer && !targeting;
 
+  // New: import deck text handler (supports optional name to save to server pool)
+  const importDeckText = (list: string, deckName?: string) => {
+    if (!view || !you) return;
+    socket.emit('importDeck', { gameId: view.id, list, deckName });
+  };
+
   return (
     <div style={{ fontFamily: 'system-ui', padding: 16, display: 'grid', gridTemplateColumns: '1fr 420px', gap: 16 }}>
       <div>
@@ -654,6 +660,9 @@ export function App() {
                   tableCloth={{ imageUrl: clothUrl || undefined }}
                   worldSize={worldSize}
                   onUpdatePermPos={(id, x, y, z) => view && socket.emit('updatePermanentPos', { gameId: view.id, permanentId: id, x, y, z })}
+                  // New deck manager hooks
+                  onImportDeckText={(txt, nm) => importDeckText(txt, nm)}
+                  gameId={view.id}
                 />
               </div>
             ) : (
