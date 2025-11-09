@@ -25,7 +25,13 @@ import {
 import { categorizeSpell, evaluateTargeting as evalTargets } from './rules-engine/targeting';
 
 // Saved deck pool (SQLite-backed; general pool)
-import { saveDeck as saveDeckDB, listDecks, getDeck as getDeckDB, renameDeck as renameDeckDB, deleteDeck as deleteDeckDB } from './db/decks';
+import {
+  saveDeck as saveDeckDB,
+  listDecks,
+  getDeck as getDeckDB,
+  renameDeck as renameDeckDB,
+  deleteDeck as deleteDeckDB
+} from './db/decks';
 
 // types
 type TypedServer = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
@@ -59,7 +65,6 @@ function ensureGame(gameId: GameID): InMemoryGame {
   let game = games.get(gameId);
   if (!game) {
     game = createInitialGameState(gameId);
-    // Guard against undefined state (defensive in case of compile mismatch)
     const fmt = ((game as any)?.state?.format ?? 'commander') as any;
     const life = Number(((game as any)?.state?.startingLife ?? 40)) | 0;
     createGameIfNotExists(gameId, String(fmt), life);
@@ -105,21 +110,18 @@ function parseManaCost(manaCost?: string): {
     if (sym === 'X') { res.hasX = true; continue; }
     if (/^\d+$/.test(sym)) { res.generic += parseInt(sym, 10); continue; }
     if (sym.includes('/')) {
-      // hybrid or phyrexian; treat W/P as W, and two-color hybrids like W/U as flexible
       const parts = sym.split('/');
       if (parts.length === 2 && parts[1] === 'P') {
         const c = parts[0] as Color;
         if ((COLORS as readonly string[]).includes(c)) res.colors[c] += 1;
         continue;
       }
-      // Only handle simple 2-color hybrids; ignore two-brid (e.g. 2/W) by treating as generic 2
       if (parts.length === 2 && (COLORS as readonly string[]).includes(parts[0] as Color) && (COLORS as readonly string[]).includes(parts[1] as Color)) {
         const a = parts[0] as Color;
         const b = parts[1] as Color;
         res.hybrids.push([a, b]);
         continue;
       }
-      // Two-brid fallback: count as generic equal to the numeric part
       const num = parseInt(parts[0], 10);
       if (!Number.isNaN(num)) { res.generic += num; continue; }
     }
@@ -168,14 +170,11 @@ function canPayEnhanced(
   baseCost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] },
   pool: Record<Color, number>
 ): boolean {
-  // copy
   const leftPool: Record<Color, number> = { W: pool.W, U: pool.U, B: pool.B, R: pool.R, G: pool.G, C: pool.C };
-  // pay fixed colors
   for (const c of COLORS) {
     if (leftPool[c] < baseCost.colors[c]) return false;
     leftPool[c] -= baseCost.colors[c];
   }
-  // satisfy hybrids greedily from pool
   for (const group of baseCost.hybrids) {
     let satisfied = false;
     for (const c of group) {
@@ -183,7 +182,6 @@ function canPayEnhanced(
     }
     if (!satisfied) return false;
   }
-  // generic last
   const totalRemaining = COLORS.reduce((a, c) => a + (leftPool[c] || 0), 0);
   return totalRemaining >= baseCost.generic;
 }
@@ -193,12 +191,11 @@ function autoSelectPayment(
   sources: Array<{ id: string; options: Color[] }>,
   cost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] }
 ): PaymentItem[] | null {
-  if ((cost.hybrids || []).length > 0) return null; // require manual for hybrids for now
+  if ((cost.hybrids || []).length > 0) return null;
   const remainingColors: Record<Color, number> = { W: cost.colors.W, U: cost.colors.U, B: cost.colors.B, R: cost.colors.R, G: cost.colors.G, C: cost.colors.C };
   let remainingGeneric = cost.generic;
   const unused = sources.slice();
   const payment: PaymentItem[] = [];
-  // Colored first
   for (const c of COLORS) {
     while (remainingColors[c] > 0) {
       const idx = unused.findIndex(s => s.options.includes(c));
@@ -208,7 +205,6 @@ function autoSelectPayment(
       remainingColors[c] -= 1;
     }
   }
-  // Generic
   for (let i = 0; i < remainingGeneric; i++) {
     if (unused.length === 0) return null;
     const src = unused.shift()!;
@@ -221,12 +217,114 @@ function autoSelectPayment(
 function appendGenericToCostString(manaCost: string | undefined, genericAdd: number): string | undefined {
   if (!manaCost) return genericAdd > 0 ? `{${genericAdd}}` : undefined;
   if (genericAdd <= 0) return manaCost;
-  // Commander tax increases in steps of 2; append repeated {2}
   const parts: string[] = [];
   let left = genericAdd;
   while (left >= 2) { parts.push('{2}'); left -= 2; }
   if (left === 1) parts.push('{1}');
   return `${manaCost}${parts.join('')}`;
+}
+
+/**
+ * Helper: import a resolved (raw text) saved deck directly without re-emitting client->server events.
+ * Mirrors logic in 'importDeck' but skips auto-save and revalidation of existing deck name.
+ */
+async function importDeckTextIntoGame(
+  io: TypedServer,
+  game: InMemoryGame,
+  gameId: GameID,
+  playerId: PlayerID,
+  list: string,
+  deckName?: string
+): Promise<void> {
+  const parsed = parseDecklist(list);
+  const requestedNames = parsed.map(p => p.name);
+  let byName: Map<string, any>;
+  try {
+    byName = await fetchCardsByExactNamesBatch(requestedNames);
+  } catch (e: any) {
+    io.to(game.participants().find(p => p.playerId === playerId)?.socketId || '').emit('error', {
+      code: 'SCRYFALL',
+      message: e?.message || 'Deck import failed'
+    });
+    return;
+  }
+
+  const resolvedCards: Array<Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'>> = [];
+  const validationCards: any[] = [];
+  const missing: string[] = [];
+
+  for (const { name, count } of parsed) {
+    const key = normalizeName(name).toLowerCase();
+    const c = byName.get(key);
+    if (!c) {
+      missing.push(name);
+      continue;
+    }
+    for (let i = 0; i < count; i++) {
+      validationCards.push(c);
+      resolvedCards.push({
+        id: c.id,
+        name: c.name,
+        type_line: c.type_line,
+        oracle_text: c.oracle_text,
+        image_uris: c.image_uris
+      });
+    }
+  }
+
+  if (missing.length) {
+    for (const miss of missing) {
+      try {
+        const c = await fetchCardByExactNameStrict(miss);
+        const count = parsed.find(p => p.name === miss)?.count ?? 1;
+        for (let i = 0; i < count; i++) {
+          validationCards.push(c);
+          resolvedCards.push({
+            id: c.id,
+            name: c.name,
+            type_line: c.type_line,
+            oracle_text: c.oracle_text,
+            image_uris: c.image_uris
+          });
+        }
+      } catch {
+        // keep missing
+      }
+    }
+  }
+
+  game.importDeckResolved(playerId, resolvedCards);
+  appendEvent(gameId, game.seq, 'deckImportResolved', { playerId, cards: resolvedCards });
+
+  const fmt = String(game.state.format);
+  const report = validateDeck(fmt, validationCards);
+  const expected = parsed.reduce((sum, p) => sum + p.count, 0);
+  const summaryLines: string[] = [];
+  summaryLines.push(`Player ${playerId} imported ${resolvedCards.length}/${expected} cards${deckName ? ` from "${deckName}"` : ''}.`);
+  const stillMissing = parsed
+    .filter(p => !resolvedCards.some(rc => rc.name.toLowerCase() === p.name.toLowerCase()))
+    .map(p => p.name);
+  if (stillMissing.length) summaryLines.push(`Missing: ${stillMissing.slice(0, 10).join(', ')}${stillMissing.length > 10 ? ', …' : ''}`);
+  if (report.illegal.length) {
+    summaryLines.push(
+      `Illegal (${report.illegal.length}): ${report.illegal
+        .slice(0, 10)
+        .map(i => `${i.name} (${i.reason})`)
+        .join(', ')}${report.illegal.length > 10 ? ', …' : ''}`
+    );
+  }
+  if (report.warnings.length) {
+    summaryLines.push(...report.warnings.map(w => `Warning: ${w}`));
+  }
+
+  io.to(gameId).emit('chat', {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: 'system',
+    message: summaryLines.join(' '),
+    ts: Date.now()
+  });
+  broadcastGame(io, game, gameId);
 }
 
 export function registerSocketHandlers(io: TypedServer) {
@@ -330,7 +428,7 @@ export function registerSocketHandlers(io: TypedServer) {
       const valid = spec ? evalTargets(game.state, pid, spec) : [];
       const spellId = newSpellId();
 
-      // Compute payment sources (with fallback for basics)
+      // Compute payment sources
       const sources = (game.state.battlefield || [])
         .filter(p => p.controller === pid && !p.tapped)
         .map(p => {
@@ -537,7 +635,7 @@ export function registerSocketHandlers(io: TypedServer) {
       broadcastGame(io, game, gameId);
     });
 
-    // Deck import (now supports deckName; will auto-save if provided)
+    // Deck import (supports deckName; will auto-save if provided)
     socket.on('importDeck', async ({ gameId, list, deckName }) => {
       const pid = socket.data.playerId as PlayerID | undefined;
       if (!pid || socket.data.spectator) return;
@@ -634,7 +732,7 @@ export function registerSocketHandlers(io: TypedServer) {
       if (deckName && deckName.trim()) {
         try {
           const id = newDeckId();
-          const name = deckName.trim();
+            const name = deckName.trim();
           const created_by_name = (game.state.players as any[])?.find(p => p.id === pid)?.name || String(pid);
           const card_count = parsed.reduce((a, p) => a + (p.count || 0), 0);
           saveDeckDB({
@@ -649,7 +747,6 @@ export function registerSocketHandlers(io: TypedServer) {
           if (d) {
             const { text: _omit, entries: _omit2, ...summary } = d as any;
             socket.emit('deckSaved', { gameId, deck: summary });
-            // broadcast updated list to all players in game
             io.to(gameId).emit('savedDecksList', { gameId, decks: listDecks() });
           }
         } catch {
@@ -677,19 +774,24 @@ export function registerSocketHandlers(io: TypedServer) {
       socket.emit('savedDeckDetail', { gameId, deck });
     });
 
-    socket.on('useSavedDeck', ({ gameId, deckId }) => {
+    // UPDATED: directly import saved deck text instead of re-emitting a client event
+    socket.on('useSavedDeck', async ({ gameId, deckId }) => {
       const pid = socket.data.playerId as PlayerID | undefined;
       if (!pid || socket.data.spectator) {
         socket.emit('deckError', { gameId, message: 'Spectators cannot use saved decks.' });
         return;
       }
+      const game = ensureGame(gameId);
       const deck = getDeckDB(deckId);
       if (!deck) {
         socket.emit('deckError', { gameId, message: 'Deck not found.' });
         return;
       }
-      // Reuse import path by invoking same socket event (keeps validation and report)
-      socket.emit('importDeck', { gameId, list: deck.text, deckName: deck.name });
+      try {
+        await importDeckTextIntoGame(io, game, gameId, pid, deck.text, deck.name);
+      } catch (e) {
+        socket.emit('deckError', { gameId, message: 'Use deck failed.' });
+      }
     });
 
     socket.on('saveDeck', ({ gameId, name, list }) => {
@@ -728,7 +830,7 @@ export function registerSocketHandlers(io: TypedServer) {
       }
     });
 
-    // Anyone can rename (by request)
+    // Anyone can rename
     socket.on('renameSavedDeck', ({ gameId, deckId, name }) => {
       const pid = socket.data.playerId as PlayerID | undefined;
       if (!pid || socket.data.spectator) return;
@@ -739,7 +841,7 @@ export function registerSocketHandlers(io: TypedServer) {
       io.to(gameId).emit('savedDecksList', { gameId, decks: listDecks() });
     });
 
-    // Delete remains creator-only (can relax later if desired)
+    // Delete (creator-only)
     socket.on('deleteSavedDeck', ({ gameId, deckId }) => {
       const pid = socket.data.playerId as PlayerID | undefined;
       if (!pid || socket.data.spectator) return;
@@ -910,7 +1012,7 @@ export function registerSocketHandlers(io: TypedServer) {
         return;
       }
 
-      let isFromHand = pending.fromZone === 'hand';
+      const isFromHand = pending.fromZone === 'hand';
       let hand: any[] = [];
       let z = game.state.zones?.[pid];
       if (isFromHand) {
@@ -942,7 +1044,6 @@ export function registerSocketHandlers(io: TypedServer) {
         }
       }
 
-      // Payment validation (with auto-pay fallback)
       const manaCostStr = pending.manaCost || (await (async () => {
         try { const scry = await fetchCardByExactNameStrict(card.name); return scry?.mana_cost || ''; } catch { return ''; }
       })());
@@ -952,10 +1053,9 @@ export function registerSocketHandlers(io: TypedServer) {
       const costForPay: { colors: Record<Color, number>; generic: number; hybrids: Color[][] } = {
         colors: { ...parsed.colors },
         generic: parsed.generic + x,
-        hybrids: [] // simplified: hybrid payments not supported here (manual selection path)
+        hybrids: []
       };
 
-      // If no payment provided, attempt auto-selection (hybrid requires manual)
       let paymentList: PaymentItem[] = Array.isArray(payment) ? payment : [];
       if (!paymentList.length) {
         const sources = (game.state.battlefield || [])
@@ -970,7 +1070,6 @@ export function registerSocketHandlers(io: TypedServer) {
         paymentList = auto;
       }
 
-      // Verify each source legality now (uses fallback-aware options)
       for (const p of paymentList) {
         const perm = game.state.battlefield.find(b => b.id === p.permanentId);
         if (!perm) { socket.emit('error', { code: 'PAY', message: 'Invalid payment source' }); return; }
@@ -983,20 +1082,17 @@ export function registerSocketHandlers(io: TypedServer) {
         }
       }
 
-      // Resolve hybrids against chosen payment pool flexibly
       const pool = paymentToPool(paymentList);
       if (!canPayEnhanced(costForPay, pool)) {
         socket.emit('error', { code: 'PAY', message: 'Costs cannot be fully met with selected payment' });
         return;
       }
 
-      // Apply taps
       for (const p of paymentList) {
         const perm = game.state.battlefield.find(b => b.id === p.permanentId);
         if (perm) perm.tapped = true;
       }
 
-      // Move the card from hand if needed
       if (isFromHand) {
         const idxInHand = hand.findIndex(c => c.id === pending.cardInHandId);
         if (idxInHand >= 0) {
@@ -1004,14 +1100,12 @@ export function registerSocketHandlers(io: TypedServer) {
           z!.handCount = hand.length;
         }
       } else {
-        // Commander: bump commander tax now that cast is declared
         const info = game.state.commandZone?.[pid];
         const id = info?.commanderIds?.find(x => x === card.id) || card.id;
         game.applyEvent({ type: 'castCommander', playerId: pid, commanderId: id });
         appendEvent(gameId, game.seq, 'castCommander', { playerId: pid, commanderId: id });
       }
 
-      // Push to stack
       const targetsEncoded = pending.chosen.map(t => `${t.kind}:${t.id}`);
       const stackId = newStackId();
       const item = {
@@ -1106,7 +1200,7 @@ export function registerSocketHandlers(io: TypedServer) {
       broadcastGame(io, game, gameId);
     });
 
-    // Hand ops (server-authoritative; persisted)
+    // Hand ops
     socket.on('reorderHand', ({ gameId, order }) => {
       const pid = socket.data.playerId as PlayerID | undefined;
       if (!pid || socket.data.spectator) return;
@@ -1209,7 +1303,7 @@ export function registerSocketHandlers(io: TypedServer) {
       broadcastGame(io, game, gameId);
     });
 
-    // Free positioning: owner can update positions of permanents they control
+    // Free positioning
     socket.on('updatePermanentPos', ({ gameId, permanentId, x, y, z }) => {
       const game = ensureGame(gameId);
       const pid = socket.data.playerId as PlayerID | undefined;

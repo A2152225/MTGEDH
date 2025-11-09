@@ -1,11 +1,40 @@
-import { io } from 'socket.io-client';
+import { io, type Socket } from 'socket.io-client';
 import type { ServerToClientEvents, ClientToServerEvents } from '../../shared/src';
 
-export const socket = io({
+// Point to your server explicitly when client and server run on different ports.
+// In dev, set VITE_SOCKET_URL=http://localhost:4000
+const URL = import.meta.env?.VITE_SOCKET_URL || undefined; // undefined => same origin
+
+export const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(URL, {
   path: '/socket.io',
-  autoConnect: true
-}) as unknown as ReturnType<typeof io> & {
-  emit: <E extends keyof ClientToServerEvents>(event: E, payload: Parameters<ClientToServerEvents[E]>[0]) => boolean;
-  on: <E extends keyof ServerToClientEvents>(event: E, cb: ServerToClientEvents[E]) => void;
-  off: <E extends keyof ServerToClientEvents>(event: E, cb?: ServerToClientEvents[E]) => void;
-};
+  autoConnect: true,
+  // Prefer pure WebSocket to avoid long-polling interference with Vite dev server
+  transports: ['websocket'],
+  // Robust reconnection defaults
+  reconnection: true,
+  reconnectionAttempts: Infinity,
+  reconnectionDelay: 500,
+  reconnectionDelayMax: 5000,
+  timeout: 10000,
+});
+
+// Optional diagnostics (remove once stable)
+socket.on('connect', () => {
+  // eslint-disable-next-line no-console
+  console.log('[client] connected:', socket.id);
+});
+socket.on('disconnect', (reason) => {
+  // eslint-disable-next-line no-console
+  console.log('[client] disconnected:', reason);
+});
+socket.on('connect_error', (err) => {
+  // eslint-disable-next-line no-console
+  console.error('[client] connect_error', err);
+});
+// Manager-level error (rare, optional)
+socket.io.on('error', (err: unknown) => {
+  // eslint-disable-next-line no-console
+  console.error('[client] manager error', err);
+});
+
+export default socket;
