@@ -1,6 +1,6 @@
 /* Commander selection & deck import improvements:
-   - setCommander now removes one instance of each chosen commander ID from the library
-   - No protocol changes; GameEvent 'setCommander' semantics extended internally
+   - setCommander removes one instance of each chosen commander ID from library
+   - Deferred opening hand draw for Commander until commanders chosen
 */
 import { GameFormat, GamePhase, GameStep } from '../../../shared/src';
 import type {
@@ -226,6 +226,8 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
   const inactive = new Set<PlayerID>();
   const spectatorNames = new Map<PlayerID, string>();
   const libraries = new Map<PlayerID, KnownCardRef[]>();
+  const pendingInitialDraw = new Set<PlayerID>();
+
   let rngSeed: number | null = null;
   let rng = mulberry32(hashStringToSeed(gameId));
   let seq = 0;
@@ -442,14 +444,9 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
       if (idx >= 0) {
         const [card] = lib.splice(idx, 1);
         movedNames.push(card.name);
-        if (moveTo === 'hand') {
-          z.hand.push({ ...card, zone: 'hand' }); z.handCount = z.hand.length;
-        } else if (moveTo === 'graveyard') {
-          z.graveyard.push({ ...card, zone: 'graveyard', faceDown: false }); z.graveyardCount = z.graveyard.length;
-        } else if (moveTo === 'exile') {
-          z.exile = z.exile || []; z.exile.push({ ...card, zone: 'exile' });
-        }
-        // 'battlefield' is handled via pushStack/resolve path; not directly here.
+        if (moveTo === 'hand') { z.hand.push({ ...card, zone: 'hand' }); z.handCount = z.hand.length; }
+        else if (moveTo === 'graveyard') { z.graveyard.push({ ...card, zone: 'graveyard', faceDown: false }); z.graveyardCount = z.graveyard.length; }
+        else if (moveTo === 'exile') { z.exile = z.exile || []; z.exile.push({ ...card, zone: 'exile' }); }
       }
     }
     z.libraryCount = lib.length;
@@ -501,7 +498,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
         const take = Math.min(need, lib.length);
         for (let i = 0; i < take; i++) {
           const card = lib.shift()!;
-            handArr.push({ ...card, zone: 'hand' });
+          handArr.push({ ...card, zone: 'hand' });
         }
         z.libraryCount = lib.length;
       }
@@ -532,7 +529,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     info.tax = Object.values(info.taxById).reduce((a, b) => a + b, 0);
     commandZone[playerId] = info;
 
-    // New: remove one copy of each commander card from library
+    // Remove commanders from library (one copy each if present)
     const lib = libraries.get(playerId);
     if (lib && lib.length) {
       let changed = false;
@@ -548,6 +545,27 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
         zones[playerId]!.libraryCount = lib.length;
       }
     }
+
+    // Deferred opening hand draw for Commander
+    if (pendingInitialDraw.has(playerId)) {
+      shuffleLibrary(playerId);
+      drawCards(playerId, 7);
+      pendingInitialDraw.delete(playerId);
+    }
+
+    // Cache commander snapshots
+    (commandZone[playerId] as any).commanderCards = (info.commanderIds || []).map(cid => {
+      const src = (libraries.get(playerId) || []).find(c => c.id === cid) ||
+        state.battlefield.find(b => b.card?.id === cid)?.card;
+      return src ? {
+        id: src.id,
+        name: src.name,
+        type_line: src.type_line,
+        oracle_text: (src as any).oracle_text,
+        image_uris: (src as any).image_uris
+      } : null;
+    }).filter(Boolean);
+
     seq++;
   }
 
@@ -627,6 +645,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
       card: perm.card
     }));
     const filteredZones: Record<PlayerID, PlayerZones> = {};
+    const viewCommandZone: Record<PlayerID, CommanderInfo> = {};
     for (const p of (state.players as any as PlayerRef[])) {
       const z = state.zones?.[p.id] ?? { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
       const libCount = libraries.get(p.id)?.length ?? z.libraryCount ?? 0;
@@ -660,6 +679,16 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
         exile: z.exile,
         libraryTop
       };
+      const baseInfo = commandZone[p.id];
+      if (baseInfo) {
+        viewCommandZone[p.id] = {
+          commanderIds: baseInfo.commanderIds,
+          commanderNames: baseInfo.commanderNames,
+          tax: baseInfo.tax,
+          taxById: baseInfo.taxById,
+          commanderCards: (baseInfo as any).commanderCards
+        };
+      }
     }
     const projectedPlayers: PlayerRef[] = (state.players as any as PlayerRef[]).map(p => ({
       id: p.id, name: p.name, seat: p.seat, inactive: inactive.has(p.id)
@@ -670,7 +699,8 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
       stack: state.stack.slice(),
       players: projectedPlayers,
       zones: filteredZones,
-      spectators: []
+      spectators: [],
+      commandZone: viewCommandZone
     } as any;
   }
 
@@ -837,7 +867,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
           const baseT = typeof p.baseToughness === 'number' ? p.baseToughness : undefined;
           if (typeof baseT !== 'number') break;
           const plus = p.counters?.['+1/+1'] ?? 0;
-            const minus = p.counters?.['-1/-1'] ?? 0;
+          const minus = p.counters?.['-1/-1'] ?? 0;
           const curT = baseT + (plus - minus);
           const amt = Math.max(0, eff.amount|0);
           if (amt >= curT) {
@@ -979,12 +1009,8 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
       case 'removePlayer': leave(e.playerId); break;
       case 'skipPlayer': skip(e.playerId); break;
       case 'unskipPlayer': unskip(e.playerId); break;
-      case 'spectatorGrant': {
-        const set = grants.get(e.owner) ?? new Set<PlayerID>(); set.add(e.spectator); grants.set(e.owner,set); seq++; break;
-      }
-      case 'spectatorRevoke': {
-        const set = grants.get(e.owner) ?? new Set<PlayerID>(); set.delete(e.spectator); grants.set(e.owner,set); seq++; break;
-      }
+      case 'spectatorGrant': { const set = grants.get(e.owner) ?? new Set<PlayerID>(); set.add(e.spectator); grants.set(e.owner,set); seq++; break; }
+      case 'spectatorRevoke': { const set = grants.get(e.owner) ?? new Set<PlayerID>(); set.delete(e.spectator); grants.set(e.owner,set); seq++; break; }
       case 'deckImportResolved': importDeckResolved(e.playerId, e.cards); break;
       case 'shuffleLibrary': shuffleLibrary(e.playerId); break;
       case 'drawCards': drawCards(e.playerId, e.count); break;

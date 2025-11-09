@@ -87,6 +87,14 @@ export interface CommanderInfo {
   commanderNames?: readonly string[];
   tax?: number;
   taxById?: Readonly<Record<string, number>>;
+  // Optional cached commander card snapshots for UI display (non-secret)
+  commanderCards?: ReadonlyArray<{
+    id: string;
+    name: string;
+    type_line?: string;
+    oracle_text?: string;
+    image_uris?: ImageUris;
+  }>;
 }
 
 // Battlefield permanent
@@ -146,7 +154,6 @@ export interface PlayerZones {
   graveyard: KnownCardRef[];
   graveyardCount: number;
   exile?: CardRef[];
-  // Optional visible top card of library (only if viewer is authorized to look).
   libraryTop?: KnownCardRef;
 }
 
@@ -182,6 +189,7 @@ export type ClientGameView = Omit<GameState, "battlefield" | "stack" | "players"
   players: PlayerRef[];
   zones?: Record<PlayerID, PlayerZones>;
   spectators?: readonly SpectatorRef[];
+  commandZone?: Record<PlayerID, CommanderInfo>;
 };
 
 // Diff

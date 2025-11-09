@@ -428,7 +428,15 @@ export function TableLayout(props:{
                       </div>
 
                       <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'center' }}>
-                        {zObj && <ZonesPiles zones={zObj} commander={cmdObj} isCommanderFormat={isCommander} />}
+                        {zObj && (
+  <ZonesPiles
+    zones={zObj}
+    commander={cmdObj}
+    isCommanderFormat={isCommander}
+    showHandCount={!isYouThis ? (zObj.handCount ?? (Array.isArray(zObj.hand) ? zObj.hand.length : 0)) : undefined}
+    hideHandDetails={!isYouThis}
+  />
+)}
                       </div>
                     </div>
                   </div>

@@ -295,6 +295,20 @@ async function importDeckTextIntoGame(
 
   game.importDeckResolved(playerId, resolvedCards);
   appendEvent(gameId, game.seq, 'deckImportResolved', { playerId, cards: resolvedCards });
+// Inside importDeck handler after game.importDeckResolved and appendEvent, before chat summary completion or after broadcast:
+
+const wasEmptyHand = (game.state.zones?.[pid]?.handCount ?? 0) === 0;
+if (wasEmptyHand) {
+  if (String(game.state.format).toLowerCase() === 'commander') {
+    // Defer initial draw until commanders chosen
+    (game as any).pendingInitialDraw.add(pid);
+  } else {
+    game.applyEvent({ type: 'shuffleLibrary', playerId: pid });
+    appendEvent(gameId, game.seq, 'shuffleLibrary', { playerId: pid });
+    game.applyEvent({ type: 'drawCards', playerId: pid, count: 7 });
+    appendEvent(gameId, game.seq, 'drawCards', { playerId: pid, count: 7 });
+  }
+}
 
   const fmt = String(game.state.format);
   const report = validateDeck(fmt, validationCards);
@@ -697,6 +711,19 @@ export function registerSocketHandlers(io: TypedServer) {
 
       game.importDeckResolved(pid, resolvedCards);
       appendEvent(gameId, game.seq, 'deckImportResolved', { playerId: pid, cards: resolvedCards });
+const handCountBefore = game.state.zones?.[pid]?.handCount ?? 0;
+if (handCountBefore === 0) {
+  const isCommanderFmt = String(game.state.format).toLowerCase() === 'commander';
+  if (isCommanderFmt) {
+    (game as any).pendingInitialDraw?.add(pid);
+  } else {
+    game.shuffleLibrary(pid);
+    appendEvent(gameId, game.seq, 'shuffleLibrary', { playerId: pid });
+    game.drawCards(pid, 7);
+    appendEvent(gameId, game.seq, 'drawCards', { playerId: pid, count: 7 });
+  }
+  broadcastGame(io, game, gameId);
+}
 
       const fmt = String(game.state.format);
       const report = validateDeck(fmt, validationCards);
