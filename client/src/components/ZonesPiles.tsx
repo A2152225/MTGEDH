@@ -1,5 +1,6 @@
 import React from 'react';
 import type { CommanderInfo, PlayerZones } from '../../../shared/src';
+import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 
 function pileHeightPx(count: number) {
   return Math.min(140, 14 + Math.ceil(count * 1.2));
@@ -78,13 +79,26 @@ export function ZonesPiles(props: {
           {slots.map((c, i) => {
             const img = c?.image_uris?.small || c?.image_uris?.normal;
             const name = c?.name || cmdNames?.[i] || 'Commander';
+            const hasCard = !!c;
             return (
-              <div key={i} style={{
-                width: 60, height: 88, borderRadius: 6,
-                border: img ? '2px solid rgba(255,255,255,0.5)' : '2px dashed rgba(255,255,255,0.3)',
-                background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                overflow: 'hidden', position: 'relative', color: '#bbb', fontSize: 10
-              }}>
+              <div
+                key={i}
+                style={{
+                  width: 60, height: 88, borderRadius: 6,
+                  border: img ? '2px solid rgba(255,255,255,0.5)' : '2px dashed rgba(255,255,255,0.3)',
+                  background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  overflow: 'hidden', position: 'relative', color: '#bbb', fontSize: 10,
+                  cursor: hasCard ? 'pointer' : 'default'
+                }}
+                onMouseEnter={(e) => {
+                  if (!hasCard) return;
+                  showCardPreview(e.currentTarget as HTMLElement, c, { prefer: 'above', anchorPadding: 0 });
+                }}
+                onMouseLeave={(e) => {
+                  if (!hasCard) return;
+                  hideCardPreview(e.currentTarget as HTMLElement);
+                }}
+              >
                 {img ? <img src={img} alt={name} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} /> : name}
               </div>
             );

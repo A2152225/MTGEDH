@@ -60,7 +60,7 @@ export function DeckManagerModal({
   const [serverErr, setServerErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Tether position (viewport/fixed, via portal)
+  // Tether position
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   const rafRef = useRef<number | null>(null);
 
@@ -102,7 +102,7 @@ export function DeckManagerModal({
     };
   }, [open, gameId, detail]);
 
-  // Follow anchor element each frame (portal decouples transforms)
+  // Follow anchor element each frame
   useEffect(() => {
     if (!open || !anchorEl) {
       setPos(null);
@@ -157,6 +157,10 @@ export function DeckManagerModal({
     boxShadow: '0 4px 18px rgba(0,0,0,0.65)', color: '#eee'
   };
 
+  const stopBubble = (e: React.MouseEvent | React.PointerEvent | React.KeyboardEvent) => {
+    e.stopPropagation();
+  };
+
   const saveLocal = () => {
     if (!localText.trim()) { setLocalErr('Empty list'); return; }
     if (!localName.trim()) { setLocalErr('Name required'); return; }
@@ -186,9 +190,21 @@ export function DeckManagerModal({
   };
 
   const content = (
-    <div style={backdropStyle} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={wrapperStyle}>
-        <div style={modalStyle}>
+    <div
+      style={backdropStyle}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onDoubleClick={(e) => { if (e.target === e.currentTarget) { e.stopPropagation(); onClose(); } }}
+    >
+      <div
+        style={wrapperStyle}
+        onClick={stopBubble}
+        onDoubleClick={stopBubble}
+      >
+        <div
+          style={modalStyle}
+          onClick={stopBubble}
+          onDoubleClick={stopBubble}
+        >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <h4 style={{ margin: 0, fontSize: 15 }}>Deck Manager</h4>
             <button type="button" onClick={onClose}>Close</button>

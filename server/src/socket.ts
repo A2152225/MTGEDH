@@ -38,25 +38,97 @@ type TypedServer = Server<ClientToServerEvents, ServerToClientEvents, InterServe
 
 const games: Map<GameID, InMemoryGame> = new Map();
 
-type PendingCast = {
-  spellId: string;
-  caster: PlayerID;
-  fromZone: 'hand' | 'commandZone';
-  cardInHandId?: string; // present for hand-cast
-  cardSnapshot: Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'> & {
-    mana_cost?: string;
-    power?: string | number;
-    toughness?: string | number;
-  };
-  spec: NonNullable<ReturnType<typeof categorizeSpell>> | null;
-  valid: TargetRef[];
-  chosen: TargetRef[];
-  min: number;
-  max: number;
-  manaCost?: string; // display string (augmented with commander tax if any)
-};
+// Priority timeout timers per game
+const priorityTimers = new Map<GameID, NodeJS.Timeout>();
+const PRIORITY_TIMEOUT_MS = 30_000;
 
-const pendingByGame: Map<GameID, Map<string, PendingCast>> = new Map();
+function clearPriorityTimer(gameId: GameID) {
+  const t = priorityTimers.get(gameId);
+  if (t) {
+    clearTimeout(t);
+    priorityTimers.delete(gameId);
+  }
+}
+
+function schedulePriorityTimeout(io: TypedServer, game: InMemoryGame, gameId: GameID) {
+  // Always clear any existing timer first
+  clearPriorityTimer(gameId);
+
+  // Only schedule when a priority window is active
+  if (!game.state.active || !game.state.priority) return;
+
+  // Determine count of active (non-skipped) players
+  const activePlayers = (game.state.players as any[]).filter(p => !p.inactive);
+  const activeCount = activePlayers.length;
+
+  // Single-player: immediately auto-pass only when the stack is non-empty to progress resolutions.
+  // This avoids spamming chat during empty-stack "test draws" sessions.
+  if (activeCount === 1) {
+    if (game.state.stack.length === 0) return;
+    priorityTimers.set(
+      gameId,
+      setTimeout(() => {
+        doAutoPass(io, game, gameId, 'auto-pass (single player)');
+      }, 0)
+    );
+    return;
+  }
+
+  // Multi-player: schedule a 30s timeout if state remains unchanged
+  const startSeq = game.seq;
+  const startPriority = game.state.priority;
+  const startStackDepth = game.state.stack.length;
+
+  const t = setTimeout(() => {
+    priorityTimers.delete(gameId);
+    // Re-validate conditions before auto-pass
+    const g = games.get(gameId);
+    if (!g || !g.state.active) return;
+    if (g.seq !== startSeq) return; // state changed in between; a new timer should be scheduled elsewhere
+    if (g.state.priority !== startPriority) return; // priority moved
+    if (g.state.stack.length !== startStackDepth) return; // stack changed
+    doAutoPass(io, g, gameId, 'auto-pass (30s timeout)');
+  }, PRIORITY_TIMEOUT_MS);
+
+  priorityTimers.set(gameId, t);
+}
+
+function doAutoPass(io: TypedServer, game: InMemoryGame, gameId: GameID, reason: string) {
+  const pid = game.state.priority as PlayerID;
+  if (!pid) return;
+
+  const { changed, resolvedNow } = game.passPriority(pid);
+  if (!changed) return;
+
+  appendEvent(gameId, game.seq, 'passPriority', { by: pid });
+
+  if (resolvedNow) {
+    game.applyEvent({ type: 'resolveTopOfStack' });
+    appendEvent(gameId, game.seq, 'resolveTopOfStack', {});
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `Top of stack resolved (automatic).`,
+      ts: Date.now()
+    });
+  }
+
+  io.to(gameId).emit('chat', {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: 'system',
+    message: `Priority passed automatically (${reason}).`,
+    ts: Date.now()
+  });
+
+  broadcastGame(io, game, gameId);
+  io.to(gameId).emit('priority', { gameId, player: game.state.priority });
+
+  // Schedule next window (if any)
+  schedulePriorityTimeout(io, game, gameId);
+}
+
 const newSpellId = () => `sp_${Math.random().toString(36).slice(2, 9)}`;
 const newStackId = () => `st_${Math.random().toString(36).slice(2, 9)}`;
 const newDeckId = () => `deck_${Math.random().toString(36).slice(2, 10)}`;
@@ -85,6 +157,8 @@ function broadcastGame(io: TypedServer, game: InMemoryGame, gameId: GameID) {
       diff: computeDiff<ClientGameView>(undefined, view, game.seq)
     });
   }
+  // After broadcasting any state change, attempt to schedule a priority timeout.
+  schedulePriorityTimeout(io, game, gameId);
 }
 
 function isMainPhase(phase?: any, step?: any): boolean {
@@ -378,6 +452,8 @@ export function registerSocketHandlers(io: TypedServer) {
       }
 
       socket.to(gameId).emit('stateDiff', { gameId, diff: computeDiff<ClientGameView>(undefined, view, game.seq) });
+      // Priority timeout is scheduled on broadcastGame; join does not broadcast to all, so schedule explicitly if needed.
+      schedulePriorityTimeout(io, game, gameId);
     });
 
     // Request state refresh
@@ -386,6 +462,8 @@ export function registerSocketHandlers(io: TypedServer) {
       if (!game || !socket.data.playerId) return;
       const view = game.viewFor(socket.data.playerId, Boolean(socket.data.spectator));
       socket.emit('state', { gameId, view, seq: game.seq });
+      // Optionally schedule timer after refresh (no-op if not in a priority window)
+      schedulePriorityTimeout(io, game, gameId);
     });
 
     // Commander: set/cast/move
@@ -486,6 +564,27 @@ export function registerSocketHandlers(io: TypedServer) {
       });
     });
 
+    // Targeting and casting state on server
+    type PendingCast = {
+      spellId: string;
+      caster: PlayerID;
+      fromZone: 'hand' | 'commandZone';
+      cardInHandId?: string; // present for hand-cast
+      cardSnapshot: Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'> & {
+        mana_cost?: string;
+        power?: string | number;
+        toughness?: string | number;
+      };
+      spec: NonNullable<ReturnType<typeof categorizeSpell>> | null;
+      valid: TargetRef[];
+      chosen: TargetRef[];
+      min: number;
+      max: number;
+      manaCost?: string; // display string (augmented with commander tax if any)
+    };
+
+    const pendingByGame: Map<GameID, Map<string, PendingCast>> = new Map();
+
     socket.on('moveCommanderToCommandZone', ({ gameId, commanderNameOrId }) => {
       const pid = socket.data.playerId as PlayerID | undefined;
       if (!pid || socket.data.spectator) return;
@@ -518,6 +617,7 @@ export function registerSocketHandlers(io: TypedServer) {
       }
       broadcastGame(io, game, gameId);
       io.to(gameId).emit('priority', { gameId, player: game.state.priority });
+      // Timer scheduled via broadcastGame
     });
 
     // Next turn/step
@@ -544,6 +644,7 @@ export function registerSocketHandlers(io: TypedServer) {
       });
       broadcastGame(io, game, gameId);
       io.to(gameId).emit('priority', { gameId, player: game.state.priority });
+      // Timer scheduled via broadcastGame
     });
 
     socket.on('nextStep', ({ gameId }) => {
@@ -569,6 +670,7 @@ export function registerSocketHandlers(io: TypedServer) {
       });
       broadcastGame(io, game, gameId);
       io.to(gameId).emit('priority', { gameId, player: game.state.priority });
+      // Timer scheduled via broadcastGame
     });
 
     // Turn order direction toggle
@@ -1182,6 +1284,7 @@ export function registerSocketHandlers(io: TypedServer) {
 
       map!.delete(spellId);
       broadcastGame(io, game, gameId);
+      // Timer scheduled via broadcastGame
     });
 
     // Lands
@@ -1386,6 +1489,8 @@ export function registerSocketHandlers(io: TypedServer) {
       const game = games.get(gameId);
       if (!game) return;
       game.disconnect(socket.id);
+      // Reschedule timer if priority holder disconnected
+      if (game.state.priority) schedulePriorityTimeout(io, game, gameId);
     });
   });
 }

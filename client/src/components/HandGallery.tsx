@@ -20,6 +20,10 @@ export interface HandGalleryProps {
   hidden?: boolean;                 // if true, render facedown placeholders (no leak)
 }
 
+function isLand(tl?: string): boolean {
+  return !!tl && /\bland\b/i.test(tl);
+}
+
 export function HandGallery(props: HandGalleryProps) {
   const {
     cards,
@@ -105,7 +109,7 @@ export function HandGallery(props: HandGalleryProps) {
         const tl = kc?.type_line;
         const img = kc?.image_uris?.[imagePref] || kc?.image_uris?.normal || kc?.image_uris?.small;
 
-        const cantPlayLand = kc && reasonCannotPlayLand ? reasonCannotPlayLand(kc) : null;
+        const cantPlayLand = kc && isLand(tl) && reasonCannotPlayLand ? reasonCannotPlayLand(kc) : null;
         const cantCast = kc && reasonCannotCast ? reasonCannotCast(kc) : null;
 
         return (
@@ -132,7 +136,7 @@ export function HandGallery(props: HandGalleryProps) {
             title={name}
             onClick={() => {
               if (!kc) return;
-              if (onPlayLand && tl && /\bland\b/i.test(tl) && !cantPlayLand) {
+              if (onPlayLand && isLand(tl) && !cantPlayLand) {
                 onPlayLand(kc.id);
               } else if (onCast && !cantCast) {
                 onCast(kc.id);
@@ -159,15 +163,15 @@ export function HandGallery(props: HandGalleryProps) {
               }}>{name}</div>
             )}
 
-            {/* Action badges */}
-            {kc && cantPlayLand && (
+            {/* Action badges (show Land ✕ only on actual lands; Cast ✕ only if spell cannot be cast) */}
+            {kc && isLand(tl) && cantPlayLand && (
               <div style={{
                 position: 'absolute', top: 4, left: 4,
                 background: 'rgba(0,0,0,0.6)', color: '#f6ad55',
                 fontSize: 10, padding: '2px 4px', borderRadius: 4
               }}>Land ✕</div>
             )}
-            {kc && cantCast && (
+            {kc && !isLand(tl) && cantCast && (
               <div style={{
                 position: 'absolute', top: 4, right: 4,
                 background: 'rgba(0,0,0,0.6)', color: '#fc8181',

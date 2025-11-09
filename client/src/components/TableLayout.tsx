@@ -191,19 +191,50 @@ export function TableLayout(props: {
     }
   };
 
-  // Center on "you" helper (preserves zoom)
-  function centerOnYou(preserveZoom = true) {
-    if (!you || ordered.length === 0 || seatPositions.length === 0) {
-      setCam(c => ({ x: 0, y: 0, z: preserveZoom ? c.z : 1 }));
-      return;
-    }
-    const youIdx = 0; // ordered is rotated so index 0 is you
-    const pos = seatPositions[youIdx];
+  // Recenter helpers
+  function centerOnBoardIndex(idx: number, preserveZoom = true) {
+    const pos = seatPositions[idx];
+    if (!pos) return;
     setCam(c => ({ x: pos.x, y: pos.y, z: preserveZoom ? c.z : c.z }));
   }
-  const onDoubleClick = () => {
+  function centerOnNearestWorldPoint(wx: number, wy: number, preserveZoom = true) {
+    if (seatPositions.length === 0) return;
+    let best = 0, bestD = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < seatPositions.length; i++) {
+      const dx = seatPositions[i].x - wx;
+      const dy = seatPositions[i].y - wy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestD) { bestD = d2; best = i; }
+    }
+    centerOnBoardIndex(best, preserveZoom);
+  }
+  function centerOnYou(preserveZoom = true) {
+    if (!you || ordered.length === 0 || seatPositions.length === 0) {
+      // Fallback: nearest board to current camera center
+      const cx = camRef.current.x, cy = camRef.current.y;
+      centerOnNearestWorldPoint(cx, cy, preserveZoom);
+      return;
+    }
+    centerOnBoardIndex(0, preserveZoom); // ordered is rotated so index 0 is you
+  }
+
+  const onDoubleClick = (e: React.MouseEvent) => {
     if (!enablePanZoom) return;
-    centerOnYou(true);
+    // Ignore when modals are open
+    if ((window as any).__mtg_deckMgrOpen || (window as any).__mtg_cmdConfirmOpen) return;
+    // Ignore double-clicks on UI controls inside the table
+    const el = e.target as HTMLElement;
+    if (el && el.closest('button, input, textarea, select, [role="button"], [data-no-center], [data-no-zoom]')) return;
+
+    const host = containerRef.current;
+    if (!host) return;
+    const rect = host.getBoundingClientRect();
+    const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+    const cx = container.w / 2, cy = container.h / 2;
+    const { x, y, z } = camRef.current;
+    const wx = x + (sx - cx) / z;
+    const wy = y + (sy - cy) / z;
+    centerOnNearestWorldPoint(wx, wy, true);
   };
 
   const didFit = useRef(false);
@@ -242,10 +273,12 @@ export function TableLayout(props: {
     : { background: 'radial-gradient(ellipse at center, rgba(0,128,64,0.9) 0%, rgba(3,62,35,0.95) 60%, rgba(2,40,22,1) 100%)' };
 
   const [deckMgrOpen, setDeckMgrOpen] = useState(false);
+  useEffect(() => { (window as any).__mtg_deckMgrOpen = deckMgrOpen; }, [deckMgrOpen]);
   const decksBtnRef = useRef<HTMLButtonElement | null>(null);
 
   // Commander confirmation state
   const [confirmCmdOpen, setConfirmCmdOpen] = useState(false);
+  useEffect(() => { (window as any).__mtg_cmdConfirmOpen = confirmCmdOpen; }, [confirmCmdOpen]);
   const [confirmCmdSuggested, setConfirmCmdSuggested] = useState<string[]>([]);
   useEffect(() => {
     const onSuggest = ({ gameId: gid, names }: { gameId: GameID; names: string[] }) => {
@@ -257,7 +290,6 @@ export function TableLayout(props: {
     return () => { (socket as any).off('suggestCommanders', onSuggest); };
   }, [gameId]);
 
-  // UI
   return (
     <div
       ref={containerRef}
@@ -293,6 +325,7 @@ export function TableLayout(props: {
                 borderRadius: '50%', background: 'rgba(31,31,31,0.85)', border: '2px solid #333',
                 color: '#aaa', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, zIndex: 1
               }}
+              data-no-center
             >Table</div>
 
             <div style={{ position: 'relative', zIndex: 2 }}>
@@ -303,11 +336,18 @@ export function TableLayout(props: {
                 const nonTokens = perms.filter(x => (x.card as any)?.type_line !== 'Token');
                 const lands = splitLands ? nonTokens.filter(x => isLandTypeLine((x.card as any)?.type_line)) : [];
                 const others = splitLands ? nonTokens.filter(x => !isLandTypeLine((x.card as any)?.type_line)) : nonTokens;
+
                 const canTargetPlayer = highlightPlayerTargets?.has(pb.player.id) ?? false;
                 const isPlayerSelected = selectedPlayerTargets?.has(pb.player.id) ?? false;
+
                 const isYouThis = you && pb.player.id === you;
                 const allowReorderHere = Boolean(isYouThis && enableReorderForYou && !onPermanentClick);
-                const yourHand = (isYouThis && zones?.[you!]?.hand ? (zones![you!].hand as any as Array<{ id: string; name?: string; type_line?: string; image_uris?: { small?: string; normal?: string; art_crop?: string }; faceDown?: boolean }>) : []) || [];
+
+                const yourHand = (isYouThis && zones?.[you!]?.hand ? (zones![you!].hand as any as Array<{
+                  id: string; name?: string; type_line?: string;
+                  image_uris?: { small?: string; normal?: string; art_crop?: string }; faceDown?: boolean;
+                }>) : []) || [];
+
                 const zObj = zones?.[pb.player.id];
                 const cmdObj = commandZone?.[pb.player.id];
                 const isCommander = (format || '').toLowerCase() === 'commander';
@@ -336,6 +376,7 @@ export function TableLayout(props: {
                         columnGap: 12,
                         rowGap: 10
                       }}
+                      data-no-center
                     >
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -387,7 +428,7 @@ export function TableLayout(props: {
                         />
 
                         {lands.length > 0 && (
-                          <div style={{ marginTop: 12 }} data-no-zoom>
+                          <div style={{ marginTop: 12 }} data-no-zoom data-no-center>
                             <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 6 }}>Lands</div>
                             <LandRow
                               lands={lands}
@@ -404,7 +445,7 @@ export function TableLayout(props: {
                         )}
 
                         {tokens.length > 0 && (
-                          <div style={{ marginTop: 12 }} data-no-zoom>
+                          <div style={{ marginTop: 12 }} data-no-zoom data-no-center>
                             <TokenGroups
                               tokens={tokens}
                               groupMode='name+pt+attach'
@@ -429,6 +470,7 @@ export function TableLayout(props: {
                               overflowY: 'auto'
                             }}
                             data-no-zoom
+                            data-no-center
                           >
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                               <div style={{ fontSize: 12, color: '#ddd' }}>Your Hand</div>
@@ -453,7 +495,7 @@ export function TableLayout(props: {
                         )}
                       </div>
 
-                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center' }} data-no-center>
                         {zObj && (
                           <ZonesPiles
                             zones={zObj}

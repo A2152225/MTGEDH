@@ -1,6 +1,7 @@
 /* Commander selection & deck import improvements:
    - setCommander removes one instance of each chosen commander ID from library
    - Deferred opening hand draw for Commander until commanders chosen
+   - Snapshot commander cards before removal to preserve images
 */
 import { GameFormat, GamePhase, GameStep } from '../../../shared/src';
 import type {
@@ -513,6 +514,8 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
 
   function setCommander(playerId: PlayerID, commanderNames: string[], commanderIds: string[]) {
     const info = commandZone[playerId] ?? { commanderIds: [], tax: 0, taxById: {} };
+    const prevCards = (info as any).commanderCards as any[] | undefined;
+
     info.commanderIds = commanderIds.slice();
     info.commanderNames = commanderNames.slice();
     const prev = info.taxById ?? {};
@@ -522,16 +525,28 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     info.tax = Object.values(info.taxById).reduce((a, b) => a + b, 0);
     commandZone[playerId] = info;
 
-    // Remove commanders from library (one copy each if present)
+    // Snapshot BEFORE removal; fallback to prior cache or battlefield if not found in library
     const lib = libraries.get(playerId);
+    const commanderSnapshots: Array<Pick<KnownCardRef,'id'|'name'|'type_line'|'oracle_text'|'image_uris'>> = [];
+    for (const cid of commanderIds) {
+      const inLib = lib?.find(c => c.id === cid);
+      const fallbackPrev = prevCards?.find(pc => pc?.id === cid) || prevCards?.find(pc => (pc?.name || '').toLowerCase() === (info.commanderNames || [])[commanderIds.indexOf(cid)]?.toLowerCase());
+      const onBF = state.battlefield.find(b => (b.card as any)?.id === cid)?.card as any;
+      const src = inLib || fallbackPrev || onBF;
+      if (src) {
+        commanderSnapshots.push({
+          id: src.id, name: src.name, type_line: src.type_line,
+          oracle_text: (src as any).oracle_text, image_uris: (src as any).image_uris
+        });
+      }
+    }
+
+    // Remove commanders from library (one copy each if present)
     if (lib && lib.length) {
       let changed = false;
       for (const cid of commanderIds) {
         const idx = lib.findIndex(c => c.id === cid);
-        if (idx >= 0) {
-          lib.splice(idx, 1);
-          changed = true;
-        }
+        if (idx >= 0) { lib.splice(idx, 1); changed = true; }
       }
       if (changed) {
         zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
@@ -540,21 +555,14 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     }
 
     // Deferred opening hand draw for Commander
-  if (pendingInitialDraw.has(playerId)) {
+    if (pendingInitialDraw.has(playerId)) {
       shuffleLibrary(playerId);
       drawCards(playerId, 7);
       pendingInitialDraw.delete(playerId);
     }
 
-    // Cache commander snapshots
-    (commandZone[playerId] as any).commanderCards = (info.commanderIds || []).map(cid => {
-      const src = (libraries.get(playerId) || []).find(c => c.id === cid) ||
-        state.battlefield.find(b => b.card?.id === cid)?.card;
-      return src ? {
-        id: src.id, name: src.name, type_line: src.type_line,
-        oracle_text: (src as any).oracle_text, image_uris: (src as any).image_uris
-      } : null;
-    }).filter(Boolean);
+    // Cache commander snapshots (do not lose images on re-confirm)
+    (commandZone[playerId] as any).commanderCards = commanderSnapshots;
 
     seq++;
   }
@@ -683,7 +691,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     const projectedPlayers: PlayerRef[] = (state.players as any as PlayerRef[]).map(p => ({
       id: p.id, name: p.name, seat: p.seat, inactive: inactive.has(p.id)
     }));
-     return {
+    return {
       ...state,
       battlefield: filteredBattlefield,
       stack: state.stack.slice(),
@@ -731,7 +739,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     seq++;
   }
   function unskip(playerId: PlayerID) {
-    if (!(state.players as any as PlayerRef[]).find(p => p.id === playerId)) return;
+    	if (!(state.players as any as PlayerRef[]).find(p => p.id === playerId)) return;
     inactive.delete(playerId);
     seq++;
   }

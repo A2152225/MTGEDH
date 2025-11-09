@@ -16,7 +16,6 @@ import { CardPreviewLayer, showCardPreview, hideCardPreview } from './components
 import { PaymentPicker } from './components/PaymentPicker';
 import { ZonesPanel } from './components/ZonesPanel';
 import { ScrySurveilModal } from './components/ScrySurveilModal';
-import { CommanderSelectModal } from './components/CommanderSelectModal';
 
 function seatTokenKey(gameId: GameID, name: string) {
   return `mtgedh:seatToken:${gameId}:${name.trim().toLowerCase()}`;
@@ -133,11 +132,6 @@ export function App() {
   const [expandedHands, setExpandedHands] = useState<Set<PlayerID>>(new Set());
   const [expandedGYs, setExpandedGYs] = useState<Set<PlayerID>>(new Set());
 
-  // Commander selection modal state
-  const [showCommanderModal, setShowCommanderModal] = useState(false);
-  const [lastImportedDeckList, setLastImportedDeckList] = useState('');
-  const commanderAutoTriggerRef = useRef(false);
-
   useEffect(() => {
     const onConnect = () => {
       setConnected(true);
@@ -167,10 +161,6 @@ export function App() {
     socket.on('priority', ({ player }) => setPriority(player));
     socket.on('chat', (msg: ChatMsg) => {
       setChat(prev => [...prev.slice(-99), msg]);
-      // Detect deck import completion (chat summary contains "imported")
-      if (/imported \d+\/\d+ cards/i.test(msg.message) && lastImportedDeckList && view?.format === 'commander') {
-        commanderAutoTriggerRef.current = true;
-      }
     });
     socket.on('searchResults', ({ cards }) => setSearchResults(cards));
     socket.on('validTargets', ({ spellId, minTargets, maxTargets, targets, manaCost, paymentSources }) => {
@@ -204,33 +194,7 @@ export function App() {
       socket.off('surveilPeek');
       socket.off('error');
     };
-  }, [name, joinAsSpectator, view?.id, lastImportedDeckList, view?.format]);
-
-  // Trigger commander modal when appropriate
-  useEffect(() => {
-    if (
-      commanderAutoTriggerRef.current &&
-      view &&
-      you &&
-      (String(view.format || '').toLowerCase() === 'commander') &&
-      lastImportedDeckList &&
-      !(view.commandZone?.[you]?.commanderIds?.length)
-    ) {
-      setShowCommanderModal(true);
-    }
-    commanderAutoTriggerRef.current = false;
-  }, [view, you, lastImportedDeckList]);
-
-  useEffect(() => {
-    const onVis = () => { if (document.visibilityState === 'visible' && view) socket.emit('requestState', { gameId: view.id }); };
-    const onFocus = () => { if (view) socket.emit('requestState', { gameId: view.id }); };
-    document.addEventListener('visibilitychange', onVis);
-    window.addEventListener('focus', onFocus);
-    return () => {
-      document.removeEventListener('visibilitychange', onVis);
-      window.removeEventListener('focus', onFocus);
-    };
-  }, [view]);
+  }, [name, joinAsSpectator, view?.id]);
 
   const canPass = useMemo(() => !!view && !!you && view.priority === you, [view, you]);
   const isYouPlayer = useMemo(() => !!view && !!you && view.players.some(p => p.id === you), [view, you]);
@@ -430,11 +394,9 @@ export function App() {
 
   const reorderEnabled = !!isYouPlayer && !targeting;
 
-  // Deck import + commander selection integration
+  // Deck import
   const importDeckText = (list: string, deckName?: string) => {
     if (!view || !you) return;
-    setLastImportedDeckList(list);
-    commanderAutoTriggerRef.current = true; // allow modal after chat summary
     socket.emit('importDeck', { gameId: view.id, list, deckName });
   };
 
@@ -536,7 +498,6 @@ export function App() {
               )}
             </div>
 
-            {/* Hide the top-of-page Stack section when in table mode; it will appear as an overlay on the table */}
             {!isTable && (
               <>
                 <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -563,10 +524,7 @@ export function App() {
                     const canTarget = !!targeting && targeting.targets.some(t => t.kind === 'stack' && t.id === s.id);
                     const isSelected = !!targeting && targeting.chosen.has(key);
                     const targets = (s.targets || []);
-                    const targetsLabel = targets.length ? targets.map((x: string) => {
-                      // Pretty label is optional here
-                      return x;
-                    }).join(', ') : '';
+                    const targetsLabel = targets.length ? targets.map((x: string) => x).join(', ') : '';
                     const onClick = () => {
                       if (!targeting || !canTarget) return;
                       const next = new Set(targeting.chosen);
@@ -611,7 +569,6 @@ export function App() {
               </>
             )}
 
-            {/* Players and board */}
             {isTable ? (
               <div style={{ marginTop: 8 }}>
                 <TableLayout
@@ -648,7 +605,6 @@ export function App() {
                   onUpdatePermPos={(id, x, y, z) => view && socket.emit('updatePermanentPos', { gameId: view.id, permanentId: id, x, y, z })}
                   onImportDeckText={(txt, nm) => importDeckText(txt, nm)}
                   gameId={view.id}
-                  // Pass stack for overlay on the table
                   stackItems={view.stack as any}
                 />
               </div>
@@ -781,7 +737,6 @@ export function App() {
         )}
       </div>
 
-      {/* In table mode, we remove the sidebar (zones/chat) to give the table more width */}
       {!isTable && (
         <div>
           <h3>Chat</h3>
@@ -816,14 +771,6 @@ export function App() {
           }}
         />
       )}
-
-      <CommanderSelectModal
-        open={showCommanderModal}
-        onClose={() => setShowCommanderModal(false)}
-        deckList={lastImportedDeckList}
-        onConfirm={handleCommanderConfirm}
-        max={2}
-      />
     </div>
   );
 }
