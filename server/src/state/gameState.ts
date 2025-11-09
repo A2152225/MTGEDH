@@ -4,15 +4,7 @@
 */
 import { GameFormat, GamePhase, GameStep } from '../../../shared/src';
 import type {
-  GameID,
-  PlayerID,
-  PlayerRef,
-  GameState,
-  ClientGameView,
-  CommanderInfo,
-  PlayerZones,
-  KnownCardRef,
-  TargetRef,
+  GameID, PlayerID, PlayerRef, GameState, ClientGameView, CommanderInfo, PlayerZones, KnownCardRef, TargetRef
 } from '../../../shared/src';
 import { mulberry32, hashStringToSeed } from '../utils/rng';
 import { applyStateBasedActions, evaluateAction, type EngineEffect as DmgEffect } from '../rules-engine';
@@ -126,6 +118,7 @@ export interface InMemoryGame {
   setTurnDirection: (dir: 1 | -1) => void;
   nextTurn: () => void;
   nextStep: () => void;
+  flagPendingOpeningDraw: (playerId: PlayerID) => void;
   importDeckResolved: (
     playerId: PlayerID,
     cards: Array<
@@ -547,7 +540,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     }
 
     // Deferred opening hand draw for Commander
-    if (pendingInitialDraw.has(playerId)) {
+  if (pendingInitialDraw.has(playerId)) {
       shuffleLibrary(playerId);
       drawCards(playerId, 7);
       pendingInitialDraw.delete(playerId);
@@ -558,11 +551,8 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
       const src = (libraries.get(playerId) || []).find(c => c.id === cid) ||
         state.battlefield.find(b => b.card?.id === cid)?.card;
       return src ? {
-        id: src.id,
-        name: src.name,
-        type_line: src.type_line,
-        oracle_text: (src as any).oracle_text,
-        image_uris: (src as any).image_uris
+        id: src.id, name: src.name, type_line: src.type_line,
+        oracle_text: (src as any).oracle_text, image_uris: (src as any).image_uris
       } : null;
     }).filter(Boolean);
 
@@ -693,7 +683,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     const projectedPlayers: PlayerRef[] = (state.players as any as PlayerRef[]).map(p => ({
       id: p.id, name: p.name, seat: p.seat, inactive: inactive.has(p.id)
     }));
-    return {
+     return {
       ...state,
       battlefield: filteredBattlefield,
       stack: state.stack.slice(),
@@ -1179,6 +1169,8 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     revokeSpectatorAccess: (owner: PlayerID, spectator: PlayerID) => {
       const set = grants.get(owner) ?? new Set<PlayerID>(); set.delete(spectator); grants.set(owner,set); seq++;
     },
+    flagPendingOpeningDraw: (playerId: PlayerID) => { pendingInitialDraw.add(playerId); },
+
     viewFor,
 
     seedRng,

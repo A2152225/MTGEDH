@@ -225,96 +225,71 @@ function appendGenericToCostString(manaCost: string | undefined, genericAdd: num
 }
 
 /**
- * Helper: import a resolved (raw text) saved deck directly without re-emitting client->server events.
- * Mirrors logic in 'importDeck' but skips auto-save and revalidation of existing deck name.
+ * Robust importer for raw deck text (no auto-save). Returns resolved cards for suggestion logic.
  */
 async function importDeckTextIntoGame(
   io: TypedServer,
   game: InMemoryGame,
   gameId: GameID,
   playerId: PlayerID,
-  list: string,
-  deckName?: string
-): Promise<void> {
+  list: string
+): Promise<Array<Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'>>> {
   const parsed = parseDecklist(list);
   const requestedNames = parsed.map(p => p.name);
-  let byName: Map<string, any>;
+
+  let byName: Map<string, any> | null = null;
   try {
     byName = await fetchCardsByExactNamesBatch(requestedNames);
-  } catch (e: any) {
-    io.to(game.participants().find(p => p.playerId === playerId)?.socketId || '').emit('error', {
-      code: 'SCRYFALL',
-      message: e?.message || 'Deck import failed'
-    });
-    return;
+  } catch {
+    byName = null;
   }
 
   const resolvedCards: Array<Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'>> = [];
   const validationCards: any[] = [];
   const missing: string[] = [];
 
-  for (const { name, count } of parsed) {
-    const key = normalizeName(name).toLowerCase();
-    const c = byName.get(key);
-    if (!c) {
-      missing.push(name);
-      continue;
+  if (byName) {
+    for (const { name, count } of parsed) {
+      const key = normalizeName(name).toLowerCase();
+      const c = byName.get(key);
+      if (!c) { missing.push(name); continue; }
+      for (let i = 0; i < count; i++) {
+        validationCards.push(c);
+        resolvedCards.push({ id: c.id, name: c.name, type_line: c.type_line, oracle_text: c.oracle_text, image_uris: c.image_uris });
+      }
     }
-    for (let i = 0; i < count; i++) {
-      validationCards.push(c);
-      resolvedCards.push({
-        id: c.id,
-        name: c.name,
-        type_line: c.type_line,
-        oracle_text: c.oracle_text,
-        image_uris: c.image_uris
-      });
-    }
-  }
-
-  if (missing.length) {
-    for (const miss of missing) {
+  } else {
+    for (const { name, count } of parsed) {
       try {
-        const c = await fetchCardByExactNameStrict(miss);
-        const count = parsed.find(p => p.name === miss)?.count ?? 1;
+        const c = await fetchCardByExactNameStrict(name);
         for (let i = 0; i < count; i++) {
           validationCards.push(c);
-          resolvedCards.push({
-            id: c.id,
-            name: c.name,
-            type_line: c.type_line,
-            oracle_text: c.oracle_text,
-            image_uris: c.image_uris
-          });
+          resolvedCards.push({ id: c.id, name: c.name, type_line: c.type_line, oracle_text: c.oracle_text, image_uris: c.image_uris });
         }
       } catch {
-        // keep missing
+        missing.push(name);
       }
     }
   }
 
+  if (missing.length) {
+    io.to(game.participants().find(p => p.playerId === playerId)?.socketId || '').emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `Missing from Scryfall: ${missing.slice(0, 10).join(', ')}${missing.length > 10 ? ', …' : ''}`,
+      ts: Date.now()
+    });
+  }
+
   game.importDeckResolved(playerId, resolvedCards);
   appendEvent(gameId, game.seq, 'deckImportResolved', { playerId, cards: resolvedCards });
-// Inside importDeck handler after game.importDeckResolved and appendEvent, before chat summary completion or after broadcast:
-
-const wasEmptyHand = (game.state.zones?.[pid]?.handCount ?? 0) === 0;
-if (wasEmptyHand) {
-  if (String(game.state.format).toLowerCase() === 'commander') {
-    // Defer initial draw until commanders chosen
-    (game as any).pendingInitialDraw.add(pid);
-  } else {
-    game.applyEvent({ type: 'shuffleLibrary', playerId: pid });
-    appendEvent(gameId, game.seq, 'shuffleLibrary', { playerId: pid });
-    game.applyEvent({ type: 'drawCards', playerId: pid, count: 7 });
-    appendEvent(gameId, game.seq, 'drawCards', { playerId: pid, count: 7 });
-  }
-}
 
   const fmt = String(game.state.format);
   const report = validateDeck(fmt, validationCards);
   const expected = parsed.reduce((sum, p) => sum + p.count, 0);
   const summaryLines: string[] = [];
-  summaryLines.push(`Player ${playerId} imported ${resolvedCards.length}/${expected} cards${deckName ? ` from "${deckName}"` : ''}.`);
+  summaryLines.push(`Player ${playerId} imported ${resolvedCards.length}/${expected} cards.`);
   const stillMissing = parsed
     .filter(p => !resolvedCards.some(rc => rc.name.toLowerCase() === p.name.toLowerCase()))
     .map(p => p.name);
@@ -338,7 +313,29 @@ if (wasEmptyHand) {
     message: summaryLines.join(' '),
     ts: Date.now()
   });
-  broadcastGame(io, game, gameId);
+
+  return resolvedCards;
+}
+
+// Commander suggestion heuristic (top legendary + partner/background if any)
+function suggestCommandersFromResolved(cards: Array<Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text'>>) {
+  const isLegendary = (tl?: string) => (tl || '').toLowerCase().includes('legendary');
+  const isEligibleType = (tl?: string) => {
+    const t = (tl || '').toLowerCase();
+    return t.includes('creature') || t.includes('planeswalker') || t.includes('background');
+  };
+  const hasPartnerish = (oracle?: string, tl?: string) => {
+    const o = (oracle || '').toLowerCase();
+    const t = (tl || '').toLowerCase();
+    return o.includes('partner') || o.includes('background') || t.includes('background');
+  };
+  const pool = cards.filter(c => isLegendary(c.type_line) && isEligibleType(c.type_line));
+  const first = pool[0];
+  const second = pool.slice(1).find(c => hasPartnerish(c.oracle_text, c.type_line));
+  const names: string[] = [];
+  if (first?.name) names.push(first.name);
+  if (second?.name) names.push(second.name);
+  return names.slice(0, 2);
 }
 
 export function registerSocketHandlers(io: TypedServer) {
@@ -649,7 +646,7 @@ export function registerSocketHandlers(io: TypedServer) {
       broadcastGame(io, game, gameId);
     });
 
-    // Deck import (supports deckName; will auto-save if provided)
+    // Deck import (supports deckName; still auto-saves only if deckName provided)
     socket.on('importDeck', async ({ gameId, list, deckName }) => {
       const pid = socket.data.playerId as PlayerID | undefined;
       if (!pid || socket.data.spectator) return;
@@ -711,19 +708,23 @@ export function registerSocketHandlers(io: TypedServer) {
 
       game.importDeckResolved(pid, resolvedCards);
       appendEvent(gameId, game.seq, 'deckImportResolved', { playerId: pid, cards: resolvedCards });
-const handCountBefore = game.state.zones?.[pid]?.handCount ?? 0;
-if (handCountBefore === 0) {
-  const isCommanderFmt = String(game.state.format).toLowerCase() === 'commander';
-  if (isCommanderFmt) {
-    (game as any).pendingInitialDraw?.add(pid);
-  } else {
-    game.shuffleLibrary(pid);
-    appendEvent(gameId, game.seq, 'shuffleLibrary', { playerId: pid });
-    game.drawCards(pid, 7);
-    appendEvent(gameId, game.seq, 'drawCards', { playerId: pid, count: 7 });
-  }
-  broadcastGame(io, game, gameId);
-}
+
+      const handCountBefore = game.state.zones?.[pid]?.handCount ?? 0;
+      if (handCountBefore === 0) {
+        const isCommanderFmt = String(game.state.format).toLowerCase() === 'commander';
+        if (isCommanderFmt) {
+          game.flagPendingOpeningDraw(pid);
+          const sockId = game.participants().find(p => p.playerId === pid)?.socketId;
+          const names = suggestCommandersFromResolved(resolvedCards);
+          if (sockId) (io.to(sockId) as any).emit('suggestCommanders', { gameId, names });
+        } else {
+          game.shuffleLibrary(pid);
+          appendEvent(gameId, game.seq, 'shuffleLibrary', { playerId: pid });
+          game.drawCards(pid, 7);
+          appendEvent(gameId, game.seq, 'drawCards', { playerId: pid, count: 7 });
+        }
+        broadcastGame(io, game, gameId);
+      }
 
       const fmt = String(game.state.format);
       const report = validateDeck(fmt, validationCards);
@@ -755,11 +756,11 @@ if (handCountBefore === 0) {
       });
       broadcastGame(io, game, gameId);
 
-      // Auto-save to server pool if a deckName was provided
+      // Auto-save to server pool if a deckName was provided (explicit)
       if (deckName && deckName.trim()) {
         try {
           const id = newDeckId();
-            const name = deckName.trim();
+          const name = deckName.trim();
           const created_by_name = (game.state.players as any[])?.find(p => p.id === pid)?.name || String(pid);
           const card_count = parsed.reduce((a, p) => a + (p.count || 0), 0);
           saveDeckDB({
@@ -801,7 +802,7 @@ if (handCountBefore === 0) {
       socket.emit('savedDeckDetail', { gameId, deck });
     });
 
-    // UPDATED: directly import saved deck text instead of re-emitting a client event
+    // UPDATED: robust import of saved deck + commander suggestion
     socket.on('useSavedDeck', async ({ gameId, deckId }) => {
       const pid = socket.data.playerId as PlayerID | undefined;
       if (!pid || socket.data.spectator) {
@@ -815,7 +816,23 @@ if (handCountBefore === 0) {
         return;
       }
       try {
-        await importDeckTextIntoGame(io, game, gameId, pid, deck.text, deck.name);
+        const resolvedCards = await importDeckTextIntoGame(io, game, gameId, pid, deck.text);
+        const handEmpty = (game.state.zones?.[pid]?.handCount ?? 0) === 0;
+        if (handEmpty) {
+          const isCommanderFmt = String(game.state.format).toLowerCase() === 'commander';
+          if (isCommanderFmt) {
+            game.flagPendingOpeningDraw(pid);
+            const sockId = game.participants().find(p => p.playerId === pid)?.socketId;
+            const names = suggestCommandersFromResolved(resolvedCards);
+            if (sockId) (io.to(sockId) as any).emit('suggestCommanders', { gameId, names });
+          } else {
+            game.shuffleLibrary(pid);
+            appendEvent(gameId, game.seq, 'shuffleLibrary', { playerId: pid });
+            game.drawCards(pid, 7);
+            appendEvent(gameId, game.seq, 'drawCards', { playerId: pid, count: 7 });
+          }
+          broadcastGame(io, game, gameId);
+        }
       } catch (e) {
         socket.emit('deckError', { gameId, message: 'Use deck failed.' });
       }
@@ -868,13 +885,18 @@ if (handCountBefore === 0) {
       io.to(gameId).emit('savedDecksList', { gameId, decks: listDecks() });
     });
 
-    // Delete (creator-only)
+    // Delete with relaxed permission (creator id OR matching current name)
     socket.on('deleteSavedDeck', ({ gameId, deckId }) => {
       const pid = socket.data.playerId as PlayerID | undefined;
       if (!pid || socket.data.spectator) return;
       const deck = getDeckDB(deckId);
       if (!deck) { socket.emit('deckError', { gameId, message: 'Deck not found.' }); return; }
-      if (deck.created_by_id !== pid) { socket.emit('deckError', { gameId, message: 'Only creator can delete.' }); return; }
+      const game = ensureGame(gameId);
+      const currentName = (game.state.players as any[])?.find(p => p.id === pid)?.name || '';
+      const allowed =
+        deck.created_by_id === pid ||
+        (deck.created_by_name || '').trim().toLowerCase() === currentName.trim().toLowerCase();
+      if (!allowed) { socket.emit('deckError', { gameId, message: 'Only creator can delete.' }); return; }
       if (!deleteDeckDB(deckId)) { socket.emit('deckError', { gameId, message: 'Delete failed.' }); return; }
       socket.emit('deckDeleted', { gameId, deckId });
       io.to(gameId).emit('savedDecksList', { gameId, decks: listDecks() });

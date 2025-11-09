@@ -30,7 +30,7 @@ export interface DeckManagerModalProps {
   onImportText: (text: string, name?: string) => void;
   gameId?: GameID;
   canServer?: boolean;
-  anchorEl?: HTMLElement | null; // element to tether under (screen-space)
+  anchorEl?: HTMLElement | null; // button to tether under
   wide?: boolean;
 }
 
@@ -45,12 +45,13 @@ export function DeckManagerModal({
 }: DeckManagerModalProps) {
   const [tab, setTab] = useState<'local' | 'server' | 'preview'>('local');
 
-  // Local decks
+  // Local input
   const [localList, setLocalList] = useState<SavedLocalDeck[]>([]);
   const [localName, setLocalName] = useState('');
   const [localText, setLocalText] = useState('');
   const [localFilter, setLocalFilter] = useState('');
   const [localErr, setLocalErr] = useState<string | null>(null);
+  const [alsoSaveToServer, setAlsoSaveToServer] = useState(false);
 
   // Server decks
   const [serverDecks, setServerDecks] = useState<SavedDeckSummary[]>([]);
@@ -59,31 +60,23 @@ export function DeckManagerModal({
   const [serverErr, setServerErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Position tracking for tether (viewport coordinates)
+  // Tether position (viewport/fixed, via portal)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   const rafRef = useRef<number | null>(null);
 
-  // Initial load
+  // Init
   useEffect(() => {
     if (!open) return;
     setLocalList(loadLocal());
-    if (canServer && gameId) {
-      socket.emit('listSavedDecks', { gameId });
-    }
+    if (canServer && gameId) socket.emit('listSavedDecks', { gameId });
   }, [open, canServer, gameId]);
 
   // Socket listeners
   useEffect(() => {
     if (!open) return;
     const onList = ({ decks }: { decks: SavedDeckSummary[] }) => setServerDecks(decks);
-    const onDetail = ({ deck }: { deck: SavedDeckDetail }) => {
-      setDetail(deck);
-      setTab('preview');
-    };
-    const onSaved = () => {
-      setSaving(false);
-      socket.emit('listSavedDecks', { gameId });
-    };
+    const onDetail = ({ deck }: { deck: SavedDeckDetail }) => { setDetail(deck); setTab('preview'); };
+    const onSaved = () => { setSaving(false); gameId && socket.emit('listSavedDecks', { gameId }); };
     const onRenamed = ({ deck }: { deck: SavedDeckSummary }) =>
       setServerDecks(prev => prev.map(d => (d.id === deck.id ? deck : d)));
     const onDeleted = ({ deckId }: { deckId: string }) => {
@@ -109,20 +102,17 @@ export function DeckManagerModal({
     };
   }, [open, gameId, detail]);
 
-  // Tether: track anchorEl's viewport rect every frame. Render via portal so we ignore parent transforms.
+  // Follow anchor element each frame (portal decouples transforms)
   useEffect(() => {
     if (!open || !anchorEl) {
       setPos(null);
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
+      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
       return;
     }
     const update = () => {
       try {
         const r = anchorEl.getBoundingClientRect();
-        setPos({ left: r.left + r.width / 2, top: r.bottom + 8 }); // 8px gap under button
+        setPos({ left: r.left + r.width / 2, top: r.bottom + 8 });
       } finally {
         rafRef.current = requestAnimationFrame(update);
       }
@@ -134,10 +124,7 @@ export function DeckManagerModal({
     };
     window.addEventListener('resize', onResize);
     return () => {
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
+      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
       window.removeEventListener('resize', onResize);
     };
   }, [open, anchorEl]);
@@ -157,48 +144,22 @@ export function DeckManagerModal({
   if (!open) return null;
 
   const backdropStyle: React.CSSProperties = {
-    position: 'fixed',
-    inset: 0,
-    background: 'rgba(0,0,0,0.45)',
-    zIndex: 120
+    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 120
   };
-  const wrapperStyle: React.CSSProperties = pos
-    ? {
-        position: 'fixed',
-        left: pos.left,
-        top: pos.top,
-        transform: 'translate(-50%, 0)',
-        zIndex: 121
-      }
-    : {
-        position: 'fixed',
-        left: '50%',
-        top: '50%',
-        transform: 'translate(-50%, -50%)',
-        zIndex: 121
-      };
+  const wrapperStyle: React.CSSProperties = pos ? {
+    position: 'fixed', left: pos.left, top: pos.top, transform: 'translate(-50%, 0)', zIndex: 121
+  } : {
+    position: 'fixed', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', zIndex: 121
+  };
   const modalStyle: React.CSSProperties = {
-    background: '#202225',
-    border: '1px solid #444',
-    borderRadius: 8,
-    padding: '14px 16px',
-    width: wide ? 960 : 880,
-    maxWidth: '96vw',
-    maxHeight: '80vh',
-    overflow: 'auto',
-    boxShadow: '0 4px 18px rgba(0,0,0,0.65)',
-    color: '#eee'
+    background: '#202225', border: '1px solid #444', borderRadius: 8, padding: '14px 16px',
+    width: wide ? 960 : 880, maxWidth: '96vw', maxHeight: '80vh', overflow: 'auto',
+    boxShadow: '0 4px 18px rgba(0,0,0,0.65)', color: '#eee'
   };
 
   const saveLocal = () => {
-    if (!localText.trim()) {
-      setLocalErr('Empty list');
-      return;
-    }
-    if (!localName.trim()) {
-      setLocalErr('Name required');
-      return;
-    }
+    if (!localText.trim()) { setLocalErr('Empty list'); return; }
+    if (!localName.trim()) { setLocalErr('Name required'); return; }
     const deck: SavedLocalDeck = { id: uid('l'), name: localName.trim(), text: localText, savedAt: Date.now() };
     const next = [deck, ...localList].slice(0, 200);
     saveLocalAll(next);
@@ -207,58 +168,36 @@ export function DeckManagerModal({
     setLocalText('');
     setLocalErr(null);
   };
-  const importLocal = (d: SavedLocalDeck) => onImportText(d.text, d.name);
+
+  const importLocal = (d: SavedLocalDeck) => {
+    onImportText(d.text, d.name);
+    if (alsoSaveToServer && canServer && gameId) {
+      socket.emit('saveDeck', { gameId, name: d.name || 'Deck', list: d.text });
+    }
+  };
+
   const importServer = (deckId: string) => gameId && socket.emit('useSavedDeck', { gameId, deckId });
   const requestDetail = (deckId: string) => gameId && socket.emit('getSavedDeck', { gameId, deckId });
   const saveServer = () => {
     if (!canServer || !gameId) return;
-    if (!localText.trim() || !localName.trim()) {
-      setServerErr('Name & text required');
-      return;
-    }
+    if (!localText.trim() || !localName.trim()) { setServerErr('Name & text required'); return; }
     setSaving(true);
     socket.emit('saveDeck', { gameId, name: localName.trim(), list: localText });
   };
-  const renameServerDeck = (d: SavedDeckSummary, newName: string) =>
-    gameId && newName.trim() && socket.emit('renameSavedDeck', { gameId, deckId: d.id, name: newName.trim() });
-  const deleteServerDeck = (d: SavedDeckSummary) => {
-    if (!gameId) return;
-    if (!confirm(`Delete deck "${d.name}"?`)) return;
-    socket.emit('deleteSavedDeck', { gameId, deckId: d.id });
-  };
 
   const content = (
-    <div
-      style={backdropStyle}
-      role="dialog"
-      aria-modal="true"
-      onClick={e => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
+    <div style={backdropStyle} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={wrapperStyle}>
         <div style={modalStyle}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <h4 style={{ margin: 0, fontSize: 15 }}>Deck Manager</h4>
-            <button type="button" onClick={onClose}>
-              Close
-            </button>
+            <button type="button" onClick={onClose}>Close</button>
           </div>
 
           <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            <button type="button" onClick={() => { setTab('local'); setDetail(null); }} disabled={tab === 'local'}>
-              Local
-            </button>
-            {canServer && (
-              <button type="button" onClick={() => { setTab('server'); setDetail(null); }} disabled={tab === 'server'}>
-                Server
-              </button>
-            )}
-            {detail && (
-              <button type="button" onClick={() => setTab('preview')} disabled={tab === 'preview'}>
-                Preview
-              </button>
-            )}
+            <button type="button" onClick={() => { setTab('local'); setDetail(null); }} disabled={tab === 'local'}>Local</button>
+            {canServer && <button type="button" onClick={() => { setTab('server'); setDetail(null); }} disabled={tab === 'server'}>Server</button>}
+            {detail && <button type="button" onClick={() => setTab('preview')} disabled={tab === 'preview'}>Preview</button>}
           </div>
 
           {tab === 'local' && (
@@ -277,7 +216,7 @@ export function DeckManagerModal({
                   placeholder="Name"
                   style={{ width: '100%', marginTop: 8 }}
                 />
-                <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                   <input
                     type="file"
                     accept=".txt,text/plain"
@@ -288,9 +227,7 @@ export function DeckManagerModal({
                       setLocalText(content);
                     }}
                   />
-                  <button type="button" onClick={saveLocal} disabled={!localText.trim() || !localName.trim()}>
-                    Save Locally
-                  </button>
+                  <button type="button" onClick={saveLocal} disabled={!localText.trim() || !localName.trim()}>Save Locally</button>
                   {canServer && (
                     <button type="button" onClick={saveServer} disabled={!localText.trim() || !localName.trim() || saving}>
                       {saving ? 'Saving…' : 'Save to Server'}
@@ -304,27 +241,19 @@ export function DeckManagerModal({
                   <span style={{ fontSize: 12 }}>Local Decks ({localList.length})</span>
                   <input value={localFilter} onChange={e => setLocalFilter(e.target.value)} placeholder="Filter" style={{ width: 140 }} />
                 </div>
-                <div style={{ border: '1px solid #333', borderRadius: 6, padding: 6, maxHeight: 260, overflowY: 'auto', background: '#111' }}>
+                <div style={{ border: '1px solid #333', borderRadius: 6, padding: 6, maxHeight: 320, overflowY: 'auto', background: '#111' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <input id="save-to-server" type="checkbox" checked={alsoSaveToServer} onChange={e => setAlsoSaveToServer(e.target.checked)} />
+                    <label htmlFor="save-to-server" style={{ fontSize: 12, color: '#ddd' }}>Also save to server when importing</label>
+                  </div>
                   {filteredLocal.length === 0 && <div style={{ fontSize: 12, color: '#888' }}>No decks</div>}
                   {filteredLocal.map(d => (
-                    <div
-                      key={d.id}
-                      style={{
-                        borderBottom: '1px solid #222',
-                        padding: '6px 4px',
-                        display: 'grid',
-                        gridTemplateColumns: '1fr auto auto',
-                        gap: 8,
-                        alignItems: 'center'
-                      }}
-                    >
+                    <div key={d.id} style={{ borderBottom: '1px solid #222', padding: '6px 4px', display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'center' }}>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 12, color: '#eee', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.name}</div>
                         <div style={{ fontSize: 10, color: '#999' }}>{new Date(d.savedAt).toLocaleString()}</div>
                       </div>
-                      <button type="button" onClick={() => importLocal(d)} style={{ fontSize: 11 }}>
-                        Import
-                      </button>
+                      <button type="button" onClick={() => importLocal(d)} style={{ fontSize: 11 }}>Import</button>
                       <button
                         type="button"
                         onClick={() => {
@@ -354,45 +283,29 @@ export function DeckManagerModal({
                 <div style={{ border: '1px solid #333', borderRadius: 6, padding: 6, maxHeight: 320, overflowY: 'auto', background: '#111' }}>
                   {filteredServer.length === 0 && <div style={{ fontSize: 12, color: '#888' }}>None</div>}
                   {filteredServer.map(d => (
-                    <div
-                      key={d.id}
-                      style={{
-                        borderBottom: '1px solid #222',
-                        padding: '6px 4px',
-                        display: 'grid',
-                        gridTemplateColumns: '1fr auto auto auto',
-                        gap: 8,
-                        alignItems: 'center'
-                      }}
-                    >
+                    <div key={d.id} style={{ borderBottom: '1px solid #222', padding: '6px 4px', display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 8, alignItems: 'center' }}>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 12, color: '#eee', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.name}</div>
                         <div style={{ fontSize: 10, color: '#999' }}>
                           {new Date(d.created_at).toLocaleDateString()} • {d.created_by_name} • {d.card_count} cards
                         </div>
                       </div>
-                      <button type="button" onClick={() => requestDetail(d.id)} style={{ fontSize: 11 }}>
-                        View
-                      </button>
-                      <button type="button" onClick={() => importServer(d.id)} style={{ fontSize: 11 }}>
-                        Use
-                      </button>
+                      <button type="button" onClick={() => requestDetail(d.id)} style={{ fontSize: 11 }}>View</button>
+                      <button type="button" onClick={() => importServer(d.id)} style={{ fontSize: 11 }}>Use</button>
                       <button
                         type="button"
                         onClick={() => {
                           const newName = prompt('Rename deck', d.name);
                           if (!newName || !newName.trim()) return;
-                          renameServerDeck(d, newName.trim());
+                          gameId && socket.emit('renameSavedDeck', { gameId, deckId: d.id, name: newName.trim() });
                         }}
-                        disabled={socket.data?.playerId !== d.created_by_id}
                         style={{ fontSize: 11 }}
                       >
                         Rename
                       </button>
                       <button
                         type="button"
-                        onClick={() => deleteServerDeck(d)}
-                        disabled={socket.data?.playerId !== d.created_by_id}
+                        onClick={() => { gameId && socket.emit('deleteSavedDeck', { gameId, deckId: d.id }); }}
                         style={{ fontSize: 11, color: '#f87171' }}
                       >
                         Delete
@@ -410,8 +323,18 @@ export function DeckManagerModal({
                   placeholder="Paste list, switch name below"
                   style={{ width: '100%', height: 180, resize: 'vertical', fontSize: 12 }}
                 />
-                <input value={localName} onChange={e => setLocalName(e.target.value)} placeholder="Name" style={{ width: '100%', marginTop: 8 }} />
-                <button type="button" onClick={saveServer} disabled={!localText.trim() || !localName.trim() || saving} style={{ marginTop: 8 }}>
+                <input
+                  value={localName}
+                  onChange={e => setLocalName(e.target.value)}
+                  placeholder="Name"
+                  style={{ width: '100%', marginTop: 8 }}
+                />
+                <button
+                  type="button"
+                  onClick={saveServer}
+                  disabled={!localText.trim() || !localName.trim() || saving}
+                  style={{ marginTop: 8 }}
+                >
                   {saving ? 'Saving…' : 'Save to Server'}
                 </button>
               </div>
@@ -428,9 +351,7 @@ export function DeckManagerModal({
                 <pre style={{ fontSize: 11, lineHeight: '14px', whiteSpace: 'pre-wrap' }}>{detail.text}</pre>
               </div>
               <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-                <button type="button" onClick={() => importServer(detail.id)}>
-                  Use This Deck
-                </button>
+                <button type="button" onClick={() => importServer(detail.id)}>Use This Deck</button>
                 <button type="button" onClick={() => setTab('server')}>Back</button>
               </div>
             </div>
@@ -440,6 +361,5 @@ export function DeckManagerModal({
     </div>
   );
 
-  // Render overlay to document.body so transforms in the table never affect it.
   return createPortal(content, document.body);
 }
