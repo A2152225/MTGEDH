@@ -12,7 +12,12 @@ import {
   selectFromLibrary,
   moveHandToLibrary,
   searchLibrary,
-  reconcileZonesConsistency
+  reconcileZonesConsistency,
+  reorderHand as zonesReorderHand,
+  shuffleHand as zonesShuffleHand,
+  peekTopN,
+  applyScry,
+  applySurveil,
 } from "./modules/zones";
 import { setCommander, castCommander, moveCommanderToCZ } from "./modules/commander";
 import {
@@ -22,111 +27,129 @@ import {
   removePermanent,
   movePermanentToExile,
   applyEngineEffects,
-  runSBA
+  runSBA,
 } from "./modules/counters_tokens";
 import { pushStack, resolveTopOfStack, playLand } from "./modules/stack";
 import { viewFor } from "./modules/view";
 import {
   applyEvent,
-  replay,
-  reorderHand,
-  shuffleHand,
-  peekTopN,
-  applyScry,
-  applySurveil,
-  reset,
-  skip,
-  unskip
-} from "./modules/replay";
+  replay as replayEvents,
+  reset as resetGame,
+  skip as skipPlayer,
+  unskip as unskipPlayer,
+  remove as removePlayer,
+} from "./modules/applyEvent";
 
 /**
- * Public factory returning same surface as original monolithic gameState.ts
+ * Factory that returns the full game surface expected by socket handlers.
+ * Delegates to the ctx and modules so logic remains pure and centralized.
  */
 export function createInitialGameState(gameId: GameID): InMemoryGame {
   const ctx = createContext(gameId);
 
-  return {
-    state: ctx.state,
-    get seq() { return ctx.seq.value; },
-    set seq(v: number) { ctx.seq.value = v; },
+  // helper to access seq whether stored as { value } or plain number
+  const getSeq = () => {
+    const s = (ctx as any).seq;
+    return s && typeof s === "object" && "value" in s ? s.value : s;
+  };
+  const setSeq = (v: number) => {
+    const s = (ctx as any).seq;
+    if (s && typeof s === "object" && "value" in s) s.value = v;
+    else (ctx as any).seq = v;
+  };
 
-    join: (socketId, playerName, spectator, fixedPlayerId, seatToken) =>
-      join(ctx, socketId, playerName, spectator, fixedPlayerId, seatToken),
+  const game: InMemoryGame = {
+    // core state
+    state: ctx.state,
+
+    // seq accessor compatible with older and newer ctx shapes
+    get seq() {
+      return getSeq();
+    },
+    set seq(v: number) {
+      setSeq(v);
+    },
+
+    // connection / participant management
+    join: (socketId, playerName, spectator, fixedPlayerId, seatTokenFromClient) =>
+      join(ctx, socketId, playerName, spectator, fixedPlayerId, seatTokenFromClient),
     leave: (playerId?: PlayerID) => leave(ctx, playerId),
     disconnect: (socketId: string) => disconnect(ctx, socketId),
     participants: () => participants(ctx),
 
+    // priority / turn control
     passPriority: (playerId: PlayerID) => passPriority(ctx, playerId),
     setTurnDirection: (dir: 1 | -1) => setTurnDirection(ctx, dir),
     nextTurn: () => nextTurn(ctx),
     nextStep: () => nextStep(ctx),
 
-    flagPendingOpeningDraw: (playerId: PlayerID) => ctx.pendingInitialDraw.add(playerId),
-
+    // deck / zones API
     importDeckResolved: (playerId, cards) => importDeckResolved(ctx, playerId, cards),
-    shuffleLibrary: (playerId) => shuffleLibrary(ctx, playerId),
-    drawCards: (playerId, count) => drawCards(ctx, playerId, count),
+    shuffleLibrary: (playerId: PlayerID) => shuffleLibrary(ctx, playerId),
+    drawCards: (playerId: PlayerID, count: number) => drawCards(ctx, playerId, count),
     selectFromLibrary: (playerId, cardIds, moveTo) => selectFromLibrary(ctx, playerId, cardIds, moveTo),
-    moveHandToLibrary: (playerId) => moveHandToLibrary(ctx, playerId),
-    searchLibrary: (playerId, query, limit) => searchLibrary(ctx, playerId, query, limit),
+    moveHandToLibrary: (playerId: PlayerID) => moveHandToLibrary(ctx, playerId),
+    searchLibrary: (playerId: PlayerID, query: string, limit: number) => searchLibrary(ctx, playerId, query, limit),
 
-    grantSpectatorAccess: (owner, spectator) => {
-      const set = ctx.grants.get(owner) ?? new Set<PlayerID>();
-      set.add(spectator);
-      ctx.grants.set(owner, set);
-      ctx.bumpSeq();
-    },
-    revokeSpectatorAccess: (owner, spectator) => {
-      const set = ctx.grants.get(owner) ?? new Set<PlayerID>();
-      set.delete(spectator);
-      ctx.grants.set(owner, set);
-      ctx.bumpSeq();
-    },
+    // legacy / utility zone helpers
+    reconcileZonesConsistency: (playerId?: PlayerID) => reconcileZonesConsistency(ctx, playerId),
+    reorderHand: (playerId: PlayerID, order: number[]) => zonesReorderHand(ctx, playerId, order),
+    shuffleHand: (playerId: PlayerID) => zonesShuffleHand(ctx, playerId),
+    peekTopN: (playerId: PlayerID, n: number) => peekTopN(ctx, playerId, n),
+    applyScry: (playerId: PlayerID, keepTopOrder: string[], bottomOrder: string[]) =>
+      applyScry(ctx, playerId, keepTopOrder, bottomOrder),
+    applySurveil: (playerId: PlayerID, toGraveyard: string[], keepTopOrder: string[]) =>
+      applySurveil(ctx, playerId, toGraveyard, keepTopOrder),
 
-    viewFor: (viewer, spectator) => viewFor(ctx, viewer, spectator),
-    seedRng: (seed: number) => {
-      ctx.rngSeed = seed >>> 0;
-      ctx.rng = (function(seed: number) {
-        let t = seed;
-        return () => {
-          t = (t + 0x6D2B79F5) >>> 0;
-          let r = t;
-          r = Math.imul(r ^ (r >>> 15), r | 1);
-          r ^= r + Math.imul(r ^ (r >>> 7), r | 61);
-          return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
-        };
-      })(ctx.rngSeed);
-    },
-    hasRngSeed: () => ctx.rngSeed !== null,
+    // commander
+    setCommander: (playerId: PlayerID, names: string[], ids?: string[], colorIdentity?: ("W" | "U" | "B" | "R" | "G")[]) =>
+      setCommander(ctx, playerId, names, ids || [], colorIdentity),
+    castCommander: (playerId: PlayerID, commanderId: string) => castCommander(ctx, playerId, commanderId),
+    moveCommanderToCZ: (playerId: PlayerID, commanderId: string) => moveCommanderToCZ(ctx, playerId, commanderId),
 
-    setCommander: (playerId, names, ids, ci) => setCommander(ctx, playerId, names, ids, ci),
-    castCommander: (playerId, commanderId) => castCommander(ctx, playerId, commanderId),
-    moveCommanderToCZ: (playerId, commanderId) => moveCommanderToCZ(ctx, playerId, commanderId),
+    // counters / tokens / engine
+    updateCounters: (permanentId, deltas) => updateCounters(ctx, permanentId, deltas),
+    applyUpdateCountersBulk: (updates) => applyUpdateCountersBulk(ctx, updates),
+    createToken: (controller, name, count, basePower, baseToughness) =>
+      createToken(ctx, controller, name, count, basePower, baseToughness),
+    removePermanent: (permanentId: string) => removePermanent(ctx, permanentId),
+    movePermanentToExile: (permanentId: string) => movePermanentToExile(ctx, permanentId),
+    applyEngineEffects: (effects: readonly any[]) => applyEngineEffects(ctx, effects),
+    runSBA: (playerId: PlayerID) => runSBA(ctx, playerId),
 
-    updateCounters: (permId, deltas) => updateCounters(ctx, permId, deltas),
-    updateCountersBulk: (updates) => applyUpdateCountersBulk(ctx, updates),
-    createToken: (controller, name, count, bp, bt) => createToken(ctx, controller, name, count, bp, bt),
-    removePermanent: (permId) => removePermanent(ctx, permId),
-    movePermanentToExile: (permId) => movePermanentToExile(ctx, permId),
-    applyEngineEffects: (effects) => applyEngineEffects(ctx, effects),
-
+    // stack
     pushStack: (item) => pushStack(ctx, item),
     resolveTopOfStack: () => resolveTopOfStack(ctx),
     playLand: (playerId, card) => playLand(ctx, playerId, card),
 
+    // view / RNG
+    viewFor: (viewer: PlayerID | undefined, spectator?: boolean) => viewFor(ctx, viewer, !!spectator),
+    seedRng: (seed: number) => ctx.seedRng(seed),
+    hasRngSeed: () => ctx.hasRngSeed(),
+
+    // pending opening draw helper (kept for compatibility)
+    flagPendingOpeningDraw: (playerId: PlayerID) => ctx.pendingInitialDraw.add(playerId),
+    // Expose the underlying Set so older socket code that uses game.pendingInitialDraw works
+    pendingInitialDraw: ctx.pendingInitialDraw,
+
+    // commander movement helpers (kept earlier)
+    moveCommanderToCZ: (playerId: PlayerID, commanderId: string) => moveCommanderToCZ(ctx, playerId, commanderId),
+
+    // event / replay / lifecycle
     applyEvent: (e: GameEvent) => applyEvent(ctx, e),
-    replay: (events: GameEvent[]) => replay(ctx, events),
+    replay: (events: GameEvent[]) => replayEvents(ctx, events),
+    reset: (preservePlayers: boolean) => resetGame(ctx, preservePlayers),
+    skip: (playerId: PlayerID) => skipPlayer(ctx, playerId),
+    unskip: (playerId: PlayerID) => unskipPlayer(ctx, playerId),
+    remove: (playerId: PlayerID) => removePlayer(ctx, playerId),
 
-    reset: (preservePlayers: boolean) => reset(ctx, preservePlayers),
-    skip: (playerId: PlayerID) => skip(ctx, playerId),
-    unskip: (playerId: PlayerID) => unskip(ctx, playerId),
-    remove: (playerId: PlayerID) => leave(ctx, playerId),
-
-    reorderHand: (playerId, order) => reorderHand(ctx, playerId, order),
-    shuffleHand: (playerId) => shuffleHand(ctx, playerId),
-
-    peekTopN: (playerId, n) => peekTopN(ctx, playerId, n),
-    applyScry: (playerId, keepTopOrder, bottomOrder) => applyScry(ctx, playerId, keepTopOrder, bottomOrder),
-    applySurveil: (playerId, toGraveyard, keepTopOrder) => applySurveil(ctx, playerId, toGraveyard, keepTopOrder)
+    // helper aliases for compatibility (some callers used different names)
+    importDeckResolved: (playerId: PlayerID, cards: Array<Pick<KnownCardRef, "id" | "name" | "type_line" | "oracle_text" | "image_uris">>) =>
+      importDeckResolved(ctx, playerId, cards),
   };
+
+  // legacy convenience: attach pendingInitialDraw on the returned object as a runtime alias
+  (game as any).pendingInitialDraw = ctx.pendingInitialDraw;
+
+  return game;
 }
