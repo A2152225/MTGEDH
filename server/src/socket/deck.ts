@@ -17,6 +17,10 @@ import {
 } from "../db/decks";
 import type { KnownCardRef, PlayerID } from "../../shared/src";
 
+/**
+ * Heuristic to pick up to two commander names from resolved deck cards.
+ * Returns array of commander names (strings).
+ */
 function suggestCommanderNames(
   cards: Array<Pick<KnownCardRef, "name" | "type_line" | "oracle_text">>
 ) {
@@ -46,6 +50,16 @@ function suggestCommanderNames(
   return names.slice(0, 2);
 }
 
+/**
+ * Register deck-related socket handlers (importDeck, useSavedDeck, save/list/get/rename/delete)
+ *
+ * Additional behavior:
+ *  - After resolving cards for import/useSavedDeck, store the resolved card objects
+ *    in an in-memory per-game, per-player import buffer on the game object:
+ *      (game as any)._lastImportedDecks : Map<PlayerID, ResolvedCard[]>
+ *    This allows the commander handler to look up resolved card ids locally (fast, no Scryfall)
+ *    when the user selects a suggested commander.
+ */
 export function registerDeckHandlers(io: Server, socket: Socket) {
   socket.on("importDeck", async (
     { gameId, list, deckName }: { gameId: string; list: string; deckName?: string }
@@ -110,15 +124,40 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       }
     }
 
+    // Import into authoritative game state
     game.importDeckResolved(pid, resolvedCards);
     appendEvent(gameId, game.seq, "deckImportResolved", { playerId: pid, cards: resolvedCards });
+
+    // ---- NEW: store resolvedCards in per-game/per-player import buffer for quick lookup later ----
+    try {
+      (game as any)._lastImportedDecks = (game as any)._lastImportedDecks || new Map<PlayerID, any[]>();
+      (game as any)._lastImportedDecks.set(pid, resolvedCards.map(c => ({
+        id: c.id,
+        name: c.name,
+        type_line: c.type_line,
+        oracle_text: c.oracle_text,
+        image_uris: c.image_uris
+      })));
+    } catch (e) {
+      // non-fatal; continue
+      console.warn("Could not set _lastImportedDecks on game object:", e);
+    }
+    // ----------------------------------------------------------------------------------------------
 
     const handCountBefore = game.state.zones?.[pid]?.handCount ?? 0;
     if (handCountBefore === 0) {
       const isCommanderFmt = String(game.state.format).toLowerCase() === "commander";
       if (isCommanderFmt) {
         if (!game.pendingInitialDraw) (game as any).pendingInitialDraw = new Set();
-        game.flagPendingOpeningDraw(pid);
+        // flag for opening draw after commander selection
+        if (typeof (game as any).flagPendingOpeningDraw === "function") {
+          (game as any).flagPendingOpeningDraw(pid);
+        } else if (typeof game.flagPendingOpeningDraw === "function") {
+          (game as any).flagPendingOpeningDraw(pid);
+        } else {
+          // fallback: track in pendingInitialDraw set directly
+          (game as any).pendingInitialDraw.add(pid);
+        }
         const sockId = game.participants().find((p) => p.playerId === pid)?.socketId;
         const names = suggestCommanderNames(resolvedCards);
         if (sockId) io.to(sockId).emit("suggestCommanders", { gameId, names });
@@ -256,12 +295,33 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       game.importDeckResolved(pid, resolved);
       appendEvent(gameId, game.seq, "deckImportResolved", { playerId: pid, cards: resolved });
 
+      // ---- NEW: persist resolved cards in import buffer for this player ----
+      try {
+        (game as any)._lastImportedDecks = (game as any)._lastImportedDecks || new Map<PlayerID, any[]>();
+        (game as any)._lastImportedDecks.set(pid, resolved.map(c => ({
+          id: c.id,
+          name: c.name,
+          type_line: c.type_line,
+          oracle_text: c.oracle_text,
+          image_uris: c.image_uris,
+        })));
+      } catch (e) {
+        console.warn("Could not set _lastImportedDecks on game object for useSavedDeck:", e);
+      }
+      // --------------------------------------------------------------------------------
+
       const handEmpty = (game.state.zones?.[pid]?.handCount ?? 0) === 0;
       if (handEmpty) {
         const isCommanderFmt = String(game.state.format).toLowerCase() === "commander";
         if (isCommanderFmt) {
           if (!game.pendingInitialDraw) (game as any).pendingInitialDraw = new Set();
-          game.flagPendingOpeningDraw(pid);
+          if (typeof (game as any).flagPendingOpeningDraw === "function") {
+            (game as any).flagPendingOpeningDraw(pid);
+          } else if (typeof game.flagPendingOpeningDraw === "function") {
+            (game as any).flagPendingOpeningDraw(pid);
+          } else {
+            (game as any).pendingInitialDraw.add(pid);
+          }
           const sockId = game.participants().find((p) => p.playerId === pid)?.socketId;
           const names = suggestCommanderNames(resolved);
           if (sockId) io.to(sockId).emit("suggestCommanders", { gameId, names });
