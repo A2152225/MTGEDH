@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { socket } from './socket';
 import type {
   ClientGameView,
@@ -131,6 +131,26 @@ export function App() {
 
   const [expandedHands, setExpandedHands] = useState<Set<PlayerID>>(new Set());
   const [expandedGYs, setExpandedGYs] = useState<Set<PlayerID>>(new Set());
+
+  // Center the board so bottom of player's hand area is at bottom of window
+  const centerOnPlayer = useCallback(() => {
+    if (!you || !view) return;
+    setTimeout(() => {
+      const handArea = document.getElementById(`hand-area-${you}`);
+      // Main panel selector mirrors app layout (first column)
+      const mainPanel = document.querySelector("#root > div > div");
+      if (handArea && mainPanel) {
+        const scrollPanel = mainPanel.parentElement;
+        if (scrollPanel) {
+          const offset = handArea.offsetTop + handArea.offsetHeight - scrollPanel.offsetHeight;
+          scrollPanel.scrollTop = offset > 0 ? offset : 0;
+        }
+      }
+    }, 50);
+  }, [you, view]);
+
+  // Auto-center on load / when viewer or view changes
+  useEffect(() => { centerOnPlayer(); }, [centerOnPlayer]);
 
   useEffect(() => {
     const onConnect = () => {
@@ -434,6 +454,10 @@ export function App() {
           </label>
           <button onClick={handleJoin} disabled={!connected}>Join</button>
           <button onClick={() => socket.emit('requestState', { gameId })} disabled={!connected}>Refresh</button>
+        </div>
+
+        <div style={{ marginTop: 8 }}>
+          <button onClick={centerOnPlayer}>Center</button>
         </div>
 
         {view && (
