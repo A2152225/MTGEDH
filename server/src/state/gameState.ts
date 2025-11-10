@@ -370,7 +370,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
   function passPriority(playerId: PlayerID): { changed: boolean; resolvedNow: boolean } {
     if (state.priority !== playerId) return { changed: false, resolvedNow: false };
     const active = activePlayersClockwise();
-    theconst n = active.length;
+    const n = active.length;
     if (n === 0) return { changed: false, resolvedNow: false };
     state.priority = advancePriorityClockwise(playerId);
     seq++;

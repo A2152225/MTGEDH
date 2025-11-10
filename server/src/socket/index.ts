@@ -6,23 +6,28 @@ import { registerGameActions } from "./game-actions";
 import { registerCommanderHandlers } from "./commander";
 import { registerDeckHandlers } from "./deck";
 import { registerInteractionHandlers } from "./interaction";
+import { registerPriorityHandlers } from "./priority";
 import { registerDisconnectHandlers } from "./disconnect";
 
-// Aggregate and export all handler registrations
+// Fix the import to point to the correct DB module
+import { initDb } from "../db";
+
 export function registerSocketHandlers(io: Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>) {
   io.on("connection", (socket: Socket) => {
-    // Register handlers from different modules
+    console.log(`Socket connected: ${socket.id}`);
+
+    // Register all modularized handlers
     registerJoinHandlers(io, socket);
     registerGameActions(io, socket);
     registerCommanderHandlers(io, socket);
     registerDeckHandlers(io, socket);
     registerInteractionHandlers(io, socket);
+    registerPriorityHandlers(io, socket);
     registerDisconnectHandlers(io, socket);
 
-    // Optionally log connections for debug purposes
-    console.log(`Socket connected: ${socket.id}`);
-    socket.on("disconnect", () => {
-      console.log(`Socket disconnected: ${socket.id}`);
+    // Logging disconnect reason
+    socket.on("disconnect", (reason) => {
+      console.log(`Socket disconnected: ${socket.id}. Reason: ${reason}`);
     });
   });
 }

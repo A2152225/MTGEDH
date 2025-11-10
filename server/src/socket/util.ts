@@ -1,75 +1,62 @@
+import { Server } from "socket.io";
 import { games, priorityTimers, PRIORITY_TIMEOUT_MS } from "./socket";
 import { appendEvent } from "../db";
-import { Server } from "socket.io";
-import type { InMemoryGame } from "./state/gameState";
+import { createInitialGameState } from "../state/gameState";
+import type { InMemoryGame } from "../state/gameState";
 
 /**
- * Ensures that the specified game exists in memory, otherwise throws an error.
+ * Ensures that the specified game exists in memory, creating it if it doesn't already exist.
  */
 export function ensureGame(gameId: string): InMemoryGame {
-  const game = games.get(gameId);
+  let game = games.get(gameId);
   if (!game) {
-    throw new Error(`Game ${gameId} not found.`);
+    // Create a new game instance if it doesn't exist
+    game = createInitialGameState(gameId);
+    games.set(gameId, game);
   }
   return game;
 }
 
 /**
- * Broadcasts the full game state to all connected participants using the Socket.IO server.
+ * Broadcasts the full state of a game to all participants.
  */
 export function broadcastGame(io: Server, game: InMemoryGame, gameId: string) {
   const participants = game.participants();
   for (const { socketId, playerId, spectator } of participants) {
-    const view = game.viewFor(playerId, Boolean(spectator));
+    const view = game.viewFor(playerId, spectator);
     io.to(socketId).emit("state", { gameId, view, seq: game.seq });
   }
 }
 
 /**
- * Appends a game event to both the database and the in-memory game instance.
+ * Appends a game event (both in-memory and persisted to the DB).
  */
-export function appendGameEvent(
-  game: InMemoryGame,
-  gameId: string,
-  type: string,
-  payload: Record<string, any> = {}
-) {
+export function appendGameEvent(game: InMemoryGame, gameId: string, type: string, payload: Record<string, any> = {}) {
   game.applyEvent({ type, ...payload });
   appendEvent(gameId, game.seq, type, payload);
 }
 
 /**
- * Clears and cancels the priority timeout timer for a specific game.
+ * Clears priority timer for a given Game ID.
  */
 export function clearPriorityTimer(gameId: string) {
-  const timer = priorityTimers.get(gameId);
-  if (timer) {
-    clearTimeout(timer);
+  const existingTimeout = priorityTimers.get(gameId);
+  if (existingTimeout) {
+    clearTimeout(existingTimeout);
     priorityTimers.delete(gameId);
   }
 }
 
 /**
- * Schedules a priority timeout for a specific game, auto-passing priority after a timeout.
+ * Schedules a priority pass timeout, automatically passing after the configured duration.
  */
-export function schedulePriorityTimeout(
-  io: Server,
-  game: InMemoryGame,
-  gameId: string
-) {
-  // Always clear any existing timer first
+export function schedulePriorityTimeout(io: Server, game: InMemoryGame, gameId: string) {
   clearPriorityTimer(gameId);
 
-  // Only schedule when a priority window is active
   if (!game.state.active || !game.state.priority) return;
 
-  // Determine count of active (non-skipped) players
   const activePlayers = game.state.players.filter((p) => !p.inactive);
-  const activeCount = activePlayers.length;
-
-  // Single-player: immediately auto-pass only when the stack is non-empty to progress resolutions.
-  if (activeCount === 1) {
-    if (game.state.stack.length === 0) return;
+  if (activePlayers.length === 1 && game.state.stack.length > 0) {
     priorityTimers.set(
       gameId,
       setTimeout(() => {
@@ -79,36 +66,22 @@ export function schedulePriorityTimeout(
     return;
   }
 
-  // Multi-player: schedule a 30s timeout if state remains unchanged
   const startSeq = game.seq;
-  const startPriority = game.state.priority;
-  const startStackDepth = game.state.stack.length;
-
   const timeout = setTimeout(() => {
     priorityTimers.delete(gameId);
+    const updatedGame = games.get(gameId);
+    if (!updatedGame || updatedGame.seq !== startSeq) return;
 
-    // Re-validate conditions before auto-pass
-    const g = games.get(gameId);
-    if (!g || !g.state.active) return;
-    if (g.seq !== startSeq) return; // state changed, reschedule elsewhere
-    if (g.state.priority !== startPriority) return; // priority moved
-    if (g.state.stack.length !== startStackDepth) return; // stack changed
-
-    doAutoPass(io, g, gameId, "auto-pass (30s timeout)");
+    doAutoPass(io, updatedGame, gameId, "auto-pass (30s timeout)");
   }, PRIORITY_TIMEOUT_MS);
 
   priorityTimers.set(gameId, timeout);
 }
 
 /**
- * Executes an automatic priority pass for a player after a timeout.
+ * Automatically passes the priority during timeouts.
  */
-function doAutoPass(
-  io: Server,
-  game: InMemoryGame,
-  gameId: string,
-  reason: string
-) {
+function doAutoPass(io: Server, game: InMemoryGame, gameId: string, reason: string) {
   const playerId = game.state.priority;
   if (!playerId) return;
 
@@ -119,27 +92,39 @@ function doAutoPass(
 
   if (resolvedNow) {
     appendGameEvent(game, gameId, "resolveTopOfStack");
-
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: "Top of stack resolved automatically.",
-      ts: Date.now(),
-    });
+    io.to(gameId).emit("chat", { gameId, message: "Top of stack resolved automatically." });
   }
 
-  io.to(gameId).emit("chat", {
-    id: `m_${Date.now()}`,
-    gameId,
-    from: "system",
-    message: `Priority passed automatically (${reason}).`,
-    ts: Date.now(),
-  });
-
   broadcastGame(io, game, gameId);
-  io.to(gameId).emit("priority", { gameId, player: game.state.priority });
+}
 
-  // Schedule next priority window (if any)
-  schedulePriorityTimeout(io, game, gameId);
+/**
+ * Parses a string mana cost into discrete components (color distribution, generic mana, etc.).
+ */
+export function parseManaCost(manaCost?: string): { colors: Record<string, number>, generic: number, hybrids: Array<Array<string>>, hasX: boolean } {
+  const result = {
+    colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 },
+    generic: 0,
+    hybrids: [] as Array<Array<string>>,
+    hasX: false,
+  };
+
+  if (!manaCost) return result;
+
+  const tokens = manaCost.match(/\{[^}]+\}/g) || [];
+  for (const token of tokens) {
+    const clean = token.replace(/[{}]/g, "").toUpperCase();
+    if (clean === "X") {
+      result.hasX = true;
+    } else if (/^\d+$/.test(clean)) {
+      result.generic += parseInt(clean, 10);
+    } else if (clean.includes("/")) {
+      const [first, second] = clean.split("/");
+      result.hybrids.push([first, second]);
+    } else if (result.colors.hasOwnProperty(clean)) {
+      result.colors[clean] += 1;
+    }
+  }
+
+  return result;
 }
