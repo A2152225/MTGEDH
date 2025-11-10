@@ -5,14 +5,16 @@ import { computeDiff } from "../utils/diff";
 import { games } from "./socket";
 
 export function registerJoinHandlers(io: Server, socket: Socket) {
-  socket.on("joinGame", ({ gameId, playerName, spectator, seatToken }) => {
+  // Join a game
+  socket.on("joinGame", async ({ gameId, playerName, spectator, seatToken }) => {
     try {
+      // Ensure the game exists
       const game = ensureGame(gameId);
 
       if (!game.hasRngSeed()) {
-        const seed = (Date.now() ^ Math.random()) >>> 0;
+        const seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
         game.seedRng(seed);
-        appendEvent(gameId, game.seq, "rngSeed", { seed });
+        await appendEvent(gameId, game.seq, "rngSeed", { seed });
       }
 
       const { playerId, added, seatToken: resolvedToken } = game.join(
@@ -23,30 +25,46 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
         seatToken
       );
 
+      // Attach session metadata
       socket.data = { gameId, playerId, spectator };
       socket.join(gameId);
-      socket.emit("joined", { gameId, you: playerId, seatToken: resolvedToken });
 
+      // Emit initial view to the client
       const view = game.viewFor(playerId, Boolean(spectator));
+      socket.emit("joined", { gameId, you: playerId, seatToken: resolvedToken });
       socket.emit("state", { gameId, view, seq: game.seq });
 
       if (!spectator && added) {
-        appendEvent(gameId, game.seq, "join", {
-          playerId,
-          name: playerName,
-          seat: view.players.find((p) => p.id === playerId)?.seat,
-          seatToken: resolvedToken,
-        });
-      }
+        try {
+          await appendEvent(gameId, game.seq, "join", {
+            playerId,
+            name: playerName,
+            seat: view.players.find((p) => p.id === playerId)?.seat,
+            seatToken: resolvedToken,
+          });
 
-      socket.to(gameId).emit("stateDiff", { gameId, diff: computeDiff(undefined, view, game.seq) });
-      schedulePriorityTimeout(io, game, gameId);
+          socket.to(gameId).emit("stateDiff", {
+            gameId,
+            diff: computeDiff(undefined, view, game.seq),
+          });
+
+          schedulePriorityTimeout(io, game, gameId);
+        } catch (dbError) {
+          console.error(`joinGame database error for game ${gameId}:`, dbError);
+          socket.emit("error", {
+            code: "DB_ERROR",
+            message: "Failed to log the player join event. Please reconnect.",
+          });
+          return;
+        }
+      }
     } catch (err) {
       console.error(`joinGame error for socket ${socket.id}:`, err);
       socket.emit("error", { code: "JOIN_ERROR", message: err.message });
     }
   });
 
+  // Request state refresh
   socket.on("requestState", ({ gameId }) => {
     const game = games.get(gameId);
     const playerId = socket.data.playerId;

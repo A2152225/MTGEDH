@@ -161,6 +161,16 @@ export interface ServerToClientEvents {
 export interface InterServerEvents {
   ping: () => void;
 }
+export interface SuggestCommandersPayload {
+  gameId: string;
+  commanders: Array<{
+    id: string;
+    name: string;
+    type_line: string;
+    image_uris?: any;
+    oracle_text?: string;
+  }>;
+}
 
 export interface SocketData {
   playerId?: PlayerID;

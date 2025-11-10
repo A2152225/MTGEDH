@@ -1,19 +1,34 @@
 import { Server } from "socket.io";
 import { games, priorityTimers, PRIORITY_TIMEOUT_MS } from "./socket";
-import { appendEvent } from "../db";
-import { createInitialGameState } from "../state/gameState";
+import { appendEvent, createGameIfNotExists, getEvents } from "../db";
+import { createInitialGameState } from "../state";
 import type { InMemoryGame } from "../state/gameState";
 
 /**
- * Ensures that the specified game exists in memory, creating it if it doesn't already exist.
+ * Ensures that the specified game exists in both database and memory, creating it if necessary.
  */
 export function ensureGame(gameId: string): InMemoryGame {
   let game = games.get(gameId);
+
   if (!game) {
-    // Create a new game instance if it doesn't exist
+    // Create an initial game state
     game = createInitialGameState(gameId);
+
+    // Ensure it exists in the database
+    createGameIfNotExists(gameId, game.state.format, game.state.startingLife);
+
+    // Replay persisted events to reconstruct state
+    const persistedEvents = getEvents(gameId);
+    const replayEvents = persistedEvents.map((event) => ({
+      type: event.type,
+      ...(event.payload || {}),
+    }));
+    game.replay(replayEvents);
+
+    // Register the reconstructed game in memory
     games.set(gameId, game);
   }
+
   return game;
 }
 
@@ -31,13 +46,18 @@ export function broadcastGame(io: Server, game: InMemoryGame, gameId: string) {
 /**
  * Appends a game event (both in-memory and persisted to the DB).
  */
-export function appendGameEvent(game: InMemoryGame, gameId: string, type: string, payload: Record<string, any> = {}) {
+export function appendGameEvent(
+  game: InMemoryGame,
+  gameId: string,
+  type: string,
+  payload: Record<string, any> = {}
+) {
   game.applyEvent({ type, ...payload });
   appendEvent(gameId, game.seq, type, payload);
 }
 
 /**
- * Clears priority timer for a given Game ID.
+ * Clears the priority timer for a given Game ID.
  */
 export function clearPriorityTimer(gameId: string) {
   const existingTimeout = priorityTimers.get(gameId);
@@ -48,9 +68,13 @@ export function clearPriorityTimer(gameId: string) {
 }
 
 /**
- * Schedules a priority pass timeout, automatically passing after the configured duration.
+ * Schedules a priority pass timeout, automatically passing after the configured delay.
  */
-export function schedulePriorityTimeout(io: Server, game: InMemoryGame, gameId: string) {
+export function schedulePriorityTimeout(
+  io: Server,
+  game: InMemoryGame,
+  gameId: string
+) {
   clearPriorityTimer(gameId);
 
   if (!game.state.active || !game.state.priority) return;
@@ -71,7 +95,6 @@ export function schedulePriorityTimeout(io: Server, game: InMemoryGame, gameId: 
     priorityTimers.delete(gameId);
     const updatedGame = games.get(gameId);
     if (!updatedGame || updatedGame.seq !== startSeq) return;
-
     doAutoPass(io, updatedGame, gameId, "auto-pass (30s timeout)");
   }, PRIORITY_TIMEOUT_MS);
 
@@ -79,9 +102,14 @@ export function schedulePriorityTimeout(io: Server, game: InMemoryGame, gameId: 
 }
 
 /**
- * Automatically passes the priority during timeouts.
+ * Automatically passes the priority during a timeout.
  */
-function doAutoPass(io: Server, game: InMemoryGame, gameId: string, reason: string) {
+function doAutoPass(
+  io: Server,
+  game: InMemoryGame,
+  gameId: string,
+  reason: string
+) {
   const playerId = game.state.priority;
   if (!playerId) return;
 
@@ -99,9 +127,16 @@ function doAutoPass(io: Server, game: InMemoryGame, gameId: string, reason: stri
 }
 
 /**
- * Parses a string mana cost into discrete components (color distribution, generic mana, etc.).
+ * Parses a string mana cost into its individual components (color distribution, generic mana, etc.).
  */
-export function parseManaCost(manaCost?: string): { colors: Record<string, number>, generic: number, hybrids: Array<Array<string>>, hasX: boolean } {
+export function parseManaCost(
+  manaCost?: string
+): {
+  colors: Record<string, number>;
+  generic: number;
+  hybrids: Array<Array<string>>;
+  hasX: boolean;
+} {
   const result = {
     colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 },
     generic: 0,

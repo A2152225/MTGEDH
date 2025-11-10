@@ -1,26 +1,32 @@
 import type { Server, Socket } from "socket.io";
-import { fetchCardByExactNameStrict } from "../services/scryfall";
 import { ensureGame, broadcastGame } from "./util";
 import { appendEvent } from "../db";
+import type { PlayerID } from "../../shared/src";
 
 export function registerCommanderHandlers(io: Server, socket: Socket) {
   socket.on("setCommander", async ({ gameId, commanderNames }) => {
-    const playerId = socket.data.playerId;
+    const pid: PlayerID = socket.data.playerId;
+    if (!pid || socket.data.spectator) return;
     const game = ensureGame(gameId);
-    if (!playerId || !game) return;
 
-    const ids = [];
-    for (const name of commanderNames) {
-      try {
-        const card = await fetchCardByExactNameStrict(name);
-        ids.push(card.id);
-      } catch {
-        // Ignore not found
-      }
+    // Set the chosen commander(s)
+    await game.setCommander(pid, commanderNames, []);
+    appendEvent(gameId, game.seq, "setCommander", {
+      playerId: pid,
+      commanderNames,
+      commanderIds: [],
+    });
+
+    // Opening hand draw after selecting commander
+    if (game.pendingInitialDraw && game.pendingInitialDraw.has(pid)) {
+      game.shuffleLibrary(pid);
+      appendEvent(gameId, game.seq, "shuffleLibrary", { playerId: pid });
+      game.drawCards(pid, 7);
+      appendEvent(gameId, game.seq, "drawCards", { playerId: pid, count: 7 });
+      game.pendingInitialDraw.delete(pid);
+      broadcastGame(io, game, gameId);
+    } else {
+      broadcastGame(io, game, gameId);
     }
-
-    game.applyEvent({ type: "setCommander", playerId, commanderNames, commanderIds: ids });
-    appendEvent(gameId, game.seq, "setCommander", { playerId, commanderNames, commanderIds: ids });
-    broadcastGame(io, game, gameId);
   });
 }
