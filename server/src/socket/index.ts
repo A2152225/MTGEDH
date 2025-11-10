@@ -1,5 +1,6 @@
 import type { Server, Socket } from "socket.io";
 import type { ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData } from "../../shared/src";
+
 import { registerJoinHandlers } from "./join";
 import { registerGameActions } from "./game-actions";
 import { registerCommanderHandlers } from "./commander";
@@ -7,15 +8,8 @@ import { registerDeckHandlers } from "./deck";
 import { registerInteractionHandlers } from "./interaction";
 import { registerDisconnectHandlers } from "./disconnect";
 
-// Shared globals
-export const games = new Map<GameID, InMemoryGame>();
-export const priorityTimers = new Map<GameID, NodeJS.Timeout>();
-export const PRIORITY_TIMEOUT_MS = 30_000;
-
-// Register all socket handlers
-type TypedServer = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
-
-export function registerSocketHandlers(io: TypedServer) {
+// Aggregate socket handlers
+export function registerSocketHandlers(io: Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>) {
   io.on("connection", (socket: Socket) => {
     registerJoinHandlers(io, socket);
     registerGameActions(io, socket);
