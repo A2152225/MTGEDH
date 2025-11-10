@@ -1,9 +1,8 @@
 import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, appendGameEvent } from "./util";
-import { appendEvent } from "../db";
 
 export function registerGameActions(io: Server, socket: Socket) {
-  socket.on("passPriority", ({ gameId }) => {
+  socket.on("passPriority", ({ gameId }: { gameId: string }) => {
     const game = ensureGame(gameId);
     const playerId = socket.data.playerId;
 
@@ -12,7 +11,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     const { changed, resolvedNow } = game.passPriority(playerId);
     if (!changed) return;
 
-    appendEvent(gameId, game.seq, "passPriority", { by: playerId });
+    appendGameEvent(game, gameId, "passPriority", { by: playerId });
 
     if (resolvedNow) {
       appendGameEvent(game, gameId, "resolveTopOfStack");
@@ -28,14 +27,19 @@ export function registerGameActions(io: Server, socket: Socket) {
     broadcastGame(io, game, gameId);
   });
 
-  socket.on("nextTurn", ({ gameId }) => {
+  socket.on("nextTurn", ({ gameId }: { gameId: string }) => {
     const game = ensureGame(gameId);
     const playerId = socket.data.playerId;
 
     if (!game || !playerId) return;
 
     if (game.state.turnPlayer !== playerId) {
-      socket.emit("error", { code: "TURN", message: "Only the active player can advance the turn" });
+      socket.emit("error", { code: "TURN", message: "Only the active player can advance the turn." });
+      return;
+    }
+
+    if (game.state.stack.length > 0) {
+      socket.emit("error", { code: "TURN", message: "Cannot advance turn while the stack is not empty." });
       return;
     }
 
