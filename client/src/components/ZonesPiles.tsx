@@ -12,11 +12,18 @@ export function ZonesPiles(props: {
   isCommanderFormat?: boolean;
   showHandCount?: number;
   hideHandDetails?: boolean;
+  // Casting support
+  canCastCommander?: boolean;
+  onCastCommander?: (commanderIdOrName: string) => void;
 }) {
-  const { zones, commander, isCommanderFormat, showHandCount, hideHandDetails } = props;
+  const {
+    zones, commander, isCommanderFormat, showHandCount, hideHandDetails,
+    canCastCommander = false, onCastCommander
+  } = props;
+
   const libCount = zones.libraryCount ?? 0;
-  const gyArr = (zones.graveyard as any[]) || [];
-  const gyCount = zones.graveyardCount ?? gyArr.length ?? 0;
+  const gyArr = ((zones as any).graveyard as any[]) || [];
+  const gyCount = (zones as any).graveyardCount ?? gyArr.length ?? 0;
   const exArr = ((zones as any).exile as any[]) || [];
   const exCount = exArr.length ?? 0;
 
@@ -25,6 +32,7 @@ export function ZonesPiles(props: {
 
   const cmdNames = (isCommanderFormat ? (commander as any)?.commanderNames : undefined) as string[] | undefined;
   const cmdCards = (isCommanderFormat ? (commander as any)?.commanderCards : undefined) as any[] | undefined;
+  const cmdIds = (isCommanderFormat ? (commander as any)?.commanderIds : undefined) as string[] | undefined;
 
   const PileStack = (p: { label: string; count: number; color: string; title?: string }) => {
     const h = pileHeightPx(p.count);
@@ -50,62 +58,78 @@ export function ZonesPiles(props: {
   };
 
   const ThumbOrPile = (p: { label: string; top: any | null; count: number }) => {
-    const img = p.top?.image_uris?.small || p.top?.image_uris?.normal || null;
     const name = p.top?.name || '';
+    const img = p.top?.image_uris?.small || p.top?.image_uris?.normal || null;
+    const body = (
+      <div style={{
+        position: 'relative', width: 72, height: 100, borderRadius: 6, overflow: 'hidden',
+        border: '1px solid rgba(255,255,255,0.2)', background: '#0f0f0f',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#aaa', fontSize: 11, padding: 4, textAlign: 'center'
+      }}>
+        {img ? <img src={img} alt={name} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.6 }} /> : null}
+        <span style={{ position: 'relative', zIndex: 1 }}>{name || p.label}</span>
+      </div>
+    );
     return (
-      <div title={`${p.label}: ${p.count}${name ? ` • Top: ${name}` : ''}`} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-        <div style={{
-          position: 'relative', width: 72, height: 100, borderRadius: 6, overflow: 'hidden',
-          border: '1px solid rgba(255,255,255,0.2)', background: '#0f0f0f'
-        }}>
-          {img ? (
-            <img src={img} alt={name} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-          ) : (
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#aaa', fontSize: 11 }}>
-              {p.label}
-            </div>
-          )}
-        </div>
+      <div
+        title={`${p.label}: ${p.count}${name ? ` • Top: ${name}` : ''}`}
+        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}
+        onMouseEnter={(e) => { if (p.top) showCardPreview(e.currentTarget as HTMLElement, p.top, { prefer: 'above', anchorPadding: 0 }); }}
+        onMouseLeave={(e) => { hideCardPreview(e.currentTarget as HTMLElement); }}
+      >
+        {body}
         <div style={{ fontSize: 11, color: '#ddd' }}>{p.label}: {p.count}</div>
       </div>
     );
   };
 
   const CommandSlots = () => {
-    const slots = cmdCards && cmdCards.length ? cmdCards : [0, 1];
+    const slotsCount = Math.max(1, Math.min(2, (cmdNames?.length || cmdIds?.length || 0) || 2));
+    const slots = Array.from({ length: slotsCount }).map((_, i) => ({
+      name: cmdNames?.[i] || 'Commander',
+      card: cmdCards?.[i],
+      id: cmdIds?.[i]
+    }));
     return (
-      <div title="Command Zone" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+      <div title="Command Zone" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
         <div style={{ display: 'flex', gap: 6 }}>
-          {slots.map((c, i) => {
-            const img = c?.image_uris?.small || c?.image_uris?.normal;
-            const name = c?.name || cmdNames?.[i] || 'Commander';
-            const hasCard = !!c;
+          {slots.map((slot, i) => {
+            const name = slot.name || 'Commander';
+            const hasCard = !!slot.card || !!slot.id || !!name;
+            const previewCard = slot.card || cmdCards?.[i];
+            const commanderId = slot.id || previewCard?.id || name;
             return (
-              <div
-                key={i}
-                style={{
-                  width: 60, height: 88, borderRadius: 6,
-                  border: img ? '2px solid rgba(255,255,255,0.5)' : '2px dashed rgba(255,255,255,0.3)',
-                  background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  overflow: 'hidden', position: 'relative', color: '#bbb', fontSize: 10,
-                  cursor: hasCard ? 'pointer' : 'default'
-                }}
-                onMouseEnter={(e) => {
-                  if (!hasCard) return;
-                  showCardPreview(e.currentTarget as HTMLElement, c, { prefer: 'above', anchorPadding: 0 });
-                }}
-                onMouseLeave={(e) => {
-                  if (!hasCard) return;
-                  hideCardPreview(e.currentTarget as HTMLElement);
-                }}
-              >
-                {img ? <img src={img} alt={name} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} /> : name}
+              <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                {/* Name-only tile; no image per request, but keep hover preview if we have a card snapshot */}
+                <div
+                  style={{
+                    width: 76, height: 54, borderRadius: 6,
+                    border: hasCard ? '2px solid rgba(255,255,255,0.5)' : '2px dashed rgba(255,255,255,0.3)',
+                    background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    position: 'relative', color: '#ddd', fontSize: 10, padding: '2px 4px', textAlign: 'center',
+                    cursor: previewCard ? 'pointer' : 'default'
+                  }}
+                  onMouseEnter={(e) => { if (previewCard) showCardPreview(e.currentTarget as HTMLElement, previewCard, { prefer: 'above', anchorPadding: 0 }); }}
+                  onMouseLeave={(e) => { hideCardPreview(e.currentTarget as HTMLElement); }}
+                >
+                  {name}
+                </div>
+                {canCastCommander && hasCard && onCastCommander && (
+                  <button
+                    type="button"
+                    onClick={() => commanderId && onCastCommander(commanderId)}
+                    style={{ fontSize: 10, padding: '2px 6px', borderRadius: 6 }}
+                    title={`Cast ${name}`}
+                  >
+                    Cast
+                  </button>
+                )}
               </div>
             );
           })}
         </div>
         {cmdNames && cmdNames.length > 0 && (
-          <div style={{ maxWidth: 140, color: '#bbb', fontSize: 10, textAlign: 'center' }}>
+          <div style={{ maxWidth: 160, color: '#bbb', fontSize: 10, textAlign: 'center' }}>
             {cmdNames.join(' / ')}
           </div>
         )}

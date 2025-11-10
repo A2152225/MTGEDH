@@ -107,7 +107,22 @@ export interface BattlefieldPermanent {
   basePower?: number;
   baseToughness?: number;
   attachedTo?: string;
+  // New properties for free positioning + dynamic calculation
+  effectivePower?: number;
+  effectiveToughness?: number;
+  isCommander?: boolean; // Derived based on commandZone assignment
+  grantedAbilities?: string[]; // Strings indicate granted continuous effects (e.g., "Flying")
+  posX?: number; // Free position metadata
+  posY?: number;
+  posZ?: number;
   card: CardRef;
+}
+
+// Player-level counters (visible/read-only scope)
+export interface PublicCounters {
+  life: Record<PlayerID, number>;
+  poisonCounters?: Record<PlayerID, number>;
+  experienceCounters?: Record<PlayerID, number>;
 }
 
 // Stack item
@@ -190,6 +205,9 @@ export type ClientGameView = Omit<GameState, "battlefield" | "stack" | "players"
   zones?: Record<PlayerID, PlayerZones>;
   spectators?: readonly SpectatorRef[];
   commandZone?: Record<PlayerID, CommanderInfo>;
+  // New counter tracking for client display
+  poisonCounters?: Record<PlayerID, number>;
+  experienceCounters?: Record<PlayerID, number>;
 };
 
 // Diff
@@ -199,11 +217,10 @@ export interface StateDiff<T> {
   seq: number;
 }
 
-// Target reference
-export type TargetRef =
-  | { kind: 'player'; id: PlayerID }
-  | { kind: 'permanent'; id: string }
-  | { kind: 'stack'; id: string };
+// Event union
+export type GameEvent =
+  | { type: "updatePermanentPos"; permanentId: string; x: number; y: number; z?: number }
+  // Retain other game events here if applicable
 
 // Actions and automation (placeholders for future)
 export type GameActionType = string;

@@ -1,0 +1,3 @@
+export function ensureGame(gameId) {
+  // Ensure game logic...
+}

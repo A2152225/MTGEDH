@@ -1,7 +1,6 @@
 /* Commander selection & deck import improvements:
    - setCommander removes one instance of each chosen commander ID from library
    - Deferred opening hand draw for Commander until commanders chosen
-   - Snapshot commander cards before removal to preserve images
 */
 import { GameFormat, GamePhase, GameStep } from '../../../shared/src';
 import type {
@@ -52,7 +51,8 @@ export type GameEvent =
       reveal?: boolean;
     }
   | { type: 'handIntoLibrary'; playerId: PlayerID }
-  | { type: 'setCommander'; playerId: PlayerID; commanderNames: string[]; commanderIds: string[] }
+  // allow optional colorIdentity from socket for commander-related mana options
+  | { type: 'setCommander'; playerId: PlayerID; commanderNames: string[]; commanderIds: string[]; colorIdentity?: ('W'|'U'|'B'|'R'|'G')[] }
   | { type: 'castCommander'; playerId: PlayerID; commanderId: string }
   | { type: 'moveCommanderToCZ'; playerId: PlayerID; commanderId: string }
   | { type: 'updateCounters'; permanentId: string; deltas: Record<string, number> }
@@ -140,7 +140,7 @@ export interface InMemoryGame {
   viewFor: (viewer: PlayerID, spectator: boolean) => ClientGameView;
   seedRng: (seed: number) => void;
   hasRngSeed: () => boolean;
-  setCommander: (playerId: PlayerID, commanderNames: string[], commanderIds: string[]) => void;
+  setCommander: (playerId: PlayerID, commanderNames: string[], commanderIds: string[], colorIdentity?: ('W'|'U'|'B'|'R'|'G')[]) => void;
   castCommander: (playerId: PlayerID, commanderId: string) => void;
   moveCommanderToCZ: (playerId: PlayerID, commanderId: string) => void;
   updateCounters: (permanentId: string, deltas: Record<string, number>) => void;
@@ -187,6 +187,9 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
   const commandZone: Record<PlayerID, CommanderInfo> = {} as Record<PlayerID, CommanderInfo>;
   const zones: Record<PlayerID, PlayerZones> = {};
   const life: Record<PlayerID, number> = {};
+  // New: track poison and experience (public)
+  const poison: Record<PlayerID, number> = {};
+  const experience: Record<PlayerID, number> = {};
 
   const state: GameState = {
     id: gameId,
@@ -238,6 +241,8 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     const ref: PlayerRef = { id, name, seat };
     (state.players as any as PlayerRef[]).push(ref);
     life[id] = state.startingLife;
+    poison[id] = 0;
+    experience[id] = 0;
     zones[id] = zones[id] ?? { hand: [], handCount: 0, libraryCount: libraries.get(id)?.length ?? 0, graveyard: [], graveyardCount: 0 };
     commandZone[id] = commandZone[id] ?? { commanderIds: [], tax: 0, taxById: {} };
     state.landsPlayedThisTurn![id] = state.landsPlayedThisTurn![id] ?? 0;
@@ -283,6 +288,8 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
         zones[playerId] = zones[playerId] ?? { hand: [], handCount: 0, libraryCount: libraries.get(playerId)?.length ?? 0, graveyard: [], graveyardCount: 0 };
         commandZone[playerId] = commandZone[playerId] ?? { commanderIds: [], tax: 0, taxById: {} };
         state.landsPlayedThisTurn![playerId] = state.landsPlayedThisTurn![playerId] ?? 0;
+        if (!(playerId in poison)) poison[playerId] = 0;
+        if (!(playerId in experience)) experience[playerId] = 0;
       }
       if (!playerId) {
         playerId = uid('p') as PlayerID;
@@ -308,6 +315,8 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     if (idx >= 0) {
       (state.players as any as PlayerRef[]).splice(idx, 1);
       delete life[playerId];
+      delete poison[playerId];
+      delete experience[playerId];
       delete (commandZone as Record<string, unknown>)[playerId];
       delete zones[playerId];
       libraries.delete(playerId);
@@ -361,7 +370,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
   function passPriority(playerId: PlayerID): { changed: boolean; resolvedNow: boolean } {
     if (state.priority !== playerId) return { changed: false, resolvedNow: false };
     const active = activePlayersClockwise();
-    const n = active.length;
+    theconst n = active.length;
     if (n === 0) return { changed: false, resolvedNow: false };
     state.priority = advancePriorityClockwise(playerId);
     seq++;
@@ -440,7 +449,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
         movedNames.push(card.name);
         if (moveTo === 'hand') { z.hand.push({ ...card, zone: 'hand' }); z.handCount = z.hand.length; }
         else if (moveTo === 'graveyard') { z.graveyard.push({ ...card, zone: 'graveyard', faceDown: false }); z.graveyardCount = z.graveyard.length; }
-        else if (moveTo === 'exile') { z.exile = z.exile || []; z.exile.push({ ...card, zone: 'exile' }); }
+        else if (moveTo === 'exile') { (z as any).exile = (z as any).exile || []; (z as any).exile.push({ ...card, zone: 'exile' }); }
       }
     }
     z.libraryCount = lib.length;
@@ -512,12 +521,11 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     return matches.slice(0, limit).map(c => ({ id: c.id, name: c.name }));
   }
 
-  function setCommander(playerId: PlayerID, commanderNames: string[], commanderIds: string[]) {
+  function setCommander(playerId: PlayerID, commanderNames: string[], commanderIds: string[], colorIdentity?: ('W'|'U'|'B'|'R'|'G')[]) {
     const info = commandZone[playerId] ?? { commanderIds: [], tax: 0, taxById: {} };
-    const prevCards = (info as any).commanderCards as any[] | undefined;
-
     info.commanderIds = commanderIds.slice();
     info.commanderNames = commanderNames.slice();
+    (info as any).colorIdentity = Array.isArray(colorIdentity) ? Array.from(new Set(colorIdentity)) : (info as any).colorIdentity;
     const prev = info.taxById ?? {};
     const next: Record<string, number> = {};
     for (const id of commanderIds) next[id] = (prev as any)[id] ?? 0;
@@ -525,28 +533,16 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     info.tax = Object.values(info.taxById).reduce((a, b) => a + b, 0);
     commandZone[playerId] = info;
 
-    // Snapshot BEFORE removal; fallback to prior cache or battlefield if not found in library
-    const lib = libraries.get(playerId);
-    const commanderSnapshots: Array<Pick<KnownCardRef,'id'|'name'|'type_line'|'oracle_text'|'image_uris'>> = [];
-    for (const cid of commanderIds) {
-      const inLib = lib?.find(c => c.id === cid);
-      const fallbackPrev = prevCards?.find(pc => pc?.id === cid) || prevCards?.find(pc => (pc?.name || '').toLowerCase() === (info.commanderNames || [])[commanderIds.indexOf(cid)]?.toLowerCase());
-      const onBF = state.battlefield.find(b => (b.card as any)?.id === cid)?.card as any;
-      const src = inLib || fallbackPrev || onBF;
-      if (src) {
-        commanderSnapshots.push({
-          id: src.id, name: src.name, type_line: src.type_line,
-          oracle_text: (src as any).oracle_text, image_uris: (src as any).image_uris
-        });
-      }
-    }
-
     // Remove commanders from library (one copy each if present)
+    const lib = libraries.get(playerId);
     if (lib && lib.length) {
       let changed = false;
       for (const cid of commanderIds) {
         const idx = lib.findIndex(c => c.id === cid);
-        if (idx >= 0) { lib.splice(idx, 1); changed = true; }
+        if (idx >= 0) {
+          lib.splice(idx, 1);
+          changed = true;
+        }
       }
       if (changed) {
         zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
@@ -561,8 +557,19 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
       pendingInitialDraw.delete(playerId);
     }
 
-    // Cache commander snapshots (do not lose images on re-confirm)
-    (commandZone[playerId] as any).commanderCards = commanderSnapshots;
+    // Cache commander snapshots (keep for hover preview only; UI will not display image)
+    (commandZone[playerId] as any).commanderCards = (info.commanderIds || []).map(cid => {
+      // capture from library OR battlefield OR existing cache by id/name
+      const prevCards = (info as any).commanderCards as any[] | undefined;
+      const fromPrev = prevCards?.find(pc => pc?.id === cid);
+      const fromLib = (libraries.get(playerId) || []).find(c => c.id === cid);
+      const fromBF = state.battlefield.find(b => (b.card as any)?.id === cid)?.card as any;
+      const src = fromPrev || fromLib || fromBF;
+      return src ? {
+        id: src.id, name: src.name, type_line: src.type_line,
+        oracle_text: (src as any).oracle_text, image_uris: (src as any).image_uris
+      } : null;
+    }).filter(Boolean);
 
     seq++;
   }
@@ -624,10 +631,10 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     if (idx < 0) return;
     const perm = state.battlefield.splice(idx,1)[0];
     const owner = perm.owner;
-    const z = state.zones![owner] || (state.zones![owner] = { hand:[], handCount:0, libraryCount:0, graveyard:[], graveyardCount:0, exile:[] });
+    const z = state.zones![owner] || (state.zones![owner] = { hand:[], handCount:0, libraryCount:0, graveyard:[], graveyardCount:0, exile:[] } as any);
     const card = perm.card as any;
     const kc = { id: card.id, name: card.name, type_line: card.type_line, oracle_text: card.oracle_text, image_uris: card.image_uris, mana_cost: card.mana_cost, power: card.power, toughness: card.toughness, zone:'exile' as const };
-    z.exile = z.exile || []; z.exile.push(kc);
+    (z as any).exile = (z as any).exile || []; (z as any).exile.push(kc);
     seq++;
   }
 
@@ -638,10 +645,36 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
   }
 
   function viewFor(viewer: PlayerID, _spectator: boolean): ClientGameView {
-    const filteredBattlefield = state.battlefield.map(perm => ({
-      ...perm,
-      card: perm.card
-    }));
+    // Enrich battlefield with derived P/T and commander badge (server authoritative).
+    const filteredBattlefield = state.battlefield.map(perm => {
+      const card = perm.card as any;
+      const typeLine = String(card?.type_line || '').toLowerCase();
+      const isCreature = /\bcreature\b/.test(typeLine);
+      let effectivePower: number | undefined;
+      let effectiveToughness: number | undefined;
+      if (isCreature) {
+        const baseP = typeof perm.basePower === 'number' ? perm.basePower : parsePT(card?.power);
+        const baseT = typeof perm.baseToughness === 'number' ? perm.baseToughness : parsePT(card?.toughness);
+        if (typeof baseP === 'number' && typeof baseT === 'number') {
+          const plus = (perm.counters?.['+1/+1'] ?? 0);
+          const minus = (perm.counters?.['-1/-1'] ?? 0);
+          const delta = plus - minus;
+          effectivePower = baseP + delta;
+          effectiveToughness = baseT + delta;
+        }
+      }
+      const cz = state.commandZone[perm.controller];
+      const isCommander = !!cz && Array.isArray(cz.commanderIds) && cz.commanderIds.includes((perm.card as any)?.id);
+      return {
+        ...perm,
+        card: perm.card,
+        ...(typeof effectivePower === 'number' && typeof effectiveToughness === 'number'
+          ? { effectivePower, effectiveToughness }
+          : {}),
+        ...(isCommander ? { isCommander: true } : {})
+      };
+    });
+
     const filteredZones: Record<PlayerID, PlayerZones> = {};
     const viewCommandZone: Record<PlayerID, CommanderInfo> = {};
     for (const p of (state.players as any as PlayerRef[])) {
@@ -673,19 +706,21 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
         handCount: visibleHandCount,
         libraryCount: libCount,
         graveyard: z.graveyard,
-        graveyardCount: z.graveyardCount ?? (z.graveyard as any[])?.length ?? 0,
-        exile: z.exile,
+        graveyardCount: (z as any).graveyardCount ?? (z.graveyard as any[])?.length ?? 0,
+        exile: (z as any).exile,
         libraryTop
       };
-      const baseInfo = commandZone[p.id];
+      const baseInfo = state.commandZone[p.id];
       if (baseInfo) {
         viewCommandZone[p.id] = {
           commanderIds: baseInfo.commanderIds,
           commanderNames: baseInfo.commanderNames,
           tax: baseInfo.tax,
           taxById: baseInfo.taxById,
-          commanderCards: (baseInfo as any).commanderCards
-        };
+          commanderCards: (baseInfo as any).commanderCards,
+          // Provide color identity for clients/tools
+          colorIdentity: (baseInfo as any).colorIdentity
+        } as any;
       }
     }
     const projectedPlayers: PlayerRef[] = (state.players as any as PlayerRef[]).map(p => ({
@@ -698,7 +733,10 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
       players: projectedPlayers,
       zones: filteredZones,
       spectators: [],
-      commandZone: viewCommandZone
+      commandZone: viewCommandZone,
+      // expose counters (not part of shared contract yet)
+      poisonCounters: poison,
+      experienceCounters: experience
     } as any;
   }
 
@@ -708,23 +746,27 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     state.phase = GamePhase.BEGINNING;
     state.step = undefined;
     inactive.clear();
-    for (const k of Object.keys(commandZone)) delete (commandZone as any)[k];
+    for (const k of Object.keys(state.commandZone)) delete (state.commandZone as any)[k];
     if (preservePlayers) {
       for (const p of (state.players as any as PlayerRef[])) {
         life[p.id] = state.startingLife;
+        // reset poison/experience
+        poison[p.id] = 0;
+        experience[p.id] = 0;
         zones[p.id] = { hand: [], handCount: 0, libraryCount: libraries.get(p.id)?.length ?? 0, graveyard: [], graveyardCount: 0 };
       }
-      for (const pid of Object.keys(zones)) if (!(state.players as any as PlayerRef[]).find(p => p.id === pid)) delete zones[pid as PlayerID];
-      for (const pid of Object.keys(life)) if (!(state.players as any as PlayerRef[]).find(p => p.id === pid)) delete life[pid as PlayerID];
+      for (const pid of Object.keys(zones)) if (!(state.players as any as PlayerRef[]).find(p => p.id === pid)) delete (zones as any)[pid as PlayerID];
+      for (const pid of Object.keys(life)) if (!(state.players as any as PlayerRef[]).find(p => p.id === pid)) delete (life as any)[pid as PlayerID];
       state.turnPlayer = (state.players as any as PlayerRef[])[0]?.id ?? '' as PlayerID;
       state.priority = state.turnPlayer;
     } else {
       (state.players as any as PlayerRef[]).splice(0, (state.players as any as PlayerRef[]).length);
       for (const k of Object.keys(life)) delete (life as any)[k];
       for (const k of Object.keys(zones)) delete (zones as any)[k];
+      for (const k of Object.keys(poison)) delete (poison as any)[k];
+      for (const k of Object.keys(experience)) delete (experience as any)[k];
       libraries.clear();
-      tokenToPlayer.clear();
-      playerToToken.clear();
+      // seat tokens cleared by parent
       state.turnPlayer = '' as PlayerID;
       state.priority = '' as PlayerID;
     }
@@ -739,7 +781,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     seq++;
   }
   function unskip(playerId: PlayerID) {
-    	if (!(state.players as any as PlayerRef[]).find(p => p.id === playerId)) return;
+    if (!(state.players as any as PlayerRef[]).find(p => p.id === playerId)) return;
     inactive.delete(playerId);
     seq++;
   }
@@ -807,8 +849,9 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
         applyTargetEffects(effects);
       }
       const ctrl = item.controller;
-      const z = state.zones?.[ctrl] || (state.zones![ctrl] = { hand:[], handCount:0, libraryCount:0, graveyard:[], graveyardCount:0 });
-      z.graveyard.push({
+      const z = state.zones?.[ctrl] || (state.zones![ctrl] = { hand:[], handCount:0, libraryCount:0, graveyard:[], graveyardCount:0 } as any);
+      (z as any).graveyard = (z as any).graveyard || [];
+      (z as any).graveyard.push({
         id:(item.card as any).id,
         name:(item.card as any).name,
         type_line:(item.card as any).type_line,
@@ -819,7 +862,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
         toughness:(item.card as any).toughness,
         zone:'graveyard'
       });
-      z.graveyardCount = z.graveyard.length;
+      (z as any).graveyardCount = ((z as any).graveyard || []).length;
     } else {
       const pRaw = item.card as any;
       const typeLine = (pRaw.type_line || '').toLowerCase();
@@ -879,8 +922,9 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
           if (idx >= 0) {
             const item = state.stack.splice(idx,1)[0];
             const ctrl = item.controller;
-            const z = state.zones?.[ctrl] || (state.zones![ctrl] = { hand:[], handCount:0, libraryCount:0, graveyard:[], graveyardCount:0 });
-            z.graveyard.push({
+            const z = state.zones?.[ctrl] || (state.zones![ctrl] = { hand:[], handCount:0, libraryCount:0, graveyard:[], graveyardCount:0 } as any);
+            (z as any).graveyard = (z as any).graveyard || [];
+            (z as any).graveyard.push({
               id:(item.card as any).id,
               name:(item.card as any).name,
               type_line:(item.card as any).type_line,
@@ -891,7 +935,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
               toughness:(item.card as any).toughness,
               zone:'graveyard'
             });
-            z.graveyardCount = z.graveyard.length;
+            (z as any).graveyardCount = ((z as any).graveyard || []).length;
             changed = true;
           }
           break;
@@ -1001,49 +1045,49 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
     switch (e.type) {
       case 'rngSeed': seedRng(e.seed); break;
       case 'setTurnDirection': setTurnDirection(e.direction); break;
-      case 'join': addPlayerIfMissing(e.playerId, e.name, e.seat); break;
+      case 'join': addPlayerIfMissing(e.playerId, e.name, (e as any).seat); break;
       case 'leave': leave(e.playerId); break;
-      case 'restart': reset(Boolean(e.preservePlayers)); break;
+      case 'restart': reset(Boolean((e as any).preservePlayers)); break;
       case 'removePlayer': leave(e.playerId); break;
       case 'skipPlayer': skip(e.playerId); break;
       case 'unskipPlayer': unskip(e.playerId); break;
-      case 'spectatorGrant': { const set = grants.get(e.owner) ?? new Set<PlayerID>(); set.add(e.spectator); grants.set(e.owner,set); seq++; break; }
-      case 'spectatorRevoke': { const set = grants.get(e.owner) ?? new Set<PlayerID>(); set.delete(e.spectator); grants.set(e.owner,set); seq++; break; }
-      case 'deckImportResolved': importDeckResolved(e.playerId, e.cards); break;
+      case 'spectatorGrant': { const set = grants.get((e as any).owner) ?? new Set<PlayerID>(); set.add((e as any).spectator); grants.set((e as any).owner,set); seq++; break; }
+      case 'spectatorRevoke': { const set = grants.get((e as any).owner) ?? new Set<PlayerID>(); set.delete((e as any).spectator); grants.set((e as any).owner,set); seq++; break; }
+      case 'deckImportResolved': importDeckResolved(e.playerId, (e as any).cards); break;
       case 'shuffleLibrary': shuffleLibrary(e.playerId); break;
-      case 'drawCards': drawCards(e.playerId, e.count); break;
-      case 'selectFromLibrary': selectFromLibrary(e.playerId, e.cardIds, e.moveTo); break;
+      case 'drawCards': drawCards(e.playerId, (e as any).count); break;
+      case 'selectFromLibrary': selectFromLibrary(e.playerId, (e as any).cardIds, (e as any).moveTo); break;
       case 'handIntoLibrary': moveHandToLibrary(e.playerId); break;
-      case 'setCommander': setCommander(e.playerId, e.commanderNames, e.commanderIds); break;
-      case 'castCommander': castCommander(e.playerId, e.commanderId); break;
-      case 'moveCommanderToCZ': moveCommanderToCZ(e.playerId, e.commanderId); break;
-      case 'updateCounters': updateCounters(e.permanentId, e.deltas); break;
-      case 'updateCountersBulk': applyUpdateCountersBulk(e.updates); break;
-      case 'createToken': createToken(e.controller, e.name, e.count, e.basePower, e.baseToughness); break;
-      case 'removePermanent': removePermanent(e.permanentId); break;
+      case 'setCommander': setCommander(e.playerId, e.commanderNames, e.commanderIds, (e as any).colorIdentity); break;
+      case 'castCommander': castCommander(e.playerId, (e as any).commanderId); break;
+      case 'moveCommanderToCZ': moveCommanderToCZ(e.playerId, (e as any).commanderId); break;
+      case 'updateCounters': updateCounters((e as any).permanentId, (e as any).deltas); break;
+      case 'updateCountersBulk': applyUpdateCountersBulk((e as any).updates); break;
+      case 'createToken': createToken((e as any).controller, (e as any).name, (e as any).count, (e as any).basePower, (e as any).baseToughness); break;
+      case 'removePermanent': removePermanent((e as any).permanentId); break;
       case 'dealDamage': {
         const effects = evaluateAction(state, {
           type:'DEAL_DAMAGE',
-          targetPermanentId: e.targetPermanentId,
-          amount: e.amount,
-          wither: e.wither,
-          infect: e.infect
+          targetPermanentId: (e as any).targetPermanentId,
+          amount: (e as any).amount,
+          wither: (e as any).wither,
+          infect: (e as any).infect
         });
         applyEngineEffects(effects); runSBA(); break;
       }
       case 'resolveSpell': {
-        const effects = resolveSpell(e.spec, e.chosen, state);
+        const effects = resolveSpell((e as any).spec, (e as any).chosen, state);
         applyTargetEffects(effects); break;
       }
-      case 'pushStack': pushStack(e.item); break;
+      case 'pushStack': pushStack((e as any).item); break;
       case 'resolveTopOfStack': resolveTopOfStack(); break;
-      case 'playLand': playLand(e.playerId, e.card); break;
+      case 'playLand': playLand(e.playerId, (e as any).card); break;
       case 'nextTurn': nextTurn(); break;
       case 'nextStep': nextStep(); break;
-      case 'reorderHand': reorderHand(e.playerId, e.order); break;
+      case 'reorderHand': reorderHand(e.playerId, (e as any).order); break;
       case 'shuffleHand': shuffleHand(e.playerId); break;
-      case 'scryResolve': applyScry(e.playerId, e.keepTopOrder, e.bottomOrder); break;
-      case 'surveilResolve': applySurveil(e.playerId, e.toGraveyard, e.keepTopOrder); break;
+      case 'scryResolve': applyScry(e.playerId, (e as any).keepTopOrder, (e as any).bottomOrder); break;
+      case 'surveilResolve': applySurveil(e.playerId, (e as any).toGraveyard, (e as any).keepTopOrder); break;
       case 'passPriority': break;
     }
   }
@@ -1117,7 +1161,7 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
       const id = keepTopOrder[i];
       const c = byId.get(id); if (c) lib.unshift({ ...c, zone:'library' });
     }
-    zones[playerId] = zones[playerId] || { hand:[], handCount:0, libraryCount:0, graveyard:[], graveyardCount:0 };
+    zones[playerId] = zones[playerId] || { hand:[], handCount:0, libraryCount:0, graveyard:[], graveyardCount:0 } as any;
     zones[playerId]!.libraryCount = lib.length;
     libraries.set(playerId, lib);
     seq++;
@@ -1134,16 +1178,17 @@ export function createInitialGameState(gameId: GameID): InMemoryGame {
         byId.set(id,c);
       }
     }
-    const z = zones[playerId] || (zones[playerId] = { hand:[], handCount:0, libraryCount:0, graveyard:[], graveyardCount:0 });
+    const z = zones[playerId] || (zones[playerId] = { hand:[], handCount:0, libraryCount:0, graveyard:[], graveyardCount:0 } as any);
+    (z as any).graveyard = (z as any).graveyard || [];
     for (const id of toGraveyard) {
-      const c = byId.get(id); if (c) z.graveyard.push({ ...c, zone:'graveyard', faceDown:false });
+      const c = byId.get(id); if (c) (z as any).graveyard.push({ ...c, zone:'graveyard', faceDown:false });
     }
-    z.graveyardCount = z.graveyard.length;
+    (z as any).graveyardCount = ((z as any).graveyard || []).length;
     for (let i = keepTopOrder.length -1; i>=0; i--) {
       const id = keepTopOrder[i];
       const c = byId.get(id); if (c) lib.unshift({ ...c, zone:'library' });
     }
-    z.libraryCount = lib.length;
+    (z as any).libraryCount = lib.length;
     libraries.set(playerId, lib);
     seq++;
   }

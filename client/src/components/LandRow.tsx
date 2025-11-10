@@ -112,6 +112,22 @@ export function LandRow(props: {
               <div title={it.name} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.name}</div>
             </div>
 
+            {/* Tapped badge */}
+            {it.tapped && (
+              <div style={{
+                position: 'absolute',
+                top: 6,
+                left: 6,
+                background: 'rgba(0,0,0,0.6)',
+                color: '#fff',
+                fontSize: 10,
+                padding: '2px 6px',
+                borderRadius: 4
+              }}>
+                Tapped
+              </div>
+            )}
+
             {/* Controls only when hovered */}
             {isHovered && (onCounter || onRemove) && (
               <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4 }}>

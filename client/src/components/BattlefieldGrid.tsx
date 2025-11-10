@@ -179,7 +179,11 @@ export function BattlefieldGrid(props: {
                 }}
               />
             ) : (
-              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, padding: 8, color: '#eee' }}>
+              <div style={{
+                position: 'absolute', inset: 0,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: '#eee', fontSize: 12, padding: 8
+              }}>
                 {name}
               </div>
             )}
@@ -230,15 +234,27 @@ export function BattlefieldGrid(props: {
                 position: 'absolute',
                 right: 6,
                 bottom: 26,
-                padding: '2px 6px',
-                fontSize: 12,
-                fontWeight: 700,
-                color: '#fff',
-                background: colors.bg,
-                border: `1px solid ${colors.border}`,
-                borderRadius: 6
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'flex-end',
+                gap: 2
               }}>
-                {dispP}/{dispT}
+                <div style={{
+                  padding: '2px 6px',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: '#fff',
+                  background: colors.bg,
+                  border: `1px solid ${colors.border}`,
+                  borderRadius: 6
+                }}>
+                  {dispP}/{dispT}
+                </div>
+                {(typeof baseP === 'number' && typeof baseT === 'number') && (
+                  <div style={{ fontSize: 10, color: '#ddd', opacity: 0.9 }}>
+                    base {baseP}/{baseT}
+                  </div>
+                )}
               </div>
             )}
 
