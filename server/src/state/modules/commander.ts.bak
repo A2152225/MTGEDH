@@ -1,4 +1,4 @@
-import type { PlayerID, KnownCardRef } from "../../../../shared/src";
+import type { PlayerID, KnownCardRef } from "../types";
 import type { GameContext } from "../context";
 
 export function setCommander(

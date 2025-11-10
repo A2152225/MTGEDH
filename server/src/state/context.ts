@@ -1,4 +1,4 @@
-import { GameFormat, GamePhase } from "./types";
+import { GameFormat, GamePhase } from "../../../shared/src";
 import type {
   GameID,
   PlayerID,
@@ -6,10 +6,15 @@ import type {
   GameState,
   CommanderInfo,
   PlayerZones,
-  KnownCardRef
-} from "./types";
+  KnownCardRef,
+} from "../../../shared/src";
 import { mulberry32, hashStringToSeed } from "../utils/rng";
+import { uid } from "../utils";
 
+/**
+ * GameContext holds the mutable in-memory state pieces and some helpers.
+ * This mirrors the original monolithic context shape used by state modules.
+ */
 export interface GameContext {
   readonly gameId: GameID;
   readonly state: GameState;
@@ -41,31 +46,7 @@ export function createContext(gameId: GameID): GameContext {
   const life: Record<PlayerID, number> = {};
   const poison: Record<PlayerID, number> = {};
   const experience: Record<PlayerID, number> = {};
-
-  const state: GameState = {
-    id: gameId,
-    format: GameFormat.COMMANDER,
-    players: players as any,
-    startingLife: 40,
-    life,
-    turnPlayer: "" as PlayerID,
-    priority: "" as PlayerID,
-    turnDirection: 1,
-    stack: [],
-    battlefield: [],
-    commandZone,
-    phase: GamePhase.BEGINNING,
-    step: undefined,
-    active: true,
-    zones,
-    status: undefined,
-    turnOrder: [],
-    startedAt: undefined,
-    turn: 1,
-    activePlayerIndex: undefined,
-    landsPlayedThisTurn: {}
-  };
-
+  const libraries = new Map<PlayerID, KnownCardRef[]>();
   const joinedBySocket = new Map<string, { socketId: string; playerId: PlayerID; spectator: boolean }>();
   const participantsList: Array<{ socketId: string; playerId: PlayerID; spectator: boolean }> = [];
   const tokenToPlayer = new Map<string, PlayerID>();
@@ -73,19 +54,43 @@ export function createContext(gameId: GameID): GameContext {
   const grants = new Map<PlayerID, Set<PlayerID>>();
   const inactive = new Set<PlayerID>();
   const spectatorNames = new Map<PlayerID, string>();
-  const libraries = new Map<PlayerID, KnownCardRef[]>();
   const pendingInitialDraw = new Set<PlayerID>();
 
+  // RNG seeded deterministically per-game id by default
   let rngSeed: number | null = null;
   let rng = mulberry32(hashStringToSeed(gameId));
   const seq = { value: 0 };
   const passesInRow = { value: 0 };
 
-  const bumpSeq = () => { seq.value++; };
+  function bumpSeq() {
+    seq.value++;
+  }
 
   return {
     gameId,
-    state,
+    state: {
+      id: gameId,
+      format: (GameFormat as any) || "commander",
+      players: [],
+      startingLife: 40,
+      life: {},
+      turnPlayer: "" as any,
+      priority: "" as any,
+      turnDirection: 1,
+      stack: [],
+      battlefield: [],
+      commandZone: {},
+      phase: GamePhase.BEGINNING,
+      step: undefined,
+      active: false,
+      zones: {},
+      status: undefined,
+      turnOrder: [],
+      startedAt: undefined,
+      turn: undefined,
+      activePlayerIndex: undefined,
+      landsPlayedThisTurn: {},
+    } as GameState,
     life,
     poison,
     experience,
@@ -104,6 +109,6 @@ export function createContext(gameId: GameID): GameContext {
     rng,
     seq,
     passesInRow,
-    bumpSeq
+    bumpSeq,
   };
 }

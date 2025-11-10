@@ -1,4 +1,4 @@
-import type { PlayerID, PlayerRef } from "../../../../shared/src";
+import type { PlayerID, PlayerRef } from "../types";
 import type { GameContext } from "../context";
 
 function activePlayersClockwise(ctx: GameContext): PlayerRef[] {

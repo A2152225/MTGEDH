@@ -1,4 +1,4 @@
-import type { PlayerID, PlayerRef, PlayerZones, CommanderInfo, KnownCardRef, ClientGameView } from "../../../../shared/src";
+import type { PlayerID, PlayerRef, PlayerZones, CommanderInfo, KnownCardRef, ClientGameView } from "../types";
 import type { GameContext } from "../context";
 import { parsePT } from "../utils";
 
