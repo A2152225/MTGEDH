@@ -70,7 +70,8 @@ export function createContext(gameId: GameID): GameContext {
     gameId,
     state: {
       id: gameId,
-      format: (GameFormat as any) || "commander",
+      // DEFAULT TO A SPECIFIC ENUM VALUE (not the whole enum object)
+      format: GameFormat.COMMANDER,
       players: [],
       startingLife: 40,
       life: {},

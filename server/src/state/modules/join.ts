@@ -1,4 +1,4 @@
-import type { PlayerID, PlayerRef } from "../../../../shared/src";
+import type { PlayerID, PlayerRef } from "../types";
 import type { GameContext } from "../context";
 import { uid } from "../utils";
 
@@ -9,7 +9,13 @@ export function addPlayerIfMissing(ctx: GameContext, id: PlayerID, name: string,
   const seat = (typeof desiredSeat === "number" ? desiredSeat : (state.players as any as PlayerRef[]).length) as PlayerRef["seat"];
   const ref: PlayerRef = { id, name, seat };
   (state.players as any as PlayerRef[]).push(ref);
-  life[id] = state.startingLife;
+
+  // Initialize life in both ctx.life (runtime) and state.life (persisted snapshot)
+  const starting = state.startingLife ?? 40;
+  life[id] = starting;
+  (state as any).life = (state as any).life || {};
+  (state as any).life[id] = starting;
+
   poison[id] = 0;
   experience[id] = 0;
   zones[id] = zones[id] ?? { hand: [], handCount: 0, libraryCount: libraries.get(id)?.length ?? 0, graveyard: [], graveyardCount: 0 };
@@ -66,6 +72,10 @@ export function join(
       state.landsPlayedThisTurn![playerId] = state.landsPlayedThisTurn![playerId] ?? 0;
       if (!(playerId in poison)) poison[playerId] = 0;
       if (!(playerId in experience)) experience[playerId] = 0;
+      // Ensure life snapshot exists too
+      (state as any).life = (state as any).life || {};
+      if (!(playerId in (state as any).life)) (state as any).life[playerId] = state.startingLife ?? 40;
+      if (!(playerId in ctx.life)) ctx.life[playerId] = state.startingLife ?? 40;
     }
     if (!playerId) {
       playerId = uid("p") as PlayerID;

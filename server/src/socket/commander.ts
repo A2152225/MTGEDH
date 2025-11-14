@@ -19,7 +19,10 @@ import type { PlayerID } from "../../shared/src";
  *    - dumpImportedDeckBuffer -> emits 'debugImportedDeckBuffer'
  *    - dumpCommanderState -> emits 'debugCommanderState'
  *
- * This file logs key steps to the server console to aid debugging.
+ * Defensive library-cleanup logic:
+ * - Snapshot library before calling authoritative setCommander.
+ * - After setCommander, compare snapshot -> if commander IDs still present, remove only the remaining occurrences.
+ *   This avoids double-removal if the authoritative state already removed commander(s).
  */
 
 function normalizeNamesArray(payload: any): string[] {
@@ -29,6 +32,26 @@ function normalizeNamesArray(payload: any): string[] {
   if (typeof payload.commanderNames === "string") return [payload.commanderNames];
   if (typeof payload.names === "string") return [payload.names];
   if (typeof payload.name === "string") return [payload.name];
+  return [];
+}
+
+function snapshotLibraryIds(game: any, pid: PlayerID): string[] {
+  try {
+    const z = game.state?.zones && (game.state.zones as any)[pid];
+    if (z && Array.isArray(z.library)) {
+      return z.library.map((c: any) => String(c?.id || c?.cardId || c?.name || "").trim().toLowerCase()).filter(Boolean);
+    }
+    // older shape: game.libraries may be a Map or object
+    try {
+      const libs = (game as any).libraries;
+      if (libs) {
+        const arr = libs.get ? libs.get(pid) : libs[pid];
+        if (Array.isArray(arr)) {
+          return arr.map((c: any) => String(c?.id || c?.cardId || c?.name || "").trim().toLowerCase()).filter(Boolean);
+        }
+      }
+    } catch (e) { /* ignore */ }
+  } catch (e) { /* ignore */ }
   return [];
 }
 
@@ -55,10 +78,12 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       // Normalize incoming name/id payload
       const names = normalizeNamesArray(payload);
       let ids: string[] = Array.isArray(payload.commanderIds) ? payload.commanderIds.slice() :
-                         Array.isArray(payload.commanderIds) ? payload.commanderIds.slice() :
                          Array.isArray(payload.ids) ? payload.ids.slice() : [];
 
-      // 1) Try to resolve ids from the per-game import buffer we populate during deck import
+      // snapshot library ids before authoritative change (for defensive cleanup later)
+      const libBefore = snapshotLibraryIds(game, pid);
+
+      // 1) Try to resolve ids from the per-game import buffer (fast)
       try {
         const buf = (game as any)._lastImportedDecks as Map<PlayerID, any[]> | undefined;
         if (buf && names.length) {
@@ -70,7 +95,6 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
               if (!map.has(key)) map.set(key, c.id);
             }
           }
-          // Fill missing ids preserving order; produce new ids array
           const resolvedIds: string[] = [];
           for (let i = 0; i < names.length; i++) {
             const n = names[i];
@@ -124,10 +148,10 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         }
       } catch (err) {
         console.error("setCommander: game.setCommander/applyEvent error:", err);
-        // proceed — we'll attempt to fix up state and continue
+        // continue to attempt best-effort cleanup / notification
       }
 
-      // Persist setCommander event for DB/history
+      // Persist setCommander event
       try {
         appendEvent(payload.gameId, game.seq, "setCommander", {
           playerId: pid,
@@ -171,13 +195,14 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           // 3) from game.libraries map (older structure)
           try {
             const L = (game as any).libraries;
-            if (L && Array.isArray(L[pid])) {
-              const libFound = L[pid].find((c: any) => c && (c.id === cid || c.cardId === cid));
+            if (L && (typeof L.get === "function" ? Array.isArray(L.get(pid)) : Array.isArray(L[pid]))) {
+              const arr = typeof L.get === "function" ? L.get(pid) : L[pid];
+              const libFound = arr.find((c: any) => c && (c.id === cid || c.cardId === cid));
               if (libFound) return libFound;
             }
           } catch (e) { /* ignore */ }
 
-          // 4) from battlefield (maybe commander on battlefield already)
+          // 4) from battlefield
           try {
             const bfFound = (game.state.battlefield || []).find((b: any) => (b.card && (b.card.id === cid || b.card.cardId === cid)));
             if (bfFound) return bfFound.card;
@@ -205,7 +230,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
             };
             builtCards.push(normalized);
           } else {
-            // If we don't have full object, still include a name-only placeholder if possible
+            // name-only placeholder if needed
             const idx = ids.indexOf(cid);
             const nm = names[idx] || null;
             builtCards.push({ id: cid, name: nm });
@@ -216,19 +241,37 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         console.warn("setCommander: populating commandZone commanderCards failed:", err);
       }
 
-      // 5) Defensive: remove commander card objects from library arrays if still present (we already expect game.setCommander to handle this)
+      // 5) Defensive: remove commander card objects from library arrays if still present (only remove leftovers)
       try {
-        const z = game.state.zones && game.state.zones[pid];
-        let libArr: any[] | undefined;
-        if (z && Array.isArray(z.library)) libArr = z.library;
-        else if ((game as any).libraries && Array.isArray((game as any).libraries[pid])) libArr = (game as any).libraries[pid];
+        const idsToRemove = Array.isArray(ids) ? ids.map((s) => String(s).trim().toLowerCase()).filter(Boolean) : [];
+        if (idsToRemove.length) {
+          const libAfter = snapshotLibraryIds(game, pid);
+          // compute which ids still exist in library after setCommander
+          const remaining = idsToRemove.filter((cid) => libAfter.includes(cid));
+          if (remaining.length) {
+            // perform removal of remaining ids from available library arrays (zones.library or game.libraries)
+            const z = game.state.zones && game.state.zones[pid];
+            let libArr: any[] | undefined;
+            if (z && Array.isArray(z.library)) libArr = z.library;
+            else {
+              try {
+                const L = (game as any).libraries;
+                libArr = L && (typeof L.get === "function" ? L.get(pid) : L[pid]);
+              } catch (e) { libArr = undefined; }
+            }
 
-        if (libArr && libArr.length && Array.isArray(ids) && ids.length) {
-          for (const cid of ids) {
-            const idx = libArr.findIndex((c: any) => c && (c.id === cid || c.cardId === cid || String(c.name || "").trim().toLowerCase() === String(cid).trim().toLowerCase()));
-            if (idx !== -1) libArr.splice(idx, 1);
+            if (libArr && libArr.length) {
+              for (const rcid of remaining) {
+                // remove first occurrence matching id/cardId/name
+                const idx = libArr.findIndex((c: any) => {
+                  const key = String(c?.id || c?.cardId || c?.name || "").trim().toLowerCase();
+                  return key === rcid;
+                });
+                if (idx !== -1) libArr.splice(idx, 1);
+              }
+              if (z) z.libraryCount = libArr.length;
+            }
           }
-          if (z) z.libraryCount = libArr.length;
         }
       } catch (err) {
         console.warn("setCommander: defensive library cleanup failed:", err);
@@ -280,10 +323,12 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
     }
     try {
       const game = ensureGame(gameId);
-      const zoneForPid = (game.state?.zones && game.state.zones[pid]) as any | undefined;
+      const zoneForPid = (game.state?.zones && (game.state.zones as any)[pid]) as any | undefined;
       let libArr: any[] | undefined;
       if (zoneForPid && Array.isArray(zoneForPid.library)) libArr = zoneForPid.library;
-      else if ((game as any).libraries && Array.isArray((game as any).libraries[pid])) libArr = (game as any).libraries[pid];
+      else if ((game as any).libraries && (typeof (game as any).libraries.get === "function" ? Array.isArray((game as any).libraries.get(pid)) : Array.isArray((game as any).libraries[pid]))) {
+        libArr = (game as any).libraries.get ? (game as any).libraries.get(pid) : (game as any).libraries[pid];
+      }
       const librarySnapshot = (libArr || []).map(c => ({ id: c?.id || c?.cardId || null, name: c?.name || null }));
       console.log(`debugLibraryDump game=${gameId} player=${pid} count=${librarySnapshot.length}`);
       socket.emit("debugLibraryDump", { gameId, playerId: pid, library: librarySnapshot });

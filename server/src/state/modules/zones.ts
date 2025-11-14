@@ -3,14 +3,29 @@ import type { GameContext } from "../context";
 import { uid } from "../utils";
 
 /**
- * Deck import resolution and zone helpers.
- * These functions were migrated from the monolith and keep the same semantics.
+ * Deck / library and zone helpers.
+ *
+ * Exports a conservative, complete set of helpers used by the state wrapper:
+ * - importDeckResolved, shuffleLibrary, drawCards, selectFromLibrary, moveHandToLibrary
+ * - searchLibrary
+ * - reconcileZonesConsistency
+ * - reorderHand, shuffleHand, peekTopN, applyScry, applySurveil
+ *
+ * Implementations are defensive and intentionally conservative to avoid
+ * corrupting persistent data when running against partially-refactored ctx shapes.
  */
+
+/* ===== core zone operations ===== */
 
 export function importDeckResolved(
   ctx: GameContext,
   playerId: PlayerID,
-  cards: Array<Pick<KnownCardRef, "id" | "name" | "type_line" | "oracle_text" | "image_uris" | "mana_cost" | "power" | "toughness">>
+  cards: Array<
+    Pick<
+      KnownCardRef,
+      "id" | "name" | "type_line" | "oracle_text" | "image_uris" | "mana_cost" | "power" | "toughness"
+    >
+  >
 ) {
   const { libraries, zones, bumpSeq } = ctx;
   libraries.set(
@@ -28,7 +43,7 @@ export function importDeckResolved(
     }))
   );
   const libLen = libraries.get(playerId)?.length ?? 0;
-  zones[playerId] = zones[playerId] ?? { hand: [], handCount: 0, libraryCount: libLen, graveyard: [], graveyardCount: 0 };
+  zones[playerId] = zones[playerId] ?? { hand: [], handCount: 0, libraryCount: libLen, graveyard: [], graveyardCount: 0 } as any;
   zones[playerId]!.libraryCount = libLen;
   bumpSeq();
 }
@@ -78,8 +93,11 @@ export function selectFromLibrary(ctx: GameContext, playerId: PlayerID, cardIds:
       } else if (moveTo === "graveyard") {
         (z.graveyard as any[]).push(c);
         z.graveyardCount = (z.graveyard as any[]).length;
+      } else if (moveTo === "exile") {
+        (z as any).exile = (z as any).exile || [];
+        (z as any).exile.push(c);
       } else if (moveTo === "battlefield") {
-        // for battlefield movement, conversion handled by stack/stack.resolve or caller
+        // caller or stack module should handle converting this card into a permanent.
       }
     }
   }
@@ -107,7 +125,31 @@ export function moveHandToLibrary(ctx: GameContext, playerId: PlayerID) {
   return z.handCount;
 }
 
-/* helpers (reorder/shuffle/peek/scry/surveil) also defined in replay module for event replay; duplicates kept minimal */
+/* ===== search helper ===== */
+
+/**
+ * Simple search over the in-memory library for a player's cards.
+ * Returns up to `limit` items as { id, name } picks (for private search results).
+ *
+ * Note: server ensures these private search results are only sent to authorized viewers.
+ */
+export function searchLibrary(ctx: GameContext, playerId: PlayerID, query: string, limit: number) {
+  const lib = ctx.libraries.get(playerId) || [];
+  const q = String(query || "").trim().toLowerCase();
+  if (!q) return [] as Array<Pick<KnownCardRef, "id" | "name">>;
+  const out: Array<Pick<KnownCardRef, "id" | "name">> = [];
+  for (const c of lib) {
+    if (!c) continue;
+    const name = String((c as any).name || "").toLowerCase();
+    if (name.includes(q)) {
+      out.push({ id: (c as any).id, name: (c as any).name });
+      if (out.length >= Math.max(1, limit | 0)) break;
+    }
+  }
+  return out;
+}
+
+/* ===== replay helpers (kept available) ===== */
 
 export function reorderHand(ctx: GameContext, playerId: PlayerID, order: number[]) {
   const z = ctx.zones?.[playerId];
@@ -154,6 +196,8 @@ export function peekTopN(ctx: GameContext, playerId: PlayerID, n: number) {
 
 export function applyScry(ctx: GameContext, playerId: PlayerID, keepTopOrder: string[], bottomOrder: string[]) {
   const lib = ctx.libraries.get(playerId) || [];
+  if (!Array.isArray(keepTopOrder)) keepTopOrder = [];
+  if (!Array.isArray(bottomOrder)) bottomOrder = [];
   if (keepTopOrder.length + bottomOrder.length === 0) return;
   const byId = new Map<string, any>();
   for (const id of [...keepTopOrder, ...bottomOrder]) {
@@ -186,6 +230,8 @@ export function applyScry(ctx: GameContext, playerId: PlayerID, keepTopOrder: st
 
 export function applySurveil(ctx: GameContext, playerId: PlayerID, toGraveyard: string[], keepTopOrder: string[]) {
   const lib = ctx.libraries.get(playerId) || [];
+  if (!Array.isArray(toGraveyard)) toGraveyard = [];
+  if (!Array.isArray(keepTopOrder)) keepTopOrder = [];
   if (toGraveyard.length + keepTopOrder.length === 0) return;
   const byId = new Map<string, any>();
   for (const id of [...toGraveyard, ...keepTopOrder]) {
@@ -218,4 +264,56 @@ export function applySurveil(ctx: GameContext, playerId: PlayerID, toGraveyard: 
   (z as any).libraryCount = lib.length;
   ctx.libraries.set(playerId, lib);
   ctx.bumpSeq();
+}
+
+/* ===== consistency helper (exported) ===== */
+
+/**
+ * Ensure zone arrays and counts are consistent with the libraries Map.
+ * - If playerId is provided, reconciles only that player.
+ * - Otherwise reconciles all players in ctx.state.players.
+ *
+ * Conservative: will not invent metadata beyond id/zone placeholders.
+ */
+export function reconcileZonesConsistency(ctx: GameContext, playerId?: PlayerID) {
+  const players: PlayerID[] =
+    typeof playerId !== "undefined"
+      ? [playerId]
+      : ((ctx.state.players as any as PlayerRef[]) || []).map((p) => p.id);
+
+  for (const pid of players) {
+    try {
+      if (!ctx.zones[pid]) {
+        ctx.zones[pid] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 } as any;
+      }
+      const z = ctx.zones[pid] as any;
+
+      if (!ctx.libraries.has(pid)) ctx.libraries.set(pid, []);
+      const lib = ctx.libraries.get(pid) || [];
+
+      // normalize library entries
+      for (let i = 0; i < lib.length; i++) {
+        const entry = lib[i] as any;
+        if (!entry || typeof entry !== "object") {
+          lib[i] = { id: String(entry ?? uid("c")), zone: "library" } as any;
+        } else {
+          if (!("id" in entry)) entry.id = uid("c");
+          if (!("zone" in entry)) entry.zone = "library";
+        }
+      }
+
+      z.hand = z.hand || [];
+      z.graveyard = z.graveyard || [];
+      z.exile = z.exile || [];
+
+      z.handCount = (z.hand as any[]).length;
+      z.graveyardCount = (z.graveyard as any[]).length;
+      z.libraryCount = lib.length;
+
+      ctx.libraries.set(pid, lib);
+      // Do not bump seq automatically for silent repairs to avoid noisy diffs; callers may bump if they need visible change.
+    } catch (err) {
+      console.warn("reconcileZonesConsistency failed for player", pid, err);
+    }
+  }
 }

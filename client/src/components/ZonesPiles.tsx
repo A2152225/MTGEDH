@@ -1,10 +1,6 @@
-import React from 'react';
-import type { CommanderInfo, PlayerZones } from '../../../shared/src';
-import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
-
-function pileHeightPx(count: number) {
-  return Math.min(140, 14 + Math.ceil(count * 1.2));
-}
+import React from "react";
+import type { PlayerZones, CommanderInfo, KnownCardRef } from "../../../shared/src";
+import { showCardPreview, hideCardPreview } from "./CardPreviewLayer";
 
 export function ZonesPiles(props: {
   zones: PlayerZones;
@@ -12,143 +8,157 @@ export function ZonesPiles(props: {
   isCommanderFormat?: boolean;
   showHandCount?: number;
   hideHandDetails?: boolean;
-  // Casting support
   canCastCommander?: boolean;
   onCastCommander?: (commanderIdOrName: string) => void;
 }) {
-  const {
-    zones, commander, isCommanderFormat, showHandCount, hideHandDetails,
-    canCastCommander = false, onCastCommander
-  } = props;
+  const { zones, commander, isCommanderFormat, showHandCount = 0, hideHandDetails, canCastCommander, onCastCommander } = props;
 
-  const libCount = zones.libraryCount ?? 0;
-  const gyArr = ((zones as any).graveyard as any[]) || [];
-  const gyCount = (zones as any).graveyardCount ?? gyArr.length ?? 0;
-  const exArr = ((zones as any).exile as any[]) || [];
-  const exCount = exArr.length ?? 0;
-
-  const gyTop = gyArr.length > 0 ? gyArr[gyArr.length - 1] : null;
-  const exTop = exArr.length > 0 ? exArr[exArr.length - 1] : null;
+  const libArr = Array.isArray((zones as any).library) ? ((zones as any).library as KnownCardRef[]) : [];
+  const grArr = Array.isArray(zones.graveyard) ? (zones.graveyard as KnownCardRef[]) : [];
+  const exArr = Array.isArray((zones as any).exile) ? ((zones as any).exile as KnownCardRef[]) : [];
 
   const cmdNames = (isCommanderFormat ? (commander as any)?.commanderNames : undefined) as string[] | undefined;
-  const cmdCards = (isCommanderFormat ? (commander as any)?.commanderCards : undefined) as any[] | undefined;
+  const cmdCards = (isCommanderFormat ? (commander as any)?.commanderCards : undefined) as KnownCardRef[] | undefined;
   const cmdIds = (isCommanderFormat ? (commander as any)?.commanderIds : undefined) as string[] | undefined;
 
-  const PileStack = (p: { label: string; count: number; color: string; title?: string }) => {
-    const h = pileHeightPx(p.count);
-    const layers = Math.max(1, Math.min(8, Math.ceil(p.count / 12)));
-    return (
-      <div title={p.title || `${p.label}: ${p.count}`} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-        <div style={{ position: 'relative', width: 72, height: h }}>
-          {Array.from({ length: layers }).map((_, i) => (
-            <div key={i} style={{
-              position: 'absolute',
-              left: i * 2, bottom: i * 2,
-              width: 60, height: Math.max(8, h - i * 2),
-              border: '1px solid rgba(0,0,0,0.6)',
-              borderRadius: 6,
-              background: p.color,
-              boxShadow: '0 1px 2px rgba(0,0,0,0.3)'
-            }} />
-          ))}
-        </div>
-        <div style={{ fontSize: 11, color: '#ddd' }}>{p.label}: {p.count}</div>
-      </div>
-    );
-  };
-
-  const ThumbOrPile = (p: { label: string; top: any | null; count: number }) => {
-    const name = p.top?.name || '';
-    const img = p.top?.image_uris?.small || p.top?.image_uris?.normal || null;
+  function renderPile(label: string, count: number, topCard?: KnownCardRef) {
+    const name = topCard?.name || "";
+    const img = topCard?.image_uris?.small || topCard?.image_uris?.normal || null;
     const body = (
-      <div style={{
-        position: 'relative', width: 72, height: 100, borderRadius: 6, overflow: 'hidden',
-        border: '1px solid rgba(255,255,255,0.2)', background: '#0f0f0f',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#aaa', fontSize: 11, padding: 4, textAlign: 'center'
-      }}>
-        {img ? <img src={img} alt={name} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.6 }} /> : null}
-        <span style={{ position: 'relative', zIndex: 1 }}>{name || p.label}</span>
+      <div
+        style={{
+          position: "relative",
+          width: 72,
+          height: 100,
+          borderRadius: 6,
+          overflow: "hidden",
+          border: "1px solid rgba(255,255,255,0.12)",
+          background: "#0f0f0f",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "#ddd",
+          fontSize: 11,
+          padding: 4,
+          textAlign: "center",
+        }}
+      >
+        {img ? (
+          <img
+            src={img}
+            alt={name}
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", opacity: 0.78 }}
+          />
+        ) : null}
+        <span style={{ position: "relative", zIndex: 1 }}>{name || label}</span>
       </div>
     );
+
     return (
       <div
-        title={`${p.label}: ${p.count}${name ? ` • Top: ${name}` : ''}`}
-        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}
-        onMouseEnter={(e) => { if (p.top) showCardPreview(e.currentTarget as HTMLElement, p.top, { prefer: 'above', anchorPadding: 0 }); }}
-        onMouseLeave={(e) => { hideCardPreview(e.currentTarget as HTMLElement); }}
+        key={label}
+        title={topCard ? topCard.name : `${label} (${count})`}
+        style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 92 }}
+        onMouseEnter={(e) => {
+          if (topCard) showCardPreview(e.currentTarget as HTMLElement, topCard, { prefer: "above", anchorPadding: 0 });
+        }}
+        onMouseLeave={(e) => {
+          if (topCard) hideCardPreview(e.currentTarget as HTMLElement);
+        }}
       >
         {body}
-        <div style={{ fontSize: 11, color: '#ddd' }}>{p.label}: {p.count}</div>
+        <div style={{ fontSize: 11, color: "#ddd" }}>
+          {label}: {count}
+        </div>
       </div>
     );
-  };
+  }
 
   const CommandSlots = () => {
     const slotsCount = Math.max(1, Math.min(2, (cmdNames?.length || cmdIds?.length || 0) || 2));
     const slots = Array.from({ length: slotsCount }).map((_, i) => ({
-      name: cmdNames?.[i] || 'Commander',
+      name: cmdNames?.[i] || "Commander",
       card: cmdCards?.[i],
-      id: cmdIds?.[i]
+      id: cmdIds?.[i],
     }));
+
     return (
-      <div title="Command Zone" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-        <div style={{ display: 'flex', gap: 6 }}>
+      <div title="Command Zone" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, minWidth: 92 }}>
+        <div style={{ display: "flex", gap: 8 }}>
           {slots.map((slot, i) => {
-            const name = slot.name || 'Commander';
-            const hasCard = !!slot.card || !!slot.id || !!name;
+            const name = slot.name || "Commander";
             const previewCard = slot.card || cmdCards?.[i];
+            const hasCard = !!previewCard || !!slot.id || !!name;
             const commanderId = slot.id || previewCard?.id || name;
+            const img = previewCard?.image_uris?.small || previewCard?.image_uris?.normal || null;
+
             return (
-              <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                {/* Name-only tile; no image per request, but keep hover preview if we have a card snapshot */}
+              <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
                 <div
                   style={{
-                    width: 76, height: 54, borderRadius: 6,
-                    border: hasCard ? '2px solid rgba(255,255,255,0.5)' : '2px dashed rgba(255,255,255,0.3)',
-                    background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    position: 'relative', color: '#ddd', fontSize: 10, padding: '2px 4px', textAlign: 'center',
-                    cursor: previewCard ? 'pointer' : 'default'
+                    width: 76,
+                    height: 54,
+                    borderRadius: 6,
+                    border: hasCard ? "2px solid rgba(255,255,255,0.45)" : "2px dashed rgba(255,255,255,0.25)",
+                    background: "#000",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    position: "relative",
+                    color: "#ddd",
+                    fontSize: 12,
+                    padding: 4,
+                    textAlign: "center",
+                    cursor: previewCard ? "pointer" : "default",
+                    overflow: "hidden",
                   }}
-                  onMouseEnter={(e) => { if (previewCard) showCardPreview(e.currentTarget as HTMLElement, previewCard, { prefer: 'above', anchorPadding: 0 }); }}
-                  onMouseLeave={(e) => { hideCardPreview(e.currentTarget as HTMLElement); }}
+                  onMouseEnter={(e) => {
+                    if (previewCard) showCardPreview(e.currentTarget as HTMLElement, previewCard, { prefer: "above", anchorPadding: 0 });
+                  }}
+                  onMouseLeave={(e) => {
+                    if (previewCard) hideCardPreview(e.currentTarget as HTMLElement);
+                  }}
                 >
-                  {name}
+                  {img ? (
+                    <img
+                      src={img}
+                      alt={previewCard?.name || name}
+                      style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", opacity: 0.82 }}
+                    />
+                  ) : null}
+                  <span style={{ position: "relative", zIndex: 1, padding: "0 4px", textAlign: "center", fontSize: 11 }}>
+                    {name}
+                  </span>
                 </div>
-                {canCastCommander && hasCard && onCastCommander && (
-                  <button
-                    type="button"
-                    onClick={() => commanderId && onCastCommander(commanderId)}
-                    style={{ fontSize: 10, padding: '2px 6px', borderRadius: 6 }}
-                    title={`Cast ${name}`}
-                  >
-                    Cast
-                  </button>
-                )}
+
+                {canCastCommander && hasCard && onCastCommander ? (
+                  <div style={{ display: "inline-flex", gap: 6 }}>
+                    <button onClick={() => onCastCommander(commanderId)} title={`Cast ${name}`}>
+                      Cast
+                    </button>
+                  </div>
+                ) : null}
               </div>
             );
           })}
         </div>
-        {cmdNames && cmdNames.length > 0 && (
-          <div style={{ maxWidth: 160, color: '#bbb', fontSize: 10, textAlign: 'center' }}>
-            {cmdNames.join(' / ')}
-          </div>
-        )}
       </div>
     );
   };
 
-  const HandPile = () => {
-    if (showHandCount == null) return null;
-    return <PileStack label="Hand" count={showHandCount} color="linear-gradient(180deg,#1f2937,#111827)" />;
-  };
+  // top-of-library to show in pile
+  const libraryTop = libArr.length > 0 ? (libArr[0] as KnownCardRef) : undefined;
+  const graveTop = grArr.length > 0 ? (grArr[grArr.length - 1] as KnownCardRef) : undefined;
+  const exileTop = exArr.length > 0 ? (exArr[exArr.length - 1] as KnownCardRef) : undefined;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
-      {isCommanderFormat && <CommandSlots />}
-      <PileStack label="Library" count={libCount} color="linear-gradient(180deg,#047857,#064e3b)" />
-      <ThumbOrPile label="Graveyard" top={gyTop} count={gyCount} />
-      <ThumbOrPile label="Exile" top={exTop} count={exCount} />
-      {hideHandDetails && <HandPile />}
+    <div style={{ display: "flex", flexDirection: "row", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+      {renderPile("Library", zones.libraryCount ?? libArr.length ?? 0, libraryTop)}
+      {renderPile("Graveyard", zones.graveyardCount ?? grArr.length ?? 0, graveTop)}
+      {renderPile("Exile", (zones as any).exile?.length ?? exArr.length ?? 0, exileTop)}
+      {isCommanderFormat && commander ? <CommandSlots /> : null}
     </div>
   );
 }
+
+export default ZonesPiles;

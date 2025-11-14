@@ -4,7 +4,15 @@ import type { PlayerID, KnownCardRef } from "./types";
 
 import { join, leave, disconnect, participants } from "./modules/join";
 import { passPriority, setTurnDirection } from "./modules/priority";
-import { nextTurn, nextStep } from "./modules/turn";
+import {
+  nextTurn,
+  nextStep,
+  scheduleStepsAfterCurrent,
+  scheduleStepsAtEndOfTurn,
+  clearScheduledSteps,
+  getScheduledSteps,
+  removeScheduledSteps,
+} from "./modules/turn";
 import {
   importDeckResolved,
   shuffleLibrary,
@@ -28,9 +36,10 @@ import {
   applyEngineEffects,
   runSBA,
 } from "./modules/counters_tokens";
-import { pushStack, resolveTopOfStack, playLand } from "./modules/stack";
+import { pushStack, resolveTopOfStack, playLand, exileEntireStack } from "./modules/stack";
 import { viewFor } from "./modules/view";
 import { applyEvent, replay, reset, skip, unskip, remove } from "./modules/applyEvent";
+import { mulberry32 } from "../utils/rng";
 
 /**
  * Create a public InMemoryGame surface that delegates to the ctx + modules.
@@ -67,7 +76,10 @@ export function createInitialGameState(gameId: string): InMemoryGame {
     nextStep: () => nextStep(ctx),
 
     // RNG helpers
-    seedRng: (seed: number) => (ctx as any).seedRng ? (ctx as any).seedRng(seed) : ((ctx.rngSeed = seed >>> 0), (ctx.rng = (mulberry32 as any)(seed)), ctx.bumpSeq()),
+    seedRng: (seed: number) =>
+      (ctx as any).seedRng
+        ? (ctx as any).seedRng(seed)
+        : ((ctx.rngSeed = seed >>> 0), (ctx.rng = (mulberry32 as any)(seed)), ctx.bumpSeq()),
     hasRngSeed: () => !!(ctx.rngSeed),
 
     // spectator grants
@@ -79,7 +91,7 @@ export function createInitialGameState(gameId: string): InMemoryGame {
           const set = ctx.grants.get(owner) ?? new Set<PlayerID>();
           set.add(spectator);
           ctx.grants.set(owner, set);
-          ctx.seq.value++;
+          ctx.seq && (ctx.seq as any).value !== undefined ? (ctx.seq as any).value++ : (ctx as any).seq++;
         }
       } catch (err) {
         console.warn("grantSpectatorAccess fallback failed:", err);
@@ -93,7 +105,7 @@ export function createInitialGameState(gameId: string): InMemoryGame {
           const set = ctx.grants.get(owner) ?? new Set<PlayerID>();
           set.delete(spectator);
           ctx.grants.set(owner, set);
-          ctx.seq.value++;
+          ctx.seq && (ctx.seq as any).value !== undefined ? (ctx.seq as any).value++ : (ctx as any).seq++;
         }
       } catch (err) {
         console.warn("revokeSpectatorAccess fallback failed:", err);
@@ -154,12 +166,20 @@ export function createInitialGameState(gameId: string): InMemoryGame {
     // stack
     pushStack: (item) => pushStack(ctx, item),
     resolveTopOfStack: () => resolveTopOfStack(ctx),
+    exileStack: (playerId?: PlayerID) => exileEntireStack(ctx, playerId),
 
     // play helpers
     playLand: (playerId: PlayerID, card) => playLand(ctx, playerId, card),
 
     // view
     viewFor: (viewer?: PlayerID, spectator?: boolean) => viewFor(ctx, viewer, !!spectator),
+
+    // step scheduling helpers (runtime-only)
+    scheduleStepsAfterCurrent: (steps: any[]) => scheduleStepsAfterCurrent(ctx, steps),
+    scheduleStepsAtEndOfTurn: (steps: any[]) => scheduleStepsAtEndOfTurn(ctx, steps),
+    clearScheduledSteps: () => clearScheduledSteps(ctx),
+    getScheduledSteps: () => getScheduledSteps(ctx),
+    removeScheduledSteps: (steps: any[]) => removeScheduledSteps(ctx, steps),
 
     // event lifecycle / apply/replay/reset/skip/unskip/remove delegated to module
     applyEvent: (e: GameEvent) => applyEvent(ctx, e),

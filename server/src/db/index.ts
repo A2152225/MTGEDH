@@ -45,18 +45,48 @@ export async function initDb(): Promise<void> {
 /**
  * Ensure a row exists in games; keeps format/starting_life updated.
  */
+// Replace the existing createGameIfNotExists with this debug-friendly version.
 export function createGameIfNotExists(gameId: string, format: string, startingLife: number): void {
   ensureDB();
   const now = Date.now();
-  const insert = db!.prepare(`
+
+  const insertSql = `
     INSERT OR IGNORE INTO games (game_id, format, starting_life, created_at)
     VALUES (?, ?, ?, ?)
-  `);
-  insert.run(gameId, format, startingLife | 0, now);
+  `;
+  const updateSql = `UPDATE games SET format = ?, starting_life = ? WHERE game_id = ?`;
 
-  // Keep metadata up to date (non-critical)
-  const update = db!.prepare(`UPDATE games SET format = ?, starting_life = ? WHERE game_id = ?`);
-  update.run(format, startingLife | 0, gameId);
+  try {
+    const insert = db!.prepare(insertSql);
+    // Log exact SQL and args to diagnose binding issues
+    try {
+      console.debug("[DB] Running insert:", insertSql.trim().replace(/\s+/g, " "));
+      console.debug("[DB] Params:", { gameId, format, startingLife: startingLife | 0, now });
+      insert.run(gameId, format, startingLife | 0, now);
+    } catch (runErr) {
+      console.error("[DB] insert.run failed:", runErr && (runErr as Error).message);
+      console.error("[DB] insert statement source:", (insert as any).source ?? insertSql);
+      // rethrow so caller sees failure after logging
+      throw runErr;
+    }
+
+    // Keep metadata up to date (non-critical)
+    const update = db!.prepare(updateSql);
+    try {
+      console.debug("[DB] Running update:", updateSql.trim().replace(/\s+/g, " "));
+      console.debug("[DB] Params:", { format, startingLife: startingLife | 0, gameId });
+      update.run(format, startingLife | 0, gameId);
+    } catch (runErr) {
+      console.error("[DB] update.run failed:", runErr && (runErr as Error).message);
+      console.error("[DB] update statement source:", (update as any).source ?? updateSql);
+      // swallow update error? rethrow so we can see debugging info — safer to rethrow
+      throw runErr;
+    }
+  } catch (err) {
+    // Bubble the original error after logging contextual info.
+    console.error("[DB] createGameIfNotExists error:", err && (err as Error).message);
+    throw err;
+  }
 }
 
 export type PersistedEvent = {

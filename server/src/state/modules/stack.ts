@@ -4,8 +4,19 @@ import { uid, parsePT } from "../utils";
 
 /**
  * Stack / resolution helpers (extracted).
+ *
+ * Exports:
+ * - pushStack
+ * - resolveTopOfStack
+ * - playLand
+ * - exileEntireStack
+ *
+ * exileEntireStack moves all items from the stack into controller exile zones
+ * (ctx.zones[controller].exile). It returns the number of items exiled and bumps seq.
+ * It is conservative and defensive about shapes so it won't throw on unexpected input.
  */
 
+/* Push an item onto the stack */
 export function pushStack(
   ctx: GameContext,
   item: {
@@ -21,14 +32,22 @@ export function pushStack(
   ctx.bumpSeq();
 }
 
-export function resolveTopOfStack(ctx: GameContext) {
+/* Pop and return the top stack item (internal helper) */
+function popStackItem(ctx: GameContext) {
   const s = ctx.state;
-  if (!s.stack || s.stack.length === 0) return;
-  const item = s.stack.pop()!;
-  // Simplified resolution placeholder: real engine will inspect item.card.spec
+  if (!s.stack || s.stack.length === 0) return null;
+  return s.stack.pop()!;
+}
+
+/* Resolve the top item (placeholder, engine handles specifics elsewhere) */
+export function resolveTopOfStack(ctx: GameContext) {
+  const item = popStackItem(ctx);
+  if (!item) return;
+  // Real resolution should call rules-engine; this is a placeholder to advance seq.
   ctx.bumpSeq();
 }
 
+/* Place a land onto the battlefield for a player (simplified) */
 export function playLand(ctx: GameContext, playerId: PlayerID, card: any) {
   const { state, bumpSeq } = ctx;
   const tl = (card.type_line || "").toLowerCase();
@@ -49,4 +68,64 @@ export function playLand(ctx: GameContext, playerId: PlayerID, card: any) {
   state.landsPlayedThisTurn = state.landsPlayedThisTurn || {};
   state.landsPlayedThisTurn[playerId] = (state.landsPlayedThisTurn[playerId] ?? 0) + 1;
   bumpSeq();
+}
+
+/**
+ * Exile the entire stack to players' exile zones.
+ *
+ * Behavior:
+ * - Moves all items from state.stack into each item's controller exile array under ctx.zones[controller].exile.
+ * - Ensures ctx.zones[controller] exists and has exile array.
+ * - Returns the number of items exiled.
+ * - Bumps seq on success.
+ *
+ * Notes:
+ * - This is intended for effects like Sundial of the Infinite. Caller should ensure correct timing/permissions.
+ * - If no stack present it returns 0.
+ */
+export function exileEntireStack(ctx: GameContext, invokedBy?: PlayerID): number {
+  const s = ctx.state;
+  if (!s || !Array.isArray(s.stack) || s.stack.length === 0) return 0;
+
+  try {
+    const moved = s.stack.splice(0, s.stack.length);
+    let count = 0;
+    for (const item of moved) {
+      const controller = (item && (item.controller as PlayerID)) || invokedBy || "unknown";
+      // Ensure zones shape exists
+      (ctx.zones[controller] as any) = (ctx.zones[controller] as any) || {
+        hand: [],
+        handCount: 0,
+        libraryCount: ctx.libraries.get(controller)?.length ?? 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+      };
+      const z = (ctx.zones[controller] as any);
+      z.exile = z.exile || [];
+      // Normalize card record pushed to exile
+      if (item.card && typeof item.card === "object") {
+        const cardObj = { ...(item.card as any), zone: "exile" };
+        z.exile.push(cardObj);
+      } else {
+        z.exile.push({ id: item.id || uid("ex"), name: item.card?.name || "exiled_effect", zone: "exile" });
+      }
+      count++;
+    }
+
+    // Update counts for all affected players
+    for (const pid of Object.keys(ctx.zones)) {
+      const z = (ctx.zones as any)[pid];
+      if (z) {
+        z.graveyardCount = (z.graveyard || []).length;
+        z.libraryCount = (ctx.libraries.get(pid) || []).length;
+      }
+    }
+
+    ctx.bumpSeq();
+    return count;
+  } catch (err) {
+    console.warn("exileEntireStack failed:", err);
+    return 0;
+  }
 }
