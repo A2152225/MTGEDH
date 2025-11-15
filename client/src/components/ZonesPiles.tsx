@@ -23,7 +23,8 @@ export function ZonesPiles(props: {
 
   function renderPile(label: string, count: number, topCard?: KnownCardRef) {
     const name = topCard?.name || "";
-    const img = topCard?.image_uris?.small || topCard?.image_uris?.normal || null;
+    // prefer art_crop -> normal -> small
+    const img = topCard?.image_uris?.art_crop || topCard?.image_uris?.normal || topCard?.image_uris?.small || null;
     const body = (
       <div
         style={{
@@ -90,14 +91,15 @@ export function ZonesPiles(props: {
             const previewCard = slot.card || cmdCards?.[i];
             const hasCard = !!previewCard || !!slot.id || !!name;
             const commanderId = slot.id || previewCard?.id || name;
-            const img = previewCard?.image_uris?.small || previewCard?.image_uris?.normal || null;
+            // prefer art_crop -> normal -> small for commander tile too
+            const img = previewCard?.image_uris?.art_crop || previewCard?.image_uris?.normal || previewCard?.image_uris?.small || null;
 
             return (
               <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
                 <div
                   style={{
-                    width: 76,
-                    height: 54,
+                    width: 72,
+                    height: 100,
                     borderRadius: 6,
                     border: hasCard ? "2px solid rgba(255,255,255,0.45)" : "2px dashed rgba(255,255,255,0.25)",
                     background: "#000",
@@ -153,10 +155,11 @@ export function ZonesPiles(props: {
 
   return (
     <div style={{ display: "flex", flexDirection: "row", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+      {/* Command zone now rendered before Library for expected layout */}
+      {isCommanderFormat && commander ? <CommandSlots /> : null}
       {renderPile("Library", zones.libraryCount ?? libArr.length ?? 0, libraryTop)}
       {renderPile("Graveyard", zones.graveyardCount ?? grArr.length ?? 0, graveTop)}
       {renderPile("Exile", (zones as any).exile?.length ?? exArr.length ?? 0, exileTop)}
-      {isCommanderFormat && commander ? <CommandSlots /> : null}
     </div>
   );
 }

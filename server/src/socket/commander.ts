@@ -19,10 +19,8 @@ import type { PlayerID } from "../../shared/src";
  *    - dumpImportedDeckBuffer -> emits 'debugImportedDeckBuffer'
  *    - dumpCommanderState -> emits 'debugCommanderState'
  *
- * Defensive library-cleanup logic:
- * - Snapshot library before calling authoritative setCommander.
- * - After setCommander, compare snapshot -> if commander IDs still present, remove only the remaining occurrences.
- *   This avoids double-removal if the authoritative state already removed commander(s).
+ * Note: This version intentionally does NOT mutate libraries from the socket handler.
+ *       Authoritative library mutation should occur inside game.setCommander (state module).
  */
 
 function normalizeNamesArray(payload: any): string[] {
@@ -32,26 +30,6 @@ function normalizeNamesArray(payload: any): string[] {
   if (typeof payload.commanderNames === "string") return [payload.commanderNames];
   if (typeof payload.names === "string") return [payload.names];
   if (typeof payload.name === "string") return [payload.name];
-  return [];
-}
-
-function snapshotLibraryIds(game: any, pid: PlayerID): string[] {
-  try {
-    const z = game.state?.zones && (game.state.zones as any)[pid];
-    if (z && Array.isArray(z.library)) {
-      return z.library.map((c: any) => String(c?.id || c?.cardId || c?.name || "").trim().toLowerCase()).filter(Boolean);
-    }
-    // older shape: game.libraries may be a Map or object
-    try {
-      const libs = (game as any).libraries;
-      if (libs) {
-        const arr = libs.get ? libs.get(pid) : libs[pid];
-        if (Array.isArray(arr)) {
-          return arr.map((c: any) => String(c?.id || c?.cardId || c?.name || "").trim().toLowerCase()).filter(Boolean);
-        }
-      }
-    } catch (e) { /* ignore */ }
-  } catch (e) { /* ignore */ }
   return [];
 }
 
@@ -79,9 +57,6 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       const names = normalizeNamesArray(payload);
       let ids: string[] = Array.isArray(payload.commanderIds) ? payload.commanderIds.slice() :
                          Array.isArray(payload.ids) ? payload.ids.slice() : [];
-
-      // snapshot library ids before authoritative change (for defensive cleanup later)
-      const libBefore = snapshotLibraryIds(game, pid);
 
       // 1) Try to resolve ids from the per-game import buffer (fast)
       try {
@@ -148,7 +123,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         }
       } catch (err) {
         console.error("setCommander: game.setCommander/applyEvent error:", err);
-        // continue to attempt best-effort cleanup / notification
+        // continue to attempt best-effort notification
       }
 
       // Persist setCommander event
@@ -162,18 +137,16 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         console.warn("appendEvent(setCommander) failed:", err);
       }
 
-      // 4) Ensure commandZone[pid].commanderCards contains full card objects for UI
+      // 4) Ensure commandZone[pid].commanderCards contains full card objects for UI (best-effort)
       try {
         (game.state.commandZone = game.state.commandZone || {});
         (game.state.commandZone[pid] = game.state.commandZone[pid] || { commanderIds: [], commanderCards: [], tax: 0, taxById: {} });
 
         const czInfo = game.state.commandZone[pid] as any;
-        // ensure commanderIds includes ids we resolved
         czInfo.commanderIds = Array.from(new Set([...(czInfo.commanderIds || []), ...ids]));
 
         // helper to find a card object from various sources
         const findCardObj = (cid: string) => {
-          // 1) from per-game import buffer
           try {
             const buf = (game as any)._lastImportedDecks as Map<PlayerID, any[]> | undefined;
             if (buf) {
@@ -183,7 +156,6 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
             }
           } catch (e) { /* ignore */ }
 
-          // 2) from zones library if present
           try {
             const z = game.state.zones && game.state.zones[pid];
             if (z && Array.isArray(z.library)) {
@@ -192,7 +164,6 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
             }
           } catch (e) { /* ignore */ }
 
-          // 3) from game.libraries map (older structure)
           try {
             const L = (game as any).libraries;
             if (L && (typeof L.get === "function" ? Array.isArray(L.get(pid)) : Array.isArray(L[pid]))) {
@@ -202,7 +173,6 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
             }
           } catch (e) { /* ignore */ }
 
-          // 4) from battlefield
           try {
             const bfFound = (game.state.battlefield || []).find((b: any) => (b.card && (b.card.id === cid || b.card.cardId === cid)));
             if (bfFound) return bfFound.card;
@@ -220,7 +190,6 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           }
           const cardObj = findCardObj(cid);
           if (cardObj) {
-            // normalize object shape expected by UI: id,name,type_line,oracle_text,image_uris,...
             const normalized = {
               id: cardObj.id || cardObj.cardId || null,
               name: cardObj.name || cardObj.cardName || null,
@@ -230,7 +199,6 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
             };
             builtCards.push(normalized);
           } else {
-            // name-only placeholder if needed
             const idx = ids.indexOf(cid);
             const nm = names[idx] || null;
             builtCards.push({ id: cid, name: nm });
@@ -241,43 +209,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         console.warn("setCommander: populating commandZone commanderCards failed:", err);
       }
 
-      // 5) Defensive: remove commander card objects from library arrays if still present (only remove leftovers)
-      try {
-        const idsToRemove = Array.isArray(ids) ? ids.map((s) => String(s).trim().toLowerCase()).filter(Boolean) : [];
-        if (idsToRemove.length) {
-          const libAfter = snapshotLibraryIds(game, pid);
-          // compute which ids still exist in library after setCommander
-          const remaining = idsToRemove.filter((cid) => libAfter.includes(cid));
-          if (remaining.length) {
-            // perform removal of remaining ids from available library arrays (zones.library or game.libraries)
-            const z = game.state.zones && game.state.zones[pid];
-            let libArr: any[] | undefined;
-            if (z && Array.isArray(z.library)) libArr = z.library;
-            else {
-              try {
-                const L = (game as any).libraries;
-                libArr = L && (typeof L.get === "function" ? L.get(pid) : L[pid]);
-              } catch (e) { libArr = undefined; }
-            }
-
-            if (libArr && libArr.length) {
-              for (const rcid of remaining) {
-                // remove first occurrence matching id/cardId/name
-                const idx = libArr.findIndex((c: any) => {
-                  const key = String(c?.id || c?.cardId || c?.name || "").trim().toLowerCase();
-                  return key === rcid;
-                });
-                if (idx !== -1) libArr.splice(idx, 1);
-              }
-              if (z) z.libraryCount = libArr.length;
-            }
-          }
-        }
-      } catch (err) {
-        console.warn("setCommander: defensive library cleanup failed:", err);
-      }
-
-      // 6) If pending opening draw exists for player, shuffle and draw now, and append events
+      // 5) If pending opening draw exists for player, shuffle and draw now, and append events
       try {
         const pendingSet = (game as any).pendingInitialDraw as Set<PlayerID> | undefined;
         if (pendingSet && pendingSet.has(pid)) {
@@ -301,7 +233,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         console.error("setCommander: error while handling pending opening draw:", err);
       }
 
-      // 7) Broadcast authoritative updated view to all participants
+      // 6) Broadcast authoritative updated view to all participants
       try {
         broadcastGame(io, game, payload.gameId);
       } catch (err) {
@@ -330,7 +262,6 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         libArr = (game as any).libraries.get ? (game as any).libraries.get(pid) : (game as any).libraries[pid];
       }
       const librarySnapshot = (libArr || []).map(c => ({ id: c?.id || c?.cardId || null, name: c?.name || null }));
-      console.log(`debugLibraryDump game=${gameId} player=${pid} count=${librarySnapshot.length}`);
       socket.emit("debugLibraryDump", { gameId, playerId: pid, library: librarySnapshot });
     } catch (err) {
       console.error("dumpLibrary failed:", err);

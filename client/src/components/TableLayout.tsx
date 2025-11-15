@@ -1,4 +1,8 @@
-// PATCH: Full file for clarity, restoring life/poison/experience and commander cast, improved centering.
+// Full TableLayout.tsx — updated so it:
+// - accepts suppressCommanderSuggest and onConfirmCommander props
+// - does NOT emit setCommander directly (calls parent onConfirmCommander instead)
+// - queues incoming suggestCommanders while suppression is active and opens queued modal once suppression clears
+// - shows client-local import confirm immediately after user clicks Use/Import and notifies App via onLocalImportConfirmChange
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   BattlefieldPermanent,
@@ -16,7 +20,7 @@ import { LandRow } from './LandRow';
 import { ZonesPiles } from './ZonesPiles';
 import { FreeField } from './FreeField';
 import { DeckManagerModal } from './DeckManagerModal';
-import { CommanderConfirmModal } from './CommanderConfirmModal';
+import CommanderConfirmModal from './CommanderConfirmModal';
 import { socket } from '../socket';
 
 function clamp(n: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, n)); }
@@ -104,8 +108,17 @@ export function TableLayout(props: {
   tableCloth?: { imageUrl?: string; color?: string };
   worldSize?: number;
   onUpdatePermPos?: (id: string, x: number, y: number, z?: number) => void;
+  // App-provided wrappers (will be called only after local confirm)
   onImportDeckText?: (text: string, name?: string) => void;
+  onUseSavedDeck?: (deckId: string) => void;
+  // TableLayout will notify App when the client-local confirm is shown/hidden
+  onLocalImportConfirmChange?: (open: boolean) => void;
+  // App centralizes commander confirm; when user confirms commander in TableLayout, call this
+  onConfirmCommander?: (names: string[]) => void;
+  // If true, TableLayout should not show commander modal; instead queue suggestions locally until false
+  suppressCommanderSuggest?: boolean;
   gameId?: GameID;
+  stackItems?: any[];
 }) {
   const {
     players, permanentsByPlayer, imagePref, isYouPlayer,
@@ -119,7 +132,7 @@ export function TableLayout(props: {
     onReorderHand, onShuffleHand,
     threeD, enablePanZoom = true,
     tableCloth, worldSize, onUpdatePermPos,
-    onImportDeckText, gameId
+    onImportDeckText, onUseSavedDeck, onLocalImportConfirmChange, onConfirmCommander, suppressCommanderSuggest, gameId
   } = props;
 
   const ordered = useMemo<PlayerBoard[]>(() => {
@@ -132,9 +145,13 @@ export function TableLayout(props: {
   const sideOrder = useMemo(() => sidePlan(ordered.length), [ordered.length]);
 
   // Layout constants
-  const TILE_W = 110; const tileH = Math.round(TILE_W / 0.72); const ZONES_W = 108; const GRID_GAP = 10;
-  const FREE_W = 6 * TILE_W + 5 * GRID_GAP + 16; const FREE_H = Math.round(2 * tileH + 100);
-  const BOARD_W = FREE_W + ZONES_W + 24; const BOARD_H = Math.round(FREE_H + tileH + 240);
+  const TILE_W = 110; const tileH = Math.round(TILE_W / 0.72);
+  const ZONES_W = 140;
+  const GRID_GAP = 10;
+  const FREE_W = 7 * TILE_W + 6 * GRID_GAP + 20;
+  const FREE_H = Math.round(2 * tileH + 100);
+  const BOARD_W = FREE_W + ZONES_W + 24;
+  const BOARD_H = Math.round(FREE_H + tileH + 240);
   const SEAT_GAP_X = 72, SEAT_GAP_Y = 72, CENTER_CLEAR_X = 120, CENTER_CLEAR_Y = 120, SIDE_PAD = 24;
 
   const seatPositions = useMemo(() => buildPositions({
@@ -151,7 +168,7 @@ export function TableLayout(props: {
 
   const { halfW, halfH } = useMemo(() => computeExtents(seatPositions, BOARD_W, BOARD_H), [seatPositions]);
 
-  // Pan/Zoom
+  // Pan/Zoom (omitted details kept same as previous implementations)
   const containerRef = useRef<HTMLDivElement>(null);
   const [container, setContainer] = useState({ w: 1200, h: 800 });
   useEffect(() => {
@@ -227,6 +244,7 @@ export function TableLayout(props: {
     if (!pos) return;
     setCam(c => ({ x: pos.x, y: pos.y, z: preserveZoom ? c.z : c.z }));
   }
+
   function centerOnNearestWorldPoint(wx: number, wy: number, preserveZoom = true) {
     if (seatPositions.length === 0) return;
     let best = 0, bestD = Infinity;
@@ -238,27 +256,60 @@ export function TableLayout(props: {
     }
     centerOnBoardIndex(best, preserveZoom);
   }
+
   function centerOnYou(preserveZoom = true) {
+    try {
+      if (you && containerRef.current) {
+        const el = document.getElementById(`hand-area-${you}`);
+        const containerEl = containerRef.current;
+        if (el && containerEl) {
+          const containerRect = containerEl.getBoundingClientRect();
+          const elemRect = el.getBoundingClientRect();
+          const z = camRef.current.z || 1;
+          const sx = (elemRect.left - containerRect.left) + elemRect.width / 2;
+          const sy = (elemRect.bottom - containerRect.top);
+          const worldX = camRef.current.x + (sx - container.w / 2) / z;
+          const worldY = camRef.current.y + (sy - container.h / 2) / z;
+          const targetSX = container.w / 2;
+          const targetSY = Math.round(container.h * 0.72);
+          const newCamX = worldX - (targetSX - container.w / 2) / z;
+          const newCamY = worldY - (targetSY - container.h / 2) / z;
+          setCam(c => ({ x: newCamX, y: newCamY, z: preserveZoom ? c.z : c.z }));
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('centerOnYou DOM centering failed', err);
+    }
+
     if (!you || ordered.length === 0 || seatPositions.length === 0) {
       const cx = camRef.current.x, cy = camRef.current.y;
       centerOnNearestWorldPoint(cx, cy, preserveZoom);
       return;
     }
-    centerOnBoardIndex(0, preserveZoom);
+    let idx = -1;
+    for (let i = 0; i < ordered.length; i++) {
+      const o = ordered[i];
+      const pid = o.player.id;
+      if (pid === you) { idx = i; break; }
+    }
+    if (idx === -1) {
+      const cx = camRef.current.x, cy = camRef.current.y;
+      centerOnNearestWorldPoint(cx, cy, preserveZoom);
+      return;
+    }
+    const pos = seatPositions[idx];
+    if (!pos) { centerOnBoardIndex(idx, preserveZoom); return; }
+    const dirX = -pos.x;
+    const dirY = -pos.y;
+    const mag = Math.hypot(dirX, dirY) || 1;
+    const nx = dirX / mag;
+    const ny = dirY / mag;
+    const shift = Math.min(Math.max(halfH * 0.18, 120), 600);
+    const cx2 = pos.x + nx * shift;
+    const cy2 = pos.y + ny * shift;
+    setCam(c => ({ x: cx2, y: cy2, z: preserveZoom ? c.z : c.z }));
   }
-
-  const onDoubleClick = (e: React.MouseEvent) => {
-    if (!enablePanZoom) return;
-    const host = containerRef.current;
-    if (!host) return;
-    const rect = host.getBoundingClientRect();
-    const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
-    const cx = container.w / 2, cy = container.h / 2;
-    const { x, y, z } = camRef.current;
-    const wx = x + (sx - cx) / z;
-    const wy = y + (sy - cy) / z;
-    centerOnNearestWorldPoint(wx, wy, true);
-  };
 
   const didFit = useRef(false);
   useEffect(() => {
@@ -287,32 +338,92 @@ export function TableLayout(props: {
 
   const cameraTransform =
     `translate(${container.w / 2}px, ${container.h / 2}px) scale(${cam.z}) translate(${-cam.x}px, ${-cam.y}px)`;
+  const tiltTransform = threeD && threeD.enabled
+    ? `rotateX(${threeD.rotateXDeg ?? 10}deg) rotateY(${threeD.rotateYDeg ?? 0}deg)`
+    : 'none';
   const perspective = threeD?.enabled ? (threeD.perspectivePx ?? 1100) : undefined;
-  const tiltTransform = threeD?.enabled
-    ? `rotateX(${threeD.rotateXDeg}deg) rotateY(${threeD.rotateYDeg}deg)`
-    : undefined;
-
   const clothW = Math.max(2 * (halfW + 120), worldSize ?? 0, 2000);
-  const clothH = Math.max(2 * (halfH + 120), worldSize ?? 0, 1600);
-  const clothBg: React.CSSProperties = tableCloth?.imageUrl
-    ? { backgroundImage: `url(${tableCloth.imageUrl})`, backgroundSize: 'cover', backgroundRepeat: 'no-repeat', backgroundPosition: 'center' }
-    : { background: 'radial-gradient(ellipse at center, rgba(0,128,64,0.9) 0%, rgba(3,62,35,0.95) 60%, rgba(2,40,22,1) 100%)' };
 
-  const [deckMgrOpen, setDeckMgrOpen] = useState(false);
-  const decksBtnRef = useRef<HTMLButtonElement | null>(null);
-
-  // Commander confirm
+  // commander suggestion modal state + queue when suppressed
   const [confirmCmdOpen, setConfirmCmdOpen] = useState(false);
   const [confirmCmdSuggested, setConfirmCmdSuggested] = useState<string[]>([]);
+  const [queuedCmdSuggest, setQueuedCmdSuggest] = useState<{ gameId: GameID; names: string[] } | null>(null);
+
   useEffect(() => {
     const onSuggest = ({ gameId: gid, names }: { gameId: GameID; names: string[] }) => {
-      if (!gameId || gid !== gameId) return;
-      setConfirmCmdSuggested(Array.isArray(names) ? names.slice(0, 2) : []);
+      if (!props.gameId || gid !== props.gameId) return;
+      const namesList = Array.isArray(names) ? names.slice(0,2) : [];
+      if (suppressCommanderSuggest) {
+        setQueuedCmdSuggest({ gameId: gid, names: namesList });
+        return;
+      }
+      setConfirmCmdSuggested(namesList);
       setConfirmCmdOpen(true);
     };
     (socket as any).on('suggestCommanders', onSuggest);
     return () => { (socket as any).off('suggestCommanders', onSuggest); };
-  }, [gameId]);
+  }, [props.gameId, suppressCommanderSuggest]);
+
+  // when suppression clears, show any queued suggestion
+  useEffect(() => {
+    if (!suppressCommanderSuggest && queuedCmdSuggest && queuedCmdSuggest.gameId === props.gameId) {
+      setConfirmCmdSuggested(queuedCmdSuggest.names || []);
+      setConfirmCmdOpen(true);
+      setQueuedCmdSuggest(null);
+    }
+  }, [suppressCommanderSuggest, queuedCmdSuggest, props.gameId]);
+
+  const [deckMgrOpen, setDeckMgrOpen] = useState(false);
+  const decksBtnRef = useRef<HTMLButtonElement | null>(null);
+
+  // Determine whether table has any permanents (for informational use)
+  const tableHasContent = useMemo(() => {
+    for (const arr of permanentsByPlayer.values()) {
+      if (arr.length > 0) return true;
+    }
+    return false;
+  }, [permanentsByPlayer]);
+
+  // Local import-confirm modal state
+  const [importConfirmOpen, setImportConfirmOpen] = useState(false);
+  const [importPending, setImportPending] = useState<{ type: 'text'; text: string; name?: string } | { type: 'server'; deckId: string } | null>(null);
+
+  // ALWAYS show client confirm after user presses Use / Import
+  const handleRequestImportText = (text: string, name?: string) => {
+    setImportPending({ type: 'text', text, name });
+    setImportConfirmOpen(true);
+    onLocalImportConfirmChange?.(true);
+  };
+
+  const handleRequestUseSavedDeck = (deckId: string) => {
+    setImportPending({ type: 'server', deckId });
+    setImportConfirmOpen(true);
+    onLocalImportConfirmChange?.(true);
+  };
+
+  const confirmAndImport = () => {
+    if (!importPending) { setImportConfirmOpen(false); onLocalImportConfirmChange?.(false); return; }
+    if (importPending.type === 'text') {
+      onImportDeckText?.(importPending.text, importPending.name);
+    } else {
+      onUseSavedDeck?.(importPending.deckId);
+    }
+    setImportPending(null);
+    setImportConfirmOpen(false);
+    onLocalImportConfirmChange?.(false);
+    setDeckMgrOpen(false);
+  };
+
+  const cancelImportPending = () => {
+    setImportPending(null);
+    setImportConfirmOpen(false);
+    onLocalImportConfirmChange?.(false);
+  };
+
+  // cloth background (gradient fallback)
+  const clothBg: React.CSSProperties = props.tableCloth?.imageUrl
+    ? { backgroundImage: `url(${props.tableCloth.imageUrl})`, backgroundSize: 'cover', backgroundRepeat: 'no-repeat', backgroundPosition: 'center' }
+    : { background: 'radial-gradient(ellipse at center, rgba(0,128,64,0.9) 0%, rgba(3,62,35,0.95) 60%, rgba(2,40,22,1) 100%)' };
 
   return (
     <div
@@ -320,9 +431,7 @@ export function TableLayout(props: {
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      onDoubleClick={onDoubleClick}
       style={{
-        position: 'relative',
         width: '100%',
         height: '72vh',
         overflow: 'hidden',
@@ -331,7 +440,8 @@ export function TableLayout(props: {
         borderRadius: 12,
         userSelect: 'none',
         cursor: enablePanZoom ? (dragRef.current ? 'grabbing' : (panKey ? 'grab' : 'default')) : 'default',
-        overscrollBehavior: 'none'
+        overscrollBehavior: 'none',
+        position: 'relative'
       }}
     >
       <div style={{ position: 'absolute', inset: 0, transform: cameraTransform, transformOrigin: '0 0', willChange: 'transform' }}>
@@ -341,32 +451,14 @@ export function TableLayout(props: {
               style={{
                 position: 'absolute',
                 left: -clothW / 2,
-                top: -clothH / 2,
+                top: -clothW / 2,
                 width: clothW,
-                height: clothH,
+                height: clothW,
                 ...clothBg,
                 boxShadow: 'inset 0 0 60px rgba(0,0,0,0.4)',
                 pointerEvents: 'none'
               }}
             />
-            <div
-              style={{
-                position: 'absolute',
-                left: -50,
-                top: -50,
-                width: 100,
-                height: 100,
-                borderRadius: '50%',
-                background: 'rgba(31,31,31,0.85)',
-                border: '2px solid #333',
-                color: '#aaa',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 11,
-                zIndex: 1
-              }}
-            >Table</div>
 
             <div style={{ position: 'relative', zIndex: 2 }}>
               {ordered.map((pb, i) => {
@@ -398,10 +490,10 @@ export function TableLayout(props: {
                     key={pb.player.id}
                     style={{
                       position: 'absolute',
-                      left: 0,
-                      top: 0,
+                      left: pos.x - BOARD_W/2,
+                      top: pos.y - BOARD_H/2,
                       width: BOARD_W,
-                      transform: `translate(${pos.x}px, ${pos.y}px) rotate(${isYouThis ? 0 : pos.rotateDeg}deg)`,
+                      transform: `translate(0,0) rotate(${isYouThis ? 0 : pos.rotateDeg}deg)`,
                       transformOrigin: '50% 50%'
                     }}
                   >
@@ -420,7 +512,7 @@ export function TableLayout(props: {
                       }}
                     >
                       <div>
-                        {/* Header row: player name + counters */}
+                        {/* Header row */}
                         <div style={{
                           display: 'flex',
                           alignItems: 'center',
@@ -452,8 +544,8 @@ export function TableLayout(props: {
                               style={{
                                 border: '1px solid',
                                 borderColor: isPlayerSelected ? '#2b6cb0' : canTargetPlayer ? '#38a169' : '#555',
-                                color: isPlayerSelected ? '#2b6cb0' : canTargetPlayer ? '#38a169' : '#888',
                                 background: 'transparent',
+                                color: isPlayerSelected ? '#2b6cb0' : canTargetPlayer ? '#38a169' : '#888',
                                 padding: '2px 8px',
                                 borderRadius: 6,
                                 fontSize: 12
@@ -512,6 +604,7 @@ export function TableLayout(props: {
 
                         {isYouThis && showYourHandBelow && (
                           <div
+                            id={`hand-area-${pb.player.id}`}
                             style={{
                               marginTop: 12,
                               background: 'rgba(0,0,0,0.7)',
@@ -575,18 +668,25 @@ export function TableLayout(props: {
             <DeckManagerModal
               open={deckMgrOpen}
               onClose={() => setDeckMgrOpen(false)}
-              onImportText={(txt, nm) => { onImportDeckText?.(txt, nm); setDeckMgrOpen(false); }}
+              onImportText={(txt, nm) => handleRequestImportText(txt, nm)}
               gameId={gameId}
               canServer={!!isYouPlayer}
               anchorEl={decksBtnRef.current}
               wide
+              onUseSavedDeck={(deckId) => handleRequestUseSavedDeck(deckId)}
             />
             {gameId && (
               <CommanderConfirmModal
                 open={confirmCmdOpen}
                 gameId={gameId}
-                suggested={confirmCmdSuggested}
+                initialNames={confirmCmdSuggested}
                 onClose={() => setConfirmCmdOpen(false)}
+                onConfirm={(names) => {
+                  // Call parent handler instead of emitting directly.
+                  if (onConfirmCommander) onConfirmCommander(names);
+                  else socket.emit('setCommander', { gameId, commanderNames: names }); // fallback
+                  setConfirmCmdOpen(false);
+                }}
               />
             )}
           </div>
@@ -625,6 +725,27 @@ export function TableLayout(props: {
           <span style={{ opacity: 0.85 }}>Zoom: {cam.z.toFixed(2)}</span>
         </div>
       )}
+
+      {/* Client-local import confirmation modal */}
+      {importConfirmOpen && (
+        <div style={{
+          position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(0,0,0,0.6)', zIndex: 8000
+        }}>
+          <div style={{ width: 520, background: '#1e1e1e', color: '#fff', padding: 16, borderRadius: 8 }}>
+            <h3 style={{ marginTop: 0 }}>Confirm Import — wipe current table?</h3>
+            <div style={{ marginBottom: 12 }}>
+              Importing this deck will wipe the current playfield and reset decks for this game. Do you want to continue?
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={cancelImportPending}>Cancel</button>
+              <button onClick={confirmAndImport} style={{ background: '#0a8', color: '#fff' }}>Yes, import and wipe</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+export default TableLayout;

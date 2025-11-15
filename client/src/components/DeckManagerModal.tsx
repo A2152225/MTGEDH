@@ -1,3 +1,5 @@
+// Full DeckManagerModal.tsx — improved tether clamping and sizing, preserve previous functionality.
+// Key changes: expose optional onUseSavedDeck prop so a parent (TableLayout) can intercept and confirm before executing.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { socket } from '../socket';
@@ -32,6 +34,9 @@ export interface DeckManagerModalProps {
   canServer?: boolean;
   anchorEl?: HTMLElement | null; // button to tether under
   wide?: boolean;
+  // optional hook: when user clicks "Use" on a server deck, call this instead of emitting directly.
+  // Parent can show a confirm modal first and then call socket.emit('useSavedDeck', ...) or onImportText accordingly.
+  onUseSavedDeck?: (deckId: string) => void;
 }
 
 export function DeckManagerModal({
@@ -41,7 +46,8 @@ export function DeckManagerModal({
   gameId,
   canServer,
   anchorEl,
-  wide
+  wide,
+  onUseSavedDeck
 }: DeckManagerModalProps) {
   const [tab, setTab] = useState<'local' | 'server' | 'preview'>('local');
 
@@ -102,7 +108,15 @@ export function DeckManagerModal({
     };
   }, [open, gameId, detail]);
 
-  // Follow anchor element each frame
+  // compute modal width clamped to viewport with a min width to avoid "skinny" layout
+  const calcWidth = () => {
+    const desired = wide ? 960 : 880;
+    const max = Math.max(480, window.innerWidth - 32);
+    return Math.min(desired, max);
+  };
+  const modalWidth = calcWidth();
+
+  // Follow anchor element each frame and clamp to viewport (consider modalWidth so it doesn't go off-screen)
   useEffect(() => {
     if (!open || !anchorEl) {
       setPos(null);
@@ -112,7 +126,14 @@ export function DeckManagerModal({
     const update = () => {
       try {
         const r = anchorEl.getBoundingClientRect();
-        setPos({ left: r.left + r.width / 2, top: r.bottom + 8 });
+        const leftRaw = r.left + r.width / 2;
+        // place just below anchor; clamp so modal doesn't escape viewport (consider modal width)
+        let topRaw = r.bottom + 8;
+        const margin = 12;
+        const halfModal = modalWidth / 2;
+        const left = Math.min(Math.max(leftRaw, margin + halfModal), window.innerWidth - margin - halfModal);
+        const top = Math.min(Math.max(topRaw, margin), window.innerHeight - margin);
+        setPos({ left, top });
       } finally {
         rafRef.current = requestAnimationFrame(update);
       }
@@ -120,14 +141,20 @@ export function DeckManagerModal({
     rafRef.current = requestAnimationFrame(update);
     const onResize = () => {
       const r = anchorEl.getBoundingClientRect();
-      setPos({ left: r.left + r.width / 2, top: r.bottom + 8 });
+      const leftRaw = r.left + r.width / 2;
+      let topRaw = r.bottom + 8;
+      const margin = 12;
+      const halfModal = modalWidth / 2;
+      const left = Math.min(Math.max(leftRaw, margin + halfModal), window.innerWidth - margin - halfModal);
+      const top = Math.min(Math.max(topRaw, margin), window.innerHeight - margin);
+      setPos({ left, top });
     };
     window.addEventListener('resize', onResize);
     return () => {
       if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
       window.removeEventListener('resize', onResize);
     };
-  }, [open, anchorEl]);
+  }, [open, anchorEl, modalWidth]);
 
   const filteredLocal = useMemo(() => {
     const q = localFilter.trim().toLowerCase();
@@ -143,21 +170,7 @@ export function DeckManagerModal({
 
   if (!open) return null;
 
-  const backdropStyle: React.CSSProperties = {
-    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 120
-  };
-  const wrapperStyle: React.CSSProperties = pos ? {
-    position: 'fixed', left: pos.left, top: pos.top, transform: 'translate(-50%, 0)', zIndex: 121
-  } : {
-    position: 'fixed', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', zIndex: 121
-  };
-  const modalStyle: React.CSSProperties = {
-    background: '#202225', border: '1px solid #444', borderRadius: 8, padding: '14px 16px',
-    width: wide ? 960 : 880, maxWidth: '96vw', maxHeight: '80vh', overflow: 'auto',
-    boxShadow: '0 4px 18px rgba(0,0,0,0.65)', color: '#eee'
-  };
-
-  const stopBubble = (e: React.MouseEvent | React.PointerEvent | React.KeyboardEvent) => {
+  const stopBubble = (e: React.MouseEvent) => {
     e.stopPropagation();
   };
 
@@ -180,7 +193,14 @@ export function DeckManagerModal({
     }
   };
 
-  const importServer = (deckId: string) => gameId && socket.emit('useSavedDeck', { gameId, deckId });
+  // Use server deck: if parent provided onUseSavedDeck, call it; otherwise emit directly.
+  const importServer = (deckId: string) => {
+    if (onUseSavedDeck) {
+      onUseSavedDeck(deckId);
+    } else {
+      if (gameId) socket.emit('useSavedDeck', { gameId, deckId });
+    }
+  };
   const requestDetail = (deckId: string) => gameId && socket.emit('getSavedDeck', { gameId, deckId });
   const saveServer = () => {
     if (!canServer || !gameId) return;
@@ -189,21 +209,38 @@ export function DeckManagerModal({
     socket.emit('saveDeck', { gameId, name: localName.trim(), list: localText });
   };
 
+  const backdropStyle: React.CSSProperties = {
+    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 120
+  };
+
+  const wrapperStyle: React.CSSProperties = pos ? {
+    position: 'fixed',
+    left: pos.left,
+    top: pos.top,
+    transform: 'translate(-50%, 8px)',
+    zIndex: 121,
+    pointerEvents: 'auto'
+  } : {
+    position: 'fixed', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', zIndex: 121
+  };
+  const modalStyle: React.CSSProperties = {
+    background: '#202225', border: '1px solid #444', borderRadius: 8, padding: '14px 16px',
+    width: modalWidth, minWidth: 480, maxWidth: '96vw', maxHeight: '80vh', overflow: 'auto',
+    boxShadow: '0 4px 18px rgba(0,0,0,0.65)', color: '#eee'
+  };
+
   const content = (
     <div
       style={backdropStyle}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-      onDoubleClick={(e) => { if (e.target === e.currentTarget) { e.stopPropagation(); onClose(); } }}
     >
       <div
         style={wrapperStyle}
         onClick={stopBubble}
-        onDoubleClick={stopBubble}
       >
         <div
           style={modalStyle}
           onClick={stopBubble}
-          onDoubleClick={stopBubble}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <h4 style={{ margin: 0, fontSize: 15 }}>Deck Manager</h4>
@@ -310,11 +347,7 @@ export function DeckManagerModal({
                       <button type="button" onClick={() => importServer(d.id)} style={{ fontSize: 11 }}>Use</button>
                       <button
                         type="button"
-                        onClick={() => {
-                          const newName = prompt('Rename deck', d.name);
-                          if (!newName || !newName.trim()) return;
-                          gameId && socket.emit('renameSavedDeck', { gameId, deckId: d.id, name: newName.trim() });
-                        }}
+                        onClick={() => { gameId && socket.emit('renameSavedDeck', { gameId, deckId: d.id, name: prompt('Rename deck', d.name) || d.name }); }}
                         style={{ fontSize: 11 }}
                       >
                         Rename
@@ -379,3 +412,5 @@ export function DeckManagerModal({
 
   return createPortal(content, document.body);
 }
+
+export default DeckManagerModal;

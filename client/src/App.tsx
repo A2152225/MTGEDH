@@ -1,3 +1,6 @@
+// Full App.tsx — updated to queue/suppress commander selection while a client-local import confirm
+// is open or while we've emitted a local import and are waiting for server confirmation.
+// Replace your existing client/src/App.tsx with this file.
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { socket } from './socket';
 import type {
@@ -16,6 +19,7 @@ import { CardPreviewLayer, showCardPreview, hideCardPreview } from './components
 import { PaymentPicker } from './components/PaymentPicker';
 import { ZonesPanel } from './components/ZonesPanel';
 import { ScrySurveilModal } from './components/ScrySurveilModal';
+import CommanderConfirmModal from './components/CommanderConfirmModal';
 
 function seatTokenKey(gameId: GameID, name: string) {
   return `mtgedh:seatToken:${gameId}:${name.trim().toLowerCase()}`;
@@ -93,6 +97,9 @@ export function App() {
   const [chat, setChat] = useState<ChatMsg[]>([]);
   const [lastError, setLastError] = useState<string | null>(null);
 
+  // Non-blocking info banner (used for import-applied message)
+  const [lastInfo, setLastInfo] = useState<string | null>(null);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchItem[]>([]);
   const [searchLimit, setSearchLimit] = useState(100);
@@ -132,12 +139,39 @@ export function App() {
   const [expandedHands, setExpandedHands] = useState<Set<PlayerID>>(new Set());
   const [expandedGYs, setExpandedGYs] = useState<Set<PlayerID>>(new Set());
 
-  // Center the board so bottom of player's hand area is at bottom of window
+  // Debug panel state (added)
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [debugLoading, setDebugLoading] = useState(false);
+  const [debugData, setDebugData] = useState<any>(null);
+
+  // Import-wipe confirmation modal (server multi-player)
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmPayload, setConfirmPayload] = useState<any>(null);
+  const [confirmVotes, setConfirmVotes] = useState<Record<string, "pending" | "yes" | "no"> | null>(null);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+
+  // Commander suggestion fallback state (app-level)
+  const [cmdSuggestOpen, setCmdSuggestOpen] = useState(false);
+  const [cmdSuggestNames, setCmdSuggestNames] = useState<string[]>([]);
+
+  // pendingLocalImport indicates this client emitted an import/use to server and is waiting for server confirmation
+  const [pendingLocalImport, setPendingLocalImport] = useState(false);
+  const pendingLocalImportRef = useRef<boolean>(false);
+  useEffect(() => { pendingLocalImportRef.current = pendingLocalImport; }, [pendingLocalImport]);
+
+  // queued commander suggestion when a local import/reset is pending (or server confirm in progress)
+  const [queuedCommanderSuggest, setQueuedCommanderSuggest] = useState<{ gameId: GameID; names: string[] } | null>(null);
+
+  // client-local import confirm tracking (TableLayout notifies App when client confirm is open)
+  const [localImportConfirmOpen, setLocalImportConfirmOpen] = useState(false);
+  const localImportConfirmRef = useRef<boolean>(false);
+  useEffect(() => { localImportConfirmRef.current = localImportConfirmOpen; }, [localImportConfirmOpen]);
+
+  // center board helper
   const centerOnPlayer = useCallback(() => {
     if (!you || !view) return;
     setTimeout(() => {
       const handArea = document.getElementById(`hand-area-${you}`);
-      // Main panel selector mirrors app layout (first column)
       const mainPanel = document.querySelector("#root > div > div");
       if (handArea && mainPanel) {
         const scrollPanel = mainPanel.parentElement;
@@ -149,7 +183,6 @@ export function App() {
     }, 50);
   }, [you, view]);
 
-  // Auto-center on load / when viewer or view changes
   useEffect(() => { centerOnPlayer(); }, [centerOnPlayer]);
 
   useEffect(() => {
@@ -170,20 +203,20 @@ export function App() {
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
 
-    socket.on('joined', ({ you, seatToken, gameId }) => {
+    socket.on('joined', ({ you, seatToken, gameId }: any) => {
       setYou(you);
       lastJoinRef.current = { gameId, name, spectator: joinAsSpectator };
       if (seatToken) sessionStorage.setItem(seatTokenKey(gameId, name), seatToken);
     });
 
-    socket.on('state', ({ view }) => setView(view));
-    socket.on('stateDiff', ({ diff }) => { if ((diff as any)?.full) setView((diff as any).full); else if ((diff as any)?.after) setView((diff as any).after); });
-    socket.on('priority', ({ player }) => setPriority(player));
+    socket.on('state', ({ view }: any) => setView(view));
+    socket.on('stateDiff', ({ diff }: any) => { if ((diff as any)?.full) setView((diff as any).full); else if ((diff as any)?.after) setView((diff as any).after); });
+    socket.on('priority', ({ player }: any) => setPriority(player));
     socket.on('chat', (msg: ChatMsg) => {
       setChat(prev => [...prev.slice(-99), msg]);
     });
-    socket.on('searchResults', ({ cards }) => setSearchResults(cards));
-    socket.on('validTargets', ({ spellId, minTargets, maxTargets, targets, manaCost, paymentSources }) => {
+    socket.on('searchResults', ({ cards }: any) => setSearchResults(cards));
+    socket.on('validTargets', ({ spellId, minTargets, maxTargets, targets, manaCost, paymentSources }: any) => {
       setTargeting({
         spellId,
         min: minTargets,
@@ -196,9 +229,86 @@ export function App() {
         xValue: 0
       });
     });
-    socket.on('scryPeek', ({ cards }) => setPeek({ mode: 'scry', cards }));
-    socket.on('surveilPeek', ({ cards }) => setPeek({ mode: 'surveil', cards }));
-    socket.on('error', ({ message }) => setLastError(message || 'Error'));
+    socket.on('scryPeek', ({ cards }: any) => setPeek({ mode: 'scry', cards }));
+    socket.on('surveilPeek', ({ cards }: any) => setPeek({ mode: 'surveil', cards }));
+    socket.on('error', ({ message }: any) => setLastError(message || 'Error'));
+
+    // Debug responses
+    socket.on('debugCommanderState', (payload: any) => {
+      setDebugData((prev: any) => ({ ...(prev || {}), commanderState: payload }));
+    });
+    socket.on('debugLibraryDump', (payload: any) => {
+      setDebugData((prev: any) => ({ ...(prev || {}), libraryDump: payload }));
+    });
+    socket.on('debugImportedDeckBuffer', (payload: any) => {
+      setDebugData((prev: any) => ({ ...(prev || {}), importBuffer: payload }));
+    });
+
+    // Import-wipe confirmation events
+    const onRequest = (payload: any) => {
+      setConfirmPayload(payload);
+      setConfirmId(payload.confirmId);
+      const initial: Record<string, "pending" | "yes" | "no"> = {};
+      for (const pid of payload.players || []) initial[pid] = "pending";
+      if (payload.initiator) initial[payload.initiator] = "yes";
+      setConfirmVotes(initial);
+      setConfirmOpen(true);
+    };
+    const onUpdate = (update: any) => {
+      if (!update || !update.confirmId) return;
+      if (!confirmId || update.confirmId === confirmId) {
+        setConfirmVotes(update.responses);
+      }
+    };
+    const onCancelled = (info: any) => {
+      if (!info || !info.confirmId) return;
+      if (!confirmId || info.confirmId === confirmId) {
+        setConfirmOpen(false);
+        setConfirmPayload(null);
+        setConfirmVotes(null);
+        setConfirmId(null);
+        setLastInfo(`Import cancelled${info.reason ? `: ${info.reason}` : ''}`);
+        setPendingLocalImport(false);
+        setQueuedCommanderSuggest(null);
+      }
+    };
+    const onConfirmed = (info: any) => {
+      if (!info || !info.confirmId) return;
+      if (!confirmId || info.confirmId === confirmId) {
+        // server applied the import
+        setConfirmOpen(false);
+        setConfirmPayload(null);
+        setConfirmVotes(null);
+        setConfirmId(null);
+        setLastInfo(`Import applied${info.deckName ? `: ${info.deckName}` : ''}`);
+        console.debug('importWipeConfirmed', info);
+        // import applied -> allow queued commander suggestions to show
+        setPendingLocalImport(false);
+        if (queuedCommanderSuggest && view && queuedCommanderSuggest.gameId === view.id) {
+          setCmdSuggestNames(queuedCommanderSuggest.names || []);
+          setCmdSuggestOpen(true);
+          setQueuedCommanderSuggest(null);
+        }
+      }
+    };
+
+    socket.on('importWipeConfirmRequest', onRequest);
+    socket.on('importWipeConfirmUpdate', onUpdate);
+    socket.on('importWipeCancelled', onCancelled);
+    socket.on('importWipeConfirmed', onConfirmed);
+
+    // App-level commander suggestion: suppress/show/queue depending on local state
+    const onSuggest = ({ gameId: gid, names }: { gameId: GameID; names: string[] }) => {
+      console.debug('suggestCommanders (app)', { gid, names, pendingLocalImport: pendingLocalImportRef.current, localImportConfirmOpen: localImportConfirmRef.current, confirmOpen });
+      if (!view || gid !== view.id) return;
+      if (localImportConfirmRef.current || pendingLocalImportRef.current || confirmOpen) {
+        setQueuedCommanderSuggest({ gameId: gid, names: Array.isArray(names) ? names.slice(0,2) : [] });
+        return;
+      }
+      setCmdSuggestNames(Array.isArray(names) ? names.slice(0, 2) : []);
+      setCmdSuggestOpen(true);
+    };
+    socket.on('suggestCommanders', onSuggest);
 
     return () => {
       socket.off('connect', onConnect);
@@ -213,8 +323,19 @@ export function App() {
       socket.off('scryPeek');
       socket.off('surveilPeek');
       socket.off('error');
+
+      socket.off('debugCommanderState');
+      socket.off('debugLibraryDump');
+      socket.off('debugImportedDeckBuffer');
+
+      socket.off('importWipeConfirmRequest', onRequest);
+      socket.off('importWipeConfirmUpdate', onUpdate);
+      socket.off('importWipeCancelled', onCancelled);
+      socket.off('importWipeConfirmed', onConfirmed);
+
+      socket.off('suggestCommanders', onSuggest);
     };
-  }, [name, joinAsSpectator, view?.id]);
+  }, [name, joinAsSpectator, view?.id, confirmId, view, confirmOpen, queuedCommanderSuggest]);
 
   const canPass = useMemo(() => !!view && !!you && view.priority === you, [view, you]);
   const isYouPlayer = useMemo(() => !!view && !!you && view.players.some(p => p.id === you), [view, you]);
@@ -373,59 +494,78 @@ export function App() {
     toggleChoose({ kind:'player', id: pid });
   };
 
-  const nextTurn = () => { if (view) socket.emit('nextTurn', { gameId: view.id }); };
-  const nextStep = () => { if (view) socket.emit('nextStep', { gameId: view.id }); };
-
-  const labelForTarget = (t: string) => {
-    if (!view) return t;
-    const [kind,id] = t.split(':');
-    if (kind === 'player') {
-      const p = view.players.find(x => x.id === id);
-      return p ? `Player: ${p.name}` : `Player:${id}`;
-    }
-    if (kind === 'permanent') {
-      const perm = (view.battlefield || []).find(b => b.id === id);
-      const nm = ((perm?.card as any)?.name) || id;
-      return `Permanent: ${nm}`;
-    }
-    if (kind === 'stack') {
-      const s = (view.stack || []).find(x => x.id === id);
-      const nm = ((s?.card as any)?.name) || id;
-      return `Spell: ${nm}`;
-    }
-    return t;
-  };
-
-  const confirmDisabledReason = useMemo(() => {
-    if (!targeting || !view || !you) return '';
-    if (targeting.chosen.size < targeting.min) return `Select at least ${targeting.min}`;
-    if (targeting.chosen.size > targeting.max) return `Select at most ${targeting.max}`;
-    if (view.priority !== you) return 'You must have priority';
-    if (targeting.manaCost) {
-      if (targeting.payment.length) {
-        const parsed = parseManaCost(targeting.manaCost);
-        const cost = { colors: parsed.colors, generic: parsed.generic + Math.max(0, Number(targeting.xValue||0)|0), hybrids: parsed.hybrids };
-        const pool = paymentToPool(targeting.payment);
-        if (!canPayEnhanced(cost, pool)) return 'Payment does not satisfy cost';
-      }
-    }
-    return '';
-  }, [targeting, view, you]);
-
-  const reorderEnabled = !!isYouPlayer && !targeting;
-
-  // Deck import
-  const importDeckText = (list: string, deckName?: string) => {
-    if (!view || !you) return;
+  // App-level wrappers to actually perform the emit — these MUST only be called after the user confirmed locally.
+  const requestImportDeck = useCallback((list: string, deckName?: string) => {
+    if (!view) return;
+    setPendingLocalImport(true);
     socket.emit('importDeck', { gameId: view.id, list, deckName });
-  };
+    // pendingLocalImport cleared when server emits importWipeConfirmed/importWipeCancelled
+  }, [view]);
 
-  const handleCommanderConfirm = (names: string[]) => {
-    if (!view || !you || !names.length) return;
+  const requestUseSavedDeck = useCallback((deckId: string) => {
+    if (!view) return;
+    setPendingLocalImport(true);
+    socket.emit('useSavedDeck', { gameId: view.id, deckId });
+  }, [view]);
+
+  // handler to receive local confirm open/close from TableLayout
+  const handleLocalImportConfirmChange = useCallback((open: boolean) => {
+    setLocalImportConfirmOpen(open);
+  }, []);
+
+  // handleCommanderConfirm: invoked when the user confirms commander selection in any component.
+  // If we are waiting for an import reset (pendingLocalImport) or local confirm is still open OR server confirm UI open,
+  // queue the selection instead of emitting setCommander; it will be applied after importWipeConfirmed.
+  const handleCommanderConfirm = useCallback((names: string[]) => {
+    if (!view || !you || !names || !names.length) return;
+    // If an import-reset is in progress or local client confirm is open or server confirm UI present, queue it.
+    if (pendingLocalImportRef.current || localImportConfirmRef.current || confirmOpen) {
+      setQueuedCommanderSuggest({ gameId: view.id, names: names.slice(0, 2) });
+      // ensure we won't show TableLayout-level modal while queued (TableLayout receives suppression prop)
+      return;
+    }
     socket.emit('setCommander', { gameId: view.id, commanderNames: names });
+  }, [view, you, confirmOpen]);
+
+  // Debug fetch: emits three debug requests and collects responses (used by Debug button)
+  const fetchDebug = useCallback(() => {
+    if (!view) return;
+    setDebugLoading(true);
+    setDebugData(null);
+    setDebugOpen(true);
+
+    const gid = view.id;
+    const onceWithTimeout = (eventName: string, timeout = 3000) =>
+      new Promise((resolve) => {
+        const onResp = (payload: any) => { resolve(payload); };
+        (socket as any).once(eventName, onResp);
+        setTimeout(() => { (socket as any).off(eventName, onResp); resolve({ error: 'timeout' }); }, timeout);
+      });
+
+    (socket as any).emit('dumpCommanderState', { gameId: gid });
+    (socket as any).emit('dumpLibrary', { gameId: gid });
+    (socket as any).emit('dumpImportedDeckBuffer', { gameId: gid });
+
+    Promise.all([
+      onceWithTimeout('debugCommanderState'),
+      onceWithTimeout('debugLibraryDump'),
+      onceWithTimeout('debugImportedDeckBuffer'),
+    ]).then(([commanderResp, libResp, bufResp]) => {
+      setDebugData({ commanderState: commanderResp, libraryDump: libResp, importBuffer: bufResp });
+      setDebugLoading(false);
+    }).catch((err) => {
+      setDebugData({ error: String(err) });
+      setDebugLoading(false);
+    });
+  }, [view]);
+
+  // Respond to server confirm (Accept/Decline)
+  const respondToConfirm = (accept: boolean) => {
+    if (!view || !confirmId || !you) return;
+    socket.emit('confirmImportResponse', { gameId: view.id, confirmId, accept });
+    setConfirmVotes((prev) => prev ? ({ ...prev, [you]: accept ? "yes" : "no" }) : prev);
   };
 
-  // Table vs Rows layout
   const isTable = layout === 'table';
 
   return (
@@ -433,12 +573,19 @@ export function App() {
       fontFamily:'system-ui',
       padding: 16,
       display: 'grid',
-      gridTemplateColumns: isTable ? '1fr' : '1fr 420px',
+      gridTemplateColumns: isTable ? '1fr' : '1.5fr 600px',
       gap: 16
     }}>
       <div>
         <h1>MTGEDH</h1>
         <div>Status: {connected ? 'connected' : 'disconnected'}</div>
+
+        {lastInfo && (
+          <div style={{ marginTop: 8, padding: 8, background: '#e6ffed', color: '#064e3b', border: '1px solid #bbf7d0', borderRadius: 6 }}>
+            {lastInfo} <button onClick={() => setLastInfo(null)} style={{ marginLeft: 8 }}>Dismiss</button>
+          </div>
+        )}
+
         {lastError && (
           <div style={{ marginTop: 8, padding: 8, background: '#fdecea', color: '#611a15', border: '1px solid #f5c2c0', borderRadius: 6 }}>
             {lastError} <button onClick={() => setLastError(null)} style={{ marginLeft: 8 }}>Dismiss</button>
@@ -454,6 +601,7 @@ export function App() {
           </label>
           <button onClick={handleJoin} disabled={!connected}>Join</button>
           <button onClick={() => socket.emit('requestState', { gameId })} disabled={!connected}>Refresh</button>
+          <button onClick={fetchDebug} disabled={!connected || !view}>Debug</button>
         </div>
 
         <div style={{ marginTop: 8 }}>
@@ -601,7 +749,7 @@ export function App() {
                   imagePref={imagePref}
                   isYouPlayer={!!isYouPlayer}
                   splitLands
-                  enableReorderForYou={reorderEnabled}
+                  enableReorderForYou={!!isYouPlayer && !targeting}
                   you={you || undefined}
                   zones={view.zones}
                   commandZone={view.commandZone as any}
@@ -627,7 +775,15 @@ export function App() {
                   tableCloth={{ imageUrl: clothUrl || undefined }}
                   worldSize={worldSize}
                   onUpdatePermPos={(id, x, y, z) => view && socket.emit('updatePermanentPos', { gameId: view.id, permanentId: id, x, y, z })}
-                  onImportDeckText={(txt, nm) => importDeckText(txt, nm)}
+                  // NOTE: TableLayout shows a local confirm and only calls these after the user confirms.
+                  onImportDeckText={(txt, nm) => requestImportDeck(txt, nm)}
+                  onUseSavedDeck={(deckId) => requestUseSavedDeck(deckId)}
+                  // App will be notified when TableLayout opens the local confirm so we can suppress commander modal.
+                  onLocalImportConfirmChange={(open: boolean) => handleLocalImportConfirmChange(open)}
+                  // Suppress TableLayout-level commander modal while local confirm or pendingLocalImport or server confirm is open
+                  suppressCommanderSuggest={localImportConfirmOpen || pendingLocalImport || confirmOpen}
+                  // App centrally handles commander confirmations (it will emit immediately or queue until import confirmation)
+                  onConfirmCommander={(names: string[]) => handleCommanderConfirm(names)}
                   gameId={view.id}
                   stackItems={view.stack as any}
                 />
@@ -751,7 +907,7 @@ export function App() {
                 </div>
                 <div style={{ display:'inline-flex', gap:8 }}>
                   <button onClick={cancelCast}>Cancel</button>
-                  <button onClick={confirmCast} disabled={!!confirmDisabledReason} title={confirmDisabledReason || 'Put on Stack'}>
+                  <button onClick={confirmCast} disabled={!!(targeting && (!view || !you || (targeting.chosen.size < targeting.min) || (view.priority !== you)))} title={'Put on Stack'}>
                     Put on Stack
                   </button>
                 </div>
@@ -778,6 +934,92 @@ export function App() {
       )}
 
       <CardPreviewLayer />
+
+      {/* App-level CommanderConfirmModal fallback */}
+      {cmdSuggestOpen && view && (
+        <CommanderConfirmModal
+          open={cmdSuggestOpen}
+          gameId={view.id}
+          initialNames={cmdSuggestNames}
+          onClose={() => { setCmdSuggestOpen(false); setCmdSuggestNames([]); }}
+          onConfirm={(names: string[]) => { handleCommanderConfirm(names); setCmdSuggestOpen(false); setCmdSuggestNames([]); }}
+        />
+      )}
+
+      {/* Debug modal */}
+      {debugOpen && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'rgba(0,0,0,0.6)',
+          zIndex: 6000
+        }}>
+          <div style={{ width: 900, maxHeight: '80vh', overflow: 'auto', background: '#1e1e1e', color: '#fff', padding: 12, borderRadius: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <strong>Debug Output</strong>
+              <div>
+                <button onClick={() => { setDebugOpen(false); setDebugData(null); }}>Close</button>
+                <button onClick={() => fetchDebug()} disabled={debugLoading} style={{ marginLeft: 8 }}>Refresh</button>
+              </div>
+            </div>
+            <div style={{ marginTop: 8, fontSize: 12 }}>
+              {debugLoading ? <div>Loading...</div> : (
+                <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 11 }}>
+                  {JSON.stringify(debugData, null, 2)}
+                </pre>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import-wipe confirmation modal */}
+      {confirmOpen && confirmPayload && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'rgba(0,0,0,0.6)',
+          zIndex: 7000
+        }}>
+          <div style={{ width: 560, background: '#1e1e1e', color: '#fff', padding: 16, borderRadius: 8 }}>
+            <h3 style={{ marginTop: 0 }}>Confirm importing deck (wipes table)</h3>
+            <div style={{ fontSize: 13, opacity: 0.9, marginBottom: 8 }}>
+              Player <strong>{confirmPayload.initiator}</strong> is importing a deck{confirmPayload.deckName ? `: ${confirmPayload.deckName}` : ''}.
+              This will wipe the current playfield and reset decks. All active players must agree.
+            </div>
+            <div style={{ display: 'flex', gap: 12, marginBottom: 8 }}>
+              <div>Resolved cards: {confirmPayload.resolvedCount}</div>
+              <div>Declared deck size: {confirmPayload.expectedCount}</div>
+            </div>
+
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Votes</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {confirmVotes ? Object.entries(confirmVotes).map(([pid, v]) => (
+                  <div key={pid} style={{ padding: 8, background: '#0f0f0f', borderRadius: 6, minWidth: 120 }}>
+                    <div style={{ fontSize: 12 }}>{pid}{pid === you ? " (you)" : ""}</div>
+                    <div style={{ fontWeight: 700, color: v === 'yes' ? '#8ef58e' : v === 'no' ? '#f58e8e' : '#ddd' }}>
+                      {v}
+                    </div>
+                  </div>
+                )) : <div>No votes yet</div>}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+              <button onClick={() => { setConfirmOpen(false); setConfirmPayload(null); setConfirmVotes(null); setConfirmId(null); }}>Dismiss</button>
+              <button onClick={() => respondToConfirm(false)} style={{ background: '#a00', color: '#fff' }}>Decline</button>
+              <button onClick={() => respondToConfirm(true)} style={{ background: '#0a8', color: '#fff' }}>Accept</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {peek && (
         <ScrySurveilModal
