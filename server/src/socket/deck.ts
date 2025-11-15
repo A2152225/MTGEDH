@@ -1,7 +1,10 @@
 // server/src/socket/deck.ts
 // Deck socket handlers: importDeck / useSavedDeck + confirmation flow
-// Improvements: idempotent applyConfirmedImport guard, ensure libraries updated after importResolved,
-// defensive handling to avoid repeating import side-effects on reconnects / retries.
+// Changes:
+// - If solo OR game phase is PRE_GAME/BEGINNING, skip the vote and apply import immediately for the importer only.
+// - Emit suggestCommanders to the importer socket only in immediate flow.
+// - Keep idempotent guards to avoid repeated applies on reconnects.
+// - Ensure libraries and zones reflect resolved cards so clients see correct libraryCount and that hand is cleared.
 
 import type { Server, Socket } from "socket.io";
 import {
@@ -66,8 +69,7 @@ function cancelConfirmation(io: Server, confirmId: string, reason = "cancelled")
  *  - If game._importApplying === true, skip concurrent invocation.
  *  - If game._lastImportAppliedBy === initiator && within REPEAT_WINDOW_MS, skip repeat apply.
  *
- * Also: after calling game.importDeckResolved, ensure game.libraries (if present) has the imported cards
- * so clients see libraryCount/library contents.
+ * After applying, broadcasts authoritative state and emits importWipeConfirmed to room.
  */
 async function applyConfirmedImport(io: Server, confirmId: string) {
   const p = pendingImportConfirmations.get(confirmId);
@@ -96,7 +98,7 @@ async function applyConfirmedImport(io: Server, confirmId: string) {
       const lastBy = (game as any)._lastImportAppliedBy;
       const lastAt = (game as any)._lastImportAppliedAt || 0;
       if (lastBy === p.initiator && (Date.now() - lastAt) < REPEAT_WINDOW_MS) {
-        console.info(`[import] applyConfirmedImport dedup skip recent apply game=${p.gameId} initiator=${p.initiator}`);
+        console.info(`[import] applyConfirmedImport dedupe skip recent apply game=${p.gameId} initiator=${p.initiator}`);
         pendingImportConfirmations.delete(confirmId);
         return;
       }
@@ -188,7 +190,7 @@ async function applyConfirmedImport(io: Server, confirmId: string) {
       console.warn("applyConfirmedImport: appendEvent failed", err);
     }
 
-    // 4) Opening-draw / commander suggestion handling
+    // 4) Opening-draw / (previously broadcast) commander suggestion handling
     try {
       const libCount = (() => {
         try {
@@ -222,7 +224,8 @@ async function applyConfirmedImport(io: Server, confirmId: string) {
         console.warn("applyConfirmedImport: pendingInitialDraw flagging failed", e);
       }
 
-      // Suggest commanders (clients will open modal; they will request imported candidates)
+      // NOTE: Suggestion emission to clients is handled by the caller in immediate/no-vote flows
+      // For safety, still attempt to broadcast to room (best-effort), but do not rely on it exclusively.
       try {
         const names = (() => {
           const cards = p.resolvedCards || [];
@@ -245,10 +248,11 @@ async function applyConfirmedImport(io: Server, confirmId: string) {
           return out.slice(0, 2);
         })();
 
-        io.to(p.gameId).emit("suggestCommanders", { gameId: p.gameId, names });
+        // Best-effort broadcast (clients will also call getImportedDeckCandidates)
+        try { io.to(p.gameId).emit("suggestCommanders", { gameId: p.gameId, names }); } catch (e) {}
         console.info(`[import] suggestCommanders broadcast names=${JSON.stringify(names)}`);
       } catch (e) {
-        console.warn("applyConfirmedImport: suggestCommanders emit failed", e);
+        console.warn("applyConfirmedImport: suggestCommanders broadcast failed", e);
       }
 
       // Broadcast authoritative state now (clients will request imported candidates and TableLayout will open gallery)
@@ -461,8 +465,55 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         cancelConfirmation(io, confirmId, "timeout");
       }, TIMEOUT_MS);
 
+      // Store pending so applyConfirmedImport can find it
       pendingImportConfirmations.set(confirmId, pending);
 
+      // Determine if we should auto-apply (solo OR pre-game / beginning)
+      const phaseStr = String(game.state?.phase || "").toUpperCase();
+      const pregame = phaseStr === "PRE_GAME" || phaseStr === "BEGINNING";
+      if (players.length <= 1 || pregame) {
+        // Immediate apply flow for importer-only
+        try {
+          // Emit suggestCommanders only to the importer (this socket)
+          const names = (() => {
+            const cards = resolvedCards || [];
+            const isLegendary = (tl?: string) => (tl || "").toLowerCase().includes("legendary");
+            const isEligibleType = (tl?: string) => {
+              const t = (tl || "").toLowerCase();
+              return t.includes("creature") || t.includes("planeswalker") || t.includes("background");
+            };
+            const hasPartnerish = (oracle?: string, tl?: string) => {
+              const o = (oracle || "").toLowerCase();
+              const t = (tl || "").toLowerCase();
+              return o.includes("partner") || o.includes("background") || t.includes("background");
+            };
+            const pool = cards.filter((c: any) => isLegendary(c.type_line) && isEligibleType(c.type_line));
+            const first = pool[0];
+            const second = pool.slice(1).find((c: any) => hasPartnerish(c.oracle_text, c.type_line));
+            const out: string[] = [];
+            if (first?.name) out.push(first.name);
+            if (second?.name && second.name !== first?.name) out.push(second.name);
+            return out.slice(0, 2);
+          })();
+
+          // send suggestion to importer only
+          try { socket.emit("suggestCommanders", { gameId, names }); } catch (e) { /* ignore */ }
+
+          // apply immediately (no vote)
+          setTimeout(() => {
+            applyConfirmedImport(io, confirmId).catch((err) => {
+              console.error("immediate applyConfirmedImport failed:", err);
+              cancelConfirmation(io, confirmId, "apply_failed");
+            });
+          }, 50); // small delay to allow client to receive suggestCommanders before state broadcast
+        } catch (e) {
+          console.warn("Immediate apply flow failed, falling back to confirm flow", e);
+          // fall through to normal confirm flow
+        }
+        return;
+      }
+
+      // Otherwise, normal confirm flow: emit request and update
       try {
         io.to(gameId).emit("importWipeConfirmRequest", {
           confirmId,
@@ -479,16 +530,6 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       }
 
       broadcastConfirmUpdate(io, confirmId, pending);
-
-      // Auto-apply for single-player games after a short delay (allow listeners to attach)
-      if (players.length <= 1) {
-        setTimeout(() => {
-          applyConfirmedImport(io, confirmId).catch((err) => {
-            console.error("auto applyConfirmedImport failed:", err);
-            cancelConfirmation(io, confirmId, "apply_failed");
-          });
-        }, 150);
-      }
     }
   );
 
@@ -669,26 +710,56 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
 
       pendingImportConfirmations.set(confirmId, pendingObj);
 
-      io.to(gameId).emit("importWipeConfirmRequest", {
-        confirmId,
-        gameId,
-        initiator: pid,
-        deckName: deck.name,
-        resolvedCount: resolved.length,
-        expectedCount: pendingObj.parsedCount,
-        players,
-        timeoutMs: 60_000,
-      });
+      // Determine if we should auto-apply (solo OR pre-game / beginning)
+      const phaseStr = String(game.state?.phase || "").toUpperCase();
+      const pregame = phaseStr === "PRE_GAME" || phaseStr === "BEGINNING";
+      if (players.length <= 1 || pregame) {
+        try {
+          const names = (() => {
+            const cards = resolved || [];
+            const isLegendary = (tl?: string) => (tl || "").toLowerCase().includes("legendary");
+            const isEligibleType = (tl?: string) => {
+              const t = (tl || "").toLowerCase();
+              return t.includes("creature") || t.includes("planeswalker") || t.includes("background");
+            };
+            const hasPartnerish = (oracle?: string, tl?: string) => {
+              const o = (oracle || "").toLowerCase();
+              const t = (tl || "").toLowerCase();
+              return o.includes("partner") || o.includes("background") || t.includes("background");
+            };
+            const pool = cards.filter((c: any) => isLegendary(c.type_line) && isEligibleType(c.type_line));
+            const first = pool[0];
+            const second = pool.slice(1).find((c: any) => hasPartnerish(c.oracle_text, c.type_line));
+            const out: string[] = [];
+            if (first?.name) out.push(first.name);
+            if (second?.name && second.name !== first?.name) out.push(second.name);
+            return out.slice(0, 2);
+          })();
 
-      broadcastConfirmUpdate(io, confirmId, pendingObj);
+          socket.emit("suggestCommanders", { gameId, names });
 
-      if (players.length <= 1) {
-        setTimeout(() => {
-          applyConfirmedImport(io, confirmId).catch((err) => {
-            console.error("auto applyConfirmedImport for useSavedDeck failed:", err);
-            cancelConfirmation(io, confirmId, "apply_failed");
-          });
-        }, 150);
+          setTimeout(() => {
+            applyConfirmedImport(io, confirmId).catch((err) => {
+              console.error("immediate applyConfirmedImport (useSavedDeck) failed:", err);
+              cancelConfirmation(io, confirmId, "apply_failed");
+            });
+          }, 50);
+        } catch (e) {
+          console.warn("useSavedDeck immediate apply failed, falling back to confirm flow", e);
+        }
+      } else {
+        io.to(gameId).emit("importWipeConfirmRequest", {
+          confirmId,
+          gameId,
+          initiator: pid,
+          deckName: deck.name,
+          resolvedCount: resolved.length,
+          expectedCount: pendingObj.parsedCount,
+          players,
+          timeoutMs: 60_000,
+        });
+
+        broadcastConfirmUpdate(io, confirmId, pendingObj);
       }
 
       socket.emit("deckApplied", { gameId, deck });
