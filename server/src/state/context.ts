@@ -1,115 +1,159 @@
-import { GameFormat, GamePhase } from "../../../shared/src";
+// server/src/state/context.ts
+// Create an in-memory runtime context for a single game instance.
+//
+// NOTE: this file uses only `import type` from the shared types to avoid
+// importing runtime values from shared (which are type-only here).
+// The returned context exposes a `state` object (authoritative snapshot)
+// and runtime helpers (libraries Map, rng, bumpSeq, etc.) used by state modules.
+
 import type {
-  GameID,
-  PlayerID,
-  PlayerRef,
   GameState,
-  CommanderInfo,
+  PlayerRef,
   PlayerZones,
   KnownCardRef,
-} from "../../../shared/src";
-import { mulberry32, hashStringToSeed } from "../utils/rng";
-import { uid } from "../utils";
+  PlayerID,
+} from "../../../shared/src/types";
 
-/**
- * GameContext holds the mutable in-memory state pieces and some helpers.
- * This mirrors the original monolithic context shape used by state modules.
- */
 export interface GameContext {
-  readonly gameId: GameID;
-  readonly state: GameState;
-  readonly life: Record<PlayerID, number>;
-  readonly poison: Record<PlayerID, number>;
-  readonly experience: Record<PlayerID, number>;
-  readonly commandZone: Record<PlayerID, CommanderInfo>;
-  readonly zones: Record<PlayerID, PlayerZones>;
-  readonly libraries: Map<PlayerID, KnownCardRef[]>;
-  readonly joinedBySocket: Map<string, { socketId: string; playerId: PlayerID; spectator: boolean }>;
-  readonly participantsList: Array<{ socketId: string; playerId: PlayerID; spectator: boolean }>;
-  readonly tokenToPlayer: Map<string, PlayerID>;
-  readonly playerToToken: Map<PlayerID, string>;
-  readonly grants: Map<PlayerID, Set<PlayerID>>;
-  readonly inactive: Set<PlayerID>;
-  readonly spectatorNames: Map<PlayerID, string>;
-  readonly pendingInitialDraw: Set<PlayerID>;
+  gameId: string;
+  state: GameState;
+  // runtime maps / caches
+  libraries: Map<PlayerID, KnownCardRef[]>;
+  zones: Record<PlayerID, PlayerZones>;
+  // public counters (runtime)
+  life: Record<PlayerID, number>;
+  poison: Record<PlayerID, number>;
+  experience: Record<PlayerID, number>;
+  commandZone: Record<PlayerID, any>;
+  // participant tracking
+  joinedBySocket: Map<string, { socketId: string; playerId: PlayerID; spectator: boolean }>;
+  participantsList: Array<{ socketId: string; playerId: PlayerID; spectator: boolean }>;
+  // token maps
+  tokenToPlayer: Map<string, PlayerID>;
+  playerToToken: Map<PlayerID, string>;
+  // grants / spectator names
+  grants: Map<PlayerID, Set<PlayerID>>;
+  inactive: Set<PlayerID>;
+  spectatorNames: Map<PlayerID, string>;
+  // pending initial draw set
+  pendingInitialDraw: Set<PlayerID>;
+
+  // RNG and sequencing helpers
   rngSeed: number | null;
   rng: () => number;
   seq: { value: number };
-  passesInRow: { value: number };
   bumpSeq: () => void;
+
+  // misc runtime helpers that modules may call
+  landsPlayedThisTurn?: Record<PlayerID, number>;
+  manaPool?: Record<PlayerID, any>;
+  // other internal transient flags & helpers
+  pendingInitialDrawFlag?: any;
 }
 
-export function createContext(gameId: GameID): GameContext {
-  const players: PlayerRef[] = [];
-  const commandZone: Record<PlayerID, CommanderInfo> = {} as Record<PlayerID, CommanderInfo>;
-  const zones: Record<PlayerID, PlayerZones> = {};
-  const life: Record<PlayerID, number> = {};
-  const poison: Record<PlayerID, number> = {};
-  const experience: Record<PlayerID, number> = {};
-  const libraries = new Map<PlayerID, KnownCardRef[]>();
-  const joinedBySocket = new Map<string, { socketId: string; playerId: PlayerID; spectator: boolean }>();
-  const participantsList: Array<{ socketId: string; playerId: PlayerID; spectator: boolean }> = [];
-  const tokenToPlayer = new Map<string, PlayerID>();
-  const playerToToken = new Map<PlayerID, string>();
-  const grants = new Map<PlayerID, Set<PlayerID>>();
-  const inactive = new Set<PlayerID>();
-  const spectatorNames = new Map<PlayerID, string>();
-  const pendingInitialDraw = new Set<PlayerID>();
+/**
+ * Deterministic PRNG (mulberry32)
+ * seeded with a 32-bit integer seed.
+ */
+function mulberry32(seed: number) {
+  let t = seed >>> 0;
+  return function () {
+    t = (t + 0x6d2b79f5) >>> 0;
+    let r = t;
+    r = Math.imul(r ^ (r >>> 15), r | 1);
+    r ^= r + Math.imul(r ^ (r >>> 7), r | 61);
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
-  // RNG seeded deterministically per-game id by default
-  let rngSeed: number | null = null;
-  let rng = mulberry32(hashStringToSeed(gameId));
+/** Simple hash string → 32-bit int seed (FNV-1a style) */
+function hashStringToSeed(s: string) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h >>> 0;
+}
+
+/**
+ * createContext(gameId)
+ *
+ * Returns a fresh in-memory GameContext for the given gameId.
+ * The returned context contains:
+ *  - a minimal authoritative GameState snapshot (state)
+ *  - runtime maps for libraries/zones and counters
+ *  - deterministic RNG seeded by gameId
+ *  - bumpSeq() which increments seq.value (used to signal visibility changes)
+ *
+ * Implementation notes:
+ * - We avoid importing runtime values from shared (shared contains only types
+ *   for our build in this code path). Use string literals for phase/format initializers.
+ */
+export function createContext(gameId: string): GameContext {
+  const rngSeed = hashStringToSeed(gameId);
+  const rng = mulberry32(rngSeed);
+
   const seq = { value: 0 };
-  const passesInRow = { value: 0 };
-
   function bumpSeq() {
     seq.value++;
   }
 
-  return {
+  // Minimal authoritative state snapshot. Keep shape compatible with ClientGameView.
+  const state: GameState = {
+    id: gameId,
+    // default format: commander (string union in shared types)
+    format: "commander" as any,
+    players: [],
+    startingLife: 40,
+    life: {},
+    turnPlayer: "" as any,
+    priority: "" as any,
+    turnDirection: 1,
+    stack: [],
+    battlefield: [],
+    commandZone: {} as any,
+    phase: "BEGINNING" as any,
+    step: undefined,
+    active: false,
+    zones: {},
+    status: undefined,
+    turnOrder: [],
+    startedAt: undefined,
+    turn: undefined,
+    activePlayerIndex: undefined,
+    landsPlayedThisTurn: undefined,
+  };
+
+  const ctx: GameContext = {
     gameId,
-    state: {
-      id: gameId,
-      // DEFAULT TO A SPECIFIC ENUM VALUE (not the whole enum object)
-      format: GameFormat.COMMANDER,
-      players: [],
-      startingLife: 40,
-      life: {},
-      turnPlayer: "" as any,
-      priority: "" as any,
-      turnDirection: 1,
-      stack: [],
-      battlefield: [],
-      commandZone: {},
-      phase: GamePhase.BEGINNING,
-      step: undefined,
-      active: false,
-      zones: {},
-      status: undefined,
-      turnOrder: [],
-      startedAt: undefined,
-      turn: undefined,
-      activePlayerIndex: undefined,
-      landsPlayedThisTurn: {},
-    } as GameState,
-    life,
-    poison,
-    experience,
-    commandZone,
-    zones,
-    libraries,
-    joinedBySocket,
-    participantsList,
-    tokenToPlayer,
-    playerToToken,
-    grants,
-    inactive,
-    spectatorNames,
-    pendingInitialDraw,
+    state,
+    libraries: new Map<PlayerID, KnownCardRef[]>(),
+    zones: {},
+    life: {},
+    poison: {},
+    experience: {},
+    commandZone: {} as any,
+    joinedBySocket: new Map(),
+    participantsList: [],
+    tokenToPlayer: new Map(),
+    playerToToken: new Map(),
+    grants: new Map(),
+    inactive: new Set(),
+    spectatorNames: new Map(),
+    pendingInitialDraw: new Set(),
+
     rngSeed,
     rng,
     seq,
-    passesInRow,
     bumpSeq,
+
+    // optional runtime containers (populated by other modules when used)
+    landsPlayedThisTurn: {},
+    manaPool: {},
   };
+
+  return ctx;
 }
+
+export default createContext;

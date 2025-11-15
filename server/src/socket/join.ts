@@ -4,12 +4,53 @@ import { appendEvent } from "../db";
 import { computeDiff } from "../utils/diff";
 import { games } from "./socket";
 
+/**
+ * Register join handlers.
+ * If a connecting player name is already in use by a currently connected player,
+ * emit "nameInUse" with options so the client can present:
+ *   - { action: 'reconnect', fixedPlayerId }
+ *   - { action: 'newName' }
+ *   - { action: 'cancel' }
+ *
+ * Client flow:
+ *  - On 'reconnect' the client should call joinGame again with fixedPlayerId set.
+ *  - On 'newName' the client should prompt for a new name and call joinGame again.
+ */
 export function registerJoinHandlers(io: Server, socket: Socket) {
   // Join a game
-  socket.on("joinGame", async ({ gameId, playerName, spectator, seatToken }) => {
+  socket.on("joinGame", async ({ gameId, playerName, spectator, seatToken, fixedPlayerId }) => {
     try {
       // Ensure the game exists
       const game = ensureGame(gameId);
+
+      // If a non-empty playerName is provided and no fixedPlayerId was provided,
+      // check for an existing player with that name who is already connected.
+      if (!fixedPlayerId && playerName) {
+        const existing = (game.state && Array.isArray(game.state.players))
+          ? (game.state.players as any[]).find((p) => String(p?.name || "").trim().toLowerCase() === String(playerName).trim().toLowerCase())
+          : undefined;
+
+        if (existing && existing.id) {
+          // is this player currently connected according to participants?
+          const participants = typeof (game as any).participants === "function" ? (game as any).participants() : ((game as any).participantsList || []);
+          const isConnected = participants.some((pp: any) => pp.playerId === existing.id);
+
+          if (isConnected) {
+            // Tell the connecting socket that the name is currently in use.
+            // Provide fixedPlayerId so the client may choose "Reconnect".
+            socket.emit("nameInUse", {
+              gameId,
+              playerName,
+              options: [
+                { action: "reconnect", fixedPlayerId: existing.id },
+                { action: "newName" },
+                { action: "cancel" },
+              ],
+            });
+            return;
+          }
+        }
+      }
 
       if (!game.hasRngSeed()) {
         const seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
@@ -21,7 +62,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
         socket.id,
         playerName,
         Boolean(spectator),
-        undefined,
+        fixedPlayerId,
         seatToken
       );
 
@@ -58,9 +99,9 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
           return;
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(`joinGame error for socket ${socket.id}:`, err);
-      socket.emit("error", { code: "JOIN_ERROR", message: err.message });
+      socket.emit("error", { code: "JOIN_ERROR", message: err?.message || String(err) });
     }
   });
 

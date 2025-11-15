@@ -10,13 +10,13 @@ import type {
   ServerToClientEvents,
   InterServerEvents,
   SocketData,
-} from "../shared/src";
+} from "../../shared/src/events";
 
 // Get the equivalent of __dirname in ES modules
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Key configurations
-const PORT = 3000;
+const PORT = Number(process.env.PORT || 3000);
 const BUILD_PATH = path.resolve(__dirname, "../../client/dist");
 
 // Initialize Express app
@@ -60,12 +60,6 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEve
 );
 
 // Register Socket.IO handlers
-io.on("connection", (socket) => {
-  console.log(`[Socket.IO] Client connected: ${socket.id}`);
-  socket.on("disconnect", (reason) => {
-    console.log(`[Socket.IO] Client disconnected: ${socket.id} (Reason: ${reason})`);
-  });
-});
 registerSocketHandlers(io);
 
 // Start the server
