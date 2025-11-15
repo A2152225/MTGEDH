@@ -264,7 +264,28 @@ export function App() {
     socket.on("importWipeConfirmed", onConfirmed);
 
     // Suggest commanders: request candidates and defer to TableLayout for gallery.
-    socket.on("suggestCommanders", ({ gameId: gid, names }: any) => {
+	socket.on("suggestCommanders", ({ gameId: gid, names }: any) => {
+  console.debug("[socket] suggestCommanders", { gameId: gid, names });
+  if (!view || gid !== view.id) return;
+
+  // Ask server for imported candidates for TableLayout
+  try {
+    socket.emit("getImportedDeckCandidates", { gameId: gid });
+  } catch (e) { /* ignore */ }
+
+  // If confirm/import flows are active, queue suggestion for later
+  if (localImportConfirmRef.current || pendingLocalImportRef.current || confirmOpen) {
+    setQueuedCommanderSuggest({ gameId: gid, names: Array.isArray(names) ? names.slice(0, 2) : [] });
+    return;
+  }
+
+  // Defer modal rendering to TableLayout entirely. TableLayout will open
+  // the card-based modal when importedCandidates arrive or will open its own
+  // text fallback after its internal wait.
+  // We still store the queued suggestion so App can surface it later if needed.
+  setQueuedCommanderSuggest({ gameId: gid, names: Array.isArray(names) ? names.slice(0, 2) : [] });
+});
+   /* socket.on("suggestCommanders", ({ gameId: gid, names }: any) => {
       console.debug("[socket] suggestCommanders", { gameId: gid, names });
       if (!view || gid !== view.id) return;
 
@@ -302,7 +323,7 @@ export function App() {
         }
         fallbackTimerRef.current = null;
       }, WAIT_MS) as unknown as number;
-    });
+    });*/
 
     const onNameInUse = (payload: any) => {
       setNameInUsePayload(payload);
