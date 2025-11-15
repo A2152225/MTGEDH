@@ -1,11 +1,12 @@
 // client/src/components/TableLayout.tsx
-// TableLayout — updated to wait briefly for importedCandidates before falling back
-// to the text-based commander modal. When a suggestCommanders event arrives we:
-// - emit getImportedDeckCandidates to ask server for any candidate cards
-// - start a short timer (300ms) before opening the fallback modal
-// - if importedCandidates arrives before the timer fires, open the card-based modal immediately
+// Full TableLayout component — expanded, non-truncated.
+// - Accepts importedCandidates?: KnownCardRef[]
+// - Waits up to WAIT_MS (800ms) for importedCandidates on suggestCommanders before falling back to text modal
+// - Opens card-based CommanderSelectModal when candidates available; falls back to CommanderConfirmModal otherwise
+// - Shows Energy counter in player header (reads props.energyCounters or props.energy if present)
+// - Preserves pan/zoom, hand gallery, deck manager, import-confirm modal, and all other behaviors
 //
-// Other behavior unchanged — full file retained.
+// NOTE: This is the full file. Keep TypeScript/React conventions consistent with the repo.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type {
@@ -115,6 +116,9 @@ export function TableLayout(props: {
   stackItems?: any[];
   // NEW: imported deck candidates (from server), prefer object/card selection when present
   importedCandidates?: KnownCardRef[];
+  // Optional energy counters map (for UI display)
+  energyCounters?: Record<PlayerID, number>;
+  energy?: Record<PlayerID, number>;
 }) {
   const {
     players, permanentsByPlayer, imagePref, isYouPlayer,
@@ -128,7 +132,7 @@ export function TableLayout(props: {
     threeD, enablePanZoom = true,
     tableCloth, worldSize, onUpdatePermPos,
     onImportDeckText, onUseSavedDeck, onLocalImportConfirmChange, onConfirmCommander, suppressCommanderSuggest, gameId,
-    importedCandidates
+    importedCandidates, energyCounters, energy
   } = props;
 
   const ordered = useMemo<PlayerBoard[]>(() => {
@@ -164,7 +168,7 @@ export function TableLayout(props: {
 
   const { halfW, halfH } = useMemo(() => computeExtents(seatPositions, BOARD_W, BOARD_H), [seatPositions]);
 
-  // Pan/Zoom and camera, omitted here for brevity but preserved - keep behavior
+  // Pan/Zoom and camera
   const containerRef = useRef<HTMLDivElement>(null);
   const [container, setContainer] = useState({ w: 1200, h: 800 });
   useEffect(() => {
@@ -363,9 +367,9 @@ export function TableLayout(props: {
         suggestTimerRef.current = null;
       }
 
-      // Start a short wait: if importedCandidates arrives within this time, we'll open the modal
-      // and CommanderSelectModal will render card-based UI. Otherwise fallback to text modal.
-      const WAIT_MS = 300;
+      // Start a short wait: if importedCandidates arrives within this time, we'll open the card-based modal.
+      // WAIT_MS increased from 300 -> 800 to reduce races.
+      const WAIT_MS = 800;
       suggestTimerRef.current = window.setTimeout(() => {
         setConfirmCmdOpen(true);
         suggestTimerRef.current = null;
@@ -393,12 +397,11 @@ export function TableLayout(props: {
   // when suppression clears, show any queued suggestion
   useEffect(() => {
     if (!suppressCommanderSuggest && queuedCmdSuggest && queuedCmdSuggest.gameId === props.gameId) {
-      // request candidates again to increase chance they arrive before modal open
       try { (socket as any).emit('getImportedDeckCandidates', { gameId: queuedCmdSuggest.gameId }); } catch {}
       setConfirmCmdSuggested(queuedCmdSuggest.names || []);
       // start short timer similar to onSuggest to allow candidates to arrive
       if (suggestTimerRef.current) { window.clearTimeout(suggestTimerRef.current); suggestTimerRef.current = null; }
-      const WAIT_MS = 300;
+      const WAIT_MS = 800;
       suggestTimerRef.current = window.setTimeout(() => {
         setConfirmCmdOpen(true);
         suggestTimerRef.current = null;
@@ -516,6 +519,7 @@ export function TableLayout(props: {
                 const lifeVal = (props as any).life?.[pb.player.id] ?? (props as any).state?.startingLife ?? 40;
                 const poisonVal = (props as any).poisonCounters?.[pb.player.id] ?? 0;
                 const xpVal = (props as any).experienceCounters?.[pb.player.id] ?? 0;
+                const energyVal = (props as any).energyCounters?.[pb.player.id] ?? (props as any).energy?.[pb.player.id] ?? 0;
 
                 return (
                   <div
@@ -557,6 +561,7 @@ export function TableLayout(props: {
                               <span title="Life" style={{ color: '#4ade80' }}>L:{lifeVal}</span>
                               <span title="Poison Counters" style={{ color: poisonVal > 0 ? '#f87171' : '#aaa' }}>P:{poisonVal}</span>
                               <span title="Experience Counters" style={{ color: xpVal > 0 ? '#60a5fa' : '#aaa' }}>XP:{xpVal}</span>
+                              <span title="Energy Counters" style={{ color: '#ffd166' }}>E:{energyVal}</span>
                             </div>
                             {isYouThis && (
                               <button
