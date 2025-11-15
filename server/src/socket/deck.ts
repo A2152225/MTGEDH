@@ -1,8 +1,7 @@
 // server/src/socket/deck.ts
 // Deck socket handlers: importDeck / useSavedDeck + confirmation flow
-// Added: emit 'deckImportMissing' to initiating socket and emit a system chat message
-// when any card names failed to resolve during import. Also apply defensive state
-// fixes after applying confirmed import to ensure life/zones are initialized.
+// Improvements: idempotent applyConfirmedImport guard, ensure libraries updated after importResolved,
+// defensive handling to avoid repeating import side-effects on reconnects / retries.
 
 import type { Server, Socket } from "socket.io";
 import {
@@ -60,6 +59,16 @@ function cancelConfirmation(io: Server, confirmId: string, reason = "cancelled")
   pendingImportConfirmations.delete(confirmId);
 }
 
+/**
+ * applyConfirmedImport - idempotent / reentrancy-safe application of confirmed import.
+ *
+ * Guards:
+ *  - If game._importApplying === true, skip concurrent invocation.
+ *  - If game._lastImportAppliedBy === initiator && within REPEAT_WINDOW_MS, skip repeat apply.
+ *
+ * Also: after calling game.importDeckResolved, ensure game.libraries (if present) has the imported cards
+ * so clients see libraryCount/library contents.
+ */
 async function applyConfirmedImport(io: Server, confirmId: string) {
   const p = pendingImportConfirmations.get(confirmId);
   if (!p) return;
@@ -67,12 +76,33 @@ async function applyConfirmedImport(io: Server, confirmId: string) {
     try { clearTimeout(p.timeout); } catch {}
   }
 
+  const REPEAT_WINDOW_MS = 5_000;
+
   try {
     const game = ensureGame(p.gameId);
     if (!game) {
       io.to(p.gameId).emit("importWipeCancelled", { confirmId, gameId: p.gameId, by: p.initiator, reason: "game_not_found" });
       pendingImportConfirmations.delete(confirmId);
       return;
+    }
+
+    // Reentrancy / idempotency guards on game object
+    try {
+      if ((game as any)._importApplying) {
+        console.info(`[import] applyConfirmedImport skipped because another apply in progress game=${p.gameId}`);
+        pendingImportConfirmations.delete(confirmId);
+        return;
+      }
+      const lastBy = (game as any)._lastImportAppliedBy;
+      const lastAt = (game as any)._lastImportAppliedAt || 0;
+      if (lastBy === p.initiator && (Date.now() - lastAt) < REPEAT_WINDOW_MS) {
+        console.info(`[import] applyConfirmedImport dedup skip recent apply game=${p.gameId} initiator=${p.initiator}`);
+        pendingImportConfirmations.delete(confirmId);
+        return;
+      }
+      (game as any)._importApplying = true;
+    } catch (e) {
+      console.warn("applyConfirmedImport: could not set _importApplying guard", e);
     }
 
     console.info(`[import] applyConfirmedImport start game=${p.gameId} initiator=${p.initiator} cards=${p.resolvedCards.length}`);
@@ -93,6 +123,7 @@ async function applyConfirmedImport(io: Server, confirmId: string) {
     // 2) Import into authoritative game state
     try {
       if (typeof (game as any).importDeckResolved === "function") {
+        // call authoritative import
         (game as any).importDeckResolved(p.initiator, p.resolvedCards);
       } else {
         // best-effort: if game has libraries map
@@ -100,6 +131,11 @@ async function applyConfirmedImport(io: Server, confirmId: string) {
           const L = (game as any).libraries;
           if (L && typeof L.set === "function") {
             L.set(p.initiator, p.resolvedCards.map((c) => ({ ...c, zone: "library" })));
+          } else if ((game.state as any).zones) {
+            // fallback: populate state.zones
+            (game.state as any).zones = (game.state as any).zones || {};
+            (game.state as any).zones[p.initiator] = (game.state as any).zones[p.initiator] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+            (game.state as any).zones[p.initiator].libraryCount = p.resolvedCards.length;
           }
         } catch {}
       }
@@ -108,12 +144,33 @@ async function applyConfirmedImport(io: Server, confirmId: string) {
       console.error("applyConfirmedImport: game.importDeckResolved failed", err);
     }
 
+    // Ensure libraries set for UI if importDeckResolved didn't populate it
+    try {
+      const L = (game as any).libraries;
+      if (L && typeof L.get === "function") {
+        const arr = L.get(p.initiator) || [];
+        if ((!arr || arr.length === 0) && p.resolvedCards && p.resolvedCards.length > 0) {
+          try {
+            L.set(p.initiator, p.resolvedCards.map((c: any) => ({ ...c, zone: "library" })));
+            // ensure zones libraryCount reflects
+            (game.state as any).zones = (game.state as any).zones || {};
+            (game.state as any).zones[p.initiator] = (game.state as any).zones[p.initiator] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+            (game.state as any).zones[p.initiator].libraryCount = p.resolvedCards.length;
+            console.info(`[import] libraries.set populated for player=${p.initiator} count=${p.resolvedCards.length}`);
+          } catch (e) {
+            console.warn("applyConfirmedImport: failed to set libraries map fallback", e);
+          }
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+
     // Defensive: ensure life & zones exist for player (avoid UI showing 0s or missing zones)
     try {
       const starting = (game.state && (game.state as any).startingLife) || 40;
       if ((game as any).life) (game as any).life[p.initiator] = starting;
       if ((game.state as any).life) (game.state as any).life[p.initiator] = starting;
-      // ensure zones object for player exists and hand cleared
       (game.state as any).zones = (game.state as any).zones || {};
       (game.state as any).zones[p.initiator] = (game.state as any).zones[p.initiator] || { hand: [], handCount: 0, libraryCount: ((game as any).libraries && typeof (game as any).libraries.get === "function" ? ((game as any).libraries.get(p.initiator) || []).length : 0), graveyard: [], graveyardCount: 0 };
       if ((game.state as any).zones[p.initiator].hand && Array.isArray((game.state as any).zones[p.initiator].hand)) {
@@ -151,78 +208,54 @@ async function applyConfirmedImport(io: Server, confirmId: string) {
       const isCommanderFmt = String(game.state.format).toLowerCase() === "commander";
       console.info(`[import] pre-opening state game=${p.gameId} player=${p.initiator} libCount=${libCount} handCount=${handCountBefore} commanderFmt=${isCommanderFmt}`);
 
-      if (handCountBefore === 0) {
-        if (isCommanderFmt) {
-          // flag pending opening draw so setCommander can complete draw after selection
-          try {
-            if (typeof (game as any).flagPendingOpeningDraw === "function") {
-              (game as any).flagPendingOpeningDraw(p.initiator);
-            } else {
-              (game as any).pendingInitialDraw = (game as any).pendingInitialDraw || new Set<PlayerID>();
-              (game as any).pendingInitialDraw.add(p.initiator);
-            }
-            console.info(`[import] pendingInitialDraw flagged for player=${p.initiator} game=${p.gameId}`);
-          } catch (e) {
-            console.warn("applyConfirmedImport: flagPendingOpeningDraw failed", e);
-          }
-
-          // Broadcast authoritative state now (so client sees imported library/zones)
-          try {
-            broadcastGame(io, game, p.gameId);
-          } catch (e) {
-            console.warn("applyConfirmedImport: broadcastGame failed", e);
-          }
-
-          // Suggest commander names to participants via server event - clients will open modal as appropriate
-          try {
-            const names = (() => {
-              const cards = p.resolvedCards || [];
-              const isLegendary = (tl?: string) => (tl || "").toLowerCase().includes("legendary");
-              const isEligibleType = (tl?: string) => {
-                const t = (tl || "").toLowerCase();
-                return t.includes("creature") || t.includes("planeswalker") || t.includes("background");
-              };
-              const hasPartnerish = (oracle?: string, tl?: string) => {
-                const o = (oracle || "").toLowerCase();
-                const t = (tl || "").toLowerCase();
-                return o.includes("partner") || o.includes("background") || t.includes("background");
-              };
-              const pool = cards.filter((c: any) => isLegendary(c.type_line) && isEligibleType(c.type_line));
-              const first = pool[0];
-              const second = pool.slice(1).find((c: any) => hasPartnerish(c.oracle_text, c.type_line));
-              const out: string[] = [];
-              if (first?.name) out.push(first.name);
-              if (second?.name && second.name !== first?.name) out.push(second.name);
-              return out.slice(0, 2);
-            })();
-
-            io.to(p.gameId).emit("suggestCommanders", { gameId: p.gameId, names });
-            console.info(`[import] suggestCommanders broadcast names=${JSON.stringify(names)}`);
-          } catch (e) {
-            console.warn("applyConfirmedImport: suggestCommanders emit failed", e);
-          }
-
-          // Do not draw here — setCommander will handle it
+      // Flag pendingInitialDraw (state-layer may already do this in importDeckResolved)
+      try {
+        if ((game as any).pendingInitialDraw && typeof (game as any).pendingInitialDraw.add === "function") {
+          (game as any).pendingInitialDraw.add(p.initiator);
+          console.info(`[import] pendingInitialDraw flagged for player=${p.initiator} game=${p.gameId}`);
         } else {
-          // Non-commander: shuffle + draw immediately
-          try {
-            if (typeof (game as any).shuffleLibrary === "function") {
-              (game as any).shuffleLibrary(p.initiator);
-              appendEvent(p.gameId, game.seq, "shuffleLibrary", { playerId: p.initiator });
-            }
-            if (typeof (game as any).drawCards === "function") {
-              (game as any).drawCards(p.initiator, 7);
-              appendEvent(p.gameId, game.seq, "drawCards", { playerId: p.initiator, count: 7 });
-            }
-            console.info(`[import] non-commander opening draw done for player=${p.initiator}`);
-          } catch (e) {
-            console.warn("applyConfirmedImport: shuffle/draw failed", e);
-          }
+          (game as any).pendingInitialDraw = (game as any).pendingInitialDraw || new Set<PlayerID>();
+          (game as any).pendingInitialDraw.add(p.initiator);
+          console.info(`[import] pendingInitialDraw (fallback) flagged for player=${p.initiator} game=${p.gameId}`);
         }
-      } else {
-        // handCountBefore > 0 -- nothing to do for opening draw
-        try { broadcastGame(io, game, p.gameId); } catch (e) { console.warn("broadcastGame failed", e); }
-        console.info(`[import] handCountBefore > 0; skipping opening draw for player=${p.initiator}`);
+      } catch (e) {
+        console.warn("applyConfirmedImport: pendingInitialDraw flagging failed", e);
+      }
+
+      // Suggest commanders (clients will open modal; they will request imported candidates)
+      try {
+        const names = (() => {
+          const cards = p.resolvedCards || [];
+          const isLegendary = (tl?: string) => (tl || "").toLowerCase().includes("legendary");
+          const isEligibleType = (tl?: string) => {
+            const t = (tl || "").toLowerCase();
+            return t.includes("creature") || t.includes("planeswalker") || t.includes("background");
+          };
+          const hasPartnerish = (oracle?: string, tl?: string) => {
+            const o = (oracle || "").toLowerCase();
+            const t = (tl || "").toLowerCase();
+            return o.includes("partner") || o.includes("background") || t.includes("background");
+          };
+          const pool = cards.filter((c: any) => isLegendary(c.type_line) && isEligibleType(c.type_line));
+          const first = pool[0];
+          const second = pool.slice(1).find((c: any) => hasPartnerish(c.oracle_text, c.type_line));
+          const out: string[] = [];
+          if (first?.name) out.push(first.name);
+          if (second?.name && second.name !== first?.name) out.push(second.name);
+          return out.slice(0, 2);
+        })();
+
+        io.to(p.gameId).emit("suggestCommanders", { gameId: p.gameId, names });
+        console.info(`[import] suggestCommanders broadcast names=${JSON.stringify(names)}`);
+      } catch (e) {
+        console.warn("applyConfirmedImport: suggestCommanders emit failed", e);
+      }
+
+      // Broadcast authoritative state now (clients will request imported candidates and TableLayout will open gallery)
+      try {
+        broadcastGame(io, game, p.gameId);
+      } catch (e) {
+        console.warn("applyConfirmedImport: broadcastGame failed", e);
       }
     } catch (err) {
       console.warn("applyConfirmedImport: opening draw flow failed", err);
@@ -255,7 +288,14 @@ async function applyConfirmedImport(io: Server, confirmId: string) {
     } catch (err) {
       console.warn("applyConfirmedImport: final broadcast/notify failed", err);
     }
+
+    // record last-applied stamp for dedupe
+    try {
+      (game as any)._lastImportAppliedBy = p.initiator;
+      (game as any)._lastImportAppliedAt = Date.now();
+    } catch (e) { /* ignore */ }
   } finally {
+    try { const game = ensureGame(p.gameId); if (game) (game as any)._importApplying = false; } catch {}
     pendingImportConfirmations.delete(confirmId);
     console.info(`[import] applyConfirmedImport complete game=${p.gameId} initiator=${p.initiator}`);
   }

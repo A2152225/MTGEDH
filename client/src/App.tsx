@@ -1,13 +1,10 @@
 // client/src/App.tsx
 // Full App component (named + default export).
-// Merged: restores original behavior and length while preserving fixes:
-// - showNameInUseModal state present and wired
-// - listens for importedDeckCandidates and passes importedCandidates into TableLayout
-// - handleCommanderConfirm accepts optional commanderIds and emits them when available
-// - chat sender display maps player IDs -> names when view is present
-// - preserves import confirm workflow, debug, toolbars, and other UI flows
-// - On importWipeConfirmed: clears local hand for importer immediately and requests imported candidates
-// - On suggestCommanders: requests imported candidates and defers modal rendering to TableLayout (so card-based modal is used)
+// Changes in this variant:
+//  - Increased text-fallback wait for suggestCommanders to 900ms and cancel fallback if importedCandidates arrive.
+//  - Added debug console logs for suggest/import events and state updates.
+//  - Ensure Next Step/Next Turn buttons use canAdvanceStep / canAdvanceTurn logic for enabling.
+//  - Keeps existing behavior: listens to importedDeckCandidates and passes to TableLayout.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { socket } from "./socket";
@@ -37,21 +34,21 @@ function lastJoinKey() {
 function clamp(n: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, n)); }
 
 /* Small ChatPanel component */
-function ChatPanel({ messages, onSend, view }: { messages: ChatMsg[]; onSend: (t: string) => void; view?: ClientGameView | null; }) {
+function ChatPanel({ messages, onSend, view }: { messages: ChatMsg[]; onSend: (text: string) => void; view?: ClientGameView | null; }) {
   const [text, setText] = useState("");
   const endRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages.length]);
-
-  const displaySender = (from: string | "system") => {
-    if (from === "system") return "system";
-    const player = view?.players?.find((p: any) => p.id === from);
-    return player?.name || from;
-  };
 
   const submit = () => {
     if (!text.trim()) return;
     onSend(text.trim());
     setText("");
+  };
+
+  const displaySender = (from: string | "system") => {
+    if (from === "system") return "system";
+    const player = view?.players?.find((p: any) => p.id === from);
+    return player?.name || from;
   };
 
   return (
@@ -67,6 +64,7 @@ function ChatPanel({ messages, onSend, view }: { messages: ChatMsg[]; onSend: (t
         ))}
         <div ref={endRef} />
       </div>
+
       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
         <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === "Enter") submit(); }} placeholder="Type message..." style={{ flex: 1 }} />
         <button onClick={submit}>Send</button>
@@ -83,7 +81,7 @@ export function App() {
   const [name, setName] = useState("Player");
   const [joinAsSpectator, setJoinAsSpectator] = useState(false);
 
-  // Name-in-use modal state — FIX for ReferenceError
+  // Name-in-use modal state
   const [nameInUsePayload, setNameInUsePayload] = useState<any | null>(null);
   const [showNameInUseModal, setShowNameInUseModal] = useState(false);
 
@@ -118,6 +116,13 @@ export function App() {
   const [confirmVotes, setConfirmVotes] = useState<Record<string, "pending" | "yes" | "no"> | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
 
+  // commander suggestion handling
+  const [cmdSuggestOpen, setCmdSuggestOpen] = useState(false);
+  const [cmdSuggestNames, setCmdSuggestNames] = useState<string[]>([]);
+  const [queuedCommanderSuggest, setQueuedCommanderSuggest] = useState<{ gameId: GameID; names: string[] } | null>(null);
+
+  const [importedCandidates, setImportedCandidates] = useState<KnownCardRef[]>([]);
+
   const [pendingLocalImport, setPendingLocalImport] = useState(false);
   const pendingLocalImportRef = useRef<boolean>(false);
   useEffect(() => { pendingLocalImportRef.current = pendingLocalImport; }, [pendingLocalImport]);
@@ -126,11 +131,8 @@ export function App() {
   const localImportConfirmRef = useRef<boolean>(false);
   useEffect(() => { localImportConfirmRef.current = localImportConfirmOpen; }, [localImportConfirmOpen]);
 
-  const [cmdSuggestOpen, setCmdSuggestOpen] = useState(false);
-  const [cmdSuggestNames, setCmdSuggestNames] = useState<string[]>([]);
-  const [queuedCommanderSuggest, setQueuedCommanderSuggest] = useState<{ gameId: GameID; names: string[] } | null>(null);
-
-  const [importedCandidates, setImportedCandidates] = useState<KnownCardRef[]>([]);
+  // fallback timer ref for App-level fallback modal
+  const fallbackTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     const onConnect = () => {
@@ -150,12 +152,21 @@ export function App() {
       setYou(youId);
       lastJoinRef.current = { gameId: joinedGameId, name, spectator: joinAsSpectator };
       if (seatToken) sessionStorage.setItem(seatTokenKey(joinedGameId, name), seatToken);
+      console.debug("[socket] joined", { you: youId, gameId: joinedGameId });
     });
 
-    socket.on("state", ({ view }: any) => setView(view));
+    socket.on("state", ({ view: newView }: any) => {
+      setView(newView);
+      console.debug("[socket] state", newView);
+    });
     socket.on("stateDiff", ({ diff }: any) => {
-      if (diff?.full) setView(diff.full);
-      else if (diff?.after) setView(diff.after);
+      if (diff?.full) {
+        setView(diff.full);
+        console.debug("[socket] stateDiff full", diff.full);
+      } else if (diff?.after) {
+        setView(diff.after);
+        console.debug("[socket] stateDiff after", diff.after);
+      }
     });
 
     socket.on("priority", ({ player }: any) => setPriority(player));
@@ -164,7 +175,16 @@ export function App() {
       setChat(prev => [...prev.slice(-199), msg]);
     });
 
-    socket.on("importedDeckCandidates", ({ candidates }: any) => setImportedCandidates(Array.isArray(candidates) ? candidates : []));
+    socket.on("importedDeckCandidates", ({ candidates }: any) => {
+      const arr = Array.isArray(candidates) ? candidates : [];
+      setImportedCandidates(arr);
+      console.debug("[socket] importedDeckCandidates received", arr);
+      // If fallback timer exists, cancel it: gallery modal should open in TableLayout
+      if (fallbackTimerRef.current) {
+        window.clearTimeout(fallbackTimerRef.current);
+        fallbackTimerRef.current = null;
+      }
+    });
 
     socket.on("deckImportMissing", ({ gameId: gid, missing }: any) => {
       setMissingImport(Array.isArray(missing) ? missing : []);
@@ -190,9 +210,7 @@ export function App() {
     };
     const onUpdate = (update: any) => {
       if (!update || !update.confirmId) return;
-      if (!confirmId || update.confirmId === confirmId) {
-        setConfirmVotes(update.responses);
-      }
+      if (!confirmId || update.confirmId === confirmId) setConfirmVotes(update.responses);
     };
     const onCancelled = (info: any) => {
       if (!info || !info.confirmId) return;
@@ -221,7 +239,6 @@ export function App() {
           if (view && info && info.gameId === view.id && info.by && you && info.by === you) {
             setView(prev => {
               if (!prev) return prev;
-              // shallow clone view and zones for safe update
               const copy: any = { ...prev, zones: { ...(prev.zones || {}) } };
               copy.zones[you] = { ...(copy.zones[you] || {}), hand: [], handCount: 0 };
               return copy;
@@ -230,7 +247,7 @@ export function App() {
             socket.emit("getImportedDeckCandidates", { gameId: info.gameId });
           }
         } catch (e) {
-          // ignore
+          console.warn("import confirm local-hand-clear failed:", e);
         }
 
         if (queuedCommanderSuggest && view && queuedCommanderSuggest.gameId === view.id) {
@@ -246,31 +263,45 @@ export function App() {
     socket.on("importWipeCancelled", onCancelled);
     socket.on("importWipeConfirmed", onConfirmed);
 
-    // suggestion handling: prefer TableLayout's modal (card selection). App defers opening card modal.
+    // Suggest commanders: request candidates and defer to TableLayout for gallery.
     socket.on("suggestCommanders", ({ gameId: gid, names }: any) => {
+      console.debug("[socket] suggestCommanders", { gameId: gid, names });
       if (!view || gid !== view.id) return;
-      // request imported candidates for this client (TableLayout uses importedCandidates prop)
+
+      // ask server for imported candidates that TableLayout can use
       socket.emit("getImportedDeckCandidates", { gameId: gid });
 
-      // If suppressed (import confirm etc.) queue suggestion for later
+      // If suppressed or import flows active, queue
       if (localImportConfirmRef.current || pendingLocalImportRef.current || confirmOpen) {
         setQueuedCommanderSuggest({ gameId: gid, names: Array.isArray(names) ? names.slice(0, 2) : [] });
         return;
       }
 
-      // Do NOT open App-level text modal here; TableLayout will handle suggestCommanders and show the card-based modal
-      // But keep a fallback for older flows: set queued names so App can open if TableLayout doesn't (rare)
-      setQueuedCommanderSuggest({ gameId: gid, names: Array.isArray(names) ? names.slice(0, 2) : [] });
-      // Slightly delay opening fallback to allow TableLayout to act first
-      setTimeout(() => {
-        // If TableLayout didn't open modal (no candidates), show text fallback
-        // Heuristic: if importedCandidates is empty after a short wait, open text fallback
+      // We start a fallback timer to open App-level text modal if no candidates arrive.
+      // WAIT_MS: 900ms (give TableLayout/generation time); cancel if importedCandidates arrive.
+      if (fallbackTimerRef.current) {
+        window.clearTimeout(fallbackTimerRef.current);
+        fallbackTimerRef.current = null;
+      }
+      const namesList = Array.isArray(names) ? names.slice(0, 2) : [];
+      // Save candidate names into queued state; TableLayout may open modal itself from 'suggestCommanders' event.
+      setQueuedCommanderSuggest({ gameId: gid, names: namesList });
+
+      // Schedule fallback if no importedCandidates arrive in WAIT_MS
+      const WAIT_MS = 900;
+      fallbackTimerRef.current = window.setTimeout(() => {
+        // If importedCandidates not present, open App-level text modal as fallback
         if (!importedCandidates || importedCandidates.length === 0) {
-          setCmdSuggestNames(Array.isArray(names) ? names.slice(0, 2) : []);
+          setCmdSuggestNames(namesList);
           setCmdSuggestOpen(true);
           setQueuedCommanderSuggest(null);
+        } else {
+          // importedCandidates present: TableLayout should open gallery modal
+          // ensure queued suggestion cleared
+          setQueuedCommanderSuggest(null);
         }
-      }, 250);
+        fallbackTimerRef.current = null;
+      }, WAIT_MS) as unknown as number;
     });
 
     const onNameInUse = (payload: any) => {
@@ -304,6 +335,11 @@ export function App() {
 
       socket.off("suggestCommanders");
       socket.off("nameInUse", onNameInUse);
+
+      if (fallbackTimerRef.current) {
+        window.clearTimeout(fallbackTimerRef.current);
+        fallbackTimerRef.current = null;
+      }
     };
   }, [name, joinAsSpectator, view?.id, confirmId, view, confirmOpen, queuedCommanderSuggest, importedCandidates, you]);
 
@@ -380,6 +416,16 @@ export function App() {
   const canPass = !!view && !!you && view.priority === you;
   const isYouPlayer = !!view && !!you && view.players.some(p => p.id === you);
 
+  // determine whether Next Step/Turn should be enabled: allow turnPlayer or pre-game first seat
+  const canAdvanceStep = useMemo(() => {
+    if (!view || !you) return false;
+    if (view.turnPlayer === you) return true;
+    if ((String(view.phase || "").toUpperCase() === "PRE_GAME") && (view.players?.[0]?.id === you)) return true;
+    return false;
+  }, [view, you]);
+
+  const canAdvanceTurn = canAdvanceStep;
+
   return (
     <div style={{ padding: 12, fontFamily: "system-ui", display: "grid", gridTemplateColumns: isTable ? "1fr" : "1.2fr 380px", gap: 12 }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -391,8 +437,8 @@ export function App() {
 
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <div style={{ display: "flex", gap: 8, alignItems: "center", padding: 6, border: "1px solid #eee", borderRadius: 6 }}>
-              <button onClick={() => socket.emit("nextStep", { gameId: view?.id })} disabled={view?.turnPlayer !== you}>Next Step</button>
-              <button onClick={() => socket.emit("nextTurn", { gameId: view?.id })} disabled={view?.turnPlayer !== you}>Next Turn</button>
+              <button onClick={() => socket.emit("nextStep", { gameId: view?.id })} disabled={!canAdvanceStep}>Next Step</button>
+              <button onClick={() => socket.emit("nextTurn", { gameId: view?.id })} disabled={!canAdvanceTurn}>Next Turn</button>
               <button onClick={() => socket.emit("passPriority", { gameId: view?.id, by: you })} disabled={!canPass}>Pass Priority</button>
             </div>
             <div style={{ fontSize: 12, color: "#444" }}>
@@ -413,6 +459,13 @@ export function App() {
           <button onClick={() => fetchDebug()} disabled={!connected || !view}>Debug</button>
         </div>
 
+        {missingImport && missingImport.length > 0 && (
+          <div style={{ background: "#fff6d5", padding: 10, border: "1px solid #f1c40f", borderRadius: 6 }}>
+            <strong>Import warning</strong>: Could not resolve these names: {missingImport.slice(0, 10).join(", ")}{missingImport.length > 10 ? ", …" : ""}.
+            <button onClick={() => setMissingImport(null)} style={{ marginLeft: 12 }}>Dismiss</button>
+          </div>
+        )}
+
         <div style={{ border: "1px solid #eee", borderRadius: 6, padding: 8 }}>
           {view ? (
             <TableLayout
@@ -421,7 +474,7 @@ export function App() {
               imagePref={imagePref}
               isYouPlayer={isYouPlayer}
               splitLands
-              enableReorderForYou={isYouPlayer && false}
+              enableReorderForYou={isYouPlayer}
               you={you || undefined}
               zones={view.zones}
               commandZone={view.commandZone as any}
@@ -584,5 +637,5 @@ export function App() {
   );
 }
 
-/* default export for compatibility */
+/* default export retained for compatibility */
 export default App;

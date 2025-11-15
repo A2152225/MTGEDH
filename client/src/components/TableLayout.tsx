@@ -1,12 +1,6 @@
 // client/src/components/TableLayout.tsx
-// Full TableLayout component — expanded, non-truncated.
-// - Accepts importedCandidates?: KnownCardRef[]
-// - Waits up to WAIT_MS (800ms) for importedCandidates on suggestCommanders before falling back to text modal
-// - Opens card-based CommanderSelectModal when candidates available; falls back to CommanderConfirmModal otherwise
-// - Shows Energy counter in player header (reads props.energyCounters or props.energy if present)
-// - Preserves pan/zoom, hand gallery, deck manager, import-confirm modal, and all other behaviors
-//
-// NOTE: This is the full file. Keep TypeScript/React conventions consistent with the repo.
+// Full TableLayout component — updated WAIT_MS to 1200ms and improved suggestCommanders timing/cancellation.
+// Also includes Energy counter support and uses importedCandidates prop to open card gallery when available.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type {
@@ -367,9 +361,9 @@ export function TableLayout(props: {
         suggestTimerRef.current = null;
       }
 
-      // Start a short wait: if importedCandidates arrives within this time, we'll open the card-based modal.
-      // WAIT_MS increased from 300 -> 800 to reduce races.
-      const WAIT_MS = 800;
+      // Start a wait: if importedCandidates arrives within this time, we'll open the card-based modal.
+      // Increase WAIT_MS to 1200ms to reduce races.
+      const WAIT_MS = 1200;
       suggestTimerRef.current = window.setTimeout(() => {
         setConfirmCmdOpen(true);
         suggestTimerRef.current = null;
@@ -385,7 +379,7 @@ export function TableLayout(props: {
     };
   }, [props.gameId, suppressCommanderSuggest]);
 
-  // If importedCandidates arrive while we are waiting, open the modal immediately
+  // If importedCandidates arrive while we are waiting, open the modal immediately and cancel timer
   useEffect(() => {
     if (suggestTimerRef.current && importedCandidates && importedCandidates.length > 0) {
       window.clearTimeout(suggestTimerRef.current);
@@ -399,9 +393,8 @@ export function TableLayout(props: {
     if (!suppressCommanderSuggest && queuedCmdSuggest && queuedCmdSuggest.gameId === props.gameId) {
       try { (socket as any).emit('getImportedDeckCandidates', { gameId: queuedCmdSuggest.gameId }); } catch {}
       setConfirmCmdSuggested(queuedCmdSuggest.names || []);
-      // start short timer similar to onSuggest to allow candidates to arrive
       if (suggestTimerRef.current) { window.clearTimeout(suggestTimerRef.current); suggestTimerRef.current = null; }
-      const WAIT_MS = 800;
+      const WAIT_MS = 1200;
       suggestTimerRef.current = window.setTimeout(() => {
         setConfirmCmdOpen(true);
         suggestTimerRef.current = null;
