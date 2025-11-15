@@ -3,18 +3,20 @@ import type { KnownCardRef } from '../../../shared/src';
 import { createPortal } from 'react-dom';
 
 /**
- * CommanderSelectModal (updated)
+ * CommanderSelectModal
  *
- * Behavior changes:
- * - Modal is a fixed-height dialog (max 86vh) with header and footer pinned.
- * - The card gallery (and manual inputs) live in the middle scrollable area so
- *   the Confirm/Cancel controls remain visible at all times.
+ * - Detects candidate commanders from imported deck buffer.
+ * - DOES NOT auto-select a second/partner commander. Only the primary candidate (first) is pre-selected.
+ * - Manual name inputs are prefilled only with the primary candidate name.
+ * - Header/footer pinned; body scrolls.
  *
- * Styling/markup:
- * - Container uses flex column layout: header (fixed), body (flex: 1; overflow:auto), footer (fixed).
- * - Body has padding and internal grid; on small screens it will still scroll.
- *
- * Other behavior unchanged: selection, manual name inputs, confirm returns (names, ids?).
+ * Props:
+ *  - open: boolean
+ *  - onClose: () => void
+ *  - deckList?: string
+ *  - candidates?: KnownCardRef[]
+ *  - onConfirm: (names: string[], ids?: string[]) => void
+ *  - max: number
  */
 
 export interface CommanderSelectModalProps {
@@ -46,34 +48,39 @@ function normalizeNameLower(s: string) {
 export const CommanderSelectModal: React.FC<CommanderSelectModalProps> = ({
   open, onClose, deckList = '', candidates = [], onConfirm, max
 }) => {
-  // Larger sizes preserved from prior change (can be tuned)
+  // Tile sizing (tweakable)
   const IMAGE_H = 293;
   const TILE_H = 347;
 
+  // Selected ids (in order of selection)
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  // Manual name inputs (one per slot up to max)
   const [manualNames, setManualNames] = useState<string[]>(() => {
     const parsed = parseDeckTopCandidates(deckList || '', max);
-    return parsed.concat(Array.from({ length: Math.max(0, max - parsed.length) }, () => '')).slice(0, max);
+    // Prefill only the first entry, leave others blank
+    const out = Array.from({ length: max }, (_, i) => (i === 0 ? (parsed[0] || '') : ''));
+    return out;
   });
 
+  // When modal opens, prefill selection only with primary candidate (first) if present.
   useEffect(() => {
     if (!open) return;
     if (candidates && candidates.length > 0) {
-      const initial = candidates.slice(0, max).map(c => c.id).filter(Boolean) as string[];
-      setSelectedIds(initial.slice(0, max));
+      // Preselect only the primary candidate (first item). Do NOT auto-select partner(s).
+      const primary = candidates[0];
+      const primaryId = primary?.id ? String(primary.id) : null;
+      setSelectedIds(primaryId ? [primaryId] : []);
+      // Prefill manual names: only first slot populated from primary candidate name
       setManualNames(prev => {
-        const copy = prev.slice(0, max);
-        for (let i = 0; i < max; i++) {
-          if (!copy[i] || !copy[i].trim()) {
-            const c = candidates[i];
-            if (c && c.name) copy[i] = c.name;
-          }
-        }
+        const copy = Array.from({ length: max }, (_, i) => '');
+        if (primary?.name) copy[0] = primary.name;
         return copy;
       });
     } else {
+      // No candidates: attempt to parse deckList top candidates but still only prefill first slot
       const parsed = parseDeckTopCandidates(deckList || '', max);
-      setManualNames(parsed.concat(Array.from({ length: Math.max(0, max - parsed.length) }, () => '')).slice(0, max));
+      const out = Array.from({ length: max }, (_, i) => (i === 0 ? (parsed[0] || '') : ''));
+      setManualNames(out);
       setSelectedIds([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -83,6 +90,7 @@ export const CommanderSelectModal: React.FC<CommanderSelectModalProps> = ({
     setSelectedIds(prev => {
       const idx = prev.indexOf(id);
       if (idx >= 0) return prev.filter(x => x !== id);
+      // Add new id at end, but don't auto-add more than max
       const next = [...prev, id].slice(0, max);
       return next;
     });
@@ -94,85 +102,70 @@ export const CommanderSelectModal: React.FC<CommanderSelectModalProps> = ({
 
   const updateManual = (idx: number, val: string) => {
     setManualNames(prev => prev.map((p, i) => i === idx ? val : p));
+    // If manual text matches a candidate, add its id to selection (but don't auto-add extra partners)
     const matched = candidates?.find(c => normalizeNameLower(c.name) === normalizeNameLower(val));
     if (matched && matched.id) {
       setSelectedIds(prev => {
         if (prev.includes(matched.id)) return prev;
-        return [...prev.slice(0, max - 1), matched.id].slice(0, max);
+        // If there's already one preselected and max>1, allow adding; otherwise replace first
+        if (prev.length === 0) return [matched.id];
+        // respect max
+        const next = [...prev, matched.id].slice(0, max);
+        return next;
       });
     }
   };
 
   const confirm = () => {
+    // Build list of names in the order selected then manual entries to fill up to max
     const selectedNamesFromIds = selectedIds.map(id => {
       const c = candidates?.find(x => x.id === id);
       return c ? c.name : id;
     });
     const manualRemaining = manualNames.map(n => (n || '').trim()).filter(Boolean);
     const outNames: string[] = [];
+    // First include selected names (in selection order)
     for (const nm of selectedNamesFromIds) {
       if (!outNames.includes(nm)) outNames.push(nm);
+      if (outNames.length >= max) break;
     }
+    // Then include manual names until reach max
     for (const mn of manualRemaining) {
       if (outNames.length >= max) break;
       if (!outNames.includes(mn)) outNames.push(mn);
     }
-    const outIds = selectedIds.length > 0 ? selectedIds.slice(0, outNames.length) : undefined;
-    onConfirm(outNames.slice(0, max), outIds && outIds.length ? outIds : undefined);
+    // Build outIds aligned with outNames where possible
+    const outIds: string[] = [];
+    for (const nm of outNames) {
+      const matchById = selectedIds.find(id => {
+        const c = candidates?.find(x => x.id === id);
+        return c?.name === nm;
+      });
+      if (matchById) outIds.push(matchById);
+      else {
+        const matchCandidate = candidates?.find(c => c.name === nm);
+        if (matchCandidate && matchCandidate.id) outIds.push(matchCandidate.id);
+      }
+    }
+
+    onConfirm(outNames.slice(0, max), outIds.length ? outIds.slice(0, max) : undefined);
     onClose();
   };
 
   if (!open) return null;
 
   const backdrop: React.CSSProperties = {
-    position: 'fixed',
-    inset: 0,
-    background: 'rgba(0,0,0,0.6)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 10000,
-    padding: 12
+    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000
   };
-
-  // Modal box: limit total height and use column flex layout
   const box: React.CSSProperties = {
-    width: 980,
-    maxWidth: '100%',
-    maxHeight: '86vh',
-    display: 'flex',
-    flexDirection: 'column',
-    background: '#0f1720',
-    color: '#fff',
-    borderRadius: 10,
-    overflow: 'hidden',
-    boxShadow: '0 12px 40px rgba(0,0,0,0.6)'
+    width: 980, maxWidth: '96vw', maxHeight: '86vh', display: 'flex', flexDirection: 'column',
+    background: '#0f1720', color: '#fff', borderRadius: 10, overflow: 'hidden', boxShadow: '0 12px 40px rgba(0,0,0,0.6)'
   };
-
   const headerStyle: React.CSSProperties = {
-    padding: '16px',
-    borderBottom: '1px solid rgba(255,255,255,0.04)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12
+    padding: '16px', borderBottom: '1px solid rgba(255,255,255,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12
   };
-
-  const bodyStyle: React.CSSProperties = {
-    padding: 16,
-    overflowY: 'auto',
-    flex: 1, // expand and scroll
-  };
-
-  const footerStyle: React.CSSProperties = {
-    padding: '12px 16px',
-    borderTop: '1px solid rgba(255,255,255,0.04)',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 12,
-    background: 'linear-gradient(180deg, rgba(0,0,0,0), rgba(0,0,0,0.02))'
-  };
+  const bodyStyle: React.CSSProperties = { padding: 16, overflowY: 'auto', flex: 1 };
+  const footerStyle: React.CSSProperties = { padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.04)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 };
 
   const galleryStyle: React.CSSProperties = {
     display: 'grid',
@@ -215,23 +208,21 @@ export const CommanderSelectModal: React.FC<CommanderSelectModalProps> = ({
   return createPortal(
     <div style={backdrop} onClick={() => onClose()}>
       <div style={box} onClick={e => e.stopPropagation()}>
-        {/* Header (pinned) */}
         <div style={headerStyle}>
           <div>
             <h3 style={{ margin: 0 }}>Select Commander(s)</h3>
-            <div style={{ fontSize: 13, opacity: 0.85 }}>Click cards to select up to {max}. Use the manual inputs to edit or add names.</div>
+            <div style={{ fontSize: 13, opacity: 0.85 }}>Click card(s) to select up to {max}. Manual inputs below let you type names instead.</div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => { setSelectedIds([]); setManualNames(Array.from({ length: max }, () => '')); }}>Clear All</button>
+            <button onClick={() => { setSelectedIds([]); setManualNames(Array.from({ length: max }, (_, i) => i === 0 ? '' : '')); }}>Clear All</button>
             <button onClick={() => onClose()}>Close</button>
           </div>
         </div>
 
-        {/* Body (scrollable) */}
         <div style={bodyStyle}>
           {candidates && candidates.length > 0 && (
             <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 12, color: '#cbd5e1', marginBottom: 8 }}>Candidate cards (click to toggle selection)</div>
+              <div style={{ fontSize: 12, color: '#cbd5e1', marginBottom: 8 }}>Candidate cards (click to toggle selection). Only the primary candidate is pre-selected.</div>
               <div style={galleryStyle}>
                 {candidates.map(c => {
                   const isSelected = selectedIds.includes(c.id);
@@ -309,7 +300,7 @@ export const CommanderSelectModal: React.FC<CommanderSelectModalProps> = ({
           )}
 
           <div style={{ marginTop: 8 }}>
-            <div style={{ fontSize: 12, color: '#cbd5e1', marginBottom: 6 }}>Manual entries (optional — comma-separated partners are supported)</div>
+            <div style={{ fontSize: 12, color: '#cbd5e1', marginBottom: 6 }}>Manual entries (optional)</div>
             <div style={{ display: 'flex', gap: 8, flexDirection: 'column' }}>
               {manualNames.map((mn, i) => (
                 <input
@@ -324,18 +315,13 @@ export const CommanderSelectModal: React.FC<CommanderSelectModalProps> = ({
           </div>
         </div>
 
-        {/* Footer (pinned) */}
         <div style={footerStyle}>
           <div style={{ fontSize: 12, color: '#94a3b8' }}>
             Selected: {selectedIds.length > 0 ? selectedIds.map(id => (candidates?.find(c => c.id === id)?.name || id)).join(', ') : '—'}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={() => onClose()}>Cancel</button>
-            <button
-              onClick={confirm}
-              disabled={(selectedIds.length === 0 && manualNames.every(n => !(n || '').trim()))}
-              style={{ background: '#2563eb', color: '#fff', padding: '8px 12px', borderRadius: 8 }}
-            >
+            <button onClick={confirm} disabled={(selectedIds.length === 0 && manualNames.every(n => !(n || '').trim()))} style={{ background: '#2563eb', color: '#fff', padding: '8px 12px', borderRadius: 8 }}>
               Confirm
             </button>
           </div>

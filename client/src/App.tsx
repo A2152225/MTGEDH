@@ -224,7 +224,7 @@ export function App() {
         setQueuedCommanderSuggest(null);
       }
     };
-    const onConfirmed = (info: any) => {
+  /*  const onConfirmed = (info: any) => {
       if (!info || !info.confirmId) return;
       if (!confirmId || info.confirmId === confirmId) {
         setConfirmOpen(false);
@@ -256,7 +256,45 @@ export function App() {
           setQueuedCommanderSuggest(null);
         }
       }
-    };
+    };*/
+	const onConfirmed = (info: any) => {
+  if (!info || !info.confirmId) return;
+  if (!confirmId || info.confirmId === confirmId) {
+    // clear the confirmation UI state
+    setConfirmOpen(false);
+    setConfirmPayload(null);
+    setConfirmVotes(null);
+    setConfirmId(null);
+    setLastInfo(`Import applied${info.deckName ? `: ${info.deckName}` : ""}`);
+    setPendingLocalImport(false);
+
+    // If I was the importer, proactively clear my local hand view and request imported candidates.
+    try {
+      if (view && info && info.gameId === view.id && info.by && you && info.by === you) {
+        // Clear local hand immediately to avoid transient duplicates
+        setView(prev => {
+          if (!prev) return prev;
+          const copy: any = { ...prev, zones: { ...(prev.zones || {}) } };
+          copy.zones[you] = { ...(copy.zones[you] || {}), hand: [], handCount: 0 };
+          return copy;
+        });
+        // Ask server for imported candidates so TableLayout can show the gallery modal
+        socket.emit("getImportedDeckCandidates", { gameId: info.gameId });
+      }
+    } catch (e) {
+      console.warn("import confirm local-hand-clear failed:", e);
+    }
+
+    // Important: DO NOT open App-level commander modal here.
+    // Let TableLayout own the modal (it will open when it receives suggestCommanders/importedDeckCandidates).
+    // Clear any queuedCommanderSuggest only if it's for this game and you want to drop it:
+    if (queuedCommanderSuggest && queuedCommanderSuggest.gameId === info.gameId) {
+      // keep queuedCmdSuggest for TableLayout to act on; do not call setCmdSuggestOpen
+      // If you prefer to clear the queued suggestion here, uncomment next line:
+      // setQueuedCommanderSuggest(null);
+    }
+  }
+};
 
     socket.on("importWipeConfirmRequest", onRequest);
     socket.on("importWipeConfirmUpdate", onUpdate);
@@ -438,12 +476,15 @@ export function App() {
   const isYouPlayer = !!view && !!you && view.players.some(p => p.id === you);
 
   // determine whether Next Step/Turn should be enabled: allow turnPlayer or pre-game first seat
-  const canAdvanceStep = useMemo(() => {
-    if (!view || !you) return false;
-    if (view.turnPlayer === you) return true;
-    if ((String(view.phase || "").toUpperCase() === "PRE_GAME") && (view.players?.[0]?.id === you)) return true;
-    return false;
-  }, [view, you]);
+// client/src/App.tsx — replace canAdvanceStep useMemo body with:
+const canAdvanceStep = useMemo(() => {
+  if (!view || !you) return false;
+  if (view.turnPlayer === you) return true;
+  // Allow the first-seat player to advance during pre-game phases:
+  const phaseStr = String(view.phase || "").toUpperCase();
+  if ((phaseStr === "PRE_GAME" || phaseStr === "BEGINNING") && (view.players?.[0]?.id === you)) return true;
+  return false;
+}, [view, you]);
 
   const canAdvanceTurn = canAdvanceStep;
 

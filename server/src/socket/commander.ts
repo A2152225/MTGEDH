@@ -3,15 +3,12 @@
  *
  * Socket handlers for commander operations.
  *
- * This variant:
- * - Treats client-provided commanderIds as authoritative (replace, do not union).
- * - Resolves names -> ids only for names actually supplied by the client.
- * - Preserves pendingInitialDraw handling: if player is flagged, shuffle + draw (idempotent guard).
- * - Adds concise debug logging for incoming setCommander payloads.
- * - Fixes dumpCommanderState pendingInitialDraw snapshot extraction.
- *
- * Server remains authoritative: state changes are done via game.setCommander / applyEvent and we
- * populate commandZone commanderCards as a best-effort UI snapshot.
+ * Key points in this variant:
+ * - Treat client-provided ids as input but always read back authoritative state from game.state after calling game.setCommander/applyEvent.
+ * - Resolve names -> ids only for names the client supplied (local import buffer -> scryfall fallback).
+ * - Update zones[pid].libraryCount from authoritative libraries map if present so clients see correct counts.
+ * - Perform pendingInitialDraw idempotently: only shuffle/draw when the player's hand is empty; clear pending flag.
+ * - Provide debug endpoints to inspect library, import buffer, and commander state.
  */
 
 import type { Server, Socket } from "socket.io";
@@ -44,15 +41,15 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         return;
       }
 
-      // Lightweight debug so we can see what clients actually send (helpful for repro)
+      // Debug incoming payload
       try {
-        console.info("[setCommander] payload received:", {
+        console.info("[setCommander] incoming", {
           from: pid,
           gameId: payload.gameId,
           commanderNames: payload.commanderNames || payload.names,
           commanderIds: payload.commanderIds || payload.ids
         });
-      } catch (e) { /* ignore */ }
+      } catch (e) { /* noop */ }
 
       const game = ensureGame(payload.gameId);
       if (!game) {
@@ -63,77 +60,68 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       // Normalize incoming name/id payload
       const names: string[] = normalizeNamesArray(payload);
 
-      // If client provided ids, treat them as authoritative.
+      // If client provided ids, prefer to use them as input (we'll still read authoritative state afterwards)
       let providedIds: string[] = Array.isArray(payload.commanderIds)
         ? payload.commanderIds.slice()
         : Array.isArray(payload.ids)
           ? payload.ids.slice()
           : [];
 
-      // finalIds: the ids we'll pass to the state layer (may be empty array)
-      let finalIds: string[] = [];
-
-      if (providedIds && providedIds.length > 0) {
-        finalIds = providedIds.filter(Boolean);
-      } else {
-        // No explicit ids supplied: resolve names->ids only for names client included.
-        // 1) Try to resolve via local import buffer on the game (fast)
+      // Resolve names -> ids only for the names client supplied (local import buffer -> scryfall)
+      let resolvedIds: string[] = [];
+      if ((!providedIds || providedIds.length === 0) && names.length > 0) {
         try {
           const buf = (game as any)._lastImportedDecks as Map<PlayerID, any[]> | undefined;
-          if (buf && buf.get(pid) && names.length > 0) {
-            const localCards = buf.get(pid) || [];
+          if (buf && buf.get(pid)) {
+            const local = buf.get(pid) || [];
             const map = new Map<string, string>();
-            for (const c of localCards) {
+            for (const c of local) {
               if (c && c.name && c.id) {
                 const key = String(c.name).trim().toLowerCase();
                 if (!map.has(key)) map.set(key, c.id);
               }
             }
-            const resolvedIds: string[] = [];
             for (let i = 0; i < names.length; i++) {
-              const nm = names[i];
-              const key = String(nm).trim().toLowerCase();
+              const key = String(names[i]).trim().toLowerCase();
               resolvedIds[i] = map.get(key) || "";
             }
-            finalIds = resolvedIds.map(x => x || "").filter(Boolean);
+            resolvedIds = resolvedIds.map(x => x || "").filter(Boolean);
           }
         } catch (err) {
           console.warn("setCommander: local import buffer lookup error:", err);
         }
 
-        // 2) Fallback: resolve remaining names via Scryfall (best-effort)
-        if (names.length && finalIds.length < names.length) {
-          const fallbackIds: string[] = [];
+        // fallback via Scryfall when still unresolved
+        if (names.length && resolvedIds.length < names.length) {
+          const fallback: string[] = [];
           for (let i = 0; i < names.length; i++) {
-            // if we already have an id for this index (from local), skip
-            if (finalIds[i]) {
-              fallbackIds[i] = finalIds[i];
-              continue;
-            }
+            if (resolvedIds[i]) { fallback[i] = resolvedIds[i]; continue; }
             const nm = names[i];
             try {
               const card = await fetchCardByExactNameStrict(nm);
-              if (card && card.id) fallbackIds[i] = card.id;
-              else fallbackIds[i] = "";
+              fallback[i] = (card && card.id) ? card.id : "";
             } catch (err) {
               console.warn(`setCommander: scryfall resolution failed for "${nm}"`, err);
-              fallbackIds[i] = "";
+              fallback[i] = "";
             }
           }
-          finalIds = names.map((_, idx) => finalIds[idx] || fallbackIds[idx] || "").filter(Boolean);
+          resolvedIds = names.map((_, idx) => resolvedIds[idx] || fallback[idx] || "").filter(Boolean);
         }
       }
 
-      // Call authoritative state API to set commander(s)
+      // Determine ids to pass to state: prefer providedIds if present else resolvedIds
+      const idsToPass = (providedIds && providedIds.length > 0) ? providedIds.filter(Boolean) : resolvedIds;
+
+      // Call authoritative state API
       try {
         if (typeof game.setCommander === "function") {
-          await game.setCommander(pid, names, finalIds);
+          await game.setCommander(pid, names, idsToPass);
         } else if (typeof (game as any).applyEvent === "function") {
           (game as any).applyEvent({
             type: "setCommander",
             playerId: pid,
             commanderNames: names,
-            commanderIds: finalIds
+            commanderIds: idsToPass
           });
         } else {
           socket.emit("error", { message: "Server state does not support setCommander" });
@@ -142,36 +130,26 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         }
       } catch (err) {
         console.error("setCommander: game.setCommander/applyEvent error:", err);
-        // continue to attempt best-effort notification
       }
 
-      // Persist setCommander event
+      // Persist the attempted setCommander (names + ids attempted)
       try {
         appendEvent(payload.gameId, game.seq, "setCommander", {
           playerId: pid,
           commanderNames: names,
-          commanderIds: finalIds
+          commanderIds: idsToPass
         });
       } catch (err) {
         console.warn("appendEvent(setCommander) failed:", err);
       }
 
-      // Ensure commandZone[pid].commanderCards contains full card objects for UI (best-effort)
+      // Now read authoritative state back and build UI snapshot from it (do NOT rely on our provisional ids)
       try {
         (game.state.commandZone = game.state.commandZone || {});
-        (game.state.commandZone[pid] = game.state.commandZone[pid] || { commanderIds: [], commanderCards: [], tax: 0, taxById: {} });
+        const czAuth = (game.state.commandZone[pid] = game.state.commandZone[pid] || { commanderIds: [], commanderCards: [], tax: 0, taxById: {} }) as any;
 
-        const czInfo = game.state.commandZone[pid] as any;
-
-        // If client provided/resolved ids -> replace the commandZone list with finalIds.
-        // If no ids resolved/provided, leave state layer's commanderIds as authoritative.
-        if (finalIds && finalIds.length > 0) {
-          czInfo.commanderIds = finalIds.slice();
-        } else {
-          czInfo.commanderIds = czInfo.commanderIds || [];
-        }
-
-        // helper to find a card object from various sources
+        // Build commanderCards array from authoritative czAuth.commanderIds
+        const authoritativeIds: string[] = Array.isArray(czAuth.commanderIds) ? czAuth.commanderIds.slice() : [];
         const findCardObj = (cid: string) => {
           try {
             const buf = (game as any)._lastImportedDecks as Map<PlayerID, any[]> | undefined;
@@ -194,7 +172,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
             const L = (game as any).libraries;
             if (L && (typeof L.get === "function" ? Array.isArray(L.get(pid)) : Array.isArray(L[pid]))) {
               const arr = typeof L.get === "function" ? L.get(pid) : L[pid];
-              const libFound = arr.find((c: any) => c && (c.id === cid || c.cardId === cid));
+              const libFound = (arr || []).find((c: any) => c && (c.id === cid || c.cardId === cid));
               if (libFound) return libFound;
             }
           } catch (e) { /* ignore */ }
@@ -208,15 +186,12 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         };
 
         const builtCards: any[] = [];
-        for (const cid of czInfo.commanderIds || []) {
-          const existingCard = czInfo.commanderCards?.find((c: any) => c && (c.id === cid));
-          if (existingCard) {
-            builtCards.push(existingCard);
-            continue;
-          }
+        for (const cid of authoritativeIds || []) {
+          const prev = czAuth.commanderCards?.find((c: any) => c && c.id === cid);
+          if (prev) { builtCards.push(prev); continue; }
           const cardObj = findCardObj(cid);
           if (cardObj) {
-            const normalized = {
+            builtCards.push({
               id: cardObj.id || cardObj.cardId || null,
               name: cardObj.name || cardObj.cardName || null,
               type_line: cardObj.type_line || cardObj.typeLine || null,
@@ -224,25 +199,43 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
               image_uris: cardObj.image_uris || cardObj.imageUris || (cardObj.scryfall && cardObj.scryfall.image_uris) || null,
               power: cardObj.power ?? cardObj.p,
               toughness: cardObj.toughness ?? cardObj.t
-            };
-            builtCards.push(normalized);
+            });
           } else {
-            const idx = (finalIds || []).indexOf(cid);
-            const nm = names[idx] || null;
+            // fallback: if we have a name mapping in state, use it; else keep id-only
+            const idx = authoritativeIds.indexOf(cid);
+            const nm = (czAuth.commanderNames && czAuth.commanderNames[idx]) || null;
             builtCards.push({ id: cid, name: nm });
           }
         }
-        czInfo.commanderCards = builtCards;
+        czAuth.commanderCards = builtCards;
+
+        // Ensure zones[pid].libraryCount reflects authoritative libraries if present
+        try {
+          const L = (game as any).libraries;
+          let libLen = -1;
+          if (L && typeof L.get === "function") {
+            const arr = L.get(pid) || [];
+            libLen = Array.isArray(arr) ? arr.length : -1;
+          } else if (L && Array.isArray(L[pid])) {
+            libLen = L[pid].length;
+          } else if (game.state && game.state.zones && game.state.zones[pid] && typeof game.state.zones[pid].libraryCount === "number") {
+            libLen = game.state.zones[pid].libraryCount;
+          }
+          if (libLen >= 0) {
+            (game.state.zones = game.state.zones || {})[pid] = (game.state.zones && (game.state.zones as any)[pid]) || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+            (game.state.zones as any)[pid].libraryCount = libLen;
+          }
+        } catch (e) {
+          console.warn("setCommander: libraryCount sync failed", e);
+        }
       } catch (err) {
-        console.warn("setCommander: populating commandZone commanderCards failed:", err);
+        console.warn("setCommander: building authoritative commanderCards failed:", err);
       }
 
-      // If pending opening draw exists for player, shuffle and draw now, and append events.
-      // Idempotency: game state should guard against double-draws, but we also try to be careful here.
+      // Handle pendingInitialDraw: only shuffle/draw if hand empty (idempotent)
       try {
         const pendingSet = (game as any).pendingInitialDraw as Set<PlayerID> | undefined;
         if (pendingSet && pendingSet.has(pid)) {
-          // Check handCount; prefer authoritative zones if present
           const z = (game.state && (game.state as any).zones && (game.state as any).zones[pid]) || null;
           const handCount = z ? (typeof z.handCount === "number" ? z.handCount : (Array.isArray(z.hand) ? z.hand.length : 0)) : 0;
 
@@ -269,8 +262,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
               console.warn("setCommander: game.drawCards not available");
             }
           } else {
-            // Hand not empty => likely already drawn; just clear pending flag
-            try { /* no-op */ } catch {}
+            // already has cards; do not draw again
           }
 
           try { pendingSet.delete(pid); } catch (e) { /* ignore */ }
@@ -279,7 +271,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         console.error("setCommander: error while handling pending opening draw:", err);
       }
 
-      // Broadcast updated authoritative view
+      // Broadcast authoritative updated view
       try {
         broadcastGame(io, game, payload.gameId);
       } catch (err) {
@@ -308,8 +300,10 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       const zoneForPid = (game.state?.zones && (game.state.zones as any)[pid]) as any | undefined;
       let libArr: any[] | undefined;
       if (zoneForPid && Array.isArray(zoneForPid.library)) libArr = zoneForPid.library;
-      else if ((game as any).libraries && (typeof (game as any).libraries.get === "function" ? Array.isArray((game as any).libraries.get(pid)) : Array.isArray((game as any).libraries[pid]))) {
-        libArr = (game as any).libraries.get ? (game as any).libraries.get(pid) : (game as any).libraries[pid];
+      else {
+        const L = (game as any).libraries;
+        if (L && typeof L.get === "function") libArr = L.get(pid);
+        else if (L && Array.isArray(L[pid])) libArr = L[pid];
       }
       const librarySnapshot = (libArr || []).map(c => ({ id: c?.id || c?.cardId || null, name: c?.name || null }));
       socket.emit("debugLibraryDump", { gameId, playerId: pid, library: librarySnapshot });
@@ -319,7 +313,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
     }
   });
 
-  // Debug handler to show the per-game import buffer we store
+  // Debug handler to show the per-game import buffer
   socket.on("dumpImportedDeckBuffer", ({ gameId }: { gameId: string }) => {
     try {
       const pid: PlayerID | undefined = socket.data.playerId;
@@ -357,7 +351,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         return;
       }
       const pendingSet: Set<PlayerID> = (game as any).pendingInitialDraw || new Set<PlayerID>();
-      const pending = Array.from(pendingSet.values ? pendingSet.values() : pendingSet) as any[];
+      const pending = Array.from(typeof pendingSet.values === "function" ? pendingSet.values() : pendingSet) as any[];
       const cz = (game.state && game.state.commandZone && (game.state.commandZone as any)[pid]) || null;
       socket.emit("debugCommanderState", { gameId, playerId: pid, pendingInitialDraw: pending, commandZone: cz });
     } catch (err) {
