@@ -16,7 +16,8 @@ import type {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Key configurations
-const PORT = Number(process.env.PORT || 3000);
+// Updated default port to 3001 to match repository config defaults (can be overridden with PORT env var)
+const PORT = Number(process.env.PORT || 3001);
 const BUILD_PATH = path.resolve(__dirname, "../../client/dist");
 
 // Initialize Express app
@@ -49,11 +50,15 @@ app.get("*", (req, res) => {
 
 // Create HTTP and WebSocket server
 const httpServer = createServer(app);
+
+// Allow configuring CORS origin via env var in production; default is '*' for dev
+const corsOrigin = process.env.CORS_ORIGIN || "*";
+
 const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(
   httpServer,
   {
     cors: {
-      origin: "*", // Update this for production if needed
+      origin: corsOrigin,
       methods: ["GET", "POST"],
     },
   }
@@ -62,7 +67,7 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEve
 // Register Socket.IO handlers
 registerSocketHandlers(io);
 
-// Start the server
-httpServer.listen(PORT, () => {
-  console.log(`[Server] Running at http://localhost:${PORT}`);
+// Start the server bound to localhost only for security (IIS/ARR will reverse-proxy to this)
+httpServer.listen(PORT, "127.0.0.1", () => {
+  console.log(`[Server] Running at http://127.0.0.1:${PORT}`);
 });

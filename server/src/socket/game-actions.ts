@@ -32,6 +32,47 @@ export function registerGameActions(io: Server, socket: Socket) {
     }
   });
 
+  // Claim turn (pre-game only) - set yourself as active player when pre-game and turnPlayer is unset.
+  socket.on("claimMyTurn", ({ gameId }: { gameId: string }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
+      const pregame = phaseStr === "" || phaseStr === "PRE_GAME" || phaseStr.includes("BEGIN");
+
+      if (!pregame) {
+        socket.emit("error", { code: "CLAIM_TURN_NOT_PREGAME", message: "Claiming turn only allowed in pre-game." });
+        return;
+      }
+
+      if (game.state.turnPlayer) {
+        socket.emit("error", { code: "CLAIM_TURN_EXISTS", message: "Active player already set." });
+        return;
+      }
+
+      // Set as active player
+      try {
+        game.state.turnPlayer = playerId;
+        appendGameEvent(game, gameId, "claimTurn", { by: playerId });
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `Player ${playerId} claimed first turn.`,
+          ts: Date.now(),
+        });
+        broadcastGame(io, game, gameId);
+      } catch (e) {
+        console.error("claimMyTurn: failed to set turnPlayer", e);
+        socket.emit("error", { code: "CLAIM_TURN_FAILED", message: String(e) });
+      }
+    } catch (err) {
+      console.error("claimMyTurn handler failed:", err);
+    }
+  });
+
   // Next turn
   socket.on("nextTurn", ({ gameId }: { gameId: string }) => {
     try {
@@ -45,8 +86,11 @@ export function registerGameActions(io: Server, socket: Socket) {
       } catch (e) { /* ignore logging errors */ }
 
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
-      // tightened: only empty/undefined phase qualifies as pregame
-      const pregame = phaseStr === "";
+      // permissive: accept empty, PRE_GAME, or any "BEGIN" variant as pregame
+      const pregame = phaseStr === "" || phaseStr === "PRE_GAME" || phaseStr.includes("BEGIN");
+
+      // Ensure players list exists
+      const playersArr: any[] = (game.state && Array.isArray(game.state.players)) ? game.state.players : [];
 
       // If turnPlayer is set, only active player may advance.
       if (game.state.turnPlayer) {
@@ -56,13 +100,31 @@ export function registerGameActions(io: Server, socket: Socket) {
           return;
         }
       } else {
-        // No turnPlayer set (resumed or not-yet-started). Allow advance only during pregame (empty phase).
-        if (!pregame) {
-          socket.emit("error", { code: "NEXT_TURN", message: "No active player set; cannot advance turn." });
-          console.info(`[nextTurn] rejected - no turnPlayer and not pregame (phase=${phaseStr})`);
-          return;
+        // No turnPlayer set (resumed or not-yet-started).
+        // If single-player game, auto-assign them as active player.
+        if (playersArr.length <= 1) {
+          try {
+            game.state.turnPlayer = playerId;
+            appendGameEvent(game, gameId, "autoAssignTurn", { playerId });
+            console.info(`[nextTurn] auto-assigned turnPlayer to single player ${playerId}`);
+          } catch (e) {
+            console.warn("nextTurn: auto-assign failed", e);
+          }
         } else {
-          console.info(`[nextTurn] no turnPlayer; allowing advance in pregame (player=${playerId} phase=${phaseStr})`);
+          // multi-player: allow advance only during pregame permissive states (claimMyTurn should be used)
+          if (!pregame) {
+            socket.emit("error", { code: "NEXT_TURN", message: "No active player set; cannot advance turn." });
+            console.info(`[nextTurn] rejected - no turnPlayer and not pregame (phase=${phaseStr})`);
+            return;
+          } else {
+            // If pregame and turnPlayer unset but player has claimed (handled by claimMyTurn),
+            // we still require turnPlayer to be set to proceed. So reject here and suggest claim.
+            if (!game.state.turnPlayer) {
+              socket.emit("error", { code: "NEXT_TURN_NO_CLAIM", message: "No active player set. Use 'Claim Turn' to set first player." });
+              console.info(`[nextTurn] rejected - no turnPlayer; ask user to claim (player=${playerId})`);
+              return;
+            }
+          }
         }
       }
 
@@ -103,8 +165,10 @@ export function registerGameActions(io: Server, socket: Socket) {
       } catch (e) { /* ignore logging errors */ }
 
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
-      // tightened: only empty/undefined phase qualifies as pregame
-      const pregame = phaseStr === "";
+      // permissive: accept empty, PRE_GAME, or any "BEGIN" variant as pregame
+      const pregame = phaseStr === "" || phaseStr === "PRE_GAME" || phaseStr.includes("BEGIN");
+
+      const playersArr: any[] = (game.state && Array.isArray(game.state.players)) ? game.state.players : [];
 
       if (game.state.turnPlayer) {
         if (game.state.turnPlayer !== playerId) {
@@ -113,13 +177,29 @@ export function registerGameActions(io: Server, socket: Socket) {
           return;
         }
       } else {
-        // No turnPlayer set; allow step advancement in pregame to enable resumed games to progress
-        if (!pregame) {
-          socket.emit("error", { code: "NEXT_STEP", message: "No active player set; cannot advance step." });
-          console.info(`[nextStep] rejected - no turnPlayer and not pregame (phase=${phaseStr})`);
-          return;
+        // No turnPlayer set.
+        if (playersArr.length <= 1) {
+          // Auto-assign single-player as active
+          try {
+            game.state.turnPlayer = playerId;
+            appendGameEvent(game, gameId, "autoAssignTurn", { playerId });
+            console.info(`[nextStep] auto-assigned turnPlayer to single player ${playerId}`);
+          } catch (e) {
+            console.warn("nextStep: auto-assign failed", e);
+          }
         } else {
-          console.info(`[nextStep] no turnPlayer; allowing advance in pregame (player=${playerId} phase=${phaseStr})`);
+          if (!pregame) {
+            socket.emit("error", { code: "NEXT_STEP", message: "No active player set; cannot advance step." });
+            console.info(`[nextStep] rejected - no turnPlayer and not pregame (phase=${phaseStr})`);
+            return;
+          } else {
+            // In pregame and multi-player, require claim first.
+            if (!game.state.turnPlayer) {
+              socket.emit("error", { code: "NEXT_STEP_NO_CLAIM", message: "No active player set. Use 'Claim Turn' to set first player." });
+              console.info(`[nextStep] rejected - no turnPlayer; ask user to claim (player=${playerId})`);
+              return;
+            }
+          }
         }
       }
 
@@ -135,6 +215,47 @@ export function registerGameActions(io: Server, socket: Socket) {
     } catch (err) {
       console.error(`nextStep error for game ${gameId}:`, err);
       socket.emit("error", { code: "NEXT_STEP_ERROR", message: err.message });
+    }
+  });
+
+  // Shuffle player's hand (server-authoritative) — randomize order of cards in hand.
+  socket.on("shuffleHand", ({ gameId }: { gameId: string }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      const spectator = socket.data.spectator;
+      if (!game || !playerId || spectator) return;
+
+      // Locate player's hand array (support different shapes)
+      try {
+        game.state = game.state || {};
+        game.state.zones = game.state.zones || {};
+        const zones = game.state.zones[playerId] || null;
+        if (!zones || !Array.isArray(zones.hand)) {
+          // Try libraries map shape? If no hand present, nothing to shuffle
+          socket.emit("error", { code: "SHUFFLE_HAND_NO_HAND", message: "No hand to shuffle." });
+          return;
+        }
+
+        // Fisher-Yates shuffle of the hand array
+        const arr = zones.hand;
+        for (let i = arr.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          const tmp = arr[i];
+          arr[i] = arr[j];
+          arr[j] = tmp;
+        }
+        // Ensure handCount remains accurate
+        zones.handCount = Array.isArray(zones.hand) ? zones.hand.length : zones.handCount || 0;
+
+        appendGameEvent(game, gameId, "shuffleHand", { playerId });
+        broadcastGame(io, game, gameId);
+      } catch (e) {
+        console.error("shuffleHand failed:", e);
+        socket.emit("error", { code: "SHUFFLE_HAND_ERROR", message: String(e) });
+      }
+    } catch (err) {
+      console.error("shuffleHand handler error:", err);
     }
   });
 
@@ -155,6 +276,13 @@ export function registerGameActions(io: Server, socket: Socket) {
     try {
       const game = ensureGame(gameId);
       game.reset(true);
+      // Make restarted games start in PRE_GAME to be consistent
+      try {
+        game.state = game.state || {};
+        (game.state as any).phase = "PRE_GAME";
+      } catch (e) {
+        /* best effort */
+      }
       appendEvent(gameId, game.seq, "restart", { preservePlayers: true });
       broadcastGame(io, game, gameId);
     } catch (err) {
@@ -167,6 +295,13 @@ export function registerGameActions(io: Server, socket: Socket) {
     try {
       const game = ensureGame(gameId);
       game.reset(false);
+      // Ensure cleared restart is PRE_GAME as well
+      try {
+        game.state = game.state || {};
+        (game.state as any).phase = "PRE_GAME";
+      } catch (e) {
+        /* best effort */
+      }
       appendEvent(gameId, game.seq, "restart", { preservePlayers: false });
       broadcastGame(io, game, gameId);
     } catch (err) {

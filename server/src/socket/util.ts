@@ -11,12 +11,37 @@ import { games, priorityTimers, PRIORITY_TIMEOUT_MS } from "./socket";
 import { appendEvent, createGameIfNotExists, getEvents } from "../db";
 import { createInitialGameState } from "../state";
 import type { InMemoryGame } from "../state/types";
+import { GameManager } from "../GameManager";
 
 /**
  * Ensures that the specified game exists in both database and memory, creating it if necessary.
+ * Prefer using the centralized GameManager to ensure consistent factory/reset behavior.
+ * Falls back to the local create/replay flow if GameManager is not available or fails.
+ *
  * Returns an InMemoryGame wrapper with a fully-initialized runtime state.
  */
 export function ensureGame(gameId: string): InMemoryGame {
+  // Prefer GameManager to keep a single source of truth for game creation/reset.
+  try {
+    if (GameManager) {
+      try {
+        const gmGame = GameManager.getGame(gameId) || GameManager.ensureGame(gameId);
+        if (gmGame) {
+          // Keep the socket-level games map in sync with GameManager
+          try { games.set(gameId, gmGame); } catch (e) { /* best-effort */ }
+          return gmGame;
+        }
+      } catch (err) {
+        console.warn("ensureGame: GameManager.ensureGame failed, falling back to local recreation:", err);
+        // fall through to local approach
+      }
+    }
+  } catch (err) {
+    // If GameManager import or methods throw, fall back to local approach.
+    console.warn("ensureGame: GameManager not usable, falling back:", err);
+  }
+
+  // Original fallback behavior: construct an in-memory game and replay persisted events.
   let game = games.get(gameId);
 
   if (!game) {
@@ -234,7 +259,7 @@ export function parseManaCost(
 } {
   const result = {
     colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 },
-    generic: 0,
+    generic: 0,
     hybrids: [] as Array<Array<string>>,
     hasX: false,
   };
