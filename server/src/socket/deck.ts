@@ -10,8 +10,19 @@
  * - For solo OR PRE_GAME/BEGINNING phases: skip vote and immediately apply import for the importer only.
  * - applyConfirmedImport is idempotent and reentrancy-safe (game._importApplying, _lastImportAppliedAt).
  * - applyConfirmedImport populates authoritative libraries/zones if missing, flags pendingInitialDraw,
- *   calls game.importDeckResolved when available, appends events, broadcastsGame, and emits suggestCommanders
- *   to the importing socket before broadcasting state.
+ *   and will immediately shuffle/draw the opening hand in these cases:
+ *     - if the authoritative commandZone already contains commander ids (i.e. commander already set)
+ *     - OR if the format is not 'commander' (no commander required)
+ *
+ * Additional change:
+ * - When an import is initiated we now proactively unload (clear) the importer's
+ *   transient zones that would be stale while the import/confirm modal is open:
+ *     - clear hand and handCount
+ *     - clear commander info in state.commandZone for that player
+ *   We also set a pendingInitialDraw flag at import initiation. If the import is
+ *   later cancelled, the pendingInitialDraw flag is removed. This ensures that
+ *   when the player selects commanders (client calls setCommander) the server
+ *   will see the pendingInitialDraw and perform shuffle+draw idempotently.
  *
  * Notes:
  * - This file is written to be a drop-in replacement on the Lotsofstuffhappened branch.
@@ -60,6 +71,34 @@ function broadcastConfirmUpdate(io: Server, confirmId: string, p: PendingConfirm
   }
 }
 
+function removePendingInitialDrawFlag(game: any, pid: PlayerID) {
+  try {
+    if (!game) return;
+    if ((game as any).pendingInitialDraw && typeof (game as any).pendingInitialDraw.delete === "function") {
+      (game as any).pendingInitialDraw.delete(pid);
+    } else if ((game as any).pendingInitialDraw && Array.isArray((game as any).pendingInitialDraw)) {
+      // older shape fallback
+      (game as any).pendingInitialDraw = new Set(((game as any).pendingInitialDraw as any[]).filter((x: any) => x !== pid));
+    }
+  } catch (e) {
+    console.warn("removePendingInitialDrawFlag failed:", e);
+  }
+}
+
+function addPendingInitialDrawFlag(game: any, pid: PlayerID) {
+  try {
+    if (!game) return;
+    if ((game as any).pendingInitialDraw && typeof (game as any).pendingInitialDraw.add === "function") {
+      (game as any).pendingInitialDraw.add(pid);
+    } else {
+      (game as any).pendingInitialDraw = (game as any).pendingInitialDraw || new Set<PlayerID>();
+      (game as any).pendingInitialDraw.add(pid);
+    }
+  } catch (e) {
+    console.warn("addPendingInitialDrawFlag failed:", e);
+  }
+}
+
 function cancelConfirmation(io: Server, confirmId: string, reason = "cancelled") {
   const p = pendingImportConfirmations.get(confirmId);
   if (!p) return;
@@ -67,11 +106,45 @@ function cancelConfirmation(io: Server, confirmId: string, reason = "cancelled")
     try { clearTimeout(p.timeout); } catch {}
   }
   try {
+    // Remove the pendingInitialDraw flag if it was set at import initiation
+    try {
+      const game = ensureGame(p.gameId);
+      if (game) {
+        removePendingInitialDrawFlag(game, p.initiator);
+        // Broadcast updated authoritative game so clients stop showing cleared transient zones
+        try { broadcastGame(io, game, p.gameId); } catch (e) { /* best-effort */ }
+      }
+    } catch (e) { /* ignore */ }
+
     io.to(p.gameId).emit("importWipeCancelled", { confirmId, gameId: p.gameId, by: p.initiator, reason });
   } catch (e) {
     console.warn("cancelConfirmation emit failed", e);
   }
   pendingImportConfirmations.delete(confirmId);
+}
+
+/* Helper: clear transient zones for a player while import/confirm is pending.
+   We purposely limit the clearing to hand and commandZone so we don't accidentally
+   remove battlefield permanents owned by others. This makes the UI reflect that
+   the import is in progress and prevents old commanders/hands from showing under the modal.
+*/
+function clearPlayerTransientZonesForImport(game: any, pid: PlayerID) {
+  try {
+    // Ensure zones object exists
+    game.state = game.state || {};
+    game.state.zones = game.state.zones || {};
+    game.state.zones[pid] = game.state.zones[pid] || {};
+
+    // Clear hand
+    game.state.zones[pid].hand = [];
+    game.state.zones[pid].handCount = 0;
+
+    // Clear commander snapshot for that player so previous commanders don't show while import modal is open.
+    game.state.commandZone = game.state.commandZone || {};
+    game.state.commandZone[pid] = { commanderIds: [], commanderCards: [], tax: 0, taxById: {} };
+  } catch (e) {
+    console.warn("clearPlayerTransientZonesForImport failed:", e);
+  }
 }
 
 /**
@@ -86,6 +159,7 @@ function cancelConfirmation(io: Server, confirmId: string, reason = "cancelled")
  *  - Calls game.importDeckResolved(initiator, resolvedCards) if available (preferred).
  *  - Ensures libraries map or state.zones reflects the imported library for the initiating player.
  *  - Flags pendingInitialDraw for the importer so setCommander can shuffle/draw.
+ *  - If commander is already present in authoritative state or format is not commander, immediately perform shuffle+draw (idempotent).
  *  - Emits suggestCommanders to the importer socket only (so gallery modal can open).
  *  - Broadcasts authoritative game state.
  */
@@ -218,14 +292,8 @@ async function applyConfirmedImport(io: Server, confirmId: string, importerSocke
     try {
       // Flag pendingInitialDraw (state-layer may already do this in importDeckResolved)
       try {
-        if ((game as any).pendingInitialDraw && typeof (game as any).pendingInitialDraw.add === "function") {
-          (game as any).pendingInitialDraw.add(p.initiator);
-          console.info(`[import] pendingInitialDraw flagged for player=${p.initiator} game=${p.gameId}`);
-        } else {
-          (game as any).pendingInitialDraw = (game as any).pendingInitialDraw || new Set<PlayerID>();
-          (game as any).pendingInitialDraw.add(p.initiator);
-          console.info(`[import] pendingInitialDraw (fallback) flagged for player=${p.initiator} game=${p.gameId}`);
-        }
+        addPendingInitialDrawFlag(game, p.initiator);
+        console.info(`[import] pendingInitialDraw flagged for player=${p.initiator} game=${p.gameId}`);
       } catch (e) {
         console.warn("applyConfirmedImport: pendingInitialDraw flagging failed", e);
       }
@@ -262,6 +330,48 @@ async function applyConfirmedImport(io: Server, confirmId: string, importerSocke
         console.info(`[import] suggestCommanders sent to importer names=${JSON.stringify(names)}`);
       } catch (e) {
         console.warn("applyConfirmedImport: suggestCommanders emit failed", e);
+      }
+
+      // If commander already exists (authoritative), or the format isn't commander,
+      // perform shuffle+opening draw now (idempotent: only if player's hand is empty).
+      try {
+        const cz = (game.state && game.state.commandZone && (game.state.commandZone as any)[p.initiator]) || null;
+        const isCommanderFmt = String(game.state.format || "").toLowerCase() === "commander";
+        const hasCommanderAlready = cz && Array.isArray(cz.commanderIds) && cz.commanderIds.length > 0;
+        if (hasCommanderAlready || !isCommanderFmt) {
+          // Use the existing pendingInitialDraw flag to safely perform shuffle+draw
+          const pendingSet = (game as any).pendingInitialDraw as Set<PlayerID> | undefined;
+          if (pendingSet && pendingSet.has(p.initiator)) {
+            // check hand count to avoid double-draw
+            const z = (game.state && (game.state as any).zones && (game.state as any).zones[p.initiator]) || null;
+            const handCount = z ? (typeof z.handCount === "number" ? z.handCount : (Array.isArray(z.hand) ? z.hand.length : 0)) : 0;
+            if (handCount === 0) {
+              if (typeof (game as any).shuffleLibrary === "function") {
+                try {
+                  (game as any).shuffleLibrary(p.initiator);
+                  appendEvent(p.gameId, game.seq, "shuffleLibrary", { playerId: p.initiator });
+                } catch (e) {
+                  console.warn("applyConfirmedImport: shuffleLibrary failed", e);
+                }
+              } else {
+                console.warn("applyConfirmedImport: game.shuffleLibrary not available");
+              }
+              if (typeof (game as any).drawCards === "function") {
+                try {
+                  (game as any).drawCards(p.initiator, 7);
+                  appendEvent(p.gameId, game.seq, "drawCards", { playerId: p.initiator, count: 7 });
+                } catch (e) {
+                  console.warn("applyConfirmedImport: drawCards failed", e);
+                }
+              } else {
+                console.warn("applyConfirmedImport: game.drawCards not available");
+              }
+            }
+            try { pendingSet.delete(p.initiator); } catch (e) { /* ignore */ }
+          }
+        }
+      } catch (e) {
+        console.warn("applyConfirmedImport: attempted immediate shuffle/draw failed", e);
       }
 
       // Broadcast authoritative state now (clients will request imported candidates and TableLayout will open gallery)
@@ -447,6 +557,23 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       // Store pending so applyConfirmedImport can find it
       pendingImportConfirmations.set(confirmId, pending);
 
+      // NEW: unload transient zones for the importer immediately so UI doesn't show stale hand/commanders
+      try {
+        clearPlayerTransientZonesForImport(game, pid);
+        try { broadcastGame(io, game, gameId); } catch (e) { /* best-effort */ }
+      } catch (e) {
+        console.warn("importDeck: clearing transient zones failed", e);
+      }
+
+      // NEW: ensure pendingInitialDraw is set now so setCommander later will trigger shuffle+draw
+      try {
+        addPendingInitialDrawFlag(game, pid);
+        console.info(`[import] pendingInitialDraw (init) flagged for player=${pid} game=${gameId}`);
+        try { broadcastGame(io, game, gameId); } catch (e) { /* best-effort */ }
+      } catch (e) {
+        console.warn("importDeck: addPendingInitialDrawFlag failed", e);
+      }
+
       // Determine if we should auto-apply (solo OR pre-game / beginning)
       const phaseStr = String(game.state?.phase || "").toUpperCase();
       const pregame = phaseStr === "PRE_GAME" || phaseStr === "BEGINNING";
@@ -580,6 +707,41 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
     }
   });
 
+  // Test helper: force-apply any pending import where the socket player is the initiator.
+  // Usage from browser console: socket.emit('applyPendingImport', { gameId: '<GAME_ID>' });
+  socket.on('applyPendingImport', async ({ gameId }: { gameId: string }) => {
+    try {
+      const pid = socket.data.playerId as PlayerID | undefined;
+      if (!pid) {
+        socket.emit('error', { code: 'NOT_AUTH', message: 'Not authenticated' });
+        return;
+      }
+      // find a pending confirm for this game and player
+      let foundId: string | null = null;
+      for (const [cid, p] of pendingImportConfirmations.entries()) {
+        if (p.gameId === gameId && p.initiator === pid) {
+          foundId = cid;
+          break;
+        }
+      }
+      if (!foundId) {
+        socket.emit('error', { code: 'NO_PENDING_IMPORT', message: 'No pending import found for you in this game' });
+        return;
+      }
+      // Call the applyConfirmedImport function from this module
+      try {
+        await applyConfirmedImport(io, foundId, socket);
+        socket.emit('applyPendingImportResult', { gameId, success: true, confirmId: foundId });
+      } catch (err) {
+        console.error('applyPendingImport: applyConfirmedImport failed', err);
+        socket.emit('applyPendingImportResult', { gameId, success: false, error: String(err) });
+      }
+    } catch (err) {
+      console.error('applyPendingImport handler error', err);
+      socket.emit('error', { code: 'APPLY_PENDING_IMPORT_ERROR', message: String(err) });
+    }
+  });
+
   // useSavedDeck: same resolution as importDeck but from saved DB
   socket.on("useSavedDeck", async ({ gameId, deckId }: { gameId: string; deckId: string }) => {
     const pid = socket.data.playerId as PlayerID | undefined;
@@ -686,6 +848,23 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       }, 60_000);
 
       pendingImportConfirmations.set(confirmId, pendingObj);
+
+      // NEW: unload transient zones for the importer immediately so UI doesn't show stale hand/commanders
+      try {
+        clearPlayerTransientZonesForImport(game, pid);
+        try { broadcastGame(io, game, gameId); } catch (e) { /* best-effort */ }
+      } catch (e) {
+        console.warn("useSavedDeck: clearing transient zones failed", e);
+      }
+
+      // NEW: ensure pendingInitialDraw is set now so setCommander later will trigger shuffle+draw
+      try {
+        addPendingInitialDrawFlag(game, pid);
+        console.info(`[useSavedDeck] pendingInitialDraw (init) flagged for player=${pid} game=${gameId}`);
+        try { broadcastGame(io, game, gameId); } catch (e) { /* best-effort */ }
+      } catch (e) {
+        console.warn("useSavedDeck: addPendingInitialDrawFlag failed", e);
+      }
 
       // Determine if we should auto-apply (solo OR pre-game / beginning)
       const phaseStr = String(game.state?.phase || "").toUpperCase();
