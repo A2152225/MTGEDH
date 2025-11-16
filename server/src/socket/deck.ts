@@ -24,6 +24,9 @@
  *   when the player selects commanders (client calls setCommander) the server
  *   will see the pendingInitialDraw and perform shuffle+draw idempotently.
  *
+ * Additional robustness:
+ * - capture snapshots of zones/commandZone/phase at import start and restore them if the import is cancelled.
+ *
  * Notes:
  * - This file is written to be a drop-in replacement on the Lotsofstuffhappened branch.
  * - It is conservative and defensive against different game implementations.
@@ -56,6 +59,10 @@ type PendingConfirm = {
   save?: boolean;
   responses: Record<string, "pending" | "yes" | "no">;
   timeout?: NodeJS.Timeout | null;
+  // snapshots to allow restore on cancel
+  snapshotZones?: any;
+  snapshotCommandZone?: any;
+  snapshotPhase?: string | null;
 };
 
 const pendingImportConfirmations: Map<string, PendingConfirm> = new Map();
@@ -99,6 +106,57 @@ function addPendingInitialDrawFlag(game: any, pid: PlayerID) {
   }
 }
 
+/**
+ * Restore snapshots saved in the pending confirmation (if present).
+ * This is only intended to restore the importer's transient zones/commandZone/phase
+ * if the import is cancelled before applyConfirmedImport.
+ */
+function restoreSnapshotIfPresent(io: Server, confirmId: string) {
+  const p = pendingImportConfirmations.get(confirmId);
+  if (!p) return;
+  try {
+    const game = ensureGame(p.gameId);
+    if (!game) return;
+
+    if (p.snapshotZones) {
+      game.state = game.state || {};
+      game.state.zones = game.state.zones || {};
+      game.state.zones[p.initiator] = p.snapshotZones;
+    }
+
+    if (p.snapshotCommandZone) {
+      game.state = game.state || {};
+      game.state.commandZone = game.state.commandZone || {};
+      game.state.commandZone[p.initiator] = p.snapshotCommandZone;
+    }
+
+    if (typeof p.snapshotPhase !== "undefined") {
+      try {
+        game.state = game.state || {};
+        // restore the previous phase (could be empty/null)
+        (game.state as any).phase = p.snapshotPhase;
+      } catch (e) {
+        console.warn("restoreSnapshotIfPresent: failed to restore phase", e);
+      }
+    }
+
+    // Remove the pendingInitialDraw flag we set at import initiation
+    try {
+      if ((game as any).pendingInitialDraw && typeof (game as any).pendingInitialDraw.delete === "function") {
+        (game as any).pendingInitialDraw.delete(p.initiator);
+      } else if ((game as any).pendingInitialDraw && Array.isArray((game as any).pendingInitialDraw)) {
+        (game as any).pendingInitialDraw = new Set(((game as any).pendingInitialDraw as any[]).filter((x: any) => x !== p.initiator));
+      }
+    } catch (e) {
+      console.warn("restoreSnapshotIfPresent: failed to remove pendingInitialDraw flag", e);
+    }
+
+    try { broadcastGame(io, game, p.gameId); } catch (e) { /* best-effort */ }
+  } catch (err) {
+    console.warn("restoreSnapshotIfPresent failed", err);
+  }
+}
+
 function cancelConfirmation(io: Server, confirmId: string, reason = "cancelled") {
   const p = pendingImportConfirmations.get(confirmId);
   if (!p) return;
@@ -106,15 +164,12 @@ function cancelConfirmation(io: Server, confirmId: string, reason = "cancelled")
     try { clearTimeout(p.timeout); } catch {}
   }
   try {
-    // Remove the pendingInitialDraw flag if it was set at import initiation
+    // Restore snapshots (hand/commandZone/phase) if we captured them at import start
     try {
-      const game = ensureGame(p.gameId);
-      if (game) {
-        removePendingInitialDrawFlag(game, p.initiator);
-        // Broadcast updated authoritative game so clients stop showing cleared transient zones
-        try { broadcastGame(io, game, p.gameId); } catch (e) { /* best-effort */ }
-      }
-    } catch (e) { /* ignore */ }
+      restoreSnapshotIfPresent(io, confirmId);
+    } catch (e) {
+      console.warn("cancelConfirmation: restoreSnapshotIfPresent failed", e);
+    }
 
     io.to(p.gameId).emit("importWipeCancelled", { confirmId, gameId: p.gameId, by: p.initiator, reason });
   } catch (e) {
@@ -127,6 +182,7 @@ function cancelConfirmation(io: Server, confirmId: string, reason = "cancelled")
    We purposely limit the clearing to hand and commandZone so we don't accidentally
    remove battlefield permanents owned by others. This makes the UI reflect that
    the import is in progress and prevents old commanders/hands from showing under the modal.
+   Additionally, we set the authoritative phase to PRE_GAME so client flows treat this as pre-game.
 */
 function clearPlayerTransientZonesForImport(game: any, pid: PlayerID) {
   try {
@@ -142,6 +198,13 @@ function clearPlayerTransientZonesForImport(game: any, pid: PlayerID) {
     // Clear commander snapshot for that player so previous commanders don't show while import modal is open.
     game.state.commandZone = game.state.commandZone || {};
     game.state.commandZone[pid] = { commanderIds: [], commanderCards: [], tax: 0, taxById: {} };
+
+    // Set the phase to PRE_GAME while import/confirm is pending so auto-apply rules treat it as pre-game.
+    try {
+      (game.state as any).phase = "PRE_GAME";
+    } catch (e) {
+      console.warn("clearPlayerTransientZonesForImport: failed to set PRE_GAME phase", e);
+    }
   } catch (e) {
     console.warn("clearPlayerTransientZonesForImport failed:", e);
   }
@@ -157,7 +220,7 @@ function clearPlayerTransientZonesForImport(game: any, pid: PlayerID) {
  * Behaviors:
  *  - Calls game.reset(true) to clear state but preserve players if available.
  *  - Calls game.importDeckResolved(initiator, resolvedCards) if available (preferred).
- *  - Ensures libraries map or state.zones reflects the imported library for the initiating player.
+ *  - Ensures libraries map or state.zones reflects the imported library for the initiating player (OVERWRITE).
  *  - Flags pendingInitialDraw for the importer so setCommander can shuffle/draw.
  *  - If commander is already present in authoritative state or format is not commander, immediately perform shuffle+draw (idempotent).
  *  - Emits suggestCommanders to the importer socket only (so gallery modal can open).
@@ -217,53 +280,42 @@ async function applyConfirmedImport(io: Server, confirmId: string, importerSocke
     // 2) Import into authoritative game state (preferred API)
     try {
       if (typeof (game as any).importDeckResolved === "function") {
+        // prefer state-layer hook
         (game as any).importDeckResolved(p.initiator, p.resolvedCards);
       } else {
-        // best-effort populate libraries map / state.zones
-        try {
-          const L = (game as any).libraries;
-          if (L && typeof L.set === "function") {
-            // if empty, set
-            const existing = L.get(p.initiator) || [];
-            if (!existing || existing.length === 0) {
-              L.set(p.initiator, p.resolvedCards.map((c) => ({ ...c, zone: "library" })));
-            }
-          } else if ((game.state as any).zones) {
-            (game.state as any).zones = (game.state as any).zones || {};
-            (game.state as any).zones[p.initiator] = (game.state as any).zones[p.initiator] || { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0 };
-            if ((!Array.isArray((game.state as any).zones[p.initiator].library) || (game.state as any).zones[p.initiator].library.length === 0) && p.resolvedCards.length > 0) {
-              (game.state as any).zones[p.initiator].library = p.resolvedCards.map((c) => ({ ...c, zone: "library" }));
-              (game.state as any).zones[p.initiator].libraryCount = p.resolvedCards.length;
-            }
-          }
-        } catch (e) {
-          console.warn("applyConfirmedImport: fallback library population failed", e);
-        }
+        // If no hook, we'll still populate below (overwrite)
       }
       console.info(`[import] importDeckResolved called/attempted for player=${p.initiator} game=${p.gameId}`);
     } catch (err) {
       console.error("applyConfirmedImport: game.importDeckResolved failed", err);
     }
 
-    // Ensure libraries set for UI if importDeckResolved didn't populate it
+    // 2b) Ensure libraries are authoritative for UI — OVERWRITE with imported list to reflect import intent.
     try {
+      const mapped = (p.resolvedCards || []).map((c: any) => ({ ...c, zone: "library" }));
       const L = (game as any).libraries;
-      if (L && typeof L.get === "function") {
-        const arr = L.get(p.initiator) || [];
-        if ((!arr || arr.length === 0) && p.resolvedCards && p.resolvedCards.length > 0) {
-          try {
-            L.set(p.initiator, p.resolvedCards.map((c: any) => ({ ...c, zone: "library" })));
-            (game.state as any).zones = (game.state as any).zones || {};
-            (game.state as any).zones[p.initiator] = (game.state as any).zones[p.initiator] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
-            (game.state as any).zones[p.initiator].libraryCount = p.resolvedCards.length;
-            console.info(`[import] libraries.set populated for player=${p.initiator} count=${p.resolvedCards.length}`);
-          } catch (e) {
-            console.warn("applyConfirmedImport: failed to set libraries map fallback", e);
-          }
+      if (L && typeof L.set === "function") {
+        try {
+          L.set(p.initiator, mapped);
+          console.info(`[import] libraries.set overwritten for player=${p.initiator} count=${mapped.length}`);
+        } catch (e) {
+          console.warn("applyConfirmedImport: libraries.set overwrite failed", e);
+        }
+      } else {
+        // Ensure zones shape is present and overwrite library array
+        try {
+          game.state = game.state || {};
+          game.state.zones = game.state.zones || {};
+          game.state.zones[p.initiator] = game.state.zones[p.initiator] || { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0 };
+          game.state.zones[p.initiator].library = mapped;
+          game.state.zones[p.initiator].libraryCount = mapped.length;
+          console.info(`[import] state.zones library overwritten for player=${p.initiator} count=${mapped.length}`);
+        } catch (e) {
+          console.warn("applyConfirmedImport: state.zones overwrite failed", e);
         }
       }
     } catch (e) {
-      // ignore
+      console.warn("applyConfirmedImport: forced library overwrite failed", e);
     }
 
     // Defensive: ensure life & zones exist for player (avoid UI showing missing zones)
@@ -288,14 +340,20 @@ async function applyConfirmedImport(io: Server, confirmId: string, importerSocke
       console.warn("applyConfirmedImport: appendEvent failed", err);
     }
 
-    // 4) Flag pendingInitialDraw and suggest commanders to importer only
+    // 4) Flag pendingInitialDraw and broadcast authoritative state so clients have library/pending flags
     try {
-      // Flag pendingInitialDraw (state-layer may already do this in importDeckResolved)
       try {
         addPendingInitialDrawFlag(game, p.initiator);
         console.info(`[import] pendingInitialDraw flagged for player=${p.initiator} game=${p.gameId}`);
       } catch (e) {
         console.warn("applyConfirmedImport: pendingInitialDraw flagging failed", e);
+      }
+
+      // Broadcast authoritative state now so clients see the new library / pending flags before prompt
+      try {
+        broadcastGame(io, game, p.gameId);
+      } catch (e) {
+        console.warn("applyConfirmedImport: broadcastGame failed", e);
       }
 
       // Suggest commanders to importer only (importerSocket preferred)
@@ -538,6 +596,11 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       for (const pl of players) responses[pl] = "pending";
       responses[pid] = "yes"; // initiator auto-yes
 
+      // capture snapshot of importer transient zones to allow restore on cancel
+      const snapshotZones = (game.state && (game.state as any).zones && (game.state as any).zones[pid]) ? JSON.parse(JSON.stringify((game.state as any).zones[pid])) : null;
+      const snapshotCommandZone = (game.state && (game.state as any).commandZone && (game.state as any).commandZone[pid]) ? JSON.parse(JSON.stringify((game.state as any).commandZone[pid])) : null;
+      const snapshotPhase = (game.state && (game.state as any).phase !== undefined) ? (game.state as any).phase : null;
+
       const pending: PendingConfirm = {
         gameId,
         initiator: pid,
@@ -547,6 +610,9 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         save,
         responses,
         timeout: null,
+        snapshotZones,
+        snapshotCommandZone,
+        snapshotPhase
       };
 
       const TIMEOUT_MS = 60_000;
@@ -575,8 +641,9 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       }
 
       // Determine if we should auto-apply (solo OR pre-game / beginning)
-      const phaseStr = String(game.state?.phase || "").toUpperCase();
-      const pregame = phaseStr === "PRE_GAME" || phaseStr === "BEGINNING";
+      const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
+      // tightened: only empty/undefined phase qualifies as pregame
+      const pregame = phaseStr === "";
       if (players.length <= 1 || pregame) {
         // Immediate apply flow for importer-only: send suggestCommanders to importer then apply
         try {
@@ -841,6 +908,9 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         save: false,
         responses,
         timeout: null,
+        snapshotZones: (game.state && (game.state as any).zones && (game.state as any).zones[pid]) ? JSON.parse(JSON.stringify((game.state as any).zones[pid])) : null,
+        snapshotCommandZone: (game.state && (game.state as any).commandZone && (game.state as any).commandZone[pid]) ? JSON.parse(JSON.stringify((game.state as any).commandZone[pid])) : null,
+        snapshotPhase: (game.state && (game.state as any).phase !== undefined) ? (game.state as any).phase : null,
       };
 
       pendingObj.timeout = setTimeout(() => {
@@ -867,9 +937,10 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       }
 
       // Determine if we should auto-apply (solo OR pre-game / beginning)
-      const phaseStr = String(game.state?.phase || "").toUpperCase();
-      const pregame = phaseStr === "PRE_GAME" || phaseStr === "BEGINNING";
-      if (players.length <= 1 || pregame) {
+      const phaseStr2 = String(game.state?.phase || "").toUpperCase().trim();
+      // tightened: only empty/undefined phase qualifies as pregame
+      const pregame2 = phaseStr2 === "";
+      if (players.length <= 1 || pregame2) {
         try {
           const names = (() => {
             const cards = resolved || [];

@@ -39,12 +39,36 @@ export function registerGameActions(io: Server, socket: Socket) {
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
-      if (game.state.turnPlayer !== playerId) {
-        socket.emit("error", { code: "NEXT_TURN", message: "Only the active player can advance the turn." });
-        return;
+      // Lightweight debug logging to help trace why nextTurn requests may be rejected
+      try {
+        console.info(`[nextTurn] request from player=${playerId} game=${gameId} turnPlayer=${game.state?.turnPlayer} stack=${(game.state?.stack||[]).length} phase=${String(game.state?.phase)}`);
+      } catch (e) { /* ignore logging errors */ }
+
+      const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
+      // tightened: only empty/undefined phase qualifies as pregame
+      const pregame = phaseStr === "";
+
+      // If turnPlayer is set, only active player may advance.
+      if (game.state.turnPlayer) {
+        if (game.state.turnPlayer !== playerId) {
+          socket.emit("error", { code: "NEXT_TURN", message: "Only the active player can advance the turn." });
+          console.info(`[nextTurn] rejected - not active player (player=${playerId} turnPlayer=${game.state.turnPlayer})`);
+          return;
+        }
+      } else {
+        // No turnPlayer set (resumed or not-yet-started). Allow advance only during pregame (empty phase).
+        if (!pregame) {
+          socket.emit("error", { code: "NEXT_TURN", message: "No active player set; cannot advance turn." });
+          console.info(`[nextTurn] rejected - no turnPlayer and not pregame (phase=${phaseStr})`);
+          return;
+        } else {
+          console.info(`[nextTurn] no turnPlayer; allowing advance in pregame (player=${playerId} phase=${phaseStr})`);
+        }
       }
-      if (game.state.stack.length > 0) {
+
+      if (game.state.stack && game.state.stack.length > 0) {
         socket.emit("error", { code: "NEXT_TURN", message: "Cannot advance turn while the stack is not empty." });
+        console.info(`[nextTurn] rejected - stack not empty (len=${game.state.stack.length})`);
         return;
       }
 
@@ -58,6 +82,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         message: `Turn advanced. Active player: ${game.state.turnPlayer}`,
         ts: Date.now(),
       });
+
       broadcastGame(io, game, gameId);
     } catch (err) {
       console.error(`nextTurn error for game ${gameId}:`, err);
@@ -72,12 +97,35 @@ export function registerGameActions(io: Server, socket: Socket) {
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
-      if (game.state.turnPlayer !== playerId) {
-        socket.emit("error", { code: "NEXT_STEP", message: "Only the active player can advance the step." });
-        return;
+      // Lightweight debug logging to help trace why nextStep requests may be rejected
+      try {
+        console.info(`[nextStep] request from player=${playerId} game=${gameId} turnPlayer=${game.state?.turnPlayer} step=${String(game.state?.step)} stack=${(game.state?.stack||[]).length} phase=${String(game.state?.phase)}`);
+      } catch (e) { /* ignore logging errors */ }
+
+      const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
+      // tightened: only empty/undefined phase qualifies as pregame
+      const pregame = phaseStr === "";
+
+      if (game.state.turnPlayer) {
+        if (game.state.turnPlayer !== playerId) {
+          socket.emit("error", { code: "NEXT_STEP", message: "Only the active player can advance the step." });
+          console.info(`[nextStep] rejected - not active player (player=${playerId} turnPlayer=${game.state.turnPlayer})`);
+          return;
+        }
+      } else {
+        // No turnPlayer set; allow step advancement in pregame to enable resumed games to progress
+        if (!pregame) {
+          socket.emit("error", { code: "NEXT_STEP", message: "No active player set; cannot advance step." });
+          console.info(`[nextStep] rejected - no turnPlayer and not pregame (phase=${phaseStr})`);
+          return;
+        } else {
+          console.info(`[nextStep] no turnPlayer; allowing advance in pregame (player=${playerId} phase=${phaseStr})`);
+        }
       }
-      if (game.state.stack.length > 0) {
+
+      if (game.state.stack && game.state.stack.length > 0) {
         socket.emit("error", { code: "NEXT_STEP", message: "Cannot advance step while the stack is not empty." });
+        console.info(`[nextStep] rejected - stack not empty (len=${game.state.stack.length})`);
         return;
       }
 
