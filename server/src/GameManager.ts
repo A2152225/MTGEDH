@@ -1,143 +1,194 @@
 /**
  * server/src/GameManager.ts
  *
- * Lightweight singleton manager for Game instances.
+ * Robust GameManager for in-memory game instances.
  *
- * Purpose of this replacement:
- * - Ensure new games start in phase = "PRE_GAME".
- * - Ensure resets (via resetGame) also set phase = "PRE_GAME" when requested.
- * - Provide small helper API (create/get/ensure/reset/delete/list) used by server socket code.
- *
- * Notes / assumptions:
- * - There's an application Game class exported from ./game (or ./Game) that the rest of the server uses.
- *   If your code uses a different path/name, update the import below.
- * - This module intentionally performs minimal side-effects: it does not broadcast state.
- *   Existing code that calls broadcastGame(io, game, gameId) continues to be responsible for broadcasting.
- * - resetGame supports preservePlayers boolean (keeps parity with earlier calls in socket handlers).
- *
- * Behavior:
- * - createGame(opts?) returns the newly created Game and sets game.state.phase = "PRE_GAME".
- * - ensureGame(gameId) returns existing game or creates a fresh one.
- * - resetGame(gameId, preservePlayers) calls game.reset(preservePlayers) if available, then forces phase = "PRE_GAME".
- *
- * If you want me to also update every place that constructs Game instances (factory functions elsewhere),
- * I can patch those too — for now this central manager ensures new games started via this manager are PRE_GAME.
+ * Improvements over previous version:
+ * - Attempt multiple require() paths to find the project's Game implementation.
+ * - If Game implementation isn't found, fall back to createInitialGameState (the existing in-memory wrapper).
+ * - Always initialize game.state.phase = "PRE_GAME" on creation/reset (option B requested earlier).
+ * - Keep stable shapes (seq, players, zones) so sockets and saved-event replay work.
  */
 
-import type { Game as GameType } from "./game"; // adjust path/name if your game export differs
 import { randomUUID } from "crypto";
+import type { Server } from "socket.io";
 
-// Try to import Game class. If your repository exports Game under a different path/name,
-// update the import above to match. We only reference methods used by sockets (reset, seq, etc.).
-let GameImpl: any;
+// Try to import createInitialGameState as an explicit fallback (used by socket util)
+let createInitialGameState: any = null;
 try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-unsafe-assignment
-  GameImpl = require("./game")?.Game || require("./game")?.default || require("./game");
-} catch (err) {
-  // Defer error: createGame will throw if GameImpl is not present.
-  GameImpl = null;
+  // prefer the project's state factory used elsewhere
+  // path relative to server/src/GameManager.ts
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  createInitialGameState = require("./state")?.createInitialGameState || require("./state/index")?.createInitialGameState;
+} catch (e) {
+  // not fatal; we'll attempt to proceed without it
+  createInitialGameState = null;
 }
+
+/**
+ * Try to locate a Game implementation by trying several common paths.
+ * Returns the constructor or null if not found.
+ */
+function tryLoadGameImpl(): any | null {
+  const candidates = [
+    "./game",
+    "./Game",
+    "./game/index",
+    "./Game/index",
+    "../game",
+    "../game/index",
+    "../Game",
+    "../Game/index",
+    "./state/game",
+    "./state/Game",
+  ];
+  for (const p of candidates) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const mod = require(p);
+      if (!mod) continue;
+      // Prefer named exports Game, otherwise default, otherwise module itself
+      if (mod.Game) return mod.Game;
+      if (mod.default) return mod.default;
+      return mod;
+    } catch (e) {
+      // ignore, try next
+    }
+  }
+  return null;
+}
+
+let GameImpl: any = tryLoadGameImpl();
 
 export type CreateGameOptions = {
   id?: string;
-  startingState?: any; // optional initial state applied after construction
+  startingState?: any;
 };
 
-/**
- * GameManager singleton
- */
 class GameManagerClass {
   private games: Map<string, any> = new Map();
 
-  // Return list of game ids
   listGameIds(): string[] {
     return Array.from(this.games.keys());
   }
 
-  // Create a new game instance and store it under gameId. If id is not provided, a UUID will be generated.
+  private initBasicShapes(game: any, opts?: CreateGameOptions) {
+    try {
+      game.state = game.state || {};
+      // prefer uppercase canonical stored phase
+      game.state.phase = (opts && opts.startingState && typeof opts.startingState.phase !== "undefined")
+        ? opts.startingState.phase
+        : "PRE_GAME";
+      // merge incoming startingState but avoid overwriting phase unless explicitly provided
+      if (opts && opts.startingState && typeof opts.startingState === "object") {
+        const incoming = { ...opts.startingState };
+        if (typeof incoming.phase === "undefined") delete incoming.phase;
+        game.state = { ...game.state, ...incoming };
+        if (typeof opts.startingState.phase === "undefined") game.state.phase = "PRE_GAME";
+      }
+    } catch (e) {
+      console.warn("GameManager.initBasicShapes: failed to set phase", e);
+      game.state = game.state || {};
+      game.state.phase = "PRE_GAME";
+    }
+
+    try {
+      if (typeof game.seq === "undefined") game.seq = 0;
+      game.state.players = game.state.players || [];
+      game.state.zones = game.state.zones || {};
+      game.state.commandZone = game.state.commandZone || {};
+      // ensure life object exists
+      game.state.life = game.state.life || {};
+    } catch (e) {
+      // best-effort
+    }
+  }
+
   createGame(opts: CreateGameOptions = {}): any {
     const id = opts.id || `g_${randomUUID()}`;
     if (this.games.has(id)) {
       throw new Error(`Game ${id} already exists`);
     }
-    if (!GameImpl) {
-      throw new Error("Game implementation not found. Update import path in server/src/GameManager.ts");
-    }
-    // Construct game. Many Game constructors accept options; we pass none to be conservative.
-    const game: any = new GameImpl();
 
-    // Ensure basic state shape and set PRE_GAME phase
-    try {
-      game.state = game.state || {};
-      game.state.phase = "PRE_GAME";
-      if (opts.startingState && typeof opts.startingState === "object") {
-        // merge in but do not overwrite phase unless explicitly provided in startingState
-        const incoming = { ...opts.startingState };
-        if (typeof incoming.phase === "undefined") delete incoming.phase;
-        game.state = { ...game.state, ...incoming };
-        // ensure phase remains PRE_GAME unless startingState explicitly set it
-        if (typeof opts.startingState.phase === "undefined") game.state.phase = "PRE_GAME";
+    let game: any;
+    if (GameImpl) {
+      try {
+        game = new GameImpl();
+      } catch (e) {
+        console.warn("GameManager.createGame: GameImpl construction failed, falling back to createInitialGameState", e);
+        game = null;
       }
-    } catch (e) {
-      // best-effort
-      console.warn("GameManager.createGame: failed to initialize state.phase", e);
-      game.state = game.state || {};
-      game.state.phase = "PRE_GAME";
+    } else {
+      game = null;
     }
 
-    // Stabilize common helpers expected by server code
-    try {
-      // ensure basic seq property exists for appendEvent semantics
-      if (typeof game.seq === "undefined") game.seq = 0;
-      // optional life/players shapes to avoid UI errors
-      game.state.players = game.state.players || [];
-      game.state.zones = game.state.zones || {};
-    } catch (e) {
-      /* noop */
+    if (!game) {
+      if (createInitialGameState) {
+        try {
+          game = createInitialGameState(id);
+        } catch (e) {
+          console.warn("GameManager.createGame: createInitialGameState failed", e);
+          game = { state: {}, seq: 0 };
+        }
+      } else {
+        // minimal fallback wrapper
+        game = { state: {}, seq: 0 };
+      }
     }
+
+    // initialize canonical shapes and phase
+    this.initBasicShapes(game, opts);
 
     this.games.set(id, game);
     return game;
   }
 
-  // Get a game by id, or undefined if not present
   getGame(gameId: string): any | undefined {
     return this.games.get(gameId);
   }
 
-  // Ensure a game exists (create if missing) and return it.
   ensureGame(gameId: string): any {
     let g = this.games.get(gameId);
     if (g) return g;
-    // Try to create a new Game and store it under the provided id
-    if (!GameImpl) {
-      throw new Error("Game implementation not found. Update import path in server/src/GameManager.ts");
+
+    // If GameImpl available, instantiate a Game and store under provided id if possible.
+    let game: any = null;
+    if (GameImpl) {
+      try {
+        game = new GameImpl();
+      } catch (e) {
+        console.warn("GameManager.ensureGame: GameImpl construction failed, falling back to createInitialGameState", e);
+        game = null;
+      }
     }
-    // instantiate and attach
-    const game: any = new GameImpl();
-    try {
-      game.state = game.state || {};
-      game.state.phase = "PRE_GAME";
-      if (typeof game.seq === "undefined") game.seq = 0;
-      game.state.players = game.state.players || [];
-      game.state.zones = game.state.zones || {};
-    } catch (e) {
-      console.warn("GameManager.ensureGame: failed to init game.state", e);
-      game.state = game.state || {};
-      game.state.phase = "PRE_GAME";
+
+    if (!game) {
+      if (createInitialGameState) {
+        try {
+          game = createInitialGameState(gameId);
+        } catch (e) {
+          console.warn("GameManager.ensureGame: createInitialGameState failed, creating minimal wrapper", e);
+          game = { state: {}, seq: 0 };
+        }
+      } else {
+        // final fallback
+        game = { state: {}, seq: 0 };
+      }
     }
+
+    // Ensure canonical phase and shapes
+    this.initBasicShapes(game);
+
     this.games.set(gameId, game);
     return game;
   }
 
-  // Reset a game: call underlying reset(preservePlayers) if available, then set phase = PRE_GAME.
   resetGame(gameId: string, preservePlayers = true): any {
     const game = this.ensureGame(gameId);
     try {
       if (typeof game.reset === "function") {
         game.reset(preservePlayers);
       } else {
-        // best-effort: reset core shapes
         game.state = game.state || {};
         if (preservePlayers && Array.isArray(game.state.players)) {
           const players = game.state.players;
@@ -148,34 +199,18 @@ class GameManagerClass {
       }
     } catch (e) {
       console.warn("GameManager.resetGame: underlying reset failed", e);
-      // best-effort continue to set phase
       game.state = game.state || {};
     }
 
-    // Ensure authoritative phase is PRE_GAME after reset
-    try {
-      game.state = game.state || {};
-      game.state.phase = "PRE_GAME";
-    } catch (e) {
-      console.warn("GameManager.resetGame: failed to set PRE_GAME phase", e);
-    }
-
-    // Ensure seq property preserved/inited
-    try {
-      if (typeof game.seq === "undefined") game.seq = 0;
-    } catch (e) {
-      // ignore
-    }
-
+    try { game.state.phase = "PRE_GAME"; } catch (e) { /* ignore */ }
+    try { if (typeof game.seq === "undefined") game.seq = 0; } catch (e) { /* ignore */ }
     return game;
   }
 
-  // Remove a game instance
   deleteGame(gameId: string): boolean {
     return this.games.delete(gameId);
   }
 
-  // For debugging: clear all games
   clearAllGames(): void {
     this.games.clear();
   }

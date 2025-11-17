@@ -1,210 +1,212 @@
-// server/src/state/modules/join.ts
-// Robust join/leave/disconnect helpers for GameContext.
-// join(...) now reuses an existing player record when the same name is provided
-// and that player is currently NOT connected. It still honors fixedPlayerId
-// when supplied and only creates a new player entry when needed.
-
-import type { GameContext } from "../context";
-import type { PlayerID } from "../../../shared/src/types";
-import { uid } from "../utils";
+import type { Server, Socket } from "socket.io";
+import { ensureGame, broadcastGame, schedulePriorityTimeout } from "./util";
+import { appendEvent } from "../db";
+import { computeDiff } from "../utils/diff";
+import { games } from "./socket";
 
 /**
- * Ensure internal participant containers exist.
- */
-function ensureParticipantContainers(ctx: GameContext) {
-  if (!ctx.joinedBySocket) (ctx as any).joinedBySocket = new Map<string, { socketId: string; playerId: PlayerID; spectator: boolean }>();
-  if (!Array.isArray((ctx as any).participantsList)) (ctx as any).participantsList = [];
-  if (!ctx.state) (ctx as any).state = { players: [], startingLife: 40 } as any;
-  if (!Array.isArray((ctx.state as any).players)) (ctx.state as any).players = [];
-}
-
-/**
- * Find player index by id in state.players (safe).
- */
-function findPlayerIndex(ctx: GameContext, playerId: PlayerID) {
-  const players = (ctx.state as any).players || [];
-  return players.findIndex((p: any) => p && p.id === playerId);
-}
-
-/**
- * Find a player in state.players by name (case-insensitive).
- * Returns the player object or undefined.
- */
-function findPlayerByName(ctx: GameContext, playerName?: string) {
-  if (!playerName) return undefined;
-  const players = (ctx.state as any).players || [];
-  const nameLower = String(playerName).trim().toLowerCase();
-  return players.find((p: any) => String(p?.name || "").trim().toLowerCase() === nameLower);
-}
-
-/**
- * Check whether a playerId is currently connected (has an entry in participantsList or joinedBySocket)
- */
-function isPlayerConnected(ctx: GameContext, playerId: PlayerID) {
-  try {
-    if (ctx.joinedBySocket instanceof Map) {
-      for (const [, info] of ctx.joinedBySocket.entries()) {
-        if (info && info.playerId === playerId) return true;
-      }
-    }
-    if (Array.isArray((ctx as any).participantsList)) {
-      if ((ctx as any).participantsList.some((p: any) => p.playerId === playerId)) return true;
-    }
-  } catch {
-    // ignore
-  }
-  return false;
-}
-
-/**
- * Add a PlayerRef into ctx.state.players if missing.
- * Returns true if newly added.
- */
-function addPlayerIfMissing(ctx: GameContext, playerId: PlayerID, playerName: string | undefined) {
-  ensureParticipantContainers(ctx);
-  const idx = findPlayerIndex(ctx, playerId);
-  if (idx >= 0) return false;
-  const players = (ctx.state as any).players as any[];
-  const newPlayer = {
-    id: playerId,
-    name: playerName || `Player ${players.length + 1}`,
-    seat: players.length,
-    isSpectator: false,
-  };
-  players.push(newPlayer);
-  // ensure life default
-  if (!ctx.life) (ctx as any).life = {};
-  if (typeof ctx.life[playerId] === "undefined") ctx.life[playerId] = ctx.state.startingLife ?? 40;
-  return true;
-}
-
-/**
- * Public join: register a socket and player in the context.
+ * Register handlers for players joining a game.
  *
- * Signature preserved for compatibility:
- * join(ctx, socketId, playerName, spectator, fixedPlayerId, seatTokenFromClient)
- *
- * Returns: { playerId, added: boolean, seatToken?: string }
- *
- * Behavior enhancements:
- * - If fixedPlayerId is provided, prefer it.
- * - Else if a player with the same name exists AND is NOT connected, reuse that playerId.
- * - Otherwise create a new playerId and append to state.players.
+ * Robustness:
+ * - tolerate Game implementations that don't implement hasRngSeed/seedRng by
+ *   falling back to storing rng seed on game.state.rngSeed and game._rngSeed.
+ * - tolerate Game implementations that don't implement join() or viewFor()
+ *   by using conservative fallbacks so the join flow doesn't throw.
  */
-export function join(
-  ctx: GameContext,
-  socketId: string,
-  playerName: string,
-  spectator = false,
-  fixedPlayerId?: string,
-  seatTokenFromClient?: string
-) {
-  ensureParticipantContainers(ctx);
+export function registerJoinHandlers(io: Server, socket: Socket) {
+  socket.on(
+    "joinGame",
+    async ({
+      gameId,
+      playerName,
+      spectator,
+      seatToken,
+      fixedPlayerId,
+    }: {
+      gameId: string;
+      playerName: string;
+      spectator?: boolean;
+      seatToken?: string;
+      fixedPlayerId?: string;
+    }) => {
+      try {
+        const game = ensureGame(gameId);
+        if (!game) {
+          socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found." });
+          return;
+        }
 
-  // Determine playerId to use
-  let chosenPlayerId: PlayerID;
-  let createdNew = false;
+        // Ensure RNG seed exists. Different Game implementations may expose hasRngSeed/seedRng,
+        // others may not — be defensive.
+        const seed = ((Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0) as number;
 
-  if (fixedPlayerId) {
-    chosenPlayerId = String(fixedPlayerId) as PlayerID;
-    // ensure player exists in authoritative list (create if absent)
-    const added = addPlayerIfMissing(ctx, chosenPlayerId, playerName);
-    createdNew = added;
-  } else {
-    // Try to find an existing player by name to reuse (if not currently connected)
-    const existing = findPlayerByName(ctx, playerName);
-    if (existing && existing.id) {
-      if (!isPlayerConnected(ctx, existing.id)) {
-        // reuse the existing player record
-        chosenPlayerId = existing.id;
-        createdNew = false;
-      } else {
-        // already connected: allocate a new player id (allow duplicate names in this case)
-        chosenPlayerId = uid("p") as PlayerID;
-        const added = addPlayerIfMissing(ctx, chosenPlayerId, playerName);
-        createdNew = added;
+        let hasSeed = false;
+        try {
+          if (typeof (game as any).hasRngSeed === "function") {
+            try {
+              hasSeed = Boolean((game as any).hasRngSeed());
+            } catch (e) {
+              // treat as no seed if method throws
+              hasSeed = false;
+            }
+          } else {
+            // Fallback: check canonical state fields used elsewhere
+            hasSeed = !!((game.state && (game.state as any).rngSeed) || (game as any)._rngSeed);
+          }
+        } catch (e) {
+          hasSeed = false;
+        }
+
+        if (!hasSeed) {
+          // Persist rngSeed event for replay (best-effort)
+          try {
+            await appendEvent(gameId, game.seq, "rngSeed", { seed });
+          } catch (err) {
+            console.warn("joinGame: appendEvent rngSeed failed (continuing):", err);
+          }
+
+          // Apply seed into the game instance if it exposes seedRng, otherwise set on state
+          try {
+            if (typeof (game as any).seedRng === "function") {
+              try {
+                (game as any).seedRng(seed);
+              } catch (e) {
+                console.warn("joinGame: game.seedRng threw, falling back to state set", e);
+                game.state = game.state || {};
+                (game.state as any).rngSeed = seed;
+                (game as any)._rngSeed = seed;
+              }
+            } else {
+              // fallback: attach to state so later logic can observe it
+              game.state = game.state || {};
+              (game.state as any).rngSeed = seed;
+              (game as any)._rngSeed = seed;
+            }
+          } catch (e) {
+            console.warn("joinGame: setting fallback rngSeed failed", e);
+          }
+        }
+
+        // Perform join using game.join() when available; otherwise apply a minimal fallback.
+        let playerId: string;
+        let added = false;
+        let resolvedToken: string | undefined = undefined;
+
+        if (typeof (game as any).join === "function") {
+          try {
+            // call the game's join method (some implementations return { playerId, added, seatToken })
+            const res = (game as any).join(
+              socket.id,
+              playerName,
+              Boolean(spectator),
+              undefined,
+              seatToken,
+              fixedPlayerId
+            );
+            // support both object and array-like returns
+            playerId = res?.playerId || (Array.isArray(res) ? res[0] : undefined);
+            added = Boolean(res?.added ?? res?.added === undefined ? res?.added : res?.added);
+            resolvedToken = res?.seatToken || res?.seat;
+            if (!playerId) {
+              // fallback: try to read from game.state.players last entry
+              game.state = game.state || {};
+              game.state.players = game.state.players || [];
+              playerId = fixedPlayerId || `p_${Math.random().toString(36).slice(2, 9)}`;
+              if (!game.state.players.find((p: any) => p.id === playerId)) {
+                game.state.players.push({ id: playerId, name: playerName, spectator: Boolean(spectator) });
+                added = true;
+              }
+            }
+          } catch (err) {
+            console.warn("joinGame: game.join threw, falling back to simple join:", err);
+            playerId = fixedPlayerId || `p_${Math.random().toString(36).slice(2, 9)}`;
+            game.state = game.state || {};
+            game.state.players = game.state.players || [];
+            if (!game.state.players.find((p: any) => p.id === playerId)) {
+              game.state.players.push({ id: playerId, name: playerName, spectator: Boolean(spectator) });
+              added = true;
+            }
+          }
+        } else {
+          // minimal fallback join behavior for simple in-memory wrappers
+          playerId = fixedPlayerId || `p_${Math.random().toString(36).slice(2, 9)}`;
+          game.state = game.state || {};
+          game.state.players = game.state.players || [];
+          if (!game.state.players.find((p: any) => p.id === playerId)) {
+            game.state.players.push({ id: playerId, name: playerName, spectator: Boolean(spectator) });
+            added = true;
+          }
+        }
+
+        // Attach session metadata to socket and join socket.io room
+        try {
+          socket.data = { gameId, playerId, spectator: Boolean(spectator) };
+        } catch (e) {
+          // older socket.io may not allow data assign — ignore
+        }
+        try { socket.join(gameId); } catch (e) { /* ignore */ }
+
+        // Build view for this player (use viewFor if available)
+        let view: any;
+        try {
+          if (typeof (game as any).viewFor === "function") {
+            view = (game as any).viewFor(playerId, Boolean(spectator));
+          } else {
+            // conservative: expose entire state (server-side must filter hidden info elsewhere)
+            view = game.state;
+          }
+        } catch (e) {
+          console.warn("joinGame: viewFor failed, falling back to raw state", e);
+          view = game.state;
+        }
+
+        // Send initial joined ack and state to the connecting socket
+        try {
+          const ack = { gameId, you: playerId, seatToken: resolvedToken };
+          socket.emit("joined", ack);
+        } catch (e) {
+          console.warn("joinGame: emit joined failed", e);
+        }
+
+        try {
+          socket.emit("state", { gameId, view, seq: (game as any).seq || 0 });
+        } catch (e) {
+          console.warn("joinGame: emit state failed", e);
+        }
+
+        // Log join event to persistent event log if DB append available
+        try {
+          await appendEvent(gameId, (game as any).seq, "join", {
+            playerId,
+            name: playerName,
+            seat: view?.players?.find((p: any) => p.id === playerId)?.seat,
+            seatToken: resolvedToken,
+          });
+        } catch (dbError) {
+          console.error(`joinGame database error for game ${gameId}:`, dbError);
+          try { socket.emit("error", { code: "DB_ERROR", message: "Failed to log the player join event." }); } catch {}
+        }
+
+        // Notify other participants with a stateDiff if computeDiff available
+        try {
+          socket.to(gameId).emit("stateDiff", {
+            gameId,
+            diff: typeof computeDiff === "function" ? computeDiff(undefined, view, (game as any).seq || 0) : { full: view },
+          });
+        } catch (e) {
+          console.warn("joinGame: emit stateDiff failed", e);
+        }
+
+        // schedule priority timer for game if relevant
+        try {
+          schedulePriorityTimeout(io, game, gameId);
+        } catch (e) {
+          console.warn("joinGame: schedulePriorityTimeout failed", e);
+        }
+      } catch (err: any) {
+        console.error(`joinGame error for socket ${socket.id}:`, err);
+        try { socket.emit("error", { code: "JOIN_FAILED", message: String(err?.message || err) }); } catch {}
       }
-    } else {
-      // no existing player with this name -> create a new one
-      chosenPlayerId = uid("p") as PlayerID;
-      const added = addPlayerIfMissing(ctx, chosenPlayerId, playerName);
-      createdNew = added;
     }
-  }
-
-  // participantsList: ensure only one entry per socket, update or add entry for this player
-  if (!Array.isArray((ctx as any).participantsList)) (ctx as any).participantsList = [];
-  const existingParticipant = (ctx as any).participantsList.find((p: any) => p.playerId === chosenPlayerId);
-  if (existingParticipant) {
-    existingParticipant.socketId = socketId;
-    existingParticipant.spectator = spectator;
-  } else {
-    (ctx as any).participantsList.push({ socketId, playerId: chosenPlayerId, spectator });
-  }
-
-  // joinedBySocket map
-  if (!ctx.joinedBySocket) (ctx as any).joinedBySocket = new Map();
-  ctx.joinedBySocket.set(String(socketId), { socketId: String(socketId), playerId: chosenPlayerId, spectator });
-
-  // bump seq to indicate presence change if needed
-  try { if (typeof ctx.bumpSeq === "function") ctx.bumpSeq(); } catch {}
-
-  return { playerId: chosenPlayerId, added: createdNew, seatToken: seatTokenFromClient || null };
+  );
 }
-
-/**
- * Leave: remove a player from participants but keep persisted state.
- */
-export function leave(ctx: GameContext, playerId?: PlayerID) {
-  if (!playerId) return false;
-  if (!Array.isArray((ctx as any).participantsList)) return false;
-  const idx = (ctx as any).participantsList.findIndex((p: any) => p.playerId === playerId);
-  if (idx >= 0) {
-    (ctx as any).participantsList.splice(idx, 1);
-    // also remove joinedBySocket entries referencing this player
-    if (ctx.joinedBySocket instanceof Map) {
-      for (const [sock, info] of Array.from(ctx.joinedBySocket.entries())) {
-        if (info && info.playerId === playerId) ctx.joinedBySocket.delete(sock);
-      }
-    }
-    try { if (typeof ctx.bumpSeq === "function") ctx.bumpSeq(); } catch {}
-    return true;
-  }
-  return false;
-}
-
-/**
- * Disconnect: remove socket registration (preserves player record).
- */
-export function disconnect(ctx: GameContext, socketId: string) {
-  if (!socketId) return false;
-  if (ctx.joinedBySocket instanceof Map) {
-    const info = ctx.joinedBySocket.get(String(socketId));
-    if (info) {
-      ctx.joinedBySocket.delete(String(socketId));
-      // remove from participantsList by socketId
-      if (Array.isArray((ctx as any).participantsList)) {
-        const idx = (ctx as any).participantsList.findIndex((p: any) => p.socketId === String(socketId));
-        if (idx >= 0) (ctx as any).participantsList.splice(idx, 1);
-      }
-      try { if (typeof ctx.bumpSeq === "function") ctx.bumpSeq(); } catch {}
-      return true;
-    }
-  }
-  return false;
-}
-
-/**
- * participants helper: return shallow copy of participants list
- */
-export function participants(ctx: GameContext) {
-  ensureParticipantContainers(ctx);
-  return ((ctx as any).participantsList || []).map((p: any) => ({ socketId: p.socketId, playerId: p.playerId, spectator: p.spectator }));
-}
-
-export default {
-  join,
-  leave,
-  disconnect,
-  participants,
-};

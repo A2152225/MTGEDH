@@ -21,17 +21,17 @@ import type { KnownCardRef, PlayerID } from "../../shared/src";
  * Deck socket handlers with:
  * - deck import resolution (batch + fallback)
  * - per-game per-player import buffer (_lastImportedDecks)
- * - unanimous import-wipe confirmation workflow for mid-game imports
- * - PRE_GAME importer-only shortcut: allow a viewing player to change their deck locally (authoritative for that player)
- *   without prompting the entire room or wiping the battlefield.
+ * - unanimous import-wipe confirmation workflow (timeout => cancel)
+ * - getImportedDeckCandidates read-only accessor
+ * - saved deck CRUD (saveDeck, listSavedDecks, getSavedDeck, renameSavedDeck, deleteSavedDeck)
  *
- * Fixes applied in this version:
- * - PRE_GAME imports are applied importer-only (no room-wide wipe)
- * - When importer-only, server emits both suggestCommanders and importedDeckCandidates directly to the importer socket so client can open commander selection immediately
- * - When writing library counts to state, use parsedCount (declared deck size) to avoid UI defaulting to 100
- * - applyConfirmedImport supports importer-only (skips full reset) and emits importApplied to the importer
+ * Behavior:
+ * - Single-player / PRE_GAME imports auto-apply for the importer only (no room wipe).
+ * - Multiplayer mid-game imports require unanimous consent and perform the full reset/wipe flow.
  *
- * Backwards compatibility: non-PRE_GAME imports keep unanimous confirm + full reset behavior.
+ * This file is a merged variant: it restores the original branch content and merges in
+ * the importer-only shortcut + robustness fixes (active-player detection, seq===0 handling,
+ * libraryCount assignment from parsedCount, and immediate emission of candidates to importer).
  */
 
 /* --- Pending confirmation state & helpers --- */
@@ -65,19 +65,7 @@ function broadcastConfirmUpdate(io: Server, confirmId: string, p: PendingConfirm
   }
 }
 
-function removePendingInitialDrawFlag(game: any, pid: PlayerID) {
-  try {
-    if (!game) return;
-    if ((game as any).pendingInitialDraw && typeof (game as any).pendingInitialDraw.delete === "function") {
-      (game as any).pendingInitialDraw.delete(pid);
-    } else if ((game as any).pendingInitialDraw && Array.isArray((game as any).pendingInitialDraw)) {
-      (game as any).pendingInitialDraw = new Set(((game as any).pendingInitialDraw as any[]).filter((x: any) => x !== pid));
-    }
-  } catch (e) {
-    console.warn("removePendingInitialDrawFlag failed:", e);
-  }
-}
-
+/* --- pendingInitialDraw helpers --- */
 function addPendingInitialDrawFlag(game: any, pid: PlayerID) {
   try {
     if (!game) return;
@@ -91,11 +79,20 @@ function addPendingInitialDrawFlag(game: any, pid: PlayerID) {
     console.warn("addPendingInitialDrawFlag failed:", e);
   }
 }
+function removePendingInitialDrawFlag(game: any, pid: PlayerID) {
+  try {
+    if (!game) return;
+    if ((game as any).pendingInitialDraw && typeof (game as any).pendingInitialDraw.delete === "function") {
+      (game as any).pendingInitialDraw.delete(pid);
+    } else if ((game as any).pendingInitialDraw && Array.isArray((game as any).pendingInitialDraw)) {
+      (game as any).pendingInitialDraw = new Set(((game as any).pendingInitialDraw as any[]).filter((x: any) => x !== pid));
+    }
+  } catch (e) {
+    console.warn("removePendingInitialDrawFlag failed:", e);
+  }
+}
 
-/**
- * Restore snapshots saved in the pending confirmation (if present).
- * This is intended only to restore transient importer state when a pending PRE_GAME import is cancelled.
- */
+/* --- snapshot helpers for cancellation --- */
 function restoreSnapshotIfPresent(io: Server, confirmId: string) {
   const p = pendingImportConfirmations.get(confirmId);
   if (!p) return;
@@ -108,11 +105,13 @@ function restoreSnapshotIfPresent(io: Server, confirmId: string) {
       game.state.zones = game.state.zones || {};
       game.state.zones[p.initiator] = p.snapshotZones;
     }
+
     if (p.snapshotCommandZone) {
       game.state = game.state || {};
       game.state.commandZone = game.state.commandZone || {};
       game.state.commandZone[p.initiator] = p.snapshotCommandZone;
     }
+
     if (typeof p.snapshotPhase !== "undefined") {
       try {
         game.state = game.state || {};
@@ -122,13 +121,9 @@ function restoreSnapshotIfPresent(io: Server, confirmId: string) {
       }
     }
 
-    // remove pendingInitialDraw flag we set at import start
+    // Remove pendingInitialDraw flag we set at import initiation
     try {
-      if ((game as any).pendingInitialDraw && typeof (game as any).pendingInitialDraw.delete === "function") {
-        (game as any).pendingInitialDraw.delete(p.initiator);
-      } else if ((game as any).pendingInitialDraw && Array.isArray((game as any).pendingInitialDraw)) {
-        (game as any).pendingInitialDraw = new Set(((game as any).pendingInitialDraw as any[]).filter((x: any) => x !== p.initiator));
-      }
+      removePendingInitialDrawFlag(game, p.initiator);
     } catch (e) {
       console.warn("restoreSnapshotIfPresent: failed to remove pendingInitialDraw flag", e);
     }
@@ -157,10 +152,7 @@ function cancelConfirmation(io: Server, confirmId: string, reason = "cancelled")
   pendingImportConfirmations.delete(confirmId);
 }
 
-/* Helper: clear transient zones for a player while import/confirm is pending.
-   Limit clears to hand and commandZone so we don't wipe battlefield for others.
-   Also set authoritative phase to PRE_GAME for client flows.
-*/
+/* Helper: clear transient importer zones (hand + command zone) */
 function clearPlayerTransientZonesForImport(game: any, pid: PlayerID) {
   try {
     game.state = game.state || {};
@@ -175,17 +167,82 @@ function clearPlayerTransientZonesForImport(game: any, pid: PlayerID) {
     game.state.commandZone = game.state.commandZone || {};
     game.state.commandZone[pid] = { commanderIds: [], commanderCards: [], tax: 0, taxById: {} };
 
-    // set pre-game
-    try { (game.state as any).phase = "PRE_GAME"; } catch (e) { /* best-effort */ }
+    // mark pre-game
+    try { (game.state as any).phase = "PRE_GAME"; } catch (e) { /* ignore */ }
   } catch (e) {
     console.warn("clearPlayerTransientZonesForImport failed:", e);
   }
 }
 
+/* Helper: best-effort active player ids */
+function getActivePlayerIds(game: any, io: Server, gameId: string): string[] {
+  try {
+    // Primary: game.state.players array (filter inactive)
+    const sPlayers = (game && game.state && Array.isArray(game.state.players)) ? game.state.players : null;
+    if (sPlayers) {
+      const active = sPlayers.filter((p: any) => !p?.inactive).map((p: any) => p?.id).filter(Boolean);
+      if (active.length > 0) return Array.from(new Set(active));
+      const ids = sPlayers.map((p: any) => p?.id).filter(Boolean);
+      if (ids.length > 0) return Array.from(new Set(ids));
+    }
+
+    // Fallback: game.participants() if available
+    if (typeof (game as any).participants === "function") {
+      try {
+        const parts = (game as any).participants();
+        const ids = Array.isArray(parts) ? parts.map((pp: any) => pp.playerId).filter(Boolean) : [];
+        if (ids.length > 0) return Array.from(new Set(ids));
+      } catch (e) { /* ignore */ }
+    }
+
+    // Last-resort: look at socket.io room members and map socketId -> playerId from participants list if available
+    try {
+      const adapter = (io as any).sockets?.adapter;
+      if (adapter && typeof adapter.rooms?.has === "function") {
+        const room = adapter.rooms.get(gameId);
+        if (room && typeof room[Symbol.iterator] === "function") {
+          const sockets = Array.from(room as Iterable<any>);
+          const parts = (game && ((game as any).participants ? (game as any).participants() : (game as any).participantsList)) || [];
+          const mapping: Record<string, string> = {};
+          for (const pp of parts || []) if (pp?.socketId && pp?.playerId) mapping[pp.socketId] = pp.playerId;
+          const ids = sockets.map((sid: any) => mapping[sid]).filter(Boolean);
+          if (ids.length > 0) return Array.from(new Set(ids));
+        }
+      }
+    } catch (e) { /* ignore */ }
+  } catch (e) {
+    console.warn("getActivePlayerIds failed:", e);
+  }
+  return [];
+}
+
+/* suggest commander heuristics (unchanged) */
+function suggestCommanderNames(
+  cards: Array<Pick<KnownCardRef, "name" | "type_line" | "oracle_text">>
+) {
+  const isLegendary = (tl?: string) => (tl || "").toLowerCase().includes("legendary");
+  const isEligibleType = (tl?: string) => {
+    const t = (tl || "").toLowerCase();
+    return t.includes("creature") || t.includes("planeswalker") || t.includes("background");
+  };
+  const hasPartnerish = (oracle?: string, tl?: string) => {
+    const o = (oracle || "").toLowerCase();
+    const t = (tl || "").toLowerCase();
+    return o.includes("partner") || o.includes("background") || t.includes("background");
+  };
+  const pool = cards.filter((c: any) => isLegendary(c.type_line) && isEligibleType(c.type_line));
+  const first = pool[0];
+  const second = pool.slice(1).find((c: any) => hasPartnerish(c.oracle_text, c.type_line));
+  const names: string[] = [];
+  if (first?.name) names.push(first.name);
+  if (second?.name && second.name !== first.name) names.push(second.name);
+  return names.slice(0, 2);
+}
+
 /**
  * applyConfirmedImport - idempotent / reentrancy-safe application of confirmed import.
  *
- * Optional importerSocket parameter is used for importer-only immediate flows so we can
+ * Optional importerSocket parameter is used for immediate importer-only flows so we can
  * directly emit suggestCommanders/importedDeckCandidates/importApplied to the initiating client.
  */
 async function applyConfirmedImport(io: Server, confirmId: string, importerSocket?: Socket) {
@@ -245,18 +302,15 @@ async function applyConfirmedImport(io: Server, confirmId: string, importerSocke
       console.info(`[import] importer-only apply: skipping full reset for game=${p.gameId}`);
     }
 
-    // 2) Import into authoritative game state (prefer hook)
+    // 2) Import into authoritative game state (preferred hook)
     try {
       if (typeof (game as any).importDeckResolved === "function") {
-        // call preferred hook; many implementations accept (playerId, cards)
         try {
           (game as any).importDeckResolved(p.initiator, p.resolvedCards);
         } catch {
-          // ignore individual hook errors
+          // If hook expects different signature/options, we still call legacy signature
           (game as any).importDeckResolved(p.initiator, p.resolvedCards);
         }
-      } else {
-        // fallback: we'll ensure zones/libraries shape below
       }
       console.info(`[import] importDeckResolved called/attempted for player=${p.initiator} game=${p.gameId}`);
     } catch (err) {
@@ -313,33 +367,13 @@ async function applyConfirmedImport(io: Server, confirmId: string, importerSocke
       console.warn("applyConfirmedImport: appendEvent failed", err);
     }
 
-    // 4) Flag pendingInitialDraw and emit suggestions/candidates to importer so client can open modal
+    // 4) Flag pendingInitialDraw and emit suggestions/candidates to importer so TableLayout can open gallery
     try {
       addPendingInitialDrawFlag(game, p.initiator);
-      // Broadcast authoritative state so clients see the library/pending flags
       try { broadcastGame(io, game, p.gameId); } catch (e) { console.warn("applyConfirmedImport: broadcastGame failed", e); }
 
       // Build commander suggestion names
-      const names = (() => {
-        const cards = p.resolvedCards || [];
-        const isLegendary = (tl?: string) => (tl || "").toLowerCase().includes("legendary");
-        const isEligibleType = (tl?: string) => {
-          const t = (tl || "").toLowerCase();
-          return t.includes("creature") || t.includes("planeswalker") || t.includes("background");
-        };
-        const hasPartnerish = (oracle?: string, tl?: string) => {
-          const o = (oracle || "").toLowerCase();
-          const t = (tl || "").toLowerCase();
-          return o.includes("partner") || o.includes("background") || t.includes("background");
-        };
-        const pool = cards.filter((c: any) => isLegendary(c.type_line) && isEligibleType(c.type_line));
-        const first = pool[0];
-        const second = pool.slice(1).find((c: any) => hasPartnerish(c.oracle_text, c.type_line));
-        const out: string[] = [];
-        if (first?.name) out.push(first.name);
-        if (second?.name && second.name !== first?.name) out.push(second.name);
-        return out.slice(0, 2);
-      })();
+      const names = suggestCommanderNames(p.resolvedCards);
 
       // Prepare candidate payload
       const candidates = (p.resolvedCards || []).map((c: any) => ({
@@ -355,22 +389,21 @@ async function applyConfirmedImport(io: Server, confirmId: string, importerSocke
         try {
           importerSocket.emit("suggestCommanders", { gameId: p.gameId, names });
           importerSocket.emit("importedDeckCandidates", { gameId: p.gameId, candidates });
-          importerSocket.emit("importApplied", { confirmId, gameId: p.gameId, by: p.initiator, deckName: p.deckName, importerOnly: importerOnly });
+          importerSocket.emit("importApplied", { confirmId, gameId: p.gameId, by: p.initiator, deckName: p.deckName, importerOnly });
           console.info(`[import] sent suggestCommanders/importedDeckCandidates/importApplied to importer socket for player=${p.initiator}`);
         } catch (e) {
           console.warn("applyConfirmedImport: emit to importerSocket failed", e);
         }
       } else {
-        // Fallback for full-wipe or when we don't have importer socket: emit suggestCommanders to room (clients filter)
+        // fallback emit suggestCommanders to room (clients filter). Do not broadcast importedDeckCandidates to room.
         try {
           io.to(p.gameId).emit("suggestCommanders", { gameId: p.gameId, names });
-          // Do not broadcast importedDeckCandidates to entire room to avoid leaking private import buffer; clients will request via getImportedDeckCandidates
         } catch (e) {
           console.warn("applyConfirmedImport: suggestCommanders broadcast failed", e);
         }
       }
 
-      // If commander already present or non-commander format, perform immediate shuffle+draw
+      // If commander already present or non-commander format, immediate shuffle+draw
       try {
         const cz = (game.state && game.state.commandZone && (game.state.commandZone as any)[p.initiator]) || null;
         const isCommanderFmt = String(game.state.format || "").toLowerCase() === "commander";
@@ -395,13 +428,12 @@ async function applyConfirmedImport(io: Server, confirmId: string, importerSocke
         console.warn("applyConfirmedImport: attempted immediate shuffle/draw failed", e);
       }
 
-      // Broadcast authoritative state now
       try { broadcastGame(io, game, p.gameId); } catch (e) { console.warn("applyConfirmedImport: broadcastGame failed", e); }
     } catch (err) {
       console.warn("applyConfirmedImport: opening draw flow failed", err);
     }
 
-    // 5) Optional persistence (save)
+    // 5) Optional auto-save
     if (p.save === true && p.deckName && p.deckName.trim()) {
       try {
         const deckId = `deck_${Date.now()}`;
@@ -423,10 +455,7 @@ async function applyConfirmedImport(io: Server, confirmId: string, importerSocke
 
     // 6) Notify room and cleanup
     try {
-      if (importerOnly) {
-        // importer-only: we already emitted importApplied to importerSocket; broadcastGame already sent state.
-        // Don't emit importWipeConfirmed (would imply table wipe).
-      } else {
+      if (!importerOnly) {
         try { io.to(p.gameId).emit("importWipeConfirmed", { confirmId, gameId: p.gameId, by: p.initiator }); } catch (e) { console.warn("applyConfirmedImport: importWipeConfirmed emit failed", e); }
       }
       try { broadcastGame(io, game, p.gameId); } catch {}
@@ -434,46 +463,21 @@ async function applyConfirmedImport(io: Server, confirmId: string, importerSocke
       console.warn("applyConfirmedImport: final broadcast/notify failed", err);
     }
 
-    // record last-applied stamp for dedupe
+    // record last-applied stamp
     try {
       (game as any)._lastImportAppliedBy = p.initiator;
       (game as any)._lastImportAppliedAt = Date.now();
     } catch (e) { /* ignore */ }
   } finally {
     try { const game = ensureGame(p.gameId); if (game) (game as any)._importApplying = false; } catch {}
-    // If importer-only, we still remove pending confirmation record since it's been applied
     pendingImportConfirmations.delete(confirmId);
-    console.info(`[import] applyConfirmedImport complete game=${p?.gameId} initiator=${p?.initiator}`);
+    console.info(`[import] applyConfirmedImport complete game=${p.gameId} initiator=${p.initiator}`);
   }
-}
-
-/* --- Helper: suggest commanders heuristics (unchanged) --- */
-function suggestCommanderNames(
-  cards: Array<Pick<KnownCardRef, "name" | "type_line" | "oracle_text">>
-) {
-  const isLegendary = (tl?: string) => (tl || "").toLowerCase().includes("legendary");
-  const isEligibleType = (tl?: string) => {
-    const t = (tl || "").toLowerCase();
-    return t.includes("creature") || t.includes("planeswalker") || t.includes("background");
-  };
-  const hasPartnerish = (oracle?: string, tl?: string) => {
-    const o = (oracle || "").toLowerCase();
-    const t = (tl || "").toLowerCase();
-    return o.includes("partner") || o.includes("background") || t.includes("background");
-  };
-  const pool = cards.filter((c) => isLegendary(c.type_line) && isEligibleType(c.type_line));
-  const first = pool[0];
-  const second = pool.slice(1).find((c) => hasPartnerish(c.oracle_text, c.type_line));
-  const names: string[] = [];
-  if (first?.name) names.push(first.name);
-  if (second?.name && second.name !== first.name) names.push(second.name);
-  return names.slice(0, 2);
 }
 
 /* --- Main registration: socket handlers for deck management --- */
 export function registerDeckHandlers(io: Server, socket: Socket) {
-  // importDeck: parse, resolve via Scryfall (batch + fallback), keep per-game buffer,
-  // then request unanimous confirmation to reset and apply import (except PRE_GAME importer-only).
+  // importDeck
   socket.on(
     "importDeck",
     async ({ gameId, list, deckName, save }: { gameId: string; list: string; deckName?: string; save?: boolean }) => {
@@ -512,6 +516,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       }
 
       const resolvedCards: Array<Pick<KnownCardRef, "id" | "name" | "type_line" | "oracle_text" | "image_uris">> = [];
+      const validationCards: any[] = [];
       const missing: string[] = [];
 
       if (byName) {
@@ -523,6 +528,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             continue;
           }
           for (let i = 0; i < (count || 1); i++) {
+            validationCards.push(c);
             resolvedCards.push({
               id: c.id,
               name: c.name,
@@ -537,6 +543,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           try {
             const c = await fetchCardByExactNameStrict(name);
             for (let i = 0; i < (count || 1); i++) {
+              validationCards.push(c);
               resolvedCards.push({
                 id: c.id,
                 name: c.name,
@@ -551,7 +558,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         }
       }
 
-      // Persist per-game import buffer (for commander UI)
+      // Persist per-game import buffer
       try {
         (game as any)._lastImportedDecks = (game as any)._lastImportedDecks || new Map<PlayerID, any[]>();
         (game as any)._lastImportedDecks.set(
@@ -562,7 +569,6 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         console.warn("Could not set _lastImportedDecks on game object for importDeck:", e);
       }
 
-      // If we failed to resolve any names, inform initiator and the room
       if (missing.length) {
         try {
           socket.emit("deckImportMissing", { gameId, missing });
@@ -579,7 +585,9 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       }
 
       // Prepare confirmation request requiring unanimous consent from active players
-      const players = (game.state.players || []).map((p: any) => p.id).filter(Boolean) as string[];
+      const activePlayerIds = getActivePlayerIds(game, io, gameId);
+      const players = activePlayerIds.length > 0 ? activePlayerIds : (game.state.players || []).map((p:any)=>p.id).filter(Boolean) as string[];
+
       const confirmId = `imp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const responses: Record<string, "pending" | "yes" | "no"> = {};
       for (const pl of players) responses[pl] = "pending";
@@ -628,18 +636,22 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         console.warn("importDeck: addPendingInitialDrawFlag failed", e);
       }
 
-      // Determine if we should apply importer-only (solo OR PRE_GAME)
+      // Decide importer-only: new games / pre-game / single active player
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
       const pregame = phaseStr === "" || phaseStr === "PRE_GAME" || phaseStr.includes("BEGIN");
-      if (players.length <= 1 || pregame) {
-        // Mark importer-only and apply immediately for the importer only (no room-wide wipe)
+      const seqIsZero = (typeof (game as any).seq === "number" && (game as any).seq === 0);
+      const activeCount = players.length;
+
+      console.info(`[import] decision inputs game=${gameId} seq=${(game as any).seq} seqIsZero=${seqIsZero} phase="${phaseStr}" activeCount=${activeCount} playersForConfirm=${players.length}`);
+
+      if (seqIsZero || pregame || activeCount <= 1) {
+        // importer-only apply
         pending.applyImporterOnly = true;
         pendingImportConfirmations.set(confirmId, pending);
 
-        // send suggestCommanders early to importer socket (client will request candidates)
         try {
           const names = suggestCommanderNames(resolvedCards);
-          try { socket.emit("suggestCommanders", { gameId, names }); } catch {}
+          try { socket.emit("suggestCommanders", { gameId, names }); } catch (e) { /* ignore */ }
         } catch (e) { /* ignore */ }
 
         // small delay to ensure client listeners attach
@@ -652,7 +664,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         return;
       }
 
-      // Otherwise full confirm flow (room-wide wipe)
+      // Otherwise normal confirm flow
       try {
         io.to(gameId).emit("importWipeConfirmRequest", {
           confirmId,
@@ -670,7 +682,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
 
       broadcastConfirmUpdate(io, confirmId, pending);
 
-      // If only one player (rare here) auto-apply after short delay
+      // If only one active player, auto-apply after a short delay so client listeners can attach
       try {
         if (players.length <= 1) {
           setTimeout(() => {
@@ -678,13 +690,15 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
               console.error("auto applyConfirmedImport failed:", err);
               cancelConfirmation(io, confirmId, "apply_failed");
             });
-          }, 150);
+          }, 150); // small delay
         }
-      } catch (e) { /* best-effort */ }
+      } catch (e) {
+        console.warn("importDeck: auto-apply single-player failed", e);
+      }
     }
   );
 
-  // Handle confirmation responses (unchanged)
+  // Handle confirmation responses
   socket.on("confirmImportResponse", ({ gameId, confirmId, accept }: { gameId: string; confirmId: string; accept: boolean }) => {
     try {
       const pid = socket.data.playerId as PlayerID | undefined;
@@ -724,7 +738,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
     }
   });
 
-  // getImportedDeckCandidates: return last resolved imported cards for requesting player
+  // getImportedDeckCandidates
   socket.on("getImportedDeckCandidates", ({ gameId }: { gameId: string }) => {
     const pid = socket.data.playerId as PlayerID | undefined;
     const spectator = socket.data.spectator;
@@ -754,7 +768,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
     }
   });
 
-  // useSavedDeck: same as importDeck flow but from DB; apply PRE_GAME importer-only when appropriate
+  // useSavedDeck
   socket.on("useSavedDeck", async ({ gameId, deckId }: { gameId: string; deckId: string }) => {
     const pid = socket.data.playerId as PlayerID | undefined;
     const spectator = socket.data.spectator;
@@ -772,14 +786,21 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       const parsed = parseDecklist(deck.text);
       const requested = parsed.map((p) => p.name);
       let byName: Map<string, any> | null = null;
-      try { byName = await fetchCardsByExactNamesBatch(requested); } catch { byName = null; }
+      try {
+        byName = await fetchCardsByExactNamesBatch(requested);
+      } catch {
+        byName = null;
+      }
       const resolved: Array<Pick<KnownCardRef, "id" | "name" | "type_line" | "oracle_text" | "image_uris">> = [];
       const missing: string[] = [];
       if (byName) {
         for (const { name, count } of parsed) {
           const key = normalizeName(name).toLowerCase();
           const c = byName.get(key);
-          if (!c) { missing.push(name); continue; }
+          if (!c) {
+            missing.push(name);
+            continue;
+          }
           for (let i = 0; i < count; i++) {
             resolved.push({
               id: c.id,
@@ -831,7 +852,10 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         }
       }
 
-      const players = (game.state.players || []).map((p: any) => p.id).filter(Boolean) as string[];
+      // Prepare confirmation (same as importDeck)
+      const activePlayerIds = getActivePlayerIds(game, io, gameId);
+      const players = activePlayerIds.length > 0 ? activePlayerIds : (game.state.players || []).map((p:any)=>p.id).filter(Boolean) as string[];
+
       const confirmId = `imp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const responses: Record<string, "pending" | "yes" | "no"> = {};
       for (const pl of players) responses[pl] = "pending";
@@ -864,7 +888,11 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       // PRE_GAME shortcut
       const phaseStr2 = String(game.state?.phase || "").toUpperCase().trim();
       const pregame2 = phaseStr2 === "" || phaseStr2 === "PRE_GAME" || phaseStr2.includes("BEGIN");
-      if (players.length <= 1 || pregame2) {
+      const seqZero2 = (typeof (game as any).seq === "number" && (game as any).seq === 0);
+      const activeCount2 = players.length || activePlayerIds.length || 0;
+      console.info(`[useSavedDeck] decision game=${gameId} seq=${(game as any).seq} seqIsZero=${seqZero2} phase="${phaseStr2}" activeCount=${activeCount2}`);
+
+      if (seqZero2 || pregame2 || activeCount2 <= 1) {
         pendingObj.applyImporterOnly = true;
         pendingImportConfirmations.set(confirmId, pendingObj);
 
@@ -879,11 +907,11 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             cancelConfirmation(io, confirmId, "apply_failed");
           });
         }, 50);
+
         socket.emit("deckApplied", { gameId, deck });
         return;
       }
 
-      // Otherwise normal confirm flow
       try {
         io.to(gameId).emit("importWipeConfirmRequest", {
           confirmId,
@@ -900,13 +928,26 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       }
 
       broadcastConfirmUpdate(io, confirmId, pendingObj);
+
+      // Auto-apply for single-player saved-deck use (small delay)
+      try {
+        if (players.length <= 1) {
+          setTimeout(() => {
+            applyConfirmedImport(io, confirmId).catch((err) => {
+              console.error("auto applyConfirmedImport for useSavedDeck failed:", err);
+              cancelConfirmation(io, confirmId, "apply_failed");
+            });
+          }, 150);
+        }
+      } catch (e) { /* best-effort */ }
+
       socket.emit("deckApplied", { gameId, deck });
     } catch (e) {
       socket.emit("deckError", { gameId, message: "Use deck failed." });
     }
   });
 
-  // saveDeck/listSavedDecks/getSavedDeck/renameSavedDeck/deleteSavedDeck handlers unchanged (keep existing behavior)
+  // save/list/get/rename/delete handlers (unchanged)
   socket.on("saveDeck", ({ gameId, name, list }: { gameId: string; name: string; list: string }) => {
     const pid = socket.data.playerId as PlayerID | undefined;
     const spectator = socket.data.spectator;
