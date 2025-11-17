@@ -113,7 +113,7 @@ export function createContext(gameId: string): GameContext {
     stack: [],
     battlefield: [],
     commandZone: {} as any,
-    phase: "BEGINNING" as any,
+    phase: "PRE_GAME" as any,
     step: undefined,
     active: false,
     zones: {},

@@ -224,9 +224,10 @@ export function App() {
         setQueuedCommanderSuggest(null);
       }
     };
-  /*  const onConfirmed = (info: any) => {
+    const onConfirmed = (info: any) => {
       if (!info || !info.confirmId) return;
       if (!confirmId || info.confirmId === confirmId) {
+        // clear the confirmation UI state
         setConfirmOpen(false);
         setConfirmPayload(null);
         setConfirmVotes(null);
@@ -234,120 +235,66 @@ export function App() {
         setLastInfo(`Import applied${info.deckName ? `: ${info.deckName}` : ""}`);
         setPendingLocalImport(false);
 
-        // Immediately clear local hand for the importing player to avoid stale display
+        // If I was the importer, proactively clear my local hand view and request imported candidates.
         try {
           if (view && info && info.gameId === view.id && info.by && you && info.by === you) {
+            // Clear local hand immediately to avoid transient duplicates
             setView(prev => {
               if (!prev) return prev;
               const copy: any = { ...prev, zones: { ...(prev.zones || {}) } };
               copy.zones[you] = { ...(copy.zones[you] || {}), hand: [], handCount: 0 };
               return copy;
             });
-            // request server-side candidates so TableLayout can show card-based modal if needed
+            // Ask server for imported candidates so TableLayout can show the gallery modal
             socket.emit("getImportedDeckCandidates", { gameId: info.gameId });
           }
         } catch (e) {
           console.warn("import confirm local-hand-clear failed:", e);
         }
 
-        if (queuedCommanderSuggest && view && queuedCommanderSuggest.gameId === view.id) {
-          setCmdSuggestNames(queuedCommanderSuggest.names || []);
-          setCmdSuggestOpen(true);
-          setQueuedCommanderSuggest(null);
+        // Important: DO NOT open App-level commander modal here.
+        // Let TableLayout own the modal (it will open when it receives suggestCommanders/importedDeckCandidates).
+        // Clear any queuedCommanderSuggest only if it's for this game and you want to drop it:
+        if (queuedCommanderSuggest && queuedCommanderSuggest.gameId === info.gameId) {
+          // keep queuedCmdSuggest for TableLayout to act on; do not call setCmdSuggestOpen
         }
       }
-    };*/
-	const onConfirmed = (info: any) => {
-  if (!info || !info.confirmId) return;
-  if (!confirmId || info.confirmId === confirmId) {
-    // clear the confirmation UI state
-    setConfirmOpen(false);
-    setConfirmPayload(null);
-    setConfirmVotes(null);
-    setConfirmId(null);
-    setLastInfo(`Import applied${info.deckName ? `: ${info.deckName}` : ""}`);
-    setPendingLocalImport(false);
-
-    // If I was the importer, proactively clear my local hand view and request imported candidates.
-    try {
-      if (view && info && info.gameId === view.id && info.by && you && info.by === you) {
-        // Clear local hand immediately to avoid transient duplicates
-        setView(prev => {
-          if (!prev) return prev;
-          const copy: any = { ...prev, zones: { ...(prev.zones || {}) } };
-          copy.zones[you] = { ...(copy.zones[you] || {}), hand: [], handCount: 0 };
-          return copy;
-        });
-        // Ask server for imported candidates so TableLayout can show the gallery modal
-        socket.emit("getImportedDeckCandidates", { gameId: info.gameId });
-      }
-    } catch (e) {
-      console.warn("import confirm local-hand-clear failed:", e);
-    }
-
-    // Important: DO NOT open App-level commander modal here.
-    // Let TableLayout own the modal (it will open when it receives suggestCommanders/importedDeckCandidates).
-    // Clear any queuedCommanderSuggest only if it's for this game and you want to drop it:
-    if (queuedCommanderSuggest && queuedCommanderSuggest.gameId === info.gameId) {
-      // keep queuedCmdSuggest for TableLayout to act on; do not call setCmdSuggestOpen
-      // If you prefer to clear the queued suggestion here, uncomment next line:
-      // setQueuedCommanderSuggest(null);
-    }
-  }
-};
+    };
 
     socket.on("importWipeConfirmRequest", onRequest);
     socket.on("importWipeConfirmUpdate", onUpdate);
     socket.on("importWipeCancelled", onCancelled);
     socket.on("importWipeConfirmed", onConfirmed);
 
-    // Suggest commanders: request candidates and defer to TableLayout for gallery.
-	socket.on("suggestCommanders", ({ gameId: gid, names }: any) => {
-  console.debug("[socket] suggestCommanders", { gameId: gid, names });
-  if (!view || gid !== view.id) return;
-
-  // Ask server for imported candidates for TableLayout
-  try {
-    socket.emit("getImportedDeckCandidates", { gameId: gid });
-  } catch (e) { /* ignore */ }
-
-  // If confirm/import flows are active, queue suggestion for later
-  if (localImportConfirmRef.current || pendingLocalImportRef.current || confirmOpen) {
-    setQueuedCommanderSuggest({ gameId: gid, names: Array.isArray(names) ? names.slice(0, 2) : [] });
-    return;
-  }
-
-  // Defer modal rendering to TableLayout entirely. TableLayout will open
-  // the card-based modal when importedCandidates arrive or will open its own
-  // text fallback after its internal wait.
-  // We still store the queued suggestion so App can surface it later if needed.
-  setQueuedCommanderSuggest({ gameId: gid, names: Array.isArray(names) ? names.slice(0, 2) : [] });
-});
-   /* socket.on("suggestCommanders", ({ gameId: gid, names }: any) => {
+    // Suggest commanders: request candidates and schedule an App-level text fallback after WAIT_MS
+    socket.on("suggestCommanders", ({ gameId: gid, names }: any) => {
       console.debug("[socket] suggestCommanders", { gameId: gid, names });
       if (!view || gid !== view.id) return;
 
-      // ask server for imported candidates that TableLayout can use
-      socket.emit("getImportedDeckCandidates", { gameId: gid });
+      // Ask server for imported candidates for TableLayout
+      try {
+        socket.emit("getImportedDeckCandidates", { gameId: gid });
+      } catch (e) { /* ignore */ }
 
-      // If suppressed or import flows active, queue
+      // If confirm/import flows are active, queue suggestion for later
       if (localImportConfirmRef.current || pendingLocalImportRef.current || confirmOpen) {
         setQueuedCommanderSuggest({ gameId: gid, names: Array.isArray(names) ? names.slice(0, 2) : [] });
         return;
       }
 
-      // We start a fallback timer to open App-level text modal if no candidates arrive.
-      // WAIT_MS: 900ms (give TableLayout/generation time); cancel if importedCandidates arrive.
+      // Defer modal rendering to TableLayout entirely. TableLayout will open
+      // the card-based modal when importedCandidates arrive or will open its own
+      // text fallback after its internal wait.
+      // We still store the queued suggestion so App can surface it later if needed.
+      setQueuedCommanderSuggest({ gameId: gid, names: Array.isArray(names) ? names.slice(0, 2) : [] });
+
+      // Start App-level fallback timer: if no importedCandidates arrive within WAIT_MS, show text fallback modal.
       if (fallbackTimerRef.current) {
         window.clearTimeout(fallbackTimerRef.current);
         fallbackTimerRef.current = null;
       }
-      const namesList = Array.isArray(names) ? names.slice(0, 2) : [];
-      // Save candidate names into queued state; TableLayout may open modal itself from 'suggestCommanders' event.
-      setQueuedCommanderSuggest({ gameId: gid, names: namesList });
-
-      // Schedule fallback if no importedCandidates arrive in WAIT_MS
       const WAIT_MS = 900;
+      const namesList = Array.isArray(names) ? names.slice(0, 2) : [];
       fallbackTimerRef.current = window.setTimeout(() => {
         // If importedCandidates not present, open App-level text modal as fallback
         if (!importedCandidates || importedCandidates.length === 0) {
@@ -361,7 +308,7 @@ export function App() {
         }
         fallbackTimerRef.current = null;
       }, WAIT_MS) as unknown as number;
-    });*/
+    });
 
     const onNameInUse = (payload: any) => {
       setNameInUsePayload(payload);
@@ -476,15 +423,14 @@ export function App() {
   const isYouPlayer = !!view && !!you && view.players.some(p => p.id === you);
 
   // determine whether Next Step/Turn should be enabled: allow turnPlayer or pre-game first seat
-// client/src/App.tsx — replace canAdvanceStep useMemo body with:
-const canAdvanceStep = useMemo(() => {
-  if (!view || !you) return false;
-  if (view.turnPlayer === you) return true;
-  // Allow the first-seat player to advance during pre-game phases:
-  const phaseStr = String(view.phase || "").toUpperCase();
-  if ((phaseStr === "PRE_GAME" || phaseStr === "BEGINNING") && (view.players?.[0]?.id === you)) return true;
-  return false;
-}, [view, you]);
+  const canAdvanceStep = useMemo(() => {
+    if (!view || !you) return false;
+    if (view.turnPlayer === you) return true;
+    // Allow the first-seat player to advance during pre-game phase (canonical PRE_GAME)
+    const phaseStr = String(view.phase || "").toUpperCase();
+    if (phaseStr === "PRE_GAME" && (view.players?.[0]?.id === you)) return true;
+    return false;
+  }, [view, you]);
 
   const canAdvanceTurn = canAdvanceStep;
 

@@ -259,7 +259,7 @@ export function parseManaCost(
 } {
   const result = {
     colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 },
-    generic: 0,
+    generic: 0,
     hybrids: [] as Array<Array<string>>,
     hasX: false,
   };

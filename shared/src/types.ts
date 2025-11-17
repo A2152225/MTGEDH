@@ -136,12 +136,15 @@ export interface LifeTotals {
 
 /* Game phase enum (expanded to include PRE_GAME) */
 export enum GamePhase {
-  BEGINNING = 'BEGINNING',
-  PRE_GAME = 'PRE_GAME', // pre-game used for per-player import/mulligan flow
-  PRECOMBAT_MAIN = 'PRECOMBAT_MAIN',
-  COMBAT = 'COMBAT',
-  POSTCOMBAT_MAIN = 'POSTCOMBAT_MAIN',
-  END = 'END'
+  PRE_GAME = "pre_game",
+  BEGINNING = "pre_game", // alias kept for backward compatibility (treated as PRE_GAME)
+  UNTAP = "untap",
+  UPKEEP = "upkeep",
+  DRAW = "draw",
+  FIRSTMAIN = "first_main",
+  COMBAT = "combat",
+  ENDING = "ending"
+
 }
 
 /* Game step enum */
