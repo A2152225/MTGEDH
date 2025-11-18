@@ -1,11 +1,12 @@
 // client/src/App.tsx
 // Full App component (named + default export).
 // Changes in this variant:
-//  - Increased text-fallback wait for suggestCommanders to 900ms and cancel fallback if importedCandidates arrive.
-//  - Added debug console logs for suggest/import events and state updates.
-//  - Ensure Next Step/Next Turn buttons use canAdvanceStep / canAdvanceTurn logic for enabling.
-//  - Keeps existing behavior: listens to importedDeckCandidates and passes to TableLayout.
-
+//  - Normalize incoming views to ensure view.zones[playerId] exists for every player
+//    and pass a safeView into TableLayout and ZonesPanel to avoid renderer crashes.
+//  - Only auto-rejoin on socket connect when a saved seatToken exists (prevents accidental duplicate seats).
+//  - Log all join emits with "[JOIN_EMIT]" for debugging duplicate-seat issue.
+//  - Use session- and lastJoin-aware seatToken storage when handling joined.
+//  - Integrate GameList component so users can browse and join active games.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { socket } from "./socket";
 import type {
@@ -22,6 +23,7 @@ import NameInUseModal from "./components/NameInUseModal";
 import { ZonesPanel } from "./components/ZonesPanel";
 import { ScrySurveilModal } from "./components/ScrySurveilModal";
 import { BattlefieldGrid, type ImagePref } from "./components/BattlefieldGrid";
+import GameList from "./components/GameList";
 
 /* Helpers */
 function seatTokenKey(gameId: GameID, name: string) {
@@ -134,13 +136,52 @@ export function App() {
   // fallback timer ref for App-level fallback modal
   const fallbackTimerRef = useRef<number | null>(null);
 
+  /* ------------------ Client-side normalization helpers ------------------ */
+
+  const defaultPlayerZones = useMemo(() => ({ hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0 }), []);
+
+  // Build a normalized zones map derived from server view; ensures every player id has an object.
+  const normalizedZones = useMemo(() => {
+    if (!view) return {};
+    const out: Record<string, any> = { ...(view.zones || {}) };
+    const players = Array.isArray(view.players) ? view.players : [];
+    for (const p of players) {
+      const pid = p?.id ?? p?.playerId;
+      if (!pid) continue;
+      if (!out[pid]) out[pid] = { ...defaultPlayerZones };
+      else {
+        // ensure shape exists
+        out[pid].hand = Array.isArray(out[pid].hand) ? out[pid].hand : [];
+        out[pid].handCount = typeof out[pid].handCount === "number" ? out[pid].handCount : (Array.isArray(out[pid].hand) ? out[pid].hand.length : 0);
+        out[pid].library = Array.isArray(out[pid].library) ? out[pid].library : [];
+        out[pid].libraryCount = typeof out[pid].libraryCount === "number" ? out[pid].libraryCount : (Array.isArray(out[pid].library) ? out[pid].library.length : 0);
+        out[pid].graveyard = Array.isArray(out[pid].graveyard) ? out[pid].graveyard : [];
+        out[pid].graveyardCount = typeof out[pid].graveyardCount === "number" ? out[pid].graveyardCount : (Array.isArray(out[pid].graveyard) ? out[pid].graveyard.length : 0);
+      }
+    }
+    return out;
+  }, [view, defaultPlayerZones]);
+
+  // safeView is a shallow copy of view with normalized zones. Pass this into child components that read zones.
+  const safeView = useMemo(() => {
+    if (!view) return view;
+    return { ...view, zones: normalizedZones } as ClientGameView;
+  }, [view, normalizedZones]);
+
   useEffect(() => {
     const onConnect = () => {
       setConnected(true);
       const last = lastJoinRef.current;
       if (last) {
+        // Only auto-join when we have a saved seatToken for this game+name to avoid creating duplicates.
         const token = sessionStorage.getItem(seatTokenKey(last.gameId, last.name)) || undefined;
-        socket.emit("joinGame", { gameId: last.gameId, playerName: last.name, spectator: last.spectator, seatToken: token });
+        if (token) {
+          const payload = { gameId: last.gameId, playerName: last.name, spectator: last.spectator, seatToken: token };
+          console.debug("[JOIN_EMIT] auto-join with seatToken", payload);
+          socket.emit("joinGame", payload);
+        } else {
+          console.debug("[JOIN_EMIT] skipping auto-join (no seatToken) for", last);
+        }
       }
     };
     const onDisconnect = () => setConnected(false);
@@ -150,22 +191,34 @@ export function App() {
 
     socket.on("joined", ({ you: youId, seatToken, gameId: joinedGameId }: any) => {
       setYou(youId);
+      // persist last join intent for future reconnect attempts
       lastJoinRef.current = { gameId: joinedGameId, name, spectator: joinAsSpectator };
-      if (seatToken) sessionStorage.setItem(seatTokenKey(joinedGameId, name), seatToken);
-      console.debug("[socket] joined", { you: youId, gameId: joinedGameId });
+      // prefer using lastJoinRef name if present to store seatToken under the same key we looked up
+      const savedName = lastJoinRef.current?.name ?? name;
+      if (seatToken) {
+        try { sessionStorage.setItem(seatTokenKey(joinedGameId, savedName), seatToken); } catch (e) { /* ignore */ }
+      }
+      console.debug("[socket] joined", { you: youId, gameId: joinedGameId, seatToken });
     });
 
+    // Normalized state handler: normalize and set view
     socket.on("state", ({ view: newView }: any) => {
+      // setView with the raw newView; we compute safeView separately via useMemo above
       setView(newView);
-      console.debug("[socket] state", newView);
+      console.debug("[socket] state (raw)", newView);
     });
+
     socket.on("stateDiff", ({ diff }: any) => {
-      if (diff?.full) {
-        setView(diff.full);
-        console.debug("[socket] stateDiff full", diff.full);
-      } else if (diff?.after) {
-        setView(diff.after);
-        console.debug("[socket] stateDiff after", diff.after);
+      try {
+        if (diff?.full) {
+          setView(diff.full);
+          console.debug("[socket] stateDiff full (raw)", diff.full);
+        } else if (diff?.after) {
+          setView(diff.after);
+          console.debug("[socket] stateDiff after (raw)", diff.after);
+        }
+      } catch (e) {
+        console.warn("stateDiff handling failed:", e);
       }
     });
 
@@ -179,7 +232,6 @@ export function App() {
       const arr = Array.isArray(candidates) ? candidates : [];
       setImportedCandidates(arr);
       console.debug("[socket] importedDeckCandidates received", arr);
-      // If fallback timer exists, cancel it: gallery modal should open in TableLayout
       if (fallbackTimerRef.current) {
         window.clearTimeout(fallbackTimerRef.current);
         fallbackTimerRef.current = null;
@@ -227,7 +279,6 @@ export function App() {
     const onConfirmed = (info: any) => {
       if (!info || !info.confirmId) return;
       if (!confirmId || info.confirmId === confirmId) {
-        // clear the confirmation UI state
         setConfirmOpen(false);
         setConfirmPayload(null);
         setConfirmVotes(null);
@@ -235,28 +286,22 @@ export function App() {
         setLastInfo(`Import applied${info.deckName ? `: ${info.deckName}` : ""}`);
         setPendingLocalImport(false);
 
-        // If I was the importer, proactively clear my local hand view and request imported candidates.
         try {
           if (view && info && info.gameId === view.id && info.by && you && info.by === you) {
-            // Clear local hand immediately to avoid transient duplicates
             setView(prev => {
               if (!prev) return prev;
               const copy: any = { ...prev, zones: { ...(prev.zones || {}) } };
               copy.zones[you] = { ...(copy.zones[you] || {}), hand: [], handCount: 0 };
               return copy;
             });
-            // Ask server for imported candidates so TableLayout can show the gallery modal
             socket.emit("getImportedDeckCandidates", { gameId: info.gameId });
           }
         } catch (e) {
           console.warn("import confirm local-hand-clear failed:", e);
         }
 
-        // Important: DO NOT open App-level commander modal here.
-        // Let TableLayout own the modal (it will open when it receives suggestCommanders/importedDeckCandidates).
-        // Clear any queuedCommanderSuggest only if it's for this game and you want to drop it:
         if (queuedCommanderSuggest && queuedCommanderSuggest.gameId === info.gameId) {
-          // keep queuedCmdSuggest for TableLayout to act on; do not call setCmdSuggestOpen
+          // keep queuedCmdSuggest for TableLayout to act on
         }
       }
     };
@@ -271,24 +316,17 @@ export function App() {
       console.debug("[socket] suggestCommanders", { gameId: gid, names });
       if (!view || gid !== view.id) return;
 
-      // Ask server for imported candidates for TableLayout
       try {
         socket.emit("getImportedDeckCandidates", { gameId: gid });
       } catch (e) { /* ignore */ }
 
-      // If confirm/import flows are active, queue suggestion for later
       if (localImportConfirmRef.current || pendingLocalImportRef.current || confirmOpen) {
         setQueuedCommanderSuggest({ gameId: gid, names: Array.isArray(names) ? names.slice(0, 2) : [] });
         return;
       }
 
-      // Defer modal rendering to TableLayout entirely. TableLayout will open
-      // the card-based modal when importedCandidates arrive or will open its own
-      // text fallback after its internal wait.
-      // We still store the queued suggestion so App can surface it later if needed.
       setQueuedCommanderSuggest({ gameId: gid, names: Array.isArray(names) ? names.slice(0, 2) : [] });
 
-      // Start App-level fallback timer: if no importedCandidates arrive within WAIT_MS, show text fallback modal.
       if (fallbackTimerRef.current) {
         window.clearTimeout(fallbackTimerRef.current);
         fallbackTimerRef.current = null;
@@ -296,14 +334,11 @@ export function App() {
       const WAIT_MS = 900;
       const namesList = Array.isArray(names) ? names.slice(0, 2) : [];
       fallbackTimerRef.current = window.setTimeout(() => {
-        // If importedCandidates not present, open App-level text modal as fallback
         if (!importedCandidates || importedCandidates.length === 0) {
           setCmdSuggestNames(namesList);
           setCmdSuggestOpen(true);
           setQueuedCommanderSuggest(null);
         } else {
-          // importedCandidates present: TableLayout should open gallery modal
-          // ensure queued suggestion cleared
           setQueuedCommanderSuggest(null);
         }
         fallbackTimerRef.current = null;
@@ -336,8 +371,8 @@ export function App() {
 
       socket.off("importWipeConfirmRequest", onRequest);
       socket.off("importWipeConfirmUpdate", onUpdate);
-      socket.off("importWipeCancelled", onCancelled);
-      socket.off("importWipeConfirmed", onConfirmed);
+      socket.off("importWipeConfirmCancelled", onCancelled);
+      socket.off("importWipeConfirm", onConfirmed);
 
       socket.off("suggestCommanders");
       socket.off("nameInUse", onNameInUse);
@@ -353,7 +388,19 @@ export function App() {
   const handleJoin = () => {
     lastJoinRef.current = { gameId, name, spectator: joinAsSpectator };
     const token = sessionStorage.getItem(seatTokenKey(gameId, name)) || undefined;
-    socket.emit("joinGame", { gameId, playerName: name, spectator: joinAsSpectator, seatToken: token });
+    const payload = { gameId, playerName: name, spectator: joinAsSpectator, seatToken: token };
+    console.debug("[JOIN_EMIT] manual join", payload);
+    socket.emit("joinGame", payload);
+  };
+
+  // joinFromList: used by GameList to join a selected game
+  const joinFromList = (selectedGameId: string) => {
+    lastJoinRef.current = { gameId: selectedGameId, name, spectator: joinAsSpectator };
+    const token = sessionStorage.getItem(seatTokenKey(selectedGameId, name)) || undefined;
+    const payload = { gameId: selectedGameId, playerName: name, spectator: joinAsSpectator, seatToken: token };
+    console.debug("[JOIN_EMIT] joinFromList", payload);
+    socket.emit("joinGame", payload);
+    setGameId(selectedGameId);
   };
 
   const requestImportDeck = useCallback((list: string, deckName?: string) => {
@@ -426,7 +473,6 @@ export function App() {
   const canAdvanceStep = useMemo(() => {
     if (!view || !you) return false;
     if (view.turnPlayer === you) return true;
-    // Allow the first-seat player to advance during pre-game phase (canonical PRE_GAME)
     const phaseStr = String(view.phase || "").toUpperCase();
     if (phaseStr === "PRE_GAME" && (view.players?.[0]?.id === you)) return true;
     return false;
@@ -467,6 +513,10 @@ export function App() {
           <button onClick={() => fetchDebug()} disabled={!connected || !view}>Debug</button>
         </div>
 
+        <div style={{ marginTop: 12 }}>
+          <GameList onJoin={joinFromList} />
+        </div>
+
         {missingImport && missingImport.length > 0 && (
           <div style={{ background: "#fff6d5", padding: 10, border: "1px solid #f1c40f", borderRadius: 6 }}>
             <strong>Import warning</strong>: Could not resolve these names: {missingImport.slice(0, 10).join(", ")}{missingImport.length > 10 ? ", …" : ""}.
@@ -475,40 +525,40 @@ export function App() {
         )}
 
         <div style={{ border: "1px solid #eee", borderRadius: 6, padding: 8 }}>
-          {view ? (
+          {safeView ? (
             <TableLayout
-              players={view.players}
-              permanentsByPlayer={new Map((view.players || []).map((p:any) => [p.id, (view.battlefield || []).filter((perm:any)=>perm.controller===p.id)]))}
+              players={safeView.players}
+              permanentsByPlayer={new Map((safeView.players || []).map((p:any) => [p.id, (safeView.battlefield || []).filter((perm:any)=>perm.controller===p.id)]))}
               imagePref={imagePref}
               isYouPlayer={isYouPlayer}
               splitLands
               enableReorderForYou={isYouPlayer}
               you={you || undefined}
-              zones={view.zones}
-              commandZone={view.commandZone as any}
-              format={String(view.format || "")}
+              zones={safeView.zones}
+              commandZone={safeView.commandZone as any}
+              format={String(safeView.format || "")}
               showYourHandBelow
-              onReorderHand={(order) => view && socket.emit("reorderHand", { gameId: view.id, order })}
-              onShuffleHand={() => view && socket.emit("shuffleHand", { gameId: view.id })}
-              onRemove={(id) => view && socket.emit("removePermanent", { gameId: view.id, permanentId: id })}
-              onCounter={(id, kind, delta) => view && socket.emit("updateCounters", { gameId: view.id, permanentId: id, deltas: { [kind]: delta } })}
-              onBulkCounter={(ids, deltas) => view && socket.emit("updateCountersBulk", { gameId: view.id, updates: ids.map(id => ({ permanentId: id, deltas })) })}
-              onPlayLandFromHand={(cardId) => socket.emit("playLand", { gameId: view!.id, cardId })}
-              onCastFromHand={(cardId) => socket.emit("beginCast", { gameId: view!.id, cardId })}
+              onReorderHand={(order) => safeView && socket.emit("reorderHand", { gameId: safeView.id, order })}
+              onShuffleHand={() => safeView && socket.emit("shuffleHand", { gameId: safeView.id })}
+              onRemove={(id) => safeView && socket.emit("removePermanent", { gameId: safeView.id, permanentId: id })}
+              onCounter={(id, kind, delta) => safeView && socket.emit("updateCounters", { gameId: safeView.id, permanentId: id, deltas: { [kind]: delta } })}
+              onBulkCounter={(ids, deltas) => safeView && socket.emit("updateCountersBulk", { gameId: safeView.id, updates: ids.map(id => ({ permanentId: id, deltas })) })}
+              onPlayLandFromHand={(cardId) => socket.emit("playLand", { gameId: safeView!.id, cardId })}
+              onCastFromHand={(cardId) => socket.emit("beginCast", { gameId: safeView!.id, cardId })}
               reasonCannotPlayLand={() => null}
               reasonCannotCast={() => null}
               threeD={undefined}
               enablePanZoom
               tableCloth={{ imageUrl: "" }}
               worldSize={12000}
-              onUpdatePermPos={(id, x, y, z) => view && socket.emit("updatePermanentPos", { gameId: view.id, permanentId: id, x, y, z })}
+              onUpdatePermPos={(id, x, y, z) => safeView && socket.emit("updatePermanentPos", { gameId: safeView.id, permanentId: id, x, y, z })}
               onImportDeckText={(txt, nm) => requestImportDeck(txt, nm)}
               onUseSavedDeck={(deckId) => requestUseSavedDeck(deckId)}
               onLocalImportConfirmChange={(open: boolean) => setLocalImportConfirmOpen(open)}
               suppressCommanderSuggest={localImportConfirmOpen || pendingLocalImport || confirmOpen}
               onConfirmCommander={(names: string[], ids?: string[]) => handleCommanderConfirm(names, ids)}
-              gameId={view.id}
-              stackItems={view.stack as any}
+              gameId={safeView.id}
+              stackItems={safeView.stack as any}
               importedCandidates={importedCandidates}
             />
           ) : (
@@ -527,7 +577,7 @@ export function App() {
 
         <div style={{ border: "1px solid #ddd", borderRadius: 6, padding: 8 }}>
           <div style={{ fontWeight: 700, marginBottom: 8 }}>Zones</div>
-          {view ? <ZonesPanel view={view} you={you} isYouPlayer={isYouPlayer} /> : <div style={{ color: "#666" }}>Join a game to see zones.</div>}
+          {safeView ? <ZonesPanel view={safeView} you={you} isYouPlayer={isYouPlayer} /> : <div style={{ color: "#666" }}>Join a game to see zones.</div>}
         </div>
 
         <div style={{ display: "flex", gap: 8 }}>
@@ -539,10 +589,10 @@ export function App() {
 
       <CardPreviewLayer />
 
-      {cmdSuggestOpen && view && (
+      {cmdSuggestOpen && safeView && (
         <CommanderConfirmModal
           open={cmdSuggestOpen}
-          gameId={view.id}
+          gameId={safeView.id}
           initialNames={cmdSuggestNames}
           onClose={() => { setCmdSuggestOpen(false); setCmdSuggestNames([]); }}
           onConfirm={(names: string[]) => { handleCommanderConfirm(names); setCmdSuggestOpen(false); setCmdSuggestNames([]); }}
@@ -585,7 +635,7 @@ export function App() {
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {confirmVotes ? Object.entries(confirmVotes).map(([pid, v]) => (
                   <div key={pid} style={{ padding: 8, background: "#0f0f0f", borderRadius: 6, minWidth: 120 }}>
-                    <div style={{ fontSize: 12 }}>{view?.players?.find((p:any)=>p.id===pid)?.name ?? pid}{pid === you ? " (you)" : ""}</div>
+                    <div style={{ fontSize: 12 }}>{safeView?.players?.find((p:any)=>p.id===pid)?.name ?? pid}{pid === you ? " (you)" : ""}</div>
                     <div style={{ fontWeight: 700, color: v === "yes" ? "#8ef58e" : v === "no" ? "#f58e8e" : "#ddd" }}>{v}</div>
                   </div>
                 )) : <div>No votes yet</div>}
@@ -618,29 +668,32 @@ export function App() {
         />
       )}
 
-      <NameInUseModal
-        open={showNameInUseModal}
-        payload={nameInUsePayload}
-        onClose={() => { setShowNameInUseModal(false); setNameInUsePayload(null); }}
-        onReconnect={(fixedPlayerId: string) => {
-          const gid = nameInUsePayload?.gameId || gameId;
-          const pname = nameInUsePayload?.playerName || name;
-          const token = sessionStorage.getItem(seatTokenKey(gid, pname)) || undefined;
-          socket.emit("joinGame", { gameId: gid, playerName: pname, spectator: joinAsSpectator, seatToken: token, fixedPlayerId });
-          setShowNameInUseModal(false);
-          setNameInUsePayload(null);
-        }}
-        onNewName={(newName: string) => {
-          const gid = nameInUsePayload?.gameId || gameId;
-          setName(newName);
-          lastJoinRef.current = { gameId: gid, name: newName, spectator: joinAsSpectator };
-          try { sessionStorage.setItem(lastJoinKey(), JSON.stringify(lastJoinRef.current)); } catch { }
-          const token = sessionStorage.getItem(seatTokenKey(gid, newName)) || undefined;
-          socket.emit("joinGame", { gameId: gid, playerName: newName, spectator: joinAsSpectator, seatToken: token });
-          setShowNameInUseModal(false);
-          setNameInUsePayload(null);
-        }}
-      />
+<NameInUseModal
+  open={showNameInUseModal}
+  payload={nameInUsePayload}
+  onClose={() => { setShowNameInUseModal(false); setNameInUsePayload(null); }}
+  onReconnect={(fixedPlayerId: string, seatToken?: string) => {
+    const gid = nameInUsePayload?.gameId || gameId;
+    const pname = nameInUsePayload?.playerName || name;
+    // prefer seatToken supplied by modal (derived from sessionStorage), otherwise fallback
+    const token = seatToken ?? sessionStorage.getItem(seatTokenKey(gid, pname));
+    console.debug("[JOIN_EMIT] reconnect click", { gameId: gid, playerName: pname, fixedPlayerId, seatToken: token });
+    socket.emit("joinGame", { gameId: gid, playerName: pname, spectator: joinAsSpectator, seatToken: token, fixedPlayerId });
+    setShowNameInUseModal(false);
+    setNameInUsePayload(null);
+  }}
+  onNewName={(newName: string) => {
+    const gid = nameInUsePayload?.gameId || gameId;
+    setName(newName);
+    lastJoinRef.current = { gameId: gid, name: newName, spectator: joinAsSpectator };
+    try { sessionStorage.setItem(lastJoinKey(), JSON.stringify(lastJoinRef.current)); } catch { }
+    const token = sessionStorage.getItem(seatTokenKey(gid, newName)) || undefined;
+    console.debug("[JOIN_EMIT] new-name join", { gameId: gid, playerName: newName, seatToken: token });
+    socket.emit("joinGame", { gameId: gid, playerName: newName, spectator: joinAsSpectator, seatToken: token });
+    setShowNameInUseModal(false);
+    setNameInUsePayload(null);
+  }}
+/>
     </div>
   );
 }

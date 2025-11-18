@@ -181,3 +181,58 @@ function safeParseJSON(text: string | null): unknown {
   if (!text) return undefined;
   try { return JSON.parse(text); } catch { return undefined; }
 }
+export function listGames(): { game_id: string; format: string; starting_life: number; created_at: number }[] {
+  ensureDB();
+  const stmt = db!.prepare(`SELECT game_id, format, starting_life, created_at FROM games ORDER BY created_at DESC`);
+  return stmt.all() as { game_id: string; format: string; starting_life: number; created_at: number }[];
+}
+
+/**
+ * Delete persisted events and game metadata for a gameId.
+ * Returns true on success.
+ */
+export function deleteGame(gameId: string): boolean {
+  ensureDB();
+  const delEvents = db!.prepare(`DELETE FROM events WHERE game_id = ?`);
+  const delGame = db!.prepare(`DELETE FROM games WHERE game_id = ?`);
+  const tx = db!.transaction((id: string) => {
+    delEvents.run(id);
+    const info = delGame.run(id);
+    return info.changes > 0;
+  });
+  try {
+    return tx(gameId);
+  } catch (err) {
+    console.error("[DB] deleteGame failed:", (err as Error).message);
+    return false;
+  }
+}
+/**
+ * Return a list of persisted games (basic metadata).
+ */
+export function listGames(): { game_id: string; format: string; starting_life: number; created_at: number }[] {
+  ensureDB();
+  const stmt = db!.prepare(`SELECT game_id, format, starting_life, created_at FROM games ORDER BY created_at DESC`);
+  return stmt.all() as { game_id: string; format: string; starting_life: number; created_at: number }[];
+}
+
+/**
+ * Delete persisted events and game metadata for a gameId.
+ * Returns true on success.
+ */
+export function deleteGame(gameId: string): boolean {
+  ensureDB();
+  const delEvents = db!.prepare(`DELETE FROM events WHERE game_id = ?`);
+  const delGame = db!.prepare(`DELETE FROM games WHERE game_id = ?`);
+  const tx = db!.transaction((id: string) => {
+    delEvents.run(id);
+    const info = delGame.run(id);
+    return info.changes > 0;
+  });
+  try {
+    return tx(gameId);
+  } catch (err) {
+    console.error("[DB] deleteGame failed:", (err as Error).message);
+    return false;
+  }
+}

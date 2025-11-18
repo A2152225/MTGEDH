@@ -3,6 +3,9 @@ import type { ClientGameView, KnownCardRef, PlayerID } from '../../../shared/src
 import { socket } from '../socket';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 
+/**
+ * Card thumbnail used by ZonesPanel. Preserves preview behavior.
+ */
 function CardThumb(props: { card: Partial<KnownCardRef> & { id: string; name?: string; image_uris?: any } }) {
   const { card } = props;
   const img = (card as any)?.image_uris?.small || (card as any)?.image_uris?.normal;
@@ -31,6 +34,17 @@ function CardThumb(props: { card: Partial<KnownCardRef> & { id: string; name?: s
   );
 }
 
+/* Default safe zone shape used whenever a player's zone entry is missing */
+const DEFAULT_ZONE = {
+  hand: [],
+  handCount: 0,
+  library: [],
+  libraryCount: 0,
+  graveyard: [],
+  graveyardCount: 0,
+  exile: [],
+} as const;
+
 export function ZonesPanel(props: {
   view: ClientGameView;
   you: PlayerID | null;
@@ -45,18 +59,21 @@ export function ZonesPanel(props: {
     <div style={{ marginTop: 16 }}>
       <h3>Zones</h3>
       <div style={{ display: 'grid', gap: 12 }}>
-        {view.players.map(p => {
-          const z = view.zones?.[p.id];
-          const gy = (z?.graveyard ?? []) as any as Array<Partial<KnownCardRef> & { id: string }>;
-          const ex = (z?.exile ?? []) as any as Array<Partial<KnownCardRef> & { id: string }>;
-          const libCount = z?.libraryCount ?? 0;
+        {(view.players || []).map((p) => {
+          // Defensive: ensure we always have a zone object for the player
+          const zRaw = (view.zones && view.zones[p.id]) ? view.zones[p.id] : null;
+          const z = zRaw || DEFAULT_ZONE;
+          // Local defensive copies for arrays/counts
+          const gy = Array.isArray(z.graveyard) ? z.graveyard as any as Array<Partial<KnownCardRef> & { id: string }> : [];
+          const ex = Array.isArray(z.exile) ? z.exile as any as Array<Partial<KnownCardRef> & { id: string }> : [];
+          const libCount = typeof z.libraryCount === 'number' ? z.libraryCount : (Array.isArray(z.library) ? z.library.length : 0);
           const canAct = isYouPlayer && you === p.id;
 
           return (
             <div key={p.id} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                 <div style={{ fontWeight: 600 }}>{p.name}</div>
-                <div style={{ fontSize: 12, opacity: 0.75 }}>Life: {view.life[p.id] ?? '-'}</div>
+                <div style={{ fontSize: 12, opacity: 0.75 }}>Life: {view.life?.[p.id] ?? '-'}</div>
               </div>
 
               {/* Library */}
@@ -76,7 +93,7 @@ export function ZonesPanel(props: {
 
               {/* Graveyard */}
               <div style={{ marginTop: 8 }}>
-                <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 4 }}>Graveyard ({z?.graveyardCount ?? (gy?.length ?? 0)}):</div>
+                <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 4 }}>Graveyard ({z.graveyardCount ?? (gy?.length ?? 0)}):</div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {gy.length === 0 && <div style={{ fontSize: 12, opacity: 0.6 }}>Empty</div>}
                   {gy.map(c => <CardThumb key={c.id} card={c as any} />)}

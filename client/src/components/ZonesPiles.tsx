@@ -2,8 +2,23 @@ import React from "react";
 import type { PlayerZones, CommanderInfo, KnownCardRef } from "../../../shared/src";
 import { showCardPreview, hideCardPreview } from "./CardPreviewLayer";
 
+/**
+ * ZonesPiles: shows library/graveyard/exile and command zone slots.
+ * Preserve original behavior but guard missing/undefined fields.
+ */
+
+const SAFE_DEFAULT_ZONES: PlayerZones = {
+  hand: [],
+  handCount: 0,
+  library: [],
+  libraryCount: 0,
+  graveyard: [],
+  graveyardCount: 0,
+  exile: [],
+};
+
 export function ZonesPiles(props: {
-  zones: PlayerZones;
+  zones?: PlayerZones | null;
   commander?: CommanderInfo;
   isCommanderFormat?: boolean;
   showHandCount?: number;
@@ -11,8 +26,9 @@ export function ZonesPiles(props: {
   canCastCommander?: boolean;
   onCastCommander?: (commanderIdOrName: string) => void;
 }) {
-  const { zones, commander, isCommanderFormat, showHandCount = 0, hideHandDetails, canCastCommander, onCastCommander } = props;
+  const { zones = SAFE_DEFAULT_ZONES, commander, isCommanderFormat, showHandCount = 0, hideHandDetails, canCastCommander, onCastCommander } = props;
 
+  // Defensive local arrays
   const libArr = Array.isArray((zones as any).library) ? ((zones as any).library as KnownCardRef[]) : [];
   const grArr = Array.isArray(zones.graveyard) ? (zones.graveyard as KnownCardRef[]) : [];
   const exArr = Array.isArray((zones as any).exile) ? ((zones as any).exile as KnownCardRef[]) : [];
@@ -157,9 +173,9 @@ export function ZonesPiles(props: {
     <div style={{ display: "flex", flexDirection: "row", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
       {/* Command zone now rendered before Library for expected layout */}
       {isCommanderFormat && commander ? <CommandSlots /> : null}
-      {renderPile("Library", zones.libraryCount ?? libArr.length ?? 0, libraryTop)}
-      {renderPile("Graveyard", zones.graveyardCount ?? grArr.length ?? 0, graveTop)}
-      {renderPile("Exile", (zones as any).exile?.length ?? exArr.length ?? 0, exileTop)}
+      {renderPile("Library", (zones.libraryCount ?? libArr.length ?? 0), libraryTop)}
+      {renderPile("Graveyard", (zones.graveyardCount ?? grArr.length ?? 0), graveTop)}
+      {renderPile("Exile", ((zones as any).exile?.length ?? exArr.length ?? 0), exileTop)}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import type { Server, Socket } from "socket.io";
+import { randomBytes } from "crypto";
 import { ensureGame, broadcastGame, schedulePriorityTimeout } from "./util";
 import { appendEvent } from "../db";
 import { computeDiff } from "../utils/diff";
@@ -11,6 +12,10 @@ import { games } from "./socket";
  *  - persists rngSeed best-effort and continues on DB write failures,
  *  - normalizes emitted view so view.zones[playerId] exists for every player,
  *  - ensures in-memory game.state.zones is updated for newly-added players so other modules don't see undefined.
+ *
+ * Added: per-game join queue to serialize join processing and avoid race-created duplicate roster entries.
+ * Change: when a forcedFixedPlayerId is present we DO NOT call game.join(...) so reconnects cannot be
+ *         overridden by custom join implementations that create new players.
  */
 
 /* --- Helpers --- */
@@ -19,7 +24,7 @@ function safeParticipants(game: any) {
     if (!game) return [];
     if (typeof game.participants === "function") return game.participants();
     if (Array.isArray((game as any).participantsList)) return (game as any).participantsList;
-    return (game.state && Array.isArray(game.state.players)) ? game.state.players.map((p: any) => ({ playerId: p.id, socketId: undefined, spectator: !!p.spectator })) : [];
+    return (game.state && Array.isArray(game.state.players)) ? game.state.players.map((p: any) => ({ playerId: p.id, socketId: (p as any).socketId ?? undefined, spectator: !!p.spectator })) : [];
   } catch {
     return [];
   }
@@ -27,6 +32,34 @@ function safeParticipants(game: any) {
 
 function defaultPlayerZones() {
   return { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0 };
+}
+
+/** Find a roster entry by display name (case-insensitive, trimmed) */
+function findPlayerByName(game: any, name?: string) {
+  if (!name) return undefined;
+  try {
+    const nm = String(name).trim().toLowerCase();
+    if (!game || !game.state || !Array.isArray(game.state.players)) return undefined;
+    return (game.state.players as any[]).find((p) => String(p?.name || "").trim().toLowerCase() === nm);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Find a roster entry by seatToken */
+function findPlayerBySeatToken(game: any, token?: string) {
+  if (!token) return undefined;
+  try {
+    if (!game || !game.state || !Array.isArray(game.state.players)) return undefined;
+    return (game.state.players as any[]).find((p) => p?.seatToken && String(p.seatToken) === String(token));
+  } catch {
+    return undefined;
+  }
+}
+
+/** Generate a short seat token */
+function makeSeatToken() {
+  return randomBytes(6).toString("hex"); // 12 hex chars, reasonably unique for local use
 }
 
 /**
@@ -116,7 +149,6 @@ function logStateDebug(prefix: string, gameId: string, view: any) {
     const playerIds = (Array.isArray(view?.players) ? view.players.map((p: any) => p?.id ?? p?.playerId) : []);
     const zoneKeys = view?.zones ? Object.keys(view.zones) : [];
     console.log(`[STATE_DEBUG] ${prefix} gameId=${gameId} players=[${playerIds.join(",")}] zones=[${zoneKeys.join(",")}] seq=${view?.seq ?? "-"}`);
-    // print full payload for diagnosis (verbose)
     try {
       console.log(`[STATE_DEBUG] FULL ${prefix} gameId=${gameId} view=`, JSON.stringify(view));
     } catch (e) {
@@ -126,6 +158,9 @@ function logStateDebug(prefix: string, gameId: string, view: any) {
     // non-fatal
   }
 }
+
+/* --- Join queue to serialize join handling per game --- */
+const joinQueues = new Map<string, Promise<void>>();
 
 /* --- Handlers --- */
 export function registerJoinHandlers(io: Server, socket: Socket) {
@@ -145,25 +180,45 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
       seatToken?: string;
       fixedPlayerId?: string;
     }) => {
-      try {
-        const game = ensureGame(gameId);
-        if (!game) {
-          socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found." });
-          return;
-        }
+      // Serialize handling for this gameId by chaining onto the per-game promise tail.
+      const tail = joinQueues.get(gameId) || Promise.resolve();
+      const myTask = tail.then(async () => {
+        try {
+          const game = ensureGame(gameId);
+          if (!game) {
+            try { socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found." }); } catch {}
+            return;
+          }
 
-        // If a non-empty playerName is provided and no fixedPlayerId was provided,
-        // check for an existing player with that name who is already connected.
-        if (!fixedPlayerId && playerName) {
-          const existing =
-            game.state && Array.isArray(game.state.players)
-              ? (game.state.players as any[]).find((p) => String(p?.name || "").trim().toLowerCase() === String(playerName).trim().toLowerCase())
-              : undefined;
+          // Debug: log incoming join payload when enabled
+          if (process.env.DEBUG_STATE === "1") {
+            console.log("joinGame incoming payload:", { socketId: socket.id, gameId, playerName, spectator, seatToken, fixedPlayerId });
+          }
 
-          if (existing && existing.id) {
-            const participants = safeParticipants(game);
-            const isConnected = participants.some((pp: any) => pp.playerId === existing.id);
-            if (isConnected) {
+          // Try reattach by seatToken first (strong preference).
+          let forcedFixedPlayerId = fixedPlayerId;
+          let resolvedToken: string | undefined = undefined;
+          if (!forcedFixedPlayerId && seatToken) {
+            const byToken = findPlayerBySeatToken(game, seatToken);
+            if (byToken && byToken.id) {
+              forcedFixedPlayerId = byToken.id;
+              resolvedToken = byToken.seatToken;
+              if (process.env.DEBUG_STATE === "1") console.log(`joinGame: resolved via seatToken -> playerId=${forcedFixedPlayerId}`);
+            }
+          }
+
+          // If no forced id and a player name exists, require explicit client choice (no auto-create)
+          if (!forcedFixedPlayerId && playerName) {
+            const existing =
+              game.state && Array.isArray(game.state.players)
+                ? (game.state.players as any[]).find((p) => String(p?.name || "").trim().toLowerCase() === String(playerName).trim().toLowerCase())
+                : undefined;
+
+            if (existing && existing.id) {
+              const participants = safeParticipants(game);
+              const isConnected = participants.some((pp: any) => pp.playerId === existing.id);
+
+              if (process.env.DEBUG_STATE === "1") console.log(`joinGame: name exists -> prompting nameInUse (playerId=${existing.id}, connected=${isConnected})`);
               socket.emit("nameInUse", {
                 gameId,
                 playerName,
@@ -172,199 +227,264 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                   { action: "newName" },
                   { action: "cancel" },
                 ],
+                meta: { isConnected: Boolean(isConnected) },
               });
               return;
             }
           }
-        }
 
-        // Ensure RNG seed exists. Be defensive against missing methods or throws.
-        try {
-          let hasSeed = false;
+          // Ensure RNG seed exists. Be defensive against missing methods or throws.
           try {
-            if (typeof (game as any).hasRngSeed === "function") {
-              hasSeed = Boolean((game as any).hasRngSeed());
-            } else {
-              hasSeed = !!((game.state && (game.state as any).rngSeed) || (game as any)._rngSeed);
-            }
-          } catch {
-            hasSeed = false;
-          }
-
-          if (!hasSeed) {
-            const seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
-            // Apply seed to game instance if possible; otherwise attach to state as fallback.
+            let hasSeed = false;
             try {
-              if (typeof (game as any).seedRng === "function") {
-                try {
-                  (game as any).seedRng(seed);
-                } catch (e) {
-                  // fallback to state property if seedRng throws
+              if (typeof (game as any).hasRngSeed === "function") {
+                hasSeed = Boolean((game as any).hasRngSeed());
+              } else {
+                hasSeed = !!((game.state && (game.state as any).rngSeed) || (game as any)._rngSeed);
+              }
+            } catch {
+              hasSeed = false;
+            }
+
+            if (!hasSeed) {
+              const seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
+              try {
+                if (typeof (game as any).seedRng === "function") {
+                  try {
+                    (game as any).seedRng(seed);
+                  } catch (e) {
+                    game.state = game.state || {};
+                    (game.state as any).rngSeed = seed;
+                    (game as any)._rngSeed = seed;
+                  }
+                } else {
                   game.state = game.state || {};
                   (game.state as any).rngSeed = seed;
                   (game as any)._rngSeed = seed;
                 }
-              } else {
-                game.state = game.state || {};
-                (game.state as any).rngSeed = seed;
-                (game as any)._rngSeed = seed;
+              } catch (e) {
+                console.warn("joinGame: failed to set rng seed on game instance (continuing):", e);
               }
-            } catch (e) {
-              console.warn("joinGame: failed to set rng seed on game instance (continuing):", e);
-            }
 
-            // Persist rngSeed event best-effort; don't block join on DB failures
+              try {
+                await appendEvent(gameId, (game as any).seq || 0, "rngSeed", { seed });
+              } catch (err) {
+                console.warn("joinGame: appendEvent rngSeed failed (continuing):", err);
+              }
+            }
+          } catch (e) {
+            console.warn("joinGame: rng seed detection failed (continuing):", e);
+          }
+
+          // Perform join using game.join() when available; otherwise fallback.
+          // IMPORTANT: if we have a forcedFixedPlayerId (reconnect intent), DO NOT call game.join
+          // because some implementations may create a new player despite the fixed id. Use the
+          // server's deterministic fallback reattach/create logic instead.
+          let playerId: string = "";
+          let added = false;
+
+          const shouldCallGameJoin = (typeof (game as any).join === "function") && !forcedFixedPlayerId;
+          if (shouldCallGameJoin) {
             try {
-              await appendEvent(gameId, (game as any).seq || 0, "rngSeed", { seed });
+              const res = (game as any).join(socket.id, playerName, Boolean(spectator), forcedFixedPlayerId ?? undefined, seatToken);
+              playerId = res?.playerId || (Array.isArray(res) ? res[0] : undefined) || "";
+              added = Boolean(res?.added) || false;
+              resolvedToken = resolvedToken || res?.seatToken || res?.seat || undefined;
+              if (process.env.DEBUG_STATE === "1") console.log("joinGame: game.join returned", { playerId, added, resolvedToken });
             } catch (err) {
-              console.warn("joinGame: appendEvent rngSeed failed (continuing):", err);
+              console.warn("joinGame: game.join threw (continuing to fallback):", err);
+            }
+          } else {
+            if (forcedFixedPlayerId && process.env.DEBUG_STATE === "1") {
+              console.log("joinGame: skipping game.join because forcedFixedPlayerId present; falling back to server reattach logic");
             }
           }
-        } catch (e) {
-          console.warn("joinGame: rng seed detection failed (continuing):", e);
-        }
 
-        // Perform join using game.join() when available; otherwise apply a minimal fallback.
-        let playerId: string = "";
-        let added = false;
-        let resolvedToken: string | undefined = undefined;
-
-        if (typeof (game as any).join === "function") {
-          try {
-            // Try calling the expected signature. Many implementations return { playerId, added, seatToken }.
-            const res = (game as any).join(socket.id, playerName, Boolean(spectator), fixedPlayerId, seatToken);
-            playerId = res?.playerId || (Array.isArray(res) ? res[0] : undefined) || "";
-            added = Boolean(res?.added) || false;
-            resolvedToken = res?.seatToken || res?.seat || undefined;
-
-            // If join returned nothing useful, fall back to adding a player into state directly.
-            if (!playerId) {
-              game.state = game.state || {};
-              game.state.players = game.state.players || [];
-              playerId = fixedPlayerId || `p_${Math.random().toString(36).slice(2, 9)}`;
-              if (!game.state.players.find((p: any) => p.id === playerId)) {
-                game.state.players.push({ id: playerId, name: playerName, spectator: Boolean(spectator) });
-                added = true;
+          // Fallback / safe reattach/create (serialized — no races now)
+          if (!playerId) {
+            // 1) forcedFixedPlayerId => reuse existing or create with that id (very rare)
+            if (forcedFixedPlayerId) {
+              playerId = forcedFixedPlayerId;
+              try {
+                game.state = game.state || {};
+                game.state.players = game.state.players || [];
+                const playerObj = (game.state.players as any[]).find((p) => p.id === playerId);
+                if (playerObj) {
+                  playerObj.socketId = socket.id;
+                  if (!playerObj.seatToken) playerObj.seatToken = resolvedToken || makeSeatToken();
+                  resolvedToken = resolvedToken || playerObj.seatToken;
+                  added = false;
+                  if (process.env.DEBUG_STATE === "1") console.log(`joinGame: reused forcedFixedPlayerId ${playerId}`);
+                } else {
+                  // unexpected: create one with forced id
+                  const token = resolvedToken || makeSeatToken();
+                  const newP: any = { id: playerId, name: playerName, spectator: Boolean(spectator), seatToken: token, socketId: socket.id };
+                  game.state.players.push(newP);
+                  resolvedToken = token;
+                  added = true;
+                  if (process.env.DEBUG_STATE === "1") console.log(`joinGame: created player for forcedFixedPlayerId ${playerId}`);
+                }
+              } catch (e) {
+                console.warn("joinGame: forcedFixedPlayerId fallback failed:", e);
+              }
+            } else {
+              // 2) seatToken reattach (if present)
+              if (seatToken) {
+                const byToken = findPlayerBySeatToken(game, seatToken);
+                if (byToken && byToken.id) {
+                  playerId = byToken.id;
+                  try { byToken.socketId = socket.id; resolvedToken = byToken.seatToken; } catch {}
+                  added = false;
+                  if (process.env.DEBUG_STATE === "1") console.log(`joinGame: reattached by seatToken -> ${playerId}`);
+                }
               }
             }
-          } catch (err) {
-            console.warn("joinGame: game.join threw, falling back to simple join:", err);
-            playerId = fixedPlayerId || `p_${Math.random().toString(36).slice(2, 9)}`;
+          }
+
+          // 3) reuse by name if disconnected (otherwise nameInUse would have returned earlier)
+          if (!playerId && playerName) {
+            const existingByName = findPlayerByName(game, playerName);
+            if (existingByName && existingByName.id) {
+              const participants = safeParticipants(game);
+              const isConnected = participants.some((pp: any) => pp.playerId === existingByName.id);
+              if (isConnected) {
+                socket.emit("nameInUse", {
+                  gameId,
+                  playerName,
+                  options: [
+                    { action: "reconnect", fixedPlayerId: existingByName.id },
+                    { action: "newName" },
+                    { action: "cancel" },
+                  ],
+                  meta: { isConnected: true },
+                });
+                return;
+              } else {
+                playerId = existingByName.id;
+                try {
+                  existingByName.socketId = socket.id;
+                  if (!existingByName.seatToken) existingByName.seatToken = makeSeatToken();
+                  resolvedToken = resolvedToken || existingByName.seatToken;
+                } catch {}
+                added = false;
+                if (process.env.DEBUG_STATE === "1") console.log(`joinGame: reused disconnected name -> ${playerId}`);
+              }
+            }
+          }
+
+          // 4) final re-checks and create new player if still no id
+          if (!playerId) {
+            // last-chance seatToken re-check
+            if (seatToken) {
+              const byToken2 = findPlayerBySeatToken(game, seatToken);
+              if (byToken2 && byToken2.id) {
+                playerId = byToken2.id;
+                added = false;
+                try { byToken2.socketId = socket.id; resolvedToken = byToken2.seatToken; } catch {}
+                if (process.env.DEBUG_STATE === "1") console.log(`joinGame: last-chance reattach by seatToken -> ${playerId}`);
+              }
+            }
+          }
+
+          if (!playerId) {
+            if (playerName) {
+              const existing = findPlayerByName(game, playerName);
+              if (existing && existing.id) {
+                const participants = safeParticipants(game);
+                const isConnected = participants.some((pp: any) => pp.playerId === existing.id);
+                socket.emit("nameInUse", {
+                  gameId,
+                  playerName,
+                  options: [
+                    { action: "reconnect", fixedPlayerId: existing.id },
+                    { action: "newName" },
+                    { action: "cancel" },
+                  ],
+                  meta: { isConnected: Boolean(isConnected) },
+                });
+                return;
+              }
+            }
+
+            // create new
+            const newId = `p_${Math.random().toString(36).slice(2, 9)}`;
+            const tokenToUse = seatToken || makeSeatToken();
+            const playerObj: any = { id: newId, name: playerName, spectator: Boolean(spectator), seatToken: tokenToUse, socketId: socket.id };
             game.state = game.state || {};
             game.state.players = game.state.players || [];
-            if (!game.state.players.find((p: any) => p.id === playerId)) {
-              game.state.players.push({ id: playerId, name: playerName, spectator: Boolean(spectator) });
-              added = true;
-            }
-          }
-        } else {
-          // Minimal fallback join behavior for simple in-memory wrappers
-          playerId = fixedPlayerId || `p_${Math.random().toString(36).slice(2, 9)}`;
-          game.state = game.state || {};
-          game.state.players = game.state.players || [];
-          if (!game.state.players.find((p: any) => p.id === playerId)) {
-            game.state.players.push({ id: playerId, name: playerName, spectator: Boolean(spectator) });
+            game.state.players.push(playerObj);
+            playerId = newId;
+            resolvedToken = tokenToUse;
             added = true;
+            if (process.env.DEBUG_STATE === "1") console.log(`joinGame: created new player ${playerId} (name=${playerName})`);
           }
-        }
 
-        // Ensure server-side zones for players exist (so modules reading game.state.zones don't get undefined)
-        try {
-          ensureStateZonesForPlayers(game);
-        } catch (e) {
-          // non-fatal
-        }
+          // Ensure server-side zones for players exist
+          try { ensureStateZonesForPlayers(game); } catch (e) { /* ignore */ }
 
-        // Attach session metadata to socket and join socket.io room
-        try {
-          socket.data = { gameId, playerId, spectator: Boolean(spectator) };
-        } catch {
-          // older socket.io may not allow data assign — ignore
-        }
-        try {
-          socket.join(gameId);
-        } catch (e) {
-          // non-fatal
-        }
+          // Session metadata + socket room
+          try { socket.data = { gameId, playerId, spectator: Boolean(spectator) }; } catch {}
+          try { socket.join(gameId); } catch {}
 
-        // Build view for this player (use viewFor if available)
-        let rawView: any;
-        try {
-          if (typeof (game as any).viewFor === "function") {
-            rawView = (game as any).viewFor(playerId, Boolean(spectator));
-          } else {
+          // Build view (viewFor or raw)
+          let rawView: any;
+          try {
+            if (typeof (game as any).viewFor === "function") {
+              rawView = (game as any).viewFor(playerId, Boolean(spectator));
+            } else {
+              rawView = game.state;
+            }
+          } catch (e) {
+            console.warn("joinGame: viewFor failed, falling back to raw state", e);
             rawView = game.state;
           }
-        } catch (e) {
-          console.warn("joinGame: viewFor failed, falling back to raw state", e);
-          rawView = game.state;
-        }
 
-        const view = normalizeViewForEmit(rawView, game);
+          const view = normalizeViewForEmit(rawView, game);
 
-        // Debug log
-        logStateDebug("EMIT_JOIN_STATE", gameId, view);
+          // Debug log
+          logStateDebug("EMIT_JOIN_STATE", gameId, view);
 
-        // Send initial joined ack and state to the connecting socket
-        try {
-          socket.emit("joined", { gameId, you: playerId, seatToken: resolvedToken });
-        } catch (e) {
-          console.warn("joinGame: emit joined failed", e);
-        }
+          // Emit joined (include seatToken)
+          try { socket.emit("joined", { gameId, you: playerId, seatToken: resolvedToken }); } catch (e) { console.warn("joinGame: emit joined failed", e); }
+          try { socket.emit("state", { gameId, view, seq: (game as any).seq || 0 }); } catch (e) { console.warn("joinGame: emit state failed", e); }
 
-        try {
-          socket.emit("state", { gameId, view, seq: (game as any).seq || 0 });
-        } catch (e) {
-          console.warn("joinGame: emit state failed", e);
-        }
-
-        // Log join event to persistent event log if DB append available (best-effort)
-        if (!spectator && added) {
-          try {
-            await appendEvent(gameId, (game as any).seq || 0, "join", {
-              playerId,
-              name: playerName,
-              seat: view.players?.find((p: any) => p.id === playerId)?.seat,
-              seatToken: resolvedToken,
-            });
-          } catch (dbError) {
-            console.error(`joinGame database error for game ${gameId}:`, dbError);
+          // Persist join event if new
+          if (!spectator && added) {
             try {
-              socket.emit("error", {
-                code: "DB_ERROR",
-                message: "Failed to log the player join event.",
+              await appendEvent(gameId, (game as any).seq || 0, "join", {
+                playerId,
+                name: playerName,
+                seat: view.players?.find((p: any) => p.id === playerId)?.seat,
+                seatToken: resolvedToken,
               });
-            } catch {}
-            // continue — don't return; we already informed client of join
-          }
+            } catch (dbError) {
+              console.error(`joinGame database error for game ${gameId}:`, dbError);
+              try { socket.emit("error", { code: "DB_ERROR", message: "Failed to log the player join event." }); } catch {}
+            }
 
-          // Notify other participants with a stateDiff if computeDiff available
-          try {
-            socket.to(gameId).emit("stateDiff", {
-              gameId,
-              diff: typeof computeDiff === "function" ? computeDiff(undefined, view, (game as any).seq || 0) : { full: view },
-            });
-          } catch (e) {
-            console.warn("joinGame: emit stateDiff failed", e);
             try {
-              // fallback broadcast entire state
-              io.to(gameId).emit("state", { gameId, view, seq: (game as any).seq || 0 });
-            } catch {}
+              socket.to(gameId).emit("stateDiff", { gameId, diff: typeof computeDiff === "function" ? computeDiff(undefined, view, (game as any).seq || 0) : { full: view } });
+              schedulePriorityTimeout(io, game, gameId);
+            } catch (e) {
+              console.warn("joinGame: emit stateDiff failed", e);
+              try { io.to(gameId).emit("state", { gameId, view, seq: (game as any).seq || 0 }); } catch {}
+            }
+          } else {
+            try { schedulePriorityTimeout(io, game, gameId); } catch {}
           }
-
-          // schedule priority timer for game if relevant
-          try {
-            schedulePriorityTimeout(io, game, gameId);
-          } catch (e) {
-            console.warn("joinGame: schedulePriorityTimeout failed", e);
-          }
+        } catch (err: any) {
+          console.error(`joinGame error for socket ${socket.id}:`, err);
+          try { socket.emit("error", { code: "JOIN_FAILED", message: String(err?.message || err) }); } catch {}
         }
-      } catch (err: any) {
-        console.error(`joinGame error for socket ${socket.id}:`, err);
-        try {
-          socket.emit("error", { code: "JOIN_FAILED", message: String(err?.message || err) });
-        } catch {}
-      }
+      }).catch((e) => {
+        // swallow to keep chain healthy
+        if (process.env.DEBUG_STATE === "1") console.warn("join queue task error:", e);
+      });
+
+      // put myTask onto the tail for this gameId so subsequent joins queue behind it
+      joinQueues.set(gameId, myTask);
+      // await the task so the socket handler completes after our serialized work
+      await myTask;
     }
   );
   // Request state refresh
@@ -375,13 +495,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
       if (!game || !playerId) return;
 
       let rawView: any;
-      try {
-        rawView = typeof (game as any).viewFor === "function" ? (game as any).viewFor(playerId, Boolean(socket.data?.spectator)) : game.state;
-      } catch (e) {
-        console.warn("requestState: viewFor failed, falling back to raw state", e);
-        rawView = game.state;
-      }
-      // Also ensure in-memory state shape is healthy before emitting
+      try { rawView = typeof (game as any).viewFor === "function" ? (game as any).viewFor(playerId, Boolean(socket.data?.spectator)) : game.state; } catch (e) { console.warn("requestState: viewFor failed, falling back to raw state", e); rawView = game.state; }
       try { ensureStateZonesForPlayers(game); } catch {}
       const view = normalizeViewForEmit(rawView, game);
 

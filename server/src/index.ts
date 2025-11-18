@@ -3,8 +3,8 @@ import { fileURLToPath } from "url";
 import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
-import { registerSocketHandlers } from "./socket";
-import { initDb } from "./db";
+import { registerSocketHandlers, games as socketGames } from "./socket";
+import { initDb, listGames as dbListGames, deleteGame as dbDeleteGame } from "./db";
 import type {
   ClientToServerEvents,
   ServerToClientEvents,
@@ -25,6 +25,71 @@ const app = express();
 
 // Serve static files from `client/dist`
 app.use(express.static(BUILD_PATH));
+
+// Simple JSON middleware for admin endpoints
+app.use(express.json());
+
+// API: list games (merged view between persisted metadata and in-memory state)
+app.get("/api/games", (req, res) => {
+  try {
+    const persisted = dbListGames();
+    const enriched = persisted.map((row) => {
+      const id = row.game_id;
+      const inMem = socketGames.get(id);
+      const playersCount = inMem ? ((inMem.state && Array.isArray(inMem.state.players)) ? inMem.state.players.length : 0) : 0;
+      const turn = inMem ? (inMem.state && typeof inMem.state.turn !== "undefined" ? inMem.state.turn : null) : null;
+      const phase = inMem ? (inMem.state && typeof inMem.state.phase !== "undefined" ? inMem.state.phase : null) : null;
+      const status = inMem ? (inMem.state && typeof inMem.state.status !== "undefined" ? inMem.state.status : null) : null;
+      return {
+        id,
+        format: row.format,
+        startingLife: row.starting_life,
+        createdAt: row.created_at,
+        playersCount,
+        turn,
+        phase,
+        status,
+      };
+    });
+    res.json({ games: enriched });
+  } catch (err) {
+    console.error("GET /api/games failed:", err);
+    res.status(500).json({ error: "Failed to list games" });
+  }
+});
+
+// Admin: delete a game (only from localhost)
+app.delete("/admin/games/:id", (req, res) => {
+  try {
+    // Determine requester IP (works for direct connections). If behind proxy, adjust trust proxy as needed.
+    const remote = (req.ip || req.socket.remoteAddress || "").toString();
+    const allowed = remote === "127.0.0.1" || remote === "::1" || remote === "localhost" || remote === "127.0.0.1:3001";
+    if (!allowed) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    const id = String(req.params.id || "");
+    if (!id) {
+      res.status(400).json({ error: "Missing game id" });
+      return;
+    }
+    // Remove in-memory game if present
+    try {
+      socketGames.delete(id);
+    } catch (e) {
+      console.warn("Failed to remove in-memory game:", e);
+    }
+    // Remove persisted rows
+    const ok = dbDeleteGame(id);
+    if (!ok) {
+      console.warn(`DELETE /admin/games/${id}: deleteGame returned false`);
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("DELETE /admin/games/:id failed:", err);
+    res.status(500).json({ error: "Delete failed" });
+  }
+});
 
 // Handle undefined routes by serving `index.html` (useful for React Router handling)
 app.get("*", (req, res) => {
