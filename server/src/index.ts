@@ -36,8 +36,8 @@ app.get("*", (req, res) => {
   });
 });
 
-// Initialize the SQLite database
-(async () => {
+// Main bootstrap: initialize DB first, then create HTTP + Socket.IO servers and register handlers.
+async function main() {
   try {
     console.log("[Server] Initializing database...");
     await initDb();
@@ -46,28 +46,33 @@ app.get("*", (req, res) => {
     console.error("[Server] Failed to initialize database:", err);
     process.exit(1); // Stop the server if the database cannot be initialized
   }
-})();
 
-// Create HTTP and WebSocket server
-const httpServer = createServer(app);
+  // Create HTTP and WebSocket server after DB initialization to avoid races when handlers persist/read DB.
+  const httpServer = createServer(app);
 
-// Allow configuring CORS origin via env var in production; default is '*' for dev
-const corsOrigin = process.env.CORS_ORIGIN || "*";
+  // Allow configuring CORS origin via env var in production; default is '*' for dev
+  const corsOrigin = process.env.CORS_ORIGIN || "*";
 
-const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(
-  httpServer,
-  {
-    cors: {
-      origin: corsOrigin,
-      methods: ["GET", "POST"],
-    },
-  }
-);
+  const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(
+    httpServer,
+    {
+      cors: {
+        origin: corsOrigin,
+        methods: ["GET", "POST"],
+      },
+    }
+  );
 
-// Register Socket.IO handlers
-registerSocketHandlers(io);
+  // Register Socket.IO handlers
+  registerSocketHandlers(io);
 
-// Start the server bound to localhost only for security (IIS/ARR will reverse-proxy to this)
-httpServer.listen(PORT, "127.0.0.1", () => {
-  console.log(`[Server] Running at http://127.0.0.1:${PORT}`);
+  // Start the server bound to localhost only for security (IIS/ARR will reverse-proxy to this)
+  httpServer.listen(PORT, "127.0.0.1", () => {
+    console.log(`[Server] Running at http://127.0.0.1:${PORT}`);
+  });
+}
+
+main().catch((err) => {
+  console.error("[Server] Unhandled error during startup:", err);
+  process.exit(1);
 });

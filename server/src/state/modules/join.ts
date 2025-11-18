@@ -12,7 +12,21 @@ export function addPlayerIfMissing(ctx: GameContext, id: PlayerID, name: string,
   life[id] = state.startingLife;
   poison[id] = 0;
   experience[id] = 0;
-  zones[id] = zones[id] ?? { hand: [], handCount: 0, libraryCount: libraries.get(id)?.length ?? 0, graveyard: [], graveyardCount: 0 };
+
+  // Defensive: libraries may be undefined or not a Map during some fallback flows.
+  // Compute libraryCount safely.
+  let libraryCount = 0;
+  try {
+    if (libraries && typeof libraries.get === "function") {
+      const lib = libraries.get(id);
+      if (Array.isArray(lib)) libraryCount = lib.length;
+      else if (lib && typeof lib.length === "number") libraryCount = lib.length;
+    }
+  } catch {
+    libraryCount = 0;
+  }
+
+  zones[id] = zones[id] ?? { hand: [], handCount: 0, libraryCount, graveyard: [], graveyardCount: 0 };
   commandZone[id] = commandZone[id] ?? { commanderIds: [], tax: 0, taxById: {} };
   state.landsPlayedThisTurn![id] = state.landsPlayedThisTurn![id] ?? 0;
   if (!state.turnPlayer) state.turnPlayer = id;
@@ -61,7 +75,7 @@ export function join(
         tokenToPlayer.set(seatToken, playerId);
         playerToToken.set(playerId, seatToken);
       }
-      zones[playerId] = zones[playerId] ?? { hand: [], handCount: 0, libraryCount: libraries.get(playerId)?.length ?? 0, graveyard: [], graveyardCount: 0 };
+      zones[playerId] = zones[playerId] ?? { hand: [], handCount: 0, libraryCount: (libraries && typeof libraries.get === "function" && Array.isArray(libraries.get(playerId)) ? libraries.get(playerId)!.length : 0), graveyard: [], graveyardCount: 0 };
       commandZone[playerId] = commandZone[playerId] ?? { commanderIds: [], tax: 0, taxById: {} };
       state.landsPlayedThisTurn![playerId] = state.landsPlayedThisTurn![playerId] ?? 0;
       if (!(playerId in poison)) poison[playerId] = 0;

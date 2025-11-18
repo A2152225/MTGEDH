@@ -7,20 +7,102 @@
  * - Otherwise provide a MinimalGameAdapter that implements the common APIs used by sockets
  *   (hasRngSeed, seedRng, join, viewFor, participants, reset, shuffleLibrary, drawCards, etc.)
  *
- * This ensures server socket handlers (join/import/etc.) won't throw when GameImpl is missing.
+ * Also: schedule background persistence of a minimal games row when creating/ensuring a game so
+ * appendEvent (which relies on a FK to games.game_id) will not fail even if DB init timing races.
  */
 
 import { randomUUID } from "crypto";
-import type { Server } from "socket.io";
 
-// Try to load createInitialGameState (preferred fallback)
+type PersistOptions = { gameId: string; format?: string; startingLife?: number };
+
+function schedulePersistGamesRow(opts: PersistOptions) {
+  // Non-blocking background attempt to persist a games row. Retries a few times if DB isn't ready yet.
+  const maxAttempts = 8;
+  const intervalMs = 200;
+
+  let attempts = 0;
+  const tryPersist = async () => {
+    attempts++;
+    try {
+      // dynamic import so we don't cause circular imports / module instance duplication
+      const dbmod = await import("./db");
+      // Prefer exported createGameIfNotExists if present
+      if (dbmod && typeof (dbmod as any).createGameIfNotExists === "function") {
+        try {
+          (dbmod as any).createGameIfNotExists(opts.gameId, opts.format ?? "commander", opts.startingLife ?? 40);
+          return; // success
+        } catch (e: any) {
+          // If DB not initialized, createGameIfNotExists will throw; we'll retry below.
+          if ((e && String(e.message || "").includes("DB not initialized")) && attempts < maxAttempts) {
+            setTimeout(tryPersist, intervalMs);
+            return;
+          }
+          // Otherwise try fallback below.
+        }
+      }
+
+      // If dbmod exports a db handle (better-sqlite3 style), attempt insert-or-ignore
+      const possibleDb = (dbmod as any)?.db || (dbmod as any)?.default?.db || (dbmod as any)?.default || dbmod;
+      if (possibleDb && typeof possibleDb.prepare === "function") {
+        try {
+          possibleDb.prepare(
+            "INSERT OR IGNORE INTO games (game_id, format, starting_life, created_at) VALUES (?, ?, ?, ?)"
+          ).run(opts.gameId, opts.format ?? "commander", opts.startingLife ?? 40, Date.now());
+          return; // success
+        } catch (e) {
+          // fall through to retry
+        }
+      }
+
+      // As a last attempt, if the module exposes exec, try that
+      if (dbmod && typeof (dbmod as any).exec === "function") {
+        try {
+          const fmt = (opts.format ?? "commander").replace(/'/g, "''");
+          const life = opts.startingLife ?? 40;
+          (dbmod as any).exec(
+            `INSERT OR IGNORE INTO games (game_id, format, starting_life, created_at) VALUES ('${String(
+              opts.gameId
+            ).replace(/'/g, "''")}', '${fmt}', ${life | 0}, ${Date.now()})`
+          );
+          return;
+        } catch (e) {
+          // fall through
+        }
+      }
+
+      // If we reach here and haven't persisted, retry if attempts remain
+      if (attempts < maxAttempts) setTimeout(tryPersist, intervalMs);
+    } catch (err) {
+      // dynamic import may fail early if file not present; retry up to limit
+      if (attempts < maxAttempts) setTimeout(tryPersist, intervalMs);
+    }
+  };
+
+  // start attempts asynchronously
+  setTimeout(tryPersist, 0);
+}
+
+/* --- Try to load createInitialGameState (preferred fallback) --- */
 let createInitialGameState: any = null;
 try {
-  // try likely locations
+  // dynamic require-like logic: attempt to import the state factory if present
+  // Note: using synchronous require may not be available in ESM; prefer try/catch import
+  // We'll attempt a synchronous-like require via dynamic import (best-effort at startup)
+  // but don't block if not present.
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const m = require("./state") || require("./state/index");
-  createInitialGameState = m?.createInitialGameState || null;
-} catch (e) {
+  try {
+    // Try common CJS paths via require if available
+    // @ts-ignore
+    const req = eval("typeof require === 'function' ? require : undefined");
+    if (req) {
+      const m = req("./state") || req("./state/index");
+      createInitialGameState = m?.createInitialGameState || null;
+    }
+  } catch {
+    // fallback: attempt dynamic import (non-blocking; but we want a sync check)
+    // leave createInitialGameState null if not resolvable synchronously
+  }
+} catch {
   createInitialGameState = null;
 }
 
@@ -37,13 +119,17 @@ function tryLoadGameImpl(): any | null {
   ];
   for (const p of candidates) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const mod = require(p);
-      if (!mod) continue;
-      if (mod.Game) return mod.Game;
-      if (mod.default) return mod.default;
-      return mod;
-    } catch (e) {
+      // Use dynamic import synchronously via eval-require when available to avoid ESM/CJS duplication
+      // @ts-ignore
+      const req = eval("typeof require === 'function' ? require : undefined");
+      if (req) {
+        const mod = req(p);
+        if (!mod) continue;
+        if (mod.Game) return mod.Game;
+        if (mod.default) return mod.default;
+        return mod;
+      }
+    } catch {
       // ignore and continue
     }
   }
@@ -55,7 +141,7 @@ let GameImpl: any = tryLoadGameImpl();
 /* Simple mulberry32 RNG used by many state modules when seedRng not implemented */
 function mulberry32(seed: number) {
   return function () {
-    let t = seed += 0x6D2B79F5;
+    let t = (seed += 0x6d2b79f5);
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
@@ -144,7 +230,6 @@ class MinimalGameAdapter {
 
   // Shallow hook for deck import resolution (no-op)
   importDeckResolved(playerId: string, cards: any[]) {
-    // Place cards into the initiator's library array (authoritative for UI)
     this.state.zones = this.state.zones || {};
     this.state.zones[playerId] = this.state.zones[playerId] || { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [] };
     this.state.zones[playerId].library = cards.map((c: any) => ({ ...c, zone: "library" }));
@@ -180,7 +265,6 @@ class MinimalGameAdapter {
     } catch (e) { /* ignore */ }
   }
 
-  // Minimal helper for tests / debug
   toJSON() { return { id: this.id, state: this.state, seq: this.seq }; }
 }
 
@@ -240,6 +324,14 @@ class GameManagerClass {
 
     this.initBasicShapes(game, opts);
     this.games.set(id, game);
+
+    // Schedule background persistence of a minimal games row so appendEvent won't fail on first event
+    try {
+      const fmt = game.state?.format ?? (opts.startingState && opts.startingState.format) ?? "commander";
+      const life = typeof game.state?.startingLife === "number" ? game.state.startingLife : (opts.startingState && typeof opts.startingState.startingLife === "number" ? opts.startingState.startingLife : 40);
+      schedulePersistGamesRow({ gameId: id, format: fmt, startingLife: life });
+    } catch (e) { /* non-fatal */ }
+
     return game;
   }
 
@@ -265,6 +357,14 @@ class GameManagerClass {
 
     this.initBasicShapes(game);
     this.games.set(gameId, game);
+
+    // Schedule background persistence of a minimal games row so appendEvent won't fail
+    try {
+      const fmt = game.state?.format ?? "commander";
+      const life = typeof game.state?.startingLife === "number" ? game.state.startingLife : 40;
+      schedulePersistGamesRow({ gameId, format: fmt, startingLife: life });
+    } catch (e) { /* non-fatal */ }
+
     return game;
   }
 
@@ -291,6 +391,7 @@ class GameManagerClass {
   }
 
   deleteGame(gameId: string): boolean {
+    // also remove persisted row? intentionally don't delete DB row here to preserve event history.
     return this.games.delete(gameId);
   }
 

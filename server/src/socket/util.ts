@@ -5,6 +5,9 @@
 // clearPriorityTimer, and a parseManaCost helper.
 //
 // This is a full-file authoritative implementation (no truncation).
+//
+// NOTE: Small, safe additions: normalizeViewForEmit + ensureStateZonesForPlayers
+// and env-gated verbose logging when DEBUG_STATE=1.
 
 import type { Server } from "socket.io";
 import { games, priorityTimers, PRIORITY_TIMEOUT_MS } from "./socket";
@@ -12,6 +15,104 @@ import { appendEvent, createGameIfNotExists, getEvents } from "../db";
 import { createInitialGameState } from "../state";
 import type { InMemoryGame } from "../state/types";
 import { GameManager } from "../GameManager";
+
+/* ------------------- Defensive normalization helpers ------------------- */
+
+/** canonical minimal zone shape for a player */
+function defaultPlayerZones() {
+  return { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0 };
+}
+
+/**
+ * Ensure authoritative in-memory game.state.zones has entries for all players.
+ */
+function ensureStateZonesForPlayers(game: any) {
+  try {
+    if (!game) return;
+    game.state = game.state || {};
+    game.state.players = game.state.players || [];
+    game.state.zones = game.state.zones || {};
+    for (const p of game.state.players) {
+      const pid = p?.id ?? p?.playerId;
+      if (!pid) continue;
+      if (!game.state.zones[pid]) game.state.zones[pid] = defaultPlayerZones();
+      else {
+        const z = game.state.zones[pid];
+        z.hand = Array.isArray(z.hand) ? z.hand : [];
+        z.handCount = typeof z.handCount === "number" ? z.handCount : (Array.isArray(z.hand) ? z.hand.length : 0);
+        z.library = Array.isArray(z.library) ? z.library : [];
+        z.libraryCount = typeof z.libraryCount === "number" ? z.libraryCount : (Array.isArray(z.library) ? z.library.length : 0);
+        z.graveyard = Array.isArray(z.graveyard) ? z.graveyard : [];
+        z.graveyardCount = typeof z.graveyardCount === "number" ? z.graveyardCount : (Array.isArray(z.graveyard) ? z.graveyard.length : 0);
+      }
+    }
+  } catch (e) {
+    console.warn("ensureStateZonesForPlayers failed:", e);
+  }
+}
+
+function normalizeViewForEmit(rawView: any, game: any) {
+  try {
+    const view = rawView || {};
+    view.zones = view.zones || {};
+    const players =
+      Array.isArray(view.players)
+        ? view.players
+        : (game && game.state && Array.isArray(game.state.players) ? game.state.players : []);
+    for (const p of players) {
+      const pid = p?.id ?? p?.playerId;
+      if (!pid) continue;
+      view.zones[pid] = view.zones[pid] ?? defaultPlayerZones();
+    }
+
+    // Mirror minimal shape back into authoritative game.state.zones to avoid other server modules observing undefined.
+    try {
+      if (game && game.state) {
+        game.state.zones = game.state.zones || {};
+        for (const pid of Object.keys(view.zones)) {
+          if (!game.state.zones[pid]) game.state.zones[pid] = view.zones[pid];
+          else {
+            const src = view.zones[pid];
+            const dst = game.state.zones[pid];
+            dst.hand = Array.isArray(dst.hand) ? dst.hand : (Array.isArray(src.hand) ? src.hand : []);
+            dst.handCount = typeof dst.handCount === "number" ? dst.handCount : (Array.isArray(dst.hand) ? dst.hand.length : 0);
+            dst.library = Array.isArray(dst.library) ? dst.library : (Array.isArray(src.library) ? src.library : []);
+            dst.libraryCount = typeof dst.libraryCount === "number" ? dst.libraryCount : (Array.isArray(dst.library) ? dst.library.length : 0);
+            dst.graveyard = Array.isArray(dst.graveyard) ? dst.graveyard : (Array.isArray(src.graveyard) ? src.graveyard : []);
+            dst.graveyardCount = typeof dst.graveyardCount === "number" ? dst.graveyardCount : (Array.isArray(dst.graveyard) ? dst.graveyard.length : 0);
+          }
+        }
+      }
+    } catch {
+      // non-fatal
+    }
+
+    return view;
+  } catch (e) {
+    console.warn("normalizeViewForEmit failed:", e);
+    return rawView || {};
+  }
+}
+
+/* --- Debug logging helper (env-gated) --- */
+function logStateDebug(prefix: string, gameId: string, view: any) {
+  try {
+    const enabled = process.env.DEBUG_STATE === "1";
+    if (!enabled) return;
+    const playerIds = (Array.isArray(view?.players) ? view.players.map((p: any) => p?.id ?? p?.playerId) : []);
+    const zoneKeys = view?.zones ? Object.keys(view.zones) : [];
+    console.log(`[STATE_DEBUG] ${prefix} gameId=${gameId} players=[${playerIds.join(",")}] zones=[${zoneKeys.join(",")}]`);
+    try {
+      console.log(`[STATE_DEBUG] FULL ${prefix} gameId=${gameId} view=`, JSON.stringify(view));
+    } catch (e) {
+      console.log(`[STATE_DEBUG] FULL ${prefix} gameId=${gameId} view (stringify failed)`, view);
+    }
+  } catch (e) {
+    // non-fatal
+  }
+}
+
+/* ------------------- Core exported utilities (based on original file) ------------------- */
 
 /**
  * Ensures that the specified game exists in both database and memory, creating it if necessary.
@@ -29,6 +130,8 @@ export function ensureGame(gameId: string): InMemoryGame {
         if (gmGame) {
           // Keep the socket-level games map in sync with GameManager
           try { games.set(gameId, gmGame); } catch (e) { /* best-effort */ }
+          // Ensure canonical state zones exist for players (defensive)
+          try { ensureStateZonesForPlayers(gmGame); } catch {}
           return gmGame;
         }
       } catch (err) {
@@ -73,6 +176,9 @@ export function ensureGame(gameId: string): InMemoryGame {
       console.warn("ensureGame: replay persisted events failed, continuing with fresh state:", err);
     }
 
+    // Ensure canonical in-memory zones exist for players so server modules don't later see undefined.
+    try { ensureStateZonesForPlayers(game); } catch (e) { /* ignore */ }
+
     // Register reconstructed game in memory
     games.set(gameId, game);
   }
@@ -83,6 +189,9 @@ export function ensureGame(gameId: string): InMemoryGame {
 /**
  * Broadcasts the full state of a game to all participants.
  * Uses the game's participants() method if available, otherwise falls back to participantsList.
+ *
+ * This version normalizes view and mirrors minimal zone shapes back into game.state so clients
+ * and other server code never observe missing per-player zones.
  */
 export function broadcastGame(io: Server, game: InMemoryGame, gameId: string) {
   let participants: Array<{ socketId: string; playerId: string; spectator: boolean }> = [];
@@ -102,10 +211,21 @@ export function broadcastGame(io: Server, game: InMemoryGame, gameId: string) {
 
   for (const p of participants) {
     try {
-      const view = (typeof (game as any).viewFor === "function")
-        ? (game as any).viewFor(p.playerId, !!p.spectator)
-        : (game as any).state; // fallback: send raw state (not ideal, but defensive)
-      io.to(p.socketId).emit("state", { gameId, view, seq: (game as any).seq });
+      let rawView;
+      try {
+        rawView = (typeof (game as any).viewFor === "function")
+          ? (game as any).viewFor(p.playerId, !!p.spectator)
+          : (game as any).state; // fallback: send raw state (not ideal, but defensive)
+      } catch (e) {
+        rawView = (game as any).state;
+      }
+
+      const view = normalizeViewForEmit(rawView, game);
+
+      // Debug log per emission
+      logStateDebug("BROADCAST_STATE", gameId, view);
+
+      if (p.socketId) io.to(p.socketId).emit("state", { gameId, view, seq: (game as any).seq });
     } catch (err) {
       console.warn("broadcastGame: failed to send state to", p.socketId, err);
     }

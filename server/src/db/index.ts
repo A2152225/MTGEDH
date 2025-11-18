@@ -112,15 +112,63 @@ export function getEvents(gameId: string): PersistedEvent[] {
 
 /**
  * Append one event to the log (used by socket handlers).
+ *
+ * Robustness:
+ * - If the insert fails due to a missing games FK, create a minimal games row
+ *   (INSERT OR IGNORE) with safe defaults and retry the insert once.
  */
 export function appendEvent(gameId: string, seq: number, type: string, payload: unknown): number {
   ensureDB();
+
   const stmt = db!.prepare(
     `INSERT INTO events (game_id, seq, type, payload, ts) VALUES (?, ?, ?, ?, ?)`
   );
-  const info = stmt.run(gameId, seq | 0, type, payload == null ? null : JSON.stringify(payload), Date.now());
-  // Return autoincrement id for diagnostics if needed
-  return Number(info.lastInsertRowid);
+  const payloadJson = payload == null ? null : JSON.stringify(payload);
+
+  // attempt and on FK error try to create games row then retry
+  try {
+    const info = stmt.run(gameId, seq | 0, type, payloadJson, Date.now());
+    return Number(info.lastInsertRowid);
+  } catch (err: any) {
+    const msg = String(err?.message || err || "");
+    const isFk =
+      err?.code === "SQLITE_CONSTRAINT_FOREIGNKEY" ||
+      /foreign key constraint failed/i.test(msg) ||
+      /SQLITE_CONSTRAINT_FOREIGNKEY/i.test(msg);
+
+    if (!isFk) {
+      // not a FK error — rethrow
+      throw err;
+    }
+
+    // FK error: create minimal games row and retry once
+    try {
+      // Use createGameIfNotExists if DB initialized (it will run INSERT OR IGNORE too)
+      try {
+        createGameIfNotExists(gameId, "commander", 40);
+      } catch (createErr) {
+        // Fallback: run direct insert-or-ignore using db handle
+        try {
+          db!.prepare("INSERT OR IGNORE INTO games (game_id, format, starting_life, created_at) VALUES (?, ?, ?, ?)").run(
+            gameId,
+            "commander",
+            40,
+            Date.now()
+          );
+        } catch (e2) {
+          console.warn("appendEvent: failed to create games row on FK error (createGameIfNotExists fallback failed):", e2);
+          throw err; // rethrow original
+        }
+      }
+
+      // retry insert
+      const info2 = stmt.run(gameId, seq | 0, type, payloadJson, Date.now());
+      return Number(info2.lastInsertRowid);
+    } catch (retryErr) {
+      console.error("appendEvent: retry after creating games row failed:", retryErr);
+      throw retryErr;
+    }
+  }
 }
 
 /* ====================== helpers ====================== */
