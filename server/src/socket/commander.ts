@@ -12,6 +12,7 @@
  *
  * Additional:
  * - Enforce replace semantics when the client provides ids (do not implicitly merge into partner slots).
+ * - Export helpers to push candidate/suggestion events to all sockets belonging to a player (fixes importer-socket races).
  */
 
 import type { Server, Socket } from "socket.io";
@@ -28,6 +29,69 @@ function normalizeNamesArray(payload: any): string[] {
   if (typeof payload.names === "string") return [payload.names];
   if (typeof payload.name === "string") return [payload.name];
   return [];
+}
+
+/**
+ * Helper: build minimal KnownCardRef-like objects from an array of card objects
+ */
+function makeCandidateList(arr: any[] | undefined) {
+  const out = (arr || []).map((c: any) => ({
+    id: c?.id || c?.cardId || null,
+    name: c?.name || c?.cardName || null,
+    image_uris: c?.image_uris || c?.imageUris || (c?.scryfall && c.scryfall.image_uris) || null,
+  }));
+  return out;
+}
+
+/**
+ * Emit importedDeckCandidates to all currently-connected sockets that belong to `pid` (non-spectators).
+ * This avoids races where an importer-only socket was used but the player's current connection differs.
+ */
+export function emitImportedDeckCandidatesToPlayer(io: Server, gameId: string, pid: PlayerID) {
+  try {
+    const game = ensureGame(gameId);
+    if (!game) return;
+    const buf = (game as any)._lastImportedDecks as Map<PlayerID, any[]> | undefined;
+    let localArr: any[] = [];
+    if (buf && typeof buf.get === "function") localArr = buf.get(pid) || [];
+    else if ((game as any).libraries && Array.isArray((game as any).libraries[pid])) localArr = (game as any).libraries[pid] || [];
+
+    const candidates = makeCandidateList(localArr);
+
+    // Iterate sockets and emit to those matching the playerId
+    try {
+      for (const s of Array.from(io.sockets.sockets.values() as any)) {
+        try {
+          if (s?.data?.playerId === pid && !s?.data?.spectator) {
+            s.emit("importedDeckCandidates", { gameId, candidates });
+          }
+        } catch (e) { /* ignore per-socket errors */ }
+      }
+    } catch (e) {
+      console.warn("emitImportedDeckCandidatesToPlayer: iterating sockets failed", e);
+    }
+  } catch (err) {
+    console.error("emitImportedDeckCandidatesToPlayer failed:", err);
+  }
+}
+
+/**
+ * Emit suggestCommanders to all currently-connected sockets that belong to `pid`.
+ * names may be undefined/null (server can still emit; clients will request candidates).
+ */
+export function emitSuggestCommandersToPlayer(io: Server, gameId: string, pid: PlayerID, names?: string[]) {
+  try {
+    const payload = { gameId, names: Array.isArray(names) ? names.slice(0, 2) : [] };
+    for (const s of Array.from(io.sockets.sockets.values() as any)) {
+      try {
+        if (s?.data?.playerId === pid && !s?.data?.spectator) {
+          s.emit("suggestCommanders", payload);
+        }
+      } catch (e) { /* ignore per-socket errors */ }
+    }
+  } catch (err) {
+    console.error("emitSuggestCommandersToPlayer failed:", err);
+  }
 }
 
 export function registerCommanderHandlers(io: Server, socket: Socket) {
@@ -88,14 +152,13 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
               const key = String(names[i]).trim().toLowerCase();
               resolvedIds[i] = map.get(key) || "";
             }
-            resolvedIds.forEach(() => void 0);
           }
         } catch (err) {
           console.warn("setCommander: local import buffer lookup error:", err);
         }
 
         // fallback via Scryfall for unresolved names
-        if (names.length && resolvedIds.filter(Boolean).length < names.length) {
+        if (names.length && (resolvedIds.filter(Boolean).length < names.length)) {
           for (let i = 0; i < names.length; i++) {
             if (resolvedIds[i]) continue;
             const nm = names[i];
@@ -226,6 +289,63 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           }
         }
         (game.state.commandZone as any)[pid].commanderCards = builtCards;
+
+        // --- INSERTED: Best-effort removal of chosen commander(s) from player's library
+        try {
+          // Remove from state.zones[pid].library if present (clients read this)
+          try {
+            const zoneLib = game && game.state && game.state.zones && game.state.zones[pid] && Array.isArray(game.state.zones[pid].library)
+              ? (game.state.zones as any)[pid].library
+              : null;
+            if (zoneLib) {
+              for (const bc of builtCards) {
+                if (!bc || !bc.id) continue;
+                const idx = zoneLib.findIndex((c: any) =>
+                  c && (c.id === bc.id || c.cardId === bc.id || String(c.name || "").trim().toLowerCase() === String(bc.name || "").trim().toLowerCase())
+                );
+                if (idx >= 0) {
+                  zoneLib.splice(idx, 1);
+                  try {
+                    const z = (game.state.zones as any)[pid] || {};
+                    const curCount = typeof z.libraryCount === "number" ? z.libraryCount : zoneLib.length + 1;
+                    z.libraryCount = Math.max(0, curCount - 1);
+                    (game.state.zones as any)[pid] = z;
+                  } catch (e) {
+                    // best-effort only
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            console.warn("setCommander: removing from state.zones library failed", e);
+          }
+
+          // Also update internal libraries map (if the game has one) so shuffle/draw operates on the same authoritative list
+          try {
+            const libMap = (game as any).libraries;
+            if (libMap && typeof libMap.get === "function" && typeof libMap.set === "function") {
+              const cur = libMap.get(pid) || [];
+              let changed = false;
+              for (const bc of builtCards) {
+                if (!bc || !bc.id) continue;
+                const i = cur.findIndex((c: any) => c && (c.id === bc.id || c.cardId === bc.id));
+                if (i >= 0) {
+                  cur.splice(i, 1);
+                  changed = true;
+                }
+              }
+              if (changed) {
+                try { libMap.set(pid, cur); } catch (e) { /* ignore */ }
+              }
+            }
+          } catch (e) {
+            console.warn("setCommander: updating internal libraries map failed", e);
+          }
+        } catch (e) {
+          console.warn("setCommander: library removal best-effort block failed", e);
+        }
+        // --- END INSERT
+
       } catch (e) {
         console.warn("setCommander: building authoritative commanderCards failed:", e);
       }
@@ -239,7 +359,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           libLen = Array.isArray(arr) ? arr.length : -1;
         } else if (L && Array.isArray(L[pid])) {
           libLen = L[pid].length;
-        } else if (game.state && game.state.zones && game.state.zones[pid] && typeof game.state.zones[pid].libraryCount === "number") {
+        } else if (game.state && game.state.zones && typeof game.state.zones[pid]?.libraryCount === "number") {
           libLen = game.state.zones[pid].libraryCount;
         }
         if (libLen >= 0) {
@@ -279,8 +399,6 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
             } else {
               console.warn("setCommander: game.drawCards not available");
             }
-          } else {
-            // if already has cards, don't draw again
           }
 
           try { pendingSet.delete(pid); } catch (e) { /* ignore */ }
@@ -306,10 +424,17 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
     try {
       const pid: PlayerID | undefined = socket.data.playerId;
       const spectator = socket.data.spectator;
+
+      if (!gameId || typeof gameId !== "string") {
+        socket.emit("debugLibraryDump", { gameId: gameId ?? null, playerId: pid, library: null, error: "Missing or invalid gameId" });
+        return;
+      }
+
       if (!pid || spectator) {
         socket.emit("debugLibraryDump", { gameId, playerId: pid, library: null, error: "Spectators cannot dump library" });
         return;
       }
+
       const game = ensureGame(gameId);
       if (!game) {
         socket.emit("debugLibraryDump", { gameId, playerId: pid, library: null, error: "game_not_found" });
@@ -327,15 +452,20 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       socket.emit("debugLibraryDump", { gameId, playerId: pid, library: librarySnapshot });
     } catch (err) {
       console.error("dumpLibrary failed:", err);
-      socket.emit("debugLibraryDump", { gameId: payload?.gameId, playerId: socket.data.playerId, library: null, error: String(err) });
+      socket.emit("debugLibraryDump", { gameId: (typeof gameId !== "undefined" ? gameId : null), playerId: socket.data.playerId, library: null, error: String(err) });
     }
   });
 
-  // Debug handler to show the per-game import buffer
   socket.on("dumpImportedDeckBuffer", ({ gameId }: { gameId: string }) => {
     try {
       const pid: PlayerID | undefined = socket.data.playerId;
       const spectator = socket.data.spectator;
+
+      if (!gameId || typeof gameId !== "string") {
+        socket.emit("debugImportedDeckBuffer", { gameId: gameId ?? null, playerId: pid, buffer: null, error: "Missing or invalid gameId" });
+        return;
+      }
+
       if (!pid || spectator) {
         socket.emit("debugImportedDeckBuffer", { gameId, playerId: pid, buffer: null, error: "Spectators cannot access buffer" });
         return;
@@ -350,7 +480,46 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       socket.emit("debugImportedDeckBuffer", { gameId, playerId: pid, buffer: local });
     } catch (err) {
       console.error("dumpImportedDeckBuffer failed:", err);
-      socket.emit("debugImportedDeckBuffer", { gameId: payload?.gameId, playerId: socket.data.playerId, buffer: null, error: String(err) });
+      socket.emit("debugImportedDeckBuffer", { gameId: (typeof gameId !== "undefined" ? gameId : null), playerId: socket.data.playerId, buffer: null, error: String(err) });
+    }
+  });
+
+  // Allow client to request resolved imported deck candidates for the requesting player
+  socket.on("getImportedDeckCandidates", ({ gameId }: { gameId: string }) => {
+    try {
+      const pid: PlayerID | undefined = socket.data.playerId;
+      const spectator = socket.data.spectator;
+
+      if (!gameId || typeof gameId !== "string") {
+        socket.emit("importedDeckCandidates", { gameId: gameId ?? null, candidates: [] });
+        return;
+      }
+      if (!pid || spectator) {
+        socket.emit("importedDeckCandidates", { gameId, candidates: [] });
+        return;
+      }
+
+      const game = ensureGame(gameId);
+      if (!game) {
+        socket.emit("importedDeckCandidates", { gameId, candidates: [] });
+        return;
+      }
+
+      try {
+        const buf = (game as any)._lastImportedDecks as Map<PlayerID, any[]> | undefined;
+        let localArr: any[] = [];
+        if (buf && typeof buf.get === "function") localArr = buf.get(pid) || [];
+        else if ((game as any).libraries && Array.isArray((game as any).libraries[pid])) localArr = (game as any).libraries[pid] || [];
+        // Map to minimal KnownCardRef-like objects (id, name, image_uris)
+        const candidates = makeCandidateList(localArr);
+        socket.emit("importedDeckCandidates", { gameId, candidates });
+      } catch (e) {
+        console.warn("getImportedDeckCandidates failed:", e);
+        socket.emit("importedDeckCandidates", { gameId, candidates: [] });
+      }
+    } catch (err) {
+      console.error("getImportedDeckCandidates handler failed:", err);
+      socket.emit("importedDeckCandidates", { gameId: (typeof gameId !== "undefined" ? gameId : null), candidates: [] });
     }
   });
 
@@ -359,6 +528,12 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
     try {
       const pid: PlayerID | undefined = socket.data.playerId;
       const spectator = socket.data.spectator;
+
+      if (!gameId || typeof gameId !== "string") {
+        socket.emit("debugCommanderState", { gameId: gameId ?? null, playerId: pid, state: null, error: "Missing or invalid gameId" });
+        return;
+      }
+
       if (!pid || spectator) {
         socket.emit("debugCommanderState", { gameId, playerId: pid, state: null, error: "Spectators cannot access commander state" });
         return;
@@ -369,12 +544,12 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         return;
       }
       const pendingSet: Set<PlayerID> = (game as any).pendingInitialDraw || new Set<PlayerID>();
-      const pending = Array.from(typeof pendingSet.values === "function" ? pendingSet.values() : pendingSet) as any[];
+      const pending = pendingSet ? Array.from(pendingSet) : [];
       const cz = (game.state && game.state.commandZone && (game.state.commandZone as any)[pid]) || null;
       socket.emit("debugCommanderState", { gameId, playerId: pid, pendingInitialDraw: pending, commandZone: cz });
     } catch (err) {
       console.error("dumpCommanderState failed:", err);
-      socket.emit("debugCommanderState", { gameId: payload?.gameId, playerId: socket.data.playerId, state: null, error: String(err) });
+      socket.emit("debugCommanderState", { gameId: (typeof gameId !== "undefined" ? gameId : null), playerId: socket.data.playerId, state: null, error: String(err) });
     }
   });
 }

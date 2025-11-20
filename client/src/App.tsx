@@ -1,12 +1,3 @@
-// client/src/App.tsx
-// Full App component (named + default export).
-// Changes in this variant:
-//  - Normalize incoming views to ensure view.zones[playerId] exists for every player
-//    and pass a safeView into TableLayout and ZonesPanel to avoid renderer crashes.
-//  - Only auto-rejoin on socket connect when a saved seatToken exists (prevents accidental duplicate seats).
-//  - Log all join emits with "[JOIN_EMIT]" for debugging duplicate-seat issue.
-//  - Use session- and lastJoin-aware seatToken storage when handling joined.
-//  - Integrate GameList component so users can browse and join active games.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { socket } from "./socket";
 import type {
@@ -122,7 +113,8 @@ export function App() {
   const [cmdSuggestOpen, setCmdSuggestOpen] = useState(false);
   const [cmdSuggestNames, setCmdSuggestNames] = useState<string[]>([]);
   const [queuedCommanderSuggest, setQueuedCommanderSuggest] = useState<{ gameId: GameID; names: string[] } | null>(null);
-
+  const queuedCommanderRef = useRef<{ gameId: GameID; names: string[] } | null>(null);
+  
   const [importedCandidates, setImportedCandidates] = useState<KnownCardRef[]>([]);
 
   const [pendingLocalImport, setPendingLocalImport] = useState(false);
@@ -168,6 +160,25 @@ export function App() {
     return { ...view, zones: normalizedZones } as ClientGameView;
   }, [view, normalizedZones]);
 
+  // Log safeView changes so TableLayout receives a non-null gameId; helps track races.
+  useEffect(() => {
+    try {
+      console.debug("[App] safeView updated:", { safeViewId: safeView?.id ?? null, viewId: view?.id ?? null, you });
+    } catch (e) { /* ignore */ }
+  }, [safeView, view, you]);
+
+// Add inside the App() component (near other useEffect hooks), for dev debugging only:
+useEffect(() => {
+  try {
+    // expose for manual console testing: window.socket.emit("getImportedDeckCandidates", { gameId: safeView?.id })
+    (window as any).socket = socket;
+    console.debug("[dev] window.socket exposed for debugging");
+  } catch (e) { /* ignore */ }
+  return () => {
+    try { delete (window as any).socket; } catch (e) { /* ignore */ }
+  };
+}, []);
+
   useEffect(() => {
     const onConnect = () => {
       setConnected(true);
@@ -202,41 +213,164 @@ export function App() {
     });
 
     // Normalized state handler: normalize and set view
-    socket.on("state", ({ view: newView }: any) => {
-      // setView with the raw newView; we compute safeView separately via useMemo above
-      setView(newView);
-      console.debug("[socket] state (raw)", newView);
+    // IMPORTANT: attach gameId into the incoming view so client code can reference view.id
+    /*socket.on("state", ({ gameId: incomingGameId, view: newView }: any) => {
+      // attach id to view so downstream UI (TableLayout) sees it
+      if (newView && incomingGameId) {
+        setView({ ...newView, id: incomingGameId });
+      } else if (newView) {
+        setView(newView);
+      } else {
+        setView(null);
+      }
+      console.debug("[socket] state (raw)", { gameId: incomingGameId, view: newView });
     });
 
-    socket.on("stateDiff", ({ diff }: any) => {
+    // stateDiff may be emitted with a gameId alongside diff; attach gameId when applying full/after views
+    socket.on("stateDiff", ({ gameId: incomingGameId, diff }: any) => {
       try {
         if (diff?.full) {
-          setView(diff.full);
-          console.debug("[socket] stateDiff full (raw)", diff.full);
+          const full = diff.full;
+          setView(incomingGameId ? { ...full, id: incomingGameId } : full);
+          console.debug("[socket] stateDiff full (raw)", { gameId: incomingGameId, view: full });
         } else if (diff?.after) {
-          setView(diff.after);
-          console.debug("[socket] stateDiff after (raw)", diff.after);
+          const after = diff.after;
+          setView(incomingGameId ? { ...after, id: incomingGameId } : after);
+          console.debug("[socket] stateDiff after (raw)", { gameId: incomingGameId, view: after });
         }
       } catch (e) {
         console.warn("stateDiff handling failed:", e);
       }
     });
+*/
+// --- Replace existing `socket.on("state", ...)` handler with this:
+socket.on("state", (payload: any) => {
+  try {
+    // Accept either:
+    //  - payload = { gameId, view }
+    //  - payload = view (full view object)
+    //  - payload = null
+    let incomingGameId: string | undefined;
+    let newView: any | null = null;
 
+    if (!payload) {
+      setView(null);
+      console.debug("[socket] state (raw) null payload");
+      return;
+    }
+
+    if (payload && typeof payload === "object" && ("gameId" in payload) && ("view" in payload)) {
+      incomingGameId = payload.gameId;
+      newView = payload.view;
+    } else {
+      // assume payload itself is the view object
+      newView = payload;
+      incomingGameId = (payload && (payload.id || payload.gameId)) || undefined;
+    }
+
+    if (newView) {
+      // attach id from incomingGameId if available
+      const viewWithId = incomingGameId ? { ...newView, id: incomingGameId } : newView;
+      setView(viewWithId);
+    } else {
+      setView(null);
+    }
+
+    console.debug("[socket] state (raw)", { incomingGameId, newView });
+  } catch (e) {
+    console.warn("state handler failed:", e);
+  }
+});
+
+// --- Replace existing `socket.on("stateDiff", ...)` handler with this:
+socket.on("stateDiff", (payload: any) => {
+  try {
+    // Accept payload forms:
+    //  - { gameId, diff: { full: {...} } }
+    //  - { gameId, diff: { after: {...} } }
+    //  - payload = { full: {...} } or { after: {...} } (standalone)
+    if (!payload) return;
+
+    let incomingGameId: string | undefined;
+    let diff: any = null;
+
+    if (payload && typeof payload === "object" && ("gameId" in payload) && ("diff" in payload)) {
+      incomingGameId = payload.gameId;
+      diff = payload.diff;
+    } else if (payload && typeof payload === "object" && ("full" in payload || "after" in payload)) {
+      diff = payload;
+      incomingGameId = (payload.full && payload.full.id) || (payload.after && payload.after.id) || undefined;
+    } else {
+      // Unknown shape — try to treat payload as 'after' full view
+      diff = { after: payload };
+    }
+
+    if (diff?.full) {
+      const full = diff.full;
+      setView(incomingGameId ? { ...full, id: incomingGameId } : full);
+      console.debug("[socket] stateDiff full (raw)", { incomingGameId, view: full });
+    } else if (diff?.after) {
+      const after = diff.after;
+      setView(incomingGameId ? { ...after, id: incomingGameId } : after);
+      console.debug("[socket] stateDiff after (raw)", { incomingGameId, view: after });
+    } else {
+      console.debug("[socket] stateDiff (unrecognized)", { payload });
+    }
+  } catch (e) {
+    console.warn("stateDiff handling failed:", e);
+  }
+});
     socket.on("priority", ({ player }: any) => setPriority(player));
 
     socket.on("chat", (msg: ChatMsg) => {
       setChat(prev => [...prev.slice(-199), msg]);
     });
 
-    socket.on("importedDeckCandidates", ({ candidates }: any) => {
-      const arr = Array.isArray(candidates) ? candidates : [];
-      setImportedCandidates(arr);
-      console.debug("[socket] importedDeckCandidates received", arr);
-      if (fallbackTimerRef.current) {
-        window.clearTimeout(fallbackTimerRef.current);
-        fallbackTimerRef.current = null;
+    // When server sends resolved candidates, populate list and open queued suggestion if present.
+   // --- Replace existing `socket.on("importedDeckCandidates", ...)` handler with:
+socket.on("importedDeckCandidates", ({ gameId: gid, candidates }: any) => {
+  const arr = Array.isArray(candidates) ? candidates : [];
+  setImportedCandidates(arr);
+  console.debug("[socket] importedDeckCandidates received", { gameId: gid, candidates: arr });
+
+  // clear any scheduled fallback
+  if (fallbackTimerRef.current) {
+    window.clearTimeout(fallbackTimerRef.current);
+    fallbackTimerRef.current = null;
+  }
+
+  try {
+    // If we have a queued suggestion for this game, open gallery with queued names (or resolved candidates)
+    const queued = queuedCommanderRef.current;
+    if (queued && queued.gameId === gid) {
+      const namesFromQueue = Array.isArray(queued.names) && queued.names.length ? queued.names.slice(0,2) : [];
+      if (namesFromQueue.length) setCmdSuggestNames(namesFromQueue);
+      else if (arr && arr.length) setCmdSuggestNames([arr[0]?.name, arr[1]?.name].filter(Boolean).slice(0,2));
+      else setCmdSuggestNames([]);
+      // Only open if not suppressed
+      if (!localImportConfirmRef.current && !pendingLocalImportRef.current && !confirmOpen) {
+        setCmdSuggestOpen(true);
+        setQueuedCommanderSuggest(null);
+        queuedCommanderRef.current = null;
+        return;
       }
-    });
+    }
+
+    // If not suppressed and we have resolved candidates, open gallery automatically
+    if (!localImportConfirmRef.current && !pendingLocalImportRef.current && !confirmOpen) {
+      if (arr && arr.length && safeView && safeView.id === gid) {
+        setCmdSuggestNames([arr[0]?.name, arr[1]?.name].filter(Boolean).slice(0,2));
+        setCmdSuggestOpen(true);
+        // clear any queued suggestion state
+        setQueuedCommanderSuggest(null);
+        queuedCommanderRef.current = null;
+      }
+    }
+    // otherwise, leave candidates and queued suggestion in place for later
+  } catch (e) {
+    console.warn("importedDeckCandidates handler failed:", e);
+  }
+});
 
     socket.on("deckImportMissing", ({ gameId: gid, missing }: any) => {
       setMissingImport(Array.isArray(missing) ? missing : []);
@@ -294,14 +428,32 @@ export function App() {
               copy.zones[you] = { ...(copy.zones[you] || {}), hand: [], handCount: 0 };
               return copy;
             });
-            socket.emit("getImportedDeckCandidates", { gameId: info.gameId });
+            // Ensure we fetch the per-player resolved candidates (server may have emitted earlier)
+            try { socket.emit("getImportedDeckCandidates", { gameId: info.gameId }); } catch (e) { /* ignore */ }
           }
         } catch (e) {
           console.warn("import confirm local-hand-clear failed:", e);
         }
 
+        // If we previously queued a commander suggestion while suppressed, show it now.
         if (queuedCommanderSuggest && queuedCommanderSuggest.gameId === info.gameId) {
-          // keep queuedCmdSuggest for TableLayout to act on
+          setCmdSuggestNames(Array.isArray(queuedCommanderSuggest.names) ? queuedCommanderSuggest.names.slice(0,2) : []);
+          setCmdSuggestOpen(true);
+          setQueuedCommanderSuggest(null);
+        }
+
+        if (queuedCommanderSuggest && queuedCommanderSuggest.gameId !== info.gameId) {
+          // clear stale queued suggestion for other games
+          setQueuedCommanderSuggest(null);
+        }
+
+        if (queuedCommanderSuggest == null) {
+          // If we don't have a queued suggestion, still try to fetch candidates so UI can show resolved card previews
+          try { socket.emit("getImportedDeckCandidates", { gameId: info.gameId }); } catch (e) { /* ignore */ }
+        }
+
+        if (queuedCommanderSuggest && queuedCommanderSuggest.gameId === info.gameId) {
+          // leave queuedCommanderSuggest cleared above and let TableLayout act on its own queued state if used.
         }
       }
     };
@@ -312,38 +464,49 @@ export function App() {
     socket.on("importWipeConfirmed", onConfirmed);
 
     // Suggest commanders: request candidates and schedule an App-level text fallback after WAIT_MS
-    socket.on("suggestCommanders", ({ gameId: gid, names }: any) => {
-      console.debug("[socket] suggestCommanders", { gameId: gid, names });
-      if (!view || gid !== view.id) return;
+    // --- Replace existing `socket.on("suggestCommanders", ...)` handler with:
+// Replace existing `socket.on("suggestCommanders", ...)` handler with this:
+socket.on("suggestCommanders", ({ gameId: gid, names }: any) => {
+  console.debug("[socket] suggestCommanders", { gameId: gid, names });
 
-      try {
-        socket.emit("getImportedDeckCandidates", { gameId: gid });
-      } catch (e) { /* ignore */ }
+  // Ask server for resolved thumbnails (non-blocking)
+  try { socket.emit("getImportedDeckCandidates", { gameId: gid }); } catch (e) { /* ignore */ }
 
-      if (localImportConfirmRef.current || pendingLocalImportRef.current || confirmOpen) {
-        setQueuedCommanderSuggest({ gameId: gid, names: Array.isArray(names) ? names.slice(0, 2) : [] });
-        return;
+  const namesList = Array.isArray(names) ? names.slice(0, 2) : [];
+
+  // If suppressed (import confirm flow), queue suggestion for later via state+ref
+  if (localImportConfirmRef.current || pendingLocalImportRef.current || confirmOpen) {
+    const obj = { gameId: gid, names: namesList };
+    setQueuedCommanderSuggest(obj);
+    queuedCommanderRef.current = obj;
+    return;
+  }
+
+  // Queue briefly and rely on importedDeckCandidates to open the gallery when thumbnails arrive.
+  const obj = { gameId: gid, names: namesList };
+  setQueuedCommanderSuggest(obj);
+  queuedCommanderRef.current = obj;
+
+  if (fallbackTimerRef.current) {
+    window.clearTimeout(fallbackTimerRef.current);
+    fallbackTimerRef.current = null;
+  }
+  const WAIT_MS = 900;
+  fallbackTimerRef.current = window.setTimeout(() => {
+    // If no candidates have arrived within WAIT_MS, open text fallback for this suggestion (if still queued).
+    if (queuedCommanderRef.current && queuedCommanderRef.current.gameId === gid) {
+      // If we have any already-resolved importedCandidates for this view, prefer them; otherwise fall back to names
+      const haveCandidates = importedCandidates && importedCandidates.length > 0 && safeView && safeView.id === gid;
+      if (!haveCandidates) {
+        setCmdSuggestNames(namesList);
+        setCmdSuggestOpen(true);
+        setQueuedCommanderSuggest(null);
+        queuedCommanderRef.current = null;
       }
-
-      setQueuedCommanderSuggest({ gameId: gid, names: Array.isArray(names) ? names.slice(0, 2) : [] });
-
-      if (fallbackTimerRef.current) {
-        window.clearTimeout(fallbackTimerRef.current);
-        fallbackTimerRef.current = null;
-      }
-      const WAIT_MS = 900;
-      const namesList = Array.isArray(names) ? names.slice(0, 2) : [];
-      fallbackTimerRef.current = window.setTimeout(() => {
-        if (!importedCandidates || importedCandidates.length === 0) {
-          setCmdSuggestNames(namesList);
-          setCmdSuggestOpen(true);
-          setQueuedCommanderSuggest(null);
-        } else {
-          setQueuedCommanderSuggest(null);
-        }
-        fallbackTimerRef.current = null;
-      }, WAIT_MS) as unknown as number;
-    });
+    }
+    fallbackTimerRef.current = null;
+  }, WAIT_MS) as unknown as number;
+});
 
     const onNameInUse = (payload: any) => {
       setNameInUsePayload(payload);
@@ -371,8 +534,8 @@ export function App() {
 
       socket.off("importWipeConfirmRequest", onRequest);
       socket.off("importWipeConfirmUpdate", onUpdate);
-      socket.off("importWipeConfirmCancelled", onCancelled);
-      socket.off("importWipeConfirm", onConfirmed);
+      socket.off("importWipeCancelled", onCancelled);
+      socket.off("importWipeConfirmed", onConfirmed);
 
       socket.off("suggestCommanders");
       socket.off("nameInUse", onNameInUse);
@@ -404,16 +567,16 @@ export function App() {
   };
 
   const requestImportDeck = useCallback((list: string, deckName?: string) => {
-    if (!view) return;
+    if (!safeView) return;
     setPendingLocalImport(true);
-    socket.emit("importDeck", { gameId: view.id, list, deckName });
-  }, [view]);
+    socket.emit("importDeck", { gameId: safeView.id, list, deckName });
+  }, [safeView]);
 
   const requestUseSavedDeck = useCallback((deckId: string) => {
-    if (!view) return;
+    if (!safeView) return;
     setPendingLocalImport(true);
-    socket.emit("useSavedDeck", { gameId: view.id, deckId });
-  }, [view]);
+    socket.emit("useSavedDeck", { gameId: safeView.id, deckId });
+  }, [safeView]);
 
   const handleLocalImportConfirmChange = useCallback((open: boolean) => {
     setLocalImportConfirmOpen(open);
@@ -421,22 +584,27 @@ export function App() {
 
   // Accept both names and optional ids from TableLayout
   const handleCommanderConfirm = useCallback((names: string[], ids?: string[]) => {
-    if (!view || !names || names.length === 0) return;
+    if (!safeView || !names || names.length === 0) return;
     if (pendingLocalImportRef.current || localImportConfirmRef.current || confirmOpen) {
-      setQueuedCommanderSuggest({ gameId: view.id, names: names.slice(0, 2) });
+      setQueuedCommanderSuggest({ gameId: safeView.id, names: names.slice(0, 2) });
       return;
     }
-    const payload: any = { gameId: view.id, commanderNames: names };
+    const payload: any = { gameId: safeView.id, commanderNames: names };
     if (ids && ids.length) payload.commanderIds = ids;
     socket.emit("setCommander", payload);
-  }, [view, confirmOpen]);
+  }, [safeView, confirmOpen]);
 
   const fetchDebug = useCallback(() => {
-    if (!view) return;
+    if (!safeView) {
+      setDebugData({ error: "Invalid gameId for debug" });
+      setDebugLoading(false);
+      setDebugOpen(true);
+      return;
+    }
     setDebugLoading(true);
     setDebugData(null);
     setDebugOpen(true);
-    const gid = view.id;
+    const gid = safeView.id;
     const onceWithTimeout = (eventName: string, timeout = 3000) =>
       new Promise((resolve) => {
         const onResp = (payload: any) => { resolve(payload); };
@@ -457,26 +625,26 @@ export function App() {
       setDebugData({ error: String(err) });
       setDebugLoading(false);
     });
-  }, [view]);
+  }, [safeView]);
 
   const respondToConfirm = (accept: boolean) => {
-    if (!view || !confirmId || !you) return;
-    socket.emit("confirmImportResponse", { gameId: view.id, confirmId, accept });
+    if (!safeView || !confirmId || !you) return;
+    socket.emit("confirmImportResponse", { gameId: safeView.id, confirmId, accept });
     setConfirmVotes(prev => prev ? ({ ...prev, [you]: accept ? "yes" : "no" }) : prev);
   };
 
   const isTable = layout === "table";
-  const canPass = !!view && !!you && view.priority === you;
-  const isYouPlayer = !!view && !!you && view.players.some(p => p.id === you);
+  const canPass = !!safeView && !!you && safeView.priority === you;
+  const isYouPlayer = !!safeView && !!you && safeView.players.some(p => p.id === you);
 
   // determine whether Next Step/Turn should be enabled: allow turnPlayer or pre-game first seat
   const canAdvanceStep = useMemo(() => {
-    if (!view || !you) return false;
-    if (view.turnPlayer === you) return true;
-    const phaseStr = String(view.phase || "").toUpperCase();
-    if (phaseStr === "PRE_GAME" && (view.players?.[0]?.id === you)) return true;
+    if (!safeView || !you) return false;
+    if (safeView.turnPlayer === you) return true;
+    const phaseStr = String(safeView.phase || "").toUpperCase();
+    if (phaseStr === "PRE_GAME" && (safeView.players?.[0]?.id === you)) return true;
     return false;
-  }, [view, you]);
+  }, [safeView, you]);
 
   const canAdvanceTurn = canAdvanceStep;
 
@@ -486,17 +654,17 @@ export function App() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <h1 style={{ margin: 0 }}>MTGEDH</h1>
-            <div style={{ fontSize: 12, color: "#666" }}>Game: {view?.id ?? gameId} • Format: {String(view?.format ?? "")}</div>
+            <div style={{ fontSize: 12, color: "#666" }}>Game: {safeView?.id ?? gameId} • Format: {String(safeView?.format ?? "")}</div>
           </div>
 
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <div style={{ display: "flex", gap: 8, alignItems: "center", padding: 6, border: "1px solid #eee", borderRadius: 6 }}>
-              <button onClick={() => socket.emit("nextStep", { gameId: view?.id })} disabled={!canAdvanceStep}>Next Step</button>
-              <button onClick={() => socket.emit("nextTurn", { gameId: view?.id })} disabled={!canAdvanceTurn}>Next Turn</button>
-              <button onClick={() => socket.emit("passPriority", { gameId: view?.id, by: you })} disabled={!canPass}>Pass Priority</button>
+              <button onClick={() => socket.emit("nextStep", { gameId: safeView?.id })} disabled={!canAdvanceStep}>Next Step</button>
+              <button onClick={() => socket.emit("nextTurn", { gameId: safeView?.id })} disabled={!canAdvanceTurn}>Next Turn</button>
+              <button onClick={() => socket.emit("passPriority", { gameId: safeView?.id, by: you })} disabled={!canPass}>Pass Priority</button>
             </div>
             <div style={{ fontSize: 12, color: "#444" }}>
-              Phase: <strong>{String(view?.phase ?? "-")}</strong> {view?.step ? <span>• Step: <strong>{String(view.step)}</strong></span> : null}
+              Phase: <strong>{String(safeView?.phase ?? "-")}</strong> {safeView?.step ? <span>• Step: <strong>{String(safeView.step)}</strong></span> : null}
             </div>
           </div>
         </div>
@@ -510,7 +678,7 @@ export function App() {
           </label>
           <button onClick={handleJoin} disabled={!connected}>Join</button>
           <button onClick={() => socket.emit("requestState", { gameId })} disabled={!connected}>Refresh</button>
-          <button onClick={() => fetchDebug()} disabled={!connected || !view}>Debug</button>
+          <button onClick={() => fetchDebug()} disabled={!connected || !safeView}>Debug</button>
         </div>
 
         <div style={{ marginTop: 12 }}>
@@ -526,41 +694,45 @@ export function App() {
 
         <div style={{ border: "1px solid #eee", borderRadius: 6, padding: 8 }}>
           {safeView ? (
-            <TableLayout
-              players={safeView.players}
-              permanentsByPlayer={new Map((safeView.players || []).map((p:any) => [p.id, (safeView.battlefield || []).filter((perm:any)=>perm.controller===p.id)]))}
-              imagePref={imagePref}
-              isYouPlayer={isYouPlayer}
-              splitLands
-              enableReorderForYou={isYouPlayer}
-              you={you || undefined}
-              zones={safeView.zones}
-              commandZone={safeView.commandZone as any}
-              format={String(safeView.format || "")}
-              showYourHandBelow
-              onReorderHand={(order) => safeView && socket.emit("reorderHand", { gameId: safeView.id, order })}
-              onShuffleHand={() => safeView && socket.emit("shuffleHand", { gameId: safeView.id })}
-              onRemove={(id) => safeView && socket.emit("removePermanent", { gameId: safeView.id, permanentId: id })}
-              onCounter={(id, kind, delta) => safeView && socket.emit("updateCounters", { gameId: safeView.id, permanentId: id, deltas: { [kind]: delta } })}
-              onBulkCounter={(ids, deltas) => safeView && socket.emit("updateCountersBulk", { gameId: safeView.id, updates: ids.map(id => ({ permanentId: id, deltas })) })}
-              onPlayLandFromHand={(cardId) => socket.emit("playLand", { gameId: safeView!.id, cardId })}
-              onCastFromHand={(cardId) => socket.emit("beginCast", { gameId: safeView!.id, cardId })}
-              reasonCannotPlayLand={() => null}
-              reasonCannotCast={() => null}
-              threeD={undefined}
-              enablePanZoom
-              tableCloth={{ imageUrl: "" }}
-              worldSize={12000}
-              onUpdatePermPos={(id, x, y, z) => safeView && socket.emit("updatePermanentPos", { gameId: safeView.id, permanentId: id, x, y, z })}
-              onImportDeckText={(txt, nm) => requestImportDeck(txt, nm)}
-              onUseSavedDeck={(deckId) => requestUseSavedDeck(deckId)}
-              onLocalImportConfirmChange={(open: boolean) => setLocalImportConfirmOpen(open)}
-              suppressCommanderSuggest={localImportConfirmOpen || pendingLocalImport || confirmOpen}
-              onConfirmCommander={(names: string[], ids?: string[]) => handleCommanderConfirm(names, ids)}
-              gameId={safeView.id}
-              stackItems={safeView.stack as any}
-              importedCandidates={importedCandidates}
-            />
+            <>
+              {/* App-level debug hook to ensure TableLayout receives the expected game id */}
+              {(() => { try { console.debug("[App] rendering TableLayout with safeView.id:", safeView?.id, "view.id:", view?.id); } catch (e) {} return null; })()}
+              <TableLayout
+                players={safeView.players}
+                permanentsByPlayer={new Map((safeView.players || []).map((p:any) => [p.id, (safeView.battlefield || []).filter((perm:any)=>perm.controller===p.id)]))}
+                imagePref={imagePref}
+                isYouPlayer={isYouPlayer}
+                splitLands
+                enableReorderForYou={isYouPlayer}
+                you={you || undefined}
+                zones={safeView.zones}
+                commandZone={safeView.commandZone as any}
+                format={String(safeView.format || "")}
+                showYourHandBelow
+                onReorderHand={(order) => safeView && socket.emit("reorderHand", { gameId: safeView.id, order })}
+                onShuffleHand={() => safeView && socket.emit("shuffleHand", { gameId: safeView.id })}
+                onRemove={(id) => safeView && socket.emit("removePermanent", { gameId: safeView.id, permanentId: id })}
+                onCounter={(id, kind, delta) => safeView && socket.emit("updateCounters", { gameId: safeView.id, permanentId: id, deltas: { [kind]: delta } })}
+                onBulkCounter={(ids, deltas) => safeView && socket.emit("updateCountersBulk", { gameId: safeView.id, updates: ids.map(id => ({ permanentId: id, deltas })) })}
+                onPlayLandFromHand={(cardId) => socket.emit("playLand", { gameId: safeView!.id, cardId })}
+                onCastFromHand={(cardId) => socket.emit("beginCast", { gameId: safeView!.id, cardId })}
+                reasonCannotPlayLand={() => null}
+                reasonCannotCast={() => null}
+                threeD={undefined}
+                enablePanZoom
+                tableCloth={{ imageUrl: "" }}
+                worldSize={12000}
+                onUpdatePermPos={(id, x, y, z) => safeView && socket.emit("updatePermanentPos", { gameId: safeView.id, permanentId: id, x, y, z })}
+                onImportDeckText={(txt, nm) => requestImportDeck(txt, nm)}
+                onUseSavedDeck={(deckId) => requestUseSavedDeck(deckId)}
+                onLocalImportConfirmChange={(open: boolean) => setLocalImportConfirmOpen(open)}
+                suppressCommanderSuggest={localImportConfirmOpen || pendingLocalImport || confirmOpen}
+                onConfirmCommander={(names: string[], ids?: string[]) => handleCommanderConfirm(names, ids)}
+                gameId={safeView.id}
+                stackItems={safeView.stack as any}
+                importedCandidates={importedCandidates}
+              />
+            </>
           ) : (
             <div style={{ padding: 20, color: "#666" }}>No game state yet. Join a game to view table.</div>
           )}
@@ -583,7 +755,7 @@ export function App() {
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={() => requestImportDeck("")}>Import (text)</button>
           <button onClick={() => requestUseSavedDeck("")}>Use Saved</button>
-          <button onClick={() => fetchDebug()} disabled={!view}>Debug</button>
+          <button onClick={() => fetchDebug()} disabled={!safeView}>Debug</button>
         </div>
       </div>
 

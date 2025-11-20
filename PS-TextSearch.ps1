@@ -14,7 +14,7 @@
 
 param(
     [string]$Root = ".",
-    [string]$Pattern = "BEGINNING",
+    [string]$Pattern = "wipe",
     [switch]$CaseSensitive = $true,
     [switch]$ListFilesOnly,
     [int]$Context = 0,

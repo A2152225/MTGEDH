@@ -3,7 +3,10 @@ import { fileURLToPath } from "url";
 import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
-import { registerSocketHandlers, games as socketGames } from "./socket";
+// registerSocketHandlers comes from the socket index (folder)
+// games Map is exported from socket/socket.ts — import it directly
+import { registerSocketHandlers } from "./socket";
+import { games as socketGames } from "./socket/socket";
 import { initDb, listGames as dbListGames, deleteGame as dbDeleteGame } from "./db";
 import type {
   ClientToServerEvents,
@@ -11,7 +14,6 @@ import type {
   InterServerEvents,
   SocketData,
 } from "../../shared/src/events";
-
 // Get the equivalent of __dirname in ES modules
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 

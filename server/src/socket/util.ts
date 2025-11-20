@@ -122,20 +122,28 @@ function logStateDebug(prefix: string, gameId: string, view: any) {
  * Returns an InMemoryGame wrapper with a fully-initialized runtime state.
  */
 export function ensureGame(gameId: string): InMemoryGame {
-  // Prefer GameManager to keep a single source of truth for game creation/reset.
+  // Defensive validation: reject invalid/falsy gameId early to prevent creating games with no id.
+  if (!gameId || typeof gameId !== "string" || gameId.trim() === "") {
+    const msg = `ensureGame called with invalid gameId: ${String(gameId)}`;
+    console.error("[ensureGame] " + msg);
+    // Throw so caller can handle — prevents creating an in-memory game with an invalid id
+    throw new Error(msg);
+  }
+
+  // Prefer GameManager to keep a single source of truth for game creation/reset, if it's exposing helper methods.
   try {
-    if (GameManager) {
+    if (GameManager && typeof (GameManager as any).getGame === "function") {
       try {
-        const gmGame = GameManager.getGame(gameId) || GameManager.ensureGame(gameId);
+        const gmGame = (GameManager as any).getGame(gameId) || (GameManager as any).ensureGame?.(gameId);
         if (gmGame) {
           // Keep the socket-level games map in sync with GameManager
           try { games.set(gameId, gmGame); } catch (e) { /* best-effort */ }
           // Ensure canonical state zones exist for players (defensive)
           try { ensureStateZonesForPlayers(gmGame); } catch {}
-          return gmGame;
+          return gmGame as InMemoryGame;
         }
       } catch (err) {
-        console.warn("ensureGame: GameManager.ensureGame failed, falling back to local recreation:", err);
+        console.warn("ensureGame: GameManager.getGame/ensureGame failed, falling back to local recreation:", err);
         // fall through to local approach
       }
     }
@@ -145,11 +153,11 @@ export function ensureGame(gameId: string): InMemoryGame {
   }
 
   // Original fallback behavior: construct an in-memory game and replay persisted events.
-  let game = games.get(gameId);
+  let game = games.get(gameId) as InMemoryGame | undefined;
 
   if (!game) {
     // Create an initial in-memory game wrapper (ctx + helpers).
-    game = createInitialGameState(gameId);
+    game = createInitialGameState(gameId) as InMemoryGame;
 
     // Ensure DB record exists (no-op if already present). Use safe defaults if state incomplete.
     try {

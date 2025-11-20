@@ -74,7 +74,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   });
 
   // Next turn
-  socket.on("nextTurn", ({ gameId }: { gameId: string }) => {
+  socket.on("nextTurn", async ({ gameId }: { gameId: string }) => {
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
@@ -82,8 +82,14 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Lightweight debug logging to help trace why nextTurn requests may be rejected
       try {
-        console.info(`[nextTurn] request from player=${playerId} game=${gameId} turnPlayer=${game.state?.turnPlayer} stack=${(game.state?.stack||[]).length} phase=${String(game.state?.phase)}`);
-      } catch (e) { /* ignore logging errors */ }
+        console.info(
+          `[nextTurn] request from player=${playerId} game=${gameId} turnPlayer=${game.state?.turnPlayer} stack=${(game.state?.stack || []).length} phase=${String(
+            game.state?.phase
+          )}`
+        );
+      } catch (e) {
+        /* ignore logging errors */
+      }
 
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
       // permissive: accept empty, PRE_GAME, or any "BEGIN" variant as pregame
@@ -134,8 +140,26 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
-      game.nextTurn();
-      appendGameEvent(game, gameId, "nextTurn");
+      // Defensive invocation: prefer game.nextTurn(), else fall back to applyEvent if present.
+      try {
+        if (typeof (game as any).nextTurn === "function") {
+          // If nextTurn returns a promise, await it.
+          await (game as any).nextTurn();
+        } else if (typeof (game as any).applyEvent === "function") {
+          console.warn("nextTurn: game.nextTurn missing, falling back to applyEvent");
+          (game as any).applyEvent({ type: "nextTurn", playerId });
+        } else {
+          console.error("nextTurn: no nextTurn or applyEvent on game object");
+          socket.emit("error", { code: "NEXT_TURN_IMPL_MISSING", message: "Server cannot advance turn: game implementation missing nextTurn" });
+          return;
+        }
+      } catch (e) {
+        console.error("nextTurn: game.nextTurn/applyEvent invocation failed:", e);
+        socket.emit("error", { code: "NEXT_TURN_IMPL_ERROR", message: String(e) });
+        return;
+      }
+
+      try { appendGameEvent(game, gameId, "nextTurn"); } catch (e) { console.warn("appendEvent(nextTurn) failed", e); }
 
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
@@ -148,12 +172,12 @@ export function registerGameActions(io: Server, socket: Socket) {
       broadcastGame(io, game, gameId);
     } catch (err) {
       console.error(`nextTurn error for game ${gameId}:`, err);
-      socket.emit("error", { code: "NEXT_TURN_ERROR", message: err.message });
+      socket.emit("error", { code: "NEXT_TURN_ERROR", message: err?.message ?? String(err) });
     }
   });
 
   // Next step handler
-  socket.on("nextStep", ({ gameId }: { gameId: string }) => {
+  socket.on("nextStep", async ({ gameId }: { gameId: string }) => {
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
@@ -161,8 +185,14 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Lightweight debug logging to help trace why nextStep requests may be rejected
       try {
-        console.info(`[nextStep] request from player=${playerId} game=${gameId} turnPlayer=${game.state?.turnPlayer} step=${String(game.state?.step)} stack=${(game.state?.stack||[]).length} phase=${String(game.state?.phase)}`);
-      } catch (e) { /* ignore logging errors */ }
+        console.info(
+          `[nextStep] request from player=${playerId} game=${gameId} turnPlayer=${game.state?.turnPlayer} step=${String(
+            game.state?.step
+          )} stack=${(game.state?.stack || []).length} phase=${String(game.state?.phase)}`
+        );
+      } catch (e) {
+        /* ignore logging errors */
+      }
 
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
       // permissive: accept empty, PRE_GAME, or any "BEGIN" variant as pregame
@@ -209,12 +239,29 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
-      game.nextStep();
-      appendGameEvent(game, gameId, "nextStep");
+      // Defensive invocation: prefer game.nextStep(), else fall back to applyEvent if present.
+      try {
+        if (typeof (game as any).nextStep === "function") {
+          await (game as any).nextStep();
+        } else if (typeof (game as any).applyEvent === "function") {
+          console.warn("nextStep: game.nextStep missing, falling back to applyEvent");
+          (game as any).applyEvent({ type: "nextStep", playerId });
+        } else {
+          console.error("nextStep: no nextStep or applyEvent on game object");
+          socket.emit("error", { code: "NEXT_STEP_IMPL_MISSING", message: "Server cannot advance step: game implementation missing nextStep" });
+          return;
+        }
+      } catch (e) {
+        console.error("nextStep: game.nextStep/applyEvent invocation failed:", e);
+        socket.emit("error", { code: "NEXT_STEP_IMPL_ERROR", message: String(e) });
+        return;
+      }
+
+      try { appendGameEvent(game, gameId, "nextStep"); } catch (e) { console.warn("appendEvent(nextStep) failed", e); }
       broadcastGame(io, game, gameId);
     } catch (err) {
       console.error(`nextStep error for game ${gameId}:`, err);
-      socket.emit("error", { code: "NEXT_STEP_ERROR", message: err.message });
+      socket.emit("error", { code: "NEXT_STEP_ERROR", message: err?.message ?? String(err) });
     }
   });
 

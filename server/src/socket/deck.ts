@@ -16,6 +16,10 @@ import {
   deleteDeck as deleteDeckDB,
 } from "../db/decks";
 import type { KnownCardRef, PlayerID } from "../../shared/src";
+import { GamePhase } from "@mtgedh/shared";
+
+// NEW: helpers to push candidate/suggest events to player's sockets
+import { emitImportedDeckCandidatesToPlayer, emitSuggestCommandersToPlayer } from "./commander";
 
 /**
  * Deck socket handlers with:
@@ -167,7 +171,7 @@ function clearPlayerTransientZonesForImport(game: any, pid: PlayerID) {
     game.state.commandZone = game.state.commandZone || {};
     game.state.commandZone[pid] = { commanderIds: [], commanderCards: [], tax: 0, taxById: {} };
 
-    // mark pre-game
+    // mark pre-game (best-effort; not required)
     try { (game.state as any).phase = "PRE_GAME"; } catch (e) { /* ignore */ }
   } catch (e) {
     console.warn("clearPlayerTransientZonesForImport failed:", e);
@@ -384,28 +388,81 @@ async function applyConfirmedImport(io: Server, confirmId: string, importerSocke
         image_uris: c.image_uris,
       }));
 
-      // If importerSocket provided (immediate importer-only flow), emit to importer directly.
+      // Persist last imported deck buffer per-player so join/reauth can recover if client missed emit.
+      try {
+        (game as any)._lastImportedDecks = (game as any)._lastImportedDecks || new Map<PlayerID, any[]>();
+        (game as any)._lastImportedDecks.set(p.initiator, (p.resolvedCards || []).map(c => ({ id: c.id, name: c.name, type_line: c.type_line, oracle_text: c.oracle_text, image_uris: c.image_uris })));
+        // Also store suggested names to make join-time re-emission straightforward
+        (game as any)._lastImportedDecksNames = (game as any)._lastImportedDecksNames || new Map<PlayerID, string[]>();
+        (game as any)._lastImportedDecksNames.set(p.initiator, names);
+      } catch (e) {
+        console.warn("applyConfirmedImport: could not persist _lastImportedDecks metadata", e);
+      }
+
+      // If importerSocket provided (immediate importer-only flow), reliably emit to all sockets for that player
       if (importerSocket) {
         try {
-          importerSocket.emit("suggestCommanders", { gameId: p.gameId, names });
-          importerSocket.emit("importedDeckCandidates", { gameId: p.gameId, candidates });
-          importerSocket.emit("importApplied", { confirmId, gameId: p.gameId, by: p.initiator, deckName: p.deckName, importerOnly });
-          console.info(`[import] sent suggestCommanders/importedDeckCandidates/importApplied to importer socket for player=${p.initiator}`);
+          // Emit candidates & suggestion to all sockets of that player (helper iterates sockets)
+          try {
+            emitImportedDeckCandidatesToPlayer(io, p.gameId, p.initiator);
+          } catch (e) {
+            console.warn("applyConfirmedImport: emitImportedDeckCandidatesToPlayer failed for importerSocket path", e);
+          }
+          try {
+            emitSuggestCommandersToPlayer(io, p.gameId, p.initiator, names);
+            console.info(`[import] suggestCommanders emitted to player=${p.initiator} names=${JSON.stringify(names)}`);
+          } catch (e) {
+            console.warn("applyConfirmedImport: emitSuggestCommandersToPlayer failed for importerSocket path", e);
+          }
+
+          // Also emit importApplied to player's sockets so clients can clear pendingLocalImport / show info
+          try {
+            for (const s of Array.from(io.sockets.sockets.values() as any)) {
+              try {
+                if (s?.data?.playerId === p.initiator && !s?.data?.spectator) {
+                  s.emit("importApplied", { confirmId, gameId: p.gameId, by: p.initiator, deckName: p.deckName, importerOnly });
+                }
+              } catch (e) { /* ignore per-socket errors */ }
+            }
+            console.info(`[import] sent importApplied to player=${p.initiator}`);
+          } catch (e) {
+            console.warn("applyConfirmedImport: importApplied emit to player sockets failed", e);
+            // fallback to emitting to importerSocket directly
+            try { importerSocket.emit("importApplied", { confirmId, gameId: p.gameId, by: p.initiator, deckName: p.deckName, importerOnly }); } catch {}
+          }
         } catch (e) {
-          console.warn("applyConfirmedImport: emit to importerSocket failed", e);
+          console.warn("applyConfirmedImport: importerSocket branch failed", e);
         }
       } else {
-        // fallback emit suggestCommanders to room (clients filter). Do not broadcast importedDeckCandidates to room.
+        // No importerSocket specified: prefer to push to player sockets (helpers)
         try {
-          io.to(p.gameId).emit("suggestCommanders", { gameId: p.gameId, names });
+          try {
+            emitImportedDeckCandidatesToPlayer(io, p.gameId, p.initiator);
+          } catch (e) {
+            console.warn("applyConfirmedImport: emitImportedDeckCandidatesToPlayer failed", e);
+          }
+
+          try {
+            emitSuggestCommandersToPlayer(io, p.gameId, p.initiator, names);
+            console.info(`[import] suggestCommanders emitted to player=${p.initiator} names=${JSON.stringify(names)}`);
+          } catch (e) {
+            console.warn("applyConfirmedImport: emitSuggestCommandersToPlayer failed", e);
+            // fallback: emit to room (clients will filter)
+            try {
+              io.to(p.gameId).emit("suggestCommanders", { gameId: p.gameId, names });
+              console.info(`[import] suggestCommanders broadcast to room names=${JSON.stringify(names)}`);
+            } catch (e2) {
+              console.warn("applyConfirmedImport: fallback suggestCommanders broadcast failed", e2);
+            }
+          }
         } catch (e) {
-          console.warn("applyConfirmedImport: suggestCommanders broadcast failed", e);
+          console.warn("applyConfirmedImport: suggestCommanders block failed", e);
         }
       }
 
       // If commander already present or non-commander format, immediate shuffle+draw
       try {
-        const cz = (game.state && game.state.commandZone && (game.state.commandZone as any)[p.initiator]) || null;
+        const cz = (game.state && game.state.commandZone && (game.state as any).commandZone[p.initiator]) || null;
         const isCommanderFmt = String(game.state.format || "").toLowerCase() === "commander";
         const hasCommanderAlready = cz && Array.isArray(cz.commanderIds) && cz.commanderIds.length > 0;
         if (hasCommanderAlready || !isCommanderFmt) {
@@ -477,10 +534,45 @@ async function applyConfirmedImport(io: Server, confirmId: string, importerSocke
 
 /* --- Main registration: socket handlers for deck management --- */
 export function registerDeckHandlers(io: Server, socket: Socket) {
+  // New: Preflight check for importer-only import (no room wipe)
+  socket.on("canImportWithoutWipe", ({ gameId }: { gameId?: string }, cb?: (resp: any) => void) => {
+    try {
+      if (!gameId || typeof gameId !== "string") {
+        if (typeof cb === "function") cb({ error: "missing_gameId" });
+        return;
+      }
+      const game = ensureGame(gameId);
+      if (!game) {
+        if (typeof cb === "function") cb({ error: "game_not_found" });
+        return;
+      }
+      const rawPhase = (game.state && (game.state as any).phase) ?? "";
+      const phaseStr = String(rawPhase).toUpperCase().trim();
+      const seqVal = (typeof (game as any).seq === "number") ? (game as any).seq : null;
+      const isPreGame =
+        phaseStr === "" ||
+        phaseStr.includes("PRE") ||
+        phaseStr.includes("BEGIN") ||
+        seqVal === 0 ||
+        seqVal === null;
+
+      if (typeof cb === "function") cb({ importerOnly: isPreGame, phase: phaseStr, seq: seqVal });
+    } catch (err) {
+      console.warn("canImportWithoutWipe handler failed:", err);
+      if (typeof cb === "function") cb({ error: String(err) });
+    }
+  });
+
   // importDeck
   socket.on(
     "importDeck",
     async ({ gameId, list, deckName, save }: { gameId: string; list: string; deckName?: string; save?: boolean }) => {
+      // Validate incoming payload before calling ensureGame
+      if (!gameId || typeof gameId !== "string") {
+        socket.emit("deckError", { gameId, message: "GameId required." });
+        return;
+      }
+
       const pid = socket.data.playerId as PlayerID | undefined;
       const spectator = socket.data.spectator;
       if (!pid || spectator) {
@@ -584,6 +676,64 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         }
       }
 
+      // Decide importer-only early for PRE_GAME (robust string-based detection).
+      // The codebase contains mixed enum/value representations for phases, so use a defensive string check.
+      const rawPhase = (game.state && (game.state as any).phase) ?? "";
+      const phaseStr = String(rawPhase).toUpperCase().trim();
+      const seqVal = (typeof (game as any).seq === "number") ? (game as any).seq : null;
+      // Consider pre-game when phase explicitly says PRE/BEGIN, or when seq is 0 or not yet set.
+      const isPreGame =
+        phaseStr === "" ||
+        phaseStr.includes("PRE") ||
+        phaseStr.includes("BEGIN") ||
+        seqVal === 0 ||
+        seqVal === null;
+
+      console.info(`[importDeck] pregame-check game=${gameId} phase="${phaseStr}" seq=${seqVal} => isPreGame=${isPreGame} (pid=${pid})`);
+
+      if (isPreGame) {
+        // Immediate importer-only flow (no room-wide confirm)
+        const confirmId = `imp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const pending: PendingConfirm = {
+          gameId,
+          initiator: pid,
+          resolvedCards,
+          parsedCount: parsed.reduce((s, p) => s + (p.count || 0), 0),
+          deckName,
+          save,
+          responses: { [pid]: "yes" },
+          timeout: null,
+          snapshotZones: (game.state && (game.state as any).zones && (game.state as any).zones[pid]) ? JSON.parse(JSON.stringify((game.state as any).zones[pid])) : null,
+          snapshotCommandZone: (game.state && (game.state as any).commandZone && (game.state as any).commandZone[pid]) ? JSON.parse(JSON.stringify((game.state as any).commandZone[pid])) : null,
+          snapshotPhase: (game.state && (game.state as any).phase !== undefined) ? (game.state as any).phase : null,
+          applyImporterOnly: true,
+        };
+        pendingImportConfirmations.set(confirmId, pending);
+
+        // Clear transient zones for the importer so UI doesn't show stale hand/commanders
+        try {
+          clearPlayerTransientZonesForImport(game, pid);
+          addPendingInitialDrawFlag(game, pid);
+          try { broadcastGame(io, game, gameId); } catch (e) { /* best-effort */ }
+        } catch (e) {
+          console.warn("importDeck (pre-game): clearing transient zones/flags failed", e);
+        }
+
+        try {
+          const names = suggestCommanderNames(resolvedCards);
+          try { socket.emit("suggestCommanders", { gameId, names }); } catch (e) { /* ignore */ }
+        } catch (e) { /* ignore */ }
+
+        // small delay to ensure client listeners attach
+        setTimeout(() => {
+          applyConfirmedImport(io, confirmId, socket).catch((err) => {
+            console.error("immediate applyConfirmedImport failed:", err);
+            cancelConfirmation(io, confirmId, "apply_failed");
+          });
+        }, 200);
+        return;
+      }
+
       // Prepare confirmation request requiring unanimous consent from active players
       const activePlayerIds = getActivePlayerIds(game, io, gameId);
       const players = activePlayerIds.length > 0 ? activePlayerIds : (game.state.players || []).map((p:any)=>p.id).filter(Boolean) as string[];
@@ -598,7 +748,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       const snapshotCommandZone = (game.state && (game.state as any).commandZone && (game.state as any).commandZone[pid]) ? JSON.parse(JSON.stringify((game.state as any).commandZone[pid])) : null;
       const snapshotPhase = (game.state && (game.state as any).phase !== undefined) ? (game.state as any).phase : null;
 
-      const pending: PendingConfirm = {
+      const pendingConfirm: PendingConfirm = {
         gameId,
         initiator: pid,
         resolvedCards,
@@ -614,11 +764,11 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       };
 
       const TIMEOUT_MS = 60_000;
-      pending.timeout = setTimeout(() => {
+      pendingConfirm.timeout = setTimeout(() => {
         cancelConfirmation(io, confirmId, "timeout");
       }, TIMEOUT_MS);
 
-      pendingImportConfirmations.set(confirmId, pending);
+      pendingImportConfirmations.set(confirmId, pendingConfirm);
 
       // Clear transient zones for the importer so UI doesn't show stale hand/commanders
       try {
@@ -636,43 +786,16 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         console.warn("importDeck: addPendingInitialDrawFlag failed", e);
       }
 
-      // Decide importer-only: new games / pre-game / single active player
-      const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
-      const pregame = phaseStr === "" || phaseStr === "PRE_GAME" || phaseStr.includes("BEGIN");
-      const seqIsZero = (typeof (game as any).seq === "number" && (game as any).seq === 0);
-      const activeCount = players.length;
-
-      console.info(`[import] decision inputs game=${gameId} seq=${(game as any).seq} seqIsZero=${seqIsZero} phase="${phaseStr}" activeCount=${activeCount} playersForConfirm=${players.length}`);
-
-      if (seqIsZero || pregame || activeCount <= 1) {
-        // importer-only apply
-        pending.applyImporterOnly = true;
-        pendingImportConfirmations.set(confirmId, pending);
-
-        try {
-          const names = suggestCommanderNames(resolvedCards);
-          try { socket.emit("suggestCommanders", { gameId, names }); } catch (e) { /* ignore */ }
-        } catch (e) { /* ignore */ }
-
-        // small delay to ensure client listeners attach
-        setTimeout(() => {
-          applyConfirmedImport(io, confirmId, socket).catch((err) => {
-            console.error("immediate applyConfirmedImport failed:", err);
-            cancelConfirmation(io, confirmId, "apply_failed");
-          });
-        }, 50);
-        return;
-      }
-
       // Otherwise normal confirm flow
       try {
+        console.info(`[importDeck] emitting importWipeConfirmRequest game=${gameId} confirmId=${confirmId} initiator=${pid} players=${players.length}`);
         io.to(gameId).emit("importWipeConfirmRequest", {
           confirmId,
           gameId,
           initiator: pid,
           deckName,
           resolvedCount: resolvedCards.length,
-          expectedCount: pending.parsedCount,
+          expectedCount: pendingConfirm.parsedCount,
           players,
           timeoutMs: TIMEOUT_MS,
         });
@@ -680,7 +803,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         console.warn("importDeck: emit importWipeConfirmRequest failed", err);
       }
 
-      broadcastConfirmUpdate(io, confirmId, pending);
+      broadcastConfirmUpdate(io, confirmId, pendingConfirm);
 
       // If only one active player, auto-apply after a short delay so client listeners can attach
       try {
@@ -690,7 +813,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
               console.error("auto applyConfirmedImport failed:", err);
               cancelConfirmation(io, confirmId, "apply_failed");
             });
-          }, 150); // small delay
+          }, 250); // small delay
         }
       } catch (e) {
         console.warn("importDeck: auto-apply single-player failed", e);
@@ -701,6 +824,10 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
   // Handle confirmation responses
   socket.on("confirmImportResponse", ({ gameId, confirmId, accept }: { gameId: string; confirmId: string; accept: boolean }) => {
     try {
+      if (!gameId || typeof gameId !== "string") {
+        socket.emit("error", { code: "CONFIRM_MISSING_GAME", message: "gameId required" });
+        return;
+      }
       const pid = socket.data.playerId as PlayerID | undefined;
       if (!pid) return;
       const pending = pendingImportConfirmations.get(confirmId);
@@ -746,6 +873,11 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       socket.emit("importedDeckCandidates", { gameId, candidates: [] });
       return;
     }
+    if (!gameId || typeof gameId !== "string") {
+      // Respond gracefully with empty candidates; client can treat as none
+      socket.emit("importedDeckCandidates", { gameId, candidates: [] });
+      return;
+    }
     try {
       const game = ensureGame(gameId);
       if (!game) {
@@ -770,6 +902,12 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
 
   // useSavedDeck
   socket.on("useSavedDeck", async ({ gameId, deckId }: { gameId: string; deckId: string }) => {
+    // validate gameId early
+    if (!gameId || typeof gameId !== "string") {
+      socket.emit("deckError", { gameId, message: "GameId required." });
+      return;
+    }
+
     const pid = socket.data.playerId as PlayerID | undefined;
     const spectator = socket.data.spectator;
     if (!pid || spectator) {
@@ -852,9 +990,63 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         }
       }
 
+      // PRE_GAME shortcut (robust string-based detection)
+      const rawPhase2 = (game.state && (game.state as any).phase) ?? "";
+      const phaseStr2 = String(rawPhase2).toUpperCase().trim();
+      const seqVal2 = (typeof (game as any).seq === "number") ? (game as any).seq : null;
+      const isPreGame2 = (
+        phaseStr2 === "" ||
+        phaseStr2.includes("PRE") ||
+        phaseStr2.includes("BEGIN") ||
+        seqVal2 === 0 ||
+        seqVal2 === null
+      );
+      console.info(`[useSavedDeck] pregame-check game=${gameId} phase="${phaseStr2}" seq=${seqVal2} => isPreGame=${isPreGame2} (pid=${pid})`);
+      if (isPreGame2) {
+        const confirmId = `imp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const pendingObj: PendingConfirm = {
+          gameId,
+          initiator: pid,
+          resolvedCards: resolved,
+          parsedCount: parsed.reduce((s, p) => s + (p.count || 0), 0),
+          deckName: deck.name,
+          save: false,
+          responses: { [pid]: "yes" },
+          timeout: null,
+          snapshotZones: (game.state && (game.state as any).zones && (game.state as any).zones[pid]) ? JSON.parse(JSON.stringify((game.state as any).zones[pid])) : null,
+          snapshotCommandZone: (game.state && (game.state as any).commandZone && (game.state as any).commandZone[pid]) ? JSON.parse(JSON.stringify((game.state as any).commandZone[pid])) : null,
+          snapshotPhase: (game.state && (game.state as any).phase !== undefined) ? (game.state as any).phase : null,
+          applyImporterOnly: true,
+        };
+
+        pendingImportConfirmations.set(confirmId, pendingObj);
+
+        // Clear transient zones & flag pendingInitialDraw
+        try {
+          clearPlayerTransientZonesForImport(game, pid);
+          addPendingInitialDrawFlag(game, pid);
+          try { broadcastGame(io, game, gameId); } catch {}
+        } catch (e) { console.warn("useSavedDeck (pre-game): transient init failed", e); }
+
+        try {
+          const names = suggestCommanderNames(resolved);
+          try { socket.emit("suggestCommanders", { gameId, names }); } catch {}
+        } catch (e) { /* ignore */ }
+
+        setTimeout(() => {
+          applyConfirmedImport(io, confirmId, socket).catch((err) => {
+            console.error("immediate applyConfirmedImport (useSavedDeck) failed:", err);
+            cancelConfirmation(io, confirmId, "apply_failed");
+          });
+        }, 50);
+
+        socket.emit("deckApplied", { gameId, deck });
+        return;
+      }
+
       // Prepare confirmation (same as importDeck)
-      const activePlayerIds = getActivePlayerIds(game, io, gameId);
-      const players = activePlayerIds.length > 0 ? activePlayerIds : (game.state.players || []).map((p:any)=>p.id).filter(Boolean) as string[];
+      const activePlayerIds2 = getActivePlayerIds(game, io, gameId);
+      const players = activePlayerIds2.length > 0 ? activePlayerIds2 : (game.state.players || []).map((p:any)=>p.id).filter(Boolean) as string[];
 
       const confirmId = `imp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const responses: Record<string, "pending" | "yes" | "no"> = {};
@@ -885,34 +1077,8 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       // Clear transient zones & flag pendingInitialDraw
       try { clearPlayerTransientZonesForImport(game, pid); addPendingInitialDrawFlag(game, pid); try { broadcastGame(io, game, gameId); } catch {} } catch (e) { console.warn("useSavedDeck: transient init failed", e); }
 
-      // PRE_GAME shortcut
-      const phaseStr2 = String(game.state?.phase || "").toUpperCase().trim();
-      const pregame2 = phaseStr2 === "" || phaseStr2 === "PRE_GAME" || phaseStr2.includes("BEGIN");
-      const seqZero2 = (typeof (game as any).seq === "number" && (game as any).seq === 0);
-      const activeCount2 = players.length || activePlayerIds.length || 0;
-      console.info(`[useSavedDeck] decision game=${gameId} seq=${(game as any).seq} seqIsZero=${seqZero2} phase="${phaseStr2}" activeCount=${activeCount2}`);
-
-      if (seqZero2 || pregame2 || activeCount2 <= 1) {
-        pendingObj.applyImporterOnly = true;
-        pendingImportConfirmations.set(confirmId, pendingObj);
-
-        try {
-          const names = suggestCommanderNames(resolved);
-          try { socket.emit("suggestCommanders", { gameId, names }); } catch {}
-        } catch (e) { /* ignore */ }
-
-        setTimeout(() => {
-          applyConfirmedImport(io, confirmId, socket).catch((err) => {
-            console.error("immediate applyConfirmedImport (useSavedDeck) failed:", err);
-            cancelConfirmation(io, confirmId, "apply_failed");
-          });
-        }, 50);
-
-        socket.emit("deckApplied", { gameId, deck });
-        return;
-      }
-
       try {
+        console.info(`[useSavedDeck] emitting importWipeConfirmRequest game=${gameId} confirmId=${confirmId} initiator=${pid} players=${players.length}`);
         io.to(gameId).emit("importWipeConfirmRequest", {
           confirmId,
           gameId,
@@ -949,6 +1115,10 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
 
   // save/list/get/rename/delete handlers (unchanged)
   socket.on("saveDeck", ({ gameId, name, list }: { gameId: string; name: string; list: string }) => {
+    if (!gameId || typeof gameId !== "string") {
+      socket.emit("deckError", { gameId, message: "GameId required." });
+      return;
+    }
     const pid = socket.data.playerId as PlayerID | undefined;
     const spectator = socket.data.spectator;
     if (!pid || spectator) {
@@ -994,6 +1164,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
   });
 
   socket.on("listSavedDecks", ({ gameId }: { gameId: string }) => {
+    if (!gameId || typeof gameId !== "string") return;
     const pid = socket.data.playerId as PlayerID | undefined;
     const spectator = socket.data.spectator;
     if (!pid || spectator) return;
@@ -1006,6 +1177,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
   });
 
   socket.on("getSavedDeck", ({ gameId, deckId }: { gameId: string; deckId: string }) => {
+    if (!gameId || typeof gameId !== "string") return;
     const pid = socket.data.playerId as PlayerID | undefined;
     const spectator = socket.data.spectator;
     if (!pid || spectator) return;
@@ -1022,6 +1194,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
   });
 
   socket.on("renameSavedDeck", ({ gameId, deckId, name }: { gameId: string; deckId: string; name: string }) => {
+    if (!gameId || typeof gameId !== "string") return;
     const pid = socket.data.playerId as PlayerID | undefined;
     const spectator = socket.data.spectator;
     if (!pid || spectator) return;
@@ -1039,6 +1212,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
   });
 
   socket.on("deleteSavedDeck", ({ gameId, deckId }: { gameId: string; deckId: string }) => {
+    if (!gameId || typeof gameId !== "string") return;
     const pid = socket.data.playerId as PlayerID | undefined;
     const spectator = socket.data.spectator;
     if (!pid || spectator) return;

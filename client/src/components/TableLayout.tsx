@@ -1,6 +1,14 @@
 // client/src/components/TableLayout.tsx
 // Full TableLayout component — updated WAIT_MS to 1200ms and improved suggestCommanders timing/cancellation.
 // Also includes Energy counter support and uses importedCandidates prop to open card gallery when available.
+//
+// Changes applied on top of the provided "2 layouts ago" base:
+// - Add lightweight console.debug snapshot to help trace missing gameId / blank-screen races.
+// - Add askServerImporterOnlyThen preflight to avoid showing local wipe confirm when server deems importer-only.
+// - Disable the "Decks" button until gameId is available to avoid firing debug/import requests with no gameId.
+// - Guard getImportedDeckCandidates emit and other emits so they only fire when a valid gameId exists.
+//
+// These changes preserve clothBg/default visuals and otherwise keep original behavior.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type {
@@ -128,6 +136,20 @@ export function TableLayout(props: {
     onImportDeckText, onUseSavedDeck, onLocalImportConfirmChange, onConfirmCommander, suppressCommanderSuggest, gameId,
     importedCandidates, energyCounters, energy
   } = props;
+
+  // Lightweight console debug snapshot to trace gameId/props initialization races
+  useEffect(() => {
+    try {
+      console.debug("[TableLayout] snapshot:", {
+        gameId,
+        you,
+        playersCount: Array.isArray(players) ? players.length : undefined,
+        importedCandidatesCount: (importedCandidates || []).length,
+        hasImportHandler: typeof onImportDeckText === "function",
+        hasUseSavedHandler: typeof onUseSavedDeck === "function",
+      });
+    } catch (e) { /* ignore */ }
+  }, [gameId, you, players, importedCandidates, onImportDeckText, onUseSavedDeck]);
 
   const ordered = useMemo<PlayerBoard[]>(() => {
     const ps = [...players].sort((a, b) => a.seat - b.seat);
@@ -330,6 +352,13 @@ export function TableLayout(props: {
     return s;
   }, [permanentsByPlayer]);
 
+  const cameraTransform =
+    `translate(${container.w / 2}px, ${container.h / 2}px) scale(${cam.z}) translate(${-cam.x}px, ${-cam.y}px)`;
+  const tiltTransform = threeD && threeD.enabled
+    ? `rotateX(${threeD.rotateXDeg ?? 10}deg) rotateY(${threeD.rotateYDeg ?? 0}deg)`
+    : 'none';
+  const perspective = threeD?.enabled ? (threeD.perspectivePx ?? 1100) : undefined;
+
   // commander suggestion modal state + queue when suppressed
   const [confirmCmdOpen, setConfirmCmdOpen] = useState(false);
   const [confirmCmdSuggested, setConfirmCmdSuggested] = useState<string[]>([]);
@@ -348,9 +377,9 @@ export function TableLayout(props: {
         return;
       }
 
-      // Ask server for imported deck candidates (it might be available shortly)
+      // Ask server for imported deck candidates only when we have a valid gameId
       try {
-        (socket as any).emit('getImportedDeckCandidates', { gameId: gid });
+        if (props.gameId) (socket as any).emit('getImportedDeckCandidates', { gameId: gid });
       } catch (e) { /* ignore */ }
 
       setConfirmCmdSuggested(namesList);
@@ -391,7 +420,7 @@ export function TableLayout(props: {
   // when suppression clears, show any queued suggestion
   useEffect(() => {
     if (!suppressCommanderSuggest && queuedCmdSuggest && queuedCmdSuggest.gameId === props.gameId) {
-      try { (socket as any).emit('getImportedDeckCandidates', { gameId: queuedCmdSuggest.gameId }); } catch {}
+      try { if (queuedCmdSuggest.gameId) (socket as any).emit('getImportedDeckCandidates', { gameId: queuedCmdSuggest.gameId }); } catch {}
       setConfirmCmdSuggested(queuedCmdSuggest.names || []);
       if (suggestTimerRef.current) { window.clearTimeout(suggestTimerRef.current); suggestTimerRef.current = null; }
       const WAIT_MS = 1200;
@@ -417,16 +446,77 @@ export function TableLayout(props: {
   const [importConfirmOpen, setImportConfirmOpen] = useState(false);
   const [importPending, setImportPending] = useState<{ type: 'text'; text: string; name?: string } | { type: 'server'; deckId: string } | null>(null);
 
+  // NEW: helper to ask server whether import can be applied importer-only (no wipe)
+  function askServerImporterOnlyThen(action: () => void, fallbackOpenConfirm: () => void) {
+    // If we don't have a gameId, fall back immediately to opening local confirm
+    if (!props.gameId) {
+      fallbackOpenConfirm();
+      return;
+    }
+
+    let handled = false;
+    const TIMEOUT_MS = 1200;
+    const timer = window.setTimeout(() => {
+      if (!handled) {
+        handled = true;
+        fallbackOpenConfirm();
+      }
+    }, TIMEOUT_MS);
+
+    try {
+      (socket as any).emit('canImportWithoutWipe', { gameId: props.gameId }, (resp: any) => {
+        if (handled) return;
+        handled = true;
+        window.clearTimeout(timer as unknown as number);
+        if (resp && resp.importerOnly) {
+          action();
+        } else {
+          fallbackOpenConfirm();
+        }
+      });
+    } catch (e) {
+      if (!handled) {
+        handled = true;
+        window.clearTimeout(timer as unknown as number);
+        fallbackOpenConfirm();
+      }
+    }
+  }
+
+  // The import initiation paths now preflight with the server.
   const handleRequestImportText = (text: string, name?: string) => {
     setImportPending({ type: 'text', text, name });
-    setImportConfirmOpen(true);
-    onLocalImportConfirmChange?.(true);
+
+    askServerImporterOnlyThen(
+      () => {
+        // action: call through to prop to perform import immediately
+        try { if (typeof onImportDeckText === 'function') onImportDeckText(text, name); } catch (e) { console.warn("onImportDeckText failed:", e); }
+        setImportPending(null);
+        setDeckMgrOpen(false);
+        onLocalImportConfirmChange?.(false);
+      },
+      () => {
+        setImportConfirmOpen(true);
+        onLocalImportConfirmChange?.(true);
+      }
+    );
   };
 
   const handleRequestUseSavedDeck = (deckId: string) => {
     setImportPending({ type: 'server', deckId });
-    setImportConfirmOpen(true);
-    onLocalImportConfirmChange?.(true);
+
+    askServerImporterOnlyThen(
+      () => {
+        try { if (typeof onUseSavedDeck === 'function') onUseSavedDeck(deckId); } catch (e) { console.warn("onUseSavedDeck failed:", e); }
+        setImportPending(null);
+        setDeckMgrOpen(false);
+        onLocalImportConfirmChange?.(false);
+      },
+      () => {
+        setImportConfirmOpen(true);
+        onLocalImportConfirmChange?.(true);
+      }
+    );
   };
 
   const confirmAndImport = () => {
@@ -562,7 +652,8 @@ export function TableLayout(props: {
                                 type="button"
                                 onClick={() => setDeckMgrOpen(true)}
                                 style={{ fontSize: 11 }}
-                                title="Manage / Import Deck"
+                                title={gameId ? "Manage / Import Deck" : "Waiting for game to be ready"}
+                                disabled={!gameId}
                               >Decks</button>
                             )}
                           </div>
