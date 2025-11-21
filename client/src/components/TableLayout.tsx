@@ -1,14 +1,7 @@
 // client/src/components/TableLayout.tsx
-// Full TableLayout component — updated WAIT_MS to 1200ms and improved suggestCommanders timing/cancellation.
-// Also includes Energy counter support and uses importedCandidates prop to open card gallery when available.
-//
-// Changes applied on top of the provided "2 layouts ago" base:
-// - Add lightweight console.debug snapshot to help trace missing gameId / blank-screen races.
-// - Add askServerImporterOnlyThen preflight to avoid showing local wipe confirm when server deems importer-only.
-// - Disable the "Decks" button until gameId is available to avoid firing debug/import requests with no gameId.
-// - Guard getImportedDeckCandidates emit and other emits so they only fire when a valid gameId exists.
-//
-// These changes preserve clothBg/default visuals and otherwise keep original behavior.
+// Full TableLayout component — layout + pan/zoom + deck manager.
+// Commander selection UI has been moved up into App.tsx, so this file no longer
+// handles suggestCommanders or commander modals directly.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type {
@@ -28,9 +21,7 @@ import { LandRow } from './LandRow';
 import { ZonesPiles } from './ZonesPiles';
 import { FreeField } from './FreeField';
 import { DeckManagerModal } from './DeckManagerModal';
-import CommanderConfirmModal from './CommanderConfirmModal';
 import { socket } from '../socket';
-import { CommanderSelectModal } from './CommanderSelectModal';
 
 function clamp(n: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, n)); }
 function isLandTypeLine(tl?: string) { return /\bland\b/i.test(tl || ''); }
@@ -112,13 +103,9 @@ export function TableLayout(props: {
   onImportDeckText?: (txt: string, name?: string) => void;
   onUseSavedDeck?: (deckId: string) => void;
   onLocalImportConfirmChange?: (open: boolean) => void;
-  suppressCommanderSuggest?: boolean;
-  onConfirmCommander?: (names: string[], ids?: string[]) => void;
   gameId?: GameID;
   stackItems?: any[];
-  // NEW: imported deck candidates (from server), prefer object/card selection when present
-  importedCandidates?: KnownCardRef[];
-  // Optional energy counters map (for UI display)
+  importedCandidates?: KnownCardRef[]; // no longer used for commander UI, but kept for potential future UI
   energyCounters?: Record<PlayerID, number>;
   energy?: Record<PlayerID, number>;
 }) {
@@ -133,11 +120,11 @@ export function TableLayout(props: {
     onReorderHand, onShuffleHand,
     threeD, enablePanZoom = true,
     tableCloth, worldSize, onUpdatePermPos,
-    onImportDeckText, onUseSavedDeck, onLocalImportConfirmChange, onConfirmCommander, suppressCommanderSuggest, gameId,
-    importedCandidates, energyCounters, energy
+    onImportDeckText, onUseSavedDeck, onLocalImportConfirmChange,
+    gameId, importedCandidates, energyCounters, energy
   } = props;
 
-  // Lightweight console debug snapshot to trace gameId/props initialization races
+  // Snapshot debug
   useEffect(() => {
     try {
       console.debug("[TableLayout] snapshot", {
@@ -148,7 +135,7 @@ export function TableLayout(props: {
         hasImportHandler: typeof onImportDeckText === "function",
         hasUseSavedHandler: typeof onUseSavedDeck === "function",
       });
-    } catch (e) { /* ignore */ }
+    } catch { /* ignore */ }
   }, [gameId, you, players, importedCandidates, onImportDeckText, onUseSavedDeck]);
 
   const ordered = useMemo<PlayerBoard[]>(() => {
@@ -306,8 +293,7 @@ export function TableLayout(props: {
     let idx = -1;
     for (let i = 0; i < ordered.length; i++) {
       const o = ordered[i];
-      const pid = o.player.id;
-      if (pid === you) { idx = i; break; }
+      if (o.player.id === you) { idx = i; break; }
     }
     if (idx === -1) {
       const cx = camRef.current.x, cy = camRef.current.y;
@@ -354,150 +340,8 @@ export function TableLayout(props: {
 
   const cameraTransform =
     `translate(${container.w / 2}px, ${container.h / 2}px) scale(${cam.z}) translate(${-cam.x}px, ${-cam.y}px)`;
-  const tiltTransform = threeD && threeD.enabled
-    ? `rotateX(${threeD.rotateXDeg ?? 10}deg) rotateY(${threeD.rotateYDeg ?? 0}deg)`
-    : 'none';
-  const perspective = threeD?.enabled ? (threeD.perspectivePx ?? 1100) : undefined;
 
-  // commander suggestion modal state + queue when suppressed
-  const [confirmCmdOpen, setConfirmCmdOpen] = useState(false);
-  const [confirmCmdSuggested, setConfirmCmdSuggested] = useState<string[]>([]);
-  const [queuedCmdSuggest, setQueuedCmdSuggest] = useState<{ gameId: GameID; names: string[] } | null>(null);
-
-  // timer ref to wait briefly for importedCandidates before falling back to text modal
-  const suggestTimerRef = useRef<number | null>(null);
-
-  // Log actual modal open
-  useEffect(() => {
-    if (confirmCmdOpen) {
-      console.debug("[TableLayout] confirmCmdOpen=true -> commander selection UI shown", {
-        gameId,
-        suggestedNames: confirmCmdSuggested,
-        importedCandidatesCount: importedCandidates?.length ?? 0,
-      });
-    }
-  }, [confirmCmdOpen, gameId, confirmCmdSuggested, importedCandidates]);
-
-  useEffect(() => {
-    const onSuggest = ({ gameId: gid, names }: { gameId: GameID; names: string[] }) => {
-      console.debug("[TableLayout] onSuggestCommanders received", {
-        incomingGameId: gid,
-        localGameId: props.gameId,
-        names,
-        suppressCommanderSuggest,
-      });
-
-      if (!props.gameId || gid !== props.gameId) {
-        console.debug("[TableLayout] onSuggestCommanders ignored (gameId mismatch or missing)", {
-          incomingGameId: gid,
-          localGameId: props.gameId,
-        });
-        return;
-      }
-
-      const namesList = Array.isArray(names) ? names.slice(0, 2) : [];
-
-      // If suppressed, queue for later
-      if (suppressCommanderSuggest) {
-        console.debug("[TableLayout] onSuggestCommanders -> suppressed, queuing suggestion", {
-          gameId: gid,
-          namesList,
-        });
-        setQueuedCmdSuggest({ gameId: gid, names: namesList });
-        return;
-      }
-
-      // Ask server for imported deck candidates only when we have a valid gameId
-      try {
-        if (props.gameId) {
-          console.debug("[TableLayout] onSuggestCommanders -> requesting importedDeckCandidates", { gameId: gid });
-          (socket as any).emit('getImportedDeckCandidates', { gameId: gid });
-        }
-      } catch (e) {
-        console.warn("[TableLayout] onSuggestCommanders -> getImportedDeckCandidates emit failed", e);
-      }
-
-      setConfirmCmdSuggested(namesList);
-
-      // Clear any existing timer
-      if (suggestTimerRef.current) {
-        window.clearTimeout(suggestTimerRef.current);
-        suggestTimerRef.current = null;
-      }
-
-      // Start a wait: if importedCandidates arrives within this time, we'll open the card-based modal.
-      const WAIT_MS = 1200;
-      console.debug("[TableLayout] onSuggestCommanders -> scheduling commander modal open", {
-        gameId: gid,
-        waitMs: WAIT_MS,
-        namesList,
-      });
-      suggestTimerRef.current = window.setTimeout(() => {
-        console.debug("[TableLayout] onSuggestCommanders -> timeout fired, opening commander modal (possibly text-only)", {
-          gameId: gid,
-          importedCandidatesCount: importedCandidates?.length ?? 0,
-        });
-        setConfirmCmdOpen(true);
-        suggestTimerRef.current = null;
-      }, WAIT_MS) as unknown as number;
-    };
-
-    (socket as any).on('suggestCommanders', onSuggest);
-    return () => {
-      (socket as any).off('suggestCommanders', onSuggest);
-      if (suggestTimerRef.current) {
-        window.clearTimeout(suggestTimerRef.current);
-        suggestTimerRef.current = null;
-      }
-    };
-  }, [props.gameId, suppressCommanderSuggest, importedCandidates]);
-
-  // If importedCandidates arrive while we are waiting, open the modal immediately and cancel timer
-  useEffect(() => {
-    if (suggestTimerRef.current && importedCandidates && importedCandidates.length > 0) {
-      console.debug("[TableLayout] importedCandidates arrived while waiting -> opening commander modal now", {
-        gameId,
-        importedCandidatesCount: importedCandidates.length,
-      });
-      window.clearTimeout(suggestTimerRef.current);
-      suggestTimerRef.current = null;
-      setConfirmCmdOpen(true);
-    }
-  }, [importedCandidates, gameId]);
-
-  // when suppression clears, show any queued suggestion
-  useEffect(() => {
-    if (!suppressCommanderSuggest && queuedCmdSuggest && queuedCmdSuggest.gameId === props.gameId) {
-      console.debug("[TableLayout] suppression cleared, flushing queued commander suggestion", {
-        gameId: props.gameId,
-        queuedGameId: queuedCmdSuggest.gameId,
-        names: queuedCmdSuggest.names,
-      });
-      try {
-        if (queuedCmdSuggest.gameId) {
-          (socket as any).emit('getImportedDeckCandidates', { gameId: queuedCmdSuggest.gameId });
-        }
-      } catch (e) {
-        console.warn("[TableLayout] failed to emit getImportedDeckCandidates when flushing queued suggestion", e);
-      }
-      setConfirmCmdSuggested(queuedCmdSuggest.names || []);
-      if (suggestTimerRef.current) {
-        window.clearTimeout(suggestTimerRef.current);
-        suggestTimerRef.current = null;
-      }
-      const WAIT_MS = 1200;
-      suggestTimerRef.current = window.setTimeout(() => {
-        console.debug("[TableLayout] queued suggestion -> timeout fired, opening commander modal", {
-          gameId: queuedCmdSuggest.gameId,
-          importedCandidatesCount: importedCandidates?.length ?? 0,
-        });
-        setConfirmCmdOpen(true);
-        suggestTimerRef.current = null;
-      }, WAIT_MS) as unknown as number;
-      setQueuedCmdSuggest(null);
-    }
-  }, [suppressCommanderSuggest, queuedCmdSuggest, props.gameId, importedCandidates]);
-
+  // deck manager + import confirm
   const [deckMgrOpen, setDeckMgrOpen] = useState(false);
   const decksBtnRef = useRef<HTMLButtonElement | null>(null);
 
@@ -508,7 +352,6 @@ export function TableLayout(props: {
     return false;
   }, [permanentsByPlayer]);
 
-  // Local import-confirm modal state
   const [importConfirmOpen, setImportConfirmOpen] = useState(false);
   const [importPending, setImportPending] = useState<
     { type: 'text'; text: string; name?: string } |
@@ -516,11 +359,8 @@ export function TableLayout(props: {
     null
   >(null);
 
-  // NEW: helper to ask server whether import can be applied importer-only (no wipe)
   function askServerImporterOnlyThen(action: () => void, fallbackOpenConfirm: () => void) {
-    // If we don't have a gameId, fall back immediately to opening local confirm
     if (!props.gameId) {
-      console.debug("[TableLayout] askServerImporterOnlyThen -> no gameId, falling back to local confirm");
       fallbackOpenConfirm();
       return;
     }
@@ -530,18 +370,15 @@ export function TableLayout(props: {
     const timer = window.setTimeout(() => {
       if (!handled) {
         handled = true;
-        console.warn("[TableLayout] askServerImporterOnlyThen -> timeout, falling back to confirm");
         fallbackOpenConfirm();
       }
     }, TIMEOUT_MS);
 
     try {
-      console.debug("[TableLayout] askServerImporterOnlyThen -> emitting canImportWithoutWipe", { gameId: props.gameId });
       (socket as any).emit('canImportWithoutWipe', { gameId: props.gameId }, (resp: any) => {
         if (handled) return;
         handled = true;
         window.clearTimeout(timer as unknown as number);
-        console.debug("[TableLayout] canImportWithoutWipe response", { resp });
         if (resp && resp.importerOnly) {
           action();
         } else {
@@ -552,30 +389,22 @@ export function TableLayout(props: {
       if (!handled) {
         handled = true;
         window.clearTimeout(timer as unknown as number);
-        console.warn("[TableLayout] askServerImporterOnlyThen emit failed, falling back to confirm", e);
         fallbackOpenConfirm();
       }
     }
   }
 
   const handleRequestImportText = (text: string, name?: string) => {
-    console.debug("[TableLayout] handleRequestImportText", { textPreview: text.slice(0, 40), name });
     setImportPending({ type: 'text', text, name });
 
     askServerImporterOnlyThen(
       () => {
-        try {
-          console.debug("[TableLayout] importer-only importDeckText", { name });
-          if (typeof onImportDeckText === 'function') onImportDeckText(text, name);
-        } catch (e) {
-          console.warn("onImportDeckText failed:", e);
-        }
+        try { if (typeof onImportDeckText === 'function') onImportDeckText(text, name); } catch (e) { console.warn("onImportDeckText failed:", e); }
         setImportPending(null);
         setDeckMgrOpen(false);
         onLocalImportConfirmChange?.(false);
       },
       () => {
-        console.debug("[TableLayout] handleRequestImportText -> opening local import confirm");
         setImportConfirmOpen(true);
         onLocalImportConfirmChange?.(true);
       }
@@ -583,23 +412,16 @@ export function TableLayout(props: {
   };
 
   const handleRequestUseSavedDeck = (deckId: string) => {
-    console.debug("[TableLayout] handleRequestUseSavedDeck", { deckId });
     setImportPending({ type: 'server', deckId });
 
     askServerImporterOnlyThen(
       () => {
-        try {
-          console.debug("[TableLayout] importer-only useSavedDeck", { deckId });
-          if (typeof onUseSavedDeck === 'function') onUseSavedDeck(deckId);
-        } catch (e) {
-          console.warn("onUseSavedDeck failed:", e);
-        }
+        try { if (typeof onUseSavedDeck === 'function') onUseSavedDeck(deckId); } catch (e) { console.warn("onUseSavedDeck failed:", e); }
         setImportPending(null);
         setDeckMgrOpen(false);
         onLocalImportConfirmChange?.(false);
       },
       () => {
-        console.debug("[TableLayout] handleRequestUseSavedDeck -> opening local import confirm");
         setImportConfirmOpen(true);
         onLocalImportConfirmChange?.(true);
       }
@@ -607,12 +429,7 @@ export function TableLayout(props: {
   };
 
   const confirmAndImport = () => {
-    console.debug("[TableLayout] confirmAndImport", { importPending });
-    if (!importPending) {
-      setImportConfirmOpen(false);
-      onLocalImportConfirmChange?.(false);
-      return;
-    }
+    if (!importPending) { setImportConfirmOpen(false); onLocalImportConfirmChange?.(false); return; }
     if (importPending.type === 'text') {
       onImportDeckText?.(importPending.text, importPending.name);
     } else {
@@ -625,13 +442,11 @@ export function TableLayout(props: {
   };
 
   const cancelImportPending = () => {
-    console.debug("[TableLayout] cancelImportPending");
     setImportPending(null);
     setImportConfirmOpen(false);
     onLocalImportConfirmChange?.(false);
   };
 
-  // cloth background (gradient fallback)
   const clothBg: React.CSSProperties = props.tableCloth?.imageUrl
     ? { backgroundImage: `url(${props.tableCloth.imageUrl})`, backgroundSize: 'cover', backgroundRepeat: 'no-repeat', backgroundPosition: 'center' }
     : { background: 'radial-gradient(ellipse at center, rgba(0,128,64,0.9) 0%, rgba(3,62,35,0.95) 60%, rgba(2,40,22,1) 100%)' };
@@ -655,10 +470,10 @@ export function TableLayout(props: {
         position: 'relative'
       }}
     >
-      <div style={{ position: 'absolute', inset: 0, transform: `translate(${container.w/2}px, ${container.h/2}px) scale(${cam.z}) translate(${-cam.x}px, ${-cam.y}px)`, transformOrigin: '0 0', willChange: 'transform' }}>
+      <div style={{ position: 'absolute', inset: 0, transform: cameraTransform, transformOrigin: '0 0', willChange: 'transform' }}>
 
-        <div style={{ position: 'absolute', left: '50%', top: '50%', transformStyle: 'preserve-3d', perspective: threeD?.enabled ? `${(threeD?.perspectivePx ?? 1100)}px` : undefined }}>
-          <div style={{ position: 'relative', transform: threeD && threeD.enabled ? `rotateX(${threeD.rotateXDeg ?? 10}deg) rotateY(${threeD.rotateYDeg ?? 0}deg)` : 'none', transformOrigin: '50% 50%' }}>
+        <div style={{ position: 'absolute', left: '50%', top: '50%', transformStyle: 'preserve-3d' }}>
+          <div style={{ position: 'relative' }}>
 
             <div
               style={{
@@ -799,11 +614,7 @@ export function TableLayout(props: {
                                 type="button"
                                 onClick={() => setDeckMgrOpen(true)}
                                 style={{ fontSize: 11 }}
-                                title={
-                                  gameId
-                                    ? 'Manage / Import Deck'
-                                    : 'Waiting for game to be ready'
-                                }
+                                title={gameId ? "Manage / Import Deck" : "Waiting for game to be ready"}
                                 disabled={!gameId}
                               >
                                 Decks
@@ -990,9 +801,7 @@ export function TableLayout(props: {
                                 : undefined
                             }
                             hideHandDetails={!isYouThis}
-                            canCastCommander={
-                              !!(isCommanderFormat && isYouThis && gameId)
-                            }
+                            canCastCommander={!!(isCommanderFormat && isYouThis && gameId)}
                             onCastCommander={(commanderIdOrName) => {
                               if (!gameId) return;
                               socket.emit('castCommander', {
@@ -1019,49 +828,6 @@ export function TableLayout(props: {
               wide
               onUseSavedDeck={(deckId) => handleRequestUseSavedDeck(deckId)}
             />
-
-            {/* Commander selection modal: prefer object-based CommanderSelectModal when importedCandidates exist */}
-            {gameId && confirmCmdOpen && (
-              importedCandidates && importedCandidates.length > 0 ? (
-                <CommanderSelectModal
-                  open={confirmCmdOpen}
-                  onClose={() => setConfirmCmdOpen(false)}
-                  deckList={(importedCandidates || []).map(c => c.name).join("\n")}
-                  candidates={importedCandidates}
-                  onConfirm={(names: string[], ids?: string[]) => {
-                    console.debug("[TableLayout] CommanderSelectModal onConfirm", {
-                      gameId,
-                      names,
-                      ids,
-                    });
-                    if (onConfirmCommander) onConfirmCommander(names, ids);
-                    else {
-                      const payload: any = { gameId, commanderNames: names };
-                      if (ids && ids.length) payload.commanderIds = ids;
-                      socket.emit('setCommander', payload);
-                    }
-                    setConfirmCmdOpen(false);
-                  }}
-                  max={2}
-                />
-              ) : (
-                <CommanderConfirmModal
-                  open={confirmCmdOpen}
-                  gameId={gameId}
-                  initialNames={confirmCmdSuggested}
-                  onClose={() => setConfirmCmdOpen(false)}
-                  onConfirm={(names) => {
-                    console.debug("[TableLayout] CommanderConfirmModal onConfirm", {
-                      gameId,
-                      names,
-                    });
-                    if (onConfirmCommander) onConfirmCommander(names);
-                    else socket.emit('setCommander', { gameId, commanderNames: names });
-                    setConfirmCmdOpen(false);
-                  }}
-                />
-              )
-            )}
           </div>
         </div>
       </div>
@@ -1099,7 +865,6 @@ export function TableLayout(props: {
         </div>
       )}
 
-      {/* Client-local import confirmation modal */}
       {importConfirmOpen && (
         <div style={{
           position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',

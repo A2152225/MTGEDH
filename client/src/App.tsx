@@ -9,6 +9,8 @@ import type {
 } from "../../shared/src";
 import { TableLayout } from "./components/TableLayout";
 import { CardPreviewLayer } from "./components/CardPreviewLayer";
+import CommanderConfirmModal from "./components/CommanderConfirmModal";
+import { CommanderSelectModal } from "./components/CommanderSelectModal";
 import NameInUseModal from "./components/NameInUseModal";
 import { ZonesPanel } from "./components/ZonesPanel";
 import { ScrySurveilModal } from "./components/ScrySurveilModal";
@@ -166,7 +168,7 @@ export function App() {
     useState<Record<string, "pending" | "yes" | "no"> | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
 
-  // per-import commander gallery candidates
+  // candidates from server
   const [importedCandidates, setImportedCandidates] = useState<
     KnownCardRef[]
   >([]);
@@ -190,8 +192,15 @@ export function App() {
     ids?: string[];
   } | null>(null);
 
-  // fallback timer ref for importedDeckCandidates
-  const fallbackTimerRef = useRef<number | null>(null);
+  // commander suggestion UI state (in App)
+  const [cmdModalOpen, setCmdModalOpen] = useState(false);
+  const [cmdSuggestedNames, setCmdSuggestedNames] = useState<string[]>([]);
+  const [cmdSuggestedGameId, setCmdSuggestedGameId] = useState<GameID | null>(
+    null
+  );
+
+  // fallback timer ref for "open modal after candidates"
+  const suggestTimerRef = useRef<number | null>(null);
 
   /* ------------------ Client-side normalization helpers ------------------ */
 
@@ -431,18 +440,23 @@ export function App() {
       setChat((prev) => [...prev.slice(-199), msg]);
     });
 
-    // When server sends resolved candidates, populate list (TableLayout will show gallery)
+    // importedDeckCandidates: simply stash; Table/UI will decide how to show
     socket.on("importedDeckCandidates", ({ gameId: gid, candidates }: any) => {
       const arr = Array.isArray(candidates) ? candidates : [];
       setImportedCandidates(arr);
-      console.debug("[socket] importedDeckCandidates received", {
+      console.debug("[App] importedDeckCandidates received", {
         gameId: gid,
-        candidates: arr,
+        count: arr.length,
       });
-
-      if (fallbackTimerRef.current) {
-        window.clearTimeout(fallbackTimerRef.current);
-        fallbackTimerRef.current = null;
+      if (suggestTimerRef.current) {
+        window.clearTimeout(suggestTimerRef.current);
+        suggestTimerRef.current = null;
+      }
+      // If a commander suggestion is pending for this game, and we were waiting,
+      // open the modal now.
+      if (cmdSuggestedGameId === gid && !cmdModalOpen) {
+        console.debug("[App] opening commander modal immediately (candidates in)");
+        setCmdModalOpen(true);
       }
     });
 
@@ -566,8 +580,15 @@ export function App() {
           if (queuedCommanderSelection.ids && queuedCommanderSelection.ids.length) {
             payload.commanderIds = queuedCommanderSelection.ids;
           }
+          console.debug("[App] flushing queued commander selection after import", payload);
           socket.emit("setCommander", payload);
           setQueuedCommanderSelection(null);
+        }
+
+        // If we just finished import for this game and have suggestions, show modal.
+        if (cmdSuggestedGameId === info.gameId && !cmdModalOpen) {
+          console.debug("[App] showing commander modal after import confirmed");
+          setCmdModalOpen(true);
         }
 
         if (!queuedCommanderSelection) {
@@ -584,6 +605,58 @@ export function App() {
     socket.on("importWipeConfirmUpdate", onUpdate);
     socket.on("importWipeCancelled", onCancelled);
     socket.on("importWipeConfirmed", onConfirmed);
+
+    // Single suggestCommanders handler in App
+    socket.on("suggestCommanders", ({ gameId: gid, names }: any) => {
+      console.debug("[App] suggestCommanders received", {
+        gameId: gid,
+        localViewId: safeView?.id,
+        names,
+        localImportConfirmOpen,
+        pendingLocalImport: pendingLocalImportRef.current,
+        confirmOpen,
+      });
+
+      const namesList = Array.isArray(names) ? names.slice(0, 2) : [];
+
+      // Save suggestion context
+      setCmdSuggestedGameId(gid);
+      setCmdSuggestedNames(namesList);
+
+      // Always request candidates; we know from your manual logs that this works
+      try {
+        socket.emit("getImportedDeckCandidates", { gameId: gid });
+      } catch (e) {
+        console.warn("[App] suggestCommanders -> getImportedDeckCandidates failed", e);
+      }
+
+      // If import UI is currently showing, don't pop yet; we'll open after confirm
+      if (localImportConfirmOpen || pendingLocalImportRef.current || confirmOpen) {
+        console.debug("[App] suggestCommanders suppressed by import UI; will open after confirm");
+        return;
+      }
+
+      // Otherwise, schedule modal open (wait briefly for importedCandidates for gallery)
+      if (suggestTimerRef.current) {
+        window.clearTimeout(suggestTimerRef.current);
+        suggestTimerRef.current = null;
+      }
+
+      const WAIT_MS = 600;
+      console.debug("[App] scheduling commander modal open", {
+        gameId: gid,
+        namesList,
+        waitMs: WAIT_MS,
+      });
+      suggestTimerRef.current = window.setTimeout(() => {
+        console.debug("[App] suggestCommanders timeout -> opening commander modal", {
+          gameId: gid,
+          importedCandidatesCount: importedCandidates.length,
+        });
+        setCmdModalOpen(true);
+        suggestTimerRef.current = null;
+      }, WAIT_MS) as unknown as number;
+    });
 
     const onNameInUse = (payload: any) => {
       setNameInUsePayload(payload);
@@ -614,11 +687,12 @@ export function App() {
       socket.off("importWipeCancelled", onCancelled);
       socket.off("importWipeConfirmed", onConfirmed);
 
+      socket.off("suggestCommanders");
       socket.off("nameInUse", onNameInUse);
 
-      if (fallbackTimerRef.current) {
-        window.clearTimeout(fallbackTimerRef.current);
-        fallbackTimerRef.current = null;
+      if (suggestTimerRef.current) {
+        window.clearTimeout(suggestTimerRef.current);
+        suggestTimerRef.current = null;
       }
     };
   }, [
@@ -629,9 +703,12 @@ export function App() {
     view,
     confirmOpen,
     queuedCommanderSelection,
-    importedCandidates,
+    importedCandidates.length,
     you,
     safeView,
+    localImportConfirmOpen,
+    cmdSuggestedGameId,
+    cmdModalOpen,
   ]);
 
   // actions
@@ -690,7 +767,7 @@ export function App() {
     setLocalImportConfirmOpen(open);
   }, []);
 
-  // Accept both names and optional ids from TableLayout
+  // Accept both names and optional ids from commander modals
   const handleCommanderConfirm = useCallback(
     (names: string[], ids?: string[]) => {
       if (!safeView || !names || names.length === 0) return;
@@ -705,11 +782,17 @@ export function App() {
           names: names.slice(0, 2),
           ids: ids && ids.length ? ids.slice(0, 2) : undefined,
         });
+        console.debug("[App] queuing commander selection", {
+          gameId: safeView.id,
+          names,
+          ids,
+        });
         return;
       }
 
       const payload: any = { gameId: safeView.id, commanderNames: names };
       if (ids && ids.length) payload.commanderIds = ids;
+      console.debug("[App] emitting setCommander", payload);
       socket.emit("setCommander", payload);
     },
     [safeView, confirmOpen]
@@ -795,6 +878,11 @@ export function App() {
 
   const canAdvanceTurn = canAdvanceStep;
 
+  const effectiveGameId = safeView?.id ?? gameId;
+
+  const showCommanderGallery =
+    cmdModalOpen && cmdSuggestedGameId && importedCandidates.length > 0;
+
   return (
     <div
       style={{
@@ -816,7 +904,7 @@ export function App() {
           <div>
             <h1 style={{ margin: 0 }}>MTGEDH</h1>
             <div style={{ fontSize: 12, color: "#666" }}>
-              Game: {safeView?.id ?? gameId} • Format:{" "}
+              Game: {effectiveGameId} • Format:{" "}
               {String(safeView?.format ?? "")}
             </div>
           </div>
@@ -1044,15 +1132,7 @@ export function App() {
                 }
                 onImportDeckText={(txt, nm) => requestImportDeck(txt, nm)}
                 onUseSavedDeck={(deckId) => requestUseSavedDeck(deckId)}
-                onLocalImportConfirmChange={(open: boolean) =>
-                  setLocalImportConfirmOpen(open)
-                }
-                suppressCommanderSuggest={
-                  localImportConfirmOpen || pendingLocalImport || confirmOpen
-                }
-                onConfirmCommander={(names: string[], ids?: string[]) =>
-                  handleCommanderConfirm(names, ids)
-                }
+                onLocalImportConfirmChange={handleLocalImportConfirmChange}
                 gameId={safeView.id}
                 stackItems={safeView.stack as any}
                 importedCandidates={importedCandidates}
@@ -1111,6 +1191,36 @@ export function App() {
       </div>
 
       <CardPreviewLayer />
+
+      {/* Commander selection UI (App-level) */}
+      {effectiveGameId &&
+        cmdModalOpen &&
+        cmdSuggestedGameId === effectiveGameId && (
+          showCommanderGallery ? (
+            <CommanderSelectModal
+              open={cmdModalOpen}
+              onClose={() => setCmdModalOpen(false)}
+              deckList={importedCandidates.map((c) => c.name).join("\n")}
+              candidates={importedCandidates}
+              max={2}
+              onConfirm={(names, ids) => {
+                handleCommanderConfirm(names, ids);
+                setCmdModalOpen(false);
+              }}
+            />
+          ) : (
+            <CommanderConfirmModal
+              open={cmdModalOpen}
+              gameId={effectiveGameId}
+              initialNames={cmdSuggestedNames}
+              onClose={() => setCmdModalOpen(false)}
+              onConfirm={(names) => {
+                handleCommanderConfirm(names);
+                setCmdModalOpen(false);
+              }}
+            />
+          )
+        )}
 
       {debugOpen && (
         <div
