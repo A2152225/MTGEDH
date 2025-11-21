@@ -32,6 +32,7 @@ import {
   renameDeck as renameDeckDB,
   deleteDeck as deleteDeckDB
 } from './db/decks';
+import { io } from "socket.io-client";
 
 // types
 type TypedServer = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
@@ -41,7 +42,10 @@ const games: Map<GameID, InMemoryGame> = new Map();
 // Priority timeout timers per game
 const priorityTimers = new Map<GameID, NodeJS.Timeout>();
 const PRIORITY_TIMEOUT_MS = 30_000;
-
+export const socket = io("http://127.0.0.1:3001", {
+  // options if needed, e.g.:
+  // withCredentials: true,
+});
 function clearPriorityTimer(gameId: GameID) {
   const t = priorityTimers.get(gameId);
   if (t) {
