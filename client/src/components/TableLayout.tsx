@@ -140,7 +140,7 @@ export function TableLayout(props: {
   // Lightweight console debug snapshot to trace gameId/props initialization races
   useEffect(() => {
     try {
-      console.debug("[TableLayout] snapshot:", {
+      console.debug("[TableLayout] snapshot", {
         gameId,
         you,
         playersCount: Array.isArray(players) ? players.length : undefined,
@@ -292,7 +292,7 @@ export function TableLayout(props: {
           const newCamY = worldY - (targetSY - container.h / 2) / z;
           setCam(c => ({ x: newCamX, y: newCamY, z: preserveZoom ? c.z : c.z }));
           return;
-      }
+        }
       }
     } catch (err) {
       console.warn('centerOnYou DOM centering failed', err);
@@ -367,20 +367,55 @@ export function TableLayout(props: {
   // timer ref to wait briefly for importedCandidates before falling back to text modal
   const suggestTimerRef = useRef<number | null>(null);
 
+  // Log actual modal open
+  useEffect(() => {
+    if (confirmCmdOpen) {
+      console.debug("[TableLayout] confirmCmdOpen=true -> commander selection UI shown", {
+        gameId,
+        suggestedNames: confirmCmdSuggested,
+        importedCandidatesCount: importedCandidates?.length ?? 0,
+      });
+    }
+  }, [confirmCmdOpen, gameId, confirmCmdSuggested, importedCandidates]);
+
   useEffect(() => {
     const onSuggest = ({ gameId: gid, names }: { gameId: GameID; names: string[] }) => {
-      if (!props.gameId || gid !== props.gameId) return;
-      const namesList = Array.isArray(names) ? names.slice(0,2) : [];
+      console.debug("[TableLayout] onSuggestCommanders received", {
+        incomingGameId: gid,
+        localGameId: props.gameId,
+        names,
+        suppressCommanderSuggest,
+      });
+
+      if (!props.gameId || gid !== props.gameId) {
+        console.debug("[TableLayout] onSuggestCommanders ignored (gameId mismatch or missing)", {
+          incomingGameId: gid,
+          localGameId: props.gameId,
+        });
+        return;
+      }
+
+      const namesList = Array.isArray(names) ? names.slice(0, 2) : [];
+
       // If suppressed, queue for later
       if (suppressCommanderSuggest) {
+        console.debug("[TableLayout] onSuggestCommanders -> suppressed, queuing suggestion", {
+          gameId: gid,
+          namesList,
+        });
         setQueuedCmdSuggest({ gameId: gid, names: namesList });
         return;
       }
 
       // Ask server for imported deck candidates only when we have a valid gameId
       try {
-        if (props.gameId) (socket as any).emit('getImportedDeckCandidates', { gameId: gid });
-      } catch (e) { /* ignore */ }
+        if (props.gameId) {
+          console.debug("[TableLayout] onSuggestCommanders -> requesting importedDeckCandidates", { gameId: gid });
+          (socket as any).emit('getImportedDeckCandidates', { gameId: gid });
+        }
+      } catch (e) {
+        console.warn("[TableLayout] onSuggestCommanders -> getImportedDeckCandidates emit failed", e);
+      }
 
       setConfirmCmdSuggested(namesList);
 
@@ -391,13 +426,22 @@ export function TableLayout(props: {
       }
 
       // Start a wait: if importedCandidates arrives within this time, we'll open the card-based modal.
-      // Increase WAIT_MS to 1200ms to reduce races.
       const WAIT_MS = 1200;
+      console.debug("[TableLayout] onSuggestCommanders -> scheduling commander modal open", {
+        gameId: gid,
+        waitMs: WAIT_MS,
+        namesList,
+      });
       suggestTimerRef.current = window.setTimeout(() => {
+        console.debug("[TableLayout] onSuggestCommanders -> timeout fired, opening commander modal (possibly text-only)", {
+          gameId: gid,
+          importedCandidatesCount: importedCandidates?.length ?? 0,
+        });
         setConfirmCmdOpen(true);
         suggestTimerRef.current = null;
       }, WAIT_MS) as unknown as number;
     };
+
     (socket as any).on('suggestCommanders', onSuggest);
     return () => {
       (socket as any).off('suggestCommanders', onSuggest);
@@ -406,31 +450,53 @@ export function TableLayout(props: {
         suggestTimerRef.current = null;
       }
     };
-  }, [props.gameId, suppressCommanderSuggest]);
+  }, [props.gameId, suppressCommanderSuggest, importedCandidates]);
 
   // If importedCandidates arrive while we are waiting, open the modal immediately and cancel timer
   useEffect(() => {
     if (suggestTimerRef.current && importedCandidates && importedCandidates.length > 0) {
+      console.debug("[TableLayout] importedCandidates arrived while waiting -> opening commander modal now", {
+        gameId,
+        importedCandidatesCount: importedCandidates.length,
+      });
       window.clearTimeout(suggestTimerRef.current);
       suggestTimerRef.current = null;
       setConfirmCmdOpen(true);
     }
-  }, [importedCandidates]);
+  }, [importedCandidates, gameId]);
 
   // when suppression clears, show any queued suggestion
   useEffect(() => {
     if (!suppressCommanderSuggest && queuedCmdSuggest && queuedCmdSuggest.gameId === props.gameId) {
-      try { if (queuedCmdSuggest.gameId) (socket as any).emit('getImportedDeckCandidates', { gameId: queuedCmdSuggest.gameId }); } catch {}
+      console.debug("[TableLayout] suppression cleared, flushing queued commander suggestion", {
+        gameId: props.gameId,
+        queuedGameId: queuedCmdSuggest.gameId,
+        names: queuedCmdSuggest.names,
+      });
+      try {
+        if (queuedCmdSuggest.gameId) {
+          (socket as any).emit('getImportedDeckCandidates', { gameId: queuedCmdSuggest.gameId });
+        }
+      } catch (e) {
+        console.warn("[TableLayout] failed to emit getImportedDeckCandidates when flushing queued suggestion", e);
+      }
       setConfirmCmdSuggested(queuedCmdSuggest.names || []);
-      if (suggestTimerRef.current) { window.clearTimeout(suggestTimerRef.current); suggestTimerRef.current = null; }
+      if (suggestTimerRef.current) {
+        window.clearTimeout(suggestTimerRef.current);
+        suggestTimerRef.current = null;
+      }
       const WAIT_MS = 1200;
       suggestTimerRef.current = window.setTimeout(() => {
+        console.debug("[TableLayout] queued suggestion -> timeout fired, opening commander modal", {
+          gameId: queuedCmdSuggest.gameId,
+          importedCandidatesCount: importedCandidates?.length ?? 0,
+        });
         setConfirmCmdOpen(true);
         suggestTimerRef.current = null;
       }, WAIT_MS) as unknown as number;
       setQueuedCmdSuggest(null);
     }
-  }, [suppressCommanderSuggest, queuedCmdSuggest, props.gameId]);
+  }, [suppressCommanderSuggest, queuedCmdSuggest, props.gameId, importedCandidates]);
 
   const [deckMgrOpen, setDeckMgrOpen] = useState(false);
   const decksBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -444,12 +510,17 @@ export function TableLayout(props: {
 
   // Local import-confirm modal state
   const [importConfirmOpen, setImportConfirmOpen] = useState(false);
-  const [importPending, setImportPending] = useState<{ type: 'text'; text: string; name?: string } | { type: 'server'; deckId: string } | null>(null);
+  const [importPending, setImportPending] = useState<
+    { type: 'text'; text: string; name?: string } |
+    { type: 'server'; deckId: string } |
+    null
+  >(null);
 
   // NEW: helper to ask server whether import can be applied importer-only (no wipe)
   function askServerImporterOnlyThen(action: () => void, fallbackOpenConfirm: () => void) {
     // If we don't have a gameId, fall back immediately to opening local confirm
     if (!props.gameId) {
+      console.debug("[TableLayout] askServerImporterOnlyThen -> no gameId, falling back to local confirm");
       fallbackOpenConfirm();
       return;
     }
@@ -459,15 +530,18 @@ export function TableLayout(props: {
     const timer = window.setTimeout(() => {
       if (!handled) {
         handled = true;
+        console.warn("[TableLayout] askServerImporterOnlyThen -> timeout, falling back to confirm");
         fallbackOpenConfirm();
       }
     }, TIMEOUT_MS);
 
     try {
+      console.debug("[TableLayout] askServerImporterOnlyThen -> emitting canImportWithoutWipe", { gameId: props.gameId });
       (socket as any).emit('canImportWithoutWipe', { gameId: props.gameId }, (resp: any) => {
         if (handled) return;
         handled = true;
         window.clearTimeout(timer as unknown as number);
+        console.debug("[TableLayout] canImportWithoutWipe response", { resp });
         if (resp && resp.importerOnly) {
           action();
         } else {
@@ -478,24 +552,30 @@ export function TableLayout(props: {
       if (!handled) {
         handled = true;
         window.clearTimeout(timer as unknown as number);
+        console.warn("[TableLayout] askServerImporterOnlyThen emit failed, falling back to confirm", e);
         fallbackOpenConfirm();
       }
     }
   }
 
-  // The import initiation paths now preflight with the server.
   const handleRequestImportText = (text: string, name?: string) => {
+    console.debug("[TableLayout] handleRequestImportText", { textPreview: text.slice(0, 40), name });
     setImportPending({ type: 'text', text, name });
 
     askServerImporterOnlyThen(
       () => {
-        // action: call through to prop to perform import immediately
-        try { if (typeof onImportDeckText === 'function') onImportDeckText(text, name); } catch (e) { console.warn("onImportDeckText failed:", e); }
+        try {
+          console.debug("[TableLayout] importer-only importDeckText", { name });
+          if (typeof onImportDeckText === 'function') onImportDeckText(text, name);
+        } catch (e) {
+          console.warn("onImportDeckText failed:", e);
+        }
         setImportPending(null);
         setDeckMgrOpen(false);
         onLocalImportConfirmChange?.(false);
       },
       () => {
+        console.debug("[TableLayout] handleRequestImportText -> opening local import confirm");
         setImportConfirmOpen(true);
         onLocalImportConfirmChange?.(true);
       }
@@ -503,16 +583,23 @@ export function TableLayout(props: {
   };
 
   const handleRequestUseSavedDeck = (deckId: string) => {
+    console.debug("[TableLayout] handleRequestUseSavedDeck", { deckId });
     setImportPending({ type: 'server', deckId });
 
     askServerImporterOnlyThen(
       () => {
-        try { if (typeof onUseSavedDeck === 'function') onUseSavedDeck(deckId); } catch (e) { console.warn("onUseSavedDeck failed:", e); }
+        try {
+          console.debug("[TableLayout] importer-only useSavedDeck", { deckId });
+          if (typeof onUseSavedDeck === 'function') onUseSavedDeck(deckId);
+        } catch (e) {
+          console.warn("onUseSavedDeck failed:", e);
+        }
         setImportPending(null);
         setDeckMgrOpen(false);
         onLocalImportConfirmChange?.(false);
       },
       () => {
+        console.debug("[TableLayout] handleRequestUseSavedDeck -> opening local import confirm");
         setImportConfirmOpen(true);
         onLocalImportConfirmChange?.(true);
       }
@@ -520,7 +607,12 @@ export function TableLayout(props: {
   };
 
   const confirmAndImport = () => {
-    if (!importPending) { setImportConfirmOpen(false); onLocalImportConfirmChange?.(false); return; }
+    console.debug("[TableLayout] confirmAndImport", { importPending });
+    if (!importPending) {
+      setImportConfirmOpen(false);
+      onLocalImportConfirmChange?.(false);
+      return;
+    }
     if (importPending.type === 'text') {
       onImportDeckText?.(importPending.text, importPending.name);
     } else {
@@ -533,6 +625,7 @@ export function TableLayout(props: {
   };
 
   const cancelImportPending = () => {
+    console.debug("[TableLayout] cancelImportPending");
     setImportPending(null);
     setImportConfirmOpen(false);
     onLocalImportConfirmChange?.(false);
@@ -593,26 +686,40 @@ export function TableLayout(props: {
                 const isYouThis = you && pb.player.id === you;
                 const allowReorderHere = Boolean(isYouThis && enableReorderForYou && !onPermanentClick);
 
-                const yourHand = (isYouThis && zones?.[you!]?.hand
-                  ? (zones![you!].hand as any as Array<{ id: string; name?: string; type_line?: string; image_uris?: { small?: string; normal?: string }; faceDown?: boolean; }>)
-                  : []) || [];
+                const yourHand =
+                  (isYouThis && zones?.[you!]?.hand
+                    ? (zones![you!].hand as any as Array<{
+                        id: string;
+                        name?: string;
+                        type_line?: string;
+                        image_uris?: { small?: string; normal?: string };
+                        faceDown?: boolean;
+                      }>)
+                    : []) || [];
 
                 const zObj = zones?.[pb.player.id];
                 const cmdObj = commandZone?.[pb.player.id];
                 const isCommanderFormat = (format || '').toLowerCase() === 'commander';
 
-                const lifeVal = (props as any).life?.[pb.player.id] ?? (props as any).state?.startingLife ?? 40;
+                const lifeVal =
+                  (props as any).life?.[pb.player.id] ??
+                  (props as any).state?.startingLife ??
+                  40;
                 const poisonVal = (props as any).poisonCounters?.[pb.player.id] ?? 0;
-                const xpVal = (props as any).experienceCounters?.[pb.player.id] ?? 0;
-                const energyVal = (props as any).energyCounters?.[pb.player.id] ?? (props as any).energy?.[pb.player.id] ?? 0;
+                const xpVal =
+                  (props as any).experienceCounters?.[pb.player.id] ?? 0;
+                const energyVal =
+                  (props as any).energyCounters?.[pb.player.id] ??
+                  (props as any).energy?.[pb.player.id] ??
+                  0;
 
                 return (
                   <div
                     key={pb.player.id}
                     style={{
                       position: 'absolute',
-                      left: pos.x - BOARD_W/2,
-                      top: pos.y - BOARD_H/2,
+                      left: pos.x - BOARD_W / 2,
+                      top: pos.y - BOARD_H / 2,
                       width: BOARD_W,
                       transform: `translate(0,0) rotate(${isYouThis ? 0 : pos.rotateDeg}deg)`,
                       transformOrigin: '50% 50%'
@@ -634,19 +741,57 @@ export function TableLayout(props: {
                     >
                       <div>
                         {/* Header row */}
-                        <div style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          marginBottom: 8
-                        }}>
-                          <div style={{ fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            marginBottom: 8
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontWeight: 700,
+                              color: '#fff',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 10
+                            }}
+                          >
                             <span>{pb.player.name}</span>
-                            <div style={{ display: 'flex', gap: 6, fontSize: 11 }}>
-                              <span title="Life" style={{ color: '#4ade80' }}>L:{lifeVal}</span>
-                              <span title="Poison Counters" style={{ color: poisonVal > 0 ? '#f87171' : '#aaa' }}>P:{poisonVal}</span>
-                              <span title="Experience Counters" style={{ color: xpVal > 0 ? '#60a5fa' : '#aaa' }}>XP:{xpVal}</span>
-                              <span title="Energy Counters" style={{ color: '#ffd166' }}>E:{energyVal}</span>
+                            <div
+                              style={{
+                                display: 'flex',
+                                gap: 6,
+                                fontSize: 11
+                              }}
+                            >
+                              <span title="Life" style={{ color: '#4ade80' }}>
+                                L:{lifeVal}
+                              </span>
+                              <span
+                                title="Poison Counters"
+                                style={{
+                                  color:
+                                    poisonVal > 0 ? '#f87171' : '#aaa'
+                                }}
+                              >
+                                P:{poisonVal}
+                              </span>
+                              <span
+                                title="Experience Counters"
+                                style={{
+                                  color: xpVal > 0 ? '#60a5fa' : '#aaa'
+                                }}
+                              >
+                                XP:{xpVal}
+                              </span>
+                              <span
+                                title="Energy Counters"
+                                style={{ color: '#ffd166' }}
+                              >
+                                E:{energyVal}
+                              </span>
                             </div>
                             {isYouThis && (
                               <button
@@ -654,9 +799,15 @@ export function TableLayout(props: {
                                 type="button"
                                 onClick={() => setDeckMgrOpen(true)}
                                 style={{ fontSize: 11 }}
-                                title={gameId ? "Manage / Import Deck" : "Waiting for game to be ready"}
+                                title={
+                                  gameId
+                                    ? 'Manage / Import Deck'
+                                    : 'Waiting for game to be ready'
+                                }
                                 disabled={!gameId}
-                              >Decks</button>
+                              >
+                                Decks
+                              </button>
                             )}
                           </div>
                           {onPlayerClick && (
@@ -666,9 +817,17 @@ export function TableLayout(props: {
                               disabled={!canTargetPlayer}
                               style={{
                                 border: '1px solid',
-                                borderColor: isPlayerSelected ? '#2b6cb0' : canTargetPlayer ? '#38a169' : '#555',
+                                borderColor: isPlayerSelected
+                                  ? '#2b6cb0'
+                                  : canTargetPlayer
+                                  ? '#38a169'
+                                  : '#555',
                                 background: 'transparent',
-                                color: isPlayerSelected ? '#2b6cb0' : canTargetPlayer ? '#38a169' : '#888',
+                                color: isPlayerSelected
+                                  ? '#2b6cb0'
+                                  : canTargetPlayer
+                                  ? '#38a169'
+                                  : '#888',
                                 padding: '2px 8px',
                                 borderRadius: 6,
                                 fontSize: 12
@@ -679,7 +838,11 @@ export function TableLayout(props: {
                           )}
                         </div>
 
-                        <AttachmentLines containerRef={{ current: null } as any} permanents={pb.permanents} opacity={0.5} />
+                        <AttachmentLines
+                          containerRef={{ current: null } as any}
+                          permanents={pb.permanents}
+                          opacity={0.5}
+                        />
 
                         <FreeField
                           perms={others}
@@ -688,7 +851,9 @@ export function TableLayout(props: {
                           widthPx={FREE_W}
                           heightPx={FREE_H}
                           draggable={!!isYouThis}
-                          onMove={(id, xx, yy, zz) => onUpdatePermPos?.(id, xx, yy, zz)}
+                          onMove={(id, xx, yy, zz) =>
+                            onUpdatePermPos?.(id, xx, yy, zz)
+                          }
                           highlightTargets={highlightPermTargets}
                           selectedTargets={selectedPermTargets}
                           onCardClick={onPermanentClick}
@@ -696,7 +861,15 @@ export function TableLayout(props: {
 
                         {lands.length > 0 && (
                           <div style={{ marginTop: 12 }} data-no-zoom>
-                            <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 6 }}>Lands</div>
+                            <div
+                              style={{
+                                fontSize: 12,
+                                opacity: 0.7,
+                                marginBottom: 6
+                              }}
+                            >
+                              Lands
+                            </div>
                             <LandRow
                               lands={lands}
                               imagePref={imagePref}
@@ -717,7 +890,9 @@ export function TableLayout(props: {
                               tokens={tokens}
                               groupMode="name+pt+attach"
                               attachedToSet={attachedToSet}
-                              onBulkCounter={(ids, deltas) => onBulkCounter?.(ids, deltas)}
+                              onBulkCounter={(ids, deltas) =>
+                                onBulkCounter?.(ids, deltas)
+                              }
                               highlightTargets={highlightPermTargets}
                               selectedTargets={selectedPermTargets}
                               onTokenClick={onPermanentClick}
@@ -739,10 +914,28 @@ export function TableLayout(props: {
                             }}
                             data-no-zoom
                           >
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                              <div style={{ fontSize: 12, color: '#ddd' }}>Your Hand</div>
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                marginBottom: 6
+                              }}
+                            >
+                              <div
+                                style={{ fontSize: 12, color: '#ddd' }}
+                              >
+                                Your Hand
+                              </div>
                               {onShuffleHand && (
-                                <button type="button" onClick={() => onShuffleHand()} style={{ fontSize: 12, padding: '2px 8px' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => onShuffleHand()}
+                                  style={{
+                                    fontSize: 12,
+                                    padding: '2px 8px'
+                                  }}
+                                >
                                   Shuffle
                                 </button>
                               )}
@@ -750,10 +943,20 @@ export function TableLayout(props: {
                             <HandGallery
                               cards={yourHand}
                               imagePref={imagePref}
-                              onPlayLand={(cardId) => onPlayLandFromHand?.(cardId)}
-                              onCast={(cardId) => onCastFromHand?.(cardId)}
-                              reasonCannotPlayLand={c => reasonCannotPlayLand ? reasonCannotPlayLand(c) : null}
-                              reasonCannotCast={c => reasonCannotCast ? reasonCannotCast(c) : null}
+                              onPlayLand={(cardId) =>
+                                onPlayLandFromHand?.(cardId)
+                              }
+                              onCast={(cardId) =>
+                                onCastFromHand?.(cardId)
+                              }
+                              reasonCannotPlayLand={(c) =>
+                                reasonCannotPlayLand
+                                  ? reasonCannotPlayLand(c)
+                                  : null
+                              }
+                              reasonCannotCast={(c) =>
+                                reasonCannotCast ? reasonCannotCast(c) : null
+                              }
                               thumbWidth={TILE_W}
                               zoomScale={1}
                               layout="wrap2"
@@ -766,18 +969,36 @@ export function TableLayout(props: {
                         )}
                       </div>
 
-                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center' }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          justifyContent: 'center'
+                        }}
+                      >
                         {zObj && (
                           <ZonesPiles
                             zones={zObj}
                             commander={cmdObj}
                             isCommanderFormat={isCommanderFormat}
-                            showHandCount={!isYouThis ? (zObj.handCount ?? (Array.isArray(zObj.hand) ? zObj.hand.length : 0)) : undefined}
+                            showHandCount={
+                              !isYouThis
+                                ? zObj.handCount ??
+                                  (Array.isArray(zObj.hand)
+                                    ? zObj.hand.length
+                                    : 0)
+                                : undefined
+                            }
                             hideHandDetails={!isYouThis}
-                            canCastCommander={!!(isCommanderFormat && isYouThis && gameId)}
+                            canCastCommander={
+                              !!(isCommanderFormat && isYouThis && gameId)
+                            }
                             onCastCommander={(commanderIdOrName) => {
                               if (!gameId) return;
-                              socket.emit('castCommander', { gameId, commanderNameOrId: commanderIdOrName });
+                              socket.emit('castCommander', {
+                                gameId,
+                                commanderNameOrId: commanderIdOrName
+                              });
                             }}
                           />
                         )}
@@ -808,6 +1029,11 @@ export function TableLayout(props: {
                   deckList={(importedCandidates || []).map(c => c.name).join("\n")}
                   candidates={importedCandidates}
                   onConfirm={(names: string[], ids?: string[]) => {
+                    console.debug("[TableLayout] CommanderSelectModal onConfirm", {
+                      gameId,
+                      names,
+                      ids,
+                    });
                     if (onConfirmCommander) onConfirmCommander(names, ids);
                     else {
                       const payload: any = { gameId, commanderNames: names };
@@ -825,6 +1051,10 @@ export function TableLayout(props: {
                   initialNames={confirmCmdSuggested}
                   onClose={() => setConfirmCmdOpen(false)}
                   onConfirm={(names) => {
+                    console.debug("[TableLayout] CommanderConfirmModal onConfirm", {
+                      gameId,
+                      names,
+                    });
                     if (onConfirmCommander) onConfirmCommander(names);
                     else socket.emit('setCommander', { gameId, commanderNames: names });
                     setConfirmCmdOpen(false);
