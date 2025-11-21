@@ -214,112 +214,82 @@ useEffect(() => {
 
     // Normalized state handler: normalize and set view
     // IMPORTANT: attach gameId into the incoming view so client code can reference view.id
-    /*socket.on("state", ({ gameId: incomingGameId, view: newView }: any) => {
-      // attach id to view so downstream UI (TableLayout) sees it
-      if (newView && incomingGameId) {
-        setView({ ...newView, id: incomingGameId });
-      } else if (newView) {
-        setView(newView);
-      } else {
-        setView(null);
+    socket.on("state", (payload: any) => {
+      try {
+        // Accept either:
+        //  - payload = { gameId, view }
+        //  - payload = view (full view object)
+        //  - payload = null
+        let incomingGameId: string | undefined;
+        let newView: any | null = null;
+
+        if (!payload) {
+          setView(null);
+          console.debug("[socket] state (raw) null payload");
+          return;
+        }
+
+        if (payload && typeof payload === "object" && ("gameId" in payload) && ("view" in payload)) {
+          incomingGameId = payload.gameId;
+          newView = payload.view;
+        } else {
+          // assume payload itself is the view object
+          newView = payload;
+          incomingGameId = (payload && (payload.id || payload.gameId)) || undefined;
+        }
+
+        if (newView) {
+          // attach id from incomingGameId if available
+          const viewWithId = incomingGameId ? { ...newView, id: incomingGameId } : newView;
+          setView(viewWithId);
+        } else {
+          setView(null);
+        }
+
+        console.debug("[socket] state (raw)", { incomingGameId, newView });
+      } catch (e) {
+        console.warn("state handler failed:", e);
       }
-      console.debug("[socket] state (raw)", { gameId: incomingGameId, view: newView });
     });
 
-    // stateDiff may be emitted with a gameId alongside diff; attach gameId when applying full/after views
-    socket.on("stateDiff", ({ gameId: incomingGameId, diff }: any) => {
+    socket.on("stateDiff", (payload: any) => {
       try {
+        // Accept payload forms:
+        //  - { gameId, diff: { full: {...} } }
+        //  - { gameId, diff: { after: {...} } }
+        //  - payload = { full: {...} } or { after: {...} } (standalone)
+        if (!payload) return;
+
+        let incomingGameId: string | undefined;
+        let diff: any = null;
+
+        if (payload && typeof payload === "object" && ("gameId" in payload) && ("diff" in payload)) {
+          incomingGameId = payload.gameId;
+          diff = payload.diff;
+        } else if (payload && typeof payload === "object" && ("full" in payload || "after" in payload)) {
+          diff = payload;
+          incomingGameId = (payload.full && payload.full.id) || (payload.after && payload.after.id) || undefined;
+        } else {
+          // Unknown shape — try to treat payload as 'after' full view
+          diff = { after: payload };
+        }
+
         if (diff?.full) {
           const full = diff.full;
           setView(incomingGameId ? { ...full, id: incomingGameId } : full);
-          console.debug("[socket] stateDiff full (raw)", { gameId: incomingGameId, view: full });
+          console.debug("[socket] stateDiff full (raw)", { incomingGameId, view: full });
         } else if (diff?.after) {
           const after = diff.after;
           setView(incomingGameId ? { ...after, id: incomingGameId } : after);
-          console.debug("[socket] stateDiff after (raw)", { gameId: incomingGameId, view: after });
+          console.debug("[socket] stateDiff after (raw)", { incomingGameId, view: after });
+        } else {
+          console.debug("[socket] stateDiff (unrecognized)", { payload });
         }
       } catch (e) {
         console.warn("stateDiff handling failed:", e);
       }
     });
-*/
-// --- Replace existing `socket.on("state", ...)` handler with this:
-socket.on("state", (payload: any) => {
-  try {
-    // Accept either:
-    //  - payload = { gameId, view }
-    //  - payload = view (full view object)
-    //  - payload = null
-    let incomingGameId: string | undefined;
-    let newView: any | null = null;
 
-    if (!payload) {
-      setView(null);
-      console.debug("[socket] state (raw) null payload");
-      return;
-    }
-
-    if (payload && typeof payload === "object" && ("gameId" in payload) && ("view" in payload)) {
-      incomingGameId = payload.gameId;
-      newView = payload.view;
-    } else {
-      // assume payload itself is the view object
-      newView = payload;
-      incomingGameId = (payload && (payload.id || payload.gameId)) || undefined;
-    }
-
-    if (newView) {
-      // attach id from incomingGameId if available
-      const viewWithId = incomingGameId ? { ...newView, id: incomingGameId } : newView;
-      setView(viewWithId);
-    } else {
-      setView(null);
-    }
-
-    console.debug("[socket] state (raw)", { incomingGameId, newView });
-  } catch (e) {
-    console.warn("state handler failed:", e);
-  }
-});
-
-// --- Replace existing `socket.on("stateDiff", ...)` handler with this:
-socket.on("stateDiff", (payload: any) => {
-  try {
-    // Accept payload forms:
-    //  - { gameId, diff: { full: {...} } }
-    //  - { gameId, diff: { after: {...} } }
-    //  - payload = { full: {...} } or { after: {...} } (standalone)
-    if (!payload) return;
-
-    let incomingGameId: string | undefined;
-    let diff: any = null;
-
-    if (payload && typeof payload === "object" && ("gameId" in payload) && ("diff" in payload)) {
-      incomingGameId = payload.gameId;
-      diff = payload.diff;
-    } else if (payload && typeof payload === "object" && ("full" in payload || "after" in payload)) {
-      diff = payload;
-      incomingGameId = (payload.full && payload.full.id) || (payload.after && payload.after.id) || undefined;
-    } else {
-      // Unknown shape — try to treat payload as 'after' full view
-      diff = { after: payload };
-    }
-
-    if (diff?.full) {
-      const full = diff.full;
-      setView(incomingGameId ? { ...full, id: incomingGameId } : full);
-      console.debug("[socket] stateDiff full (raw)", { incomingGameId, view: full });
-    } else if (diff?.after) {
-      const after = diff.after;
-      setView(incomingGameId ? { ...after, id: incomingGameId } : after);
-      console.debug("[socket] stateDiff after (raw)", { incomingGameId, view: after });
-    } else {
-      console.debug("[socket] stateDiff (unrecognized)", { payload });
-    }
-  } catch (e) {
-    console.warn("stateDiff handling failed:", e);
-  }
-});
     socket.on("priority", ({ player }: any) => setPriority(player));
 
     socket.on("chat", (msg: ChatMsg) => {
@@ -327,50 +297,49 @@ socket.on("stateDiff", (payload: any) => {
     });
 
     // When server sends resolved candidates, populate list and open queued suggestion if present.
-   // --- Replace existing `socket.on("importedDeckCandidates", ...)` handler with:
-socket.on("importedDeckCandidates", ({ gameId: gid, candidates }: any) => {
-  const arr = Array.isArray(candidates) ? candidates : [];
-  setImportedCandidates(arr);
-  console.debug("[socket] importedDeckCandidates received", { gameId: gid, candidates: arr });
+    socket.on("importedDeckCandidates", ({ gameId: gid, candidates }: any) => {
+      const arr = Array.isArray(candidates) ? candidates : [];
+      setImportedCandidates(arr);
+      console.debug("[socket] importedDeckCandidates received", { gameId: gid, candidates: arr });
 
-  // clear any scheduled fallback
-  if (fallbackTimerRef.current) {
-    window.clearTimeout(fallbackTimerRef.current);
-    fallbackTimerRef.current = null;
-  }
-
-  try {
-    // If we have a queued suggestion for this game, open gallery with queued names (or resolved candidates)
-    const queued = queuedCommanderRef.current;
-    if (queued && queued.gameId === gid) {
-      const namesFromQueue = Array.isArray(queued.names) && queued.names.length ? queued.names.slice(0,2) : [];
-      if (namesFromQueue.length) setCmdSuggestNames(namesFromQueue);
-      else if (arr && arr.length) setCmdSuggestNames([arr[0]?.name, arr[1]?.name].filter(Boolean).slice(0,2));
-      else setCmdSuggestNames([]);
-      // Only open if not suppressed
-      if (!localImportConfirmRef.current && !pendingLocalImportRef.current && !confirmOpen) {
-        setCmdSuggestOpen(true);
-        setQueuedCommanderSuggest(null);
-        queuedCommanderRef.current = null;
-        return;
+      // clear any scheduled fallback
+      if (fallbackTimerRef.current) {
+        window.clearTimeout(fallbackTimerRef.current);
+        fallbackTimerRef.current = null;
       }
-    }
 
-    // If not suppressed and we have resolved candidates, open gallery automatically
-    if (!localImportConfirmRef.current && !pendingLocalImportRef.current && !confirmOpen) {
-      if (arr && arr.length && safeView && safeView.id === gid) {
-        setCmdSuggestNames([arr[0]?.name, arr[1]?.name].filter(Boolean).slice(0,2));
-        setCmdSuggestOpen(true);
-        // clear any queued suggestion state
-        setQueuedCommanderSuggest(null);
-        queuedCommanderRef.current = null;
+      try {
+        // If we have a queued suggestion for this game, open gallery with queued names (or resolved candidates)
+        const queued = queuedCommanderRef.current;
+        if (queued && queued.gameId === gid) {
+          const namesFromQueue = Array.isArray(queued.names) && queued.names.length ? queued.names.slice(0,2) : [];
+          if (namesFromQueue.length) setCmdSuggestNames(namesFromQueue);
+          else if (arr && arr.length) setCmdSuggestNames([arr[0]?.name, arr[1]?.name].filter(Boolean).slice(0,2));
+          else setCmdSuggestNames([]);
+          // Only open if not suppressed
+          if (!localImportConfirmRef.current && !pendingLocalImportRef.current && !confirmOpen) {
+            setCmdSuggestOpen(true);
+            setQueuedCommanderSuggest(null);
+            queuedCommanderRef.current = null;
+            return;
+          }
+        }
+
+        // If not suppressed and we have resolved candidates, open gallery automatically
+        if (!localImportConfirmRef.current && !pendingLocalImportRef.current && !confirmOpen) {
+          if (arr && arr.length && safeView && safeView.id === gid) {
+            setCmdSuggestNames([arr[0]?.name, arr[1]?.name].filter(Boolean).slice(0,2));
+            setCmdSuggestOpen(true);
+            // clear any queued suggestion state
+            setQueuedCommanderSuggest(null);
+            queuedCommanderRef.current = null;
+          }
+        }
+        // otherwise, leave candidates and queued suggestion in place for later
+      } catch (e) {
+        console.warn("importedDeckCandidates handler failed:", e);
       }
-    }
-    // otherwise, leave candidates and queued suggestion in place for later
-  } catch (e) {
-    console.warn("importedDeckCandidates handler failed:", e);
-  }
-});
+    });
 
     socket.on("deckImportMissing", ({ gameId: gid, missing }: any) => {
       setMissingImport(Array.isArray(missing) ? missing : []);
@@ -463,50 +432,36 @@ socket.on("importedDeckCandidates", ({ gameId: gid, candidates }: any) => {
     socket.on("importWipeCancelled", onCancelled);
     socket.on("importWipeConfirmed", onConfirmed);
 
-    // Suggest commanders: request candidates and schedule an App-level text fallback after WAIT_MS
-    // --- Replace existing `socket.on("suggestCommanders", ...)` handler with:
-// Replace existing `socket.on("suggestCommanders", ...)` handler with this:
-socket.on("suggestCommanders", ({ gameId: gid, names }: any) => {
-  console.debug("[socket] suggestCommanders", { gameId: gid, names });
+    // Suggest commanders: request candidates and open fallback immediately (text), unless suppressed.
+    socket.on("suggestCommanders", ({ gameId: gid, names }: any) => {
+      console.debug("[socket] suggestCommanders", { gameId: gid, names });
 
-  // Ask server for resolved thumbnails (non-blocking)
-  try { socket.emit("getImportedDeckCandidates", { gameId: gid }); } catch (e) { /* ignore */ }
+      // Request thumbnails (non-blocking)
+      try { socket.emit("getImportedDeckCandidates", { gameId: gid }); } catch (e) { /* ignore */ }
 
-  const namesList = Array.isArray(names) ? names.slice(0, 2) : [];
+      const namesList = Array.isArray(names) ? names.slice(0, 2) : [];
 
-  // If suppressed (import confirm flow), queue suggestion for later via state+ref
-  if (localImportConfirmRef.current || pendingLocalImportRef.current || confirmOpen) {
-    const obj = { gameId: gid, names: namesList };
-    setQueuedCommanderSuggest(obj);
-    queuedCommanderRef.current = obj;
-    return;
-  }
+      // If suppressed (import confirm flow), queue suggestion for later (preserve existing behavior)
+      if (localImportConfirmRef.current || pendingLocalImportRef.current || confirmOpen) {
+        const obj = { gameId: gid, names: namesList };
+        setQueuedCommanderSuggest(obj);
+        queuedCommanderRef.current = obj;
+        return;
+      }
 
-  // Queue briefly and rely on importedDeckCandidates to open the gallery when thumbnails arrive.
-  const obj = { gameId: gid, names: namesList };
-  setQueuedCommanderSuggest(obj);
-  queuedCommanderRef.current = obj;
-
-  if (fallbackTimerRef.current) {
-    window.clearTimeout(fallbackTimerRef.current);
-    fallbackTimerRef.current = null;
-  }
-  const WAIT_MS = 900;
-  fallbackTimerRef.current = window.setTimeout(() => {
-    // If no candidates have arrived within WAIT_MS, open text fallback for this suggestion (if still queued).
-    if (queuedCommanderRef.current && queuedCommanderRef.current.gameId === gid) {
-      // If we have any already-resolved importedCandidates for this view, prefer them; otherwise fall back to names
-      const haveCandidates = importedCandidates && importedCandidates.length > 0 && safeView && safeView.id === gid;
-      if (!haveCandidates) {
-        setCmdSuggestNames(namesList);
+      // Not suppressed: open the commander confirm modal immediately with text fallback.
+      // Imported thumbnail images will populate if/when importedDeckCandidates arrives.
+      try {
+        if (namesList.length) setCmdSuggestNames(namesList);
+        else setCmdSuggestNames([]);
         setCmdSuggestOpen(true);
+        // keep queuedCommanderSuggest cleared for this game
         setQueuedCommanderSuggest(null);
         queuedCommanderRef.current = null;
+      } catch (e) {
+        console.warn("suggestCommanders immediate-open failed:", e);
       }
-    }
-    fallbackTimerRef.current = null;
-  }, WAIT_MS) as unknown as number;
-});
+    });
 
     const onNameInUse = (payload: any) => {
       setNameInUsePayload(payload);
