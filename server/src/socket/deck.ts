@@ -19,7 +19,7 @@ import type { KnownCardRef, PlayerID } from "../../shared/src";
 import { GamePhase } from "@mtgedh/shared";
 
 // NEW: helpers to push candidate/suggest events to player's sockets
-import { emitImportedDeckCandidatesToPlayer, emitSuggestCommandersToPlayer } from "./commander";
+import { registerCommanderHandlers } from "./commander";
 
 /**
  * Deck socket handlers with:
