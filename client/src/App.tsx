@@ -433,8 +433,8 @@ useEffect(() => {
     socket.on("importWipeConfirmed", onConfirmed);
 
     // Handle importApplied for importer-only flow (PRE_GAME single-player imports)
-    socket.on("importApplied", ({ gameId: gid, by, importerOnly }: any) => {
-      console.debug("[socket] importApplied", { gameId: gid, by, importerOnly });
+    socket.on("importApplied", ({ gameId: gid, by }: any) => {
+      console.debug("[socket] importApplied", { gameId: gid, by });
       
       // Clear pending import state
       setPendingLocalImport(false);
