@@ -125,6 +125,9 @@ export function App() {
   const localImportConfirmRef = useRef<boolean>(false);
   useEffect(() => { localImportConfirmRef.current = localImportConfirmOpen; }, [localImportConfirmOpen]);
 
+  // queue for commander selection when we can't emit yet
+  const [queuedCommanderSelection, setQueuedCommanderSelection] = useState<{ gameId: GameID; names: string[]; ids?: string[] } | null>(null);
+
   // fallback timer ref for App-level fallback modal
   const fallbackTimerRef = useRef<number | null>(null);
 
@@ -167,24 +170,22 @@ export function App() {
     } catch (e) { /* ignore */ }
   }, [safeView, view, you]);
 
-// Add inside the App() component (near other useEffect hooks), for dev debugging only:
-useEffect(() => {
-  try {
-    // expose for manual console testing: window.socket.emit("getImportedDeckCandidates", { gameId: safeView?.id })
-    (window as any).socket = socket;
-    console.debug("[dev] window.socket exposed for debugging");
-  } catch (e) { /* ignore */ }
-  return () => {
-    try { delete (window as any).socket; } catch (e) { /* ignore */ }
-  };
-}, []);
+  // Add inside the App() component (dev debugging)
+  useEffect(() => {
+    try {
+      (window as any).socket = socket;
+      console.debug("[dev] window.socket exposed for debugging");
+    } catch (e) { /* ignore */ }
+    return () => {
+      try { delete (window as any).socket; } catch (e) { /* ignore */ }
+    };
+  }, []);
 
   useEffect(() => {
     const onConnect = () => {
       setConnected(true);
       const last = lastJoinRef.current;
       if (last) {
-        // Only auto-join when we have a saved seatToken for this game+name to avoid creating duplicates.
         const token = sessionStorage.getItem(seatTokenKey(last.gameId, last.name)) || undefined;
         if (token) {
           const payload = { gameId: last.gameId, playerName: last.name, spectator: last.spectator, seatToken: token };
@@ -202,9 +203,7 @@ useEffect(() => {
 
     socket.on("joined", ({ you: youId, seatToken, gameId: joinedGameId }: any) => {
       setYou(youId);
-      // persist last join intent for future reconnect attempts
       lastJoinRef.current = { gameId: joinedGameId, name, spectator: joinAsSpectator };
-      // prefer using lastJoinRef name if present to store seatToken under the same key we looked up
       const savedName = lastJoinRef.current?.name ?? name;
       if (seatToken) {
         try { sessionStorage.setItem(seatTokenKey(joinedGameId, savedName), seatToken); } catch (e) { /* ignore */ }
@@ -212,14 +211,9 @@ useEffect(() => {
       console.debug("[socket] joined", { you: youId, gameId: joinedGameId, seatToken });
     });
 
-    // Normalized state handler: normalize and set view
-    // IMPORTANT: attach gameId into the incoming view so client code can reference view.id
+    // Normalized state handler
     socket.on("state", (payload: any) => {
       try {
-        // Accept either:
-        //  - payload = { gameId, view }
-        //  - payload = view (full view object)
-        //  - payload = null
         let incomingGameId: string | undefined;
         let newView: any | null = null;
 
@@ -233,13 +227,11 @@ useEffect(() => {
           incomingGameId = payload.gameId;
           newView = payload.view;
         } else {
-          // assume payload itself is the view object
           newView = payload;
           incomingGameId = (payload && (payload.id || payload.gameId)) || undefined;
         }
 
         if (newView) {
-          // attach id from incomingGameId if available
           const viewWithId = incomingGameId ? { ...newView, id: incomingGameId } : newView;
           setView(viewWithId);
         } else {
@@ -254,10 +246,6 @@ useEffect(() => {
 
     socket.on("stateDiff", (payload: any) => {
       try {
-        // Accept payload forms:
-        //  - { gameId, diff: { full: {...} } }
-        //  - { gameId, diff: { after: {...} } }
-        //  - payload = { full: {...} } or { after: {...} } (standalone)
         if (!payload) return;
 
         let incomingGameId: string | undefined;
@@ -270,7 +258,6 @@ useEffect(() => {
           diff = payload;
           incomingGameId = (payload.full && payload.full.id) || (payload.after && payload.after.id) || undefined;
         } else {
-          // Unknown shape — try to treat payload as 'after' full view
           diff = { after: payload };
         }
 
@@ -302,21 +289,18 @@ useEffect(() => {
       setImportedCandidates(arr);
       console.debug("[socket] importedDeckCandidates received", { gameId: gid, candidates: arr });
 
-      // clear any scheduled fallback
       if (fallbackTimerRef.current) {
         window.clearTimeout(fallbackTimerRef.current);
         fallbackTimerRef.current = null;
       }
 
       try {
-        // If we have a queued suggestion for this game, open gallery with queued names (or resolved candidates)
         const queued = queuedCommanderRef.current;
         if (queued && queued.gameId === gid) {
           const namesFromQueue = Array.isArray(queued.names) && queued.names.length ? queued.names.slice(0,2) : [];
           if (namesFromQueue.length) setCmdSuggestNames(namesFromQueue);
           else if (arr && arr.length) setCmdSuggestNames([arr[0]?.name, arr[1]?.name].filter(Boolean).slice(0,2));
           else setCmdSuggestNames([]);
-          // Only open if not suppressed
           if (!localImportConfirmRef.current && !pendingLocalImportRef.current && !confirmOpen) {
             setCmdSuggestOpen(true);
             setQueuedCommanderSuggest(null);
@@ -325,17 +309,14 @@ useEffect(() => {
           }
         }
 
-        // If not suppressed and we have resolved candidates, open gallery automatically
         if (!localImportConfirmRef.current && !pendingLocalImportRef.current && !confirmOpen) {
           if (arr && arr.length && safeView && safeView.id === gid) {
             setCmdSuggestNames([arr[0]?.name, arr[1]?.name].filter(Boolean).slice(0,2));
             setCmdSuggestOpen(true);
-            // clear any queued suggestion state
             setQueuedCommanderSuggest(null);
             queuedCommanderRef.current = null;
           }
         }
-        // otherwise, leave candidates and queued suggestion in place for later
       } catch (e) {
         console.warn("importedDeckCandidates handler failed:", e);
       }
@@ -377,6 +358,7 @@ useEffect(() => {
         setLastInfo(`Import cancelled${info.reason ? `: ${info.reason}` : ""}`);
         setPendingLocalImport(false);
         setQueuedCommanderSuggest(null);
+        setQueuedCommanderSelection(null);
       }
     };
     const onConfirmed = (info: any) => {
@@ -397,32 +379,36 @@ useEffect(() => {
               copy.zones[you] = { ...(copy.zones[you] || {}), hand: [], handCount: 0 };
               return copy;
             });
-            // Ensure we fetch the per-player resolved candidates (server may have emitted earlier)
             try { socket.emit("getImportedDeckCandidates", { gameId: info.gameId }); } catch (e) { /* ignore */ }
           }
         } catch (e) {
           console.warn("import confirm local-hand-clear failed:", e);
         }
 
-        // If we previously queued a commander suggestion while suppressed, show it now.
+        // If we previously queued a suggestion, show suggestion modal
         if (queuedCommanderSuggest && queuedCommanderSuggest.gameId === info.gameId) {
           setCmdSuggestNames(Array.isArray(queuedCommanderSuggest.names) ? queuedCommanderSuggest.names.slice(0,2) : []);
           setCmdSuggestOpen(true);
           setQueuedCommanderSuggest(null);
-        }
-
-        if (queuedCommanderSuggest && queuedCommanderSuggest.gameId !== info.gameId) {
-          // clear stale queued suggestion for other games
+        } else if (queuedCommanderSuggest && queuedCommanderSuggest.gameId !== info.gameId) {
           setQueuedCommanderSuggest(null);
         }
 
-        if (queuedCommanderSuggest == null) {
-          // If we don't have a queued suggestion, still try to fetch candidates so UI can show resolved card previews
-          try { socket.emit("getImportedDeckCandidates", { gameId: info.gameId }); } catch (e) { /* ignore */ }
+        // If we queued a commander *selection*, emit it now
+        if (queuedCommanderSelection && queuedCommanderSelection.gameId === info.gameId) {
+          const payload: any = {
+            gameId: info.gameId,
+            commanderNames: queuedCommanderSelection.names,
+          };
+          if (queuedCommanderSelection.ids && queuedCommanderSelection.ids.length) {
+            payload.commanderIds = queuedCommanderSelection.ids;
+          }
+          socket.emit("setCommander", payload);
+          setQueuedCommanderSelection(null);
         }
 
-        if (queuedCommanderSuggest && queuedCommanderSuggest.gameId === info.gameId) {
-          // leave queuedCommanderSuggest cleared above and let TableLayout act on its own queued state if used.
+        if (!queuedCommanderSuggest) {
+          try { socket.emit("getImportedDeckCandidates", { gameId: info.gameId }); } catch (e) { /* ignore */ }
         }
       }
     };
@@ -432,16 +418,14 @@ useEffect(() => {
     socket.on("importWipeCancelled", onCancelled);
     socket.on("importWipeConfirmed", onConfirmed);
 
-    // Suggest commanders: request candidates and open fallback immediately (text), unless suppressed.
+    // Suggest commanders: request candidates and open fallback
     socket.on("suggestCommanders", ({ gameId: gid, names }: any) => {
       console.debug("[socket] suggestCommanders", { gameId: gid, names });
 
-      // Request thumbnails (non-blocking)
       try { socket.emit("getImportedDeckCandidates", { gameId: gid }); } catch (e) { /* ignore */ }
 
       const namesList = Array.isArray(names) ? names.slice(0, 2) : [];
 
-      // If suppressed (import confirm flow), queue suggestion for later (preserve existing behavior)
       if (localImportConfirmRef.current || pendingLocalImportRef.current || confirmOpen) {
         const obj = { gameId: gid, names: namesList };
         setQueuedCommanderSuggest(obj);
@@ -449,13 +433,10 @@ useEffect(() => {
         return;
       }
 
-      // Not suppressed: open the commander confirm modal immediately with text fallback.
-      // Imported thumbnail images will populate if/when importedDeckCandidates arrives.
       try {
         if (namesList.length) setCmdSuggestNames(namesList);
         else setCmdSuggestNames([]);
         setCmdSuggestOpen(true);
-        // keep queuedCommanderSuggest cleared for this game
         setQueuedCommanderSuggest(null);
         queuedCommanderRef.current = null;
       } catch (e) {
@@ -500,7 +481,7 @@ useEffect(() => {
         fallbackTimerRef.current = null;
       }
     };
-  }, [name, joinAsSpectator, view?.id, confirmId, view, confirmOpen, queuedCommanderSuggest, importedCandidates, you]);
+  }, [name, joinAsSpectator, view?.id, confirmId, view, confirmOpen, queuedCommanderSuggest, queuedCommanderSelection, importedCandidates, you, safeView]);
 
   // actions
   const handleJoin = () => {
@@ -511,7 +492,6 @@ useEffect(() => {
     socket.emit("joinGame", payload);
   };
 
-  // joinFromList: used by GameList to join a selected game
   const joinFromList = (selectedGameId: string) => {
     lastJoinRef.current = { gameId: selectedGameId, name, spectator: joinAsSpectator };
     const token = sessionStorage.getItem(seatTokenKey(selectedGameId, name)) || undefined;
@@ -540,10 +520,13 @@ useEffect(() => {
   // Accept both names and optional ids from TableLayout
   const handleCommanderConfirm = useCallback((names: string[], ids?: string[]) => {
     if (!safeView || !names || names.length === 0) return;
-    if (pendingLocalImportRef.current || localImportConfirmRef.current || confirmOpen) {
-      setQueuedCommanderSuggest({ gameId: safeView.id, names: names.slice(0, 2) });
+    const mustQueue = pendingLocalImportRef.current || localImportConfirmRef.current || confirmOpen;
+
+    if (mustQueue) {
+      setQueuedCommanderSelection({ gameId: safeView.id, names: names.slice(0, 2), ids: ids && ids.length ? ids.slice(0, 2) : undefined });
       return;
     }
+
     const payload: any = { gameId: safeView.id, commanderNames: names };
     if (ids && ids.length) payload.commanderIds = ids;
     socket.emit("setCommander", payload);
@@ -592,7 +575,6 @@ useEffect(() => {
   const canPass = !!safeView && !!you && safeView.priority === you;
   const isYouPlayer = !!safeView && !!you && safeView.players.some(p => p.id === you);
 
-  // determine whether Next Step/Turn should be enabled: allow turnPlayer or pre-game first seat
   const canAdvanceStep = useMemo(() => {
     if (!safeView || !you) return false;
     if (safeView.turnPlayer === you) return true;
@@ -650,7 +632,6 @@ useEffect(() => {
         <div style={{ border: "1px solid #eee", borderRadius: 6, padding: 8 }}>
           {safeView ? (
             <>
-              {/* App-level debug hook to ensure TableLayout receives the expected game id */}
               {(() => { try { console.debug("[App] rendering TableLayout with safeView.id:", safeView?.id, "view.id:", view?.id); } catch (e) {} return null; })()}
               <TableLayout
                 players={safeView.players}
@@ -795,32 +776,31 @@ useEffect(() => {
         />
       )}
 
-<NameInUseModal
-  open={showNameInUseModal}
-  payload={nameInUsePayload}
-  onClose={() => { setShowNameInUseModal(false); setNameInUsePayload(null); }}
-  onReconnect={(fixedPlayerId: string, seatToken?: string) => {
-    const gid = nameInUsePayload?.gameId || gameId;
-    const pname = nameInUsePayload?.playerName || name;
-    // prefer seatToken supplied by modal (derived from sessionStorage), otherwise fallback
-    const token = seatToken ?? sessionStorage.getItem(seatTokenKey(gid, pname));
-    console.debug("[JOIN_EMIT] reconnect click", { gameId: gid, playerName: pname, fixedPlayerId, seatToken: token });
-    socket.emit("joinGame", { gameId: gid, playerName: pname, spectator: joinAsSpectator, seatToken: token, fixedPlayerId });
-    setShowNameInUseModal(false);
-    setNameInUsePayload(null);
-  }}
-  onNewName={(newName: string) => {
-    const gid = nameInUsePayload?.gameId || gameId;
-    setName(newName);
-    lastJoinRef.current = { gameId: gid, name: newName, spectator: joinAsSpectator };
-    try { sessionStorage.setItem(lastJoinKey(), JSON.stringify(lastJoinRef.current)); } catch { }
-    const token = sessionStorage.getItem(seatTokenKey(gid, newName)) || undefined;
-    console.debug("[JOIN_EMIT] new-name join", { gameId: gid, playerName: newName, seatToken: token });
-    socket.emit("joinGame", { gameId: gid, playerName: newName, spectator: joinAsSpectator, seatToken: token });
-    setShowNameInUseModal(false);
-    setNameInUsePayload(null);
-  }}
-/>
+      <NameInUseModal
+        open={showNameInUseModal}
+        payload={nameInUsePayload}
+        onClose={() => { setShowNameInUseModal(false); setNameInUsePayload(null); }}
+        onReconnect={(fixedPlayerId: string, seatToken?: string) => {
+          const gid = nameInUsePayload?.gameId || gameId;
+          const pname = nameInUsePayload?.playerName || name;
+          const token = seatToken ?? sessionStorage.getItem(seatTokenKey(gid, pname));
+          console.debug("[JOIN_EMIT] reconnect click", { gameId: gid, playerName: pname, fixedPlayerId, seatToken: token });
+          socket.emit("joinGame", { gameId: gid, playerName: pname, spectator: joinAsSpectator, seatToken: token, fixedPlayerId });
+          setShowNameInUseModal(false);
+          setNameInUsePayload(null);
+        }}
+        onNewName={(newName: string) => {
+          const gid = nameInUsePayload?.gameId || gameId;
+          setName(newName);
+          lastJoinRef.current = { gameId: gid, name: newName, spectator: joinAsSpectator };
+          try { sessionStorage.setItem(lastJoinKey(), JSON.stringify(lastJoinRef.current)); } catch { }
+          const token = sessionStorage.getItem(seatTokenKey(gid, newName)) || undefined;
+          console.debug("[JOIN_EMIT] new-name join", { gameId: gid, playerName: newName, seatToken: token });
+          socket.emit("joinGame", { gameId: gid, playerName: newName, spectator: joinAsSpectator, seatToken: token });
+          setShowNameInUseModal(false);
+          setNameInUsePayload(null);
+        }}
+      />
     </div>
   );
 }

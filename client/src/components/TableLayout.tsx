@@ -292,7 +292,7 @@ export function TableLayout(props: {
           const newCamY = worldY - (targetSY - container.h / 2) / z;
           setCam(c => ({ x: newCamX, y: newCamY, z: preserveZoom ? c.z : c.z }));
           return;
-        }
+      }
       }
     } catch (err) {
       console.warn('centerOnYou DOM centering failed', err);
@@ -563,8 +563,10 @@ export function TableLayout(props: {
       }}
     >
       <div style={{ position: 'absolute', inset: 0, transform: `translate(${container.w/2}px, ${container.h/2}px) scale(${cam.z}) translate(${-cam.x}px, ${-cam.y}px)`, transformOrigin: '0 0', willChange: 'transform' }}>
+
         <div style={{ position: 'absolute', left: '50%', top: '50%', transformStyle: 'preserve-3d', perspective: threeD?.enabled ? `${(threeD?.perspectivePx ?? 1100)}px` : undefined }}>
-          <div style={{ position: 'relative', transform: threeD && threeD.enabled ? `rotateX(${threeD.rotateXDeg ?? 10}deg) rotateY(${threeD.rotateYDeg ?? 0}deg)` : 'none', transformOrigin: '50% 50%', zIndex: 0 }}>
+          <div style={{ position: 'relative', transform: threeD && threeD.enabled ? `rotateX(${threeD.rotateXDeg ?? 10}deg) rotateY(${threeD.rotateYDeg ?? 0}deg)` : 'none', transformOrigin: '50% 50%' }}>
+
             <div
               style={{
                 position: 'absolute',
