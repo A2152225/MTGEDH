@@ -1,778 +1,994 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { socket } from './socket';
+import React, { useCallback, useMemo, useRef, useState } from "react";
+import { socket } from "./socket";
 import type {
   ClientGameView,
-  GameID,
   PlayerID,
-  BattlefieldPermanent,
-  TargetRef,
-  PaymentItem
-} from '../../shared/src';
-import { BattlefieldGrid, type ImagePref } from './components/BattlefieldGrid';
-import { TokenGroups } from './components/TokenGroups';
-import { TableLayout } from './components/TableLayout';
-import { HandGallery } from './components/HandGallery';
-import { CardPreviewLayer, showCardPreview, hideCardPreview } from './components/CardPreviewLayer';
-import { PaymentPicker } from './components/PaymentPicker';
-import { ZonesPanel } from './components/ZonesPanel';
-import { ScrySurveilModal } from './components/ScrySurveilModal';
+  GameID,
+  KnownCardRef,
+  ChatMsg,
+} from "../../shared/src";
+import { TableLayout } from "./components/TableLayout";
+import { CardPreviewLayer } from "./components/CardPreviewLayer";
+import CommanderConfirmModal from "./components/CommanderConfirmModal";
+import { CommanderSelectModal } from "./components/CommanderSelectModal";
+import NameInUseModal from "./components/NameInUseModal";
+import { ZonesPanel } from "./components/ZonesPanel";
+import { ScrySurveilModal } from "./components/ScrySurveilModal";
+import { BattlefieldGrid, type ImagePref } from "./components/BattlefieldGrid";
+import GameList from "./components/GameList";
 
+import { useImportAndCommander } from "./hooks/useImportAndCommander";
+import { useGameSocket } from "./hooks/useGameSocket";
+
+/* Helpers (still local to App) */
 function seatTokenKey(gameId: GameID, name: string) {
-  return `mtgedh:seatToken:${gameId}:${name.trim().toLowerCase()}`;
+  return `mtgedh:seatToken:${gameId}:${name}`;
+}
+function lastJoinKey() {
+  return "mtgedh:lastJoin";
 }
 
-type ChatMsg = { id: string; gameId: GameID; from: PlayerID | 'system'; message: string; ts: number };
-type SearchItem = { id: string; name: string };
-type LayoutMode = 'rows' | 'table';
-type Color = PaymentItem['mana'];
-
-function isMainPhase(phase?: any, step?: any) {
-  return phase === 'PRECOMBAT_MAIN' || phase === 'POSTCOMBAT_MAIN' || step === 'MAIN1' || step === 'MAIN2';
-}
-function isLandTypeLine(tl?: string) {
-  return /\bland\b/i.test(tl || '');
+function clamp(n: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, n));
 }
 
-function parseManaCost(manaCost?: string): { colors: Record<Color, number>; generic: number; hybrids: Color[][]; hasX: boolean } {
-  const res = { colors: { W:0,U:0,B:0,R:0,G:0,C:0 } as Record<Color,number>, generic:0, hybrids: [] as Color[][], hasX:false };
-  if (!manaCost) return res;
-  const tokens = manaCost.match(/\{[^}]+\}/g) || [];
-  for (const t of tokens) {
-    const sym = t.replace(/[{}]/g,'').toUpperCase();
-    if (sym === 'X') { res.hasX = true; continue; }
-    if (/^\d+$/.test(sym)) { res.generic += parseInt(sym,10); continue; }
-    if (sym.includes('/')) {
-      const parts = sym.split('/');
-      if (parts.length === 2 && parts[1] === 'P') {
-        const c = parts[0] as Color;
-        if ((['W','U','B','R','G','C'] as const).includes(c)) res.colors[c]+=1;
-        continue;
-      }
-      if (parts.length === 2 && (['W','U','B','R','G','C'] as const).includes(parts[0] as Color) && (['W','U','B','R','G','C'] as const).includes(parts[1] as Color)) {
-        res.hybrids.push([parts[0] as Color, parts[1] as Color]);
-        continue;
-      }
-      const num = parseInt(parts[0],10);
-      if (!Number.isNaN(num)) { res.generic += num; continue; }
-    }
-    if ((['W','U','B','R','G','C'] as const).includes(sym as Color)) res.colors[sym as Color]+=1;
-  }
-  return res;
-}
-function paymentToPool(payment: PaymentItem[]) {
-  return payment.reduce<Record<Color,number>>((acc,p) => {
-    acc[p.mana] = (acc[p.mana]||0)+1; return acc;
-  }, { W:0,U:0,B:0,R:0,G:0,C:0 });
-}
-function canPayEnhanced(cost:{ colors:Record<Color,number>; generic:number; hybrids:Color[][] }, pool:Record<Color,number>) {
-  const left:{[K in Color]:number} = { W:pool.W,U:pool.U,B:pool.B,R:pool.R,G:pool.G,C:pool.C };
-  for (const c of (['W','U','B','R','G','C'] as const)) {
-    if (left[c] < cost.colors[c]) return false;
-    left[c] -= cost.colors[c];
-  }
-  for (const group of cost.hybrids) {
-    let ok=false;
-    for (const c of group) if (left[c]>0) { left[c]-=1; ok=true; break; }
-    if (!ok) return false;
-  }
-  const total = (['W','U','B','R','G','C'] as const).reduce((a,c)=>a+left[c],0);
-  return total >= cost.generic;
+/* Small ChatPanel component */
+function ChatPanel({
+  messages,
+  onSend,
+  view,
+}: {
+  messages: ChatMsg[];
+  onSend: (text: string) => void;
+  view?: ClientGameView | null;
+}) {
+  const [text, setText] = useState("");
+  const endRef = useRef<HTMLDivElement | null>(null);
+  React.useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages.length]);
+
+  const submit = () => {
+    if (!text.trim()) return;
+    onSend(text.trim());
+    setText("");
+  };
+
+  const displaySender = (from: string | "system") => {
+    if (from === "system") return "system";
+    const player = view?.players?.find((p: any) => p.id === from);
+    return player?.name || from;
+  };
+
+  return (
+    <div
+      style={{
+        border: "1px solid #ddd",
+        borderRadius: 6,
+        padding: 8,
+        display: "flex",
+        flexDirection: "column",
+        height: 340,
+        background: "#fafafa",
+      }}
+    >
+      <div style={{ fontWeight: 700, marginBottom: 8 }}>Chat</div>
+      <div
+        style={{
+          flex: 1,
+          overflow: "auto",
+          padding: 6,
+          background: "#fff",
+          borderRadius: 4,
+        }}
+      >
+        {messages.length === 0 && (
+          <div style={{ color: "#666" }}>No messages</div>
+        )}
+        {messages.map((m) => (
+          <div key={m.id} style={{ marginBottom: 6 }}>
+            <div>
+              <strong>{displaySender(m.from)}</strong>: {m.message}
+            </div>
+            <div style={{ fontSize: 11, color: "#777" }}>
+              {new Date(m.ts).toLocaleTimeString()}
+            </div>
+          </div>
+        ))}
+        <div ref={endRef} />
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submit();
+          }}
+          placeholder="Type message..."
+          style={{ flex: 1 }}
+        />
+        <button onClick={submit}>Send</button>
+      </div>
+    </div>
+  );
 }
 
+/* App component (named export + default export) */
 export function App() {
+  // connection + join UI state
   const [connected, setConnected] = useState(false);
-  const [gameId, setGameId] = useState<GameID>('demo');
-  const [name, setName] = useState('Player');
+  const [gameId, setGameId] = useState<GameID>("demo");
+  const [name, setName] = useState("Player");
   const [joinAsSpectator, setJoinAsSpectator] = useState(false);
 
-  const lastJoinRef = useRef<{ gameId: GameID; name: string; spectator: boolean } | null>(null);
+  // Name-in-use modal state
+  const [nameInUsePayload, setNameInUsePayload] = useState<any | null>(null);
+  const [showNameInUseModal, setShowNameInUseModal] = useState(false);
 
+  // game view state
   const [you, setYou] = useState<PlayerID | null>(null);
   const [view, setView] = useState<ClientGameView | null>(null);
   const [priority, setPriority] = useState<PlayerID | null>(null);
+
+  // chat, info, errors
   const [chat, setChat] = useState<ChatMsg[]>([]);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [lastInfo, setLastInfo] = useState<string | null>(null);
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<SearchItem[]>([]);
-  const [searchLimit, setSearchLimit] = useState(100);
+  // import missing banner
+  const [missingImport, setMissingImport] = useState<string[] | null>(null);
 
-  const [imagePref, setImagePref] = useState<ImagePref>(() => (localStorage.getItem('mtgedh:imagePref') as ImagePref) || 'normal');
-  const [layout, setLayout] = useState<LayoutMode>(() => (localStorage.getItem('mtgedh:layout') as LayoutMode) || 'table');
+  // other UI state
+  const [imagePref, setImagePref] = useState<ImagePref>(
+    () =>
+      (localStorage.getItem("mtgedh:imagePref") as ImagePref) || "normal"
+  );
+  const [layout, setLayout] = useState<"rows" | "table">(
+    () =>
+      (localStorage.getItem("mtgedh:layout") as "rows" | "table") || "table"
+  );
 
-  const [targeting, setTargeting] = useState<{
-    spellId: string;
-    min: number;
-    max: number;
-    targets: TargetRef[];
-    chosen: Set<string>;
-    manaCost?: string;
-    sources?: Array<{ id: string; name: string; options: Color[] }>;
-    payment: PaymentItem[];
-    xValue: number;
+  const [peek, setPeek] = useState<{
+    mode: "scry" | "surveil";
+    cards: any[];
   } | null>(null);
 
-  const [enableManualScrySurveil, setEnableManualScrySurveil] = useState<boolean>(() => localStorage.getItem('mtgedh:manualScrySurveil') === '1');
-  useEffect(() => { localStorage.setItem('mtgedh:manualScrySurveil', enableManualScrySurveil ? '1' : '0'); }, [enableManualScrySurveil]);
-  const [peek, setPeek] = useState<{ mode: 'scry' | 'surveil'; cards: any[] } | null>(null);
+  // debug UI state
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [debugLoading, setDebugLoading] = useState(false);
+  const [debugData, setDebugData] = useState<any>(null);
 
-  const [table3D, setTable3D] = useState<boolean>(() => localStorage.getItem('mtgedh:table3D') === '1');
-  const [rotX, setRotX] = useState<number>(() => Number(localStorage.getItem('mtgedh:table3D:rx') || 10));
-  const [rotY, setRotY] = useState<number>(() => Number(localStorage.getItem('mtgedh:table3D:ry') || 0));
-  useEffect(() => { localStorage.setItem('mtgedh:table3D', table3D ? '1' : '0'); }, [table3D]);
-  useEffect(() => { localStorage.setItem('mtgedh:table3D:rx', String(rotX)); }, [rotX]);
-  useEffect(() => { localStorage.setItem('mtgedh:table3D:ry', String(rotY)); }, [rotY]);
+  // import/commander hook will manage confirmOpen, etc.
+  // (we keep lastInfo for banner text)
+  const defaultPlayerZones = useMemo(
+    () => ({
+      hand: [],
+      handCount: 0,
+      library: [],
+      libraryCount: 0,
+      graveyard: [],
+      graveyardCount: 0,
+    }),
+    []
+  );
 
-  const [clothUrl, setClothUrl] = useState<string>(() => localStorage.getItem('mtgedh:clothUrl') || '');
-  useEffect(() => { localStorage.setItem('mtgedh:clothUrl', clothUrl); }, [clothUrl]);
-
-  const [worldSize, setWorldSize] = useState<number>(() => Number(localStorage.getItem('mtgedh:worldSize') || 12000));
-  useEffect(() => { localStorage.setItem('mtgedh:worldSize', String(worldSize)); }, [worldSize]);
-
-  const [expandedHands, setExpandedHands] = useState<Set<PlayerID>>(new Set());
-  const [expandedGYs, setExpandedGYs] = useState<Set<PlayerID>>(new Set());
-
-  useEffect(() => {
-    const onConnect = () => {
-      setConnected(true);
-      const last = lastJoinRef.current;
-      if (last) {
-        const token = sessionStorage.getItem(seatTokenKey(last.gameId, last.name)) || undefined;
-        socket.emit('joinGame', { gameId: last.gameId, playerName: last.name, spectator: last.spectator, seatToken: token });
-      } else if (view) {
-        const token = sessionStorage.getItem(seatTokenKey(view.id, name)) || undefined;
-        socket.emit('joinGame', { gameId: view.id, playerName: name, spectator: joinAsSpectator, seatToken: token });
+  const normalizedZones = useMemo(() => {
+    if (!view) return {};
+    const out: Record<string, any> = { ...(view.zones || {}) };
+    const players = Array.isArray(view.players) ? view.players : [];
+    for (const p of players) {
+      const pid = p?.id ?? p?.playerId;
+      if (!pid) continue;
+      if (!out[pid]) out[pid] = { ...defaultPlayerZones };
+      else {
+        out[pid].hand = Array.isArray(out[pid].hand) ? out[pid].hand : [];
+        out[pid].handCount =
+          typeof out[pid].handCount === "number"
+            ? out[pid].handCount
+            : Array.isArray(out[pid].hand)
+            ? out[pid].hand.length
+            : 0;
+        out[pid].library = Array.isArray(out[pid].library)
+          ? out[pid].library
+          : [];
+        out[pid].libraryCount =
+          typeof out[pid].libraryCount === "number"
+            ? out[pid].libraryCount
+            : Array.isArray(out[pid].library)
+            ? out[pid].library.length
+            : 0;
+        out[pid].graveyard = Array.isArray(out[pid].graveyard)
+          ? out[pid].graveyard
+          : [];
+        out[pid].graveyardCount =
+          typeof out[pid].graveyardCount === "number"
+            ? out[pid].graveyardCount
+            : Array.isArray(out[pid].graveyard)
+            ? out[pid].graveyard.length
+            : 0;
       }
-      if (view) socket.emit('requestState', { gameId: view.id });
-    };
-    const onDisconnect = () => setConnected(false);
-
-    socket.on('connect', onConnect);
-    socket.on('disconnect', onDisconnect);
-
-    socket.on('joined', ({ you, seatToken, gameId }) => {
-      setYou(you);
-      lastJoinRef.current = { gameId, name, spectator: joinAsSpectator };
-      if (seatToken) sessionStorage.setItem(seatTokenKey(gameId, name), seatToken);
-    });
-
-    socket.on('state', ({ view }) => setView(view));
-    socket.on('stateDiff', ({ diff }) => { if ((diff as any)?.full) setView((diff as any).full); else if ((diff as any)?.after) setView((diff as any).after); });
-    socket.on('priority', ({ player }) => setPriority(player));
-    socket.on('chat', (msg: ChatMsg) => {
-      setChat(prev => [...prev.slice(-99), msg]);
-    });
-    socket.on('searchResults', ({ cards }) => setSearchResults(cards));
-    socket.on('validTargets', ({ spellId, minTargets, maxTargets, targets, manaCost, paymentSources }) => {
-      setTargeting({
-        spellId,
-        min: minTargets,
-        max: maxTargets,
-        targets,
-        chosen: new Set(),
-        manaCost,
-        sources: paymentSources as any,
-        payment: [],
-        xValue: 0
-      });
-    });
-    socket.on('scryPeek', ({ cards }) => setPeek({ mode: 'scry', cards }));
-    socket.on('surveilPeek', ({ cards }) => setPeek({ mode: 'surveil', cards }));
-    socket.on('error', ({ message }) => setLastError(message || 'Error'));
-
-    return () => {
-      socket.off('connect', onConnect);
-      socket.off('disconnect', onDisconnect);
-      socket.off('joined');
-      socket.off('state');
-      socket.off('stateDiff');
-      socket.off('priority');
-      socket.off('chat');
-      socket.off('searchResults');
-      socket.off('validTargets');
-      socket.off('scryPeek');
-      socket.off('surveilPeek');
-      socket.off('error');
-    };
-  }, [name, joinAsSpectator, view?.id]);
-
-  const canPass = useMemo(() => !!view && !!you && view.priority === you, [view, you]);
-  const isYouPlayer = useMemo(() => !!view && !!you && view.players.some(p => p.id === you), [view, you]);
-
-  const battlefieldByPlayer = useMemo(() => {
-    const map = new Map<PlayerID, BattlefieldPermanent[]>();
-    for (const p of (view?.players ?? [])) map.set(p.id, []);
-    for (const perm of (view?.battlefield ?? [])) {
-      const arr = map.get(perm.controller) || [];
-      arr.push(perm);
-      map.set(perm.controller, arr);
     }
-    return map;
-  }, [view]);
+    return out;
+  }, [view, defaultPlayerZones]);
 
-  const attachedToSet = useMemo(() => {
-    const set = new Set<string>();
-    for (const perm of (view?.battlefield ?? [])) {
-      if ((perm as any).attachedTo) set.add((perm as any).attachedTo);
-    }
-    return set;
-  }, [view]);
+  const safeView = useMemo(() => {
+    if (!view) return view;
+    return { ...view, zones: normalizedZones } as ClientGameView;
+  }, [view, normalizedZones]);
 
-  const turnDirLabel = useMemo(() => (view?.turnDirection ?? 1) === 1 ? 'Clockwise' : 'Counter-clockwise', [view?.turnDirection]);
+  // central import/commander hook
+  const importAndCommander = useImportAndCommander(safeView, you);
 
-  const validPermanentTargets = useMemo(() => new Set(targeting ? targeting.targets.filter(t => t.kind === 'permanent').map(t => t.id) : []), [targeting]);
-  const selectedPermanentTargets = useMemo(() => {
-    if (!targeting) return new Set<string>();
-    return new Set(Array.from(targeting.chosen).filter(k => k.startsWith('permanent:')).map(k => k.split(':')[1]));
-  }, [targeting]);
-  const validPlayerTargets = useMemo(() => new Set(targeting ? targeting.targets.filter(t => t.kind === 'player').map(t => t.id) : []), [targeting]);
-  const selectedPlayerTargets = useMemo(() => {
-    if (!targeting) return new Set<string>();
-    return new Set(Array.from(targeting.chosen).filter(k => k.startsWith('player:')).map(k => k.split(':')[1]));
-  }, [targeting]);
-  const paymentSelectedPerms = useMemo(() => new Set(targeting ? targeting.payment.map(p => p.permanentId) : []), [targeting]);
+  // wire sockets through useGameSocket
+  useGameSocket({
+    name,
+    joinAsSpectator,
+    view,
+    setView,
+    safeView,
+    you,
+    setYou,
+    setConnected,
+    setPriority,
+    setChat,
+    setMissingImport,
+    setLastError,
+    setLastInfo,
+    setDebugOpen,
+    setDebugLoading,
+    setDebugData,
+    setNameInUsePayload,
+    setShowNameInUseModal,
+    setPeek,
+    importAndCommander,
+  });
 
-  const yourLandsPlayed = useMemo(() => (!view || !you) ? 0 : (view.landsPlayedThisTurn?.[you] ?? 0), [view, you]);
-
-  const reasonCannotPlayLand = (card: { type_line?: string }) => {
-    if (!view || !you) return 'Not connected';
-    const type = (card.type_line || '').toLowerCase();
-    if (!/\bland\b/.test(type)) return 'Not a land';
-    if (view.priority !== you) return 'You must have priority';
-    if (view.turnPlayer !== you) return 'Only on your turn';
-    if (!isMainPhase(view.phase, view.step)) return 'Only during a main phase';
-    if ((view.stack?.length ?? 0) > 0) return 'Stack must be empty';
-    if ((view.landsPlayedThisTurn?.[you] ?? 0) >= 1) return 'Already played a land';
-    return null;
-  };
-  const reasonCannotCast = (card: { type_line?: string }) => {
-    if (!view || !you) return 'Not connected';
-    if (view.priority !== you) return 'You must have priority';
-    const tl = (card.type_line || '').toLowerCase();
-    const isSorcery = /\bsorcery\b/.test(tl);
-    if (isSorcery) {
-      if (view.turnPlayer !== you) return 'Sorceries only on your turn';
-      if (!isMainPhase(view.phase, view.step)) return 'Sorceries only main phase';
-      if ((view.stack?.length ?? 0) > 0) return 'Stack not empty';
-    }
-    return null;
-  };
-
+  // actions
   const handleJoin = () => {
-    lastJoinRef.current = { gameId, name, spectator: joinAsSpectator };
-    const token = sessionStorage.getItem(seatTokenKey(gameId, name)) || undefined;
-    socket.emit('joinGame', { gameId, playerName: name, spectator: joinAsSpectator, seatToken: token });
-  };
-  const restart = (preservePlayers: boolean) => {
-    if (!view) return;
-    socket.emit('restartGame', { gameId: view.id, preservePlayers });
-    if (!preservePlayers) sessionStorage.removeItem(seatTokenKey(view.id, name));
-    setSearchResults([]);
-  };
-
-  const shuffleLibrary = () => { if (view) socket.emit('shuffleLibrary', { gameId: view.id }); };
-  const drawOne = () => { if (view) socket.emit('drawCards', { gameId: view.id, count: 1 }); };
-  const handToLibraryShuffle = () => { if (view) socket.emit('shuffleHandIntoLibrary', { gameId: view.id }); };
-
-  const doSearch = () => view && socket.emit('searchLibrary', { gameId: view.id, query: searchQuery, limit: searchLimit });
-  const clearSearch = () => setSearchResults([]);
-  const takeFromSearch = (id: string, reveal = false) => view && socket.emit('selectFromSearch', { gameId: view.id, cardIds: [id], moveTo: 'hand', reveal });
-
-  const addCounter = (permId: string, kind: string, delta: number) =>
-    view && socket.emit('updateCounters', { gameId: view.id, permanentId: permId, deltas: { [kind]: delta } });
-  const bulkCounter = (ids: string[], deltas: Record<string, number>) =>
-    view && ids.length && socket.emit('updateCountersBulk', { gameId: view.id, updates: ids.map(id => ({ permanentId:id, deltas })) });
-  const removePermanent = (permId: string) =>
-    view && socket.emit('removePermanent', { gameId: view.id, permanentId: permId });
-
-  const setPref = (pref: ImagePref) => { setImagePref(pref); localStorage.setItem('mtgedh:imagePref', pref); };
-
-  const beginCast = (cardId: string) => view && socket.emit('beginCast', { gameId: view.id, cardId });
-
-  const syncChosen = (next: Set<string>, spellId: string) => {
-    if (!view) return;
-    socket.emit('chooseTargets', {
-      gameId: view.id,
-      spellId,
-      chosen: Array.from(next).map(k => {
-        const [kind,id] = k.split(':');
-        return { kind: kind as TargetRef['kind'], id };
-      })
-    });
-  };
-
-  const toggleChoose = (t: TargetRef) => {
-    setTargeting(prev => {
-      if (!prev) return prev;
-      const key = `${t.kind}:${t.id}`;
-      const next = new Set(prev.chosen);
-      if (next.has(key)) next.delete(key);
-      else if (next.size < prev.max) next.add(key);
-      syncChosen(next, prev.spellId);
-      return { ...prev, chosen: next };
-    });
-  };
-
-  const cancelCast = () => {
-    if (view && targeting) socket.emit('cancelCast', { gameId: view.id, spellId: targeting.spellId });
-    setTargeting(null);
-  };
-  const confirmCast = () => {
-    if (view && targeting) {
-      socket.emit('confirmCast', {
-        gameId: view.id,
-        spellId: targeting.spellId,
-        payment: targeting.payment.length ? targeting.payment : undefined,
-        xValue: targeting.xValue || undefined
-      });
-      setTargeting(null);
-    }
-  };
-
-  useEffect(() => {
-    if (!targeting) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.preventDefault(); cancelCast(); }
-      else if (e.key === 'Enter') {
-        e.preventDefault();
-        if (targeting.chosen.size >= targeting.min && targeting.chosen.size <= targeting.max) confirmCast();
-      }
+    const lastJoinRef = {
+      gameId,
+      name,
+      spectator: joinAsSpectator,
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [targeting]);
-
-  const onPermanentClick = (id: string) => {
-    if (!targeting) return;
-    if (!validPermanentTargets.has(id)) return;
-    toggleChoose({ kind:'permanent', id });
-  };
-  const onPlayerClick = (pid: string) => {
-    if (!targeting) return;
-    if (!validPlayerTargets.has(pid)) return;
-    toggleChoose({ kind:'player', id: pid });
-  };
-
-  const nextTurn = () => { if (view) socket.emit('nextTurn', { gameId: view.id }); };
-  const nextStep = () => { if (view) socket.emit('nextStep', { gameId: view.id }); };
-
-  const labelForTarget = (t: string) => {
-    if (!view) return t;
-    const [kind,id] = t.split(':');
-    if (kind === 'player') {
-      const p = view.players.find(x => x.id === id);
-      return p ? `Player: ${p.name}` : `Player:${id}`;
+    const token =
+      sessionStorage.getItem(seatTokenKey(gameId, name)) || undefined;
+    const payload = {
+      gameId,
+      playerName: name,
+      spectator: joinAsSpectator,
+      seatToken: token,
+    };
+    console.debug("[JOIN_EMIT] manual join", payload);
+    socket.emit("joinGame", payload);
+    try {
+      sessionStorage.setItem(lastJoinKey(), JSON.stringify(lastJoinRef));
+    } catch {
+      /* ignore */
     }
-    if (kind === 'permanent') {
-      const perm = (view.battlefield || []).find(b => b.id === id);
-      const nm = ((perm?.card as any)?.name) || id;
-      return `Permanent: ${nm}`;
-    }
-    if (kind === 'stack') {
-      const s = (view.stack || []).find(x => x.id === id);
-      const nm = ((s?.card as any)?.name) || id;
-      return `Spell: ${nm}`;
-    }
-    return t;
   };
 
-  const confirmDisabledReason = useMemo(() => {
-    if (!targeting || !view || !you) return '';
-    if (targeting.chosen.size < targeting.min) return `Select at least ${targeting.min}`;
-    if (targeting.chosen.size > targeting.max) return `Select at most ${targeting.max}`;
-    if (view.priority !== you) return 'You must have priority';
-    if (targeting.manaCost) {
-      if (targeting.payment.length) {
-        const parsed = parseManaCost(targeting.manaCost);
-        const cost = { colors: parsed.colors, generic: parsed.generic + Math.max(0, Number(targeting.xValue||0)|0), hybrids: parsed.hybrids };
-        const pool = paymentToPool(targeting.payment);
-        if (!canPayEnhanced(cost, pool)) return 'Payment does not satisfy cost';
-      }
+  const joinFromList = (selectedGameId: string) => {
+    const lastJoinRef = {
+      gameId: selectedGameId,
+      name,
+      spectator: joinAsSpectator,
+    };
+    const token =
+      sessionStorage.getItem(seatTokenKey(selectedGameId, name)) || undefined;
+    const payload = {
+      gameId: selectedGameId,
+      playerName: name,
+      spectator: joinAsSpectator,
+      seatToken: token,
+    };
+    console.debug("[JOIN_EMIT] joinFromList", payload);
+    socket.emit("joinGame", payload);
+    setGameId(selectedGameId);
+    try {
+      sessionStorage.setItem(lastJoinKey(), JSON.stringify(lastJoinRef));
+    } catch {
+      /* ignore */
     }
-    return '';
-  }, [targeting, view, you]);
-
-  const reorderEnabled = !!isYouPlayer && !targeting;
-
-  // Deck import
-  const importDeckText = (list: string, deckName?: string) => {
-    if (!view || !you) return;
-    socket.emit('importDeck', { gameId: view.id, list, deckName });
   };
 
-  const handleCommanderConfirm = (names: string[]) => {
-    if (!view || !you || !names.length) return;
-    socket.emit('setCommander', { gameId: view.id, commanderNames: names });
-  };
+  const {
+    requestImportDeck,
+    requestUseSavedDeck,
+    handleLocalImportConfirmChange,
+    handleCommanderConfirm,
+    pendingLocalImport,
+    confirmOpen,
+    confirmPayload,
+    confirmVotes,
+    respondToConfirm,
+    importedCandidates,
+    cmdModalOpen,
+    setCmdModalOpen,
+    cmdSuggestedNames,
+    cmdSuggestedGameId,
+    showCommanderGallery,
+  } = importAndCommander;
 
-  // Table vs Rows layout
-  const isTable = layout === 'table';
+  const fetchDebug = useCallback(() => {
+    if (!safeView) {
+      setDebugData({ error: "Invalid gameId for debug" });
+      setDebugLoading(false);
+      setDebugOpen(true);
+      return;
+    }
+    setDebugLoading(true);
+    setDebugData(null);
+    setDebugOpen(true);
+    const gid = safeView.id;
+    const onceWithTimeout = (eventName: string, timeout = 3000) =>
+      new Promise((resolve) => {
+        const onResp = (payload: any) => {
+          resolve(payload);
+        };
+        (socket as any).once(eventName, onResp);
+        setTimeout(() => {
+          (socket as any).off(eventName, onResp);
+          resolve({ error: "timeout" });
+        }, timeout);
+      });
+    (socket as any).emit("dumpCommanderState", { gameId: gid });
+    (socket as any).emit("dumpLibrary", { gameId: gid });
+    (socket as any).emit("dumpImportedDeckBuffer", { gameId: gid });
+    Promise.all([
+      onceWithTimeout("debugCommanderState"),
+      onceWithTimeout("debugLibraryDump"),
+      onceWithTimeout("debugImportedDeckBuffer"),
+    ])
+      .then(([commanderResp, libResp, bufResp]) => {
+        setDebugData({
+          commanderState: commanderResp,
+          libraryDump: libResp,
+          importBuffer: bufResp,
+        });
+        setDebugLoading(false);
+      })
+      .catch((err) => {
+        setDebugData({ error: String(err) });
+        setDebugLoading(false);
+      });
+  }, [safeView]);
+
+  const isTable = layout === "table";
+  const canPass = !!safeView && !!you && safeView.priority === you;
+  const isYouPlayer =
+    !!safeView && !!you && safeView.players.some((p) => p.id === you);
+
+  const canAdvanceStep = useMemo(() => {
+    if (!safeView || !you) return false;
+    if (safeView.turnPlayer === you) return true;
+    const phaseStr = String(safeView.phase || "").toUpperCase();
+    if (phaseStr === "PRE_GAME" && safeView.players?.[0]?.id === you)
+      return true;
+    return false;
+  }, [safeView, you]);
+
+  const canAdvanceTurn = canAdvanceStep;
+
+  const effectiveGameId = safeView?.id ?? gameId;
 
   return (
-    <div style={{
-      fontFamily:'system-ui',
-      padding: 16,
-      display: 'grid',
-      gridTemplateColumns: isTable ? '1fr' : '1fr 420px',
-      gap: 16
-    }}>
-      <div>
-        <h1>MTGEDH</h1>
-        <div>Status: {connected ? 'connected' : 'disconnected'}</div>
-        {lastError && (
-          <div style={{ marginTop: 8, padding: 8, background: '#fdecea', color: '#611a15', border: '1px solid #f5c2c0', borderRadius: 6 }}>
-            {lastError} <button onClick={() => setLastError(null)} style={{ marginLeft: 8 }}>Dismiss</button>
+    <div
+      style={{
+        padding: 12,
+        fontFamily: "system-ui",
+        display: "grid",
+        gridTemplateColumns: isTable ? "1fr" : "1.2fr 380px",
+        gap: 12,
+      }}
+    >
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {/* Header / controls */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <div>
+            <h1 style={{ margin: 0 }}>MTGEDH</h1>
+            <div style={{ fontSize: 12, color: "#666" }}>
+              Game: {effectiveGameId} • Format:{" "}
+              {String(safeView?.format ?? "")}
+            </div>
           </div>
-        )}
 
-        <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input value={gameId} onChange={e => setGameId(e.target.value)} placeholder="Game ID" />
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="Name" />
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <input type="checkbox" checked={joinAsSpectator} onChange={e => setJoinAsSpectator(e.target.checked)} />
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                alignItems: "center",
+                padding: 6,
+                border: "1px solid #eee",
+                borderRadius: 6,
+              }}
+            >
+              <button
+                onClick={() =>
+                  socket.emit("nextStep", { gameId: safeView?.id })
+                }
+                disabled={!canAdvanceStep}
+              >
+                Next Step
+              </button>
+              <button
+                onClick={() =>
+                  socket.emit("nextTurn", { gameId: safeView?.id })
+                }
+                disabled={!canAdvanceTurn}
+              >
+                Next Turn
+              </button>
+              <button
+                onClick={() =>
+                  socket.emit("passPriority", {
+                    gameId: safeView?.id,
+                    by: you,
+                  })
+                }
+                disabled={!canPass}
+              >
+                Pass Priority
+              </button>
+            </div>
+            <div style={{ fontSize: 12, color: "#444" }}>
+              Phase: <strong>{String(safeView?.phase ?? "-")}</strong>{" "}
+              {safeView?.step ? (
+                <span>
+                  • Step: <strong>{String(safeView.step)}</strong>
+                </span>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+        {/* Join / game controls */}
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <input
+            value={gameId}
+            onChange={(e) => setGameId(e.target.value)}
+            placeholder="Game ID"
+          />
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Name"
+          />
+          <label
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={joinAsSpectator}
+              onChange={(e) => setJoinAsSpectator(e.target.checked)}
+            />
             Spectator
           </label>
-          <button onClick={handleJoin} disabled={!connected}>Join</button>
-          <button onClick={() => socket.emit('requestState', { gameId })} disabled={!connected}>Refresh</button>
+          <button onClick={handleJoin} disabled={!connected}>
+            Join
+          </button>
+          <button
+            onClick={() => socket.emit("requestState", { gameId })}
+            disabled={!connected}
+          >
+            Refresh
+          </button>
+          <button
+            onClick={() => fetchDebug()}
+            disabled={!connected || !safeView}
+          >
+            Debug
+          </button>
         </div>
 
-        {view && (
-          <>
-            <div style={{ marginTop: 8, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-              <div>Game: {view.id} | Format: {String(view.format)} | Turn: {view.turnPlayer}</div>
-              <div>Priority: {priority ?? view.priority}</div>
-              <div>Turn order: {turnDirLabel}</div>
-              <div>Phase: {String(view.phase)} {view.step ? `• Step: ${String(view.step)}` : ''}</div>
-              <button onClick={() => socket.emit('toggleTurnDirection', { gameId: view.id })}>Reverse turn order</button>
-              <label>Layout:
-                <select value={layout} onChange={e => { const v = e.target.value as LayoutMode; setLayout(v); localStorage.setItem('mtgedh:layout', v); }} style={{ marginLeft: 6 }}>
-                  <option value="rows">Rows</option>
-                  <option value="table">Table</option>
-                </select>
-              </label>
-              <label>Image:
-                <select value={imagePref} onChange={e => { const v = e.target.value as ImagePref; setImagePref(v); localStorage.setItem('mtgedh:imagePref', v); }} style={{ marginLeft: 6 }}>
-                  <option value="small">small</option>
-                  <option value="normal">normal</option>
-                  <option value="art_crop">art_crop</option>
-                </select>
-              </label>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <input type="checkbox" checked={table3D} onChange={e => setTable3D(e.target.checked)} />
-                3D table
-              </label>
-              {table3D && (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                  <label>Pitch
-                    <input type="range" min={-30} max={30} value={rotX} onChange={e => setRotX(Number(e.target.value))} />
-                  </label>
-                  <label>Yaw
-                    <input type="range" min={-180} max={180} value={rotY} onChange={e => setRotY(Number(e.target.value))} />
-                  </label>
-                </span>
-              )}
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <input type="checkbox" checked={enableManualScrySurveil} onChange={e => setEnableManualScrySurveil(e.target.checked)} />
-                Manual Scry/Surveil
-              </label>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <input
-                  value={clothUrl}
-                  onChange={e => setClothUrl(e.target.value)}
-                  placeholder="Table cloth image URL"
-                  style={{ width: 220 }}
-                />
-                {clothUrl && <button onClick={() => setClothUrl('')}>Clear</button>}
-              </span>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <label>World
-                  <input type="number" value={worldSize} onChange={e => setWorldSize(Math.max(2000, Number(e.target.value) || 12000))} style={{ width: 90, marginLeft: 6 }} />
-                </label>
-              </span>
-              {you === view.turnPlayer && (
-                <>
-                  <button onClick={() => socket.emit('nextStep', { gameId: view.id })} disabled={(view.stack?.length ?? 0) > 0}>Next Step</button>
-                  <button onClick={() => socket.emit('nextTurn', { gameId: view.id })} disabled={(view.stack?.length ?? 0) > 0}>Next Turn</button>
-                  <span style={{ fontSize: 12, opacity: 0.8 }}>Lands played: {yourLandsPlayed}/1</span>
-                </>
-              )}
-            </div>
+        <div style={{ marginTop: 12 }}>
+          <GameList onJoin={joinFromList} />
+        </div>
 
-            {!isTable && (
-              <>
-                <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <button onClick={() => restart(true)}>Restart (keep players)</button>
-                  <button onClick={() => restart(false)}>Restart (clear roster)</button>
-                  <button onClick={() => socket.emit('passPriority', { gameId: view.id })} disabled={!canPass}>Pass Priority</button>
-                  <button onClick={shuffleLibrary}>Shuffle Library</button>
-                  <button onClick={drawOne}>Draw 1</button>
-                  <button onClick={handToLibraryShuffle}>Hand → Library + Shuffle</button>
-                  <span style={{ marginLeft: 8 }}>
-                    <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search library…" />
-                    <button onClick={doSearch}>Search</button>
-                    <button onClick={clearSearch}>Clear</button>
-                  </span>
-                </div>
-
-                <h3 style={{ marginTop: 16 }}>Stack</h3>
-                <div style={{ border: '1px solid #ddd', padding: 8, minHeight: 40 }}>
-                  {(view.stack ?? []).length === 0 && <div style={{ opacity: 0.6 }}>Empty</div>}
-                  {(view.stack ?? []).map((s, i) => {
-                    const name = (s.card as any)?.name || s.id;
-                    const tline = (s.card as any)?.type_line || '';
-                    const key = `stack:${s.id}`;
-                    const canTarget = !!targeting && targeting.targets.some(t => t.kind === 'stack' && t.id === s.id);
-                    const isSelected = !!targeting && targeting.chosen.has(key);
-                    const targets = (s.targets || []);
-                    const targetsLabel = targets.length ? targets.map((x: string) => x).join(', ') : '';
-                    const onClick = () => {
-                      if (!targeting || !canTarget) return;
-                      const next = new Set(targeting.chosen);
-                      if (isSelected) next.delete(key); else if (next.size < targeting.max) next.add(key);
-                      syncChosen(next, targeting.spellId);
-                      setTargeting({ ...targeting, chosen: next });
-                    };
-                    return (
-                      <div
-                        key={s.id}
-                        onClick={onClick}
-                        onMouseEnter={(e) => { showCardPreview(e.currentTarget as HTMLElement, s.card as any, { prefer: 'above', anchorPadding: 0 }); }}
-                        onMouseLeave={() => hideCardPreview()}
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: '1fr auto',
-                          alignItems: 'center',
-                          gap: 6,
-                          padding: '6px 8px',
-                          borderRadius: 6,
-                          border: '1px solid',
-                          marginBottom: i < (view.stack.length - 1) ? 6 : 0,
-                          cursor: targeting && canTarget ? 'pointer' : 'default',
-                          borderColor: isSelected ? '#2b6cb0' : canTarget ? '#38a169' : '#eee',
-                          background: isSelected ? 'rgba(43,108,176,0.1)' : 'transparent'
-                        }}
-                        title={canTarget ? 'Click to target this spell' : undefined}
-                      >
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name} — {tline}</div>
-                          {targetsLabel && (
-                            <div style={{ fontSize: 12, color: '#555', marginTop: 2 }}>
-                              → targets: {targetsLabel}
-                            </div>
-                          )}
-                        </div>
-                        <div style={{ fontSize: 12, opacity: 0.7, textAlign: 'right' }}>by {s.controller}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-
-            {isTable ? (
-              <div style={{ marginTop: 8 }}>
-                <TableLayout
-                  players={view.players}
-                  permanentsByPlayer={battlefieldByPlayer}
-                  imagePref={imagePref}
-                  isYouPlayer={!!isYouPlayer}
-                  splitLands
-                  enableReorderForYou={reorderEnabled}
-                  you={you || undefined}
-                  zones={view.zones}
-                  commandZone={view.commandZone as any}
-                  format={String(view.format || '')}
-                  showYourHandBelow
-                  onReorderHand={(order) => view && socket.emit('reorderHand', { gameId: view.id, order })}
-                  onShuffleHand={() => view && socket.emit('shuffleHand', { gameId: view.id })}
-                  onRemove={removePermanent}
-                  onCounter={addCounter}
-                  onBulkCounter={bulkCounter}
-                  highlightPermTargets={targeting ? new Set([...validPermanentTargets]) : undefined}
-                  selectedPermTargets={targeting ? new Set([...selectedPermanentTargets, ...paymentSelectedPerms]) : undefined}
-                  onPermanentClick={targeting ? onPermanentClick : undefined}
-                  highlightPlayerTargets={targeting ? validPlayerTargets : undefined}
-                  selectedPlayerTargets={targeting ? selectedPlayerTargets : undefined}
-                  onPlayerClick={targeting ? onPlayerClick : undefined}
-                  onPlayLandFromHand={(cardId) => socket.emit('playLand', { gameId: view!.id, cardId })}
-                  onCastFromHand={(cardId) => beginCast(cardId)}
-                  reasonCannotPlayLand={reasonCannotPlayLand}
-                  reasonCannotCast={reasonCannotCast}
-                  threeD={table3D ? { enabled: true, rotateXDeg: rotX, rotateYDeg: rotY, perspectivePx: 1100 } : undefined}
-                  enablePanZoom
-                  tableCloth={{ imageUrl: clothUrl || undefined }}
-                  worldSize={worldSize}
-                  onUpdatePermPos={(id, x, y, z) => view && socket.emit('updatePermanentPos', { gameId: view.id, permanentId: id, x, y, z })}
-                  onImportDeckText={(txt, nm) => importDeckText(txt, nm)}
-                  gameId={view.id}
-                  stackItems={view.stack as any}
-                />
-              </div>
-            ) : (
-              <div style={{ marginTop: 16, display: 'grid', gap: 16 }}>
-                {(view.players ?? []).map(p => {
-                  const perms = battlefieldByPlayer.get(p.id) || [];
-                  const tokens = perms.filter(x => (x.card as any)?.type_line === 'Token');
-                  const nonTokens = perms.filter(x => (x.card as any)?.type_line !== 'Token');
-
-                  const lands = nonTokens.filter(x => isLandTypeLine((x.card as any)?.type_line));
-                  const others = nonTokens.filter(x => !isLandTypeLine((x.card as any)?.type_line));
-
-                  const canTargetPlayer = targeting ? validPlayerTargets.has(p.id) : false;
-                  const selPlayer = targeting ? selectedPlayerTargets.has(p.id) : false;
-
-                  return (
-                    <div key={p.id}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <div style={{ fontWeight: 700 }}>{p.name} — {p.id === you ? 'Your board' : 'Opponent'}</div>
-                        {targeting && (
-                          <button
-                            onClick={() => onPlayerClick(p.id)}
-                            disabled={!canTargetPlayer}
-                            style={{
-                              border: '1px solid',
-                              borderColor: selPlayer ? '#2b6cb0' : canTargetPlayer ? '#38a169' : '#ccc',
-                              background: 'transparent',
-                              color: selPlayer ? '#2b6cb0' : canTargetPlayer ? '#38a169' : '#aaa',
-                              padding: '2px 8px',
-                              borderRadius: 6
-                            }}
-                            title={canTargetPlayer ? 'Target player' : 'Not a valid player target'}
-                          >
-                            {selPlayer ? 'Selected' : 'Target'}
-                          </button>
-                        )}
-                      </div>
-
-                      {others.length > 0 && (
-                        <>
-                          <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 6 }}>Non-lands</div>
-                          <BattlefieldGrid
-                            perms={others}
-                            imagePref={imagePref}
-                            onRemove={isYouPlayer ? (id => removePermanent(id)) : undefined}
-                            onCounter={isYouPlayer ? ((id, kind, delta) => addCounter(id, kind, delta)) : undefined}
-                            highlightTargets={targeting ? new Set([...validPermanentTargets]) : undefined}
-                            selectedTargets={targeting ? new Set([...selectedPermanentTargets, ...paymentSelectedPerms]) : undefined}
-                            onCardClick={targeting ? onPermanentClick : undefined}
-                            layout='grid'
-                            tileWidth={110}
-                            gapPx={10}
-                          />
-                        </>
-                      )}
-
-                      {lands.length > 0 && (
-                        <>
-                          <div style={{ fontSize: 12, opacity: 0.7, margin: '12px 0 6px' }}>Lands</div>
-                          <BattlefieldGrid
-                            perms={lands}
-                            imagePref={imagePref}
-                            onRemove={isYouPlayer ? (id => removePermanent(id)) : undefined}
-                            onCounter={isYouPlayer ? ((id, kind, delta) => addCounter(id, kind, delta)) : undefined}
-                            highlightTargets={targeting ? new Set([...validPermanentTargets]) : undefined}
-                            selectedTargets={targeting ? new Set([...selectedPermanentTargets, ...paymentSelectedPerms]) : undefined}
-                            onCardClick={targeting ? onPermanentClick : undefined}
-                            layout='row'
-                            tileWidth={110}
-                            rowOverlapPx={0}
-                          />
-                        </>
-                      )}
-
-                      {tokens.length > 0 && (
-                        <>
-                          <div style={{ fontSize: 12, opacity: 0.7, margin: '12px 0 6px' }}>Tokens</div>
-                          <TokenGroups
-                            tokens={tokens}
-                            groupMode='name+pt+attach'
-                            attachedToSet={attachedToSet}
-                            onBulkCounter={(ids, deltas) => bulkCounter(ids, deltas)}
-                            highlightTargets={targeting ? new Set([...validPermanentTargets]) : undefined}
-                            selectedTargets={targeting ? new Set([...selectedPermanentTargets, ...paymentSelectedPerms]) : undefined}
-                            onTokenClick={targeting ? onPermanentClick : undefined}
-                          />
-                        </>
-                      )}
-
-                      {perms.length === 0 && <div style={{ opacity: 0.6 }}>Empty battlefield</div>}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {targeting && (
-              <div style={{
-                position:'fixed', left:0, right:0, bottom:0,
-                background:'#fff', borderTop:'1px solid #ddd',
-                padding:12, display:'flex', justifyContent:'space-between', alignItems:'center', zIndex:50
-              }}>
-                <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                  <div>
-                    Select {targeting.min === targeting.max ? targeting.max : `${targeting.min}–${targeting.max}`} target(s)
-                    <span style={{ marginLeft:8, fontSize:12, opacity:0.7 }}>Chosen: {targeting.chosen.size}/{targeting.max}</span>
-                  </div>
-                  {(targeting.manaCost || (targeting.sources && targeting.sources.length > 0)) && (
-                    <PaymentPicker
-                      manaCost={targeting.manaCost}
-                      manaCostDisplay={targeting.manaCost}
-                      sources={targeting.sources || []}
-                      chosen={targeting.payment}
-                      xValue={targeting.xValue}
-                      onChangeX={x => setTargeting(prev => prev ? { ...prev, xValue:x } : prev)}
-                      onChange={next => setTargeting(prev => prev ? { ...prev, payment: next } : prev)}
-                    />
-                  )}
-                </div>
-                <div style={{ display:'inline-flex', gap:8 }}>
-                  <button onClick={cancelCast}>Cancel</button>
-                  <button onClick={confirmCast} disabled={!!confirmDisabledReason} title={confirmDisabledReason || 'Put on Stack'}>
-                    Put on Stack
-                  </button>
-                </div>
-              </div>
-            )}
-          </>
+        {missingImport && missingImport.length > 0 && (
+          <div
+            style={{
+              background: "#fff6d5",
+              padding: 10,
+              border: "1px solid #f1c40f",
+              borderRadius: 6,
+            }}
+          >
+            <strong>Import warning</strong>: Could not resolve these names:{" "}
+            {missingImport.slice(0, 10).join(", ")}
+            {missingImport.length > 10 ? ", …" : ""}.
+            <button
+              onClick={() => setMissingImport(null)}
+              style={{ marginLeft: 12 }}
+            >
+              Dismiss
+            </button>
+          </div>
         )}
+
+        {/* Table */}
+        <div
+          style={{
+            border: "1px solid #eee",
+            borderRadius: 6,
+            padding: 8,
+          }}
+        >
+          {safeView ? (
+            <>
+              <TableLayout
+                players={safeView.players}
+                permanentsByPlayer={
+                  new Map(
+                    (safeView.players || []).map((p: any) => [
+                      p.id,
+                      (safeView.battlefield || []).filter(
+                        (perm: any) => perm.controller === p.id
+                      ),
+                    ])
+                  )
+                }
+                imagePref={imagePref}
+                isYouPlayer={isYouPlayer}
+                splitLands
+                enableReorderForYou={isYouPlayer}
+                you={you || undefined}
+                zones={safeView.zones}
+                commandZone={safeView.commandZone as any}
+                format={String(safeView.format || "")}
+                showYourHandBelow
+                onReorderHand={(order) =>
+                  safeView &&
+                  socket.emit("reorderHand", {
+                    gameId: safeView.id,
+                    order,
+                  })
+                }
+                onShuffleHand={() =>
+                  safeView &&
+                  socket.emit("shuffleHand", { gameId: safeView.id })
+                }
+                onRemove={(id) =>
+                  safeView &&
+                  socket.emit("removePermanent", {
+                    gameId: safeView.id,
+                    permanentId: id,
+                  })
+                }
+                onCounter={(id, kind, delta) =>
+                  safeView &&
+                  socket.emit("updateCounters", {
+                    gameId: safeView.id,
+                    permanentId: id,
+                    deltas: { [kind]: delta },
+                  })
+                }
+                onBulkCounter={(ids, deltas) =>
+                  safeView &&
+                  socket.emit("updateCountersBulk", {
+                    gameId: safeView.id,
+                    updates: ids.map((id) => ({ permanentId: id, deltas })),
+                  })
+                }
+                onPlayLandFromHand={(cardId) =>
+                  socket.emit("playLand", { gameId: safeView!.id, cardId })
+                }
+                onCastFromHand={(cardId) =>
+                  socket.emit("beginCast", { gameId: safeView!.id, cardId })
+                }
+                reasonCannotPlayLand={() => null}
+                reasonCannotCast={() => null}
+                threeD={undefined}
+                enablePanZoom
+                tableCloth={{ imageUrl: "" }}
+                worldSize={12000}
+                onUpdatePermPos={(id, x, y, z) =>
+                  safeView &&
+                  socket.emit("updatePermanentPos", {
+                    gameId: safeView.id,
+                    permanentId: id,
+                    x,
+                    y,
+                    z,
+                  })
+                }
+                onImportDeckText={(txt, nm) => requestImportDeck(txt, nm)}
+                onUseSavedDeck={(deckId) => requestUseSavedDeck(deckId)}
+                onLocalImportConfirmChange={handleLocalImportConfirmChange}
+                gameId={safeView.id}
+                stackItems={safeView.stack as any}
+                importedCandidates={importedCandidates}
+              />
+            </>
+          ) : (
+            <div style={{ padding: 20, color: "#666" }}>
+              No game state yet. Join a game to view table.
+            </div>
+          )}
+        </div>
       </div>
 
-      {!isTable && (
-        <div>
-          <h3>Chat</h3>
-          <div style={{ border: '1px solid #ccc', padding: 8, height: 220, overflow: 'auto', background: '#fafafa' }}>
-            {chat.map(m => (
-              <div key={m.id} style={{ fontSize: 12 }}>
-                <b>{m.from}</b>: {m.message} <span style={{ opacity: 0.6 }}>({new Date(m.ts).toLocaleTimeString()})</span>
-              </div>
-            ))}
-            {chat.length === 0 && <div style={{ opacity: 0.6 }}>No messages</div>}
-          </div>
+      {/* Right column: chat + zones + quick controls */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <ChatPanel
+          messages={chat}
+          onSend={(txt) => {
+            if (!view) return;
+            const payload = {
+              id: `m_${Date.now()}`,
+              gameId: view.id,
+              from: you ?? "you",
+              message: txt,
+              ts: Date.now(),
+            };
+            socket.emit("chat", payload);
+            setChat((prev) => [...prev, payload]);
+          }}
+          view={view}
+        />
 
-          {view && <div style={{ marginTop: 12 }}><ZonesPanel view={view} you={you} isYouPlayer={!!isYouPlayer} /></div>}
+        <div
+          style={{
+            border: "1px solid #ddd",
+            borderRadius: 6,
+            padding: 8,
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>Zones</div>
+          {safeView ? (
+            <ZonesPanel view={safeView} you={you} isYouPlayer={isYouPlayer} />
+          ) : (
+            <div style={{ color: "#666" }}>Join a game to see zones.</div>
+          )}
         </div>
-      )}
+
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => requestImportDeck("")}>Import (text)</button>
+          <button onClick={() => requestUseSavedDeck("")}>Use Saved</button>
+          <button onClick={() => fetchDebug()} disabled={!safeView}>
+            Debug
+          </button>
+        </div>
+      </div>
 
       <CardPreviewLayer />
 
+      {/* Commander selection UI (App-level) */}
+      {effectiveGameId &&
+        cmdModalOpen &&
+        cmdSuggestedGameId === effectiveGameId && (
+          showCommanderGallery ? (
+            <CommanderSelectModal
+              open={cmdModalOpen}
+              onClose={() => setCmdModalOpen(false)}
+              deckList={importedCandidates.map((c) => c.name).join("\n")}
+              candidates={importedCandidates}
+              max={2}
+              onConfirm={(names, ids) => {
+                handleCommanderConfirm(names, ids);
+                setCmdModalOpen(false);
+              }}
+            />
+          ) : (
+            <CommanderConfirmModal
+              open={cmdModalOpen}
+              gameId={effectiveGameId}
+              initialNames={cmdSuggestedNames}
+              onClose={() => setCmdModalOpen(false)}
+              onConfirm={(names) => {
+                handleCommanderConfirm(names);
+                setCmdModalOpen(false);
+              }}
+            />
+          )
+        )}
+
+      {/* Debug modal */}
+      {debugOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(0,0,0,0.6)",
+            zIndex: 6000,
+          }}
+        >
+          <div
+            style={{
+              width: 900,
+              maxHeight: "80vh",
+              overflow: "auto",
+              background: "#1e1e1e",
+              color: "#fff",
+              padding: 12,
+              borderRadius: 8,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <strong>Debug Output</strong>
+              <div>
+                <button
+                  onClick={() => {
+                    setDebugOpen(false);
+                    setDebugData(null);
+                  }}
+                >
+                  Close
+                </button>
+                <button
+                  onClick={() => fetchDebug()}
+                  disabled={debugLoading}
+                  style={{ marginLeft: 8 }}
+                >
+                  Refresh
+                </button>
+              </div>
+            </div>
+            <div style={{ marginTop: 8, fontSize: 12 }}>
+              {debugLoading ? (
+                <div>Loading...</div>
+              ) : (
+                <pre
+                  style={{
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    fontSize: 11,
+                  }}
+                >
+                  {JSON.stringify(debugData, null, 2)}
+                </pre>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import-wipe confirmation modal */}
+      {confirmOpen && confirmPayload && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(0,0,0,0.6)",
+            zIndex: 7000,
+          }}
+        >
+          <div
+            style={{
+              width: 560,
+              background: "#1e1e1e",
+              color: "#fff",
+              padding: 16,
+              borderRadius: 8,
+            }}
+          >
+            <h3 style={{ marginTop: 0 }}>
+              Confirm importing deck (wipes table)
+            </h3>
+            <div
+              style={{
+                fontSize: 13,
+                opacity: 0.9,
+                marginBottom: 8,
+              }}
+            >
+              Player <strong>{confirmPayload.initiator}</strong> is importing a
+              deck
+              {confirmPayload.deckName ? `: ${confirmPayload.deckName}` : ""}.
+            </div>
+            <div
+              style={{
+                display: "flex",
+                gap: 12,
+                marginBottom: 8,
+              }}
+            >
+              <div>Resolved cards: {confirmPayload.resolvedCount}</div>
+              <div>Declared deck size: {confirmPayload.expectedCount}</div>
+            </div>
+
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Votes</div>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  flexWrap: "wrap",
+                }}
+              >
+                {confirmVotes ? (
+                  Object.entries(confirmVotes).map(([pid, v]) => (
+                    <div
+                      key={pid}
+                      style={{
+                        padding: 8,
+                        background: "#0f0f0f",
+                        borderRadius: 6,
+                        minWidth: 120,
+                      }}
+                    >
+                      <div style={{ fontSize: 12 }}>
+                        {safeView?.players?.find((p: any) => p.id === pid)
+                          ?.name ?? pid}
+                        {pid === you ? " (you)" : ""}
+                      </div>
+                      <div
+                        style={{
+                          fontWeight: 700,
+                          color:
+                            v === "yes"
+                              ? "#8ef58e"
+                              : v === "no"
+                              ? "#f58e8e"
+                              : "#ddd",
+                        }}
+                      >
+                        {v}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div>No votes yet</div>
+                )}
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: 8,
+                marginTop: 12,
+              }}
+            >
+              <button
+                onClick={() => {
+                  // soft-dismiss only; underlying confirmation stays alive
+                  // caller can re-open or respond later
+                  // (we just hide the modal)
+                  // If you want to cancel the confirm, emit here.
+                }}
+              >
+                Dismiss
+              </button>
+              <button
+                onClick={() => respondToConfirm(false)}
+                style={{ background: "#a00", color: "#fff" }}
+              >
+                Decline
+              </button>
+              <button
+                onClick={() => respondToConfirm(true)}
+                style={{ background: "#0a8", color: "#fff" }}
+              >
+                Accept
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Scry/Surveil */}
       {peek && (
         <ScrySurveilModal
           mode={peek.mode}
           cards={peek.cards}
           imagePref={imagePref}
           onCancel={() => setPeek(null)}
-          onConfirm={res => {
+          onConfirm={(res) => {
             if (!view) return;
-            if (peek.mode === 'scry')
-              socket.emit('confirmScry', { gameId: view.id, keepTopOrder: res.keepTopOrder, bottomOrder: res.bottomOrder || [] });
+            if (peek.mode === "scry")
+              socket.emit("confirmScry", {
+                gameId: view.id,
+                keepTopOrder: res.keepTopOrder,
+                bottomOrder: res.bottomOrder || [],
+              });
             else
-              socket.emit('confirmSurveil', { gameId: view.id, toGraveyard: res.toGraveyard || [], keepTopOrder: res.keepTopOrder });
+              socket.emit("confirmSurveil", {
+                gameId: view.id,
+                toGraveyard: res.toGraveyard || [],
+                keepTopOrder: res.keepTopOrder,
+              });
             setPeek(null);
           }}
         />
       )}
+
+      {/* Name-in-use */}
+      <NameInUseModal
+        open={showNameInUseModal}
+        payload={nameInUsePayload}
+        onClose={() => {
+          setShowNameInUseModal(false);
+          setNameInUsePayload(null);
+        }}
+        onReconnect={(fixedPlayerId: string, seatToken?: string) => {
+          const gid = nameInUsePayload?.gameId || gameId;
+          const pname = nameInUsePayload?.playerName || name;
+          const token =
+            seatToken ?? sessionStorage.getItem(seatTokenKey(gid, pname));
+          console.debug("[JOIN_EMIT] reconnect click", {
+            gameId: gid,
+            playerName: pname,
+            fixedPlayerId,
+            seatToken: token,
+          });
+          socket.emit("joinGame", {
+            gameId: gid,
+            playerName: pname,
+            spectator: joinAsSpectator,
+            seatToken: token,
+            fixedPlayerId,
+          });
+          setShowNameInUseModal(false);
+          setNameInUsePayload(null);
+        }}
+        onNewName={(newName: string) => {
+          const gid = nameInUsePayload?.gameId || gameId;
+          setName(newName);
+          const lastJoinRef = {
+            gameId: gid,
+            name: newName,
+            spectator: joinAsSpectator,
+          };
+          try {
+            sessionStorage.setItem(
+              lastJoinKey(),
+              JSON.stringify(lastJoinRef)
+            );
+          } catch {
+            /* ignore */
+          }
+          const token =
+            sessionStorage.getItem(seatTokenKey(gid, newName)) || undefined;
+          console.debug("[JOIN_EMIT] new-name join", {
+            gameId: gid,
+            playerName: newName,
+            seatToken: token,
+          });
+          socket.emit("joinGame", {
+            gameId: gid,
+            playerName: newName,
+            spectator: joinAsSpectator,
+            seatToken: token,
+          });
+          setShowNameInUseModal(false);
+          setNameInUsePayload(null);
+        }}
+      />
     </div>
   );
 }
 
+/* default export retained for compatibility */
 export default App;
