@@ -65,6 +65,17 @@ export const CommanderSelectModal: React.FC<CommanderSelectModalProps> = ({
   // When modal opens, prefill selection only with primary candidate (first) if present.
   useEffect(() => {
     if (!open) return;
+
+    try {
+      console.debug("[CommanderSelectModal] open effect", {
+        candidatesCount: candidates?.length ?? 0,
+        max,
+        initialDeckListTop: (deckList || "").split(/\r?\n/).slice(0, 3),
+      });
+    } catch {
+      // ignore
+    }
+
     if (candidates && candidates.length > 0) {
       // Preselect only the primary candidate (first item). Do NOT auto-select partner(s).
       const primary = candidates[0];
@@ -146,6 +157,23 @@ export const CommanderSelectModal: React.FC<CommanderSelectModalProps> = ({
         const matchCandidate = candidates?.find(c => c.name === nm);
         if (matchCandidate && matchCandidate.id) outIds.push(matchCandidate.id);
       }
+    }
+
+    try {
+      console.debug("[CommanderSelectModal] confirm()", {
+        selectedIds,
+        manualNames,
+        outNames: outNames.slice(0, max),
+        outIds: outIds.length ? outIds.slice(0, max) : undefined,
+        max,
+      });
+    } catch {
+      // ignore
+    }
+
+    if (!outNames.length) {
+      // Nothing to confirm
+      return;
     }
 
     onConfirm(outNames.slice(0, max), outIds.length ? outIds.slice(0, max) : undefined);
@@ -321,7 +349,11 @@ export const CommanderSelectModal: React.FC<CommanderSelectModalProps> = ({
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={() => onClose()}>Cancel</button>
-            <button onClick={confirm} disabled={(selectedIds.length === 0 && manualNames.every(n => !(n || '').trim()))} style={{ background: '#2563eb', color: '#fff', padding: '8px 12px', borderRadius: 8 }}>
+            <button
+              onClick={confirm}
+              disabled={(selectedIds.length === 0 && manualNames.every(n => !(n || '').trim()))}
+              style={{ background: '#2563eb', color: '#fff', padding: '8px 12px', borderRadius: 8 }}
+            >
               Confirm
             </button>
           </div>

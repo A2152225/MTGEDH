@@ -4,7 +4,7 @@
  * Socket handlers for commander operations.
  *
  * Key points in this variant:
- * - Treat client-provided ids as input but always read back authoritative state from game.state after calling game.setCommander/applyEvent.
+ * - Treat client-provided ids as input but always read back authoritative state from game.state.
  * - Resolve names -> ids only for names the client supplied (local import buffer -> scryfall fallback).
  * - Update zones[pid].libraryCount from authoritative libraries map if present so clients see correct counts.
  * - Perform pendingInitialDraw idempotently: only shuffle/draw when the player's hand is empty; clear pending flag.
@@ -45,7 +45,6 @@ function makeCandidateList(arr: any[] | undefined) {
 
 /**
  * Emit importedDeckCandidates to all currently-connected sockets that belong to `pid` (non-spectators).
- * This avoids races where an importer-only socket was used but the player's current connection differs.
  */
 export function emitImportedDeckCandidatesToPlayer(io: Server, gameId: string, pid: PlayerID) {
   try {
@@ -54,7 +53,8 @@ export function emitImportedDeckCandidatesToPlayer(io: Server, gameId: string, p
     const buf = (game as any)._lastImportedDecks as Map<PlayerID, any[]> | undefined;
     let localArr: any[] = [];
     if (buf && typeof buf.get === "function") localArr = buf.get(pid) || [];
-    else if ((game as any).libraries && Array.isArray((game as any).libraries[pid])) localArr = (game as any).libraries[pid] || [];
+    else if ((game as any).libraries && Array.isArray((game as any).libraries[pid]))
+      localArr = (game as any).libraries[pid] || [];
 
     const candidates = makeCandidateList(localArr);
 
@@ -64,7 +64,9 @@ export function emitImportedDeckCandidatesToPlayer(io: Server, gameId: string, p
           if (s?.data?.playerId === pid && !s?.data?.spectator) {
             s.emit("importedDeckCandidates", { gameId, candidates });
           }
-        } catch (e) { /* ignore per-socket errors */ }
+        } catch (e) {
+          /* ignore per-socket errors */
+        }
       }
       console.info("[commander] emitImportedDeckCandidatesToPlayer", {
         gameId,
@@ -81,7 +83,6 @@ export function emitImportedDeckCandidatesToPlayer(io: Server, gameId: string, p
 
 /**
  * Emit suggestCommanders to all currently-connected sockets that belong to `pid`.
- * names may be undefined/null (server can still emit; clients will request candidates).
  */
 export function emitSuggestCommandersToPlayer(io: Server, gameId: string, pid: PlayerID, names?: string[]) {
   try {
@@ -91,7 +92,9 @@ export function emitSuggestCommandersToPlayer(io: Server, gameId: string, pid: P
         if (s?.data?.playerId === pid && !s?.data?.spectator) {
           s.emit("suggestCommanders", payload);
         }
-      } catch (e) { /* ignore per-socket errors */ }
+      } catch (e) {
+        /* ignore per-socket errors */
+      }
     }
     console.info("[commander] emitSuggestCommandersToPlayer", {
       gameId,
@@ -200,24 +203,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         idsToApply,
       });
 
-      try {
-        if (typeof game.setCommander === "function") {
-          await game.setCommander(pid, names, idsToApply);
-        } else if (typeof (game as any).applyEvent === "function") {
-          (game as any).applyEvent({
-            type: "setCommander",
-            playerId: pid,
-            commanderNames: names,
-            commanderIds: idsToApply,
-          });
-        } else {
-          socket.emit("error", { message: "Server state does not support setCommander" });
-          console.error("setCommander: no game.setCommander or applyEvent on game");
-          return;
-        }
-      } catch (err) {
-        console.error("setCommander: game.setCommander/applyEvent error:", err);
-      }
+      // We no longer rely on game.setCommander/applyEvent; we manage state here.
 
       try {
         appendEvent(gameId, game.seq, "setCommander", {
@@ -277,7 +263,9 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
               );
               if (found) return found;
             }
-          } catch (e) { /* ignore */ }
+          } catch (e) {
+            /* ignore */
+          }
 
           try {
             const z =
@@ -289,7 +277,9 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
               );
               if (libFound) return libFound;
             }
-          } catch (e) { /* ignore */ }
+          } catch (e) {
+            /* ignore */
+          }
 
           try {
             const L = (game as any).libraries;
@@ -301,7 +291,9 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
               );
               if (libFound) return libFound;
             }
-          } catch (e) { /* ignore */ }
+          } catch (e) {
+            /* ignore */
+          }
 
           try {
             const bfFound = (game.state.battlefield || []).find(
@@ -310,7 +302,9 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
                 (b.card.id === cid || b.card.cardId === cid)
             );
             if (bfFound) return bfFound.card;
-          } catch (e) { /* ignore */ }
+          } catch (e) {
+            /* ignore */
+          }
 
           return null;
         };
@@ -592,5 +586,5 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
   });
 
   // dumpLibrary, dumpImportedDeckBuffer, getImportedDeckCandidates, dumpCommanderState
-  // remain as in your current file (already logging enough); unchanged for brevity.
+  // remain as in your current file.
 }

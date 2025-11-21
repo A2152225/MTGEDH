@@ -440,7 +440,7 @@ export function App() {
       setChat((prev) => [...prev.slice(-199), msg]);
     });
 
-    // importedDeckCandidates: simply stash; Table/UI will decide how to show
+    // importedDeckCandidates: simply stash; UI will decide how to show
     socket.on("importedDeckCandidates", ({ gameId: gid, candidates }: any) => {
       const arr = Array.isArray(candidates) ? candidates : [];
       setImportedCandidates(arr);
@@ -452,6 +452,10 @@ export function App() {
         window.clearTimeout(suggestTimerRef.current);
         suggestTimerRef.current = null;
       }
+
+      // importer-only flow: once we have candidates, import is no longer "pending"
+      setPendingLocalImport(false);
+
       // If a commander suggestion is pending for this game, and we were waiting,
       // open the modal now.
       if (cmdSuggestedGameId === gid && !cmdModalOpen) {
@@ -623,7 +627,7 @@ export function App() {
       setCmdSuggestedGameId(gid);
       setCmdSuggestedNames(namesList);
 
-      // Always request candidates; we know from your manual logs that this works
+      // Always request candidates
       try {
         socket.emit("getImportedDeckCandidates", { gameId: gid });
       } catch (e) {
@@ -771,10 +775,22 @@ export function App() {
   const handleCommanderConfirm = useCallback(
     (names: string[], ids?: string[]) => {
       if (!safeView || !names || names.length === 0) return;
+
+      const isPreGame = String(safeView.phase || "")
+        .toUpperCase()
+        .includes("PRE");
+      const singlePlayer =
+        Array.isArray(safeView.players) &&
+        safeView.players.length === 1 &&
+        you === safeView.players[0]?.id;
+
+      // In single-player PRE_GAME, do not queue commander selection; apply immediately.
       const mustQueue =
-        pendingLocalImportRef.current ||
-        localImportConfirmRef.current ||
-        confirmOpen;
+        !isPreGame &&
+        !singlePlayer &&
+        (pendingLocalImportRef.current ||
+          localImportConfirmRef.current ||
+          confirmOpen);
 
       if (mustQueue) {
         setQueuedCommanderSelection({
@@ -795,7 +811,7 @@ export function App() {
       console.debug("[App] emitting setCommander", payload);
       socket.emit("setCommander", payload);
     },
-    [safeView, confirmOpen]
+    [safeView, confirmOpen, you]
   );
 
   const fetchDebug = useCallback(() => {
