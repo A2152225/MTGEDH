@@ -432,6 +432,38 @@ useEffect(() => {
     socket.on("importWipeCancelled", onCancelled);
     socket.on("importWipeConfirmed", onConfirmed);
 
+    // Handle importApplied for importer-only flow (PRE_GAME single-player imports)
+    socket.on("importApplied", ({ gameId: gid, by, importerOnly }: any) => {
+      console.debug("[socket] importApplied", { gameId: gid, by, importerOnly });
+      
+      // Clear pending import state
+      setPendingLocalImport(false);
+      setLocalImportConfirmOpen(false);
+      
+      // If this was for the current player's game, process any queued commander suggestion
+      if (safeView && gid === safeView.id && you && by === you) {
+        // Clear local hand state for imported player
+        setView(prev => {
+          if (!prev) return prev;
+          const copy: any = { ...prev, zones: { ...(prev.zones || {}) } };
+          copy.zones[you] = { ...(copy.zones[you] || {}), hand: [], handCount: 0 };
+          return copy;
+        });
+
+        // Request imported deck candidates for commander selection
+        try { socket.emit("getImportedDeckCandidates", { gameId: gid }); } catch (e) { /* ignore */ }
+
+        // If we have a queued commander suggestion, show it now
+        if (queuedCommanderRef.current && queuedCommanderRef.current.gameId === gid) {
+          const queued = queuedCommanderRef.current;
+          setCmdSuggestNames(Array.isArray(queued.names) ? queued.names.slice(0, 2) : []);
+          setCmdSuggestOpen(true);
+          setQueuedCommanderSuggest(null);
+          queuedCommanderRef.current = null;
+        }
+      }
+    });
+
     // Suggest commanders: request candidates and open fallback immediately (text), unless suppressed.
     socket.on("suggestCommanders", ({ gameId: gid, names }: any) => {
       console.debug("[socket] suggestCommanders", { gameId: gid, names });
@@ -491,6 +523,7 @@ useEffect(() => {
       socket.off("importWipeConfirmUpdate", onUpdate);
       socket.off("importWipeCancelled", onCancelled);
       socket.off("importWipeConfirmed", onConfirmed);
+      socket.off("importApplied");
 
       socket.off("suggestCommanders");
       socket.off("nameInUse", onNameInUse);
@@ -500,7 +533,7 @@ useEffect(() => {
         fallbackTimerRef.current = null;
       }
     };
-  }, [name, joinAsSpectator, view?.id, confirmId, view, confirmOpen, queuedCommanderSuggest, importedCandidates, you]);
+  }, [name, joinAsSpectator, view?.id, confirmId, view, confirmOpen, queuedCommanderSuggest, importedCandidates, you, safeView]);
 
   // actions
   const handleJoin = () => {
