@@ -37,10 +37,16 @@ export function ZonesPiles(props: {
   const cmdCards = (isCommanderFormat ? (commander as any)?.commanderCards : undefined) as KnownCardRef[] | undefined;
   const cmdIds = (isCommanderFormat ? (commander as any)?.commanderIds : undefined) as string[] | undefined;
 
-  function renderPile(label: string, count: number, topCard?: KnownCardRef) {
+  function renderPile(label: string, count: number, topCard?: KnownCardRef, hideTopCard?: boolean) {
     const name = topCard?.name || "";
     // prefer art_crop -> normal -> small
     const img = topCard?.image_uris?.art_crop || topCard?.image_uris?.normal || topCard?.image_uris?.small || null;
+    
+    // For library, don't show the card image/name - keep it hidden
+    const showCardPreviewOnHover = !hideTopCard && topCard;
+    const displayImage = !hideTopCard && img;
+    const displayName = !hideTopCard && name;
+    
     const body = (
       <div
         style={{
@@ -60,27 +66,27 @@ export function ZonesPiles(props: {
           textAlign: "center",
         }}
       >
-        {img ? (
+        {displayImage ? (
           <img
-            src={img}
+            src={img!}
             alt={name}
             style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", opacity: 0.78 }}
           />
         ) : null}
-        <span style={{ position: "relative", zIndex: 1 }}>{name || label}</span>
+        <span style={{ position: "relative", zIndex: 1 }}>{displayName || label}</span>
       </div>
     );
 
     return (
       <div
         key={label}
-        title={topCard ? topCard.name : `${label} (${count})`}
+        title={topCard && !hideTopCard ? topCard.name : `${label} (${count})`}
         style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 92 }}
         onMouseEnter={(e) => {
-          if (topCard) showCardPreview(e.currentTarget as HTMLElement, topCard, { prefer: "above", anchorPadding: 0 });
+          if (showCardPreviewOnHover) showCardPreview(e.currentTarget as HTMLElement, topCard, { prefer: "above", anchorPadding: 0 });
         }}
         onMouseLeave={(e) => {
-          if (topCard) hideCardPreview(e.currentTarget as HTMLElement);
+          if (showCardPreviewOnHover) hideCardPreview(e.currentTarget as HTMLElement);
         }}
       >
         {body}
@@ -173,7 +179,7 @@ export function ZonesPiles(props: {
     <div style={{ display: "flex", flexDirection: "row", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
       {/* Command zone now rendered before Library for expected layout */}
       {isCommanderFormat && commander ? <CommandSlots /> : null}
-      {renderPile("Library", (zones.libraryCount ?? libArr.length ?? 0), libraryTop)}
+      {renderPile("Library", (zones.libraryCount ?? libArr.length ?? 0), libraryTop, true /* hideTopCard */)}
       {renderPile("Graveyard", (zones.graveyardCount ?? grArr.length ?? 0), graveTop)}
       {renderPile("Exile", ((zones as any).exile?.length ?? exArr.length ?? 0), exileTop)}
     </div>

@@ -152,7 +152,11 @@ export function setTurnDirection(ctx: GameContext, dir: 1 | -1) {
 }
 
 /**
- * nextTurn: advance to next player's turn (basic skeleton)
+ * nextTurn: advance to next player's turn
+ * - Updates turnPlayer to the next player in order
+ * - Resets phase to "BEGINNING" (start of turn)
+ * - Sets step to "UNTAP" 
+ * - Gives priority to the active player
  */
 export function nextTurn(ctx: GameContext) {
   try {
@@ -163,8 +167,15 @@ export function nextTurn(ctx: GameContext) {
     const idx = players.indexOf(current);
     const next = idx === -1 ? players[0] : players[(idx + 1) % players.length];
     (ctx as any).state.turnPlayer = next;
+    
+    // Reset to beginning of turn
+    (ctx as any).state.phase = "BEGINNING";
+    (ctx as any).state.step = "UNTAP";
+    
     // give priority to the active player at the start of turn
     (ctx as any).state.priority = next;
+    
+    console.log(`[nextTurn] Advanced to player ${next}, phase=${(ctx as any).state.phase}, step=${(ctx as any).state.step}`);
     safeBumpSeq(ctx);
   } catch (err) {
     console.warn("nextTurn failed:", err);
@@ -172,13 +183,76 @@ export function nextTurn(ctx: GameContext) {
 }
 
 /**
- * nextStep: advance to next step within the current turn (minimal skeleton)
+ * nextStep: advance to next step within the current turn
+ * Simple progression through main phases and steps.
+ * Full step/phase automation would be more complex, but this provides basic progression.
  */
 export function nextStep(ctx: GameContext) {
   try {
     (ctx as any).state = (ctx as any).state || {};
-    // minimal step progression: unset step (engine should handle real steps)
-    (ctx as any).state.step = undefined;
+    const currentPhase = String((ctx as any).state.phase || "BEGINNING").toUpperCase();
+    const currentStep = String((ctx as any).state.step || "").toUpperCase();
+    
+    // Simple step progression logic
+    // BEGINNING phase: UNTAP -> UPKEEP -> DRAW
+    // MAIN1 phase: just MAIN1 (no substeps)
+    // COMBAT phase: BEGIN_COMBAT -> DECLARE_ATTACKERS -> DECLARE_BLOCKERS -> COMBAT_DAMAGE -> END_COMBAT
+    // MAIN2 phase: just MAIN2 (no substeps)
+    // ENDING phase: END_STEP -> CLEANUP
+    
+    let nextPhase = currentPhase;
+    let nextStep = currentStep;
+    
+    if (currentPhase === "BEGINNING" || currentPhase === "PRE_GAME" || currentPhase === "") {
+      if (currentStep === "" || currentStep === "UNTAP") {
+        nextPhase = "BEGINNING";
+        nextStep = "UPKEEP";
+      } else if (currentStep === "UPKEEP") {
+        nextPhase = "BEGINNING";
+        nextStep = "DRAW";
+      } else {
+        // After DRAW, go to MAIN1
+        nextPhase = "MAIN1";
+        nextStep = "MAIN1";
+      }
+    } else if (currentPhase === "MAIN1") {
+      nextPhase = "COMBAT";
+      nextStep = "BEGIN_COMBAT";
+    } else if (currentPhase === "COMBAT") {
+      if (currentStep === "BEGIN_COMBAT") {
+        nextStep = "DECLARE_ATTACKERS";
+      } else if (currentStep === "DECLARE_ATTACKERS") {
+        nextStep = "DECLARE_BLOCKERS";
+      } else if (currentStep === "DECLARE_BLOCKERS") {
+        nextStep = "COMBAT_DAMAGE";
+      } else if (currentStep === "COMBAT_DAMAGE") {
+        nextStep = "END_COMBAT";
+      } else {
+        // After END_COMBAT, go to MAIN2
+        nextPhase = "MAIN2";
+        nextStep = "MAIN2";
+      }
+    } else if (currentPhase === "MAIN2") {
+      nextPhase = "ENDING";
+      nextStep = "END_STEP";
+    } else if (currentPhase === "ENDING") {
+      if (currentStep === "END_STEP") {
+        nextStep = "CLEANUP";
+      } else {
+        // After CLEANUP, would normally go to next turn, but that's handled by nextTurn()
+        // Just stay at CLEANUP for now
+        nextStep = "CLEANUP";
+      }
+    } else {
+      // Unknown phase, move to MAIN1 as a safe default
+      nextPhase = "MAIN1";
+      nextStep = "MAIN1";
+    }
+    
+    (ctx as any).state.phase = nextPhase;
+    (ctx as any).state.step = nextStep;
+    
+    console.log(`[nextStep] Advanced to phase=${nextPhase}, step=${nextStep}`);
     safeBumpSeq(ctx);
   } catch (err) {
     console.warn("nextStep failed:", err);
