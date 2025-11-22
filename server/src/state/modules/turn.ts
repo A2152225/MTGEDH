@@ -16,6 +16,7 @@
 
 import type { GameContext } from "../context";
 import type { PlayerID } from "../../shared/src/types";
+import { drawCards } from "./zones";
 
 /**
  * Ensure seq helper object present on ctx
@@ -273,10 +274,10 @@ export function nextStep(ctx: GameContext) {
       try {
         const turnPlayer = (ctx as any).state.turnPlayer;
         if (turnPlayer) {
-          // Import drawCards from zones module
-          const { drawCards } = require("./zones");
           const drawn = drawCards(ctx, turnPlayer, 1);
           console.log(`[nextStep] Drew ${drawn.length} card(s) for ${turnPlayer} at draw step`);
+        } else {
+          console.warn(`[nextStep] No turnPlayer set, cannot draw card`);
         }
       } catch (err) {
         console.warn("[nextStep] Failed to draw card:", err);

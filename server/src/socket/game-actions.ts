@@ -422,16 +422,26 @@ export function registerGameActions(io: Server, socket: Socket) {
 
   // Reorder player's hand based on drag-and-drop
   socket.on("reorderHand", ({ gameId, order }: { gameId: string; order: string[] }) => {
+    console.log(`[reorderHand] Received request for game ${gameId}, order length: ${order?.length}`);
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       const spectator = socket.data.spectator;
-      if (!game || !playerId || spectator) return;
+      
+      console.log(`[reorderHand] playerId: ${playerId}, spectator: ${spectator}, game exists: ${!!game}`);
+      
+      if (!game || !playerId || spectator) {
+        console.warn(`[reorderHand] Early return: game=${!!game}, playerId=${playerId}, spectator=${spectator}`);
+        return;
+      }
 
       try {
         // Get the hand from ctx.zones (where the engine stores it), not game.state.zones
         const hand = (game as any).zones?.[playerId]?.hand;
+        console.log(`[reorderHand] Current hand length: ${hand?.length}, order length: ${order?.length}`);
+        
         if (!Array.isArray(hand) || hand.length === 0) {
+          console.warn(`[reorderHand] No hand found for player ${playerId}`);
           socket.emit("error", {
             code: "REORDER_HAND_NO_HAND",
             message: "No hand to reorder.",
@@ -440,6 +450,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
 
         if (!Array.isArray(order) || order.length !== hand.length) {
+          console.warn(`[reorderHand] Length mismatch: hand=${hand.length}, order=${order?.length}`);
           socket.emit("error", {
             code: "REORDER_HAND_INVALID",
             message: "Invalid reorder request: length mismatch.",
