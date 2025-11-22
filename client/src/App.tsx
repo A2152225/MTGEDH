@@ -168,7 +168,6 @@ export function App() {
   const [showNameInUseModal, setShowNameInUseModal] = useState(false);
   const [nameInUsePayload, setNameInUsePayload] = useState<any | null>(null);
 
-  // hook may stash nameInUse payload on socket; surface it here if needed
   React.useEffect(() => {
     const handler = (payload: any) => {
       setNameInUsePayload(payload);
@@ -201,6 +200,9 @@ export function App() {
   const showCommanderGallery =
     cmdModalOpen && cmdSuggestedGameId && importedCandidates.length > 0;
 
+  const phaseLabel = String(safeView?.phase ?? "-");
+  const stepLabel = safeView?.step ? String(safeView.step) : "";
+
   return (
     <div
       style={{
@@ -212,6 +214,7 @@ export function App() {
       }}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {/* HEADER (game id, format) */}
         <div
           style={{
             display: "flex",
@@ -226,57 +229,9 @@ export function App() {
               {String(safeView?.format ?? "")}
             </div>
           </div>
-
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <div
-              style={{
-                display: "flex",
-                gap: 8,
-                alignItems: "center",
-                padding: 6,
-                border: "1px solid #eee",
-                borderRadius: 6,
-              }}
-            >
-              <button
-                onClick={() =>
-                  socket.emit("nextStep", { gameId: safeView?.id })
-                }
-                disabled={!canAdvanceStep}
-              >
-                Next Step
-              </button>
-              <button
-                onClick={() =>
-                  socket.emit("nextTurn", { gameId: safeView?.id })
-                }
-                disabled={!canAdvanceTurn}
-              >
-                Next Turn
-              </button>
-              <button
-                onClick={() =>
-                  socket.emit("passPriority", {
-                    gameId: safeView?.id,
-                    by: you,
-                  })
-                }
-                disabled={!canPass}
-              >
-                Pass Priority
-              </button>
-            </div>
-            <div style={{ fontSize: 12, color: "#444" }}>
-              Phase: <strong>{String(safeView?.phase ?? "-")}</strong>{" "}
-              {safeView?.step ? (
-                <span>
-                  • Step: <strong>{String(safeView.step)}</strong>
-                </span>
-              ) : null}
-            </div>
-          </div>
         </div>
 
+        {/* JOIN / REFRESH / DEBUG CONTROLS */}
         <div
           style={{
             display: "flex",
@@ -326,10 +281,82 @@ export function App() {
           </button>
         </div>
 
+        {/* GAME LIST */}
         <div style={{ marginTop: 12 }}>
           <GameList onJoin={joinFromList} />
         </div>
 
+        {/* CONTROL BAR MOVED HERE, JUST ABOVE THE TABLE */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-end",
+            marginTop: 8,
+          }}
+        >
+          {/* Phase / Step summary on the left (fixed/truncated) */}
+          <div
+            style={{
+              maxWidth: 360,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              fontSize: 12,
+              color: "#444",
+            }}
+          >
+            Phase: <strong>{phaseLabel}</strong>
+            {stepLabel && (
+              <span style={{ marginLeft: 8 }}>
+                • Step: <strong>{stepLabel}</strong>
+              </span>
+            )}
+          </div>
+
+          {/* Buttons on the right, in a stable group */}
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              alignItems: "center",
+              padding: 6,
+              border: "1px solid #eee",
+              borderRadius: 6,
+              background: "#fafafa",
+            }}
+          >
+            <button
+              onClick={() =>
+                socket.emit("nextStep", { gameId: safeView?.id })
+              }
+              disabled={!canAdvanceStep}
+            >
+              Next Step
+            </button>
+            <button
+              onClick={() =>
+                socket.emit("nextTurn", { gameId: safeView?.id })
+              }
+              disabled={!canAdvanceTurn}
+            >
+              Next Turn
+            </button>
+            <button
+              onClick={() =>
+                socket.emit("passPriority", {
+                  gameId: safeView?.id,
+                  by: you,
+                })
+              }
+              disabled={!canPass}
+            >
+              Pass Priority
+            </button>
+          </div>
+        </div>
+
+        {/* IMPORT WARNINGS */}
         {missingImport && missingImport.length > 0 && (
           <div
             style={{
@@ -351,6 +378,7 @@ export function App() {
           </div>
         )}
 
+        {/* TABLE / PLAYING FIELD */}
         <div
           style={{
             border: "1px solid #eee",
@@ -450,6 +478,7 @@ export function App() {
         </div>
       </div>
 
+      {/* RIGHT COLUMN: CHAT + ZONES + IMPORT/DEBUG SHORTCUTS */}
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <ChatPanel
           messages={chat}
@@ -560,7 +589,6 @@ export function App() {
                 <button
                   onClick={() => {
                     setDebugOpen(false);
-                    // eslint-disable-next-line @typescript-eslint/no-empty-function
                   }}
                 >
                   Close
@@ -757,7 +785,8 @@ export function App() {
           const gid = nameInUsePayload?.gameId || gameIdInput;
           const pname = nameInUsePayload?.playerName || nameInput;
           const token =
-            seatToken ?? sessionStorage.getItem(`mtgedh:seatToken:${gid}:${pname}`);
+            seatToken ??
+            sessionStorage.getItem(`mtgedh:seatToken:${gid}:${pname}`);
           // eslint-disable-next-line no-console
           console.debug("[JOIN_EMIT] reconnect click", {
             gameId: gid,
