@@ -17,88 +17,6 @@ import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
 import { useGameSocket } from "./hooks/useGameSocket";
 
-/* Small ChatPanel component */
-function ChatPanel({
-  messages,
-  onSend,
-  view,
-}: {
-  messages: ChatMsg[];
-  onSend: (text: string) => void;
-  view?: ClientGameView | null;
-}) {
-  const [text, setText] = useState("");
-  const endRef = React.useRef<HTMLDivElement | null>(null);
-  React.useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length]);
-
-  const submit = () => {
-    if (!text.trim()) return;
-    onSend(text.trim());
-    setText("");
-  };
-
-  const displaySender = (from: string | "system") => {
-    if (from === "system") return "system";
-    const player = view?.players?.find((p: any) => p.id === from);
-    return player?.name || from;
-  };
-
-  return (
-    <div
-      style={{
-        border: "1px solid #ddd",
-        borderRadius: 6,
-        padding: 8,
-        display: "flex",
-        flexDirection: "column",
-        height: 260,
-        background: "#fafafa",
-      }}
-    >
-      <div style={{ fontWeight: 700, marginBottom: 8 }}>Chat</div>
-      <div
-        style={{
-          flex: 1,
-          overflow: "auto",
-          padding: 6,
-          background: "#fff",
-          borderRadius: 4,
-        }}
-      >
-        {messages.length === 0 && (
-          <div style={{ color: "#666" }}>No messages</div>
-        )}
-        {messages.map((m) => (
-          <div key={m.id} style={{ marginBottom: 6 }}>
-            <div>
-              <strong>{displaySender(m.from)}</strong>: {m.message}
-            </div>
-            <div style={{ fontSize: 11, color: "#777" }}>
-              {new Date(m.ts).toLocaleTimeString()}
-            </div>
-          </div>
-        ))}
-        <div ref={endRef} />
-      </div>
-
-      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-        <input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") submit();
-          }}
-          placeholder="Type message..."
-          style={{ flex: 1 }}
-        />
-        <button onClick={submit}>Send</button>
-      </div>
-    </div>
-  );
-}
-
 /** Map engine/internal phase enum to human-friendly name */
 function prettyPhase(phase?: string | null): string {
   if (!phase) return "-";
@@ -277,6 +195,20 @@ export function App() {
   const phaseLabel = prettyPhase(safeView?.phase);
   const stepLabelRaw = safeView?.step ? String(safeView.step) : "";
   const stepLabel = prettyStep(stepLabelRaw);
+
+  // chat send function shared with TableLayout
+  const sendChat = (txt: string) => {
+    if (!view) return;
+    const payload: ChatMsg = {
+      id: `m_${Date.now()}`,
+      gameId: view.id,
+      from: you ?? "you",
+      message: txt,
+      ts: Date.now(),
+    };
+    socket.emit("chat", payload);
+    setChat((prev) => [...prev, payload]);
+  };
 
   return (
     <div
@@ -485,7 +417,7 @@ export function App() {
           </div>
         )}
 
-        {/* TABLE / PLAYING FIELD */}
+        {/* TABLE / PLAYING FIELD (chat handled as overlay inside TableLayout) */}
         <div
           style={{
             border: "1px solid #eee",
@@ -576,6 +508,10 @@ export function App() {
               gameId={safeView.id}
               stackItems={safeView.stack as any}
               importedCandidates={importedCandidates}
+              chatMessages={chat}
+              onSendChat={sendChat}
+              chatView={view || undefined}
+              chatYou={you || undefined}
             />
           ) : (
             <div style={{ padding: 20, color: "#666" }}>
@@ -583,45 +519,10 @@ export function App() {
             </div>
           )}
         </div>
-
-        {/* INLINE CHAT BELOW PLAY AREA */}
-        <ChatPanel
-          messages={chat}
-          onSend={(txt) => {
-            if (!view) return;
-            const payload = {
-              id: `m_${Date.now()}`,
-              gameId: view.id,
-              from: you ?? "you",
-              message: txt,
-              ts: Date.now(),
-            };
-            socket.emit("chat", payload);
-            setChat((prev) => [...prev, payload]);
-          }}
-          view={view}
-        />
       </div>
 
-      {/* RIGHT COLUMN: Quick actions only (Zones removed) */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <div
-          style={{
-            border: "1px solid #ddd",
-            borderRadius: 6,
-            padding: 8,
-          }}
-        >
-          <div style={{ fontWeight: 700, marginBottom: 8 }}>Quick Actions</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <button onClick={() => requestImportDeck("")}>Import (text)</button>
-            <button onClick={() => requestUseSavedDeck("")}>Use Saved</button>
-            <button onClick={() => fetchDebug()} disabled={!safeView}>
-              Debug
-            </button>
-          </div>
-        </div>
-      </div>
+      {/* RIGHT COLUMN: currently unused (no Quick Actions / Zones) */}
+      <div />
 
       <CardPreviewLayer />
 
@@ -655,7 +556,7 @@ export function App() {
           )
         )}
 
-      {/* Debug modal (unchanged) */}
+      {/* Debug modal */}
       {debugOpen && (
         <div
           style={{
@@ -723,7 +624,7 @@ export function App() {
         </div>
       )}
 
-      {/* Import confirmation modal (unchanged from your file) */}
+      {/* Import confirmation modal */}
       {confirmOpen && confirmPayload && (
         <div
           style={{

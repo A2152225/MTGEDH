@@ -11,7 +11,9 @@ import type {
   PlayerZones,
   CommanderInfo,
   GameID,
-  KnownCardRef
+  KnownCardRef,
+  ClientGameView,
+  ChatMsg,
 } from '../../../shared/src';
 import type { ImagePref } from './BattlefieldGrid';
 import { TokenGroups } from './TokenGroups';
@@ -108,6 +110,11 @@ export function TableLayout(props: {
   importedCandidates?: KnownCardRef[]; // no longer used for commander UI, but kept for potential future UI
   energyCounters?: Record<PlayerID, number>;
   energy?: Record<PlayerID, number>;
+  // NEW: chat overlay props
+  chatMessages?: ChatMsg[];
+  onSendChat?: (text: string) => void;
+  chatView?: ClientGameView;
+  chatYou?: PlayerID;
 }) {
   const {
     players, permanentsByPlayer, imagePref, isYouPlayer,
@@ -121,7 +128,8 @@ export function TableLayout(props: {
     threeD, enablePanZoom = true,
     tableCloth, worldSize, onUpdatePermPos,
     onImportDeckText, onUseSavedDeck, onLocalImportConfirmChange,
-    gameId, importedCandidates, energyCounters, energy
+    gameId, importedCandidates, energyCounters, energy,
+    chatMessages, onSendChat, chatView, chatYou,
   } = props;
 
   // Snapshot debug
@@ -450,6 +458,21 @@ export function TableLayout(props: {
   const clothBg: React.CSSProperties = props.tableCloth?.imageUrl
     ? { backgroundImage: `url(${props.tableCloth.imageUrl})`, backgroundSize: 'cover', backgroundRepeat: 'no-repeat', backgroundPosition: 'center' }
     : { background: 'radial-gradient(ellipse at center, rgba(0,128,64,0.9) 0%, rgba(3,62,35,0.95) 60%, rgba(2,40,22,1) 100%)' };
+
+  // local chat input state for overlay
+  const [chatText, setChatText] = useState("");
+
+  const handleSendChat = () => {
+    if (!chatText.trim() || !onSendChat) return;
+    onSendChat(chatText.trim());
+    setChatText("");
+  };
+
+  const displaySender = (from: string | "system") => {
+    if (from === "system") return "system";
+    const player = chatView?.players?.find((p: any) => p.id === from);
+    return player?.name || from;
+  };
 
   return (
     <div
@@ -866,6 +889,107 @@ export function TableLayout(props: {
             }}
           >Fit All</button>
           <span style={{ opacity: 0.85 }}>Zoom: {cam.z.toFixed(2)}</span>
+        </div>
+      )}
+
+      {/* Inline chat overlay in bottom-left of play area */}
+      {onSendChat && (
+        <div
+          style={{
+            position: 'absolute',
+            left: 8,
+            bottom: enablePanZoom ? 52 : 8, // just above zoom controls
+            zIndex: 11,
+            maxWidth: '28%',
+            maxHeight: '40%',
+            background: 'rgba(10,10,10,0.6)',
+            borderRadius: 8,
+            border: '1px solid rgba(255,255,255,0.18)',
+            padding: 6,
+            color: '#f9f9f9',
+            fontSize: 11,
+            display: 'flex',
+            flexDirection: 'column',
+            opacity: 0.35,
+            transition: 'opacity 0.15s ease-in-out',
+            pointerEvents: 'auto',
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLDivElement).style.opacity = '1';
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLDivElement).style.opacity = '0.35';
+          }}
+        >
+          <div
+            style={{
+              fontWeight: 600,
+              marginBottom: 4,
+              fontSize: 11,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}
+          >
+            <span>Chat</span>
+            <span style={{ opacity: 0.7, fontSize: 10 }}>
+              {chatMessages?.length ?? 0} msg
+            </span>
+          </div>
+          <div
+            style={{
+              flex: 1,
+              overflowY: 'auto',
+              marginBottom: 4,
+              paddingRight: 2,
+            }}
+          >
+            {(!chatMessages || chatMessages.length === 0) && (
+              <div style={{ color: '#bbb' }}>No messages</div>
+            )}
+            {chatMessages &&
+              chatMessages.slice(-40).map((m) => (
+                <div key={m.id} style={{ marginBottom: 3 }}>
+                  <span style={{ fontWeight: 600 }}>
+                    {displaySender(m.from)}:
+                  </span>{" "}
+                  <span>{m.message}</span>
+                </div>
+              ))}
+          </div>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <input
+              value={chatText}
+              onChange={(e) => setChatText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleSendChat();
+              }}
+              placeholder="Type..."
+              style={{
+                flex: 1,
+                fontSize: 11,
+                padding: '2px 4px',
+                borderRadius: 4,
+                border: '1px solid #444',
+                background: '#111',
+                color: '#f9f9f9',
+              }}
+            />
+            <button
+              type="button"
+              onClick={handleSendChat}
+              style={{
+                fontSize: 11,
+                padding: '2px 6px',
+                borderRadius: 4,
+                border: '1px solid #4ade80',
+                background: '#166534',
+                color: '#f9f9f9',
+              }}
+            >
+              Send
+            </button>
+          </div>
         </div>
       )}
 
