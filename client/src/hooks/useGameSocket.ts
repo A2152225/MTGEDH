@@ -290,7 +290,7 @@ export function useGameSocket(): UseGameSocketState {
       }
     );
 
-    // full state => always hard-replace
+     // full state => always hard-replace
     socket.on("state", (payload: any) => {
       try {
         if (!payload) {
@@ -333,7 +333,7 @@ export function useGameSocket(): UseGameSocketState {
       }
     });
 
-    // diff => treat full or after as a complete replacement, and always request fresh state
+      // diff => for robustness, treat as full replacement when diff.full/after present
     socket.on("stateDiff", (payload: any) => {
       try {
         if (!payload) return;
@@ -381,21 +381,21 @@ export function useGameSocket(): UseGameSocketState {
           console.debug("[socket] stateDiff (unrecognized)", { payload });
         }
 
-        // SAFETY NET: always request full state after any diff so the client
-        // stays in sync with authoritative server state (no manual Refresh).
-        const gid =
-          incomingGameId ||
-          (typeof diff?.full?.id === "string" && diff.full.id) ||
-          (typeof diff?.after?.id === "string" && diff.after.id) ||
-          undefined;
-        if (gid) {
-          try {
-            socket.emit("requestState", { gameId: gid });
-          } catch (e) {
-            // eslint-disable-next-line no-console
-            console.warn("stateDiff: requestState emit failed", e);
-          }
-        }
+        // TEMP: safety net disabled to avoid requestState loop.
+        // If we re-enable later, we must guard it carefully.
+        //
+        // const gid =
+        //   incomingGameId ||
+        //   (typeof diff?.full?.id === "string" && diff.full.id) ||
+        //   (typeof diff?.after?.id === "string" && diff.after.id) ||
+        //   undefined;
+        // if (gid) {
+        //   try {
+        //     socket.emit("requestState", { gameId: gid });
+        //   } catch (e) {
+        //     console.warn("stateDiff: requestState emit failed", e);
+        //   }
+        // }
       } catch (e) {
         // eslint-disable-next-line no-console
         console.warn("stateDiff handling failed:", e);
