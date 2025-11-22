@@ -63,18 +63,25 @@ export function viewFor(ctx: GameContext, viewer?: PlayerID, spectator = false):
       out.zones[pid] = {
         hand: handCards.map(h => {
           // Check if this card is known to the viewer (e.g., via effects like Telepathy)
-          const isKnownToViewer = viewer && Array.isArray(h.knownTo) && h.knownTo.includes(viewer);
+          const isKnownToViewer = typeof viewer === 'string' && Array.isArray(h.knownTo) && h.knownTo.includes(viewer);
+          if (isKnownToViewer) {
+            return {
+              id: h.id,
+              name: h.name,
+              type_line: h.type_line,
+              oracle_text: h.oracle_text,
+              image_uris: h.image_uris,
+              mana_cost: h.mana_cost,
+              power: h.power,
+              toughness: h.toughness,
+              faceDown: false,
+              known: true,
+            };
+          }
           return {
             id: h.id,
-            name: isKnownToViewer ? h.name : undefined,
-            type_line: isKnownToViewer ? h.type_line : undefined,
-            oracle_text: isKnownToViewer ? h.oracle_text : undefined,
-            image_uris: isKnownToViewer ? h.image_uris : undefined,
-            mana_cost: isKnownToViewer ? h.mana_cost : undefined,
-            power: isKnownToViewer ? h.power : undefined,
-            toughness: isKnownToViewer ? h.toughness : undefined,
-            faceDown: !isKnownToViewer,
-            known: isKnownToViewer,
+            faceDown: true,
+            known: false,
           };
         }),
         handCount: z.handCount ?? handCards.length,
