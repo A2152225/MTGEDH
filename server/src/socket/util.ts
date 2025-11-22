@@ -170,8 +170,9 @@ function logStateDebug(prefix: string, gameId: string, view: any) {
     console.log(
       `[STATE_DEBUG] ${prefix} gameId=${gameId} players=[${playerIds.join(
         ","
-      )}] zones=[${zoneKeys.join(",")}] ` +
-        `handCount=${z?.handCount ?? 0} libraryCount=${z?.libraryCount ?? 0}`
+      )}] zones=[${zoneKeys.join(
+        ","
+      )}] handCount=${z?.handCount ?? 0} libraryCount=${z?.libraryCount ?? 0}`
     );
 
     // Compact library sample instead of full JSON dump
@@ -355,11 +356,13 @@ export function broadcastGame(
   game: InMemoryGame,
   gameId: string
 ) {
-  let participants: Array<{
-    socketId: string;
-    playerId: string;
-    spectator: boolean;
-  }> = [];
+  let participants:
+    | Array<{
+        socketId: string;
+        playerId: string;
+        spectator: boolean;
+      }>
+    | null = null;
 
   try {
     if (typeof (game as any).participants === "function") {
@@ -377,32 +380,73 @@ export function broadcastGame(
     participants = [];
   }
 
-  for (const p of participants) {
-    try {
-      let rawView;
+  let anySent = false;
+
+  if (participants && participants.length) {
+    for (const p of participants) {
       try {
-        rawView =
-          typeof (game as any).viewFor === "function"
-            ? (game as any).viewFor(p.playerId, !!p.spectator)
+        let rawView;
+        try {
+          rawView =
+            typeof (game as any).viewFor === "function"
+              ? (game as any).viewFor(p.playerId, !!p.spectator)
+              : (game as any).state;
+        } catch {
+          rawView = (game as any).state;
+        }
+
+        const view = normalizeViewForEmit(rawView, game);
+
+        logStateDebug("BROADCAST_STATE", gameId, view);
+
+        if (p.socketId) {
+          io.to(p.socketId).emit("state", {
+            gameId,
+            view,
+            seq: (game as any).seq,
+          });
+          anySent = true;
+        }
+      } catch (err) {
+        console.warn(
+          "broadcastGame: failed to send state to",
+          p.socketId,
+          err
+        );
+      }
+    }
+  }
+
+  // Fallback: if we had no participants or failed to send to anyone,
+  // emit to the entire game room so rejoined sockets still receive updates.
+  if (!anySent) {
+    try {
+      let rawView: any;
+      try {
+        if (typeof (game as any).viewFor === "function") {
+          const statePlayers: any[] = (game as any).state?.players || [];
+          const firstId: string | undefined = statePlayers[0]?.id;
+          rawView = firstId
+            ? (game as any).viewFor(firstId, false)
             : (game as any).state;
+        } else {
+          rawView = (game as any).state;
+        }
       } catch {
         rawView = (game as any).state;
       }
 
       const view = normalizeViewForEmit(rawView, game);
-
       logStateDebug("BROADCAST_STATE", gameId, view);
-
-      if (p.socketId)
-        io.to(p.socketId).emit("state", {
-          gameId,
-          view,
-          seq: (game as any).seq,
-        });
+      io.to(gameId).emit("state", {
+        gameId,
+        view,
+        seq: (game as any).seq,
+      });
     } catch (err) {
       console.warn(
-        "broadcastGame: failed to send state to",
-        p.socketId,
+        "broadcastGame: fallback emit to room failed for gameId",
+        gameId,
         err
       );
     }
@@ -579,7 +623,7 @@ export function parseManaCost(
     } else if (clean.includes("/")) {
       const parts = clean.split("/");
       result.hybrids.push(parts);
-    } else if (clean.length === 1 && result.colors.hasOwnProperty(clean)) {
+    } else if (clean.length === 1 && (result.colors as any).hasOwnProperty(clean)) {
       (result.colors as any)[clean] =
         ((result.colors as any)[clean] || 0) + 1;
     } else {

@@ -207,15 +207,25 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
+      // Persist event without re-applying it in-memory (avoid double-advance)
       try {
-        appendGameEvent(game, gameId, "nextTurn");
+        appendEvent(
+          gameId,
+          (game as any).seq || 0,
+          "nextTurn",
+          { by: playerId }
+        );
       } catch (e) {
         console.warn("appendEvent(nextTurn) failed", e);
       }
 
-      // Ensure sequence is bumped before broadcasting to trigger client re-renders
-      if (typeof (game as any).safeBumpSeq === "function") {
-        (game as any).bumpSeq();
+      // Optional: bump seq if your ctx.bumpSeq isn't already doing it inside nextTurn
+      if (typeof (game as any).bumpSeq === "function") {
+        try {
+          (game as any).bumpSeq();
+        } catch {
+          /* ignore */
+        }
       }
 
       io.to(gameId).emit("chat", {
@@ -353,15 +363,25 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
+      // Persist event without re-applying it in-memory (avoid double-advance)
       try {
-        appendGameEvent(game, gameId, "nextStep");
+        appendEvent(
+          gameId,
+          (game as any).seq || 0,
+          "nextStep",
+          { by: playerId }
+        );
       } catch (e) {
         console.warn("appendEvent(nextStep) failed", e);
       }
 
-      // Ensure sequence is bumped before broadcasting to trigger client re-renders
-      if (typeof (game as any).safeBumpSeq === "function") {
-        (game as any).bumpSeq();
+      // Optional: bump seq if needed
+      if (typeof (game as any).bumpSeq === "function") {
+        try {
+          (game as any).bumpSeq();
+        } catch {
+          /* ignore */
+        }
       }
 
       broadcastGame(io, game, gameId);
@@ -422,7 +442,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         appendGameEvent(game, gameId, "shuffleHand", { playerId });
 
         // Ensure sequence is bumped before broadcasting to trigger client re-renders
-        if (typeof (game as any).safeBumpSeq === "function") {
+        if (typeof (game as any).bumpSeq === "function") {
           (game as any).bumpSeq();
         }
 
