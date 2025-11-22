@@ -14,7 +14,7 @@
 
 param(
     [string]$Root = ".",
-    [string]$Pattern = "Next",
+    [string]$Pattern = "joinGame",
     [switch]$CaseSensitive = $true,
     [switch]$ListFilesOnly,
     [int]$Context = 0,
