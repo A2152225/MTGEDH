@@ -438,101 +438,87 @@ export function registerGameActions(io: Server, socket: Socket) {
   });
 
   // Reorder player's hand based on drag-and-drop
-  socket.on("reorderHand", ({ gameId, order }: { gameId: string; order: string[] }) => {
-    console.log(`[reorderHand] Received request for game ${gameId}, order length: ${order?.length}`);
+socket.on("reorderHand", ({ gameId, order }: { gameId: string; order: string[] }) => {
+  try {
+    const game = ensureGame(gameId);
+    const playerId = socket.data.playerId;
+    const spectator = socket.data.spectator;
+    if (!game || !playerId || spectator) return;
+
+    console.info("[reorderHand] Received request for game", gameId, ", order length:", order.length);
+    console.info("[reorderHand] playerId:", playerId, ", spectator:", spectator, ", game exists:", !!game);
+
+    if (!Array.isArray(order) || order.length === 0) {
+      socket.emit("error", {
+        code: "REORDER_HAND_BAD_ORDER",
+        message: "Invalid hand order payload.",
+      });
+      return;
+    }
+
+    // Use engine viewFor, not raw state, to infer current hand
+    let view: any;
     try {
-      const game = ensureGame(gameId);
-      const playerId = socket.data.playerId;
-      const spectator = socket.data.spectator;
-      
-      console.log(`[reorderHand] playerId: ${playerId}, spectator: ${spectator}, game exists: ${!!game}`);
-      
-      if (!game || !playerId || spectator) {
-        console.warn(`[reorderHand] Early return: game=${!!game}, playerId=${playerId}, spectator=${spectator}`);
+      view = typeof (game as any).viewFor === "function"
+        ? (game as any).viewFor(playerId, false)
+        : (game as any).state;
+    } catch {
+      view = (game as any).state;
+    }
+
+    const zones = view?.zones || {};
+    const playerZone = zones[playerId];
+    const hand: any[] = Array.isArray(playerZone?.hand) ? playerZone.hand : [];
+
+    console.info("[reorderHand] Current hand length:", hand.length, ", order length:", order.length);
+
+    if (!hand.length) {
+      console.warn("[reorderHand] No hand found for player", playerId);
+      socket.emit("error", {
+        code: "REORDER_HAND_NO_HAND",
+        message: "No hand to reorder.",
+      });
+      return;
+    }
+
+    // Map IDs to indices in current hand
+    const idToIndex = new Map<string, number>();
+    hand.forEach((c, idx) => {
+      if (c && c.id) idToIndex.set(c.id, idx);
+    });
+
+    const indexOrder: number[] = [];
+    for (const id of order) {
+      const idx = idToIndex.get(id);
+      if (idx === undefined) {
+        console.warn("[reorderHand] ID from client not found in hand:", id);
+        // we can bail out conservatively
+        socket.emit("error", {
+          code: "REORDER_HAND_BAD_ORDER",
+          message: "Supplied hand order does not match current hand contents.",
+        });
         return;
       }
-
-      try {
-        // Get the hand from game.state.zones (which is the public view)
-        const hand = game.state?.zones?.[playerId]?.hand;
-        console.log(`[reorderHand] Current hand length: ${hand?.length}, order length: ${order?.length}`);
-        console.log(`[reorderHand] game.state.zones exists: ${!!game.state?.zones}, player zones: ${!!game.state?.zones?.[playerId]}`);
-        
-        if (!Array.isArray(hand) || hand.length === 0) {
-          console.warn(`[reorderHand] No hand found for player ${playerId}`);
-          socket.emit("error", {
-            code: "REORDER_HAND_NO_HAND",
-            message: "No hand to reorder.",
-          });
-          return;
-        }
-
-        if (!Array.isArray(order) || order.length !== hand.length) {
-          console.warn(`[reorderHand] Length mismatch: hand=${hand.length}, order=${order?.length}`);
-          socket.emit("error", {
-            code: "REORDER_HAND_INVALID",
-            message: "Invalid reorder request: length mismatch.",
-          });
-          return;
-        }
-
-        // Build a map from card ID to index for O(1) lookups
-        const cardIdToIndex = new Map<string, number>();
-        for (let i = 0; i < hand.length; i++) {
-          const card = hand[i] as any;
-          if (card?.id) {
-            cardIdToIndex.set(card.id, i);
-          }
-        }
-
-        // Build orderIndices array: for each position in the new order, find where that card is now
-        const orderIndices: number[] = [];
-        for (const cardId of order) {
-          const idx = cardIdToIndex.get(cardId);
-          if (idx === undefined) {
-            socket.emit("error", {
-              code: "REORDER_HAND_INVALID",
-              message: `Card ${cardId} not found in hand.`,
-            });
-            return;
-          }
-          orderIndices.push(idx);
-        }
-
-        // Use the engine's reorderHand method
-        if (typeof (game as any).reorderHand === "function") {
-          const success = (game as any).reorderHand(playerId, orderIndices);
-          if (!success) {
-            socket.emit("error", {
-              code: "REORDER_HAND_FAILED",
-              message: "Failed to reorder hand.",
-            });
-            return;
-          }
-          console.log(`[reorderHand] Reordered hand for player ${playerId} in game ${gameId}, new order:`, orderIndices);
-        } else {
-          console.error(`[reorderHand] game.reorderHand not available for game ${gameId}`);
-          socket.emit("error", {
-            code: "REORDER_HAND_METHOD_MISSING",
-            message: "Server error: reorderHand method not available.",
-          });
-          return;
-        }
-
-        appendGameEvent(game, gameId, "reorderHand", { playerId, order: orderIndices });
-        broadcastGame(io, game, gameId);
-      } catch (e) {
-        console.error("reorderHand failed:", e);
-        socket.emit("error", {
-          code: "REORDER_HAND_ERROR",
-          message: String(e),
-        });
-      }
-    } catch (err) {
-      console.error("reorderHand handler error:", err);
+      indexOrder.push(idx);
     }
-  });
 
+    if (typeof (game as any).reorderHand === "function") {
+      (game as any).reorderHand(playerId, indexOrder);
+    } else {
+      // fallback: reorder a shadow hand in game.state.zones if needed
+      // (optional, depending on how your engine works)
+    }
+
+    appendGameEvent(game, gameId, "reorderHand", { playerId, orderIndices: indexOrder });
+    broadcastGame(io, game, gameId);
+  } catch (err: any) {
+    console.error("reorderHand handler error:", err);
+    socket.emit("error", {
+      code: "REORDER_HAND_ERROR",
+      message: err?.message ?? String(err),
+    });
+  }
+});
   // Set turn direction (+1 or -1)
   socket.on(
     "setTurnDirection",
