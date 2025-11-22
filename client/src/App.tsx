@@ -1,9 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { socket } from "./socket";
 import type {
   ClientGameView,
   PlayerID,
-  GameID,
   KnownCardRef,
   ChatMsg,
 } from "../../shared/src";
@@ -14,20 +13,9 @@ import { CommanderSelectModal } from "./components/CommanderSelectModal";
 import NameInUseModal from "./components/NameInUseModal";
 import { ZonesPanel } from "./components/ZonesPanel";
 import { ScrySurveilModal } from "./components/ScrySurveilModal";
-import { BattlefieldGrid, type ImagePref } from "./components/BattlefieldGrid";
+import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
-
-/* Helpers */
-function seatTokenKey(gameId: GameID, name: string) {
-  return `mtgedh:seatToken:${gameId}:${name}`;
-}
-function lastJoinKey() {
-  return "mtgedh:lastJoin";
-}
-
-function clamp(n: number, lo: number, hi: number) {
-  return Math.max(lo, Math.min(hi, n));
-}
+import { useGameSocket } from "./hooks/useGameSocket";
 
 /* Small ChatPanel component */
 function ChatPanel({
@@ -40,8 +28,8 @@ function ChatPanel({
   view?: ClientGameView | null;
 }) {
   const [text, setText] = useState("");
-  const endRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
+  const endRef = React.useRef<HTMLDivElement | null>(null);
+  React.useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
 
@@ -111,38 +99,58 @@ function ChatPanel({
   );
 }
 
-/* App component (named export + default export) */
+/* App component */
 export function App() {
-  // connection + join UI state
-  const [connected, setConnected] = useState(false);
-  const [gameId, setGameId] = useState<GameID>("demo");
-  const [name, setName] = useState("Player");
-  const [joinAsSpectator, setJoinAsSpectator] = useState(false);
+  const {
+    connected,
+    gameIdInput,
+    setGameIdInput,
+    nameInput,
+    setNameInput,
+    joinAsSpectator,
+    setJoinAsSpectator,
 
-  // Name-in-use modal state
-  const [nameInUsePayload, setNameInUsePayload] = useState<any | null>(null);
-  const [showNameInUseModal, setShowNameInUseModal] = useState(false);
+    you,
+    view,
+    safeView,
+    priority,
 
-  const lastJoinRef = useRef<{
-    gameId: GameID;
-    name: string;
-    spectator: boolean;
-  } | null>(null);
+    chat,
+    setChat,
+    lastError,
+    lastInfo, // currently unused but preserved
+    missingImport,
+    setMissingImport,
 
-  // game view state
-  const [you, setYou] = useState<PlayerID | null>(null);
-  const [view, setView] = useState<ClientGameView | null>(null);
-  const [priority, setPriority] = useState<PlayerID | null>(null);
+    importedCandidates,
+    pendingLocalImport,
+    localImportConfirmOpen,
 
-  // chat, info, errors
-  const [chat, setChat] = useState<ChatMsg[]>([]);
-  const [lastError, setLastError] = useState<string | null>(null);
-  const [lastInfo, setLastInfo] = useState<string | null>(null);
+    cmdModalOpen,
+    setCmdModalOpen,
+    cmdSuggestedNames,
+    cmdSuggestedGameId,
 
-  // import missing banner
-  const [missingImport, setMissingImport] = useState<string[] | null>(null);
+    confirmOpen,
+    confirmPayload,
+    confirmVotes,
+    confirmId,
 
-  // other UI state
+    debugOpen,
+    debugLoading,
+    debugData,
+    setDebugOpen,
+
+    handleJoin,
+    joinFromList,
+    requestImportDeck,
+    requestUseSavedDeck,
+    handleLocalImportConfirmChange,
+    handleCommanderConfirm,
+    fetchDebug,
+    respondToConfirm,
+  } = useGameSocket();
+
   const [imagePref, setImagePref] = useState<ImagePref>(
     () =>
       (localStorage.getItem("mtgedh:imagePref") as ImagePref) || "normal"
@@ -157,731 +165,25 @@ export function App() {
     cards: any[];
   } | null>(null);
 
-  // debug & import-confirm
-  const [debugOpen, setDebugOpen] = useState(false);
-  const [debugLoading, setDebugLoading] = useState(false);
-  const [debugData, setDebugData] = useState<any>(null);
+  const [showNameInUseModal, setShowNameInUseModal] = useState(false);
+  const [nameInUsePayload, setNameInUsePayload] = useState<any | null>(null);
 
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [confirmPayload, setConfirmPayload] = useState<any>(null);
-  const [confirmVotes, setConfirmVotes] =
-    useState<Record<string, "pending" | "yes" | "no"> | null>(null);
-  const [confirmId, setConfirmId] = useState<string | null>(null);
-
-  // candidates from server
-  const [importedCandidates, setImportedCandidates] = useState<
-    KnownCardRef[]
-  >([]);
-
-  const [pendingLocalImport, setPendingLocalImport] = useState(false);
-  const pendingLocalImportRef = useRef<boolean>(false);
-  useEffect(() => {
-    pendingLocalImportRef.current = pendingLocalImport;
-  }, [pendingLocalImport]);
-
-  const [localImportConfirmOpen, setLocalImportConfirmOpen] = useState(false);
-  const localImportConfirmRef = useRef<boolean>(false);
-  useEffect(() => {
-    localImportConfirmRef.current = localImportConfirmOpen;
-  }, [localImportConfirmOpen]);
-
-  // queue for commander selection when we can't emit yet
-  const [queuedCommanderSelection, setQueuedCommanderSelection] = useState<{
-    gameId: GameID;
-    names: string[];
-    ids?: string[];
-  } | null>(null);
-
-  // commander suggestion UI state (in App)
-  const [cmdModalOpen, setCmdModalOpen] = useState(false);
-  const [cmdSuggestedNames, setCmdSuggestedNames] = useState<string[]>([]);
-  const [cmdSuggestedGameId, setCmdSuggestedGameId] = useState<GameID | null>(
-    null
-  );
-
-  // fallback timer ref for "open modal after candidates"
-  const suggestTimerRef = useRef<number | null>(null);
-
-  /* ------------------ Client-side normalization helpers ------------------ */
-
-  const defaultPlayerZones = useMemo(
-    () => ({
-      hand: [],
-      handCount: 0,
-      library: [],
-      libraryCount: 0,
-      graveyard: [],
-      graveyardCount: 0,
-    }),
-    []
-  );
-
-  const normalizedZones = useMemo(() => {
-    if (!view) return {};
-    const out: Record<string, any> = { ...(view.zones || {}) };
-    const players = Array.isArray(view.players) ? view.players : [];
-    for (const p of players) {
-      const pid = p?.id ?? p?.playerId;
-      if (!pid) continue;
-      if (!out[pid]) out[pid] = { ...defaultPlayerZones };
-      else {
-        out[pid].hand = Array.isArray(out[pid].hand) ? out[pid].hand : [];
-        out[pid].handCount =
-          typeof out[pid].handCount === "number"
-            ? out[pid].handCount
-            : Array.isArray(out[pid].hand)
-            ? out[pid].hand.length
-            : 0;
-        out[pid].library = Array.isArray(out[pid].library)
-          ? out[pid].library
-          : [];
-        out[pid].libraryCount =
-          typeof out[pid].libraryCount === "number"
-            ? out[pid].libraryCount
-            : Array.isArray(out[pid].library)
-            ? out[pid].library.length
-            : 0;
-        out[pid].graveyard = Array.isArray(out[pid].graveyard)
-          ? out[pid].graveyard
-          : [];
-        out[pid].graveyardCount =
-          typeof out[pid].graveyardCount === "number"
-            ? out[pid].graveyardCount
-            : Array.isArray(out[pid].graveyard)
-            ? out[pid].graveyard.length
-            : 0;
-      }
-    }
-    return out;
-  }, [view, defaultPlayerZones]);
-
-  const safeView = useMemo(() => {
-    if (!view) return view;
-    return { ...view, zones: normalizedZones } as ClientGameView;
-  }, [view, normalizedZones]);
-
-  useEffect(() => {
-    try {
-      console.debug("[App] safeView updated:", {
-        safeViewId: safeView?.id ?? null,
-        viewId: view?.id ?? null,
-        you,
-      });
-    } catch (e) {
-      /* ignore */
-    }
-  }, [safeView, view, you]);
-
-  useEffect(() => {
-    try {
-      (window as any).socket = socket;
-      console.debug("[dev] window.socket exposed for debugging");
-    } catch (e) {
-      /* ignore */
-    }
-    return () => {
-      try {
-        delete (window as any).socket;
-      } catch (e) {
-        /* ignore */
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    const onConnect = () => {
-      setConnected(true);
-      const last = lastJoinRef.current;
-      if (last) {
-        const token =
-          sessionStorage.getItem(seatTokenKey(last.gameId, last.name)) ||
-          undefined;
-        if (token) {
-          const payload = {
-            gameId: last.gameId,
-            playerName: last.name,
-            spectator: last.spectator,
-            seatToken: token,
-          };
-          console.debug("[JOIN_EMIT] auto-join with seatToken", payload);
-          socket.emit("joinGame", payload);
-        } else {
-          console.debug(
-            "[JOIN_EMIT] skipping auto-join (no seatToken) for",
-            last
-          );
-        }
-      }
-    };
-    const onDisconnect = () => setConnected(false);
-
-    socket.on("connect", onConnect);
-    socket.on("disconnect", onDisconnect);
-
-    socket.on(
-      "joined",
-      ({ you: youId, seatToken, gameId: joinedGameId }: any) => {
-        setYou(youId);
-        lastJoinRef.current = {
-          gameId: joinedGameId,
-          name,
-          spectator: joinAsSpectator,
-        };
-        const savedName = lastJoinRef.current?.name ?? name;
-        if (seatToken) {
-          try {
-            sessionStorage.setItem(seatTokenKey(joinedGameId, savedName), seatToken);
-          } catch (e) {
-            /* ignore */
-          }
-        }
-        console.debug("[socket] joined", {
-          you: youId,
-          gameId: joinedGameId,
-          seatToken,
-        });
-      }
-    );
-
-    // Normalized state handler
-    socket.on("state", (payload: any) => {
-      try {
-        let incomingGameId: string | undefined;
-        let newView: any | null = null;
-
-        if (!payload) {
-          setView(null);
-          console.debug("[socket] state (raw) null payload");
-          return;
-        }
-
-        if (
-          payload &&
-          typeof payload === "object" &&
-          "gameId" in payload &&
-          "view" in payload
-        ) {
-          incomingGameId = payload.gameId;
-          newView = payload.view;
-        } else {
-          newView = payload;
-          incomingGameId = (payload && (payload.id || payload.gameId)) || undefined;
-        }
-
-        if (newView) {
-          const viewWithId = incomingGameId
-            ? { ...newView, id: incomingGameId }
-            : newView;
-          setView(viewWithId);
-        } else {
-          setView(null);
-        }
-
-        console.debug("[socket] state (raw)", { incomingGameId, newView });
-      } catch (e) {
-        console.warn("state handler failed:", e);
-      }
-    });
-
-    socket.on("stateDiff", (payload: any) => {
-      try {
-        if (!payload) return;
-
-        let incomingGameId: string | undefined;
-        let diff: any = null;
-
-        if (
-          payload &&
-          typeof payload === "object" &&
-          "gameId" in payload &&
-          "diff" in payload
-        ) {
-          incomingGameId = payload.gameId;
-          diff = payload.diff;
-        } else if (
-          payload &&
-          typeof payload === "object" &&
-          ("full" in payload || "after" in payload)
-        ) {
-          diff = payload;
-          incomingGameId =
-            (payload.full && payload.full.id) ||
-            (payload.after && payload.after.id) ||
-            undefined;
-        } else {
-          diff = { after: payload };
-        }
-
-        if (diff?.full) {
-          const full = diff.full;
-          setView(incomingGameId ? { ...full, id: incomingGameId } : full);
-          console.debug("[socket] stateDiff full (raw)", {
-            incomingGameId,
-            view: full,
-          });
-        } else if (diff?.after) {
-          const after = diff.after;
-          setView(incomingGameId ? { ...after, id: incomingGameId } : after);
-          console.debug("[socket] stateDiff after (raw)", {
-            incomingGameId,
-            view: after,
-          });
-        } else {
-          console.debug("[socket] stateDiff (unrecognized)", { payload });
-        }
-      } catch (e) {
-        console.warn("stateDiff handling failed:", e);
-      }
-    });
-
-    socket.on("priority", ({ player }: any) => setPriority(player));
-
-    socket.on("chat", (msg: ChatMsg) => {
-      setChat((prev) => [...prev.slice(-199), msg]);
-    });
-
-    // importedDeckCandidates: simply stash; UI will decide how to show
-    socket.on("importedDeckCandidates", ({ gameId: gid, candidates }: any) => {
-      const arr = Array.isArray(candidates) ? candidates : [];
-      setImportedCandidates(arr);
-      console.debug("[App] importedDeckCandidates received", {
-        gameId: gid,
-        count: arr.length,
-      });
-      if (suggestTimerRef.current) {
-        window.clearTimeout(suggestTimerRef.current);
-        suggestTimerRef.current = null;
-      }
-
-      // importer-only flow: once we have candidates, import is no longer "pending"
-      setPendingLocalImport(false);
-
-      // If a commander suggestion is pending for this game, and we were waiting,
-      // open the modal now.
-      if (cmdSuggestedGameId === gid && !cmdModalOpen) {
-        console.debug("[App] opening commander modal immediately (candidates in)");
-        setCmdModalOpen(true);
-      }
-    });
-
-    socket.on("deckImportMissing", ({ gameId: gid, missing }: any) => {
-      setMissingImport(Array.isArray(missing) ? missing : []);
-      setChat((prev) => [
-        ...prev,
-        {
-          id: `m_${Date.now()}`,
-          gameId: gid,
-          from: "system",
-          message: `Missing cards: ${
-            Array.isArray(missing) ? missing.slice(0, 10).join(", ") : ""
-          }`,
-          ts: Date.now(),
-        },
-      ]);
-    });
-
-    socket.on("scryPeek", ({ cards }: any) =>
-      setPeek({ mode: "scry", cards })
-    );
-    socket.on("surveilPeek", ({ cards }: any) =>
-      setPeek({ mode: "surveil", cards })
-    );
-    socket.on("error", ({ message }: any) =>
-      setLastError(message || "Error")
-    );
-
-    socket.on("debugCommanderState", (payload: any) =>
-      setDebugData((prev) => ({ ...(prev || {}), commanderState: payload }))
-    );
-    socket.on("debugLibraryDump", (payload: any) =>
-      setDebugData((prev) => ({ ...(prev || {}), libraryDump: payload }))
-    );
-    socket.on("debugImportedDeckBuffer", (payload: any) =>
-      setDebugData((prev) => ({ ...(prev || {}), importBuffer: payload }))
-    );
-
-    const onRequest = (payload: any) => {
-      setConfirmPayload(payload);
-      setConfirmId(payload.confirmId);
-      const initial: Record<string, "pending" | "yes" | "no"> = {};
-      for (const pid of payload.players || []) initial[pid] = "pending";
-      if (payload.initiator) initial[payload.initiator] = "yes";
-      setConfirmVotes(initial);
-      setConfirmOpen(true);
-    };
-    const onUpdate = (update: any) => {
-      if (!update || !update.confirmId) return;
-      if (!confirmId || update.confirmId === confirmId)
-        setConfirmVotes(update.responses);
-    };
-    const onCancelled = (info: any) => {
-      if (!info || !info.confirmId) return;
-      if (!confirmId || info.confirmId === confirmId) {
-        setConfirmOpen(false);
-        setConfirmPayload(null);
-        setConfirmVotes(null);
-        setConfirmId(null);
-        setLastInfo(
-          `Import cancelled${info.reason ? `: ${info.reason}` : ""}`
-        );
-        setPendingLocalImport(false);
-        setQueuedCommanderSelection(null);
-      }
-    };
-    const onConfirmed = (info: any) => {
-      if (!info || !info.confirmId) return;
-      if (!confirmId || info.confirmId === confirmId) {
-        setConfirmOpen(false);
-        setConfirmPayload(null);
-        setConfirmVotes(null);
-        setConfirmId(null);
-        setLastInfo(
-          `Import applied${info.deckName ? `: ${info.deckName}` : ""}`
-        );
-        setPendingLocalImport(false);
-
-        try {
-          if (
-            view &&
-            info &&
-            info.gameId === view.id &&
-            info.by &&
-            you &&
-            info.by === you
-          ) {
-            setView((prev) => {
-              if (!prev) return prev;
-              const copy: any = {
-                ...prev,
-                zones: { ...(prev.zones || {}) },
-              };
-              copy.zones[you] = {
-                ...(copy.zones[you] || {}),
-                hand: [],
-                handCount: 0,
-              };
-              return copy;
-            });
-            try {
-              socket.emit("getImportedDeckCandidates", { gameId: info.gameId });
-            } catch (e) {
-              /* ignore */
-            }
-          }
-        } catch (e) {
-          console.warn("import confirm local-hand-clear failed:", e);
-        }
-
-        // If we queued a commander *selection*, emit it now
-        if (
-          queuedCommanderSelection &&
-          queuedCommanderSelection.gameId === info.gameId
-        ) {
-          const payload: any = {
-            gameId: info.gameId,
-            commanderNames: queuedCommanderSelection.names,
-          };
-          if (queuedCommanderSelection.ids && queuedCommanderSelection.ids.length) {
-            payload.commanderIds = queuedCommanderSelection.ids;
-          }
-          console.debug("[App] flushing queued commander selection after import", payload);
-          socket.emit("setCommander", payload);
-          setQueuedCommanderSelection(null);
-        }
-
-        // If we just finished import for this game and have suggestions, show modal.
-        if (cmdSuggestedGameId === info.gameId && !cmdModalOpen) {
-          console.debug("[App] showing commander modal after import confirmed");
-          setCmdModalOpen(true);
-        }
-
-        if (!queuedCommanderSelection) {
-          try {
-            socket.emit("getImportedDeckCandidates", { gameId: info.gameId });
-          } catch (e) {
-            /* ignore */
-          }
-        }
-      }
-    };
-
-    socket.on("importWipeConfirmRequest", onRequest);
-    socket.on("importWipeConfirmUpdate", onUpdate);
-    socket.on("importWipeCancelled", onCancelled);
-    socket.on("importWipeConfirmed", onConfirmed);
-
-    // Single suggestCommanders handler in App
-    socket.on("suggestCommanders", ({ gameId: gid, names }: any) => {
-      console.debug("[App] suggestCommanders received", {
-        gameId: gid,
-        localViewId: safeView?.id,
-        names,
-        localImportConfirmOpen,
-        pendingLocalImport: pendingLocalImportRef.current,
-        confirmOpen,
-      });
-
-      const namesList = Array.isArray(names) ? names.slice(0, 2) : [];
-
-      // Save suggestion context
-      setCmdSuggestedGameId(gid);
-      setCmdSuggestedNames(namesList);
-
-      // Always request candidates
-      try {
-        socket.emit("getImportedDeckCandidates", { gameId: gid });
-      } catch (e) {
-        console.warn("[App] suggestCommanders -> getImportedDeckCandidates failed", e);
-      }
-
-      // If import UI is currently showing, don't pop yet; we'll open after confirm
-      if (localImportConfirmOpen || pendingLocalImportRef.current || confirmOpen) {
-        console.debug("[App] suggestCommanders suppressed by import UI; will open after confirm");
-        return;
-      }
-
-      // Otherwise, schedule modal open (wait briefly for importedCandidates for gallery)
-      if (suggestTimerRef.current) {
-        window.clearTimeout(suggestTimerRef.current);
-        suggestTimerRef.current = null;
-      }
-
-      const WAIT_MS = 600;
-      console.debug("[App] scheduling commander modal open", {
-        gameId: gid,
-        namesList,
-        waitMs: WAIT_MS,
-      });
-      suggestTimerRef.current = window.setTimeout(() => {
-        console.debug("[App] suggestCommanders timeout -> opening commander modal", {
-          gameId: gid,
-          importedCandidatesCount: importedCandidates.length,
-        });
-        setCmdModalOpen(true);
-        suggestTimerRef.current = null;
-      }, WAIT_MS) as unknown as number;
-    });
-
-    const onNameInUse = (payload: any) => {
+  // hook may stash nameInUse payload on socket; surface it here if needed
+  React.useEffect(() => {
+    const handler = (payload: any) => {
       setNameInUsePayload(payload);
       setShowNameInUseModal(true);
     };
-    socket.on("nameInUse", onNameInUse);
-
+    socket.on("nameInUse", handler);
     return () => {
-      socket.off("connect", onConnect);
-      socket.off("disconnect", onDisconnect);
-      socket.off("joined");
-      socket.off("state");
-      socket.off("stateDiff");
-      socket.off("priority");
-      socket.off("chat");
-      socket.off("importedDeckCandidates");
-      socket.off("deckImportMissing");
-      socket.off("scryPeek");
-      socket.off("surveilPeek");
-      socket.off("error");
-
-      socket.off("debugCommanderState");
-      socket.off("debugLibraryDump");
-      socket.off("debugImportedDeckBuffer");
-
-      socket.off("importWipeConfirmRequest", onRequest);
-      socket.off("importWipeConfirmUpdate", onUpdate);
-      socket.off("importWipeCancelled", onCancelled);
-      socket.off("importWipeConfirmed", onConfirmed);
-
-      socket.off("suggestCommanders");
-      socket.off("nameInUse", onNameInUse);
-
-      if (suggestTimerRef.current) {
-        window.clearTimeout(suggestTimerRef.current);
-        suggestTimerRef.current = null;
-      }
+      socket.off("nameInUse", handler);
     };
-  }, [
-    name,
-    joinAsSpectator,
-    view?.id,
-    confirmId,
-    view,
-    confirmOpen,
-    queuedCommanderSelection,
-    importedCandidates.length,
-    you,
-    safeView,
-    localImportConfirmOpen,
-    cmdSuggestedGameId,
-    cmdModalOpen,
-  ]);
-
-  // actions
-  const handleJoin = () => {
-    lastJoinRef.current = { gameId, name, spectator: joinAsSpectator };
-    const token =
-      sessionStorage.getItem(seatTokenKey(gameId, name)) || undefined;
-    const payload = {
-      gameId,
-      playerName: name,
-      spectator: joinAsSpectator,
-      seatToken: token,
-    };
-    console.debug("[JOIN_EMIT] manual join", payload);
-    socket.emit("joinGame", payload);
-  };
-
-  const joinFromList = (selectedGameId: string) => {
-    lastJoinRef.current = {
-      gameId: selectedGameId,
-      name,
-      spectator: joinAsSpectator,
-    };
-    const token =
-      sessionStorage.getItem(seatTokenKey(selectedGameId, name)) || undefined;
-    const payload = {
-      gameId: selectedGameId,
-      playerName: name,
-      spectator: joinAsSpectator,
-      seatToken: token,
-    };
-    console.debug("[JOIN_EMIT] joinFromList", payload);
-    socket.emit("joinGame", payload);
-    setGameId(selectedGameId);
-  };
-
-  const requestImportDeck = useCallback(
-    (list: string, deckName?: string) => {
-      if (!safeView) return;
-      setPendingLocalImport(true);
-      socket.emit("importDeck", { gameId: safeView.id, list, deckName });
-    },
-    [safeView]
-  );
-
-  const requestUseSavedDeck = useCallback(
-    (deckId: string) => {
-      if (!safeView) return;
-      setPendingLocalImport(true);
-      socket.emit("useSavedDeck", { gameId: safeView.id, deckId });
-    },
-    [safeView]
-  );
-
-  const handleLocalImportConfirmChange = useCallback((open: boolean) => {
-    setLocalImportConfirmOpen(open);
   }, []);
 
-  // Accept both names and optional ids from commander modals
-  const handleCommanderConfirm = useCallback(
-    (names: string[], ids?: string[]) => {
-      if (!safeView || !names || names.length === 0) return;
-
-      const isPreGame = String(safeView.phase || "")
-        .toUpperCase()
-        .includes("PRE");
-      const singlePlayer =
-        Array.isArray(safeView.players) &&
-        safeView.players.length === 1 &&
-        you === safeView.players[0]?.id;
-
-      // In single-player PRE_GAME, do not queue commander selection; apply immediately.
-      const mustQueue =
-        !isPreGame &&
-        !singlePlayer &&
-        (pendingLocalImportRef.current ||
-          localImportConfirmRef.current ||
-          confirmOpen);
-
-      if (mustQueue) {
-        setQueuedCommanderSelection({
-          gameId: safeView.id,
-          names: names.slice(0, 2),
-          ids: ids && ids.length ? ids.slice(0, 2) : undefined,
-        });
-        console.debug("[App] queuing commander selection", {
-          gameId: safeView.id,
-          names,
-          ids,
-        });
-        return;
-      }
-
-      const payload: any = { gameId: safeView.id, commanderNames: names };
-      if (ids && ids.length) payload.commanderIds = ids;
-      console.debug("[App] emitting setCommander", payload);
-      socket.emit("setCommander", payload);
-    },
-    [safeView, confirmOpen, you]
-  );
-
-  const fetchDebug = useCallback(() => {
-    if (!safeView) {
-      setDebugData({ error: "Invalid gameId for debug" });
-      setDebugLoading(false);
-      setDebugOpen(true);
-      return;
-    }
-    setDebugLoading(true);
-    setDebugData(null);
-    setDebugOpen(true);
-    const gid = safeView.id;
-    const onceWithTimeout = (eventName: string, timeout = 3000) =>
-      new Promise((resolve) => {
-        const onResp = (payload: any) => {
-          resolve(payload);
-        };
-        (socket as any).once(eventName, onResp);
-        setTimeout(() => {
-          (socket as any).off(eventName, onResp);
-          resolve({ error: "timeout" });
-        }, timeout);
-      });
-    (socket as any).emit("dumpCommanderState", { gameId: gid });
-    (socket as any).emit("dumpLibrary", { gameId: gid });
-    (socket as any).emit("dumpImportedDeckBuffer", { gameId: gid });
-    Promise.all([
-      onceWithTimeout("debugCommanderState"),
-      onceWithTimeout("debugLibraryDump"),
-      onceWithTimeout("debugImportedDeckBuffer"),
-    ])
-      .then(([commanderResp, libResp, bufResp]) => {
-        setDebugData({
-          commanderState: commanderResp,
-          libraryDump: libResp,
-          importBuffer: bufResp,
-        });
-        setDebugLoading(false);
-      })
-      .catch((err) => {
-        setDebugData({ error: String(err) });
-        setDebugLoading(false);
-      });
-  }, [safeView]);
-
-  const respondToConfirm = (accept: boolean) => {
-    if (!safeView || !confirmId || !you) return;
-    socket.emit("confirmImportResponse", {
-      gameId: safeView.id,
-      confirmId,
-      accept,
-    });
-    setConfirmVotes((prev) =>
-      prev
-        ? {
-            ...prev,
-            [you]: accept ? "yes" : "no",
-          }
-        : prev
-    );
-  };
-
   const isTable = layout === "table";
-  const canPass =
-    !!safeView && !!you && safeView.priority === you;
+  const canPass = !!safeView && !!you && safeView.priority === you;
   const isYouPlayer =
-    !!safeView &&
-    !!you &&
-    safeView.players.some((p) => p.id === you);
+    !!safeView && !!you && safeView.players.some((p) => p.id === you);
 
   const canAdvanceStep = useMemo(() => {
     if (!safeView || !you) return false;
@@ -894,7 +196,7 @@ export function App() {
 
   const canAdvanceTurn = canAdvanceStep;
 
-  const effectiveGameId = safeView?.id ?? gameId;
+  const effectiveGameId = safeView?.id ?? gameIdInput;
 
   const showCommanderGallery =
     cmdModalOpen && cmdSuggestedGameId && importedCandidates.length > 0;
@@ -965,8 +267,7 @@ export function App() {
               </button>
             </div>
             <div style={{ fontSize: 12, color: "#444" }}>
-              Phase:{" "}
-              <strong>{String(safeView?.phase ?? "-")}</strong>{" "}
+              Phase: <strong>{String(safeView?.phase ?? "-")}</strong>{" "}
               {safeView?.step ? (
                 <span>
                   • Step: <strong>{String(safeView.step)}</strong>
@@ -985,13 +286,13 @@ export function App() {
           }}
         >
           <input
-            value={gameId}
-            onChange={(e) => setGameId(e.target.value)}
+            value={gameIdInput}
+            onChange={(e) => setGameIdInput(e.target.value as any)}
             placeholder="Game ID"
           />
           <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
+            value={nameInput}
+            onChange={(e) => setNameInput(e.target.value)}
             placeholder="Name"
           />
           <label
@@ -1012,7 +313,7 @@ export function App() {
             Join
           </button>
           <button
-            onClick={() => socket.emit("requestState", { gameId })}
+            onClick={() => socket.emit("requestState", { gameId: gameIdInput })}
             disabled={!connected}
           >
             Refresh
@@ -1058,102 +359,89 @@ export function App() {
           }}
         >
           {safeView ? (
-            <>
-              {(() => {
-                try {
-                  console.debug(
-                    "[App] rendering TableLayout with safeView.id:",
-                    safeView?.id,
-                    "view.id:",
-                    view?.id
-                  );
-                } catch (e) {}
-                return null;
-              })()}
-              <TableLayout
-                players={safeView.players}
-                permanentsByPlayer={
-                  new Map(
-                    (safeView.players || []).map((p: any) => [
-                      p.id,
-                      (safeView.battlefield || []).filter(
-                        (perm: any) => perm.controller === p.id
-                      ),
-                    ])
-                  )
-                }
-                imagePref={imagePref}
-                isYouPlayer={isYouPlayer}
-                splitLands
-                enableReorderForYou={isYouPlayer}
-                you={you || undefined}
-                zones={safeView.zones}
-                commandZone={safeView.commandZone as any}
-                format={String(safeView.format || "")}
-                showYourHandBelow
-                onReorderHand={(order) =>
-                  safeView &&
-                  socket.emit("reorderHand", {
-                    gameId: safeView.id,
-                    order,
-                  })
-                }
-                onShuffleHand={() =>
-                  safeView &&
-                  socket.emit("shuffleHand", { gameId: safeView.id })
-                }
-                onRemove={(id) =>
-                  safeView &&
-                  socket.emit("removePermanent", {
-                    gameId: safeView.id,
-                    permanentId: id,
-                  })
-                }
-                onCounter={(id, kind, delta) =>
-                  safeView &&
-                  socket.emit("updateCounters", {
-                    gameId: safeView.id,
-                    permanentId: id,
-                    deltas: { [kind]: delta },
-                  })
-                }
-                onBulkCounter={(ids, deltas) =>
-                  safeView &&
-                  socket.emit("updateCountersBulk", {
-                    gameId: safeView.id,
-                    updates: ids.map((id) => ({ permanentId: id, deltas })),
-                  })
-                }
-                onPlayLandFromHand={(cardId) =>
-                  socket.emit("playLand", { gameId: safeView!.id, cardId })
-                }
-                onCastFromHand={(cardId) =>
-                  socket.emit("beginCast", { gameId: safeView!.id, cardId })
-                }
-                reasonCannotPlayLand={() => null}
-                reasonCannotCast={() => null}
-                threeD={undefined}
-                enablePanZoom
-                tableCloth={{ imageUrl: "" }}
-                worldSize={12000}
-                onUpdatePermPos={(id, x, y, z) =>
-                  safeView &&
-                  socket.emit("updatePermanentPos", {
-                    gameId: safeView.id,
-                    permanentId: id,
-                    x,
-                    y,
-                    z,
-                  })
-                }
-                onImportDeckText={(txt, nm) => requestImportDeck(txt, nm)}
-                onUseSavedDeck={(deckId) => requestUseSavedDeck(deckId)}
-                onLocalImportConfirmChange={handleLocalImportConfirmChange}
-                gameId={safeView.id}
-                stackItems={safeView.stack as any}
-                importedCandidates={importedCandidates}
-              />
-            </>
+            <TableLayout
+              players={safeView.players}
+              permanentsByPlayer={
+                new Map(
+                  (safeView.players || []).map((p: any) => [
+                    p.id,
+                    (safeView.battlefield || []).filter(
+                      (perm: any) => perm.controller === p.id
+                    ),
+                  ])
+                )
+              }
+              imagePref={imagePref}
+              isYouPlayer={isYouPlayer}
+              splitLands
+              enableReorderForYou={isYouPlayer}
+              you={you || undefined}
+              zones={safeView.zones}
+              commandZone={safeView.commandZone as any}
+              format={String(safeView.format || "")}
+              showYourHandBelow
+              onReorderHand={(order) =>
+                safeView &&
+                socket.emit("reorderHand", {
+                  gameId: safeView.id,
+                  order,
+                })
+              }
+              onShuffleHand={() =>
+                safeView &&
+                socket.emit("shuffleHand", { gameId: safeView.id })
+              }
+              onRemove={(id) =>
+                safeView &&
+                socket.emit("removePermanent", {
+                  gameId: safeView.id,
+                  permanentId: id,
+                })
+              }
+              onCounter={(id, kind, delta) =>
+                safeView &&
+                socket.emit("updateCounters", {
+                  gameId: safeView.id,
+                  permanentId: id,
+                  deltas: { [kind]: delta },
+                })
+              }
+              onBulkCounter={(ids, deltas) =>
+                safeView &&
+                socket.emit("updateCountersBulk", {
+                  gameId: safeView.id,
+                  updates: ids.map((id) => ({ permanentId: id, deltas })),
+                })
+              }
+              onPlayLandFromHand={(cardId) =>
+                socket.emit("playLand", { gameId: safeView!.id, cardId })
+              }
+              onCastFromHand={(cardId) =>
+                socket.emit("beginCast", { gameId: safeView!.id, cardId })
+              }
+              reasonCannotPlayLand={() => null}
+              reasonCannotCast={() => null}
+              threeD={undefined}
+              enablePanZoom
+              tableCloth={{ imageUrl: "" }}
+              worldSize={12000}
+              onUpdatePermPos={(id, x, y, z) =>
+                safeView &&
+                socket.emit("updatePermanentPos", {
+                  gameId: safeView.id,
+                  permanentId: id,
+                  x,
+                  y,
+                  z,
+                })
+              }
+              onImportDeckText={(txt, nm) => requestImportDeck(txt, nm)}
+              onUseSavedDeck={(deckId) => requestUseSavedDeck(deckId)}
+              onLocalImportConfirmChange={handleLocalImportConfirmChange}
+              gameId={safeView.id}
+              stackItems={safeView.stack as any}
+              importedCandidates={importedCandidates}
+            />
           ) : (
             <div style={{ padding: 20, color: "#666" }}>
               No game state yet. Join a game to view table.
@@ -1191,9 +479,7 @@ export function App() {
           {safeView ? (
             <ZonesPanel view={safeView} you={you} isYouPlayer={isYouPlayer} />
           ) : (
-            <div style={{ color: "#666" }}>
-              Join a game to see zones.
-            </div>
+            <div style={{ color: "#666" }}>Join a game to see zones.</div>
           )}
         </div>
 
@@ -1208,7 +494,7 @@ export function App() {
 
       <CardPreviewLayer />
 
-      {/* Commander selection UI (App-level) */}
+      {/* Commander selection UI */}
       {effectiveGameId &&
         cmdModalOpen &&
         cmdSuggestedGameId === effectiveGameId && (
@@ -1238,6 +524,7 @@ export function App() {
           )
         )}
 
+      {/* Debug modal */}
       {debugOpen && (
         <div
           style={{
@@ -1273,7 +560,7 @@ export function App() {
                 <button
                   onClick={() => {
                     setDebugOpen(false);
-                    setDebugData(null);
+                    // eslint-disable-next-line @typescript-eslint/no-empty-function
                   }}
                 >
                   Close
@@ -1306,6 +593,7 @@ export function App() {
         </div>
       )}
 
+      {/* Import confirmation modal */}
       {confirmOpen && confirmPayload && (
         <div
           style={{
@@ -1373,8 +661,8 @@ export function App() {
                       }}
                     >
                       <div style={{ fontSize: 12 }}>
-                        {safeView?.players?.find((p: any) => p.id === pid)?.name ??
-                          pid}
+                        {safeView?.players?.find((p: any) => p.id === pid)
+                          ?.name ?? pid}
                         {pid === you ? " (you)" : ""}
                       </div>
                       <div
@@ -1408,10 +696,8 @@ export function App() {
             >
               <button
                 onClick={() => {
-                  setConfirmOpen(false);
-                  setConfirmPayload(null);
-                  setConfirmVotes(null);
-                  setConfirmId(null);
+                  // only dismiss locally; actual cancel must come from server
+                  // to keep everyone in sync
                 }}
               >
                 Dismiss
@@ -1433,6 +719,7 @@ export function App() {
         </div>
       )}
 
+      {/* Scry/Surveil */}
       {peek && (
         <ScrySurveilModal
           mode={peek.mode}
@@ -1458,6 +745,7 @@ export function App() {
         />
       )}
 
+      {/* Name-in-use */}
       <NameInUseModal
         open={showNameInUseModal}
         payload={nameInUsePayload}
@@ -1466,10 +754,11 @@ export function App() {
           setNameInUsePayload(null);
         }}
         onReconnect={(fixedPlayerId: string, seatToken?: string) => {
-          const gid = nameInUsePayload?.gameId || gameId;
-          const pname = nameInUsePayload?.playerName || name;
+          const gid = nameInUsePayload?.gameId || gameIdInput;
+          const pname = nameInUsePayload?.playerName || nameInput;
           const token =
-            seatToken ?? sessionStorage.getItem(seatTokenKey(gid, pname));
+            seatToken ?? sessionStorage.getItem(`mtgedh:seatToken:${gid}:${pname}`);
+          // eslint-disable-next-line no-console
           console.debug("[JOIN_EMIT] reconnect click", {
             gameId: gid,
             playerName: pname,
@@ -1487,21 +776,13 @@ export function App() {
           setNameInUsePayload(null);
         }}
         onNewName={(newName: string) => {
-          const gid = nameInUsePayload?.gameId || gameId;
-          setName(newName);
-          lastJoinRef.current = {
-            gameId: gid,
-            name: newName,
-            spectator: joinAsSpectator,
-          };
-          try {
-            sessionStorage.setItem(
-              lastJoinKey(),
-              JSON.stringify(lastJoinRef.current)
-            );
-          } catch {}
+          const gid = nameInUsePayload?.gameId || gameIdInput;
+          setNameInput(newName);
           const token =
-            sessionStorage.getItem(seatTokenKey(gid, newName)) || undefined;
+            sessionStorage.getItem(
+              `mtgedh:seatToken:${gid}:${newName}`
+            ) || undefined;
+          // eslint-disable-next-line no-console
           console.debug("[JOIN_EMIT] new-name join", {
             gameId: gid,
             playerName: newName,
@@ -1521,5 +802,4 @@ export function App() {
   );
 }
 
-/* default export retained for compatibility */
 export default App;
