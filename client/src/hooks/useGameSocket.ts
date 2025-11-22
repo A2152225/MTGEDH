@@ -290,7 +290,7 @@ export function useGameSocket(): UseGameSocketState {
       }
     );
 
-     // full state => always hard-replace
+    // full state => always hard-replace
     socket.on("state", (payload: any) => {
       try {
         if (!payload) {
@@ -333,7 +333,7 @@ export function useGameSocket(): UseGameSocketState {
       }
     });
 
-      // diff => for robustness, treat as full replacement when diff.full/after present
+    // diff => for robustness, treat as full replacement when diff.full/after present
     socket.on("stateDiff", (payload: any) => {
       try {
         if (!payload) return;
@@ -383,19 +383,6 @@ export function useGameSocket(): UseGameSocketState {
 
         // TEMP: safety net disabled to avoid requestState loop.
         // If we re-enable later, we must guard it carefully.
-        //
-        // const gid =
-        //   incomingGameId ||
-        //   (typeof diff?.full?.id === "string" && diff.full.id) ||
-        //   (typeof diff?.after?.id === "string" && diff.after.id) ||
-        //   undefined;
-        // if (gid) {
-        //   try {
-        //     socket.emit("requestState", { gameId: gid });
-        //   } catch (e) {
-        //     console.warn("stateDiff: requestState emit failed", e);
-        //   }
-        // }
       } catch (e) {
         // eslint-disable-next-line no-console
         console.warn("stateDiff handling failed:", e);
@@ -506,9 +493,8 @@ export function useGameSocket(): UseGameSocketState {
                 ...prev,
                 zones: { ...(prev.zones || {}) },
               };
-           
 
- copy.zones[you] = {
+              copy.zones[you] = {
                 ...(copy.zones[you] || {}),
                 hand: [],
                 handCount: 0,
