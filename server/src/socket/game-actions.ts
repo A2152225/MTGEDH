@@ -429,10 +429,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       if (!game || !playerId || spectator) return;
 
       try {
-        game.state = game.state || {};
-        game.state.zones = game.state.zones || {};
-        const zones = game.state.zones[playerId] || null;
-        if (!zones || !Array.isArray(zones.hand)) {
+        // Get the hand from ctx.zones (where the engine stores it), not game.state.zones
+        const hand = (game as any).zones?.[playerId]?.hand;
+        if (!Array.isArray(hand) || hand.length === 0) {
           socket.emit("error", {
             code: "REORDER_HAND_NO_HAND",
             message: "No hand to reorder.",
@@ -440,9 +439,6 @@ export function registerGameActions(io: Server, socket: Socket) {
           return;
         }
 
-        // Map card IDs to indices in current hand
-        // Build a Map for O(1) lookups, making the overall algorithm O(n) instead of O(n²)
-        const hand = zones.hand;
         if (!Array.isArray(order) || order.length !== hand.length) {
           socket.emit("error", {
             code: "REORDER_HAND_INVALID",
@@ -474,7 +470,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           orderIndices.push(idx);
         }
 
-        // Use the engine's reorderHand method if available
+        // Use the engine's reorderHand method
         if (typeof (game as any).reorderHand === "function") {
           const success = (game as any).reorderHand(playerId, orderIndices);
           if (!success) {
@@ -484,19 +480,14 @@ export function registerGameActions(io: Server, socket: Socket) {
             });
             return;
           }
-          console.log(`[reorderHand] Reordered hand for player ${playerId} in game ${gameId}`);
+          console.log(`[reorderHand] Reordered hand for player ${playerId} in game ${gameId}, new order:`, orderIndices);
         } else {
-          // Fallback: apply reorder directly
-          console.warn(`[reorderHand] game.reorderHand not available, using fallback for game ${gameId}`);
-          const newHand: any[] = new Array(hand.length);
-          for (let i = 0; i < hand.length; i++) {
-            newHand[i] = hand[orderIndices[i]];
-          }
-          zones.hand = newHand as any;
-          zones.handCount = newHand.length;
-          if (typeof (game as any).bumpSeq === "function") {
-            (game as any).bumpSeq();
-          }
+          console.error(`[reorderHand] game.reorderHand not available for game ${gameId}`);
+          socket.emit("error", {
+            code: "REORDER_HAND_METHOD_MISSING",
+            message: "Server error: reorderHand method not available.",
+          });
+          return;
         }
 
         appendGameEvent(game, gameId, "reorderHand", { playerId, order: orderIndices });

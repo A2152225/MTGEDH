@@ -202,6 +202,8 @@ export function nextStep(ctx: GameContext) {
     
     let nextPhase = currentPhase;
     let nextStep = currentStep;
+    let shouldDraw = false;
+    let shouldAdvanceTurn = false;
     
     if (currentPhase === "beginning" || currentPhase === "PRE_GAME" || currentPhase === "") {
       if (currentStep === "" || currentStep === "untap") {
@@ -210,6 +212,7 @@ export function nextStep(ctx: GameContext) {
       } else if (currentStep === "upkeep") {
         nextPhase = "beginning";
         nextStep = "draw";
+        shouldDraw = true; // Draw a card when entering draw step
       } else {
         // After draw, go to precombatMain
         nextPhase = "precombatMain";
@@ -238,9 +241,11 @@ export function nextStep(ctx: GameContext) {
     } else if (currentPhase === "ending") {
       if (currentStep === "endStep" || currentStep === "end") {
         nextStep = "cleanup";
+      } else if (currentStep === "cleanup") {
+        // After cleanup, advance to next turn
+        shouldAdvanceTurn = true;
       } else {
-        // After cleanup, would normally go to next turn, but that's handled by nextTurn()
-        // Just stay at cleanup for now
+        // Stay at cleanup if unknown step
         nextStep = "cleanup";
       }
     } else {
@@ -249,10 +254,35 @@ export function nextStep(ctx: GameContext) {
       nextStep = "main";
     }
     
+    // Update phase and step
     (ctx as any).state.phase = nextPhase;
     (ctx as any).state.step = nextStep;
     
     console.log(`[nextStep] Advanced to phase=${nextPhase}, step=${nextStep}`);
+    
+    // If we should advance to next turn, call nextTurn instead
+    if (shouldAdvanceTurn) {
+      console.log(`[nextStep] Cleanup complete, advancing to next turn`);
+      safeBumpSeq(ctx);
+      nextTurn(ctx);
+      return;
+    }
+    
+    // If we're entering the draw step, draw a card for the active player
+    if (shouldDraw) {
+      try {
+        const turnPlayer = (ctx as any).state.turnPlayer;
+        if (turnPlayer) {
+          // Import drawCards from zones module
+          const { drawCards } = require("./zones");
+          const drawn = drawCards(ctx, turnPlayer, 1);
+          console.log(`[nextStep] Drew ${drawn.length} card(s) for ${turnPlayer} at draw step`);
+        }
+      } catch (err) {
+        console.warn("[nextStep] Failed to draw card:", err);
+      }
+    }
+    
     safeBumpSeq(ctx);
   } catch (err) {
     console.warn("nextStep failed:", err);
