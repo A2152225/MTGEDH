@@ -1,8 +1,8 @@
-// Full TableLayout.tsx — updated so it:
-// - accepts suppressCommanderSuggest and onConfirmCommander props
-// - does NOT emit setCommander directly (calls parent onConfirmCommander instead)
-// - queues incoming suggestCommanders while suppression is active and opens queued modal once suppression clears
-// - shows client-local import confirm immediately after user clicks Use/Import and notifies App via onLocalImportConfirmChange
+// client/src/components/TableLayout.tsx
+// Full TableLayout component — layout + pan/zoom + deck manager.
+// Commander selection UI has been moved up into App.tsx, so this file no longer
+// handles suggestCommanders or commander modals directly.
+
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   BattlefieldPermanent,
@@ -10,7 +10,8 @@ import type {
   PlayerID,
   PlayerZones,
   CommanderInfo,
-  GameID
+  GameID,
+  KnownCardRef
 } from '../../../shared/src';
 import type { ImagePref } from './BattlefieldGrid';
 import { TokenGroups } from './TokenGroups';
@@ -20,7 +21,6 @@ import { LandRow } from './LandRow';
 import { ZonesPiles } from './ZonesPiles';
 import { FreeField } from './FreeField';
 import { DeckManagerModal } from './DeckManagerModal';
-import CommanderConfirmModal from './CommanderConfirmModal';
 import { socket } from '../socket';
 
 function clamp(n: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, n)); }
@@ -76,55 +76,43 @@ function computeExtents(positions: Array<{ x: number; y: number }>, boardW: numb
 export function TableLayout(props: {
   players: PlayerRef[];
   permanentsByPlayer: Map<PlayerID, BattlefieldPermanent[]>;
-  imagePref: ImagePref;
-  isYouPlayer: boolean;
+  imagePref?: ImagePref;
+  isYouPlayer?: boolean;
   splitLands?: boolean;
   enableReorderForYou?: boolean;
-  you?: PlayerID | null;
+  you?: PlayerID;
   zones?: Record<PlayerID, PlayerZones>;
-  commandZone?: Record<PlayerID, CommanderInfo>;
-  life?: Record<PlayerID, number>;
-  poisonCounters?: Record<PlayerID, number>;
-  experienceCounters?: Record<PlayerID, number>;
+  commandZone?: Record<PlayerID, CommanderInfo | undefined>;
   format?: string;
   showYourHandBelow?: boolean;
+  onReorderHand?: (order: string[]) => void;
+  onShuffleHand?: () => void;
   onRemove?: (id: string) => void;
   onCounter?: (id: string, kind: string, delta: number) => void;
   onBulkCounter?: (ids: string[], deltas: Record<string, number>) => void;
-  highlightPermTargets?: ReadonlySet<string>;
-  selectedPermTargets?: ReadonlySet<string>;
-  onPermanentClick?: (id: string) => void;
-  highlightPlayerTargets?: ReadonlySet<string>;
-  selectedPlayerTargets?: ReadonlySet<string>;
-  onPlayerClick?: (playerId: string) => void;
+  highlightPermTargets?: Set<string> | undefined;
+  selectedPermTargets?: Set<string> | undefined;
+  onPermanentClick?: ((id: string) => void) | undefined;
+  highlightPlayerTargets?: Set<string> | undefined;
+  selectedPlayerTargets?: Set<string> | undefined;
+  onPlayerClick?: ((pid: string) => void) | undefined;
   onPlayLandFromHand?: (cardId: string) => void;
   onCastFromHand?: (cardId: string) => void;
-  reasonCannotPlayLand?: (card: { type_line?: string }) => string | null;
-  reasonCannotCast?: (card: { type_line?: string }) => string | null;
-  onReorderHand?: (order: number[]) => void;
-  onShuffleHand?: () => void;
-  threeD?: { enabled: boolean; rotateXDeg: number; rotateYDeg: number; perspectivePx?: number };
-  enablePanZoom?: boolean;
-  tableCloth?: { imageUrl?: string; color?: string };
-  worldSize?: number;
-  onUpdatePermPos?: (id: string, x: number, y: number, z?: number) => void;
-  // App-provided wrappers (will be called only after local confirm)
-  onImportDeckText?: (text: string, name?: string) => void;
+  reasonCannotPlayLand?: (card: any) => string | null;
+  reasonCannotCast?: (card: any) => string | null;
+  onImportDeckText?: (txt: string, name?: string) => void;
   onUseSavedDeck?: (deckId: string) => void;
-  // TableLayout will notify App when the client-local confirm is shown/hidden
   onLocalImportConfirmChange?: (open: boolean) => void;
-  // App centralizes commander confirm; when user confirms commander in TableLayout, call this
-  onConfirmCommander?: (names: string[]) => void;
-  // If true, TableLayout should not show commander modal; instead queue suggestions locally until false
-  suppressCommanderSuggest?: boolean;
   gameId?: GameID;
   stackItems?: any[];
+  importedCandidates?: KnownCardRef[]; // no longer used for commander UI, but kept for potential future UI
+  energyCounters?: Record<PlayerID, number>;
+  energy?: Record<PlayerID, number>;
 }) {
   const {
     players, permanentsByPlayer, imagePref, isYouPlayer,
     splitLands = true, enableReorderForYou = false,
-    you, zones, commandZone, life, poisonCounters, experienceCounters,
-    format, showYourHandBelow = true,
+    you, zones, commandZone, format, showYourHandBelow = true,
     onRemove, onCounter, onBulkCounter,
     highlightPermTargets, selectedPermTargets, onPermanentClick,
     highlightPlayerTargets, selectedPlayerTargets, onPlayerClick,
@@ -132,8 +120,23 @@ export function TableLayout(props: {
     onReorderHand, onShuffleHand,
     threeD, enablePanZoom = true,
     tableCloth, worldSize, onUpdatePermPos,
-    onImportDeckText, onUseSavedDeck, onLocalImportConfirmChange, onConfirmCommander, suppressCommanderSuggest, gameId
+    onImportDeckText, onUseSavedDeck, onLocalImportConfirmChange,
+    gameId, importedCandidates, energyCounters, energy
   } = props;
+
+  // Snapshot debug
+  useEffect(() => {
+    try {
+      console.debug("[TableLayout] snapshot", {
+        gameId,
+        you,
+        playersCount: Array.isArray(players) ? players.length : undefined,
+        importedCandidatesCount: (importedCandidates || []).length,
+        hasImportHandler: typeof onImportDeckText === "function",
+        hasUseSavedHandler: typeof onUseSavedDeck === "function",
+      });
+    } catch { /* ignore */ }
+  }, [gameId, you, players, importedCandidates, onImportDeckText, onUseSavedDeck]);
 
   const ordered = useMemo<PlayerBoard[]>(() => {
     const ps = [...players].sort((a, b) => a.seat - b.seat);
@@ -168,7 +171,7 @@ export function TableLayout(props: {
 
   const { halfW, halfH } = useMemo(() => computeExtents(seatPositions, BOARD_W, BOARD_H), [seatPositions]);
 
-  // Pan/Zoom (omitted details kept same as previous implementations)
+  // Pan/Zoom and camera
   const containerRef = useRef<HTMLDivElement>(null);
   const [container, setContainer] = useState({ w: 1200, h: 800 });
   useEffect(() => {
@@ -290,8 +293,7 @@ export function TableLayout(props: {
     let idx = -1;
     for (let i = 0; i < ordered.length; i++) {
       const o = ordered[i];
-      const pid = o.player.id;
-      if (pid === you) { idx = i; break; }
+      if (o.player.id === you) { idx = i; break; }
     }
     if (idx === -1) {
       const cx = camRef.current.x, cy = camRef.current.y;
@@ -338,45 +340,11 @@ export function TableLayout(props: {
 
   const cameraTransform =
     `translate(${container.w / 2}px, ${container.h / 2}px) scale(${cam.z}) translate(${-cam.x}px, ${-cam.y}px)`;
-  const tiltTransform = threeD && threeD.enabled
-    ? `rotateX(${threeD.rotateXDeg ?? 10}deg) rotateY(${threeD.rotateYDeg ?? 0}deg)`
-    : 'none';
-  const perspective = threeD?.enabled ? (threeD.perspectivePx ?? 1100) : undefined;
-  const clothW = Math.max(2 * (halfW + 120), worldSize ?? 0, 2000);
 
-  // commander suggestion modal state + queue when suppressed
-  const [confirmCmdOpen, setConfirmCmdOpen] = useState(false);
-  const [confirmCmdSuggested, setConfirmCmdSuggested] = useState<string[]>([]);
-  const [queuedCmdSuggest, setQueuedCmdSuggest] = useState<{ gameId: GameID; names: string[] } | null>(null);
-
-  useEffect(() => {
-    const onSuggest = ({ gameId: gid, names }: { gameId: GameID; names: string[] }) => {
-      if (!props.gameId || gid !== props.gameId) return;
-      const namesList = Array.isArray(names) ? names.slice(0,2) : [];
-      if (suppressCommanderSuggest) {
-        setQueuedCmdSuggest({ gameId: gid, names: namesList });
-        return;
-      }
-      setConfirmCmdSuggested(namesList);
-      setConfirmCmdOpen(true);
-    };
-    (socket as any).on('suggestCommanders', onSuggest);
-    return () => { (socket as any).off('suggestCommanders', onSuggest); };
-  }, [props.gameId, suppressCommanderSuggest]);
-
-  // when suppression clears, show any queued suggestion
-  useEffect(() => {
-    if (!suppressCommanderSuggest && queuedCmdSuggest && queuedCmdSuggest.gameId === props.gameId) {
-      setConfirmCmdSuggested(queuedCmdSuggest.names || []);
-      setConfirmCmdOpen(true);
-      setQueuedCmdSuggest(null);
-    }
-  }, [suppressCommanderSuggest, queuedCmdSuggest, props.gameId]);
-
+  // deck manager + import confirm
   const [deckMgrOpen, setDeckMgrOpen] = useState(false);
   const decksBtnRef = useRef<HTMLButtonElement | null>(null);
 
-  // Determine whether table has any permanents (for informational use)
   const tableHasContent = useMemo(() => {
     for (const arr of permanentsByPlayer.values()) {
       if (arr.length > 0) return true;
@@ -384,21 +352,80 @@ export function TableLayout(props: {
     return false;
   }, [permanentsByPlayer]);
 
-  // Local import-confirm modal state
   const [importConfirmOpen, setImportConfirmOpen] = useState(false);
-  const [importPending, setImportPending] = useState<{ type: 'text'; text: string; name?: string } | { type: 'server'; deckId: string } | null>(null);
+  const [importPending, setImportPending] = useState<
+    { type: 'text'; text: string; name?: string } |
+    { type: 'server'; deckId: string } |
+    null
+  >(null);
 
-  // ALWAYS show client confirm after user presses Use / Import
+  function askServerImporterOnlyThen(action: () => void, fallbackOpenConfirm: () => void) {
+    if (!props.gameId) {
+      fallbackOpenConfirm();
+      return;
+    }
+
+    let handled = false;
+    const TIMEOUT_MS = 1200;
+    const timer = window.setTimeout(() => {
+      if (!handled) {
+        handled = true;
+        fallbackOpenConfirm();
+      }
+    }, TIMEOUT_MS);
+
+    try {
+      (socket as any).emit('canImportWithoutWipe', { gameId: props.gameId }, (resp: any) => {
+        if (handled) return;
+        handled = true;
+        window.clearTimeout(timer as unknown as number);
+        if (resp && resp.importerOnly) {
+          action();
+        } else {
+          fallbackOpenConfirm();
+        }
+      });
+    } catch (e) {
+      if (!handled) {
+        handled = true;
+        window.clearTimeout(timer as unknown as number);
+        fallbackOpenConfirm();
+      }
+    }
+  }
+
   const handleRequestImportText = (text: string, name?: string) => {
     setImportPending({ type: 'text', text, name });
-    setImportConfirmOpen(true);
-    onLocalImportConfirmChange?.(true);
+
+    askServerImporterOnlyThen(
+      () => {
+        try { if (typeof onImportDeckText === 'function') onImportDeckText(text, name); } catch (e) { console.warn("onImportDeckText failed:", e); }
+        setImportPending(null);
+        setDeckMgrOpen(false);
+        onLocalImportConfirmChange?.(false);
+      },
+      () => {
+        setImportConfirmOpen(true);
+        onLocalImportConfirmChange?.(true);
+      }
+    );
   };
 
   const handleRequestUseSavedDeck = (deckId: string) => {
     setImportPending({ type: 'server', deckId });
-    setImportConfirmOpen(true);
-    onLocalImportConfirmChange?.(true);
+
+    askServerImporterOnlyThen(
+      () => {
+        try { if (typeof onUseSavedDeck === 'function') onUseSavedDeck(deckId); } catch (e) { console.warn("onUseSavedDeck failed:", e); }
+        setImportPending(null);
+        setDeckMgrOpen(false);
+        onLocalImportConfirmChange?.(false);
+      },
+      () => {
+        setImportConfirmOpen(true);
+        onLocalImportConfirmChange?.(true);
+      }
+    );
   };
 
   const confirmAndImport = () => {
@@ -420,7 +447,6 @@ export function TableLayout(props: {
     onLocalImportConfirmChange?.(false);
   };
 
-  // cloth background (gradient fallback)
   const clothBg: React.CSSProperties = props.tableCloth?.imageUrl
     ? { backgroundImage: `url(${props.tableCloth.imageUrl})`, backgroundSize: 'cover', backgroundRepeat: 'no-repeat', backgroundPosition: 'center' }
     : { background: 'radial-gradient(ellipse at center, rgba(0,128,64,0.9) 0%, rgba(3,62,35,0.95) 60%, rgba(2,40,22,1) 100%)' };
@@ -445,15 +471,17 @@ export function TableLayout(props: {
       }}
     >
       <div style={{ position: 'absolute', inset: 0, transform: cameraTransform, transformOrigin: '0 0', willChange: 'transform' }}>
-        <div style={{ position: 'absolute', left: '50%', top: '50%', transformStyle: 'preserve-3d', perspective: perspective ? `${perspective}px` : undefined }}>
-          <div style={{ position: 'relative', transform: tiltTransform, transformOrigin: '50% 50%', zIndex: 0 }}>
+
+        <div style={{ position: 'absolute', left: '50%', top: '50%', transformStyle: 'preserve-3d' }}>
+          <div style={{ position: 'relative' }}>
+
             <div
               style={{
                 position: 'absolute',
-                left: -clothW / 2,
-                top: -clothW / 2,
-                width: clothW,
-                height: clothW,
+                left: -Math.max(2 * (halfW + 120), props.worldSize ?? 0, 2000) / 2,
+                top: -Math.max(2 * (halfW + 120), props.worldSize ?? 0, 2000) / 2,
+                width: Math.max(2 * (halfW + 120), props.worldSize ?? 0, 2000),
+                height: Math.max(2 * (halfW + 120), props.worldSize ?? 0, 2000),
                 ...clothBg,
                 boxShadow: 'inset 0 0 60px rgba(0,0,0,0.4)',
                 pointerEvents: 'none'
@@ -473,25 +501,40 @@ export function TableLayout(props: {
                 const isYouThis = you && pb.player.id === you;
                 const allowReorderHere = Boolean(isYouThis && enableReorderForYou && !onPermanentClick);
 
-                const yourHand = (isYouThis && zones?.[you!]?.hand
-                  ? (zones![you!].hand as any as Array<{ id: string; name?: string; type_line?: string; image_uris?: { small?: string; normal?: string }; faceDown?: boolean; }>)
-                  : []) || [];
+                const yourHand =
+                  (isYouThis && zones?.[you!]?.hand
+                    ? (zones![you!].hand as any as Array<{
+                        id: string;
+                        name?: string;
+                        type_line?: string;
+                        image_uris?: { small?: string; normal?: string };
+                        faceDown?: boolean;
+                      }>)
+                    : []) || [];
 
                 const zObj = zones?.[pb.player.id];
                 const cmdObj = commandZone?.[pb.player.id];
                 const isCommanderFormat = (format || '').toLowerCase() === 'commander';
 
-                const lifeVal = life?.[pb.player.id] ?? 0;
-                const poisonVal = poisonCounters?.[pb.player.id] ?? 0;
-                const xpVal = experienceCounters?.[pb.player.id] ?? 0;
+                const lifeVal =
+                  (props as any).life?.[pb.player.id] ??
+                  (props as any).state?.startingLife ??
+                  40;
+                const poisonVal = (props as any).poisonCounters?.[pb.player.id] ?? 0;
+                const xpVal =
+                  (props as any).experienceCounters?.[pb.player.id] ?? 0;
+                const energyVal =
+                  (props as any).energyCounters?.[pb.player.id] ??
+                  (props as any).energy?.[pb.player.id] ??
+                  0;
 
                 return (
                   <div
                     key={pb.player.id}
                     style={{
                       position: 'absolute',
-                      left: pos.x - BOARD_W/2,
-                      top: pos.y - BOARD_H/2,
+                      left: pos.x - BOARD_W / 2,
+                      top: pos.y - BOARD_H / 2,
                       width: BOARD_W,
                       transform: `translate(0,0) rotate(${isYouThis ? 0 : pos.rotateDeg}deg)`,
                       transformOrigin: '50% 50%'
@@ -513,18 +556,57 @@ export function TableLayout(props: {
                     >
                       <div>
                         {/* Header row */}
-                        <div style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          marginBottom: 8
-                        }}>
-                          <div style={{ fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            marginBottom: 8
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontWeight: 700,
+                              color: '#fff',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 10
+                            }}
+                          >
                             <span>{pb.player.name}</span>
-                            <div style={{ display: 'flex', gap: 6, fontSize: 11 }}>
-                              <span title="Life" style={{ color: '#4ade80' }}>L:{lifeVal}</span>
-                              <span title="Poison Counters" style={{ color: poisonVal > 0 ? '#f87171' : '#aaa' }}>P:{poisonVal}</span>
-                              <span title="Experience Counters" style={{ color: xpVal > 0 ? '#60a5fa' : '#aaa' }}>XP:{xpVal}</span>
+                            <div
+                              style={{
+                                display: 'flex',
+                                gap: 6,
+                                fontSize: 11
+                              }}
+                            >
+                              <span title="Life" style={{ color: '#4ade80' }}>
+                                L:{lifeVal}
+                              </span>
+                              <span
+                                title="Poison Counters"
+                                style={{
+                                  color:
+                                    poisonVal > 0 ? '#f87171' : '#aaa'
+                                }}
+                              >
+                                P:{poisonVal}
+                              </span>
+                              <span
+                                title="Experience Counters"
+                                style={{
+                                  color: xpVal > 0 ? '#60a5fa' : '#aaa'
+                                }}
+                              >
+                                XP:{xpVal}
+                              </span>
+                              <span
+                                title="Energy Counters"
+                                style={{ color: '#ffd166' }}
+                              >
+                                E:{energyVal}
+                              </span>
                             </div>
                             {isYouThis && (
                               <button
@@ -532,8 +614,11 @@ export function TableLayout(props: {
                                 type="button"
                                 onClick={() => setDeckMgrOpen(true)}
                                 style={{ fontSize: 11 }}
-                                title="Manage / Import Deck"
-                              >Decks</button>
+                                title={gameId ? "Manage / Import Deck" : "Waiting for game to be ready"}
+                                disabled={!gameId}
+                              >
+                                Decks
+                              </button>
                             )}
                           </div>
                           {onPlayerClick && (
@@ -543,9 +628,17 @@ export function TableLayout(props: {
                               disabled={!canTargetPlayer}
                               style={{
                                 border: '1px solid',
-                                borderColor: isPlayerSelected ? '#2b6cb0' : canTargetPlayer ? '#38a169' : '#555',
+                                borderColor: isPlayerSelected
+                                  ? '#2b6cb0'
+                                  : canTargetPlayer
+                                  ? '#38a169'
+                                  : '#555',
                                 background: 'transparent',
-                                color: isPlayerSelected ? '#2b6cb0' : canTargetPlayer ? '#38a169' : '#888',
+                                color: isPlayerSelected
+                                  ? '#2b6cb0'
+                                  : canTargetPlayer
+                                  ? '#38a169'
+                                  : '#888',
                                 padding: '2px 8px',
                                 borderRadius: 6,
                                 fontSize: 12
@@ -556,7 +649,11 @@ export function TableLayout(props: {
                           )}
                         </div>
 
-                        <AttachmentLines containerRef={{ current: null } as any} permanents={pb.permanents} opacity={0.5} />
+                        <AttachmentLines
+                          containerRef={{ current: null } as any}
+                          permanents={pb.permanents}
+                          opacity={0.5}
+                        />
 
                         <FreeField
                           perms={others}
@@ -565,7 +662,9 @@ export function TableLayout(props: {
                           widthPx={FREE_W}
                           heightPx={FREE_H}
                           draggable={!!isYouThis}
-                          onMove={(id, xx, yy, zz) => onUpdatePermPos?.(id, xx, yy, zz)}
+                          onMove={(id, xx, yy, zz) =>
+                            onUpdatePermPos?.(id, xx, yy, zz)
+                          }
                           highlightTargets={highlightPermTargets}
                           selectedTargets={selectedPermTargets}
                           onCardClick={onPermanentClick}
@@ -573,7 +672,15 @@ export function TableLayout(props: {
 
                         {lands.length > 0 && (
                           <div style={{ marginTop: 12 }} data-no-zoom>
-                            <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 6 }}>Lands</div>
+                            <div
+                              style={{
+                                fontSize: 12,
+                                opacity: 0.7,
+                                marginBottom: 6
+                              }}
+                            >
+                              Lands
+                            </div>
                             <LandRow
                               lands={lands}
                               imagePref={imagePref}
@@ -594,7 +701,9 @@ export function TableLayout(props: {
                               tokens={tokens}
                               groupMode="name+pt+attach"
                               attachedToSet={attachedToSet}
-                              onBulkCounter={(ids, deltas) => onBulkCounter?.(ids, deltas)}
+                              onBulkCounter={(ids, deltas) =>
+                                onBulkCounter?.(ids, deltas)
+                              }
                               highlightTargets={highlightPermTargets}
                               selectedTargets={selectedPermTargets}
                               onTokenClick={onPermanentClick}
@@ -616,10 +725,28 @@ export function TableLayout(props: {
                             }}
                             data-no-zoom
                           >
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                              <div style={{ fontSize: 12, color: '#ddd' }}>Your Hand</div>
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                marginBottom: 6
+                              }}
+                            >
+                              <div
+                                style={{ fontSize: 12, color: '#ddd' }}
+                              >
+                                Your Hand
+                              </div>
                               {onShuffleHand && (
-                                <button type="button" onClick={() => onShuffleHand()} style={{ fontSize: 12, padding: '2px 8px' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => onShuffleHand()}
+                                  style={{
+                                    fontSize: 12,
+                                    padding: '2px 8px'
+                                  }}
+                                >
                                   Shuffle
                                 </button>
                               )}
@@ -627,10 +754,20 @@ export function TableLayout(props: {
                             <HandGallery
                               cards={yourHand}
                               imagePref={imagePref}
-                              onPlayLand={(cardId) => onPlayLandFromHand?.(cardId)}
-                              onCast={(cardId) => onCastFromHand?.(cardId)}
-                              reasonCannotPlayLand={c => reasonCannotPlayLand ? reasonCannotPlayLand(c) : null}
-                              reasonCannotCast={c => reasonCannotCast ? reasonCannotCast(c) : null}
+                              onPlayLand={(cardId) =>
+                                onPlayLandFromHand?.(cardId)
+                              }
+                              onCast={(cardId) =>
+                                onCastFromHand?.(cardId)
+                              }
+                              reasonCannotPlayLand={(c) =>
+                                reasonCannotPlayLand
+                                  ? reasonCannotPlayLand(c)
+                                  : null
+                              }
+                              reasonCannotCast={(c) =>
+                                reasonCannotCast ? reasonCannotCast(c) : null
+                              }
                               thumbWidth={TILE_W}
                               zoomScale={1}
                               layout="wrap2"
@@ -643,18 +780,34 @@ export function TableLayout(props: {
                         )}
                       </div>
 
-                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center' }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          justifyContent: 'center'
+                        }}
+                      >
                         {zObj && (
                           <ZonesPiles
                             zones={zObj}
                             commander={cmdObj}
                             isCommanderFormat={isCommanderFormat}
-                            showHandCount={!isYouThis ? (zObj.handCount ?? (Array.isArray(zObj.hand) ? zObj.hand.length : 0)) : undefined}
+                            showHandCount={
+                              !isYouThis
+                                ? zObj.handCount ??
+                                  (Array.isArray(zObj.hand)
+                                    ? zObj.hand.length
+                                    : 0)
+                                : undefined
+                            }
                             hideHandDetails={!isYouThis}
                             canCastCommander={!!(isCommanderFormat && isYouThis && gameId)}
                             onCastCommander={(commanderIdOrName) => {
                               if (!gameId) return;
-                              socket.emit('castCommander', { gameId, commanderNameOrId: commanderIdOrName });
+                              socket.emit('castCommander', {
+                                gameId,
+                                commanderNameOrId: commanderIdOrName
+                              });
                             }}
                           />
                         )}
@@ -675,20 +828,6 @@ export function TableLayout(props: {
               wide
               onUseSavedDeck={(deckId) => handleRequestUseSavedDeck(deckId)}
             />
-            {gameId && (
-              <CommanderConfirmModal
-                open={confirmCmdOpen}
-                gameId={gameId}
-                initialNames={confirmCmdSuggested}
-                onClose={() => setConfirmCmdOpen(false)}
-                onConfirm={(names) => {
-                  // Call parent handler instead of emitting directly.
-                  if (onConfirmCommander) onConfirmCommander(names);
-                  else socket.emit('setCommander', { gameId, commanderNames: names }); // fallback
-                  setConfirmCmdOpen(false);
-                }}
-              />
-            )}
           </div>
         </div>
       </div>
@@ -726,7 +865,6 @@ export function TableLayout(props: {
         </div>
       )}
 
-      {/* Client-local import confirmation modal */}
       {importConfirmOpen && (
         <div style={{
           position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',

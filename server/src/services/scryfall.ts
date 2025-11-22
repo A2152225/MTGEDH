@@ -1,22 +1,20 @@
 /**
- * Scryfall service + decklist parsing + legality validation.
- * Uses the built-in global fetch (Node 18+). No external fetch dependency.
+ * server/src/services/scryfall.ts
  *
- * Exports:
- * - normalizeName, parseDecklist
- * - fetchCardByExactName, fetchCardByExactNameStrict, fetchCardById
- * - fetchCardsByExactNamesBatch
- * - validateDeck
+ * Scryfall helpers, decklist parser, caching and fetch helpers.
  *
  * Notes:
- * - Includes power/toughness when available.
- * - Handles split/mdfc faces minimally by preserving top-level fields and faces if present.
- * - Simple in-memory cache by normalized name and by card id.
+ * - Uses the built-in global fetch (Node 18+). No external fetch dependency.
+ * - In-memory cache keyed by normalized lower-case names.
+ * - fetchCardByExactNameStrict implements robust fallbacks:
+ *    1) strict quoted exact lookup
+ *    2) non-quoted exact lookup
+ *    3) wildcard search with '*' replacing spaces (Scryfall search)
+ *    4) no-space name attempts (common typo)
+ *
+ * This improves resolving names like "surge spanner" when exact match fails.
  */
 
-//
-// Types
-//
 export type ParsedLine = { name: string; count: number };
 
 export type ScryfallCard = {
@@ -49,15 +47,15 @@ export type ScryfallCard = {
 export function normalizeName(s: string) {
   return s
     .trim()
-    .replace(/\s+/g, ' ')
+    .replace(/\s+/g, " ")
     .replace(/’/g, "'")
-    .replace(/\s+\/\/\s+/g, ' // ');
+    .replace(/\s+\/\/\s+/g, " // ");
 }
 
 export function parseDecklist(list: string): ParsedLine[] {
   const lines = list
     .split(/\r?\n/)
-    .map(l => l.trim())
+    .map((l) => l.trim())
     .filter(Boolean);
 
   const acc = new Map<string, number>();
@@ -65,7 +63,7 @@ export function parseDecklist(list: string): ParsedLine[] {
   for (const raw of lines) {
     if (/^(SB:|SIDEBOARD)/i.test(raw)) continue;
 
-    let name = '';
+    let name = "";
     let count = 1;
 
     // "3 Card Name" or "3x Card Name"
@@ -103,8 +101,8 @@ function lcKey(name: string) {
 
 function ensureFetch(): typeof fetch {
   const f = (globalThis as any).fetch;
-  if (typeof f !== 'function') {
-    throw new Error('Global fetch is not available. Use Node 18+ or polyfill fetch.');
+  if (typeof f !== "function") {
+    throw new Error("Global fetch is not available. Use Node 18+ or polyfill fetch.");
   }
   return f.bind(globalThis);
 }
@@ -116,16 +114,16 @@ async function doFetchJSON(url: string, options?: RequestInit, retries = 3, back
     const res = await f(url, {
       ...(options || {}),
       headers: {
-        Accept: 'application/json',
-        ...(options?.headers || {})
-      }
+        Accept: "application/json",
+        ...(options?.headers || {}),
+      },
     });
     if (res.ok) {
       return res.json();
     }
     if ((res.status === 429 || res.status >= 500) && attempt < retries) {
-      const retryAfter = Number(res.headers.get('Retry-After')) || (backoffMs * Math.pow(2, attempt));
-      await new Promise(r => setTimeout(r, retryAfter));
+      const retryAfter = Number(res.headers.get("Retry-After")) || backoffMs * Math.pow(2, attempt);
+      await new Promise((r) => setTimeout(r, retryAfter));
       attempt++;
       continue;
     }
@@ -159,12 +157,19 @@ function toCachedCard(data: any): ScryfallCard {
             ? { small: f.image_uris.small, normal: f.image_uris.normal, art_crop: f.image_uris.art_crop }
             : undefined,
           power: f.power,
-          toughness: f.toughness
+          toughness: f.toughness,
         }))
-      : undefined
+      : undefined,
   };
-  cache.set(lcKey(card.name), card);
-  cache.set(card.id, card);
+  try {
+    cache.set(lcKey(card.name), card);
+    cache.set(card.id, card);
+    if (card.card_faces) {
+      for (const f of card.card_faces) if (f.name) cache.set(lcKey(f.name), card);
+    }
+  } catch (e) {
+    /* ignore caching errors */
+  }
   return card;
 }
 
@@ -180,15 +185,81 @@ export async function fetchCardByExactName(name: string): Promise<ScryfallCard> 
   return toCachedCard(data);
 }
 
+/**
+ * Strict-name lookup with fallbacks:
+ * 1) quoted exact
+ * 2) non-quoted exact
+ * 3) wildcard search (replace spaces with '*')
+ * 4) no-space attempt
+ */
 export async function fetchCardByExactNameStrict(name: string): Promise<ScryfallCard> {
   const normalized = normalizeName(name);
   const key = lcKey(normalized);
   const hit = cache.get(key);
   if (hit) return hit;
-  const quoted = `"${normalized}"`;
-  const url = `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(quoted)}`;
-  const data = await doFetchJSON(url);
-  return toCachedCard(data);
+
+  // 1) strict quoted exact
+  try {
+    const quoted = `"${normalized}"`;
+    const url = `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(quoted)}`;
+    const data = await doFetchJSON(url);
+    return toCachedCard(data);
+  } catch (err) {
+    // continue to fallback
+  }
+
+  // 2) non-quoted exact (less strict)
+  try {
+    const url2 = `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(normalized)}`;
+    const data2 = await doFetchJSON(url2);
+    return toCachedCard(data2);
+  } catch (err) {
+    // continue
+  }
+
+  // 3) wildcard search if name contains spaces
+  // Replace spaces with '*' so "surge spanner" -> "surge*spanner"
+  // Use Scryfall search endpoint with name: query
+  try {
+    if (/\s+/.test(normalized)) {
+      const wildcard = normalized.replace(/\s+/g, "*");
+      const q = `name:"${wildcard}"`;
+      const url = `https://api.scryfall.com/cards/search?q=${encodeURIComponent(q)}&unique=prints`;
+      const res = await doFetchJSON(url);
+      if (res && Array.isArray(res.data) && res.data.length > 0) {
+        // prefer exact normalized match if present in results
+        const exact = res.data.find((c: any) => lcKey(c.name) === key);
+        if (exact) return toCachedCard(exact);
+        // otherwise return the first reasonable candidate
+        return toCachedCard(res.data[0]);
+      }
+    }
+  } catch (err) {
+    // ignore and try next fallback
+  }
+
+  // 4) try no-space concatenation (surgespanner)
+  try {
+    const noSpace = normalized.replace(/\s+/g, "");
+    if (noSpace && noSpace !== normalized) {
+      try {
+        const url3 = `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(noSpace)}`;
+        const d3 = await doFetchJSON(url3);
+        return toCachedCard(d3);
+      } catch {}
+      // fallback to searching no-space as a name phrase
+      try {
+        const q = `name:"${noSpace}"`;
+        const url4 = `https://api.scryfall.com/cards/search?q=${encodeURIComponent(q)}&unique=prints`;
+        const r4 = await doFetchJSON(url4);
+        if (r4 && Array.isArray(r4.data) && r4.data.length > 0) return toCachedCard(r4.data[0]);
+      } catch {}
+    }
+  } catch (err) {
+    // final fallback
+  }
+
+  throw new Error(`Scryfall: card not found (strict) for "${name}"`);
 }
 
 export async function fetchCardById(id: string): Promise<ScryfallCard> {
@@ -219,24 +290,44 @@ export async function fetchCardsByExactNamesBatch(
 
   for (let i = 0; i < pending.length; i += batchSize) {
     const chunk = pending.slice(i, i + batchSize);
-    const payload = { identifiers: chunk.map(name => ({ name: normalizeName(name) })) };
+    const payload = { identifiers: chunk.map((name) => ({ name: normalizeName(name) })) };
 
-    const data = await doFetchJSON('https://api.scryfall.com/cards/collection', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+    let data: any;
+    try {
+      data = await doFetchJSON("https://api.scryfall.com/cards/collection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } catch (err) {
+      // fallback: try to resolve items individually using strict lookup with robust fallbacks
+      for (const n of chunk) {
+        try {
+          const c = await fetchCardByExactNameStrict(n);
+          out.set(lcKey(n), c);
+        } catch (e) {
+          // leave unresolved
+        }
+        // small throttle
+        await new Promise((r) => setTimeout(r, 60));
+      }
+      // continue to next batch
+      if (i + batchSize < pending.length) await new Promise((r) => setTimeout(r, sleepMsBetweenBatches));
+      continue;
+    }
 
-    if (!Array.isArray(data.data)) throw new Error('Invalid Scryfall /collection response');
+    if (!Array.isArray(data.data)) throw new Error("Invalid Scryfall /collection response");
 
     for (const d of data.data) {
-      const card = toCachedCard(d);
-      out.set(lcKey(card.name), card);
+      try {
+        const card = toCachedCard(d);
+        out.set(lcKey(card.name), card);
+      } catch {
+        // ignore individual conversion errors
+      }
     }
 
-    if (i + batchSize < pending.length) {
-      await new Promise(r => setTimeout(r, sleepMsBetweenBatches));
-    }
+    if (i + batchSize < pending.length) await new Promise((r) => setTimeout(r, sleepMsBetweenBatches));
   }
 
   return out;
@@ -245,31 +336,28 @@ export async function fetchCardsByExactNamesBatch(
 //
 // Deck legality (format-level)
 //
-export function validateDeck(
-  format: string,
-  cards: ScryfallCard[]
-): { illegal: { name: string; reason: string }[]; warnings: string[] } {
+export function validateDeck(format: string, cards: ScryfallCard[]): { illegal: { name: string; reason: string }[]; warnings: string[] } {
   const illegal: { name: string; reason: string }[] = [];
   const warnings: string[] = [];
-  const fmt = (format || '').toLowerCase();
+  const fmt = (format || "").toLowerCase();
 
   // Format legality flags (from Scryfall)
   for (const c of cards) {
     const status = c.legalities?.[fmt];
-    if (status && status !== 'legal') {
+    if (status && status !== "legal") {
       illegal.push({ name: c.name, reason: `not legal in ${format} (${status})` });
     }
   }
 
   // Commander singleton rule (excluding basics)
-  if (fmt === 'commander') {
+  if (fmt === "commander") {
     const counts = new Map<string, number>();
     for (const c of cards) counts.set(c.name, (counts.get(c.name) || 0) + 1);
 
     for (const [name, count] of counts) {
       if (count > 1) {
-        const card = cards.find(c => c.name === name);
-        const type = card?.type_line || '';
+        const card = cards.find((c) => c.name === name);
+        const type = card?.type_line || "";
         const isBasic = /\bBasic\b/i.test(type) || /\bBasic Land\b/i.test(type);
         if (!isBasic) illegal.push({ name, reason: `duplicate copies (${count})` });
       }

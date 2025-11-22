@@ -9,16 +9,24 @@ export function addPlayerIfMissing(ctx: GameContext, id: PlayerID, name: string,
   const seat = (typeof desiredSeat === "number" ? desiredSeat : (state.players as any as PlayerRef[]).length) as PlayerRef["seat"];
   const ref: PlayerRef = { id, name, seat };
   (state.players as any as PlayerRef[]).push(ref);
-
-  // Initialize life in both ctx.life (runtime) and state.life (persisted snapshot)
-  const starting = state.startingLife ?? 40;
-  life[id] = starting;
-  (state as any).life = (state as any).life || {};
-  (state as any).life[id] = starting;
-
+  life[id] = state.startingLife;
   poison[id] = 0;
   experience[id] = 0;
-  zones[id] = zones[id] ?? { hand: [], handCount: 0, libraryCount: libraries.get(id)?.length ?? 0, graveyard: [], graveyardCount: 0 };
+
+  // Defensive: libraries may be undefined or not a Map during some fallback flows.
+  // Compute libraryCount safely.
+  let libraryCount = 0;
+  try {
+    if (libraries && typeof libraries.get === "function") {
+      const lib = libraries.get(id);
+      if (Array.isArray(lib)) libraryCount = lib.length;
+      else if (lib && typeof lib.length === "number") libraryCount = lib.length;
+    }
+  } catch {
+    libraryCount = 0;
+  }
+
+  zones[id] = zones[id] ?? { hand: [], handCount: 0, libraryCount, graveyard: [], graveyardCount: 0 };
   commandZone[id] = commandZone[id] ?? { commanderIds: [], tax: 0, taxById: {} };
   state.landsPlayedThisTurn![id] = state.landsPlayedThisTurn![id] ?? 0;
   if (!state.turnPlayer) state.turnPlayer = id;
@@ -67,15 +75,11 @@ export function join(
         tokenToPlayer.set(seatToken, playerId);
         playerToToken.set(playerId, seatToken);
       }
-      zones[playerId] = zones[playerId] ?? { hand: [], handCount: 0, libraryCount: libraries.get(playerId)?.length ?? 0, graveyard: [], graveyardCount: 0 };
+      zones[playerId] = zones[playerId] ?? { hand: [], handCount: 0, libraryCount: (libraries && typeof libraries.get === "function" && Array.isArray(libraries.get(playerId)) ? libraries.get(playerId)!.length : 0), graveyard: [], graveyardCount: 0 };
       commandZone[playerId] = commandZone[playerId] ?? { commanderIds: [], tax: 0, taxById: {} };
       state.landsPlayedThisTurn![playerId] = state.landsPlayedThisTurn![playerId] ?? 0;
       if (!(playerId in poison)) poison[playerId] = 0;
       if (!(playerId in experience)) experience[playerId] = 0;
-      // Ensure life snapshot exists too
-      (state as any).life = (state as any).life || {};
-      if (!(playerId in (state as any).life)) (state as any).life[playerId] = state.startingLife ?? 40;
-      if (!(playerId in ctx.life)) ctx.life[playerId] = state.startingLife ?? 40;
     }
     if (!playerId) {
       playerId = uid("p") as PlayerID;

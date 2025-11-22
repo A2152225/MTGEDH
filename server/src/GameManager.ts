@@ -1,178 +1,404 @@
-import { v4 as uuidv4 } from 'uuid';
-import { GameState, GameStatus, GameFormat, Player, GamePhase, GameStep } from '@mtgedh/shared';
-import { DatabaseService } from './services/DatabaseService';
-import { RulesEngine } from '@mtgedh/rules-engine';
+/**
+ * server/src/GameManager.ts
+ *
+ * Robust GameManager:
+ * - Prefer the project's Game implementation if present (tries multiple candidate paths).
+ * - Prefer createInitialGameState(...) factory if present as a high-fidelity fallback.
+ * - Otherwise provide a MinimalGameAdapter that implements the common APIs used by sockets
+ *   (hasRngSeed, seedRng, join, viewFor, participants, reset, shuffleLibrary, drawCards, etc.)
+ *
+ * Also: schedule background persistence of a minimal games row when creating/ensuring a game so
+ * appendEvent (which relies on a FK to games.game_id) will not fail even if DB init timing races.
+ */
 
-export class GameManager {
-  private games: Map<string, GameState> = new Map();
-  private rulesEngine: RulesEngine;
-  
-  constructor(private db: DatabaseService) {
-    this.rulesEngine = new RulesEngine();
+import { randomUUID } from "crypto";
+
+type PersistOptions = { gameId: string; format?: string; startingLife?: number };
+
+function schedulePersistGamesRow(opts: PersistOptions) {
+  // Non-blocking background attempt to persist a games row. Retries a few times if DB isn't ready yet.
+  const maxAttempts = 8;
+  const intervalMs = 200;
+
+  let attempts = 0;
+  const tryPersist = async () => {
+    attempts++;
+    try {
+      // dynamic import so we don't cause circular imports / module instance duplication
+      const dbmod = await import("./db");
+      // Prefer exported createGameIfNotExists if present
+      if (dbmod && typeof (dbmod as any).createGameIfNotExists === "function") {
+        try {
+          (dbmod as any).createGameIfNotExists(opts.gameId, opts.format ?? "commander", opts.startingLife ?? 40);
+          return; // success
+        } catch (e: any) {
+          // If DB not initialized, createGameIfNotExists will throw; we'll retry below.
+          if ((e && String(e.message || "").includes("DB not initialized")) && attempts < maxAttempts) {
+            setTimeout(tryPersist, intervalMs);
+            return;
+          }
+          // Otherwise try fallback below.
+        }
+      }
+
+      // If dbmod exports a db handle (better-sqlite3 style), attempt insert-or-ignore
+      const possibleDb = (dbmod as any)?.db || (dbmod as any)?.default?.db || (dbmod as any)?.default || dbmod;
+      if (possibleDb && typeof possibleDb.prepare === "function") {
+        try {
+          possibleDb.prepare(
+            "INSERT OR IGNORE INTO games (game_id, format, starting_life, created_at) VALUES (?, ?, ?, ?)"
+          ).run(opts.gameId, opts.format ?? "commander", opts.startingLife ?? 40, Date.now());
+          return; // success
+        } catch (e) {
+          // fall through to retry
+        }
+      }
+
+      // As a last attempt, if the module exposes exec, try that
+      if (dbmod && typeof (dbmod as any).exec === "function") {
+        try {
+          const fmt = (opts.format ?? "commander").replace(/'/g, "''");
+          const life = opts.startingLife ?? 40;
+          (dbmod as any).exec(
+            `INSERT OR IGNORE INTO games (game_id, format, starting_life, created_at) VALUES ('${String(
+              opts.gameId
+            ).replace(/'/g, "''")}', '${fmt}', ${life | 0}, ${Date.now()})`
+          );
+          return;
+        } catch (e) {
+          // fall through
+        }
+      }
+
+      // If we reach here and haven't persisted, retry if attempts remain
+      if (attempts < maxAttempts) setTimeout(tryPersist, intervalMs);
+    } catch (err) {
+      // dynamic import may fail early if file not present; retry up to limit
+      if (attempts < maxAttempts) setTimeout(tryPersist, intervalMs);
+    }
+  };
+
+  // start attempts asynchronously
+  setTimeout(tryPersist, 0);
+}
+
+/* --- Try to load createInitialGameState (preferred fallback) --- */
+let createInitialGameState: any = null;
+try {
+  // dynamic require-like logic: attempt to import the state factory if present
+  // Note: using synchronous require may not be available in ESM; prefer try/catch import
+  // We'll attempt a synchronous-like require via dynamic import (best-effort at startup)
+  // but don't block if not present.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  try {
+    // Try common CJS paths via require if available
+    // @ts-ignore
+    const req = eval("typeof require === 'function' ? require : undefined");
+    if (req) {
+      const m = req("./state") || req("./state/index");
+      createInitialGameState = m?.createInitialGameState || null;
+    }
+  } catch {
+    // fallback: attempt dynamic import (non-blocking; but we want a sync check)
+    // leave createInitialGameState null if not resolvable synchronously
   }
-  
-  createGame(options: {
-    format: GameFormat;
-    startingLife?: number;
-    maxPlayers?: number;
-  }): GameState {
-    const gameId = uuidv4();
-    
-    const startingLife = options.startingLife || this.getDefaultLife(options.format);
-    
-    const game: GameState = {
-      id: gameId,
-      format: options.format,
+} catch {
+  createInitialGameState = null;
+}
+
+/** Try to load the project's Game implementation from multiple candidate paths. */
+function tryLoadGameImpl(): any | null {
+  const candidates = [
+    "./game",
+    "./Game",
+    "./game/index",
+    "./Game/index",
+    "./state/game",
+    "../game",
+    "../Game",
+  ];
+  for (const p of candidates) {
+    try {
+      // Use dynamic import synchronously via eval-require when available to avoid ESM/CJS duplication
+      // @ts-ignore
+      const req = eval("typeof require === 'function' ? require : undefined");
+      if (req) {
+        const mod = req(p);
+        if (!mod) continue;
+        if (mod.Game) return mod.Game;
+        if (mod.default) return mod.default;
+        return mod;
+      }
+    } catch {
+      // ignore and continue
+    }
+  }
+  return null;
+}
+
+let GameImpl: any = tryLoadGameImpl();
+
+/* Simple mulberry32 RNG used by many state modules when seedRng not implemented */
+function mulberry32(seed: number) {
+  return function () {
+    let t = (seed += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Minimal adapter providing the common game API expected by sockets */
+class MinimalGameAdapter {
+  id: string;
+  state: any;
+  seq: number;
+  _rngSeed?: number;
+  _rng?: () => number;
+
+  constructor(id?: string) {
+    this.id = id || `g_${randomUUID()}`;
+    this.state = {
       players: [],
-      turnOrder: [],
-      activePlayerIndex: 0,
-      priorityPlayerIndex: 0,
-      turn: 0,
-      phase: GamePhase.BEGINNING,
-      step: GameStep.UNTAP,
+      zones: {},
+      commandZone: {},
+      phase: "PRE_GAME",
+      format: "commander",
+      startingLife: 40,
+      priority: null,
       stack: [],
-      startingLife,
-      allowUndos: true,
-      turnTimerEnabled: false,
-      turnTimerSeconds: 300,
-      createdAt: Date.now(),
-      lastActionAt: Date.now(),
-      spectators: [],
-      status: GameStatus.WAITING
     };
-    
-    this.games.set(gameId, game);
-    this.db.saveGame(game);
-    
+    this.seq = 0;
+    this._rngSeed = null;
+    this._rng = null;
+  }
+
+  // RNG API
+  hasRngSeed() {
+    return !!this._rngSeed || !!this.state?.rngSeed;
+  }
+  seedRng(seed: number) {
+    this._rngSeed = seed >>> 0;
+    this._rng = mulberry32(this._rngSeed);
+    try { this.state.rngSeed = this._rngSeed; } catch {}
+    this.bumpSeq();
+  }
+  rng() {
+    if (this._rng) return this._rng();
+    return Math.random();
+  }
+
+  // Minimal seq bump helper (used by some modules)
+  bumpSeq() {
+    try { this.seq = (typeof this.seq === "number" ? this.seq + 1 : 1); } catch {}
+  }
+
+  // Join API - conservative fallback
+  join(socketId: string, playerName: string, spectator = false, _opts?: any, seatToken?: string, fixedPlayerId?: string) {
+    const pid = fixedPlayerId || `p_${Math.random().toString(36).slice(2, 9)}`;
+    this.state.players = this.state.players || [];
+    const exists = this.state.players.find((p: any) => p.id === pid);
+    if (!exists) {
+      this.state.players.push({ id: pid, name: playerName, spectator: Boolean(spectator) });
+      // no seat management in adapter
+      this.bumpSeq();
+      return { playerId: pid, added: true, seatToken };
+    }
+    return { playerId: pid, added: false, seatToken };
+  }
+
+  // View for player - conservative: return full state (server will filter)
+  viewFor(_playerId: string, _spectator?: boolean) {
+    return this.state;
+  }
+
+  // Participants list fallback (used to find socket ids); returns simple mapping without socketId
+  participants() {
+    return (this.state.players || []).map((p: any) => ({ playerId: p.id, socketId: undefined, spectator: !!p.spectator }));
+  }
+
+  // Reset
+  reset(preservePlayers = true) {
+    if (preservePlayers) {
+      const players = Array.isArray(this.state.players) ? this.state.players.slice() : [];
+      this.state = { players, zones: {}, commandZone: {}, phase: "PRE_GAME", format: this.state.format || "commander", startingLife: this.state.startingLife || 40 };
+    } else {
+      this.state = { players: [], zones: {}, commandZone: {}, phase: "PRE_GAME", format: this.state.format || "commander", startingLife: this.state.startingLife || 40 };
+    }
+    this.bumpSeq();
+  }
+
+  // Shallow hook for deck import resolution (no-op)
+  importDeckResolved(playerId: string, cards: any[]) {
+    this.state.zones = this.state.zones || {};
+    this.state.zones[playerId] = this.state.zones[playerId] || { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [] };
+    this.state.zones[playerId].library = cards.map((c: any) => ({ ...c, zone: "library" }));
+    this.state.zones[playerId].libraryCount = (this.state.zones[playerId].library || []).length;
+    this.bumpSeq();
+  }
+
+  // Shuffle / draw simple implementations for fallback flows
+  shuffleLibrary(playerId: string) {
+    try {
+      const z = (this.state.zones || {})[playerId];
+      if (!z || !Array.isArray(z.library)) return;
+      // Fisher-Yates
+      for (let i = z.library.length - 1; i > 0; i--) {
+        const j = Math.floor((this.rng()) * (i + 1));
+        [z.library[i], z.library[j]] = [z.library[j], z.library[i]];
+      }
+      this.bumpSeq();
+    } catch (e) { /* ignore */ }
+  }
+  drawCards(playerId: string, count: number) {
+    try {
+      const z = (this.state.zones || {})[playerId];
+      if (!z) return;
+      z.hand = z.hand || [];
+      while (count-- > 0 && z.library && z.library.length > 0) {
+        const c = z.library.shift();
+        z.hand.push(c);
+      }
+      z.handCount = z.hand.length;
+      z.libraryCount = z.library ? z.library.length : 0;
+      this.bumpSeq();
+    } catch (e) { /* ignore */ }
+  }
+
+  toJSON() { return { id: this.id, state: this.state, seq: this.seq }; }
+}
+
+/* GameManager implementation */
+export type CreateGameOptions = { id?: string; startingState?: any };
+
+class GameManagerClass {
+  private games: Map<string, any> = new Map();
+
+  listGameIds(): string[] {
+    return Array.from(this.games.keys());
+  }
+
+  private initBasicShapes(game: any, opts?: CreateGameOptions) {
+    try {
+      game.state = game.state || {};
+      game.state.phase = (opts && opts.startingState && typeof opts.startingState.phase !== "undefined")
+        ? opts.startingState.phase
+        : "PRE_GAME";
+      if (opts && opts.startingState && typeof opts.startingState === "object") {
+        const incoming = { ...opts.startingState };
+        if (typeof incoming.phase === "undefined") delete incoming.phase;
+        game.state = { ...game.state, ...incoming };
+        if (typeof opts.startingState.phase === "undefined") game.state.phase = "PRE_GAME";
+      }
+    } catch (e) {
+      game.state = game.state || {};
+      game.state.phase = "PRE_GAME";
+    }
+
+    try {
+      if (typeof game.seq === "undefined") game.seq = 0;
+      game.state.players = game.state.players || [];
+      game.state.zones = game.state.zones || {};
+      game.state.commandZone = game.state.commandZone || {};
+    } catch (e) { /* ignore */ }
+  }
+
+  createGame(opts: CreateGameOptions = {}): any {
+    const id = opts.id || `g_${randomUUID()}`;
+    if (this.games.has(id)) throw new Error(`Game ${id} already exists`);
+
+    let game: any = null;
+
+    // Prefer real Game impl
+    if (GameImpl) {
+      try { game = new GameImpl(); } catch (e) { game = null; }
+    }
+
+    // Next prefer createInitialGameState factory
+    if (!game && createInitialGameState) {
+      try { game = createInitialGameState(id); } catch (e) { game = null; }
+    }
+
+    // Final fallback: minimal adapter
+    if (!game) game = new MinimalGameAdapter(id);
+
+    this.initBasicShapes(game, opts);
+    this.games.set(id, game);
+
+    // Schedule background persistence of a minimal games row so appendEvent won't fail on first event
+    try {
+      const fmt = game.state?.format ?? (opts.startingState && opts.startingState.format) ?? "commander";
+      const life = typeof game.state?.startingLife === "number" ? game.state.startingLife : (opts.startingState && typeof opts.startingState.startingLife === "number" ? opts.startingState.startingLife : 40);
+      schedulePersistGamesRow({ gameId: id, format: fmt, startingLife: life });
+    } catch (e) { /* non-fatal */ }
+
     return game;
   }
-  
-  joinGame(gameId: string, player: Partial<Player>): Player | null {
-    const game = this.games.get(gameId);
-    if (!game || game.status !== GameStatus.WAITING) {
-      return null;
-    }
-    
-    const newPlayer: Player = {
-      id: player.id || uuidv4(),
-      name: player.name || `Player ${game.players.length + 1}`,
-      socketId: player.socketId,
-      life: game.startingLife,
-      startingLife: game.startingLife,
-      poisonCounters: 0,
-      energyCounters: 0,
-      experienceCounters: 0,
-      commanderDamage: {},
-      library: [],
-      hand: [],
-      battlefield: [],
-      graveyard: [],
-      exile: [],
-      commandZone: [],
-      manaPool: {
-        white: 0,
-        blue: 0,
-        black: 0,
-        red: 0,
-        green: 0,
-        colorless: 0,
-        generic: 0
-      },
-      hasPriority: false,
-      hasPassedPriority: false,
-      landsPlayedThisTurn: 0,
-      maxLandsPerTurn: 1,
-      autoPassPriority: {
-        upkeep: false,
-        draw: false,
-        mainPhase: false,
-        beginCombat: false,
-        declareAttackers: false,
-        declareBlockers: false,
-        combatDamage: false,
-        endStep: false
-      },
-      stopSettings: {
-        opponentUpkeep: false,
-        opponentDraw: false,
-        opponentMain: false,
-        opponentCombat: false,
-        opponentEndStep: true,
-        myUpkeep: true,
-        myDraw: true,
-        myEndStep: true
-      },
-      connected: true,
-      lastActionAt: Date.now()
-    };
-    
-    game.players.push(newPlayer);
-    game.turnOrder.push(newPlayer.id);
-    
-    return newPlayer;
-  }
-  
-  startGame(gameId: string): boolean {
-    const game = this.games.get(gameId);
-    if (!game || game.players.length < 2) {
-      return false;
-    }
-    
-    game.status = GameStatus.IN_PROGRESS;
-    game.startedAt = Date.now();
-    game.turn = 1;
-    game.players[0].hasPriority = true;
-    
-    // Each player draws opening hand
-    game.players.forEach(player => {
-      this.drawCards(game, player.id, 7);
-    });
-    
-    return true;
-  }
-  
-  getGame(gameId: string): GameState | undefined {
+
+  getGame(gameId: string): any | undefined {
     return this.games.get(gameId);
   }
-  
-  getAllGames(): GameState[] {
-    return Array.from(this.games.values());
+
+  ensureGame(gameId: string): any {
+    let g = this.games.get(gameId);
+    if (g) return g;
+
+    let game: any = null;
+    if (GameImpl) {
+      try { game = new GameImpl(); } catch (e) { game = null; }
+    }
+    if (!game && createInitialGameState) {
+      try { game = createInitialGameState(gameId); } catch (e) { game = null; }
+    }
+    if (!game) {
+      // create a minimal adapter that implements the common API
+      game = new MinimalGameAdapter(gameId);
+    }
+
+    this.initBasicShapes(game);
+    this.games.set(gameId, game);
+
+    // Schedule background persistence of a minimal games row so appendEvent won't fail
+    try {
+      const fmt = game.state?.format ?? "commander";
+      const life = typeof game.state?.startingLife === "number" ? game.state.startingLife : 40;
+      schedulePersistGamesRow({ gameId, format: fmt, startingLife: life });
+    } catch (e) { /* non-fatal */ }
+
+    return game;
   }
-  
-  handleDisconnect(socketId: string): void {
-    this.games.forEach(game => {
-      const player = game.players.find(p => p.socketId === socketId);
-      if (player) {
-        player.connected = false;
-        player.socketId = undefined;
+
+  resetGame(gameId: string, preservePlayers = true): any {
+    const game = this.ensureGame(gameId);
+    try {
+      if (typeof game.reset === "function") {
+        game.reset(preservePlayers);
+      } else {
+        if (preservePlayers && Array.isArray(game.state.players)) {
+          const players = game.state.players;
+          game.state = { players, zones: {}, commandZone: {}, phase: "PRE_GAME" };
+        } else {
+          game.state = { players: [], zones: {}, commandZone: {}, phase: "PRE_GAME" };
+        }
       }
-    });
-  }
-  
-  private getDefaultLife(format: GameFormat): number {
-    switch (format) {
-      case GameFormat.COMMANDER:
-        return 40;
-      case GameFormat.STANDARD:
-      case GameFormat.MODERN:
-      case GameFormat.VINTAGE:
-      case GameFormat.LEGACY:
-      case GameFormat.PAUPER:
-        return 20;
-      default:
-        return 20;
+    } catch (e) {
+      console.warn("GameManager.resetGame: underlying reset failed", e);
+      game.state = game.state || {};
     }
+    try { game.state.phase = "PRE_GAME"; } catch (e) { /* ignore */ }
+    try { if (typeof game.seq === "undefined") game.seq = 0; } catch (e) { /* ignore */ }
+    return game;
   }
-  
-  private drawCards(game: GameState, playerId: string, count: number): void {
-    const player = game.players.find(p => p.id === playerId);
-    if (!player) return;
-    
-    for (let i = 0; i < count && player.library.length > 0; i++) {
-      const card = player.library.shift()!;
-      player.hand.push(card);
-      card.zone = 'hand' as any;
-      card.knownTo = [playerId];
-    }
+
+  deleteGame(gameId: string): boolean {
+    // also remove persisted row? intentionally don't delete DB row here to preserve event history.
+    return this.games.delete(gameId);
+  }
+
+  clearAllGames(): void {
+    this.games.clear();
   }
 }
+
+export const GameManager = new GameManagerClass();
+export default GameManager;

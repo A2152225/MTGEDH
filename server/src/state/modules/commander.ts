@@ -1,16 +1,18 @@
+// server/src/state/modules/commander.ts
+// setCommander with idempotent guard for pending opening draw.
+// Full file replacement.
+
 import type { PlayerID, KnownCardRef } from "../types";
 import type { GameContext } from "../context";
 import { shuffleLibrary, drawCards } from "./zones";
 
 /**
- * Commander handling: store commander metadata for UI (commanderCards),
- * remove commander(s) from library when selected, and trigger pending opening draw.
+ * Commander handling: snapshot commander metadata, remove from library,
+ * update zones and perform pending opening draw if required.
  *
- * Behavior:
- * - Snapshot commander KnownCardRef (including image_uris) before removing from library.
- * - Remove commander IDs from ctx.libraries[playerId] if present.
- * - Update zones[playerId].libraryCount and ctx.libraries.
- * - If player had pendingInitialDraw, shuffle + draw 7 and clear pending flag.
+ * Important change: opening draw will only be performed if the player's hand
+ * is currently empty (handCount === 0 or no hand array). This prevents double-draws
+ * when multiple code paths might try to trigger the opening draw.
  */
 
 export function setCommander(
@@ -31,7 +33,7 @@ export function setCommander(
   const built: Array<{ id: string; name: string; type_line?: string; oracle_text?: string; image_uris?: any }> = [];
   const prevCards = (info as any).commanderCards as any[] | undefined;
 
-  // We must snapshot commander card metadata BEFORE removing from the library.
+  // Snapshot before removing from library.
   const lib = libraries.get(playerId) || [];
   for (const cid of info.commanderIds || []) {
     let src =
@@ -72,16 +74,26 @@ export function setCommander(
   (info as any).commanderCards = built;
   commandZone[playerId] = info;
 
-  // If player was marked for pending opening draw, do shuffle + draw(7)
+  // If player was marked for pending opening draw, do shuffle + draw(7) but only if hand is empty.
   if (pendingInitialDraw && pendingInitialDraw.has(playerId)) {
     try {
-      // Shuffle then draw 7 using existing zone helpers
-      shuffleLibrary(ctx, playerId);
-      const drawn = drawCards(ctx, playerId, 7);
-      // Clear pending flag
-      pendingInitialDraw.delete(playerId);
-      // bump seq to reflect visible changes
-      bumpSeq();
+      const z = zones[playerId] || (ctx.state && (ctx.state as any).zones && (ctx.state as any).zones[playerId]) || null;
+      const handCount = z ? (typeof z.handCount === "number" ? z.handCount : (Array.isArray(z.hand) ? z.hand.length : 0)) : 0;
+
+      // Idempotency: only perform opening draw if hand is empty (handCount === 0)
+      if (handCount === 0) {
+        // Shuffle then draw 7 using existing zone helpers
+        shuffleLibrary(ctx, playerId);
+        const drawn = drawCards(ctx, playerId, 7);
+        // Clear pending flag
+        pendingInitialDraw.delete(playerId);
+        // bump seq to reflect visible changes
+        bumpSeq();
+      } else {
+        // If hand already has cards, just clear pending flag (avoid double-draw)
+        pendingInitialDraw.delete(playerId);
+        bumpSeq();
+      }
     } catch (err) {
       console.warn("setCommander: failed to perform opening draw for", playerId, err);
     }
@@ -101,6 +113,5 @@ export function castCommander(ctx: GameContext, playerId: PlayerID, commanderId:
 }
 
 export function moveCommanderToCZ(ctx: GameContext, _playerId: PlayerID, _commanderId: string) {
-  // For now, simply bump seq to indicate change; real implementation may move permanents
   ctx.bumpSeq();
 }

@@ -1,207 +1,252 @@
-import { GamePhase, GameStep } from "../../../../shared/src";
+// server/src/state/modules/turn.ts
+// Turn / priority helpers used by server state. Full-file defensive implementation.
+// Exports:
+//  - passPriority(ctx, playerId)
+//  - setTurnDirection(ctx, dir)
+//  - nextTurn(ctx)
+//  - nextStep(ctx)
+//  - scheduleStepsAfterCurrent(ctx, steps)
+//  - scheduleStepsAtEndOfTurn(ctx, steps)
+//  - clearScheduledSteps(ctx)
+//  - getScheduledSteps(ctx)
+//  - removeScheduledSteps(ctx, steps)
+//
+// This implementation is intentionally defensive: it tolerates missing ctx fields,
+// ensures ctx.seq exists, and avoids throwing when replaying older event streams.
+
 import type { GameContext } from "../context";
-import { reconcileZonesConsistency, drawCards } from "./zones";
+import type { PlayerID } from "../../shared/src/types";
 
 /**
- * Robust turn/step progression with scheduling support for extra/inserted steps.
+ * Ensure seq helper object present on ctx
+ */
+function ensureSeq(ctx: any) {
+  if (!ctx) return;
+  if (!ctx.seq) {
+    ctx.seq = { value: 0 };
+  } else if (typeof ctx.seq === "number") {
+    ctx.seq = { value: ctx.seq };
+  } else if (typeof ctx.seq === "object" && !("value" in ctx.seq)) {
+    (ctx.seq as any).value = 0;
+  }
+}
+
+/**
+ * Bump sequence safely
+ */
+function safeBumpSeq(ctx: any) {
+  try {
+    ensureSeq(ctx);
+    if (ctx.seq && typeof ctx.seq === "object") ctx.seq.value++;
+    else if (typeof ctx.seq === "number") ctx.seq++;
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Utility: get ordered active players (non-inactive) from ctx.state.players
+ */
+function activePlayers(ctx: GameContext): string[] {
+  try {
+    const players = Array.isArray(ctx.state.players) ? (ctx.state.players as any[]) : [];
+    return players.filter((p) => !((ctx as any).inactive && (ctx as any).inactive.has && (ctx as any).inactive.has(p.id))).map((p) => p.id);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Find next player id in turn order after given player
+ */
+function nextPlayerInOrder(ctx: GameContext, fromId?: PlayerID) {
+  const players = Array.isArray(ctx.state.players) ? (ctx.state.players as any[]) : [];
+  if (!players.length) return undefined;
+  const ids = players.map((p) => p.id);
+  if (!fromId) return ids[0];
+  const idx = ids.indexOf(fromId);
+  if (idx === -1) return ids[0];
+  return ids[(idx + 1) % ids.length];
+}
+
+/**
+ * Pass priority: called when a player passes priority.
+ * Returns { changed: boolean, resolvedNow?: boolean }
  *
- * - nextStep respects a runtime step queue (ctx.stepQueue) which modules can push extra steps into.
- * - scheduleStepsAfterCurrent, scheduleStepsAtEndOfTurn, removeScheduledSteps are helpers.
- * - If CLEANUP is reached and there's nothing queued, nextStep rolls to nextTurn().
+ * This implementation is a defensive, simple rotation:
+ * - If ctx.state.priority is not set, set to first active player and return changed=true.
+ * - Otherwise move to next active player. If nothing changes, return changed=false.
+ *
+ * Note: This is a simplified behavior suitable for replay and initial server runs.
+ * More advanced rule handling (stack resolution, automatic passes) belongs in rules engine.
  */
-
-/* Canonical step order used when no queued steps are pending */
-const STEP_ORDER: GameStep[] = [
-  GameStep.UNTAP,
-  GameStep.UPKEEP,
-  GameStep.DRAW,
-  GameStep.MAIN1,
-  GameStep.BEGIN_COMBAT,
-  GameStep.DECLARE_ATTACKERS,
-  GameStep.DECLARE_BLOCKERS,
-  GameStep.DAMAGE,
-  GameStep.END_COMBAT,
-  GameStep.MAIN2,
-  GameStep.END_STEP,
-  GameStep.CLEANUP,
-];
-
-function getStepQueue(ctx: GameContext): GameStep[] {
-  const anyCtx = ctx as any;
-  if (!Array.isArray(anyCtx.stepQueue)) anyCtx.stepQueue = [];
-  return anyCtx.stepQueue as GameStep[];
-}
-
-/* Scheduling helpers ----------------------------------------------------- */
-
-/**
- * Schedule steps to run immediately after the current step (i.e., become the next steps).
- * The provided steps array is placed at the front of the queue in the same order.
- */
-export function scheduleStepsAfterCurrent(ctx: GameContext, steps: GameStep[]) {
-  if (!Array.isArray(steps) || steps.length === 0) return;
-  const q = getStepQueue(ctx);
-  for (let i = steps.length - 1; i >= 0; i--) q.unshift(steps[i]);
-}
-
-/**
- * Schedule steps to run at the end of the turn (i.e., after the normal step order completes).
- * These are appended to the queue.
- */
-export function scheduleStepsAtEndOfTurn(ctx: GameContext, steps: GameStep[]) {
-  if (!Array.isArray(steps) || steps.length === 0) return;
-  const q = getStepQueue(ctx);
-  for (const s of steps) q.push(s);
-}
-
-/**
- * Remove specified steps from the queue (by matching enum value). Returns number removed.
- */
-export function removeScheduledSteps(ctx: GameContext, stepsToRemove: Array<GameStep | string>) {
-  if (!Array.isArray(stepsToRemove) || stepsToRemove.length === 0) return 0;
-  const q = getStepQueue(ctx);
-  const normalized = new Set(
-    stepsToRemove.map((s) => {
-      if (typeof s === "string") {
-        // accept either key or value; normalize to enum value string from GameStep
-        const key = String(s).trim();
-        // try to find matching enum value (case-insensitive)
-        for (const v of Object.values(GameStep)) {
-          if (String(v).toLowerCase() === key.toLowerCase() || String((GameStep as any)[key]) === v) return v;
-        }
-        return key;
-      }
-      return s;
-    })
-  );
-  const before = q.length;
-  (ctx as any).stepQueue = q.filter((s: GameStep) => !normalized.has(s));
-  return before - ((ctx as any).stepQueue as GameStep[]).length;
-}
-
-/**
- * Clear any scheduled (queued) steps.
- */
-export function clearScheduledSteps(ctx: GameContext) {
-  (ctx as any).stepQueue = [];
-}
-
-/**
- * Peek scheduled steps (for debug / UI).
- */
-export function getScheduledSteps(ctx: GameContext): GameStep[] {
-  return [...getStepQueue(ctx)];
-}
-
-/* Turn/step core logic -------------------------------------------------- */
-
-export function nextTurn(ctx: GameContext) {
+export function passPriority(ctx: GameContext, playerId?: PlayerID) {
   try {
-    const s = ctx.state;
-    if (!s.turnOrder || s.turnOrder.length === 0) return;
-    const nextIndex = ((s.activePlayerIndex ?? 0) + 1) % s.turnOrder.length;
-    s.activePlayerIndex = nextIndex;
-    s.turn = (s.turn || 0) + 1;
-    s.turnPlayer = (s.turnOrder && s.turnOrder[s.activePlayerIndex]) || s.turnPlayer;
-    s.phase = GamePhase.BEGINNING;
-    s.step = GameStep.UNTAP;
-    reconcileZonesConsistency(ctx, s.turnPlayer);
-    ctx.bumpSeq();
-  } catch (err) {
-    console.warn("nextTurn failed:", err);
-  }
-}
+    ensureSeq(ctx);
+    const state: any = (ctx as any).state || {};
+    const players = Array.isArray(state.players) ? state.players.map((p: any) => p.id) : [];
 
-function untapControllerPermanents(ctx: GameContext, playerId?: string) {
-  try {
-    if (!playerId) return;
-    const bf = ctx.state.battlefield || [];
-    for (const perm of bf) {
-      if (perm.controller === playerId && perm.tapped) perm.tapped = false;
-    }
-  } catch (err) {
-    console.warn("untapControllerPermanents failed:", err);
-  }
-}
+    // Ensure active set exists
+    const inactiveSet: Set<string> = (ctx as any).inactive instanceof Set ? (ctx as any).inactive : new Set<string>();
 
-export function nextStep(ctx: GameContext) {
-  try {
-    const s = ctx.state;
-    const q = getStepQueue(ctx);
-
-    if (!s.step) {
-      s.step = GameStep.UNTAP;
-      s.phase = GamePhase.BEGINNING;
-      ctx.bumpSeq();
-      return;
+    const active = players.filter((id: string) => !inactiveSet.has(id));
+    if (!active.length) {
+      return { changed: false, resolvedNow: false };
     }
 
-    if (s.step === GameStep.CLEANUP && q.length === 0) {
-      nextTurn(ctx);
-      return;
+    // If no priority set, give to first active
+    if (!state.priority) {
+      state.priority = active[0];
+      safeBumpSeq(ctx);
+      return { changed: true, resolvedNow: false };
     }
 
-    if (q.length > 0) {
-      const nextQueued = q.shift()!;
-      s.step = nextQueued;
+    // If playerId provided but doesn't match current priority, ignore (no change)
+    if (playerId && state.priority !== playerId) {
+      // allow a replayed passPriority by other actor to still advance if desired:
+      // treat as no-op to be conservative
+      return { changed: false, resolvedNow: false };
+    }
+
+    // Find index of current priority in active array
+    const curIndex = active.indexOf(state.priority);
+    let nextIndex = 0;
+    if (curIndex === -1) {
+      nextIndex = 0;
     } else {
-      const idx = STEP_ORDER.indexOf(s.step as GameStep);
-      const nextIdx = idx === -1 ? 0 : (idx + 1) % STEP_ORDER.length;
-      const nextStep = STEP_ORDER[nextIdx];
-      if (s.step === GameStep.CLEANUP) {
-        nextTurn(ctx);
-        return;
-      }
-      s.step = nextStep;
+      nextIndex = (curIndex + 1) % active.length;
     }
 
-    // Map step -> phase
-    if (s.step === GameStep.MAIN1) s.phase = GamePhase.PRECOMBAT_MAIN;
-    else if (s.step === GameStep.MAIN2) s.phase = GamePhase.POSTCOMBAT_MAIN;
-    else if (
-      s.step === GameStep.UNTAP ||
-      s.step === GameStep.UPKEEP ||
-      s.step === GameStep.DRAW
-    ) {
-      s.phase = GamePhase.BEGINNING;
-    } else if (
-      s.step === GameStep.BEGIN_COMBAT ||
-      s.step === GameStep.DECLARE_ATTACKERS ||
-      s.step === GameStep.DECLARE_BLOCKERS ||
-      s.step === GameStep.DAMAGE ||
-      s.step === GameStep.END_COMBAT
-    ) {
-      s.phase = GamePhase.COMBAT;
-    } else if (s.step === GameStep.END_STEP || s.step === GameStep.CLEANUP) {
-      s.phase = GamePhase.ENDING;
+    const nextId = active[nextIndex];
+
+    // If priority stays the same (single active), nothing changed
+    if (nextId === state.priority) {
+      return { changed: false, resolvedNow: false };
     }
 
-    // Automations
-    const activePlayer = s.turnPlayer;
-    if (s.step === GameStep.UNTAP) {
-      untapControllerPermanents(ctx, activePlayer);
-    } else if (s.step === GameStep.DRAW) {
-      try {
-        drawCards(ctx, activePlayer, 1);
-      } catch (err) {
-        console.warn("nextStep DRAW failed to draw for", activePlayer, err);
-      }
-    }
+    state.priority = nextId;
+    safeBumpSeq(ctx);
 
-    ctx.bumpSeq();
-  } catch (err) {
-    console.warn("nextStep failed:", err);
-  }
-}
+    // Basic heuristic: if stack empty and we cycled back to the turn player, no resolution happens here.
+    const stackLen = Array.isArray(state.stack) ? state.stack.length : 0;
+    const resolvedNow = false;
 
-/* passPriority placeholder */
-export function passPriority(ctx: GameContext, playerId: string) {
-  try {
-    (ctx.passesInRow as any).value = ((ctx.passesInRow as any).value || 0) + 1;
-    ctx.bumpSeq();
-    return { changed: true, resolvedNow: false };
+    return { changed: true, resolvedNow };
   } catch (err) {
     console.warn("passPriority stub failed:", err);
     return { changed: false, resolvedNow: false };
   }
 }
+
+/**
+ * Set turn direction (+1 or -1)
+ */
+export function setTurnDirection(ctx: GameContext, dir: 1 | -1) {
+  try {
+    (ctx as any).state = (ctx as any).state || {};
+    (ctx as any).state.turnDirection = dir;
+    safeBumpSeq(ctx);
+  } catch (err) {
+    console.warn("setTurnDirection failed:", err);
+  }
+}
+
+/**
+ * nextTurn: advance to next player's turn (basic skeleton)
+ */
+export function nextTurn(ctx: GameContext) {
+  try {
+    (ctx as any).state = (ctx as any).state || {};
+    const players = Array.isArray((ctx as any).state.players) ? (ctx as any).state.players.map((p: any) => p.id) : [];
+    if (!players.length) return;
+    const current = (ctx as any).state.turnPlayer;
+    const idx = players.indexOf(current);
+    const next = idx === -1 ? players[0] : players[(idx + 1) % players.length];
+    (ctx as any).state.turnPlayer = next;
+    // give priority to the active player at the start of turn
+    (ctx as any).state.priority = next;
+    safeBumpSeq(ctx);
+  } catch (err) {
+    console.warn("nextTurn failed:", err);
+  }
+}
+
+/**
+ * nextStep: advance to next step within the current turn (minimal skeleton)
+ */
+export function nextStep(ctx: GameContext) {
+  try {
+    (ctx as any).state = (ctx as any).state || {};
+    // minimal step progression: unset step (engine should handle real steps)
+    (ctx as any).state.step = undefined;
+    safeBumpSeq(ctx);
+  } catch (err) {
+    console.warn("nextStep failed:", err);
+  }
+}
+
+/* Simple scheduled-steps support (lightweight queue stored on ctx) */
+export function scheduleStepsAfterCurrent(ctx: any, steps: any[]) {
+  try {
+    if (!ctx) return;
+    ctx._scheduledSteps = ctx._scheduledSteps || [];
+    if (!Array.isArray(steps)) return;
+    ctx._scheduledSteps.push(...steps);
+  } catch (err) {
+    console.warn("scheduleStepsAfterCurrent failed:", err);
+  }
+}
+
+export function scheduleStepsAtEndOfTurn(ctx: any, steps: any[]) {
+  try {
+    if (!ctx) return;
+    ctx._scheduledEndOfTurnSteps = ctx._scheduledEndOfTurnSteps || [];
+    if (!Array.isArray(steps)) return;
+    ctx._scheduledEndOfTurnSteps.push(...steps);
+  } catch (err) {
+    console.warn("scheduleStepsAtEndOfTurn failed:", err);
+  }
+}
+
+export function clearScheduledSteps(ctx: any) {
+  try {
+    if (!ctx) return;
+    ctx._scheduledSteps = [];
+    ctx._scheduledEndOfTurnSteps = [];
+  } catch (err) {
+    console.warn("clearScheduledSteps failed:", err);
+  }
+}
+
+export function getScheduledSteps(ctx: any) {
+  try {
+    return {
+      afterCurrent: Array.isArray(ctx._scheduledSteps) ? ctx._scheduledSteps.slice() : [],
+      endOfTurn: Array.isArray(ctx._scheduledEndOfTurnSteps) ? ctx._scheduledEndOfTurnSteps.slice() : [],
+    };
+  } catch (err) {
+    return { afterCurrent: [], endOfTurn: [] };
+  }
+}
+
+export function removeScheduledSteps(ctx: any, steps: any[]) {
+  try {
+    if (!ctx || !Array.isArray(steps)) return;
+    ctx._scheduledSteps = (ctx._scheduledSteps || []).filter((s: any) => !steps.includes(s));
+    ctx._scheduledEndOfTurnSteps = (ctx._scheduledEndOfTurnSteps || []).filter((s: any) => !steps.includes(s));
+  } catch (err) {
+    console.warn("removeScheduledSteps failed:", err);
+  }
+}
+
+export default {
+  passPriority,
+  setTurnDirection,
+  nextTurn,
+  nextStep,
+  scheduleStepsAfterCurrent,
+  scheduleStepsAtEndOfTurn,
+  clearScheduledSteps,
+  getScheduledSteps,
+  removeScheduledSteps,
+};

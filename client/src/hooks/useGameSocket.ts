@@ -1,12 +1,873 @@
-import { useMemo } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { socket } from "../socket";
+import type {
+  ClientGameView,
+  PlayerID,
+  GameID,
+  KnownCardRef,
+  ChatMsg,
+} from "../../../shared/src";
 
-export function useGameSocket() {
-  // Minimal stub; wire to real socket state if needed
-  const state = useMemo(() => {
-    return {
-      playerId: undefined as string | undefined,
-      gameId: undefined as string | undefined
+/* Helpers shared with App */
+
+function seatTokenKey(gameId: GameID, name: string) {
+  return `mtgedh:seatToken:${gameId}:${name}`;
+}
+function lastJoinKey() {
+  return "mtgedh:lastJoin";
+}
+
+export type ImportConfirmVotes = Record<string, "pending" | "yes" | "no">;
+
+export interface UseGameSocketState {
+  connected: boolean;
+  gameIdInput: GameID;
+  setGameIdInput: (id: GameID) => void;
+  nameInput: string;
+  setNameInput: (v: string) => void;
+  joinAsSpectator: boolean;
+  setJoinAsSpectator: (v: boolean) => void;
+
+  you: PlayerID | null;
+  view: ClientGameView | null;
+  safeView: ClientGameView | null;
+  priority: PlayerID | null;
+
+  chat: ChatMsg[];
+  setChat: React.Dispatch<React.SetStateAction<ChatMsg[]>>;
+  lastError: string | null;
+  lastInfo: string | null;
+
+  missingImport: string[] | null;
+  setMissingImport: React.Dispatch<React.SetStateAction<string[] | null>>;
+
+  importedCandidates: KnownCardRef[];
+  pendingLocalImport: boolean;
+  localImportConfirmOpen: boolean;
+
+  // commander suggestion UI
+  cmdModalOpen: boolean;
+  setCmdModalOpen: (open: boolean) => void;
+  cmdSuggestedNames: string[];
+  cmdSuggestedGameId: GameID | null;
+
+  // import confirm UI
+  confirmOpen: boolean;
+  confirmPayload: any | null;
+  confirmVotes: ImportConfirmVotes | null;
+  confirmId: string | null;
+
+  debugOpen: boolean;
+  debugLoading: boolean;
+  debugData: any;
+
+  // actions
+  handleJoin: () => void;
+  joinFromList: (gameId: string) => void;
+  requestImportDeck: (list: string, deckName?: string) => void;
+  requestUseSavedDeck: (deckId: string) => void;
+  handleLocalImportConfirmChange: (open: boolean) => void;
+  handleCommanderConfirm: (names: string[], ids?: string[]) => void;
+  fetchDebug: () => void;
+  respondToConfirm: (accept: boolean) => void;
+
+  setCmdSuggestedGameId: (gid: GameID | null) => void;
+  setCmdSuggestedNames: (names: string[]) => void;
+  setDebugOpen: (open: boolean) => void;
+}
+
+export function useGameSocket(): UseGameSocketState {
+  // connection + join UI state
+  const [connected, setConnected] = useState(false);
+  const [gameIdInput, setGameIdInput] = useState<GameID>("demo");
+  const [nameInput, setNameInput] = useState("Player");
+  const [joinAsSpectator, setJoinAsSpectator] = useState(false);
+
+  const lastJoinRef = useRef<{
+    gameId: GameID;
+    name: string;
+    spectator: boolean;
+  } | null>(null);
+
+  // game state
+  const [you, setYou] = useState<PlayerID | null>(null);
+  const [view, setView] = useState<ClientGameView | null>(null);
+  const [priority, setPriority] = useState<PlayerID | null>(null);
+
+  // chat & info
+  const [chat, setChat] = useState<ChatMsg[]>([]);
+  const [lastError, setLastError] = useState<string | null>(null);
+  const [lastInfo, setLastInfo] = useState<string | null>(null);
+
+  // import missing banner
+  const [missingImport, setMissingImport] = useState<string[] | null>(null);
+
+  // commander suggestion state
+  const [cmdModalOpen, setCmdModalOpen] = useState(false);
+  const [cmdSuggestedNames, setCmdSuggestedNames] = useState<string[]>([]);
+  const [cmdSuggestedGameId, setCmdSuggestedGameId] =
+    useState<GameID | null>(null);
+
+  // debug & import-confirm
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [debugLoading, setDebugLoading] = useState(false);
+  const [debugData, setDebugData] = useState<any>(null);
+
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmPayload, setConfirmPayload] = useState<any | null>(null);
+  const [confirmVotes, setConfirmVotes] =
+    useState<ImportConfirmVotes | null>(null);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+
+  // imported candidates
+  const [importedCandidates, setImportedCandidates] = useState<KnownCardRef[]>(
+    []
+  );
+
+  const [pendingLocalImport, setPendingLocalImport] = useState(false);
+  const pendingLocalImportRef = useRef<boolean>(false);
+  useEffect(() => {
+    pendingLocalImportRef.current = pendingLocalImport;
+  }, [pendingLocalImport]);
+
+  const [localImportConfirmOpen, setLocalImportConfirmOpen] = useState(false);
+  const localImportConfirmRef = useRef<boolean>(false);
+  useEffect(() => {
+    localImportConfirmRef.current = localImportConfirmOpen;
+  }, [localImportConfirmOpen]);
+
+  // commander selection queue
+  const [queuedCommanderSelection, setQueuedCommanderSelection] = useState<{
+    gameId: GameID;
+    names: string[];
+    ids?: string[];
+  } | null>(null);
+
+  // timer for deferred commander modal
+  const suggestTimerRef = useRef<number | null>(null);
+
+  /* ----------- client-side normalization helpers ----------- */
+
+  const defaultPlayerZones = useMemo(
+    () => ({
+      hand: [],
+      handCount: 0,
+      library: [],
+      libraryCount: 0,
+      graveyard: [],
+      graveyardCount: 0,
+    }),
+    []
+  );
+
+  const normalizedZones = useMemo(() => {
+    if (!view) return {};
+    const out: Record<string, any> = { ...(view.zones || {}) };
+    const players = Array.isArray(view.players) ? view.players : [];
+    for (const p of players) {
+      const pid = p?.id ?? p?.playerId;
+      if (!pid) continue;
+      if (!out[pid]) out[pid] = { ...defaultPlayerZones };
+      else {
+        out[pid].hand = Array.isArray(out[pid].hand) ? out[pid].hand : [];
+        out[pid].handCount =
+          typeof out[pid].handCount === "number"
+            ? out[pid].handCount
+            : Array.isArray(out[pid].hand)
+            ? out[pid].hand.length
+            : 0;
+        out[pid].library = Array.isArray(out[pid].library)
+          ? out[pid].library
+          : [];
+        out[pid].libraryCount =
+          typeof out[pid].libraryCount === "number"
+            ? out[pid].libraryCount
+            : Array.isArray(out[pid].library)
+            ? out[pid].library.length
+            : 0;
+        out[pid].graveyard = Array.isArray(out[pid].graveyard)
+          ? out[pid].graveyard
+          : [];
+        out[pid].graveyardCount =
+          typeof out[pid].graveyardCount === "number"
+            ? out[pid].graveyardCount
+            : Array.isArray(out[pid].graveyard)
+            ? out[pid].graveyard.length
+            : 0;
+      }
+    }
+    return out;
+  }, [view, defaultPlayerZones]);
+
+  const safeView = useMemo(() => {
+    if (!view) return view;
+    return { ...view, zones: normalizedZones } as ClientGameView;
+  }, [view, normalizedZones]);
+
+  /* ----------- socket wiring ----------- */
+
+  useEffect(() => {
+    try {
+      (window as any).socket = socket;
+      // eslint-disable-next-line no-console
+      console.debug("[useGameSocket] window.socket exposed for debugging");
+    } catch {
+      // ignore
+    }
+    return () => {
+      try {
+        delete (window as any).socket;
+      } catch {
+        // ignore
+      }
     };
   }, []);
-  return state;
+
+  useEffect(() => {
+    const onConnect = () => {
+      setConnected(true);
+      const last = lastJoinRef.current;
+      if (last) {
+        const token =
+          sessionStorage.getItem(seatTokenKey(last.gameId, last.name)) ||
+          undefined;
+        if (token) {
+          const payload = {
+            gameId: last.gameId,
+            playerName: last.name,
+            spectator: last.spectator,
+            seatToken: token,
+          };
+          // eslint-disable-next-line no-console
+          console.debug("[JOIN_EMIT] auto-join with seatToken", payload);
+          socket.emit("joinGame", payload);
+        } else {
+          // eslint-disable-next-line no-console
+          console.debug(
+            "[JOIN_EMIT] skipping auto-join (no seatToken) for",
+            last
+          );
+        }
+      }
+    };
+    const onDisconnect = () => setConnected(false);
+
+    socket.on("connect", onConnect);
+    socket.on("disconnect", onDisconnect);
+
+    socket.on(
+      "joined",
+      ({ you: youId, seatToken, gameId: joinedGameId }: any) => {
+        setYou(youId);
+        lastJoinRef.current = {
+          gameId: joinedGameId,
+          name: nameInput,
+          spectator: joinAsSpectator,
+        };
+        const savedName = lastJoinRef.current?.name ?? nameInput;
+        if (seatToken) {
+          try {
+            sessionStorage.setItem(
+              seatTokenKey(joinedGameId, savedName),
+              seatToken
+            );
+          } catch {
+            // ignore
+          }
+        }
+        // eslint-disable-next-line no-console
+        console.debug("[socket] joined", {
+          you: youId,
+          gameId: joinedGameId,
+          seatToken,
+        });
+      }
+    );
+
+    // full state => always hard-replace
+    socket.on("state", (payload: any) => {
+      try {
+        if (!payload) {
+          setView(null);
+          // eslint-disable-next-line no-console
+          console.debug("[socket] state (raw) null payload");
+          return;
+        }
+
+        let incomingGameId: string | undefined;
+        let newView: any | null = null;
+
+        if (
+          typeof payload === "object" &&
+          "gameId" in payload &&
+          "view" in payload
+        ) {
+          incomingGameId = payload.gameId;
+          newView = payload.view;
+        } else {
+          newView = payload;
+          incomingGameId =
+            (payload && (payload.id || payload.gameId)) || undefined;
+        }
+
+        if (newView) {
+          const viewWithId = incomingGameId
+            ? { ...newView, id: incomingGameId }
+            : newView;
+          setView(viewWithId);
+        } else {
+          setView(null);
+        }
+
+        // eslint-disable-next-line no-console
+        console.debug("[socket] state (raw)", { incomingGameId, newView });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("state handler failed:", e);
+      }
+    });
+
+    // diff => for robustness, treat as full replacement when diff.full/after present
+    socket.on("stateDiff", (payload: any) => {
+      try {
+        if (!payload) return;
+        let incomingGameId: string | undefined;
+        let diff: any = null;
+
+        if (
+          typeof payload === "object" &&
+          "gameId" in payload &&
+          "diff" in payload
+        ) {
+          incomingGameId = payload.gameId;
+          diff = payload.diff;
+        } else if (
+          typeof payload === "object" &&
+          ("full" in payload || "after" in payload)
+        ) {
+          diff = payload;
+          incomingGameId =
+            (payload.full && payload.full.id) ||
+            (payload.after && payload.after.id) ||
+            undefined;
+        } else {
+          diff = { after: payload };
+        }
+
+        if (diff?.full) {
+          const full = diff.full;
+          setView(incomingGameId ? { ...full, id: incomingGameId } : full);
+          // eslint-disable-next-line no-console
+          console.debug("[socket] stateDiff full (raw)", {
+            incomingGameId,
+            view: full,
+          });
+        } else if (diff?.after) {
+          const after = diff.after;
+          setView(incomingGameId ? { ...after, id: incomingGameId } : after);
+          // eslint-disable-next-line no-console
+          console.debug("[socket] stateDiff after (raw)", {
+            incomingGameId,
+            view: after,
+          });
+        } else {
+          // eslint-disable-next-line no-console
+          console.debug("[socket] stateDiff (unrecognized)", { payload });
+        }
+
+        // TEMP: safety net disabled to avoid requestState loop.
+        // If we re-enable later, we must guard it carefully.
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("stateDiff handling failed:", e);
+      }
+    });
+
+    socket.on("priority", ({ player }: any) => setPriority(player));
+
+    socket.on("chat", (msg: ChatMsg) => {
+      setChat((prev) => [...prev.slice(-199), msg]);
+    });
+
+    socket.on("importedDeckCandidates", ({ gameId: gid, candidates }: any) => {
+      const arr = Array.isArray(candidates) ? candidates : [];
+      setImportedCandidates(arr);
+      // eslint-disable-next-line no-console
+      console.debug("[useGameSocket] importedDeckCandidates", {
+        gameId: gid,
+        count: arr.length,
+      });
+      if (suggestTimerRef.current) {
+        window.clearTimeout(suggestTimerRef.current);
+        suggestTimerRef.current = null;
+      }
+      setPendingLocalImport(false);
+
+      if (cmdSuggestedGameId === gid && !cmdModalOpen) {
+        setCmdModalOpen(true);
+      }
+    });
+
+    socket.on("deckImportMissing", ({ gameId: gid, missing }: any) => {
+      setMissingImport(Array.isArray(missing) ? missing : []);
+      setChat((prev) => [
+        ...prev,
+        {
+          id: `m_${Date.now()}`,
+          gameId: gid,
+          from: "system",
+          message: `Missing cards: ${
+            Array.isArray(missing) ? missing.slice(0, 10).join(", ") : ""
+          }`,
+          ts: Date.now(),
+        },
+      ]);
+    });
+
+    socket.on("error", ({ message }: any) =>
+      setLastError(message || "Error")
+    );
+
+    socket.on("debugCommanderState", (payload: any) =>
+      setDebugData((prev) => ({ ...(prev || {}), commanderState: payload }))
+    );
+    socket.on("debugLibraryDump", (payload: any) =>
+      setDebugData((prev) => ({ ...(prev || {}), libraryDump: payload }))
+    );
+    socket.on("debugImportedDeckBuffer", (payload: any) =>
+      setDebugData((prev) => ({ ...(prev || {}), importBuffer: payload }))
+    );
+
+    // import confirm workflow
+    const onRequest = (payload: any) => {
+      setConfirmPayload(payload);
+      setConfirmId(payload.confirmId);
+      const initial: ImportConfirmVotes = {};
+      for (const pid of payload.players || []) initial[pid] = "pending";
+      if (payload.initiator) initial[payload.initiator] = "yes";
+      setConfirmVotes(initial);
+      setConfirmOpen(true);
+    };
+    const onUpdate = (update: any) => {
+      if (!update || !update.confirmId) return;
+      if (!confirmId || update.confirmId === confirmId)
+        setConfirmVotes(update.responses);
+    };
+    const onCancelled = (info: any) => {
+      if (!info || !info.confirmId) return;
+      if (!confirmId || info.confirmId === confirmId) {
+        setConfirmOpen(false);
+        setConfirmPayload(null);
+        setConfirmVotes(null);
+        setConfirmId(null);
+        setLastInfo(
+          `Import cancelled${info.reason ? `: ${info.reason}` : ""}`
+        );
+        setPendingLocalImport(false);
+        setQueuedCommanderSelection(null);
+      }
+    };
+    const onConfirmed = (info: any) => {
+      if (!info || !info.confirmId) return;
+      if (!confirmId || info.confirmId === confirmId) {
+        setConfirmOpen(false);
+        setConfirmPayload(null);
+        setConfirmVotes(null);
+        setConfirmId(null);
+        setLastInfo(
+          `Import applied${info.deckName ? `: ${info.deckName}` : ""}`
+        );
+        setPendingLocalImport(false);
+
+        try {
+          if (view && info && info.gameId === view.id && info.by && you) {
+            setView((prev) => {
+              if (!prev) return prev;
+              const copy: any = {
+                ...prev,
+                zones: { ...(prev.zones || {}) },
+              };
+
+              copy.zones[you] = {
+                ...(copy.zones[you] || {}),
+                hand: [],
+                handCount: 0,
+              };
+              return copy;
+            });
+            socket.emit("getImportedDeckCandidates", { gameId: info.gameId });
+          }
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.warn("import confirm local-hand-clear failed:", e);
+        }
+
+        if (
+          queuedCommanderSelection &&
+          queuedCommanderSelection.gameId === info.gameId
+        ) {
+          const payload: any = {
+            gameId: info.gameId,
+            commanderNames: queuedCommanderSelection.names,
+          };
+          if (
+            queuedCommanderSelection.ids &&
+            queuedCommanderSelection.ids.length
+          ) {
+            payload.commanderIds = queuedCommanderSelection.ids;
+          }
+          // eslint-disable-next-line no-console
+          console.debug(
+            "[useGameSocket] flushing queued commander selection",
+            payload
+          );
+          socket.emit("setCommander", payload);
+          setQueuedCommanderSelection(null);
+        }
+
+        if (cmdSuggestedGameId === info.gameId && !cmdModalOpen) {
+          setCmdModalOpen(true);
+        }
+
+        if (!queuedCommanderSelection) {
+          socket.emit("getImportedDeckCandidates", { gameId: info.gameId });
+        }
+      }
+    };
+
+    socket.on("importWipeConfirmRequest", onRequest);
+    socket.on("importWipeConfirmUpdate", onUpdate);
+    socket.on("importWipeCancelled", onCancelled);
+    socket.on("importWipeConfirmed", onConfirmed);
+
+    // suggestCommanders flow
+    socket.on("suggestCommanders", ({ gameId: gid, names }: any) => {
+      const namesList = Array.isArray(names) ? names.slice(0, 2) : [];
+      setCmdSuggestedGameId(gid);
+      setCmdSuggestedNames(namesList);
+
+      try {
+        socket.emit("getImportedDeckCandidates", { gameId: gid });
+      } catch {
+        // ignore
+      }
+
+      if (
+        localImportConfirmOpen ||
+        pendingLocalImportRef.current ||
+        confirmOpen
+      ) {
+        return;
+      }
+
+      if (suggestTimerRef.current) {
+        window.clearTimeout(suggestTimerRef.current);
+        suggestTimerRef.current = null;
+      }
+
+      const WAIT_MS = 600;
+      suggestTimerRef.current = window.setTimeout(() => {
+        setCmdModalOpen(true);
+        suggestTimerRef.current = null;
+      }, WAIT_MS) as unknown as number;
+    });
+
+    const onNameInUse = (payload: any) => {
+      // let App control the modal; we just stash this on socket for now
+      (socket as any)._lastNameInUsePayload = payload;
+    };
+    socket.on("nameInUse", onNameInUse);
+
+    return () => {
+      socket.off("connect", onConnect);
+      socket.off("disconnect", onDisconnect);
+      socket.off("joined");
+      socket.off("state");
+      socket.off("stateDiff");
+      socket.off("priority");
+      socket.off("chat");
+      socket.off("importedDeckCandidates");
+      socket.off("deckImportMissing");
+      socket.off("error");
+      socket.off("debugCommanderState");
+      socket.off("debugLibraryDump");
+      socket.off("debugImportedDeckBuffer");
+      socket.off("importWipeConfirmRequest", onRequest);
+      socket.off("importWipeConfirmUpdate", onUpdate);
+      socket.off("importWipeCancelled", onCancelled);
+      socket.off("importWipeConfirmed", onConfirmed);
+      socket.off("suggestCommanders");
+      socket.off("nameInUse", onNameInUse);
+
+      if (suggestTimerRef.current) {
+        window.clearTimeout(suggestTimerRef.current);
+        suggestTimerRef.current = null;
+      }
+    };
+  }, [
+    nameInput,
+    joinAsSpectator,
+    confirmId,
+    view,
+    confirmOpen,
+    queuedCommanderSelection,
+    importedCandidates.length,
+    you,
+    safeView?.id,
+    localImportConfirmOpen,
+    cmdSuggestedGameId,
+    cmdModalOpen,
+  ]);
+
+  /* ----------- actions exposed to App ----------- */
+
+  const handleJoin = useCallback(() => {
+    lastJoinRef.current = {
+      gameId: gameIdInput,
+      name: nameInput,
+      spectator: joinAsSpectator,
+    };
+    try {
+      sessionStorage.setItem(
+        lastJoinKey(),
+        JSON.stringify(lastJoinRef.current)
+      );
+    } catch {
+      // ignore
+    }
+    const token =
+      sessionStorage.getItem(seatTokenKey(gameIdInput, nameInput)) ||
+      undefined;
+    const payload = {
+      gameId: gameIdInput,
+      playerName: nameInput,
+      spectator: joinAsSpectator,
+      seatToken: token,
+    };
+    // eslint-disable-next-line no-console
+    console.debug("[JOIN_EMIT] manual join", payload);
+    socket.emit("joinGame", payload);
+  }, [gameIdInput, nameInput, joinAsSpectator]);
+
+  const joinFromList = useCallback(
+    (selectedGameId: string) => {
+      lastJoinRef.current = {
+        gameId: selectedGameId,
+        name: nameInput,
+        spectator: joinAsSpectator,
+      };
+      try {
+        sessionStorage.setItem(
+          lastJoinKey(),
+          JSON.stringify(lastJoinRef.current)
+        );
+      } catch {
+        // ignore
+      }
+      const token =
+        sessionStorage.getItem(seatTokenKey(selectedGameId, nameInput)) ||
+        undefined;
+      const payload = {
+        gameId: selectedGameId,
+        playerName: nameInput,
+        spectator: joinAsSpectator,
+        seatToken: token,
+      };
+      // eslint-disable-next-line no-console
+      console.debug("[JOIN_EMIT] joinFromList", payload);
+      socket.emit("joinGame", payload);
+      setGameIdInput(selectedGameId as GameID);
+    },
+    [nameInput, joinAsSpectator]
+  );
+
+  const requestImportDeck = useCallback(
+    (list: string, deckName?: string) => {
+      if (!safeView) return;
+      setPendingLocalImport(true);
+      socket.emit("importDeck", { gameId: safeView.id, list, deckName });
+    },
+    [safeView]
+  );
+
+  const requestUseSavedDeck = useCallback(
+    (deckId: string) => {
+      if (!safeView) return;
+      setPendingLocalImport(true);
+      socket.emit("useSavedDeck", { gameId: safeView.id, deckId });
+    },
+    [safeView]
+  );
+
+  const handleLocalImportConfirmChange = useCallback((open: boolean) => {
+    setLocalImportConfirmOpen(open);
+  }, []);
+
+  const handleCommanderConfirm = useCallback(
+    (names: string[], ids?: string[]) => {
+      if (!safeView || !names || names.length === 0) return;
+
+      const phaseStr = String(safeView.phase || "").toUpperCase();
+      const isPreGame = phaseStr.includes("PRE") || phaseStr === "";
+      const singlePlayer =
+        Array.isArray(safeView.players) &&
+        safeView.players.length === 1 &&
+        you === safeView.players[0]?.id;
+
+      const mustQueue =
+        !isPreGame &&
+        !singlePlayer &&
+        (pendingLocalImportRef.current ||
+          localImportConfirmRef.current ||
+          confirmOpen);
+
+      if (mustQueue) {
+        setQueuedCommanderSelection({
+          gameId: safeView.id,
+          names: names.slice(0, 2),
+          ids: ids && ids.length ? ids.slice(0, 2) : undefined,
+        });
+        // eslint-disable-next-line no-console
+        console.debug("[useGameSocket] queuing commander selection", {
+          gameId: safeView.id,
+          names,
+          ids,
+        });
+        return;
+      }
+
+      const payload: any = { gameId: safeView.id, commanderNames: names };
+      if (ids && ids.length) payload.commanderIds = ids;
+      // eslint-disable-next-line no-console
+      console.debug("[useGameSocket] emitting setCommander", payload);
+      socket.emit("setCommander", payload);
+    },
+    [safeView, confirmOpen, you]
+  );
+
+  const fetchDebug = useCallback(() => {
+    if (!safeView) {
+      setDebugData({ error: "Invalid gameId for debug" });
+      setDebugLoading(false);
+      setDebugOpen(true);
+      return;
+    }
+    setDebugLoading(true);
+    setDebugData(null);
+    setDebugOpen(true);
+    const gid = safeView.id;
+    const onceWithTimeout = (eventName: string, timeout = 3000) =>
+      new Promise((resolve) => {
+        const onResp = (payload: any) => {
+          resolve(payload);
+        };
+        (socket as any).once(eventName, onResp);
+        setTimeout(() => {
+          (socket as any).off(eventName, onResp);
+          resolve({ error: "timeout" });
+        }, timeout);
+      });
+
+    (socket as any).emit("dumpCommanderState", { gameId: gid });
+    (socket as any).emit("dumpLibrary", { gameId: gid });
+    (socket as any).emit("dumpImportedDeckBuffer", { gameId: gid });
+
+    Promise.all([
+      onceWithTimeout("debugCommanderState"),
+      onceWithTimeout("debugLibraryDump"),
+      onceWithTimeout("debugImportedDeckBuffer"),
+    ])
+      .then(([commanderResp, libResp, bufResp]) => {
+        setDebugData({
+          commanderState: commanderResp,
+          libraryDump: libResp,
+          importBuffer: bufResp,
+        });
+        setDebugLoading(false);
+      })
+      .catch((err) => {
+        setDebugData({ error: String(err) });
+        setDebugLoading(false);
+      });
+  }, [safeView]);
+
+  const respondToConfirm = useCallback(
+    (accept: boolean) => {
+      if (!safeView || !confirmId || !you) return;
+      socket.emit("confirmImportResponse", {
+        gameId: safeView.id,
+        confirmId,
+        accept,
+      });
+      setConfirmVotes((prev) =>
+        prev
+          ? {
+              ...prev,
+              [you]: accept ? "yes" : "no",
+            }
+          : prev
+      );
+    },
+    [safeView, confirmId, you]
+  );
+
+  return {
+    connected,
+    gameIdInput,
+    setGameIdInput,
+    nameInput,
+    setNameInput,
+    joinAsSpectator,
+    setJoinAsSpectator,
+
+    you,
+    view,
+    safeView,
+    priority,
+
+    chat,
+    setChat,
+    lastError,
+    lastInfo,
+
+    missingImport,
+    setMissingImport,
+
+    importedCandidates,
+    pendingLocalImport,
+    localImportConfirmOpen,
+
+    cmdModalOpen,
+    setCmdModalOpen,
+    cmdSuggestedNames,
+    cmdSuggestedGameId,
+    setCmdSuggestedGameId,
+    setCmdSuggestedNames,
+
+    confirmOpen,
+    confirmPayload,
+    confirmVotes,
+    confirmId,
+
+    debugOpen,
+    debugLoading,
+    debugData,
+    setDebugOpen,
+
+    // actions
+    handleJoin,
+    joinFromList,
+    requestImportDeck,
+    requestUseSavedDeck,
+    handleLocalImportConfirmChange,
+    handleCommanderConfirm,
+    fetchDebug,
+    respondToConfirm,
+  };
 }

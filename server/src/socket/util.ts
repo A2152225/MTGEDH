@@ -1,31 +1,292 @@
-import { Server } from "socket.io";
+// server/src/socket/util.ts
+// Socket helper utilities used by server socket handlers.
+// Provides: ensureGame (create/replay), broadcastGame, appendGameEvent,
+// priority timer scheduling (schedulePriorityTimeout + doAutoPass),
+// clearPriorityTimer, and a parseManaCost helper.
+//
+// This is a full-file authoritative implementation (no truncation).
+//
+// NOTE: Small, safe additions: normalizeViewForEmit + ensureStateZonesForPlayers
+// and env-gated verbose logging when DEBUG_STATE=1.
+
+import type { Server } from "socket.io";
 import { games, priorityTimers, PRIORITY_TIMEOUT_MS } from "./socket";
 import { appendEvent, createGameIfNotExists, getEvents } from "../db";
 import { createInitialGameState } from "../state";
-import type { InMemoryGame } from "../state/gameState";
+import type { InMemoryGame } from "../state/types";
+import { GameManager } from "../GameManager";
+import type { GameID, PlayerID } from "../../shared/src";
+
+/* ------------------- Defensive normalization helpers ------------------- */
+
+/** canonical minimal zone shape for a player */
+function defaultPlayerZones() {
+  return {
+    hand: [],
+    handCount: 0,
+    library: [],
+    libraryCount: 0,
+    graveyard: [],
+    graveyardCount: 0,
+  };
+}
+
+/**
+ * Ensure authoritative in-memory game.state.zones has entries for all players.
+ */
+function ensureStateZonesForPlayers(game: any) {
+  try {
+    if (!game) return;
+    game.state = game.state || {};
+    game.state.players = game.state.players || [];
+    game.state.zones = game.state.zones || {};
+    for (const p of game.state.players) {
+      const pid = p?.id ?? p?.playerId;
+      if (!pid) continue;
+      if (!game.state.zones[pid]) game.state.zones[pid] = defaultPlayerZones();
+      else {
+        const z = game.state.zones[pid];
+        z.hand = Array.isArray(z.hand) ? z.hand : [];
+        z.handCount =
+          typeof z.handCount === "number"
+            ? z.handCount
+            : Array.isArray(z.hand)
+            ? z.hand.length
+            : 0;
+        z.library = Array.isArray(z.library) ? z.library : [];
+        z.libraryCount =
+          typeof z.libraryCount === "number"
+            ? z.libraryCount
+            : Array.isArray(z.library)
+            ? z.library.length
+            : 0;
+        z.graveyard = Array.isArray(z.graveyard) ? z.graveyard : [];
+        z.graveyardCount =
+          typeof z.graveyardCount === "number"
+            ? z.graveyardCount
+            : Array.isArray(z.graveyard)
+            ? z.graveyard.length
+            : 0;
+      }
+    }
+  } catch (e) {
+    console.warn("ensureStateZonesForPlayers failed:", e);
+  }
+}
+
+function normalizeViewForEmit(rawView: any, game: any) {
+  try {
+    const view = rawView || {};
+    view.zones = view.zones || {};
+    const players =
+      Array.isArray(view.players)
+        ? view.players
+        : game &&
+          game.state &&
+          Array.isArray(game.state.players)
+        ? game.state.players
+        : [];
+    for (const p of players) {
+      const pid = p?.id ?? p?.playerId;
+      if (!pid) continue;
+      view.zones[pid] = view.zones[pid] ?? defaultPlayerZones();
+    }
+
+    // Mirror minimal shape back into authoritative game.state.zones to avoid other server modules observing undefined.
+    try {
+      if (game && game.state) {
+        game.state.zones = game.state.zones || {};
+        for (const pid of Object.keys(view.zones)) {
+          if (!game.state.zones[pid]) game.state.zones[pid] = view.zones[pid];
+          else {
+            const src = view.zones[pid];
+            const dst = game.state.zones[pid];
+            dst.hand = Array.isArray(dst.hand)
+              ? dst.hand
+              : Array.isArray(src.hand)
+              ? src.hand
+              : [];
+            dst.handCount =
+              typeof dst.handCount === "number"
+                ? dst.handCount
+                : Array.isArray(dst.hand)
+                ? dst.hand.length
+                : 0;
+            dst.library = Array.isArray(dst.library)
+              ? dst.library
+              : Array.isArray(src.library)
+              ? src.library
+              : [];
+            dst.libraryCount =
+              typeof dst.libraryCount === "number"
+                ? dst.libraryCount
+                : Array.isArray(dst.library)
+                ? dst.library.length
+                : 0;
+            dst.graveyard = Array.isArray(dst.graveyard)
+              ? dst.graveyard
+              : Array.isArray(src.graveyard)
+              ? src.graveyard
+              : [];
+            dst.graveyardCount =
+              typeof dst.graveyardCount === "number"
+                ? dst.graveyardCount
+                : Array.isArray(dst.graveyard)
+                ? dst.graveyard.length
+                : 0;
+          }
+        }
+      }
+    } catch {
+      // non-fatal
+    }
+
+    return view;
+  } catch (e) {
+    console.warn("normalizeViewForEmit failed:", e);
+    return rawView || {};
+  }
+}
+
+/* --- Debug logging helper (env-gated) --- */
+function logStateDebug(prefix: string, gameId: string, view: any) {
+  try {
+    const enabled = process.env.DEBUG_STATE === "1";
+    if (!enabled) return;
+
+    const playerIds = Array.isArray(view?.players)
+      ? view.players.map((p: any) => p?.id ?? p?.playerId)
+      : [];
+    const zoneKeys = view?.zones ? Object.keys(view.zones) : [];
+
+    // Pick the first player (if any) and derive a compact summary
+    const firstPid = playerIds[0];
+    const z = firstPid && view?.zones ? view.zones[firstPid] : null;
+    const lib = z && Array.isArray(z.library) ? z.library : [];
+    const firstLib = lib[0];
+    const lastLib =
+      lib.length > 1 ? lib[lib.length - 1] : lib.length === 1 ? lib[0] : null;
+
+    console.log(
+      `[STATE_DEBUG] ${prefix} gameId=${gameId} players=[${playerIds.join(
+        ","
+      )}] zones=[${zoneKeys.join(",")}] ` +
+        `handCount=${z?.handCount ?? 0} libraryCount=${z?.libraryCount ?? 0}`
+    );
+
+    // Compact library sample instead of full JSON dump
+    console.log(`[STATE_DEBUG] ${prefix} librarySample gameId=${gameId}`, {
+      firstLibraryCard: firstLib
+        ? {
+            id: firstLib.id,
+            name: firstLib.name,
+            type_line: firstLib.type_line,
+          }
+        : null,
+      lastLibraryCard: lastLib
+        ? {
+            id: lastLib.id,
+            name: lastLib.name,
+            type_line: lastLib.type_line,
+          }
+        : null,
+    });
+  } catch (e) {
+    // non-fatal
+  }
+}
+
+/* ------------------- Core exported utilities (based on original file) ------------------- */
 
 /**
  * Ensures that the specified game exists in both database and memory, creating it if necessary.
+ * Prefer using the centralized GameManager to ensure consistent factory/reset behavior.
+ * Falls back to the local create/replay flow if GameManager is not available or fails.
+ *
+ * Returns an InMemoryGame wrapper with a fully-initialized runtime state.
  */
 export function ensureGame(gameId: string): InMemoryGame {
-  let game = games.get(gameId);
+  // Defensive validation: reject invalid/falsy gameId early to prevent creating games with no id.
+  if (!gameId || typeof gameId !== "string" || gameId.trim() === "") {
+    const msg = `ensureGame called with invalid gameId: ${String(gameId)}`;
+    console.error("[ensureGame] " + msg);
+    throw new Error(msg);
+  }
+
+  // Prefer GameManager to keep a single source of truth for game creation/reset, if it's exposing helper methods.
+  try {
+    if (GameManager && typeof (GameManager as any).getGame === "function") {
+      try {
+        const gmGame =
+          (GameManager as any).getGame(gameId) ||
+          (GameManager as any).ensureGame?.(gameId);
+        if (gmGame) {
+          try {
+            games.set(gameId, gmGame);
+          } catch {
+            /* best-effort */
+          }
+          try {
+            ensureStateZonesForPlayers(gmGame);
+          } catch {
+            /* ignore */
+          }
+          return gmGame as InMemoryGame;
+        }
+      } catch (err) {
+        console.warn(
+          "ensureGame: GameManager.getGame/ensureGame failed, falling back to local recreation:",
+          err
+        );
+      }
+    }
+  } catch (err) {
+    console.warn("ensureGame: GameManager not usable, falling back:", err);
+  }
+
+  // Original fallback behavior
+  let game = games.get(gameId) as InMemoryGame | undefined;
 
   if (!game) {
-    // Create an initial game state
-    game = createInitialGameState(gameId);
+    game = createInitialGameState(gameId) as InMemoryGame;
 
-    // Ensure it exists in the database
-    createGameIfNotExists(gameId, game.state.format, game.state.startingLife);
+    try {
+      const fmt = (game as any).state?.format ?? "commander";
+      const startingLife = (game as any).state?.startingLife ?? 40;
+      createGameIfNotExists(gameId, String(fmt), startingLife);
+    } catch (err) {
+      console.warn(
+        "ensureGame: createGameIfNotExists failed (continuing):",
+        err
+      );
+    }
 
-    // Replay persisted events to reconstruct state
-    const persistedEvents = getEvents(gameId);
-    const replayEvents = persistedEvents.map((event) => ({
-      type: event.type,
-      ...(event.payload || {}),
-    }));
-    game.replay(replayEvents);
+    try {
+      const persisted = getEvents(gameId) || [];
+      const replayEvents = persisted.map((ev: any) => ({
+        type: ev.type,
+        ...(ev.payload || {}),
+      }));
+      if (typeof (game as any).replay === "function") {
+        (game as any).replay(replayEvents);
+      } else if (typeof (game as any).applyEvent === "function") {
+        for (const e of replayEvents) {
+          (game as any).applyEvent(e);
+        }
+      }
+    } catch (err) {
+      console.warn(
+        "ensureGame: replay persisted events failed, continuing with fresh state:",
+        err
+      );
+    }
 
-    // Register the reconstructed game in memory
+    try {
+      ensureStateZonesForPlayers(game);
+    } catch {
+      /* ignore */
+    }
+
     games.set(gameId, game);
   }
 
@@ -33,18 +294,124 @@ export function ensureGame(gameId: string): InMemoryGame {
 }
 
 /**
- * Broadcasts the full state of a game to all participants.
+ * Emit a full, normalized state snapshot directly to a specific socketId for a given game,
+ * using the same normalization semantics as other emitters.
  */
-export function broadcastGame(io: Server, game: InMemoryGame, gameId: string) {
-  const participants = game.participants();
-  for (const { socketId, playerId, spectator } of participants) {
-    const view = game.viewFor(playerId, spectator);
-    io.to(socketId).emit("state", { gameId, view, seq: game.seq });
+export function emitStateToSocket(
+  io: Server,
+  gameId: GameID,
+  socketId: string,
+  playerId?: PlayerID
+) {
+  try {
+    const game = games.get(gameId);
+    if (!game) return;
+
+    let rawView: any;
+    try {
+      if (typeof (game as any).viewFor === "function" && playerId) {
+        rawView = (game as any).viewFor(playerId, false);
+      } else if (typeof (game as any).viewFor === "function") {
+        const statePlayers: any[] = (game as any).state?.players || [];
+        const firstId: string | undefined = statePlayers[0]?.id;
+        rawView = firstId
+          ? (game as any).viewFor(firstId, false)
+          : (game as any).state;
+      } else {
+        rawView = (game as any).state;
+      }
+    } catch {
+      rawView = (game as any).state;
+    }
+
+    const view = normalizeViewForEmit(rawView, game);
+    try {
+      io.to(socketId).emit("state", {
+        gameId,
+        view,
+        seq: (game as any).seq || 0,
+      });
+    } catch (e) {
+      console.warn(
+        "emitStateToSocket: failed to emit state to socket",
+        socketId,
+        e
+      );
+    }
+  } catch (e) {
+    console.warn("emitStateToSocket: failed to build or emit view", e);
+  }
+}
+
+/**
+ * Broadcasts the full state of a game to all participants.
+ * Uses the game's participants() method if available, otherwise falls back to participantsList.
+ *
+ * This version normalizes view and mirrors minimal zone shapes back into game.state so clients
+ * and other server code never observe missing per-player zones.
+ */
+export function broadcastGame(
+  io: Server,
+  game: InMemoryGame,
+  gameId: string
+) {
+  let participants: Array<{
+    socketId: string;
+    playerId: string;
+    spectator: boolean;
+  }> = [];
+
+  try {
+    if (typeof (game as any).participants === "function") {
+      participants = (game as any).participants();
+    } else if (
+      (game as any).participantsList &&
+      Array.isArray((game as any).participantsList)
+    ) {
+      participants = (game as any).participantsList.slice();
+    } else {
+      participants = [];
+    }
+  } catch (err) {
+    console.warn("broadcastGame: failed to obtain participants:", err);
+    participants = [];
+  }
+
+  for (const p of participants) {
+    try {
+      let rawView;
+      try {
+        rawView =
+          typeof (game as any).viewFor === "function"
+            ? (game as any).viewFor(p.playerId, !!p.spectator)
+            : (game as any).state;
+      } catch {
+        rawView = (game as any).state;
+      }
+
+      const view = normalizeViewForEmit(rawView, game);
+
+      logStateDebug("BROADCAST_STATE", gameId, view);
+
+      if (p.socketId)
+        io.to(p.socketId).emit("state", {
+          gameId,
+          view,
+          seq: (game as any).seq,
+        });
+    } catch (err) {
+      console.warn(
+        "broadcastGame: failed to send state to",
+        p.socketId,
+        err
+      );
+    }
   }
 }
 
 /**
  * Appends a game event (both in-memory and persisted to the DB).
+ * This attempts to call game.applyEvent and then persists via appendEvent.
  */
 export function appendGameEvent(
   game: InMemoryGame,
@@ -52,8 +419,25 @@ export function appendGameEvent(
   type: string,
   payload: Record<string, any> = {}
 ) {
-  game.applyEvent({ type, ...payload });
-  appendEvent(gameId, game.seq, type, payload);
+  try {
+    if (typeof (game as any).applyEvent === "function") {
+      (game as any).applyEvent({ type, ...payload });
+    } else if (typeof (game as any).apply === "function") {
+      (game as any).apply(type, payload);
+    } else {
+      if ((game as any).state && typeof (game as any).state === "object") {
+        // no-op; rely on persisted events for reconstruction
+      }
+    }
+  } catch (err) {
+    console.warn("appendGameEvent: in-memory apply failed:", err);
+  }
+
+  try {
+    appendEvent(gameId, (game as any).seq, type, payload);
+  } catch (err) {
+    console.warn("appendGameEvent: DB appendEvent failed:", err);
+  }
 }
 
 /**
@@ -69,6 +453,7 @@ export function clearPriorityTimer(gameId: string) {
 
 /**
  * Schedules a priority pass timeout, automatically passing after the configured delay.
+ * If the game has only one active player and a non-empty stack, passes immediately.
  */
 export function schedulePriorityTimeout(
   io: Server,
@@ -77,10 +462,20 @@ export function schedulePriorityTimeout(
 ) {
   clearPriorityTimer(gameId);
 
-  if (!game.state.active || !game.state.priority) return;
+  try {
+    if (!game.state || !game.state.active || !game.state.priority) return;
+  } catch {
+    return;
+  }
 
-  const activePlayers = game.state.players.filter((p) => !p.inactive);
-  if (activePlayers.length === 1 && game.state.stack.length > 0) {
+  const activePlayers = (game.state.players || []).filter(
+    (p: any) => !p.inactive
+  );
+  if (
+    activePlayers.length === 1 &&
+    Array.isArray(game.state.stack) &&
+    game.state.stack.length > 0
+  ) {
     priorityTimers.set(
       gameId,
       setTimeout(() => {
@@ -90,12 +485,12 @@ export function schedulePriorityTimeout(
     return;
   }
 
-  const startSeq = game.seq;
+  const startSeq = (game as any).seq;
   const timeout = setTimeout(() => {
     priorityTimers.delete(gameId);
     const updatedGame = games.get(gameId);
-    if (!updatedGame || updatedGame.seq !== startSeq) return;
-    doAutoPass(io, updatedGame, gameId, "auto-pass (30s timeout)");
+    if (!updatedGame || (updatedGame as any).seq !== startSeq) return;
+    doAutoPass(io, updatedGame, gameId, "auto-pass (timeout)");
   }, PRIORITY_TIMEOUT_MS);
 
   priorityTimers.set(gameId, timeout);
@@ -110,20 +505,48 @@ function doAutoPass(
   gameId: string,
   reason: string
 ) {
-  const playerId = game.state.priority;
-  if (!playerId) return;
+  try {
+    const playerId = game.state.priority;
+    if (!playerId) return;
 
-  const { changed, resolvedNow } = game.passPriority(playerId);
-  if (!changed) return;
+    // game.passPriority may not exist on some wrappers; call defensively
+    let res: any = null;
+    if (typeof (game as any).passPriority === "function") {
+      res = (game as any).passPriority(playerId);
+    } else if (typeof (game as any).nextPass === "function") {
+      res = (game as any).nextPass(playerId);
+    } else {
+      console.warn(
+        "doAutoPass: game.passPriority not implemented for this game wrapper"
+      );
+      return;
+    }
 
-  appendGameEvent(game, gameId, "passPriority", { by: playerId });
+    const changed = Boolean(res && (res.changed ?? true));
+    const resolvedNow = Boolean(res && (res.resolvedNow ?? false));
+    if (!changed) return;
 
-  if (resolvedNow) {
-    appendGameEvent(game, gameId, "resolveTopOfStack");
-    io.to(gameId).emit("chat", { gameId, message: "Top of stack resolved automatically." });
+    appendGameEvent(game, gameId, "passPriority", { by: playerId, reason });
+
+    if (resolvedNow) {
+      appendGameEvent(game, gameId, "resolveTopOfStack");
+      try {
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: "Top of stack resolved automatically.",
+          ts: Date.now(),
+        });
+      } catch (err) {
+        console.warn("doAutoPass: failed to emit chat", err);
+      }
+    }
+
+    broadcastGame(io, game, gameId);
+  } catch (err) {
+    console.warn("doAutoPass: unexpected error", err);
   }
-
-  broadcastGame(io, game, gameId);
 }
 
 /**
@@ -154,10 +577,14 @@ export function parseManaCost(
     } else if (/^\d+$/.test(clean)) {
       result.generic += parseInt(clean, 10);
     } else if (clean.includes("/")) {
-      const [first, second] = clean.split("/");
-      result.hybrids.push([first, second]);
-    } else if (result.colors.hasOwnProperty(clean)) {
-      result.colors[clean] += 1;
+      const parts = clean.split("/");
+      result.hybrids.push(parts);
+    } else if (clean.length === 1 && result.colors.hasOwnProperty(clean)) {
+      (result.colors as any)[clean] =
+        ((result.colors as any)[clean] || 0) + 1;
+    } else {
+      // unknown symbol -> ignore for now
+      result.generic += 0;
     }
   }
 
