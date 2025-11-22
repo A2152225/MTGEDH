@@ -61,7 +61,7 @@ export function viewFor(ctx: GameContext, viewer?: PlayerID, spectator = false):
     const isViewer = !spectator && viewer && viewer === pid;
 
     if (isViewer) {
-      // For the viewer's own zones, clone full detail.
+      // For the viewer's own zones, clone full detail (existing behavior).
       out.zones[pid] = {
         hand: fullHand.map(h => ({ ...h })),
         handCount: z.handCount ?? fullHand.length,
@@ -71,12 +71,10 @@ export function viewFor(ctx: GameContext, viewer?: PlayerID, spectator = false):
         exile: fullExile.map(e => ({ ...e })),
       };
     } else {
-      // For opponents (and when in spectator mode), we still want the client
-      // to know there is one card per handCount so it can render backs.
+      // For opponents / spectators: send a stub array matching handCount so the
+      // client can render card backs, without leaking identities.
       const handCount = z.handCount ?? fullHand.length;
 
-      // Represent each card as a minimal stub with known:false so the client
-      // can render back images without leaking card identity.
       const opponentHandStubs =
         handCount > 0
           ? Array.from({ length: handCount }, (_v, idx) => ({
