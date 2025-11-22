@@ -60,15 +60,27 @@ export function setCommander(
     for (const cid of info.commanderIds || []) {
       const idx = lib.findIndex((c: any) => c && c.id === cid);
       if (idx >= 0) {
+        console.log(`[setCommander] Removing commander ${cid} from library at index ${idx}, library size before: ${lib.length}`);
         lib.splice(idx, 1);
         changed = true;
+        console.log(`[setCommander] Library size after removal: ${lib.length}`);
+      } else {
+        console.log(`[setCommander] Commander ${cid} not found in library (library size: ${lib.length})`);
       }
     }
     if (changed) {
       libraries.set(playerId, lib);
       zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: lib.length, graveyard: [], graveyardCount: 0 } as any;
       zones[playerId]!.libraryCount = lib.length;
+      console.log(`[setCommander] Updated zones[${playerId}].libraryCount to ${lib.length}`);
+      
+      // Also update state.zones if it exists so the library count is sent to clients
+      if (state && state.zones && (state.zones as any)[playerId]) {
+        (state.zones as any)[playerId].libraryCount = lib.length;
+      }
     }
+  } else {
+    console.log(`[setCommander] Library is empty or null for player ${playerId}`);
   }
 
   (info as any).commanderCards = built;
