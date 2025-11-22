@@ -711,6 +711,80 @@ export function TableLayout(props: {
                           </div>
                         )}
 
+                        {!isYouThis && zObj && (() => {
+                          const playerHandCards = (Array.isArray(zObj.hand) ? zObj.hand : []) as any[];
+                          const playerHandCount = typeof zObj.handCount === 'number' ? zObj.handCount : playerHandCards.length;
+                          if (playerHandCount <= 0) return null;
+                          return (
+                            <div style={{ marginTop: 12 }} data-no-zoom>
+                              <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 6 }}>
+                                Hand, {playerHandCount} {playerHandCount === 1 ? 'card' : 'cards'}
+                              </div>
+                              <div style={{ 
+                                display: 'flex', 
+                                flexWrap: 'wrap', 
+                                gap: 4,
+                                alignItems: 'flex-start'
+                              }}>
+                                {playerHandCards.slice(0, 12).map((card, idx) => {
+                                  const showFace = card.known && !card.faceDown;
+                                  const cardImageUrl = showFace && card.image_uris?.small 
+                                    ? card.image_uris.small 
+                                    : null;
+                                  return (
+                                    <div
+                                      key={card.id || `hand-${pb.player.id}-${idx}`}
+                                      style={{
+                                        width: 40,
+                                        height: 56,
+                                        borderRadius: 4,
+                                        border: '1px solid #444',
+                                        background: cardImageUrl 
+                                          ? `url(${cardImageUrl}) center/cover`
+                                          : 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
+                                        position: 'relative',
+                                        overflow: 'hidden'
+                                      }}
+                                      title={showFace ? card.name : 'Hidden card'}
+                                    >
+                                      {!showFace && (
+                                        <div style={{
+                                          position: 'absolute',
+                                          inset: 0,
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          fontSize: 20,
+                                          color: '#666',
+                                          fontWeight: 'bold'
+                                        }}>
+                                          ?
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                                {playerHandCount > 12 && (
+                                  <div style={{
+                                    width: 40,
+                                    height: 56,
+                                    borderRadius: 4,
+                                    border: '1px solid #444',
+                                    background: 'rgba(0,0,0,0.5)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontSize: 11,
+                                    color: '#aaa'
+                                  }}>
+                                    +{playerHandCount - 12}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
                         {isYouThis && showYourHandBelow && (
                           <div
                             id={`hand-area-${pb.player.id}`}
