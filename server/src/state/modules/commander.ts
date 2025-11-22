@@ -22,7 +22,7 @@ export function setCommander(
   commanderIds: string[] = [],
   colorIdentity?: ("W" | "U" | "B" | "R" | "G")[]
 ) {
-  const { commandZone, libraries, zones, pendingInitialDraw, bumpSeq } = ctx;
+  const { commandZone, libraries, zones, pendingInitialDraw, bumpSeq, state } = ctx;
   const info = commandZone[playerId] ?? { commanderIds: [], commanderNames: [], tax: 0, taxById: {} };
   info.commanderIds = commanderIds.slice();
   info.commanderNames = commanderNames.slice();
@@ -73,6 +73,11 @@ export function setCommander(
 
   (info as any).commanderCards = built;
   commandZone[playerId] = info;
+  
+  // Also update state.commandZone so it gets sent to clients via viewFor
+  if (state && state.commandZone) {
+    (state.commandZone as any)[playerId] = info;
+  }
 
   // If player was marked for pending opening draw, do shuffle + draw(7) but only if hand is empty.
   if (pendingInitialDraw && pendingInitialDraw.has(playerId)) {
@@ -103,12 +108,18 @@ export function setCommander(
 }
 
 export function castCommander(ctx: GameContext, playerId: PlayerID, commanderId: string) {
-  const { commandZone, bumpSeq } = ctx;
+  const { commandZone, bumpSeq, state } = ctx;
   const info = commandZone[playerId] ?? { commanderIds: [], tax: 0, taxById: {} };
   if (!info.taxById) info.taxById = {};
   info.taxById[commanderId] = (info.taxById[commanderId] ?? 0) + 2;
   info.tax = Object.values(info.taxById).reduce((a, b) => a + b, 0);
   commandZone[playerId] = info;
+  
+  // Also update state.commandZone
+  if (state && state.commandZone) {
+    (state.commandZone as any)[playerId] = info;
+  }
+  
   bumpSeq();
 }
 
