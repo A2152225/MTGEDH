@@ -18,6 +18,11 @@ import type { GameContext } from "../context";
 import type { PlayerID } from "../../shared/src/types";
 import { drawCards } from "./zones";
 
+/** Small helper to prepend ISO timestamp to debug logs */
+function ts() {
+  return new Date().toISOString();
+}
+
 /**
  * Ensure seq helper object present on ctx
  */
@@ -51,7 +56,16 @@ function safeBumpSeq(ctx: any) {
 function activePlayers(ctx: GameContext): string[] {
   try {
     const players = Array.isArray(ctx.state.players) ? (ctx.state.players as any[]) : [];
-    return players.filter((p) => !((ctx as any).inactive && (ctx as any).inactive.has && (ctx as any).inactive.has(p.id))).map((p) => p.id);
+    return players
+      .filter(
+        (p) =>
+          !(
+            (ctx as any).inactive &&
+            (ctx as any).inactive.has &&
+            (ctx as any).inactive.has(p.id)
+          )
+      )
+      .map((p) => p.id);
   } catch {
     return [];
   }
@@ -88,7 +102,8 @@ export function passPriority(ctx: GameContext, playerId?: PlayerID) {
     const players = Array.isArray(state.players) ? state.players.map((p: any) => p.id) : [];
 
     // Ensure active set exists
-    const inactiveSet: Set<string> = (ctx as any).inactive instanceof Set ? (ctx as any).inactive : new Set<string>();
+    const inactiveSet: Set<string> =
+      (ctx as any).inactive instanceof Set ? (ctx as any).inactive : new Set<string>();
 
     const active = players.filter((id: string) => !inactiveSet.has(id));
     if (!active.length) {
@@ -134,7 +149,7 @@ export function passPriority(ctx: GameContext, playerId?: PlayerID) {
 
     return { changed: true, resolvedNow };
   } catch (err) {
-    console.warn("passPriority stub failed:", err);
+    console.warn(`${ts()} passPriority stub failed:`, err);
     return { changed: false, resolvedNow: false };
   }
 }
@@ -148,7 +163,7 @@ export function setTurnDirection(ctx: GameContext, dir: 1 | -1) {
     (ctx as any).state.turnDirection = dir;
     ctx.bumpSeq();
   } catch (err) {
-    console.warn("setTurnDirection failed:", err);
+    console.warn(`${ts()} setTurnDirection failed:`, err);
   }
 }
 
@@ -162,24 +177,28 @@ export function setTurnDirection(ctx: GameContext, dir: 1 | -1) {
 export function nextTurn(ctx: GameContext) {
   try {
     (ctx as any).state = (ctx as any).state || {};
-    const players = Array.isArray((ctx as any).state.players) ? (ctx as any).state.players.map((p: any) => p.id) : [];
+    const players = Array.isArray((ctx as any).state.players)
+      ? (ctx as any).state.players.map((p: any) => p.id)
+      : [];
     if (!players.length) return;
     const current = (ctx as any).state.turnPlayer;
     const idx = players.indexOf(current);
     const next = idx === -1 ? players[0] : players[(idx + 1) % players.length];
     (ctx as any).state.turnPlayer = next;
-    
+
     // Reset to beginning of turn (using lowercase enum values)
     (ctx as any).state.phase = "beginning";
     (ctx as any).state.step = "untap";
-    
+
     // give priority to the active player at the start of turn
     (ctx as any).state.priority = next;
-    
-    console.log(`[nextTurn] Advanced to player ${next}, phase=${(ctx as any).state.phase}, step=${(ctx as any).state.step}`);
+
+    console.log(
+      `${ts()} [nextTurn] Advanced to player ${next}, phase=${(ctx as any).state.phase}, step=${(ctx as any).state.step}`
+    );
     ctx.bumpSeq();
   } catch (err) {
-    console.warn("nextTurn failed:", err);
+    console.warn(`${ts()} nextTurn failed:`, err);
   }
 }
 
@@ -193,19 +212,19 @@ export function nextStep(ctx: GameContext) {
     (ctx as any).state = (ctx as any).state || {};
     const currentPhase = String((ctx as any).state.phase || "beginning");
     const currentStep = String((ctx as any).state.step || "");
-    
+
     // Simple step progression logic (using camelCase enum values to match GamePhase/GameStep enums)
     // beginning phase: untap -> upkeep -> draw
     // precombatMain phase: just main (no substeps)
     // combat phase: beginCombat -> declareAttackers -> declareBlockers -> combatDamage -> endCombat
     // postcombatMain phase: just main (no substeps)
     // ending phase: endStep -> cleanup
-    
+
     let nextPhase = currentPhase;
     let nextStep = currentStep;
     let shouldDraw = false;
     let shouldAdvanceTurn = false;
-    
+
     if (currentPhase === "beginning" || currentPhase === "PRE_GAME" || currentPhase === "") {
       if (currentStep === "" || currentStep === "untap") {
         nextPhase = "beginning";
@@ -254,39 +273,43 @@ export function nextStep(ctx: GameContext) {
       nextPhase = "precombatMain";
       nextStep = "main";
     }
-    
+
     // Update phase and step
     (ctx as any).state.phase = nextPhase;
     (ctx as any).state.step = nextStep;
-    
-    console.log(`[nextStep] Advanced to phase=${nextPhase}, step=${nextStep}`);
-    
+
+    console.log(
+      `${ts()} [nextStep] Advanced to phase=${nextPhase}, step=${nextStep}`
+    );
+
     // If we should advance to next turn, call nextTurn instead
     if (shouldAdvanceTurn) {
-      console.log(`[nextStep] Cleanup complete, advancing to next turn`);
+      console.log(`${ts()} [nextStep] Cleanup complete, advancing to next turn`);
       ctx.bumpSeq();
       nextTurn(ctx);
       return;
     }
-    
+
     // If we're entering the draw step, draw a card for the active player
     if (shouldDraw) {
       try {
         const turnPlayer = (ctx as any).state.turnPlayer;
         if (turnPlayer) {
           const drawn = drawCards(ctx, turnPlayer, 1);
-          console.log(`[nextStep] Drew ${drawn.length} card(s) for ${turnPlayer} at draw step`);
+          console.log(
+            `${ts()} [nextStep] Drew ${drawn.length} card(s) for ${turnPlayer} at draw step`
+          );
         } else {
-          console.warn(`[nextStep] No turnPlayer set, cannot draw card`);
+          console.warn(`${ts()} [nextStep] No turnPlayer set, cannot draw card`);
         }
       } catch (err) {
-        console.warn("[nextStep] Failed to draw card:", err);
+        console.warn(`${ts()} [nextStep] Failed to draw card:`, err);
       }
     }
-    
+
     ctx.bumpSeq();
   } catch (err) {
-    console.warn("nextStep failed:", err);
+    console.warn(`${ts()} nextStep failed:`, err);
   }
 }
 
@@ -298,7 +321,7 @@ export function scheduleStepsAfterCurrent(ctx: any, steps: any[]) {
     if (!Array.isArray(steps)) return;
     ctx._scheduledSteps.push(...steps);
   } catch (err) {
-    console.warn("scheduleStepsAfterCurrent failed:", err);
+    console.warn(`${ts()} scheduleStepsAfterCurrent failed:`, err);
   }
 }
 
@@ -309,7 +332,7 @@ export function scheduleStepsAtEndOfTurn(ctx: any, steps: any[]) {
     if (!Array.isArray(steps)) return;
     ctx._scheduledEndOfTurnSteps.push(...steps);
   } catch (err) {
-    console.warn("scheduleStepsAtEndOfTurn failed:", err);
+    console.warn(`${ts()} scheduleStepsAtEndOfTurn failed:`, err);
   }
 }
 
@@ -319,15 +342,19 @@ export function clearScheduledSteps(ctx: any) {
     ctx._scheduledSteps = [];
     ctx._scheduledEndOfTurnSteps = [];
   } catch (err) {
-    console.warn("clearScheduledSteps failed:", err);
+    console.warn(`${ts()} clearScheduledSteps failed:`, err);
   }
 }
 
 export function getScheduledSteps(ctx: any) {
   try {
     return {
-      afterCurrent: Array.isArray(ctx._scheduledSteps) ? ctx._scheduledSteps.slice() : [],
-      endOfTurn: Array.isArray(ctx._scheduledEndOfTurnSteps) ? ctx._scheduledEndOfTurnSteps.slice() : [],
+      afterCurrent: Array.isArray(ctx._scheduledSteps)
+        ? ctx._scheduledSteps.slice()
+        : [],
+      endOfTurn: Array.isArray(ctx._scheduledEndOfTurnSteps)
+        ? ctx._scheduledEndOfTurnSteps.slice()
+        : [],
     };
   } catch (err) {
     return { afterCurrent: [], endOfTurn: [] };
@@ -337,10 +364,14 @@ export function getScheduledSteps(ctx: any) {
 export function removeScheduledSteps(ctx: any, steps: any[]) {
   try {
     if (!ctx || !Array.isArray(steps)) return;
-    ctx._scheduledSteps = (ctx._scheduledSteps || []).filter((s: any) => !steps.includes(s));
-    ctx._scheduledEndOfTurnSteps = (ctx._scheduledEndOfTurnSteps || []).filter((s: any) => !steps.includes(s));
+    ctx._scheduledSteps = (ctx._scheduledSteps || []).filter(
+      (s: any) => !steps.includes(s)
+    );
+    ctx._scheduledEndOfTurnSteps = (
+      ctx._scheduledEndOfTurnSteps || []
+    ).filter((s: any) => !steps.includes(s));
   } catch (err) {
-    console.warn("removeScheduledSteps failed:", err);
+    console.warn(`${ts()} removeScheduledSteps failed:`, err);
   }
 }
 

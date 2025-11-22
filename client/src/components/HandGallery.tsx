@@ -16,7 +16,7 @@ export interface HandGalleryProps {
   overlapPx?: number;
   rowGapPx?: number;
   enableReorder?: boolean;
-  onReorder?: (order: number[]) => void;
+  onReorder?: (order: string[]) => void;  // changed to card IDs instead of indices
   hidden?: boolean;                 // if true, render facedown placeholders (no leak)
 }
 
@@ -64,10 +64,19 @@ export function HandGallery(props: HandGalleryProps) {
   function handleDragEnd() {
     if (!enableReorder) return;
     if (dragIdx !== null && dragOver !== null && dragIdx !== dragOver) {
-      const order = [...Array(visibleCards.length).keys()];
-      const [removed] = order.splice(dragIdx, 1);
-      order.splice(dragOver, 0, removed);
-      onReorder && onReorder(order);
+      // Build index permutation
+      const orderIdx = [...Array(visibleCards.length).keys()];
+      const [removedIdx] = orderIdx.splice(dragIdx, 1);
+      orderIdx.splice(dragOver, 0, removedIdx);
+
+      // Map index permutation to card IDs
+      const idOrder = orderIdx
+        .map((idx) => (visibleCards[idx] as any)?.id)
+        .filter((id): id is string => typeof id === 'string');
+
+      if (idOrder.length === visibleCards.length && onReorder) {
+        onReorder(idOrder);
+      }
     }
     setDragIdx(null);
     setDragOver(null);
