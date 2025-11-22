@@ -440,7 +440,8 @@ export function registerGameActions(io: Server, socket: Socket) {
           return;
         }
 
-        // Map card IDs to indices in current hand (O(n) using Map for efficiency)
+        // Map card IDs to indices in current hand
+        // Build a Map for O(1) lookups, making the overall algorithm O(n) instead of O(n²)
         const hand = zones.hand;
         if (!Array.isArray(order) || order.length !== hand.length) {
           socket.emit("error", {
