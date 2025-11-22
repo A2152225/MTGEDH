@@ -440,7 +440,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           return;
         }
 
-        // Map card IDs to indices in current hand
+        // Map card IDs to indices in current hand (O(n) using Map for efficiency)
         const hand = zones.hand;
         if (!Array.isArray(order) || order.length !== hand.length) {
           socket.emit("error", {
@@ -450,11 +450,20 @@ export function registerGameActions(io: Server, socket: Socket) {
           return;
         }
 
+        // Build a map from card ID to index for O(1) lookups
+        const cardIdToIndex = new Map<string, number>();
+        for (let i = 0; i < hand.length; i++) {
+          const card = hand[i] as any;
+          if (card?.id) {
+            cardIdToIndex.set(card.id, i);
+          }
+        }
+
         // Build orderIndices array: for each position in the new order, find where that card is now
         const orderIndices: number[] = [];
         for (const cardId of order) {
-          const idx = hand.findIndex((c: any) => c?.id === cardId);
-          if (idx === -1) {
+          const idx = cardIdToIndex.get(cardId);
+          if (idx === undefined) {
             socket.emit("error", {
               code: "REORDER_HAND_INVALID",
               message: `Card ${cardId} not found in hand.`,

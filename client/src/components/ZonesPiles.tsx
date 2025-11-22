@@ -66,9 +66,9 @@ export function ZonesPiles(props: {
           textAlign: "center",
         }}
       >
-        {displayImage ? (
+        {displayImage && img ? (
           <img
-            src={img!}
+            src={img}
             alt={name}
             style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", opacity: 0.78 }}
           />
