@@ -436,9 +436,10 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
 
       try {
-        // Get the hand from ctx.zones (where the engine stores it), not game.state.zones
-        const hand = (game as any).zones?.[playerId]?.hand;
+        // Get the hand from game.state.zones (which is the public view)
+        const hand = game.state?.zones?.[playerId]?.hand;
         console.log(`[reorderHand] Current hand length: ${hand?.length}, order length: ${order?.length}`);
+        console.log(`[reorderHand] game.state.zones exists: ${!!game.state?.zones}, player zones: ${!!game.state?.zones?.[playerId]}`);
         
         if (!Array.isArray(hand) || hand.length === 0) {
           console.warn(`[reorderHand] No hand found for player ${playerId}`);
