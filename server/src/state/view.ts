@@ -48,8 +48,9 @@ export function viewFor(ctx: GameContext, viewer?: PlayerID, spectator = false):
     const libLen = libraries.get(pid)?.length ?? (z.libraryCount ?? 0);
 
     if (!spectator && viewer && viewer === pid) {
+      // For the viewing player, show all their own cards as known
       out.zones[pid] = {
-        hand: Array.isArray(z.hand) ? (z.hand as any[]).map(h => ({ ...h })) : [],
+        hand: Array.isArray(z.hand) ? (z.hand as any[]).map(h => ({ ...h, known: true })) : [],
         handCount: z.handCount ?? (Array.isArray(z.hand) ? (z.hand as any[]).length : 0),
         libraryCount: libLen,
         graveyard: Array.isArray(z.graveyard) ? (z.graveyard as any[]).map(g => ({ ...g })) : [],
@@ -57,9 +58,33 @@ export function viewFor(ctx: GameContext, viewer?: PlayerID, spectator = false):
         exile: Array.isArray(z.exile) ? (z.exile as any[]).map(e => ({ ...e })) : [],
       };
     } else {
+      // For other players, include cards but mark them as unknown (unless already marked as known via knownTo)
+      const handCards = Array.isArray(z.hand) ? (z.hand as any[]) : [];
       out.zones[pid] = {
-        hand: [],
-        handCount: z.handCount ?? 0,
+        hand: handCards.map(h => {
+          // Check if this card is known to the viewer (e.g., via effects like Telepathy)
+          const isKnownToViewer = typeof viewer === 'string' && Array.isArray(h.knownTo) && h.knownTo.includes(viewer);
+          if (isKnownToViewer) {
+            return {
+              id: h.id,
+              name: h.name,
+              type_line: h.type_line,
+              oracle_text: h.oracle_text,
+              image_uris: h.image_uris,
+              mana_cost: h.mana_cost,
+              power: h.power,
+              toughness: h.toughness,
+              faceDown: false,
+              known: true,
+            };
+          }
+          return {
+            id: h.id,
+            faceDown: true,
+            known: false,
+          };
+        }),
+        handCount: z.handCount ?? handCards.length,
         libraryCount: libLen,
         graveyard: [],
         graveyardCount: z.graveyardCount ?? 0,
