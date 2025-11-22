@@ -154,8 +154,8 @@ export function setTurnDirection(ctx: GameContext, dir: 1 | -1) {
 /**
  * nextTurn: advance to next player's turn
  * - Updates turnPlayer to the next player in order
- * - Resets phase to "BEGINNING" (start of turn)
- * - Sets step to "UNTAP" 
+ * - Resets phase to "beginning" (start of turn)
+ * - Sets step to "untap" 
  * - Gives priority to the active player
  */
 export function nextTurn(ctx: GameContext) {
@@ -168,9 +168,9 @@ export function nextTurn(ctx: GameContext) {
     const next = idx === -1 ? players[0] : players[(idx + 1) % players.length];
     (ctx as any).state.turnPlayer = next;
     
-    // Reset to beginning of turn
-    (ctx as any).state.phase = "BEGINNING";
-    (ctx as any).state.step = "UNTAP";
+    // Reset to beginning of turn (using lowercase enum values)
+    (ctx as any).state.phase = "beginning";
+    (ctx as any).state.step = "untap";
     
     // give priority to the active player at the start of turn
     (ctx as any).state.priority = next;
@@ -190,63 +190,63 @@ export function nextTurn(ctx: GameContext) {
 export function nextStep(ctx: GameContext) {
   try {
     (ctx as any).state = (ctx as any).state || {};
-    const currentPhase = String((ctx as any).state.phase || "BEGINNING").toUpperCase();
-    const currentStep = String((ctx as any).state.step || "").toUpperCase();
+    const currentPhase = String((ctx as any).state.phase || "beginning").toLowerCase();
+    const currentStep = String((ctx as any).state.step || "").toLowerCase();
     
-    // Simple step progression logic
-    // BEGINNING phase: UNTAP -> UPKEEP -> DRAW
-    // MAIN1 phase: just MAIN1 (no substeps)
-    // COMBAT phase: BEGIN_COMBAT -> DECLARE_ATTACKERS -> DECLARE_BLOCKERS -> COMBAT_DAMAGE -> END_COMBAT
-    // MAIN2 phase: just MAIN2 (no substeps)
-    // ENDING phase: END_STEP -> CLEANUP
+    // Simple step progression logic (using lowercase enum values to match GamePhase/GameStep enums)
+    // BEGINNING phase: untap -> upkeep -> draw
+    // PRECOMBAT_MAIN phase: just main (no substeps)
+    // COMBAT phase: beginCombat -> declareAttackers -> declareBlockers -> combatDamage -> endCombat
+    // POSTCOMBAT_MAIN phase: just main (no substeps)
+    // ENDING phase: endStep -> cleanup
     
     let nextPhase = currentPhase;
     let nextStep = currentStep;
     
-    if (currentPhase === "BEGINNING" || currentPhase === "PRE_GAME" || currentPhase === "") {
-      if (currentStep === "" || currentStep === "UNTAP") {
-        nextPhase = "BEGINNING";
-        nextStep = "UPKEEP";
-      } else if (currentStep === "UPKEEP") {
-        nextPhase = "BEGINNING";
-        nextStep = "DRAW";
+    if (currentPhase === "beginning" || currentPhase === "pre_game" || currentPhase === "") {
+      if (currentStep === "" || currentStep === "untap") {
+        nextPhase = "beginning";
+        nextStep = "upkeep";
+      } else if (currentStep === "upkeep") {
+        nextPhase = "beginning";
+        nextStep = "draw";
       } else {
-        // After DRAW, go to MAIN1
-        nextPhase = "MAIN1";
-        nextStep = "MAIN1";
+        // After DRAW, go to PRECOMBAT_MAIN
+        nextPhase = "precombatMain";
+        nextStep = "main";
       }
-    } else if (currentPhase === "MAIN1") {
-      nextPhase = "COMBAT";
-      nextStep = "BEGIN_COMBAT";
-    } else if (currentPhase === "COMBAT") {
-      if (currentStep === "BEGIN_COMBAT") {
-        nextStep = "DECLARE_ATTACKERS";
-      } else if (currentStep === "DECLARE_ATTACKERS") {
-        nextStep = "DECLARE_BLOCKERS";
-      } else if (currentStep === "DECLARE_BLOCKERS") {
-        nextStep = "COMBAT_DAMAGE";
-      } else if (currentStep === "COMBAT_DAMAGE") {
-        nextStep = "END_COMBAT";
+    } else if (currentPhase === "precombatmain" || currentPhase === "main1") {
+      nextPhase = "combat";
+      nextStep = "beginCombat";
+    } else if (currentPhase === "combat") {
+      if (currentStep === "begincombat" || currentStep === "begin_combat") {
+        nextStep = "declareAttackers";
+      } else if (currentStep === "declareattackers" || currentStep === "declare_attackers") {
+        nextStep = "declareBlockers";
+      } else if (currentStep === "declareblockers" || currentStep === "declare_blockers") {
+        nextStep = "combatDamage";
+      } else if (currentStep === "combatdamage" || currentStep === "combat_damage") {
+        nextStep = "endCombat";
       } else {
-        // After END_COMBAT, go to MAIN2
-        nextPhase = "MAIN2";
-        nextStep = "MAIN2";
+        // After END_COMBAT, go to POSTCOMBAT_MAIN
+        nextPhase = "postcombatMain";
+        nextStep = "main";
       }
-    } else if (currentPhase === "MAIN2") {
-      nextPhase = "ENDING";
-      nextStep = "END_STEP";
-    } else if (currentPhase === "ENDING") {
-      if (currentStep === "END_STEP") {
-        nextStep = "CLEANUP";
+    } else if (currentPhase === "postcombatmain" || currentPhase === "main2") {
+      nextPhase = "ending";
+      nextStep = "endStep";
+    } else if (currentPhase === "ending") {
+      if (currentStep === "endstep" || currentStep === "end_step" || currentStep === "end") {
+        nextStep = "cleanup";
       } else {
         // After CLEANUP, would normally go to next turn, but that's handled by nextTurn()
         // Just stay at CLEANUP for now
-        nextStep = "CLEANUP";
+        nextStep = "cleanup";
       }
     } else {
-      // Unknown phase, move to MAIN1 as a safe default
-      nextPhase = "MAIN1";
-      nextStep = "MAIN1";
+      // Unknown phase, move to PRECOMBAT_MAIN as a safe default
+      nextPhase = "precombatMain";
+      nextStep = "main";
     }
     
     (ctx as any).state.phase = nextPhase;
