@@ -31,10 +31,20 @@ function isLandTypeLine(tl?: string) { return /\bland\b/i.test(tl || ''); }
 type Side = 0 | 1 | 2 | 3;
 type PlayerBoard = { player: PlayerRef; permanents: BattlefieldPermanent[] };
 
+type HandCard = {
+  id: string;
+  name?: string;
+  type_line?: string;
+  image_uris?: { small?: string; normal?: string };
+  faceDown?: boolean;
+  known?: boolean; // visibility to this client
+};
+
 function sidePlan(total: number): Side[] {
   const pattern: Side[] = [0, 1, 2, 3];
   return Array.from({ length: total }, (_, i) => pattern[i % pattern.length]);
 }
+
 function buildPositions(opts: {
   total: number; boardW: number; boardH: number;
   seatGapX: number; seatGapY: number;
@@ -66,6 +76,7 @@ function buildPositions(opts: {
   }
   return positions;
 }
+
 function computeExtents(positions: Array<{ x: number; y: number }>, boardW: number, boardH: number) {
   let maxX = 0, maxY = 0;
   for (const p of positions) {
@@ -110,7 +121,7 @@ export function TableLayout(props: {
   importedCandidates?: KnownCardRef[]; // no longer used for commander UI, but kept for potential future UI
   energyCounters?: Record<PlayerID, number>;
   energy?: Record<PlayerID, number>;
-  // NEW: chat overlay props
+  // chat overlay props
   chatMessages?: ChatMsg[];
   onSendChat?: (text: string) => void;
   chatView?: ClientGameView;
@@ -528,20 +539,20 @@ export function TableLayout(props: {
                 const isYouThis = you && pb.player.id === you;
                 const allowReorderHere = Boolean(isYouThis && enableReorderForYou && !onPermanentClick);
 
-                const yourHand =
-                  (isYouThis && zones?.[you!]?.hand
-                    ? (zones![you!].hand as any as Array<{
-                        id: string;
-                        name?: string;
-                        type_line?: string;
-                        image_uris?: { small?: string; normal?: string };
-                        faceDown?: boolean;
-                      }>)
-                    : []) || [];
-
                 const zObj = zones?.[pb.player.id];
                 const cmdObj = commandZone?.[pb.player.id];
                 const isCommanderFormat = (format || '').toLowerCase() === 'commander';
+
+                // unified hand objects for this player
+                const playerHandCards: HandCard[] =
+                  (zObj && Array.isArray(zObj.hand) ? (zObj.hand as any as HandCard[]) : []) || [];
+
+                const playerHandCount =
+                  typeof zObj?.handCount === 'number'
+                    ? zObj.handCount
+                    : playerHandCards.length;
+
+                const yourHand: HandCard[] = isYouThis ? playerHandCards : [];
 
                 const lifeVal =
                   (props as any).life?.[pb.player.id] ??
@@ -738,6 +749,7 @@ export function TableLayout(props: {
                           </div>
                         )}
 
+                        {/* YOUR hand (full details) */}
                         {isYouThis && showYourHandBelow && (
                           <div
                             id={`hand-area-${pb.player.id}`}
@@ -803,6 +815,127 @@ export function TableLayout(props: {
                               enableReorder={allowReorderHere}
                               onReorder={onReorderHand}
                             />
+                          </div>
+                        )}
+
+                        {/* OPPONENTS' hand strip: same objects, known -> face/back */}
+                        {!isYouThis && playerHandCount > 0 && (
+                          <div
+                            style={{
+                              marginTop: 8,
+                              padding: 6,
+                              borderRadius: 6,
+                              background: 'rgba(0,0,0,0.75)',
+                              border: '1px solid #333',
+                              color: '#ddd',
+                              fontSize: 11
+                            }}
+                            data-no-zoom
+                          >
+                            <div
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                marginBottom: 4
+                              }}
+                            >
+                              <span>Hand</span>
+                              <span>{playerHandCount} cards</span>
+                            </div>
+                            <div
+                              style={{
+                                display: 'flex',
+                                gap: 4,
+                                overflowX: 'hidden'
+                              }}
+                            >
+                              {playerHandCards.slice(0, 12).map((card, idx) => {
+                                const visibleToYou =
+                                  !!card.known && !card.faceDown;
+
+                                if (!visibleToYou) {
+                                  // hidden: card back
+                                  return (
+                                    <div
+                                      key={card.id || idx}
+                                      title="Hidden card"
+                                      style={{
+                                        width: 26,
+                                        height: 36,
+                                        borderRadius: 3,
+                                        background:
+                                          'linear-gradient(135deg, #1f2937, #111827)',
+                                        border: '1px solid #4b5563',
+                                        boxShadow: '0 0 4px rgba(0,0,0,0.6)',
+                                        flex: '0 0 auto'
+                                      }}
+                                    />
+                                  );
+                                }
+
+                                // known/visible: small face-up thumbnail
+                                const art =
+                                  (card.image_uris &&
+                                    (card.image_uris.small ||
+                                      card.image_uris.normal)) ||
+                                  undefined;
+                                return (
+                                  <div
+                                    key={card.id || idx}
+                                    title={card.name || ''}
+                                    style={{
+                                      width: 26,
+                                      height: 36,
+                                      borderRadius: 3,
+                                      overflow: 'hidden',
+                                      border: '1px solid #a3e635',
+                                      boxShadow:
+                                        '0 0 4px rgba(34,197,94,0.6)',
+                                      flex: '0 0 auto',
+                                      background: '#000'
+                                    }}
+                                  >
+                                    {art ? (
+                                      <img
+                                        src={art}
+                                        alt={card.name || ''}
+                                        style={{
+                                          width: '100%',
+                                          height: '100%',
+                                          objectFit: 'cover'
+                                        }}
+                                      />
+                                    ) : (
+                                      <div
+                                        style={{
+                                          width: '100%',
+                                          height: '100%',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          fontSize: 8,
+                                          padding: 2
+                                        }}
+                                      >
+                                        {card.name || 'Known card'}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                              {playerHandCount > 12 && (
+                                <div
+                                  style={{
+                                    alignSelf: 'center',
+                                    marginLeft: 4,
+                                    fontSize: 10,
+                                    opacity: 0.8
+                                  }}
+                                >
+                                  +{playerHandCount - 12} more
+                                </div>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>
