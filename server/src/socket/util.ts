@@ -15,6 +15,7 @@ import { appendEvent, createGameIfNotExists, getEvents } from "../db";
 import { createInitialGameState } from "../state";
 import type { InMemoryGame } from "../state/types";
 import { GameManager } from "../GameManager";
+import type { GameID, PlayerID } from "../../shared/src";
 
 /* ------------------- Defensive normalization helpers ------------------- */
 
@@ -209,7 +210,6 @@ export function ensureGame(gameId: string): InMemoryGame {
   if (!gameId || typeof gameId !== "string" || gameId.trim() === "") {
     const msg = `ensureGame called with invalid gameId: ${String(gameId)}`;
     console.error("[ensureGame] " + msg);
-    // Throw so caller can handle — prevents creating an in-memory game with an invalid id
     throw new Error(msg);
   }
 
@@ -221,13 +221,11 @@ export function ensureGame(gameId: string): InMemoryGame {
           (GameManager as any).getGame(gameId) ||
           (GameManager as any).ensureGame?.(gameId);
         if (gmGame) {
-          // Keep the socket-level games map in sync with GameManager
           try {
             games.set(gameId, gmGame);
           } catch {
             /* best-effort */
           }
-          // Ensure canonical state zones exist for players (defensive)
           try {
             ensureStateZonesForPlayers(gmGame);
           } catch {
@@ -240,22 +238,18 @@ export function ensureGame(gameId: string): InMemoryGame {
           "ensureGame: GameManager.getGame/ensureGame failed, falling back to local recreation:",
           err
         );
-        // fall through to local approach
       }
     }
   } catch (err) {
-    // If GameManager import or methods throw, fall back to local approach.
     console.warn("ensureGame: GameManager not usable, falling back:", err);
   }
 
-  // Original fallback behavior: construct an in-memory game and replay persisted events.
+  // Original fallback behavior
   let game = games.get(gameId) as InMemoryGame | undefined;
 
   if (!game) {
-    // Create an initial in-memory game wrapper (ctx + helpers).
     game = createInitialGameState(gameId) as InMemoryGame;
 
-    // Ensure DB record exists (no-op if already present). Use safe defaults if state incomplete.
     try {
       const fmt = (game as any).state?.format ?? "commander";
       const startingLife = (game as any).state?.startingLife ?? 40;
@@ -267,7 +261,6 @@ export function ensureGame(gameId: string): InMemoryGame {
       );
     }
 
-    // Replay persisted events into the newly created in-memory game to reconstruct state.
     try {
       const persisted = getEvents(gameId) || [];
       const replayEvents = persisted.map((ev: any) => ({
@@ -277,7 +270,6 @@ export function ensureGame(gameId: string): InMemoryGame {
       if (typeof (game as any).replay === "function") {
         (game as any).replay(replayEvents);
       } else if (typeof (game as any).applyEvent === "function") {
-        // fallback: apply events sequentially
         for (const e of replayEvents) {
           (game as any).applyEvent(e);
         }
@@ -289,18 +281,66 @@ export function ensureGame(gameId: string): InMemoryGame {
       );
     }
 
-    // Ensure canonical in-memory zones exist for players so server modules don't later see undefined.
     try {
       ensureStateZonesForPlayers(game);
     } catch {
       /* ignore */
     }
 
-    // Register reconstructed game in memory
     games.set(gameId, game);
   }
 
   return game;
+}
+
+/**
+ * Emit a full, normalized state snapshot directly to a specific socketId for a given game,
+ * using the same normalization semantics as other emitters.
+ */
+export function emitStateToSocket(
+  io: Server,
+  gameId: GameID,
+  socketId: string,
+  playerId?: PlayerID
+) {
+  try {
+    const game = games.get(gameId);
+    if (!game) return;
+
+    let rawView: any;
+    try {
+      if (typeof (game as any).viewFor === "function" && playerId) {
+        rawView = (game as any).viewFor(playerId, false);
+      } else if (typeof (game as any).viewFor === "function") {
+        const statePlayers: any[] = (game as any).state?.players || [];
+        const firstId: string | undefined = statePlayers[0]?.id;
+        rawView = firstId
+          ? (game as any).viewFor(firstId, false)
+          : (game as any).state;
+      } else {
+        rawView = (game as any).state;
+      }
+    } catch {
+      rawView = (game as any).state;
+    }
+
+    const view = normalizeViewForEmit(rawView, game);
+    try {
+      io.to(socketId).emit("state", {
+        gameId,
+        view,
+        seq: (game as any).seq || 0,
+      });
+    } catch (e) {
+      console.warn(
+        "emitStateToSocket: failed to emit state to socket",
+        socketId,
+        e
+      );
+    }
+  } catch (e) {
+    console.warn("emitStateToSocket: failed to build or emit view", e);
+  }
 }
 
 /**
@@ -344,18 +384,21 @@ export function broadcastGame(
         rawView =
           typeof (game as any).viewFor === "function"
             ? (game as any).viewFor(p.playerId, !!p.spectator)
-            : (game as any).state; // fallback: send raw state (not ideal, but defensive)
+            : (game as any).state;
       } catch {
         rawView = (game as any).state;
       }
 
       const view = normalizeViewForEmit(rawView, game);
 
-      // Debug log per emission (compact summary only)
       logStateDebug("BROADCAST_STATE", gameId, view);
 
       if (p.socketId)
-        io.to(p.socketId).emit("state", { gameId, view, seq: (game as any).seq });
+        io.to(p.socketId).emit("state", {
+          gameId,
+          view,
+          seq: (game as any).seq,
+        });
     } catch (err) {
       console.warn(
         "broadcastGame: failed to send state to",
@@ -382,7 +425,6 @@ export function appendGameEvent(
     } else if (typeof (game as any).apply === "function") {
       (game as any).apply(type, payload);
     } else {
-      // best-effort: mutate state if minimal apply API present
       if ((game as any).state && typeof (game as any).state === "object") {
         // no-op; rely on persisted events for reconstruction
       }
@@ -434,7 +476,6 @@ export function schedulePriorityTimeout(
     Array.isArray(game.state.stack) &&
     game.state.stack.length > 0
   ) {
-    // schedule immediate auto-pass to resolve stack deterministically
     priorityTimers.set(
       gameId,
       setTimeout(() => {
@@ -542,7 +583,7 @@ export function parseManaCost(
       (result.colors as any)[clean] =
         ((result.colors as any)[clean] || 0) + 1;
     } else {
-      // treat unknown symbol as generic fallback (conservative)
+      // unknown symbol -> ignore for now
       result.generic += 0;
     }
   }

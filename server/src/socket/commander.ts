@@ -16,7 +16,7 @@
  */
 
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame } from "./util";
+import { ensureGame, broadcastGame, emitStateToSocket } from "./util";
 import { appendEvent } from "../db";
 import { fetchCardByExactNameStrict } from "../services/scryfall";
 import type { PlayerID } from "../../shared/src";
@@ -232,7 +232,6 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         idsToApply,
       });
 
-      // We no longer rely on game.setCommander/applyEvent; we manage state here.
       try {
         appendEvent(gameId, game.seq, "setCommander", {
           playerId: pid,
@@ -579,10 +578,13 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
                 appendEvent(gameId, game.seq, "shuffleLibrary", {
                   playerId: pid,
                 });
-                console.info("[commander] shuffleLibrary for opening draw", {
-                  gameId,
-                  playerId: pid,
-                });
+                console.info(
+                  "[commander] shuffleLibrary for opening draw",
+                  {
+                    gameId,
+                    playerId: pid,
+                  }
+                );
               } catch (e) {
                 console.warn("setCommander: shuffleLibrary failed", e);
               }
@@ -599,10 +601,13 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
                   playerId: pid,
                   count: 7,
                 });
-                console.info("[commander] drawCards(7) for opening draw", {
-                  gameId,
-                  playerId: pid,
-                });
+                console.info(
+                  "[commander] drawCards(7) for opening draw",
+                  {
+                    gameId,
+                    playerId: pid,
+                  }
+                );
               } catch (e) {
                 console.warn("setCommander: drawCards failed", e);
               }
@@ -671,6 +676,15 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         broadcastGame(io, game, gameId);
       } catch (err) {
         console.error("setCommander: broadcastGame failed:", err);
+      }
+
+      // NEW: Always send a unicast state to the initiating socket as well,
+      // so the local client sees its own commander+hand update even if
+      // participants' socketIds are stale.
+      try {
+        emitStateToSocket(io, gameId, socket.id, pid);
+      } catch (e) {
+        console.warn("setCommander: emitStateToSocket failed", e);
       }
     } catch (err) {
       console.error("Unhandled error in setCommander handler:", err);
