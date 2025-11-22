@@ -20,7 +20,14 @@ import { GameManager } from "../GameManager";
 
 /** canonical minimal zone shape for a player */
 function defaultPlayerZones() {
-  return { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0 };
+  return {
+    hand: [],
+    handCount: 0,
+    library: [],
+    libraryCount: 0,
+    graveyard: [],
+    graveyardCount: 0,
+  };
 }
 
 /**
@@ -39,11 +46,26 @@ function ensureStateZonesForPlayers(game: any) {
       else {
         const z = game.state.zones[pid];
         z.hand = Array.isArray(z.hand) ? z.hand : [];
-        z.handCount = typeof z.handCount === "number" ? z.handCount : (Array.isArray(z.hand) ? z.hand.length : 0);
+        z.handCount =
+          typeof z.handCount === "number"
+            ? z.handCount
+            : Array.isArray(z.hand)
+            ? z.hand.length
+            : 0;
         z.library = Array.isArray(z.library) ? z.library : [];
-        z.libraryCount = typeof z.libraryCount === "number" ? z.libraryCount : (Array.isArray(z.library) ? z.library.length : 0);
+        z.libraryCount =
+          typeof z.libraryCount === "number"
+            ? z.libraryCount
+            : Array.isArray(z.library)
+            ? z.library.length
+            : 0;
         z.graveyard = Array.isArray(z.graveyard) ? z.graveyard : [];
-        z.graveyardCount = typeof z.graveyardCount === "number" ? z.graveyardCount : (Array.isArray(z.graveyard) ? z.graveyard.length : 0);
+        z.graveyardCount =
+          typeof z.graveyardCount === "number"
+            ? z.graveyardCount
+            : Array.isArray(z.graveyard)
+            ? z.graveyard.length
+            : 0;
       }
     }
   } catch (e) {
@@ -58,7 +80,11 @@ function normalizeViewForEmit(rawView: any, game: any) {
     const players =
       Array.isArray(view.players)
         ? view.players
-        : (game && game.state && Array.isArray(game.state.players) ? game.state.players : []);
+        : game &&
+          game.state &&
+          Array.isArray(game.state.players)
+        ? game.state.players
+        : [];
     for (const p of players) {
       const pid = p?.id ?? p?.playerId;
       if (!pid) continue;
@@ -74,12 +100,39 @@ function normalizeViewForEmit(rawView: any, game: any) {
           else {
             const src = view.zones[pid];
             const dst = game.state.zones[pid];
-            dst.hand = Array.isArray(dst.hand) ? dst.hand : (Array.isArray(src.hand) ? src.hand : []);
-            dst.handCount = typeof dst.handCount === "number" ? dst.handCount : (Array.isArray(dst.hand) ? dst.hand.length : 0);
-            dst.library = Array.isArray(dst.library) ? dst.library : (Array.isArray(src.library) ? src.library : []);
-            dst.libraryCount = typeof dst.libraryCount === "number" ? dst.libraryCount : (Array.isArray(dst.library) ? dst.library.length : 0);
-            dst.graveyard = Array.isArray(dst.graveyard) ? dst.graveyard : (Array.isArray(src.graveyard) ? src.graveyard : []);
-            dst.graveyardCount = typeof dst.graveyardCount === "number" ? dst.graveyardCount : (Array.isArray(dst.graveyard) ? dst.graveyard.length : 0);
+            dst.hand = Array.isArray(dst.hand)
+              ? dst.hand
+              : Array.isArray(src.hand)
+              ? src.hand
+              : [];
+            dst.handCount =
+              typeof dst.handCount === "number"
+                ? dst.handCount
+                : Array.isArray(dst.hand)
+                ? dst.hand.length
+                : 0;
+            dst.library = Array.isArray(dst.library)
+              ? dst.library
+              : Array.isArray(src.library)
+              ? src.library
+              : [];
+            dst.libraryCount =
+              typeof dst.libraryCount === "number"
+                ? dst.libraryCount
+                : Array.isArray(dst.library)
+                ? dst.library.length
+                : 0;
+            dst.graveyard = Array.isArray(dst.graveyard)
+              ? dst.graveyard
+              : Array.isArray(src.graveyard)
+              ? src.graveyard
+              : [];
+            dst.graveyardCount =
+              typeof dst.graveyardCount === "number"
+                ? dst.graveyardCount
+                : Array.isArray(dst.graveyard)
+                ? dst.graveyard.length
+                : 0;
           }
         }
       }
@@ -99,14 +152,44 @@ function logStateDebug(prefix: string, gameId: string, view: any) {
   try {
     const enabled = process.env.DEBUG_STATE === "1";
     if (!enabled) return;
-    const playerIds = (Array.isArray(view?.players) ? view.players.map((p: any) => p?.id ?? p?.playerId) : []);
+
+    const playerIds = Array.isArray(view?.players)
+      ? view.players.map((p: any) => p?.id ?? p?.playerId)
+      : [];
     const zoneKeys = view?.zones ? Object.keys(view.zones) : [];
-    console.log(`[STATE_DEBUG] ${prefix} gameId=${gameId} players=[${playerIds.join(",")}] zones=[${zoneKeys.join(",")}]`);
-    try {
-      console.log(`[STATE_DEBUG] FULL ${prefix} gameId=${gameId} view=`, JSON.stringify(view));
-    } catch (e) {
-      console.log(`[STATE_DEBUG] FULL ${prefix} gameId=${gameId} view (stringify failed)`, view);
-    }
+
+    // Pick the first player (if any) and derive a compact summary
+    const firstPid = playerIds[0];
+    const z = firstPid && view?.zones ? view.zones[firstPid] : null;
+    const lib = z && Array.isArray(z.library) ? z.library : [];
+    const firstLib = lib[0];
+    const lastLib =
+      lib.length > 1 ? lib[lib.length - 1] : lib.length === 1 ? lib[0] : null;
+
+    console.log(
+      `[STATE_DEBUG] ${prefix} gameId=${gameId} players=[${playerIds.join(
+        ","
+      )}] zones=[${zoneKeys.join(",")}] ` +
+        `handCount=${z?.handCount ?? 0} libraryCount=${z?.libraryCount ?? 0}`
+    );
+
+    // Compact library sample instead of full JSON dump
+    console.log(`[STATE_DEBUG] ${prefix} librarySample gameId=${gameId}`, {
+      firstLibraryCard: firstLib
+        ? {
+            id: firstLib.id,
+            name: firstLib.name,
+            type_line: firstLib.type_line,
+          }
+        : null,
+      lastLibraryCard: lastLib
+        ? {
+            id: lastLib.id,
+            name: lastLib.name,
+            type_line: lastLib.type_line,
+          }
+        : null,
+    });
   } catch (e) {
     // non-fatal
   }
@@ -134,16 +217,29 @@ export function ensureGame(gameId: string): InMemoryGame {
   try {
     if (GameManager && typeof (GameManager as any).getGame === "function") {
       try {
-        const gmGame = (GameManager as any).getGame(gameId) || (GameManager as any).ensureGame?.(gameId);
+        const gmGame =
+          (GameManager as any).getGame(gameId) ||
+          (GameManager as any).ensureGame?.(gameId);
         if (gmGame) {
           // Keep the socket-level games map in sync with GameManager
-          try { games.set(gameId, gmGame); } catch (e) { /* best-effort */ }
+          try {
+            games.set(gameId, gmGame);
+          } catch {
+            /* best-effort */
+          }
           // Ensure canonical state zones exist for players (defensive)
-          try { ensureStateZonesForPlayers(gmGame); } catch {}
+          try {
+            ensureStateZonesForPlayers(gmGame);
+          } catch {
+            /* ignore */
+          }
           return gmGame as InMemoryGame;
         }
       } catch (err) {
-        console.warn("ensureGame: GameManager.getGame/ensureGame failed, falling back to local recreation:", err);
+        console.warn(
+          "ensureGame: GameManager.getGame/ensureGame failed, falling back to local recreation:",
+          err
+        );
         // fall through to local approach
       }
     }
@@ -165,13 +261,19 @@ export function ensureGame(gameId: string): InMemoryGame {
       const startingLife = (game as any).state?.startingLife ?? 40;
       createGameIfNotExists(gameId, String(fmt), startingLife);
     } catch (err) {
-      console.warn("ensureGame: createGameIfNotExists failed (continuing):", err);
+      console.warn(
+        "ensureGame: createGameIfNotExists failed (continuing):",
+        err
+      );
     }
 
     // Replay persisted events into the newly created in-memory game to reconstruct state.
     try {
       const persisted = getEvents(gameId) || [];
-      const replayEvents = persisted.map((ev: any) => ({ type: ev.type, ...(ev.payload || {}) }));
+      const replayEvents = persisted.map((ev: any) => ({
+        type: ev.type,
+        ...(ev.payload || {}),
+      }));
       if (typeof (game as any).replay === "function") {
         (game as any).replay(replayEvents);
       } else if (typeof (game as any).applyEvent === "function") {
@@ -181,11 +283,18 @@ export function ensureGame(gameId: string): InMemoryGame {
         }
       }
     } catch (err) {
-      console.warn("ensureGame: replay persisted events failed, continuing with fresh state:", err);
+      console.warn(
+        "ensureGame: replay persisted events failed, continuing with fresh state:",
+        err
+      );
     }
 
     // Ensure canonical in-memory zones exist for players so server modules don't later see undefined.
-    try { ensureStateZonesForPlayers(game); } catch (e) { /* ignore */ }
+    try {
+      ensureStateZonesForPlayers(game);
+    } catch {
+      /* ignore */
+    }
 
     // Register reconstructed game in memory
     games.set(gameId, game);
@@ -201,13 +310,24 @@ export function ensureGame(gameId: string): InMemoryGame {
  * This version normalizes view and mirrors minimal zone shapes back into game.state so clients
  * and other server code never observe missing per-player zones.
  */
-export function broadcastGame(io: Server, game: InMemoryGame, gameId: string) {
-  let participants: Array<{ socketId: string; playerId: string; spectator: boolean }> = [];
+export function broadcastGame(
+  io: Server,
+  game: InMemoryGame,
+  gameId: string
+) {
+  let participants: Array<{
+    socketId: string;
+    playerId: string;
+    spectator: boolean;
+  }> = [];
 
   try {
     if (typeof (game as any).participants === "function") {
       participants = (game as any).participants();
-    } else if ((game as any).participantsList && Array.isArray((game as any).participantsList)) {
+    } else if (
+      (game as any).participantsList &&
+      Array.isArray((game as any).participantsList)
+    ) {
       participants = (game as any).participantsList.slice();
     } else {
       participants = [];
@@ -221,21 +341,27 @@ export function broadcastGame(io: Server, game: InMemoryGame, gameId: string) {
     try {
       let rawView;
       try {
-        rawView = (typeof (game as any).viewFor === "function")
-          ? (game as any).viewFor(p.playerId, !!p.spectator)
-          : (game as any).state; // fallback: send raw state (not ideal, but defensive)
-      } catch (e) {
+        rawView =
+          typeof (game as any).viewFor === "function"
+            ? (game as any).viewFor(p.playerId, !!p.spectator)
+            : (game as any).state; // fallback: send raw state (not ideal, but defensive)
+      } catch {
         rawView = (game as any).state;
       }
 
       const view = normalizeViewForEmit(rawView, game);
 
-      // Debug log per emission
+      // Debug log per emission (compact summary only)
       logStateDebug("BROADCAST_STATE", gameId, view);
 
-      if (p.socketId) io.to(p.socketId).emit("state", { gameId, view, seq: (game as any).seq });
+      if (p.socketId)
+        io.to(p.socketId).emit("state", { gameId, view, seq: (game as any).seq });
     } catch (err) {
-      console.warn("broadcastGame: failed to send state to", p.socketId, err);
+      console.warn(
+        "broadcastGame: failed to send state to",
+        p.socketId,
+        err
+      );
     }
   }
 }
@@ -300,8 +426,14 @@ export function schedulePriorityTimeout(
     return;
   }
 
-  const activePlayers = (game.state.players || []).filter((p: any) => !p.inactive);
-  if (activePlayers.length === 1 && Array.isArray(game.state.stack) && game.state.stack.length > 0) {
+  const activePlayers = (game.state.players || []).filter(
+    (p: any) => !p.inactive
+  );
+  if (
+    activePlayers.length === 1 &&
+    Array.isArray(game.state.stack) &&
+    game.state.stack.length > 0
+  ) {
     // schedule immediate auto-pass to resolve stack deterministically
     priorityTimers.set(
       gameId,
@@ -343,7 +475,9 @@ function doAutoPass(
     } else if (typeof (game as any).nextPass === "function") {
       res = (game as any).nextPass(playerId);
     } else {
-      console.warn("doAutoPass: game.passPriority not implemented for this game wrapper");
+      console.warn(
+        "doAutoPass: game.passPriority not implemented for this game wrapper"
+      );
       return;
     }
 
@@ -405,7 +539,8 @@ export function parseManaCost(
       const parts = clean.split("/");
       result.hybrids.push(parts);
     } else if (clean.length === 1 && result.colors.hasOwnProperty(clean)) {
-      (result.colors as any)[clean] = ((result.colors as any)[clean] || 0) + 1;
+      (result.colors as any)[clean] =
+        ((result.colors as any)[clean] || 0) + 1;
     } else {
       // treat unknown symbol as generic fallback (conservative)
       result.generic += 0;

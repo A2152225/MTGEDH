@@ -333,7 +333,7 @@ export function useGameSocket(): UseGameSocketState {
       }
     });
 
-    // diff => for robustness, treat as full replacement when diff.full/after present
+    // diff => treat full or after as a complete replacement, and always request fresh state
     socket.on("stateDiff", (payload: any) => {
       try {
         if (!payload) return;
@@ -379,6 +379,22 @@ export function useGameSocket(): UseGameSocketState {
         } else {
           // eslint-disable-next-line no-console
           console.debug("[socket] stateDiff (unrecognized)", { payload });
+        }
+
+        // SAFETY NET: always request full state after any diff so the client
+        // stays in sync with authoritative server state (no manual Refresh).
+        const gid =
+          incomingGameId ||
+          (typeof diff?.full?.id === "string" && diff.full.id) ||
+          (typeof diff?.after?.id === "string" && diff.after.id) ||
+          undefined;
+        if (gid) {
+          try {
+            socket.emit("requestState", { gameId: gid });
+          } catch (e) {
+            // eslint-disable-next-line no-console
+            console.warn("stateDiff: requestState emit failed", e);
+          }
         }
       } catch (e) {
         // eslint-disable-next-line no-console
@@ -490,7 +506,9 @@ export function useGameSocket(): UseGameSocketState {
                 ...prev,
                 zones: { ...(prev.zones || {}) },
               };
-              copy.zones[you] = {
+           
+
+ copy.zones[you] = {
                 ...(copy.zones[you] || {}),
                 hand: [],
                 handCount: 0,
@@ -512,7 +530,10 @@ export function useGameSocket(): UseGameSocketState {
             gameId: info.gameId,
             commanderNames: queuedCommanderSelection.names,
           };
-          if (queuedCommanderSelection.ids && queuedCommanderSelection.ids.length) {
+          if (
+            queuedCommanderSelection.ids &&
+            queuedCommanderSelection.ids.length
+          ) {
             payload.commanderIds = queuedCommanderSelection.ids;
           }
           // eslint-disable-next-line no-console
@@ -551,7 +572,11 @@ export function useGameSocket(): UseGameSocketState {
         // ignore
       }
 
-      if (localImportConfirmOpen || pendingLocalImportRef.current || confirmOpen) {
+      if (
+        localImportConfirmOpen ||
+        pendingLocalImportRef.current ||
+        confirmOpen
+      ) {
         return;
       }
 
@@ -631,7 +656,8 @@ export function useGameSocket(): UseGameSocketState {
       // ignore
     }
     const token =
-      sessionStorage.getItem(seatTokenKey(gameIdInput, nameInput)) || undefined;
+      sessionStorage.getItem(seatTokenKey(gameIdInput, nameInput)) ||
+      undefined;
     const payload = {
       gameId: gameIdInput,
       playerName: nameInput,
