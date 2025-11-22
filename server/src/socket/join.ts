@@ -142,19 +142,64 @@ function normalizeViewForEmit(rawView: any, game: any) {
 }
 
 /* --- Debug logging (env-gated) --- */
+/**
+ * Compact, env-gated state debug logger.
+ * Avoids dumping the entire deck; logs summary + first/last library card only.
+ */
 function logStateDebug(prefix: string, gameId: string, view: any) {
   try {
     const enabled = process.env.DEBUG_STATE === "1";
     if (!enabled) return;
-    const playerIds = (Array.isArray(view?.players) ? view.players.map((p: any) => p?.id ?? p?.playerId) : []);
+
+    const playerIds = Array.isArray(view?.players)
+      ? view.players.map((p: any) => p?.id ?? p?.playerId)
+      : [];
     const zoneKeys = view?.zones ? Object.keys(view.zones) : [];
-    console.log(`[STATE_DEBUG] ${prefix} gameId=${gameId} players=[${playerIds.join(",")}] zones=[${zoneKeys.join(",")}] seq=${view?.seq ?? "-"}`);
-    try {
-      console.log(`[STATE_DEBUG] FULL ${prefix} gameId=${gameId} view=`, JSON.stringify(view));
-    } catch (e) {
-      console.log(`[STATE_DEBUG] FULL ${prefix} gameId=${gameId} view (stringify failed)`, view);
-    }
-  } catch (e) {
+
+    const firstPid = playerIds[0];
+    const z = firstPid && view?.zones ? view.zones[firstPid] : null;
+    const handCount =
+      typeof z?.handCount === "number"
+        ? z.handCount
+        : Array.isArray(z?.hand)
+        ? z.hand.length
+        : 0;
+    const libraryCount =
+      typeof z?.libraryCount === "number"
+        ? z.libraryCount
+        : Array.isArray(z?.library)
+        ? z.library.length
+        : 0;
+
+    const lib = z && Array.isArray(z.library) ? z.library : [];
+    const firstLib = lib[0];
+    const lastLib =
+      lib.length > 1 ? lib[lib.length - 1] : lib.length === 1 ? lib[0] : null;
+
+    console.log(
+      `[STATE_DEBUG] ${prefix} gameId=${gameId} players=[${playerIds.join(
+        ","
+      )}] zones=[${zoneKeys.join(
+        ","
+      )}] handCount=${handCount} libraryCount=${libraryCount}`
+    );
+    console.log(`[STATE_DEBUG] ${prefix} librarySample gameId=${gameId}`, {
+      firstLibraryCard: firstLib
+        ? {
+            id: firstLib.id,
+            name: firstLib.name,
+            type_line: firstLib.type_line,
+          }
+        : null,
+      lastLibraryCard: lastLib
+        ? {
+            id: lastLib.id,
+            name: lastLib.name,
+            type_line: lastLib.type_line,
+          }
+        : null,
+    });
+  } catch {
     // non-fatal
   }
 }
