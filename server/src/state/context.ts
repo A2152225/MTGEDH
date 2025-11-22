@@ -122,7 +122,7 @@ export function createContext(gameId: string): GameContext {
     startedAt: undefined,
     turn: undefined,
     activePlayerIndex: undefined,
-    landsPlayedThisTurn: undefined,
+    landsPlayedThisTurn: {} as any,
   };
 
   const ctx: GameContext = {
