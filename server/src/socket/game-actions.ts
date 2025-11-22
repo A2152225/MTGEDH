@@ -214,6 +214,11 @@ export function registerGameActions(io: Server, socket: Socket) {
         console.warn("appendEvent(nextTurn) failed", e);
       }
 
+      // Ensure sequence is bumped before broadcasting to trigger client re-renders
+      if (typeof (game as any).safeBumpSeq === "function") {
+        (game as any).bumpSeq();
+      }
+
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
         gameId,
@@ -355,6 +360,12 @@ export function registerGameActions(io: Server, socket: Socket) {
       } catch (e) {
         console.warn("appendEvent(nextStep) failed", e);
       }
+
+      // Ensure sequence is bumped before broadcasting to trigger client re-renders
+      if (typeof (game as any).safeBumpSeq === "function") {
+        (game as any).bumpSeq();
+      }
+
       broadcastGame(io, game, gameId);
     } catch (err: any) {
       console.error(`nextStep error for game ${gameId}:`, err);
@@ -407,6 +418,12 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
 
         appendGameEvent(game, gameId, "shuffleHand", { playerId });
+
+        // Ensure sequence is bumped before broadcasting to trigger client re-renders
+        if (typeof (game as any).safeBumpSeq === "function") {
+          (game as any).bumpSeq();
+        }
+
         broadcastGame(io, game, gameId);
       } catch (e) {
         console.error("shuffleHand failed:", e);

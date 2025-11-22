@@ -98,7 +98,7 @@ export function passPriority(ctx: GameContext, playerId?: PlayerID) {
     // If no priority set, give to first active
     if (!state.priority) {
       state.priority = active[0];
-      safeBumpSeq(ctx);
+      ctx.bumpSeq();
       return { changed: true, resolvedNow: false };
     }
 
@@ -126,7 +126,7 @@ export function passPriority(ctx: GameContext, playerId?: PlayerID) {
     }
 
     state.priority = nextId;
-    safeBumpSeq(ctx);
+    ctx.bumpSeq();
 
     // Basic heuristic: if stack empty and we cycled back to the turn player, no resolution happens here.
     const stackLen = Array.isArray(state.stack) ? state.stack.length : 0;
@@ -146,7 +146,7 @@ export function setTurnDirection(ctx: GameContext, dir: 1 | -1) {
   try {
     (ctx as any).state = (ctx as any).state || {};
     (ctx as any).state.turnDirection = dir;
-    safeBumpSeq(ctx);
+    ctx.bumpSeq();
   } catch (err) {
     console.warn("setTurnDirection failed:", err);
   }
@@ -177,7 +177,7 @@ export function nextTurn(ctx: GameContext) {
     (ctx as any).state.priority = next;
     
     console.log(`[nextTurn] Advanced to player ${next}, phase=${(ctx as any).state.phase}, step=${(ctx as any).state.step}`);
-    safeBumpSeq(ctx);
+    ctx.bumpSeq();
   } catch (err) {
     console.warn("nextTurn failed:", err);
   }
@@ -264,7 +264,7 @@ export function nextStep(ctx: GameContext) {
     // If we should advance to next turn, call nextTurn instead
     if (shouldAdvanceTurn) {
       console.log(`[nextStep] Cleanup complete, advancing to next turn`);
-      safeBumpSeq(ctx);
+      ctx.bumpSeq();
       nextTurn(ctx);
       return;
     }
@@ -284,7 +284,7 @@ export function nextStep(ctx: GameContext) {
       }
     }
     
-    safeBumpSeq(ctx);
+    ctx.bumpSeq();
   } catch (err) {
     console.warn("nextStep failed:", err);
   }
