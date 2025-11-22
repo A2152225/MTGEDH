@@ -41,28 +41,57 @@ export function viewFor(ctx: GameContext, viewer?: PlayerID, spectator = false):
   for (const pid of Object.keys(zones)) {
     const z = zones[pid] as PlayerZones | undefined;
     if (!z) {
-      out.zones[pid] = { hand: [], handCount: 0, libraryCount: libraries.get(pid)?.length ?? 0, graveyard: [], graveyardCount: 0 };
+      out.zones[pid] = {
+        hand: [],
+        handCount: 0,
+        libraryCount: libraries.get(pid)?.length ?? 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+      };
       continue;
     }
 
     const libLen = libraries.get(pid)?.length ?? (z.libraryCount ?? 0);
 
-    if (!spectator && viewer && viewer === pid) {
+    const fullHand = Array.isArray(z.hand) ? (z.hand as any[]) : [];
+    const fullGraveyard = Array.isArray(z.graveyard) ? (z.graveyard as any[]) : [];
+    const fullExile = Array.isArray(z.exile) ? (z.exile as any[]) : [];
+
+    const isViewer = !spectator && viewer && viewer === pid;
+
+    if (isViewer) {
+      // For the viewer's own zones, clone full detail.
       out.zones[pid] = {
-        hand: Array.isArray(z.hand) ? (z.hand as any[]).map(h => ({ ...h })) : [],
-        handCount: z.handCount ?? (Array.isArray(z.hand) ? (z.hand as any[]).length : 0),
+        hand: fullHand.map(h => ({ ...h })),
+        handCount: z.handCount ?? fullHand.length,
         libraryCount: libLen,
-        graveyard: Array.isArray(z.graveyard) ? (z.graveyard as any[]).map(g => ({ ...g })) : [],
-        graveyardCount: z.graveyardCount ?? (Array.isArray(z.graveyard) ? (z.graveyard as any[]).length : 0),
-        exile: Array.isArray(z.exile) ? (z.exile as any[]).map(e => ({ ...e })) : [],
+        graveyard: fullGraveyard.map(g => ({ ...g })),
+        graveyardCount: z.graveyardCount ?? fullGraveyard.length,
+        exile: fullExile.map(e => ({ ...e })),
       };
     } else {
+      // For opponents (and when in spectator mode), we still want the client
+      // to know there is one card per handCount so it can render backs.
+      const handCount = z.handCount ?? fullHand.length;
+
+      // Represent each card as a minimal stub with known:false so the client
+      // can render back images without leaking card identity.
+      const opponentHandStubs =
+        handCount > 0
+          ? Array.from({ length: handCount }, (_v, idx) => ({
+              id: `hidden-${pid}-${idx}`,
+              faceDown: true,
+              known: false,
+            }))
+          : [];
+
       out.zones[pid] = {
-        hand: [],
-        handCount: z.handCount ?? 0,
+        hand: opponentHandStubs,
+        handCount,
         libraryCount: libLen,
         graveyard: [],
-        graveyardCount: z.graveyardCount ?? 0,
+        graveyardCount: z.graveyardCount ?? fullGraveyard.length ?? 0,
         exile: [],
       };
     }
@@ -77,7 +106,11 @@ export function viewFor(ctx: GameContext, viewer?: PlayerID, spectator = false):
 
   if (!Array.isArray(out.players) || out.players.length === 0) {
     const participants = (ctx as any).participantsList || [];
-    out.players = participants.map((p: any, idx: number) => ({ id: p.playerId, name: p.name || `Player ${idx + 1}`, seat: idx }));
+    out.players = participants.map((p: any, idx: number) => ({
+      id: p.playerId,
+      name: p.name || `Player ${idx + 1}`,
+      seat: idx,
+    }));
   }
 
   return out as ClientGameView;

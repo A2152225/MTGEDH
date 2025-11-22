@@ -14,7 +14,7 @@
 
 param(
     [string]$Root = ".",
-    [string]$Pattern = "joinGame",
+    [string]$Pattern = "ClientGameView",
     [switch]$CaseSensitive = $true,
     [switch]$ListFilesOnly,
     [int]$Context = 0,
