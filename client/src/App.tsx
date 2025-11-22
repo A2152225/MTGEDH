@@ -99,6 +99,71 @@ function ChatPanel({
   );
 }
 
+/** Map engine/internal phase enum to human-friendly name */
+function prettyPhase(phase?: string | null): string {
+  if (!phase) return "-";
+  const p = String(phase);
+  switch (p) {
+    case "PRE_GAME":
+    case "preGame":
+      return "Pre-game";
+    case "beginning":
+      return "Beginning phase";
+    case "precombatMain":
+    case "main1":
+      return "Precombat main phase";
+    case "combat":
+      return "Combat phase";
+    case "postcombatMain":
+    case "main2":
+      return "Postcombat main phase";
+    case "ending":
+      return "Ending phase";
+    default:
+      // Fallback: title-case best-effort
+      return p
+        .replace(/([a-z])([A-Z])/g, "$1 $2")
+        .replace(/_/g, " ")
+        .replace(/^\w/, (c) => c.toUpperCase());
+  }
+}
+
+/** Map engine/internal step enum to human-friendly name */
+function prettyStep(step?: string | null): string {
+  if (!step) return "";
+  const s = String(step);
+  switch (s) {
+    case "untap":
+      return "Untap step";
+    case "upkeep":
+      return "Upkeep step";
+    case "draw":
+      return "Draw step";
+    case "main":
+      return "Main phase";
+    case "beginCombat":
+      return "Beginning of combat step";
+    case "declareAttackers":
+      return "Declare attackers step";
+    case "declareBlockers":
+      return "Declare blockers step";
+    case "combatDamage":
+      return "Combat damage step";
+    case "endCombat":
+      return "End of combat step";
+    case "endStep":
+    case "end":
+      return "End step";
+    case "cleanup":
+      return "Cleanup step";
+    default:
+      return s
+        .replace(/([a-z])([A-Z])/g, "$1 $2")
+        .replace(/_/g, " ")
+        .replace(/^\w/, (c) => c.toUpperCase());
+  }
+}
+
 /* App component */
 export function App() {
   const {
@@ -200,8 +265,9 @@ export function App() {
   const showCommanderGallery =
     cmdModalOpen && cmdSuggestedGameId && importedCandidates.length > 0;
 
-  const phaseLabel = String(safeView?.phase ?? "-");
-  const stepLabel = safeView?.step ? String(safeView.step) : "";
+  const phaseLabel = prettyPhase(safeView?.phase);
+  const stepLabelRaw = safeView?.step ? String(safeView.step) : "";
+  const stepLabel = prettyStep(stepLabelRaw);
 
   return (
     <div
@@ -286,7 +352,7 @@ export function App() {
           <GameList onJoin={joinFromList} />
         </div>
 
-        {/* CONTROL BAR MOVED HERE, JUST ABOVE THE TABLE */}
+        {/* CONTROL BAR JUST ABOVE THE TABLE */}
         <div
           style={{
             display: "flex",
