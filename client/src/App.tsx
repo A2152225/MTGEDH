@@ -53,7 +53,7 @@ function ChatPanel({
         padding: 8,
         display: "flex",
         flexDirection: "column",
-        height: 340,
+        height: 260,
         background: "#fafafa",
       }}
     >
@@ -111,16 +111,15 @@ function prettyPhase(phase?: string | null): string {
       return "Beginning phase";
     case "precombatMain":
     case "main1":
-      return "Precombat main phase";
+      return "Main phase";
     case "combat":
       return "Combat phase";
     case "postcombatMain":
     case "main2":
-      return "Postcombat main phase";
+      return "Main phase 2";
     case "ending":
       return "Ending phase";
     default:
-      // Fallback: title-case best-effort
       return p
         .replace(/([a-z])([A-Z])/g, "$1 $2")
         .replace(/_/g, " ")
@@ -233,6 +232,9 @@ export function App() {
   const [showNameInUseModal, setShowNameInUseModal] = useState(false);
   const [nameInUsePayload, setNameInUsePayload] = useState<any | null>(null);
 
+  // Accordion state for Join / Active Games
+  const [joinCollapsed, setJoinCollapsed] = useState(false);
+
   React.useEffect(() => {
     const handler = (payload: any) => {
       setNameInUsePayload(payload);
@@ -248,6 +250,13 @@ export function App() {
   const canPass = !!safeView && !!you && safeView.priority === you;
   const isYouPlayer =
     !!safeView && !!you && safeView.players.some((p) => p.id === you);
+
+  // Auto-collapse join panel once you're an active player
+  React.useEffect(() => {
+    if (isYouPlayer) {
+      setJoinCollapsed(true);
+    }
+  }, [isYouPlayer]);
 
   const canAdvanceStep = useMemo(() => {
     if (!safeView || !you) return false;
@@ -297,59 +306,91 @@ export function App() {
           </div>
         </div>
 
-        {/* JOIN / REFRESH / DEBUG CONTROLS */}
+        {/* JOIN / ACTIVE GAMES (collapsible/accordion) */}
         <div
           style={{
-            display: "flex",
-            gap: 8,
-            alignItems: "center",
-            flexWrap: "wrap",
+            border: "1px solid #ddd",
+            borderRadius: 6,
+            padding: 8,
+            background: "#fafafa",
           }}
         >
-          <input
-            value={gameIdInput}
-            onChange={(e) => setGameIdInput(e.target.value as any)}
-            placeholder="Game ID"
-          />
-          <input
-            value={nameInput}
-            onChange={(e) => setNameInput(e.target.value)}
-            placeholder="Name"
-          />
-          <label
+          <div
             style={{
-              display: "inline-flex",
+              display: "flex",
+              justifyContent: "space-between",
               alignItems: "center",
-              gap: 6,
+              cursor: "pointer",
             }}
+            onClick={() => setJoinCollapsed((c) => !c)}
           >
-            <input
-              type="checkbox"
-              checked={joinAsSpectator}
-              onChange={(e) => setJoinAsSpectator(e.target.checked)}
-            />
-            Spectator
-          </label>
-          <button onClick={handleJoin} disabled={!connected}>
-            Join
-          </button>
-          <button
-            onClick={() => socket.emit("requestState", { gameId: gameIdInput })}
-            disabled={!connected}
-          >
-            Refresh
-          </button>
-          <button
-            onClick={() => fetchDebug()}
-            disabled={!connected || !safeView}
-          >
-            Debug
-          </button>
-        </div>
+            <div style={{ fontWeight: 600, fontSize: 13 }}>
+              Join / Active Games
+            </div>
+            <div style={{ fontSize: 16 }}>
+              {joinCollapsed ? "▸" : "▾"}
+            </div>
+          </div>
 
-        {/* GAME LIST */}
-        <div style={{ marginTop: 12 }}>
-          <GameList onJoin={joinFromList} />
+          {!joinCollapsed && (
+            <>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  marginTop: 8,
+                }}
+              >
+                <input
+                  value={gameIdInput}
+                  onChange={(e) => setGameIdInput(e.target.value as any)}
+                  placeholder="Game ID"
+                />
+                <input
+                  value={nameInput}
+                  onChange={(e) => setNameInput(e.target.value)}
+                  placeholder="Name"
+                />
+                <label
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={joinAsSpectator}
+                    onChange={(e) => setJoinAsSpectator(e.target.checked)}
+                  />
+                  Spectator
+                </label>
+                <button onClick={handleJoin} disabled={!connected}>
+                  Join
+                </button>
+                <button
+                  onClick={() =>
+                    socket.emit("requestState", { gameId: gameIdInput })
+                  }
+                  disabled={!connected}
+                >
+                  Refresh
+                </button>
+                <button
+                  onClick={() => fetchDebug()}
+                  disabled={!connected || !safeView}
+                >
+                  Debug
+                </button>
+              </div>
+
+              <div style={{ marginTop: 8 }}>
+                <GameList onJoin={joinFromList} />
+              </div>
+            </>
+          )}
         </div>
 
         {/* CONTROL BAR JUST ABOVE THE TABLE */}
@@ -358,7 +399,7 @@ export function App() {
             display: "flex",
             justifyContent: "space-between",
             alignItems: "flex-end",
-            marginTop: 8,
+            marginTop: 4,
           }}
         >
           {/* Phase / Step summary on the left (fixed/truncated) */}
@@ -542,10 +583,8 @@ export function App() {
             </div>
           )}
         </div>
-      </div>
 
-      {/* RIGHT COLUMN: CHAT + ZONES + IMPORT/DEBUG SHORTCUTS */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {/* INLINE CHAT BELOW PLAY AREA */}
         <ChatPanel
           messages={chat}
           onSend={(txt) => {
@@ -562,7 +601,10 @@ export function App() {
           }}
           view={view}
         />
+      </div>
 
+      {/* RIGHT COLUMN: Quick actions only (Zones removed) */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div
           style={{
             border: "1px solid #ddd",
@@ -570,20 +612,14 @@ export function App() {
             padding: 8,
           }}
         >
-          <div style={{ fontWeight: 700, marginBottom: 8 }}>Zones</div>
-          {safeView ? (
-            <ZonesPanel view={safeView} you={you} isYouPlayer={isYouPlayer} />
-          ) : (
-            <div style={{ color: "#666" }}>Join a game to see zones.</div>
-          )}
-        </div>
-
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => requestImportDeck("")}>Import (text)</button>
-          <button onClick={() => requestUseSavedDeck("")}>Use Saved</button>
-          <button onClick={() => fetchDebug()} disabled={!safeView}>
-            Debug
-          </button>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>Quick Actions</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <button onClick={() => requestImportDeck("")}>Import (text)</button>
+            <button onClick={() => requestUseSavedDeck("")}>Use Saved</button>
+            <button onClick={() => fetchDebug()} disabled={!safeView}>
+              Debug
+            </button>
+          </div>
         </div>
       </div>
 
@@ -619,7 +655,7 @@ export function App() {
           )
         )}
 
-      {/* Debug modal */}
+      {/* Debug modal (unchanged) */}
       {debugOpen && (
         <div
           style={{
@@ -687,7 +723,7 @@ export function App() {
         </div>
       )}
 
-      {/* Import confirmation modal */}
+      {/* Import confirmation modal (unchanged from your file) */}
       {confirmOpen && confirmPayload && (
         <div
           style={{

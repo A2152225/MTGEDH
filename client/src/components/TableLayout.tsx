@@ -457,6 +457,10 @@ export function TableLayout(props: {
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        // TODO: custom game-actions context menu can be triggered here
+      }}
       style={{
         width: '100%',
         height: '72vh',
