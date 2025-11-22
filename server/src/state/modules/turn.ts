@@ -190,20 +190,20 @@ export function nextTurn(ctx: GameContext) {
 export function nextStep(ctx: GameContext) {
   try {
     (ctx as any).state = (ctx as any).state || {};
-    const currentPhase = String((ctx as any).state.phase || "beginning").toLowerCase();
-    const currentStep = String((ctx as any).state.step || "").toLowerCase();
+    const currentPhase = String((ctx as any).state.phase || "beginning");
+    const currentStep = String((ctx as any).state.step || "");
     
-    // Simple step progression logic (using lowercase enum values to match GamePhase/GameStep enums)
-    // BEGINNING phase: untap -> upkeep -> draw
-    // PRECOMBAT_MAIN phase: just main (no substeps)
-    // COMBAT phase: beginCombat -> declareAttackers -> declareBlockers -> combatDamage -> endCombat
-    // POSTCOMBAT_MAIN phase: just main (no substeps)
-    // ENDING phase: endStep -> cleanup
+    // Simple step progression logic (using camelCase enum values to match GamePhase/GameStep enums)
+    // beginning phase: untap -> upkeep -> draw
+    // precombatMain phase: just main (no substeps)
+    // combat phase: beginCombat -> declareAttackers -> declareBlockers -> combatDamage -> endCombat
+    // postcombatMain phase: just main (no substeps)
+    // ending phase: endStep -> cleanup
     
     let nextPhase = currentPhase;
     let nextStep = currentStep;
     
-    if (currentPhase === "beginning" || currentPhase === "pre_game" || currentPhase === "") {
+    if (currentPhase === "beginning" || currentPhase === "PRE_GAME" || currentPhase === "") {
       if (currentStep === "" || currentStep === "untap") {
         nextPhase = "beginning";
         nextStep = "upkeep";
@@ -211,40 +211,40 @@ export function nextStep(ctx: GameContext) {
         nextPhase = "beginning";
         nextStep = "draw";
       } else {
-        // After DRAW, go to PRECOMBAT_MAIN
+        // After draw, go to precombatMain
         nextPhase = "precombatMain";
         nextStep = "main";
       }
-    } else if (currentPhase === "precombatmain" || currentPhase === "main1") {
+    } else if (currentPhase === "precombatMain" || currentPhase === "main1") {
       nextPhase = "combat";
       nextStep = "beginCombat";
     } else if (currentPhase === "combat") {
-      if (currentStep === "begincombat" || currentStep === "begin_combat") {
+      if (currentStep === "beginCombat") {
         nextStep = "declareAttackers";
-      } else if (currentStep === "declareattackers" || currentStep === "declare_attackers") {
+      } else if (currentStep === "declareAttackers") {
         nextStep = "declareBlockers";
-      } else if (currentStep === "declareblockers" || currentStep === "declare_blockers") {
+      } else if (currentStep === "declareBlockers") {
         nextStep = "combatDamage";
-      } else if (currentStep === "combatdamage" || currentStep === "combat_damage") {
+      } else if (currentStep === "combatDamage") {
         nextStep = "endCombat";
       } else {
-        // After END_COMBAT, go to POSTCOMBAT_MAIN
+        // After endCombat, go to postcombatMain
         nextPhase = "postcombatMain";
         nextStep = "main";
       }
-    } else if (currentPhase === "postcombatmain" || currentPhase === "main2") {
+    } else if (currentPhase === "postcombatMain" || currentPhase === "main2") {
       nextPhase = "ending";
       nextStep = "endStep";
     } else if (currentPhase === "ending") {
-      if (currentStep === "endstep" || currentStep === "end_step" || currentStep === "end") {
+      if (currentStep === "endStep" || currentStep === "end") {
         nextStep = "cleanup";
       } else {
-        // After CLEANUP, would normally go to next turn, but that's handled by nextTurn()
-        // Just stay at CLEANUP for now
+        // After cleanup, would normally go to next turn, but that's handled by nextTurn()
+        // Just stay at cleanup for now
         nextStep = "cleanup";
       }
     } else {
-      // Unknown phase, move to PRECOMBAT_MAIN as a safe default
+      // Unknown phase, move to precombatMain as a safe default
       nextPhase = "precombatMain";
       nextStep = "main";
     }
