@@ -782,7 +782,7 @@ async function applyConfirmedImport(
               if (typeof (game as any).drawCards === "function") {
                 try {
                   (game as any).drawCards(p.initiator, 7);
-                  appendEvent(p.gameId, game.seq, "drawCards", {
+                  await appendEvent(p.gameId, game.seq, "drawCards", {
                     playerId: p.initiator,
                     count: 7,
                   });

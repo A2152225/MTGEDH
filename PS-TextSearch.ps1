@@ -14,7 +14,7 @@
 
 param(
     [string]$Root = ".",
-    [string]$Pattern = "rngseed",
+    [string]$Pattern = "TableLayout",
     [switch]$CaseSensitive = $false,
     [switch]$ListFilesOnly,
     [int]$Context = 0,

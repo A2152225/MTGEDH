@@ -81,6 +81,10 @@ function prettyStep(step?: string | null): string {
   }
 }
 
+function isLandTypeLine(tl?: string | null): boolean {
+  return !!tl && /\bland\b/i.test(tl);
+}
+
 /* App component */
 export function App() {
   const {
@@ -217,6 +221,33 @@ export function App() {
     };
     socket.emit("chat", payload);
     setChat((prev) => [...prev, payload]);
+  };
+
+  // Hand interaction helpers: used to gate client UI; server still validates rules.
+  const reasonCannotPlayLand = (card: { type_line?: string | null }) => {
+    if (!safeView || !you) return "No game state";
+    if (!isLandTypeLine(card.type_line)) return "Not a land";
+
+    const turnPlayer = safeView.turnPlayer;
+    const phase = safeView.phase;
+    const landsPlayedThisTurn =
+      (safeView as any).landsPlayedThisTurn?.[you] || 0;
+
+    if (turnPlayer !== you) return "Not your turn";
+    if (!phase || !String(phase).toLowerCase().includes("main")) {
+      return "Can only play lands during your main phase";
+    }
+    if (landsPlayedThisTurn >= 1) return "You have already played a land this turn";
+
+    return null;
+  };
+
+  const reasonCannotCast = (card: { type_line?: string | null }) => {
+    if (!safeView || !you) return "No game state";
+    if (isLandTypeLine(card.type_line)) return "Lands are played, not cast";
+    const turnPlayer = safeView.turnPlayer;
+    if (turnPlayer !== you) return "Not your turn";
+    return null;
   };
 
   return (
@@ -490,13 +521,18 @@ export function App() {
                 })
               }
               onPlayLandFromHand={(cardId) =>
-                socket.emit("playLand", { gameId: safeView!.id, cardId })
+                safeView &&
+                socket.emit("playLand", { gameId: safeView.id, cardId })
               }
               onCastFromHand={(cardId) =>
-                socket.emit("beginCast", { gameId: safeView!.id, cardId })
+                safeView &&
+                socket.emit("castSpellFromHand", {
+                  gameId: safeView.id,
+                  cardId,
+                })
               }
-              reasonCannotPlayLand={() => null}
-              reasonCannotCast={() => null}
+              reasonCannotPlayLand={reasonCannotPlayLand}
+              reasonCannotCast={reasonCannotCast}
               threeD={undefined}
               enablePanZoom
               tableCloth={{ imageUrl: "" }}
