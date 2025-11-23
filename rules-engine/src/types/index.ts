@@ -55,3 +55,8 @@ export * from './cardTypes';
 
 // Rules 400-408 - Zones (Library, Hand, Battlefield, Graveyard, Stack, Exile, Command)
 export * from './zones';
+
+// Section 5: Turn Structure (Rules 500-514)
+
+// Rules 500-514 - Turn Structure (Phases, Steps, Turn-Based Actions)
+export * from './turnStructure';
