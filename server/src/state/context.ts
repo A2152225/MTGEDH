@@ -54,6 +54,9 @@ export interface GameContext {
   seq: { value: number };
   bumpSeq: () => void;
 
+  // priority tracking
+  passesInRow: { value: number };
+
   // misc runtime helpers that modules may call
   landsPlayedThisTurn?: Record<PlayerID, number>;
   manaPool?: Record<PlayerID, any>;
@@ -108,6 +111,9 @@ export function createContext(gameId: string): GameContext {
     seq.value++;
   }
 
+  // Priority tracking for stack resolution
+  const passesInRow = { value: 0 };
+
   // Minimal authoritative state snapshot. Keep shape compatible with ClientGameView.
   const state: GameState = {
     id: gameId,
@@ -159,6 +165,7 @@ export function createContext(gameId: string): GameContext {
     rng,
     seq,
     bumpSeq,
+    passesInRow,
 
     // optional runtime containers (populated by other modules when used)
     landsPlayedThisTurn: {},

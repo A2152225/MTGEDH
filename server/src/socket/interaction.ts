@@ -143,10 +143,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     try {
       const game = ensureGame(gameId);
       
-      // Find the card in player's hand
-      const view = game.viewFor(pid, false);
-      const hand = view.zones?.[pid]?.hand || [];
-      const card = hand.find((c: any) => c.id === cardId);
+      // Remove card from hand using the zones helper
+      const card = game.removeCardFromHand(pid, cardId);
       
       if (!card) {
         socket.emit("error", {
@@ -154,14 +152,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           message: "Card not found in your hand.",
         });
         return;
-      }
-
-      // Remove card from authoritative hand state
-      const authHand = game.state.zones[pid]?.hand || [];
-      const handIdx = authHand.findIndex((c: any) => c.id === cardId);
-      if (handIdx !== -1) {
-        authHand.splice(handIdx, 1);
-        game.state.zones[pid].handCount = authHand.length;
       }
 
       // Use the game's playLand method to move card to battlefield
@@ -194,10 +184,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     try {
       const game = ensureGame(gameId);
       
-      // Find the card in player's hand
-      const view = game.viewFor(pid, false);
-      const hand = view.zones?.[pid]?.hand || [];
-      const card = hand.find((c: any) => c.id === cardId);
+      // Remove card from hand using the zones helper
+      const card = game.removeCardFromHand(pid, cardId);
       
       if (!card) {
         socket.emit("error", {
@@ -205,14 +193,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           message: "Card not found in your hand.",
         });
         return;
-      }
-
-      // Remove card from authoritative hand state
-      const authHand = game.state.zones[pid]?.hand || [];
-      const handIdx = authHand.findIndex((c: any) => c.id === cardId);
-      if (handIdx !== -1) {
-        authHand.splice(handIdx, 1);
-        game.state.zones[pid].handCount = authHand.length;
       }
 
       // Construct stack item

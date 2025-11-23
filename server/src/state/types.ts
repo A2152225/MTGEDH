@@ -14,6 +14,7 @@ export interface InMemoryGame {
   importDeckResolved: (playerId: PlayerID, cards: Array<Pick<KnownCardRef, "id" | "name" | "type_line" | "oracle_text" | "image_uris" | "mana_cost" | "power" | "toughness">>) => void;
   shuffleLibrary: (playerId: PlayerID) => void;
   drawCards: (playerId: PlayerID, count: number) => any[];
+  removeCardFromHand: (playerId: PlayerID, cardId: string) => KnownCardRef | null;
 
   setCommander: (playerId: PlayerID, commanderNames: string[], commanderIds?: string[], colorIdentity?: ("W"|"U"|"B"|"R"|"G")[]) => void;
   castCommander: (playerId: PlayerID, commanderId: string) => void;

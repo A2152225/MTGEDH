@@ -24,6 +24,7 @@ import {
   reorderHand as zonesReorderHand,
   shuffleHand as zonesShuffleHand,
   peekTopN,
+  removeCardFromHand,
 } from "./modules/zones";
 import { applyScry, applySurveil } from "./modules/zones_helpers";
 import { setCommander, castCommander, moveCommanderToCZ } from "./modules/commander";
@@ -132,6 +133,7 @@ export function createInitialGameState(gameId: string): InMemoryGame {
     reorderHand: (playerId: PlayerID, order: number[]) => zonesReorderHand(ctx, playerId, order),
     shuffleHand: (playerId: PlayerID) => zonesShuffleHand(ctx, playerId),
     peekTopN: (playerId: PlayerID, n: number) => peekTopN(ctx, playerId, n),
+    removeCardFromHand: (playerId: PlayerID, cardId: string) => removeCardFromHand(ctx, playerId, cardId),
     applyScry: (playerId: PlayerID, keepTopOrder: string[], bottomOrder: string[]) =>
       applyScry(ctx, playerId, keepTopOrder, bottomOrder),
     applySurveil: (playerId: PlayerID, toGraveyard: string[], keepTopOrder: string[]) =>

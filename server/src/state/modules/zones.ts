@@ -188,6 +188,22 @@ export function selectFromLibrary(ctx: GameContext, playerId: PlayerID, cardIds:
 }
 
 /**
+ * removeCardFromHand: remove a specific card from hand by ID
+ * Returns the removed card if found, or null if not found.
+ */
+export function removeCardFromHand(ctx: GameContext, playerId: PlayerID, cardId: string): KnownCardRef | null {
+  const z = ctx.zones?.[playerId];
+  if (!z) return null;
+  const hand = (z.hand as any[]) || [];
+  const idx = hand.findIndex((c: any) => c.id === cardId);
+  if (idx === -1) return null;
+  const [removed] = hand.splice(idx, 1);
+  z.handCount = hand.length;
+  ctx.bumpSeq();
+  return removed;
+}
+
+/**
  * reorderHand: reorder the player's hand according to index array
  */
 export function reorderHand(ctx: GameContext, playerId: PlayerID, order: number[]) {
