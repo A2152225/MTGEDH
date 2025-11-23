@@ -45,3 +45,8 @@ export * from './playerActions';
 
 // Rules 200-209 - Card Parts (Name, Mana Cost, Type Line, Text, P/T, Loyalty)
 export * from './cardParts';
+
+// Section 3: Card Types (Rules 300-315)
+
+// Rules 300-315 - Card Types (Artifacts, Creatures, Enchantments, Instants, Lands, Planeswalkers, Sorceries, etc.)
+export * from './cardTypes';
