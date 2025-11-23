@@ -65,3 +65,8 @@ export * from './turnStructure';
 
 // Rules 601-615 - Casting Spells, Activating Abilities, Triggered Abilities, Resolving, Continuous Effects, Replacement/Prevention
 export * from './spellsAbilitiesEffects';
+
+// Section 7: Additional Rules (Rules 700+)
+
+// Rule 701 - Keyword Actions
+export * from './keywordActions';
