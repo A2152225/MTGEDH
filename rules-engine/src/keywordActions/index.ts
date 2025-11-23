@@ -46,6 +46,16 @@ export * from './clash';
 export * from './planeswalk';
 export * from './proliferate';
 
+// Part 5: Rules 701.35-701.42
+export * from './detain';
+export * from './populate';
+export * from './monstrosity';
+export * from './vote';
+export * from './bolster';
+export * from './manifest';
+export * from './support';
+export * from './meld';
+
 // Union type for all keyword actions
 import type { ActivateAction } from './activate';
 import type { AttachAction } from './attach';
@@ -78,6 +88,14 @@ import type { FatesealAction } from './fateseal';
 import type { ClashAction } from './clash';
 import type { PlaneswalkAction } from './planeswalk';
 import type { ProliferateAction } from './proliferate';
+import type { DetainAction } from './detain';
+import type { PopulateAction } from './populate';
+import type { MonstrosityAction } from './monstrosity';
+import type { VoteAction } from './vote';
+import type { BolsterAction } from './bolster';
+import type { ManifestAction } from './manifest';
+import type { SupportAction } from './support';
+import type { MeldAction } from './meld';
 
 export type KeywordAction =
   // Part 1
@@ -114,4 +132,13 @@ export type KeywordAction =
   | FatesealAction
   | ClashAction
   | PlaneswalkAction
-  | ProliferateAction;
+  | ProliferateAction
+  // Part 5
+  | DetainAction
+  | PopulateAction
+  | MonstrosityAction
+  | VoteAction
+  | BolsterAction
+  | ManifestAction
+  | SupportAction
+  | MeldAction;
