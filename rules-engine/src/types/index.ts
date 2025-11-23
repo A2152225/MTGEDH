@@ -20,3 +20,15 @@ export * from './gameObjects';
 
 // Rule 113 - Abilities
 export * from './abilities';
+
+// Rule 115 - Targets
+export * from './targets';
+
+// Rule 116 - Special Actions
+export * from './specialActions';
+
+// Rule 117 - Timing and Priority
+export * from './priority';
+
+// Rule 118 - Costs
+export * from './costs';
