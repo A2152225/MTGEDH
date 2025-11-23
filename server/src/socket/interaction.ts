@@ -143,10 +143,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     try {
       const game = ensureGame(gameId);
       
+      console.log(`[playLand] Player ${pid} attempting to play card ${cardId}`);
+      
       // Remove card from hand using the zones helper
       const card = game.removeCardFromHand(pid, cardId);
       
       if (!card) {
+        console.warn(`[playLand] Card ${cardId} not found in hand for player ${pid}`);
         socket.emit("error", {
           code: "PLAY_LAND",
           message: "Card not found in your hand.",
@@ -154,9 +157,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
 
+      console.log(`[playLand] Removed card from hand: ${card.name} (${card.id}), type: ${card.type_line}`);
+
       // Validate that the card is a land
       const typeLine = card.type_line || "";
       if (!/\bland\b/i.test(typeLine)) {
+        console.warn(`[playLand] Card ${card.name} is not a land, returning to hand`);
         // Put the card back in hand if it's not a land
         const z = (game as any).zones?.[pid];
         if (z && Array.isArray(z.hand)) {
@@ -172,6 +178,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
       // Use the game's playLand method to move card to battlefield
       game.playLand(pid, card);
+      
+      console.log(`[playLand] Successfully played land ${card.name} for player ${pid}`);
       
       // Append event for replay (with full card data for event log)
       appendEvent(gameId, game.seq, "playLand", { playerId: pid, card });
@@ -200,10 +208,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     try {
       const game = ensureGame(gameId);
       
+      console.log(`[castSpellFromHand] Player ${pid} attempting to cast card ${cardId}`);
+      
       // Remove card from hand using the zones helper
       const card = game.removeCardFromHand(pid, cardId);
       
       if (!card) {
+        console.warn(`[castSpellFromHand] Card ${cardId} not found in hand for player ${pid}`);
         socket.emit("error", {
           code: "CAST_SPELL",
           message: "Card not found in your hand.",
@@ -211,9 +222,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
 
+      console.log(`[castSpellFromHand] Removed card from hand: ${card.name} (${card.id}), type: ${card.type_line}`);
+
       // Validate that the card is not a land
       const typeLine = card.type_line || "";
       if (/\bland\b/i.test(typeLine)) {
+        console.warn(`[castSpellFromHand] Card ${card.name} is a land, returning to hand`);
         // Put the card back in hand if it's a land
         const z = (game as any).zones?.[pid];
         if (z && Array.isArray(z.hand)) {
@@ -234,6 +248,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         controller: pid,
         card,
       };
+
+      console.log(`[castSpellFromHand] Pushing ${card.name} onto stack with id ${stackItem.id}`);
 
       // Use the game's pushStack method
       game.pushStack(stackItem);
@@ -265,8 +281,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     try {
       const game = ensureGame(gameId);
       
+      const stackBefore = game.state.stack || [];
+      console.log(`[resolveTopOfStack] Stack before resolution (${stackBefore.length} items):`, 
+        stackBefore.map((item: any) => `${item.card?.name || 'unknown'} (${item.id})`).join(', '));
+      
       // Use the game's resolveTopOfStack method
       game.resolveTopOfStack();
+      
+      const stackAfter = game.state.stack || [];
+      console.log(`[resolveTopOfStack] Stack after resolution (${stackAfter.length} items)`);
       
       // Append event for replay
       appendEvent(gameId, game.seq, "resolveTopOfStack", {});
