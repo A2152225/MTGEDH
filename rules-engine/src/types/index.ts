@@ -50,3 +50,8 @@ export * from './cardParts';
 
 // Rules 300-315 - Card Types (Artifacts, Creatures, Enchantments, Instants, Lands, Planeswalkers, Sorceries, etc.)
 export * from './cardTypes';
+
+// Section 4: Zones (Rules 400-408)
+
+// Rules 400-408 - Zones (Library, Hand, Battlefield, Graveyard, Stack, Exile, Command)
+export * from './zones';
