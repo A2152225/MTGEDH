@@ -44,6 +44,8 @@ export * from './convert';
 export * from './fateseal';
 export * from './clash';
 export * from './planeswalk';
+export * from './setInMotion';
+export * from './abandon';
 export * from './proliferate';
 
 // Part 5: Rules 701.35-701.42
@@ -87,6 +89,8 @@ import type { ConvertAction } from './convert';
 import type { FatesealAction } from './fateseal';
 import type { ClashAction } from './clash';
 import type { PlaneswalkAction } from './planeswalk';
+import type { SetInMotionAction } from './setInMotion';
+import type { AbandonAction } from './abandon';
 import type { ProliferateAction } from './proliferate';
 import type { DetainAction } from './detain';
 import type { PopulateAction } from './populate';
@@ -132,6 +136,8 @@ export type KeywordAction =
   | FatesealAction
   | ClashAction
   | PlaneswalkAction
+  | SetInMotionAction
+  | AbandonAction
   | ProliferateAction
   // Part 5
   | DetainAction
