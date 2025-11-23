@@ -272,6 +272,21 @@ export function registerJudgeHandlers(io: Server, socket: Socket) {
           confirmId,
           judgeId: vote.requesterId,
         });
+		// NEW: mark judge role on sockets for this player in this game
+try {
+  const judgeId = vote.requesterId;
+  for (const [id, s] of io.of("/").sockets) {
+    try {
+      if (s.data?.gameId === gameId && s.data?.playerId === judgeId) {
+        (s.data as any).role = "judge";
+      }
+    } catch {
+      // ignore per-socket errors
+    }
+  }
+} catch (e) {
+  console.warn("Failed to tag judge role on sockets:", e);
+}
 
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
