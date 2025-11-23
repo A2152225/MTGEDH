@@ -142,7 +142,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     try {
       const game = ensureGame(gameId);
       
-      // Find the card in player's hand using viewFor
+      // Find the card in player's hand
       const view = game.viewFor(pid, false);
       const hand = view.zones?.[pid]?.hand || [];
       const card = hand.find((c: any) => c.id === cardId);
@@ -163,11 +163,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         game.state.zones[pid].handCount = authHand.length;
       }
 
-      // Apply the playLand event to move card to battlefield
-      game.applyEvent({ type: "playLand", playerId: pid, card });
+      // Use the game's playLand method to move card to battlefield
+      game.playLand(pid, card);
       
-      // Append event for replay
-      appendEvent(gameId, game.seq, "playLand", { playerId: pid, card: { id: cardId } });
+      // Append event for replay (with full card data for event log)
+      appendEvent(gameId, game.seq, "playLand", { playerId: pid, card });
 
       broadcastGame(io, game, gameId);
     } catch (err) {
@@ -193,7 +193,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     try {
       const game = ensureGame(gameId);
       
-      // Find the card in player's hand using viewFor
+      // Find the card in player's hand
       const view = game.viewFor(pid, false);
       const hand = view.zones?.[pid]?.hand || [];
       const card = hand.find((c: any) => c.id === cardId);
@@ -222,10 +222,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         card,
       };
 
-      // Apply pushStack event
-      game.applyEvent({ type: "pushStack", item: stackItem });
+      // Use the game's pushStack method
+      game.pushStack(stackItem);
       
-      // Append event for replay
+      // Append event for replay (with full stack item data)
       appendEvent(gameId, game.seq, "pushStack", { item: stackItem });
 
       broadcastGame(io, game, gameId);
@@ -252,8 +252,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     try {
       const game = ensureGame(gameId);
       
-      // Apply resolveTopOfStack event
-      game.applyEvent({ type: "resolveTopOfStack" });
+      // Use the game's resolveTopOfStack method
+      game.resolveTopOfStack();
       
       // Append event for replay
       appendEvent(gameId, game.seq, "resolveTopOfStack", {});
