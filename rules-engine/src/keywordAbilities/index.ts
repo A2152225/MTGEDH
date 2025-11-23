@@ -20,6 +20,13 @@
  * - Soulshift (702.46), Splice (702.47), Offering (702.48), Ninjutsu (702.49)
  * - Epic (702.50), Convoke (702.51), Dredge (702.52), Transmute (702.53)
  * - Bloodthirst (702.54), Haunt (702.55)
+ * 
+ * Part 4 (Rules 702.56-702.73): Complex keyword abilities
+ * - Replicate (702.56), Forecast (702.57), Graft (702.58), Recover (702.59)
+ * - Ripple (702.60), Split Second (702.61), Suspend (702.62), Vanishing (702.63)
+ * - Absorb (702.64), Aura Swap (702.65), Delve (702.66), Fortify (702.67)
+ * - Frenzy (702.68), Gravestorm (702.69), Poisonous (702.70), Transfigure (702.71)
+ * - Champion (702.72), Changeling (702.73)
  */
 
 // Part 1: Export all keyword ability modules
@@ -75,6 +82,26 @@ export * from './dredge';
 export * from './transmute';
 export * from './bloodthirst';
 export * from './haunt';
+
+// Part 4: Export complex keyword abilities
+export * from './replicate';
+export * from './forecast';
+export * from './graft';
+export * from './recover';
+export * from './ripple';
+export * from './splitSecond';
+export * from './suspend';
+export * from './vanishing';
+export * from './absorb';
+export * from './auraSwap';
+export * from './delve';
+export * from './fortify';
+export * from './frenzy';
+export * from './gravestorm';
+export * from './poisonous';
+export * from './transfigure';
+export * from './champion';
+export * from './changeling';
 
 /**
  * Union type of all keyword ability types
@@ -133,7 +160,26 @@ export type KeywordAbility =
   | import('./dredge').DredgeAbility
   | import('./transmute').TransmuteAbility
   | import('./bloodthirst').BloodthirstAbility
-  | import('./haunt').HauntAbility;
+  | import('./haunt').HauntAbility
+  // Part 4
+  | import('./replicate').ReplicateAbility
+  | import('./forecast').ForecastAbility
+  | import('./graft').GraftAbility
+  | import('./recover').RecoverAbility
+  | import('./ripple').RippleAbility
+  | import('./splitSecond').SplitSecondAbility
+  | import('./suspend').SuspendAbility
+  | import('./vanishing').VanishingAbility
+  | import('./absorb').AbsorbAbility
+  | import('./auraSwap').AuraSwapAbility
+  | import('./delve').DelveAbility
+  | import('./fortify').FortifyAbility
+  | import('./frenzy').FrenzyAbility
+  | import('./gravestorm').GravestormAbility
+  | import('./poisonous').PoisonousAbility
+  | import('./transfigure').TransfigureAbility
+  | import('./champion').ChampionAbility
+  | import('./changeling').ChangelingAbility;
 
 /**
  * Helper function to check if an ability is a specific type
