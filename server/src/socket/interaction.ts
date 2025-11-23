@@ -145,8 +145,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       console.log(`[playLand] Player ${pid} attempting to play card ${cardId}`);
       
-      // Remove card from hand using the zones helper
-      const card = game.removeCardFromHand(pid, cardId);
+      // Find the card in player's hand to validate it exists and get full card data
+      const view = game.viewFor(pid, false);
+      const hand = view.zones?.[pid]?.hand || [];
+      const card = hand.find((c: any) => c.id === cardId);
       
       if (!card) {
         console.warn(`[playLand] Card ${cardId} not found in hand for player ${pid}`);
@@ -157,18 +159,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
 
-      console.log(`[playLand] Removed card from hand: ${card.name} (${card.id}), type: ${card.type_line}`);
+      console.log(`[playLand] Found card in hand: ${card.name} (${card.id}), type: ${card.type_line}`);
 
       // Validate that the card is a land
       const typeLine = card.type_line || "";
       if (!/\bland\b/i.test(typeLine)) {
-        console.warn(`[playLand] Card ${card.name} is not a land, returning to hand`);
-        // Put the card back in hand if it's not a land
-        const z = (game as any).zones?.[pid];
-        if (z && Array.isArray(z.hand)) {
-          z.hand.push(card);
-          z.handCount = z.hand.length;
-        }
+        console.warn(`[playLand] Card ${card.name} is not a land`);
         socket.emit("error", {
           code: "PLAY_LAND",
           message: "Only lands can be played. Use 'Cast' for spells.",
@@ -176,7 +172,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
 
-      // Use the game's playLand method to move card to battlefield
+      // Use the game's playLand method which will remove from hand and add to battlefield
       game.playLand(pid, card);
       
       console.log(`[playLand] Successfully played land ${card.name} for player ${pid}`);
@@ -210,8 +206,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       console.log(`[castSpellFromHand] Player ${pid} attempting to cast card ${cardId}`);
       
-      // Remove card from hand using the zones helper
-      const card = game.removeCardFromHand(pid, cardId);
+      // Find the card in player's hand to validate it exists and get full card data
+      const view = game.viewFor(pid, false);
+      const hand = view.zones?.[pid]?.hand || [];
+      const card = hand.find((c: any) => c.id === cardId);
       
       if (!card) {
         console.warn(`[castSpellFromHand] Card ${cardId} not found in hand for player ${pid}`);
@@ -222,18 +220,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
 
-      console.log(`[castSpellFromHand] Removed card from hand: ${card.name} (${card.id}), type: ${card.type_line}`);
+      console.log(`[castSpellFromHand] Found card in hand: ${card.name} (${card.id}), type: ${card.type_line}`);
 
       // Validate that the card is not a land
       const typeLine = card.type_line || "";
       if (/\bland\b/i.test(typeLine)) {
-        console.warn(`[castSpellFromHand] Card ${card.name} is a land, returning to hand`);
-        // Put the card back in hand if it's a land
-        const z = (game as any).zones?.[pid];
-        if (z && Array.isArray(z.hand)) {
-          z.hand.push(card);
-          z.handCount = z.hand.length;
-        }
+        console.warn(`[castSpellFromHand] Card ${card.name} is a land`);
         socket.emit("error", {
           code: "CAST_SPELL",
           message: "Lands cannot be cast as spells. Use 'Play Land' instead.",
@@ -251,7 +243,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
       console.log(`[castSpellFromHand] Pushing ${card.name} onto stack with id ${stackItem.id}`);
 
-      // Use the game's pushStack method
+      // Use the game's pushStack method which will remove from hand and add to stack
       game.pushStack(stackItem);
       
       // Append event for replay (with full stack item data)

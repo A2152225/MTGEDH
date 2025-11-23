@@ -27,6 +27,19 @@ export function pushStack(
   }
 ) {
   const { state } = ctx;
+  const controller = item.controller;
+  const card = item.card;
+  
+  // Remove the card from hand if it's there (needed for replay)
+  const z = (ctx as any).zones?.[controller];
+  if (z && Array.isArray(z.hand) && card && card.id) {
+    const idx = z.hand.findIndex((c: any) => c.id === card.id);
+    if (idx !== -1) {
+      z.hand.splice(idx, 1);
+      z.handCount = z.hand.length;
+    }
+  }
+  
   state.stack = state.stack || [];
   state.stack.push(item as any);
   ctx.bumpSeq();
@@ -91,6 +104,17 @@ export function resolveTopOfStack(ctx: GameContext) {
 /* Place a land onto the battlefield for a player (simplified) */
 export function playLand(ctx: GameContext, playerId: PlayerID, card: any) {
   const { state, bumpSeq } = ctx;
+  
+  // Remove the card from hand if it's there (needed for replay)
+  const z = (ctx as any).zones?.[playerId];
+  if (z && Array.isArray(z.hand)) {
+    const idx = z.hand.findIndex((c: any) => c.id === card.id);
+    if (idx !== -1) {
+      z.hand.splice(idx, 1);
+      z.handCount = z.hand.length;
+    }
+  }
+  
   const tl = (card.type_line || "").toLowerCase();
   const isCreature = /\bcreature\b/.test(tl);
   const baseP = isCreature ? parsePT((card as any).power) : undefined;
