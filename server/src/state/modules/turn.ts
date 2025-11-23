@@ -17,6 +17,8 @@
 import type { GameContext } from "../context";
 import type { PlayerID } from "../../shared/src/types";
 import { drawCards } from "./zones";
+import { applyUntapStep } from "./untap";
+import { clearAllManaPools } from "./mana";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -215,9 +217,7 @@ export function nextStep(ctx: GameContext) {
 
     // Clear mana pools before transitioning (mana empties at step/phase boundaries)
     try {
-      if (typeof (ctx as any).clearAllManaPools === 'function') {
-        (ctx as any).clearAllManaPools();
-      }
+      clearAllManaPools(ctx);
     } catch (err) {
       console.warn(`${ts()} [nextStep] Failed to clear mana pools:`, err);
     }
@@ -304,9 +304,7 @@ export function nextStep(ctx: GameContext) {
     // Apply untap step logic if we're leaving the UNTAP step
     if (shouldApplyUntap) {
       try {
-        if (typeof (ctx as any).applyUntapStep === 'function') {
-          (ctx as any).applyUntapStep();
-        }
+        applyUntapStep(ctx);
       } catch (err) {
         console.warn(`${ts()} [nextStep] Failed to apply untap step:`, err);
       }
