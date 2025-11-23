@@ -1,2 +1,2 @@
 export * from "./types";
-export * from "./events";
+export type { ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData, ChatMsg } from "./events";

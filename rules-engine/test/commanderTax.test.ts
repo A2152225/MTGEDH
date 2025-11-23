@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { GameState, PlayerRef, PlayerID } from '../../shared/src';
+import { GamePhase } from '../../shared/src';
 import { applyCommanderTax } from '../src/commander';
 
 function mkState(): GameState {
@@ -15,7 +16,7 @@ function mkState(): GameState {
     stack: [],
     battlefield: [],
     commandZone: { p1: { commanderIds: ['c1'], tax: 0 } },
-    phase: 'begin',
+    phase: GamePhase.PRE_GAME,
     active: true
   };
 }
