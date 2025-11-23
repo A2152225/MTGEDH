@@ -1,5 +1,10 @@
-// Pure, deterministic rules engine entry points
-// All functions here must be side-effect free and operate on immutable inputs
+/**
+ * MTG Rules Engine
+ * Pure, deterministic rules engine implementing Magic: The Gathering Comprehensive Rules
+ * Based on MagicCompRules 20251114.txt
+ * 
+ * All functions are side-effect free and operate on immutable inputs
+ */
 import type { GameState, PlayerID } from '../../shared/src';
 
 export interface EngineResult<T> {
@@ -7,6 +12,10 @@ export interface EngineResult<T> {
   readonly log?: readonly string[];
 }
 
+// Export all Game Concepts types (Rules 100-123)
+export * from './types';
+
+// Legacy function - kept for compatibility
 export function passPriority(state: Readonly<GameState>, by: PlayerID): EngineResult<GameState> {
   if (state.priority !== by) return { next: state };
   const order = state.players.map(p => p.id);
