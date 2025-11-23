@@ -38,6 +38,9 @@ export interface GameContext {
   // pending initial draw set
   pendingInitialDraw: Set<PlayerID>;
 
+  // NEW: explicit visibility grants for hand (Telepathy, judge, reveal-hand effects)
+  handVisibilityGrants: Map<PlayerID, Set<PlayerID | "spectator:judge">>;
+
   // RNG and sequencing helpers
   rngSeed: number | null;
   rng: () => number;
@@ -142,6 +145,9 @@ export function createContext(gameId: string): GameContext {
     inactive: new Set(),
     spectatorNames: new Map(),
     pendingInitialDraw: new Set(),
+
+    // NEW: initialize hand visibility grants map
+    handVisibilityGrants: new Map(),
 
     rngSeed,
     rng,

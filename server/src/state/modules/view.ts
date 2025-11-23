@@ -15,12 +15,18 @@ import { parsePT } from "../utils";
  * Rules:
  * - Owners always see their own hand.
  * - Telepathy / reveal-hand effects add specific viewer grants per owner via ctx.handVisibilityGrants.
- * - ctx.grants is kept for backward compatibility: if present, also treat entries there as grants.
+ * - A special pseudo-viewer id "spectator:judge" (when used) sees all hands.
+ * - Legacy ctx.grants is kept as a fallback grant source.
  */
-function canSeeOwnersHidden(ctx: GameContext, viewer: PlayerID, owner: PlayerID) {
+function canSeeOwnersHidden(
+  ctx: GameContext,
+  viewer: PlayerID | "spectator:judge",
+  owner: PlayerID
+) {
   if (viewer === owner) return true;
+  if (viewer === "spectator:judge") return true;
 
-  // New: explicit hand visibility grants (Telepathy, reveal-hand, judge, etc.)
+  // Explicit hand visibility grants (Telepathy, reveal-hand, judge, etc.)
   if (ctx.handVisibilityGrants && ctx.handVisibilityGrants.size > 0) {
     const handSet = ctx.handVisibilityGrants.get(owner);
     if (handSet && handSet.has(viewer)) return true;
@@ -28,12 +34,12 @@ function canSeeOwnersHidden(ctx: GameContext, viewer: PlayerID, owner: PlayerID)
 
   // Legacy / fallback grants (existing behavior)
   const set = ctx.grants.get(owner);
-  return !!set && set.has(viewer);
+  return !!set && set.has(viewer as PlayerID);
 }
 
 export function viewFor(
   ctx: GameContext,
-  viewer: PlayerID,
+  viewer: PlayerID | "spectator:judge",
   _spectator: boolean
 ): ClientGameView {
   const { state, zones, libraries, commandZone, inactive, poison, experience } = ctx;
@@ -89,8 +95,8 @@ export function viewFor(
       };
     const libCount = libraries.get(p.id)?.length ?? z.libraryCount ?? 0;
 
-    // Per-viewer visibility for this owner
-    const canSee = viewer === p.id || canSeeOwnersHidden(ctx, viewer, p.id);
+    // Determine if this viewer can see this owner's hand
+    const canSee = canSeeOwnersHidden(ctx, viewer, p.id as PlayerID);
 
     // Always use the same underlying hand list, but mark known/unknown per viewer.
     const rawHand = Array.isArray(z.hand) ? (z.hand as KnownCardRef[]) : [];
@@ -99,7 +105,7 @@ export function viewFor(
       const base: KnownCardRef = {
         ...c,
       };
-      // known is purely per-viewer: Telepathy / grants or owner, AND not face-down.
+      // Visibility is purely per-viewer: owner, Telepathy/judge grants, AND not face-down.
       base.known = canSee && !base.faceDown;
       return base;
     });
