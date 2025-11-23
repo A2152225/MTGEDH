@@ -186,18 +186,22 @@ function matchesTriggerCondition(
 
 /**
  * Check if an object matches a filter
+ * TODO: Implement proper object filtering based on types, subtypes, colors, controller, etc.
+ * This is currently a placeholder that always returns true - UNSAFE for production
  */
 function matchesFilter(object: any, filter: any): boolean {
   // Simplified filter matching
-  return true; // Placeholder
+  return true; // Placeholder - REQUIRES IMPLEMENTATION
 }
 
 /**
  * Check if a condition is true
+ * TODO: Implement condition evaluation for life totals, permanents controlled, etc.
+ * This is currently a placeholder that always returns true - UNSAFE for production
  */
 function checkCondition(state: Readonly<GameState>, condition: any): boolean {
   // Simplified condition checking
-  return true; // Placeholder
+  return true; // Placeholder - REQUIRES IMPLEMENTATION
 }
 
 /**

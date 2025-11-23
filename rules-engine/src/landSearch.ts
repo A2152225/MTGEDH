@@ -13,6 +13,9 @@ export interface SearchResult<T> {
 /**
  * Search library for cards matching a filter (part of many land fetch effects)
  * Example: "Search your library for a basic land card"
+ * 
+ * TODO: Implement actual library searching with card filtering
+ * This currently returns empty results - REQUIRES FULL IMPLEMENTATION
  */
 export function searchLibrary(
   state: Readonly<GameState>,
@@ -25,13 +28,13 @@ export function searchLibrary(
   // 2. Find cards matching the filter
   // 3. Let the player choose up to 'count' cards
   
-  // For now, simplified placeholder
+  // For now, simplified placeholder - NEEDS IMPLEMENTATION
   const cardsFound: string[] = []; // Would be actual card IDs
 
   return {
     next: state,
     cardsFound,
-    log: [`${playerId} searched their library`]
+    log: [`${playerId} searched their library (placeholder - no cards found)`]
   };
 }
 

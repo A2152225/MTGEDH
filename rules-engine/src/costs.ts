@@ -110,8 +110,9 @@ function canPayManaCost(
   playerId: PlayerID,
   amount: ManaAmount
 ): boolean {
-  // This is simplified - real implementation would check player's mana pool
-  // For now, assume we need to track mana pool in player state
+  // TODO: Implement proper mana pool checking
+  // This requires tracking player mana pools in the game state
+  // For now, assume mana is available - UNSAFE for production
   return true; // Placeholder
 }
 
@@ -120,7 +121,8 @@ function payManaCost(
   playerId: PlayerID,
   amount: ManaAmount
 ): CostResult<GameState> {
-  // Simplified - would actually remove mana from player's pool
+  // TODO: Implement actual mana removal from player's mana pool
+  // This is a placeholder that doesn't modify state
   return {
     next: state,
     paid: true,
@@ -228,7 +230,9 @@ function canPayDiscardCost(
   playerId: PlayerID,
   count: number
 ): boolean {
-  // Would check player's hand size
+  // TODO: Implement proper hand size checking
+  // This requires tracking player hands in the game state
+  // For now, assume cards are available - UNSAFE for production
   return true; // Placeholder
 }
 
@@ -237,6 +241,8 @@ function payDiscardCost(
   playerId: PlayerID,
   count: number
 ): CostResult<GameState> {
+  // TODO: Implement actual card removal from hand to graveyard
+  // This is a placeholder that doesn't modify state
   return {
     next: state,
     paid: true,
