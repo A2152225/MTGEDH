@@ -12,7 +12,8 @@ export interface HandGalleryProps {
   reasonCannotCast?: (card: { type_line?: string }) => string | null;
   thumbWidth?: number;
   zoomScale?: number;
-  layout?: 'wrap2' | 'row';
+  // NEW: support wrap7 for 7-cards-per-row layout
+  layout?: 'wrap2' | 'wrap7' | 'row';
   overlapPx?: number;
   rowGapPx?: number;
   enableReorder?: boolean;
@@ -49,9 +50,36 @@ export function HandGallery(props: HandGalleryProps) {
 
   const visibleCards = hidden ? [] : cards;
 
-  const widthStyle: React.CSSProperties = layout === 'row'
-    ? { display: 'flex', gap: overlapPx > 0 ? 0 : 8, paddingBottom: 4, overflowX: 'auto' }
-    : { display: 'flex', flexWrap: 'wrap', gap: 8, rowGap: rowGapPx };
+  // Layout:
+  // - 'row': horizontal strip (used rarely)
+  // - 'wrap2': legacy wrap layout (2-ish rows depending on count)
+  // - 'wrap7': approximate 7-cards-per-row using flex-basis
+  let widthStyle: React.CSSProperties;
+  if (layout === 'row') {
+    widthStyle = {
+      display: 'flex',
+      gap: overlapPx > 0 ? 0 : 8,
+      paddingBottom: 4,
+      overflowX: 'auto',
+    };
+  } else if (layout === 'wrap7') {
+    // Each card gets ~1/7 of the width, with a small gap; works well for 7-per-row at full width
+    widthStyle = {
+      display: 'flex',
+      flexWrap: 'wrap',
+      justifyContent: 'flex-start',
+      columnGap: 8,
+      rowGap: rowGapPx,
+    };
+  } else {
+    // default wrap2 behavior
+    widthStyle = {
+      display: 'flex',
+      flexWrap: 'wrap',
+      gap: 8,
+      rowGap: rowGapPx,
+    };
+  }
 
   function handleDragStart(i: number) {
     if (!enableReorder) return;
@@ -80,6 +108,29 @@ export function HandGallery(props: HandGalleryProps) {
     }
     setDragIdx(null);
     setDragOver(null);
+  }
+
+  // Card container base style; adjust width for wrap7 so rows hold ~7 cards
+  const baseCardStyle: React.CSSProperties = {
+    aspectRatio: '0.72',
+    border: '2px solid #2b2b2b',
+    borderRadius: 6,
+    background: '#0f0f0f',
+    position: 'relative',
+    overflow: 'hidden',
+    cursor: 'pointer',
+  };
+
+  // For wrap7 we override width to use a fraction, otherwise respect thumbWidth
+  function cardWidthStyle(): React.CSSProperties {
+    if (layout === 'wrap7') {
+      // magic number: 7 per row with small gaps inside the hand panel
+      return {
+        flex: '0 0 calc(100% / 7 - 8px)',
+        maxWidth: thumbWidth,
+      };
+    }
+    return { width: thumbWidth };
   }
 
   return (
@@ -128,19 +179,24 @@ export function HandGallery(props: HandGalleryProps) {
             onDragStart={() => handleDragStart(i)}
             onDragEnter={() => handleDragEnter(i)}
             onDragEnd={handleDragEnd}
-            onMouseEnter={(e) => isKnown && showCardPreview(e.currentTarget as HTMLElement, kc, { prefer: 'above', anchorPadding: 0 })}
+            onMouseEnter={(e) =>
+              isKnown &&
+              showCardPreview(e.currentTarget as HTMLElement, kc, {
+                prefer: 'above',
+                anchorPadding: 0,
+              })
+            }
             onMouseLeave={(e) => hideCardPreview(e.currentTarget as HTMLElement)}
             style={{
-              width: thumbWidth,
-              aspectRatio: '0.72',
-              border: '2px solid #2b2b2b',
-              borderRadius: 6,
-              background: '#0f0f0f',
-              position: 'relative',
-              overflow: 'hidden',
-              cursor: 'pointer',
+              ...baseCardStyle,
+              ...cardWidthStyle(),
               transform: dragIdx === i ? 'scale(0.95)' : 'none',
-              boxShadow: dragIdx === i ? '0 0 0 2px #2b6cb0' : dragOver === i ? '0 0 0 2px #38a169' : 'none'
+              boxShadow:
+                dragIdx === i
+                  ? '0 0 0 2px #2b6cb0'
+                  : dragOver === i
+                  ? '0 0 0 2px #38a169'
+                  : 'none',
             }}
             title={name}
             onClick={() => {
@@ -190,7 +246,9 @@ export function HandGallery(props: HandGalleryProps) {
           </div>
         );
       })}
-      {visibleCards.length === 0 && !hidden && <div style={{ color: '#777', fontSize: 12 }}>Empty hand</div>}
+      {visibleCards.length === 0 && !hidden && (
+        <div style={{ color: '#777', fontSize: 12 }}>Empty hand</div>
+      )}
     </div>
   );
 }
