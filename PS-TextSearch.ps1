@@ -14,7 +14,7 @@
 
 param(
     [string]$Root = ".",
-    [string]$Pattern = "socket.emit(`"chat`"",
+    [string]$Pattern = "useSaved",
     [switch]$CaseSensitive = $true,
     [switch]$ListFilesOnly,
     [int]$Context = 0,
