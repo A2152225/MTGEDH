@@ -684,12 +684,15 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
               socket.join(gameId);
             } catch {}
 
-            // Build view (viewFor or raw)
+            // Build view (viewFor or raw) with judge support
             let rawView: any;
             try {
               if (typeof (game as any).viewFor === "function") {
+                const role = (socket.data as any)?.role;
+                const isJudge = role === "judge";
+                const viewer = isJudge ? ("spectator:judge" as any) : playerId;
                 rawView = (game as any).viewFor(
-                  playerId,
+                  viewer,
                   Boolean(spectator)
                 );
               } else {
@@ -816,10 +819,15 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
       try {
         rawView =
           typeof (game as any).viewFor === "function"
-            ? (game as any).viewFor(
-                playerId,
-                Boolean(socket.data?.spectator)
-              )
+            ? (() => {
+                const role = (socket.data as any)?.role;
+                const isJudge = role === "judge";
+                const viewer = isJudge ? ("spectator:judge" as any) : playerId;
+                return (game as any).viewFor(
+                  viewer,
+                  Boolean(socket.data?.spectator)
+                );
+              })()
             : game.state;
       } catch (e) {
         console.warn(
