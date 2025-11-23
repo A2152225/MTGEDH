@@ -550,6 +550,38 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "tapForMana": {
+        const playerId = (e as any).playerId;
+        const permanentId = (e as any).permanentId;
+        const manaChoice = (e as any).manaChoice;
+        try {
+          // Import tapForMana if available
+          const { tapForMana } = require("./mana");
+          if (typeof tapForMana === "function") {
+            tapForMana(ctx as any, playerId, permanentId, manaChoice);
+          }
+        } catch (err) {
+          console.warn("applyEvent(tapForMana): failed", err);
+        }
+        break;
+      }
+
+      case "addMana": {
+        const playerId = (e as any).playerId;
+        const color = (e as any).color;
+        const amount = (e as any).amount || 1;
+        try {
+          // Import addMana if available
+          const { addMana } = require("./mana");
+          if (typeof addMana === "function") {
+            addMana(ctx as any, playerId, color, amount);
+          }
+        } catch (err) {
+          console.warn("applyEvent(addMana): failed", err);
+        }
+        break;
+      }
+
       default: {
         console.warn("applyEvent: unknown event type", (e as any).type);
         break;

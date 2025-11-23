@@ -670,4 +670,41 @@ export function registerGameActions(io: Server, socket: Socket) {
       });
     }
   });
+
+  // Tap for mana
+  socket.on("tapForMana", ({ gameId, permanentId, manaChoice }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      // Call the tapForMana method on the game
+      const result = (game as any).tapForMana?.(playerId, permanentId, manaChoice);
+      
+      if (!result || !result.success) {
+        socket.emit("error", {
+          code: "TAP_FOR_MANA_FAILED",
+          message: result?.reason || "Failed to tap for mana",
+        });
+        return;
+      }
+
+      // Persist event
+      appendEvent(
+        gameId,
+        game.seq,
+        "tapForMana",
+        { playerId, permanentId, manaChoice }
+      );
+
+      // Broadcast updated game state
+      broadcastGame(io, game, gameId);
+    } catch (err: any) {
+      console.error(`tapForMana error for game ${gameId}:`, err);
+      socket.emit("error", {
+        code: "TAP_FOR_MANA_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
 }

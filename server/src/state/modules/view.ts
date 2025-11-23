@@ -190,5 +190,6 @@ export function viewFor(
     commandZone: viewCommandZone,
     poisonCounters: poison,
     experienceCounters: experience,
+    manaPools: state.manaPools, // Include mana pools in view
   } as any;
 }

@@ -213,6 +213,15 @@ export function nextStep(ctx: GameContext) {
     const currentPhase = String((ctx as any).state.phase || "beginning");
     const currentStep = String((ctx as any).state.step || "");
 
+    // Clear mana pools before transitioning (mana empties at step/phase boundaries)
+    try {
+      if (typeof (ctx as any).clearAllManaPools === 'function') {
+        (ctx as any).clearAllManaPools();
+      }
+    } catch (err) {
+      console.warn(`${ts()} [nextStep] Failed to clear mana pools:`, err);
+    }
+
     // Simple step progression logic (using camelCase enum values to match GamePhase/GameStep enums)
     // beginning phase: untap -> upkeep -> draw
     // precombatMain phase: just main (no substeps)
@@ -224,11 +233,13 @@ export function nextStep(ctx: GameContext) {
     let nextStep = currentStep;
     let shouldDraw = false;
     let shouldAdvanceTurn = false;
+    let shouldApplyUntap = false;
 
     if (currentPhase === "beginning" || currentPhase === "PRE_GAME" || currentPhase === "") {
       if (currentStep === "" || currentStep === "untap") {
         nextPhase = "beginning";
         nextStep = "upkeep";
+        shouldApplyUntap = true; // Apply untap when leaving UNTAP step
       } else if (currentStep === "upkeep") {
         nextPhase = "beginning";
         nextStep = "draw";
@@ -288,6 +299,17 @@ export function nextStep(ctx: GameContext) {
       ctx.bumpSeq();
       nextTurn(ctx);
       return;
+    }
+
+    // Apply untap step logic if we're leaving the UNTAP step
+    if (shouldApplyUntap) {
+      try {
+        if (typeof (ctx as any).applyUntapStep === 'function') {
+          (ctx as any).applyUntapStep();
+        }
+      } catch (err) {
+        console.warn(`${ts()} [nextStep] Failed to apply untap step:`, err);
+      }
     }
 
     // If we're entering the draw step, draw a card for the active player

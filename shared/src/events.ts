@@ -53,6 +53,9 @@ export interface ClientToServerEvents {
   nextTurn: (payload: { gameId: GameID }) => void;
   passPriority: (payload: { gameId: GameID; by: PlayerID }) => void;
 
+  // mana actions
+  tapForMana: (payload: { gameId: GameID; permanentId: PermanentID; manaChoice?: string }) => void;
+
   // state mutation helpers
   shuffleLibrary: (payload: { gameId: GameID; playerId?: PlayerID }) => void;
   drawCards: (payload: { gameId: GameID; count: number; playerId?: PlayerID }) => void;

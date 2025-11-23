@@ -40,6 +40,8 @@ import { pushStack, resolveTopOfStack, playLand, exileEntireStack } from "./modu
 import { viewFor } from "./modules/view";
 import { applyEvent, replay, reset, skip, unskip, remove } from "./modules/applyEvent";
 import { mulberry32 } from "../utils/rng";
+import { getManaPool, addMana, canPayCost, autoPayCost, tapForMana, clearManaPool, clearAllManaPools } from "./modules/mana";
+import { applyUntapStep } from "./modules/untap";
 
 /**
  * Create a public InMemoryGame surface that delegates to the ctx + modules.
@@ -171,6 +173,19 @@ export function createInitialGameState(gameId: string): InMemoryGame {
 
     // play helpers
     playLand: (playerId: PlayerID, card) => playLand(ctx, playerId, card),
+
+    // mana helpers
+    getManaPool: (playerId: PlayerID) => getManaPool(ctx, playerId),
+    addMana: (playerId: PlayerID, color: any, amount: number) => addMana(ctx, playerId, color, amount),
+    canPayCost: (playerId: PlayerID, cost: any) => canPayCost(ctx, playerId, cost),
+    autoPayCost: (playerId: PlayerID, cost: any) => autoPayCost(ctx, playerId, cost),
+    tapForMana: (playerId: PlayerID, permanentId: string, manaChoice?: any) => 
+      tapForMana(ctx, playerId, permanentId, manaChoice),
+    clearManaPool: (playerId: PlayerID) => clearManaPool(ctx, playerId),
+    clearAllManaPools: () => clearAllManaPools(ctx),
+
+    // untap helper
+    applyUntapStep: () => applyUntapStep(ctx),
 
     // view
     viewFor: (viewer?: PlayerID, spectator?: boolean) => viewFor(ctx, viewer, !!spectator),

@@ -118,6 +118,10 @@ export interface BattlefieldPermanent {
   posY?: number;
   posZ?: number;
   card: CardRef;
+  // Untap prevention metadata
+  stunCounters?: number;
+  doesNotUntapNext?: boolean;
+  doesNotUntapDuringUntapStep?: boolean;
 }
 
 /* Stack item */
@@ -132,6 +136,28 @@ export interface StackItem {
 /* Life totals mapping */
 export interface LifeTotals {
   [playerId: PlayerID]: number;
+}
+
+/* Mana pool type */
+export interface ManaPool {
+  W: number; // White
+  U: number; // Blue
+  B: number; // Black
+  R: number; // Red
+  G: number; // Green
+  C: number; // Colorless
+  generic: number; // Generic mana (any color or colorless)
+}
+
+/* Mana cost representation */
+export interface ManaCost {
+  W: number;
+  U: number;
+  B: number;
+  R: number;
+  G: number;
+  C: number;
+  generic: number; // Generic mana ({1}, {2}, etc.)
 }
 
 /* Game phase enum (expanded to include PRE_GAME) */
@@ -184,6 +210,7 @@ export interface GameState {
   turn?: number;
   activePlayerIndex?: number;
   landsPlayedThisTurn?: Record<PlayerID, number>;
+  manaPools?: Record<PlayerID, ManaPool>;
 }
 
 /* Client-scoped game view (lightweight diff of authoritative state) */
@@ -196,6 +223,7 @@ export type ClientGameView = Omit<GameState, 'battlefield' | 'stack' | 'players'
   commandZone?: Record<PlayerID, CommanderInfo>;
   poisonCounters?: Record<PlayerID, number>;
   experienceCounters?: Record<PlayerID, number>;
+  manaPools?: Record<PlayerID, ManaPool>;
 };
 
 export interface StateDiff<T> {
