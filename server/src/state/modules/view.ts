@@ -135,6 +135,20 @@ export function viewFor(ctx: GameContext, viewer: PlayerID, _spectator: boolean)
       inactive: inactive.has(p.id),
     })
   );
+console.log("[VIEW_FOR_DEBUG]", {
+  viewer,
+  zones: Object.fromEntries(
+    Object.entries(filteredZones).map(([pid, z]) => [
+      pid,
+      {
+        handCount: z.handCount,
+        firstKnown: Array.isArray(z.hand)
+          ? (z.hand as any[]).slice(0, 3).map((c) => c.known)
+          : null,
+      },
+    ])
+  ),
+});
 
   return {
     ...state,
