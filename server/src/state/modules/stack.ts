@@ -39,11 +39,52 @@ function popStackItem(ctx: GameContext) {
   return s.stack.pop()!;
 }
 
-/* Resolve the top item (placeholder, engine handles specifics elsewhere) */
+/* Resolve the top item (basic implementation for non-land spells) */
 export function resolveTopOfStack(ctx: GameContext) {
   const item = popStackItem(ctx);
   if (!item) return;
-  // Real resolution should call rules-engine; this is a placeholder to advance seq.
+  
+  // Basic resolution: check if it's a permanent or instant/sorcery
+  const card = (item as any).card;
+  const controller = (item as any).controller as PlayerID;
+  
+  if (card && card.type_line) {
+    const tl = String(card.type_line).toLowerCase();
+    const isPermanent = /\b(creature|artifact|enchantment|planeswalker)\b/.test(tl);
+    
+    if (isPermanent) {
+      // Move to battlefield
+      const isCreature = /\bcreature\b/.test(tl);
+      const baseP = isCreature ? parsePT((card as any).power) : undefined;
+      const baseT = isCreature ? parsePT((card as any).toughness) : undefined;
+      
+      ctx.state.battlefield = ctx.state.battlefield || [];
+      ctx.state.battlefield.push({
+        id: uid("perm"),
+        controller,
+        owner: controller,
+        tapped: false,
+        counters: {},
+        basePower: baseP,
+        baseToughness: baseT,
+        card: { ...card, zone: "battlefield" },
+      } as any);
+    } else {
+      // Instant/sorcery: move to graveyard
+      ctx.state.zones = ctx.state.zones || {};
+      ctx.state.zones[controller] = ctx.state.zones[controller] || {
+        hand: [],
+        handCount: 0,
+        libraryCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+      };
+      ctx.state.zones[controller].graveyard = ctx.state.zones[controller].graveyard || [];
+      ctx.state.zones[controller].graveyard.push({ ...card, zone: "graveyard" });
+      ctx.state.zones[controller].graveyardCount = ctx.state.zones[controller].graveyard.length;
+    }
+  }
+  
   ctx.bumpSeq();
 }
 

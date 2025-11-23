@@ -127,4 +127,144 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     broadcastGame(io, game, gameId);
   });
+
+  // Play land from hand to battlefield
+  socket.on("playLand", ({ gameId, cardId }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) {
+      socket.emit("error", {
+        code: "PLAY_LAND",
+        message: "Only active players can play lands.",
+      });
+      return;
+    }
+
+    try {
+      const game = ensureGame(gameId);
+      
+      // Find the card in player's hand using viewFor
+      const view = game.viewFor(pid, false);
+      const hand = view.zones?.[pid]?.hand || [];
+      const card = hand.find((c: any) => c.id === cardId);
+      
+      if (!card) {
+        socket.emit("error", {
+          code: "PLAY_LAND",
+          message: "Card not found in your hand.",
+        });
+        return;
+      }
+
+      // Remove card from authoritative hand state
+      const authHand = game.state.zones[pid]?.hand || [];
+      const handIdx = authHand.findIndex((c: any) => c.id === cardId);
+      if (handIdx !== -1) {
+        authHand.splice(handIdx, 1);
+        game.state.zones[pid].handCount = authHand.length;
+      }
+
+      // Apply the playLand event to move card to battlefield
+      game.applyEvent({ type: "playLand", playerId: pid, card });
+      
+      // Append event for replay
+      appendEvent(gameId, game.seq, "playLand", { playerId: pid, card: { id: cardId } });
+
+      broadcastGame(io, game, gameId);
+    } catch (err) {
+      console.error("playLand handler error:", err);
+      socket.emit("error", {
+        code: "PLAY_LAND",
+        message: err instanceof Error ? err.message : "Failed to play land.",
+      });
+    }
+  });
+
+  // Cast spell from hand to stack
+  socket.on("castSpellFromHand", ({ gameId, cardId }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) {
+      socket.emit("error", {
+        code: "CAST_SPELL",
+        message: "Only active players can cast spells.",
+      });
+      return;
+    }
+
+    try {
+      const game = ensureGame(gameId);
+      
+      // Find the card in player's hand using viewFor
+      const view = game.viewFor(pid, false);
+      const hand = view.zones?.[pid]?.hand || [];
+      const card = hand.find((c: any) => c.id === cardId);
+      
+      if (!card) {
+        socket.emit("error", {
+          code: "CAST_SPELL",
+          message: "Card not found in your hand.",
+        });
+        return;
+      }
+
+      // Remove card from authoritative hand state
+      const authHand = game.state.zones[pid]?.hand || [];
+      const handIdx = authHand.findIndex((c: any) => c.id === cardId);
+      if (handIdx !== -1) {
+        authHand.splice(handIdx, 1);
+        game.state.zones[pid].handCount = authHand.length;
+      }
+
+      // Construct stack item
+      const stackItem = {
+        id: `stack_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        type: "spell" as const,
+        controller: pid,
+        card,
+      };
+
+      // Apply pushStack event
+      game.applyEvent({ type: "pushStack", item: stackItem });
+      
+      // Append event for replay
+      appendEvent(gameId, game.seq, "pushStack", { item: stackItem });
+
+      broadcastGame(io, game, gameId);
+    } catch (err) {
+      console.error("castSpellFromHand handler error:", err);
+      socket.emit("error", {
+        code: "CAST_SPELL",
+        message: err instanceof Error ? err.message : "Failed to cast spell.",
+      });
+    }
+  });
+
+  // Resolve top of stack (for now as a simple control to exercise the stack)
+  socket.on("resolveTopOfStack", ({ gameId }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) {
+      socket.emit("error", {
+        code: "RESOLVE_STACK",
+        message: "Only active players can resolve stack.",
+      });
+      return;
+    }
+
+    try {
+      const game = ensureGame(gameId);
+      
+      // Apply resolveTopOfStack event
+      game.applyEvent({ type: "resolveTopOfStack" });
+      
+      // Append event for replay
+      appendEvent(gameId, game.seq, "resolveTopOfStack", {});
+
+      broadcastGame(io, game, gameId);
+    } catch (err) {
+      console.error("resolveTopOfStack handler error:", err);
+      socket.emit("error", {
+        code: "RESOLVE_STACK",
+        message: err instanceof Error ? err.message : "Failed to resolve stack.",
+      });
+    }
+  });
 }
