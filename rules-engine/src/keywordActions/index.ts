@@ -58,6 +58,37 @@ export * from './manifest';
 export * from './support';
 export * from './meld';
 
+// Part 6: Rules 701.43-701.50
+export * from './exert';
+export * from './explore';
+export * from './assemble';
+export * from './adapt';
+export * from './amass';
+export * from './learn';
+export * from './ventureIntoDungeon';
+export * from './connive';
+
+// Part 7: Rules 701.51-701.58
+export * from './openAttraction';
+export * from './rollVisitAttractions';
+export * from './incubate';
+export * from './ringTemptsYou';
+export * from './villainousChoice';
+export * from './timeTravel';
+export * from './discover';
+export * from './cloak';
+
+// Part 8: Rules 701.59-701.67
+export * from './collectEvidence';
+export * from './suspect';
+export * from './forage';
+export * from './manifestDread';
+export * from './endure';
+export * from './harness';
+export * from './airbend';
+export * from './earthbend';
+export * from './waterbend';
+
 // Union type for all keyword actions
 import type { ActivateAction } from './activate';
 import type { AttachAction } from './attach';
@@ -100,6 +131,31 @@ import type { BolsterAction } from './bolster';
 import type { ManifestAction } from './manifest';
 import type { SupportAction } from './support';
 import type { MeldAction } from './meld';
+import type { ExertAction } from './exert';
+import type { ExploreAction } from './explore';
+import type { AssembleAction } from './assemble';
+import type { AdaptAction } from './adapt';
+import type { AmassAction } from './amass';
+import type { LearnAction } from './learn';
+import type { VentureAction } from './ventureIntoDungeon';
+import type { ConniveAction } from './connive';
+import type { OpenAttractionAction } from './openAttraction';
+import type { RollVisitAttractionsAction } from './rollVisitAttractions';
+import type { IncubateAction } from './incubate';
+import type { RingTemptsYouAction } from './ringTemptsYou';
+import type { VillainousChoiceAction } from './villainousChoice';
+import type { TimeTravelAction } from './timeTravel';
+import type { DiscoverAction } from './discover';
+import type { CloakAction } from './cloak';
+import type { CollectEvidenceAction } from './collectEvidence';
+import type { SuspectAction } from './suspect';
+import type { ForageAction } from './forage';
+import type { ManifestDreadAction } from './manifestDread';
+import type { EndureAction } from './endure';
+import type { HarnessAction } from './harness';
+import type { AirbendAction } from './airbend';
+import type { EarthbendAction } from './earthbend';
+import type { WaterbendAction } from './waterbend';
 
 export type KeywordAction =
   // Part 1
@@ -147,4 +203,32 @@ export type KeywordAction =
   | BolsterAction
   | ManifestAction
   | SupportAction
-  | MeldAction;
+  | MeldAction
+  // Part 6
+  | ExertAction
+  | ExploreAction
+  | AssembleAction
+  | AdaptAction
+  | AmassAction
+  | LearnAction
+  | VentureAction
+  | ConniveAction
+  // Part 7
+  | OpenAttractionAction
+  | RollVisitAttractionsAction
+  | IncubateAction
+  | RingTemptsYouAction
+  | VillainousChoiceAction
+  | TimeTravelAction
+  | DiscoverAction
+  | CloakAction
+  // Part 8
+  | CollectEvidenceAction
+  | SuspectAction
+  | ForageAction
+  | ManifestDreadAction
+  | EndureAction
+  | HarnessAction
+  | AirbendAction
+  | EarthbendAction
+  | WaterbendAction;
