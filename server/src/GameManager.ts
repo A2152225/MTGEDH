@@ -12,6 +12,7 @@
  */
 
 import { randomUUID } from "crypto";
+import { createInitialGameState } from "./state/index.js";
 
 type PersistOptions = { gameId: string; format?: string; startingLife?: number };
 
@@ -82,61 +83,8 @@ function schedulePersistGamesRow(opts: PersistOptions) {
   setTimeout(tryPersist, 0);
 }
 
-/* --- Try to load createInitialGameState (preferred fallback) --- */
-let createInitialGameState: any = null;
-try {
-  // dynamic require-like logic: attempt to import the state factory if present
-  // Note: using synchronous require may not be available in ESM; prefer try/catch import
-  // We'll attempt a synchronous-like require via dynamic import (best-effort at startup)
-  // but don't block if not present.
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  try {
-    // Try common CJS paths via require if available
-    // @ts-ignore
-    const req = eval("typeof require === 'function' ? require : undefined");
-    if (req) {
-      const m = req("./state") || req("./state/index");
-      createInitialGameState = m?.createInitialGameState || null;
-    }
-  } catch {
-    // fallback: attempt dynamic import (non-blocking; but we want a sync check)
-    // leave createInitialGameState null if not resolvable synchronously
-  }
-} catch {
-  createInitialGameState = null;
-}
-
-/** Try to load the project's Game implementation from multiple candidate paths. */
-function tryLoadGameImpl(): any | null {
-  const candidates = [
-    "./game",
-    "./Game",
-    "./game/index",
-    "./Game/index",
-    "./state/game",
-    "../game",
-    "../Game",
-  ];
-  for (const p of candidates) {
-    try {
-      // Use dynamic import synchronously via eval-require when available to avoid ESM/CJS duplication
-      // @ts-ignore
-      const req = eval("typeof require === 'function' ? require : undefined");
-      if (req) {
-        const mod = req(p);
-        if (!mod) continue;
-        if (mod.Game) return mod.Game;
-        if (mod.default) return mod.default;
-        return mod;
-      }
-    } catch {
-      // ignore and continue
-    }
-  }
-  return null;
-}
-
-let GameImpl: any = tryLoadGameImpl();
+// createInitialGameState is now directly imported at the top of the file
+// No need for dynamic loading - just use the imported function directly
 
 /* Simple mulberry32 RNG used by many state modules when seedRng not implemented */
 function mulberry32(seed: number) {
@@ -169,8 +117,8 @@ class MinimalGameAdapter {
       stack: [],
     };
     this.seq = 0;
-    this._rngSeed = null;
-    this._rng = null;
+    this._rngSeed = undefined;
+    this._rng = undefined;
   }
 
   // RNG API
@@ -309,18 +257,14 @@ class GameManagerClass {
 
     let game: any = null;
 
-    // Prefer real Game impl
-    if (GameImpl) {
-      try { game = new GameImpl(); } catch (e) { game = null; }
+    // Always prefer createInitialGameState for commander games to get full engine support
+    try {
+      game = createInitialGameState(id);
+      console.log(`[GameManager] Created game ${id} using full rules engine (createInitialGameState)`);
+    } catch (e) {
+      console.warn(`[GameManager] createInitialGameState failed for ${id}, falling back to MinimalGameAdapter:`, e);
+      game = new MinimalGameAdapter(id);
     }
-
-    // Next prefer createInitialGameState factory
-    if (!game && createInitialGameState) {
-      try { game = createInitialGameState(id); } catch (e) { game = null; }
-    }
-
-    // Final fallback: minimal adapter
-    if (!game) game = new MinimalGameAdapter(id);
 
     this.initBasicShapes(game, opts);
     this.games.set(id, game);
@@ -344,14 +288,13 @@ class GameManagerClass {
     if (g) return g;
 
     let game: any = null;
-    if (GameImpl) {
-      try { game = new GameImpl(); } catch (e) { game = null; }
-    }
-    if (!game && createInitialGameState) {
-      try { game = createInitialGameState(gameId); } catch (e) { game = null; }
-    }
-    if (!game) {
-      // create a minimal adapter that implements the common API
+    
+    // Always use createInitialGameState for commander games to get full engine support
+    try {
+      game = createInitialGameState(gameId);
+      console.log(`[GameManager] Ensured game ${gameId} using full rules engine (createInitialGameState)`);
+    } catch (e) {
+      console.warn(`[GameManager] createInitialGameState failed for ${gameId}, falling back to MinimalGameAdapter:`, e);
       game = new MinimalGameAdapter(gameId);
     }
 

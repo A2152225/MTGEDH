@@ -184,27 +184,22 @@ export function registerGameActions(io: Server, socket: Socket) {
       try {
         if (typeof (game as any).nextTurn === "function") {
           await (game as any).nextTurn();
-        } else if (typeof (game as any).applyEvent === "function") {
-          console.warn(
-            "nextTurn: game.nextTurn missing, falling back to applyEvent"
+          console.log(
+            `[nextTurn] Successfully advanced turn for game ${gameId}`
           );
-          (game as any).applyEvent({ type: "nextTurn", playerId });
         } else {
           console.error(
-            "nextTurn: no nextTurn or applyEvent on game object (not implemented)"
+            `[nextTurn] CRITICAL: game.nextTurn not available on game ${gameId} - this should not happen with full engine`
           );
           socket.emit("error", {
             code: "NEXT_TURN_IMPL_MISSING",
             message:
-              "Server cannot advance turn: game implementation missing nextTurn/applyEvent.",
+              "Server error: game engine not properly initialized. Please contact support.",
           });
           return;
         }
       } catch (e) {
-        console.error(
-          "nextTurn: game.nextTurn/applyEvent invocation failed:",
-          e
-        );
+        console.error("nextTurn: game.nextTurn invocation failed:", e);
         socket.emit("error", {
           code: "NEXT_TURN_IMPL_ERROR",
           message: String(e),
@@ -212,10 +207,25 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
+      // Persist event without re-applying it in-memory (avoid double-advance)
       try {
-        appendGameEvent(game, gameId, "nextTurn");
+        appendEvent(
+          gameId,
+          (game as any).seq || 0,
+          "nextTurn",
+          { by: playerId }
+        );
       } catch (e) {
         console.warn("appendEvent(nextTurn) failed", e);
+      }
+
+      // Optional: bump seq if your ctx.bumpSeq isn't already doing it inside nextTurn
+      if (typeof (game as any).bumpSeq === "function") {
+        try {
+          (game as any).bumpSeq();
+        } catch {
+          /* ignore */
+        }
       }
 
       io.to(gameId).emit("chat", {
@@ -330,27 +340,22 @@ export function registerGameActions(io: Server, socket: Socket) {
       try {
         if (typeof (game as any).nextStep === "function") {
           await (game as any).nextStep();
-        } else if (typeof (game as any).applyEvent === "function") {
-          console.warn(
-            "nextStep: game.nextStep missing, falling back to applyEvent"
+          console.log(
+            `[nextStep] Successfully advanced step for game ${gameId}`
           );
-          (game as any).applyEvent({ type: "nextStep", playerId });
         } else {
           console.error(
-            "nextStep: no nextStep or applyEvent on game object (not implemented)"
+            `[nextStep] CRITICAL: game.nextStep not available on game ${gameId} - this should not happen with full engine`
           );
           socket.emit("error", {
             code: "NEXT_STEP_IMPL_MISSING",
             message:
-              "Server cannot advance step: game implementation missing nextStep/applyEvent.",
+              "Server error: game engine not properly initialized. Please contact support.",
           });
           return;
         }
       } catch (e) {
-        console.error(
-          "nextStep: game.nextStep/applyEvent invocation failed:",
-          e
-        );
+        console.error("nextStep: game.nextStep invocation failed:", e);
         socket.emit("error", {
           code: "NEXT_STEP_IMPL_ERROR",
           message: String(e),
@@ -358,11 +363,27 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
+      // Persist event without re-applying it in-memory (avoid double-advance)
       try {
-        appendGameEvent(game, gameId, "nextStep");
+        appendEvent(
+          gameId,
+          (game as any).seq || 0,
+          "nextStep",
+          { by: playerId }
+        );
       } catch (e) {
         console.warn("appendEvent(nextStep) failed", e);
       }
+
+      // Optional: bump seq if needed
+      if (typeof (game as any).bumpSeq === "function") {
+        try {
+          (game as any).bumpSeq();
+        } catch {
+          /* ignore */
+        }
+      }
+
       broadcastGame(io, game, gameId);
     } catch (err: any) {
       console.error(`nextStep error for game ${gameId}:`, err);
@@ -382,31 +403,49 @@ export function registerGameActions(io: Server, socket: Socket) {
       if (!game || !playerId || spectator) return;
 
       try {
-        game.state = game.state || {};
-        game.state.zones = game.state.zones || {};
-        const zones = game.state.zones[playerId] || null;
-        if (!zones || !Array.isArray(zones.hand)) {
-          socket.emit("error", {
-            code: "SHUFFLE_HAND_NO_HAND",
-            message: "No hand to shuffle.",
-          });
-          return;
-        }
+        // Use the engine's shuffleHand method
+        if (typeof (game as any).shuffleHand === "function") {
+          (game as any).shuffleHand(playerId);
+          console.log(
+            `[shuffleHand] Shuffled hand for player ${playerId} in game ${gameId}`
+          );
+        } else {
+          // Fallback to direct manipulation if engine method not available
+          console.warn(
+            `[shuffleHand] game.shuffleHand not available, using fallback for game ${gameId}`
+          );
+          game.state = game.state || {};
+          game.state.zones = game.state.zones || {};
+          const zones = game.state.zones[playerId] || null;
+          if (!zones || !Array.isArray(zones.hand)) {
+            socket.emit("error", {
+              code: "SHUFFLE_HAND_NO_HAND",
+              message: "No hand to shuffle.",
+            });
+            return;
+          }
 
-        // Fisher-Yates shuffle of the hand array
-        const arr = zones.hand;
-        for (let i = arr.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          const tmp = arr[i];
-          arr[i] = arr[j];
-          arr[j] = tmp;
+          // Fisher-Yates shuffle of the hand array
+          const arr = zones.hand;
+          for (let i = arr.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            const tmp = arr[i];
+            arr[i] = arr[j];
+            arr[j] = tmp;
+          }
+          // Ensure handCount remains accurate
+          zones.handCount = Array.isArray(zones.hand)
+            ? zones.hand.length
+            : zones.handCount || 0;
         }
-        // Ensure handCount remains accurate
-        zones.handCount = Array.isArray(zones.hand)
-          ? zones.hand.length
-          : zones.handCount || 0;
 
         appendGameEvent(game, gameId, "shuffleHand", { playerId });
+
+        // Ensure sequence is bumped before broadcasting to trigger client re-renders
+        if (typeof (game as any).bumpSeq === "function") {
+          (game as any).bumpSeq();
+        }
+
         broadcastGame(io, game, gameId);
       } catch (e) {
         console.error("shuffleHand failed:", e);
@@ -419,6 +458,156 @@ export function registerGameActions(io: Server, socket: Socket) {
       console.error("shuffleHand handler error:", err);
     }
   });
+
+  // Reorder player's hand based on drag-and-drop
+  socket.on(
+    "reorderHand",
+    ({ gameId, order }: { gameId: string; order: string[] }) => {
+      try {
+        const game = ensureGame(gameId);
+        const playerId = socket.data.playerId;
+        const spectator = socket.data.spectator;
+        if (!game || !playerId || spectator) return;
+
+        console.info(
+          "[reorderHand] Received request for game",
+          gameId,
+          ", order length:",
+          order.length
+        );
+        console.info(
+          "[reorderHand] playerId:",
+          playerId,
+          ", spectator:",
+          spectator,
+          ", game exists:",
+          !!game
+        );
+
+        if (!Array.isArray(order) || order.length === 0) {
+          socket.emit("error", {
+            code: "REORDER_HAND_BAD_ORDER",
+            message: "Invalid hand order payload.",
+          });
+          return;
+        }
+
+        // Prefer engine viewFor, fall back to raw state zones
+        let view: any;
+        try {
+          view =
+            typeof (game as any).viewFor === "function"
+              ? (game as any).viewFor(playerId, false)
+              : (game as any).state;
+        } catch {
+          view = (game as any).state;
+        }
+
+        const zonesFromView = view?.zones || {};
+        const zView = zonesFromView[playerId];
+        let hand: any[] = Array.isArray(zView?.hand) ? zView.hand : [];
+
+        // Fallback: if view hand is empty but state.zones has a hand, use that
+        if (!hand.length) {
+          try {
+            (game as any).state = (game as any).state || {};
+            (game as any).state.zones = (game as any).state.zones || {};
+            const zState = (game as any).state.zones[playerId];
+            if (zState && Array.isArray(zState.hand) && zState.hand.length) {
+              hand = zState.hand;
+              console.info(
+                "[reorderHand] Fallback to state.zones hand, length:",
+                hand.length
+              );
+            }
+          } catch {
+            // ignore fallback errors
+          }
+        }
+
+        console.info(
+          "[reorderHand] Current hand length:",
+          hand.length,
+          ", order length:",
+          order.length
+        );
+
+        if (!hand.length) {
+          console.warn("[reorderHand] No hand found for player", playerId);
+          socket.emit("error", {
+            code: "REORDER_HAND_NO_HAND",
+            message: "No hand to reorder.",
+          });
+          return;
+        }
+
+        // Map IDs to indices in current hand
+        const idToIndex = new Map<string, number>();
+        hand.forEach((c, idx) => {
+          if (c && c.id) idToIndex.set(c.id, idx);
+        });
+
+        const indexOrder: number[] = [];
+        for (const id of order) {
+          const idx = idToIndex.get(id);
+          if (idx === undefined) {
+            console.warn(
+              "[reorderHand] ID from client not found in hand:",
+              id
+            );
+            socket.emit("error", {
+              code: "REORDER_HAND_BAD_ORDER",
+              message:
+                "Supplied hand order does not match current hand contents.",
+            });
+            return;
+          }
+          indexOrder.push(idx);
+        }
+
+        if (typeof (game as any).reorderHand === "function") {
+          (game as any).reorderHand(playerId, indexOrder);
+        } else {
+          // Fallback: reorder a shadow hand in game.state.zones if needed
+          try {
+            (game as any).state = (game as any).state || {};
+            (game as any).state.zones = (game as any).state.zones || {};
+            const zState = (game as any).state.zones[playerId];
+            if (zState && Array.isArray(zState.hand)) {
+              const oldHand = zState.hand.slice();
+              const newHand: any[] = [];
+              indexOrder.forEach((oldIdx) => {
+                if (oldIdx >= 0 && oldIdx < oldHand.length) {
+                  newHand.push(oldHand[oldIdx]);
+                }
+              });
+              if (newHand.length === oldHand.length) {
+                zState.hand = newHand;
+                zState.handCount = newHand.length;
+              }
+            }
+          } catch (e) {
+            console.warn(
+              "[reorderHand] fallback reorder in state.zones failed",
+              e
+            );
+          }
+        }
+
+        appendGameEvent(game, gameId, "reorderHand", {
+          playerId,
+          orderIndices: indexOrder,
+        });
+        broadcastGame(io, game, gameId);
+      } catch (err: any) {
+        console.error("reorderHand handler error:", err);
+        socket.emit("error", {
+          code: "REORDER_HAND_ERROR",
+          message: err?.message ?? String(err),
+        });
+      }
+    }
+  );
 
   // Set turn direction (+1 or -1)
   socket.on(
