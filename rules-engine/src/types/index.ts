@@ -3,6 +3,9 @@
  * Foundational types for MTG rules engine
  */
 
+// Rules 101-104 - Game Flow (Golden Rules, Players, Starting, Ending)
+export * from './gameFlow';
+
 // Rule 105 - Colors
 export * from './colors';
 
