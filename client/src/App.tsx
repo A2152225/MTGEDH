@@ -198,6 +198,15 @@ export function App() {
 
   // chat send function shared with TableLayout
   const sendChat = (txt: string) => {
+    if (!safeView) return;
+    const trimmed = txt.trim();
+
+    // Slash command: /judge
+    if (trimmed.toLowerCase() === "/judge") {
+      socket.emit("requestJudge", { gameId: safeView.id });
+      return;
+    }
+
     if (!view) return;
     const payload: ChatMsg = {
       id: `m_${Date.now()}`,
@@ -529,32 +538,31 @@ export function App() {
       {/* Commander selection UI */}
       {effectiveGameId &&
         cmdModalOpen &&
-        cmdSuggestedGameId === effectiveGameId && (
-          showCommanderGallery ? (
-            <CommanderSelectModal
-              open={cmdModalOpen}
-              onClose={() => setCmdModalOpen(false)}
-              deckList={importedCandidates.map((c) => c.name).join("\n")}
-              candidates={importedCandidates}
-              max={2}
-              onConfirm={(names, ids) => {
-                handleCommanderConfirm(names, ids);
-                setCmdModalOpen(false);
-              }}
-            />
-          ) : (
-            <CommanderConfirmModal
-              open={cmdModalOpen}
-              gameId={effectiveGameId}
-              initialNames={cmdSuggestedNames}
-              onClose={() => setCmdModalOpen(false)}
-              onConfirm={(names) => {
-                handleCommanderConfirm(names);
-                setCmdModalOpen(false);
-              }}
-            />
-          )
-        )}
+        cmdSuggestedGameId === effectiveGameId &&
+        (showCommanderGallery ? (
+          <CommanderSelectModal
+            open={cmdModalOpen}
+            onClose={() => setCmdModalOpen(false)}
+            deckList={importedCandidates.map((c) => c.name).join("\n")}
+            candidates={importedCandidates}
+            max={2}
+            onConfirm={(names, ids) => {
+              handleCommanderConfirm(names, ids);
+              setCmdModalOpen(false);
+            }}
+          />
+        ) : (
+          <CommanderConfirmModal
+            open={cmdModalOpen}
+            gameId={effectiveGameId}
+            initialNames={cmdSuggestedNames}
+            onClose={() => setCmdModalOpen(false)}
+            onConfirm={(names) => {
+              handleCommanderConfirm(names);
+              setCmdModalOpen(false);
+            }}
+          />
+        ))}
 
       {/* Debug modal */}
       {debugOpen && (
@@ -624,7 +632,7 @@ export function App() {
         </div>
       )}
 
-      {/* Import confirmation modal */}
+      {/* Import / Judge confirmation modal (text still import-specific for now) */}
       {confirmOpen && confirmPayload && (
         <div
           style={{
@@ -647,7 +655,9 @@ export function App() {
             }}
           >
             <h3 style={{ marginTop: 0 }}>
-              Confirm importing deck (wipes table)
+              {confirmPayload.kind === "judge"
+                ? "Judge request"
+                : "Confirm importing deck (wipes table)"}
             </h3>
             <div
               style={{
@@ -656,20 +666,36 @@ export function App() {
                 marginBottom: 8,
               }}
             >
-              Player <strong>{confirmPayload.initiator}</strong> is importing a
-              deck
-              {confirmPayload.deckName ? `: ${confirmPayload.deckName}` : ""}.
+              {confirmPayload.kind === "judge" ? (
+                <>
+                  Player <strong>{confirmPayload.initiator}</strong> is
+                  requesting to become judge (full hand visibility). All active
+                  players must approve.
+                </>
+              ) : (
+                <>
+                  Player <strong>{confirmPayload.initiator}</strong> is
+                  importing a deck
+                  {confirmPayload.deckName
+                    ? `: ${confirmPayload.deckName}`
+                    : ""}
+                  .
+                </>
+              )}
             </div>
-            <div
-              style={{
-                display: "flex",
-                gap: 12,
-                marginBottom: 8,
-              }}
-            >
-              <div>Resolved cards: {confirmPayload.resolvedCount}</div>
-              <div>Declared deck size: {confirmPayload.expectedCount}</div>
-            </div>
+
+            {confirmPayload.kind !== "judge" && (
+              <div
+                style={{
+                  display: "flex",
+                  gap: 12,
+                  marginBottom: 8,
+                }}
+              >
+                <div>Resolved cards: {confirmPayload.resolvedCount}</div>
+                <div>Declared deck size: {confirmPayload.expectedCount}</div>
+              </div>
+            )}
 
             <div style={{ marginTop: 8 }}>
               <div style={{ fontWeight: 700, marginBottom: 6 }}>Votes</div>
