@@ -119,8 +119,8 @@ describe('Rule 701: Keyword Actions - Part 2', () => {
     });
     
     it('should calculate tripled stat correctly (Rule 701.11b)', () => {
-      expect(calculateTripledStat(5)).toBe(10); // Gets +10/+0 for total of 15
-      expect(calculateTripledStat(3)).toBe(6);  // Gets +6/+0 for total of 9
+      expect(calculateTripledStat(5)).toBe(10); // Gets +10/+0 (modifier), for total power of 15
+      expect(calculateTripledStat(3)).toBe(6);  // Gets +6/+0 (modifier), for total power of 9
     });
     
     it('should handle negative values when tripling (Rule 701.11c)', () => {
