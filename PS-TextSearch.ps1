@@ -14,7 +14,7 @@
 
 param(
     [string]$Root = ".",
-    [string]$Pattern = "useSaved",
+    [string]$Pattern = "applyEvent",
     [switch]$CaseSensitive = $true,
     [switch]$ListFilesOnly,
     [int]$Context = 0,

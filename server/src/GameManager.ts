@@ -13,6 +13,7 @@
 
 import { randomUUID } from "crypto";
 import { createInitialGameState } from "./state/index.js";
+import { createGameIfNotExists } from "./db";
 
 type PersistOptions = { gameId: string; format?: string; startingLife?: number };
 
@@ -30,11 +31,19 @@ function schedulePersistGamesRow(opts: PersistOptions) {
       // Prefer exported createGameIfNotExists if present
       if (dbmod && typeof (dbmod as any).createGameIfNotExists === "function") {
         try {
-          (dbmod as any).createGameIfNotExists(opts.gameId, opts.format ?? "commander", opts.startingLife ?? 40);
+          (dbmod as any).createGameIfNotExists(
+            opts.gameId,
+            opts.format ?? "commander",
+            opts.startingLife ?? 40
+          );
           return; // success
         } catch (e: any) {
           // If DB not initialized, createGameIfNotExists will throw; we'll retry below.
-          if ((e && String(e.message || "").includes("DB not initialized")) && attempts < maxAttempts) {
+          if (
+            e &&
+            String(e.message || "").includes("DB not initialized") &&
+            attempts < maxAttempts
+          ) {
             setTimeout(tryPersist, intervalMs);
             return;
           }
@@ -43,12 +52,23 @@ function schedulePersistGamesRow(opts: PersistOptions) {
       }
 
       // If dbmod exports a db handle (better-sqlite3 style), attempt insert-or-ignore
-      const possibleDb = (dbmod as any)?.db || (dbmod as any)?.default?.db || (dbmod as any)?.default || dbmod;
+      const possibleDb =
+        (dbmod as any)?.db ||
+        (dbmod as any)?.default?.db ||
+        (dbmod as any)?.default ||
+        dbmod;
       if (possibleDb && typeof possibleDb.prepare === "function") {
         try {
-          possibleDb.prepare(
-            "INSERT OR IGNORE INTO games (game_id, format, starting_life, created_at) VALUES (?, ?, ?, ?)"
-          ).run(opts.gameId, opts.format ?? "commander", opts.startingLife ?? 40, Date.now());
+          possibleDb
+            .prepare(
+              "INSERT OR IGNORE INTO games (game_id, format, starting_life, created_at) VALUES (?, ?, ?, ?)"
+            )
+            .run(
+              opts.gameId,
+              opts.format ?? "commander",
+              opts.startingLife ?? 40,
+              Date.now()
+            );
           return; // success
         } catch (e) {
           // fall through to retry
@@ -63,7 +83,9 @@ function schedulePersistGamesRow(opts: PersistOptions) {
           (dbmod as any).exec(
             `INSERT OR IGNORE INTO games (game_id, format, starting_life, created_at) VALUES ('${String(
               opts.gameId
-            ).replace(/'/g, "''")}', '${fmt}', ${life | 0}, ${Date.now()})`
+            ).replace(/'/g, "''")}', '${fmt}', ${
+              life | 0
+            }, ${Date.now()})`
           );
           return;
         } catch (e) {
@@ -128,7 +150,9 @@ class MinimalGameAdapter {
   seedRng(seed: number) {
     this._rngSeed = seed >>> 0;
     this._rng = mulberry32(this._rngSeed);
-    try { this.state.rngSeed = this._rngSeed; } catch {}
+    try {
+      this.state.rngSeed = this._rngSeed;
+    } catch {}
     this.bumpSeq();
   }
   rng() {
@@ -138,16 +162,30 @@ class MinimalGameAdapter {
 
   // Minimal seq bump helper (used by some modules)
   bumpSeq() {
-    try { this.seq = (typeof this.seq === "number" ? this.seq + 1 : 1); } catch {}
+    try {
+      this.seq = typeof this.seq === "number" ? this.seq + 1 : 1;
+    } catch {}
   }
 
   // Join API - conservative fallback
-  join(socketId: string, playerName: string, spectator = false, _opts?: any, seatToken?: string, fixedPlayerId?: string) {
-    const pid = fixedPlayerId || `p_${Math.random().toString(36).slice(2, 9)}`;
+  join(
+    socketId: string,
+    playerName: string,
+    spectator = false,
+    _opts?: any,
+    seatToken?: string,
+    fixedPlayerId?: string
+  ) {
+    const pid =
+      fixedPlayerId || `p_${Math.random().toString(36).slice(2, 9)}`;
     this.state.players = this.state.players || [];
     const exists = this.state.players.find((p: any) => p.id === pid);
     if (!exists) {
-      this.state.players.push({ id: pid, name: playerName, spectator: Boolean(spectator) });
+      this.state.players.push({
+        id: pid,
+        name: playerName,
+        spectator: Boolean(spectator),
+      });
       // no seat management in adapter
       this.bumpSeq();
       return { playerId: pid, added: true, seatToken };
@@ -162,16 +200,36 @@ class MinimalGameAdapter {
 
   // Participants list fallback (used to find socket ids); returns simple mapping without socketId
   participants() {
-    return (this.state.players || []).map((p: any) => ({ playerId: p.id, socketId: undefined, spectator: !!p.spectator }));
+    return (this.state.players || []).map((p: any) => ({
+      playerId: p.id,
+      socketId: undefined,
+      spectator: !!p.spectator,
+    }));
   }
 
   // Reset
   reset(preservePlayers = true) {
     if (preservePlayers) {
-      const players = Array.isArray(this.state.players) ? this.state.players.slice() : [];
-      this.state = { players, zones: {}, commandZone: {}, phase: "PRE_GAME", format: this.state.format || "commander", startingLife: this.state.startingLife || 40 };
+      const players = Array.isArray(this.state.players)
+        ? this.state.players.slice()
+        : [];
+      this.state = {
+        players,
+        zones: {},
+        commandZone: {},
+        phase: "PRE_GAME",
+        format: this.state.format || "commander",
+        startingLife: this.state.startingLife || 40,
+      };
     } else {
-      this.state = { players: [], zones: {}, commandZone: {}, phase: "PRE_GAME", format: this.state.format || "commander", startingLife: this.state.startingLife || 40 };
+      this.state = {
+        players: [],
+        zones: {},
+        commandZone: {},
+        phase: "PRE_GAME",
+        format: this.state.format || "commander",
+        startingLife: this.state.startingLife || 40,
+      };
     }
     this.bumpSeq();
   }
@@ -179,9 +237,20 @@ class MinimalGameAdapter {
   // Shallow hook for deck import resolution (no-op)
   importDeckResolved(playerId: string, cards: any[]) {
     this.state.zones = this.state.zones || {};
-    this.state.zones[playerId] = this.state.zones[playerId] || { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [] };
-    this.state.zones[playerId].library = cards.map((c: any) => ({ ...c, zone: "library" }));
-    this.state.zones[playerId].libraryCount = (this.state.zones[playerId].library || []).length;
+    this.state.zones[playerId] = this.state.zones[playerId] || {
+      hand: [],
+      handCount: 0,
+      library: [],
+      libraryCount: 0,
+      graveyard: [],
+    };
+    this.state.zones[playerId].library = cards.map((c: any) => ({
+      ...c,
+      zone: "library",
+    }));
+    this.state.zones[playerId].libraryCount = (
+      this.state.zones[playerId].library || []
+    ).length;
     this.bumpSeq();
   }
 
@@ -192,11 +261,13 @@ class MinimalGameAdapter {
       if (!z || !Array.isArray(z.library)) return;
       // Fisher-Yates
       for (let i = z.library.length - 1; i > 0; i--) {
-        const j = Math.floor((this.rng()) * (i + 1));
+        const j = Math.floor(this.rng() * (i + 1));
         [z.library[i], z.library[j]] = [z.library[j], z.library[i]];
       }
       this.bumpSeq();
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      /* ignore */
+    }
   }
   drawCards(playerId: string, count: number) {
     try {
@@ -210,10 +281,14 @@ class MinimalGameAdapter {
       z.handCount = z.hand.length;
       z.libraryCount = z.library ? z.library.length : 0;
       this.bumpSeq();
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      /* ignore */
+    }
   }
 
-  toJSON() { return { id: this.id, state: this.state, seq: this.seq }; }
+  toJSON() {
+    return { id: this.id, state: this.state, seq: this.seq };
+  }
 }
 
 /* GameManager implementation */
@@ -229,14 +304,18 @@ class GameManagerClass {
   private initBasicShapes(game: any, opts?: CreateGameOptions) {
     try {
       game.state = game.state || {};
-      game.state.phase = (opts && opts.startingState && typeof opts.startingState.phase !== "undefined")
-        ? opts.startingState.phase
-        : "PRE_GAME";
+      game.state.phase =
+        opts &&
+        opts.startingState &&
+        typeof opts.startingState.phase !== "undefined"
+          ? opts.startingState.phase
+          : "PRE_GAME";
       if (opts && opts.startingState && typeof opts.startingState === "object") {
         const incoming = { ...opts.startingState };
         if (typeof incoming.phase === "undefined") delete incoming.phase;
         game.state = { ...game.state, ...incoming };
-        if (typeof opts.startingState.phase === "undefined") game.state.phase = "PRE_GAME";
+        if (typeof opts.startingState.phase === "undefined")
+          game.state.phase = "PRE_GAME";
       }
     } catch (e) {
       game.state = game.state || {};
@@ -248,7 +327,9 @@ class GameManagerClass {
       game.state.players = game.state.players || [];
       game.state.zones = game.state.zones || {};
       game.state.commandZone = game.state.commandZone || {};
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      /* ignore */
+    }
   }
 
   createGame(opts: CreateGameOptions = {}): any {
@@ -260,21 +341,58 @@ class GameManagerClass {
     // Always prefer createInitialGameState for commander games to get full engine support
     try {
       game = createInitialGameState(id);
-      console.log(`[GameManager] Created game ${id} using full rules engine (createInitialGameState)`);
+      console.log(
+        `[GameManager] Created game ${id} using full rules engine (createInitialGameState)`
+      );
     } catch (e) {
-      console.warn(`[GameManager] createInitialGameState failed for ${id}, falling back to MinimalGameAdapter:`, e);
+      console.warn(
+        `[GameManager] createInitialGameState failed for ${id}, falling back to MinimalGameAdapter:`,
+        e
+      );
       game = new MinimalGameAdapter(id);
     }
 
     this.initBasicShapes(game, opts);
     this.games.set(id, game);
 
-    // Schedule background persistence of a minimal games row so appendEvent won't fail on first event
+    // Synchronous persistence of games row so /api/games sees it immediately
     try {
-      const fmt = game.state?.format ?? (opts.startingState && opts.startingState.format) ?? "commander";
-      const life = typeof game.state?.startingLife === "number" ? game.state.startingLife : (opts.startingState && typeof opts.startingState.startingLife === "number" ? opts.startingState.startingLife : 40);
+      const fmt =
+        game.state?.format ??
+        (opts.startingState && opts.startingState.format) ??
+        "commander";
+      const life =
+        typeof game.state?.startingLife === "number"
+          ? game.state.startingLife
+          : opts.startingState &&
+            typeof opts.startingState.startingLife === "number"
+          ? opts.startingState.startingLife
+          : 40;
+      createGameIfNotExists(id, fmt, life);
+    } catch (e) {
+      console.warn(
+        "[GameManager] createGame: createGameIfNotExists failed (non-fatal)",
+        e
+      );
+    }
+
+    // Background persistence remains as an additional safety net
+    try {
+      const fmt =
+        game.state?.format ??
+        (opts.startingState && opts.startingState.format) ??
+        "commander";
+      const life =
+        typeof game.state?.startingLife === "number"
+          ? game.state.startingLife
+          : opts.startingState &&
+            typeof opts.startingState.startingLife === "number"
+          ? opts.startingState.startingLife
+          : 40;
       schedulePersistGamesRow({ gameId: id, format: fmt, startingLife: life });
-    } catch (e) { /* non-fatal */ }
+    } catch (e) {
+      /* non-fatal */
+    }
 
     return game;
   }
@@ -288,25 +406,50 @@ class GameManagerClass {
     if (g) return g;
 
     let game: any = null;
-    
+
     // Always use createInitialGameState for commander games to get full engine support
     try {
       game = createInitialGameState(gameId);
-      console.log(`[GameManager] Ensured game ${gameId} using full rules engine (createInitialGameState)`);
+      console.log(
+        `[GameManager] Ensured game ${gameId} using full rules engine (createInitialGameState)`
+      );
     } catch (e) {
-      console.warn(`[GameManager] createInitialGameState failed for ${gameId}, falling back to MinimalGameAdapter:`, e);
+      console.warn(
+        `[GameManager] createInitialGameState failed for ${gameId}, falling back to MinimalGameAdapter:`,
+        e
+      );
       game = new MinimalGameAdapter(gameId);
     }
 
     this.initBasicShapes(game);
     this.games.set(gameId, game);
 
-    // Schedule background persistence of a minimal games row so appendEvent won't fail
+    // Synchronous persistence so game shows up in /api/games immediately
     try {
       const fmt = game.state?.format ?? "commander";
-      const life = typeof game.state?.startingLife === "number" ? game.state.startingLife : 40;
+      const life =
+        typeof game.state?.startingLife === "number"
+          ? game.state.startingLife
+          : 40;
+      createGameIfNotExists(gameId, fmt, life);
+    } catch (e) {
+      console.warn(
+        "[GameManager] ensureGame: createGameIfNotExists failed (non-fatal)",
+        e
+      );
+    }
+
+    // Background persistence remains as an additional safety net
+    try {
+      const fmt = game.state?.format ?? "commander";
+      const life =
+        typeof game.state?.startingLife === "number"
+          ? game.state.startingLife
+          : 40;
       schedulePersistGamesRow({ gameId, format: fmt, startingLife: life });
-    } catch (e) { /* non-fatal */ }
+    } catch (e) {
+      /* non-fatal */
+    }
 
     return game;
   }
@@ -319,17 +462,35 @@ class GameManagerClass {
       } else {
         if (preservePlayers && Array.isArray(game.state.players)) {
           const players = game.state.players;
-          game.state = { players, zones: {}, commandZone: {}, phase: "PRE_GAME" };
+          game.state = {
+            players,
+            zones: {},
+            commandZone: {},
+            phase: "PRE_GAME",
+          };
         } else {
-          game.state = { players: [], zones: {}, commandZone: {}, phase: "PRE_GAME" };
+          game.state = {
+            players: [],
+            zones: {},
+            commandZone: {},
+            phase: "PRE_GAME",
+          };
         }
       }
     } catch (e) {
       console.warn("GameManager.resetGame: underlying reset failed", e);
       game.state = game.state || {};
     }
-    try { game.state.phase = "PRE_GAME"; } catch (e) { /* ignore */ }
-    try { if (typeof game.seq === "undefined") game.seq = 0; } catch (e) { /* ignore */ }
+    try {
+      game.state.phase = "PRE_GAME";
+    } catch (e) {
+      /* ignore */
+    }
+    try {
+      if (typeof game.seq === "undefined") game.seq = 0;
+    } catch (e) {
+      /* ignore */
+    }
     return game;
   }
 
