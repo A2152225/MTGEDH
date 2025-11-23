@@ -11,7 +11,7 @@ import { games } from "./socket";
  *  - tolerates Game implementations that lack hasRngSeed/seedRng/viewFor/join,
  *  - persists rngSeed best-effort and continues on DB write failures,
  *  - normalizes emitted view so view.zones[playerId] exists for every player,
- *  - ensures in-memory game.state.zones is updated for newly-added players so other modules don't see undefined.
+ *  *  - ensures in-memory game.state.zones is updated for newly-added players so other modules don't see undefined.
  *
  * Added: per-game join queue to serialize join processing and avoid race-created duplicate roster entries.
  * Change: when a forcedFixedPlayerId is present we DO NOT call game.join(...) so reconnects cannot be
@@ -333,7 +333,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
               }
             }
 
-            // If no forced id and a player name exists, require explicit client choice (no auto-create)
+            // If no forced id and a player name exists, only block on name if that player is actually connected.
             if (!forcedFixedPlayerId && playerName) {
               const existing =
                 game.state && Array.isArray(game.state.players)
@@ -350,21 +350,32 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                   (pp: any) => pp.playerId === existing.id
                 );
 
-                if (process.env.DEBUG_STATE === "1")
-                  console.log(
-                    `joinGame: name exists -> prompting nameInUse (playerId=${existing.id}, connected=${isConnected})`
-                  );
-                socket.emit("nameInUse", {
-                  gameId,
-                  playerName,
-                  options: [
-                    { action: "reconnect", fixedPlayerId: existing.id },
-                    { action: "newName" },
-                    { action: "cancel" },
-                  ],
-                  meta: { isConnected: Boolean(isConnected) },
-                });
-                return;
+                if (isConnected) {
+                  if (process.env.DEBUG_STATE === "1")
+                    console.log(
+                      `joinGame: name exists and is connected -> prompting nameInUse (playerId=${existing.id}, connected=true)`
+                    );
+                  socket.emit("nameInUse", {
+                    gameId,
+                    playerName,
+                    options: [
+                      { action: "reconnect", fixedPlayerId: existing.id },
+                      { action: "newName" },
+                      { action: "cancel" },
+                    ],
+                    meta: { isConnected: true },
+                  });
+                  return;
+                } else {
+                  // NEW: when the player with this name exists but is disconnected,
+                  // treat this as a reconnect and reuse that playerId automatically.
+                  forcedFixedPlayerId = existing.id;
+                  resolvedToken = existing.seatToken || resolvedToken;
+                  if (process.env.DEBUG_STATE === "1")
+                    console.log(
+                      `joinGame: name exists but is disconnected -> auto-reusing playerId=${existing.id}`
+                    );
+                }
               }
             }
 
@@ -472,6 +483,21 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
               }
             }
 
+            // Helper: rebind engine-level participants to the current socket if possible
+            function rebindEngineParticipant(gameObj: any, pid: string, sid: string) {
+              try {
+                if (typeof gameObj.participants === "function") {
+                  const parts = gameObj.participants();
+                  const target = parts.find((pp: any) => pp.playerId === pid);
+                  if (target) {
+                    target.socketId = sid;
+                  }
+                }
+              } catch {
+                // non-fatal
+              }
+            }
+
             // Fallback / safe reattach/create (serialized — no races now)
             if (!playerId) {
               // 1) forcedFixedPlayerId => reuse existing or create with that id (very rare)
@@ -511,6 +537,9 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                         `joinGame: created player for forcedFixedPlayerId ${playerId}`
                       );
                   }
+
+                  // Rebind engine participants to this socketId
+                  rebindEngineParticipant(game, playerId, socket.id);
                 } catch (e) {
                   console.warn(
                     "joinGame: forcedFixedPlayerId fallback failed:",
@@ -532,6 +561,8 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                       console.log(
                         `joinGame: reattached by seatToken -> ${playerId}`
                       );
+                    // Rebind engine participants
+                    rebindEngineParticipant(game, playerId, socket.id);
                   }
                 }
               }
@@ -563,13 +594,16 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                     existingByName.socketId = socket.id;
                     if (!existingByName.seatToken)
                       existingByName.seatToken = makeSeatToken();
-                    resolvedToken = resolvedToken || existingByName.seatToken;
+                    resolvedToken =
+                      resolvedToken || existingByName.seatToken;
                   } catch {}
                   added = false;
                   if (process.env.DEBUG_STATE === "1")
                     console.log(
                       `joinGame: reused disconnected name -> ${playerId}`
                     );
+                  // Rebind engine participants
+                  rebindEngineParticipant(game, playerId, socket.id);
                 }
               }
             }
@@ -590,6 +624,8 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                     console.log(
                       `joinGame: last-chance reattach by seatToken -> ${playerId}`
                     );
+                  // Rebind engine participants
+                  rebindEngineParticipant(game, playerId, socket.id);
                 }
               }
             }
@@ -636,6 +672,8 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                 console.log(
                   `joinGame: created new player ${playerId} (name=${playerName})`
                 );
+              // Rebind engine participants (in case engine inspects state.players)
+              rebindEngineParticipant(game, playerId, socket.id);
             }
 
             // Ensure server-side zones for players exist
@@ -647,18 +685,25 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
 
             // Session metadata + socket room
             try {
-              socket.data = { gameId, playerId, spectator: Boolean(spectator) };
+              socket.data = {
+                gameId,
+                playerId,
+                spectator: Boolean(spectator),
+              };
             } catch {}
             try {
               socket.join(gameId);
             } catch {}
 
-            // Build view (viewFor or raw)
+            // Build view (viewFor or raw) with judge support
             let rawView: any;
             try {
               if (typeof (game as any).viewFor === "function") {
+                const role = (socket.data as any)?.role;
+                const isJudge = role === "judge";
+                const viewer = isJudge ? ("spectator:judge" as any) : playerId;
                 rawView = (game as any).viewFor(
-                  playerId,
+                  viewer,
                   Boolean(spectator)
                 );
               } else {
@@ -707,9 +752,10 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                   {
                     playerId,
                     name: playerName,
-                    seat: view.players?.find(
-                      (p: any) => p.id === playerId
-                    )?.seat,
+                    seat:
+                      view.players?.find(
+                        (p: any) => p.id === playerId
+                      )?.seat,
                     seatToken: resolvedToken,
                   }
                 );
@@ -772,6 +818,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
       await myTask;
     }
   );
+
   // Request state refresh
   socket.on("requestState", ({ gameId }: { gameId: string }) => {
     try {
@@ -783,10 +830,15 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
       try {
         rawView =
           typeof (game as any).viewFor === "function"
-            ? (game as any).viewFor(
-                playerId,
-                Boolean(socket.data?.spectator)
-              )
+            ? (() => {
+                const role = (socket.data as any)?.role;
+                const isJudge = role === "judge";
+                const viewer = isJudge ? ("spectator:judge" as any) : playerId;
+                return (game as any).viewFor(
+                  viewer,
+                  Boolean(socket.data?.spectator)
+                );
+              })()
             : game.state;
       } catch (e) {
         console.warn(

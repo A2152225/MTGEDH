@@ -8,6 +8,7 @@ import { registerDeckHandlers } from "./deck";
 import { registerInteractionHandlers } from "./interaction";
 import { registerPriorityHandlers } from "./priority";
 import { registerDisconnectHandlers } from "./disconnect";
+import { registerJudgeHandlers } from "./judge";
 
 /**
  * Registers all Socket.IO event handlers for the server,
@@ -27,6 +28,7 @@ export function registerSocketHandlers(
     registerInteractionHandlers(io, socket);
     registerPriorityHandlers(io, socket);
     registerDisconnectHandlers(io, socket);
+	registerJudgeHandlers(io, socket);
 
     // Log disconnection reason
     socket.on("disconnect", (reason) => {

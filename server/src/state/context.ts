@@ -26,8 +26,15 @@ export interface GameContext {
   experience: Record<PlayerID, number>;
   commandZone: Record<PlayerID, any>;
   // participant tracking
-  joinedBySocket: Map<string, { socketId: string; playerId: PlayerID; spectator: boolean }>;
-  participantsList: Array<{ socketId: string; playerId: PlayerID; spectator: boolean }>;
+  joinedBySocket: Map<
+    string,
+    { socketId: string; playerId: PlayerID; spectator: boolean }
+  >;
+  participantsList: Array<{
+    socketId: string;
+    playerId: PlayerID;
+    spectator: boolean;
+  }>;
   // token maps
   tokenToPlayer: Map<string, PlayerID>;
   playerToToken: Map<PlayerID, string>;
@@ -37,6 +44,9 @@ export interface GameContext {
   spectatorNames: Map<PlayerID, string>;
   // pending initial draw set
   pendingInitialDraw: Set<PlayerID>;
+
+  // NEW: explicit visibility grants for hand (Telepathy, judge, reveal-hand effects)
+  handVisibilityGrants: Map<PlayerID, Set<PlayerID | "spectator:judge">>;
 
   // RNG and sequencing helpers
   rngSeed: number | null;
@@ -66,16 +76,6 @@ function mulberry32(seed: number) {
   };
 }
 
-/** Simple hash string → 32-bit int seed (FNV-1a style) */
-function hashStringToSeed(s: string) {
-  let h = 2166136261 >>> 0;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619) >>> 0;
-  }
-  return h >>> 0;
-}
-
 /**
  * createContext(gameId)
  *
@@ -83,7 +83,7 @@ function hashStringToSeed(s: string) {
  * The returned context contains:
  *  - a minimal authoritative GameState snapshot (state)
  *  - runtime maps for libraries/zones and counters
- *  - deterministic RNG seeded by gameId
+ *  - RNG seeded with a per-instance random/time-based seed
  *  - bumpSeq() which increments seq.value (used to signal visibility changes)
  *
  * Implementation notes:
@@ -91,7 +91,16 @@ function hashStringToSeed(s: string) {
  *   for our build in this code path). Use string literals for phase/format initializers.
  */
 export function createContext(gameId: string): GameContext {
-  const rngSeed = hashStringToSeed(gameId);
+  // Previously this used hashStringToSeed(gameId), which made all games with the
+  // same id share the same default seed. That caused new physical games with the
+  // same name to have correlated shuffles/opening hands.
+  //
+  // We now use a time/random-based seed for each new context. For persisted games,
+  // this initial seed is overridden by the rngSeed event during replay, so replay
+  // remains deterministic for an existing game history.
+  const initialSeed =
+    (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
+  const rngSeed = initialSeed;
   const rng = mulberry32(rngSeed);
 
   const seq = { value: 0 };
@@ -122,7 +131,7 @@ export function createContext(gameId: string): GameContext {
     startedAt: undefined,
     turn: undefined,
     activePlayerIndex: undefined,
-    landsPlayedThisTurn: undefined,
+    landsPlayedThisTurn: {} as any,
   };
 
   const ctx: GameContext = {
@@ -142,6 +151,9 @@ export function createContext(gameId: string): GameContext {
     inactive: new Set(),
     spectatorNames: new Map(),
     pendingInitialDraw: new Set(),
+
+    // NEW: initialize hand visibility grants map
+    handVisibilityGrants: new Map(),
 
     rngSeed,
     rng,

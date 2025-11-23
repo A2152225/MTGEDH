@@ -782,7 +782,7 @@ async function applyConfirmedImport(
               if (typeof (game as any).drawCards === "function") {
                 try {
                   (game as any).drawCards(p.initiator, 7);
-                  appendEvent(p.gameId, game.seq, "drawCards", {
+                  await appendEvent(p.gameId, game.seq, "drawCards", {
                     playerId: p.initiator,
                     count: 7,
                   });
@@ -812,86 +812,86 @@ async function applyConfirmedImport(
         );
       }
 
-    try {
-      broadcastGame(io, game, p.gameId);
-    } catch (e) {
-      console.warn(
-        "applyConfirmedImport: broadcastGame failed (post-suggest)",
-        e
-      );
-    }
-  } catch (err) {
-    console.warn("applyConfirmedImport: opening draw flow failed", err);
-  }
-
-  if (p.save === true && p.deckName && p.deckName.trim()) {
-    try {
-      const deckId = `deck_${Date.now()}`;
-      const created_by_name =
-        (game.state.players as any[])?.find((pl) => pl.id === p.initiator)
-          ?.name || String(p.initiator);
-      const card_count = p.parsedCount;
-      saveDeckDB({
-        id: deckId,
-        name: p.deckName.trim(),
-        text: "",
-        created_by_id: p.initiator,
-        created_by_name,
-        card_count,
-      });
-      io.to(p.gameId).emit("savedDecksList", {
-        gameId: p.gameId,
-        decks: listDecks(),
-      });
-    } catch (e) {
-      console.warn("applyConfirmedImport: auto-save failed", e);
-    }
-  }
-
-  try {
-    if (!importerOnly) {
       try {
-        io.to(p.gameId).emit("importWipeConfirmed", {
-          confirmId,
-          gameId: p.gameId,
-          by: p.initiator,
-        });
+        broadcastGame(io, game, p.gameId);
       } catch (e) {
         console.warn(
-          "applyConfirmedImport: importWipeConfirmed emit failed",
+          "applyConfirmedImport: broadcastGame failed (post-suggest)",
           e
         );
       }
+    } catch (err) {
+      console.warn("applyConfirmedImport: opening draw flow failed", err);
     }
+
+    if (p.save === true && p.deckName && p.deckName.trim()) {
+      try {
+        const deckId = `deck_${Date.now()}`;
+        const created_by_name =
+          (game.state.players as any[])?.find((pl) => pl.id === p.initiator)
+            ?.name || String(p.initiator);
+        const card_count = p.parsedCount;
+        saveDeckDB({
+          id: deckId,
+          name: p.deckName.trim(),
+          text: "",
+          created_by_id: p.initiator,
+          created_by_name,
+          card_count,
+        });
+        io.to(p.gameId).emit("savedDecksList", {
+          gameId: p.gameId,
+          decks: listDecks(),
+        });
+      } catch (e) {
+        console.warn("applyConfirmedImport: auto-save failed", e);
+      }
+    }
+
     try {
-      broadcastGame(io, game, p.gameId);
+      if (!importerOnly) {
+        try {
+          io.to(p.gameId).emit("importWipeConfirmed", {
+            confirmId,
+            gameId: p.gameId,
+            by: p.initiator,
+          });
+        } catch (e) {
+          console.warn(
+            "applyConfirmedImport: importWipeConfirmed emit failed",
+            e
+          );
+        }
+      }
+      try {
+        broadcastGame(io, game, p.gameId);
+      } catch {
+        /* ignore */
+      }
+    } catch (err) {
+      console.warn("applyConfirmedImport: final broadcast/notify failed", err);
+    }
+
+    try {
+      (game as any)._lastImportAppliedBy = p.initiator;
+      (game as any)._lastImportAppliedAt = Date.now();
     } catch {
       /* ignore */
     }
-  } catch (err) {
-    console.warn("applyConfirmedImport: final broadcast/notify failed", err);
+  } finally {
+    try {
+      const game = ensureGame(p.gameId);
+      if (game) (game as any)._importApplying = false;
+    } catch {
+      /* ignore */
+    }
+    pendingImportConfirmations.delete(confirmId);
+    console.info("[import] applyConfirmedImport complete", {
+      gameId: p.gameId,
+      initiator: p.initiator,
+      confirmId,
+    });
   }
-
-  try {
-    (game as any)._lastImportAppliedBy = p.initiator;
-    (game as any)._lastImportAppliedAt = Date.now();
-  } catch {
-    /* ignore */
-  }
-} finally {
-  try {
-    const game = ensureGame(p.gameId);
-    if (game) (game as any)._importApplying = false;
-  } catch {
-    /* ignore */
-  }
-  pendingImportConfirmations.delete(confirmId);
-  console.info("[import] applyConfirmedImport complete", {
-    gameId: p.gameId,
-    initiator: p.initiator,
-    confirmId,
-  });
-}
 }
 
 /* --- Main registration: socket handlers for deck management --- */
@@ -1459,6 +1459,397 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
     }
   });
 
-  // useSavedDeck etc. remain as in your current file; you can optionally
-  // apply the same compact-logging pattern there if needed.
+  // NEW: useSavedDeck - apply a previously saved deck using the same flow as importDeck
+  socket.on(
+    "useSavedDeck",
+    async ({ gameId, deckId }: { gameId: string; deckId: string }) => {
+      try {
+        console.info("[deck] useSavedDeck called", {
+          gameId,
+          deckId,
+          playerId: socket.data.playerId,
+        });
+
+        if (!gameId || typeof gameId !== "string") {
+          socket.emit("deckError", { gameId, message: "GameId required." });
+          return;
+        }
+        if (!deckId || typeof deckId !== "string") {
+          socket.emit("deckError", { gameId, message: "DeckId required." });
+          return;
+        }
+
+        const pid = socket.data.playerId as PlayerID | undefined;
+        const spectator = socket.data.spectator;
+        if (!pid || spectator) {
+          socket.emit("deckError", {
+            gameId,
+            message: "Spectators cannot use saved decks.",
+          });
+          return;
+        }
+
+        const game = ensureGame(gameId);
+        if (!game) {
+          socket.emit("deckError", { gameId, message: "Game not found." });
+          return;
+        }
+
+        const saved = getDeckDB(deckId);
+        if (!saved) {
+          socket.emit("deckError", {
+            gameId,
+            message: "Saved deck not found.",
+          });
+          return;
+        }
+
+        const list = saved.text || "";
+        const deckName = saved.name || deckId;
+
+        // Parse decklist from saved text
+        let parsed: Array<{ name: string; count: number }>;
+        try {
+          parsed = parseDecklist(list);
+          if (!Array.isArray(parsed) || parsed.length === 0) {
+            socket.emit("deckError", {
+              gameId,
+              message: "Saved deck appears empty or invalid.",
+            });
+            return;
+          }
+        } catch {
+          socket.emit("deckError", {
+            gameId,
+            message: "Failed to parse saved deck list.",
+          });
+          return;
+        }
+
+        const requestedNames = parsed.map((p) => p.name);
+        let byName: Map<string, any> | null = null;
+        try {
+          byName = await fetchCardsByExactNamesBatch(requestedNames);
+        } catch {
+          byName = null;
+        }
+
+        const resolvedCards: Array<
+          Pick<
+            KnownCardRef,
+            "id" | "name" | "type_line" | "oracle_text" | "image_uris"
+          >
+        > = [];
+        const missing: string[] = [];
+
+        if (byName) {
+          for (const { name, count } of parsed) {
+            const key = normalizeName(name).toLowerCase();
+            const c = byName.get(key);
+            if (!c) {
+              missing.push(name);
+              continue;
+            }
+            for (let i = 0; i < (count || 1); i++) {
+              resolvedCards.push({
+                id: c.id,
+                name: c.name,
+                type_line: c.type_line,
+                oracle_text: c.oracle_text,
+                image_uris: c.image_uris,
+              });
+            }
+          }
+        } else {
+          for (const { name, count } of parsed) {
+            try {
+              const c = await fetchCardByExactNameStrict(name);
+              for (let i = 0; i < (count || 1); i++) {
+                resolvedCards.push({
+                  id: c.id,
+                  name: c.name,
+                  type_line: c.type_line,
+                  oracle_text: c.oracle_text,
+                  image_uris: c.image_uris,
+                });
+              }
+            } catch {
+              missing.push(name);
+            }
+          }
+        }
+
+        const sampleFirst = resolvedCards[0];
+        const sampleLast =
+          resolvedCards.length > 1
+            ? resolvedCards[resolvedCards.length - 1]
+            : null;
+        console.info("[deck] useSavedDeck resolved cards", {
+          gameId,
+          deckId,
+          playerId: pid,
+          resolvedCount: resolvedCards.length,
+          missingCount: missing.length,
+          firstCard: sampleFirst
+            ? {
+                name: sampleFirst.name,
+                id: sampleFirst.id,
+                type_line: sampleFirst.type_line,
+              }
+            : null,
+          lastCard: sampleLast
+            ? {
+                name: sampleLast.name,
+                id: sampleLast.id,
+                type_line: sampleLast.type_line,
+              }
+            : null,
+        });
+
+        if (missing.length) {
+          try {
+            socket.emit("deckImportMissing", { gameId, missing });
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `Missing (from saved deck): ${missing
+                .slice(0, 10)
+                .join(", ")}${missing.length > 10 ? ", …" : ""}`,
+              ts: Date.now(),
+            });
+          } catch (e) {
+            console.warn("useSavedDeck: emit deckImportMissing failed", e);
+          }
+        }
+
+        const rawPhase = (game.state && (game.state as any).phase) ?? "";
+        const phaseStr = String(rawPhase).toUpperCase().trim();
+        const seqVal =
+          typeof (game as any).seq === "number" ? (game as any).seq : null;
+        const isPreGame =
+          phaseStr === "" ||
+          phaseStr.includes("PRE") ||
+          phaseStr.includes("BEGIN") ||
+          seqVal === 0 ||
+          seqVal === null;
+
+        console.info("[deck] useSavedDeck pregame-check", {
+          gameId,
+          deckId,
+          playerId: pid,
+          phaseStr,
+          seqVal,
+          isPreGame,
+        });
+
+        // Save _lastImportedDecks buffer as well, so getImportedDeckCandidates works
+        try {
+          (game as any)._lastImportedDecks =
+            (game as any)._lastImportedDecks || new Map<PlayerID, any[]>();
+          (game as any)._lastImportedDecks.set(
+            pid,
+            resolvedCards.map((c) => ({
+              id: c.id,
+              name: c.name,
+              type_line: c.type_line,
+              oracle_text: c.oracle_text,
+              image_uris: c.image_uris,
+            }))
+          );
+        } catch (e) {
+          console.warn(
+            "useSavedDeck: could not set _lastImportedDecks on game object",
+            e
+          );
+        }
+
+        const parsedCount = parsed.reduce((s, p) => s + (p.count || 0), 0);
+
+        if (isPreGame) {
+          const confirmId = `imp_${Date.now()}_${Math.random()
+            .toString(36)
+            .slice(2, 8)}`;
+          const pending: PendingConfirm = {
+            gameId,
+            initiator: pid,
+            resolvedCards,
+            parsedCount,
+            deckName,
+            save: false,
+            responses: { [pid]: "yes" },
+            timeout: null,
+            snapshotZones:
+              game.state &&
+              (game.state as any).zones &&
+              (game.state as any).zones[pid]
+                ? JSON.parse(
+                    JSON.stringify((game.state as any).zones[pid])
+                  )
+                : null,
+            snapshotCommandZone:
+              game.state &&
+              (game.state as any).commandZone &&
+              (game.state as any).commandZone[pid]
+                ? JSON.parse(
+                    JSON.stringify(
+                      (game.state as any).commandZone[pid]
+                    )
+                  )
+                : null,
+            snapshotPhase:
+              game.state && (game.state as any).phase !== undefined
+                ? (game.state as any).phase
+                : null,
+            applyImporterOnly: true,
+          };
+          pendingImportConfirmations.set(confirmId, pending);
+
+          try {
+            clearPlayerTransientZonesForImport(game, pid);
+            addPendingInitialDrawFlag(game, pid);
+            try {
+              broadcastGame(io, game, gameId);
+            } catch {
+              /* best-effort */
+            }
+          } catch (e) {
+            console.warn(
+              "useSavedDeck (pre-game): clearing transient zones/flags failed",
+              e
+            );
+          }
+
+          try {
+            const names = suggestCommanderNames(resolvedCards);
+            socket.emit("suggestCommanders", { gameId, names });
+          } catch (e) {
+            console.warn("useSavedDeck: suggestCommanders emit failed", e);
+          }
+
+          setTimeout(() => {
+            applyConfirmedImport(io, confirmId, socket).catch((err) => {
+              console.error("useSavedDeck immediate applyConfirmedImport failed:", err);
+              cancelConfirmation(io, confirmId, "apply_failed");
+            });
+          }, 200);
+
+          return;
+        }
+
+        // mid-game path: require unanimous approval (same as importDeck)
+        const activePlayerIds = getActivePlayerIds(game, io, gameId);
+        const players =
+          activePlayerIds.length > 0
+            ? activePlayerIds
+            : (game.state.players || [])
+                .map((p: any) => p.id)
+                .filter(Boolean) as string[];
+
+        const confirmId = `imp_${Date.now()}_${Math.random()
+          .toString(36)
+          .slice(2, 8)}`;
+        const responses: Record<string, "pending" | "yes" | "no"> = {};
+        for (const pl of players) responses[pl] = "pending";
+        responses[pid] = "yes";
+
+        const snapshotZones =
+          game.state &&
+          (game.state as any).zones &&
+          (game.state as any).zones[pid]
+            ? JSON.parse(JSON.stringify((game.state as any).zones[pid]))
+            : null;
+        const snapshotCommandZone =
+          game.state &&
+          (game.state as any).commandZone &&
+          (game.state as any).commandZone[pid]
+            ? JSON.parse(
+                JSON.stringify((game.state as any).commandZone[pid])
+              )
+            : null;
+        const snapshotPhase =
+          game.state && (game.state as any).phase !== undefined
+            ? (game.state as any).phase
+            : null;
+
+        const pendingConfirm: PendingConfirm = {
+          gameId,
+          initiator: pid,
+          resolvedCards,
+          parsedCount,
+          deckName,
+          save: false,
+          responses,
+          timeout: null,
+          snapshotZones,
+          snapshotCommandZone,
+          snapshotPhase,
+          applyImporterOnly: false,
+        };
+
+        const TIMEOUT_MS = 60_000;
+        pendingConfirm.timeout = setTimeout(() => {
+          cancelConfirmation(io, confirmId, "timeout");
+        }, TIMEOUT_MS);
+
+        pendingImportConfirmations.set(confirmId, pendingConfirm);
+
+        try {
+          clearPlayerTransientZonesForImport(game, pid);
+          addPendingInitialDrawFlag(game, pid);
+          try {
+            broadcastGame(io, game, gameId);
+          } catch {
+            /* best-effort */
+          }
+        } catch (e) {
+          console.warn("useSavedDeck: clearing transient zones/flags failed", e);
+        }
+
+        try {
+          io.to(gameId).emit("importWipeConfirmRequest", {
+            confirmId,
+            gameId,
+            initiator: pid,
+            deckName,
+            resolvedCount: resolvedCards.length,
+            expectedCount: parsedCount,
+            players,
+            timeoutMs: TIMEOUT_MS,
+          });
+        } catch (err) {
+          console.warn("useSavedDeck: emit importWipeConfirmRequest failed", err);
+        }
+
+        broadcastConfirmUpdate(io, confirmId, pendingConfirm);
+
+        try {
+          if (players.length <= 1) {
+            console.info("[deck] useSavedDeck auto-applyConfirmedImport for single player", {
+              gameId,
+              confirmId,
+            });
+            setTimeout(() => {
+              applyConfirmedImport(io, confirmId).catch((err) => {
+                console.error("useSavedDeck auto applyConfirmedImport failed:", err);
+                cancelConfirmation(io, confirmId, "apply_failed");
+              });
+            }, 250);
+          }
+        } catch (e) {
+          console.warn("useSavedDeck: auto-apply single-player failed", e);
+        }
+      } catch (err) {
+        console.error("useSavedDeck handler failed:", err);
+        try {
+          socket.emit("deckError", {
+            gameId,
+            message: "Failed to apply saved deck.",
+          });
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  );
 }

@@ -74,6 +74,7 @@ export function createInitialGameState(gameId: string): InMemoryGame {
     setTurnDirection: (dir: 1 | -1) => setTurnDirection(ctx, dir),
     nextTurn: () => nextTurn(ctx),
     nextStep: () => nextStep(ctx),
+    bumpSeq: () => ctx.bumpSeq(),
 
     // RNG helpers
     seedRng: (seed: number) =>

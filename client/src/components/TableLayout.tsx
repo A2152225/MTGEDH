@@ -11,7 +11,9 @@ import type {
   PlayerZones,
   CommanderInfo,
   GameID,
-  KnownCardRef
+  KnownCardRef,
+  ClientGameView,
+  ChatMsg,
 } from '../../../shared/src';
 import type { ImagePref } from './BattlefieldGrid';
 import { TokenGroups } from './TokenGroups';
@@ -29,10 +31,20 @@ function isLandTypeLine(tl?: string) { return /\bland\b/i.test(tl || ''); }
 type Side = 0 | 1 | 2 | 3;
 type PlayerBoard = { player: PlayerRef; permanents: BattlefieldPermanent[] };
 
+type HandCard = {
+  id: string;
+  name?: string;
+  type_line?: string;
+  image_uris?: { small?: string; normal?: string };
+  faceDown?: boolean;
+  known?: boolean; // visibility to this client
+};
+
 function sidePlan(total: number): Side[] {
   const pattern: Side[] = [0, 1, 2, 3];
   return Array.from({ length: total }, (_, i) => pattern[i % pattern.length]);
 }
+
 function buildPositions(opts: {
   total: number; boardW: number; boardH: number;
   seatGapX: number; seatGapY: number;
@@ -64,6 +76,7 @@ function buildPositions(opts: {
   }
   return positions;
 }
+
 function computeExtents(positions: Array<{ x: number; y: number }>, boardW: number, boardH: number) {
   let maxX = 0, maxY = 0;
   for (const p of positions) {
@@ -108,6 +121,11 @@ export function TableLayout(props: {
   importedCandidates?: KnownCardRef[]; // no longer used for commander UI, but kept for potential future UI
   energyCounters?: Record<PlayerID, number>;
   energy?: Record<PlayerID, number>;
+  // chat overlay props
+  chatMessages?: ChatMsg[];
+  onSendChat?: (text: string) => void;
+  chatView?: ClientGameView;
+  chatYou?: PlayerID;
 }) {
   const {
     players, permanentsByPlayer, imagePref, isYouPlayer,
@@ -121,7 +139,8 @@ export function TableLayout(props: {
     threeD, enablePanZoom = true,
     tableCloth, worldSize, onUpdatePermPos,
     onImportDeckText, onUseSavedDeck, onLocalImportConfirmChange,
-    gameId, importedCandidates, energyCounters, energy
+    gameId, importedCandidates, energyCounters, energy,
+    chatMessages, onSendChat, chatView, chatYou,
   } = props;
 
   // Snapshot debug
@@ -451,12 +470,35 @@ export function TableLayout(props: {
     ? { backgroundImage: `url(${props.tableCloth.imageUrl})`, backgroundSize: 'cover', backgroundRepeat: 'no-repeat', backgroundPosition: 'center' }
     : { background: 'radial-gradient(ellipse at center, rgba(0,128,64,0.9) 0%, rgba(3,62,35,0.95) 60%, rgba(2,40,22,1) 100%)' };
 
+  // local chat input state for overlay
+  const [chatText, setChatText] = useState("");
+
+  const handleSendChat = () => {
+    if (!chatText.trim() || !onSendChat) return;
+    onSendChat(chatText.trim());
+    setChatText("");
+  };
+
+  const displaySender = (from: string | "system") => {
+    if (from === "system") return "system";
+    const player = chatView?.players?.find((p: any) => p.id === from);
+    return player?.name || from;
+  };
+
+  // Opponent-hand thumbnail sizing (≈50% larger than before)
+  const OPP_THUMB_W = 42;  // was 28
+  const OPP_THUMB_H = 57;  // was 38
+
   return (
     <div
       ref={containerRef}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        // TODO: custom game-actions context menu can be triggered here
+      }}
       style={{
         width: '100%',
         height: '72vh',
@@ -501,20 +543,20 @@ export function TableLayout(props: {
                 const isYouThis = you && pb.player.id === you;
                 const allowReorderHere = Boolean(isYouThis && enableReorderForYou && !onPermanentClick);
 
-                const yourHand =
-                  (isYouThis && zones?.[you!]?.hand
-                    ? (zones![you!].hand as any as Array<{
-                        id: string;
-                        name?: string;
-                        type_line?: string;
-                        image_uris?: { small?: string; normal?: string };
-                        faceDown?: boolean;
-                      }>)
-                    : []) || [];
-
                 const zObj = zones?.[pb.player.id];
                 const cmdObj = commandZone?.[pb.player.id];
                 const isCommanderFormat = (format || '').toLowerCase() === 'commander';
+
+                // unified hand objects for this player
+                const playerHandCards: HandCard[] =
+                  (zObj && Array.isArray(zObj.hand) ? (zObj.hand as any as HandCard[]) : []) || [];
+
+                const playerHandCount =
+                  typeof zObj?.handCount === 'number'
+                    ? zObj.handCount
+                    : playerHandCards.length;
+
+                const yourHand: HandCard[] = isYouThis ? playerHandCards : [];
 
                 const lifeVal =
                   (props as any).life?.[pb.player.id] ??
@@ -711,6 +753,7 @@ export function TableLayout(props: {
                           </div>
                         )}
 
+                        {/* YOUR hand (full details) */}
                         {isYouThis && showYourHandBelow && (
                           <div
                             id={`hand-area-${pb.player.id}`}
@@ -770,12 +813,150 @@ export function TableLayout(props: {
                               }
                               thumbWidth={TILE_W}
                               zoomScale={1}
-                              layout="wrap2"
+                              // 7 cards per row for your own hand
+                              layout="wrap7"
                               overlapPx={0}
                               rowGapPx={10}
                               enableReorder={allowReorderHere}
                               onReorder={onReorderHand}
                             />
+                          </div>
+                        )}
+
+                        {/* OPPONENTS' hand strip: thumbnails, larger + hover for known cards */}
+                        {!isYouThis && playerHandCount > 0 && (
+                          <div
+                            style={{
+                              marginTop: 8,
+                              padding: 6,
+                              borderRadius: 6,
+                              background: 'rgba(0,0,0,0.8)',
+                              border: '1px solid #4b5563',
+                              color: '#e5e7eb',
+                              fontSize: 11,
+                              minHeight: OPP_THUMB_H + 16,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 4,
+                            }}
+                            data-no-zoom
+                          >
+                            <div
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                              }}
+                            >
+                              <span>Hand</span>
+                              <span>{playerHandCount} cards</span>
+                            </div>
+                            <div
+                              style={{
+                                display: 'flex',
+                                gap: 4,
+                                overflowX: 'hidden',
+                                alignItems: 'center',
+                                minHeight: OPP_THUMB_H,
+                              }}
+                            >
+                              {playerHandCards.slice(0, 12).map((card, idx) => {
+                                const visibleToYou =
+                                  !!card.known && !card.faceDown;
+
+                                if (!visibleToYou) {
+                                  // hidden: card back
+                                  return (
+                                    <div
+                                      key={card.id || idx}
+                                      title="Hidden card"
+                                      style={{
+                                        width: OPP_THUMB_W,
+                                        height: OPP_THUMB_H,
+                                        borderRadius: 4,
+                                        background:
+                                          'linear-gradient(135deg, #111827, #020617)',
+                                        border: '1px solid #9ca3af',
+                                        boxShadow: '0 0 4px rgba(0,0,0,0.7)',
+                                        flex: '0 0 auto'
+                                      }}
+                                    />
+                                  );
+                                }
+
+                                // known/visible: small face-up thumbnail with preview support
+                                const art =
+                                  (card.image_uris &&
+                                    (card.image_uris.small ||
+                                      card.image_uris.normal)) ||
+                                  undefined;
+                                const previewPayload = JSON.stringify({
+                                  id: card.id,
+                                  name: card.name,
+                                  type_line: card.type_line,
+                                  image_uris: card.image_uris,
+                                });
+
+                                return (
+                                  <div
+                                    key={card.id || idx}
+                                    title={card.name || ''}
+                                    style={{
+                                      width: OPP_THUMB_W,
+                                      height: OPP_THUMB_H,
+                                      borderRadius: 4,
+                                      overflow: 'hidden',
+                                      border: '1px solid #a3e635',
+                                      boxShadow:
+                                        '0 0 4px rgba(34,197,94,0.7)',
+                                      flex: '0 0 auto',
+                                      background: '#000',
+                                      cursor: 'pointer',
+                                    }}
+                                    // Let CardPreviewLayer hook this via dataset, same as other cards
+                                    data-preview-card={previewPayload}
+                                  >
+                                    {art ? (
+                                      <img
+                                        src={art}
+                                        alt={card.name || ''}
+                                        style={{
+                                          width: '100%',
+                                          height: '100%',
+                                          objectFit: 'cover'
+                                        }}
+                                      />
+                                    ) : (
+                                      <div
+                                        style={{
+                                          width: '100%',
+                                          height: '100%',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          fontSize: 9,
+                                          padding: 2
+                                        }}
+                                      >
+                                        {card.name || 'Known card'}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                              {playerHandCount > 12 && (
+                                <div
+                                  style={{
+                                    alignSelf: 'center',
+                                    marginLeft: 4,
+                                    fontSize: 10,
+                                    opacity: 0.8
+                                  }}
+                                >
+                                  +{playerHandCount - 12} more
+                                </div>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -862,6 +1043,107 @@ export function TableLayout(props: {
             }}
           >Fit All</button>
           <span style={{ opacity: 0.85 }}>Zoom: {cam.z.toFixed(2)}</span>
+        </div>
+      )}
+
+      {/* Inline chat overlay in bottom-left of play area */}
+      {onSendChat && (
+        <div
+          style={{
+            position: 'absolute',
+            left: 8,
+            bottom: enablePanZoom ? 52 : 8, // just above zoom controls
+            zIndex: 11,
+            maxWidth: '28%',
+            maxHeight: '40%',
+            background: 'rgba(10,10,10,0.6)',
+            borderRadius: 8,
+            border: '1px solid rgba(255,255,255,0.18)',
+            padding: 6,
+            color: '#f9f9f9',
+            fontSize: 11,
+            display: 'flex',
+            flexDirection: 'column',
+            opacity: 0.35,
+            transition: 'opacity 0.15s ease-in-out',
+            pointerEvents: 'auto',
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLDivElement).style.opacity = '1';
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLDivElement).style.opacity = '0.35';
+          }}
+        >
+          <div
+            style={{
+              fontWeight: 600,
+              marginBottom: 4,
+              fontSize: 11,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}
+          >
+            <span>Chat</span>
+            <span style={{ opacity: 0.7, fontSize: 10 }}>
+              {chatMessages?.length ?? 0} msg
+            </span>
+          </div>
+          <div
+            style={{
+              flex: 1,
+              overflowY: 'auto',
+              marginBottom: 4,
+              paddingRight: 2,
+            }}
+          >
+            {(!chatMessages || chatMessages.length === 0) && (
+              <div style={{ color: '#bbb' }}>No messages</div>
+            )}
+            {chatMessages &&
+              chatMessages.slice(-40).map((m) => (
+                <div key={m.id} style={{ marginBottom: 3 }}>
+                  <span style={{ fontWeight: 600 }}>
+                    {displaySender(m.from)}:
+                  </span>{" "}
+                  <span>{m.message}</span>
+                </div>
+              ))}
+          </div>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <input
+              value={chatText}
+              onChange={(e) => setChatText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleSendChat();
+              }}
+              placeholder="Type..."
+              style={{
+                flex: 1,
+                fontSize: 11,
+                padding: '2px 4px',
+                borderRadius: 4,
+                border: '1px solid #444',
+                background: '#111',
+                color: '#f9f9f9',
+              }}
+            />
+            <button
+              type="button"
+              onClick={handleSendChat}
+              style={{
+                fontSize: 11,
+                padding: '2px 6px',
+                borderRadius: 4,
+                border: '1px solid #4ade80',
+                background: '#166534',
+                color: '#f9f9f9',
+              }}
+            >
+              Send
+            </button>
+          </div>
         </div>
       )}
 

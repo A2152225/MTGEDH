@@ -7,13 +7,19 @@ import { Server } from "socket.io";
 // games Map is exported from socket/socket.ts — import it directly
 import { registerSocketHandlers } from "./socket";
 import { games as socketGames } from "./socket/socket";
-import { initDb, listGames as dbListGames, deleteGame as dbDeleteGame } from "./db";
+import {
+  initDb,
+  listGames as dbListGames,
+  deleteGame as dbDeleteGame,
+} from "./db";
 import type {
   ClientToServerEvents,
   ServerToClientEvents,
   InterServerEvents,
   SocketData,
 } from "../../shared/src/events";
+import GameManager from "./GameManager"; // NEW: import GameManager
+
 // Get the equivalent of __dirname in ES modules
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -38,10 +44,26 @@ app.get("/api/games", (req, res) => {
     const enriched = persisted.map((row) => {
       const id = row.game_id;
       const inMem = socketGames.get(id);
-      const playersCount = inMem ? ((inMem.state && Array.isArray(inMem.state.players)) ? inMem.state.players.length : 0) : 0;
-      const turn = inMem ? (inMem.state && typeof inMem.state.turn !== "undefined" ? inMem.state.turn : null) : null;
-      const phase = inMem ? (inMem.state && typeof inMem.state.phase !== "undefined" ? inMem.state.phase : null) : null;
-      const status = inMem ? (inMem.state && typeof inMem.state.status !== "undefined" ? inMem.state.status : null) : null;
+      const playersCount = inMem
+        ? inMem.state && Array.isArray(inMem.state.players)
+          ? inMem.state.players.length
+          : 0
+        : 0;
+      const turn = inMem
+        ? inMem.state && typeof inMem.state.turn !== "undefined"
+          ? inMem.state.turn
+          : null
+        : null;
+      const phase = inMem
+        ? inMem.state && typeof inMem.state.phase !== "undefined"
+          ? inMem.state.phase
+          : null
+        : null;
+      const status = inMem
+        ? inMem.state && typeof inMem.state.status !== "undefined"
+          ? inMem.state.status
+          : null
+        : null;
       return {
         id,
         format: row.format,
@@ -65,7 +87,11 @@ app.delete("/admin/games/:id", (req, res) => {
   try {
     // Determine requester IP (works for direct connections). If behind proxy, adjust trust proxy as needed.
     const remote = (req.ip || req.socket.remoteAddress || "").toString();
-    const allowed = remote === "127.0.0.1" || remote === "::1" || remote === "localhost" || remote === "127.0.0.1:3001";
+    const allowed =
+      remote === "127.0.0.1" ||
+      remote === "::1" ||
+      remote === "localhost" ||
+      remote === "127.0.0.1:3001";
     if (!allowed) {
       res.status(403).json({ error: "Forbidden" });
       return;
@@ -75,17 +101,44 @@ app.delete("/admin/games/:id", (req, res) => {
       res.status(400).json({ error: "Missing game id" });
       return;
     }
-    // Remove in-memory game if present
+
+    // Remove in-memory game from GameManager (authoritative)
     try {
-      socketGames.delete(id);
+      const removed = GameManager.deleteGame(id);
+      if (!removed) {
+        console.info(
+          `DELETE /admin/games/${id}: GameManager.deleteGame returned false (no in-memory game)`
+        );
+      } else {
+        console.info(
+          `DELETE /admin/games/${id}: GameManager.deleteGame removed in-memory game`
+        );
+      }
     } catch (e) {
-      console.warn("Failed to remove in-memory game:", e);
+      console.warn(
+        `DELETE /admin/games/${id}: GameManager.deleteGame threw`,
+        e
+      );
     }
-    // Remove persisted rows
+
+    // Remove in-memory game from legacy socketGames Map if present
+    try {
+      const hadLegacy = socketGames.delete(id);
+      if (hadLegacy) {
+        console.info(
+          `DELETE /admin/games/${id}: removed from socketGames legacy map`
+        );
+      }
+    } catch (e) {
+      console.warn("Failed to remove in-memory game from socketGames:", e);
+    }
+
+    // Remove persisted rows (events + games metadata)
     const ok = dbDeleteGame(id);
     if (!ok) {
       console.warn(`DELETE /admin/games/${id}: deleteGame returned false`);
     }
+
     res.json({ ok: true });
   } catch (err) {
     console.error("DELETE /admin/games/:id failed:", err);
@@ -98,7 +151,11 @@ app.get("*", (req, res) => {
   res.sendFile(path.join(BUILD_PATH, "index.html"), (err) => {
     if (err) {
       console.error(`Error serving index.html: ${err.message}`);
-      res.status(500).send("Static files missing. Ensure `npm run build` was run in the client directory.");
+      res
+        .status(500)
+        .send(
+          "Static files missing. Ensure `npm run build` was run in the client directory."
+        );
     }
   });
 });
@@ -120,15 +177,17 @@ async function main() {
   // Allow configuring CORS origin via env var in production; default is '*' for dev
   const corsOrigin = process.env.CORS_ORIGIN || "*";
 
-  const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(
-    httpServer,
-    {
-      cors: {
-        origin: corsOrigin,
-        methods: ["GET", "POST"],
-      },
-    }
-  );
+  const io = new Server<
+    ClientToServerEvents,
+    ServerToClientEvents,
+    InterServerEvents,
+    SocketData
+  >(httpServer, {
+    cors: {
+      origin: corsOrigin,
+      methods: ["GET", "POST"],
+    },
+  });
 
   // Register Socket.IO handlers
   registerSocketHandlers(io);

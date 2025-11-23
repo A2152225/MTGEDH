@@ -53,7 +53,11 @@ export function reset(ctx: any, preservePlayers = false): void {
   // Prefer specialized reset if present on ctx or a global replayModule
   try {
     // @ts-ignore - global replayModule if present
-    if (typeof (global as any).replayModule !== "undefined" && (global as any).replayModule && typeof (global as any).replayModule.reset === "function") {
+    if (
+      typeof (global as any).replayModule !== "undefined" &&
+      (global as any).replayModule &&
+      typeof (global as any).replayModule.reset === "function"
+    ) {
       (global as any).replayModule.reset(ctx, preservePlayers);
       return;
     }
@@ -76,7 +80,11 @@ export function reset(ctx: any, preservePlayers = false): void {
     let participantsBackup: Array<any> = [];
     if (preservePlayers) {
       if (typeof ctx.participants === "function") {
-        try { participantsBackup = ctx.participants().slice(); } catch { participantsBackup = []; }
+        try {
+          participantsBackup = ctx.participants().slice();
+        } catch {
+          participantsBackup = [];
+        }
       } else if (Array.isArray((ctx as any).participantsList)) {
         participantsBackup = (ctx as any).participantsList.slice();
       }
@@ -101,16 +109,28 @@ export function reset(ctx: any, preservePlayers = false): void {
       ctx.experience = {};
     } else {
       // ensure each known player has cleared zones & libraries
-      const pids = participantsBackup.length ? participantsBackup.map(p => p.playerId).filter(Boolean) : (Object.keys(ctx.state.zones || {}) as string[]);
+      const pids = participantsBackup.length
+        ? participantsBackup.map((p) => p.playerId).filter(Boolean)
+        : (Object.keys(ctx.state.zones || {}) as string[]);
       for (const pid of pids) {
-        ctx.state.zones[pid] = ctx.state.zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+        ctx.state.zones[pid] = ctx.state.zones[pid] || {
+          hand: [],
+          handCount: 0,
+          libraryCount: 0,
+          graveyard: [],
+          graveyardCount: 0,
+        };
         ctx.state.zones[pid].hand = [];
         ctx.state.zones[pid].handCount = 0;
-        if (ctx.libraries && typeof ctx.libraries.set === "function") ctx.libraries.set(pid, []);
-        else ctx.libraries[pid] = [];
+        if (ctx.libraries && typeof ctx.libraries.set === "function")
+          ctx.libraries.set(pid, []);
+        else (ctx.libraries as any)[pid] = [];
         ctx.state.zones[pid].libraryCount = 0;
-        ctx.state.zones[pid].graveyard = ctx.state.zones[pid].graveyard || [];
-        ctx.state.zones[pid].graveyardCount = (ctx.state.zones[pid].graveyard || []).length;
+        ctx.state.zones[pid].graveyard =
+          ctx.state.zones[pid].graveyard || [];
+        ctx.state.zones[pid].graveyardCount = (
+          ctx.state.zones[pid].graveyard || []
+        ).length;
         ctx.life[pid] = ctx.state.startingLife ?? ctx.life[pid] ?? 40;
         if (ctx.poison) ctx.poison[pid] = 0;
         if (ctx.experience) ctx.experience[pid] = 0;
@@ -118,7 +138,10 @@ export function reset(ctx: any, preservePlayers = false): void {
     }
 
     // Clear pending initial draw flags to avoid double-draws
-    if ((ctx as any).pendingInitialDraw && typeof (ctx as any).pendingInitialDraw.clear === "function") {
+    if (
+      (ctx as any).pendingInitialDraw &&
+      typeof (ctx as any).pendingInitialDraw.clear === "function"
+    ) {
       (ctx as any).pendingInitialDraw.clear();
     } else {
       (ctx as any).pendingInitialDraw = new Set<string>();
@@ -126,7 +149,8 @@ export function reset(ctx: any, preservePlayers = false): void {
 
     // Reset bump/seq if present
     try {
-      if (ctx.seq && typeof ctx.seq === "object" && "value" in ctx.seq) ctx.seq.value = 0;
+      if (ctx.seq && typeof ctx.seq === "object" && "value" in ctx.seq)
+        ctx.seq.value = 0;
       if (typeof ctx.bumpSeq === "function") ctx.bumpSeq();
     } catch {
       // ignore
@@ -144,7 +168,8 @@ export function skip(ctx: any, playerId: PlayerID): void {
     return;
   }
   try {
-    if (!((ctx as any).inactive instanceof Set)) (ctx as any).inactive = new Set<PlayerID>();
+    if (!((ctx as any).inactive instanceof Set))
+      (ctx as any).inactive = new Set<PlayerID>();
     (ctx as any).inactive.add(playerId);
     if (typeof ctx.bumpSeq === "function") ctx.bumpSeq();
   } catch (err) {
@@ -159,7 +184,8 @@ export function unskip(ctx: any, playerId: PlayerID): void {
     return;
   }
   try {
-    if ((ctx as any).inactive instanceof Set) (ctx as any).inactive.delete(playerId);
+    if ((ctx as any).inactive instanceof Set)
+      (ctx as any).inactive.delete(playerId);
     if (typeof ctx.bumpSeq === "function") ctx.bumpSeq();
   } catch (err) {
     console.warn("unskip fallback failed:", err);
@@ -175,25 +201,35 @@ export function remove(ctx: any, playerId: PlayerID): void {
   try {
     // Remove from participants list
     if (Array.isArray((ctx as any).participantsList)) {
-      const idx = (ctx as any).participantsList.findIndex((p: any) => p.playerId === playerId);
+      const idx = (ctx as any).participantsList.findIndex(
+        (p: any) => p.playerId === playerId
+      );
       if (idx !== -1) (ctx as any).participantsList.splice(idx, 1);
     }
     // Remove player data from state and maps
     if (Array.isArray(ctx.state?.players)) {
-      const i = (ctx.state.players as any[]).findIndex((p: any) => p.id === playerId);
+      const i = (ctx.state.players as any[]).findIndex(
+        (p: any) => p.id === playerId
+      );
       if (i >= 0) (ctx.state.players as any[]).splice(i, 1);
     }
-    if (ctx.libraries && typeof ctx.libraries.delete === "function") ctx.libraries.delete(playerId);
-    if (ctx.zones && ctx.zones[playerId]) delete ctx.zones[playerId];
+    if (ctx.libraries && typeof ctx.libraries.delete === "function")
+      ctx.libraries.delete(playerId);
+    if ((ctx as any).zones && (ctx as any).zones[playerId])
+      delete (ctx as any).zones[playerId];
     if (ctx.life && ctx.life[playerId] !== undefined) delete ctx.life[playerId];
-    if (ctx.poison && ctx.poison[playerId] !== undefined) delete ctx.poison[playerId];
-    if (ctx.experience && ctx.experience[playerId] !== undefined) delete ctx.experience[playerId];
+    if (ctx.poison && ctx.poison[playerId] !== undefined)
+      delete ctx.poison[playerId];
+    if (ctx.experience && ctx.experience[playerId] !== undefined)
+      delete ctx.experience[playerId];
     if (ctx.grants instanceof Map) {
       for (const [owner, set] of Array.from(ctx.grants.entries())) {
         if (set instanceof Set && set.has(playerId)) set.delete(playerId);
       }
     }
-    try { if (typeof ctx.bumpSeq === "function") ctx.bumpSeq(); } catch {}
+    try {
+      if (typeof ctx.bumpSeq === "function") ctx.bumpSeq();
+    } catch {}
   } catch (err) {
     console.warn("remove fallback failed:", err);
   }
@@ -223,22 +259,61 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
           };
         })(ctx.rngSeed);
-        try { if (typeof ctx.bumpSeq === "function") ctx.bumpSeq(); } catch {}
+        try {
+          if (typeof ctx.bumpSeq === "function") ctx.bumpSeq();
+        } catch {}
         break;
       }
 
       case "setTurnDirection": {
         (ctx.state as any).turnDirection = (e as any).direction;
-        try { if (typeof ctx.bumpSeq === "function") ctx.bumpSeq(); } catch {}
+        try {
+          if (typeof ctx.bumpSeq === "function") ctx.bumpSeq();
+        } catch {}
         break;
       }
 
-      case "join":
-        // join handled by socket join flow
+      case "join": {
+        // Rebuild roster entries when replaying from persisted events.
+        // Socket join flow handles live connections; this is strictly for replay-after-restart.
+        const pid = (e as any).playerId as PlayerID | undefined;
+        const name = (e as any).name as string | undefined;
+        const seatToken = (e as any).seatToken as string | undefined;
+        const spectator = Boolean((e as any).spectator);
+
+        if (!pid || !name) {
+          break;
+        }
+
+        try {
+          (ctx.state as any).players = (ctx.state as any).players || [];
+          const playersArr = (ctx.state as any).players as any[];
+          let existing = playersArr.find((p: any) => p.id === pid);
+          if (!existing) {
+            existing = {
+              id: pid,
+              name,
+              spectator,
+              seatToken,
+            };
+            playersArr.push(existing);
+          } else {
+            // Ensure basic fields are set
+            if (!existing.name) existing.name = name;
+            if (typeof existing.spectator === "undefined")
+              existing.spectator = spectator;
+            if (!existing.seatToken && seatToken)
+              existing.seatToken = seatToken;
+          }
+          // Zones will be normalized by reconcileZonesConsistency after replay.
+        } catch (err) {
+          console.warn("applyEvent(join): failed to rebuild player", err);
+        }
         break;
+      }
 
       case "leave":
-        // leave handled by socket lifecycle
+        // leave handled by socket lifecycle; for replay we currently do not strip players
         break;
 
       case "restart": {
@@ -248,7 +323,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
       case "resetGame": {
         // historical event alias - map to the restart/reset semantics
-        const preserve = (e as any).preservePlayers ?? (e as any).preserve ?? false;
+        const preserve =
+          (e as any).preservePlayers ?? (e as any).preserve ?? false;
         reset(ctx as any, Boolean(preserve));
         break;
       }
@@ -274,7 +350,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const set = ctx.grants.get(owner) ?? new Set<PlayerID>();
         set.add(spectator);
         ctx.grants.set(owner, set);
-        try { if (typeof ctx.bumpSeq === "function") ctx.bumpSeq(); } catch {}
+        try {
+          if (typeof ctx.bumpSeq === "function") ctx.bumpSeq();
+        } catch {}
         break;
       }
 
@@ -284,12 +362,18 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const set = ctx.grants.get(owner) ?? new Set<PlayerID>();
         set.delete(spectator);
         ctx.grants.set(owner, set);
-        try { if (typeof ctx.bumpSeq === "function") ctx.bumpSeq(); } catch {}
+        try {
+          if (typeof ctx.bumpSeq === "function") ctx.bumpSeq();
+        } catch {}
         break;
       }
 
       case "deckImportResolved": {
-        importDeckResolved(ctx as any, (e as any).playerId, (e as any).cards || []);
+        importDeckResolved(
+          ctx as any,
+          (e as any).playerId,
+          (e as any).cards || []
+        );
         break;
       }
 
@@ -299,12 +383,21 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       }
 
       case "drawCards": {
-        drawCards(ctx as any, (e as any).playerId, (e as any).count || 1);
+        drawCards(
+          ctx as any,
+          (e as any).playerId,
+          (e as any).count || 1
+        );
         break;
       }
 
       case "selectFromLibrary": {
-        selectFromLibrary(ctx as any, (e as any).playerId, (e as any).cardIds || [], (e as any).moveTo);
+        selectFromLibrary(
+          ctx as any,
+          (e as any).playerId,
+          (e as any).cardIds || [],
+          (e as any).moveTo
+        );
         break;
       }
 
@@ -314,22 +407,40 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       }
 
       case "setCommander": {
-        setCommander(ctx as any, (e as any).playerId, (e as any).commanderNames || [], (e as any).commanderIds || [], (e as any).colorIdentity || []);
+        setCommander(
+          ctx as any,
+          (e as any).playerId,
+          (e as any).commanderNames || [],
+          (e as any).commanderIds || [],
+          (e as any).colorIdentity || []
+        );
         break;
       }
 
       case "castCommander": {
-        castCommander(ctx as any, (e as any).playerId, (e as any).commanderId);
+        castCommander(
+          ctx as any,
+          (e as any).playerId,
+          (e as any).commanderId
+        );
         break;
       }
 
       case "moveCommanderToCZ": {
-        moveCommanderToCZ(ctx as any, (e as any).playerId, (e as any).commanderId);
+        moveCommanderToCZ(
+          ctx as any,
+          (e as any).playerId,
+          (e as any).commanderId
+        );
         break;
       }
 
       case "updateCounters": {
-        updateCounters(ctx as any, (e as any).permanentId, (e as any).deltas || {});
+        updateCounters(
+          ctx as any,
+          (e as any).permanentId,
+          (e as any).deltas || {}
+        );
         break;
       }
 
@@ -339,7 +450,14 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       }
 
       case "createToken": {
-        createToken(ctx as any, (e as any).controller, (e as any).name, (e as any).count, (e as any).basePower, (e as any).baseToughness);
+        createToken(
+          ctx as any,
+          (e as any).controller,
+          (e as any).name,
+          (e as any).count,
+          (e as any).basePower,
+          (e as any).baseToughness
+        );
         break;
       }
 
@@ -350,8 +468,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
       case "dealDamage": {
         const effects: any[] = (e as any).effects || [];
-        try { applyEngineEffects(ctx as any, effects); } catch {}
-        try { runSBA(ctx as any); } catch {}
+        try {
+          applyEngineEffects(ctx as any, effects);
+        } catch {}
+        try {
+          runSBA(ctx as any);
+        } catch {}
         break;
       }
 
@@ -386,7 +508,11 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       }
 
       case "reorderHand": {
-        zonesReorderHand(ctx as any, (e as any).playerId, (e as any).order || []);
+        zonesReorderHand(
+          ctx as any,
+          (e as any).playerId,
+          (e as any).order || []
+        );
         break;
       }
 
@@ -396,18 +522,31 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       }
 
       case "scryResolve": {
-        applyScry(ctx as any, (e as any).playerId, (e as any).keepTopOrder || [], (e as any).bottomOrder || []);
+        applyScry(
+          ctx as any,
+          (e as any).playerId,
+          (e as any).keepTopOrder || [],
+          (e as any).bottomOrder || []
+        );
         break;
       }
 
       case "surveilResolve": {
-        applySurveil(ctx as any, (e as any).playerId, (e as any).toGraveyard || [], (e as any).keepTopOrder || []);
+        applySurveil(
+          ctx as any,
+          (e as any).playerId,
+          (e as any).toGraveyard || [],
+          (e as any).keepTopOrder || []
+        );
         break;
       }
 
       case "passPriority": {
         const by = (e as any).by;
-        try { if (typeof passPriority === "function") passPriority(ctx as any, by); } catch {}
+        try {
+          if (typeof passPriority === "function")
+            passPriority(ctx as any, by);
+        } catch {}
         break;
       }
 
@@ -430,11 +569,20 @@ export function replay(ctx: GameContext, events: GameEvent[]) {
   for (const e of events) {
     if (!e || typeof e.type !== "string") continue;
     if (e.type === "passPriority") {
-      try { if (typeof passPriority === "function") passPriority(ctx as any, (e as any).by); } catch (err) { console.warn("replay: passPriority failed", err); }
+      try {
+        if (typeof passPriority === "function")
+          passPriority(ctx as any, (e as any).by);
+      } catch (err) {
+        console.warn("replay: passPriority failed", err);
+      }
       continue;
     }
     applyEvent(ctx, e);
   }
 
-  try { reconcileZonesConsistency(ctx as any); } catch (err) { /* swallow */ }
+  try {
+    reconcileZonesConsistency(ctx as any);
+  } catch (err) {
+    /* swallow */
+  }
 }

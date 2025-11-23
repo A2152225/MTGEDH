@@ -14,8 +14,8 @@
 
 param(
     [string]$Root = ".",
-    [string]$Pattern = "Next",
-    [switch]$CaseSensitive = $true,
+    [string]$Pattern = "TableLayout",
+    [switch]$CaseSensitive = $false,
     [switch]$ListFilesOnly,
     [int]$Context = 0,
     [string[]]$IncludeExtensions = @("*.ts","*.tsx"),

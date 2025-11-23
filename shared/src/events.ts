@@ -56,6 +56,8 @@ export interface ClientToServerEvents {
   // state mutation helpers
   shuffleLibrary: (payload: { gameId: GameID; playerId?: PlayerID }) => void;
   drawCards: (payload: { gameId: GameID; count: number; playerId?: PlayerID }) => void;
+  shuffleHand: (payload: { gameId: GameID }) => void;
+  reorderHand: (payload: { gameId: GameID; order: string[] }) => void;
 
   // import confirm responses
   confirmImportResponse: (payload: { gameId: GameID; confirmId: string; accept: boolean }) => void;
