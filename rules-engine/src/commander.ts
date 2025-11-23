@@ -7,7 +7,7 @@ export function applyCommanderTax(
 ): GameState {
   const info = state.commandZone[player];
   if (!info) return state;
-  const tax = (info.tax || 0) + 2;
+  const tax = info.tax + 2;
   return {
     ...state,
     commandZone: {
