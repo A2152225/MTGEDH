@@ -13,7 +13,7 @@
 
 import { randomUUID } from "crypto";
 import { createInitialGameState } from "./state/index.js";
-import { createGameIfNotExists } from "./db";
+import { createGameIfNotExists, getEvents } from "./db"; // NEW: import getEvents for replay
 
 type PersistOptions = { gameId: string; format?: string; startingLife?: number };
 
@@ -422,6 +422,50 @@ class GameManagerClass {
     }
 
     this.initBasicShapes(game);
+
+    // NEW: replay persisted events into a fresh game instance for this gameId
+    try {
+      const events = getEvents(gameId);
+      if (Array.isArray(events) && events.length > 0) {
+        if (typeof game.replay === "function") {
+          // getEvents returns { type, payload }, but replay expects full GameEvent objects.
+          // If payload exists, spread it into the event object.
+          const replayEvents = events.map((e: any) =>
+            e && e.type
+              ? e.payload && typeof e.payload === "object"
+                ? { type: e.type, ...(e.payload as any) }
+                : { type: e.type }
+          : e
+          );
+          try {
+            game.replay(replayEvents as any);
+            console.info(
+              "[GameManager] ensureGame: replayed persisted events",
+              {
+                gameId,
+                count: replayEvents.length,
+              }
+            );
+          } catch (replayErr) {
+            console.warn(
+              "[GameManager] ensureGame: replay failed (non-fatal)",
+              replayErr
+            );
+          }
+        } else {
+          console.warn(
+            "[GameManager] ensureGame: game.replay is not a function; skipping event replay",
+            { gameId }
+          );
+        }
+      }
+    } catch (e) {
+      console.warn(
+        "[GameManager] ensureGame: getEvents/replay failed (non-fatal)",
+        e
+      );
+    }
+
     this.games.set(gameId, game);
 
     // Synchronous persistence so game shows up in /api/games immediately
