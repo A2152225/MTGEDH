@@ -38,6 +38,14 @@ export * from './shuffle';
 export * from './surveil';
 export * from './tapUntap';
 
+// Part 4: Rules 701.27-701.34
+export * from './transform';
+export * from './convert';
+export * from './fateseal';
+export * from './clash';
+export * from './planeswalk';
+export * from './proliferate';
+
 // Union type for all keyword actions
 import type { ActivateAction } from './activate';
 import type { AttachAction } from './attach';
@@ -64,6 +72,12 @@ import type { SearchAction } from './search';
 import type { ShuffleAction } from './shuffle';
 import type { SurveilAction } from './surveil';
 import type { TapUntapAction } from './tapUntap';
+import type { TransformAction } from './transform';
+import type { ConvertAction } from './convert';
+import type { FatesealAction } from './fateseal';
+import type { ClashAction } from './clash';
+import type { PlaneswalkAction } from './planeswalk';
+import type { ProliferateAction } from './proliferate';
 
 export type KeywordAction =
   // Part 1
@@ -93,4 +107,11 @@ export type KeywordAction =
   | SearchAction
   | ShuffleAction
   | SurveilAction
-  | TapUntapAction;
+  | TapUntapAction
+  // Part 4
+  | TransformAction
+  | ConvertAction
+  | FatesealAction
+  | ClashAction
+  | PlaneswalkAction
+  | ProliferateAction;
