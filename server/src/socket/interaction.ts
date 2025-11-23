@@ -154,6 +154,22 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
 
+      // Validate that the card is a land
+      const typeLine = card.type_line || "";
+      if (!/\bland\b/i.test(typeLine)) {
+        // Put the card back in hand if it's not a land
+        const z = (game as any).zones?.[pid];
+        if (z && Array.isArray(z.hand)) {
+          z.hand.push(card);
+          z.handCount = z.hand.length;
+        }
+        socket.emit("error", {
+          code: "PLAY_LAND",
+          message: "Only lands can be played. Use 'Cast' for spells.",
+        });
+        return;
+      }
+
       // Use the game's playLand method to move card to battlefield
       game.playLand(pid, card);
       
@@ -191,6 +207,22 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         socket.emit("error", {
           code: "CAST_SPELL",
           message: "Card not found in your hand.",
+        });
+        return;
+      }
+
+      // Validate that the card is not a land
+      const typeLine = card.type_line || "";
+      if (/\bland\b/i.test(typeLine)) {
+        // Put the card back in hand if it's a land
+        const z = (game as any).zones?.[pid];
+        if (z && Array.isArray(z.hand)) {
+          z.hand.push(card);
+          z.handCount = z.hand.length;
+        }
+        socket.emit("error", {
+          code: "CAST_SPELL",
+          message: "Lands cannot be cast as spells. Use 'Play Land' instead.",
         });
         return;
       }

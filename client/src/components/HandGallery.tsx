@@ -201,10 +201,16 @@ export function HandGallery(props: HandGalleryProps) {
             title={name}
             onClick={() => {
               if (!kc) return;
-              if (onPlayLand && isLand(tl) && !cantPlayLand) {
-                onPlayLand(kc.id);
-              } else if (onCast && !cantCast) {
-                onCast(kc.id);
+              if (isLand(tl)) {
+                // It's a land - only call onPlayLand if allowed
+                if (onPlayLand && !cantPlayLand) {
+                  onPlayLand(kc.id);
+                }
+              } else {
+                // It's not a land - only call onCast if allowed
+                if (onCast && !cantCast) {
+                  onCast(kc.id);
+                }
               }
             }}
           >

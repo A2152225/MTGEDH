@@ -190,6 +190,13 @@ export function nextTurn(ctx: GameContext) {
     (ctx as any).state.phase = "beginning";
     (ctx as any).state.step = "untap";
 
+    // Reset lands played this turn for all players
+    if ((ctx as any).state.landsPlayedThisTurn) {
+      for (const pid of players) {
+        (ctx as any).state.landsPlayedThisTurn[pid] = 0;
+      }
+    }
+
     // give priority to the active player at the start of turn
     (ctx as any).state.priority = next;
 
