@@ -27,6 +27,13 @@
  * - Absorb (702.64), Aura Swap (702.65), Delve (702.66), Fortify (702.67)
  * - Frenzy (702.68), Gravestorm (702.69), Poisonous (702.70), Transfigure (702.71)
  * - Champion (702.72), Changeling (702.73)
+ * 
+ * Part 5 (Rules 702.74-702.92): Advanced mechanic keyword abilities
+ * - Evoke (702.74), Hideaway (702.75), Prowl (702.76), Reinforce (702.77)
+ * - Conspire (702.78), Persist (702.79), Wither (702.80), Retrace (702.81)
+ * - Devour (702.82), Exalted (702.83), Unearth (702.84), Cascade (702.85)
+ * - Annihilator (702.86), Level Up (702.87), Rebound (702.88), Umbra Armor (702.89)
+ * - Infect (702.90), Battle Cry (702.91), Living Weapon (702.92)
  */
 
 // Part 1: Export all keyword ability modules
@@ -102,6 +109,27 @@ export * from './poisonous';
 export * from './transfigure';
 export * from './champion';
 export * from './changeling';
+
+// Part 5: Export advanced mechanic keyword abilities
+export * from './evoke';
+export * from './hideaway';
+export * from './prowl';
+export * from './reinforce';
+export * from './conspire';
+export * from './persist';
+export * from './wither';
+export * from './retrace';
+export * from './devour';
+export * from './exalted';
+export * from './unearth';
+export * from './cascade';
+export * from './annihilator';
+export * from './levelUp';
+export * from './rebound';
+export * from './umbraArmor';
+export * from './infect';
+export * from './battleCry';
+export * from './livingWeapon';
 
 /**
  * Union type of all keyword ability types
@@ -179,7 +207,27 @@ export type KeywordAbility =
   | import('./poisonous').PoisonousAbility
   | import('./transfigure').TransfigureAbility
   | import('./champion').ChampionAbility
-  | import('./changeling').ChangelingAbility;
+  | import('./changeling').ChangelingAbility
+  // Part 5
+  | import('./evoke').EvokeAbility
+  | import('./hideaway').HideawayAbility
+  | import('./prowl').ProwlAbility
+  | import('./reinforce').ReinforceAbility
+  | import('./conspire').ConspireAbility
+  | import('./persist').PersistAbility
+  | import('./wither').WitherAbility
+  | import('./retrace').RetraceAbility
+  | import('./devour').DevourAbility
+  | import('./exalted').ExaltedAbility
+  | import('./unearth').UnearthAbility
+  | import('./cascade').CascadeAbility
+  | import('./annihilator').AnnihilatorAbility
+  | import('./levelUp').LevelUpAbility
+  | import('./rebound').ReboundAbility
+  | import('./umbraArmor').UmbraArmorAbility
+  | import('./infect').InfectAbility
+  | import('./battleCry').BattleCryAbility
+  | import('./livingWeapon').LivingWeaponAbility;
 
 /**
  * Helper function to check if an ability is a specific type
