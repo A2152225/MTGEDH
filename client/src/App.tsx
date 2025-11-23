@@ -432,6 +432,17 @@ export function App() {
             >
               Pass Priority
             </button>
+            <button
+              onClick={() =>
+                socket.emit("resolveTopOfStack", {
+                  gameId: safeView?.id,
+                })
+              }
+              disabled={!safeView || !you || (safeView.stack?.length || 0) === 0}
+              title="Resolve top item on the stack"
+            >
+              Resolve Stack
+            </button>
           </div>
         </div>
 
