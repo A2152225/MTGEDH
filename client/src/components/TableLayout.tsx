@@ -485,6 +485,10 @@ export function TableLayout(props: {
     return player?.name || from;
   };
 
+  // Opponent-hand thumbnail sizing (≈50% larger than before)
+  const OPP_THUMB_W = 42;  // was 28
+  const OPP_THUMB_H = 57;  // was 38
+
   return (
     <div
       ref={containerRef}
@@ -809,7 +813,8 @@ export function TableLayout(props: {
                               }
                               thumbWidth={TILE_W}
                               zoomScale={1}
-                              layout="wrap2"
+                              // 7 cards per row for your own hand
+                              layout="wrap7"
                               overlapPx={0}
                               rowGapPx={10}
                               enableReorder={allowReorderHere}
@@ -818,132 +823,142 @@ export function TableLayout(props: {
                           </div>
                         )}
 
-{/* OPPONENTS' hand strip: same objects, known -> face/back */}
-{!isYouThis && playerHandCount > 0 && (
-  <div
-    style={{
-      marginTop: 8,
-      padding: 6,
-      borderRadius: 6,
-      background: 'rgba(0,0,0,0.8)',
-      border: '1px solid #4b5563',
-      color: '#e5e7eb',
-      fontSize: 11,
-      minHeight: 54,               // ensure room for cards
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 4,
-    }}
-    data-no-zoom
-  >
-    <div
-      style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-      }}
-    >
-      <span>Hand</span>
-      <span>{playerHandCount} cards</span>
-    </div>
-    <div
-      style={{
-        display: 'flex',
-        gap: 4,
-        overflowX: 'hidden',
-        alignItems: 'center',
-        minHeight: 40,             // height for the card row
-      }}
-    >
-      {playerHandCards.slice(0, 12).map((card, idx) => {
-        const visibleToYou =
-          !!card.known && !card.faceDown;
+                        {/* OPPONENTS' hand strip: thumbnails, larger + hover for known cards */}
+                        {!isYouThis && playerHandCount > 0 && (
+                          <div
+                            style={{
+                              marginTop: 8,
+                              padding: 6,
+                              borderRadius: 6,
+                              background: 'rgba(0,0,0,0.8)',
+                              border: '1px solid #4b5563',
+                              color: '#e5e7eb',
+                              fontSize: 11,
+                              minHeight: OPP_THUMB_H + 16,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 4,
+                            }}
+                            data-no-zoom
+                          >
+                            <div
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                              }}
+                            >
+                              <span>Hand</span>
+                              <span>{playerHandCount} cards</span>
+                            </div>
+                            <div
+                              style={{
+                                display: 'flex',
+                                gap: 4,
+                                overflowX: 'hidden',
+                                alignItems: 'center',
+                                minHeight: OPP_THUMB_H,
+                              }}
+                            >
+                              {playerHandCards.slice(0, 12).map((card, idx) => {
+                                const visibleToYou =
+                                  !!card.known && !card.faceDown;
 
-        if (!visibleToYou) {
-          // hidden: card back
-          return (
-            <div
-              key={card.id || idx}
-              title="Hidden card"
-              style={{
-                width: 28,
-                height: 38,
-                borderRadius: 4,
-                background:
-                  'linear-gradient(135deg, #111827, #020617)',
-                border: '1px solid #9ca3af',
-                boxShadow: '0 0 4px rgba(0,0,0,0.7)',
-                flex: '0 0 auto'
-              }}
-            />
-          );
-        }
+                                if (!visibleToYou) {
+                                  // hidden: card back
+                                  return (
+                                    <div
+                                      key={card.id || idx}
+                                      title="Hidden card"
+                                      style={{
+                                        width: OPP_THUMB_W,
+                                        height: OPP_THUMB_H,
+                                        borderRadius: 4,
+                                        background:
+                                          'linear-gradient(135deg, #111827, #020617)',
+                                        border: '1px solid #9ca3af',
+                                        boxShadow: '0 0 4px rgba(0,0,0,0.7)',
+                                        flex: '0 0 auto'
+                                      }}
+                                    />
+                                  );
+                                }
 
-        // known/visible: small face-up thumbnail
-        const art =
-          (card.image_uris &&
-            (card.image_uris.small ||
-              card.image_uris.normal)) ||
-          undefined;
-        return (
-          <div
-            key={card.id || idx}
-            title={card.name || ''}
-            style={{
-              width: 28,
-              height: 38,
-              borderRadius: 4,
-              overflow: 'hidden',
-              border: '1px solid #a3e635',
-              boxShadow:
-                '0 0 4px rgba(34,197,94,0.7)',
-              flex: '0 0 auto',
-              background: '#000'
-            }}
-          >
-            {art ? (
-              <img
-                src={art}
-                alt={card.name || ''}
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover'
-                }}
-              />
-            ) : (
-              <div
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 8,
-                  padding: 2
-                }}
-              >
-                {card.name || 'Known card'}
-              </div>
-            )}
-          </div>
-        );
-      })}
-      {playerHandCount > 12 && (
-        <div
-          style={{
-            alignSelf: 'center',
-            marginLeft: 4,
-            fontSize: 10,
-            opacity: 0.8
-          }}
-        >
-          +{playerHandCount - 12} more
-        </div>
-      )}
-    </div>
-  </div>
-)}
+                                // known/visible: small face-up thumbnail with preview support
+                                const art =
+                                  (card.image_uris &&
+                                    (card.image_uris.small ||
+                                      card.image_uris.normal)) ||
+                                  undefined;
+                                const previewPayload = JSON.stringify({
+                                  id: card.id,
+                                  name: card.name,
+                                  type_line: card.type_line,
+                                  image_uris: card.image_uris,
+                                });
+
+                                return (
+                                  <div
+                                    key={card.id || idx}
+                                    title={card.name || ''}
+                                    style={{
+                                      width: OPP_THUMB_W,
+                                      height: OPP_THUMB_H,
+                                      borderRadius: 4,
+                                      overflow: 'hidden',
+                                      border: '1px solid #a3e635',
+                                      boxShadow:
+                                        '0 0 4px rgba(34,197,94,0.7)',
+                                      flex: '0 0 auto',
+                                      background: '#000',
+                                      cursor: 'pointer',
+                                    }}
+                                    // Let CardPreviewLayer hook this via dataset, same as other cards
+                                    data-preview-card={previewPayload}
+                                  >
+                                    {art ? (
+                                      <img
+                                        src={art}
+                                        alt={card.name || ''}
+                                        style={{
+                                          width: '100%',
+                                          height: '100%',
+                                          objectFit: 'cover'
+                                        }}
+                                      />
+                                    ) : (
+                                      <div
+                                        style={{
+                                          width: '100%',
+                                          height: '100%',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          fontSize: 9,
+                                          padding: 2
+                                        }}
+                                      >
+                                        {card.name || 'Known card'}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                              {playerHandCount > 12 && (
+                                <div
+                                  style={{
+                                    alignSelf: 'center',
+                                    marginLeft: 4,
+                                    fontSize: 10,
+                                    opacity: 0.8
+                                  }}
+                                >
+                                  +{playerHandCount - 12} more
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       <div
