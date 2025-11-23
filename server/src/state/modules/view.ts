@@ -9,13 +9,33 @@ import type {
 import type { GameContext } from "../context";
 import { parsePT } from "../utils";
 
+/**
+ * Determine if `viewer` can see `owner`'s hidden zones (hand, library top, etc.)
+ *
+ * Rules:
+ * - Owners always see their own hand.
+ * - Telepathy / reveal-hand effects add specific viewer grants per owner via ctx.handVisibilityGrants.
+ * - ctx.grants is kept for backward compatibility: if present, also treat entries there as grants.
+ */
 function canSeeOwnersHidden(ctx: GameContext, viewer: PlayerID, owner: PlayerID) {
   if (viewer === owner) return true;
+
+  // New: explicit hand visibility grants (Telepathy, reveal-hand, judge, etc.)
+  if (ctx.handVisibilityGrants && ctx.handVisibilityGrants.size > 0) {
+    const handSet = ctx.handVisibilityGrants.get(owner);
+    if (handSet && handSet.has(viewer)) return true;
+  }
+
+  // Legacy / fallback grants (existing behavior)
   const set = ctx.grants.get(owner);
   return !!set && set.has(viewer);
 }
 
-export function viewFor(ctx: GameContext, viewer: PlayerID, _spectator: boolean): ClientGameView {
+export function viewFor(
+  ctx: GameContext,
+  viewer: PlayerID,
+  _spectator: boolean
+): ClientGameView {
   const { state, zones, libraries, commandZone, inactive, poison, experience } = ctx;
 
   const filteredBattlefield = state.battlefield.map((perm) => {
@@ -68,6 +88,8 @@ export function viewFor(ctx: GameContext, viewer: PlayerID, _spectator: boolean)
         graveyardCount: 0,
       };
     const libCount = libraries.get(p.id)?.length ?? z.libraryCount ?? 0;
+
+    // Per-viewer visibility for this owner
     const canSee = viewer === p.id || canSeeOwnersHidden(ctx, viewer, p.id);
 
     // Always use the same underlying hand list, but mark known/unknown per viewer.
@@ -77,6 +99,7 @@ export function viewFor(ctx: GameContext, viewer: PlayerID, _spectator: boolean)
       const base: KnownCardRef = {
         ...c,
       };
+      // known is purely per-viewer: Telepathy / grants or owner, AND not face-down.
       base.known = canSee && !base.faceDown;
       return base;
     });
@@ -135,20 +158,21 @@ export function viewFor(ctx: GameContext, viewer: PlayerID, _spectator: boolean)
       inactive: inactive.has(p.id),
     })
   );
-console.log("[VIEW_FOR_DEBUG]", {
-  viewer,
-  zones: Object.fromEntries(
-    Object.entries(filteredZones).map(([pid, z]) => [
-      pid,
-      {
-        handCount: z.handCount,
-        firstKnown: Array.isArray(z.hand)
-          ? (z.hand as any[]).slice(0, 3).map((c) => c.known)
-          : null,
-      },
-    ])
-  ),
-});
+
+  console.log("[VIEW_FOR_DEBUG]", {
+    viewer,
+    zones: Object.fromEntries(
+      Object.entries(filteredZones).map(([pid, z]) => [
+        pid,
+        {
+          handCount: z.handCount,
+          firstKnown: Array.isArray(z.hand)
+            ? (z.hand as any[]).slice(0, 3).map((c) => c.known)
+            : null,
+        },
+      ])
+    ),
+  });
 
   return {
     ...state,
