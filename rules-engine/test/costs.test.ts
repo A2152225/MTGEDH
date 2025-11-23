@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   CostType,
-  ManaCost,
+  ManaCostPayment,
   LifeCost,
   canPayManaCost,
   canPayLifeCost,
@@ -12,7 +12,7 @@ import {
   applyCostReduction,
   CostModification
 } from '../src/types/costs';
-import { createEmptyManaPool, addMana, ManaType } from '../src/types/mana';
+import { createEmptyManaPool, addMana, ManaType, ManaCost } from '../src/types/mana';
 
 describe('Rule 118: Costs', () => {
   describe('Rule 118.1 - Cost types', () => {
@@ -33,17 +33,8 @@ describe('Rule 118: Costs', () => {
       pool = addMana(pool, ManaType.BLUE, 2);
 
       const cost: ManaCost = {
-        type: CostType.MANA,
-        description: '{2}{R}',
-        isOptional: false,
-        isMandatory: true,
-        white: 0,
-        blue: 0,
-        black: 0,
-        red: 1,
-        green: 0,
-        colorless: 0,
-        generic: 2
+red: 1,
+generic: 2
       };
 
       const result = canPayManaCost(cost, pool);
@@ -56,17 +47,7 @@ describe('Rule 118: Costs', () => {
       pool = addMana(pool, ManaType.BLUE, 2);
 
       const cost: ManaCost = {
-        type: CostType.MANA,
-        description: '{R}{R}',
-        isOptional: false,
-        isMandatory: true,
-        white: 0,
-        blue: 0,
-        black: 0,
-        red: 2,  // Need 2 red
-        green: 0,
-        colorless: 0,
-        generic: 0
+        red: 2  // Need 2 red
       };
 
       const result = canPayManaCost(cost, pool);
@@ -78,16 +59,7 @@ describe('Rule 118: Costs', () => {
       pool = addMana(pool, ManaType.RED, 1);
 
       const cost: ManaCost = {
-        type: CostType.MANA,
-        description: '{3}{R}',
-        isOptional: false,
-        isMandatory: true,
-        white: 0,
-        blue: 0,
-        black: 0,
         red: 1,
-        green: 0,
-        colorless: 0,
         generic: 3
       };
 
@@ -138,36 +110,34 @@ describe('Rule 118: Costs', () => {
 
   describe('Rule 118.5 - Zero costs', () => {
     it('should identify zero mana cost', () => {
-      const zeroCost: ManaCost = {
+      const zeroCost: ManaCostPayment = {
         type: CostType.MANA,
         description: '{0}',
         isOptional: false,
         isMandatory: true,
-        white: 0,
-        blue: 0,
-        black: 0,
-        red: 0,
-        green: 0,
-        colorless: 0,
-        generic: 0
+        amount: {
+          white: 0,
+          blue: 0,
+          black: 0,
+          red: 0,
+          green: 0,
+          colorless: 0,
+          generic: 0
+        }
       };
 
       expect(isZeroCost(zeroCost)).toBe(true);
     });
 
     it('should not identify non-zero cost as zero', () => {
-      const nonZeroCost: ManaCost = {
+      const nonZeroCost: ManaCostPayment = {
         type: CostType.MANA,
         description: '{1}',
         isOptional: false,
         isMandatory: true,
-        white: 0,
-        blue: 0,
-        black: 0,
-        red: 0,
-        green: 0,
-        colorless: 0,
-        generic: 1
+        amount: {
+          generic: 1
+        }
       };
 
       expect(isZeroCost(nonZeroCost)).toBe(false);
@@ -177,16 +147,7 @@ describe('Rule 118: Costs', () => {
   describe('Rule 118.7 - Cost reduction', () => {
     it('should reduce generic cost', () => {
       const originalCost: ManaCost = {
-        type: CostType.MANA,
-        description: '{5}{R}',
-        isOptional: false,
-        isMandatory: true,
-        white: 0,
-        blue: 0,
-        black: 0,
         red: 1,
-        green: 0,
-        colorless: 0,
         generic: 5
       };
 
@@ -203,16 +164,7 @@ describe('Rule 118: Costs', () => {
 
     it('should reduce colored mana and overflow to generic', () => {
       const originalCost: ManaCost = {
-        type: CostType.MANA,
-        description: '{2}{R}',
-        isOptional: false,
-        isMandatory: true,
-        white: 0,
-        blue: 0,
-        black: 0,
         red: 1,
-        green: 0,
-        colorless: 0,
         generic: 2
       };
 
@@ -230,16 +182,6 @@ describe('Rule 118: Costs', () => {
 
     it('should not reduce below zero', () => {
       const originalCost: ManaCost = {
-        type: CostType.MANA,
-        description: '{1}',
-        isOptional: false,
-        isMandatory: true,
-        white: 0,
-        blue: 0,
-        black: 0,
-        red: 0,
-        green: 0,
-        colorless: 0,
         generic: 1
       };
 
@@ -260,17 +202,7 @@ describe('Rule 118: Costs', () => {
       pool = addMana(pool, ManaType.BLUE, 2);
 
       const cost: ManaCost = {
-        type: CostType.MANA,
-        description: '{U}{U}',
-        isOptional: false,
-        isMandatory: true,
-        white: 0,
-        blue: 2,
-        black: 0,
-        red: 0,
-        green: 0,
-        colorless: 0,
-        generic: 0
+        blue: 2
       };
 
       expect(canPayManaCost(cost, pool).canPay).toBe(true);
@@ -282,16 +214,7 @@ describe('Rule 118: Costs', () => {
       pool = addMana(pool, ManaType.BLUE, 2);
 
       const cost: ManaCost = {
-        type: CostType.MANA,
-        description: '{2}{W}{W}',
-        isOptional: false,
-        isMandatory: true,
         white: 2,
-        blue: 0,
-        black: 0,
-        red: 0,
-        green: 0,
-        colorless: 0,
         generic: 2
       };
 

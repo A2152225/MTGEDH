@@ -4,7 +4,7 @@
  */
 
 import { ObjectID, ControllerID } from './objects';
-import { ManaPool, ManaType } from './mana';
+import { ManaPool, ManaType, ManaCost as ManaAmount } from './mana';
 
 /**
  * Rule 118.1 - Cost is action/payment necessary to take another action
@@ -38,17 +38,11 @@ export interface Cost {
 /**
  * Rule 118.2, 118.3a - Mana cost
  * Paying mana from mana pool
+ * Uses ManaAmount from mana.ts
  */
-export interface ManaCost extends Cost {
+export interface ManaCostPayment extends Cost {
   readonly type: CostType.MANA;
-  readonly white: number;
-  readonly blue: number;
-  readonly black: number;
-  readonly red: number;
-  readonly green: number;
-  readonly colorless: number;
-  readonly generic: number;         // Can be paid with any mana
-  readonly x?: number;              // Variable X cost (Rule 118.4)
+  readonly amount: ManaAmount;  // Uses type from mana.ts
 }
 
 /**
@@ -128,26 +122,34 @@ export interface CostPaymentValidation {
  * Validate if player can pay mana cost
  */
 export function canPayManaCost(
-  cost: ManaCost,
+  cost: ManaAmount,
   manaPool: Readonly<ManaPool>
 ): CostPaymentValidation {
   // Check each color requirement
-  if (cost.white > manaPool.white ||
-      cost.blue > manaPool.blue ||
-      cost.black > manaPool.black ||
-      cost.red > manaPool.red ||
-      cost.green > manaPool.green ||
-      cost.colorless > manaPool.colorless) {
+  const white = cost.white || 0;
+  const blue = cost.blue || 0;
+  const black = cost.black || 0;
+  const red = cost.red || 0;
+  const green = cost.green || 0;
+  const colorless = cost.colorless || 0;
+  const generic = cost.generic || 0;
+  
+  if (white > manaPool.white ||
+      blue > manaPool.blue ||
+      black > manaPool.black ||
+      red > manaPool.red ||
+      green > manaPool.green ||
+      colorless > manaPool.colorless) {
     return { canPay: false, reason: 'Insufficient mana of required colors' };
   }
   
   // Check generic cost can be paid with remaining mana
-  const usedMana = cost.white + cost.blue + cost.black + cost.red + cost.green + cost.colorless;
+  const usedMana = white + blue + black + red + green + colorless;
   const totalMana = manaPool.white + manaPool.blue + manaPool.black + 
                     manaPool.red + manaPool.green + manaPool.colorless;
   const availableForGeneric = totalMana - usedMana;
   
-  if (cost.generic > availableForGeneric) {
+  if (generic > availableForGeneric) {
     return { canPay: false, reason: 'Insufficient mana for generic cost' };
   }
   
@@ -180,14 +182,15 @@ export function canPayLifeCost(
  */
 export function isZeroCost(cost: Cost): boolean {
   if (cost.type === CostType.MANA) {
-    const manaCost = cost as ManaCost;
-    return manaCost.white === 0 &&
-           manaCost.blue === 0 &&
-           manaCost.black === 0 &&
-           manaCost.red === 0 &&
-           manaCost.green === 0 &&
-           manaCost.colorless === 0 &&
-           manaCost.generic === 0;
+    const manaCostPayment = cost as ManaCostPayment;
+    const amount = manaCostPayment.amount;
+    return (amount.white || 0) === 0 &&
+           (amount.blue || 0) === 0 &&
+           (amount.black || 0) === 0 &&
+           (amount.red || 0) === 0 &&
+           (amount.green || 0) === 0 &&
+           (amount.colorless || 0) === 0 &&
+           (amount.generic || 0) === 0;
   }
   return false;
 }
@@ -215,22 +218,22 @@ export interface CostModification {
  * Apply cost reduction to mana cost
  */
 export function applyCostReduction(
-  originalCost: ManaCost,
+  originalCost: ManaAmount,
   reduction: CostModification
-): ManaCost {
+): ManaAmount {
   if (reduction.type !== 'reduction') {
     return originalCost;
   }
   
   // Rule 118.7a - Generic reductions only affect generic component
   if (!reduction.manaType) {
-    const newGeneric = Math.max(0, originalCost.generic - reduction.amount);
+    const newGeneric = Math.max(0, (originalCost.generic || 0) - reduction.amount);
     return { ...originalCost, generic: newGeneric };
   }
   
   // Colored reduction
   const reduced = { ...originalCost };
-  const manaKey = reduction.manaType as keyof ManaCost;
+  const manaKey = reduction.manaType as keyof ManaAmount;
   
   if (typeof reduced[manaKey] === 'number') {
     const current = reduced[manaKey] as number;
@@ -242,8 +245,8 @@ export function applyCostReduction(
     return {
       ...reduced,
       [manaKey]: newValue,
-      generic: Math.max(0, reduced.generic - excess)
-    } as ManaCost;
+      generic: Math.max(0, (reduced.generic || 0) - excess)
+    } as ManaAmount;
   }
   
   return originalCost;

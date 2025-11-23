@@ -93,6 +93,12 @@ export enum Supertype {
 }
 
 /**
+ * Subtypes (rule 205.3)
+ * Represented as strings since there are many and they vary by card type
+ */
+export type Subtype = string;
+
+/**
  * Rule 109.1 - An object is one of:
  * - An ability on the stack
  * - A card

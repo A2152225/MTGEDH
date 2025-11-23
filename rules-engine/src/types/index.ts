@@ -1,7 +1,9 @@
 /**
- * Game Concepts (Rules 100-123) - Type Exports
- * Foundational types for MTG rules engine
+ * MTG Rules Engine - Type Exports
+ * Complete type system for Magic: The Gathering rules
  */
+
+// Section 1: Game Concepts (Rules 100-123)
 
 // Rules 101-104 - Game Flow (Golden Rules, Players, Starting, Ending)
 export * from './gameFlow';
@@ -38,3 +40,8 @@ export * from './costs';
 
 // Rules 119-122 - Player Actions (Life, Damage, Drawing, Counters)
 export * from './playerActions';
+
+// Section 2: Parts of a Card (Rules 200-209)
+
+// Rules 200-209 - Card Parts (Name, Mana Cost, Type Line, Text, P/T, Loyalty)
+export * from './cardParts';

@@ -18,6 +18,18 @@ export enum ManaType {
   COLORLESS = 'colorless'
 }
 
+// Mana cost interface (from Rule 202)
+export interface ManaCost {
+  readonly white?: number;
+  readonly blue?: number;
+  readonly black?: number;
+  readonly red?: number;
+  readonly green?: number;
+  readonly generic?: number;
+  readonly colorless?: number;  // Explicit colorless mana {C}
+  readonly x?: number;  // X in cost
+}
+
 // Rule 106.4 - Mana pool holds unspent mana
 export interface ManaPool {
   readonly white: number;
