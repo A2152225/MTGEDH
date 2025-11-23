@@ -32,3 +32,6 @@ export * from './priority';
 
 // Rule 118 - Costs
 export * from './costs';
+
+// Rules 119-122 - Player Actions (Life, Damage, Drawing, Counters)
+export * from './playerActions';
