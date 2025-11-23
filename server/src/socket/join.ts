@@ -11,7 +11,7 @@ import { games } from "./socket";
  *  - tolerates Game implementations that lack hasRngSeed/seedRng/viewFor/join,
  *  - persists rngSeed best-effort and continues on DB write failures,
  *  - normalizes emitted view so view.zones[playerId] exists for every player,
- *  - ensures in-memory game.state.zones is updated for newly-added players so other modules don't see undefined.
+ *  *  - ensures in-memory game.state.zones is updated for newly-added players so other modules don't see undefined.
  *
  * Added: per-game join queue to serialize join processing and avoid race-created duplicate roster entries.
  * Change: when a forcedFixedPlayerId is present we DO NOT call game.join(...) so reconnects cannot be
@@ -333,7 +333,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
               }
             }
 
-            // If no forced id and a player name exists, require explicit client choice (no auto-create)
+            // If no forced id and a player name exists, only block on name if that player is actually connected.
             if (!forcedFixedPlayerId && playerName) {
               const existing =
                 game.state && Array.isArray(game.state.players)
@@ -350,21 +350,32 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                   (pp: any) => pp.playerId === existing.id
                 );
 
-                if (process.env.DEBUG_STATE === "1")
-                  console.log(
-                    `joinGame: name exists -> prompting nameInUse (playerId=${existing.id}, connected=${isConnected})`
-                  );
-                socket.emit("nameInUse", {
-                  gameId,
-                  playerName,
-                  options: [
-                    { action: "reconnect", fixedPlayerId: existing.id },
-                    { action: "newName" },
-                    { action: "cancel" },
-                  ],
-                  meta: { isConnected: Boolean(isConnected) },
-                });
-                return;
+                if (isConnected) {
+                  if (process.env.DEBUG_STATE === "1")
+                    console.log(
+                      `joinGame: name exists and is connected -> prompting nameInUse (playerId=${existing.id}, connected=true)`
+                    );
+                  socket.emit("nameInUse", {
+                    gameId,
+                    playerName,
+                    options: [
+                      { action: "reconnect", fixedPlayerId: existing.id },
+                      { action: "newName" },
+                      { action: "cancel" },
+                    ],
+                    meta: { isConnected: true },
+                  });
+                  return;
+                } else {
+                  // NEW: when the player with this name exists but is disconnected,
+                  // treat this as a reconnect and reuse that playerId automatically.
+                  forcedFixedPlayerId = existing.id;
+                  resolvedToken = existing.seatToken || resolvedToken;
+                  if (process.env.DEBUG_STATE === "1")
+                    console.log(
+                      `joinGame: name exists but is disconnected -> auto-reusing playerId=${existing.id}`
+                    );
+                }
               }
             }
 
