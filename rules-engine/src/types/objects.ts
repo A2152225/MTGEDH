@@ -146,38 +146,6 @@ export interface Permanent extends Card {
 }
 
 /**
- * Rule 111 - Token
- * Not a card, but can be a permanent
- */
-export interface Token extends ObjectCharacteristics {
-  readonly id: ObjectID;
-  readonly owner: OwnerID;
-  readonly isToken: true;
-  readonly isCopy: boolean;
-}
-
-/**
- * Rule 112 - Spell
- * A card on the stack
- */
-export interface Spell extends Card {
-  readonly controller: ControllerID;
-  readonly targets: ObjectID[];
-  readonly xValue?: number;
-}
-
-/**
- * Rule 114 - Emblem
- * Object in command zone with abilities
- */
-export interface Emblem {
-  readonly id: ObjectID;
-  readonly owner: OwnerID;
-  readonly name: string;
-  readonly abilities: string[]; // Ability text
-}
-
-/**
  * Zones where objects can exist (Rule 400)
  */
 export enum Zone {
