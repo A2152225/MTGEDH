@@ -60,3 +60,8 @@ export * from './zones';
 
 // Rules 500-514 - Turn Structure (Phases, Steps, Turn-Based Actions)
 export * from './turnStructure';
+
+// Section 6: Spells, Abilities, and Effects (Rules 600+)
+
+// Rules 601-615 - Casting Spells, Activating Abilities, Triggered Abilities, Resolving, Continuous Effects, Replacement/Prevention
+export * from './spellsAbilitiesEffects';
