@@ -2,6 +2,7 @@ import type { Server, Socket } from "socket.io";
 import { ensureGame, appendGameEvent, broadcastGame } from "./util";
 import { appendEvent } from "../db";
 import { games } from "./socket";
+import { uid } from "../state/utils";
 
 export function registerInteractionHandlers(io: Server, socket: Socket) {
   // Scry: Peek and reorder library cards
@@ -216,7 +217,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
       // Construct stack item
       const stackItem = {
-        id: `stack_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        id: uid("stack"),
         type: "spell" as const,
         controller: pid,
         card,
