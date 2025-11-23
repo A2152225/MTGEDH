@@ -22,11 +22,8 @@ function isNonBasicLand(perm: any): boolean {
   // Check if it's basic
   const isBasic = 
     typeLine.includes('basic') ||
-    (typeLine.includes('plains') && !typeLine.includes('—')) ||
-    (typeLine.includes('island') && !typeLine.includes('—')) ||
-    (typeLine.includes('swamp') && !typeLine.includes('—')) ||
-    (typeLine.includes('mountain') && !typeLine.includes('—')) ||
-    (typeLine.includes('forest') && !typeLine.includes('—'));
+    // Basic lands without subtypes: just "plains", "island", etc.
+    /^(snow-covered\s+)?(plains|island|swamp|mountain|forest)(\s|$)/i.test(typeLine);
   
   return !isBasic;
 }

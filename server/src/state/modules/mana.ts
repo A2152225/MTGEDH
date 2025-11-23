@@ -20,15 +20,23 @@ function ts() {
  * Initialize mana pools for all players if not already present
  */
 function ensureManaPools(ctx: GameContext) {
+  let needsBump = false;
+  
   if (!ctx.state.manaPools) {
     ctx.state.manaPools = {};
+    needsBump = true;
   }
   
   // Ensure all players have a mana pool
   for (const player of ctx.state.players) {
     if (!ctx.state.manaPools[player.id]) {
       ctx.state.manaPools[player.id] = createEmptyManaPool();
+      needsBump = true;
     }
+  }
+  
+  if (needsBump) {
+    ctx.bumpSeq();
   }
 }
 

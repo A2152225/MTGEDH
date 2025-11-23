@@ -40,6 +40,7 @@ import {
 import { pushStack, resolveTopOfStack, playLand } from "./stack";
 import { nextTurn, nextStep, passPriority } from "./turn";
 import { join, leave as leaveModule } from "./join";
+import { tapForMana, addMana } from "./mana";
 
 /* -------- Helpers ---------- */
 
@@ -555,11 +556,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const permanentId = (e as any).permanentId;
         const manaChoice = (e as any).manaChoice;
         try {
-          // Import tapForMana if available
-          const { tapForMana } = require("./mana");
-          if (typeof tapForMana === "function") {
-            tapForMana(ctx as any, playerId, permanentId, manaChoice);
-          }
+          tapForMana(ctx, playerId, permanentId, manaChoice);
         } catch (err) {
           console.warn("applyEvent(tapForMana): failed", err);
         }
@@ -571,11 +568,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const color = (e as any).color;
         const amount = (e as any).amount || 1;
         try {
-          // Import addMana if available
-          const { addMana } = require("./mana");
-          if (typeof addMana === "function") {
-            addMana(ctx as any, playerId, color, amount);
-          }
+          addMana(ctx, playerId, color, amount);
         } catch (err) {
           console.warn("applyEvent(addMana): failed", err);
         }
