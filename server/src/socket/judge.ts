@@ -89,18 +89,11 @@ export function registerJudgeHandlers(io: Server, socket: Socket) {
 
       if (!game || !requesterId) return;
 
-      // Spectators can't become judge via /judge, they must be players.
-      if (spectator) {
-        socket.emit("error", {
-          code: "JUDGE_REQUEST_SPECTATOR",
-          message: "Only players can request judge role.",
-        });
-        return;
-      }
-
+      // NOTE: spectators ARE allowed to request judge now.
+      // We only restrict who votes (active non-spectator players), not who can ask.
       const jr = getJudgeRuntime(game);
 
-      // If there is already a judge, reject.
+      // If there is already a judge and it's this requester, reject.
       if (jr.judgeId && jr.judgeId === requesterId) {
         socket.emit("error", {
           code: "JUDGE_ALREADY",
@@ -190,7 +183,15 @@ export function registerJudgeHandlers(io: Server, socket: Socket) {
   // Player responds to judge vote
   socket.on(
     "judgeConfirmResponse",
-    ({ gameId, confirmId, accept }: { gameId: string; confirmId: string; accept: boolean }) => {
+    ({
+      gameId,
+      confirmId,
+      accept,
+    }: {
+      gameId: string;
+      confirmId: string;
+      accept: boolean;
+    }) => {
       try {
         const game = ensureGame(gameId);
         const playerId = socket.data.playerId;

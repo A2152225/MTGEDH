@@ -632,7 +632,7 @@ export function App() {
         </div>
       )}
 
-      {/* Import / Judge confirmation modal (text still import-specific for now) */}
+      {/* Import / Judge confirmation modal */}
       {confirmOpen && confirmPayload && (
         <div
           style={{
