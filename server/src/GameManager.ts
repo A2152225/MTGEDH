@@ -14,6 +14,7 @@
 import { randomUUID } from "crypto";
 import { createInitialGameState } from "./state/index.js";
 import { createGameIfNotExists, getEvents } from "./db"; // NEW: import getEvents for replay
+import { createRulesBridge, type RulesBridge } from "./rules-bridge.js";
 
 type PersistOptions = { gameId: string; format?: string; startingLife?: number };
 
@@ -296,6 +297,22 @@ export type CreateGameOptions = { id?: string; startingState?: any };
 
 class GameManagerClass {
   private games: Map<string, any> = new Map();
+  private rulesBridges: Map<string, RulesBridge> = new Map();
+  private ioServer: any = null;
+
+  /**
+   * Set the Socket.IO server instance for rules engine integration
+   */
+  setIOServer(io: any): void {
+    this.ioServer = io;
+  }
+
+  /**
+   * Get the RulesBridge for a specific game
+   */
+  getRulesBridge(gameId: string): RulesBridge | undefined {
+    return this.rulesBridges.get(gameId);
+  }
 
   listGameIds(): string[] {
     return Array.from(this.games.keys());
@@ -467,6 +484,18 @@ class GameManagerClass {
     }
 
     this.games.set(gameId, game);
+
+    // Initialize RulesBridge for rules engine integration
+    if (this.ioServer && !this.rulesBridges.has(gameId)) {
+      try {
+        const bridge = createRulesBridge(gameId, this.ioServer);
+        bridge.initialize(game.state);
+        this.rulesBridges.set(gameId, bridge);
+        console.log(`[GameManager] RulesBridge initialized for game ${gameId}`);
+      } catch (e) {
+        console.warn(`[GameManager] RulesBridge initialization failed for ${gameId}:`, e);
+      }
+    }
 
     // Synchronous persistence so game shows up in /api/games immediately
     try {

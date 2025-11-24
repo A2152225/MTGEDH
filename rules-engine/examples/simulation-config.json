@@ -1,0 +1,47 @@
+{
+  "gameId": "example_simulation",
+  "format": "commander",
+  "startingLife": 40,
+  "maxTurns": 100,
+  "rngSeed": 42,
+  "verbose": false,
+  "headless": true,
+  "players": [
+    {
+      "id": "aggressive_ai",
+      "name": "Aggressive Red Deck",
+      "type": "ai",
+      "aiStrategy": "aggressive",
+      "deckList": [
+        "Mountain",
+        "Mountain",
+        "Mountain",
+        "Mountain",
+        "Mountain",
+        "Lightning Bolt",
+        "Shock",
+        "Lava Spike",
+        "Goblin Guide",
+        "Monastery Swiftspear"
+      ]
+    },
+    {
+      "id": "defensive_ai",
+      "name": "Defensive White Deck",
+      "type": "ai",
+      "aiStrategy": "defensive",
+      "deckList": [
+        "Plains",
+        "Plains",
+        "Plains",
+        "Plains",
+        "Plains",
+        "Healing Salve",
+        "Safe Passage",
+        "Wall of Omens",
+        "Serra Angel",
+        "Wrath of God"
+      ]
+    }
+  ]
+}

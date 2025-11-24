@@ -9,6 +9,7 @@ import { registerInteractionHandlers } from "./interaction";
 import { registerPriorityHandlers } from "./priority";
 import { registerDisconnectHandlers } from "./disconnect";
 import { registerJudgeHandlers } from "./judge";
+import { GameManager } from "../GameManager";
 
 /**
  * Registers all Socket.IO event handlers for the server,
@@ -17,6 +18,10 @@ import { registerJudgeHandlers } from "./judge";
 export function registerSocketHandlers(
   io: Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>
 ) {
+  // Set the IO server instance in GameManager for RulesBridge integration
+  (GameManager as any).setIOServer(io);
+  console.log('[Socket] GameManager configured with IO server for rules engine integration');
+
   io.on("connection", (socket) => {
     console.log(`Socket connected: ${socket.id}`);
 

@@ -199,7 +199,7 @@ export function HandGallery(props: HandGalleryProps) {
                   : 'none',
             }}
             title={name}
-            onClick={() => {
+            onDoubleClick={() => {
               if (!kc) return;
               if (onPlayLand && isLand(tl) && !cantPlayLand) {
                 onPlayLand(kc.id);

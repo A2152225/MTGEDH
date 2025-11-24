@@ -73,17 +73,91 @@ This platform is being built to provide a free, self-hosted solution for playing
 
 ### Recent Updates
 
+- **Rules Engine Integration**: Unified rules engine adapter with event-driven architecture for all game actions
+- **AI Engine**: 6 AI strategies (Random, Basic, Aggressive, Defensive, Control, Combo) for automated gameplay
+- **Game Simulator**: Full-game simulation framework from mulligan to win condition with CLI tool
+- **Hybrid Play**: Support for both AI and human-controlled players in the same game
+- **Comprehensive Testing**: 951 automated tests covering rules engine, AI, and simulation
 - **Modular Keyword Actions**: Refactored keyword actions (Rule 701) into modular, maintainable files
-- **Comprehensive Rules Implementation**: Implemented 25+ keyword actions based on MTG Comprehensive Rules (Nov 2025)
 - **State-Based Actions**: Full implementation of Rule 704 state-based actions
-- **Extensive Testing**: 500+ automated tests covering rules engine functionality
+
+### New Features
+
+#### 🎮 Game Simulation
+
+Run automated MTG games for testing and analysis:
+
+```bash
+# Run a single simulation
+cd rules-engine
+npm run simulate -- --players 2 --verbose
+
+# Run 100 games for statistical analysis
+npm run simulate -- --players 2 --iterations 100
+
+# Test AI strategies
+npm run simulate -- --strategy aggressive --iterations 50
+```
+
+See [Simulation Guide](./docs/simulation-guide.md) for detailed usage.
+
+#### 🤖 AI Engine
+
+Configure AI-controlled players with different strategies:
+
+```typescript
+import { aiEngine, AIStrategy } from '@mtgedh/rules-engine';
+
+aiEngine.registerAI({
+  playerId: 'ai1',
+  strategy: AIStrategy.AGGRESSIVE,
+  difficulty: 0.7,
+});
+```
+
+See [AI Strategies Guide](./docs/ai-strategies.md) for custom AI development.
+
+#### ⚙️ Rules Engine Adapter
+
+All game actions now flow through a unified rules engine:
+
+```typescript
+import { rulesEngine, RulesEngineEvent } from '@mtgedh/rules-engine';
+
+// Initialize game
+rulesEngine.initializeGame(gameId, gameState);
+
+// Listen to events
+rulesEngine.on(RulesEngineEvent.SPELL_CAST, (event) => {
+  console.log(`${event.data.caster} cast ${event.data.spell.card.name}`);
+});
+
+// Validate and execute actions
+const validation = rulesEngine.validateAction(gameId, action);
+if (validation.legal) {
+  rulesEngine.executeAction(gameId, action);
+}
+```
+
+See [Rules Engine Integration](./docs/rules-engine-integration.md) for architecture details.
 
 ## Architecture
 
 - **Client-Server Model**: Centralized server for game state authority
 - **WebSocket Communication**: Real-time bidirectional updates
+- **Rules Engine**: Event-driven architecture with validation and state management
+- **AI System**: Pluggable strategies for automated decision-making
+- **Simulation Framework**: Full-game testing from mulligan to win condition
 - **Self-Hosted**: Run on your own hardware, no cloud costs
 - **Modular Design**: Extensible rules engine for adding new cards/mechanics
+
+## Documentation
+
+- [Architecture Overview](./docs/architecture.md)
+- [Rules Engine Integration](./docs/rules-engine-integration.md)
+- [Game Simulation Guide](./docs/simulation-guide.md)
+- [AI Strategy Development](./docs/ai-strategies.md)
+- [Keyword Actions Guide](./docs/keyword-actions-guide.md)
 
 ## Contributing
 
