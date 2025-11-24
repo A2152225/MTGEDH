@@ -206,3 +206,12 @@ export interface StateDiff<T> {
   patch?: Partial<T>;
   seq: number;
 }
+
+/* Payment item for mana payment during spell casting */
+export type ManaColor = 'W' | 'U' | 'B' | 'R' | 'G' | 'C';
+
+export interface PaymentItem {
+  permanentId: string;
+  mana: ManaColor;
+}
+}

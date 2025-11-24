@@ -13,9 +13,11 @@ import { CommanderSelectModal } from "./components/CommanderSelectModal";
 import NameInUseModal from "./components/NameInUseModal";
 import { ZonesPanel } from "./components/ZonesPanel";
 import { ScrySurveilModal } from "./components/ScrySurveilModal";
+import { CastSpellModal } from "./components/CastSpellModal";
 import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
 import { useGameSocket } from "./hooks/useGameSocket";
+import type { PaymentItem, ManaColor } from "../../shared/src";
 
 /** Map engine/internal phase enum to human-friendly name */
 function prettyPhase(phase?: string | null): string {
@@ -154,6 +156,10 @@ export function App() {
   const [showNameInUseModal, setShowNameInUseModal] = useState(false);
   const [nameInUsePayload, setNameInUsePayload] = useState<any | null>(null);
 
+  // Cast spell modal state
+  const [castSpellModalOpen, setCastSpellModalOpen] = useState(false);
+  const [spellToCast, setSpellToCast] = useState<{ cardId: string; cardName: string; manaCost?: string } | null>(null);
+
   // Accordion state for Join / Active Games
   const [joinCollapsed, setJoinCollapsed] = useState(false);
 
@@ -248,6 +254,70 @@ export function App() {
     // Check priority instead of turn - you can cast instants on other players' turns
     if (safeView.priority !== you) return "You don't have priority";
     return null;
+  };
+
+  // Get available mana sources (untapped lands and mana-producing artifacts/creatures)
+  const getAvailableManaSourcesForPlayer = (playerId: string) => {
+    if (!safeView) return [];
+    
+    const sources: Array<{ id: string; name: string; options: ManaColor[] }> = [];
+    
+    // Get player's battlefield
+    const battlefield = safeView.zones?.[playerId]?.battlefield || [];
+    
+    for (const perm of battlefield) {
+      const p = perm as any;
+      if (!p || p.tapped) continue; // Skip tapped permanents
+      
+      const typeLine = (p.type_line || '').toLowerCase();
+      const name = p.name || 'Permanent';
+      
+      // Basic lands
+      if (typeLine.includes('plains')) {
+        sources.push({ id: p.id, name, options: ['W'] });
+      } else if (typeLine.includes('island')) {
+        sources.push({ id: p.id, name, options: ['U'] });
+      } else if (typeLine.includes('swamp')) {
+        sources.push({ id: p.id, name, options: ['B'] });
+      } else if (typeLine.includes('mountain')) {
+        sources.push({ id: p.id, name, options: ['R'] });
+      } else if (typeLine.includes('forest')) {
+        sources.push({ id: p.id, name, options: ['G'] });
+      } else if (typeLine.includes('land')) {
+        // Non-basic land - for now assume it can produce any color (simplified)
+        // In a real implementation, we'd parse oracle text for mana abilities
+        sources.push({ id: p.id, name, options: ['C'] });
+      } else if (typeLine.includes('artifact') || typeLine.includes('creature')) {
+        // Check for mana-producing artifacts/creatures (simplified heuristic)
+        const oracleText = (p.oracle_text || '').toLowerCase();
+        if (oracleText.includes('add') && oracleText.includes('mana')) {
+          // Simplified: assume colorless mana for now
+          sources.push({ id: p.id, name, options: ['C'] });
+        }
+      }
+    }
+    
+    return sources;
+  };
+
+  // Handle cast spell confirmation from modal
+  const handleCastSpellConfirm = (payment: PaymentItem[]) => {
+    if (!safeView || !spellToCast) return;
+    
+    console.log(`[Client] Casting spell: ${spellToCast.cardName} with payment:`, payment);
+    socket.emit("castSpellFromHand", {
+      gameId: safeView.id,
+      cardId: spellToCast.cardId,
+      payment: payment.length > 0 ? payment : undefined,
+    });
+    
+    setCastSpellModalOpen(false);
+    setSpellToCast(null);
+  };
+
+  const handleCastSpellCancel = () => {
+    setCastSpellModalOpen(false);
+    setSpellToCast(null);
   };
 
   return (
@@ -525,13 +595,20 @@ export function App() {
                 socket.emit("playLand", { gameId: safeView.id, cardId })
               }
               onCastFromHand={(cardId) => {
-                if (safeView) {
-                  console.log(`[Client] Casting spell from hand: cardId=${cardId}, gameId=${safeView.id}`);
-                  socket.emit("castSpellFromHand", {
-                    gameId: safeView.id,
-                    cardId,
-                  });
-                }
+                if (!safeView || !you) return;
+                // Find the card in hand to get its name and mana cost
+                const zones = safeView.zones?.[you];
+                const hand = zones?.hand || [];
+                const card = hand.find((c: any) => c?.id === cardId);
+                if (!card) return;
+                
+                // Open payment modal
+                setSpellToCast({
+                  cardId,
+                  cardName: (card as any).name || 'Card',
+                  manaCost: (card as any).mana_cost,
+                });
+                setCastSpellModalOpen(true);
               }}
               reasonCannotPlayLand={reasonCannotPlayLand}
               reasonCannotCast={reasonCannotCast}
@@ -893,6 +970,16 @@ export function App() {
           setShowNameInUseModal(false);
           setNameInUsePayload(null);
         }}
+      />
+
+      {/* Cast Spell Payment Modal */}
+      <CastSpellModal
+        open={castSpellModalOpen}
+        cardName={spellToCast?.cardName || ''}
+        manaCost={spellToCast?.manaCost}
+        availableSources={you ? getAvailableManaSourcesForPlayer(you) : []}
+        onConfirm={handleCastSpellConfirm}
+        onCancel={handleCastSpellCancel}
       />
     </div>
   );

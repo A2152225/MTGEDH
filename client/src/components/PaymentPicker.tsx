@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
-import type { PaymentItem } from '../../../shared/src';
+import type { PaymentItem, ManaColor } from '../../../shared/src';
 
-type Color = PaymentItem['mana'];
+type Color = ManaColor;
 
 function parseManaCost(manaCost?: string): { colors: Record<Color, number>; generic: number; hybrids: Color[][]; hasX: boolean } {
   const res: { colors: Record<Color, number>; generic: number; hybrids: Color[][]; hasX: boolean } =

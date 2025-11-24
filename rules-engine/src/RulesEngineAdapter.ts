@@ -250,10 +250,116 @@ export class RulesEngineAdapter {
       };
     }
     
+    // Check mana availability if mana cost is provided
+    if (action.manaCost) {
+      const player = state.players.find(p => p.id === action.playerId);
+      if (!player) {
+        return {
+          legal: false,
+          reason: 'Player not found',
+        };
+      }
+      
+      // Parse mana cost string (e.g., "{2}{U}{U}")
+      const cost = this.parseManaCostString(action.manaCost);
+      const pool = player.manaPool || { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+      
+      // Check if player can pay the cost
+      const canPay = this.canPayManaCostFromPool(cost, pool);
+      if (!canPay.canPay) {
+        return {
+          legal: false,
+          reason: canPay.reason || 'Insufficient mana',
+        };
+      }
+    }
+    
     // Check timing restrictions (main phase, stack empty for sorceries, etc.)
-    // TODO: Implement full timing validation
+    // TODO: Implement full timing validation based on card types
     
     return { legal: true };
+  }
+  
+  /**
+   * Parse mana cost string like "{2}{U}{U}" into a ManaCost object
+   */
+  private parseManaCostString(manaCost: string | any): ManaCost {
+    const cost: ManaCost = { generic: 0 };
+    
+    // Handle non-string input (could be already parsed object or null/undefined)
+    if (!manaCost || typeof manaCost !== 'string') {
+      return cost;
+    }
+    
+    const tokens = manaCost.match(/\{[^}]+\}/g) || [];
+    
+    for (const token of tokens) {
+      const symbol = token.replace(/[{}]/g, '').toUpperCase();
+      
+      if (/^\d+$/.test(symbol)) {
+        // Generic mana like {2}
+        cost.generic = (cost.generic || 0) + parseInt(symbol, 10);
+      } else if (symbol === 'W') {
+        cost.white = (cost.white || 0) + 1;
+      } else if (symbol === 'U') {
+        cost.blue = (cost.blue || 0) + 1;
+      } else if (symbol === 'B') {
+        cost.black = (cost.black || 0) + 1;
+      } else if (symbol === 'R') {
+        cost.red = (cost.red || 0) + 1;
+      } else if (symbol === 'G') {
+        cost.green = (cost.green || 0) + 1;
+      } else if (symbol === 'C') {
+        cost.colorless = (cost.colorless || 0) + 1;
+      }
+      // Note: hybrid mana, phyrexian mana, etc. not implemented yet
+    }
+    
+    return cost;
+  }
+  
+  /**
+   * Check if a mana cost can be paid from the given mana pool
+   */
+  private canPayManaCostFromPool(cost: ManaCost, pool: ManaPool): { canPay: boolean; reason?: string } {
+    // Check specific color requirements
+    if ((cost.white || 0) > pool.white) {
+      return { canPay: false, reason: `Need ${cost.white} white mana, have ${pool.white}` };
+    }
+    if ((cost.blue || 0) > pool.blue) {
+      return { canPay: false, reason: `Need ${cost.blue} blue mana, have ${pool.blue}` };
+    }
+    if ((cost.black || 0) > pool.black) {
+      return { canPay: false, reason: `Need ${cost.black} black mana, have ${pool.black}` };
+    }
+    if ((cost.red || 0) > pool.red) {
+      return { canPay: false, reason: `Need ${cost.red} red mana, have ${pool.red}` };
+    }
+    if ((cost.green || 0) > pool.green) {
+      return { canPay: false, reason: `Need ${cost.green} green mana, have ${pool.green}` };
+    }
+    if ((cost.colorless || 0) > pool.colorless) {
+      return { canPay: false, reason: `Need ${cost.colorless} colorless mana, have ${pool.colorless}` };
+    }
+    
+    // Calculate remaining mana after paying colored costs
+    const remaining = {
+      white: pool.white - (cost.white || 0),
+      blue: pool.blue - (cost.blue || 0),
+      black: pool.black - (cost.black || 0),
+      red: pool.red - (cost.red || 0),
+      green: pool.green - (cost.green || 0),
+      colorless: pool.colorless - (cost.colorless || 0),
+    };
+    
+    const totalRemaining = remaining.white + remaining.blue + remaining.black + 
+                          remaining.red + remaining.green + remaining.colorless;
+    
+    if ((cost.generic || 0) > totalRemaining) {
+      return { canPay: false, reason: `Need ${cost.generic} more mana for generic cost, have ${totalRemaining} remaining` };
+    }
+    
+    return { canPay: true };
   }
   
   /**
@@ -397,11 +503,12 @@ export class RulesEngineAdapter {
     }
     
     // Prepare casting context
+    const manaCost = action.manaCost ? this.parseManaCostString(action.manaCost) : {};
     const context: SpellCastingContext = {
       spellId: action.cardId,
       cardName: action.cardName || 'Unknown Card',
       controllerId: action.playerId,
-      manaCost: action.manaCost || {},
+      manaCost,
       targets: action.targets,
       modes: action.modes,
       xValue: action.xValue,

@@ -112,6 +112,58 @@ describe('RulesEngineAdapter', () => {
       expect(validation.reason).toBe('Player does not have priority');
     });
     
+    it('should validate spell cast when player has sufficient mana', () => {
+      const validation = adapter.validateAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        cardName: 'Counterspell',
+        manaCost: '{U}{U}',
+      });
+      
+      expect(validation.legal).toBe(true);
+    });
+    
+    it('should reject spell cast when player has insufficient colored mana', () => {
+      const validation = adapter.validateAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        cardName: 'Lightning Bolt',
+        manaCost: '{R}',
+      });
+      
+      expect(validation.legal).toBe(false);
+      expect(validation.reason).toContain('red mana');
+    });
+    
+    it('should reject spell cast when player has insufficient generic mana', () => {
+      const validation = adapter.validateAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        cardName: 'Divination',
+        manaCost: '{2}{U}',
+      });
+      
+      // Player has 5W 5U, needs 1U + 2 generic, so needs total 3 mana
+      // Player has 10 total, so should be valid
+      expect(validation.legal).toBe(true);
+    });
+    
+    it('should reject spell cast when player has no mana', () => {
+      // Give player2 priority so we can test mana validation
+      testGameState.priorityPlayerIndex = 1;
+      adapter.initializeGame('test-game', testGameState);
+      
+      const validation = adapter.validateAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player2',
+        cardName: 'Sol Ring',
+        manaCost: '{1}',
+      });
+      
+      expect(validation.legal).toBe(false);
+      expect(validation.reason).toContain('mana');
+    });
+    
     it('should validate attacker declaration in correct step', () => {
       // Set game to declare attackers step
       testGameState.step = 'declareAttackers' as any;
