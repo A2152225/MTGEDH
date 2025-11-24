@@ -1,7 +1,7 @@
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, appendGameEvent } from "./util";
-import { appendEvent } from "../db";
-import { GameManager } from "../GameManager";
+import { ensureGame, broadcastGame, appendGameEvent } from "./util.js";
+import { appendEvent } from "../db.js";
+import { GameManager } from "../GameManager.js";
 
 export function registerGameActions(io: Server, socket: Socket) {
   // Play land from hand

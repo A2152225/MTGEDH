@@ -1,4 +1,4 @@
-import type { PlayerID } from "../types.js";
+import type { PlayerID } from "../../../../shared/src/types.js";
 import type { GameContext } from "../context.js";
 import { uid, parsePT } from "../utils.js";
 
