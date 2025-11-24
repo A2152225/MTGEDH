@@ -41,6 +41,44 @@
  * - Extort (702.101), Fuse (702.102), Bestow (702.103), Tribute (702.104)
  * - Dethrone (702.105), Hidden Agenda (702.106), Outlast (702.107), Prowess (702.108)
  * - Dash (702.109), Exploit (702.110), Menace (702.111)
+ * 
+ * Part 7 (Rules 702.112-702.129): BFZ through HOU era keyword abilities
+ * - Renown (702.112), Awaken (702.113), Devoid (702.114), Ingest (702.115)
+ * - Myriad (702.116), Surge (702.117), Skulk (702.118), Emerge (702.119)
+ * - Escalate (702.120), Melee (702.121), Crew (702.122), Fabricate (702.123)
+ * - Partner (702.124), Undaunted (702.125), Improvise (702.126), Aftermath (702.127)
+ * - Embalm (702.128), Eternalize (702.129)
+ * 
+ * Part 8 (Rules 702.130-702.140): IXL through IKO era keyword abilities
+ * - Afflict (702.130), Ascend (702.131), Assist (702.132), Jump-Start (702.133)
+ * - Mentor (702.134), Afterlife (702.135), Riot (702.136), Spectacle (702.137)
+ * - Escape (702.138), Companion (702.139), Mutate (702.140)
+ * 
+ * Part 9 (Rules 702.141-702.150): ZNR through VOW era keyword abilities
+ * - Encore (702.141), Boast (702.142), Foretell (702.143), Demonstrate (702.144)
+ * - Daybound/Nightbound (702.145), Disturb (702.146), Decayed (702.147), Cleave (702.148)
+ * - Training (702.149), Compleated (702.150)
+ * 
+ * Part 10 (Rules 702.151-702.160): NEO through BRO era keyword abilities
+ * - Reconfigure (702.151), Blitz (702.152), Casualty (702.153), Enlist (702.154)
+ * - Read Ahead (702.155), Ravenous (702.156), Squad (702.157), Prototype (702.160)
+ * 
+ * Part 11 (Rules 702.161-702.169): ONE through OTJ era keyword abilities
+ * - Living Metal (702.161), More Than Meets the Eye (702.162), For Mirrodin! (702.163)
+ * - Toxic (702.164), Backup (702.165), Bargain (702.166), Craft (702.167)
+ * - Disguise (702.168), Solved (702.169)
+ * 
+ * Part 12 (Rules 702.170-702.176): OTJ through BLB era keyword abilities
+ * - Plot (702.170), Saddle (702.171), Spree (702.172), Freerunning (702.173)
+ * - Gift (702.174), Offspring (702.175), Impending (702.176)
+ * 
+ * Part 13 (Rules 702.177-702.183): BRJOM through EMGS era keyword abilities
+ * - Exhaust (702.177), Max Speed (702.178), Start Your Engines! (702.179)
+ * - Harmonize (702.180), Mobilize (702.181), Job Select (702.182), Tiered (702.183)
+ * 
+ * Part 14 (Rules 702.184-702.189): Remaining keyword abilities
+ * - Station (702.184), Warp (702.185), Infinity (702.186), Mayhem (702.187)
+ * - Web-slinging (702.188), Firebending (702.189)
  */
 
 // Part 1: Export all keyword ability modules
@@ -159,6 +197,98 @@ export * from './dash';
 export * from './exploit';
 export * from './menace';
 
+// Part 7: Export BFZ through HOU era keyword abilities
+export * from './renown';
+export * from './awaken';
+export * from './devoid';
+export * from './ingest';
+export * from './myriad';
+export * from './surge';
+export * from './skulk';
+export * from './emerge';
+export * from './escalate';
+export * from './melee';
+export * from './crew';
+export * from './fabricate';
+export * from './partner';
+export * from './undaunted';
+export * from './improvise';
+export * from './aftermath';
+export * from './embalm';
+export * from './eternalize';
+
+// Part 8: Export IXL through IKO era keyword abilities
+export * from './afflict';
+export * from './ascend';
+export * from './assist';
+export * from './jumpStart';
+export * from './mentor';
+export * from './afterlife';
+export * from './riot';
+export * from './spectacle';
+export * from './escape';
+export * from './companion';
+export * from './mutate';
+
+// Part 9: Export ZNR through VOW era keyword abilities
+export * from './encore';
+export * from './boast';
+export * from './foretell';
+export * from './demonstrate';
+export * from './dayboundNightbound';
+export * from './disturb';
+export * from './decayed';
+export * from './cleave';
+export * from './training';
+export * from './compleated';
+
+// Part 10: Export NEO through BRO era keyword abilities
+export * from './reconfigure';
+export * from './blitz';
+export * from './casualty';
+export * from './enlist';
+export * from './readAhead';
+export * from './ravenous';
+export * from './squad';
+export * from './prototype';
+
+// Part 11: Export ONE through OTJ era keyword abilities
+export * from './livingMetal';
+export * from './moreThanMeetsTheEye';
+export * from './forMirrodin';
+export * from './toxic';
+export * from './backup';
+export * from './bargain';
+export * from './craft';
+export * from './disguise';
+export * from './solved';
+
+// Part 12: Export OTJ through BLB era keyword abilities
+export * from './plot';
+export * from './saddle';
+export * from './spree';
+export * from './freerunning';
+export * from './gift';
+export * from './offspring';
+export * from './impending';
+
+// Part 13: Export BRJOM through EMGS era keyword abilities
+export * from './exhaust';
+export * from './maxSpeed';
+export * from './startYourEngines';
+export * from './harmonize';
+export * from './mobilize';
+export * from './jobSelect';
+export * from './tiered';
+
+// Part 14: Export remaining keyword abilities
+export * from './station';
+export * from './warp';
+export * from './infinity';
+export * from './mayhem';
+export * from './webSlinging';
+export * from './firebending';
+
 /**
  * Union type of all keyword ability types
  */
@@ -275,7 +405,92 @@ export type KeywordAbility =
   | import('./prowess').ProwessAbility
   | import('./dash').DashAbility
   | import('./exploit').ExploitAbility
-  | import('./menace').MenaceAbility;
+  | import('./menace').MenaceAbility
+  // Part 7
+  | import('./renown').RenownAbility
+  | import('./awaken').AwakenAbility
+  | import('./devoid').DevoidAbility
+  | import('./ingest').IngestAbility
+  | import('./myriad').MyriadAbility
+  | import('./surge').SurgeAbility
+  | import('./skulk').SkulkAbility
+  | import('./emerge').EmergeAbility
+  | import('./escalate').EscalateAbility
+  | import('./melee').MeleeAbility
+  | import('./crew').CrewAbility
+  | import('./fabricate').FabricateAbility
+  | import('./partner').PartnerAbility
+  | import('./undaunted').UndauntedAbility
+  | import('./improvise').ImproviseAbility
+  | import('./aftermath').AftermathAbility
+  | import('./embalm').EmbalmAbility
+  | import('./eternalize').EternalizeAbility
+  // Part 8
+  | import('./afflict').AfflictAbility
+  | import('./ascend').AscendAbility
+  | import('./assist').AssistAbility
+  | import('./jumpStart').JumpStartAbility
+  | import('./mentor').MentorAbility
+  | import('./afterlife').AfterlifeAbility
+  | import('./riot').RiotAbility
+  | import('./spectacle').SpectacleAbility
+  | import('./escape').EscapeAbility
+  | import('./companion').CompanionAbility
+  | import('./mutate').MutateAbility
+  // Part 9
+  | import('./encore').EncoreAbility
+  | import('./boast').BoastAbility
+  | import('./foretell').ForetellAbility
+  | import('./demonstrate').DemonstrateAbility
+  | import('./dayboundNightbound').DayboundAbility
+  | import('./dayboundNightbound').NightboundAbility
+  | import('./disturb').DisturbAbility
+  | import('./decayed').DecayedAbility
+  | import('./cleave').CleaveAbility
+  | import('./training').TrainingAbility
+  | import('./compleated').CompleatedAbility
+  // Part 10
+  | import('./reconfigure').ReconfigureAbility
+  | import('./blitz').BlitzAbility
+  | import('./casualty').CasualtyAbility
+  | import('./enlist').EnlistAbility
+  | import('./readAhead').ReadAheadAbility
+  | import('./ravenous').RavenousAbility
+  | import('./squad').SquadAbility
+  | import('./prototype').PrototypeAbility
+  // Part 11
+  | import('./livingMetal').LivingMetalAbility
+  | import('./moreThanMeetsTheEye').MoreThanMeetsTheEyeAbility
+  | import('./forMirrodin').ForMirrodinAbility
+  | import('./toxic').ToxicAbility
+  | import('./backup').BackupAbility
+  | import('./bargain').BargainAbility
+  | import('./craft').CraftAbility
+  | import('./disguise').DisguiseAbility
+  | import('./solved').SolvedAbility
+  // Part 12
+  | import('./plot').PlotAbility
+  | import('./saddle').SaddleAbility
+  | import('./spree').SpreeAbility
+  | import('./freerunning').FreerunningAbility
+  | import('./gift').GiftAbility
+  | import('./offspring').OffspringAbility
+  | import('./impending').ImpendingAbility
+  // Part 13
+  | import('./exhaust').ExhaustAbility
+  | import('./maxSpeed').MaxSpeedAbility
+  | import('./startYourEngines').StartYourEnginesAbility
+  | import('./harmonize').HarmonizeAbility
+  | import('./mobilize').MobilizeAbility
+  | import('./jobSelect').JobSelectAbility
+  | import('./tiered').TieredAbility
+  // Part 14
+  | import('./station').StationAbility
+  | import('./warp').WarpAbility
+  | import('./infinity').InfinityAbility
+  | import('./mayhem').MayhemAbility
+  | import('./webSlinging').WebSlingingAbility
+  | import('./firebending').FirebendingAbility;
 
 /**
  * Helper function to check if an ability is a specific type

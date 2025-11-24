@@ -35,6 +35,15 @@ export function canBlockMenace(blockerCount: number): boolean {
 }
 
 /**
+ * Check if creature with menace can be blocked by a given number of blockers
+ * Takes ability as first parameter to match test expectations
+ * Rule 702.111b - Requires 2 or more blockers
+ */
+export function canBlockWithMenace(ability: MenaceAbility, blockerCount: number): boolean {
+  return blockerCount >= 2;
+}
+
+/**
  * Get minimum blockers required
  * Rule 702.111b
  */

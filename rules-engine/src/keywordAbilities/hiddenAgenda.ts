@@ -12,7 +12,7 @@
  */
 
 export interface HiddenAgendaAbility {
-  readonly type: 'hiddenAgenda';
+  readonly type: 'hidden-agenda';
   readonly source: string;
   readonly namedCard?: string;
   readonly revealed: boolean;
@@ -24,7 +24,7 @@ export interface HiddenAgendaAbility {
  */
 export function hiddenAgenda(source: string, namedCard?: string): HiddenAgendaAbility {
   return {
-    type: 'hiddenAgenda',
+    type: 'hidden-agenda',
     source,
     namedCard,
     revealed: false,
@@ -44,6 +44,14 @@ export function revealAgenda(ability: HiddenAgendaAbility): HiddenAgendaAbility 
     ...ability,
     revealed: true,
   };
+}
+
+/**
+ * Alias for revealAgenda to match test expectations
+ * Rule 702.106b
+ */
+export function revealHiddenAgenda(ability: HiddenAgendaAbility): HiddenAgendaAbility {
+  return revealAgenda(ability);
 }
 
 /**

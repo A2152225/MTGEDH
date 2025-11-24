@@ -15,6 +15,48 @@ export interface EngineResult<T> {
 // Export all Game Concepts types (Rules 100-123)
 export * from './types';
 
+// Export Rule 703: Turn-Based Actions
+export * from './turnBasedActions';
+
+// Export Rule 704: State-Based Actions
+export * from './stateBasedActions';
+
+// Export Rule 705: Flipping a Coin
+export * from './coinFlip';
+
+// Export Rule 706: Rolling a Die
+export * from './dieRoll';
+
+// Export Rule 707: Copying Objects
+export * from './copyingObjects';
+
+// Export Rule 708: Face-Down Spells and Permanents
+export * from './faceDownObjects';
+
+// Export Rule 709: Split Cards
+export * from './splitCards';
+
+// Export Rule 710: Flip Cards
+export * from './flipCards';
+
+// Export Rule 711: Leveler Cards
+export * from './levelerCards';
+
+// Export Rule 712: Double-Faced Cards
+export * from './doubleFacedCards';
+
+// Export Rules 713-719: Remaining Card Types
+export * from './remainingCardTypes';
+
+// Export Rules 720-732: Special Game Mechanics
+export * from './specialGameMechanics';
+
+// Export Keyword Abilities (Rule 702)
+export * from './keywordAbilities';
+
+// Export Keyword Actions (Rule 701)
+export * from './keywordActions';
+
 // Legacy function - kept for compatibility
 export function passPriority(state: Readonly<GameState>, by: PlayerID): EngineResult<GameState> {
   if (state.priority !== by) return { next: state };
