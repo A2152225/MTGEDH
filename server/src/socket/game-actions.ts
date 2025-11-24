@@ -303,6 +303,12 @@ export function registerGameActions(io: Server, socket: Socket) {
       appendGameEvent(game, gameId, "passPriority", { by: playerId });
 
       if (resolvedNow) {
+        // Directly call resolveTopOfStack to ensure the spell resolves
+        // (appendGameEvent may fail silently if applyEvent has issues)
+        if (typeof game.resolveTopOfStack === 'function') {
+          game.resolveTopOfStack();
+          console.log(`[passPriority] Stack resolved for game ${gameId}`);
+        }
         appendGameEvent(game, gameId, "resolveTopOfStack");
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,

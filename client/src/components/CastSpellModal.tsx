@@ -4,11 +4,18 @@ import type { PaymentItem, ManaColor } from '../../../shared/src';
 
 type Color = ManaColor;
 
+interface OtherCardInfo {
+  id: string;
+  name: string;
+  mana_cost?: string;
+}
+
 interface CastSpellModalProps {
   open: boolean;
   cardName: string;
   manaCost?: string;
   availableSources: Array<{ id: string; name: string; options: Color[] }>;
+  otherCardsInHand?: OtherCardInfo[];
   onConfirm: (payment: PaymentItem[]) => void;
   onCancel: () => void;
 }
@@ -18,6 +25,7 @@ export function CastSpellModal({
   cardName,
   manaCost,
   availableSources,
+  otherCardsInHand = [],
   onConfirm,
   onCancel,
 }: CastSpellModalProps) {
@@ -54,6 +62,7 @@ export function CastSpellModal({
           xValue={xValue}
           onChangeX={setXValue}
           onChange={setPayment}
+          otherCardsInHand={otherCardsInHand}
         />
 
         <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
