@@ -14,9 +14,9 @@
 // This implementation is intentionally defensive: it tolerates missing ctx fields,
 // ensures ctx.seq exists, and avoids throwing when replaying older event streams.
 
-import type { GameContext } from "../context";
-import type { PlayerID } from "../../shared/src/types";
-import { drawCards } from "./zones";
+import type { GameContext } from "../context.js";
+import type { PlayerID } from "../../../shared/src/types.js";
+import { drawCards } from "./zones.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -171,8 +171,9 @@ export function setTurnDirection(ctx: GameContext, dir: 1 | -1) {
  * nextTurn: advance to next player's turn
  * - Updates turnPlayer to the next player in order
  * - Resets phase to "beginning" (start of turn)
- * - Sets step to "untap" 
+ * - Sets step to "UNTAP" 
  * - Gives priority to the active player
+ * - Resets landsPlayedThisTurn for all players
  */
 export function nextTurn(ctx: GameContext) {
   try {
@@ -186,12 +187,18 @@ export function nextTurn(ctx: GameContext) {
     const next = idx === -1 ? players[0] : players[(idx + 1) % players.length];
     (ctx as any).state.turnPlayer = next;
 
-    // Reset to beginning of turn (using lowercase enum values)
+    // Reset to beginning of turn
     (ctx as any).state.phase = "beginning";
-    (ctx as any).state.step = "untap";
+    (ctx as any).state.step = "UNTAP";
 
     // give priority to the active player at the start of turn
     (ctx as any).state.priority = next;
+
+    // Reset lands played this turn for all players
+    (ctx as any).state.landsPlayedThisTurn = (ctx as any).state.landsPlayedThisTurn || {};
+    for (const pid of players) {
+      (ctx as any).state.landsPlayedThisTurn[pid] = 0;
+    }
 
     console.log(
       `${ts()} [nextTurn] Advanced to player ${next}, phase=${(ctx as any).state.phase}, step=${(ctx as any).state.step}`
@@ -213,65 +220,65 @@ export function nextStep(ctx: GameContext) {
     const currentPhase = String((ctx as any).state.phase || "beginning");
     const currentStep = String((ctx as any).state.step || "");
 
-    // Simple step progression logic (using camelCase enum values to match GamePhase/GameStep enums)
-    // beginning phase: untap -> upkeep -> draw
-    // precombatMain phase: just main (no substeps)
-    // combat phase: beginCombat -> declareAttackers -> declareBlockers -> combatDamage -> endCombat
-    // postcombatMain phase: just main (no substeps)
-    // ending phase: endStep -> cleanup
+    // Simple step progression logic
+    // beginning phase: UNTAP -> UPKEEP -> DRAW
+    // precombatMain phase: MAIN1
+    // combat phase: BEGIN_COMBAT -> DECLARE_ATTACKERS -> DECLARE_BLOCKERS -> DAMAGE -> END_COMBAT
+    // postcombatMain phase: MAIN2
+    // ending phase: END -> CLEANUP
 
     let nextPhase = currentPhase;
     let nextStep = currentStep;
     let shouldDraw = false;
     let shouldAdvanceTurn = false;
 
-    if (currentPhase === "beginning" || currentPhase === "PRE_GAME" || currentPhase === "") {
-      if (currentStep === "" || currentStep === "untap") {
+    if (currentPhase === "beginning" || currentPhase === "PRE_GAME" || currentPhase === "pre_game" || currentPhase === "") {
+      if (currentStep === "" || currentStep === "untap" || currentStep === "UNTAP") {
         nextPhase = "beginning";
-        nextStep = "upkeep";
-      } else if (currentStep === "upkeep") {
+        nextStep = "UPKEEP";
+      } else if (currentStep === "upkeep" || currentStep === "UPKEEP") {
         nextPhase = "beginning";
-        nextStep = "draw";
+        nextStep = "DRAW";
         shouldDraw = true; // Draw a card when entering draw step
       } else {
         // After draw, go to precombatMain
         nextPhase = "precombatMain";
-        nextStep = "main";
+        nextStep = "MAIN1";
       }
     } else if (currentPhase === "precombatMain" || currentPhase === "main1") {
       nextPhase = "combat";
-      nextStep = "beginCombat";
+      nextStep = "BEGIN_COMBAT";
     } else if (currentPhase === "combat") {
-      if (currentStep === "beginCombat") {
-        nextStep = "declareAttackers";
-      } else if (currentStep === "declareAttackers") {
-        nextStep = "declareBlockers";
-      } else if (currentStep === "declareBlockers") {
-        nextStep = "combatDamage";
-      } else if (currentStep === "combatDamage") {
-        nextStep = "endCombat";
+      if (currentStep === "beginCombat" || currentStep === "BEGIN_COMBAT") {
+        nextStep = "DECLARE_ATTACKERS";
+      } else if (currentStep === "declareAttackers" || currentStep === "DECLARE_ATTACKERS") {
+        nextStep = "DECLARE_BLOCKERS";
+      } else if (currentStep === "declareBlockers" || currentStep === "DECLARE_BLOCKERS") {
+        nextStep = "DAMAGE";
+      } else if (currentStep === "combatDamage" || currentStep === "DAMAGE") {
+        nextStep = "END_COMBAT";
       } else {
         // After endCombat, go to postcombatMain
         nextPhase = "postcombatMain";
-        nextStep = "main";
+        nextStep = "MAIN2";
       }
     } else if (currentPhase === "postcombatMain" || currentPhase === "main2") {
       nextPhase = "ending";
-      nextStep = "endStep";
+      nextStep = "END";
     } else if (currentPhase === "ending") {
-      if (currentStep === "endStep" || currentStep === "end") {
-        nextStep = "cleanup";
-      } else if (currentStep === "cleanup") {
+      if (currentStep === "endStep" || currentStep === "end" || currentStep === "END") {
+        nextStep = "CLEANUP";
+      } else if (currentStep === "cleanup" || currentStep === "CLEANUP") {
         // After cleanup, advance to next turn
         shouldAdvanceTurn = true;
       } else {
         // Stay at cleanup if unknown step
-        nextStep = "cleanup";
+        nextStep = "CLEANUP";
       }
     } else {
       // Unknown phase, move to precombatMain as a safe default
       nextPhase = "precombatMain";
-      nextStep = "main";
+      nextStep = "MAIN1";
     }
 
     // Update phase and step
