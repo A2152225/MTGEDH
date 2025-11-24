@@ -214,4 +214,3 @@ export interface PaymentItem {
   permanentId: string;
   mana: ManaColor;
 }
-}
