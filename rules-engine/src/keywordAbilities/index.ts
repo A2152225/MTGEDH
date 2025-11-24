@@ -48,6 +48,11 @@
  * - Escalate (702.120), Melee (702.121), Crew (702.122), Fabricate (702.123)
  * - Partner (702.124), Undaunted (702.125), Improvise (702.126), Aftermath (702.127)
  * - Embalm (702.128), Eternalize (702.129)
+ * 
+ * Part 8 (Rules 702.130-702.140): IXL through IKO era keyword abilities
+ * - Afflict (702.130), Ascend (702.131), Assist (702.132), Jump-Start (702.133)
+ * - Mentor (702.134), Afterlife (702.135), Riot (702.136), Spectacle (702.137)
+ * - Escape (702.138), Companion (702.139), Mutate (702.140)
  */
 
 // Part 1: Export all keyword ability modules
@@ -186,6 +191,19 @@ export * from './aftermath';
 export * from './embalm';
 export * from './eternalize';
 
+// Part 8: Export IXL through IKO era keyword abilities
+export * from './afflict';
+export * from './ascend';
+export * from './assist';
+export * from './jumpStart';
+export * from './mentor';
+export * from './afterlife';
+export * from './riot';
+export * from './spectacle';
+export * from './escape';
+export * from './companion';
+export * from './mutate';
+
 /**
  * Union type of all keyword ability types
  */
@@ -321,7 +339,19 @@ export type KeywordAbility =
   | import('./improvise').ImproviseAbility
   | import('./aftermath').AftermathAbility
   | import('./embalm').EmbalmAbility
-  | import('./eternalize').EternalizeAbility;
+  | import('./eternalize').EternalizeAbility
+  // Part 8
+  | import('./afflict').AfflictAbility
+  | import('./ascend').AscendAbility
+  | import('./assist').AssistAbility
+  | import('./jumpStart').JumpStartAbility
+  | import('./mentor').MentorAbility
+  | import('./afterlife').AfterlifeAbility
+  | import('./riot').RiotAbility
+  | import('./spectacle').SpectacleAbility
+  | import('./escape').EscapeAbility
+  | import('./companion').CompanionAbility
+  | import('./mutate').MutateAbility;
 
 /**
  * Helper function to check if an ability is a specific type
