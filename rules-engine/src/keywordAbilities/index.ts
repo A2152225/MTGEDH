@@ -152,6 +152,12 @@ export * from './fuse';
 export * from './bestow';
 export * from './tribute';
 export * from './dethrone';
+export * from './hiddenAgenda';
+export * from './outlast';
+export * from './prowess';
+export * from './dash';
+export * from './exploit';
+export * from './menace';
 
 /**
  * Union type of all keyword ability types
@@ -263,7 +269,13 @@ export type KeywordAbility =
   | import('./fuse').FuseAbility
   | import('./bestow').BestowAbility
   | import('./tribute').TributeAbility
-  | import('./dethrone').DethroneAbility;
+  | import('./dethrone').DethroneAbility
+  | import('./hiddenAgenda').HiddenAgendaAbility
+  | import('./outlast').OutlastAbility
+  | import('./prowess').ProwessAbility
+  | import('./dash').DashAbility
+  | import('./exploit').ExploitAbility
+  | import('./menace').MenaceAbility;
 
 /**
  * Helper function to check if an ability is a specific type
