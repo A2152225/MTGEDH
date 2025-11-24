@@ -1021,6 +1021,19 @@ export function App() {
         cardName={spellToCast?.cardName || ''}
         manaCost={spellToCast?.manaCost}
         availableSources={you ? getAvailableManaSourcesForPlayer(you) : []}
+        otherCardsInHand={useMemo(() => {
+          if (!safeView || !you || !spellToCast) return [];
+          const zones = safeView.zones?.[you];
+          const hand = zones?.hand || [];
+          // Filter out the card being cast and lands
+          return hand
+            .filter((c: any) => c?.id !== spellToCast.cardId && c?.name && !(/\bland\b/i.test(c?.type_line || '')))
+            .map((c: any) => ({
+              id: c.id,
+              name: c.name,
+              mana_cost: c.mana_cost
+            }));
+        }, [safeView, you, spellToCast])}
         onConfirm={handleCastSpellConfirm}
         onCancel={handleCastSpellCancel}
       />

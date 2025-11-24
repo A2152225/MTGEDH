@@ -573,6 +573,11 @@ function doAutoPass(
     appendGameEvent(game, gameId, "passPriority", { by: playerId, reason });
 
     if (resolvedNow) {
+      // Directly call resolveTopOfStack to ensure the spell resolves
+      if (typeof (game as any).resolveTopOfStack === "function") {
+        (game as any).resolveTopOfStack();
+        console.log(`[doAutoPass] Stack resolved for game ${gameId}`);
+      }
       appendGameEvent(game, gameId, "resolveTopOfStack");
       try {
         io.to(gameId).emit("chat", {

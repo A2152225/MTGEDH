@@ -3,6 +3,15 @@ import type { PaymentItem, ManaColor } from '../../../shared/src';
 
 type Color = ManaColor;
 
+// Constants
+const MANA_COLORS: readonly Color[] = ['W', 'U', 'B', 'R', 'G', 'C'] as const;
+
+interface OtherCardInfo {
+  id: string;
+  name: string;
+  mana_cost?: string;
+}
+
 function parseManaCost(manaCost?: string): { colors: Record<Color, number>; generic: number; hybrids: Color[][]; hasX: boolean } {
   const res: { colors: Record<Color, number>; generic: number; hybrids: Color[][]; hasX: boolean } =
     { colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 }, generic: 0, hybrids: [], hasX: false };
@@ -16,10 +25,10 @@ function parseManaCost(manaCost?: string): { colors: Record<Color, number>; gene
       const parts = sym.split('/');
       if (parts.length === 2 && parts[1] === 'P') {
         const c = parts[0] as Color;
-        if ((['W','U','B','R','G','C'] as const).includes(c)) res.colors[c] += 1;
+        if (MANA_COLORS.includes(c)) res.colors[c] += 1;
         continue;
       }
-      if (parts.length === 2 && (['W','U','B','R','G','C'] as const).includes(parts[0] as Color) && (['W','U','B','R','G','C'] as const).includes(parts[1] as Color)) {
+      if (parts.length === 2 && MANA_COLORS.includes(parts[0] as Color) && MANA_COLORS.includes(parts[1] as Color)) {
         res.hybrids.push([parts[0] as Color, parts[1] as Color]);
         continue;
       }
@@ -27,7 +36,7 @@ function parseManaCost(manaCost?: string): { colors: Record<Color, number>; gene
       const num = parseInt(parts[0], 10);
       if (!Number.isNaN(num)) { res.generic += num; continue; }
     }
-    if ((['W','U','B','R','G','C'] as const).includes(sym as Color)) {
+    if (MANA_COLORS.includes(sym as Color)) {
       res.colors[sym as Color] += 1;
       continue;
     }
@@ -44,7 +53,7 @@ function paymentToPool(payment: PaymentItem[]): Record<Color, number> {
 
 function canPayEnhanced(cost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] }, pool: Record<Color, number>): boolean {
   const left: Record<Color, number> = { W: pool.W, U: pool.U, B: pool.B, R: pool.R, G: pool.G, C: pool.C };
-  for (const c of (['W','U','B','R','G','C'] as const)) {
+  for (const c of MANA_COLORS) {
     if (left[c] < cost.colors[c]) return false;
     left[c] -= cost.colors[c];
   }
@@ -55,7 +64,7 @@ function canPayEnhanced(cost: { colors: Record<Color, number>; generic: number; 
     }
     if (!satisfied) return false;
   }
-  const total = (['W','U','B','R','G','C'] as const).reduce((a, c) => a + left[c], 0);
+  const total = MANA_COLORS.reduce((a, c) => a + left[c], 0);
   return total >= cost.generic;
 }
 
@@ -63,7 +72,7 @@ function remainingAfter(cost: { colors: Record<Color, number>; generic: number; 
   const leftColors: Record<Color, number> = { ...cost.colors };
   const leftPool: Record<Color, number> = { ...pool };
   // consume fixed colors
-  for (const c of (['W','U','B','R','G','C'] as const)) {
+  for (const c of MANA_COLORS) {
     const use = Math.min(leftColors[c], leftPool[c]);
     leftColors[c] -= use;
     leftPool[c] -= use;
@@ -78,7 +87,7 @@ function remainingAfter(cost: { colors: Record<Color, number>; generic: number; 
     if (!ok) unsatisfiedHybrids.push(g);
   }
   // generic
-  const totalPool = (['W','U','B','R','G','C'] as const).reduce((a, c) => a + leftPool[c], 0);
+  const totalPool = MANA_COLORS.reduce((a, c) => a + leftPool[c], 0);
   const leftGeneric = Math.max(0, cost.generic - totalPool);
   return { colors: leftColors, hybrids: unsatisfiedHybrids, generic: leftGeneric };
 }
@@ -92,6 +101,125 @@ function costBadge(label: string, n: number) {
   );
 }
 
+/**
+ * Compute colors needed by other cards in hand (excluding the current spell)
+ * This helps determine which colors to preserve when paying generic mana
+ */
+function computeColorsNeededByOtherCards(otherCards: OtherCardInfo[]): Set<Color> {
+  const neededColors = new Set<Color>();
+  for (const card of otherCards) {
+    if (!card.mana_cost) continue;
+    const parsed = parseManaCost(card.mana_cost);
+    for (const c of MANA_COLORS) {
+      if (parsed.colors[c] > 0) neededColors.add(c);
+    }
+    // Also consider hybrid colors
+    for (const hybrid of parsed.hybrids) {
+      for (const c of hybrid) {
+        neededColors.add(c);
+      }
+    }
+  }
+  return neededColors;
+}
+
+/**
+ * Calculate suggested payment: sources and colors to use
+ * Returns a map of permanentId -> suggested color
+ */
+function calculateSuggestedPayment(
+  cost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] },
+  sources: Array<{ id: string; name: string; options: Color[] }>,
+  colorsToPreserve: Set<Color>
+): Map<string, Color> {
+  const suggestions = new Map<string, Color>();
+  const costRemaining = { ...cost.colors };
+  let genericRemaining = cost.generic;
+  
+  // Track which sources we've used
+  const usedSources = new Set<string>();
+  
+  // First pass: assign sources for specific color requirements
+  for (const c of MANA_COLORS) {
+    if (costRemaining[c] <= 0) continue;
+    
+    for (const source of sources) {
+      if (usedSources.has(source.id)) continue;
+      if (!source.options.includes(c)) continue;
+      
+      suggestions.set(source.id, c);
+      usedSources.add(source.id);
+      costRemaining[c]--;
+      
+      if (costRemaining[c] <= 0) break;
+    }
+  }
+  
+  // Second pass: handle hybrid costs (pick the color that's less needed by other cards)
+  for (const hybrid of cost.hybrids) {
+    let bestColor: Color | null = null;
+    let bestSource: { id: string; name: string; options: Color[] } | null = null;
+    
+    for (const source of sources) {
+      if (usedSources.has(source.id)) continue;
+      
+      for (const c of hybrid) {
+        if (!source.options.includes(c)) continue;
+        
+        // Prefer colors NOT needed by other cards
+        if (bestColor === null || (!colorsToPreserve.has(c) && colorsToPreserve.has(bestColor))) {
+          bestColor = c;
+          bestSource = source;
+        }
+      }
+    }
+    
+    if (bestSource && bestColor) {
+      suggestions.set(bestSource.id, bestColor);
+      usedSources.add(bestSource.id);
+    }
+  }
+  
+  // Third pass: assign sources for generic cost
+  // Prefer sources that produce colors NOT needed by other cards
+  if (genericRemaining > 0) {
+    // Sort remaining sources: prefer single-color sources first, then prefer colors not needed by other cards
+    const remainingSources = sources.filter(s => !usedSources.has(s.id));
+    
+    remainingSources.sort((a, b) => {
+      // Single option sources first
+      if (a.options.length !== b.options.length) {
+        return a.options.length - b.options.length;
+      }
+      // Then prefer sources that don't produce colors needed by other cards
+      const aHasPreservedColor = a.options.some(c => colorsToPreserve.has(c));
+      const bHasPreservedColor = b.options.some(c => colorsToPreserve.has(c));
+      if (!aHasPreservedColor && bHasPreservedColor) return -1;
+      if (aHasPreservedColor && !bHasPreservedColor) return 1;
+      return 0;
+    });
+    
+    for (const source of remainingSources) {
+      if (genericRemaining <= 0) break;
+      
+      // Pick the color least needed by other cards
+      let bestColor = source.options[0];
+      for (const c of source.options) {
+        if (!colorsToPreserve.has(c)) {
+          bestColor = c;
+          break;
+        }
+      }
+      
+      suggestions.set(source.id, bestColor);
+      usedSources.add(source.id);
+      genericRemaining--;
+    }
+  }
+  
+  return suggestions;
+}
+
 export function PaymentPicker(props: {
   manaCost?: string;
   manaCostDisplay?: string;
@@ -100,8 +228,9 @@ export function PaymentPicker(props: {
   xValue?: number;
   onChangeX?: (x: number) => void;
   onChange: (next: PaymentItem[]) => void;
+  otherCardsInHand?: OtherCardInfo[];
 }) {
-  const { manaCost, manaCostDisplay, sources, chosen, xValue = 0, onChangeX, onChange } = props;
+  const { manaCost, manaCostDisplay, sources, chosen, xValue = 0, onChangeX, onChange, otherCardsInHand = [] } = props;
 
   const parsed = useMemo(() => parseManaCost(manaCost), [manaCost]);
   const cost = useMemo(() => ({ colors: parsed.colors, generic: parsed.generic + Math.max(0, Number(xValue || 0) | 0), hybrids: parsed.hybrids }), [parsed, xValue]);
@@ -110,6 +239,15 @@ export function PaymentPicker(props: {
   const remaining = useMemo(() => remainingAfter(cost, pool), [cost, pool]);
 
   const chosenById = useMemo(() => new Set(chosen.map(p => p.permanentId)), [chosen]);
+
+  // Calculate colors needed by other cards in hand
+  const colorsToPreserve = useMemo(() => computeColorsNeededByOtherCards(otherCardsInHand), [otherCardsInHand]);
+  
+  // Calculate suggested payment when no sources have been chosen yet
+  const suggestedPayment = useMemo(() => {
+    if (chosen.length > 0) return new Map<string, Color>();
+    return calculateSuggestedPayment(cost, sources, colorsToPreserve);
+  }, [cost, sources, colorsToPreserve, chosen.length]);
 
   const add = (permanentId: string, mana: Color) => {
     if (chosenById.has(permanentId)) return; // one per source
@@ -121,8 +259,22 @@ export function PaymentPicker(props: {
   const clear = () => onChange([]);
 
   const doAutoSelect = () => {
-    // client-only hint: prefer manual for hybrids
-    alert('For hybrid costs, please select payment manually. Auto-select works for non-hybrid costs.');
+    // Use the suggested payment to auto-fill
+    if (suggestedPayment.size === 0) {
+      // Recalculate if already chosen some
+      const newSuggested = calculateSuggestedPayment(cost, sources, colorsToPreserve);
+      const newPayment: PaymentItem[] = [];
+      for (const [permanentId, mana] of newSuggested.entries()) {
+        newPayment.push({ permanentId, mana });
+      }
+      onChange(newPayment);
+    } else {
+      const newPayment: PaymentItem[] = [];
+      for (const [permanentId, mana] of suggestedPayment.entries()) {
+        newPayment.push({ permanentId, mana });
+      }
+      onChange(newPayment);
+    }
   };
 
   return (
@@ -132,7 +284,7 @@ export function PaymentPicker(props: {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <b>Cost breakdown:</b>
-        {(['W','U','B','R','G','C'] as const).map(c => costBadge(c, parsed.colors[c]))}
+        {MANA_COLORS.map(c => costBadge(c, parsed.colors[c]))}
         {parsed.hybrids.length > 0 && <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
           Hybrid: {parsed.hybrids.map((g, i) => <span key={i} style={{ border: '1px solid #ddd', borderRadius: 12, padding: '2px 6px', fontSize: 12 }}>{g.join('/')}</span>)}
         </span>}
@@ -154,13 +306,13 @@ export function PaymentPicker(props: {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <b>Selected:</b>
-        {(['W','U','B','R','G','C'] as const).map(c => costBadge(c, pool[c]))}
+        {MANA_COLORS.map(c => costBadge(c, pool[c]))}
         {Object.values(pool).every(v => v === 0) && <span style={{ fontSize: 12, opacity: 0.7 }}>None (leave empty to auto-pay)</span>}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <b>Remaining:</b>
-        {(['W','U','B','R','G','C'] as const).map(c => costBadge(c, remaining.colors[c]))}
+        {MANA_COLORS.map(c => costBadge(c, remaining.colors[c]))}
         {remaining.hybrids.length > 0 && <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
           Hybrid: {remaining.hybrids.map((g, i) => <span key={i} style={{ border: '1px solid #ddd', borderRadius: 12, padding: '2px 6px', fontSize: 12 }}>{g.join('/')}</span>)}
         </span>}
@@ -168,40 +320,77 @@ export function PaymentPicker(props: {
         {satisfied && <span style={{ fontSize: 12, color: '#2b6cb0' }}>Cost satisfied</span>}
       </div>
 
+      {/* Show colors being preserved for other cards */}
+      {colorsToPreserve.size > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12, color: '#7cb342' }}>
+          <span>Colors needed for other cards:</span>
+          {Array.from(colorsToPreserve).map(c => (
+            <span key={c} style={{ border: '1px solid #7cb342', borderRadius: 8, padding: '1px 6px', background: 'rgba(124, 179, 66, 0.1)' }}>
+              {c}
+            </span>
+          ))}
+        </div>
+      )}
+
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <b>Sources:</b>
         <button onClick={clear} disabled={chosen.length === 0} title="Clear selected payment">Clear</button>
-        <button onClick={doAutoSelect} disabled={sources.length === 0 || parsed.hybrids.length > 0 || satisfied} title="Auto-select (non-hybrid costs)">
+        <button onClick={doAutoSelect} disabled={sources.length === 0 || satisfied} title="Auto-select mana (considers other cards in hand)">
           Auto-select
         </button>
-        <span style={{ fontSize: 12, opacity: 0.7 }}>Tip: leave empty to auto-pay on server</span>
+        <span style={{ fontSize: 12, opacity: 0.7 }}>Tip: Green border = suggested source</span>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8, maxHeight: 220, overflow: 'auto', paddingRight: 2 }}>
         {sources.map(s => {
           const used = chosenById.has(s.id);
+          const suggested = suggestedPayment.get(s.id);
+          const isSuggested = suggested !== undefined && !used;
+          
           return (
-            <div key={s.id} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 8, background: used ? '#f6f6f6' : '#fff', color: '#222' }}>
+            <div 
+              key={s.id} 
+              style={{ 
+                border: isSuggested ? '2px solid #4caf50' : '1px solid #ddd', 
+                borderRadius: 8, 
+                padding: 8, 
+                background: used ? '#f6f6f6' : isSuggested ? 'rgba(76, 175, 80, 0.08)' : '#fff', 
+                color: '#222',
+                boxShadow: isSuggested ? '0 0 8px rgba(76, 175, 80, 0.3)' : 'none'
+              }}
+            >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#111' }} title={s.name}>{s.name}</div>
                 {used ? (
                   <button onClick={() => remove(s.id)} style={{ fontSize: 11 }} title="Remove this payment">Remove</button>
+                ) : isSuggested ? (
+                  <span style={{ fontSize: 11, color: '#4caf50', fontWeight: 600 }}>suggested</span>
                 ) : (
                   <span style={{ fontSize: 11, opacity: 0.7 }}>untapped</span>
                 )}
               </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {s.options.map(opt => (
-                  <button
-                    key={`${s.id}:${opt}`}
-                    onClick={() => add(s.id, opt)}
-                    disabled={used}
-                    style={{ padding: '2px 6px', fontSize: 12, borderRadius: 6, border: '1px solid #ccc' }}
-                    title={used ? 'Already used' : `Add ${opt}`}
-                  >
-                    {opt}
-                  </button>
-                ))}
+                {s.options.map(opt => {
+                  const isSuggestedColor = suggested === opt;
+                  return (
+                    <button
+                      key={`${s.id}:${opt}`}
+                      onClick={() => add(s.id, opt)}
+                      disabled={used}
+                      style={{ 
+                        padding: '2px 6px', 
+                        fontSize: 12, 
+                        borderRadius: 6, 
+                        border: isSuggestedColor ? '2px solid #4caf50' : '1px solid #ccc',
+                        background: isSuggestedColor ? 'rgba(76, 175, 80, 0.15)' : 'transparent',
+                        fontWeight: isSuggestedColor ? 600 : 400
+                      }}
+                      title={used ? 'Already used' : isSuggestedColor ? `Suggested: Add ${opt}` : `Add ${opt}`}
+                    >
+                      {opt}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           );
