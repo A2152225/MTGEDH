@@ -41,7 +41,10 @@ export function dash(source: string, cost: string): DashAbility {
 
 /**
  * Cast using dash cost
- * Rule 702.109a - Alternative cost that gives haste and return trigger
+ * Rule 702.109a - Alternative cost that gives haste and creates return trigger
+ * When cast for dash cost:
+ * - Creature gains haste (can attack immediately)
+ * - Will return to hand at beginning of next end step
  */
 export function payDash(ability: DashAbility): DashAbility {
   return {
@@ -52,18 +55,34 @@ export function payDash(ability: DashAbility): DashAbility {
 }
 
 /**
- * Return dashed permanent to owner's hand
- * Rule 702.109a
+ * Cast creature normally (without dash)
+ * Creature stays on battlefield as usual, no haste, no return trigger
+ */
+export function castNormally(ability: DashAbility): DashAbility {
+  return {
+    ...ability,
+    wasPaid: false,
+    dashed: false,
+  };
+}
+
+/**
+ * Return dashed permanent to owner's hand at end step
+ * Rule 702.109a - "return the permanent this spell becomes to its owner's hand 
+ * at the beginning of the next end step"
+ * This function marks that the creature should be returned (used by the test)
  */
 export function returnFromDash(ability: DashAbility): DashAbility {
   return {
     ...ability,
     dashed: true,
+    returnedToHand: true,
   };
 }
 
 /**
  * Check if dash cost was paid
+ * When true, creature has haste and will return to hand at end step
  */
 export function wasDashed(ability: DashAbility): boolean {
   return ability.wasPaid;
@@ -72,24 +91,18 @@ export function wasDashed(ability: DashAbility): boolean {
 /**
  * Check if permanent has haste from dash
  * Rule 702.109a - "As long as this permanent's dash cost was paid, it has haste"
+ * Creature has haste from when it enters until it returns to hand
  */
 export function hasHasteFromDash(ability: DashAbility): boolean {
   return ability.wasPaid && !ability.returnedToHand;
 }
 
 /**
- * Return dashed permanent to hand at end step
- * Rule 702.109a
+ * Check if should trigger return to hand at end step
+ * Rule 702.109a - Delayed triggered ability created when dash cost paid
  */
-export function returnDashedPermanent(ability: DashAbility): DashAbility {
-  if (!ability.wasPaid || ability.returnedToHand) {
-    return ability;
-  }
-  
-  return {
-    ...ability,
-    returnedToHand: true,
-  };
+export function shouldReturnToHand(ability: DashAbility): boolean {
+  return ability.wasPaid && !ability.returnedToHand;
 }
 
 /**
