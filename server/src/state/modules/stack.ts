@@ -78,6 +78,10 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
   } else {
     // Card object passed directly (legacy or event replay)
     card = cardOrId;
+    if (!card) {
+      console.warn(`playLand: card is null or undefined for player ${playerId}`);
+      return;
+    }
     // Try to remove from hand if it exists there
     const z = zones[playerId];
     if (z && Array.isArray(z.hand)) {
@@ -152,6 +156,10 @@ export function castSpell(
   } else {
     // Card object passed directly (legacy or event replay)
     card = cardOrId;
+    if (!card) {
+      console.warn(`castSpell: card is null or undefined for player ${playerId}`);
+      return;
+    }
     // Try to remove from hand if it exists there
     const z = zones[playerId];
     if (z && Array.isArray(z.hand)) {
