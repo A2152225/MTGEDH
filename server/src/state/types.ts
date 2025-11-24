@@ -2,9 +2,9 @@
 // In-memory game wrapper interface and related types (full file content).
 // NOTE: corrected import path usages to shared.
 
-import type { PlayerID } from "../../../shared/src/types";
-import type { GameState } from "../../../shared/src/types";
-import type { KnownCardRef } from "./types";
+import type { PlayerID } from "../../../shared/src/types.js";
+import type { GameState } from "../../../shared/src/types.js";
+import type { KnownCardRef } from "../../../shared/src/types.js";
 
 /* InMemoryGame public surface used by socket modules */
 export interface InMemoryGame {

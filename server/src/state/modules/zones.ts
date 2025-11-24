@@ -4,9 +4,9 @@
 //
 // Exports a complete set of named helpers used throughout the server state surface.
 
-import type { PlayerID, KnownCardRef } from "../../shared/src/types";
-import type { GameContext } from "../state/context";
-import { uid } from "../utils";
+import type { PlayerID, KnownCardRef } from "../../../../shared/src/types.js";
+import type { GameContext } from "../context.js";
+import { uid } from "../utils.js";
 
 /* ===== core zone operations ===== */
 

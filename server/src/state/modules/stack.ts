@@ -1,6 +1,6 @@
-import type { PlayerID } from "../types";
-import type { GameContext } from "../context";
-import { uid, parsePT } from "../utils";
+import type { PlayerID } from "../types.js";
+import type { GameContext } from "../context.js";
+import { uid, parsePT } from "../utils.js";
 
 /**
  * Stack / resolution helpers (extracted).
@@ -56,14 +56,19 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
   if (typeof cardOrId === 'string') {
     // Find card in player's hand
     const z = zones[playerId];
-    if (!z || !Array.isArray(z.hand)) {
-      console.warn(`playLand: no hand found for player ${playerId}`);
+    if (!z) {
+      console.warn(`playLand: no zone found for player ${playerId}`);
+      return;
+    }
+    if (!Array.isArray(z.hand)) {
+      console.warn(`playLand: hand is not an array for player ${playerId} (type: ${typeof z.hand})`);
       return;
     }
     const handCards = z.hand as any[];
     const idx = handCards.findIndex((c: any) => c.id === cardOrId);
     if (idx === -1) {
-      console.warn(`playLand: card ${cardOrId} not found in hand for player ${playerId}`);
+      const availableIds = handCards.map((c: any) => c.id || '(no id)').join(', ');
+      console.warn(`playLand: card ${cardOrId} not found in hand for player ${playerId}. Available cards: [${availableIds}]`);
       return;
     }
     // Remove card from hand

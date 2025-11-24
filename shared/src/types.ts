@@ -145,7 +145,6 @@ export enum GamePhase {
   FIRSTMAIN = "first_main",
   COMBAT = "combat",
   POSTCOMBAT_MAIN = "postcombatMain",
-  END = "ending",
   ENDING = "ending"
 }
 

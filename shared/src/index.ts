@@ -1,4 +1,4 @@
-export * from "./types";
+export * from "./types.js";
 export type { 
   ClientToServerEvents, 
   ServerToClientEvents, 
@@ -7,4 +7,4 @@ export type {
   ChatMsg,
   PermanentID,
   CardID 
-} from "./events";
+} from "./events.js";
