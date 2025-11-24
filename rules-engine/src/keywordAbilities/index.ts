@@ -41,6 +41,13 @@
  * - Extort (702.101), Fuse (702.102), Bestow (702.103), Tribute (702.104)
  * - Dethrone (702.105), Hidden Agenda (702.106), Outlast (702.107), Prowess (702.108)
  * - Dash (702.109), Exploit (702.110), Menace (702.111)
+ * 
+ * Part 7 (Rules 702.112-702.129): BFZ through HOU era keyword abilities
+ * - Renown (702.112), Awaken (702.113), Devoid (702.114), Ingest (702.115)
+ * - Myriad (702.116), Surge (702.117), Skulk (702.118), Emerge (702.119)
+ * - Escalate (702.120), Melee (702.121), Crew (702.122), Fabricate (702.123)
+ * - Partner (702.124), Undaunted (702.125), Improvise (702.126), Aftermath (702.127)
+ * - Embalm (702.128), Eternalize (702.129)
  */
 
 // Part 1: Export all keyword ability modules
@@ -159,6 +166,26 @@ export * from './dash';
 export * from './exploit';
 export * from './menace';
 
+// Part 7: Export BFZ through HOU era keyword abilities
+export * from './renown';
+export * from './awaken';
+export * from './devoid';
+export * from './ingest';
+export * from './myriad';
+export * from './surge';
+export * from './skulk';
+export * from './emerge';
+export * from './escalate';
+export * from './melee';
+export * from './crew';
+export * from './fabricate';
+export * from './partner';
+export * from './undaunted';
+export * from './improvise';
+export * from './aftermath';
+export * from './embalm';
+export * from './eternalize';
+
 /**
  * Union type of all keyword ability types
  */
@@ -275,7 +302,26 @@ export type KeywordAbility =
   | import('./prowess').ProwessAbility
   | import('./dash').DashAbility
   | import('./exploit').ExploitAbility
-  | import('./menace').MenaceAbility;
+  | import('./menace').MenaceAbility
+  // Part 7
+  | import('./renown').RenownAbility
+  | import('./awaken').AwakenAbility
+  | import('./devoid').DevoidAbility
+  | import('./ingest').IngestAbility
+  | import('./myriad').MyriadAbility
+  | import('./surge').SurgeAbility
+  | import('./skulk').SkulkAbility
+  | import('./emerge').EmergeAbility
+  | import('./escalate').EscalateAbility
+  | import('./melee').MeleeAbility
+  | import('./crew').CrewAbility
+  | import('./fabricate').FabricateAbility
+  | import('./partner').PartnerAbility
+  | import('./undaunted').UndauntedAbility
+  | import('./improvise').ImproviseAbility
+  | import('./aftermath').AftermathAbility
+  | import('./embalm').EmbalmAbility
+  | import('./eternalize').EternalizeAbility;
 
 /**
  * Helper function to check if an ability is a specific type
