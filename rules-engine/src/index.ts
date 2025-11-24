@@ -15,6 +15,24 @@ export interface EngineResult<T> {
 // Export all Game Concepts types (Rules 100-123)
 export * from './types';
 
+// Export Rule 703: Turn-Based Actions
+export * from './turnBasedActions';
+
+// Export Rule 704: State-Based Actions
+export * from './stateBasedActions';
+
+// Export Rule 705: Flipping a Coin
+export * from './coinFlip';
+
+// Export Rule 706: Rolling a Die
+export * from './dieRoll';
+
+// Export Keyword Abilities (Rule 702)
+export * from './keywordAbilities';
+
+// Export Keyword Actions (Rule 701)
+export * from './keywordActions';
+
 // Legacy function - kept for compatibility
 export function passPriority(state: Readonly<GameState>, by: PlayerID): EngineResult<GameState> {
   if (state.priority !== by) return { next: state };
