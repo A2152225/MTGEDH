@@ -17,7 +17,7 @@ import { CastSpellModal } from "./components/CastSpellModal";
 import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
 import { useGameSocket } from "./hooks/useGameSocket";
-import type { PaymentItem } from "../../shared/src";
+import type { PaymentItem, ManaColor } from "../../shared/src";
 
 /** Map engine/internal phase enum to human-friendly name */
 function prettyPhase(phase?: string | null): string {
