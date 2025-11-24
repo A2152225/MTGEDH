@@ -53,6 +53,11 @@
  * - Afflict (702.130), Ascend (702.131), Assist (702.132), Jump-Start (702.133)
  * - Mentor (702.134), Afterlife (702.135), Riot (702.136), Spectacle (702.137)
  * - Escape (702.138), Companion (702.139), Mutate (702.140)
+ * 
+ * Part 9 (Rules 702.141-702.150): ZNR through VOW era keyword abilities
+ * - Encore (702.141), Boast (702.142), Foretell (702.143), Demonstrate (702.144)
+ * - Daybound/Nightbound (702.145), Disturb (702.146), Decayed (702.147), Cleave (702.148)
+ * - Training (702.149), Compleated (702.150)
  */
 
 // Part 1: Export all keyword ability modules
@@ -204,6 +209,18 @@ export * from './escape';
 export * from './companion';
 export * from './mutate';
 
+// Part 9: Export ZNR through VOW era keyword abilities
+export * from './encore';
+export * from './boast';
+export * from './foretell';
+export * from './demonstrate';
+export * from './dayboundNightbound';
+export * from './disturb';
+export * from './decayed';
+export * from './cleave';
+export * from './training';
+export * from './compleated';
+
 /**
  * Union type of all keyword ability types
  */
@@ -351,7 +368,19 @@ export type KeywordAbility =
   | import('./spectacle').SpectacleAbility
   | import('./escape').EscapeAbility
   | import('./companion').CompanionAbility
-  | import('./mutate').MutateAbility;
+  | import('./mutate').MutateAbility
+  // Part 9
+  | import('./encore').EncoreAbility
+  | import('./boast').BoastAbility
+  | import('./foretell').ForetellAbility
+  | import('./demonstrate').DemonstrateAbility
+  | import('./dayboundNightbound').DayboundAbility
+  | import('./dayboundNightbound').NightboundAbility
+  | import('./disturb').DisturbAbility
+  | import('./decayed').DecayedAbility
+  | import('./cleave').CleaveAbility
+  | import('./training').TrainingAbility
+  | import('./compleated').CompleatedAbility;
 
 /**
  * Helper function to check if an ability is a specific type
