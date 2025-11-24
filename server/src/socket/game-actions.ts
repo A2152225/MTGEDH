@@ -2,6 +2,7 @@ import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, appendGameEvent } from "./util";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
+import type { PaymentItem } from "../../shared/src";
 
 export function registerGameActions(io: Server, socket: Socket) {
   // Play land from hand
@@ -77,7 +78,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   });
 
   // Cast spell from hand
-  socket.on("castSpellFromHand", ({ gameId, cardId, targets, payment }: { gameId: string; cardId: string; targets?: any[]; payment?: Array<{ permanentId: string; mana: string }> }) => {
+  socket.on("castSpellFromHand", ({ gameId, cardId, targets, payment }: { gameId: string; cardId: string; targets?: any[]; payment?: PaymentItem[] }) => {
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;

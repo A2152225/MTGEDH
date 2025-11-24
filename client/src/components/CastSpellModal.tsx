@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { PaymentPicker } from './PaymentPicker';
-import type { PaymentItem } from '../../../shared/src';
+import type { PaymentItem, ManaColor } from '../../../shared/src';
 
-type Color = PaymentItem['mana'];
+type Color = ManaColor;
 
 interface CastSpellModalProps {
   open: boolean;

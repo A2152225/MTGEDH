@@ -260,8 +260,7 @@ export function App() {
   const getAvailableManaSourcesForPlayer = (playerId: string) => {
     if (!safeView) return [];
     
-    type Color = 'W' | 'U' | 'B' | 'R' | 'G' | 'C';
-    const sources: Array<{ id: string; name: string; options: Color[] }> = [];
+    const sources: Array<{ id: string; name: string; options: ManaColor[] }> = [];
     
     // Get player's battlefield
     const battlefield = safeView.zones?.[playerId]?.battlefield || [];
