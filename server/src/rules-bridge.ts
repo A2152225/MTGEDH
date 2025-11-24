@@ -12,7 +12,7 @@
 
 import type { Server } from 'socket.io';
 import { rulesEngine, RulesEngineEvent, type RulesEvent } from '../../rules-engine/src/RulesEngineAdapter.js';
-import type { GameState } from '../../shared/src/index.js';
+import type { GameState, PlayerID, CommanderInfo } from '../../shared/src/index.js';
 
 /**
  * Bridge between existing game state and rules engine
@@ -297,16 +297,16 @@ export class RulesBridge {
     return 'inProgress';
   }
   
-  private extractLifeTotals(players: any[]): any {
-    const lifeTotals: any = {};
+  private extractLifeTotals(players: any[]): Record<PlayerID, number> {
+    const lifeTotals: Record<PlayerID, number> = {};
     for (const p of players) {
       lifeTotals[p.id] = p.life || 40;
     }
     return lifeTotals;
   }
   
-  private extractCommandZone(players: any[]): any {
-    const commandZone: any = {};
+  private extractCommandZone(players: any[]): Record<PlayerID, CommanderInfo> {
+    const commandZone: Record<PlayerID, CommanderInfo> = {};
     for (const p of players) {
       commandZone[p.id] = {
         commanderIds: p.commandZone?.map((c: any) => c.id) || [],

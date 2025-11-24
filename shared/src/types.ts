@@ -233,7 +233,7 @@ export interface GameAction {
   gameId: string;
   playerId: string;
   timestamp?: number;
-  data?: any;
+  data?: Record<string, unknown>;
 }
 
 /* Automation error reporting */
@@ -246,7 +246,7 @@ export interface AutomationErrorReport {
   cardInvolved?: string;
   description: string;
   expectedBehavior: string;
-  gameState: any;
+  gameState: Partial<GameState>;
   rulesReferences?: string[];
   status: 'pending' | 'reviewing' | 'fixed' | 'wont-fix' | 'invalid';
   resolution?: string;
@@ -257,7 +257,7 @@ export interface AutomationErrorReport {
 export interface InMemoryGame {
   id: GameID;
   state: GameState;
-  players: Map<PlayerID, any>;
+  players: Map<PlayerID, PlayerRef>;
   createdAt: number;
   lastActivity: number;
 }
