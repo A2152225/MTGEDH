@@ -311,7 +311,8 @@ export class RulesBridge {
       const pCommandZone = p.commandZone;
       
       // Handle case where commandZone is already a CommanderInfo object
-      if (pCommandZone && typeof pCommandZone === 'object' && !Array.isArray(pCommandZone)) {
+      // Check for the presence of commanderIds to identify CommanderInfo format
+      if (pCommandZone && typeof pCommandZone === 'object' && !Array.isArray(pCommandZone) && 'commanderIds' in pCommandZone) {
         commandZone[p.id] = {
           commanderIds: pCommandZone.commanderIds || [],
           commanderNames: pCommandZone.commanderNames || [],
@@ -321,8 +322,8 @@ export class RulesBridge {
         // Handle case where commandZone is an array of cards or undefined
         const commandZoneArray = Array.isArray(pCommandZone) ? pCommandZone : [];
         commandZone[p.id] = {
-          commanderIds: commandZoneArray.map((c: any) => c.id),
-          commanderNames: commandZoneArray.map((c: any) => c.name),
+          commanderIds: commandZoneArray.map((c: any) => c?.id).filter((id: any) => id != null),
+          commanderNames: commandZoneArray.map((c: any) => c?.name).filter((name: any) => name != null),
           tax: 0,
         };
       }
