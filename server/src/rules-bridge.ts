@@ -308,11 +308,24 @@ export class RulesBridge {
   private extractCommandZone(players: any[]): Record<PlayerID, CommanderInfo> {
     const commandZone: Record<PlayerID, CommanderInfo> = {};
     for (const p of players) {
-      commandZone[p.id] = {
-        commanderIds: p.commandZone?.map((c: any) => c.id) || [],
-        commanderNames: p.commandZone?.map((c: any) => c.name) || [],
-        tax: 0,
-      };
+      const pCommandZone = p.commandZone;
+      
+      // Handle case where commandZone is already a CommanderInfo object
+      if (pCommandZone && typeof pCommandZone === 'object' && !Array.isArray(pCommandZone)) {
+        commandZone[p.id] = {
+          commanderIds: pCommandZone.commanderIds || [],
+          commanderNames: pCommandZone.commanderNames || [],
+          tax: pCommandZone.tax || 0,
+        };
+      } else {
+        // Handle case where commandZone is an array of cards or undefined
+        const commandZoneArray = Array.isArray(pCommandZone) ? pCommandZone : [];
+        commandZone[p.id] = {
+          commanderIds: commandZoneArray.map((c: any) => c.id),
+          commanderNames: commandZoneArray.map((c: any) => c.name),
+          tax: 0,
+        };
+      }
     }
     return commandZone;
   }
