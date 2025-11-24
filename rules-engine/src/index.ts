@@ -30,6 +30,18 @@ export * from './dieRoll';
 // Export Rule 707: Copying Objects
 export * from './copyingObjects';
 
+// Export Rule 708: Face-Down Spells and Permanents
+export * from './faceDownObjects';
+
+// Export Rule 709: Split Cards
+export * from './splitCards';
+
+// Export Rule 710: Flip Cards
+export * from './flipCards';
+
+// Export Rule 711: Leveler Cards
+export * from './levelerCards';
+
 // Export Keyword Abilities (Rule 702)
 export * from './keywordAbilities';
 
