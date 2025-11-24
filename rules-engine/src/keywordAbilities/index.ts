@@ -146,6 +146,12 @@ export * from './overload';
 export * from './scavenge';
 export * from './unleash';
 export * from './cipher';
+export * from './evolve';
+export * from './extort';
+export * from './fuse';
+export * from './bestow';
+export * from './tribute';
+export * from './dethrone';
 
 /**
  * Union type of all keyword ability types
@@ -251,7 +257,13 @@ export type KeywordAbility =
   | import('./overload').OverloadAbility
   | import('./scavenge').ScavengeAbility
   | import('./unleash').UnleashAbility
-  | import('./cipher').CipherAbility;
+  | import('./cipher').CipherAbility
+  | import('./evolve').EvolveAbility
+  | import('./extort').ExtortAbility
+  | import('./fuse').FuseAbility
+  | import('./bestow').BestowAbility
+  | import('./tribute').TributeAbility
+  | import('./dethrone').DethroneAbility;
 
 /**
  * Helper function to check if an ability is a specific type
