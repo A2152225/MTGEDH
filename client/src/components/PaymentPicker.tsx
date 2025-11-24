@@ -181,9 +181,9 @@ export function PaymentPicker(props: {
         {sources.map(s => {
           const used = chosenById.has(s.id);
           return (
-            <div key={s.id} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 8, background: used ? '#f6f6f6' : '#fff' }}>
+            <div key={s.id} style={{ border: '1px solid #ddd', borderRadius: 8, padding: 8, background: used ? '#f6f6f6' : '#fff', color: '#222' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.name}>{s.name}</div>
+                <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#111' }} title={s.name}>{s.name}</div>
                 {used ? (
                   <button onClick={() => remove(s.id)} style={{ fontSize: 11 }} title="Remove this payment">Remove</button>
                 ) : (

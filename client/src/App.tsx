@@ -258,6 +258,34 @@ export function App() {
     return null;
   };
 
+  // Parse mana colors from oracle text for lands and mana-producing permanents
+  const parseManaColorsFromOracleText = (oracleText: string): ManaColor[] => {
+    const colors: ManaColor[] = [];
+    const text = oracleText.toLowerCase();
+    
+    // Check for "any color" or "any one color" patterns (like Command Tower, City of Brass, etc.)
+    // This should be checked first as it's the most permissive
+    if (text.includes('any color') || text.includes('one mana of any color') || 
+        text.includes('mana of any color')) {
+      return ['W', 'U', 'B', 'R', 'G'];
+    }
+    
+    // Check for "any type" patterns (e.g., Reflecting Pool) - includes colorless
+    if (text.includes('any type')) {
+      return ['W', 'U', 'B', 'R', 'G', 'C'];
+    }
+    
+    // Check for specific mana symbols in "add {X}" patterns
+    if (text.includes('{w}') || text.includes('add {w}') || text.includes('white')) colors.push('W');
+    if (text.includes('{u}') || text.includes('add {u}') || text.includes('blue')) colors.push('U');
+    if (text.includes('{b}') || text.includes('add {b}') || text.includes('black')) colors.push('B');
+    if (text.includes('{r}') || text.includes('add {r}') || text.includes('red')) colors.push('R');
+    if (text.includes('{g}') || text.includes('add {g}') || text.includes('green')) colors.push('G');
+    if (text.includes('{c}') || text.includes('add {c}') || text.includes('colorless')) colors.push('C');
+    
+    return colors;
+  };
+
   // Get available mana sources (untapped lands and mana-producing artifacts/creatures)
   const getAvailableManaSourcesForPlayer = (playerId: string) => {
     if (!safeView) return [];
@@ -275,29 +303,39 @@ export function App() {
       if (!card || !('name' in card) || !card.name) continue;
       
       const typeLine = (card.type_line || '').toLowerCase();
+      const oracleText = ((card as any).oracle_text || '').toLowerCase();
       const name = card.name;
       
-      // Basic lands
-      if (typeLine.includes('plains')) {
-        sources.push({ id: perm.id, name, options: ['W'] });
-      } else if (typeLine.includes('island')) {
-        sources.push({ id: perm.id, name, options: ['U'] });
-      } else if (typeLine.includes('swamp')) {
-        sources.push({ id: perm.id, name, options: ['B'] });
-      } else if (typeLine.includes('mountain')) {
-        sources.push({ id: perm.id, name, options: ['R'] });
-      } else if (typeLine.includes('forest')) {
-        sources.push({ id: perm.id, name, options: ['G'] });
+      // Collect colors based on basic land types (handles dual lands like Tropical Island)
+      const basicColors: ManaColor[] = [];
+      if (typeLine.includes('plains')) basicColors.push('W');
+      if (typeLine.includes('island')) basicColors.push('U');
+      if (typeLine.includes('swamp')) basicColors.push('B');
+      if (typeLine.includes('mountain')) basicColors.push('R');
+      if (typeLine.includes('forest')) basicColors.push('G');
+      
+      if (basicColors.length > 0) {
+        // Land has basic land types - use those colors
+        sources.push({ id: perm.id, name, options: basicColors });
       } else if (typeLine.includes('land')) {
-        // Non-basic land - for now assume it can produce any color (simplified)
-        // In a real implementation, we'd parse oracle text for mana abilities
-        sources.push({ id: perm.id, name, options: ['C'] });
-      } else if (typeLine.includes('artifact') || typeLine.includes('creature')) {
-        // Check for mana-producing artifacts/creatures (simplified heuristic)
-        const oracleText = (card.oracle_text || '').toLowerCase();
-        if (oracleText.includes('add') && oracleText.includes('mana')) {
-          // Simplified: assume colorless mana for now
+        // Non-basic land without basic land types - parse oracle text
+        const oracleColors = parseManaColorsFromOracleText(oracleText);
+        if (oracleColors.length > 0) {
+          sources.push({ id: perm.id, name, options: oracleColors });
+        } else {
+          // Default to colorless if we can't determine the colors
           sources.push({ id: perm.id, name, options: ['C'] });
+        }
+      } else if (typeLine.includes('artifact') || typeLine.includes('creature')) {
+        // Check for mana-producing artifacts/creatures
+        if (oracleText.includes('add') && (oracleText.includes('mana') || oracleText.includes('{'))) {
+          const artifactColors = parseManaColorsFromOracleText(oracleText);
+          if (artifactColors.length > 0) {
+            sources.push({ id: perm.id, name, options: artifactColors });
+          } else {
+            // Default to colorless for mana artifacts without specific colors
+            sources.push({ id: perm.id, name, options: ['C'] });
+          }
         }
       }
     }
