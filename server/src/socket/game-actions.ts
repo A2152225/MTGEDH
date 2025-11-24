@@ -190,6 +190,9 @@ export function registerGameActions(io: Server, socket: Socket) {
             type: 'castSpell',
             playerId,
             cardId,
+            cardName: cardInHand.name,
+            manaCost: cardInHand.mana_cost,
+            cardTypes: (cardInHand.type_line || '').split('—').map((s: string) => s.trim()),
             targets: targets || [],
           });
           
@@ -206,6 +209,9 @@ export function registerGameActions(io: Server, socket: Socket) {
             type: 'castSpell',
             playerId,
             cardId,
+            cardName: cardInHand.name,
+            manaCost: cardInHand.mana_cost,
+            cardTypes: (cardInHand.type_line || '').split('—').map((s: string) => s.trim()),
             targets: targets || [],
           });
           
