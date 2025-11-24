@@ -175,7 +175,7 @@ export function performSchemeAction(
 ): TurnBasedAction {
   return {
     type: TurnBasedActionType.SCHEME_ACTION,
-    affectedObjectIds: [schenemuPlayerId, schemeCardId],
+    affectedObjectIds: [archenemuPlayerId, schemeCardId],
     description: 'Set scheme in motion (Rule 703.4e)',
   };
 }

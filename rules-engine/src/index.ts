@@ -27,6 +27,9 @@ export * from './coinFlip';
 // Export Rule 706: Rolling a Die
 export * from './dieRoll';
 
+// Export Rule 707: Copying Objects
+export * from './copyingObjects';
+
 // Export Keyword Abilities (Rule 702)
 export * from './keywordAbilities';
 
