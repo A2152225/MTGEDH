@@ -113,7 +113,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Validate card is castable (not a land)
       const typeLine = (cardInHand.type_line || "").toLowerCase();
-      if (typeLine.includes("land") && !typeLine.includes("creature")) {
+      if (typeLine.includes("land")) {
         socket.emit("error", {
           code: "CANNOT_CAST_LAND",
           message: "Lands cannot be cast as spells. Use playLand instead.",

@@ -374,7 +374,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         return;
       }
       
-      console.log(`[castCommander] Player ${pid} casting commander ${commanderId} (${commanderCard.name}) in game ${gameId}`);
+      console.info(`[castCommander] Player ${pid} casting commander ${commanderId} (${commanderCard.name}) in game ${gameId}`);
       
       // Add commander to stack (simplified - real implementation would handle costs, targets, etc.)
       try {
