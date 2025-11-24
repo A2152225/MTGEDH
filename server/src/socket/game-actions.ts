@@ -77,7 +77,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   });
 
   // Cast spell from hand
-  socket.on("castSpellFromHand", ({ gameId, cardId, targets }: { gameId: string; cardId: string; targets?: any[] }) => {
+  socket.on("castSpellFromHand", ({ gameId, cardId, targets, payment }: { gameId: string; cardId: string; targets?: any[]; payment?: Array<{ permanentId: string; mana: string }> }) => {
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
@@ -119,6 +119,65 @@ export function registerGameActions(io: Server, socket: Socket) {
           message: "Lands cannot be cast as spells. Use playLand instead.",
         });
         return;
+      }
+
+      // Handle mana payment: tap permanents to generate mana
+      if (payment && payment.length > 0) {
+        console.log(`[castSpellFromHand] Processing payment for ${cardInHand.name}:`, payment);
+        
+        // Get player's battlefield
+        const battlefield = zones.battlefield || [];
+        
+        // Process each payment item: tap the permanent and add mana to pool
+        for (const { permanentId, mana } of payment) {
+          const permanent = battlefield.find((p: any) => p?.id === permanentId);
+          
+          if (!permanent) {
+            socket.emit("error", {
+              code: "PAYMENT_SOURCE_NOT_FOUND",
+              message: `Permanent ${permanentId} not found on battlefield`,
+            });
+            return;
+          }
+          
+          if ((permanent as any).tapped) {
+            socket.emit("error", {
+              code: "PAYMENT_SOURCE_TAPPED",
+              message: `${(permanent as any).name || 'Permanent'} is already tapped`,
+            });
+            return;
+          }
+          
+          // Tap the permanent
+          (permanent as any).tapped = true;
+          
+          // Add mana to player's mana pool (initialize if needed)
+          game.state.manaPool = game.state.manaPool || {};
+          game.state.manaPool[playerId] = game.state.manaPool[playerId] || {
+            white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+          };
+          
+          // Map mana color to pool property
+          const manaColorMap: Record<string, keyof typeof game.state.manaPool[typeof playerId]> = {
+            'W': 'white',
+            'U': 'blue',
+            'B': 'black',
+            'R': 'red',
+            'G': 'green',
+            'C': 'colorless',
+          };
+          
+          const poolKey = manaColorMap[mana];
+          if (poolKey) {
+            game.state.manaPool[playerId][poolKey]++;
+            console.log(`[castSpellFromHand] Added ${mana} mana to ${playerId}'s pool from ${(permanent as any).name}`);
+          }
+        }
+        
+        // Bump sequence to ensure state changes are visible
+        if (typeof game.bumpSeq === 'function') {
+          game.bumpSeq();
+        }
       }
 
       // Get RulesBridge for validation (optional - if not available, proceed with legacy logic)
