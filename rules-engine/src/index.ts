@@ -42,6 +42,9 @@ export * from './flipCards';
 // Export Rule 711: Leveler Cards
 export * from './levelerCards';
 
+// Export Rule 712: Double-Faced Cards
+export * from './doubleFacedCards';
+
 // Export Keyword Abilities (Rule 702)
 export * from './keywordAbilities';
 
