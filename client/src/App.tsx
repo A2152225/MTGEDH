@@ -270,12 +270,12 @@ export function App() {
     for (const perm of battlefield) {
       if (!perm || perm.tapped) continue; // Skip tapped permanents
       
-      // Get card info from the permanent
-      const card = perm.card as KnownCardRef;
-      if (!card || !card.name) continue;
+      // Get card info from the permanent - skip hidden cards
+      const card = perm.card;
+      if (!card || !('name' in card) || !card.name) continue;
       
       const typeLine = (card.type_line || '').toLowerCase();
-      const name = card.name || 'Permanent';
+      const name = card.name;
       
       // Basic lands
       if (typeLine.includes('plains')) {
