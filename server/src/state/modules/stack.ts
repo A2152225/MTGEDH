@@ -40,12 +40,59 @@ function popStackItem(ctx: GameContext) {
   return s.stack.pop()!;
 }
 
-/* Resolve the top item (placeholder, engine handles specifics elsewhere) */
+/**
+ * Check if a card type line represents a permanent (not instant/sorcery)
+ */
+function isPermanentTypeLine(typeLine?: string): boolean {
+  if (!typeLine) return false;
+  const tl = typeLine.toLowerCase();
+  // Instants and sorceries are not permanents
+  if (/\binstant\b/.test(tl) || /\bsorcery\b/.test(tl)) return false;
+  // Everything else that can be cast is a permanent (creature, artifact, enchantment, planeswalker, battle)
+  return /\b(creature|artifact|enchantment|planeswalker|battle)\b/.test(tl);
+}
+
+/* Resolve the top item - moves permanent spells to battlefield */
 export function resolveTopOfStack(ctx: GameContext) {
   const item = popStackItem(ctx);
   if (!item) return;
-  // Real resolution should call rules-engine; this is a placeholder to advance seq.
-  ctx.bumpSeq();
+  
+  const { state, bumpSeq } = ctx;
+  const card = item.card;
+  const controller = item.controller as PlayerID;
+  
+  if (card && isPermanentTypeLine(card.type_line)) {
+    // Permanent spell resolves - move to battlefield
+    const tl = (card.type_line || "").toLowerCase();
+    const isCreature = /\bcreature\b/.test(tl);
+    const baseP = isCreature ? parsePT((card as any).power) : undefined;
+    const baseT = isCreature ? parsePT((card as any).toughness) : undefined;
+    
+    state.battlefield = state.battlefield || [];
+    state.battlefield.push({
+      id: uid("perm"),
+      controller,
+      owner: controller,
+      tapped: false,
+      counters: {},
+      basePower: baseP,
+      baseToughness: baseT,
+      card: { ...card, zone: "battlefield" },
+    } as any);
+    
+    console.log(`[resolveTopOfStack] Permanent ${card.name || 'unnamed'} entered battlefield under ${controller}`);
+  } else if (card) {
+    // Non-permanent spell (instant/sorcery) - goes to graveyard after resolution
+    const z = ctx.zones[controller];
+    if (z) {
+      z.graveyard = z.graveyard || [];
+      (z.graveyard as any[]).push({ ...card, zone: "graveyard" });
+      z.graveyardCount = (z.graveyard as any[]).length;
+      console.log(`[resolveTopOfStack] Spell ${card.name || 'unnamed'} moved to graveyard for ${controller}`);
+    }
+  }
+  
+  bumpSeq();
 }
 
 /* Place a land onto the battlefield for a player (simplified) */
