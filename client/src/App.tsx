@@ -263,6 +263,18 @@ export function App() {
     const colors: ManaColor[] = [];
     const text = oracleText.toLowerCase();
     
+    // Check for "any color" or "any one color" patterns (like Command Tower, City of Brass, etc.)
+    // This should be checked first as it's the most permissive
+    if (text.includes('any color') || text.includes('one mana of any color') || 
+        text.includes('mana of any color')) {
+      return ['W', 'U', 'B', 'R', 'G'];
+    }
+    
+    // Check for "any type" patterns (e.g., Reflecting Pool) - includes colorless
+    if (text.includes('any type')) {
+      return ['W', 'U', 'B', 'R', 'G', 'C'];
+    }
+    
     // Check for specific mana symbols in "add {X}" patterns
     if (text.includes('{w}') || text.includes('add {w}') || text.includes('white')) colors.push('W');
     if (text.includes('{u}') || text.includes('add {u}') || text.includes('blue')) colors.push('U');
@@ -270,17 +282,6 @@ export function App() {
     if (text.includes('{r}') || text.includes('add {r}') || text.includes('red')) colors.push('R');
     if (text.includes('{g}') || text.includes('add {g}') || text.includes('green')) colors.push('G');
     if (text.includes('{c}') || text.includes('add {c}') || text.includes('colorless')) colors.push('C');
-    
-    // Check for "any color" or "any one color" patterns (like Command Tower, City of Brass, etc.)
-    if (text.includes('any color') || text.includes('one mana of any color') || 
-        text.includes('mana of any color') || text.includes('any type')) {
-      return ['W', 'U', 'B', 'R', 'G'];
-    }
-    
-    // Check for "one mana of any type" patterns
-    if (text.includes('any type')) {
-      return ['W', 'U', 'B', 'R', 'G', 'C'];
-    }
     
     return colors;
   };
