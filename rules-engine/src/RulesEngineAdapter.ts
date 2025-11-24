@@ -283,8 +283,14 @@ export class RulesEngineAdapter {
   /**
    * Parse mana cost string like "{2}{U}{U}" into a ManaCost object
    */
-  private parseManaCostString(manaCost: string): ManaCost {
+  private parseManaCostString(manaCost: string | any): ManaCost {
     const cost: ManaCost = { generic: 0 };
+    
+    // Handle non-string input (could be already parsed object or null/undefined)
+    if (!manaCost || typeof manaCost !== 'string') {
+      return cost;
+    }
+    
     const tokens = manaCost.match(/\{[^}]+\}/g) || [];
     
     for (const token of tokens) {
