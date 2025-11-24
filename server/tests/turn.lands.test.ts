@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID, KnownCardRef } from '../../shared/src';
-import { GamePhase } from '../../shared/src';
+import { GamePhase, GameStep } from '../../shared/src';
 
 describe('Turn advancement and land-per-turn tracking', () => {
   it('increments landsPlayedThisTurn on playLand and resets on nextTurn', () => {
@@ -33,7 +33,8 @@ describe('Turn advancement and land-per-turn tracking', () => {
     g.applyEvent({ type: 'nextTurn' });
     expect(g.state.turnPlayer).toBe(p2);
     expect(g.state.priority).toBe(p2);
-    expect(g.state.phase).toBe(GamePhase.PRECOMBAT_MAIN);
+    expect(g.state.phase).toBe(GamePhase.BEGINNING);
+    expect(g.state.step).toBe(GameStep.UNTAP);
     expect(g.state.landsPlayedThisTurn?.[p1]).toBe(0);
     expect(g.state.landsPlayedThisTurn?.[p2]).toBe(0);
   });

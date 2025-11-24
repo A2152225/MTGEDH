@@ -11,6 +11,16 @@ export function registerGameActions(io: Server, socket: Socket) {
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
+      // Check land-per-turn limit (before rules engine validation)
+      const landsPlayed = (game.state?.landsPlayedThisTurn?.[playerId] || 0);
+      if (landsPlayed >= 1) {
+        socket.emit("error", {
+          code: "LAND_LIMIT_REACHED",
+          message: "You have already played a land this turn",
+        });
+        return;
+      }
+
       // Get RulesBridge for validation
       const bridge = (GameManager as any).getRulesBridge(gameId);
       

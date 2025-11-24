@@ -48,8 +48,42 @@ export function resolveTopOfStack(ctx: GameContext) {
 }
 
 /* Place a land onto the battlefield for a player (simplified) */
-export function playLand(ctx: GameContext, playerId: PlayerID, card: any) {
-  const { state, bumpSeq } = ctx;
+export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
+  const { state, bumpSeq, zones } = ctx;
+  
+  // Handle both card object and cardId string
+  let card: any;
+  if (typeof cardOrId === 'string') {
+    // Find card in player's hand
+    const z = zones[playerId];
+    if (!z || !Array.isArray(z.hand)) {
+      console.warn(`playLand: no hand found for player ${playerId}`);
+      return;
+    }
+    const handCards = z.hand as any[];
+    const idx = handCards.findIndex((c: any) => c.id === cardOrId);
+    if (idx === -1) {
+      console.warn(`playLand: card ${cardOrId} not found in hand for player ${playerId}`);
+      return;
+    }
+    // Remove card from hand
+    card = handCards.splice(idx, 1)[0];
+    z.handCount = handCards.length;
+  } else {
+    // Card object passed directly (legacy or event replay)
+    card = cardOrId;
+    // Try to remove from hand if it exists there
+    const z = zones[playerId];
+    if (z && Array.isArray(z.hand)) {
+      const handCards = z.hand as any[];
+      const idx = handCards.findIndex((c: any) => c.id === card.id);
+      if (idx !== -1) {
+        handCards.splice(idx, 1);
+        z.handCount = handCards.length;
+      }
+    }
+  }
+  
   const tl = (card.type_line || "").toLowerCase();
   const isCreature = /\bcreature\b/.test(tl);
   const baseP = isCreature ? parsePT((card as any).power) : undefined;

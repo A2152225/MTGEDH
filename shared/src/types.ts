@@ -137,14 +137,16 @@ export interface LifeTotals {
 /* Game phase enum (expanded to include PRE_GAME) */
 export enum GamePhase {
   PRE_GAME = "pre_game",
-  BEGINNING = "pre_game", // alias kept for backward compatibility (treated as PRE_GAME)
+  BEGINNING = "beginning", // beginning phase (untap/upkeep/draw)
   UNTAP = "untap",
   UPKEEP = "upkeep",
   DRAW = "draw",
+  PRECOMBAT_MAIN = "precombatMain",
   FIRSTMAIN = "first_main",
   COMBAT = "combat",
+  POSTCOMBAT_MAIN = "postcombatMain",
+  END = "ending",
   ENDING = "ending"
-
 }
 
 /* Game step enum */
@@ -158,7 +160,9 @@ export enum GameStep {
   DECLARE_BLOCKERS = 'DECLARE_BLOCKERS',
   DAMAGE = 'DAMAGE',
   END_COMBAT = 'END_COMBAT',
-  MAIN2 = 'MAIN2'
+  MAIN2 = 'MAIN2',
+  END = 'END',
+  CLEANUP = 'CLEANUP'
 }
 
 /* Game state authoritative snapshot */
