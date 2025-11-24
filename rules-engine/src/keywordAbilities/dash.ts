@@ -19,7 +19,6 @@ export interface DashAbility {
   readonly type: 'dash';
   readonly source: string;
   readonly dashCost: string;
-  readonly cost: string;  // Keep for backwards compatibility
   readonly dashed: boolean;
   readonly wasPaid: boolean;
   readonly returnedToHand: boolean;
@@ -34,7 +33,6 @@ export function dash(source: string, cost: string): DashAbility {
     type: 'dash',
     source,
     dashCost: cost,
-    cost,
     dashed: false,
     wasPaid: false,
     returnedToHand: false,
@@ -104,6 +102,6 @@ export function hasRedundantDash(
     return false;
   }
   
-  const costs = new Set(abilities.map(a => a.cost));
+  const costs = new Set(abilities.map(a => a.dashCost));
   return costs.size < abilities.length;
 }

@@ -34,10 +34,7 @@ export function outlast(source: string, cost: string): OutlastAbility {
  * Activate outlast ability (pay cost, tap creature, add +1/+1 counter)
  * Rule 702.107a - Can only be activated as a sorcery
  */
-export function activateOutlast(
-  ability: OutlastAbility,
-  canActivateSorcery: boolean = true
-): OutlastAbility {
+export function activateOutlast(ability: OutlastAbility): OutlastAbility {
   return {
     ...ability,
     countersAdded: ability.countersAdded + 1,
