@@ -48,6 +48,9 @@ export * from './doubleFacedCards';
 // Export Rules 713-719: Remaining Card Types
 export * from './remainingCardTypes';
 
+// Export Rules 720-732: Special Game Mechanics
+export * from './specialGameMechanics';
+
 // Export Keyword Abilities (Rule 702)
 export * from './keywordAbilities';
 
