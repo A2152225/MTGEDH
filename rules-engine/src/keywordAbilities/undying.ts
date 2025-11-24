@@ -12,7 +12,7 @@
 export interface UndyingAbility {
   readonly type: 'undying';
   readonly source: string;
-  readonly hasTriggered: boolean;
+  readonly hasReturned: boolean;
 }
 
 /**
@@ -24,7 +24,7 @@ export function undying(source: string): UndyingAbility {
   return {
     type: 'undying',
     source,
-    hasTriggered: false,
+    hasReturned: false,
   };
 }
 
@@ -38,15 +38,29 @@ export function canTriggerUndying(hadPlusOneCounters: boolean): boolean {
 }
 
 /**
- * Marks undying as triggered
+ * Returns creature to battlefield with +1/+1 counter
+ * Rule 702.93a
  * @param ability - Undying ability
- * @returns Updated ability
+ * @returns Updated ability with hasReturned marked true
+ * @throws Error if ability has already returned
  */
-export function triggerUndying(ability: UndyingAbility): UndyingAbility {
+export function returnWithCounter(ability: UndyingAbility): UndyingAbility {
+  if (ability.hasReturned) {
+    throw new Error('Undying has already been used');
+  }
   return {
     ...ability,
-    hasTriggered: true,
+    hasReturned: true,
   };
+}
+
+/**
+ * Checks if a creature has undying
+ * @param ability - Undying ability
+ * @returns True if the ability exists
+ */
+export function hasUndying(ability: UndyingAbility): boolean {
+  return ability.type === 'undying';
 }
 
 /**

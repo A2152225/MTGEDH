@@ -14,6 +14,7 @@ export interface ProwessAbility {
   readonly source: string;
   readonly triggersThisTurn: number;
   readonly bonusUntilEndOfTurn: number;
+  readonly triggered: boolean;
 }
 
 /**
@@ -26,6 +27,7 @@ export function prowess(source: string): ProwessAbility {
     source,
     triggersThisTurn: 0,
     bonusUntilEndOfTurn: 0,
+    triggered: false,
   };
 }
 
@@ -38,6 +40,7 @@ export function triggerProwess(ability: ProwessAbility): ProwessAbility {
     ...ability,
     triggersThisTurn: ability.triggersThisTurn + 1,
     bonusUntilEndOfTurn: ability.bonusUntilEndOfTurn + 1,
+    triggered: true,
   };
 }
 
@@ -48,6 +51,7 @@ export function clearProwessBonus(ability: ProwessAbility): ProwessAbility {
   return {
     ...ability,
     bonusUntilEndOfTurn: 0,
+    triggered: false,
   };
 }
 

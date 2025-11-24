@@ -3,7 +3,7 @@
  * Evolve, Extort, Fuse, Bestow, Tribute, Dethrone
  */
 
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect } from 'vitest';
 import {
   evolve,
   shouldTriggerEvolve,

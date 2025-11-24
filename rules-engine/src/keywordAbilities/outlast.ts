@@ -13,6 +13,7 @@ export interface OutlastAbility {
   readonly source: string;
   readonly cost: string;
   readonly countersAdded: number;
+  readonly tapped: boolean;
 }
 
 /**
@@ -25,6 +26,7 @@ export function outlast(source: string, cost: string): OutlastAbility {
     source,
     cost,
     countersAdded: 0,
+    tapped: false,
   };
 }
 
@@ -34,15 +36,12 @@ export function outlast(source: string, cost: string): OutlastAbility {
  */
 export function activateOutlast(
   ability: OutlastAbility,
-  canActivateSorcery: boolean
-): OutlastAbility | null {
-  if (!canActivateSorcery) {
-    return null;
-  }
-  
+  canActivateSorcery: boolean = true
+): OutlastAbility {
   return {
     ...ability,
     countersAdded: ability.countersAdded + 1,
+    tapped: true,
   };
 }
 

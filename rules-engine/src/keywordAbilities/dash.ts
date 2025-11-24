@@ -18,7 +18,9 @@
 export interface DashAbility {
   readonly type: 'dash';
   readonly source: string;
-  readonly cost: string;
+  readonly dashCost: string;
+  readonly cost: string;  // Keep for backwards compatibility
+  readonly dashed: boolean;
   readonly wasPaid: boolean;
   readonly returnedToHand: boolean;
 }
@@ -31,7 +33,9 @@ export function dash(source: string, cost: string): DashAbility {
   return {
     type: 'dash',
     source,
+    dashCost: cost,
     cost,
+    dashed: false,
     wasPaid: false,
     returnedToHand: false,
   };
@@ -45,6 +49,18 @@ export function payDash(ability: DashAbility): DashAbility {
   return {
     ...ability,
     wasPaid: true,
+    dashed: true,
+  };
+}
+
+/**
+ * Return dashed permanent to owner's hand
+ * Rule 702.109a
+ */
+export function returnFromDash(ability: DashAbility): DashAbility {
+  return {
+    ...ability,
+    dashed: true,
   };
 }
 
