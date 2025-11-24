@@ -15,7 +15,7 @@
 // ensures ctx.seq exists, and avoids throwing when replaying older event streams.
 
 import type { GameContext } from "../context.js";
-import type { PlayerID } from "../../../../shared/src/types.js";
+import type { PlayerID } from "../../../shared/src/types.js";
 import { drawCards } from "./zones.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
