@@ -66,7 +66,12 @@ export function registerGameActions(io: Server, socket: Socket) {
         console.warn('Legacy playLand failed:', e);
       }
       
-      appendGameEvent(game, gameId, "playLand", { playerId, cardId });
+      // Persist the event to DB only (don't re-apply since game.playLand already applied it)
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, "playLand", { playerId, cardId });
+      } catch (e) {
+        console.warn('appendEvent(playLand) failed:', e);
+      }
       broadcastGame(io, game, gameId);
     } catch (err: any) {
       console.error(`playLand error for game ${gameId}:`, err);
@@ -270,7 +275,12 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
       
-      appendGameEvent(game, gameId, "castSpell", { playerId, cardId, targets });
+      // Persist the event to DB only (don't re-apply since we already modified state above)
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, "castSpell", { playerId, cardId, targets });
+      } catch (e) {
+        console.warn('appendEvent(castSpell) failed:', e);
+      }
       
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
