@@ -305,8 +305,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       if (resolvedNow) {
         // Directly call resolveTopOfStack to ensure the spell resolves
         // (appendGameEvent may fail silently if applyEvent has issues)
-        if (typeof game.resolveTopOfStack === 'function') {
-          game.resolveTopOfStack();
+        if (typeof (game as any).resolveTopOfStack === 'function') {
+          (game as any).resolveTopOfStack();
           console.log(`[passPriority] Stack resolved for game ${gameId}`);
         }
         appendGameEvent(game, gameId, "resolveTopOfStack");

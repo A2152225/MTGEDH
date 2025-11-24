@@ -3,6 +3,9 @@ import type { PaymentItem, ManaColor } from '../../../shared/src';
 
 type Color = ManaColor;
 
+// Constants
+const MANA_COLORS: readonly Color[] = ['W', 'U', 'B', 'R', 'G', 'C'] as const;
+
 interface OtherCardInfo {
   id: string;
   name: string;
@@ -22,10 +25,10 @@ function parseManaCost(manaCost?: string): { colors: Record<Color, number>; gene
       const parts = sym.split('/');
       if (parts.length === 2 && parts[1] === 'P') {
         const c = parts[0] as Color;
-        if ((['W','U','B','R','G','C'] as const).includes(c)) res.colors[c] += 1;
+        if (MANA_COLORS.includes(c)) res.colors[c] += 1;
         continue;
       }
-      if (parts.length === 2 && (['W','U','B','R','G','C'] as const).includes(parts[0] as Color) && (['W','U','B','R','G','C'] as const).includes(parts[1] as Color)) {
+      if (parts.length === 2 && MANA_COLORS.includes(parts[0] as Color) && MANA_COLORS.includes(parts[1] as Color)) {
         res.hybrids.push([parts[0] as Color, parts[1] as Color]);
         continue;
       }
@@ -33,7 +36,7 @@ function parseManaCost(manaCost?: string): { colors: Record<Color, number>; gene
       const num = parseInt(parts[0], 10);
       if (!Number.isNaN(num)) { res.generic += num; continue; }
     }
-    if ((['W','U','B','R','G','C'] as const).includes(sym as Color)) {
+    if (MANA_COLORS.includes(sym as Color)) {
       res.colors[sym as Color] += 1;
       continue;
     }
@@ -50,7 +53,7 @@ function paymentToPool(payment: PaymentItem[]): Record<Color, number> {
 
 function canPayEnhanced(cost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] }, pool: Record<Color, number>): boolean {
   const left: Record<Color, number> = { W: pool.W, U: pool.U, B: pool.B, R: pool.R, G: pool.G, C: pool.C };
-  for (const c of (['W','U','B','R','G','C'] as const)) {
+  for (const c of MANA_COLORS) {
     if (left[c] < cost.colors[c]) return false;
     left[c] -= cost.colors[c];
   }
@@ -61,7 +64,7 @@ function canPayEnhanced(cost: { colors: Record<Color, number>; generic: number; 
     }
     if (!satisfied) return false;
   }
-  const total = (['W','U','B','R','G','C'] as const).reduce((a, c) => a + left[c], 0);
+  const total = MANA_COLORS.reduce((a, c) => a + left[c], 0);
   return total >= cost.generic;
 }
 
@@ -69,7 +72,7 @@ function remainingAfter(cost: { colors: Record<Color, number>; generic: number; 
   const leftColors: Record<Color, number> = { ...cost.colors };
   const leftPool: Record<Color, number> = { ...pool };
   // consume fixed colors
-  for (const c of (['W','U','B','R','G','C'] as const)) {
+  for (const c of MANA_COLORS) {
     const use = Math.min(leftColors[c], leftPool[c]);
     leftColors[c] -= use;
     leftPool[c] -= use;
@@ -84,7 +87,7 @@ function remainingAfter(cost: { colors: Record<Color, number>; generic: number; 
     if (!ok) unsatisfiedHybrids.push(g);
   }
   // generic
-  const totalPool = (['W','U','B','R','G','C'] as const).reduce((a, c) => a + leftPool[c], 0);
+  const totalPool = MANA_COLORS.reduce((a, c) => a + leftPool[c], 0);
   const leftGeneric = Math.max(0, cost.generic - totalPool);
   return { colors: leftColors, hybrids: unsatisfiedHybrids, generic: leftGeneric };
 }
@@ -107,7 +110,7 @@ function computeColorsNeededByOtherCards(otherCards: OtherCardInfo[]): Set<Color
   for (const card of otherCards) {
     if (!card.mana_cost) continue;
     const parsed = parseManaCost(card.mana_cost);
-    for (const c of (['W','U','B','R','G','C'] as const)) {
+    for (const c of MANA_COLORS) {
       if (parsed.colors[c] > 0) neededColors.add(c);
     }
     // Also consider hybrid colors
@@ -137,7 +140,7 @@ function calculateSuggestedPayment(
   const usedSources = new Set<string>();
   
   // First pass: assign sources for specific color requirements
-  for (const c of (['W','U','B','R','G','C'] as const)) {
+  for (const c of MANA_COLORS) {
     if (costRemaining[c] <= 0) continue;
     
     for (const source of sources) {
@@ -281,7 +284,7 @@ export function PaymentPicker(props: {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <b>Cost breakdown:</b>
-        {(['W','U','B','R','G','C'] as const).map(c => costBadge(c, parsed.colors[c]))}
+        {MANA_COLORS.map(c => costBadge(c, parsed.colors[c]))}
         {parsed.hybrids.length > 0 && <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
           Hybrid: {parsed.hybrids.map((g, i) => <span key={i} style={{ border: '1px solid #ddd', borderRadius: 12, padding: '2px 6px', fontSize: 12 }}>{g.join('/')}</span>)}
         </span>}
@@ -303,13 +306,13 @@ export function PaymentPicker(props: {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <b>Selected:</b>
-        {(['W','U','B','R','G','C'] as const).map(c => costBadge(c, pool[c]))}
+        {MANA_COLORS.map(c => costBadge(c, pool[c]))}
         {Object.values(pool).every(v => v === 0) && <span style={{ fontSize: 12, opacity: 0.7 }}>None (leave empty to auto-pay)</span>}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <b>Remaining:</b>
-        {(['W','U','B','R','G','C'] as const).map(c => costBadge(c, remaining.colors[c]))}
+        {MANA_COLORS.map(c => costBadge(c, remaining.colors[c]))}
         {remaining.hybrids.length > 0 && <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
           Hybrid: {remaining.hybrids.map((g, i) => <span key={i} style={{ border: '1px solid #ddd', borderRadius: 12, padding: '2px 6px', fontSize: 12 }}>{g.join('/')}</span>)}
         </span>}
