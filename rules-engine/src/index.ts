@@ -66,6 +66,21 @@ export * from './AIEngine';
 // Export Game Simulator
 export * from './GameSimulator';
 
+// Export spell casting system (Rule 601)
+export * from './spellCasting';
+
+// Export mana abilities (Rule 605)
+export * from './manaAbilities';
+
+// Export stack operations (Rule 405)
+export * from './stackOperations';
+
+// Export activated abilities (Rule 602)
+export * from './activatedAbilities';
+
+// Export triggered abilities (Rule 603)
+export * from './triggeredAbilities';
+
 // Legacy function - kept for compatibility
 export function passPriority(state: Readonly<GameState>, by: PlayerID): EngineResult<GameState> {
   if (state.priority !== by) return { next: state };
