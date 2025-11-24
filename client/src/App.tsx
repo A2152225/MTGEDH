@@ -262,15 +262,19 @@ export function App() {
     
     const sources: Array<{ id: string; name: string; options: ManaColor[] }> = [];
     
-    // Get player's battlefield
-    const battlefield = safeView.zones?.[playerId]?.battlefield || [];
+    // Get player's battlefield permanents (filter global battlefield by controller)
+    const battlefield = (safeView.battlefield || []).filter(perm => perm.controller === playerId);
     
     for (const perm of battlefield) {
       const p = perm as any;
       if (!p || p.tapped) continue; // Skip tapped permanents
       
-      const typeLine = (p.type_line || '').toLowerCase();
-      const name = p.name || 'Permanent';
+      // Get card info from the permanent
+      const card = p.card as any;
+      if (!card) continue;
+      
+      const typeLine = (card.type_line || '').toLowerCase();
+      const name = card.name || 'Permanent';
       
       // Basic lands
       if (typeLine.includes('plains')) {
@@ -289,7 +293,7 @@ export function App() {
         sources.push({ id: p.id, name, options: ['C'] });
       } else if (typeLine.includes('artifact') || typeLine.includes('creature')) {
         // Check for mana-producing artifacts/creatures (simplified heuristic)
-        const oracleText = (p.oracle_text || '').toLowerCase();
+        const oracleText = (card.oracle_text || '').toLowerCase();
         if (oracleText.includes('add') && oracleText.includes('mana')) {
           // Simplified: assume colorless mana for now
           sources.push({ id: p.id, name, options: ['C'] });
