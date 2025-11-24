@@ -186,8 +186,7 @@ describe('RulesEngineAdapter', () => {
       expect(result.log).toBeDefined();
     });
     
-    it.skip('should emit SPELL_CAST event', () => {
-      // TODO: Fix event emission in tests
+    it('should emit SPELL_CAST event', () => {
       let eventFired = false;
       
       adapter.on(RulesEngineEvent.SPELL_CAST, (event) => {
@@ -202,7 +201,7 @@ describe('RulesEngineAdapter', () => {
         cardId: 'bolt-1',
         cardName: 'Lightning Bolt',
         cardTypes: ['instant'],
-        manaCost: { red: 1 },
+        manaCost: { blue: 1 }, // Changed to blue since player1 has blue mana
       });
       
       expect(eventFired).toBe(true);
