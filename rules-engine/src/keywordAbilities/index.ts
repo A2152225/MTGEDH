@@ -58,6 +58,10 @@
  * - Encore (702.141), Boast (702.142), Foretell (702.143), Demonstrate (702.144)
  * - Daybound/Nightbound (702.145), Disturb (702.146), Decayed (702.147), Cleave (702.148)
  * - Training (702.149), Compleated (702.150)
+ * 
+ * Part 10 (Rules 702.151-702.160): NEO through BRO era keyword abilities
+ * - Reconfigure (702.151), Blitz (702.152), Casualty (702.153), Enlist (702.154)
+ * - Read Ahead (702.155), Ravenous (702.156), Squad (702.157), Prototype (702.160)
  */
 
 // Part 1: Export all keyword ability modules
@@ -221,6 +225,16 @@ export * from './cleave';
 export * from './training';
 export * from './compleated';
 
+// Part 10: Export NEO through BRO era keyword abilities
+export * from './reconfigure';
+export * from './blitz';
+export * from './casualty';
+export * from './enlist';
+export * from './readAhead';
+export * from './ravenous';
+export * from './squad';
+export * from './prototype';
+
 /**
  * Union type of all keyword ability types
  */
@@ -380,7 +394,16 @@ export type KeywordAbility =
   | import('./decayed').DecayedAbility
   | import('./cleave').CleaveAbility
   | import('./training').TrainingAbility
-  | import('./compleated').CompleatedAbility;
+  | import('./compleated').CompleatedAbility
+  // Part 10
+  | import('./reconfigure').ReconfigureAbility
+  | import('./blitz').BlitzAbility
+  | import('./casualty').CasualtyAbility
+  | import('./enlist').EnlistAbility
+  | import('./readAhead').ReadAheadAbility
+  | import('./ravenous').RavenousAbility
+  | import('./squad').SquadAbility
+  | import('./prototype').PrototypeAbility;
 
 /**
  * Helper function to check if an ability is a specific type
