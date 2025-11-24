@@ -5,6 +5,7 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
+    "build": "echo 'Rules engine - no build needed (TypeScript source only)'",
     "test": "vitest run",
     "dev:test": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit",

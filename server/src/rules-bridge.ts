@@ -12,7 +12,7 @@
 
 import type { Server } from 'socket.io';
 import { rulesEngine, RulesEngineEvent, type RulesEvent } from '../../rules-engine/src/RulesEngineAdapter.js';
-import type { GameState } from '../../shared/src/index.js';
+import type { GameState, PlayerID, CommanderInfo } from '../../shared/src/index.js';
 
 /**
  * Bridge between existing game state and rules engine
@@ -199,20 +199,29 @@ export class RulesBridge {
    * Convert existing game state to rules engine format
    */
   private convertToRulesEngineState(existingState: any): GameState {
+    const players = this.convertPlayers(existingState);
+    const turnOrder = this.extractTurnOrder(existingState);
+    const activePlayerIndex = this.getActivePlayerIndex(existingState);
+    const priorityPlayerIndex = this.getPriorityPlayerIndex(existingState);
+    
     // Map existing state structure to rules engine GameState interface
     return {
       id: this.gameId,
       format: existingState.format || 'commander',
-      players: this.convertPlayers(existingState),
-      turnOrder: this.extractTurnOrder(existingState),
-      activePlayerIndex: this.getActivePlayerIndex(existingState),
-      priorityPlayerIndex: this.getPriorityPlayerIndex(existingState),
+      players: players.map((p: any) => ({ id: p.id, name: p.name, seat: turnOrder.indexOf(p.id) })),
+      turnOrder,
+      activePlayerIndex,
+      turnPlayer: turnOrder[activePlayerIndex] || turnOrder[0],
+      priority: turnOrder[priorityPlayerIndex] || turnOrder[0],
       turn: existingState.turn || 0,
       phase: this.mapPhase(existingState.phase),
       step: this.mapStep(existingState.step),
       stack: existingState.stack || [],
       combat: existingState.combat,
       startingLife: existingState.startingLife || 40,
+      life: this.extractLifeTotals(players),
+      battlefield: existingState.battlefield || [],
+      commandZone: this.extractCommandZone(players),
       allowUndos: false,
       turnTimerEnabled: false,
       turnTimerSeconds: 0,
@@ -220,6 +229,7 @@ export class RulesBridge {
       lastActionAt: Date.now(),
       spectators: [],
       status: this.mapStatus(existingState.phase),
+      active: true,
     };
   }
   
@@ -285,6 +295,26 @@ export class RulesBridge {
   private mapStatus(phase: any): any {
     if (!phase || phase === 'PRE_GAME') return 'waiting';
     return 'inProgress';
+  }
+  
+  private extractLifeTotals(players: any[]): Record<PlayerID, number> {
+    const lifeTotals: Record<PlayerID, number> = {};
+    for (const p of players) {
+      lifeTotals[p.id] = p.life || 40;
+    }
+    return lifeTotals;
+  }
+  
+  private extractCommandZone(players: any[]): Record<PlayerID, CommanderInfo> {
+    const commandZone: Record<PlayerID, CommanderInfo> = {};
+    for (const p of players) {
+      commandZone[p.id] = {
+        commanderIds: p.commandZone?.map((c: any) => c.id) || [],
+        commanderNames: p.commandZone?.map((c: any) => c.name) || [],
+        tax: 0,
+      };
+    }
+    return commandZone;
   }
 }
 
