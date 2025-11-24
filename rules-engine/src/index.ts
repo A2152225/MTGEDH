@@ -45,6 +45,9 @@ export * from './levelerCards';
 // Export Rule 712: Double-Faced Cards
 export * from './doubleFacedCards';
 
+// Export Rules 713-719: Remaining Card Types
+export * from './remainingCardTypes';
+
 // Export Keyword Abilities (Rule 702)
 export * from './keywordAbilities';
 
