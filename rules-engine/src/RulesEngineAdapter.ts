@@ -33,6 +33,42 @@ import {
   takeMulligan,
   keepHand,
 } from './types/gameFlow';
+import { ManaType, type ManaPool, type ManaCost } from './types/mana';
+import { emptyManaPool } from './manaAbilities';
+import {
+  castSpell,
+  validateSpellTiming,
+  type SpellCastingContext,
+} from './spellCasting';
+import {
+  createEmptyStack,
+  pushToStack,
+  popFromStack,
+  isStackEmpty as checkStackEmpty,
+  resolveStackObject,
+  type Stack,
+} from './stackOperations';
+import {
+  activateManaAbility,
+  canActivateManaAbility,
+  tapPermanentForMana,
+  createBasicLandManaAbility,
+  type ManaAbility,
+  type TapForManaContext,
+} from './manaAbilities';
+import {
+  activateAbility,
+  type ActivatedAbility,
+  type ActivationContext,
+} from './activatedAbilities';
+import {
+  createEmptyTriggerQueue,
+  putTriggersOnStack,
+  processEvent,
+  type TriggerQueue,
+  type TriggeredAbility,
+  TriggerEvent,
+} from './triggeredAbilities';
 
 /**
  * Engine events that can be observed by UI and simulation layers
@@ -53,8 +89,17 @@ export enum RulesEngineEvent {
   SPELL_CAST = 'spellCast',
   SPELL_COUNTERED = 'spellCountered',
   SPELL_RESOLVED = 'spellResolved',
+  
+  // Abilities
   ABILITY_ACTIVATED = 'abilityActivated',
   ABILITY_RESOLVED = 'abilityResolved',
+  TRIGGERED_ABILITY = 'triggeredAbility',
+  
+  // Mana
+  MANA_ABILITY_ACTIVATED = 'manaAbilityActivated',
+  MANA_ADDED = 'manaAdded',
+  MANA_SPENT = 'manaSpent',
+  MANA_POOL_EMPTIED = 'manaPoolEmptied',
   
   // Combat
   COMBAT_DECLARED = 'combatDeclared',
@@ -74,6 +119,8 @@ export enum RulesEngineEvent {
   CARD_DISCARDED = 'cardDiscarded',
   PERMANENT_DESTROYED = 'permanentDestroyed',
   CARD_EXILED = 'cardExiled',
+  PERMANENT_TAPPED = 'permanentTapped',
+  PERMANENT_UNTAPPED = 'permanentUntapped',
 }
 
 export interface RulesEvent {
@@ -98,6 +145,13 @@ export interface ActionValidation {
 export class RulesEngineAdapter {
   private eventListeners: Map<RulesEngineEvent, Set<(event: RulesEvent) => void>> = new Map();
   private gameStates: Map<string, GameState> = new Map();
+  
+  // Enhanced state tracking
+  private stacks: Map<string, Stack> = new Map();
+  private triggerQueues: Map<string, TriggerQueue> = new Map();
+  private manaAbilities: Map<string, ManaAbility[]> = new Map();
+  private activatedAbilities: Map<string, ActivatedAbility[]> = new Map();
+  private triggeredAbilities: Map<string, TriggeredAbility[]> = new Map();
   
   constructor() {
     // Initialize event listener map for all event types
@@ -141,6 +195,11 @@ export class RulesEngineAdapter {
    */
   initializeGame(gameId: string, initialState: GameState): EngineResult<GameState> {
     this.gameStates.set(gameId, initialState);
+    this.stacks.set(gameId, createEmptyStack());
+    this.triggerQueues.set(gameId, createEmptyTriggerQueue());
+    this.manaAbilities.set(gameId, []);
+    this.activatedAbilities.set(gameId, []);
+    this.triggeredAbilities.set(gameId, []);
     
     this.emit({
       type: RulesEngineEvent.GAME_STARTED,
@@ -263,13 +322,22 @@ export class RulesEngineAdapter {
         result = this.passPriority(gameId, action.playerId);
         break;
       case 'castSpell':
-        result = this.castSpell(gameId, action);
+        result = this.castSpellAction(gameId, action);
+        break;
+      case 'tapForMana':
+        result = this.tapForManaAction(gameId, action);
+        break;
+      case 'activateAbility':
+        result = this.activateAbilityAction(gameId, action);
         break;
       case 'declareAttackers':
         result = this.declareAttackers(gameId, action);
         break;
       case 'declareBlockers':
         result = this.declareBlockers(gameId, action);
+        break;
+      case 'resolveStack':
+        result = this.resolveStackTop(gameId);
         break;
       case 'advanceTurn':
         result = this.advanceTurnPhaseStep(gameId);
@@ -318,36 +386,305 @@ export class RulesEngineAdapter {
   }
   
   /**
-   * Cast a spell
+   * Cast a spell (enhanced with full spell casting system)
    */
-  private castSpell(gameId: string, action: any): EngineResult<GameState> {
+  private castSpellAction(gameId: string, action: any): EngineResult<GameState> {
     const state = this.gameStates.get(gameId)!;
+    const player = state.players.find(p => p.id === action.playerId);
     
-    // Add spell to stack
-    const stackObject = {
-      id: `spell_${Date.now()}`,
-      card: action.card,
+    if (!player) {
+      return { next: state, log: ['Player not found'] };
+    }
+    
+    // Prepare casting context
+    const context: SpellCastingContext = {
+      spellId: action.cardId,
+      cardName: action.cardName || 'Unknown Card',
       controllerId: action.playerId,
-      targets: action.targets || [],
-      timestamp: Date.now(),
-      resolving: false,
+      manaCost: action.manaCost || {},
+      targets: action.targets,
+      modes: action.modes,
+      xValue: action.xValue,
     };
+    
+    // Prepare timing context
+    const activePlayer = state.players[state.activePlayerIndex];
+    const timingContext = {
+      isMainPhase: state.phase === 'precombatMain' || state.phase === 'postcombatMain',
+      isOwnTurn: activePlayer.id === action.playerId,
+      stackEmpty: checkStackEmpty(this.stacks.get(gameId)!),
+      hasPriority: state.players[state.priorityPlayerIndex].id === action.playerId,
+    };
+    
+    // Execute spell casting
+    const castResult = castSpell(
+      context,
+      player.manaPool,
+      action.cardTypes || ['instant'], // Default to instant for timing
+      timingContext
+    );
+    
+    if (!castResult.success) {
+      return { next: state, log: [castResult.error || 'Failed to cast spell'] };
+    }
+    
+    // Update player's mana pool
+    const updatedPlayers = state.players.map(p =>
+      p.id === action.playerId
+        ? { ...p, manaPool: castResult.manaPoolAfter! }
+        : p
+    );
     
     const nextState: GameState = {
       ...state,
-      stack: [...state.stack, stackObject],
+      players: updatedPlayers,
     };
     
+    // Add to stack (stored separately for now)
+    const stack = this.stacks.get(gameId)!;
+    const stackResult = pushToStack(stack, {
+      id: castResult.stackObjectId!,
+      spellId: action.cardId,
+      cardName: action.cardName || 'Unknown Card',
+      controllerId: action.playerId,
+      targets: action.targets || [],
+      timestamp: Date.now(),
+      type: 'spell',
+    });
+    this.stacks.set(gameId, stackResult.stack);
+    
+    // Emit event
     this.emit({
       type: RulesEngineEvent.SPELL_CAST,
       timestamp: Date.now(),
       gameId,
-      data: { spell: stackObject, caster: action.playerId },
+      data: { 
+        spell: { card: { name: action.cardName }, id: castResult.stackObjectId },
+        caster: action.playerId 
+      },
+    });
+    
+    // Emit mana spent event
+    this.emit({
+      type: RulesEngineEvent.MANA_SPENT,
+      timestamp: Date.now(),
+      gameId,
+      data: { 
+        playerId: action.playerId,
+        cost: action.manaCost,
+      },
     });
     
     return {
       next: nextState,
-      log: [`${action.playerId} cast ${action.card.name}`],
+      log: castResult.log || [`${action.playerId} cast ${action.cardName}`],
+    };
+  }
+  
+  /**
+   * Tap permanent for mana
+   */
+  private tapForManaAction(gameId: string, action: any): EngineResult<GameState> {
+    const state = this.gameStates.get(gameId)!;
+    const player = state.players.find(p => p.id === action.playerId);
+    
+    if (!player) {
+      return { next: state, log: ['Player not found'] };
+    }
+    
+    const context: TapForManaContext = {
+      permanentId: action.permanentId,
+      permanentName: action.permanentName || 'Permanent',
+      controllerId: action.playerId,
+      manaToAdd: action.manaToAdd || [{ type: ManaType.COLORLESS, amount: 1 }],
+      currentlyTapped: action.currentlyTapped || false,
+    };
+    
+    const result = tapPermanentForMana(context, player.manaPool);
+    
+    if (!result.success) {
+      return { next: state, log: [result.error || 'Failed to tap for mana'] };
+    }
+    
+    // Update player's mana pool
+    const updatedPlayers = state.players.map(p =>
+      p.id === action.playerId
+        ? { ...p, manaPool: result.manaPoolAfter! }
+        : p
+    );
+    
+    const nextState: GameState = {
+      ...state,
+      players: updatedPlayers,
+    };
+    
+    this.emit({
+      type: RulesEngineEvent.MANA_ADDED,
+      timestamp: Date.now(),
+      gameId,
+      data: { 
+        playerId: action.playerId,
+        manaAdded: result.manaAdded,
+        source: action.permanentName,
+      },
+    });
+    
+    this.emit({
+      type: RulesEngineEvent.PERMANENT_TAPPED,
+      timestamp: Date.now(),
+      gameId,
+      data: { 
+        permanentId: action.permanentId,
+        controllerId: action.playerId,
+      },
+    });
+    
+    return {
+      next: nextState,
+      log: result.log || [`Tapped ${action.permanentName} for mana`],
+    };
+  }
+  
+  /**
+   * Activate an activated ability
+   */
+  private activateAbilityAction(gameId: string, action: any): EngineResult<GameState> {
+    const state = this.gameStates.get(gameId)!;
+    const player = state.players.find(p => p.id === action.playerId);
+    
+    if (!player) {
+      return { next: state, log: ['Player not found'] };
+    }
+    
+    const ability: ActivatedAbility = action.ability;
+    const activePlayer = state.players[state.activePlayerIndex];
+    
+    const activationContext: ActivationContext = {
+      hasPriority: state.players[state.priorityPlayerIndex].id === action.playerId,
+      isMainPhase: state.phase === 'precombatMain' || state.phase === 'postcombatMain',
+      isOwnTurn: activePlayer.id === action.playerId,
+      stackEmpty: checkStackEmpty(this.stacks.get(gameId)!),
+      isCombat: state.phase === 'combat',
+      activationsThisTurn: action.activationsThisTurn || 0,
+      sourceTapped: action.sourceTapped || false,
+    };
+    
+    const result = activateAbility(ability, player.manaPool, activationContext);
+    
+    if (!result.success) {
+      return { next: state, log: [result.error || 'Failed to activate ability'] };
+    }
+    
+    // Update player's mana pool if cost was paid
+    const updatedPlayers = state.players.map(p =>
+      p.id === action.playerId
+        ? { ...p, manaPool: result.manaPoolAfter! }
+        : p
+    );
+    
+    const nextState: GameState = {
+      ...state,
+      players: updatedPlayers,
+    };
+    
+    // Add to stack
+    const stack = this.stacks.get(gameId)!;
+    const stackResult = pushToStack(stack, {
+      id: result.stackObjectId!,
+      spellId: ability.id,
+      cardName: `${ability.sourceName} ability`,
+      controllerId: action.playerId,
+      targets: ability.targets || [],
+      timestamp: Date.now(),
+      type: 'ability',
+    });
+    this.stacks.set(gameId, stackResult.stack);
+    
+    this.emit({
+      type: RulesEngineEvent.ABILITY_ACTIVATED,
+      timestamp: Date.now(),
+      gameId,
+      data: { 
+        ability,
+        controller: action.playerId,
+      },
+    });
+    
+    return {
+      next: nextState,
+      log: result.log || [`Activated ${ability.sourceName} ability`],
+    };
+  }
+  
+  /**
+   * Resolve top object on stack
+   */
+  private resolveStackTop(gameId: string): EngineResult<GameState> {
+    const state = this.gameStates.get(gameId)!;
+    const stack = this.stacks.get(gameId)!;
+    
+    const popResult = popFromStack(stack);
+    
+    if (!popResult.object) {
+      return { next: state, log: ['Stack is empty'] };
+    }
+    
+    // Validate and resolve
+    // For now, simple resolution - assume all targets are legal
+    const resolveResult = resolveStackObject(popResult.object, []);
+    
+    this.stacks.set(gameId, popResult.stack);
+    
+    if (resolveResult.countered) {
+      this.emit({
+        type: RulesEngineEvent.SPELL_COUNTERED,
+        timestamp: Date.now(),
+        gameId,
+        data: { object: popResult.object },
+      });
+    } else {
+      this.emit({
+        type: popResult.object.type === 'spell' 
+          ? RulesEngineEvent.SPELL_RESOLVED 
+          : RulesEngineEvent.ABILITY_RESOLVED,
+        timestamp: Date.now(),
+        gameId,
+        data: { object: popResult.object },
+      });
+    }
+    
+    return {
+      next: state,
+      log: resolveResult.log || [`Resolved ${popResult.object.cardName}`],
+    };
+  }
+  
+  /**
+   * Empty mana pools at end of step/phase
+   */
+  private emptyManaPoolsAction(gameId: string): EngineResult<GameState> {
+    const state = this.gameStates.get(gameId)!;
+    
+    const updatedPlayers = state.players.map(p => ({
+      ...p,
+      manaPool: emptyManaPool(),
+    }));
+    
+    const nextState: GameState = {
+      ...state,
+      players: updatedPlayers,
+    };
+    
+    this.emit({
+      type: RulesEngineEvent.MANA_POOL_EMPTIED,
+      timestamp: Date.now(),
+      gameId,
+      data: { players: state.players.map(p => p.id) },
+    });
+    
+    return {
+      next: nextState,
+      log: ['Mana pools emptied'],
     };
   }
   
