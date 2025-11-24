@@ -71,6 +71,13 @@ npm run dev
 
 This platform is being built to provide a free, self-hosted solution for playing MTG online with friends.
 
+### Recent Updates
+
+- **Modular Keyword Actions**: Refactored keyword actions (Rule 701) into modular, maintainable files
+- **Comprehensive Rules Implementation**: Implemented 25+ keyword actions based on MTG Comprehensive Rules (Nov 2025)
+- **State-Based Actions**: Full implementation of Rule 704 state-based actions
+- **Extensive Testing**: 500+ automated tests covering rules engine functionality
+
 ## Architecture
 
 - **Client-Server Model**: Centralized server for game state authority
