@@ -57,6 +57,15 @@ export * from './keywordAbilities';
 // Export Keyword Actions (Rule 701)
 export * from './keywordActions';
 
+// Export Rules Engine Adapter
+export * from './RulesEngineAdapter';
+
+// Export AI Engine
+export * from './AIEngine';
+
+// Export Game Simulator
+export * from './GameSimulator';
+
 // Legacy function - kept for compatibility
 export function passPriority(state: Readonly<GameState>, by: PlayerID): EngineResult<GameState> {
   if (state.priority !== by) return { next: state };
