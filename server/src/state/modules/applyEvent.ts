@@ -37,7 +37,7 @@ import {
   applyEngineEffects,
   runSBA,
 } from "./counters_tokens";
-import { pushStack, resolveTopOfStack, playLand } from "./stack";
+import { pushStack, resolveTopOfStack, playLand, castSpell } from "./stack";
 import { nextTurn, nextStep, passPriority } from "./turn";
 import { join, leave as leaveModule } from "./join";
 
@@ -493,7 +493,17 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       }
 
       case "playLand": {
-        playLand(ctx as any, (e as any).playerId, (e as any).card);
+        playLand(ctx as any, (e as any).playerId, (e as any).cardId || (e as any).card);
+        break;
+      }
+
+      case "castSpell": {
+        castSpell(
+          ctx as any, 
+          (e as any).playerId, 
+          (e as any).cardId || (e as any).card,
+          (e as any).targets
+        );
         break;
       }
 

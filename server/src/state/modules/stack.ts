@@ -9,6 +9,7 @@ import { uid, parsePT } from "../utils.js";
  * - pushStack
  * - resolveTopOfStack
  * - playLand
+ * - castSpell
  * - exileEntireStack
  *
  * exileEntireStack moves all items from the stack into controller exile zones
@@ -106,6 +107,73 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
   } as any);
   state.landsPlayedThisTurn = state.landsPlayedThisTurn || {};
   state.landsPlayedThisTurn[playerId] = (state.landsPlayedThisTurn[playerId] ?? 0) + 1;
+  bumpSeq();
+}
+
+/**
+ * Cast a spell from hand onto the stack.
+ * 
+ * @param ctx - Game context
+ * @param playerId - Player casting the spell
+ * @param cardOrId - Either a card ID string or a card object
+ * @param targets - Optional array of target IDs
+ */
+export function castSpell(
+  ctx: GameContext, 
+  playerId: PlayerID, 
+  cardOrId: any,
+  targets?: any[]
+) {
+  const { state, bumpSeq, zones } = ctx;
+  
+  // Handle both card object and cardId string
+  let card: any;
+  if (typeof cardOrId === 'string') {
+    // Find card in player's hand
+    const z = zones[playerId];
+    if (!z) {
+      console.warn(`castSpell: no zone found for player ${playerId}`);
+      return;
+    }
+    if (!Array.isArray(z.hand)) {
+      console.warn(`castSpell: hand is not an array for player ${playerId} (type: ${typeof z.hand})`);
+      return;
+    }
+    const handCards = z.hand as any[];
+    const idx = handCards.findIndex((c: any) => c.id === cardOrId);
+    if (idx === -1) {
+      const availableIds = handCards.map((c: any) => c.id || '(no id)').join(', ');
+      console.warn(`castSpell: card ${cardOrId} not found in hand for player ${playerId}. Available cards: [${availableIds}]`);
+      return;
+    }
+    // Remove card from hand
+    card = handCards.splice(idx, 1)[0];
+    z.handCount = handCards.length;
+  } else {
+    // Card object passed directly (legacy or event replay)
+    card = cardOrId;
+    // Try to remove from hand if it exists there
+    const z = zones[playerId];
+    if (z && Array.isArray(z.hand)) {
+      const handCards = z.hand as any[];
+      const idx = handCards.findIndex((c: any) => c && c.id === card.id);
+      if (idx !== -1) {
+        handCards.splice(idx, 1);
+        z.handCount = handCards.length;
+      }
+    }
+  }
+  
+  // Add to stack
+  const stackItem = {
+    id: uid("stack"),
+    controller: playerId,
+    card: { ...card, zone: "stack" },
+    targets: targets || [],
+  };
+  
+  state.stack = state.stack || [];
+  state.stack.push(stackItem as any);
   bumpSeq();
 }
 
