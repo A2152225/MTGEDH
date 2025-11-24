@@ -315,8 +315,12 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
   });
 
   // Cast commander from command zone
-  socket.on("castCommander", ({ gameId, commanderId }: { gameId: string; commanderId: string }) => {
+  socket.on("castCommander", (payload: { gameId: string; commanderId?: string; commanderNameOrId?: string }) => {
     try {
+      const { gameId } = payload;
+      // Accept both commanderId and commanderNameOrId for backwards compatibility
+      let commanderId = payload.commanderId || payload.commanderNameOrId;
+      
       const pid: PlayerID | undefined = socket.data.playerId;
       const spectator = socket.data.spectator;
       
@@ -331,7 +335,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       if (!gameId || !commanderId) {
         socket.emit("error", {
           code: "CAST_COMMANDER_INVALID",
-          message: "Missing gameId or commanderId",
+          message: "Missing gameId or commanderId/commanderNameOrId",
         });
         return;
       }
@@ -345,14 +349,32 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         return;
       }
       
-      // Validate that this is the player's commander
+      // Get commander info to validate and resolve name if needed
       const commanderInfo = game.state?.commandZone?.[pid];
-      if (!commanderInfo || !commanderInfo.commanderIds || !commanderInfo.commanderIds.includes(commanderId)) {
+      if (!commanderInfo || !commanderInfo.commanderIds || commanderInfo.commanderIds.length === 0) {
         socket.emit("error", {
           code: "INVALID_COMMANDER",
-          message: "That is not your commander or commander not found",
+          message: "No commander set for this player",
         });
         return;
+      }
+      
+      // If commanderId is a name, try to resolve it to an id
+      if (!commanderInfo.commanderIds.includes(commanderId)) {
+        // Try to find by name
+        const commanderNames = (commanderInfo as any).commanderNames || [];
+        const nameIndex = commanderNames.findIndex((n: string) => 
+          n?.toLowerCase() === commanderId?.toLowerCase()
+        );
+        if (nameIndex >= 0 && commanderInfo.commanderIds[nameIndex]) {
+          commanderId = commanderInfo.commanderIds[nameIndex];
+        } else {
+          socket.emit("error", {
+            code: "INVALID_COMMANDER",
+            message: "That is not your commander or commander not found",
+          });
+          return;
+        }
       }
       
       // Check priority - only active player can cast spells during their turn
