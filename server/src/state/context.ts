@@ -54,6 +54,9 @@ export interface GameContext {
   seq: { value: number };
   bumpSeq: () => void;
 
+  // Priority tracking for stack resolution
+  passesInRow: { value: number };
+
   // misc runtime helpers that modules may call
   landsPlayedThisTurn?: Record<PlayerID, number>;
   manaPool?: Record<PlayerID, any>;
@@ -159,6 +162,9 @@ export function createContext(gameId: string): GameContext {
     rng,
     seq,
     bumpSeq,
+    
+    // Priority tracking for stack resolution
+    passesInRow: { value: 0 },
 
     // optional runtime containers (populated by other modules when used)
     landsPlayedThisTurn: {},
