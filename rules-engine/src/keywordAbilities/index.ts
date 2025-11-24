@@ -67,6 +67,18 @@
  * - Living Metal (702.161), More Than Meets the Eye (702.162), For Mirrodin! (702.163)
  * - Toxic (702.164), Backup (702.165), Bargain (702.166), Craft (702.167)
  * - Disguise (702.168), Solved (702.169)
+ * 
+ * Part 12 (Rules 702.170-702.176): OTJ through BLB era keyword abilities
+ * - Plot (702.170), Saddle (702.171), Spree (702.172), Freerunning (702.173)
+ * - Gift (702.174), Offspring (702.175), Impending (702.176)
+ * 
+ * Part 13 (Rules 702.177-702.183): BRJOM through EMGS era keyword abilities
+ * - Exhaust (702.177), Max Speed (702.178), Start Your Engines! (702.179)
+ * - Harmonize (702.180), Mobilize (702.181), Job Select (702.182), Tiered (702.183)
+ * 
+ * Part 14 (Rules 702.184-702.189): Remaining keyword abilities
+ * - Station (702.184), Warp (702.185), Infinity (702.186), Mayhem (702.187)
+ * - Web-slinging (702.188), Firebending (702.189)
  */
 
 // Part 1: Export all keyword ability modules
@@ -251,6 +263,32 @@ export * from './craft';
 export * from './disguise';
 export * from './solved';
 
+// Part 12: Export OTJ through BLB era keyword abilities
+export * from './plot';
+export * from './saddle';
+export * from './spree';
+export * from './freerunning';
+export * from './gift';
+export * from './offspring';
+export * from './impending';
+
+// Part 13: Export BRJOM through EMGS era keyword abilities
+export * from './exhaust';
+export * from './maxSpeed';
+export * from './startYourEngines';
+export * from './harmonize';
+export * from './mobilize';
+export * from './jobSelect';
+export * from './tiered';
+
+// Part 14: Export remaining keyword abilities
+export * from './station';
+export * from './warp';
+export * from './infinity';
+export * from './mayhem';
+export * from './webSlinging';
+export * from './firebending';
+
 /**
  * Union type of all keyword ability types
  */
@@ -429,7 +467,30 @@ export type KeywordAbility =
   | import('./bargain').BargainAbility
   | import('./craft').CraftAbility
   | import('./disguise').DisguiseAbility
-  | import('./solved').SolvedAbility;
+  | import('./solved').SolvedAbility
+  // Part 12
+  | import('./plot').PlotAbility
+  | import('./saddle').SaddleAbility
+  | import('./spree').SpreeAbility
+  | import('./freerunning').FreerunningAbility
+  | import('./gift').GiftAbility
+  | import('./offspring').OffspringAbility
+  | import('./impending').ImpendingAbility
+  // Part 13
+  | import('./exhaust').ExhaustAbility
+  | import('./maxSpeed').MaxSpeedAbility
+  | import('./startYourEngines').StartYourEnginesAbility
+  | import('./harmonize').HarmonizeAbility
+  | import('./mobilize').MobilizeAbility
+  | import('./jobSelect').JobSelectAbility
+  | import('./tiered').TieredAbility
+  // Part 14
+  | import('./station').StationAbility
+  | import('./warp').WarpAbility
+  | import('./infinity').InfinityAbility
+  | import('./mayhem').MayhemAbility
+  | import('./webSlinging').WebSlingingAbility
+  | import('./firebending').FirebendingAbility;
 
 /**
  * Helper function to check if an ability is a specific type
