@@ -34,6 +34,13 @@
  * - Devour (702.82), Exalted (702.83), Unearth (702.84), Cascade (702.85)
  * - Annihilator (702.86), Level Up (702.87), Rebound (702.88), Umbra Armor (702.89)
  * - Infect (702.90), Battle Cry (702.91), Living Weapon (702.92)
+ * 
+ * Part 6 (Rules 702.93-702.111): RTR through DTK era keyword abilities
+ * - Undying (702.93), Miracle (702.94), Soulbond (702.95), Overload (702.96)
+ * - Scavenge (702.97), Unleash (702.98), Cipher (702.99), Evolve (702.100)
+ * - Extort (702.101), Fuse (702.102), Bestow (702.103), Tribute (702.104)
+ * - Dethrone (702.105), Hidden Agenda (702.106), Outlast (702.107), Prowess (702.108)
+ * - Dash (702.109), Exploit (702.110), Menace (702.111)
  */
 
 // Part 1: Export all keyword ability modules
@@ -131,6 +138,15 @@ export * from './infect';
 export * from './battleCry';
 export * from './livingWeapon';
 
+// Part 6: Export RTR through DTK era keyword abilities
+export * from './undying';
+export * from './miracle';
+export * from './soulbond';
+export * from './overload';
+export * from './scavenge';
+export * from './unleash';
+export * from './cipher';
+
 /**
  * Union type of all keyword ability types
  */
@@ -227,7 +243,15 @@ export type KeywordAbility =
   | import('./umbraArmor').UmbraArmorAbility
   | import('./infect').InfectAbility
   | import('./battleCry').BattleCryAbility
-  | import('./livingWeapon').LivingWeaponAbility;
+  | import('./livingWeapon').LivingWeaponAbility
+  // Part 6
+  | import('./undying').UndyingAbility
+  | import('./miracle').MiracleAbility
+  | import('./soulbond').SoulbondAbility
+  | import('./overload').OverloadAbility
+  | import('./scavenge').ScavengeAbility
+  | import('./unleash').UnleashAbility
+  | import('./cipher').CipherAbility;
 
 /**
  * Helper function to check if an ability is a specific type
