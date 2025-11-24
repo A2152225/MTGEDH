@@ -319,7 +319,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
     try {
       const { gameId } = payload;
       // Accept both commanderId and commanderNameOrId for backwards compatibility
-      let commanderId = payload.commanderId || payload.commanderNameOrId;
+      let commanderId = payload.commanderId ?? payload.commanderNameOrId;
       
       const pid: PlayerID | undefined = socket.data.playerId;
       const spectator = socket.data.spectator;

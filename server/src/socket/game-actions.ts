@@ -68,7 +68,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // Persist the event to DB only (don't re-apply since game.playLand already applied it)
       try {
-        appendEvent(gameId, (game as any).seq || 0, "playLand", { playerId, cardId });
+        appendEvent(gameId, (game as any).seq ?? 0, "playLand", { playerId, cardId });
       } catch (e) {
         console.warn('appendEvent(playLand) failed:', e);
       }
@@ -277,7 +277,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // Persist the event to DB only (don't re-apply since we already modified state above)
       try {
-        appendEvent(gameId, (game as any).seq || 0, "castSpell", { playerId, cardId, targets });
+        appendEvent(gameId, (game as any).seq ?? 0, "castSpell", { playerId, cardId, targets });
       } catch (e) {
         console.warn('appendEvent(castSpell) failed:', e);
       }
