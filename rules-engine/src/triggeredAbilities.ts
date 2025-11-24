@@ -192,6 +192,15 @@ export function putTriggersOnStack(
 
 /**
  * Check if an event would trigger an ability
+ * 
+ * NOTE: This is a simplified implementation that only checks event type matching.
+ * A complete implementation would need to:
+ * - Parse and evaluate condition strings (e.g., "if you control a creature")
+ * - Check zone restrictions (e.g., ability only triggers from battlefield)
+ * - Validate event data matches trigger requirements
+ * 
+ * For production use, consider implementing a condition evaluation system
+ * or using a rules DSL for complex trigger conditions.
  */
 export function checkTrigger(
   ability: TriggeredAbility,
@@ -202,8 +211,9 @@ export function checkTrigger(
     return false;
   }
   
-  // TODO: Check conditions if present
-  // For now, simple event matching
+  // TODO: Implement condition evaluation
+  // For now, simple event matching without condition checking
+  // Future: Parse ability.condition and evaluate against eventData
   
   return true;
 }

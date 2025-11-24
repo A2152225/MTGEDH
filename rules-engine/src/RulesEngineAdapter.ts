@@ -629,9 +629,16 @@ export class RulesEngineAdapter {
       return { next: state, log: ['Stack is empty'] };
     }
     
+    // Get legal targets from game state
+    // For now, we'll assume all targets are still legal (proper implementation would check:
+    // - Permanents still on battlefield
+    // - Players still in game
+    // - Spells still on stack
+    // This is a simplified version for the initial implementation
+    const legalTargets = popResult.object.targets; // TODO: Implement proper target validation
+    
     // Validate and resolve
-    // For now, simple resolution - assume all targets are legal
-    const resolveResult = resolveStackObject(popResult.object, []);
+    const resolveResult = resolveStackObject(popResult.object, legalTargets);
     
     this.stacks.set(gameId, popResult.stack);
     

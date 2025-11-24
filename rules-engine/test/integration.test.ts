@@ -160,17 +160,17 @@ describe('Rules Engine Integration Tests', () => {
   describe('Stack Resolution Workflow', () => {
     it('should resolve spells in LIFO order', () => {
       // Give player1 mana
-      let state = adapter.executeAction('integration-test', {
+      let result = adapter.executeAction('integration-test', {
         type: 'tapForMana',
         playerId: 'player1',
         permanentId: 'island-1',
         permanentName: 'Island',
         manaToAdd: [{ type: ManaType.BLUE, amount: 3 }],
         currentlyTapped: false,
-      }).next;
+      });
 
       // Cast first spell
-      state = adapter.executeAction('integration-test', {
+      result = adapter.executeAction('integration-test', {
         type: 'castSpell',
         playerId: 'player1',
         cardId: 'divination-1',
@@ -178,14 +178,20 @@ describe('Rules Engine Integration Tests', () => {
         cardTypes: ['sorcery'],
         manaCost: { blue: 2, generic: 1 },
         targets: [],
-      }).next;
+      });
 
       // Give player2 mana for counterspell
-      gameState.players[1].manaPool.blue = 2;
-      adapter.initializeGame('integration-test', gameState);
+      result = adapter.executeAction('integration-test', {
+        type: 'tapForMana',
+        playerId: 'player2',
+        permanentId: 'island-2',
+        permanentName: 'Island',
+        manaToAdd: [{ type: ManaType.BLUE, amount: 2 }],
+        currentlyTapped: false,
+      });
 
       // Cast counterspell
-      state = adapter.executeAction('integration-test', {
+      result = adapter.executeAction('integration-test', {
         type: 'castSpell',
         playerId: 'player2',
         cardId: 'counter-1',
@@ -193,7 +199,7 @@ describe('Rules Engine Integration Tests', () => {
         cardTypes: ['instant'],
         manaCost: { blue: 2 },
         targets: ['divination-1'],
-      }).next;
+      });
 
       // Resolve stack - counterspell should resolve first (LIFO)
       const resolve1 = adapter.executeAction('integration-test', {
