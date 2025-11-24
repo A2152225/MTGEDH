@@ -83,53 +83,137 @@ export function registerGameActions(io: Server, socket: Socket) {
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
-      // Get RulesBridge for validation
-      const bridge = (GameManager as any).getRulesBridge(gameId);
+      // Check priority - only player with priority can cast spells
+      if (game.state.priority !== playerId) {
+        socket.emit("error", {
+          code: "NO_PRIORITY",
+          message: "You don't have priority",
+        });
+        return;
+      }
+
+      // Find the card in player's hand
+      const zones = game.state.zones?.[playerId];
+      if (!zones || !Array.isArray(zones.hand)) {
+        socket.emit("error", {
+          code: "NO_HAND",
+          message: "Hand not found",
+        });
+        return;
+      }
+
+      const cardInHand = (zones.hand as any[]).find((c: any) => c && c.id === cardId);
+      if (!cardInHand) {
+        socket.emit("error", {
+          code: "CARD_NOT_IN_HAND",
+          message: "Card not found in hand",
+        });
+        return;
+      }
+
+      // Validate card is castable (not a land)
+      const typeLine = (cardInHand.type_line || "").toLowerCase();
+      if (typeLine.includes("land") && !typeLine.includes("creature")) {
+        socket.emit("error", {
+          code: "CANNOT_CAST_LAND",
+          message: "Lands cannot be cast as spells. Use playLand instead.",
+        });
+        return;
+      }
+
+      // Get RulesBridge for validation (optional - if not available, proceed with legacy logic)
+      const bridge = (GameManager as any).getRulesBridge?.(gameId);
       
       if (bridge) {
-        // Validate through rules engine
-        const validation = bridge.validateAction({
-          type: 'castSpell',
-          playerId,
-          cardId,
-          targets: targets || [],
-        });
-        
-        if (!validation.legal) {
-          socket.emit("error", {
-            code: "INVALID_ACTION",
-            message: validation.reason || "Cannot cast spell",
+        try {
+          // Validate through rules engine
+          const validation = bridge.validateAction({
+            type: 'castSpell',
+            playerId,
+            cardId,
+            targets: targets || [],
           });
-          return;
-        }
-        
-        // Execute through rules engine (this will emit events)
-        const result = bridge.executeAction({
-          type: 'castSpell',
-          playerId,
-          cardId,
-          targets: targets || [],
-        });
-        
-        if (!result.success) {
-          socket.emit("error", {
-            code: "EXECUTION_ERROR",
-            message: result.error || "Failed to cast spell",
+          
+          if (!validation.legal) {
+            socket.emit("error", {
+              code: "INVALID_ACTION",
+              message: validation.reason || "Cannot cast spell",
+            });
+            return;
+          }
+          
+          // Execute through rules engine (this will emit events)
+          const result = bridge.executeAction({
+            type: 'castSpell',
+            playerId,
+            cardId,
+            targets: targets || [],
           });
-          return;
+          
+          if (!result.success) {
+            socket.emit("error", {
+              code: "EXECUTION_ERROR",
+              message: result.error || "Failed to cast spell",
+            });
+            return;
+          }
+        } catch (bridgeErr) {
+          console.warn('Rules engine validation failed, falling back to legacy:', bridgeErr);
+          // Continue with legacy logic below
         }
       }
       
-      // Also update legacy game state (for backward compatibility during migration)
+      // Legacy game state update: remove card from hand and add to stack
       try {
-        if (typeof game.pushStack === 'function') {
-          game.pushStack(playerId, cardId, targets);
+        // Remove from hand
+        const handCards = zones.hand as any[];
+        const idx = handCards.findIndex((c: any) => c && c.id === cardId);
+        if (idx !== -1) {
+          const [removedCard] = handCards.splice(idx, 1);
+          zones.handCount = handCards.length;
+          
+          // Add to stack
+          const stackItem = {
+            id: `stack_${Date.now()}_${cardId}`,
+            controller: playerId,
+            card: { ...removedCard, zone: "stack" },
+            targets: targets || [],
+          };
+          
+          if (typeof game.pushStack === 'function') {
+            game.pushStack(stackItem);
+          } else {
+            // Fallback: manually add to stack
+            game.state.stack = game.state.stack || [];
+            game.state.stack.push(stackItem as any);
+          }
+          
+          // Bump sequence
+          if (typeof game.bumpSeq === 'function') {
+            game.bumpSeq();
+          }
+          
+          console.log(`[castSpellFromHand] Player ${playerId} cast ${removedCard.name} (${cardId})`);
         }
       } catch (e) {
-        console.warn('Legacy pushStack failed:', e);
+        console.error('Failed to cast spell:', e);
+        socket.emit("error", {
+          code: "CAST_FAILED",
+          message: String(e),
+        });
+        return;
       }
       
       appendGameEvent(game, gameId, "castSpell", { playerId, cardId, targets });
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${playerId} cast ${cardInHand.name}.`,
+        ts: Date.now(),
+      });
+      
       broadcastGame(io, game, gameId);
     } catch (err: any) {
       console.error(`castSpell error for game ${gameId}:`, err);

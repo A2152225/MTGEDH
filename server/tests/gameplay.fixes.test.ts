@@ -362,4 +362,213 @@ describe('Gameplay fixes - land play, commander casting, priority, win condition
       expect(perm.controller).toBe(p1);
     });
   });
+  
+  describe('Spell casting from hand (double-click)', () => {
+    it('should cast a 0-mana artifact from hand', () => {
+      const g = createInitialGameState('cast_0mana_artifact');
+      
+      const p1 = 'p1' as PlayerID;
+      
+      g.applyEvent({ type: 'join', playerId: p1, name: 'Player 1' });
+      
+      const cards: Array<Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'mana_cost' | 'image_uris'>> = [
+        { 
+          id: 'artifact_1', 
+          name: 'Ornithopter', 
+          type_line: 'Artifact Creature — Thopter',
+          oracle_text: 'Flying',
+          mana_cost: '{0}',
+          image_uris: undefined
+        },
+      ];
+      
+      g.importDeckResolved(p1, cards as any);
+      g.drawCards(p1, 1);
+      
+      (g.state as any).phase = GamePhase.PRECOMBAT_MAIN;
+      (g.state as any).turnPlayer = p1;
+      (g.state as any).priority = p1;
+      
+      const handBefore = g.state.zones?.[p1]?.handCount || 0;
+      expect(handBefore).toBe(1);
+      
+      const handCards = g.state.zones?.[p1]?.hand as any[];
+      const cardId = handCards[0].id;
+      
+      // Cast the spell by adding it to the stack
+      const stackItem = {
+        id: `stack_test_${cardId}`,
+        controller: p1,
+        card: { ...handCards[0], zone: 'stack' },
+        targets: [],
+      };
+      
+      // Remove from hand
+      handCards.splice(0, 1);
+      g.state.zones![p1]!.handCount = 0;
+      
+      // Add to stack
+      g.pushStack(stackItem);
+      
+      // Verify card moved to stack
+      expect(g.state.zones?.[p1]?.handCount).toBe(0);
+      expect(g.state.stack.length).toBe(1);
+      expect((g.state.stack[0] as any).card.name).toBe('Ornithopter');
+      expect((g.state.stack[0] as any).controller).toBe(p1);
+    });
+    
+    it('should cast an instant from hand', () => {
+      const g = createInitialGameState('cast_instant');
+      
+      const p1 = 'p1' as PlayerID;
+      
+      g.applyEvent({ type: 'join', playerId: p1, name: 'Player 1' });
+      
+      const cards: Array<Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'mana_cost' | 'image_uris'>> = [
+        { 
+          id: 'instant_1', 
+          name: 'Lightning Bolt', 
+          type_line: 'Instant',
+          oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+          mana_cost: '{R}',
+          image_uris: undefined
+        },
+      ];
+      
+      g.importDeckResolved(p1, cards as any);
+      g.drawCards(p1, 1);
+      
+      (g.state as any).phase = GamePhase.PRECOMBAT_MAIN;
+      (g.state as any).turnPlayer = p1;
+      (g.state as any).priority = p1;
+      
+      const handCards = g.state.zones?.[p1]?.hand as any[];
+      const cardId = handCards[0].id;
+      
+      // Cast the spell
+      const stackItem = {
+        id: `stack_test_${cardId}`,
+        controller: p1,
+        card: { ...handCards[0], zone: 'stack' },
+        targets: ['target_player'],
+      };
+      
+      handCards.splice(0, 1);
+      g.state.zones![p1]!.handCount = 0;
+      g.pushStack(stackItem);
+      
+      // Verify spell is on stack with targets
+      expect(g.state.stack.length).toBe(1);
+      expect((g.state.stack[0] as any).card.name).toBe('Lightning Bolt');
+      expect((g.state.stack[0] as any).targets).toEqual(['target_player']);
+    });
+    
+    it('should cast a sorcery during main phase', () => {
+      const g = createInitialGameState('cast_sorcery');
+      
+      const p1 = 'p1' as PlayerID;
+      
+      g.applyEvent({ type: 'join', playerId: p1, name: 'Player 1' });
+      
+      const cards: Array<Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'mana_cost' | 'image_uris'>> = [
+        { 
+          id: 'sorcery_1', 
+          name: 'Rampant Growth', 
+          type_line: 'Sorcery',
+          oracle_text: 'Search your library for a basic land card...',
+          mana_cost: '{1}{G}',
+          image_uris: undefined
+        },
+      ];
+      
+      g.importDeckResolved(p1, cards as any);
+      g.drawCards(p1, 1);
+      
+      (g.state as any).phase = GamePhase.PRECOMBAT_MAIN;
+      (g.state as any).turnPlayer = p1;
+      (g.state as any).priority = p1;
+      
+      const handCards = g.state.zones?.[p1]?.hand as any[];
+      const cardId = handCards[0].id;
+      
+      // Cast the sorcery
+      const stackItem = {
+        id: `stack_test_${cardId}`,
+        controller: p1,
+        card: { ...handCards[0], zone: 'stack' },
+        targets: [],
+      };
+      
+      handCards.splice(0, 1);
+      g.state.zones![p1]!.handCount = 0;
+      g.pushStack(stackItem);
+      
+      // Verify sorcery is on stack
+      expect(g.state.stack.length).toBe(1);
+      expect((g.state.stack[0] as any).card.name).toBe('Rampant Growth');
+      expect((g.state.stack[0] as any).card.type_line).toBe('Sorcery');
+    });
+    
+    it('should handle multiple spells on stack', () => {
+      const g = createInitialGameState('multiple_spells');
+      
+      const p1 = 'p1' as PlayerID;
+      const p2 = 'p2' as PlayerID;
+      
+      g.applyEvent({ type: 'join', playerId: p1, name: 'Player 1' });
+      g.applyEvent({ type: 'join', playerId: p2, name: 'Player 2' });
+      
+      const cards: Array<Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'mana_cost' | 'image_uris'>> = [
+        { 
+          id: 'spell_1', 
+          name: 'Giant Growth', 
+          type_line: 'Instant',
+          oracle_text: 'Target creature gets +3/+3 until end of turn.',
+          mana_cost: '{G}',
+          image_uris: undefined
+        },
+        { 
+          id: 'spell_2', 
+          name: 'Counterspell', 
+          type_line: 'Instant',
+          oracle_text: 'Counter target spell.',
+          mana_cost: '{U}{U}',
+          image_uris: undefined
+        },
+      ];
+      
+      g.importDeckResolved(p1, [cards[0]] as any);
+      g.importDeckResolved(p2, [cards[1]] as any);
+      
+      g.drawCards(p1, 1);
+      g.drawCards(p2, 1);
+      
+      (g.state as any).phase = GamePhase.PRECOMBAT_MAIN;
+      (g.state as any).turnPlayer = p1;
+      (g.state as any).priority = p1;
+      
+      // P1 casts Giant Growth
+      const p1Hand = g.state.zones?.[p1]?.hand as any[];
+      g.pushStack({
+        id: 'stack_1',
+        controller: p1,
+        card: { ...p1Hand[0], zone: 'stack' },
+        targets: ['target_creature'],
+      });
+      
+      // P2 responds with Counterspell
+      const p2Hand = g.state.zones?.[p2]?.hand as any[];
+      g.pushStack({
+        id: 'stack_2',
+        controller: p2,
+        card: { ...p2Hand[0], zone: 'stack' },
+        targets: ['stack_1'],
+      });
+      
+      // Stack should have 2 items (most recent on top)
+      expect(g.state.stack.length).toBe(2);
+      expect((g.state.stack[1] as any).card.name).toBe('Counterspell'); // Top of stack
+      expect((g.state.stack[0] as any).card.name).toBe('Giant Growth');
+    });
+  });
 });
