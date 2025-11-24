@@ -5,8 +5,11 @@ build/
 *.log
 .DS_Store
 *.sqlite
+*.sqlite-shm
+*.sqlite-wal
 *.db
 coverage/
 .vscode/
 .idea/
 /server/server/
+/server/data/
