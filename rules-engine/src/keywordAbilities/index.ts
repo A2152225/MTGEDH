@@ -62,6 +62,11 @@
  * Part 10 (Rules 702.151-702.160): NEO through BRO era keyword abilities
  * - Reconfigure (702.151), Blitz (702.152), Casualty (702.153), Enlist (702.154)
  * - Read Ahead (702.155), Ravenous (702.156), Squad (702.157), Prototype (702.160)
+ * 
+ * Part 11 (Rules 702.161-702.169): ONE through OTJ era keyword abilities
+ * - Living Metal (702.161), More Than Meets the Eye (702.162), For Mirrodin! (702.163)
+ * - Toxic (702.164), Backup (702.165), Bargain (702.166), Craft (702.167)
+ * - Disguise (702.168), Solved (702.169)
  */
 
 // Part 1: Export all keyword ability modules
@@ -235,6 +240,17 @@ export * from './ravenous';
 export * from './squad';
 export * from './prototype';
 
+// Part 11: Export ONE through OTJ era keyword abilities
+export * from './livingMetal';
+export * from './moreThanMeetsTheEye';
+export * from './forMirrodin';
+export * from './toxic';
+export * from './backup';
+export * from './bargain';
+export * from './craft';
+export * from './disguise';
+export * from './solved';
+
 /**
  * Union type of all keyword ability types
  */
@@ -403,7 +419,17 @@ export type KeywordAbility =
   | import('./readAhead').ReadAheadAbility
   | import('./ravenous').RavenousAbility
   | import('./squad').SquadAbility
-  | import('./prototype').PrototypeAbility;
+  | import('./prototype').PrototypeAbility
+  // Part 11
+  | import('./livingMetal').LivingMetalAbility
+  | import('./moreThanMeetsTheEye').MoreThanMeetsTheEyeAbility
+  | import('./forMirrodin').ForMirrodinAbility
+  | import('./toxic').ToxicAbility
+  | import('./backup').BackupAbility
+  | import('./bargain').BargainAbility
+  | import('./craft').CraftAbility
+  | import('./disguise').DisguiseAbility
+  | import('./solved').SolvedAbility;
 
 /**
  * Helper function to check if an ability is a specific type
