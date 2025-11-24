@@ -214,3 +214,50 @@ export interface PaymentItem {
   permanentId: string;
   mana: ManaColor;
 }
+
+/* Game action types for socket communication */
+export enum GameActionType {
+  CAST_SPELL = 'castSpell',
+  ACTIVATE_ABILITY = 'activateAbility',
+  DECLARE_ATTACKERS = 'declareAttackers',
+  DECLARE_BLOCKERS = 'declareBlockers',
+  PASS_PRIORITY = 'passPriority',
+  MULLIGAN = 'mulligan',
+  PLAY_LAND = 'playLand',
+  DISCARD = 'discard',
+  SACRIFICE = 'sacrifice',
+}
+
+export interface GameAction {
+  type: GameActionType;
+  gameId: string;
+  playerId: string;
+  timestamp?: number;
+  data?: any;
+}
+
+/* Automation error reporting */
+export interface AutomationErrorReport {
+  id: string;
+  gameId: string;
+  playerId: string;
+  reportedAt: number;
+  actionType?: string;
+  cardInvolved?: string;
+  description: string;
+  expectedBehavior: string;
+  gameState: any;
+  rulesReferences?: string[];
+  status: 'pending' | 'reviewing' | 'fixed' | 'wont-fix' | 'invalid';
+  resolution?: string;
+  fixedInVersion?: string;
+}
+
+/* In-memory game type for server */
+export interface InMemoryGame {
+  id: GameID;
+  state: GameState;
+  players: Map<PlayerID, any>;
+  createdAt: number;
+  lastActivity: number;
+}
