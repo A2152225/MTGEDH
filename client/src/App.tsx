@@ -5,6 +5,8 @@ import type {
   PlayerID,
   KnownCardRef,
   ChatMsg,
+  BattlefieldPermanent,
+  CardRef,
 } from "../../shared/src";
 import { TableLayout } from "./components/TableLayout";
 import { CardPreviewLayer } from "./components/CardPreviewLayer";
@@ -266,37 +268,36 @@ export function App() {
     const battlefield = (safeView.battlefield || []).filter(perm => perm.controller === playerId);
     
     for (const perm of battlefield) {
-      const p = perm as any;
-      if (!p || p.tapped) continue; // Skip tapped permanents
+      if (!perm || perm.tapped) continue; // Skip tapped permanents
       
       // Get card info from the permanent
-      const card = p.card as any;
-      if (!card) continue;
+      const card = perm.card as KnownCardRef;
+      if (!card || !card.name) continue;
       
       const typeLine = (card.type_line || '').toLowerCase();
       const name = card.name || 'Permanent';
       
       // Basic lands
       if (typeLine.includes('plains')) {
-        sources.push({ id: p.id, name, options: ['W'] });
+        sources.push({ id: perm.id, name, options: ['W'] });
       } else if (typeLine.includes('island')) {
-        sources.push({ id: p.id, name, options: ['U'] });
+        sources.push({ id: perm.id, name, options: ['U'] });
       } else if (typeLine.includes('swamp')) {
-        sources.push({ id: p.id, name, options: ['B'] });
+        sources.push({ id: perm.id, name, options: ['B'] });
       } else if (typeLine.includes('mountain')) {
-        sources.push({ id: p.id, name, options: ['R'] });
+        sources.push({ id: perm.id, name, options: ['R'] });
       } else if (typeLine.includes('forest')) {
-        sources.push({ id: p.id, name, options: ['G'] });
+        sources.push({ id: perm.id, name, options: ['G'] });
       } else if (typeLine.includes('land')) {
         // Non-basic land - for now assume it can produce any color (simplified)
         // In a real implementation, we'd parse oracle text for mana abilities
-        sources.push({ id: p.id, name, options: ['C'] });
+        sources.push({ id: perm.id, name, options: ['C'] });
       } else if (typeLine.includes('artifact') || typeLine.includes('creature')) {
         // Check for mana-producing artifacts/creatures (simplified heuristic)
         const oracleText = (card.oracle_text || '').toLowerCase();
         if (oracleText.includes('add') && oracleText.includes('mana')) {
           // Simplified: assume colorless mana for now
-          sources.push({ id: p.id, name, options: ['C'] });
+          sources.push({ id: perm.id, name, options: ['C'] });
         }
       }
     }
