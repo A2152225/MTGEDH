@@ -245,8 +245,8 @@ export function App() {
   const reasonCannotCast = (card: { type_line?: string | null }) => {
     if (!safeView || !you) return "No game state";
     if (isLandTypeLine(card.type_line)) return "Lands are played, not cast";
-    const turnPlayer = safeView.turnPlayer;
-    if (turnPlayer !== you) return "Not your turn";
+    // Check priority instead of turn - you can cast instants on other players' turns
+    if (safeView.priority !== you) return "You don't have priority";
     return null;
   };
 
@@ -524,13 +524,15 @@ export function App() {
                 safeView &&
                 socket.emit("playLand", { gameId: safeView.id, cardId })
               }
-              onCastFromHand={(cardId) =>
-                safeView &&
-                socket.emit("castSpellFromHand", {
-                  gameId: safeView.id,
-                  cardId,
-                })
-              }
+              onCastFromHand={(cardId) => {
+                if (safeView) {
+                  console.log(`[Client] Casting spell from hand: cardId=${cardId}, gameId=${safeView.id}`);
+                  socket.emit("castSpellFromHand", {
+                    gameId: safeView.id,
+                    cardId,
+                  });
+                }
+              }}
               reasonCannotPlayLand={reasonCannotPlayLand}
               reasonCannotCast={reasonCannotCast}
               threeD={undefined}
