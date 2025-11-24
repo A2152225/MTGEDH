@@ -7,8 +7,8 @@
  *   npm run simulate -- --config simulation-config.json
  */
 
-import { gameSimulator } from '../src/GameSimulator';
-import { AIStrategy, PlayerType } from '../src/AIEngine';
+import { gameSimulator, PlayerType } from '../src/GameSimulator';
+import { AIStrategy } from '../src/AIEngine';
 import type { SimulationConfig, BatchSimulationConfig } from '../src/GameSimulator';
 
 interface CLIOptions {
