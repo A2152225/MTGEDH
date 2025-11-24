@@ -1,8 +1,135 @@
 import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, appendGameEvent } from "./util";
 import { appendEvent } from "../db";
+import { GameManager } from "../GameManager";
 
 export function registerGameActions(io: Server, socket: Socket) {
+  // Play land from hand
+  socket.on("playLand", ({ gameId, cardId }: { gameId: string; cardId: string }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      // Get RulesBridge for validation
+      const bridge = (GameManager as any).getRulesBridge(gameId);
+      
+      if (bridge) {
+        // Validate through rules engine
+        const validation = bridge.validateAction({
+          type: 'playLand',
+          playerId,
+          cardId,
+        });
+        
+        if (!validation.legal) {
+          socket.emit("error", {
+            code: "INVALID_ACTION",
+            message: validation.reason || "Cannot play land",
+          });
+          return;
+        }
+        
+        // Execute through rules engine (this will emit events)
+        const result = bridge.executeAction({
+          type: 'playLand',
+          playerId,
+          cardId,
+        });
+        
+        if (!result.success) {
+          socket.emit("error", {
+            code: "EXECUTION_ERROR",
+            message: result.error || "Failed to play land",
+          });
+          return;
+        }
+      }
+      
+      // Also update legacy game state (for backward compatibility during migration)
+      try {
+        if (typeof game.playLand === 'function') {
+          game.playLand(playerId, cardId);
+        }
+      } catch (e) {
+        console.warn('Legacy playLand failed:', e);
+      }
+      
+      appendGameEvent(game, gameId, "playLand", { playerId, cardId });
+      broadcastGame(io, game, gameId);
+    } catch (err: any) {
+      console.error(`playLand error for game ${gameId}:`, err);
+      socket.emit("error", {
+        code: "PLAY_LAND_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
+
+  // Cast spell from hand
+  socket.on("castSpellFromHand", ({ gameId, cardId, targets }: { gameId: string; cardId: string; targets?: any[] }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      // Get RulesBridge for validation
+      const bridge = (GameManager as any).getRulesBridge(gameId);
+      
+      if (bridge) {
+        // Validate through rules engine
+        const validation = bridge.validateAction({
+          type: 'castSpell',
+          playerId,
+          cardId,
+          targets: targets || [],
+        });
+        
+        if (!validation.legal) {
+          socket.emit("error", {
+            code: "INVALID_ACTION",
+            message: validation.reason || "Cannot cast spell",
+          });
+          return;
+        }
+        
+        // Execute through rules engine (this will emit events)
+        const result = bridge.executeAction({
+          type: 'castSpell',
+          playerId,
+          cardId,
+          targets: targets || [],
+        });
+        
+        if (!result.success) {
+          socket.emit("error", {
+            code: "EXECUTION_ERROR",
+            message: result.error || "Failed to cast spell",
+          });
+          return;
+        }
+      }
+      
+      // Also update legacy game state (for backward compatibility during migration)
+      try {
+        if (typeof game.pushStack === 'function') {
+          game.pushStack(playerId, cardId, targets);
+        }
+      } catch (e) {
+        console.warn('Legacy pushStack failed:', e);
+      }
+      
+      appendGameEvent(game, gameId, "castSpell", { playerId, cardId, targets });
+      broadcastGame(io, game, gameId);
+    } catch (err: any) {
+      console.error(`castSpell error for game ${gameId}:`, err);
+      socket.emit("error", {
+        code: "CAST_SPELL_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
+
   // Pass priority
   socket.on("passPriority", ({ gameId }: { gameId: string }) => {
     try {
