@@ -129,49 +129,53 @@ export class RulesBridge {
       });
     });
     
-    // Win/loss events
-    rulesEngine.on(RulesEngineEvent.PLAYER_LOST, (event) => {
-      this.io.to(this.gameId).emit('playerLost', {
-        gameId: this.gameId,
-        playerId: event.data.playerId,
-        reason: event.data.reason,
-        timestamp: event.timestamp,
-      });
-      
-      this.io.to(this.gameId).emit('chat', {
-        id: `loss_${event.timestamp}`,
-        gameId: this.gameId,
-        from: 'system',
-        message: `${event.data.playerId} lost the game: ${event.data.reason}`,
-        ts: event.timestamp,
-      });
-    });
+    // Win/loss events - DISABLED until rules engine properly validates win conditions
+    // The rules engine currently fires spurious PLAYER_WON events on routine actions
+    // like land plays. We disable these handlers to prevent "X wins the game!" spam.
+    // TODO: Re-enable when rules engine properly checks win conditions (life <= 0, poison >= 10, etc.)
     
-    rulesEngine.on(RulesEngineEvent.PLAYER_WON, (event) => {
-      this.io.to(this.gameId).emit('playerWon', {
-        gameId: this.gameId,
-        playerId: event.data.playerId,
-        reason: event.data.reason,
-        timestamp: event.timestamp,
-      });
-      
-      this.io.to(this.gameId).emit('chat', {
-        id: `win_${event.timestamp}`,
-        gameId: this.gameId,
-        from: 'system',
-        message: `${event.data.playerId} wins the game!`,
-        ts: event.timestamp,
-      });
-    });
-    
-    rulesEngine.on(RulesEngineEvent.GAME_ENDED, (event) => {
-      this.io.to(this.gameId).emit('gameEnded', {
-        gameId: this.gameId,
-        winner: event.data.winner,
-        reason: event.data.reason,
-        timestamp: event.timestamp,
-      });
-    });
+    // rulesEngine.on(RulesEngineEvent.PLAYER_LOST, (event) => {
+    //   this.io.to(this.gameId).emit('playerLost', {
+    //     gameId: this.gameId,
+    //     playerId: event.data.playerId,
+    //     reason: event.data.reason,
+    //     timestamp: event.timestamp,
+    //   });
+    //   
+    //   this.io.to(this.gameId).emit('chat', {
+    //     id: `loss_${event.timestamp}`,
+    //     gameId: this.gameId,
+    //     from: 'system',
+    //     message: `${event.data.playerId} lost the game: ${event.data.reason}`,
+    //     ts: event.timestamp,
+    //   });
+    // });
+    // 
+    // rulesEngine.on(RulesEngineEvent.PLAYER_WON, (event) => {
+    //   this.io.to(this.gameId).emit('playerWon', {
+    //     gameId: this.gameId,
+    //     playerId: event.data.playerId,
+    //     reason: event.data.reason,
+    //     timestamp: event.timestamp,
+    //   });
+    //   
+    //   this.io.to(this.gameId).emit('chat', {
+    //     id: `win_${event.timestamp}`,
+    //     gameId: this.gameId,
+    //     from: 'system',
+    //     message: `${event.data.playerId} wins the game!`,
+    //     ts: event.timestamp,
+    //   });
+    // });
+    // 
+    // rulesEngine.on(RulesEngineEvent.GAME_ENDED, (event) => {
+    //   this.io.to(this.gameId).emit('gameEnded', {
+    //     gameId: this.gameId,
+    //     winner: event.data.winner,
+    //     reason: event.data.reason,
+    //     timestamp: event.timestamp,
+    //   });
+    // });
     
     // Card events
     rulesEngine.on(RulesEngineEvent.CARD_DRAWN, (event) => {

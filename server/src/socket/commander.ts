@@ -314,6 +314,126 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
     }
   });
 
+  // Cast commander from command zone
+  socket.on("castCommander", ({ gameId, commanderId }: { gameId: string; commanderId: string }) => {
+    try {
+      const pid: PlayerID | undefined = socket.data.playerId;
+      const spectator = socket.data.spectator;
+      
+      if (!pid || spectator) {
+        socket.emit("error", {
+          code: "CAST_COMMANDER_NOT_PLAYER",
+          message: "Spectators cannot cast commanders.",
+        });
+        return;
+      }
+      
+      if (!gameId || !commanderId) {
+        socket.emit("error", {
+          code: "CAST_COMMANDER_INVALID",
+          message: "Missing gameId or commanderId",
+        });
+        return;
+      }
+      
+      const game = ensureGame(gameId);
+      if (!game) {
+        socket.emit("error", {
+          code: "GAME_NOT_FOUND",
+          message: "Game not found",
+        });
+        return;
+      }
+      
+      // Validate that this is the player's commander
+      const commanderInfo = game.state?.commandZone?.[pid];
+      if (!commanderInfo || !commanderInfo.commanderIds || !commanderInfo.commanderIds.includes(commanderId)) {
+        socket.emit("error", {
+          code: "INVALID_COMMANDER",
+          message: "That is not your commander or commander not found",
+        });
+        return;
+      }
+      
+      // Check priority - only active player can cast spells during their turn
+      if (game.state.priority !== pid) {
+        socket.emit("error", {
+          code: "NO_PRIORITY",
+          message: "You don't have priority",
+        });
+        return;
+      }
+      
+      // Get commander card details
+      const commanderCard = commanderInfo.commanderCards?.find((c: any) => c.id === commanderId);
+      if (!commanderCard) {
+        socket.emit("error", {
+          code: "COMMANDER_CARD_NOT_FOUND",
+          message: "Commander card details not found",
+        });
+        return;
+      }
+      
+      console.info(`[castCommander] Player ${pid} casting commander ${commanderId} (${commanderCard.name}) in game ${gameId}`);
+      
+      // Add commander to stack (simplified - real implementation would handle costs, targets, etc.)
+      try {
+        if (typeof (game as any).pushStack === "function") {
+          const stackItem = {
+            id: `stack_${Date.now()}_${commanderId}`,
+            controller: pid,
+            card: { ...commanderCard, zone: "stack" },
+            targets: [],
+          };
+          (game as any).pushStack(stackItem);
+        } else {
+          // Fallback: manually add to stack
+          game.state.stack = game.state.stack || [];
+          game.state.stack.push({
+            id: `stack_${Date.now()}_${commanderId}`,
+            controller: pid,
+            card: { ...commanderCard, zone: "stack" },
+            targets: [],
+          } as any);
+        }
+        
+        // Update commander tax
+        if (typeof (game as any).castCommander === "function") {
+          (game as any).castCommander(pid, commanderId);
+        }
+        
+        // Bump sequence to trigger client update
+        if (typeof (game as any).bumpSeq === "function") {
+          (game as any).bumpSeq();
+        }
+        
+        appendEvent(gameId, game.seq, "castCommander", { playerId: pid, commanderId });
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${pid} cast ${commanderCard.name} from the command zone.`,
+          ts: Date.now(),
+        });
+        
+        broadcastGame(io, game, gameId);
+      } catch (err: any) {
+        console.error(`[castCommander] Failed to push commander to stack:`, err);
+        socket.emit("error", {
+          code: "CAST_COMMANDER_FAILED",
+          message: err?.message ?? String(err),
+        });
+      }
+    } catch (err: any) {
+      console.error(`castCommander error for game ${gameId}:`, err);
+      socket.emit("error", {
+        code: "CAST_COMMANDER_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
+
   // dumpLibrary, dumpImportedDeckBuffer, getImportedDeckCandidates, dumpCommanderState
   // remain as in your current file (not shown here for brevity).
 }

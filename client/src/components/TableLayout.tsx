@@ -23,6 +23,7 @@ import { LandRow } from './LandRow';
 import { ZonesPiles } from './ZonesPiles';
 import { FreeField } from './FreeField';
 import { DeckManagerModal } from './DeckManagerModal';
+import { CentralStack } from './CentralStack';
 import { socket } from '../socket';
 
 function clamp(n: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, n)); }
@@ -139,7 +140,7 @@ export function TableLayout(props: {
     threeD, enablePanZoom = true,
     tableCloth, worldSize, onUpdatePermPos,
     onImportDeckText, onUseSavedDeck, onLocalImportConfirmChange,
-    gameId, importedCandidates, energyCounters, energy,
+    gameId, stackItems, importedCandidates, energyCounters, energy,
     chatMessages, onSendChat, chatView, chatYou,
   } = props;
 
@@ -1144,6 +1145,29 @@ export function TableLayout(props: {
               Send
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Stack display - shows when stack is not empty */}
+      {stackItems && stackItems.length > 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            left: '50%',
+            top: '50%',
+            transform: 'translate(-50%, -50%)',
+            zIndex: 100, // Above other elements
+            pointerEvents: 'none', // Allow clicks through container
+          }}
+        >
+          <CentralStack
+            stack={stackItems}
+            you={you}
+            priorityPlayer={chatView?.priority}
+            onPass={() => {
+              if (gameId && you) socket.emit('passPriority', { gameId, by: you });
+            }}
+          />
         </div>
       )}
 
