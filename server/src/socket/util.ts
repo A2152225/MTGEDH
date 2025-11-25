@@ -475,6 +475,9 @@ export function broadcastGame(
   checkAndTriggerAI(io, game, gameId);
 }
 
+/** AI reaction delay - matches timing in ai.ts */
+const AI_REACTION_DELAY_MS = 300;
+
 /**
  * Check if the current priority holder is an AI and trigger their turn
  * This is called after broadcasting to ensure AI reacts to state changes
@@ -501,7 +504,7 @@ function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string): void
         } catch (e) {
           console.warn('[util] Failed to trigger AI handler:', e);
         }
-      }, 300);
+      }, AI_REACTION_DELAY_MS);
     }
   } catch (e) {
     console.warn('[util] checkAndTriggerAI error:', e);

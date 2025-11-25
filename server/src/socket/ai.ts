@@ -19,13 +19,17 @@ import { getDeck, listDecks } from "../db/decks.js";
 import { fetchCardsByExactNamesBatch, normalizeName, parseDecklist } from "../services/scryfall.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 
+/** AI timing delays for more natural behavior */
+const AI_THINK_TIME_MS = 500;
+const AI_REACTION_DELAY_MS = 300;
+
 /** MTG color identity symbols */
-const COLOR_IDENTITY_MAP: Record<string, string[]> = {
-  'W': ['white'],
-  'U': ['blue'],
-  'B': ['black'],
-  'R': ['red'],
-  'G': ['green'],
+const COLOR_IDENTITY_MAP: Record<string, string> = {
+  'W': 'white',
+  'U': 'blue',
+  'B': 'black',
+  'R': 'red',
+  'G': 'green',
 };
 
 /**
@@ -79,11 +83,6 @@ function isValidCommander(card: any): boolean {
   
   // Check for "can be your commander" text (planeswalkers, etc.)
   if (oracleText.includes('can be your commander')) {
-    return true;
-  }
-  
-  // Some planeswalkers with special abilities
-  if (typeLine.includes('planeswalker') && oracleText.includes('can be your commander')) {
     return true;
   }
   
@@ -297,9 +296,9 @@ export async function handleAIGameFlow(
         if (success) {
           console.info('[AI] Commander selection complete, continuing game flow');
           // Re-trigger game flow after commander selection
-          setTimeout(() => handleAIGameFlow(io, gameId, playerId), 500);
+          setTimeout(() => handleAIGameFlow(io, gameId, playerId), AI_THINK_TIME_MS);
         }
-      }, 300);
+      }, AI_REACTION_DELAY_MS);
       return;
     }
     
@@ -534,7 +533,7 @@ async function executePassPriority(
       // Small delay before AI acts
       setTimeout(() => {
         handleAIPriority(io, gameId, nextPriority).catch(console.error);
-      }, 300);
+      }, AI_REACTION_DELAY_MS);
     }
     
   } catch (error) {
@@ -856,7 +855,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           } catch (e) {
             console.error('[AI] Error in AI game flow after deck load:', e);
           }
-        }, 500);
+        }, AI_THINK_TIME_MS);
       }
       
     } catch (error) {
