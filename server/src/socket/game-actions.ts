@@ -587,7 +587,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `Turn advanced. Active player: ${game.state.turnPlayer}`,
+        message: `Turn advanced. Active player: ${getPlayerName(game, game.state.turnPlayer)}`,
         ts: Date.now(),
       });
 

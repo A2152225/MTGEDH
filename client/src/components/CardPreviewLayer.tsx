@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import type { KnownCardRef } from '../../../shared/src';
 
 // A lightweight, global, fixed-position overlay that shows a readable
@@ -6,6 +6,28 @@ import type { KnownCardRef } from '../../../shared/src';
 // itself by default (prefers 'above' with the preview bottom aligned to
 // the anchor's top). It also handles rapid hover transitions across rows
 // without flicker or stale positioning.
+
+// Storage key for preview scale preference
+const PREVIEW_SCALE_KEY = 'mtgedh:previewScale';
+const DEFAULT_PREVIEW_SCALE = 1.0;
+const MIN_PREVIEW_SCALE = 0.5;
+const MAX_PREVIEW_SCALE = 1.5;
+
+// Read initial scale from localStorage
+function getInitialPreviewScale(): number {
+  try {
+    const stored = localStorage.getItem(PREVIEW_SCALE_KEY);
+    if (stored) {
+      const val = parseFloat(stored);
+      if (!isNaN(val) && val >= MIN_PREVIEW_SCALE && val <= MAX_PREVIEW_SCALE) {
+        return val;
+      }
+    }
+  } catch {
+    // Ignore localStorage errors
+  }
+  return DEFAULT_PREVIEW_SCALE;
+}
 
 type CardLike = {
   name?: string;
@@ -60,6 +82,10 @@ export function CardPreviewLayer() {
   const [meta, setMeta] = useState<{ name?: string; type_line?: string; url?: string } | null>(null);
   const [prefer, setPrefer] = useState<'left' | 'right' | 'above' | 'below' | 'auto'>('above');
   const [anchorPadding, setAnchorPadding] = useState<number>(0);
+  
+  // Scale control for popup card size
+  const [previewScale, setPreviewScale] = useState<number>(getInitialPreviewScale);
+  const [showScaleSlider, setShowScaleSlider] = useState(false);
 
   // Position state (causes re-render when updated)
   const [pos, setPos] = useState<{ left: number; top: number; w: number; h: number }>({ left: 0, top: 0, w: 0, h: 0 });
@@ -67,8 +93,19 @@ export function CardPreviewLayer() {
   // Token to guard against stale async updates during rapid hover transitions
   const tokenRef = useRef(0);
   const rafRef = useRef<number | null>(null);
+  
+  // Handle scale change and persist to localStorage
+  const handleScaleChange = useCallback((newScale: number) => {
+    const clamped = clamp(newScale, MIN_PREVIEW_SCALE, MAX_PREVIEW_SCALE);
+    setPreviewScale(clamped);
+    try {
+      localStorage.setItem(PREVIEW_SCALE_KEY, clamped.toString());
+    } catch {
+      // Ignore localStorage errors
+    }
+  }, []);
 
-  const pickAndSetPosition = (tkn: number) => {
+  const pickAndSetPosition = useCallback((tkn: number) => {
     if (!anchor) return;
     // Ignore if a newer show was processed
     if (tkn !== tokenRef.current) return;
@@ -77,8 +114,9 @@ export function CardPreviewLayer() {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
 
-    // Readable preview size; MTG portrait aspect ~0.72 (w/h)
-    const previewW = 360;
+    // Readable preview size; MTG portrait aspect ~0.72 (w/h) - apply scale
+    const basePreviewW = 360;
+    const previewW = Math.round(basePreviewW * previewScale);
     const previewH = Math.round(previewW / 0.72);
     const gap = 12;   // gap used for non-above placements
     const margin = 8; // viewport margin
@@ -145,13 +183,13 @@ export function CardPreviewLayer() {
 
     // Fallback: ensure we do not cover the anchor; default to above exact
     if (!tried) placeAboveExact();
-  };
+  }, [anchor, anchorPadding, prefer, previewScale]);
 
-  const scheduleUpdate = () => {
+  const scheduleUpdate = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     const myToken = tokenRef.current;
     rafRef.current = requestAnimationFrame(() => pickAndSetPosition(myToken));
-  };
+  }, [pickAndSetPosition]);
 
   useEffect(() => {
     const onShow = (e: Event) => {
@@ -205,23 +243,40 @@ export function CardPreviewLayer() {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anchor, prefer, anchorPadding]);
+  }, [anchor, prefer, anchorPadding, previewScale, scheduleUpdate, pickAndSetPosition]);
 
-  if (!anchor || !meta?.url) return null;
+  // Render nothing if no preview is active - but keep scale slider accessible via settings
+  if (!anchor || !meta?.url) {
+    return (
+      <PreviewScaleSlider
+        scale={previewScale}
+        onScaleChange={handleScaleChange}
+        show={showScaleSlider}
+        onToggle={() => setShowScaleSlider(s => !s)}
+      />
+    );
+  }
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        left: pos.left,
-        top: pos.top,
-        width: pos.w,
-        height: pos.h,
-        zIndex: 10000,
-        pointerEvents: 'none',
-        filter: 'drop-shadow(0 12px 24px rgba(0,0,0,0.6))',
-      }}
-    >
+    <>
+      <PreviewScaleSlider
+        scale={previewScale}
+        onScaleChange={handleScaleChange}
+        show={showScaleSlider}
+        onToggle={() => setShowScaleSlider(s => !s)}
+      />
+      <div
+        style={{
+          position: 'fixed',
+          left: pos.left,
+          top: pos.top,
+          width: pos.w,
+          height: pos.h,
+          zIndex: 10000,
+          pointerEvents: 'none',
+          filter: 'drop-shadow(0 12px 24px rgba(0,0,0,0.6))',
+        }}
+      >
       <img
         src={meta.url}
         alt={meta.name || ''}
@@ -249,6 +304,95 @@ export function CardPreviewLayer() {
       >
         <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{meta.name}</div>
       </div>
+    </div>
+    </>
+  );
+}
+
+/**
+ * Scale slider component for adjusting popup card size
+ */
+function PreviewScaleSlider({
+  scale,
+  onScaleChange,
+  show,
+  onToggle,
+}: {
+  scale: number;
+  onScaleChange: (scale: number) => void;
+  show: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        bottom: 8,
+        right: 8,
+        zIndex: 10001,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'flex-end',
+        gap: 4,
+        pointerEvents: 'auto',
+      }}
+    >
+      {show && (
+        <div
+          style={{
+            background: 'rgba(20, 20, 30, 0.9)',
+            borderRadius: 8,
+            padding: '10px 14px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+            color: '#fff',
+            fontSize: 12,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            minWidth: 180,
+          }}
+        >
+          <div style={{ fontWeight: 600, fontSize: 13 }}>Card Preview Size</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ opacity: 0.7, fontSize: 11 }}>Small</span>
+            <input
+              type="range"
+              min={MIN_PREVIEW_SCALE}
+              max={MAX_PREVIEW_SCALE}
+              step={0.05}
+              value={scale}
+              onChange={(e) => onScaleChange(parseFloat(e.target.value))}
+              style={{
+                flex: 1,
+                accentColor: '#3b82f6',
+              }}
+            />
+            <span style={{ opacity: 0.7, fontSize: 11 }}>Large</span>
+          </div>
+          <div style={{ textAlign: 'center', fontSize: 11, opacity: 0.8 }}>
+            {Math.round(scale * 100)}%
+          </div>
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={onToggle}
+        style={{
+          background: show ? '#3b82f6' : 'rgba(30, 30, 40, 0.9)',
+          border: '1px solid rgba(255,255,255,0.2)',
+          borderRadius: 6,
+          padding: '6px 10px',
+          color: '#fff',
+          fontSize: 11,
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+        }}
+        title="Adjust card preview size"
+      >
+        🔍 Preview Size
+      </button>
     </div>
   );
 }
