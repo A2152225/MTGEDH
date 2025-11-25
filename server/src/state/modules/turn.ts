@@ -290,6 +290,39 @@ export function nextTurn(ctx: GameContext) {
 }
 
 /**
+ * Clear the mana pool for all players.
+ * Called when phases change, as mana empties from pools at the end of each step/phase.
+ */
+function clearManaPool(ctx: GameContext) {
+  try {
+    if (!(ctx as any).state) return;
+    
+    const players = Array.isArray((ctx as any).state.players)
+      ? (ctx as any).state.players.map((p: any) => p.id)
+      : [];
+    
+    if (!players.length) return;
+    
+    (ctx as any).state.manaPool = (ctx as any).state.manaPool || {};
+    
+    for (const pid of players) {
+      (ctx as any).state.manaPool[pid] = {
+        white: 0,
+        blue: 0,
+        black: 0,
+        red: 0,
+        green: 0,
+        colorless: 0,
+      };
+    }
+    
+    console.log(`${ts()} [clearManaPool] Cleared mana pools for all players`);
+  } catch (err) {
+    console.warn(`${ts()} clearManaPool failed:`, err);
+  }
+}
+
+/**
  * nextStep: advance to next step within the current turn
  * Simple progression through main phases and steps.
  * Full step/phase automation would be more complex, but this provides basic progression.
@@ -366,6 +399,12 @@ export function nextStep(ctx: GameContext) {
     // Update phase and step
     (ctx as any).state.phase = nextPhase;
     (ctx as any).state.step = nextStep;
+
+    // Clear mana pool when phase changes (Rule 106.4)
+    // Mana empties from mana pools at the end of each step and phase
+    if (nextPhase !== currentPhase) {
+      clearManaPool(ctx);
+    }
 
     console.log(
       `${ts()} [nextStep] Advanced to phase=${nextPhase}, step=${nextStep}`

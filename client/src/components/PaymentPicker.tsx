@@ -1,71 +1,20 @@
 import React, { useMemo } from 'react';
 import type { PaymentItem, ManaColor } from '../../../shared/src';
-
-type Color = ManaColor;
-
-// Constants
-const MANA_COLORS: readonly Color[] = ['W', 'U', 'B', 'R', 'G', 'C'] as const;
-
-interface OtherCardInfo {
-  id: string;
-  name: string;
-  mana_cost?: string;
-}
-
-function parseManaCost(manaCost?: string): { colors: Record<Color, number>; generic: number; hybrids: Color[][]; hasX: boolean } {
-  const res: { colors: Record<Color, number>; generic: number; hybrids: Color[][]; hasX: boolean } =
-    { colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 }, generic: 0, hybrids: [], hasX: false };
-  if (!manaCost) return res;
-  const tokens = manaCost.match(/\{[^}]+\}/g) || [];
-  for (const t of tokens) {
-    const sym = t.replace(/[{}]/g, '').toUpperCase();
-    if (sym === 'X') { res.hasX = true; continue; }
-    if (/^\d+$/.test(sym)) { res.generic += parseInt(sym, 10); continue; }
-    if (sym.includes('/')) {
-      const parts = sym.split('/');
-      if (parts.length === 2 && parts[1] === 'P') {
-        const c = parts[0] as Color;
-        if (MANA_COLORS.includes(c)) res.colors[c] += 1;
-        continue;
-      }
-      if (parts.length === 2 && MANA_COLORS.includes(parts[0] as Color) && MANA_COLORS.includes(parts[1] as Color)) {
-        res.hybrids.push([parts[0] as Color, parts[1] as Color]);
-        continue;
-      }
-      // two-brid fallback: treat numeric as generic
-      const num = parseInt(parts[0], 10);
-      if (!Number.isNaN(num)) { res.generic += num; continue; }
-    }
-    if (MANA_COLORS.includes(sym as Color)) {
-      res.colors[sym as Color] += 1;
-      continue;
-    }
-  }
-  return res;
-}
-
-function paymentToPool(payment: PaymentItem[]): Record<Color, number> {
-  return payment.reduce<Record<Color, number>>((acc, p) => {
-    acc[p.mana] = (acc[p.mana] || 0) + 1;
-    return acc;
-  }, { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 });
-}
+import {
+  Color,
+  MANA_COLORS,
+  parseManaCost,
+  paymentToPool,
+  canPayCost,
+  computeColorsNeededByOtherCards,
+  calculateSuggestedPayment,
+  calculateRemainingCostAfterFloatingMana,
+  type OtherCardInfo,
+  type ManaPool,
+} from '../utils/manaUtils';
 
 function canPayEnhanced(cost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] }, pool: Record<Color, number>): boolean {
-  const left: Record<Color, number> = { W: pool.W, U: pool.U, B: pool.B, R: pool.R, G: pool.G, C: pool.C };
-  for (const c of MANA_COLORS) {
-    if (left[c] < cost.colors[c]) return false;
-    left[c] -= cost.colors[c];
-  }
-  for (const group of cost.hybrids) {
-    let satisfied = false;
-    for (const c of group) {
-      if (left[c] > 0) { left[c] -= 1; satisfied = true; break; }
-    }
-    if (!satisfied) return false;
-  }
-  const total = MANA_COLORS.reduce((a, c) => a + left[c], 0);
-  return total >= cost.generic;
+  return canPayCost(cost, pool);
 }
 
 function remainingAfter(cost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] }, pool: Record<Color, number>) {
@@ -127,125 +76,6 @@ function costBadge(label: string, n: number, variant: 'default' | 'selected' = '
   );
 }
 
-/**
- * Compute colors needed by other cards in hand (excluding the current spell)
- * This helps determine which colors to preserve when paying generic mana
- */
-function computeColorsNeededByOtherCards(otherCards: OtherCardInfo[]): Set<Color> {
-  const neededColors = new Set<Color>();
-  for (const card of otherCards) {
-    if (!card.mana_cost) continue;
-    const parsed = parseManaCost(card.mana_cost);
-    for (const c of MANA_COLORS) {
-      if (parsed.colors[c] > 0) neededColors.add(c);
-    }
-    // Also consider hybrid colors
-    for (const hybrid of parsed.hybrids) {
-      for (const c of hybrid) {
-        neededColors.add(c);
-      }
-    }
-  }
-  return neededColors;
-}
-
-/**
- * Calculate suggested payment: sources and colors to use
- * Returns a map of permanentId -> suggested color
- */
-function calculateSuggestedPayment(
-  cost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] },
-  sources: Array<{ id: string; name: string; options: Color[] }>,
-  colorsToPreserve: Set<Color>
-): Map<string, Color> {
-  const suggestions = new Map<string, Color>();
-  const costRemaining = { ...cost.colors };
-  let genericRemaining = cost.generic;
-  
-  // Track which sources we've used
-  const usedSources = new Set<string>();
-  
-  // First pass: assign sources for specific color requirements
-  for (const c of MANA_COLORS) {
-    if (costRemaining[c] <= 0) continue;
-    
-    for (const source of sources) {
-      if (usedSources.has(source.id)) continue;
-      if (!source.options.includes(c)) continue;
-      
-      suggestions.set(source.id, c);
-      usedSources.add(source.id);
-      costRemaining[c]--;
-      
-      if (costRemaining[c] <= 0) break;
-    }
-  }
-  
-  // Second pass: handle hybrid costs (pick the color that's less needed by other cards)
-  for (const hybrid of cost.hybrids) {
-    let bestColor: Color | null = null;
-    let bestSource: { id: string; name: string; options: Color[] } | null = null;
-    
-    for (const source of sources) {
-      if (usedSources.has(source.id)) continue;
-      
-      for (const c of hybrid) {
-        if (!source.options.includes(c)) continue;
-        
-        // Prefer colors NOT needed by other cards
-        if (bestColor === null || (!colorsToPreserve.has(c) && colorsToPreserve.has(bestColor))) {
-          bestColor = c;
-          bestSource = source;
-        }
-      }
-    }
-    
-    if (bestSource && bestColor) {
-      suggestions.set(bestSource.id, bestColor);
-      usedSources.add(bestSource.id);
-    }
-  }
-  
-  // Third pass: assign sources for generic cost
-  // Prefer sources that produce colors NOT needed by other cards
-  if (genericRemaining > 0) {
-    // Sort remaining sources: prefer single-color sources first, then prefer colors not needed by other cards
-    const remainingSources = sources.filter(s => !usedSources.has(s.id));
-    
-    remainingSources.sort((a, b) => {
-      // Single option sources first
-      if (a.options.length !== b.options.length) {
-        return a.options.length - b.options.length;
-      }
-      // Then prefer sources that don't produce colors needed by other cards
-      const aHasPreservedColor = a.options.some(c => colorsToPreserve.has(c));
-      const bHasPreservedColor = b.options.some(c => colorsToPreserve.has(c));
-      if (!aHasPreservedColor && bHasPreservedColor) return -1;
-      if (aHasPreservedColor && !bHasPreservedColor) return 1;
-      return 0;
-    });
-    
-    for (const source of remainingSources) {
-      if (genericRemaining <= 0) break;
-      
-      // Pick the color least needed by other cards
-      let bestColor = source.options[0];
-      for (const c of source.options) {
-        if (!colorsToPreserve.has(c)) {
-          bestColor = c;
-          break;
-        }
-      }
-      
-      suggestions.set(source.id, bestColor);
-      usedSources.add(source.id);
-      genericRemaining--;
-    }
-  }
-  
-  return suggestions;
-}
-
 export function PaymentPicker(props: {
   manaCost?: string;
   manaCostDisplay?: string;
@@ -255,25 +85,38 @@ export function PaymentPicker(props: {
   onChangeX?: (x: number) => void;
   onChange: (next: PaymentItem[]) => void;
   otherCardsInHand?: OtherCardInfo[];
+  floatingMana?: ManaPool;
 }) {
-  const { manaCost, manaCostDisplay, sources, chosen, xValue = 0, onChangeX, onChange, otherCardsInHand = [] } = props;
+  const { manaCost, manaCostDisplay, sources, chosen, xValue = 0, onChangeX, onChange, otherCardsInHand = [], floatingMana } = props;
 
   const parsed = useMemo(() => parseManaCost(manaCost), [manaCost]);
   const cost = useMemo(() => ({ colors: parsed.colors, generic: parsed.generic + Math.max(0, Number(xValue || 0) | 0), hybrids: parsed.hybrids }), [parsed, xValue]);
+  
+  // Calculate remaining cost after floating mana
+  const { colors: costAfterFloating, generic: genericAfterFloating, hybrids: hybridsAfterFloating } = useMemo(() => 
+    calculateRemainingCostAfterFloatingMana(cost, floatingMana), 
+    [cost, floatingMana]
+  );
+  const costForPayment = useMemo(() => ({ 
+    colors: costAfterFloating, 
+    generic: genericAfterFloating, 
+    hybrids: hybridsAfterFloating 
+  }), [costAfterFloating, genericAfterFloating, hybridsAfterFloating]);
+  
   const pool = useMemo(() => paymentToPool(chosen), [chosen]);
-  const satisfied = useMemo(() => canPayEnhanced(cost, pool), [cost, pool]);
-  const remaining = useMemo(() => remainingAfter(cost, pool), [cost, pool]);
+  const satisfied = useMemo(() => canPayEnhanced(costForPayment, pool), [costForPayment, pool]);
+  const remaining = useMemo(() => remainingAfter(costForPayment, pool), [costForPayment, pool]);
 
   const chosenById = useMemo(() => new Set(chosen.map(p => p.permanentId)), [chosen]);
 
   // Calculate colors needed by other cards in hand
   const colorsToPreserve = useMemo(() => computeColorsNeededByOtherCards(otherCardsInHand), [otherCardsInHand]);
   
-  // Calculate suggested payment when no sources have been chosen yet
+  // Calculate suggested payment when no sources have been chosen yet (considers floating mana)
   const suggestedPayment = useMemo(() => {
     if (chosen.length > 0) return new Map<string, Color>();
-    return calculateSuggestedPayment(cost, sources, colorsToPreserve);
-  }, [cost, sources, colorsToPreserve, chosen.length]);
+    return calculateSuggestedPayment(cost, sources, colorsToPreserve, floatingMana);
+  }, [cost, sources, colorsToPreserve, chosen.length, floatingMana]);
 
   const add = (permanentId: string, mana: Color) => {
     if (chosenById.has(permanentId)) return; // one per source
@@ -285,10 +128,10 @@ export function PaymentPicker(props: {
   const clear = () => onChange([]);
 
   const doAutoSelect = () => {
-    // Use the suggested payment to auto-fill
+    // Use the suggested payment to auto-fill (considers floating mana)
     if (suggestedPayment.size === 0) {
       // Recalculate if already chosen some
-      const newSuggested = calculateSuggestedPayment(cost, sources, colorsToPreserve);
+      const newSuggested = calculateSuggestedPayment(cost, sources, colorsToPreserve, floatingMana);
       const newPayment: PaymentItem[] = [];
       for (const [permanentId, mana] of newSuggested.entries()) {
         newPayment.push({ permanentId, mana });

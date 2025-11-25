@@ -33,6 +33,7 @@ export function viewFor(ctx: GameContext, viewer?: PlayerID, spectator = false):
     turn: state.turn,
     activePlayerIndex: state.activePlayerIndex,
     landsPlayedThisTurn: state.landsPlayedThisTurn ? { ...state.landsPlayedThisTurn } : undefined,
+    manaPool: state.manaPool ? { ...state.manaPool } : undefined,
   };
 
   const zones = (ctx as any).zones || {};
