@@ -5,6 +5,7 @@ import {
   fetchCardByExactNameStrict,
   validateDeck,
   normalizeName,
+  shouldSkipDeckLine,
 } from "../services/scryfall";
 import { ensureGame, broadcastGame } from "./util";
 import { appendEvent } from "../db";
@@ -1992,8 +1993,10 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           const parsed = parseDecklist(list);
           cardCount = parsed.reduce((sum, p) => sum + (p.count || 0), 0);
         } catch (e) {
-          console.warn("saveDeck: parseDecklist failed", e);
-          cardCount = list.split(/\r?\n/).filter((l) => l.trim()).length;
+          console.warn("saveDeck: parseDecklist failed, using line count estimate", e);
+          // Fallback: count non-empty, non-comment, non-section-header lines
+          const lines = list.split(/\r?\n/).filter((l) => !shouldSkipDeckLine(l));
+          cardCount = lines.length;
         }
 
         // Get player name from game state

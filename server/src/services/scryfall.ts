@@ -53,6 +53,20 @@ export function normalizeName(s: string) {
 }
 
 /**
+ * Check if a line should be skipped during deck parsing.
+ * This includes sideboard markers, comments, and section headers.
+ */
+export function shouldSkipDeckLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) return true;
+  // Skip sideboard markers and comments
+  if (/^(SB:|SIDEBOARD|\/\/|#)/i.test(trimmed)) return true;
+  // Skip section headers
+  if (/^(DECK|COMMANDER|MAINBOARD|MAYBEBOARD|CONSIDERING)$/i.test(trimmed)) return true;
+  return false;
+}
+
+/**
  * Strip Moxfield/Scryfall-style set and collector number suffixes from a card name.
  * Handles patterns like:
  *   - "Sol Ring (C14) 276" -> "Sol Ring"
@@ -94,11 +108,8 @@ export function parseDecklist(list: string): ParsedLine[] {
   const acc = new Map<string, number>();
 
   for (const raw of lines) {
-    // Skip sideboard markers and comments
-    if (/^(SB:|SIDEBOARD|\/\/|#)/i.test(raw)) continue;
-    
-    // Skip empty lines and section headers (e.g., "Deck", "Commander", "Mainboard")
-    if (/^(DECK|COMMANDER|MAINBOARD|MAYBEBOARD|CONSIDERING)$/i.test(raw.trim())) continue;
+    // Skip sideboard markers, comments, section headers, and empty lines
+    if (shouldSkipDeckLine(raw)) continue;
 
     let name = "";
     let count = 1;

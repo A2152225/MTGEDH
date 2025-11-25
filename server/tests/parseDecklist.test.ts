@@ -1,5 +1,35 @@
 import { describe, it, expect } from 'vitest';
-import { parseDecklist } from '../src/services/scryfall';
+import { parseDecklist, shouldSkipDeckLine } from '../src/services/scryfall';
+
+describe('shouldSkipDeckLine', () => {
+  it('returns true for empty lines', () => {
+    expect(shouldSkipDeckLine('')).toBe(true);
+    expect(shouldSkipDeckLine('   ')).toBe(true);
+  });
+
+  it('returns true for sideboard markers', () => {
+    expect(shouldSkipDeckLine('SB: 1 Counterspell')).toBe(true);
+    expect(shouldSkipDeckLine('SIDEBOARD')).toBe(true);
+  });
+
+  it('returns true for comments', () => {
+    expect(shouldSkipDeckLine('// comment')).toBe(true);
+    expect(shouldSkipDeckLine('# another comment')).toBe(true);
+  });
+
+  it('returns true for section headers', () => {
+    expect(shouldSkipDeckLine('Deck')).toBe(true);
+    expect(shouldSkipDeckLine('Commander')).toBe(true);
+    expect(shouldSkipDeckLine('Mainboard')).toBe(true);
+    expect(shouldSkipDeckLine('MAYBEBOARD')).toBe(true);
+  });
+
+  it('returns false for valid card lines', () => {
+    expect(shouldSkipDeckLine('1 Sol Ring')).toBe(false);
+    expect(shouldSkipDeckLine('Sol Ring')).toBe(false);
+    expect(shouldSkipDeckLine('1 Sol Ring (C14) 276')).toBe(false);
+  });
+});
 
 describe('parseDecklist', () => {
   describe('basic formats', () => {
