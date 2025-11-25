@@ -1,5 +1,5 @@
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, appendGameEvent } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS } from "./util";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem } from "../../shared/src";
@@ -89,6 +89,16 @@ export function registerGameActions(io: Server, socket: Socket) {
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
+      // Check if we're in PRE_GAME phase - spells cannot be cast during pre-game
+      const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
+      if (phaseStr === "" || phaseStr === "PRE_GAME") {
+        socket.emit("error", {
+          code: "PREGAME_NO_CAST",
+          message: "Cannot cast spells during pre-game. Start the game first by claiming turn and advancing to main phase.",
+        });
+        return;
+      }
+
       // Check priority - only player with priority can cast spells
       if (game.state.priority !== playerId) {
         socket.emit("error", {
@@ -127,16 +137,74 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
+      // Parse the mana cost to validate payment
+      const manaCost = cardInHand.mana_cost || "";
+      const parsedCost = parseManaCost(manaCost);
+      
+      // Calculate total mana cost for spell from hand
+      const totalGeneric = parsedCost.generic;
+      const totalColored = parsedCost.colors;
+      
+      // Calculate what payment provides
+      const paymentColors: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
+      if (payment && payment.length > 0) {
+        for (const p of payment) {
+          paymentColors[p.mana] = (paymentColors[p.mana] || 0) + 1;
+        }
+      }
+      
+      // Check if payment is sufficient
+      let usedForColoredCosts = 0;
+      const missingColors: string[] = [];
+      
+      // First check colored requirements
+      for (const color of MANA_COLORS) {
+        const needed = totalColored[color] || 0;
+        const provided = paymentColors[color] || 0;
+        if (provided < needed) {
+          missingColors.push(`${needed - provided} ${getManaColorName(color)}`);
+        }
+        // Only count the mana actually used to satisfy colored cost, not excess
+        usedForColoredCosts += Math.min(needed, provided);
+      }
+      
+      // Calculate leftover mana available for generic cost (total paid minus what was used for colored)
+      const totalPaidMana = Object.values(paymentColors).reduce((a: number, b: number) => a + b, 0);
+      const leftoverManaForGeneric = totalPaidMana - usedForColoredCosts;
+      const missingGeneric = Math.max(0, totalGeneric - leftoverManaForGeneric);
+      
+      // Calculate total required cost
+      const coloredCostTotal = Object.values(totalColored).reduce((a: number, b: number) => a + b, 0);
+      
+      // Only validate payment if spell has a non-zero cost
+      const totalCost = coloredCostTotal + totalGeneric;
+      if (totalCost > 0) {
+        if (missingColors.length > 0 || missingGeneric > 0) {
+          let errorMsg = "Insufficient mana to cast this spell.";
+          if (missingColors.length > 0) {
+            errorMsg += ` Missing: ${missingColors.join(', ')}.`;
+          }
+          if (missingGeneric > 0) {
+            errorMsg += ` Missing ${missingGeneric} generic mana.`;
+          }
+          socket.emit("error", {
+            code: "INSUFFICIENT_MANA",
+            message: errorMsg,
+          });
+          return;
+        }
+      }
+
       // Handle mana payment: tap permanents to generate mana
       if (payment && payment.length > 0) {
         console.log(`[castSpellFromHand] Processing payment for ${cardInHand.name}:`, payment);
         
-        // Get player's battlefield
-        const battlefield = zones.battlefield || [];
+        // Get global battlefield (not zones.battlefield which may not exist)
+        const globalBattlefield = game.state?.battlefield || [];
         
         // Process each payment item: tap the permanent and add mana to pool
         for (const { permanentId, mana } of payment) {
-          const permanent = battlefield.find((p: any) => p?.id === permanentId);
+          const permanent = globalBattlefield.find((p: any) => p?.id === permanentId && p?.controller === playerId);
           
           if (!permanent) {
             socket.emit("error", {
@@ -149,7 +217,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           if ((permanent as any).tapped) {
             socket.emit("error", {
               code: "PAYMENT_SOURCE_TAPPED",
-              message: `${(permanent as any).name || 'Permanent'} is already tapped`,
+              message: `${(permanent as any).card?.name || 'Permanent'} is already tapped`,
             });
             return;
           }
@@ -176,7 +244,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           const poolKey = manaColorMap[mana];
           if (poolKey) {
             game.state.manaPool[playerId][poolKey]++;
-            console.log(`[castSpellFromHand] Added ${mana} mana to ${playerId}'s pool from ${(permanent as any).name}`);
+            console.log(`[castSpellFromHand] Added ${mana} mana to ${playerId}'s pool from ${(permanent as any).card?.name || permanentId}`);
           }
         }
         
