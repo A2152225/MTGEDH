@@ -96,4 +96,163 @@ export function getCreatureTypesByLetter(letter: string): CreatureType[] {
   return CREATURE_TYPES.filter(type => type.startsWith(upperLetter));
 }
 
+/**
+ * Check if a card/permanent has a specific creature type.
+ * This correctly handles:
+ * - Creatures with the type in their type line (e.g., "Creature — Merfolk Wizard")
+ * - Tribal/Kindred cards with the type (e.g., "Tribal Enchantment — Merfolk", "Kindred Instant — Goblin")
+ * - Changelings (have all creature types via oracle text or type line)
+ * - Cards with "all creature types" or "is every creature type" effects
+ * 
+ * @param typeLine - The card's type line (e.g., "Creature — Merfolk Wizard")
+ * @param oracleText - The card's oracle text (used to detect changeling)
+ * @param creatureType - The creature type to check for (case-insensitive)
+ * @returns true if the card has the specified creature type
+ */
+export function cardHasCreatureType(
+  typeLine: string | undefined | null,
+  oracleText: string | undefined | null,
+  creatureType: string
+): boolean {
+  if (!typeLine) return false;
+  
+  const typeLineLower = typeLine.toLowerCase();
+  const oracleTextLower = (oracleText || "").toLowerCase();
+  const creatureTypeLower = creatureType.toLowerCase();
+  
+  // Check for changeling (has all creature types)
+  // Rule 702.73: "Changeling" means "This object is every creature type."
+  if (oracleTextLower.includes("changeling") || typeLineLower.includes("changeling")) {
+    return true;
+  }
+  
+  // Check for "all creature types" or "is every creature type" effects
+  if (oracleTextLower.includes("all creature types") || 
+      oracleTextLower.includes("is every creature type") ||
+      oracleTextLower.includes("has all creature types")) {
+    return true;
+  }
+  
+  // Check if the type line contains the creature type after the em-dash
+  // This works for:
+  // - "Creature — Merfolk Wizard"
+  // - "Tribal Enchantment — Merfolk"
+  // - "Kindred Instant — Goblin"
+  // - "Legendary Creature — Merfolk Wizard"
+  
+  // Find the dash separator (could be em-dash, en-dash, or hyphen)
+  const dashIndex = typeLineLower.indexOf("—") !== -1 
+    ? typeLineLower.indexOf("—") 
+    : typeLineLower.indexOf("–") !== -1
+      ? typeLineLower.indexOf("–")
+      : typeLineLower.indexOf("-");
+  
+  if (dashIndex !== -1) {
+    // Get the subtypes portion (after the dash)
+    const subtypesPortion = typeLineLower.slice(dashIndex + 1).trim();
+    // Split by spaces and check if any word matches the creature type
+    const subtypes = subtypesPortion.split(/\s+/);
+    if (subtypes.some(subtype => subtype === creatureTypeLower)) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * Extract all creature types from a card's type line.
+ * Handles Tribal/Kindred cards and returns an empty array for non-creature cards
+ * that don't have a tribal component.
+ * 
+ * @param typeLine - The card's type line
+ * @param oracleText - The card's oracle text (for changeling detection)
+ * @returns Array of creature types found on the card
+ */
+export function extractCreatureTypes(
+  typeLine: string | undefined | null,
+  oracleText?: string | undefined | null
+): string[] {
+  if (!typeLine) return [];
+  
+  const typeLineLower = typeLine.toLowerCase();
+  const oracleTextLower = (oracleText || "").toLowerCase();
+  
+  // Check if this card could have creature types
+  const hasCreatureTypes = typeLineLower.includes("creature") || 
+                           typeLineLower.includes("tribal") ||
+                           typeLineLower.includes("kindred");
+  
+  if (!hasCreatureTypes) return [];
+  
+  // For changelings, return all creature types
+  if (oracleTextLower.includes("changeling") || 
+      typeLineLower.includes("changeling") ||
+      oracleTextLower.includes("all creature types") ||
+      oracleTextLower.includes("is every creature type")) {
+    return [...CREATURE_TYPES];
+  }
+  
+  // Find the dash separator
+  const dashIndex = typeLine.indexOf("—") !== -1 
+    ? typeLine.indexOf("—") 
+    : typeLine.indexOf("–") !== -1
+      ? typeLine.indexOf("–")
+      : typeLine.indexOf("-");
+  
+  if (dashIndex === -1) return [];
+  
+  // Get the subtypes portion and split by spaces
+  const subtypesPortion = typeLine.slice(dashIndex + 1).trim();
+  const words = subtypesPortion.split(/\s+/);
+  
+  // Filter to only valid creature types
+  return words.filter(word => 
+    CREATURE_TYPES.some(ct => ct.toLowerCase() === word.toLowerCase())
+  );
+}
+
+/**
+ * Check if a permanent (battlefield object) has a specific creature type.
+ * Convenience wrapper for cardHasCreatureType that works with permanent objects.
+ * 
+ * @param permanent - A battlefield permanent with a card property
+ * @param creatureType - The creature type to check for
+ * @returns true if the permanent has the specified creature type
+ */
+export function permanentHasCreatureType(
+  permanent: { card?: { type_line?: string; oracle_text?: string } } | null | undefined,
+  creatureType: string
+): boolean {
+  if (!permanent?.card) return false;
+  return cardHasCreatureType(
+    permanent.card.type_line,
+    permanent.card.oracle_text,
+    creatureType
+  );
+}
+
+/**
+ * Find all permanents controlled by a player that have a specific creature type.
+ * Includes Tribal cards, Kindred cards, and Changelings.
+ * 
+ * @param battlefield - Array of battlefield permanents
+ * @param playerId - The controller to filter by
+ * @param creatureType - The creature type to filter by
+ * @param untappedOnly - If true, only return untapped permanents (for cost payment)
+ * @returns Array of permanents matching the criteria
+ */
+export function findPermanentsWithCreatureType(
+  battlefield: any[],
+  playerId: string,
+  creatureType: string,
+  untappedOnly: boolean = false
+): any[] {
+  return battlefield.filter((perm: any) => {
+    if (!perm || perm.controller !== playerId) return false;
+    if (untappedOnly && perm.tapped) return false;
+    return permanentHasCreatureType(perm, creatureType);
+  });
+}
+
 export default CREATURE_TYPES;

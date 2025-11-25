@@ -714,6 +714,14 @@ export function TableLayout(props: {
                           selectedTargets={selectedPermTargets}
                           onCardClick={onPermanentClick}
                           players={players.map(p => ({ id: p.id, name: p.name }))}
+                          onTap={isYouThis && gameId ? (id) => socket.emit('tapPermanent', { gameId, permanentId: id }) : undefined}
+                          onUntap={isYouThis && gameId ? (id) => socket.emit('untapPermanent', { gameId, permanentId: id }) : undefined}
+                          onActivateAbility={isYouThis && gameId ? (permanentId, abilityId) => socket.emit('activateBattlefieldAbility', { gameId, permanentId, abilityId }) : undefined}
+                          onAddCounter={isYouThis ? onCounter : undefined}
+                          onSacrifice={isYouThis && gameId ? (id) => socket.emit('sacrificePermanent', { gameId, permanentId: id }) : undefined}
+                          onRemove={isYouThis ? onRemove : undefined}
+                          canActivate={isYouThis}
+                          playerId={isYouThis ? you : undefined}
                         />
 
                         {lands.length > 0 && (
@@ -737,6 +745,12 @@ export function TableLayout(props: {
                               onCardClick={onPermanentClick}
                               onRemove={isYouPlayer ? onRemove : undefined}
                               onCounter={isYouPlayer ? onCounter : undefined}
+                              onTap={isYouThis && gameId ? (id) => socket.emit('tapPermanent', { gameId, permanentId: id }) : undefined}
+                              onUntap={isYouThis && gameId ? (id) => socket.emit('untapPermanent', { gameId, permanentId: id }) : undefined}
+                              onActivateAbility={isYouThis && gameId ? (permanentId, abilityId) => socket.emit('activateBattlefieldAbility', { gameId, permanentId, abilityId }) : undefined}
+                              onSacrifice={isYouThis && gameId ? (id) => socket.emit('sacrificePermanent', { gameId, permanentId: id }) : undefined}
+                              canActivate={isYouThis}
+                              playerId={isYouThis ? you : undefined}
                             />
                           </div>
                         )}
