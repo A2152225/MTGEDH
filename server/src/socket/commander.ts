@@ -16,7 +16,7 @@
  */
 
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, emitStateToSocket, parseManaCost, getManaColorName, MANA_COLORS } from "./util";
+import { ensureGame, broadcastGame, emitStateToSocket, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool } from "./util";
 import { appendEvent } from "../db";
 import { fetchCardByExactNameStrict } from "../services/scryfall";
 import type { PlayerID } from "../../shared/src";
@@ -553,49 +553,9 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           }
         }
         
-        // Now consume the mana from the pool to pay for the spell
-        // This leaves unspent mana in the pool for subsequent spells
+        // Consume mana from pool to pay for the spell (leaves unspent mana for subsequent spells)
         const pool = game.state.manaPool[pid] as Record<string, number>;
-        const manaColorMap: Record<string, string> = {
-          'W': 'white', 'U': 'blue', 'B': 'black', 'R': 'red', 'G': 'green', 'C': 'colorless'
-        };
-        
-        // First, consume colored mana requirements
-        for (const color of MANA_COLORS) {
-          const colorKey = manaColorMap[color];
-          const needed = totalColored[color] || 0;
-          if (needed > 0 && colorKey && pool[colorKey] >= needed) {
-            pool[colorKey] -= needed;
-            console.log(`[castCommander] Consumed ${needed} ${color} mana from pool`);
-          }
-        }
-        
-        // Then, consume generic mana (use any available mana, preferring colorless first)
-        let genericLeft = totalGeneric;
-        // First use colorless
-        if (genericLeft > 0 && pool.colorless > 0) {
-          const useColorless = Math.min(pool.colorless, genericLeft);
-          pool.colorless -= useColorless;
-          genericLeft -= useColorless;
-          console.log(`[castCommander] Consumed ${useColorless} colorless mana for generic cost`);
-        }
-        // Then use other colors
-        for (const color of MANA_COLORS) {
-          if (genericLeft <= 0) break;
-          const colorKey = manaColorMap[color];
-          if (colorKey && pool[colorKey] > 0) {
-            const useColor = Math.min(pool[colorKey], genericLeft);
-            pool[colorKey] -= useColor;
-            genericLeft -= useColor;
-            console.log(`[castCommander] Consumed ${useColor} ${color} mana for generic cost`);
-          }
-        }
-        
-        // Log remaining mana in pool
-        const remainingMana = Object.entries(pool).filter(([_, v]) => v > 0).map(([k, v]) => `${v} ${k}`).join(', ');
-        if (remainingMana) {
-          console.log(`[castCommander] Unspent mana remaining in pool: ${remainingMana}`);
-        }
+        consumeManaFromPool(pool, totalColored, totalGeneric, '[castCommander]');
       }
       
       // Add commander to stack (simplified - real implementation would handle costs, targets, etc.)
