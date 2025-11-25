@@ -110,11 +110,21 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [] }
     }
   }, [open]);
 
+  /**
+   * Sanitize game ID to only allow alphanumeric, underscore, and hyphen
+   */
+  const sanitizeGameId = (input: string): string => {
+    return input.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 50);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Sanitize and validate game ID
+    const sanitizedGameId = sanitizeGameId(gameId.trim()) || `game_${Date.now().toString(36)}`;
+    
     const config: GameCreationConfig = {
-      gameId: gameId.trim() || `game_${Date.now().toString(36)}`,
+      gameId: sanitizedGameId,
       playerName: playerName.trim() || 'Player',
       format,
       startingLife,
@@ -186,8 +196,9 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [] }
             <input
               type="text"
               value={gameId}
-              onChange={(e) => setGameId(e.target.value)}
+              onChange={(e) => setGameId(sanitizeGameId(e.target.value))}
               placeholder="Enter game ID"
+              maxLength={50}
               style={{
                 width: '100%',
                 padding: '8px 12px',
@@ -197,6 +208,9 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [] }
                 boxSizing: 'border-box',
               }}
             />
+            <div style={{ marginTop: 4, fontSize: 11, color: '#888' }}>
+              Only letters, numbers, underscores, and hyphens allowed
+            </div>
           </div>
 
           {/* Player Name */}

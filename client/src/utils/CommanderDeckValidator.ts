@@ -128,10 +128,13 @@ export function getCardColorIdentity(card: CardWithInfo): ManaColor[] {
 
 /**
  * Check if a card is a basic land
+ * Basic land type line format: "Basic Land — Forest" or "Basic Snow Land — Island"
  */
 export function isBasicLand(card: CardWithInfo): boolean {
   const typeLine = (card.type_line || '').toLowerCase();
-  return typeLine.includes('basic') && typeLine.includes('land');
+  // Must have "basic" as a supertype (before the em dash) and "land" as a type
+  // This avoids matching cards with "basic" in ability text like "Basic Landcycling"
+  return /\bbasic\b.*\bland\b/i.test(typeLine);
 }
 
 /**
@@ -163,13 +166,25 @@ export function canBeCommander(card: CardWithInfo): boolean {
 }
 
 /**
- * Check if a card has Partner ability
+ * Check if a card has generic Partner ability (can partner with any Partner)
+ * Note: "Partner with [Name]" is a DIFFERENT ability - those cards can only partner
+ * with their specific named partner
  */
 export function hasPartner(card: CardWithInfo): boolean {
   const oracleText = (card.oracle_text || '').toLowerCase();
-  // "Partner" but not "Partner with [specific name]"
-  return /\bpartner\b(?!\s+with\s+)/i.test(oracleText) || 
-         oracleText.includes('partner with');
+  // Match "Partner" but NOT "Partner with [something]"
+  // Generic Partner appears as standalone "Partner" keyword
+  return /\bpartner\b(?!\s+with\b)/i.test(oracleText);
+}
+
+/**
+ * Check if a card has "Partner with [Name]" ability
+ * These can only partner with their specific named partner
+ */
+export function hasPartnerWith(card: CardWithInfo): string | null {
+  const oracleText = (card.oracle_text || '');
+  const match = oracleText.match(/Partner with ([^(.\n]+)/i);
+  return match ? match[1].trim() : null;
 }
 
 /**
@@ -244,12 +259,26 @@ export function validateCommanderDeck(
     const [cmd1, cmd2] = commanders;
     const cmd1HasPartner = hasPartner(cmd1);
     const cmd2HasPartner = hasPartner(cmd2);
+    const cmd1PartnerWith = hasPartnerWith(cmd1);
+    const cmd2PartnerWith = hasPartnerWith(cmd2);
     const cmd1HasBackground = hasChooseABackground(cmd1);
     const cmd2IsBackground = isBackground(cmd2);
+    const cmd2HasBackground = hasChooseABackground(cmd2);
+    const cmd1IsBackground = isBackground(cmd1);
     
-    const validPartners = 
-      (cmd1HasPartner && cmd2HasPartner) || 
-      (cmd1HasBackground && cmd2IsBackground);
+    // Valid pairings:
+    // 1. Both have generic Partner
+    // 2. One has "Partner with [Name]" that matches the other's name
+    // 3. One has "Choose a Background" and the other is a Background
+    const genericPartnerPair = cmd1HasPartner && cmd2HasPartner;
+    const partnerWithPair = 
+      (cmd1PartnerWith && cmd1PartnerWith.toLowerCase() === cmd2.name.toLowerCase()) ||
+      (cmd2PartnerWith && cmd2PartnerWith.toLowerCase() === cmd1.name.toLowerCase());
+    const backgroundPair = 
+      (cmd1HasBackground && cmd2IsBackground) ||
+      (cmd2HasBackground && cmd1IsBackground);
+    
+    const validPartners = genericPartnerPair || partnerWithPair || backgroundPair;
     
     if (!validPartners) {
       errors.push({
