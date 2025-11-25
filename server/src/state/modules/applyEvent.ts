@@ -407,13 +407,29 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       }
 
       case "setCommander": {
+        const pid = (e as any).playerId;
+        // Check hand count BEFORE calling setCommander to know if we need opening draw
+        const zonesBefore = ctx.zones?.[pid];
+        const handCountBefore = zonesBefore
+          ? (typeof zonesBefore.handCount === "number" ? zonesBefore.handCount : (Array.isArray(zonesBefore.hand) ? zonesBefore.hand.length : 0))
+          : 0;
+        
         setCommander(
           ctx as any,
-          (e as any).playerId,
+          pid,
           (e as any).commanderNames || [],
           (e as any).commanderIds || [],
           (e as any).colorIdentity || []
         );
+        
+        // For backward compatibility with old games that don't have separate shuffle/draw events:
+        // If hand was empty before and is still empty after setCommander, we need to check if
+        // the next events include shuffleLibrary/drawCards. If not, we'll do it here.
+        // This flag can be checked by the replay function to decide.
+        // For now, mark that setCommander was called with empty hand for potential follow-up.
+        if (handCountBefore === 0) {
+          (ctx as any)._setCommanderCalledWithEmptyHand = pid;
+        }
         break;
       }
 
@@ -560,6 +576,20 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "mulligan": {
+        // Mulligan: move hand to library, shuffle, draw 7
+        const pid = (e as any).playerId;
+        if (!pid) break;
+        try {
+          moveHandToLibrary(ctx as any, pid);
+          shuffleLibrary(ctx as any, pid);
+          drawCards(ctx as any, pid, 7);
+        } catch (err) {
+          console.warn("applyEvent(mulligan): failed", err);
+        }
+        break;
+      }
+
       default: {
         console.warn("applyEvent: unknown event type", (e as any).type);
         break;
@@ -573,9 +603,36 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 /**
  * Replay a sequence of persisted events into ctx.
  * Special-case passPriority events to call passPriority directly for safety.
+ * 
+ * Also handles backward compatibility for old games that don't have explicit
+ * shuffleLibrary/drawCards events after setCommander.
  */
 export function replay(ctx: GameContext, events: GameEvent[]) {
   if (!Array.isArray(events)) return;
+  
+  // Track which events are present to detect old-style event sequences
+  const hasShuffleAfterSetCommander = new Set<string>();
+  const hasDrawAfterSetCommander = new Set<string>();
+  let lastSetCommanderPlayer: string | null = null;
+  
+  // First pass: detect what events exist after each setCommander
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i];
+    if (!e || typeof e.type !== "string") continue;
+    
+    if (e.type === "setCommander") {
+      lastSetCommanderPlayer = (e as any).playerId;
+    } else if (lastSetCommanderPlayer) {
+      if (e.type === "shuffleLibrary" && (e as any).playerId === lastSetCommanderPlayer) {
+        hasShuffleAfterSetCommander.add(lastSetCommanderPlayer);
+      }
+      if (e.type === "drawCards" && (e as any).playerId === lastSetCommanderPlayer) {
+        hasDrawAfterSetCommander.add(lastSetCommanderPlayer);
+      }
+    }
+  }
+  
+  // Second pass: apply events
   for (const e of events) {
     if (!e || typeof e.type !== "string") continue;
     if (e.type === "passPriority") {
@@ -588,6 +645,36 @@ export function replay(ctx: GameContext, events: GameEvent[]) {
       continue;
     }
     applyEvent(ctx, e);
+    
+    // Backward compatibility: if setCommander was called and there are no subsequent
+    // shuffleLibrary/drawCards events for this player, do them now
+    if (e.type === "setCommander") {
+      const pid = (e as any).playerId;
+      const needsShuffle = !hasShuffleAfterSetCommander.has(pid);
+      const needsDraw = !hasDrawAfterSetCommander.has(pid);
+      
+      if (needsShuffle || needsDraw) {
+        // Check if hand is empty (meaning opening draw hasn't happened)
+        const z = ctx.zones?.[pid];
+        const handCount = z
+          ? (typeof z.handCount === "number" ? z.handCount : (Array.isArray(z.hand) ? z.hand.length : 0))
+          : 0;
+        
+        if (handCount === 0) {
+          console.info("[replay] Backward compat: performing opening draw after setCommander for", pid);
+          try {
+            if (needsShuffle) {
+              shuffleLibrary(ctx as any, pid);
+            }
+            if (needsDraw) {
+              drawCards(ctx as any, pid, 7);
+            }
+          } catch (err) {
+            console.warn("[replay] Backward compat: opening draw failed for", pid, err);
+          }
+        }
+      }
+    }
   }
 
   try {

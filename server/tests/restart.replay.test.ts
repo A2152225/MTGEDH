@@ -112,4 +112,158 @@ describe('Server restart replay', () => {
     // After transformation, the event should be { type: 'rngSeed', seed: 12345 }
     expect(replayEvents[0]).toEqual({ type: 'rngSeed', seed: 12345 });
   });
+  
+  it('should correctly replay mulligan events after server restart', () => {
+    const gameId = 'mulligan_test_1';
+    const p1 = 'p_test' as PlayerID;
+    const deck = mkCards(60);
+    const seed = 11111111;
+
+    // Session 1: Original flow - import, shuffle, draw, then mulligan
+    const g1 = createInitialGameState(gameId);
+    g1.seedRng(seed);
+    g1.importDeckResolved(p1, deck);
+    g1.shuffleLibrary(p1);
+    g1.drawCards(p1, 7);
+    
+    // Initial hand before mulligan
+    const handBeforeMulligan = (g1.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
+    console.log('Before mulligan - Hand:', handBeforeMulligan);
+    
+    // Mulligan: hand goes to library, shuffle, draw 7
+    (g1 as any).moveHandToLibrary(p1);
+    g1.shuffleLibrary(p1);
+    g1.drawCards(p1, 7);
+    
+    const handAfterMulligan = (g1.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
+    const libAfterMulligan = g1.peekTopN(p1, 10).map((c: any) => c.name);
+    console.log('After mulligan - Hand:', handAfterMulligan);
+    console.log('After mulligan - Library (top 10):', libAfterMulligan);
+
+    // Session 2: Replay with mulligan event
+    const dbEvents = [
+      { type: 'rngSeed', payload: { seed } },
+      { type: 'deckImportResolved', payload: { playerId: p1, cards: deck } },
+      { type: 'shuffleLibrary', payload: { playerId: p1 } },
+      { type: 'drawCards', payload: { playerId: p1, count: 7 } },
+      { type: 'mulligan', payload: { playerId: p1 } }  // This is the key event
+    ];
+    
+    const replayEvents = transformDbEventsForReplay(dbEvents);
+
+    const g2 = createInitialGameState(gameId);
+    (g2 as any).replay(replayEvents);
+    
+    const hand2 = (g2.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
+    const lib2 = g2.peekTopN(p1, 10).map((c: any) => c.name);
+    console.log('Session 2 (replay) - Hand:', hand2);
+    console.log('Session 2 (replay) - Library (top 10):', lib2);
+
+    // After replay, both hands and libraries should match
+    expect(hand2).toEqual(handAfterMulligan);
+    expect(lib2).toEqual(libAfterMulligan);
+  });
+
+  it('should replay setCommander + opening draw flow correctly', () => {
+    const gameId = 'commander_draw_test';
+    const p1 = 'p_test' as PlayerID;
+    // Create a deck with some legendary creatures
+    const deck = [
+      { id: 'commander_1', name: 'Legendary Commander', type_line: 'Legendary Creature - Human', oracle_text: '' },
+      ...mkCards(59, 'Card')
+    ];
+    const seed = 55555555;
+
+    // Session 1: deck import, set pendingInitialDraw, then setCommander (triggers shuffle+draw)
+    const g1 = createInitialGameState(gameId);
+    g1.seedRng(seed);
+    g1.importDeckResolved(p1, deck);
+    
+    // Mark pending initial draw (as happens in deck import flow)
+    (g1 as any).pendingInitialDraw.add(p1);
+    
+    // Set commander - this should trigger shuffle + draw because pending flag is set and hand is empty
+    g1.setCommander(p1, ['Legendary Commander'], ['commander_1']);
+    
+    const hand1 = (g1.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
+    const lib1 = g1.peekTopN(p1, 10).map((c: any) => c.name);
+    console.log('Session 1 - Hand after setCommander:', hand1);
+    console.log('Session 1 - Library (top 10):', lib1);
+    
+    // Verify hand was drawn
+    expect(hand1.length).toBe(7);
+
+    // Session 2: Replay the events (including the shuffle+draw that setCommander triggered)
+    // In the fixed version, shuffle+draw events should be persisted separately
+    const dbEvents = [
+      { type: 'rngSeed', payload: { seed } },
+      { type: 'deckImportResolved', payload: { playerId: p1, cards: deck } },
+      { type: 'setCommander', payload: { playerId: p1, commanderNames: ['Legendary Commander'], commanderIds: ['commander_1'] } },
+      // These events should now be persisted by the fix:
+      { type: 'shuffleLibrary', payload: { playerId: p1 } },
+      { type: 'drawCards', payload: { playerId: p1, count: 7 } }
+    ];
+    
+    const replayEvents = transformDbEventsForReplay(dbEvents);
+
+    const g2 = createInitialGameState(gameId);
+    (g2 as any).replay(replayEvents);
+    
+    const hand2 = (g2.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
+    const lib2 = g2.peekTopN(p1, 10).map((c: any) => c.name);
+    console.log('Session 2 (replay) - Hand:', hand2);
+    console.log('Session 2 (replay) - Library (top 10):', lib2);
+
+    // After replay, hands and libraries should match
+    expect(hand2).toEqual(hand1);
+    expect(lib2).toEqual(lib1);
+  });
+  
+  it('should handle backward compatibility: old games without explicit shuffle/draw events', () => {
+    const gameId = 'backward_compat_test';
+    const p1 = 'p_test' as PlayerID;
+    const deck = [
+      { id: 'commander_1', name: 'Legendary Commander', type_line: 'Legendary Creature - Human', oracle_text: '' },
+      ...mkCards(59, 'Card')
+    ];
+    const seed = 77777777;
+
+    // Session 1: Original game with pending draw flag
+    const g1 = createInitialGameState(gameId);
+    g1.seedRng(seed);
+    g1.importDeckResolved(p1, deck);
+    (g1 as any).pendingInitialDraw.add(p1);
+    g1.setCommander(p1, ['Legendary Commander'], ['commander_1']);
+    
+    const hand1 = (g1.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
+    const lib1 = g1.peekTopN(p1, 10).map((c: any) => c.name);
+    console.log('Backward compat - Session 1 - Hand:', hand1);
+    console.log('Backward compat - Session 1 - Library (top 10):', lib1);
+    
+    expect(hand1.length).toBe(7);
+
+    // Session 2: OLD-STYLE events (no explicit shuffle/draw after setCommander)
+    // This simulates games created before the fix
+    const oldStyleEvents = [
+      { type: 'rngSeed', payload: { seed } },
+      { type: 'deckImportResolved', payload: { playerId: p1, cards: deck } },
+      { type: 'setCommander', payload: { playerId: p1, commanderNames: ['Legendary Commander'], commanderIds: ['commander_1'] } }
+      // NO shuffleLibrary or drawCards events - this is the old format
+    ];
+    
+    const replayEvents = transformDbEventsForReplay(oldStyleEvents);
+
+    const g2 = createInitialGameState(gameId);
+    (g2 as any).replay(replayEvents);
+    
+    const hand2 = (g2.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
+    const lib2 = g2.peekTopN(p1, 10).map((c: any) => c.name);
+    console.log('Backward compat - Session 2 (replay) - Hand:', hand2);
+    console.log('Backward compat - Session 2 (replay) - Library (top 10):', lib2);
+
+    // After replay with backward compat, hands and libraries should match
+    expect(hand2.length).toBe(7);
+    expect(hand2).toEqual(hand1);
+    expect(lib2).toEqual(lib1);
+  });
 });

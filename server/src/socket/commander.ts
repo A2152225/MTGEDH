@@ -236,6 +236,16 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       try {
         if (typeof (game as any).setCommander === "function") {
           console.log(`[commander-socket] Calling game.setCommander for player ${pid} with names:`, names, 'ids:', idsToApply);
+          
+          // Check if we'll do the opening draw (hand empty and pending flag set)
+          const pendingSet = (game as any).pendingInitialDraw as Set<string> | undefined;
+          const willDoOpeningDraw = pendingSet && pendingSet.has(pid);
+          const zonesBefore = game.state?.zones?.[pid];
+          const handCountBefore = zonesBefore
+            ? (typeof zonesBefore.handCount === "number" ? zonesBefore.handCount : (Array.isArray(zonesBefore.hand) ? zonesBefore.hand.length : 0))
+            : 0;
+          const doingOpeningDraw = willDoOpeningDraw && handCountBefore === 0;
+          
           (game as any).setCommander(pid, names, idsToApply);
           
           try {
@@ -244,6 +254,13 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
               commanderNames: names,
               commanderIds: idsToApply,
             });
+            
+            // If we did the opening draw (shuffle + draw 7), persist those events for replay
+            if (doingOpeningDraw) {
+              appendEvent(gameId, game.seq, "shuffleLibrary", { playerId: pid });
+              appendEvent(gameId, game.seq, "drawCards", { playerId: pid, count: 7 });
+              console.info("[commander] Persisted opening draw events (shuffle + draw 7) for player", pid);
+            }
           } catch (err) {
             console.warn("appendEvent(setCommander) failed:", err);
           }
