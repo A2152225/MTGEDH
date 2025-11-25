@@ -20,6 +20,7 @@ import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
 import { useGameSocket } from "./hooks/useGameSocket";
 import type { PaymentItem, ManaColor } from "../../shared/src";
+import { GameStatusIndicator } from "./components/GameStatusIndicator";
 
 /** Map engine/internal phase enum to human-friendly name */
 function prettyPhase(phase?: string | null): string {
@@ -563,34 +564,31 @@ export function App() {
           )}
         </div>
 
+        {/* GAME STATUS INDICATOR - Shows turn, phase, step, priority */}
+        {safeView && (
+          <GameStatusIndicator
+            turn={safeView.turn}
+            phase={safeView.phase}
+            step={safeView.step}
+            turnPlayer={safeView.turnPlayer}
+            priority={safeView.priority}
+            players={safeView.players || []}
+            you={you || undefined}
+            combat={(safeView as any).combat}
+          />
+        )}
+
         {/* CONTROL BAR JUST ABOVE THE TABLE */}
         <div
           style={{
             display: "flex",
             justifyContent: "space-between",
-            alignItems: "flex-end",
-            marginTop: 4,
+            alignItems: "center",
+            marginTop: 8,
+            flexWrap: "wrap",
+            gap: 8,
           }}
         >
-          {/* Phase / Step summary on the left (fixed/truncated) */}
-          <div
-            style={{
-              maxWidth: 360,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              fontSize: 12,
-              color: "#444",
-            }}
-          >
-            Phase: <strong>{phaseLabel}</strong>
-            {stepLabel && (
-              <span style={{ marginLeft: 8 }}>
-                • Step: <strong>{stepLabel}</strong>
-              </span>
-            )}
-          </div>
-
           {/* Mulligan buttons - visible only in pre-game */}
           {isPreGame && isYouPlayer && (
             <div
@@ -647,6 +645,9 @@ export function App() {
               )}
             </div>
           )}
+
+          {/* Spacer to push buttons to the right when no mulligan panel */}
+          {(!isPreGame || !isYouPlayer) && <div style={{ flex: 1 }} />}
 
           {/* Buttons on the right, in a stable group */}
           <div

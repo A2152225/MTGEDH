@@ -712,6 +712,7 @@ export function TableLayout(props: {
                           highlightTargets={highlightPermTargets}
                           selectedTargets={selectedPermTargets}
                           onCardClick={onPermanentClick}
+                          players={players.map(p => ({ id: p.id, name: p.name }))}
                         />
 
                         {lands.length > 0 && (

@@ -121,6 +121,15 @@ export interface BattlefieldPermanent {
   posY?: number;
   posZ?: number;
   card: CardRef;
+  // Combat state
+  attacking?: PlayerID;        // Which player/planeswalker this creature is attacking
+  blocking?: string[];         // Array of creature IDs this creature is blocking
+  blockedBy?: string[];        // Array of creature IDs blocking this creature
+  // Planeswalker fields
+  baseLoyalty?: number;        // Starting loyalty
+  loyalty?: number;            // Current loyalty counter value
+  // Targeting state (for visual indicators)
+  targetedBy?: string[];       // IDs of spells/abilities targeting this permanent
 }
 
 /* Stack item */
@@ -130,6 +139,15 @@ export interface StackItem {
   controller: PlayerID;
   card?: CardRef;
   targets?: readonly string[];
+  // Target details with type information for visual display
+  targetDetails?: readonly TargetInfo[];
+}
+
+/* Target information for display purposes */
+export interface TargetInfo {
+  id: string;
+  type: 'permanent' | 'player' | 'spell' | 'ability';
+  name?: string;
 }
 
 /* Life totals mapping */
@@ -202,7 +220,26 @@ export type ClientGameView = Omit<GameState, 'battlefield' | 'stack' | 'players'
   commandZone?: Record<PlayerID, CommanderInfo>;
   poisonCounters?: Record<PlayerID, number>;
   experienceCounters?: Record<PlayerID, number>;
+  // Combat state for display
+  combat?: CombatInfo;
 };
+
+/* Combat information for display purposes */
+export interface CombatInfo {
+  phase: 'declareAttackers' | 'declareBlockers' | 'combatDamage' | 'endCombat';
+  attackers: readonly CombatantInfo[];
+  blockers: readonly CombatantInfo[];
+}
+
+/* Combatant info for UI display */
+export interface CombatantInfo {
+  permanentId: string;
+  name?: string;
+  defending?: PlayerID;           // For attackers: who they're attacking
+  blocking?: readonly string[];   // For blockers: what they're blocking
+  blockedBy?: readonly string[];  // For attackers: what's blocking them
+  damage?: number;                // Damage assigned
+}
 
 export interface StateDiff<T> {
   full?: T;

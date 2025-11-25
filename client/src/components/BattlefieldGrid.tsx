@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { BattlefieldPermanent, KnownCardRef } from '../../../shared/src';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
+import { getKeywordInfo } from '../utils/keywordGlossary';
 
 export type ImagePref = 'small' | 'normal' | 'art_crop';
 type LayoutMode = 'grid' | 'row';
@@ -51,14 +52,25 @@ function ptBadgeColors(baseP?: number, baseT?: number, p?: number, t?: number): 
   return { bg: 'rgba(0,0,0,0.65)', border: 'rgba(255,255,255,0.25)' }; // neutral
 }
 
-const abilityLabelMap: Record<string, string> = {
-  flying: 'F',
-  indestructible: 'I',
-  vigilance: 'V',
-  trample: 'T',
-  hexproof: 'H',
-  shroud: 'S',
-};
+// Get ability display info from glossary
+function getAbilityDisplay(abilityName: string): { short: string; color: string; reminderText: string; term: string } {
+  const info = getKeywordInfo(abilityName);
+  if (info) {
+    return {
+      short: info.short,
+      color: info.color,
+      reminderText: info.reminderText,
+      term: info.term,
+    };
+  }
+  // Fallback for unknown abilities
+  return {
+    short: abilityName.slice(0, 1).toUpperCase(),
+    color: '#6b7280',
+    reminderText: abilityName,
+    term: abilityName,
+  };
+}
 
 export function BattlefieldGrid(props: {
   perms: BattlefieldPermanent[];
@@ -188,23 +200,51 @@ export function BattlefieldGrid(props: {
               </div>
             )}
 
-            {/* Abilities badges (from continuous effects) */}
+            {/* Abilities badges (from continuous effects) with reminder text tooltips */}
             {Array.isArray(grantedAbilities) && grantedAbilities.length > 0 && (
-              <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4 }}>
-                {grantedAbilities.map((a) => {
-                  const label = abilityLabelMap[a.toLowerCase()] || a[0]?.toUpperCase() || '?';
+              <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4, flexWrap: 'wrap', maxWidth: '70%', justifyContent: 'flex-end' }}>
+                {grantedAbilities.slice(0, 4).map((a) => {
+                  const abilityInfo = getAbilityDisplay(a);
+                  // Format tooltip like reminder text
+                  const tooltipText = `${abilityInfo.term}\n(${abilityInfo.reminderText})`;
                   return (
-                    <span key={a} title={a} style={{
-                      background: 'rgba(0,0,0,0.6)',
-                      color: '#fff',
-                      border: '1px solid #555',
-                      borderRadius: 4,
-                      fontSize: 10,
-                      padding: '2px 4px',
-                      lineHeight: '10px'
-                    }}>{label}</span>
+                    <span 
+                      key={a} 
+                      title={tooltipText}
+                      style={{
+                        background: `${abilityInfo.color}cc`,
+                        color: '#fff',
+                        border: `1px solid ${abilityInfo.color}`,
+                        borderRadius: 4,
+                        fontSize: 10,
+                        padding: '2px 4px',
+                        lineHeight: '10px',
+                        fontWeight: 600,
+                        cursor: 'help',
+                      }}
+                    >
+                      {abilityInfo.short}
+                    </span>
                   );
                 })}
+                {grantedAbilities.length > 4 && (
+                  <span 
+                    title={grantedAbilities.slice(4).map(a => {
+                      const info = getAbilityDisplay(a);
+                      return `${info.term}: ${info.reminderText}`;
+                    }).join('\n\n')}
+                    style={{
+                      background: 'rgba(0,0,0,0.7)',
+                      color: '#fff',
+                      borderRadius: 4,
+                      fontSize: 9,
+                      padding: '2px 3px',
+                      cursor: 'help',
+                    }}
+                  >
+                    +{grantedAbilities.length - 4}
+                  </span>
+                )}
               </div>
             )}
 

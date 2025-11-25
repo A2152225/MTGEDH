@@ -1,11 +1,12 @@
 import React, { useMemo, useRef, useState } from 'react';
-import type { BattlefieldPermanent, KnownCardRef } from '../../../shared/src';
+import type { BattlefieldPermanent, KnownCardRef, PlayerID } from '../../../shared/src';
 import type { ImagePref } from './BattlefieldGrid';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
+import { getKeywordInfo, KEYWORD_GLOSSARY } from '../utils/keywordGlossary';
 
-function parsePT(raw?: string): number | undefined {
-  if (!raw) return undefined;
-  if (/^\d+$/.test(raw)) return parseInt(raw, 10);
+function parsePT(raw?: string | number): number | undefined {
+  if (typeof raw === 'number') return raw;
+  if (typeof raw === 'string' && /^\d+$/.test(raw)) return parseInt(raw, 10);
   return undefined;
 }
 
@@ -35,23 +36,41 @@ function computeDisplayPT(perm: BattlefieldPermanent): {
   return { baseP, baseT, p: undefined, t: undefined };
 }
 
-function ptBadgeColors(baseP?: number, baseT?: number, p?: number, t?: number): { bg: string; border: string } {
-  if (typeof baseP === 'number' && typeof baseT === 'number' && typeof p === 'number' && typeof t === 'number') {
-    const delta = (p - baseP) + (t - baseT);
-    if (delta > 0) return { bg: 'rgba(56,161,105,0.85)', border: 'rgba(46,204,113,0.95)' };
-    if (delta < 0) return { bg: 'rgba(229,62,62,0.85)', border: 'rgba(245,101,101,0.95)' };
-  }
-  return { bg: 'rgba(0,0,0,0.65)', border: 'rgba(255,255,255,0.25)' };
+// Color coding for P/T changes
+function getPTColor(base: number | undefined, effective: number | undefined): string {
+  if (base === undefined || effective === undefined) return '#ffffff';
+  if (effective > base) return '#22c55e'; // Green - increased
+  if (effective < base) return '#ef4444'; // Red - decreased
+  return '#d1d5db'; // Neutral gray - unchanged
 }
 
-const abilityLabelMap: Record<string, string> = {
-  flying: 'F',
-  indestructible: 'I',
-  vigilance: 'V',
-  trample: 'T',
-  hexproof: 'H',
-  shroud: 'S',
-};
+// Color coding for loyalty changes
+function getLoyaltyColor(base: number | undefined, current: number | undefined): string {
+  if (base === undefined || current === undefined) return '#c084fc';
+  if (current > base) return '#22c55e'; // Green - increased
+  if (current < base) return '#ef4444'; // Red - decreased
+  return '#c084fc'; // Purple - unchanged
+}
+
+// Get ability info from glossary, with fallback
+function getAbilityDisplay(abilityName: string): { short: string; color: string; reminderText: string; term: string } {
+  const info = getKeywordInfo(abilityName);
+  if (info) {
+    return {
+      short: info.short,
+      color: info.color,
+      reminderText: info.reminderText,
+      term: info.term,
+    };
+  }
+  // Fallback for unknown abilities
+  return {
+    short: abilityName.slice(0, 3).toUpperCase(),
+    color: '#6b7280',
+    reminderText: abilityName,
+    term: abilityName,
+  };
+}
 
 export function FreeField(props: {
   perms: BattlefieldPermanent[];
@@ -64,10 +83,12 @@ export function FreeField(props: {
   highlightTargets?: ReadonlySet<string>;
   selectedTargets?: ReadonlySet<string>;
   onCardClick?: (id: string) => void;
+  players?: { id: string; name: string }[];
 }) {
   const {
     perms, imagePref, tileWidth, widthPx, heightPx,
-    draggable = false, onMove, highlightTargets, selectedTargets, onCardClick
+    draggable = false, onMove, highlightTargets, selectedTargets, onCardClick,
+    players = []
   } = props;
 
   const tileH = Math.round(tileWidth / 0.72);
@@ -81,6 +102,7 @@ export function FreeField(props: {
       img?: string | null;
       tapped: boolean;
       isCreature: boolean;
+      isPlaneswalker: boolean;
       counters: Record<string, number>;
       baseP?: number;
       baseT?: number;
@@ -90,6 +112,12 @@ export function FreeField(props: {
       effP?: number;
       effT?: number;
       abilities?: readonly string[];
+      attacking?: PlayerID;
+      blocking?: string[];
+      blockedBy?: string[];
+      baseLoyalty?: number;
+      loyalty?: number;
+      targetedBy?: string[];
     }> = [];
 
     const gap = 10;
@@ -111,6 +139,7 @@ export function FreeField(props: {
       const name = kc?.name || p.id;
       const tl = (kc?.type_line || '').toLowerCase();
       const isCreature = /\bcreature\b/.test(tl);
+      const isPlaneswalker = /\bplaneswalker\b/.test(tl);
 
       const baseP = typeof p.basePower === 'number' ? p.basePower : parsePT(kc?.power);
       const baseT = typeof p.baseToughness === 'number' ? p.baseToughness : parsePT(kc?.toughness);
@@ -118,6 +147,18 @@ export function FreeField(props: {
       const effP = (p as any).effectivePower as number | undefined;
       const effT = (p as any).effectiveToughness as number | undefined;
       const abilities: readonly string[] | undefined = (p as any).grantedAbilities;
+
+      // Combat state
+      const attacking = p.attacking;
+      const blocking = p.blocking;
+      const blockedBy = p.blockedBy;
+
+      // Planeswalker loyalty
+      const baseLoyalty = p.baseLoyalty ?? parsePT((kc as any)?.loyalty);
+      const loyalty = p.loyalty ?? p.counters?.['loyalty'];
+
+      // Targeting
+      const targetedBy = p.targetedBy;
 
       const counters = p.counters || {};
       const existing = (p as any).pos || null;
@@ -128,6 +169,7 @@ export function FreeField(props: {
         img,
         tapped: !!p.tapped,
         isCreature,
+        isPlaneswalker,
         counters,
         baseP,
         baseT,
@@ -136,7 +178,13 @@ export function FreeField(props: {
         raw: p,
         effP,
         effT,
-        abilities
+        abilities,
+        attacking,
+        blocking,
+        blockedBy,
+        baseLoyalty,
+        loyalty,
+        targetedBy,
       });
     }
     return placed;
@@ -180,6 +228,8 @@ export function FreeField(props: {
 
   function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
 
+  const scale = tileWidth / 110;
+
   return (
     <div
       style={{
@@ -189,18 +239,27 @@ export function FreeField(props: {
         border: '1px dashed rgba(255,255,255,0.15)',
         borderRadius: 8,
         background: 'rgba(0,0,0,0.25)',
-        overflow: 'hidden'
+        overflow: 'visible' // Allow attack indicators to overflow
       }}
     >
-      {items.map(({ id, name, img, pos, tapped, isCreature, counters, baseP, baseT, raw, effP, effT, abilities }) => {
+      {items.map(({ id, name, img, pos, tapped, isCreature, isPlaneswalker, counters, baseP, baseT, raw, effP, effT, abilities, attacking, blocking, blockedBy, baseLoyalty, loyalty, targetedBy }) => {
         const x = clamp(pos?.x ?? 0, 0, Math.max(0, widthPx - tileWidth));
         const y = clamp(pos?.y ?? 0, 0, Math.max(0, heightPx - tileH));
         const z = pos?.z ?? 0;
 
         const isHighlight = highlightTargets?.has(id) ?? false;
         const isSelected = selectedTargets?.has(id) ?? false;
+        const isAttacking = !!attacking;
+        const isBlocking = blocking && blocking.length > 0;
+        const isTargeted = targetedBy && targetedBy.length > 0;
 
-        const borderColor = isSelected ? '#2b6cb0' : isHighlight ? '#38a169' : '#2b2b2b';
+        // Border color based on state
+        let borderColor = '#2b2b2b';
+        if (isSelected) borderColor = '#2b6cb0';
+        else if (isHighlight) borderColor = '#38a169';
+        else if (isAttacking) borderColor = '#ef4444';
+        else if (isBlocking) borderColor = '#3b82f6';
+        else if (isTargeted) borderColor = '#f59e0b';
 
         // Decide display PT
         let pDisp: number | undefined = effP;
@@ -216,8 +275,8 @@ export function FreeField(props: {
           }
         }
 
-        const { bg, border } = ptBadgeColors(baseP, baseT, pDisp, tDisp);
         const hovered = hoverId === id;
+        const attackingPlayerName = attacking ? players.find(p => p.id === attacking)?.name || attacking : null;
 
         return (
           <div
@@ -236,63 +295,313 @@ export function FreeField(props: {
               aspectRatio: '0.72',
               userSelect: 'none',
               touchAction: 'none',
-              zIndex: 10 + z + (hovered ? 100 : 0),
+              zIndex: 10 + z + (hovered ? 100 : 0) + (isAttacking ? 50 : 0),
               cursor: draggable ? 'grab' : (onCardClick ? 'pointer' : 'default'),
               border: `2px solid ${borderColor}`,
               borderRadius: 6,
-              overflow: 'hidden',
+              overflow: 'visible', // Allow indicators to overflow
               background: '#0f0f0f',
               transform: tapped ? 'rotate(14deg)' : 'none',
-              transformOrigin: '50% 50%'
+              transformOrigin: '50% 50%',
+              boxShadow: isAttacking 
+                ? '0 0 12px rgba(239,68,68,0.6)' 
+                : isBlocking 
+                  ? '0 0 12px rgba(59,130,246,0.6)' 
+                  : isTargeted 
+                    ? '0 0 8px rgba(245,158,11,0.5)' 
+                    : 'none',
             }}
             title={name + (tapped ? ' (tapped)' : '')}
           >
             {img ? (
-              <img src={img} alt={name} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+              <img src={img} alt={name} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', borderRadius: 4 }} />
             ) : (
               <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#eee', fontSize: 12, padding: 8 }}>
                 {name}
               </div>
             )}
 
-            {/* Granted abilities */}
-            {Array.isArray(abilities) && abilities.length > 0 && (
-              <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4 }}>
-                {abilities.map((a) => {
-                  const label = abilityLabelMap[a.toLowerCase()] || a[0]?.toUpperCase() || '?';
-                  return (
-                    <span key={a} title={a} style={{
-                      background: 'rgba(0,0,0,0.6)',
-                      color: '#fff',
-                      border: '1px solid #555',
-                      borderRadius: 4,
-                      fontSize: 10,
-                      padding: '2px 4px',
-                      lineHeight: '10px'
-                    }}>{label}</span>
-                  );
-                })}
+            {/* Attack indicator */}
+            {attackingPlayerName && (
+              <div style={{
+                position: 'absolute',
+                left: '50%',
+                top: Math.round(-16 * scale),
+                transform: 'translateX(-50%)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: Math.round(3 * scale),
+                padding: `${Math.round(2 * scale)}px ${Math.round(6 * scale)}px`,
+                borderRadius: Math.round(4 * scale),
+                background: 'linear-gradient(90deg, rgba(239,68,68,0.95), rgba(220,38,38,0.95))',
+                border: '1px solid #fca5a5',
+                boxShadow: '0 2px 8px rgba(239,68,68,0.5)',
+                whiteSpace: 'nowrap',
+                zIndex: 20,
+              }}>
+                <span style={{ fontSize: Math.round(10 * scale) }}>⚔️</span>
+                <span style={{
+                  fontSize: Math.round(9 * scale),
+                  fontWeight: 600,
+                  color: '#fff',
+                  textShadow: '0 1px 2px rgba(0,0,0,0.3)',
+                }}>
+                  → {attackingPlayerName}
+                </span>
               </div>
             )}
 
-            {/* name ribbon */}
+            {/* Blocking indicator */}
+            {isBlocking && (
+              <div style={{
+                position: 'absolute',
+                left: '50%',
+                top: Math.round(-16 * scale),
+                transform: 'translateX(-50%)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: Math.round(3 * scale),
+                padding: `${Math.round(2 * scale)}px ${Math.round(6 * scale)}px`,
+                borderRadius: Math.round(4 * scale),
+                background: 'linear-gradient(90deg, rgba(59,130,246,0.95), rgba(37,99,235,0.95))',
+                border: '1px solid #93c5fd',
+                boxShadow: '0 2px 8px rgba(59,130,246,0.5)',
+                whiteSpace: 'nowrap',
+                zIndex: 20,
+              }}>
+                <span style={{ fontSize: Math.round(10 * scale) }}>🛡️</span>
+                <span style={{
+                  fontSize: Math.round(9 * scale),
+                  fontWeight: 600,
+                  color: '#fff',
+                }}>
+                  Blocking {blocking!.length}
+                </span>
+              </div>
+            )}
+
+            {/* Blocked by indicator */}
+            {blockedBy && blockedBy.length > 0 && (
+              <div style={{
+                position: 'absolute',
+                left: '50%',
+                bottom: Math.round(-12 * scale),
+                transform: 'translateX(-50%)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: Math.round(2 * scale),
+                padding: `${Math.round(1 * scale)}px ${Math.round(4 * scale)}px`,
+                borderRadius: Math.round(3 * scale),
+                background: 'rgba(239,68,68,0.9)',
+                fontSize: Math.round(8 * scale),
+                color: '#fff',
+                whiteSpace: 'nowrap',
+                zIndex: 20,
+              }}>
+                ⛔ Blocked by {blockedBy.length}
+              </div>
+            )}
+
+            {/* Targeted indicator */}
+            {isTargeted && (
+              <div style={{
+                position: 'absolute',
+                left: Math.round(4 * scale),
+                top: Math.round(4 * scale),
+                display: 'flex',
+                alignItems: 'center',
+                gap: Math.round(2 * scale),
+                padding: `${Math.round(2 * scale)}px ${Math.round(5 * scale)}px`,
+                borderRadius: Math.round(4 * scale),
+                background: 'linear-gradient(90deg, rgba(245,158,11,0.95), rgba(217,119,6,0.95))',
+                border: '1px solid #fcd34d',
+                boxShadow: '0 0 8px rgba(245,158,11,0.6)',
+                zIndex: 15,
+              }}>
+                <span style={{ fontSize: Math.round(10 * scale) }}>🎯</span>
+                <span style={{
+                  fontSize: Math.round(9 * scale),
+                  fontWeight: 600,
+                  color: '#fff',
+                }}>
+                  {targetedBy!.length}
+                </span>
+              </div>
+            )}
+
+            {/* Granted abilities badges with reminder text tooltips */}
+            {Array.isArray(abilities) && abilities.length > 0 && !isTargeted && (
+              <div style={{ 
+                position: 'absolute', 
+                top: Math.round(4 * scale), 
+                right: Math.round(4 * scale), 
+                display: 'flex', 
+                flexWrap: 'wrap',
+                gap: Math.round(2 * scale),
+                maxWidth: '75%',
+                justifyContent: 'flex-end',
+              }}>
+                {abilities.slice(0, 4).map((a) => {
+                  const abilityInfo = getAbilityDisplay(a);
+                  // Format tooltip like reminder text: "Flying (This creature can only be blocked by creatures with flying or reach.)"
+                  const tooltipText = `${abilityInfo.term}\n(${abilityInfo.reminderText})`;
+                  return (
+                    <span 
+                      key={a} 
+                      title={tooltipText}
+                      style={{
+                        background: `${abilityInfo.color}dd`,
+                        color: '#fff',
+                        border: `1px solid ${abilityInfo.color}`,
+                        borderRadius: Math.round(3 * scale),
+                        fontSize: Math.round(8 * scale),
+                        padding: `${Math.round(1 * scale)}px ${Math.round(3 * scale)}px`,
+                        lineHeight: '1.1',
+                        fontWeight: 600,
+                        textShadow: '0 1px 1px rgba(0,0,0,0.4)',
+                        cursor: 'help',
+                      }}
+                    >
+                      {abilityInfo.short}
+                    </span>
+                  );
+                })}
+                {abilities.length > 4 && (
+                  <span 
+                    title={abilities.slice(4).map(a => {
+                      const info = getAbilityDisplay(a);
+                      return `${info.term}: ${info.reminderText}`;
+                    }).join('\n\n')}
+                    style={{
+                      background: 'rgba(0,0,0,0.7)',
+                      color: '#fff',
+                      borderRadius: Math.round(3 * scale),
+                      fontSize: Math.round(7 * scale),
+                      padding: `${Math.round(1 * scale)}px ${Math.round(2 * scale)}px`,
+                      cursor: 'help',
+                    }}
+                  >
+                    +{abilities.length - 4}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Name ribbon */}
             <div style={{
               position: 'absolute', left: 0, right: 0, bottom: 0,
-              background: 'linear-gradient(transparent, rgba(0,0,0,0.6))',
-              color: '#fff', fontSize: 12, padding: '6px 8px',
-              borderBottomLeftRadius: 6, borderBottomRightRadius: 6, pointerEvents: 'none'
+              background: 'linear-gradient(transparent, rgba(0,0,0,0.75))',
+              color: '#fff', fontSize: Math.round(11 * scale), padding: `${Math.round(6 * scale)}px ${Math.round(6 * scale)}px`,
+              borderBottomLeftRadius: 4, borderBottomRightRadius: 4, pointerEvents: 'none'
             }}>
               <div title={name} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</div>
+              {/* Counter badges */}
+              {Object.keys(counters).length > 0 && (
+                <div style={{ display: 'flex', gap: 4, marginTop: 2, flexWrap: 'wrap' }}>
+                  {Object.entries(counters).filter(([k]) => k !== 'loyalty').map(([k, v]) => (
+                    <span key={k} style={{
+                      fontSize: Math.round(8 * scale),
+                      background: 'rgba(255,255,255,0.15)',
+                      padding: `0 ${Math.round(3 * scale)}px`,
+                      borderRadius: 2,
+                    }}>{k}:{v as number}</span>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {/* PT overlay with color-coded delta */}
+            {/* P/T overlay for creatures with color-coded values */}
             {isCreature && typeof pDisp === 'number' && typeof tDisp === 'number' && (
               <div style={{
-                position: 'absolute', right: 6, bottom: 26,
-                padding: '2px 6px', fontSize: 12, fontWeight: 700, color: '#fff',
-                background: bg, border: `1px solid ${border}`, borderRadius: 6
+                position: 'absolute', 
+                right: Math.round(4 * scale), 
+                bottom: Math.round(28 * scale),
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'flex-end',
+                gap: Math.round(1 * scale),
               }}>
-                {pDisp}/{tDisp}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: Math.round(2 * scale),
+                  padding: `${Math.round(2 * scale)}px ${Math.round(5 * scale)}px`,
+                  borderRadius: Math.round(4 * scale),
+                  background: 'rgba(0,0,0,0.8)',
+                  border: '1px solid rgba(255,255,255,0.2)',
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.4)',
+                }}>
+                  <span style={{
+                    fontSize: Math.round(12 * scale),
+                    fontWeight: 700,
+                    color: getPTColor(baseP, pDisp),
+                  }}>
+                    {pDisp}
+                  </span>
+                  <span style={{
+                    fontSize: Math.round(9 * scale),
+                    color: '#9ca3af',
+                  }}>/</span>
+                  <span style={{
+                    fontSize: Math.round(12 * scale),
+                    fontWeight: 700,
+                    color: getPTColor(baseT, tDisp),
+                  }}>
+                    {tDisp}
+                  </span>
+                </div>
+                {(baseP !== pDisp || baseT !== tDisp) && baseP !== undefined && baseT !== undefined && (
+                  <span style={{
+                    fontSize: Math.round(7 * scale),
+                    color: '#9ca3af',
+                    opacity: 0.85,
+                  }}>
+                    base {baseP}/{baseT}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Loyalty display for planeswalkers */}
+            {isPlaneswalker && loyalty !== undefined && (
+              <div style={{
+                position: 'absolute',
+                right: Math.round(4 * scale),
+                bottom: Math.round(28 * scale),
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'flex-end',
+                gap: Math.round(1 * scale),
+              }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: Math.round(26 * scale),
+                  height: Math.round(26 * scale),
+                  borderRadius: '50%',
+                  background: 'linear-gradient(135deg, rgba(139,92,246,0.95), rgba(168,85,247,0.95))',
+                  border: '2px solid #c084fc',
+                  boxShadow: '0 2px 8px rgba(139,92,246,0.5)',
+                }}>
+                  <span style={{
+                    fontSize: Math.round(11 * scale),
+                    fontWeight: 700,
+                    color: getLoyaltyColor(baseLoyalty, loyalty),
+                    textShadow: '0 1px 2px rgba(0,0,0,0.4)',
+                  }}>
+                    {loyalty}
+                  </span>
+                </div>
+                {baseLoyalty !== undefined && baseLoyalty !== loyalty && (
+                  <span style={{
+                    fontSize: Math.round(7 * scale),
+                    color: '#c4b5fd',
+                    opacity: 0.85,
+                  }}>
+                    start {baseLoyalty}
+                  </span>
+                )}
               </div>
             )}
           </div>
