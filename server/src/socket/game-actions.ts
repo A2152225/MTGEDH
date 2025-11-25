@@ -1041,4 +1041,170 @@ export function registerGameActions(io: Server, socket: Socket) {
       });
     }
   });
+
+  // ============================================================================
+  // Mulligan Actions (Pre-Game Phase)
+  // ============================================================================
+
+  // Keep hand - player accepts their current hand
+  socket.on("keepHand", ({ gameId }: { gameId: string }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      // Check if we're in PRE_GAME phase
+      const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
+      if (phaseStr !== "" && phaseStr !== "PRE_GAME") {
+        socket.emit("error", {
+          code: "NOT_PREGAME",
+          message: "Can only keep hand during pre-game",
+        });
+        return;
+      }
+
+      // Track mulligan state
+      game.state = game.state || {};
+      (game.state as any).mulliganState = (game.state as any).mulliganState || {};
+      (game.state as any).mulliganState[playerId] = {
+        hasKeptHand: true,
+        mulligansTaken: (game.state as any).mulliganState[playerId]?.mulligansTaken || 0,
+      };
+
+      // Bump sequence
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+
+      // Persist the event
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, "keepHand", { playerId });
+      } catch (e) {
+        console.warn("appendEvent(keepHand) failed:", e);
+      }
+
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${playerId} keeps their hand.`,
+        ts: Date.now(),
+      });
+
+      broadcastGame(io, game, gameId);
+    } catch (err: any) {
+      console.error(`keepHand error for game ${gameId}:`, err);
+      socket.emit("error", {
+        code: "KEEP_HAND_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
+
+  // Mulligan - player shuffles hand back and draws a new hand (minus one card)
+  socket.on("mulligan", ({ gameId }: { gameId: string }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      // Check if we're in PRE_GAME phase
+      const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
+      if (phaseStr !== "" && phaseStr !== "PRE_GAME") {
+        socket.emit("error", {
+          code: "NOT_PREGAME",
+          message: "Can only mulligan during pre-game",
+        });
+        return;
+      }
+
+      // Check if player has already kept their hand
+      const mulliganState = (game.state as any).mulliganState?.[playerId];
+      if (mulliganState?.hasKeptHand) {
+        socket.emit("error", {
+          code: "ALREADY_KEPT",
+          message: "You have already kept your hand",
+        });
+        return;
+      }
+
+      // Get current mulligan count
+      const currentMulligans = mulliganState?.mulligansTaken || 0;
+      
+      // Check if player can still mulligan (max 7 mulligans = 0 cards)
+      if (currentMulligans >= 6) {
+        socket.emit("error", {
+          code: "MAX_MULLIGANS",
+          message: "Cannot mulligan further - you would have 0 cards",
+        });
+        return;
+      }
+
+      // Track mulligan state
+      game.state = game.state || {};
+      (game.state as any).mulliganState = (game.state as any).mulliganState || {};
+      (game.state as any).mulliganState[playerId] = {
+        hasKeptHand: false,
+        mulligansTaken: currentMulligans + 1,
+      };
+
+      // Shuffle hand back into library and draw new hand
+      try {
+        // Move hand to library
+        if (typeof game.moveHandToLibrary === "function") {
+          game.moveHandToLibrary(playerId);
+        }
+
+        // Shuffle library
+        if (typeof game.shuffleLibrary === "function") {
+          game.shuffleLibrary(playerId);
+        }
+
+        // Draw new hand (7 cards - Commander format has free mulligan, then London mulligan)
+        // For simplicity, always draw 7 and put back cards at keep
+        const cardsToDraw = 7;
+        if (typeof game.drawCards === "function") {
+          game.drawCards(playerId, cardsToDraw);
+        }
+      } catch (e) {
+        console.error("Mulligan hand manipulation failed:", e);
+        socket.emit("error", {
+          code: "MULLIGAN_FAILED",
+          message: "Failed to process mulligan",
+        });
+        return;
+      }
+
+      // Bump sequence
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+
+      // Persist the event
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, "mulligan", { 
+          playerId, 
+          mulliganNumber: currentMulligans + 1 
+        });
+      } catch (e) {
+        console.warn("appendEvent(mulligan) failed:", e);
+      }
+
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${playerId} mulligans (mulligan #${currentMulligans + 1}).`,
+        ts: Date.now(),
+      });
+
+      broadcastGame(io, game, gameId);
+    } catch (err: any) {
+      console.error(`mulligan error for game ${gameId}:`, err);
+      socket.emit("error", {
+        code: "MULLIGAN_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
 }
