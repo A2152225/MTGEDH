@@ -394,6 +394,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       
       // Load deck for AI if provided
       let deckLoaded = false;
+      let deckLoadError: string | undefined;
       if (aiDeckId) {
         try {
           const deck = getDeck(aiDeckId);
@@ -414,10 +415,12 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
               entries: deck.entries.length 
             });
           } else {
-            console.warn('[AI] Deck not found:', aiDeckId);
+            deckLoadError = `Deck with ID "${aiDeckId}" not found in database`;
+            console.warn('[AI] Deck not found:', { deckId: aiDeckId, error: deckLoadError });
           }
         } catch (e) {
-          console.error('[AI] Error loading deck for AI:', e);
+          deckLoadError = `Failed to load deck "${aiDeckId}": ${e instanceof Error ? e.message : String(e)}`;
+          console.error('[AI] Error loading deck for AI:', { deckId: aiDeckId, error: e });
         }
       }
       

@@ -334,6 +334,27 @@ export function createMorophonCostReduction(creatureType: string): MorophonCostR
 }
 
 /**
+ * Helper function to apply reduction to a single color
+ */
+function applyColorReduction(
+  result: { [key: string]: number | undefined },
+  color: keyof ManaAmount,
+  reduction: ManaAmount
+): number {
+  const reductionAmount = reduction[color] || 0;
+  const currentAmount = (result[color] as number) || 0;
+  
+  if (reductionAmount > currentAmount) {
+    const excess = reductionAmount - currentAmount;
+    result[color] = 0;
+    return excess;
+  } else {
+    result[color] = currentAmount - reductionAmount;
+    return 0;
+  }
+}
+
+/**
  * Apply Morophon-style reduction (each color by 1)
  * This is a specific reduction that removes one of each color
  */
@@ -341,75 +362,21 @@ export function applyMorophonReduction(
   originalCost: ManaAmount,
   reduction: ManaAmount
 ): ManaAmount {
-  const result = { ...originalCost };
+  const result: { [key: string]: number | undefined } = { ...originalCost };
   
   // Reduce each color, with excess going to generic
   let excess = 0;
   
-  // White
-  const whiteReduction = reduction.white || 0;
-  const currentWhite = result.white || 0;
-  if (whiteReduction > currentWhite) {
-    excess += whiteReduction - currentWhite;
-    result.white = 0;
-  } else {
-    result.white = currentWhite - whiteReduction;
-  }
-  
-  // Blue
-  const blueReduction = reduction.blue || 0;
-  const currentBlue = result.blue || 0;
-  if (blueReduction > currentBlue) {
-    excess += blueReduction - currentBlue;
-    result.blue = 0;
-  } else {
-    result.blue = currentBlue - blueReduction;
-  }
-  
-  // Black
-  const blackReduction = reduction.black || 0;
-  const currentBlack = result.black || 0;
-  if (blackReduction > currentBlack) {
-    excess += blackReduction - currentBlack;
-    result.black = 0;
-  } else {
-    result.black = currentBlack - blackReduction;
-  }
-  
-  // Red
-  const redReduction = reduction.red || 0;
-  const currentRed = result.red || 0;
-  if (redReduction > currentRed) {
-    excess += redReduction - currentRed;
-    result.red = 0;
-  } else {
-    result.red = currentRed - redReduction;
-  }
-  
-  // Green
-  const greenReduction = reduction.green || 0;
-  const currentGreen = result.green || 0;
-  if (greenReduction > currentGreen) {
-    excess += greenReduction - currentGreen;
-    result.green = 0;
-  } else {
-    result.green = currentGreen - greenReduction;
-  }
-  
-  // Colorless
-  const colorlessReduction = reduction.colorless || 0;
-  const currentColorless = result.colorless || 0;
-  if (colorlessReduction > currentColorless) {
-    excess += colorlessReduction - currentColorless;
-    result.colorless = 0;
-  } else {
-    result.colorless = currentColorless - colorlessReduction;
+  // Apply reduction to each color type
+  const colors: (keyof ManaAmount)[] = ['white', 'blue', 'black', 'red', 'green', 'colorless'];
+  for (const color of colors) {
+    excess += applyColorReduction(result, color, reduction);
   }
   
   // Apply excess to generic (Rule 118.7c)
   result.generic = Math.max(0, (result.generic || 0) - excess);
   
-  return result;
+  return result as ManaAmount;
 }
 
 /**

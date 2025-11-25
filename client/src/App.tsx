@@ -443,10 +443,13 @@ export function App() {
       } else if (typeLine.includes('artifact') || typeLine.includes('creature')) {
         // Check for mana-producing artifacts/creatures
         if (oracleText.includes('add') && (oracleText.includes('mana') || oracleText.includes('{'))) {
-          // Special check for Mox Opal - requires metalcraft (3+ artifacts)
-          if (name.toLowerCase() === 'mox opal') {
+          // Check for Metalcraft requirement in oracle text (e.g., Mox Opal)
+          // Metalcraft - "as long as you control three or more artifacts"
+          if (oracleText.includes('metalcraft') || 
+              oracleText.includes('three or more artifacts') ||
+              oracleText.includes('3 or more artifacts')) {
             if (!checkMetalcraft(playerId)) {
-              continue; // Skip Mox Opal if metalcraft not met
+              continue; // Skip if metalcraft not met
             }
           }
           

@@ -138,8 +138,11 @@ function parseActivatedAbilities(card: KnownCardRef): ActivatedAbilityOption[] {
       });
     }
     
-    // Any color mana
-    if (lowerOracle.includes('add one mana of any color') || lowerOracle.includes('add {w}{u}{b}{r}{g}')) {
+    // Any color mana - check for common patterns (case-insensitive since lowerOracle is already lowercase)
+    if (lowerOracle.includes('add one mana of any color') || 
+        lowerOracle.includes('mana of any color') ||
+        lowerOracle.includes('add {w}{u}{b}{r}{g}') || 
+        lowerOracle.includes('any type of mana')) {
       abilities.push({
         id: 'tap-mana-any',
         label: 'Tap for any color',
