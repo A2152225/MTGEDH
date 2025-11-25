@@ -19,7 +19,8 @@
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitest": "^4.0.13"
   },
   "engines": {
     "node": ">=18.0.0",
