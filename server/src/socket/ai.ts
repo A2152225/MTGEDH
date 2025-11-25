@@ -98,26 +98,27 @@ export async function handleAIPriority(
   console.info('[AI] AI player has priority:', { gameId, playerId, phase: game.state.phase, step: game.state.step });
   
   try {
-    // Build decision context
-    const context: AIDecisionContext = {
-      gameState: game.state as any,
-      playerId,
-      decisionType: AIDecisionType.PASS_PRIORITY,
-      options: [],
-    };
-    
     // Determine what type of decision is needed based on game state
     const phase = String(game.state.phase || '').toLowerCase();
     const step = String((game.state as any).step || '').toLowerCase();
     
+    let decisionType: AIDecisionType;
     if (phase === 'combat' && step === 'declareattackers') {
-      context.decisionType = AIDecisionType.DECLARE_ATTACKERS;
+      decisionType = AIDecisionType.DECLARE_ATTACKERS;
     } else if (phase === 'combat' && step === 'declareblockers') {
-      context.decisionType = AIDecisionType.DECLARE_BLOCKERS;
+      decisionType = AIDecisionType.DECLARE_BLOCKERS;
     } else {
       // Default to pass priority
-      context.decisionType = AIDecisionType.PASS_PRIORITY;
+      decisionType = AIDecisionType.PASS_PRIORITY;
     }
+    
+    // Build decision context
+    const context: AIDecisionContext = {
+      gameState: game.state as any,
+      playerId,
+      decisionType,
+      options: [],
+    };
     
     // Make AI decision
     const decision = await aiEngine.makeDecision(context);
