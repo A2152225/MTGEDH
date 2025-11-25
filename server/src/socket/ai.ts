@@ -179,7 +179,7 @@ export async function autoSelectAICommander(
     }
     
     // Get the AI player's library (deck)
-    const zones = game.state.zones?.[playerId];
+    const zones = game.state.zones?.[playerId] as any;
     const library = zones?.library || [];
     
     if (library.length === 0) {
@@ -192,12 +192,27 @@ export async function autoSelectAICommander(
     
     if (commanders.length === 0) {
       console.warn('[AI] autoSelectAICommander: no valid commander found', { gameId, playerId });
-      return false;
+      // Fallback: just pick the first legendary card if any
+      const legendary = library.find((c: any) => 
+        (c?.type_line || '').toLowerCase().includes('legendary')
+      );
+      if (legendary) {
+        console.warn('[AI] Using fallback legendary as commander:', legendary.name);
+        commanders.push(legendary);
+        for (const color of extractColorIdentity(legendary)) {
+          if (!colorIdentity.includes(color)) {
+            colorIdentity.push(color);
+          }
+        }
+      } else {
+        console.error('[AI] No legendary cards found in deck, cannot set commander');
+        return false;
+      }
     }
     
     // Set commander using the game's setCommander function
-    const commanderNames = commanders.map(c => c.name);
-    const commanderIds = commanders.map(c => c.id);
+    const commanderNames = commanders.map((c: any) => c.name);
+    const commanderIds = commanders.map((c: any) => c.id);
     
     console.info('[AI] Auto-selecting commander for AI:', {
       gameId,
@@ -217,6 +232,29 @@ export async function autoSelectAICommander(
     // Call setCommander to set up the commander and trigger opening draw
     if (typeof (game as any).setCommander === 'function') {
       (game as any).setCommander(playerId, commanderNames, commanderIds, colorIdentity);
+      
+      // Verify the opening draw happened
+      const zonesAfter = game.state.zones?.[playerId];
+      const handCount = zonesAfter?.handCount ?? (Array.isArray(zonesAfter?.hand) ? zonesAfter.hand.length : 0);
+      
+      console.info('[AI] After setCommander - hand count:', handCount);
+      
+      // If hand is empty, manually trigger shuffle and draw
+      if (handCount === 0) {
+        console.info('[AI] Hand is empty after setCommander, manually triggering shuffle and draw');
+        
+        // Shuffle the library
+        if (typeof (game as any).shuffleLibrary === 'function') {
+          (game as any).shuffleLibrary(playerId);
+          console.info('[AI] Library shuffled');
+        }
+        
+        // Draw 7 cards
+        if (typeof (game as any).drawCards === 'function') {
+          const drawn = (game as any).drawCards(playerId, 7);
+          console.info('[AI] Drew', drawn?.length || 0, 'cards');
+        }
+      }
       
       // Persist the event
       try {
@@ -238,6 +276,7 @@ export async function autoSelectAICommander(
         gameId,
         playerId,
         commanderNames,
+        finalHandCount: game.state.zones?.[playerId]?.handCount,
       });
       
       return true;
@@ -271,18 +310,24 @@ export async function handleAIGameFlow(
   }
   
   const phaseStr = String(game.state.phase || '').toUpperCase();
+  const stepStr = String((game.state as any).step || '').toUpperCase();
   const commanderInfo = game.state.commandZone?.[playerId];
   const hasCommander = commanderInfo?.commanderIds?.length > 0;
   const zones = game.state.zones?.[playerId];
   const hasHand = (zones?.handCount || 0) > 0 || (zones?.hand?.length || 0) > 0;
+  const isAITurn = game.state.turnPlayer === playerId;
+  const hasPriority = game.state.priority === playerId;
   
   console.info('[AI] handleAIGameFlow:', {
     gameId,
     playerId,
     phase: phaseStr,
+    step: stepStr,
     hasCommander,
     hasHand,
     handCount: zones?.handCount,
+    isAITurn,
+    hasPriority,
   });
   
   // Pre-game phase: select commander if not done
@@ -305,14 +350,18 @@ export async function handleAIGameFlow(
     // If we have a commander and hand, we're ready to proceed
     if (hasCommander && hasHand) {
       console.info('[AI] AI is ready to start game');
-      // The human player will typically start the game
+      // AI is ready - if no turn player is set and AI should take initiative, we could start
+      // But typically the human player starts the game
     }
     return;
   }
   
-  // Active game phases: handle priority
-  if (game.state.priority === playerId) {
-    await handleAIPriority(io, gameId, playerId);
+  // Active game phases: handle priority if AI has it
+  if (hasPriority) {
+    // Small delay before AI takes action
+    setTimeout(async () => {
+      await handleAIPriority(io, gameId, playerId);
+    }, AI_REACTION_DELAY_MS);
   }
 }
 
@@ -383,7 +432,131 @@ export function getAIPlayers(gameId: string): PlayerID[] {
 }
 
 /**
+ * Check if a card is a land
+ */
+function isLandCard(card: any): boolean {
+  const typeLine = (card?.type_line || '').toLowerCase();
+  return typeLine.includes('land');
+}
+
+/**
+ * Check if AI can play a land (hasn't played one this turn and is in main phase)
+ */
+function canAIPlayLand(game: any, playerId: PlayerID): boolean {
+  const phase = String(game.state?.phase || '').toLowerCase();
+  const step = String(game.state?.step || '').toLowerCase();
+  const isMainPhase = phase.includes('main') || step.includes('main');
+  const isAITurn = game.state?.turnPlayer === playerId;
+  const landsPlayed = game.state?.landsPlayedThisTurn?.[playerId] || 0;
+  
+  return isMainPhase && isAITurn && landsPlayed < 1;
+}
+
+/**
+ * Find a playable land in the AI's hand
+ */
+function findPlayableLand(game: any, playerId: PlayerID): any | null {
+  const zones = game.state?.zones?.[playerId];
+  const hand = Array.isArray(zones?.hand) ? zones.hand : [];
+  
+  for (const card of hand) {
+    if (isLandCard(card)) {
+      return card;
+    }
+  }
+  return null;
+}
+
+/**
+ * Check the maximum hand size for a player (considering "no maximum hand size" effects)
+ */
+function getAIMaxHandSize(game: any, playerId: PlayerID): number {
+  const battlefield = game.state?.battlefield || [];
+  
+  // Check for permanents that grant "no maximum hand size"
+  for (const perm of battlefield) {
+    if (perm && perm.controller === playerId) {
+      const oracle = (perm.card?.oracle_text || '').toLowerCase();
+      if (oracle.includes('you have no maximum hand size')) {
+        return Infinity;
+      }
+    }
+  }
+  
+  return 7; // Default maximum hand size
+}
+
+/**
+ * Check if AI needs to discard cards during cleanup
+ */
+function needsToDiscard(game: any, playerId: PlayerID): { needsDiscard: boolean; discardCount: number } {
+  const zones = game.state?.zones?.[playerId];
+  const handSize = zones?.handCount ?? (Array.isArray(zones?.hand) ? zones.hand.length : 0);
+  const maxHandSize = getAIMaxHandSize(game, playerId);
+  
+  if (maxHandSize === Infinity) {
+    return { needsDiscard: false, discardCount: 0 };
+  }
+  
+  const discardCount = Math.max(0, handSize - maxHandSize);
+  return { needsDiscard: discardCount > 0, discardCount };
+}
+
+/**
+ * Choose cards for AI to discard - prioritizes keeping lands and low-cost spells
+ */
+function chooseCardsToDiscard(game: any, playerId: PlayerID, discardCount: number): string[] {
+  const zones = game.state?.zones?.[playerId];
+  const hand = Array.isArray(zones?.hand) ? zones.hand : [];
+  
+  if (hand.length <= discardCount) {
+    return hand.map((c: any) => c.id);
+  }
+  
+  // Score cards - lower score = more likely to discard
+  const scoredCards = hand.map((card: any) => {
+    let score = 50; // Base score
+    const typeLine = (card?.type_line || '').toLowerCase();
+    const manaCost = card?.mana_cost || '';
+    
+    // Keep lands (high priority)
+    if (typeLine.includes('land')) {
+      score += 100;
+    }
+    
+    // Keep low-cost spells (easier to cast)
+    const cmc = (manaCost.match(/\d+/) || ['0'])[0];
+    score += Math.max(0, 10 - parseInt(cmc, 10));
+    
+    // Keep creatures (good for board presence)
+    if (typeLine.includes('creature')) {
+      score += 20;
+    }
+    
+    // Keep removal spells
+    const oracleText = (card?.oracle_text || '').toLowerCase();
+    if (oracleText.includes('destroy') || oracleText.includes('exile')) {
+      score += 30;
+    }
+    
+    return { card, score };
+  });
+  
+  // Sort by score (ascending) - lowest scores first (to discard)
+  scoredCards.sort((a: any, b: any) => a.score - b.score);
+  
+  // Return the IDs of the cards with lowest scores
+  return scoredCards.slice(0, discardCount).map((sc: any) => sc.card.id);
+}
+
+/**
  * Handle AI turn when it's an AI player's priority
+ * This is the main AI decision-making function that handles:
+ * - Playing lands
+ * - Casting spells
+ * - Advancing steps
+ * - Discarding during cleanup
+ * - Passing turn to next player
  */
 export async function handleAIPriority(
   io: Server,
@@ -400,54 +573,353 @@ export async function handleAIPriority(
     return;
   }
   
-  console.info('[AI] AI player has priority:', { gameId, playerId, phase: game.state.phase, step: game.state.step });
+  const phase = String(game.state.phase || '').toLowerCase();
+  const step = String((game.state as any).step || '').toLowerCase();
+  const isAITurn = game.state.turnPlayer === playerId;
+  const stackEmpty = !game.state.stack || game.state.stack.length === 0;
+  
+  console.info('[AI] AI player has priority:', { 
+    gameId, 
+    playerId, 
+    phase, 
+    step, 
+    isAITurn, 
+    stackEmpty,
+    priority: game.state.priority 
+  });
   
   try {
-    // Determine what type of decision is needed based on game state
-    const phase = String(game.state.phase || '').toLowerCase();
-    const step = String((game.state as any).step || '').toLowerCase();
-    
-    let decisionType: AIDecisionType;
-    if (phase === 'combat' && step === 'declareattackers') {
-      decisionType = AIDecisionType.DECLARE_ATTACKERS;
-    } else if (phase === 'combat' && step === 'declareblockers') {
-      decisionType = AIDecisionType.DECLARE_BLOCKERS;
-    } else {
-      // Default to pass priority
-      decisionType = AIDecisionType.PASS_PRIORITY;
+    // If it's not the AI's turn, just pass priority
+    if (!isAITurn) {
+      console.info('[AI] Not AI turn, passing priority');
+      await executePassPriority(io, gameId, playerId);
+      return;
     }
     
-    // Build decision context
-    const context: AIDecisionContext = {
-      gameState: game.state as any,
-      playerId,
-      decisionType,
-      options: [],
-    };
+    // If there's something on the stack, let it resolve
+    if (!stackEmpty) {
+      console.info('[AI] Stack not empty, passing priority to let it resolve');
+      await executePassPriority(io, gameId, playerId);
+      return;
+    }
     
-    // Make AI decision
-    const decision = await aiEngine.makeDecision(context);
+    // Handle different phases/steps
     
-    console.info('[AI] AI decision:', {
-      gameId,
-      playerId,
-      type: decision.type,
-      action: decision.action,
-      reasoning: decision.reasoning,
-      confidence: decision.confidence,
-    });
+    // CLEANUP STEP: Handle discard to max hand size
+    if (step.includes('cleanup') || step === 'cleanup') {
+      const { needsDiscard, discardCount } = needsToDiscard(game, playerId);
+      
+      if (needsDiscard) {
+        console.info('[AI] Cleanup step - discarding', discardCount, 'cards');
+        await executeAIDiscard(io, gameId, playerId, discardCount);
+        return;
+      }
+      
+      // Cleanup complete, advance to next turn
+      console.info('[AI] Cleanup complete, advancing to next turn');
+      await executeAdvanceStep(io, gameId, playerId);
+      return;
+    }
     
-    // Execute the decision
-    await executeAIDecision(io, gameId, playerId, decision);
+    // MAIN PHASES: Play lands and cast spells
+    const isMainPhase = phase.includes('main') || step.includes('main');
+    
+    if (isMainPhase) {
+      // Try to play a land first
+      if (canAIPlayLand(game, playerId)) {
+        const landCard = findPlayableLand(game, playerId);
+        if (landCard) {
+          console.info('[AI] Playing land:', landCard.name);
+          await executeAIPlayLand(io, gameId, playerId, landCard.id);
+          // After playing land, continue with more actions
+          setTimeout(() => handleAIPriority(io, gameId, playerId), AI_THINK_TIME_MS);
+          return;
+        }
+      }
+      
+      // TODO: Try to cast spells (future enhancement)
+      // For now, just advance step
+      console.info('[AI] Main phase, no more actions, advancing step');
+      await executeAdvanceStep(io, gameId, playerId);
+      return;
+    }
+    
+    // COMBAT PHASES: Handle attack/block declarations
+    if (phase === 'combat') {
+      if (step.includes('attackers') || step === 'declare_attackers') {
+        // Determine what type of decision is needed
+        const context: AIDecisionContext = {
+          gameState: game.state as any,
+          playerId,
+          decisionType: AIDecisionType.DECLARE_ATTACKERS,
+          options: [],
+        };
+        
+        const decision = await aiEngine.makeDecision(context);
+        
+        if (decision.action?.attackers?.length > 0) {
+          await executeDeclareAttackers(io, gameId, playerId, decision.action.attackers);
+        } else {
+          // No attackers, advance step
+          await executeAdvanceStep(io, gameId, playerId);
+        }
+        return;
+      }
+      
+      if (step.includes('blockers') || step === 'declare_blockers') {
+        const context: AIDecisionContext = {
+          gameState: game.state as any,
+          playerId,
+          decisionType: AIDecisionType.DECLARE_BLOCKERS,
+          options: [],
+        };
+        
+        const decision = await aiEngine.makeDecision(context);
+        
+        if (decision.action?.blockers?.length > 0) {
+          await executeDeclareBlockers(io, gameId, playerId, decision.action.blockers);
+        } else {
+          // No blockers, advance step
+          await executeAdvanceStep(io, gameId, playerId);
+        }
+        return;
+      }
+      
+      // Other combat steps - just advance
+      console.info('[AI] Combat step', step, '- advancing');
+      await executeAdvanceStep(io, gameId, playerId);
+      return;
+    }
+    
+    // BEGINNING PHASES (Untap, Upkeep, Draw)
+    if (phase === 'beginning' || phase.includes('begin')) {
+      console.info('[AI] Beginning phase, step:', step, '- advancing');
+      await executeAdvanceStep(io, gameId, playerId);
+      return;
+    }
+    
+    // ENDING PHASE (End step)
+    if (phase === 'ending' || phase === 'end') {
+      console.info('[AI] Ending phase, step:', step, '- advancing');
+      await executeAdvanceStep(io, gameId, playerId);
+      return;
+    }
+    
+    // Default: advance step
+    console.info('[AI] Unknown phase/step, advancing');
+    await executeAdvanceStep(io, gameId, playerId);
     
   } catch (error) {
     console.error('[AI] Error handling AI priority:', error);
-    // Fallback: pass priority
+    // Fallback: try to advance step or pass priority
     try {
-      await executePassPriority(io, gameId, playerId);
+      if (isAITurn && stackEmpty) {
+        await executeAdvanceStep(io, gameId, playerId);
+      } else {
+        await executePassPriority(io, gameId, playerId);
+      }
     } catch (e) {
-      console.error('[AI] Failed to pass priority as fallback:', e);
+      console.error('[AI] Failed fallback action:', e);
     }
+  }
+}
+
+/**
+ * Execute AI playing a land
+ */
+async function executeAIPlayLand(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  cardId: string
+): Promise<void> {
+  const game = ensureGame(gameId);
+  if (!game) return;
+  
+  console.info('[AI] Playing land:', { gameId, playerId, cardId });
+  
+  try {
+    // Use game's playLand method if available
+    if (typeof (game as any).playLand === 'function') {
+      (game as any).playLand(playerId, cardId);
+    } else {
+      // Fallback: manually move card from hand to battlefield
+      const zones = game.state?.zones?.[playerId];
+      if (zones && Array.isArray(zones.hand)) {
+        const hand = zones.hand as any[];
+        const idx = hand.findIndex((c: any) => c?.id === cardId);
+        if (idx !== -1) {
+          const [card] = hand.splice(idx, 1);
+          zones.handCount = hand.length;
+          
+          // Add to battlefield
+          game.state.battlefield = game.state.battlefield || [];
+          const permanent = {
+            id: `perm_${Date.now()}_${cardId}`,
+            controller: playerId,
+            owner: playerId,
+            card: { ...card, zone: 'battlefield' },
+            tapped: false,
+            counters: {},
+          };
+          game.state.battlefield.push(permanent as any);
+          
+          // Increment lands played
+          game.state.landsPlayedThisTurn = game.state.landsPlayedThisTurn || {};
+          (game.state.landsPlayedThisTurn as any)[playerId] = ((game.state.landsPlayedThisTurn as any)[playerId] || 0) + 1;
+        }
+      }
+    }
+    
+    // Persist event
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'playLand', { playerId, cardId, isAI: true });
+    } catch (e) {
+      console.warn('[AI] Failed to persist playLand event:', e);
+    }
+    
+    // Bump sequence
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    
+    // Broadcast updated state
+    broadcastGame(io, game, gameId);
+    
+  } catch (error) {
+    console.error('[AI] Error playing land:', error);
+  }
+}
+
+/**
+ * Execute AI discarding cards
+ */
+async function executeAIDiscard(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  discardCount: number
+): Promise<void> {
+  const game = ensureGame(gameId);
+  if (!game) return;
+  
+  console.info('[AI] Discarding', discardCount, 'cards');
+  
+  try {
+    const cardsToDiscard = chooseCardsToDiscard(game, playerId, discardCount);
+    
+    // Get zones
+    const zones = game.state?.zones?.[playerId];
+    if (!zones || !Array.isArray(zones.hand)) {
+      console.warn('[AI] No hand found for discard');
+      return;
+    }
+    
+    const hand = zones.hand as any[];
+    const discardedCards: any[] = [];
+    
+    for (const cardId of cardsToDiscard) {
+      const idx = hand.findIndex((c: any) => c?.id === cardId);
+      if (idx !== -1) {
+        const [card] = hand.splice(idx, 1);
+        discardedCards.push(card);
+        
+        // Move to graveyard
+        zones.graveyard = zones.graveyard || [];
+        card.zone = 'graveyard';
+        (zones.graveyard as any[]).push(card);
+      }
+    }
+    
+    // Update counts
+    zones.handCount = hand.length;
+    zones.graveyardCount = (zones.graveyard as any[]).length;
+    
+    // Clear any pending discard state
+    if ((game.state as any).pendingDiscardSelection) {
+      delete (game.state as any).pendingDiscardSelection[playerId];
+    }
+    
+    // Persist event
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'cleanupDiscard', { 
+        playerId, 
+        cardIds: cardsToDiscard,
+        discardCount: discardedCards.length,
+        isAI: true,
+      });
+    } catch (e) {
+      console.warn('[AI] Failed to persist discard event:', e);
+    }
+    
+    // Bump sequence
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    
+    // Broadcast
+    broadcastGame(io, game, gameId);
+    
+    // After discarding, advance to next turn
+    setTimeout(() => {
+      executeAdvanceStep(io, gameId, playerId).catch(console.error);
+    }, AI_REACTION_DELAY_MS);
+    
+  } catch (error) {
+    console.error('[AI] Error discarding:', error);
+  }
+}
+
+/**
+ * Execute advancing to the next step (AI's turn only)
+ */
+async function executeAdvanceStep(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID
+): Promise<void> {
+  const game = ensureGame(gameId);
+  if (!game) return;
+  
+  const currentStep = String((game.state as any).step || '');
+  const currentPhase = String(game.state.phase || '');
+  
+  console.info('[AI] Advancing step:', { gameId, playerId, currentPhase, currentStep });
+  
+  try {
+    // Use game's nextStep method if available
+    if (typeof (game as any).nextStep === 'function') {
+      (game as any).nextStep();
+    } else {
+      console.warn('[AI] game.nextStep not available');
+      return;
+    }
+    
+    const newStep = String((game.state as any).step || '');
+    const newPhase = String(game.state.phase || '');
+    
+    console.info('[AI] Step advanced:', { newPhase, newStep });
+    
+    // Persist event
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'nextStep', { playerId, isAI: true });
+    } catch (e) {
+      console.warn('[AI] Failed to persist nextStep event:', e);
+    }
+    
+    // Broadcast
+    broadcastGame(io, game, gameId);
+    
+    // If AI still has priority after advancing, continue handling
+    const newPriority = (game.state as any)?.priority;
+    if (newPriority === playerId && isAIPlayer(gameId, playerId)) {
+      setTimeout(() => {
+        handleAIPriority(io, gameId, playerId).catch(console.error);
+      }, AI_THINK_TIME_MS);
+    }
+    
+  } catch (error) {
+    console.error('[AI] Error advancing step:', error);
   }
 }
 
@@ -788,7 +1260,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           
           // Initialize zones for AI
           game.state.zones = game.state.zones || {};
-          game.state.zones[aiPlayerId] = {
+          (game.state.zones as any)[aiPlayerId] = {
             hand: [],
             handCount: 0,
             library: resolvedCards,
