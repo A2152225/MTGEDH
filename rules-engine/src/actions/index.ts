@@ -44,3 +44,54 @@ export {
   createAlliedFetchlandAction,
   type FetchlandAction,
 } from './fetchland';
+
+// Game phases and steps
+export {
+  GamePhase,
+  GameStep,
+  getNextGameStep,
+  doesStepReceivePriority,
+  isMainPhase,
+  isInCombat,
+  PRIORITY_STEPS,
+} from './gamePhases';
+
+// State-based actions handler
+export {
+  performStateBasedActions,
+  checkWinConditions,
+  type SBAResult,
+} from './stateBasedActionsHandler';
+
+// Turn-based actions
+export {
+  executeUntapStep,
+  executeDrawStep,
+  executeCleanupStep,
+  executeTurnBasedAction,
+} from './turnActions';
+
+// Triggered abilities handler
+export {
+  processTriggers,
+  findTriggeredAbilities,
+  checkETBTriggers,
+  checkDiesTriggers,
+  checkStepTriggers,
+  type TriggerResult,
+} from './triggersHandler';
+
+// Game setup and mulligan
+export {
+  initializeGame,
+  drawInitialHand,
+  processMulligan,
+  completeMulliganPhase,
+} from './gameSetup';
+
+// Game advancement
+export {
+  advanceGame,
+  skipToPhase,
+  passPriority,
+} from './gameAdvance';
