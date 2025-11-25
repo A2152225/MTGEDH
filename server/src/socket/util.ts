@@ -365,6 +365,9 @@ export function emitStateToSocket(
  *
  * This version normalizes view and mirrors minimal zone shapes back into game.state so clients
  * and other server code never observe missing per-player zones.
+ * 
+ * After broadcasting, checks if the current priority holder is an AI player
+ * and triggers AI handling if needed.
  */
 export function broadcastGame(
   io: Server,
@@ -465,6 +468,46 @@ export function broadcastGame(
         err
       );
     }
+  }
+  
+  // After broadcasting, check if the current priority holder is an AI player
+  // This ensures AI responds to game state changes
+  checkAndTriggerAI(io, game, gameId);
+}
+
+/** AI reaction delay - matches timing in ai.ts */
+const AI_REACTION_DELAY_MS = 300;
+
+/**
+ * Check if the current priority holder is an AI and trigger their turn
+ * This is called after broadcasting to ensure AI reacts to state changes
+ */
+function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string): void {
+  try {
+    const priority = (game.state as any)?.priority;
+    if (!priority) return;
+    
+    // Check if the current priority holder is an AI player
+    const players = (game.state as any)?.players || [];
+    const priorityPlayer = players.find((p: any) => p?.id === priority);
+    
+    if (priorityPlayer && priorityPlayer.isAI) {
+      // Dynamically import AI handler to avoid circular deps
+      setTimeout(async () => {
+        try {
+          const aiModule = await import('./ai.js');
+          if (typeof aiModule.handleAIGameFlow === 'function') {
+            await aiModule.handleAIGameFlow(io, gameId, priority);
+          } else if (typeof aiModule.handleAIPriority === 'function') {
+            await aiModule.handleAIPriority(io, gameId, priority);
+          }
+        } catch (e) {
+          console.warn('[util] Failed to trigger AI handler:', e);
+        }
+      }, AI_REACTION_DELAY_MS);
+    }
+  } catch (e) {
+    console.warn('[util] checkAndTriggerAI error:', e);
   }
 }
 
