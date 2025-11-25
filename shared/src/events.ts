@@ -49,6 +49,13 @@ export interface ClientToServerEvents {
   importDeck: (payload: { gameId: GameID; list: string; deckName?: string; save?: boolean }) => void;
   useSavedDeck: (payload: { gameId: GameID; deckId: string }) => void;
   getImportedDeckCandidates: (payload: { gameId: GameID }) => void;
+  
+  // saved deck CRUD
+  saveDeck: (payload: { gameId: GameID; name: string; list: string }) => void;
+  listSavedDecks: (payload: { gameId: GameID }) => void;
+  getSavedDeck: (payload: { gameId: GameID; deckId: string }) => void;
+  renameSavedDeck: (payload: { gameId: GameID; deckId: string; name: string }) => void;
+  deleteSavedDeck: (payload: { gameId: GameID; deckId: string }) => void;
 
   // library / search
   searchLibrary: (payload: { gameId: GameID; query: string; limit?: number }) => void;
@@ -101,6 +108,7 @@ export interface ServerToClientEvents {
   importWipeConfirmUpdate: (payload: any) => void;
   importWipeCancelled: (payload: any) => void;
   importWipeConfirmed: (payload: any) => void;
+  importApplied: (payload: { confirmId: string; gameId: GameID; by: PlayerID; deckName?: string; importerOnly?: boolean }) => void;
 
   // commander suggestions / debug
   suggestCommanders: (payload: { gameId: GameID; names: string[] }) => void;
@@ -111,9 +119,14 @@ export interface ServerToClientEvents {
   // errors / warnings
   error: (payload: { message: string; code?: string }) => void;
   deckError: (payload: { gameId: GameID; message: string }) => void;
+  deckValidationResult: (payload: { gameId: GameID; format: string; cardCount: number; illegal: Array<{ name: string; reason: string }>; warnings: string[]; valid: boolean }) => void;
 
-  // saved decks list
+  // saved decks CRUD responses
   savedDecksList: (payload: { gameId: GameID; decks: any[] }) => void;
+  savedDeckDetail: (payload: { gameId: GameID; deck: any }) => void;
+  deckSaved: (payload: { gameId: GameID; deckId: string }) => void;
+  deckRenamed: (payload: { gameId: GameID; deck: any }) => void;
+  deckDeleted: (payload: { gameId: GameID; deckId: string }) => void;
 
   // generic pushes from server
   // (allow arbitrary other messages depending on server version)
