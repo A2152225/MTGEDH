@@ -13,7 +13,7 @@ export async function resolveDeckList(parsed: Array<{name:string;count:number}>)
       if (!c) { missing.push(name); continue; }
       for (let i=0;i<(count||1);i++) {
         validation.push(c);
-        resolved.push({ id:c.id, name:c.name, type_line:c.type_line, oracle_text:c.oracle_text, image_uris:c.image_uris });
+        resolved.push({ id:c.id, name:c.name, type_line:c.type_line, oracle_text:c.oracle_text, image_uris:c.image_uris, mana_cost:c.mana_cost, power:c.power, toughness:c.toughness });
       }
     }
   } else {
