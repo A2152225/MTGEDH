@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { socket } from '../socket';
 
 /**
@@ -29,6 +29,7 @@ interface CreateGameModalProps {
   onClose: () => void;
   onCreateGame: (config: GameCreationConfig) => void;
   savedDecks?: SavedDeckSummary[];
+  onRefreshDecks?: () => void;
 }
 
 /**
@@ -44,6 +45,9 @@ export interface GameCreationConfig {
   aiName?: string;
   aiStrategy?: AIStrategy;
   aiDeckId?: string;
+  // New: AI deck text for import
+  aiDeckText?: string;
+  aiDeckName?: string;
 }
 
 /**
@@ -85,7 +89,7 @@ const AI_STRATEGY_INFO: Record<AIStrategy, { name: string; description: string }
 /**
  * Modal for creating a new game with format, AI opponent, and deck selection
  */
-export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [] }: CreateGameModalProps) {
+export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], onRefreshDecks }: CreateGameModalProps) {
   // Form state
   const [gameId, setGameId] = useState(() => `game_${Date.now().toString(36)}`);
   const [playerName, setPlayerName] = useState('Player');
@@ -97,6 +101,14 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [] }
   const [aiName, setAiName] = useState('AI Opponent');
   const [aiStrategy, setAiStrategy] = useState<AIStrategy>('basic');
   const [aiDeckId, setAiDeckId] = useState<string>('');
+  
+  // AI deck import mode
+  const [aiDeckMode, setAiDeckMode] = useState<'select' | 'import'>('select');
+  const [aiDeckText, setAiDeckText] = useState('');
+  const [aiDeckName, setAiDeckName] = useState('');
+  const [aiDeckFilter, setAiDeckFilter] = useState('');
+  const [savingDeck, setSavingDeck] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   // Update starting life when format changes
   useEffect(() => {
@@ -107,14 +119,62 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [] }
   useEffect(() => {
     if (open) {
       setGameId(`game_${Date.now().toString(36)}`);
+      // Reset save message when modal opens
+      setSaveMessage(null);
     }
   }, [open]);
+
+  // Filter saved decks
+  const filteredDecks = useMemo(() => {
+    const q = aiDeckFilter.trim().toLowerCase();
+    if (!q) return savedDecks;
+    return savedDecks.filter(d => d.name.toLowerCase().includes(q));
+  }, [savedDecks, aiDeckFilter]);
 
   /**
    * Sanitize game ID to only allow alphanumeric, underscore, and hyphen
    */
   const sanitizeGameId = (input: string): string => {
     return input.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 50);
+  };
+
+  /**
+   * Save the imported deck to the server
+   */
+  const handleSaveImportedDeck = async () => {
+    if (!aiDeckText.trim() || !aiDeckName.trim()) return;
+    
+    setSavingDeck(true);
+    setSaveMessage(null);
+    
+    try {
+      const response = await fetch('/api/decks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: aiDeckName.trim(),
+          text: aiDeckText.trim(),
+        }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setSaveMessage('✓ Deck saved successfully');
+        // Refresh the deck list
+        if (onRefreshDecks) onRefreshDecks();
+        // Switch to select mode and select the new deck
+        if (data.deckId) {
+          setAiDeckId(data.deckId);
+          setAiDeckMode('select');
+        }
+      } else {
+        setSaveMessage('✗ Failed to save deck');
+      }
+    } catch (e) {
+      setSaveMessage('✗ Failed to save deck');
+    } finally {
+      setSavingDeck(false);
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -131,7 +191,9 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [] }
       includeAI,
       aiName: includeAI ? aiName.trim() || 'AI Opponent' : undefined,
       aiStrategy: includeAI ? aiStrategy : undefined,
-      aiDeckId: includeAI && aiDeckId ? aiDeckId : undefined,
+      aiDeckId: includeAI && aiDeckMode === 'select' && aiDeckId ? aiDeckId : undefined,
+      aiDeckText: includeAI && aiDeckMode === 'import' && aiDeckText.trim() ? aiDeckText.trim() : undefined,
+      aiDeckName: includeAI && aiDeckMode === 'import' && aiDeckName.trim() ? aiDeckName.trim() : undefined,
     };
 
     onCreateGame(config);
@@ -372,29 +434,169 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [] }
                   <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: '#444' }}>
                     AI Deck
                   </label>
-                  <select
-                    value={aiDeckId}
-                    onChange={(e) => setAiDeckId(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: 4,
-                      border: '1px solid #ddd',
-                      fontSize: 14,
-                      boxSizing: 'border-box',
-                      backgroundColor: '#fff',
-                    }}
-                  >
-                    <option value="">-- Select a saved deck --</option>
-                    {savedDecks.map((deck) => (
-                      <option key={deck.id} value={deck.id}>
-                        {deck.name} ({deck.card_count} cards)
-                      </option>
-                    ))}
-                  </select>
-                  {savedDecks.length === 0 && (
-                    <div style={{ marginTop: 4, fontSize: 12, color: '#f59e0b' }}>
-                      ⚠️ No saved decks available. Import a deck first.
+                  
+                  {/* Mode Toggle */}
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => setAiDeckMode('select')}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: 4,
+                        border: aiDeckMode === 'select' ? '2px solid #3b82f6' : '1px solid #ddd',
+                        backgroundColor: aiDeckMode === 'select' ? '#eff6ff' : '#fff',
+                        cursor: 'pointer',
+                        fontSize: 12,
+                        fontWeight: aiDeckMode === 'select' ? 500 : 400,
+                      }}
+                    >
+                      📁 Select Saved Deck
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAiDeckMode('import')}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: 4,
+                        border: aiDeckMode === 'import' ? '2px solid #3b82f6' : '1px solid #ddd',
+                        backgroundColor: aiDeckMode === 'import' ? '#eff6ff' : '#fff',
+                        cursor: 'pointer',
+                        fontSize: 12,
+                        fontWeight: aiDeckMode === 'import' ? 500 : 400,
+                      }}
+                    >
+                      📝 Import Deck
+                    </button>
+                  </div>
+
+                  {/* Select Saved Deck Mode */}
+                  {aiDeckMode === 'select' && (
+                    <div>
+                      <input
+                        type="text"
+                        value={aiDeckFilter}
+                        onChange={(e) => setAiDeckFilter(e.target.value)}
+                        placeholder="Filter decks..."
+                        style={{
+                          width: '100%',
+                          padding: '6px 10px',
+                          borderRadius: 4,
+                          border: '1px solid #ddd',
+                          fontSize: 12,
+                          boxSizing: 'border-box',
+                          marginBottom: 6,
+                        }}
+                      />
+                      <select
+                        value={aiDeckId}
+                        onChange={(e) => setAiDeckId(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          borderRadius: 4,
+                          border: '1px solid #ddd',
+                          fontSize: 14,
+                          boxSizing: 'border-box',
+                          backgroundColor: '#fff',
+                        }}
+                      >
+                        <option value="">-- Select a saved deck --</option>
+                        {filteredDecks.map((deck) => (
+                          <option key={deck.id} value={deck.id}>
+                            {deck.name} ({deck.card_count} cards)
+                          </option>
+                        ))}
+                      </select>
+                      {savedDecks.length === 0 && (
+                        <div style={{ marginTop: 4, fontSize: 12, color: '#f59e0b' }}>
+                          ⚠️ No saved decks available. Use "Import Deck" to add one.
+                        </div>
+                      )}
+                      {savedDecks.length > 0 && filteredDecks.length === 0 && aiDeckFilter && (
+                        <div style={{ marginTop: 4, fontSize: 12, color: '#888' }}>
+                          No decks match your filter.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Import Deck Mode */}
+                  {aiDeckMode === 'import' && (
+                    <div>
+                      <input
+                        type="text"
+                        value={aiDeckName}
+                        onChange={(e) => setAiDeckName(e.target.value)}
+                        placeholder="Deck name"
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          borderRadius: 4,
+                          border: '1px solid #ddd',
+                          fontSize: 14,
+                          boxSizing: 'border-box',
+                          marginBottom: 6,
+                        }}
+                      />
+                      <textarea
+                        value={aiDeckText}
+                        onChange={(e) => setAiDeckText(e.target.value)}
+                        placeholder="Paste decklist here (e.g., '4 Lightning Bolt', '1 Sol Ring')"
+                        style={{
+                          width: '100%',
+                          height: 120,
+                          padding: '8px 12px',
+                          borderRadius: 4,
+                          border: '1px solid #ddd',
+                          fontSize: 12,
+                          boxSizing: 'border-box',
+                          resize: 'vertical',
+                          fontFamily: 'monospace',
+                        }}
+                      />
+                      <div style={{ display: 'flex', gap: 8, marginTop: 6, alignItems: 'center' }}>
+                        <input
+                          type="file"
+                          accept=".txt,text/plain"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            const content = await file.text();
+                            setAiDeckText(content);
+                            // Use filename as deck name if not set
+                            if (!aiDeckName) {
+                              setAiDeckName(file.name.replace(/\.txt$/i, ''));
+                            }
+                          }}
+                          style={{ fontSize: 11 }}
+                        />
+                        <button
+                          type="button"
+                          onClick={handleSaveImportedDeck}
+                          disabled={!aiDeckText.trim() || !aiDeckName.trim() || savingDeck}
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: 4,
+                            border: 'none',
+                            backgroundColor: (!aiDeckText.trim() || !aiDeckName.trim() || savingDeck) ? '#ccc' : '#10b981',
+                            color: '#fff',
+                            cursor: (!aiDeckText.trim() || !aiDeckName.trim() || savingDeck) ? 'not-allowed' : 'pointer',
+                            fontSize: 12,
+                          }}
+                        >
+                          {savingDeck ? 'Saving...' : 'Save to Server'}
+                        </button>
+                      </div>
+                      {saveMessage && (
+                        <div style={{ marginTop: 4, fontSize: 12, color: saveMessage.startsWith('✓') ? '#10b981' : '#ef4444' }}>
+                          {saveMessage}
+                        </div>
+                      )}
+                      {aiDeckText.trim() && (
+                        <div style={{ marginTop: 4, fontSize: 12, color: '#666' }}>
+                          📋 Deck will be imported when the game starts
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

@@ -12,6 +12,7 @@ import {
   listGames as dbListGames,
   deleteGame as dbDeleteGame,
 } from "./db";
+import { listDecks, saveDeck } from "./db/decks";
 import type {
   ClientToServerEvents,
   ServerToClientEvents,
@@ -79,6 +80,73 @@ app.get("/api/games", (req, res) => {
   } catch (err) {
     console.error("GET /api/games failed:", err);
     res.status(500).json({ error: "Failed to list games" });
+  }
+});
+
+// API: list saved decks (for AI opponent deck selection)
+app.get("/api/decks", (req, res) => {
+  try {
+    const decks = listDecks();
+    res.json({ decks });
+  } catch (err) {
+    console.error("GET /api/decks failed:", err);
+    res.status(500).json({ error: "Failed to list decks" });
+  }
+});
+
+// API: save a deck (for AI opponent deck import)
+app.post("/api/decks", (req, res) => {
+  try {
+    const { name, text } = req.body;
+    
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      res.status(400).json({ error: "Deck name is required" });
+      return;
+    }
+    
+    if (!text || typeof text !== 'string' || !text.trim()) {
+      res.status(400).json({ error: "Deck text is required" });
+      return;
+    }
+    
+    // Parse deck to get card count (simple line-based count)
+    const lines = text.split(/\r?\n/).filter((l: string) => {
+      const trimmed = l.trim();
+      // Skip empty lines, comments, and section headers
+      return trimmed.length > 0 && 
+             !trimmed.startsWith('#') && 
+             !trimmed.startsWith('//') &&
+             !trimmed.toLowerCase().startsWith('sideboard') &&
+             !trimmed.toLowerCase().startsWith('commander');
+    });
+    
+    let cardCount = 0;
+    for (const line of lines) {
+      const match = line.match(/^(\d+)/);
+      if (match) {
+        cardCount += parseInt(match[1], 10) || 1;
+      } else {
+        cardCount += 1;
+      }
+    }
+    
+    const deckId = `deck_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    
+    saveDeck({
+      id: deckId,
+      name: name.trim(),
+      text: text.trim(),
+      created_by_id: 'api',
+      created_by_name: 'API Import',
+      card_count: cardCount,
+    });
+    
+    console.info("[API] Deck saved:", { deckId, name: name.trim(), cardCount });
+    
+    res.json({ success: true, deckId, cardCount });
+  } catch (err) {
+    console.error("POST /api/decks failed:", err);
+    res.status(500).json({ error: "Failed to save deck" });
   }
 });
 
