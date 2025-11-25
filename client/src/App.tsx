@@ -21,6 +21,7 @@ import GameList from "./components/GameList";
 import { useGameSocket } from "./hooks/useGameSocket";
 import type { PaymentItem, ManaColor } from "../../shared/src";
 import { GameStatusIndicator } from "./components/GameStatusIndicator";
+import { CreateGameModal, type GameCreationConfig } from "./components/CreateGameModal";
 
 /** Map engine/internal phase enum to human-friendly name */
 function prettyPhase(phase?: string | null): string {
@@ -171,6 +172,49 @@ export function App() {
 
   // Accordion state for Join / Active Games
   const [joinCollapsed, setJoinCollapsed] = useState(false);
+
+  // Create Game modal state
+  const [createGameModalOpen, setCreateGameModalOpen] = useState(false);
+  const [savedDecks, setSavedDecks] = useState<any[]>([]);
+
+  // Fetch saved decks when create game modal opens
+  React.useEffect(() => {
+    if (createGameModalOpen) {
+      fetch('/api/decks')
+        .then(res => res.ok ? res.json() : { decks: [] })
+        .then(data => setSavedDecks(data.decks || []))
+        .catch(() => setSavedDecks([]));
+    }
+  }, [createGameModalOpen]);
+
+  // Handle game creation
+  const handleCreateGame = (config: GameCreationConfig) => {
+    if (config.includeAI) {
+      // Create game with AI opponent
+      socket.emit('createGameWithAI' as any, {
+        gameId: config.gameId,
+        playerName: config.playerName,
+        format: config.format,
+        startingLife: config.startingLife,
+        aiName: config.aiName,
+        aiStrategy: config.aiStrategy,
+        aiDeckId: config.aiDeckId,
+      });
+    }
+    
+    // Update the input fields and join the game
+    setGameIdInput(config.gameId);
+    setNameInput(config.playerName);
+    
+    // Join the game after a short delay to allow server processing
+    setTimeout(() => {
+      socket.emit('joinGame', {
+        gameId: config.gameId,
+        playerName: config.playerName,
+        spectator: false,
+      });
+    }, 100);
+  };
 
   React.useEffect(() => {
     const handler = (payload: any) => {
@@ -540,6 +584,20 @@ export function App() {
                 </label>
                 <button onClick={handleJoin} disabled={!connected}>
                   Join
+                </button>
+                <button
+                  onClick={() => setCreateGameModalOpen(true)}
+                  disabled={!connected}
+                  style={{
+                    backgroundColor: "#10b981",
+                    color: "white",
+                    border: "none",
+                    borderRadius: 4,
+                    padding: "4px 12px",
+                    cursor: connected ? "pointer" : "not-allowed",
+                  }}
+                >
+                  + Create Game
                 </button>
                 <button
                   onClick={() =>
@@ -1180,6 +1238,14 @@ export function App() {
         }, [safeView, you, spellToCast])}
         onConfirm={handleCastSpellConfirm}
         onCancel={handleCastSpellCancel}
+      />
+
+      {/* Create Game Modal */}
+      <CreateGameModal
+        open={createGameModalOpen}
+        onClose={() => setCreateGameModalOpen(false)}
+        onCreateGame={handleCreateGame}
+        savedDecks={savedDecks}
       />
     </div>
   );

@@ -197,6 +197,21 @@ function logStateDebug(prefix: string, gameId: string, view: any) {
   }
 }
 
+/**
+ * Get player name from player ID.
+ * Falls back to the ID if name is not found.
+ */
+export function getPlayerName(game: any, playerId: PlayerID): string {
+  if (!game || !playerId) return playerId || 'Unknown';
+  try {
+    const players = game.state?.players || [];
+    const player = players.find((p: any) => p?.id === playerId);
+    return player?.name || playerId;
+  } catch (e) {
+    return playerId || 'Unknown';
+  }
+}
+
 /* ------------------- Core exported utilities (based on original file) ------------------- */
 
 /**

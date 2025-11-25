@@ -1,5 +1,5 @@
 import type { Server, Socket } from "socket.io";
-import { ensureGame, appendGameEvent, broadcastGame } from "./util";
+import { ensureGame, appendGameEvent, broadcastGame, getPlayerName } from "./util";
 import { appendEvent } from "../db";
 import { games } from "./socket";
 
@@ -120,7 +120,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `Player ${pid} moved ${movedCards.join(", ")} to ${moveTo}`,
+        message: `${getPlayerName(game, pid)} moved ${movedCards.join(", ")} to ${moveTo}`,
         ts: Date.now(),
       });
     }

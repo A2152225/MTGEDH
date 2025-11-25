@@ -1,5 +1,5 @@
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName } from "./util";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem } from "../../shared/src";
@@ -338,7 +338,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `${playerId} cast ${cardInHand.name}.`,
+        message: `${getPlayerName(game, playerId)} cast ${cardInHand.name}.`,
         ts: Date.now(),
       });
       
@@ -427,7 +427,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           id: `m_${Date.now()}`,
           gameId,
           from: "system",
-          message: `Player ${playerId} claimed first turn.`,
+          message: `${getPlayerName(game, playerId)} claimed first turn.`,
           ts: Date.now(),
         });
         broadcastGame(io, game, gameId);
@@ -1071,7 +1071,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `${playerId} keeps their hand.`,
+        message: `${getPlayerName(game, playerId)} keeps their hand.`,
         ts: Date.now(),
       });
 
@@ -1178,7 +1178,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `${playerId} mulligans (mulligan #${currentMulligans + 1}).`,
+        message: `${getPlayerName(game, playerId)} mulligans (mulligan #${currentMulligans + 1}).`,
         ts: Date.now(),
       });
 
