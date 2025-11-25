@@ -9,6 +9,8 @@ import { registerInteractionHandlers } from "./interaction";
 import { registerPriorityHandlers } from "./priority";
 import { registerDisconnectHandlers } from "./disconnect";
 import { registerJudgeHandlers } from "./judge";
+// TODO: AI handlers require additional module resolution fixes
+// import { registerAIHandlers } from "./ai";
 import { GameManager } from "../GameManager";
 
 /**
@@ -34,6 +36,7 @@ export function registerSocketHandlers(
     registerPriorityHandlers(io, socket);
     registerDisconnectHandlers(io, socket);
 	registerJudgeHandlers(io, socket);
+    // TODO: registerAIHandlers(io, socket);
 
     // Log disconnection reason
     socket.on("disconnect", (reason) => {
