@@ -172,14 +172,14 @@ export function TableLayout(props: {
   // Extended play areas by ~15% for better card visibility
   const TILE_W = 115; // Card width
   const tileH = Math.round(TILE_W / 0.72);
-  const ZONES_W = 165; // Zones panel width
-  const GRID_GAP = 10; // Gap between cards
+  const ZONES_W = 165; // Zones panel width in px
+  const GRID_GAP = 10; // Gap between cards in px
   
-  // Padding and sizing constants for extended play area
-  const HAND_EXTRA_PADDING = 80; // Extra padding for hand area (was 40)
-  const FIELD_HEIGHT_PADDING = 160; // Additional height for play field
-  const BOARD_SIDE_PADDING = 40; // Side padding for board (was 32)
-  const BOARD_HEIGHT_PADDING = 320; // Additional height padding for board
+  // Padding and sizing constants (in pixels) for extended play area layout
+  const HAND_EXTRA_PADDING = 80; // Extra horizontal padding to ensure 7 cards fit
+  const FIELD_HEIGHT_PADDING = 160; // Additional height for play field rows
+  const BOARD_SIDE_PADDING = 40; // Horizontal margin for board container
+  const BOARD_HEIGHT_PADDING = 320; // Additional height for hand area below field
   
   // Hand row: 7 cards wide + gaps + generous padding for shuffle button header
   const FREE_W = 7 * TILE_W + 6 * GRID_GAP + HAND_EXTRA_PADDING;
@@ -641,12 +641,11 @@ export function TableLayout(props: {
                                 borderRadius: 4
                               }}
                             >
-                              <span title="Life" aria-label={`Life: ${lifeVal}`} style={{ color: '#4ade80', fontWeight: 600 }}>
+                              <span aria-label={`Life: ${lifeVal}`} style={{ color: '#4ade80', fontWeight: 600 }}>
                                 ❤️ {lifeVal}
                               </span>
                               <span
-                                title="Poison Counters"
-                                aria-label={`Poison: ${poisonVal}`}
+                                aria-label={`Poison Counters: ${poisonVal}`}
                                 style={{
                                   color:
                                     poisonVal > 0 ? '#f87171' : '#888',
@@ -656,8 +655,7 @@ export function TableLayout(props: {
                                 ☠️ {poisonVal}
                               </span>
                               <span
-                                title="Experience Counters"
-                                aria-label={`Experience: ${xpVal}`}
+                                aria-label={`Experience Counters: ${xpVal}`}
                                 style={{
                                   color: xpVal > 0 ? '#60a5fa' : '#888',
                                   fontWeight: xpVal > 0 ? 600 : 400
@@ -666,8 +664,7 @@ export function TableLayout(props: {
                                 ⭐ {xpVal}
                               </span>
                               <span
-                                title="Energy Counters"
-                                aria-label={`Energy: ${energyVal}`}
+                                aria-label={`Energy Counters: ${energyVal}`}
                                 style={{ 
                                   color: energyVal > 0 ? '#ffd166' : '#888',
                                   fontWeight: energyVal > 0 ? 600 : 400
