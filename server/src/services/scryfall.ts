@@ -52,6 +52,55 @@ export function normalizeName(s: string) {
     .replace(/\s+\/\/\s+/g, " // ");
 }
 
+/**
+ * Check if a line should be skipped during deck parsing.
+ * This includes sideboard markers, comments, and section headers.
+ */
+export function shouldSkipDeckLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) return true;
+  // Skip sideboard markers and comments
+  if (/^(SB:|SIDEBOARD|\/\/|#)/i.test(trimmed)) return true;
+  // Skip section headers
+  if (/^(DECK|COMMANDER|MAINBOARD|MAYBEBOARD|CONSIDERING)$/i.test(trimmed)) return true;
+  return false;
+}
+
+/**
+ * Strip Moxfield/Scryfall-style set and collector number suffixes from a card name.
+ * Handles patterns like:
+ *   - "Sol Ring (C14) 276" -> "Sol Ring"
+ *   - "Sol Ring (C14:276)" -> "Sol Ring"
+ *   - "Sol Ring 276 (C14)" -> "Sol Ring"
+ *   - "Sol Ring (commander 2014) 276" -> "Sol Ring"
+ * 
+ * Note: A similar implementation exists in server/src/db/decks.ts.
+ * The duplication is intentional to avoid circular dependencies between db and services.
+ */
+function stripSetCollectorNumber(name: string): string {
+  let result = name;
+  
+  // Pattern 1: (SET) NUMBER at end - e.g., "(C14) 276" or "(ELD) 331"
+  // Set names can be up to 15 chars to handle longer names like "commander 2014"
+  result = result.replace(/\s+\([A-Za-z0-9][A-Za-z0-9 ]{0,14}\)\s+\d+[A-Za-z]?$/i, '');
+  
+  // Pattern 2: (SET:NUMBER) at end - e.g., "(C14:276)"
+  result = result.replace(/\s+\([A-Za-z0-9]{2,10}:\d+[A-Za-z]?\)$/i, '');
+  
+  // Pattern 3: NUMBER (SET) at end - e.g., "276 (C14)"
+  result = result.replace(/\s+\d+[A-Za-z]?\s+\([A-Za-z0-9]{2,10}\)$/i, '');
+  
+  // Pattern 4: Just (SET) at end without number - e.g., "(C14)"
+  result = result.replace(/\s+\([A-Za-z0-9]{2,10}\)$/i, '');
+  
+  // Pattern 5: Trailing collector number only (common in some exports) - e.g., "Sol Ring 276"
+  // Collector numbers are 1-4 digits, optionally followed by a letter (e.g., "236a" for variants)
+  // Only strip if preceded by whitespace to avoid removing numbers from card names
+  result = result.replace(/\s+\d{1,4}[A-Za-z]?$/, '');
+  
+  return result.trim();
+}
+
 export function parseDecklist(list: string): ParsedLine[] {
   const lines = list
     .split(/\r?\n/)
@@ -61,7 +110,8 @@ export function parseDecklist(list: string): ParsedLine[] {
   const acc = new Map<string, number>();
 
   for (const raw of lines) {
-    if (/^(SB:|SIDEBOARD)/i.test(raw)) continue;
+    // Skip sideboard markers, comments, section headers, and empty lines
+    if (shouldSkipDeckLine(raw)) continue;
 
     let name = "";
     let count = 1;
@@ -83,6 +133,9 @@ export function parseDecklist(list: string): ParsedLine[] {
       }
     }
 
+    // Strip Moxfield/Scryfall-style set and collector number suffixes
+    name = stripSetCollectorNumber(name);
+    
     name = normalizeName(name);
     if (!name) continue;
     acc.set(name, (acc.get(name) || 0) + count);

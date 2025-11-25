@@ -79,11 +79,47 @@ export function deleteDeck(id: string): boolean {
   return info.changes > 0;
 }
 
+/**
+ * Strip Moxfield/Scryfall-style set and collector number suffixes from a card name.
+ * Handles patterns like:
+ *   - "Sol Ring (C14) 276" -> "Sol Ring"
+ *   - "Sol Ring (C14:276)" -> "Sol Ring"
+ *   - "Sol Ring 276 (C14)" -> "Sol Ring"
+ * 
+ * Note: A similar implementation exists in server/src/services/scryfall.ts.
+ * The duplication is intentional to avoid circular dependencies between db and services.
+ */
+function stripSetCollectorNumber(name: string): string {
+  let result = name;
+  
+  // Pattern 1: (SET) NUMBER at end
+  // Set names can be up to 15 chars to handle longer names like "commander 2014"
+  result = result.replace(/\s+\([A-Za-z0-9][A-Za-z0-9 ]{0,14}\)\s+\d+[A-Za-z]?$/i, '');
+  
+  // Pattern 2: (SET:NUMBER) at end
+  result = result.replace(/\s+\([A-Za-z0-9]{2,10}:\d+[A-Za-z]?\)$/i, '');
+  
+  // Pattern 3: NUMBER (SET) at end
+  result = result.replace(/\s+\d+[A-Za-z]?\s+\([A-Za-z0-9]{2,10}\)$/i, '');
+  
+  // Pattern 4: Just (SET) at end
+  result = result.replace(/\s+\([A-Za-z0-9]{2,10}\)$/i, '');
+  
+  // Pattern 5: Trailing collector number only (1-4 digits, optionally followed by letter)
+  result = result.replace(/\s+\d{1,4}[A-Za-z]?$/, '');
+  
+  return result.trim();
+}
+
 /* Reuse parse logic (names + counts) without server import validation */
 export function parseDecklistEntries(list: string): Array<{ name: string; count: number }> {
   const lines = (list || '').split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
   const entries: Array<{ name: string; count: number }> = [];
   for (const line of lines) {
+    // Skip sideboard markers, comments, and section headers
+    if (/^(SB:|SIDEBOARD|\/\/|#)/i.test(line)) continue;
+    if (/^(DECK|COMMANDER|MAINBOARD|MAYBEBOARD|CONSIDERING)$/i.test(line.trim())) continue;
+    
     // Accept formats like: "4 Lightning Bolt", "Lightning Bolt x4", "1x Sol Ring"
     let count = 1;
     let name = line;
@@ -96,7 +132,13 @@ export function parseDecklistEntries(list: string): Array<{ name: string; count:
       count = parseInt(m2[2], 10) || 1;
       name = m2[1].trim();
     }
-    entries.push({ name, count });
+    
+    // Strip Moxfield/Scryfall-style set and collector number suffixes
+    name = stripSetCollectorNumber(name);
+    
+    if (name) {
+      entries.push({ name, count });
+    }
   }
   return entries;
 }
