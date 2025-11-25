@@ -19,6 +19,8 @@ import { CastSpellModal } from "./components/CastSpellModal";
 import { CombatSelectionModal, type AttackerSelection, type BlockerSelection } from "./components/CombatSelectionModal";
 import { ShockLandChoiceModal } from "./components/ShockLandChoiceModal";
 import { TriggeredAbilityModal, type TriggerPromptData } from "./components/TriggeredAbilityModal";
+import { MulliganBottomModal } from "./components/MulliganBottomModal";
+import { DiscardSelectionModal } from "./components/DiscardSelectionModal";
 import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
 import { useGameSocket } from "./hooks/useGameSocket";
@@ -197,6 +199,15 @@ export function App() {
   const [triggerModalOpen, setTriggerModalOpen] = useState(false);
   const [pendingTriggers, setPendingTriggers] = useState<TriggerPromptData[]>([]);
   
+  // Mulligan bottom selection modal state (London Mulligan)
+  const [mulliganBottomModalOpen, setMulliganBottomModalOpen] = useState(false);
+  const [mulliganBottomCount, setMulliganBottomCount] = useState(0);
+
+  // Cleanup discard selection modal state
+  const [discardModalOpen, setDiscardModalOpen] = useState(false);
+  const [discardCount, setDiscardCount] = useState(0);
+  const [discardMaxHandSize, setDiscardMaxHandSize] = useState(7);
+  
   // Deck validation state
   const [deckValidation, setDeckValidation] = useState<{
     format: string;
@@ -312,6 +323,20 @@ export function App() {
     };
   }, [safeView?.id]);
 
+  // Mulligan bottom selection prompt listener (London Mulligan)
+  React.useEffect(() => {
+    const handler = (payload: any) => {
+      if (payload.gameId === safeView?.id && payload.cardsToBottom > 0) {
+        setMulliganBottomCount(payload.cardsToBottom);
+        setMulliganBottomModalOpen(true);
+      }
+    };
+    socket.on("mulliganBottomPrompt", handler);
+    return () => {
+      socket.off("mulliganBottomPrompt", handler);
+    };
+  }, [safeView?.id]);
+
   // Triggered ability prompt listener
   React.useEffect(() => {
     const handler = (payload: any) => {
@@ -364,10 +389,34 @@ export function App() {
 
   const hasKeptHand = mulliganState?.hasKeptHand || false;
   const mulligansTaken = mulliganState?.mulligansTaken || 0;
+  const pendingBottomCount = mulliganState?.pendingBottomCount || 0;
+
+  // Detect pending discard selection for cleanup step
+  const pendingDiscardSelection = useMemo(() => {
+    if (!safeView || !you) return null;
+    return (safeView as any).pendingDiscardSelection?.[you] || null;
+  }, [safeView, you]);
+
+  // Auto-open discard modal when pending discard detected
+  React.useEffect(() => {
+    if (pendingDiscardSelection && pendingDiscardSelection.count > 0) {
+      setDiscardCount(pendingDiscardSelection.count);
+      setDiscardMaxHandSize(pendingDiscardSelection.maxHandSize || 7);
+      setDiscardModalOpen(true);
+    }
+  }, [pendingDiscardSelection]);
+
+  // Auto-open mulligan bottom modal when pending bottom selection detected (from state)
+  React.useEffect(() => {
+    if (pendingBottomCount > 0 && !hasKeptHand) {
+      setMulliganBottomCount(pendingBottomCount);
+      setMulliganBottomModalOpen(true);
+    }
+  }, [pendingBottomCount, hasKeptHand]);
 
   // Can mulligan if in pre-game, haven't kept, and haven't hit max mulligans
-  const canMulligan = isPreGame && isYouPlayer && !hasKeptHand && mulligansTaken < 6;
-  const canKeepHand = isPreGame && isYouPlayer && !hasKeptHand;
+  const canMulligan = isPreGame && isYouPlayer && !hasKeptHand && mulligansTaken < 6 && pendingBottomCount === 0;
+  const canKeepHand = isPreGame && isYouPlayer && !hasKeptHand && pendingBottomCount === 0;
 
   // Auto-collapse join panel once you're an active player
   React.useEffect(() => {
@@ -935,6 +984,10 @@ export function App() {
               {hasKeptHand ? (
                 <span style={{ fontSize: 12, color: "#6b46c1", fontWeight: 500 }}>
                   ✓ Hand kept{mulligansTaken > 0 ? ` (${7 - mulligansTaken} cards)` : ""}
+                </span>
+              ) : pendingBottomCount > 0 ? (
+                <span style={{ fontSize: 12, color: "#d69e2e", fontWeight: 500 }}>
+                  Select {pendingBottomCount} card{pendingBottomCount !== 1 ? 's' : ''} to put on bottom...
                 </span>
               ) : (
                 <>
@@ -1555,6 +1608,50 @@ export function App() {
         triggers={pendingTriggers}
         onResolve={handleResolveTrigger}
         onSkip={handleSkipTrigger}
+      />
+
+      {/* Mulligan Bottom Selection Modal (London Mulligan) */}
+      <MulliganBottomModal
+        open={mulliganBottomModalOpen}
+        hand={useMemo(() => {
+          if (!safeView || !you) return [];
+          const zones = safeView.zones?.[you];
+          const hand = zones?.hand || [];
+          return hand.filter((c: any) => c && c.name) as KnownCardRef[];
+        }, [safeView, you])}
+        cardsToBottom={mulliganBottomCount}
+        onConfirm={(cardIds) => {
+          if (safeView) {
+            socket.emit("mulliganPutToBottom", { gameId: safeView.id, cardIds });
+          }
+          setMulliganBottomModalOpen(false);
+          setMulliganBottomCount(0);
+        }}
+        onCancel={() => {
+          // Can't cancel - must select cards
+          // But allow closing to re-open later if needed
+          setMulliganBottomModalOpen(false);
+        }}
+      />
+
+      {/* Cleanup Step Discard Selection Modal */}
+      <DiscardSelectionModal
+        open={discardModalOpen}
+        hand={useMemo(() => {
+          if (!safeView || !you) return [];
+          const zones = safeView.zones?.[you];
+          const hand = zones?.hand || [];
+          return hand.filter((c: any) => c && c.name) as KnownCardRef[];
+        }, [safeView, you])}
+        discardCount={discardCount}
+        maxHandSize={discardMaxHandSize}
+        onConfirm={(cardIds) => {
+          if (safeView) {
+            socket.emit("cleanupDiscard", { gameId: safeView.id, cardIds });
+          }
+          setDiscardModalOpen(false);
+          setDiscardCount(0);
+        }}
       />
 
       {/* Deck Validation Status */}

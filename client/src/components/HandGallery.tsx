@@ -54,6 +54,7 @@ export function HandGallery(props: HandGalleryProps) {
   // - 'row': horizontal strip (used rarely)
   // - 'wrap2': legacy wrap layout (2-ish rows depending on count)
   // - 'wrap7': approximate 7-cards-per-row using flex-basis
+  const WRAP7_GAP = 10; // Gap between cards in wrap7 layout
   let widthStyle: React.CSSProperties;
   if (layout === 'row') {
     widthStyle = {
@@ -63,12 +64,12 @@ export function HandGallery(props: HandGalleryProps) {
       overflowX: 'auto',
     };
   } else if (layout === 'wrap7') {
-    // Each card gets ~1/7 of the width, with a small gap; works well for 7-per-row at full width
+    // Each card gets ~1/7 of the width, with a gap; fits 7 cards per row
     widthStyle = {
       display: 'flex',
       flexWrap: 'wrap',
       justifyContent: 'flex-start',
-      columnGap: 8,
+      columnGap: WRAP7_GAP,
       rowGap: rowGapPx,
     };
   } else {
@@ -124,10 +125,12 @@ export function HandGallery(props: HandGalleryProps) {
   // For wrap7 we override width to use a fraction, otherwise respect thumbWidth
   function cardWidthStyle(): React.CSSProperties {
     if (layout === 'wrap7') {
-      // magic number: 7 per row with small gaps inside the hand panel
+      // Calculate width so exactly 7 cards fit per row with gaps
+      // Using calc to account for gaps: (100% - 6 * gap) / 7
       return {
-        flex: '0 0 calc(100% / 7 - 8px)',
+        flex: `0 0 calc((100% - 6 * ${WRAP7_GAP}px) / 7)`,
         maxWidth: thumbWidth,
+        minWidth: 90, // Minimum card width to ensure readability
       };
     }
     return { width: thumbWidth };

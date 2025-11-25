@@ -1467,6 +1467,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   // ============================================================================
 
   // Keep hand - player accepts their current hand
+  // If mulligans were taken, this triggers the London Mulligan bottom selection
   socket.on("keepHand", ({ gameId }: { gameId: string }) => {
     try {
       const game = ensureGame(gameId);
@@ -1483,12 +1484,167 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
-      // Track mulligan state
+      // Get current mulligan count
+      const mulligansTaken = (game.state as any).mulliganState?.[playerId]?.mulligansTaken || 0;
+
+      // Track mulligan state - mark as pending bottom selection if mulligans were taken
       game.state = game.state || {};
       (game.state as any).mulliganState = (game.state as any).mulliganState || {};
+      
+      if (mulligansTaken > 0) {
+        // London Mulligan: player must put back cards equal to number of mulligans taken
+        (game.state as any).mulliganState[playerId] = {
+          hasKeptHand: false, // Not fully kept yet - need to put cards back
+          mulligansTaken,
+          pendingBottomCount: mulligansTaken, // Number of cards to put to bottom
+        };
+
+        // Bump sequence
+        if (typeof game.bumpSeq === "function") {
+          game.bumpSeq();
+        }
+
+        // Emit the bottom selection prompt to the player
+        emitToPlayer(io, playerId as string, "mulliganBottomPrompt", {
+          gameId,
+          cardsToBottom: mulligansTaken,
+        });
+
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} is choosing ${mulligansTaken} card${mulligansTaken > 1 ? 's' : ''} to put on the bottom of their library.`,
+          ts: Date.now(),
+        });
+
+        broadcastGame(io, game, gameId);
+      } else {
+        // No mulligans taken - just keep the hand immediately
+        (game.state as any).mulliganState[playerId] = {
+          hasKeptHand: true,
+          mulligansTaken: 0,
+        };
+
+        // Bump sequence
+        if (typeof game.bumpSeq === "function") {
+          game.bumpSeq();
+        }
+
+        // Persist the event
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, "keepHand", { playerId });
+        } catch (e) {
+          console.warn("appendEvent(keepHand) failed:", e);
+        }
+
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} keeps their hand.`,
+          ts: Date.now(),
+        });
+
+        broadcastGame(io, game, gameId);
+      }
+    } catch (err: any) {
+      console.error(`keepHand error for game ${gameId}:`, err);
+      socket.emit("error", {
+        code: "KEEP_HAND_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
+
+  // Complete London Mulligan - put selected cards to bottom of library in random order
+  socket.on("mulliganPutToBottom", ({ gameId, cardIds }: { gameId: string; cardIds: string[] }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      // Validate the mulligan state
+      const mulliganState = (game.state as any).mulliganState?.[playerId];
+      if (!mulliganState || mulliganState.hasKeptHand) {
+        socket.emit("error", {
+          code: "INVALID_STATE",
+          message: "No pending mulligan bottom selection",
+        });
+        return;
+      }
+
+      const pendingBottomCount = mulliganState.pendingBottomCount || 0;
+      if (!cardIds || cardIds.length !== pendingBottomCount) {
+        socket.emit("error", {
+          code: "INVALID_SELECTION",
+          message: `Must select exactly ${pendingBottomCount} cards to put to bottom`,
+        });
+        return;
+      }
+
+      // Get the player's hand
+      const zones = game.state?.zones?.[playerId];
+      if (!zones || !Array.isArray(zones.hand)) {
+        socket.emit("error", {
+          code: "NO_HAND",
+          message: "Hand not found",
+        });
+        return;
+      }
+
+      // Validate that all selected cards are in hand
+      const hand = zones.hand as any[];
+      const handIds = new Set(hand.map((c: any) => c?.id));
+      for (const cardId of cardIds) {
+        if (!handIds.has(cardId)) {
+          socket.emit("error", {
+            code: "CARD_NOT_IN_HAND",
+            message: "Selected card not found in hand",
+          });
+          return;
+        }
+      }
+
+      // Remove selected cards from hand
+      const cardsToBottom: any[] = [];
+      for (const cardId of cardIds) {
+        const idx = hand.findIndex((c: any) => c?.id === cardId);
+        if (idx !== -1) {
+          const [card] = hand.splice(idx, 1);
+          cardsToBottom.push(card);
+        }
+      }
+
+      // Shuffle the cards before putting to bottom (random order as per rules)
+      for (let i = cardsToBottom.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [cardsToBottom[i], cardsToBottom[j]] = [cardsToBottom[j], cardsToBottom[i]];
+      }
+
+      // Get the library and add cards to the bottom
+      const lib = typeof game.libraries?.get === "function" 
+        ? game.libraries.get(playerId) || []
+        : [];
+      
+      for (const card of cardsToBottom) {
+        card.zone = "library";
+        lib.push(card);
+      }
+
+      // Update library
+      if (typeof game.libraries?.set === "function") {
+        game.libraries.set(playerId, lib);
+      }
+
+      // Update zone counts
+      zones.handCount = hand.length;
+      zones.libraryCount = lib.length;
+
+      // Mark mulligan as complete
       (game.state as any).mulliganState[playerId] = {
         hasKeptHand: true,
-        mulligansTaken: (game.state as any).mulliganState[playerId]?.mulligansTaken || 0,
+        mulligansTaken: mulliganState.mulligansTaken,
       };
 
       // Bump sequence
@@ -1498,24 +1654,28 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Persist the event
       try {
-        appendEvent(gameId, (game as any).seq ?? 0, "keepHand", { playerId });
+        appendEvent(gameId, (game as any).seq ?? 0, "mulliganPutToBottom", { 
+          playerId, 
+          cardIds,
+          mulligansTaken: mulliganState.mulligansTaken,
+        });
       } catch (e) {
-        console.warn("appendEvent(keepHand) failed:", e);
+        console.warn("appendEvent(mulliganPutToBottom) failed:", e);
       }
 
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `${getPlayerName(game, playerId)} keeps their hand.`,
+        message: `${getPlayerName(game, playerId)} keeps their hand (${hand.length} cards, put ${cardsToBottom.length} to bottom).`,
         ts: Date.now(),
       });
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {
-      console.error(`keepHand error for game ${gameId}:`, err);
+      console.error(`mulliganPutToBottom error for game ${gameId}:`, err);
       socket.emit("error", {
-        code: "KEEP_HAND_ERROR",
+        code: "MULLIGAN_BOTTOM_ERROR",
         message: err?.message ?? String(err),
       });
     }
@@ -1623,6 +1783,122 @@ export function registerGameActions(io: Server, socket: Socket) {
       console.error(`mulligan error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "MULLIGAN_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
+
+  // Cleanup step discard - player selects which cards to discard when over max hand size
+  socket.on("cleanupDiscard", ({ gameId, cardIds }: { gameId: string; cardIds: string[] }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      // Validate the pending discard state
+      const pendingDiscard = (game.state as any).pendingDiscardSelection?.[playerId];
+      if (!pendingDiscard) {
+        socket.emit("error", {
+          code: "INVALID_STATE",
+          message: "No pending discard selection",
+        });
+        return;
+      }
+
+      if (!cardIds || cardIds.length !== pendingDiscard.count) {
+        socket.emit("error", {
+          code: "INVALID_SELECTION",
+          message: `Must select exactly ${pendingDiscard.count} cards to discard`,
+        });
+        return;
+      }
+
+      // Get the player's hand
+      const zones = game.state?.zones?.[playerId];
+      if (!zones || !Array.isArray(zones.hand)) {
+        socket.emit("error", {
+          code: "NO_HAND",
+          message: "Hand not found",
+        });
+        return;
+      }
+
+      // Validate that all selected cards are in hand
+      const hand = zones.hand as any[];
+      const handIds = new Set(hand.map((c: any) => c?.id));
+      for (const cardId of cardIds) {
+        if (!handIds.has(cardId)) {
+          socket.emit("error", {
+            code: "CARD_NOT_IN_HAND",
+            message: "Selected card not found in hand",
+          });
+          return;
+        }
+      }
+
+      // Discard selected cards
+      const discardedCards: any[] = [];
+      for (const cardId of cardIds) {
+        const idx = hand.findIndex((c: any) => c?.id === cardId);
+        if (idx !== -1) {
+          const [card] = hand.splice(idx, 1);
+          discardedCards.push(card);
+          
+          // Move card to graveyard
+          zones.graveyard = zones.graveyard || [];
+          card.zone = "graveyard";
+          zones.graveyard.push(card);
+        }
+      }
+
+      // Update counts
+      zones.handCount = hand.length;
+      zones.graveyardCount = zones.graveyard.length;
+
+      // Clear the pending discard state (with safe check)
+      if ((game.state as any).pendingDiscardSelection) {
+        delete (game.state as any).pendingDiscardSelection[playerId];
+      }
+
+      // Bump sequence
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+
+      // Persist the event
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, "cleanupDiscard", { 
+          playerId, 
+          cardIds,
+          discardCount: discardedCards.length,
+        });
+      } catch (e) {
+        console.warn("appendEvent(cleanupDiscard) failed:", e);
+      }
+
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, playerId)} discards ${discardedCards.length} card${discardedCards.length !== 1 ? 's' : ''} to maximum hand size.`,
+        ts: Date.now(),
+      });
+
+      // Now continue to advance the turn since discard is complete
+      try {
+        if (typeof (game as any).nextTurn === "function") {
+          (game as any).nextTurn();
+          console.log(`[cleanupDiscard] Advanced to next turn for game ${gameId}`);
+        }
+      } catch (e) {
+        console.warn("[cleanupDiscard] Failed to advance to next turn:", e);
+      }
+
+      broadcastGame(io, game, gameId);
+    } catch (err: any) {
+      console.error(`cleanupDiscard error for game ${gameId}:`, err);
+      socket.emit("error", {
+        code: "CLEANUP_DISCARD_ERROR",
         message: err?.message ?? String(err),
       });
     }

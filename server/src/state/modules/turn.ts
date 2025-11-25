@@ -366,45 +366,97 @@ function getMaxHandSize(ctx: GameContext, playerId: string): number {
 }
 
 /**
- * Discard down to max hand size for the active player during cleanup step.
+ * Setup cleanup step discard for the active player.
  * Rule 514.1: At the beginning of the cleanup step, if the active player's hand
  * contains more cards than their maximum hand size, they discard enough cards
  * to reduce their hand to that number.
  * 
- * Note: This automatically discards from the end of the hand for now.
- * A full implementation would allow the player to choose which cards to discard.
+ * This checks if discard is needed and sets up the pending selection state for interactive choice.
+ * Returns: { needsInteraction: boolean, discardCount: number }
  */
-function discardToMaxHandSize(ctx: GameContext, playerId: string): number {
+function setupCleanupDiscard(ctx: GameContext, playerId: string): { needsInteraction: boolean; discardCount: number } {
   try {
     const state = (ctx as any).state;
-    if (!state) return 0;
+    if (!state) return { needsInteraction: false, discardCount: 0 };
     
     const maxHandSize = getMaxHandSize(ctx, playerId);
     if (maxHandSize === Infinity) {
-      return 0; // No maximum hand size
+      return { needsInteraction: false, discardCount: 0 }; // No maximum hand size
+    }
+    
+    // Check if there's already a pending discard selection
+    if (state.pendingDiscardSelection?.[playerId]) {
+      return { needsInteraction: true, discardCount: state.pendingDiscardSelection[playerId].count };
     }
     
     // Get player's hand
     const zones = state.zones?.[playerId];
     if (!zones || !Array.isArray(zones.hand)) {
-      return 0;
+      return { needsInteraction: false, discardCount: 0 };
     }
     
     const hand = zones.hand;
     const handSize = hand.length;
     
     if (handSize <= maxHandSize) {
-      return 0; // Already at or below max
+      return { needsInteraction: false, discardCount: 0 }; // Already at or below max
     }
     
     const discardCount = handSize - maxHandSize;
+    
+    // Set up pending discard selection for interactive choice
+    state.pendingDiscardSelection = state.pendingDiscardSelection || {};
+    state.pendingDiscardSelection[playerId] = {
+      count: discardCount,
+      maxHandSize,
+      handSize,
+    };
+    
+    console.log(
+      `${ts()} [setupCleanupDiscard] Player ${playerId} needs to discard ${discardCount} cards (hand: ${handSize}, max: ${maxHandSize})`
+    );
+    
+    return { needsInteraction: true, discardCount };
+  } catch (err) {
+    console.warn(`${ts()} setupCleanupDiscard failed:`, err);
+    return { needsInteraction: false, discardCount: 0 };
+  }
+}
+
+/**
+ * Execute the actual discard for cleanup step with player-selected cards.
+ * Called when player confirms their discard selection.
+ */
+export function executeCleanupDiscard(ctx: GameContext, playerId: string, cardIds: string[]): boolean {
+  try {
+    const state = (ctx as any).state;
+    if (!state) return false;
+    
+    const pendingDiscard = state.pendingDiscardSelection?.[playerId];
+    if (!pendingDiscard) {
+      console.warn(`${ts()} [executeCleanupDiscard] No pending discard for player ${playerId}`);
+      return false;
+    }
+    
+    if (cardIds.length !== pendingDiscard.count) {
+      console.warn(`${ts()} [executeCleanupDiscard] Wrong number of cards: expected ${pendingDiscard.count}, got ${cardIds.length}`);
+      return false;
+    }
+    
+    // Get player's hand
+    const zones = state.zones?.[playerId];
+    if (!zones || !Array.isArray(zones.hand)) {
+      return false;
+    }
+    
+    const hand = zones.hand;
     const discardedCards = [];
     
-    // Discard from the end of the hand (in a real implementation,
-    // this would prompt the player to choose which cards to discard)
-    for (let i = 0; i < discardCount; i++) {
-      const card = hand.pop();
-      if (card) {
+    // Discard selected cards
+    for (const cardId of cardIds) {
+      const idx = hand.findIndex((c: any) => c?.id === cardId);
+      if (idx !== -1) {
+        const [card] = hand.splice(idx, 1);
         discardedCards.push(card);
         
         // Move card to graveyard
@@ -418,16 +470,18 @@ function discardToMaxHandSize(ctx: GameContext, playerId: string): number {
     zones.handCount = hand.length;
     zones.graveyardCount = zones.graveyard.length;
     
-    if (discardCount > 0) {
-      console.log(
-        `${ts()} [discardToMaxHandSize] Player ${playerId} discarded ${discardCount} cards to max hand size ${maxHandSize}`
-      );
-    }
+    // Clear the pending discard state
+    delete state.pendingDiscardSelection[playerId];
     
-    return discardCount;
+    console.log(
+      `${ts()} [executeCleanupDiscard] Player ${playerId} discarded ${discardedCards.length} cards`
+    );
+    
+    ctx.bumpSeq();
+    return true;
   } catch (err) {
-    console.warn(`${ts()} discardToMaxHandSize failed:`, err);
-    return 0;
+    console.warn(`${ts()} executeCleanupDiscard failed:`, err);
+    return false;
   }
 }
 
@@ -522,17 +576,20 @@ export function nextStep(ctx: GameContext) {
 
     // If we should advance to next turn, call nextTurn instead
     if (shouldAdvanceTurn) {
-      // Before advancing to next turn, discard down to max hand size (Rule 514.1)
+      // Before advancing to next turn, check if discard is needed (Rule 514.1)
       try {
         const turnPlayer = (ctx as any).state.turnPlayer;
         if (turnPlayer) {
-          const discarded = discardToMaxHandSize(ctx, turnPlayer);
-          if (discarded > 0) {
-            console.log(`${ts()} [nextStep] Discarded ${discarded} cards during cleanup`);
+          const discardCheck = setupCleanupDiscard(ctx, turnPlayer);
+          if (discardCheck.needsInteraction && discardCheck.discardCount > 0) {
+            // Player needs to choose cards to discard - don't advance turn yet
+            console.log(`${ts()} [nextStep] Waiting for player to select ${discardCheck.discardCount} cards to discard`);
+            ctx.bumpSeq();
+            return; // Stop here - turn will advance after discard selection
           }
         }
       } catch (err) {
-        console.warn(`${ts()} [nextStep] Failed to discard during cleanup:`, err);
+        console.warn(`${ts()} [nextStep] Failed to check discard during cleanup:`, err);
       }
       
       console.log(`${ts()} [nextStep] Cleanup complete, advancing to next turn`);
@@ -645,6 +702,7 @@ export default {
   setTurnDirection,
   nextTurn,
   nextStep,
+  executeCleanupDiscard,
   scheduleStepsAfterCurrent,
   scheduleStepsAtEndOfTurn,
   clearScheduledSteps,
