@@ -6,7 +6,7 @@
  */
 
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, getPlayerName } from "./util.js";
+import { ensureGame, broadcastGame, getPlayerName, emitToPlayer } from "./util.js";
 import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 
@@ -29,7 +29,7 @@ const SHOCK_LANDS = new Set([
 /**
  * Check if a card is a shock land or similar
  */
-export function isShockLand(cardName: string): boolean {
+function isShockLand(cardName: string): boolean {
   return SHOCK_LANDS.has((cardName || "").toLowerCase().trim());
 }
 
@@ -307,26 +307,13 @@ export function emitShockLandPrompt(
   imageUrl?: string,
   currentLife?: number
 ): void {
-  try {
-    // Find the player's socket and emit directly
-    for (const s of Array.from(io.sockets.sockets.values() as any)) {
-      try {
-        if (s?.data?.playerId === playerId && !s?.data?.spectator) {
-          s.emit("shockLandPrompt", {
-            gameId,
-            permanentId,
-            cardName,
-            imageUrl,
-            currentLife,
-          });
-        }
-      } catch {
-        // ignore per-socket errors
-      }
-    }
-  } catch (err) {
-    console.warn("[triggers] emitShockLandPrompt failed:", err);
-  }
+  emitToPlayer(io, playerId, "shockLandPrompt", {
+    gameId,
+    permanentId,
+    cardName,
+    imageUrl,
+    currentLife,
+  });
 }
 
 /**
@@ -347,20 +334,8 @@ export function emitTriggerPrompt(
     imageUrl?: string;
   }
 ): void {
-  try {
-    for (const s of Array.from(io.sockets.sockets.values() as any)) {
-      try {
-        if (s?.data?.playerId === playerId && !s?.data?.spectator) {
-          s.emit("triggerPrompt", {
-            gameId,
-            trigger,
-          });
-        }
-      } catch {
-        // ignore per-socket errors
-      }
-    }
-  } catch (err) {
-    console.warn("[triggers] emitTriggerPrompt failed:", err);
-  }
+  emitToPlayer(io, playerId, "triggerPrompt", {
+    gameId,
+    trigger,
+  });
 }

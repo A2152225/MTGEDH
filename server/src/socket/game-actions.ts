@@ -1,8 +1,27 @@
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer } from "./util";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem } from "../../shared/src";
+
+/** Shock lands and similar "pay life or enter tapped" lands */
+const SHOCK_LANDS = new Set([
+  "blood crypt",
+  "breeding pool",
+  "godless shrine",
+  "hallowed fountain",
+  "overgrown tomb",
+  "sacred foundry",
+  "steam vents",
+  "stomping ground",
+  "temple garden",
+  "watery grave",
+]);
+
+/** Check if a card name is a shock land */
+function isShockLand(cardName: string): boolean {
+  return SHOCK_LANDS.has((cardName || "").toLowerCase().trim());
+}
 
 /**
  * Calculate cost reduction for a spell based on battlefield effects.
@@ -352,6 +371,15 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
+      // Find the card in hand to get its info before playing
+      const zones = game.state?.zones?.[playerId];
+      const hand = Array.isArray(zones?.hand) ? zones.hand : [];
+      const cardInHand = hand.find((c: any) => c?.id === cardId);
+      const cardName = cardInHand?.name || "";
+      const cardImageUrl = cardInHand?.image_uris?.small || cardInHand?.image_uris?.normal;
+        return;
+      }
+
       // Get RulesBridge for validation
       const bridge = (GameManager as any).getRulesBridge(gameId);
       
@@ -402,6 +430,32 @@ export function registerGameActions(io: Server, socket: Socket) {
       } catch (e) {
         console.warn('appendEvent(playLand) failed:', e);
       }
+
+      // Check if this is a shock land and prompt the player
+      if (isShockLand(cardName)) {
+        // Find the permanent that was just played (should be on battlefield now)
+        const battlefield = game.state?.battlefield || [];
+        const permanent = battlefield.find((p: any) => 
+          p.card?.name?.toLowerCase() === cardName.toLowerCase() && 
+          p.controller === playerId
+        );
+        
+        if (permanent) {
+          // Get player's current life
+          const currentLife = (game.state as any)?.life?.[playerId] || 
+                             (game as any)?.life?.[playerId] || 40;
+          
+          // Emit shock land prompt to the player
+          emitToPlayer(io, playerId as string, "shockLandPrompt", {
+            gameId,
+            permanentId: permanent.id,
+            cardName,
+            imageUrl: cardImageUrl,
+            currentLife,
+          });
+        }
+      }
+
       broadcastGame(io, game, gameId);
     } catch (err: any) {
       console.error(`playLand error for game ${gameId}:`, err);

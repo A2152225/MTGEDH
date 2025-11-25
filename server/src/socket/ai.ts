@@ -5,6 +5,7 @@
  * Handles AI player registration, decision-making, and action execution.
  */
 
+import { randomBytes } from "crypto";
 import type { Server, Socket } from "socket.io";
 import { AIEngine, AIStrategy, AIDecisionType, type AIDecisionContext, type AIPlayerConfig } from "../../../rules-engine/src/AIEngine.js";
 import { ensureGame, broadcastGame } from "./util.js";
@@ -12,6 +13,11 @@ import { appendEvent } from "../db/index.js";
 import { getDeck, listDecks } from "../db/decks.js";
 import { fetchCardsByExactNamesBatch, normalizeName } from "../services/scryfall.js";
 import type { PlayerID } from "../../../shared/src/types.js";
+
+/** Generate a unique ID using crypto */
+function generateId(prefix: string): string {
+  return `${prefix}_${randomBytes(8).toString('hex')}`;
+}
 
 // Singleton AI Engine instance
 const aiEngine = new AIEngine();
@@ -425,7 +431,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
                 }
                 for (let i = 0; i < (count || 1); i++) {
                   resolvedCards.push({
-                    id: `${card.id}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                    id: generateId(`card_${card.id}`),
                     name: card.name,
                     type_line: card.type_line,
                     oracle_text: card.oracle_text,
