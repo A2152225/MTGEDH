@@ -1,5 +1,5 @@
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS } from "./util";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem } from "../../shared/src";
@@ -154,23 +154,27 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
       
       // Check if payment is sufficient
-      let totalPaidMana = 0;
+      let usedForColoredCosts = 0;
       const missingColors: string[] = [];
       
       // First check colored requirements
-      for (const color of ['W', 'U', 'B', 'R', 'G', 'C'] as const) {
+      for (const color of MANA_COLORS) {
         const needed = totalColored[color] || 0;
         const provided = paymentColors[color] || 0;
         if (provided < needed) {
           missingColors.push(`${needed - provided} ${getManaColorName(color)}`);
         }
-        totalPaidMana += provided;
+        // Only count the mana actually used to satisfy colored cost, not excess
+        usedForColoredCosts += Math.min(needed, provided);
       }
       
-      // Check generic mana
-      const coloredCostTotal = Object.values(totalColored).reduce((a: number, b: number) => a + b, 0);
-      const leftoverManaForGeneric = totalPaidMana - coloredCostTotal;
+      // Calculate leftover mana available for generic cost (total paid minus what was used for colored)
+      const totalPaidMana = Object.values(paymentColors).reduce((a: number, b: number) => a + b, 0);
+      const leftoverManaForGeneric = totalPaidMana - usedForColoredCosts;
       const missingGeneric = Math.max(0, totalGeneric - leftoverManaForGeneric);
+      
+      // Calculate total required cost
+      const coloredCostTotal = Object.values(totalColored).reduce((a: number, b: number) => a + b, 0);
       
       // Only validate payment if spell has a non-zero cost
       const totalCost = coloredCostTotal + totalGeneric;

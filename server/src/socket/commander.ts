@@ -16,7 +16,7 @@
  */
 
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, emitStateToSocket, parseManaCost, getManaColorName } from "./util";
+import { ensureGame, broadcastGame, emitStateToSocket, parseManaCost, getManaColorName, MANA_COLORS } from "./util";
 import { appendEvent } from "../db";
 import { fetchCardByExactNameStrict } from "../services/scryfall";
 import type { PlayerID } from "../../shared/src";
@@ -434,23 +434,27 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       }
       
       // Check if payment is sufficient
-      let totalPaidMana = 0;
+      let usedForColoredCosts = 0;
       const missingColors: string[] = [];
       
       // First check colored requirements
-      for (const color of ['W', 'U', 'B', 'R', 'G', 'C'] as const) {
+      for (const color of MANA_COLORS) {
         const needed = totalColored[color] || 0;
         const provided = paymentColors[color] || 0;
         if (provided < needed) {
           missingColors.push(`${needed - provided} ${getManaColorName(color)}`);
         }
-        totalPaidMana += provided;
+        // Only count the mana actually used to satisfy colored cost, not excess
+        usedForColoredCosts += Math.min(needed, provided);
       }
       
-      // Check generic mana (includes commander tax)
-      const coloredCostTotal = Object.values(totalColored).reduce((a: number, b: number) => a + b, 0);
-      const leftoverManaForGeneric = totalPaidMana - coloredCostTotal;
+      // Calculate leftover mana available for generic cost (total paid minus what was used for colored)
+      const totalPaidMana = Object.values(paymentColors).reduce((a: number, b: number) => a + b, 0);
+      const leftoverManaForGeneric = totalPaidMana - usedForColoredCosts;
       const missingGeneric = Math.max(0, totalGeneric - leftoverManaForGeneric);
+      
+      // Calculate total required cost
+      const coloredCostTotal = Object.values(totalColored).reduce((a: number, b: number) => a + b, 0);
       
       // Validate payment - commander has a base cost (even if {0}) plus commander tax
       const totalCost = coloredCostTotal + totalGeneric;

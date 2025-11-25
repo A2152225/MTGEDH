@@ -611,6 +611,12 @@ export const MANA_COLOR_NAMES: Record<string, string> = {
 };
 
 /**
+ * Standard mana color symbols in WUBRG order plus colorless.
+ */
+export const MANA_COLORS = ['W', 'U', 'B', 'R', 'G', 'C'] as const;
+export type ManaColorSymbol = typeof MANA_COLORS[number];
+
+/**
  * Gets the human-readable name for a mana color symbol.
  */
 export function getManaColorName(symbol: string): string {
