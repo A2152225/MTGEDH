@@ -46,8 +46,10 @@ export function CentralStack({ stack, you, priorityPlayer, onPass }: Props) {
             fontSize:20, 
             fontWeight:'bold',
             background:'linear-gradient(90deg, #818cf8, #c084fc)',
+            backgroundClip:'text',
             WebkitBackgroundClip:'text',
-            WebkitTextFillColor:'transparent'
+            WebkitTextFillColor:'transparent',
+            color:'transparent'
           }}>
             ⚡ Stack
           </span>
