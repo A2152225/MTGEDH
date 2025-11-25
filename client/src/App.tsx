@@ -380,14 +380,44 @@ export function App() {
     setSpellToCast(null);
   };
 
+  // Helper to add commander tax to mana cost
+  // E.g., "{3}{W}{G}" + tax 2 => "{5}{W}{G}"
+  const addTaxToManaCost = (manaCost: string | undefined, tax: number): string => {
+    if (!manaCost) {
+      return tax > 0 ? `{${tax}}` : '';
+    }
+    if (tax <= 0) {
+      return manaCost;
+    }
+    
+    // Parse existing generic mana from cost
+    const tokens = manaCost.match(/\{[^}]+\}/g) || [];
+    let existingGeneric = 0;
+    const coloredTokens: string[] = [];
+    
+    for (const t of tokens) {
+      const sym = t.replace(/[{}]/g, '');
+      if (/^\d+$/.test(sym)) {
+        existingGeneric += parseInt(sym, 10);
+      } else {
+        coloredTokens.push(t);
+      }
+    }
+    
+    // Combine generic with tax
+    const newGeneric = existingGeneric + tax;
+    
+    // Reconstruct: generic first, then colored mana
+    if (newGeneric > 0) {
+      return `{${newGeneric}}` + coloredTokens.join('');
+    }
+    return coloredTokens.join('');
+  };
+
   // Handle casting commander - opens payment modal
   const handleCastCommander = (commanderId: string, commanderName: string, manaCost?: string, tax?: number) => {
     // Calculate total cost including tax
-    let totalManaCost = manaCost || '';
-    if (tax && tax > 0) {
-      // Add generic mana for tax
-      totalManaCost = totalManaCost + `{${tax}}`;
-    }
+    const totalManaCost = addTaxToManaCost(manaCost, tax || 0);
     
     setSpellToCast({
       cardId: commanderId,
