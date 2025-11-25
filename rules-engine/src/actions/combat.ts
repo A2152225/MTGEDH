@@ -63,9 +63,18 @@ export function validateDeclareAttackers(
   
   // Validate each attacker
   for (const attacker of action.attackers) {
-    const creature = state.battlefield?.find(
+    // Check global battlefield and player-specific battlefield
+    let creature = state.battlefield?.find(
       (p: any) => p.id === attacker.creatureId && p.controller === action.playerId
     );
+    
+    // Also check player's own battlefield if not found globally
+    if (!creature) {
+      const player = state.players.find(p => p.id === action.playerId);
+      creature = player?.battlefield?.find(
+        (p: any) => p.id === attacker.creatureId
+      );
+    }
     
     if (!creature) {
       return { legal: false, reason: `Creature ${attacker.creatureId} not found on battlefield` };

@@ -249,7 +249,25 @@ export class RulesEngineAdapter {
     const cost: ManaCost = { generic: 0 };
     
     // Handle non-string input (could be already parsed object or null/undefined)
-    if (!manaCost || typeof manaCost !== 'string') {
+    if (!manaCost) {
+      return cost;
+    }
+    
+    // If already an object with mana properties, return it directly
+    if (typeof manaCost === 'object') {
+      return {
+        generic: manaCost.generic || 0,
+        white: manaCost.white || 0,
+        blue: manaCost.blue || 0,
+        black: manaCost.black || 0,
+        red: manaCost.red || 0,
+        green: manaCost.green || 0,
+        colorless: manaCost.colorless || 0,
+      };
+    }
+    
+    // Parse string format like "{R}{R}{2}"
+    if (typeof manaCost !== 'string') {
       return cost;
     }
     

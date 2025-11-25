@@ -84,6 +84,12 @@ export * from './triggeredAbilities';
 // Export opening hand actions (Rule 103.6 - Leyline and Chancellor effects)
 export * from './openingHandActions';
 
+// Export modular action handlers
+export * from './actions';
+
+// Export core types and events
+export * from './core';
+
 // Legacy function - kept for compatibility
 export function passPriority(state: Readonly<GameState>, by: PlayerID): EngineResult<GameState> {
   if (state.priority !== by) return { next: state };
