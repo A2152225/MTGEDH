@@ -1855,8 +1855,10 @@ export function registerGameActions(io: Server, socket: Socket) {
       zones.handCount = hand.length;
       zones.graveyardCount = zones.graveyard.length;
 
-      // Clear the pending discard state
-      delete (game.state as any).pendingDiscardSelection[playerId];
+      // Clear the pending discard state (with safe check)
+      if ((game.state as any).pendingDiscardSelection) {
+        delete (game.state as any).pendingDiscardSelection[playerId];
+      }
 
       // Bump sequence
       if (typeof game.bumpSeq === "function") {
