@@ -9,6 +9,7 @@ import type { Server, Socket } from "socket.io";
 import { AIEngine, AIStrategy, AIDecisionType, type AIDecisionContext, type AIPlayerConfig } from "../../../rules-engine/src/AIEngine.js";
 import { ensureGame, broadcastGame } from "./util.js";
 import { appendEvent } from "../db/index.js";
+import { getDeck, listDecks } from "../db/decks.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 
 // Singleton AI Engine instance
@@ -378,14 +379,52 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       const aiPlayerId = `ai_${Date.now().toString(36)}`;
       const strategy = (aiStrategy as AIStrategy) || AIStrategy.BASIC;
       
-      // Add AI to game state
+      // Add AI to game state with deck info
       game.state.players = game.state.players || [];
-      game.state.players.push({
+      const aiPlayer: any = {
         id: aiPlayerId,
         name: aiName || 'AI Opponent',
         life: (game.state as any).startingLife,
         isAI: true,
-      } as any);
+        hand: [],
+        library: [],
+        graveyard: [],
+        exile: [],
+      };
+      
+      // Load deck for AI if provided
+      let deckLoaded = false;
+      let deckLoadError: string | undefined;
+      if (aiDeckId) {
+        try {
+          const deck = getDeck(aiDeckId);
+          if (deck && deck.entries) {
+            console.info('[AI] Loading deck for AI:', { deckId: aiDeckId, deckName: deck.name, cardCount: deck.card_count });
+            
+            // Initialize AI's library with deck entries
+            // Note: We need to resolve card names to full card objects
+            // For now, store deck entries so they can be resolved later
+            aiPlayer.deckEntries = deck.entries;
+            aiPlayer.deckName = deck.name;
+            aiPlayer.deckId = aiDeckId;
+            deckLoaded = true;
+            
+            console.info('[AI] Deck loaded for AI:', { 
+              aiPlayerId, 
+              deckName: deck.name, 
+              entries: deck.entries.length 
+            });
+          } else {
+            deckLoadError = `Deck with ID "${aiDeckId}" not found in database`;
+            console.warn('[AI] Deck not found:', { deckId: aiDeckId, error: deckLoadError });
+          }
+        } catch (e) {
+          deckLoadError = `Failed to load deck "${aiDeckId}": ${e instanceof Error ? e.message : String(e)}`;
+          console.error('[AI] Error loading deck for AI:', { deckId: aiDeckId, error: e });
+        }
+      }
+      
+      game.state.players.push(aiPlayer);
       
       // Register with AI engine
       registerAIPlayer(gameId, aiPlayerId, aiName || 'AI Opponent', strategy);
@@ -397,6 +436,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           name: aiName || 'AI Opponent',
           strategy,
           deckId: aiDeckId,
+          deckLoaded,
         });
       } catch (e) {
         console.warn('[AI] Failed to persist AI join event:', e);
@@ -408,6 +448,8 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         aiPlayerId,
         aiName: aiName || 'AI Opponent',
         strategy,
+        deckLoaded,
+        deckName: deckLoaded ? (game.state.players.find((p: any) => p.id === aiPlayerId) as any)?.deckName : undefined,
       });
       
       // Broadcast game state
@@ -460,6 +502,17 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
     } catch (error) {
       console.error('[AI] Error adding AI to game:', error);
       socket.emit('error', { code: 'AI_ADD_FAILED', message: 'Failed to add AI opponent' });
+    }
+  });
+  
+  // List available decks for AI
+  socket.on('listDecksForAI', () => {
+    try {
+      const decks = listDecks();
+      socket.emit('decksForAI', { decks });
+    } catch (error) {
+      console.error('[AI] Error listing decks for AI:', error);
+      socket.emit('decksForAI', { decks: [], error: 'Failed to list decks' });
     }
   });
   

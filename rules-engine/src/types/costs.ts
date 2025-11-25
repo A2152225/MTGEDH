@@ -269,6 +269,116 @@ export interface AlternativeCost {
   readonly cost: Cost | CompositeCost;
   readonly isOptional: boolean;         // Rule 118.9b
   readonly replacesManaCost: boolean;   // Rule 118.9c - Doesn't change mana cost
+  readonly source?: string;             // Source of the alternative cost (e.g., "Jodah, Archmage Eternal")
+  readonly description?: string;        // Human-readable description
+}
+
+/**
+ * Jodah, Archmage Eternal style alternative cost
+ * "You may pay {W}{U}{B}{R}{G} rather than pay the mana cost"
+ */
+export const JODAH_ALTERNATIVE_COST: ManaAmount = {
+  white: 1,
+  blue: 1,
+  black: 1,
+  red: 1,
+  green: 1,
+  generic: 0,
+  colorless: 0,
+};
+
+/**
+ * Create Jodah-style alternative cost
+ */
+export function createJodahAlternativeCost(): AlternativeCost {
+  return {
+    cost: {
+      type: CostType.MANA,
+      description: 'Pay {W}{U}{B}{R}{G} instead of mana cost',
+      isOptional: true,
+      isMandatory: false,
+      amount: JODAH_ALTERNATIVE_COST,
+    } as ManaCostPayment,
+    isOptional: true,
+    replacesManaCost: true,
+    source: 'Jodah, Archmage Eternal',
+    description: 'Pay {W}{U}{B}{R}{G} instead of mana cost',
+  };
+}
+
+/**
+ * Morophon-style cost reduction
+ * "Spells of the chosen type cost {W}{U}{B}{R}{G} less to cast"
+ */
+export interface MorophonCostReduction {
+  readonly creatureType: string;
+  readonly reduction: ManaAmount;
+}
+
+/**
+ * Create Morophon-style cost reduction
+ */
+export function createMorophonCostReduction(creatureType: string): MorophonCostReduction {
+  return {
+    creatureType,
+    reduction: {
+      white: 1,
+      blue: 1,
+      black: 1,
+      red: 1,
+      green: 1,
+      generic: 0,
+      colorless: 0,
+    },
+  };
+}
+
+/**
+ * Helper function to apply reduction to a single color
+ */
+function applyColorReduction(
+  result: { [key: string]: number | undefined },
+  color: keyof ManaAmount,
+  reduction: ManaAmount
+): number {
+  const reductionAmount = reduction[color] || 0;
+  const currentAmount = (result[color] as number) || 0;
+  
+  if (reductionAmount > currentAmount) {
+    const excess = reductionAmount - currentAmount;
+    result[color] = 0;
+    return excess;
+  } else {
+    result[color] = currentAmount - reductionAmount;
+    return 0;
+  }
+}
+
+/**
+ * Apply Morophon-style reduction (each color by 1)
+ * This is a specific reduction that removes one of each color
+ */
+export function applyMorophonReduction(
+  originalCost: ManaAmount,
+  reduction: ManaAmount
+): ManaAmount {
+  const result: { [key: string]: number | undefined } = { ...originalCost };
+  
+  // Reduce each color, with excess going to generic
+  let excess = 0;
+  
+  // Apply reduction to each color type
+  const colors: (keyof ManaAmount)[] = ['white', 'blue', 'black', 'red', 'green', 'colorless'];
+  for (const color of colors) {
+    excess += applyColorReduction(result, color, reduction);
+  }
+  
+  // Rule 118.7c: If a cost reduction reduces the cost of colored mana
+  // more than the spell/ability requires, the excess reduction is applied
+  // to the generic mana cost instead.
+  result.generic = Math.max(0, (result.generic || 0) - excess);
+  
+  return result as ManaAmount;
 }
 
 /**

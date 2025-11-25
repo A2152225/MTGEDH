@@ -81,6 +81,12 @@ export * from './activatedAbilities';
 // Export triggered abilities (Rule 603)
 export * from './triggeredAbilities';
 
+// Export static abilities (Rule 604)
+export * from './staticAbilities';
+
+// Export triggered effects automation
+export * from './triggeredEffectsAutomation';
+
 // Export opening hand actions (Rule 103.6 - Leyline and Chancellor effects)
 export * from './openingHandActions';
 

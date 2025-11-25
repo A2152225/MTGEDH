@@ -3,6 +3,7 @@ import type { BattlefieldPermanent, KnownCardRef, PlayerID } from '../../../shar
 import type { ImagePref } from './BattlefieldGrid';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 import { getKeywordInfo, KEYWORD_GLOSSARY } from '../utils/keywordGlossary';
+import { CardContextMenu } from './CardContextMenu';
 
 function parsePT(raw?: string | number): number | undefined {
   if (typeof raw === 'number') return raw;
@@ -84,15 +85,27 @@ export function FreeField(props: {
   selectedTargets?: ReadonlySet<string>;
   onCardClick?: (id: string) => void;
   players?: { id: string; name: string }[];
+  // Context menu callbacks
+  onTap?: (id: string) => void;
+  onUntap?: (id: string) => void;
+  onActivateAbility?: (permanentId: string, abilityId: string) => void;
+  onAddCounter?: (id: string, kind: string, delta: number) => void;
+  onSacrifice?: (id: string) => void;
+  onRemove?: (id: string) => void;
+  canActivate?: boolean;
+  playerId?: string;
 }) {
   const {
     perms, imagePref, tileWidth, widthPx, heightPx,
     draggable = false, onMove, highlightTargets, selectedTargets, onCardClick,
-    players = []
+    players = [],
+    onTap, onUntap, onActivateAbility, onAddCounter, onSacrifice, onRemove,
+    canActivate = true, playerId
   } = props;
 
   const tileH = Math.round(tileWidth / 0.72);
   const [hoverId, setHoverId] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ permanent: BattlefieldPermanent; x: number; y: number } | null>(null);
   const drag = useRef<{ id: string; startX: number; startY: number; baseX: number; baseY: number; z?: number } | null>(null);
 
   const items = useMemo(() => {
@@ -287,6 +300,11 @@ export function FreeField(props: {
             onMouseEnter={(e) => { setHoverId(id); showCardPreview(e.currentTarget as HTMLElement, raw.card as any, { prefer: 'above', anchorPadding: 0 }); }}
             onMouseLeave={(e) => { setHoverId(prev => prev === id ? null : prev); hideCardPreview(e.currentTarget as HTMLElement); }}
             onClick={() => onCardClick && onCardClick(id)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setContextMenu({ permanent: raw, x: e.clientX, y: e.clientY });
+            }}
             style={{
               position: 'absolute',
               left: x,
@@ -608,6 +626,24 @@ export function FreeField(props: {
           </div>
         );
       })}
+      
+      {/* Context Menu */}
+      {contextMenu && (
+        <CardContextMenu
+          permanent={contextMenu.permanent}
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          onTap={onTap}
+          onUntap={onUntap}
+          onActivateAbility={onActivateAbility}
+          onAddCounter={onAddCounter}
+          onSacrifice={onSacrifice}
+          onRemove={onRemove}
+          canActivate={canActivate}
+          playerId={playerId}
+        />
+      )}
     </div>
   );
 }
