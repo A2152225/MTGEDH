@@ -1935,4 +1935,270 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       }
     }
   );
+
+  // saveDeck - save a new deck to the database
+  socket.on(
+    "saveDeck",
+    ({
+      gameId,
+      name,
+      list,
+    }: {
+      gameId: string;
+      name: string;
+      list: string;
+    }) => {
+      try {
+        console.info("[deck] saveDeck called", {
+          gameId,
+          name,
+          playerId: socket.data.playerId,
+        });
+
+        if (!gameId || typeof gameId !== "string") {
+          socket.emit("deckError", { gameId, message: "GameId required." });
+          return;
+        }
+
+        const pid = socket.data.playerId as PlayerID | undefined;
+        const spectator = socket.data.spectator;
+        if (!pid || spectator) {
+          socket.emit("deckError", {
+            gameId,
+            message: "Spectators cannot save decks.",
+          });
+          return;
+        }
+
+        if (!name || typeof name !== "string" || !name.trim()) {
+          socket.emit("deckError", { gameId, message: "Deck name required." });
+          return;
+        }
+
+        if (!list || typeof list !== "string" || !list.trim()) {
+          socket.emit("deckError", { gameId, message: "Deck list required." });
+          return;
+        }
+
+        const game = ensureGame(gameId);
+        if (!game) {
+          socket.emit("deckError", { gameId, message: "Game not found." });
+          return;
+        }
+
+        // Parse the deck list to get card count
+        let cardCount = 0;
+        try {
+          const parsed = parseDecklist(list);
+          cardCount = parsed.reduce((sum, p) => sum + (p.count || 0), 0);
+        } catch (e) {
+          console.warn("saveDeck: parseDecklist failed", e);
+          cardCount = list.split(/\r?\n/).filter((l) => l.trim()).length;
+        }
+
+        // Get player name from game state
+        const playerName =
+          (game.state.players as any[])?.find((p) => p.id === pid)?.name ||
+          String(pid);
+
+        const deckId = `deck_${Date.now()}_${Math.random()
+          .toString(36)
+          .slice(2, 8)}`;
+
+        saveDeckDB({
+          id: deckId,
+          name: name.trim(),
+          text: list,
+          created_by_id: pid,
+          created_by_name: playerName,
+          card_count: cardCount,
+        });
+
+        console.info("[deck] saveDeck saved", {
+          gameId,
+          deckId,
+          name: name.trim(),
+          cardCount,
+        });
+
+        socket.emit("deckSaved", { gameId, deckId });
+
+        // Broadcast updated deck list to all clients in the game
+        io.to(gameId).emit("savedDecksList", {
+          gameId,
+          decks: listDecks(),
+        });
+      } catch (err) {
+        console.error("saveDeck handler failed:", err);
+        socket.emit("deckError", {
+          gameId,
+          message: "Failed to save deck.",
+        });
+      }
+    }
+  );
+
+  // listSavedDecks - get all saved decks
+  socket.on("listSavedDecks", ({ gameId }: { gameId: string }) => {
+    try {
+      console.info("[deck] listSavedDecks called", {
+        gameId,
+        playerId: socket.data.playerId,
+      });
+
+      if (!gameId || typeof gameId !== "string") {
+        socket.emit("deckError", { gameId, message: "GameId required." });
+        return;
+      }
+
+      const decks = listDecks();
+      socket.emit("savedDecksList", { gameId, decks });
+    } catch (err) {
+      console.error("listSavedDecks handler failed:", err);
+      socket.emit("deckError", {
+        gameId,
+        message: "Failed to list decks.",
+      });
+    }
+  });
+
+  // getSavedDeck - get details of a specific saved deck
+  socket.on(
+    "getSavedDeck",
+    ({ gameId, deckId }: { gameId: string; deckId: string }) => {
+      try {
+        console.info("[deck] getSavedDeck called", {
+          gameId,
+          deckId,
+          playerId: socket.data.playerId,
+        });
+
+        if (!gameId || typeof gameId !== "string") {
+          socket.emit("deckError", { gameId, message: "GameId required." });
+          return;
+        }
+
+        if (!deckId || typeof deckId !== "string") {
+          socket.emit("deckError", { gameId, message: "DeckId required." });
+          return;
+        }
+
+        const deck = getDeckDB(deckId);
+        if (!deck) {
+          socket.emit("deckError", { gameId, message: "Deck not found." });
+          return;
+        }
+
+        socket.emit("savedDeckDetail", { gameId, deck });
+      } catch (err) {
+        console.error("getSavedDeck handler failed:", err);
+        socket.emit("deckError", {
+          gameId,
+          message: "Failed to get deck details.",
+        });
+      }
+    }
+  );
+
+  // renameSavedDeck - rename an existing deck
+  socket.on(
+    "renameSavedDeck",
+    ({
+      gameId,
+      deckId,
+      name,
+    }: {
+      gameId: string;
+      deckId: string;
+      name: string;
+    }) => {
+      try {
+        console.info("[deck] renameSavedDeck called", {
+          gameId,
+          deckId,
+          newName: name,
+          playerId: socket.data.playerId,
+        });
+
+        if (!gameId || typeof gameId !== "string") {
+          socket.emit("deckError", { gameId, message: "GameId required." });
+          return;
+        }
+
+        if (!deckId || typeof deckId !== "string") {
+          socket.emit("deckError", { gameId, message: "DeckId required." });
+          return;
+        }
+
+        if (!name || typeof name !== "string" || !name.trim()) {
+          socket.emit("deckError", { gameId, message: "New name required." });
+          return;
+        }
+
+        const deck = renameDeckDB(deckId, name.trim());
+        if (!deck) {
+          socket.emit("deckError", { gameId, message: "Deck not found." });
+          return;
+        }
+
+        socket.emit("deckRenamed", { gameId, deck });
+
+        // Broadcast updated deck list
+        io.to(gameId).emit("savedDecksList", {
+          gameId,
+          decks: listDecks(),
+        });
+      } catch (err) {
+        console.error("renameSavedDeck handler failed:", err);
+        socket.emit("deckError", {
+          gameId,
+          message: "Failed to rename deck.",
+        });
+      }
+    }
+  );
+
+  // deleteSavedDeck - delete a saved deck
+  socket.on(
+    "deleteSavedDeck",
+    ({ gameId, deckId }: { gameId: string; deckId: string }) => {
+      try {
+        console.info("[deck] deleteSavedDeck called", {
+          gameId,
+          deckId,
+          playerId: socket.data.playerId,
+        });
+
+        if (!gameId || typeof gameId !== "string") {
+          socket.emit("deckError", { gameId, message: "GameId required." });
+          return;
+        }
+
+        if (!deckId || typeof deckId !== "string") {
+          socket.emit("deckError", { gameId, message: "DeckId required." });
+          return;
+        }
+
+        const deleted = deleteDeckDB(deckId);
+        if (!deleted) {
+          socket.emit("deckError", { gameId, message: "Deck not found." });
+          return;
+        }
+
+        socket.emit("deckDeleted", { gameId, deckId });
+
+        // Broadcast updated deck list
+        io.to(gameId).emit("savedDecksList", {
+          gameId,
+          decks: listDecks(),
+        });
+      } catch (err) {
+        console.error("deleteSavedDeck handler failed:", err);
+        socket.emit("deckError", {
+          gameId,
+          message: "Failed to delete deck.",
+        });
+      }
+    }
+  );
 }

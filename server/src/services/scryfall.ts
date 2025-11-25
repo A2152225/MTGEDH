@@ -52,6 +52,39 @@ export function normalizeName(s: string) {
     .replace(/\s+\/\/\s+/g, " // ");
 }
 
+/**
+ * Strip Moxfield/Scryfall-style set and collector number suffixes from a card name.
+ * Handles patterns like:
+ *   - "Sol Ring (C14) 276" -> "Sol Ring"
+ *   - "Sol Ring (C14:276)" -> "Sol Ring"
+ *   - "Sol Ring 276 (C14)" -> "Sol Ring"
+ *   - "Sol Ring (commander 2014) 276" -> "Sol Ring"
+ */
+function stripSetCollectorNumber(name: string): string {
+  let result = name;
+  
+  // Pattern 1: (SET) NUMBER at end - e.g., "(C14) 276" or "(ELD) 331"
+  // SET can be 2-10 chars (handles longer set names like "commander 2014")
+  result = result.replace(/\s+\([A-Za-z0-9][A-Za-z0-9 ]{0,14}\)\s+\d+[A-Za-z]?$/i, '');
+  
+  // Pattern 2: (SET:NUMBER) at end - e.g., "(C14:276)"
+  result = result.replace(/\s+\([A-Za-z0-9]{2,10}:\d+[A-Za-z]?\)$/i, '');
+  
+  // Pattern 3: NUMBER (SET) at end - e.g., "276 (C14)"
+  result = result.replace(/\s+\d+[A-Za-z]?\s+\([A-Za-z0-9]{2,10}\)$/i, '');
+  
+  // Pattern 4: Just (SET) at end without number - e.g., "(C14)"
+  result = result.replace(/\s+\([A-Za-z0-9]{2,10}\)$/i, '');
+  
+  // Pattern 5: Trailing collector number only (common in some exports) - e.g., "Sol Ring 276"
+  // Only strip if it looks like just a number at the end (not part of the card name)
+  // Be careful: some cards have numbers in their names like "Urza's Tome"
+  // Only strip if preceded by whitespace and the number is 1-4 digits optionally followed by a letter
+  result = result.replace(/\s+\d{1,4}[A-Za-z]?$/, '');
+  
+  return result.trim();
+}
+
 export function parseDecklist(list: string): ParsedLine[] {
   const lines = list
     .split(/\r?\n/)
@@ -61,7 +94,11 @@ export function parseDecklist(list: string): ParsedLine[] {
   const acc = new Map<string, number>();
 
   for (const raw of lines) {
-    if (/^(SB:|SIDEBOARD)/i.test(raw)) continue;
+    // Skip sideboard markers and comments
+    if (/^(SB:|SIDEBOARD|\/\/|#)/i.test(raw)) continue;
+    
+    // Skip empty lines and section headers (e.g., "Deck", "Commander", "Mainboard")
+    if (/^(DECK|COMMANDER|MAINBOARD|MAYBEBOARD|CONSIDERING)$/i.test(raw.trim())) continue;
 
     let name = "";
     let count = 1;
@@ -83,6 +120,9 @@ export function parseDecklist(list: string): ParsedLine[] {
       }
     }
 
+    // Strip Moxfield/Scryfall-style set and collector number suffixes
+    name = stripSetCollectorNumber(name);
+    
     name = normalizeName(name);
     if (!name) continue;
     acc.set(name, (acc.get(name) || 0) + count);
