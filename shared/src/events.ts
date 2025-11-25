@@ -21,6 +21,19 @@ export type KnownCardRef = {
   type_line?: string;
   oracle_text?: string;
   image_uris?: { small?: string; normal?: string; art_crop?: string };
+  card_faces?: Array<{
+    name?: string;
+    mana_cost?: string;
+    type_line?: string;
+    oracle_text?: string;
+    image_uris?: { small?: string; normal?: string; art_crop?: string };
+    power?: string;
+    toughness?: string;
+  }>;
+  layout?: string;
+  mana_cost?: string;
+  power?: string | number;
+  toughness?: string | number;
 };
 
 // Events sent from client -> server

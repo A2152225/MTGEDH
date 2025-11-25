@@ -132,6 +132,11 @@ async function doFetchJSON(url: string, options?: RequestInit, retries = 3, back
 }
 
 function toCachedCard(data: any): ScryfallCard {
+  // For double-faced cards (transform, modal_dfc, etc.), image_uris is on card_faces, not top-level
+  // Use first face's image_uris as fallback when top-level is missing
+  const frontFaceImages = data.card_faces?.[0]?.image_uris ?? null;
+  const resolvedImageUris = data.image_uris ?? frontFaceImages;
+
   const card: ScryfallCard = {
     id: data.id,
     name: data.name,
@@ -140,8 +145,8 @@ function toCachedCard(data: any): ScryfallCard {
     mana_cost: data.mana_cost,
     type_line: data.type_line,
     oracle_text: data.oracle_text,
-    image_uris: data.image_uris
-      ? { small: data.image_uris.small, normal: data.image_uris.normal, art_crop: data.image_uris.art_crop }
+    image_uris: resolvedImageUris
+      ? { small: resolvedImageUris.small, normal: resolvedImageUris.normal, art_crop: resolvedImageUris.art_crop }
       : undefined,
     legalities: data.legalities,
     power: data.power,
