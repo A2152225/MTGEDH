@@ -168,15 +168,16 @@ export function TableLayout(props: {
 
   const sideOrder = useMemo(() => sidePlan(ordered.length), [ordered.length]);
 
-  // Layout constants
+  // Layout constants - increased by ~50% for larger play area
   const TILE_W = 110; const tileH = Math.round(TILE_W / 0.72);
-  const ZONES_W = 140;
-  const GRID_GAP = 10;
-  const FREE_W = 7 * TILE_W + 6 * GRID_GAP + 20;
-  const FREE_H = Math.round(2 * tileH + 100);
-  const BOARD_W = FREE_W + ZONES_W + 24;
-  const BOARD_H = Math.round(FREE_H + tileH + 240);
-  const SEAT_GAP_X = 72, SEAT_GAP_Y = 72, CENTER_CLEAR_X = 120, CENTER_CLEAR_Y = 120, SIDE_PAD = 24;
+  const ZONES_W = 160; // Slightly larger zones panel
+  const GRID_GAP = 12; // Slightly larger gap
+  // Hand row: 7 cards wide (max hand size at end of turn) + margins
+  const FREE_W = 7 * TILE_W + 6 * GRID_GAP + 30;
+  const FREE_H = Math.round(3 * tileH + 120); // Increased height for larger play area
+  const BOARD_W = FREE_W + ZONES_W + 28;
+  const BOARD_H = Math.round(FREE_H + tileH + 280); // Increased height for larger play area
+  const SEAT_GAP_X = 84, SEAT_GAP_Y = 84, CENTER_CLEAR_X = 150, CENTER_CLEAR_Y = 150, SIDE_PAD = 28;
 
   const seatPositions = useMemo(() => buildPositions({
     total: ordered.length,

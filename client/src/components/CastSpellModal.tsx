@@ -12,14 +12,400 @@ import {
   type ManaPool,
 } from '../utils/manaUtils';
 
+/**
+ * Represents an alternate casting cost option
+ */
+export interface AlternateCost {
+  id: string;
+  label: string;
+  description?: string;
+  manaCost: string;
+  additionalCost?: string; // e.g., "Discard a card", "Sacrifice a creature"
+  isDefault?: boolean;
+}
+
+/**
+ * Parse alternate costs from card oracle text
+ */
+function parseAlternateCosts(oracleText: string, cardManaCost: string, cardName: string): AlternateCost[] {
+  const costs: AlternateCost[] = [];
+  const text = oracleText || '';
+  const lowerText = text.toLowerCase();
+  
+  // Default cost is always first
+  costs.push({
+    id: 'normal',
+    label: 'Normal Cost',
+    manaCost: cardManaCost,
+    isDefault: true,
+  });
+  
+  // Flashback - cast from graveyard for alternate cost
+  const flashbackMatch = text.match(/flashback[^(]*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (flashbackMatch) {
+    costs.push({
+      id: 'flashback',
+      label: 'Flashback',
+      description: 'Cast from graveyard',
+      manaCost: flashbackMatch[1],
+    });
+  }
+  
+  // Overload - cast for alternate cost, affects all instead of target
+  const overloadMatch = text.match(/overload\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (overloadMatch) {
+    costs.push({
+      id: 'overload',
+      label: 'Overload',
+      description: 'Affects all valid targets instead of one',
+      manaCost: overloadMatch[1],
+    });
+  }
+  
+  // Surge - reduced cost if you or teammate cast another spell this turn
+  const surgeMatch = text.match(/surge\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (surgeMatch) {
+    costs.push({
+      id: 'surge',
+      label: 'Surge',
+      description: 'If you or teammate cast another spell this turn',
+      manaCost: surgeMatch[1],
+    });
+  }
+  
+  // Spectacle - alternate cost if opponent lost life this turn
+  const spectacleMatch = text.match(/spectacle\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (spectacleMatch) {
+    costs.push({
+      id: 'spectacle',
+      label: 'Spectacle',
+      description: 'If an opponent lost life this turn',
+      manaCost: spectacleMatch[1],
+    });
+  }
+  
+  // Mutate - cast for mutate cost
+  const mutateMatch = text.match(/mutate\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (mutateMatch) {
+    costs.push({
+      id: 'mutate',
+      label: 'Mutate',
+      description: 'Merge with target creature',
+      manaCost: mutateMatch[1],
+    });
+  }
+  
+  // Dash - cast for dash cost, gains haste, returns to hand at end of turn
+  const dashMatch = text.match(/dash\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (dashMatch) {
+    costs.push({
+      id: 'dash',
+      label: 'Dash',
+      description: 'Gains haste, returns to hand at end of turn',
+      manaCost: dashMatch[1],
+    });
+  }
+  
+  // Evoke - cast for evoke cost, then sacrifice
+  const evokeMatch = text.match(/evoke\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (evokeMatch) {
+    costs.push({
+      id: 'evoke',
+      label: 'Evoke',
+      description: 'ETB triggers, then sacrifice',
+      manaCost: evokeMatch[1],
+      additionalCost: 'Sacrifice when it enters',
+    });
+  }
+  
+  // Madness - cast for madness cost when discarded
+  const madnessMatch = text.match(/madness\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (madnessMatch) {
+    costs.push({
+      id: 'madness',
+      label: 'Madness',
+      description: 'When discarded, may cast for this cost',
+      manaCost: madnessMatch[1],
+    });
+  }
+  
+  // Miracle - if first card drawn this turn
+  const miracleMatch = text.match(/miracle\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (miracleMatch) {
+    costs.push({
+      id: 'miracle',
+      label: 'Miracle',
+      description: 'If first card drawn this turn',
+      manaCost: miracleMatch[1],
+    });
+  }
+  
+  // Prowl - if dealt combat damage with creature of same type
+  const prowlMatch = text.match(/prowl\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (prowlMatch) {
+    costs.push({
+      id: 'prowl',
+      label: 'Prowl',
+      description: 'If you dealt combat damage with creature of same type',
+      manaCost: prowlMatch[1],
+    });
+  }
+  
+  // Bestow - cast as aura
+  const bestowMatch = text.match(/bestow\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (bestowMatch) {
+    costs.push({
+      id: 'bestow',
+      label: 'Bestow',
+      description: 'Cast as an Aura enchanting a creature',
+      manaCost: bestowMatch[1],
+    });
+  }
+  
+  // Emerge - sacrifice a creature and pay reduced cost
+  const emergeMatch = text.match(/emerge\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (emergeMatch) {
+    costs.push({
+      id: 'emerge',
+      label: 'Emerge',
+      description: 'Sacrifice a creature, reduce cost by its mana value',
+      manaCost: emergeMatch[1],
+      additionalCost: 'Sacrifice a creature',
+    });
+  }
+  
+  // Blitz - cast for blitz cost (creatures)
+  const blitzMatch = text.match(/blitz\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (blitzMatch) {
+    costs.push({
+      id: 'blitz',
+      label: 'Blitz',
+      description: 'Gains haste, "When this dies, draw a card", sacrifice at end of turn',
+      manaCost: blitzMatch[1],
+    });
+  }
+  
+  // Prototype (smaller stats, cheaper cost) - Phyrexian construct cards
+  const prototypeMatch = text.match(/prototype\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)\s*[-—]\s*(\d+)\/(\d+)/i);
+  if (prototypeMatch) {
+    costs.push({
+      id: 'prototype',
+      label: 'Prototype',
+      description: `Cast as ${prototypeMatch[2]}/${prototypeMatch[3]}`,
+      manaCost: prototypeMatch[1],
+    });
+  }
+  
+  // Disturb - cast transformed from graveyard
+  const disturbMatch = text.match(/disturb\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (disturbMatch) {
+    costs.push({
+      id: 'disturb',
+      label: 'Disturb',
+      description: 'Cast transformed from graveyard',
+      manaCost: disturbMatch[1],
+    });
+  }
+  
+  // Kicker - optional additional cost
+  const kickerMatch = text.match(/kicker\s*(\{[^}]+\}(?:\s*(?:and\/or|or)\s*\{[^}]+\})*)/i);
+  if (kickerMatch) {
+    // Calculate kicked cost (normal + kicker)
+    const kickerCost = kickerMatch[1];
+    costs.push({
+      id: 'kicker',
+      label: 'With Kicker',
+      description: 'Pay additional kicker cost for enhanced effect',
+      manaCost: cardManaCost + kickerCost,
+      additionalCost: `Kicker: ${kickerCost}`,
+    });
+  }
+  
+  // Multikicker - can be paid multiple times
+  const multikickerMatch = text.match(/multikicker\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (multikickerMatch) {
+    costs.push({
+      id: 'multikicker',
+      label: 'With Multikicker',
+      description: 'Pay any number of times for enhanced effect',
+      manaCost: cardManaCost, // Base cost, multikicker added separately
+      additionalCost: `Multikicker: ${multikickerMatch[1]} (pay any number of times)`,
+    });
+  }
+  
+  // Buyback - return to hand instead of graveyard
+  const buybackMatch = text.match(/buyback\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (buybackMatch) {
+    costs.push({
+      id: 'buyback',
+      label: 'With Buyback',
+      description: 'Return to hand instead of graveyard',
+      manaCost: cardManaCost + buybackMatch[1],
+      additionalCost: `Buyback: ${buybackMatch[1]}`,
+    });
+  }
+  
+  // Entwine - choose both modes
+  const entwineMatch = text.match(/entwine\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (entwineMatch) {
+    costs.push({
+      id: 'entwine',
+      label: 'With Entwine',
+      description: 'Choose all modes instead of one',
+      manaCost: cardManaCost + entwineMatch[1],
+      additionalCost: `Entwine: ${entwineMatch[1]}`,
+    });
+  }
+  
+  // Replicate - copy spell
+  const replicateMatch = text.match(/replicate\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (replicateMatch) {
+    costs.push({
+      id: 'replicate',
+      label: 'With Replicate',
+      description: 'Pay to copy the spell',
+      manaCost: cardManaCost, // Base cost, replicate added separately
+      additionalCost: `Replicate: ${replicateMatch[1]} (pay any number of times)`,
+    });
+  }
+  
+  // Echo - pay again on next upkeep or sacrifice
+  const echoMatch = text.match(/echo\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (echoMatch) {
+    // Echo isn't an alternate casting cost, but we note it for awareness
+    // The echo cost is paid on the next upkeep, not when casting
+    costs[0].additionalCost = `Echo: ${echoMatch[1]} (pay on your next upkeep or sacrifice)`;
+  }
+  
+  // Warp - cast from exile (typically through cascade or similar)
+  // Note: "Warp" isn't a standard keyword, but there are effects that cast from exile
+  // This handles cards like Prosper's treasure tokens or similar effects
+  
+  // Foretell - exile face down, cast later for foretell cost
+  const foretellMatch = text.match(/foretell\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (foretellMatch) {
+    costs.push({
+      id: 'foretell',
+      label: 'Foretell',
+      description: 'Cast from exile after foretelling',
+      manaCost: foretellMatch[1],
+    });
+  }
+  
+  // Suspend - exile with time counters, cast for free when last counter removed
+  if (lowerText.includes('suspend')) {
+    const suspendMatch = text.match(/suspend\s+(\d+)[—\-]\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+    if (suspendMatch) {
+      costs.push({
+        id: 'suspend',
+        label: 'Suspend',
+        description: `Exile with ${suspendMatch[1]} time counters, cast free when removed`,
+        manaCost: suspendMatch[2],
+        additionalCost: `Wait ${suspendMatch[1]} turns`,
+      });
+    }
+  }
+  
+  // Craft - exile from battlefield with other materials
+  const craftMatch = text.match(/craft with\s+([^{]+)\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (craftMatch) {
+    costs.push({
+      id: 'craft',
+      label: 'Craft',
+      description: `Transform by exiling with ${craftMatch[1].trim()}`,
+      manaCost: craftMatch[2],
+      additionalCost: `Exile ${craftMatch[1].trim()}`,
+    });
+  }
+  
+  // Cleave - remove bracketed text for alternate cost
+  const cleaveMatch = text.match(/cleave\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (cleaveMatch) {
+    costs.push({
+      id: 'cleave',
+      label: 'Cleave',
+      description: 'Cast without bracketed text',
+      manaCost: cleaveMatch[1],
+    });
+  }
+  
+  // Casualty - sacrifice creature with power N or greater
+  const casualtyMatch = text.match(/casualty\s+(\d+)/i);
+  if (casualtyMatch) {
+    costs[0].additionalCost = (costs[0].additionalCost ? costs[0].additionalCost + '; ' : '') +
+      `Casualty ${casualtyMatch[1]}: Sacrifice a creature with power ${casualtyMatch[1]}+ to copy`;
+  }
+  
+  // Offering - sacrifice creature of type, reduce cost by its mana value
+  const offeringMatch = text.match(/(\w+)\s+offering/i);
+  if (offeringMatch) {
+    costs.push({
+      id: 'offering',
+      label: `${offeringMatch[1]} Offering`,
+      description: `Sacrifice a ${offeringMatch[1]}, reduce cost by its mana value`,
+      manaCost: cardManaCost, // Reduced by sacrificed creature's MV
+      additionalCost: `Sacrifice a ${offeringMatch[1]}`,
+    });
+  }
+  
+  // Ninjutsu - return attacking unblocked creature
+  const ninjutsuMatch = text.match(/ninjutsu\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (ninjutsuMatch) {
+    costs.push({
+      id: 'ninjutsu',
+      label: 'Ninjutsu',
+      description: 'Return unblocked attacker to hand, put this onto battlefield attacking',
+      manaCost: ninjutsuMatch[1],
+      additionalCost: 'Return an unblocked attacking creature you control to hand',
+    });
+  }
+  
+  // Commander Ninjutsu
+  const cmdNinjutsuMatch = text.match(/commander ninjutsu\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (cmdNinjutsuMatch) {
+    costs.push({
+      id: 'commander-ninjutsu',
+      label: 'Commander Ninjutsu',
+      description: 'Return unblocked attacker, put commander onto battlefield attacking',
+      manaCost: cmdNinjutsuMatch[1],
+      additionalCost: 'Return an unblocked attacking creature you control to hand',
+    });
+  }
+  
+  // "You may pay X rather than pay this spell's mana cost" or similar
+  const altCostMatch = text.match(/you may (?:pay\s+)?(\{[^}]+\}(?:\s*\{[^}]+\})*)\s+rather than pay/i);
+  if (altCostMatch) {
+    costs.push({
+      id: 'alternate',
+      label: 'Alternate Cost',
+      description: 'Pay this instead of normal cost',
+      manaCost: altCostMatch[1],
+    });
+  }
+  
+  // "You may cast ~ without paying its mana cost" (free cast)
+  if (lowerText.includes('without paying its mana cost') || lowerText.includes('without paying the mana cost')) {
+    costs.push({
+      id: 'free',
+      label: 'Free Cast',
+      description: 'Cast without paying mana cost',
+      manaCost: '{0}',
+    });
+  }
+  
+  return costs;
+}
+
 interface CastSpellModalProps {
   open: boolean;
   cardName: string;
   manaCost?: string;
+  oracleText?: string;
   availableSources: Array<{ id: string; name: string; options: Color[] }>;
   otherCardsInHand?: OtherCardInfo[];
   floatingMana?: ManaPool;
-  onConfirm: (payment: PaymentItem[]) => void;
+  castFromZone?: 'hand' | 'graveyard' | 'exile' | 'command';
+  onConfirm: (payment: PaymentItem[], alternateCostId?: string) => void;
   onCancel: () => void;
 }
 
@@ -27,32 +413,61 @@ export function CastSpellModal({
   open,
   cardName,
   manaCost,
+  oracleText,
   availableSources,
   otherCardsInHand = [],
   floatingMana,
+  castFromZone = 'hand',
   onConfirm,
   onCancel,
 }: CastSpellModalProps) {
   const [payment, setPayment] = useState<PaymentItem[]>([]);
   const [xValue, setXValue] = useState(0);
+  const [selectedCostId, setSelectedCostId] = useState('normal');
+
+  // Parse alternate costs from oracle text
+  const alternateCosts = useMemo(() => {
+    let costs = parseAlternateCosts(oracleText || '', manaCost || '', cardName);
+    
+    // If casting from graveyard, filter to only graveyard-castable costs
+    if (castFromZone === 'graveyard') {
+      costs = costs.filter(c => 
+        c.id === 'flashback' || 
+        c.id === 'disturb' || 
+        c.id === 'escape' ||
+        c.id === 'unearth'
+      );
+      // If no graveyard costs found, show nothing (shouldn't happen if we got here)
+      if (costs.length === 0) {
+        costs = [{ id: 'normal', label: 'Cast from Graveyard', manaCost: manaCost || '', isDefault: true }];
+      }
+    }
+    
+    return costs;
+  }, [oracleText, manaCost, cardName, castFromZone]);
+
+  // Get the currently selected cost
+  const currentCost = useMemo(() => {
+    return alternateCosts.find(c => c.id === selectedCostId) || alternateCosts[0];
+  }, [alternateCosts, selectedCostId]);
 
   // Calculate suggested payment for auto-fill (considers floating mana)
   const suggestedPayment = useMemo(() => {
-    const parsed = parseManaCost(manaCost);
+    const parsed = parseManaCost(currentCost?.manaCost || manaCost);
     const cost = { colors: parsed.colors, generic: parsed.generic + Math.max(0, xValue), hybrids: parsed.hybrids };
     const colorsToPreserve = computeColorsNeededByOtherCards(otherCardsInHand);
     return calculateSuggestedPayment(cost, availableSources, colorsToPreserve, floatingMana);
-  }, [manaCost, xValue, availableSources, otherCardsInHand, floatingMana]);
+  }, [currentCost, manaCost, xValue, availableSources, otherCardsInHand, floatingMana]);
 
   // Calculate how much floating mana will be used
   const floatingManaUsage = useMemo(() => {
     if (!floatingMana) return null;
-    const parsed = parseManaCost(manaCost);
+    const parsed = parseManaCost(currentCost?.manaCost || manaCost);
     const cost = { colors: parsed.colors, generic: parsed.generic + Math.max(0, xValue), hybrids: parsed.hybrids };
     const { usedFromPool } = calculateRemainingCostAfterFloatingMana(cost, floatingMana);
     const totalUsed = Object.values(usedFromPool).reduce((a, b) => a + b, 0);
     return totalUsed > 0 ? usedFromPool : null;
-  }, [manaCost, xValue, floatingMana]);
+  }, [currentCost, manaCost, xValue, floatingMana]);
 
   if (!open) return null;
 
@@ -65,19 +480,24 @@ export function CastSpellModal({
         mana,
       }));
     }
-    onConfirm(finalPayment);
+    onConfirm(finalPayment, selectedCostId !== 'normal' ? selectedCostId : undefined);
     setPayment([]);
     setXValue(0);
+    setSelectedCostId('normal');
   };
 
   const handleCancel = () => {
     onCancel();
     setPayment([]);
     setXValue(0);
+    setSelectedCostId('normal');
   };
 
   // Check if there's floating mana that will be used
   const hasFloatingManaToUse = floatingManaUsage && Object.values(floatingManaUsage).some(v => v > 0);
+  
+  // Show alternate cost selector if there are options
+  const showAlternateCosts = alternateCosts.length > 1;
 
   return (
     <div style={backdrop}>
@@ -86,6 +506,71 @@ export function CastSpellModal({
           <h3 style={{ margin: 0, fontSize: 16 }}>Cast {cardName}</h3>
           <button onClick={handleCancel} style={{ fontSize: 18, padding: '2px 8px' }}>×</button>
         </div>
+
+        {/* Alternate Cost Selector */}
+        {showAlternateCosts && (
+          <div style={{ 
+            marginBottom: 16, 
+            padding: 12, 
+            backgroundColor: 'rgba(59, 130, 246, 0.1)', 
+            borderRadius: 8,
+            border: '1px solid rgba(59, 130, 246, 0.3)',
+          }}>
+            <div style={{ fontSize: 12, color: '#888', marginBottom: 8, fontWeight: 600 }}>
+              Choose Casting Cost:
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {alternateCosts.map(cost => (
+                <label
+                  key={cost.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 8,
+                    padding: '8px 10px',
+                    backgroundColor: selectedCostId === cost.id ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    border: selectedCostId === cost.id ? '1px solid rgba(59, 130, 246, 0.5)' : '1px solid transparent',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="castingCost"
+                    checked={selectedCostId === cost.id}
+                    onChange={() => setSelectedCostId(cost.id)}
+                    style={{ marginTop: 2 }}
+                  />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontWeight: 500 }}>{cost.label}</span>
+                      <span style={{ 
+                        fontFamily: 'monospace', 
+                        backgroundColor: 'rgba(0,0,0,0.3)', 
+                        padding: '2px 6px', 
+                        borderRadius: 4,
+                        fontSize: 12,
+                      }}>
+                        {cost.manaCost || '{0}'}
+                      </span>
+                    </div>
+                    {cost.description && (
+                      <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
+                        {cost.description}
+                      </div>
+                    )}
+                    {cost.additionalCost && (
+                      <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 2 }}>
+                        ⚠ {cost.additionalCost}
+                      </div>
+                    )}
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Show floating mana pool if available */}
         {floatingMana && (
@@ -112,8 +597,8 @@ export function CastSpellModal({
         )}
 
         <PaymentPicker
-          manaCost={manaCost}
-          manaCostDisplay={manaCost}
+          manaCost={currentCost?.manaCost || manaCost}
+          manaCostDisplay={currentCost?.manaCost || manaCost}
           sources={availableSources}
           chosen={payment}
           xValue={xValue}
@@ -126,7 +611,7 @@ export function CastSpellModal({
         <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
           <button onClick={handleCancel}>Cancel</button>
           <button onClick={handleConfirm} style={{ background: '#2b6cb0', color: '#fff', border: 'none', padding: '6px 16px', borderRadius: 6, cursor: 'pointer' }}>
-            Cast Spell
+            {selectedCostId !== 'normal' ? `Cast with ${currentCost?.label}` : 'Cast Spell'}
           </button>
         </div>
       </div>

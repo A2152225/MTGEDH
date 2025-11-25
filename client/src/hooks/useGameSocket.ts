@@ -82,11 +82,37 @@ export interface UseGameSocketState {
   setDebugOpen: (open: boolean) => void;
 }
 
+// Storage key for cached player name
+const PLAYER_NAME_KEY = 'mtgedh:playerName';
+
+function getCachedPlayerName(): string {
+  try {
+    const stored = sessionStorage.getItem(PLAYER_NAME_KEY);
+    if (stored && stored.trim()) {
+      return stored.trim();
+    }
+  } catch {
+    // Ignore storage errors
+  }
+  return 'Player';
+}
+
+function cachePlayerName(name: string): void {
+  try {
+    if (name && name.trim()) {
+      sessionStorage.setItem(PLAYER_NAME_KEY, name.trim());
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 export function useGameSocket(): UseGameSocketState {
   // connection + join UI state
   const [connected, setConnected] = useState(false);
   const [gameIdInput, setGameIdInput] = useState<GameID>("demo");
-  const [nameInput, setNameInput] = useState("Player");
+  // Initialize from cached value
+  const [nameInput, setNameInput] = useState<string>(getCachedPlayerName);
   const [joinAsSpectator, setJoinAsSpectator] = useState(false);
 
   const lastJoinRef = useRef<{
@@ -94,6 +120,12 @@ export function useGameSocket(): UseGameSocketState {
     name: string;
     spectator: boolean;
   } | null>(null);
+  
+  // Cache the player name whenever it changes
+  const handleSetNameInput = useCallback((name: string) => {
+    setNameInput(name);
+    cachePlayerName(name);
+  }, []);
 
   // game state
   const [you, setYou] = useState<PlayerID | null>(null);
@@ -865,7 +897,7 @@ export function useGameSocket(): UseGameSocketState {
     gameIdInput,
     setGameIdInput,
     nameInput,
-    setNameInput,
+    setNameInput: handleSetNameInput,
     joinAsSpectator,
     setJoinAsSpectator,
 

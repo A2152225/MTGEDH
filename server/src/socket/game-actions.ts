@@ -4,6 +4,336 @@ import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem } from "../../shared/src";
 
+/**
+ * Calculate cost reduction for a spell based on battlefield effects.
+ * Returns an object with the reduction for each color and generic cost.
+ * 
+ * Supports various cost reduction types:
+ * - Creature type based: Morophon, Urza's Incubator, Herald's Horn, Goblin Warchief
+ * - Card type based: Goblin Electromancer (instants/sorceries), Semblance Anvil (imprinted type)
+ * - Ability based: Training Grounds (activated abilities - not spell costs)
+ * - Board state based: Animar (experience/+1+1 counters), Affinity effects
+ * - Color based: Ruby Medallion, Sapphire Medallion, etc.
+ */
+function calculateCostReduction(
+  game: any,
+  playerId: string,
+  card: any,
+  isAbility: boolean = false
+): { generic: number; colors: Record<string, number>; messages: string[] } {
+  const reduction = {
+    generic: 0,
+    colors: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 } as Record<string, number>,
+    messages: [] as string[],
+  };
+  
+  try {
+    const battlefield = game.state?.battlefield || [];
+    const cardTypeLine = (card.type_line || "").toLowerCase();
+    const cardOracleText = (card.oracle_text || "").toLowerCase();
+    const cardColors = card.colors || [];
+    const cardCreatureTypes = extractCreatureTypes(cardTypeLine);
+    const cardName = card.name || "Unknown";
+    
+    // Determine card characteristics
+    const isCreature = cardTypeLine.includes("creature");
+    const isInstant = cardTypeLine.includes("instant");
+    const isSorcery = cardTypeLine.includes("sorcery");
+    const isArtifact = cardTypeLine.includes("artifact");
+    const isEnchantment = cardTypeLine.includes("enchantment");
+    const isPlaneswalker = cardTypeLine.includes("planeswalker");
+    
+    for (const perm of battlefield) {
+      if (!perm || perm.controller !== playerId) continue;
+      
+      const permName = (perm.card?.name || "").toLowerCase();
+      const permOracle = (perm.card?.oracle_text || "").toLowerCase();
+      const chosenType = (perm.chosenCreatureType || "").toLowerCase();
+      const imprintedCard = perm.imprintedCard; // For Semblance Anvil
+      const counters = perm.counters || {};
+      
+      // ============================================
+      // CREATURE TYPE BASED REDUCTIONS
+      // ============================================
+      
+      // Morophon, the Boundless: Spells of the chosen creature type cost {W}{U}{B}{R}{G} less
+      if (permName.includes("morophon") && chosenType) {
+        if (cardCreatureTypes.includes(chosenType) || cardTypeLine.includes(chosenType)) {
+          reduction.colors.white += 1;
+          reduction.colors.blue += 1;
+          reduction.colors.black += 1;
+          reduction.colors.red += 1;
+          reduction.colors.green += 1;
+          reduction.messages.push(`Morophon: -{W}{U}{B}{R}{G} (${chosenType})`);
+        }
+      }
+      
+      // Urza's Incubator: Creature spells of the chosen type cost {2} less
+      if (permName.includes("urza's incubator") && chosenType) {
+        if (isCreature && (cardCreatureTypes.includes(chosenType) || cardTypeLine.includes(chosenType))) {
+          reduction.generic += 2;
+          reduction.messages.push(`Urza's Incubator: -{2} (${chosenType})`);
+        }
+      }
+      
+      // Herald's Horn: Creature spells of the chosen type cost {1} less
+      if (permName.includes("herald's horn") && chosenType) {
+        if (isCreature && (cardCreatureTypes.includes(chosenType) || cardTypeLine.includes(chosenType))) {
+          reduction.generic += 1;
+          reduction.messages.push(`Herald's Horn: -{1} (${chosenType})`);
+        }
+      }
+      
+      // Goblin Warchief: Goblin spells cost {1} less
+      if (permName.includes("goblin warchief") && cardTypeLine.includes("goblin")) {
+        reduction.generic += 1;
+        reduction.messages.push(`Goblin Warchief: -{1}`);
+      }
+      
+      // Dragonspeaker Shaman: Dragon spells cost {2} less
+      if (permName.includes("dragonspeaker shaman") && cardTypeLine.includes("dragon")) {
+        reduction.generic += 2;
+        reduction.messages.push(`Dragonspeaker Shaman: -{2}`);
+      }
+      
+      // Stinkdrinker Daredevil: Giant spells cost {2} less
+      if (permName.includes("stinkdrinker daredevil") && cardTypeLine.includes("giant")) {
+        reduction.generic += 2;
+        reduction.messages.push(`Stinkdrinker Daredevil: -{2}`);
+      }
+      
+      // Frogtosser Banneret: Goblin and Rogue spells cost {1} less
+      if (permName.includes("frogtosser banneret")) {
+        if (cardTypeLine.includes("goblin") || cardTypeLine.includes("rogue")) {
+          reduction.generic += 1;
+          reduction.messages.push(`Frogtosser Banneret: -{1}`);
+        }
+      }
+      
+      // ============================================
+      // CARD TYPE BASED REDUCTIONS
+      // ============================================
+      
+      // Goblin Electromancer: Instant and sorcery spells cost {1} less
+      if (permName.includes("goblin electromancer") || permName.includes("baral, chief of compliance")) {
+        if (isInstant || isSorcery) {
+          reduction.generic += 1;
+          reduction.messages.push(`${perm.card?.name}: -{1} (instant/sorcery)`);
+        }
+      }
+      
+      // Etherium Sculptor: Artifact spells cost {1} less
+      if (permName.includes("etherium sculptor") || permName.includes("foundry inspector")) {
+        if (isArtifact) {
+          reduction.generic += 1;
+          reduction.messages.push(`${perm.card?.name}: -{1} (artifact)`);
+        }
+      }
+      
+      // Cloud Key: Chosen type costs {1} less
+      if (permName.includes("cloud key") && chosenType) {
+        const chosenCardType = chosenType.toLowerCase();
+        if (cardTypeLine.includes(chosenCardType)) {
+          reduction.generic += 1;
+          reduction.messages.push(`Cloud Key: -{1} (${chosenType})`);
+        }
+      }
+      
+      // Semblance Anvil: Spells sharing a type with imprinted card cost {2} less
+      if (permName.includes("semblance anvil") && imprintedCard) {
+        const imprintedTypes = (imprintedCard.type_line || "").toLowerCase();
+        const sharesType = 
+          (isCreature && imprintedTypes.includes("creature")) ||
+          (isArtifact && imprintedTypes.includes("artifact")) ||
+          (isEnchantment && imprintedTypes.includes("enchantment")) ||
+          (isInstant && imprintedTypes.includes("instant")) ||
+          (isSorcery && imprintedTypes.includes("sorcery")) ||
+          (isPlaneswalker && imprintedTypes.includes("planeswalker"));
+        
+        if (sharesType) {
+          reduction.generic += 2;
+          reduction.messages.push(`Semblance Anvil: -{2} (shares type)`);
+        }
+      }
+      
+      // Jhoira's Familiar: Historic spells cost {1} less (artifacts, legendaries, sagas)
+      if (permName.includes("jhoira's familiar")) {
+        const isLegendary = cardTypeLine.includes("legendary");
+        const isSaga = cardTypeLine.includes("saga");
+        if (isArtifact || isLegendary || isSaga) {
+          reduction.generic += 1;
+          reduction.messages.push(`Jhoira's Familiar: -{1} (historic)`);
+        }
+      }
+      
+      // ============================================
+      // COLOR BASED REDUCTIONS (Medallions)
+      // ============================================
+      
+      // Ruby Medallion: Red spells cost {1} less
+      if (permName.includes("ruby medallion") && cardColors.includes("R")) {
+        reduction.generic += 1;
+        reduction.messages.push(`Ruby Medallion: -{1} (red)`);
+      }
+      
+      // Sapphire Medallion: Blue spells cost {1} less
+      if (permName.includes("sapphire medallion") && cardColors.includes("U")) {
+        reduction.generic += 1;
+        reduction.messages.push(`Sapphire Medallion: -{1} (blue)`);
+      }
+      
+      // Jet Medallion: Black spells cost {1} less
+      if (permName.includes("jet medallion") && cardColors.includes("B")) {
+        reduction.generic += 1;
+        reduction.messages.push(`Jet Medallion: -{1} (black)`);
+      }
+      
+      // Pearl Medallion: White spells cost {1} less
+      if (permName.includes("pearl medallion") && cardColors.includes("W")) {
+        reduction.generic += 1;
+        reduction.messages.push(`Pearl Medallion: -{1} (white)`);
+      }
+      
+      // Emerald Medallion: Green spells cost {1} less
+      if (permName.includes("emerald medallion") && cardColors.includes("G")) {
+        reduction.generic += 1;
+        reduction.messages.push(`Emerald Medallion: -{1} (green)`);
+      }
+      
+      // ============================================
+      // BOARD STATE / COUNTER BASED REDUCTIONS
+      // ============================================
+      
+      // Animar, Soul of Elements: Creature spells cost {1} less for each +1/+1 counter on Animar
+      if (permName.includes("animar, soul of elements") || permName.includes("animar")) {
+        if (isCreature) {
+          const plusCounters = counters["+1/+1"] || counters["plus1plus1"] || 0;
+          if (plusCounters > 0) {
+            reduction.generic += plusCounters;
+            reduction.messages.push(`Animar: -{${plusCounters}} (${plusCounters} +1/+1 counters)`);
+          }
+        }
+      }
+      
+      // Experience counter commanders (e.g., Mizzix of the Izmagnus)
+      if (permName.includes("mizzix")) {
+        if (isInstant || isSorcery) {
+          const expCounters = (game.state?.experienceCounters?.[playerId]) || 0;
+          if (expCounters > 0) {
+            reduction.generic += expCounters;
+            reduction.messages.push(`Mizzix: -{${expCounters}} (experience)`);
+          }
+        }
+      }
+      
+      // Edgewalker: Cleric spells cost {W}{B} less
+      if (permName.includes("edgewalker") && cardTypeLine.includes("cleric")) {
+        reduction.colors.white += 1;
+        reduction.colors.black += 1;
+        reduction.messages.push(`Edgewalker: -{W}{B} (cleric)`);
+      }
+      
+      // ============================================
+      // ABILITY COST REDUCTIONS (for activated abilities)
+      // ============================================
+      
+      if (isAbility) {
+        // Training Grounds: Activated abilities of creatures cost up to {2} less
+        if (permName.includes("training grounds")) {
+          reduction.generic += 2;
+          reduction.messages.push(`Training Grounds: -{2} (activated ability)`);
+        }
+        
+        // Biomancer's Familiar: Activated abilities of creatures cost {2} less
+        if (permName.includes("biomancer's familiar")) {
+          reduction.generic += 2;
+          reduction.messages.push(`Biomancer's Familiar: -{2} (activated ability)`);
+        }
+        
+        // Heartstone: Activated abilities of creatures cost {1} less
+        if (permName.includes("heartstone")) {
+          reduction.generic += 1;
+          reduction.messages.push(`Heartstone: -{1} (activated ability)`);
+        }
+        
+        // Zirda, the Dawnwaker: Activated abilities cost {2} less
+        if (permName.includes("zirda")) {
+          reduction.generic += 2;
+          reduction.messages.push(`Zirda: -{2} (activated ability)`);
+        }
+      }
+      
+      // ============================================
+      // AFFINITY EFFECTS
+      // ============================================
+      
+      // Check for affinity in the card being cast
+      if (cardOracleText.includes("affinity for artifacts")) {
+        const artifactCount = battlefield.filter((p: any) => 
+          p && p.controller === playerId && 
+          (p.card?.type_line || "").toLowerCase().includes("artifact")
+        ).length;
+        if (artifactCount > 0) {
+          reduction.generic += artifactCount;
+          reduction.messages.push(`Affinity: -{${artifactCount}} (${artifactCount} artifacts)`);
+        }
+      }
+      
+      // Convoke - can tap creatures to pay for spell
+      // (This is handled differently - through tapping creatures as payment)
+    }
+    
+    // Log total reduction
+    if (reduction.messages.length > 0) {
+      console.log(`[costReduction] ${cardName}: ${reduction.messages.join(", ")}`);
+    }
+    
+  } catch (err) {
+    console.warn("[costReduction] Error calculating cost reduction:", err);
+  }
+  
+  return reduction;
+}
+
+/**
+ * Extract creature types from a type line
+ */
+function extractCreatureTypes(typeLine: string): string[] {
+  const types: string[] = [];
+  const lower = typeLine.toLowerCase();
+  
+  // Check for creature types after "—" or "-"
+  const dashIndex = lower.indexOf("—") !== -1 ? lower.indexOf("—") : lower.indexOf("-");
+  if (dashIndex !== -1) {
+    const subtypes = lower.slice(dashIndex + 1).trim().split(/\s+/);
+    types.push(...subtypes.filter(t => t.length > 0));
+  }
+  
+  return types;
+}
+
+/**
+ * Apply cost reduction to a parsed mana cost
+ */
+function applyCostReduction(
+  parsedCost: { generic: number; colors: Record<string, number> },
+  reduction: { generic: number; colors: Record<string, number>; messages?: string[] }
+): { generic: number; colors: Record<string, number> } {
+  const result = {
+    generic: Math.max(0, parsedCost.generic - reduction.generic),
+    colors: { ...parsedCost.colors },
+  };
+  
+  // Apply color reductions (can reduce to 0 but not below)
+  for (const color of Object.keys(result.colors)) {
+    if (reduction.colors[color]) {
+      result.colors[color] = Math.max(0, result.colors[color] - reduction.colors[color]);
+    }
+  }
+  
+  return result;
+}
+
 export function registerGameActions(io: Server, socket: Socket) {
   // Play land from hand
   socket.on("playLand", ({ gameId, cardId }: { gameId: string; cardId: string }) => {
@@ -136,14 +466,65 @@ export function registerGameActions(io: Server, socket: Socket) {
         });
         return;
       }
+      
+      // Check timing restrictions for sorcery-speed spells
+      const oracleText = (cardInHand.oracle_text || "").toLowerCase();
+      const hasFlash = oracleText.includes("flash");
+      const isInstant = typeLine.includes("instant");
+      const isSorcerySpeed = !isInstant && !hasFlash;
+      
+      if (isSorcerySpeed) {
+        // Sorcery-speed spells can only be cast during your main phase
+        // when you have priority and the stack is empty
+        const stepStr = String(game.state?.step || "").toUpperCase().trim();
+        const isMainPhase = phaseStr.includes("MAIN") || stepStr.includes("MAIN");
+        const isYourTurn = game.state.turnPlayer === playerId;
+        const stackEmpty = !game.state.stack || game.state.stack.length === 0;
+        
+        if (!isMainPhase) {
+          socket.emit("error", {
+            code: "SORCERY_TIMING",
+            message: "This spell can only be cast during a main phase (it doesn't have flash).",
+          });
+          return;
+        }
+        
+        if (!isYourTurn) {
+          socket.emit("error", {
+            code: "SORCERY_TIMING",
+            message: "This spell can only be cast during your turn (it doesn't have flash).",
+          });
+          return;
+        }
+        
+        if (!stackEmpty) {
+          socket.emit("error", {
+            code: "SORCERY_TIMING",
+            message: "This spell can only be cast when the stack is empty (it doesn't have flash).",
+          });
+          return;
+        }
+      }
 
       // Parse the mana cost to validate payment
       const manaCost = cardInHand.mana_cost || "";
       const parsedCost = parseManaCost(manaCost);
       
-      // Calculate total mana cost for spell from hand
-      const totalGeneric = parsedCost.generic;
-      const totalColored = parsedCost.colors;
+      // Calculate cost reduction from battlefield effects
+      const costReduction = calculateCostReduction(game, playerId, cardInHand, false);
+      
+      // Apply cost reduction
+      const reducedCost = applyCostReduction(parsedCost, costReduction);
+      
+      // Log cost reduction if any
+      if (costReduction.messages.length > 0) {
+        console.log(`[castSpellFromHand] Cost reduction for ${cardInHand.name}: ${costReduction.messages.join(", ")}`);
+        console.log(`[castSpellFromHand] Original cost: ${manaCost}, Reduced generic: ${parsedCost.generic} -> ${reducedCost.generic}`);
+      }
+      
+      // Calculate total mana cost for spell from hand (using reduced cost)
+      const totalGeneric = reducedCost.generic;
+      const totalColored = reducedCost.colors;
       
       // Get existing mana pool (floating mana from previous spells)
       const existingPool = getOrInitManaPool(game.state, playerId);
@@ -587,7 +968,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `Turn advanced. Active player: ${game.state.turnPlayer}`,
+        message: `Turn advanced. Active player: ${getPlayerName(game, game.state.turnPlayer)}`,
         ts: Date.now(),
       });
 

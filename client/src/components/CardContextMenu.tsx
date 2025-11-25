@@ -156,6 +156,58 @@ function parseActivatedAbilities(card: KnownCardRef): ActivatedAbilityOption[] {
     }
   }
   
+  // Parse planeswalker abilities
+  if (typeLine.includes('planeswalker')) {
+    // Match planeswalker ability patterns: [+N], [-N], or [0]
+    const pwAbilityPattern = /\[([+−\-]?\d+)\]:\s*([^[\]]+?)(?=\n|\[|$)/gi;
+    let pwMatch;
+    let pwIndex = 0;
+    while ((pwMatch = pwAbilityPattern.exec(oracleText)) !== null) {
+      const loyaltyCost = pwMatch[1].replace('−', '-'); // Normalize minus sign
+      const abilityText = pwMatch[2].trim();
+      const shortText = abilityText.length > 60 ? abilityText.slice(0, 57) + '...' : abilityText;
+      
+      abilities.push({
+        id: `pw-ability-${pwIndex}`,
+        label: `[${loyaltyCost}] Ability`,
+        description: shortText,
+        cost: `[${loyaltyCost}] loyalty`,
+        requiresTap: false,
+      });
+      pwIndex++;
+    }
+  }
+  
+  // Parse graveyard abilities (abilities that can be activated from graveyard)
+  // Look for patterns like "from your graveyard" or "Flashback" or "Unearth"
+  if (lowerOracle.includes('flashback') || 
+      lowerOracle.includes('unearth') ||
+      lowerOracle.includes('from your graveyard')) {
+    // Check for flashback cost
+    const flashbackMatch = oracleText.match(/flashback[^(]*\(([^)]*)\)/i);
+    if (flashbackMatch) {
+      abilities.push({
+        id: 'flashback',
+        label: 'Flashback',
+        description: `Cast from graveyard: ${flashbackMatch[1]}`,
+        cost: flashbackMatch[1],
+        requiresTap: false,
+      });
+    }
+    
+    // Check for unearth cost
+    const unearthMatch = oracleText.match(/unearth\s*(\{[^}]+\})/i);
+    if (unearthMatch) {
+      abilities.push({
+        id: 'unearth',
+        label: 'Unearth',
+        description: `Return from graveyard: ${unearthMatch[1]}`,
+        cost: unearthMatch[1],
+        requiresTap: false,
+      });
+    }
+  }
+  
   return abilities;
 }
 
