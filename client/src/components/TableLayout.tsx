@@ -176,8 +176,9 @@ export function TableLayout(props: {
 
   // Layout constants - sized for comfortable 7-card display in hand
   // Extended play areas by ~15% for better card visibility
-  const TILE_W = 115; // Card width
-  const tileH = Math.round(TILE_W / 0.72);
+  const CARD_ASPECT_RATIO = 0.72; // Standard MTG card width/height ratio (2.5" x 3.5")
+  const TILE_W = 115; // Card width in px
+  const tileH = Math.round(TILE_W / CARD_ASPECT_RATIO);
   const ZONES_W = 165; // Zones panel width in px
   const GRID_GAP = 10; // Gap between cards in px
   
@@ -699,7 +700,12 @@ export function TableLayout(props: {
                                 Decks
                               </button>
                             )}
-                            {/* Special designation badges for this player */}
+                            {/* 
+                              Special game designation badges (MTG Rules 724-730):
+                              - Monarch (Rule 724): Player draws extra card at end step
+                              - Initiative (Rule 725): Player ventures into Undercity at upkeep
+                              - City's Blessing (Ascend): Permanent designation after controlling 10+ permanents
+                            */}
                             {monarch === pb.player.id && (
                               <span
                                 aria-label="This player is the Monarch"
