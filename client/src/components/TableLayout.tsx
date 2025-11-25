@@ -128,6 +128,11 @@ export function TableLayout(props: {
   onSendChat?: (text: string) => void;
   chatView?: ClientGameView;
   chatYou?: PlayerID;
+  // Special game designations (Rules 724-730)
+  monarch?: PlayerID | null;
+  initiative?: PlayerID | null;
+  dayNight?: 'day' | 'night' | null;
+  cityBlessing?: Record<PlayerID, boolean>;
 }) {
   const {
     players, permanentsByPlayer, imagePref, isYouPlayer,
@@ -143,6 +148,7 @@ export function TableLayout(props: {
     onImportDeckText, onUseSavedDeck, onLocalImportConfirmChange,
     gameId, stackItems, importedCandidates, energyCounters, energy,
     chatMessages, onSendChat, chatView, chatYou,
+    monarch, initiative, dayNight, cityBlessing,
   } = props;
 
   // Snapshot debug
@@ -169,16 +175,24 @@ export function TableLayout(props: {
   const sideOrder = useMemo(() => sidePlan(ordered.length), [ordered.length]);
 
   // Layout constants - sized for comfortable 7-card display in hand
-  const TILE_W = 115; // Slightly wider cards
-  const tileH = Math.round(TILE_W / 0.72);
-  const ZONES_W = 165; // Slightly larger zones panel
-  const GRID_GAP = 10; // Gap between cards
-  // Hand row: 7 cards wide (max hand size at end of turn) + margins
-  // Ensure enough width for 7 cards without wrapping
-  const FREE_W = 7 * TILE_W + 6 * GRID_GAP + 40; // 7 cards + 6 gaps + extra padding
-  const FREE_H = Math.round(3 * tileH + 140); // Increased height for larger play area
-  const BOARD_W = FREE_W + ZONES_W + 32;
-  const BOARD_H = Math.round(FREE_H + tileH + 300); // Increased height for larger play area
+  // Extended play areas by ~15% for better card visibility
+  const CARD_ASPECT_RATIO = 0.72; // Standard MTG card width/height ratio (2.5" x 3.5")
+  const TILE_W = 115; // Card width in px
+  const tileH = Math.round(TILE_W / CARD_ASPECT_RATIO);
+  const ZONES_W = 165; // Zones panel width in px
+  const GRID_GAP = 10; // Gap between cards in px
+  
+  // Padding and sizing constants (in pixels) for extended play area layout
+  const HAND_EXTRA_PADDING = 80; // Extra horizontal padding to ensure 7 cards fit
+  const FIELD_HEIGHT_PADDING = 160; // Additional height for play field rows
+  const BOARD_SIDE_PADDING = 40; // Horizontal margin for board container
+  const BOARD_HEIGHT_PADDING = 320; // Additional height for hand area below field
+  
+  // Hand row: 7 cards wide + gaps + generous padding for shuffle button header
+  const FREE_W = 7 * TILE_W + 6 * GRID_GAP + HAND_EXTRA_PADDING;
+  const FREE_H = Math.round(3 * tileH + FIELD_HEIGHT_PADDING);
+  const BOARD_W = FREE_W + ZONES_W + BOARD_SIDE_PADDING;
+  const BOARD_H = Math.round(FREE_H + tileH + BOARD_HEIGHT_PADDING);
   const SEAT_GAP_X = 90, SEAT_GAP_Y = 90, CENTER_CLEAR_X = 160, CENTER_CLEAR_Y = 160, SIDE_PAD = 30;
 
   const seatPositions = useMemo(() => buildPositions({
@@ -590,11 +604,12 @@ export function TableLayout(props: {
                     <div
                       style={{
                         position: 'relative',
-                        background: 'rgba(255,255,255,0.045)',
-                        backdropFilter: 'blur(2px)',
-                        borderRadius: 10,
-                        padding: 10,
-                        border: '1px solid rgba(255,255,255,0.08)',
+                        background: 'linear-gradient(145deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)',
+                        backdropFilter: 'blur(4px)',
+                        borderRadius: 12,
+                        padding: 12,
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        boxShadow: '0 4px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08)',
                         display: 'grid',
                         gridTemplateColumns: `${FREE_W}px ${ZONES_W}px`,
                         columnGap: 12,
@@ -608,51 +623,61 @@ export function TableLayout(props: {
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'space-between',
-                            marginBottom: 8
+                            marginBottom: 10,
+                            paddingBottom: 8,
+                            borderBottom: '1px solid rgba(255,255,255,0.08)'
                           }}
                         >
                           <div
                             style={{
-                              fontWeight: 700,
+                              fontWeight: 600,
                               color: '#fff',
                               display: 'flex',
                               alignItems: 'center',
-                              gap: 10
+                              gap: 12
                             }}
                           >
-                            <span>{pb.player.name}</span>
+                            <span style={{ fontSize: 14 }}>{pb.player.name}</span>
                             <div
                               style={{
                                 display: 'flex',
-                                gap: 6,
-                                fontSize: 11
+                                gap: 8,
+                                fontSize: 11,
+                                background: 'rgba(0,0,0,0.3)',
+                                padding: '3px 8px',
+                                borderRadius: 4
                               }}
                             >
-                              <span title="Life" style={{ color: '#4ade80' }}>
-                                L:{lifeVal}
+                              <span aria-label={`Life: ${lifeVal}`} style={{ color: '#4ade80', fontWeight: 600 }}>
+                                ❤️ {lifeVal}
                               </span>
                               <span
-                                title="Poison Counters"
+                                aria-label={`Poison Counters: ${poisonVal}`}
                                 style={{
                                   color:
-                                    poisonVal > 0 ? '#f87171' : '#aaa'
+                                    poisonVal > 0 ? '#f87171' : '#888',
+                                  fontWeight: poisonVal > 0 ? 600 : 400
                                 }}
                               >
-                                P:{poisonVal}
+                                ☠️ {poisonVal}
                               </span>
                               <span
-                                title="Experience Counters"
+                                aria-label={`Experience Counters: ${xpVal}`}
                                 style={{
-                                  color: xpVal > 0 ? '#60a5fa' : '#aaa'
+                                  color: xpVal > 0 ? '#60a5fa' : '#888',
+                                  fontWeight: xpVal > 0 ? 600 : 400
                                 }}
                               >
-                                XP:{xpVal}
+                                ⭐ {xpVal}
                               </span>
                               <span
-                                title="Energy Counters"
-                                style={{ color: '#ffd166' }}
+                                aria-label={`Energy Counters: ${energyVal}`}
+                                style={{ 
+                                  color: energyVal > 0 ? '#ffd166' : '#888',
+                                  fontWeight: energyVal > 0 ? 600 : 400
+                                }}
                               >
-                                E:{energyVal}
+                                ⚡ {energyVal}
                               </span>
                             </div>
                             {isYouThis && (
@@ -660,12 +685,83 @@ export function TableLayout(props: {
                                 ref={decksBtnRef}
                                 type="button"
                                 onClick={() => setDeckMgrOpen(true)}
-                                style={{ fontSize: 11 }}
+                                style={{ 
+                                  fontSize: 11, 
+                                  padding: '3px 10px',
+                                  borderRadius: 4,
+                                  background: 'rgba(59, 130, 246, 0.2)',
+                                  border: '1px solid rgba(59, 130, 246, 0.4)',
+                                  color: '#93c5fd',
+                                  cursor: 'pointer'
+                                }}
                                 title={gameId ? "Manage / Import Deck" : "Waiting for game to be ready"}
                                 disabled={!gameId}
                               >
                                 Decks
                               </button>
+                            )}
+                            {/* 
+                              Special game designation badges (MTG Rules 724-730):
+                              - Monarch (Rule 724): Player draws extra card at end step
+                              - Initiative (Rule 725): Player ventures into Undercity at upkeep
+                              - City's Blessing (Ascend): Permanent designation after controlling 10+ permanents
+                            */}
+                            {monarch === pb.player.id && (
+                              <span
+                                aria-label="This player is the Monarch"
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  padding: '2px 8px',
+                                  borderRadius: 4,
+                                  background: 'rgba(234,179,8,0.2)',
+                                  border: '1px solid rgba(234,179,8,0.4)',
+                                  color: '#eab308',
+                                  fontSize: 11,
+                                  fontWeight: 600
+                                }}
+                              >
+                                👑 Monarch
+                              </span>
+                            )}
+                            {initiative === pb.player.id && (
+                              <span
+                                aria-label="This player has the Initiative"
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  padding: '2px 8px',
+                                  borderRadius: 4,
+                                  background: 'rgba(168,85,247,0.2)',
+                                  border: '1px solid rgba(168,85,247,0.4)',
+                                  color: '#a855f7',
+                                  fontSize: 11,
+                                  fontWeight: 600
+                                }}
+                              >
+                                🗡️ Initiative
+                              </span>
+                            )}
+                            {cityBlessing?.[pb.player.id] && (
+                              <span
+                                aria-label="This player has the City's Blessing"
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  padding: '2px 8px',
+                                  borderRadius: 4,
+                                  background: 'rgba(20,184,166,0.2)',
+                                  border: '1px solid rgba(20,184,166,0.4)',
+                                  color: '#14b8a6',
+                                  fontSize: 11,
+                                  fontWeight: 600
+                                }}
+                              >
+                                🏛️ Ascended
+                              </span>
                             )}
                           </div>
                           {onPlayerClick && (
@@ -779,12 +875,13 @@ export function TableLayout(props: {
                             id={`hand-area-${pb.player.id}`}
                             style={{
                               marginTop: 12,
-                              background: 'rgba(0,0,0,0.7)',
-                              border: '1px solid #333',
-                              borderRadius: 8,
-                              padding: 8,
+                              background: 'linear-gradient(180deg, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.85) 100%)',
+                              border: '1px solid rgba(255,255,255,0.15)',
+                              borderRadius: 10,
+                              padding: 10,
                               maxHeight: '32vh',
-                              overflowY: 'auto'
+                              overflowY: 'auto',
+                              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)'
                             }}
                             data-no-zoom
                           >
@@ -793,11 +890,11 @@ export function TableLayout(props: {
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'space-between',
-                                marginBottom: 6
+                                marginBottom: 8
                               }}
                             >
                               <div
-                                style={{ fontSize: 12, color: '#ddd' }}
+                                style={{ fontSize: 12, color: '#e5e5e5', fontWeight: 500 }}
                               >
                                 Your Hand
                               </div>
@@ -806,8 +903,13 @@ export function TableLayout(props: {
                                   type="button"
                                   onClick={() => onShuffleHand()}
                                   style={{
-                                    fontSize: 12,
-                                    padding: '2px 8px'
+                                    fontSize: 11,
+                                    padding: '3px 10px',
+                                    borderRadius: 4,
+                                    background: 'rgba(255,255,255,0.1)',
+                                    border: '1px solid rgba(255,255,255,0.2)',
+                                    color: '#ccc',
+                                    cursor: 'pointer'
                                   }}
                                 >
                                   Shuffle

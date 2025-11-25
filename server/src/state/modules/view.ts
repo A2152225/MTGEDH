@@ -154,6 +154,7 @@ export function viewFor(
         taxById: baseInfo.taxById,
         commanderCards: (baseInfo as any).commanderCards,
         colorIdentity: (baseInfo as any).colorIdentity,
+        inCommandZone: (baseInfo as any).inCommandZone,
       } as any;
     }
   }

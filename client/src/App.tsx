@@ -943,7 +943,7 @@ export function App() {
           )}
         </div>
 
-        {/* GAME STATUS INDICATOR - Shows turn, phase, step, priority */}
+        {/* GAME STATUS INDICATOR - Shows turn, phase, step, priority, special designations */}
         {safeView && (
           <GameStatusIndicator
             turn={safeView.turn}
@@ -954,6 +954,10 @@ export function App() {
             players={safeView.players || []}
             you={you || undefined}
             combat={(safeView as any).combat}
+            monarch={(safeView as any).monarch}
+            initiative={(safeView as any).initiative}
+            dayNight={(safeView as any).dayNight}
+            cityBlessing={(safeView as any).cityBlessing}
           />
         )}
 
