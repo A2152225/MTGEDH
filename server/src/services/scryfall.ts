@@ -230,6 +230,14 @@ export async function fetchCardByExactNameStrict(name: string): Promise<Scryfall
         // prefer exact normalized match if present in results
         const exact = res.data.find((c: any) => lcKey(c.name) === key);
         if (exact) return toCachedCard(exact);
+        // Check for double-faced cards where a face name matches
+        const faceMatch = res.data.find((c: any) => {
+          if (Array.isArray(c.card_faces)) {
+            return c.card_faces.some((f: any) => f.name && lcKey(f.name) === key);
+          }
+          return false;
+        });
+        if (faceMatch) return toCachedCard(faceMatch);
         // otherwise return the first reasonable candidate
         return toCachedCard(res.data[0]);
       }
@@ -257,6 +265,15 @@ export async function fetchCardByExactNameStrict(name: string): Promise<Scryfall
     }
   } catch (err) {
     // final fallback
+  }
+
+  // 5) Try fuzzy search as last resort for partial names (like single face of double-faced cards)
+  try {
+    const url5 = `https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(normalized)}`;
+    const data5 = await doFetchJSON(url5);
+    return toCachedCard(data5);
+  } catch (err) {
+    // final fallback failed
   }
 
   throw new Error(`Scryfall: card not found (strict) for "${name}"`);

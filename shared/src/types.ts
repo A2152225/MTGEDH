@@ -15,6 +15,17 @@ export interface ImageUris {
   art_crop?: string;
 }
 
+/* Card face for double-faced/transform/split cards */
+export interface CardFace {
+  name?: string;
+  mana_cost?: string;
+  type_line?: string;
+  oracle_text?: string;
+  image_uris?: ImageUris;
+  power?: string;
+  toughness?: string;
+}
+
 /* Known card shape (non-secret) */
 export interface KnownCardRef {
   id: string;
@@ -28,6 +39,8 @@ export interface KnownCardRef {
   zone?: string;
   faceDown?: boolean;
   knownTo?: PlayerID[]; // who knows the card face/identity
+  card_faces?: CardFace[]; // for double-faced/transform/split cards
+  layout?: string; // card layout type (e.g., 'transform', 'modal_dfc', 'split')
 }
 
 /* Hidden card representation for face-down and private zones */
