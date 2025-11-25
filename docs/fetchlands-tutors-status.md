@@ -1,275 +1,131 @@
 # Fetch Lands and Tutors - Implementation Status
 
-## Current Status
+## Current Status: ✅ IMPLEMENTED
 
-### ✅ What's Already Implemented
+### What's Implemented
 
-The keyword actions for search and sacrifice are fully implemented:
+The fetch land and tutor functionality is now fully implemented in the modular action system:
 
-1. **Search** (`keywordActions/search.ts`) - Rule 701.23
-   - Search any zone with criteria
+1. **Sacrifice** (`actions/sacrifice.ts`) - Rule 701.21
+   - Moves permanent from battlefield to graveyard
+   - Validates controller owns the permanent
+   - Emits PERMANENT_SACRIFICED event
+
+2. **Search Library** (`actions/searchLibrary.ts`) - Rule 701.23
+   - Search any zone with criteria (card type, name, color, mana value)
    - Fail to find option for hidden zones
-   - Public vs hidden zone handling
-   - Search criteria by card type, name, color, mana value
+   - Put cards into hand, battlefield, graveyard, or back on library
+   - Optional tapped entry for lands
+   - Automatic library shuffle after search
 
-2. **Sacrifice** (`keywordActions/sacrifice.ts`) - Rule 701.21
-   - Sacrifice permanents from battlefield to graveyard
-   - Validation that player controls the permanent
-   - Proper handling (not destruction, bypasses indestructible)
+3. **Fetchland Activation** (`actions/fetchland.ts`)
+   - Complete sequence: tap, pay life (optional), sacrifice, search
+   - Supports Evolving Wilds style (enters tapped, no life payment)
+   - Supports true fetchlands (enters untapped, pays 1 life)
 
-### ❌ What Needs Additional Work
+4. **Combat** (`actions/combat.ts`)
+   - Declare attackers with proper validation
+   - Declare blockers
+   - Combat damage dealing
+   - Commander damage tracking
 
-The keyword actions exist but are **not yet integrated into RulesEngineAdapter**, meaning they can't be executed through the game engine. Here's what needs to be done:
+### Events Emitted
 
-## Required Implementation
-
-### 1. Add New Action Types
-
-Add these action types to the `executeAction` method in RulesEngineAdapter:
-
-```typescript
-case 'searchLibrary':
-  result = this.searchLibraryAction(gameId, action);
-  break;
-  
-case 'sacrifice':
-  result = this.sacrificePermanentAction(gameId, action);
-  break;
-```
-
-### 2. Add New Events
-
-Add these events to `RulesEngineEvent`:
+The following events are emitted for UI integration:
 
 ```typescript
-LIBRARY_SEARCHED = 'librarySearched',
-LIBRARY_SHUFFLED = 'libraryShuffled',
-PERMANENT_SACRIFICED = 'permanentSacrificed',
-CARD_PUT_ONTO_BATTLEFIELD = 'cardPutOntoBattlefield',
+PERMANENT_SACRIFICED = 'permanentSacrificed'
+LIBRARY_SEARCHED = 'librarySearched'  
+LIBRARY_SHUFFLED = 'libraryShuffled'
+CARD_PUT_ONTO_BATTLEFIELD = 'cardPutOntoBattlefield'
+CARD_PUT_INTO_HAND = 'cardPutIntoHand'
+LIFE_PAID = 'lifePaid'
 ```
 
-### 3. Implement Action Handlers
-
-#### Search Library Handler
-
-```typescript
-private searchLibraryAction(gameId: string, action: any): EngineResult<GameState> {
-  const state = this.gameStates.get(gameId)!;
-  const player = state.players.find(p => p.id === action.playerId);
-  
-  // Search library based on criteria
-  // Show UI for player to select card(s)
-  // Move card(s) to destination (hand, battlefield, etc.)
-  // Shuffle library
-  
-  return { next: updatedState, log: ['Searched library'] };
-}
-```
-
-#### Sacrifice Permanent Handler
-
-```typescript
-private sacrificePermanentAction(gameId: string, action: any): EngineResult<GameState> {
-  const state = this.gameStates.get(gameId)!;
-  
-  // Validate can sacrifice
-  // Move from battlefield to graveyard
-  // Trigger dies abilities
-  
-  return { next: updatedState, log: ['Sacrificed permanent'] };
-}
-```
-
-### 4. Zone Movement Utilities
-
-Need utilities to move cards between zones:
-
-```typescript
-// Move card from library to hand
-function moveToHand(state: GameState, playerId: string, cardId: string): GameState
-
-// Move card from library to battlefield
-function putOntoBattlefield(state: GameState, playerId: string, cardId: string, options?: { tapped: boolean }): GameState
-
-// Shuffle library
-function shuffleLibrary(state: GameState, playerId: string): GameState
-
-// Move from battlefield to graveyard
-function moveToGraveyard(state: GameState, cardId: string): GameState
-```
-
-## Example Usage (After Implementation)
+## Usage Examples
 
 ### Evolving Wilds
 
 ```typescript
-// Activate Evolving Wilds
-rulesEngine.executeAction(gameId, {
-  type: 'activateAbility',
-  playerId: 'player1',
-  ability: {
-    id: 'evolving-wilds-tap',
-    sourceId: 'evolving-wilds-1',
-    sourceName: 'Evolving Wilds',
-    controllerId: 'player1',
-    effect: 'Search library for basic land, put onto battlefield tapped',
-    additionalCosts: [
-      { type: 'tap', sourceId: 'evolving-wilds-1' },
-      { type: 'sacrifice', permanentId: 'evolving-wilds-1' }
-    ],
-  },
-});
+import { executeFetchland, createEvolvingWildsAction } from './actions';
 
-// This would internally:
-// 1. Tap Evolving Wilds
-// 2. Sacrifice it
-// 3. Search library
-// 4. Put land onto battlefield tapped
-// 5. Shuffle library
+// Create the action
+const action = createEvolvingWildsAction('player1', 'evolving-wilds-1', 'forest-card-id');
+
+// Execute
+const result = executeFetchland(gameId, action, context);
+// Result: Evolving Wilds sacrificed, Forest put onto battlefield tapped, library shuffled
 ```
 
-### Fetchland (e.g., Polluted Delta)
+### Polluted Delta (True Fetchland)
 
 ```typescript
-rulesEngine.executeAction(gameId, {
-  type: 'activateAbility',
-  playerId: 'player1',
-  ability: {
-    id: 'polluted-delta-fetch',
-    sourceId: 'polluted-delta-1',
-    sourceName: 'Polluted Delta',
-    controllerId: 'player1',
-    effect: 'Search for Island or Swamp',
-    additionalCosts: [
-      { type: 'tap', sourceId: 'polluted-delta-1' },
-      { type: 'life', amount: 1 },
-      { type: 'sacrifice', permanentId: 'polluted-delta-1' }
-    ],
-  },
-});
+import { executeFetchland, createEnemyFetchlandAction } from './actions';
+
+// Create the action  
+const action = createEnemyFetchlandAction(
+  'player1', 
+  'polluted-delta-1', 
+  'island', 
+  'swamp',
+  'selected-land-id'
+);
+
+// Execute
+const result = executeFetchland(gameId, action, context);
+// Result: 1 life paid, Polluted Delta sacrificed, land enters untapped
 ```
 
-### Tutor Spell (e.g., Demonic Tutor)
+### Demonic Tutor
 
 ```typescript
-// Cast Demonic Tutor
-rulesEngine.executeAction(gameId, {
-  type: 'castSpell',
-  playerId: 'player1',
-  cardId: 'demonic-tutor-1',
-  cardName: 'Demonic Tutor',
-  cardTypes: ['sorcery'],
-  manaCost: { black: 1, generic: 1 },
-});
+import { executeSearchLibrary } from './actions';
 
-// When it resolves:
-rulesEngine.executeAction(gameId, {
+const action = {
   type: 'searchLibrary',
   playerId: 'player1',
-  criteria: {
-    maxResults: 1, // Search for any one card
-  },
+  criteria: { maxResults: 1 }, // Any card
   destination: 'hand',
   shuffle: true,
-});
+  selectedCardIds: ['selected-card-id'],
+};
+
+const result = executeSearchLibrary(gameId, action, context);
 ```
 
 ### Rampant Growth
 
 ```typescript
-// Cast Rampant Growth
-rulesEngine.executeAction(gameId, {
-  type: 'castSpell',
-  playerId: 'player1',
-  cardId: 'rampant-growth-1',
-  cardName: 'Rampant Growth',
-  cardTypes: ['sorcery'],
-  manaCost: { green: 1, generic: 1 },
-});
+import { executeSearchLibrary } from './actions';
 
-// When it resolves:
-rulesEngine.executeAction(gameId, {
+const action = {
   type: 'searchLibrary',
   playerId: 'player1',
-  criteria: {
-    cardType: 'Basic Land',
-    maxResults: 1,
-  },
+  criteria: { cardType: 'basic land', maxResults: 1 },
   destination: 'battlefield',
-  tapped: false,
+  tapped: true,
   shuffle: true,
-});
+};
+
+const result = executeSearchLibrary(gameId, action, context);
 ```
 
-## UI Considerations
+## Tests
 
-When searching library, the UI needs to:
+All functionality is covered by tests in `rules-engine/test/actions.test.ts`:
 
-1. **Show library cards** to the searching player (in a searchable/filterable view)
-2. **Apply criteria filters** to highlight valid choices
-3. **Allow selection** of cards (up to maxResults)
-4. **Support "fail to find"** option for hidden zones
-5. **Handle "reveal"** requirement when specified
-6. **Show to opponents** what was found (if required by effect)
-7. **Shuffle animation** after search completes
+- Sacrifice validation and execution
+- Search library with various criteria
+- Fail to find handling
+- Fetchland complete sequence
+- Combat damage and commander damage
 
-## Testing Requirements
+## Files
 
-After implementation, need tests for:
-
-```typescript
-describe('Fetch Lands and Tutors', () => {
-  it('should sacrifice fetch land and search library');
-  it('should allow fail to find in hidden zones');
-  it('should put land onto battlefield from library');
-  it('should shuffle library after search');
-  it('should search for specific card type');
-  it('should handle "reveal" requirement');
-  it('should trigger dies abilities when sacrificing');
-  it('should handle multiple search results');
-});
-```
-
-## Implementation Priority
-
-1. **High Priority** (core fetch land functionality):
-   - Zone movement utilities
-   - Sacrifice integration
-   - Basic library search
-   - Shuffle library
-
-2. **Medium Priority** (tutors and advanced search):
-   - Complex search criteria
-   - UI for card selection
-   - Reveal mechanics
-
-3. **Low Priority** (edge cases):
-   - Searching other players' libraries
-   - Searching non-library zones
-   - Merged permanent handling
-
-## Estimated Effort
-
-- **Basic fetch lands**: 4-6 hours
-  - Zone movement utilities: 2 hours
-  - Sacrifice integration: 1 hour
-  - Basic search: 2 hours
-  - Testing: 1 hour
-
-- **Full tutor support**: 8-10 hours
-  - UI for card selection: 4 hours
-  - Advanced search criteria: 2 hours
-  - Multiple results handling: 2 hours
-  - Testing: 2 hours
-
-## Files That Need Updates
-
-1. `rules-engine/src/RulesEngineAdapter.ts` - Add action handlers
-2. `rules-engine/src/zoneMovement.ts` (new file) - Zone utilities
-3. `rules-engine/test/fetchlands.test.ts` (new file) - Tests
-4. `server/src/socket/game-actions.ts` - Wire to server
-5. Client UI components for library search
-
-## Conclusion
-
-**Fetch lands and tutors will NOT work yet** - they need the additional integration work outlined above. The keyword actions are implemented but not connected to the game engine. This is a good next step for the implementation.
+- `rules-engine/src/actions/sacrifice.ts` - Sacrifice action
+- `rules-engine/src/actions/searchLibrary.ts` - Search library action  
+- `rules-engine/src/actions/fetchland.ts` - Fetchland activation
+- `rules-engine/src/actions/combat.ts` - Combat actions
+- `rules-engine/src/actions/index.ts` - Exports
+- `rules-engine/src/core/events.ts` - Event definitions
+- `rules-engine/test/actions.test.ts` - Test suite

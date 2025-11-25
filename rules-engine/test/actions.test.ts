@@ -405,7 +405,7 @@ describe('Fetchland Action', () => {
     // Should have a new land on battlefield
     expect(player?.battlefield?.some((p: any) => p.card?.name === 'Forest')).toBe(true);
     
-    // Forest should be in graveyard (Evolving Wilds was sacrificed)
+    // Evolving Wilds should be in graveyard (was sacrificed)
     expect(player?.graveyard?.length).toBe(1);
     
     // Library should have one less card

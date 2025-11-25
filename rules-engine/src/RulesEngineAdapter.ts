@@ -88,9 +88,10 @@ import {
   validateFetchland,
 } from './actions';
 
-// Re-export events from core module
+// Re-export events from core module, import for local use
 export { RulesEngineEvent, type RulesEvent } from './core/events';
-import { RulesEngineEvent, type RulesEvent } from './core/events';
+import { RulesEngineEvent } from './core/events';
+import type { RulesEvent } from './core/events';
 
 /**
  * Action validation result

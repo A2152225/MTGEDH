@@ -11,6 +11,7 @@ import { RulesEngineEvent } from '../core/events';
 
 export interface SearchCriteria {
   readonly cardType?: string;
+  readonly cardTypes?: string[]; // For OR matching (e.g., Island OR Swamp)
   readonly name?: string;
   readonly color?: string;
   readonly manaValue?: number;
@@ -32,7 +33,16 @@ export interface SearchLibraryAction extends BaseAction {
  * Check if a card matches search criteria
  */
 function matchesCriteria(card: any, criteria: SearchCriteria): boolean {
-  if (criteria.cardType) {
+  // Handle OR matching for multiple card types (e.g., fetchlands)
+  if (criteria.cardTypes && criteria.cardTypes.length > 0) {
+    const typeLine = (card.type_line || card.type || '').toLowerCase();
+    const matchesAnyType = criteria.cardTypes.some(type => 
+      typeLine.includes(type.toLowerCase())
+    );
+    if (!matchesAnyType) {
+      return false;
+    }
+  } else if (criteria.cardType) {
     const typeLine = (card.type_line || card.type || '').toLowerCase();
     if (!typeLine.includes(criteria.cardType.toLowerCase())) {
       return false;
@@ -103,7 +113,11 @@ export function executeSearchLibrary(
   const state = context.getState(gameId);
   
   if (!state) {
-    return { next: state!, log: ['Game not found'] };
+    // Return a minimal valid state to avoid type errors, with error logged
+    return { 
+      next: { players: [], stack: [], battlefield: [] } as unknown as GameState, 
+      log: ['Game not found'] 
+    };
   }
   
   const player = state.players.find(p => p.id === action.playerId);

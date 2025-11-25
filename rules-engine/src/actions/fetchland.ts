@@ -66,7 +66,11 @@ export function executeFetchland(
   let state = context.getState(gameId);
   
   if (!state) {
-    return { next: state!, log: ['Game not found'] };
+    // Return a minimal valid state to avoid type errors, with error logged
+    return { 
+      next: { players: [], stack: [], battlefield: [] } as unknown as GameState, 
+      log: ['Game not found'] 
+    };
   }
   
   const logs: string[] = [];
@@ -165,14 +169,14 @@ export function createEnemyFetchlandAction(
   selectedCardId?: string
 ): FetchlandAction {
   // For fetchlands like Polluted Delta (Island or Swamp)
-  // The criteria should match lands with either type
+  // Use cardTypes array for OR matching
   return {
     type: 'activateFetchland',
     playerId,
     sourceId,
     payLife: 1,
     searchCriteria: { 
-      cardType: landType1, // This is simplified - real implementation needs OR logic
+      cardTypes: [landType1, landType2], // OR matching
       maxResults: 1 
     },
     tapped: false, // True fetchlands enter untapped
@@ -196,7 +200,7 @@ export function createAlliedFetchlandAction(
     sourceId,
     payLife: 1,
     searchCriteria: { 
-      cardType: landType1, // Simplified - real implementation needs OR logic
+      cardTypes: [landType1, landType2], // OR matching
       maxResults: 1 
     },
     tapped: false,

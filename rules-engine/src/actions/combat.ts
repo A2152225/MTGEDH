@@ -107,7 +107,11 @@ export function executeDeclareAttackers(
   const state = context.getState(gameId);
   
   if (!state) {
-    return { next: state!, log: ['Game not found'] };
+    // Return a minimal valid state to avoid type errors, with error logged
+    return { 
+      next: { players: [], stack: [], battlefield: [] } as unknown as GameState, 
+      log: ['Game not found'] 
+    };
   }
   
   // Tap all attacking creatures
@@ -203,7 +207,11 @@ export function executeDeclareBlockers(
   const state = context.getState(gameId);
   
   if (!state) {
-    return { next: state!, log: ['Game not found'] };
+    // Return a minimal valid state to avoid type errors, with error logged
+    return { 
+      next: { players: [], stack: [], battlefield: [] } as unknown as GameState, 
+      log: ['Game not found'] 
+    };
   }
   
   // Update combat state with blockers
@@ -259,7 +267,11 @@ export function executeCombatDamage(
   const state = context.getState(gameId);
   
   if (!state) {
-    return { next: state!, log: ['Game not found'] };
+    // Return a minimal valid state to avoid type errors, with error logged
+    return { 
+      next: { players: [], stack: [], battlefield: [] } as unknown as GameState, 
+      log: ['Game not found'] 
+    };
   }
   
   let currentState = { ...state };

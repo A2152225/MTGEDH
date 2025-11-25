@@ -55,7 +55,11 @@ export function executeSacrifice(
   const state = context.getState(gameId);
   
   if (!state) {
-    return { next: state!, log: ['Game not found'] };
+    // Return a minimal valid state to avoid type errors, with error logged
+    return { 
+      next: { players: [], stack: [], battlefield: [] } as unknown as GameState, 
+      log: ['Game not found'] 
+    };
   }
   
   const player = state.players.find(p => p.id === action.playerId);
