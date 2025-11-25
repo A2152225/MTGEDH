@@ -327,7 +327,7 @@ function clearManaPool(ctx: GameContext) {
  * Default is 7, but effects like "no maximum hand size" can change this.
  * @param ctx Game context
  * @param playerId Player ID
- * @returns Maximum hand size for the player
+ * @returns Maximum hand size for the player (Infinity for no maximum)
  */
 function getMaxHandSize(ctx: GameContext, playerId: string): number {
   try {
@@ -336,11 +336,12 @@ function getMaxHandSize(ctx: GameContext, playerId: string): number {
     if (!state) return 7;
     
     // Check player-specific overrides
+    // maxHandSize can be: a number, Infinity, or undefined
     const playerMaxHandSize = state.maxHandSize?.[playerId];
-    if (playerMaxHandSize === "unlimited" || playerMaxHandSize === Infinity) {
+    if (playerMaxHandSize === Infinity || playerMaxHandSize === Number.POSITIVE_INFINITY) {
       return Infinity;
     }
-    if (typeof playerMaxHandSize === "number") {
+    if (typeof playerMaxHandSize === "number" && playerMaxHandSize > 0) {
       return playerMaxHandSize;
     }
     

@@ -97,8 +97,7 @@ export function ShockLandChoiceModal({
             borderRadius: 6,
           }}
         >
-          "As {cardName} enters the battlefield, you may pay 2 life. 
-          If you don't, it enters the battlefield tapped."
+          "As {cardName} enters the battlefield, you may pay 2 life. If you don't, it enters the battlefield tapped."
         </div>
 
         {/* Choice buttons */}

@@ -242,8 +242,9 @@ export function CardPreviewLayer() {
       window.clearInterval(ticker);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
+    // Only re-run when anchor, positioning preferences, or scale changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anchor, prefer, anchorPadding, previewScale, scheduleUpdate, pickAndSetPosition]);
+  }, [anchor, prefer, anchorPadding, previewScale]);
 
   // Render nothing if no preview is active - but keep scale slider accessible via settings
   if (!anchor || !meta?.url) {

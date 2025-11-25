@@ -129,10 +129,10 @@ export function requiresCreatureTypeSelection(card: any): { required: boolean; r
     return { required: true, reason: "Choose a creature type for mana ability" };
   }
   
-  // Coat of Arms (on ETB, choose for effects - though typically just on the battlefield)
-  // Check for generic "choose a creature type" text
-  if (oracleText.includes("as") && oracleText.includes("enters the battlefield") && 
-      oracleText.includes("choose a creature type")) {
+  // Generic detection: look for the exact phrase "as ~ enters the battlefield, choose a creature type"
+  // This is more specific than the previous loose matching
+  const entersBattlefieldChoosePattern = /as .+? enters the battlefield,? choose a creature type/i;
+  if (entersBattlefieldChoosePattern.test(oracleText)) {
     return { required: true, reason: "Choose a creature type" };
   }
   
