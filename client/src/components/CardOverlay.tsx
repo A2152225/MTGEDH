@@ -397,16 +397,6 @@ export function CardOverlay({
           </span>
         </div>
       )}
-
-      {/* CSS for pulse animation */}
-      <style>
-        {`
-          @keyframes pulse {
-            0%, 100% { opacity: 1; transform: translateX(-50%) scale(1); }
-            50% { opacity: 0.8; transform: translateX(-50%) scale(1.05); }
-          }
-        `}
-      </style>
     </>
   );
 }

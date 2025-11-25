@@ -430,10 +430,11 @@ export function FreeField(props: {
             )}
 
             {/* Granted abilities badges with reminder text tooltips */}
-            {Array.isArray(abilities) && abilities.length > 0 && !isTargeted && (
+            {/* Position adjusts when targeted indicator is shown to avoid overlap */}
+            {Array.isArray(abilities) && abilities.length > 0 && (
               <div style={{ 
                 position: 'absolute', 
-                top: Math.round(4 * scale), 
+                top: isTargeted ? Math.round(24 * scale) : Math.round(4 * scale), 
                 right: Math.round(4 * scale), 
                 display: 'flex', 
                 flexWrap: 'wrap',

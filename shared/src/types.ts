@@ -122,14 +122,14 @@ export interface BattlefieldPermanent {
   posZ?: number;
   card: CardRef;
   // Combat state
-  attacking?: PlayerID;        // Which player/planeswalker this creature is attacking
-  blocking?: string[];         // Array of creature IDs this creature is blocking
-  blockedBy?: string[];        // Array of creature IDs blocking this creature
+  attacking?: PlayerID | string;  // Player ID being attacked, or permanent ID if attacking a planeswalker
+  blocking?: string[];            // Array of creature IDs this creature is blocking
+  blockedBy?: string[];           // Array of creature IDs blocking this creature
   // Planeswalker fields
-  baseLoyalty?: number;        // Starting loyalty
-  loyalty?: number;            // Current loyalty counter value
+  baseLoyalty?: number;           // Starting loyalty
+  loyalty?: number;               // Current loyalty counter value
   // Targeting state (for visual indicators)
-  targetedBy?: string[];       // IDs of spells/abilities targeting this permanent
+  targetedBy?: string[];          // IDs of spells/abilities targeting this permanent
 }
 
 /* Stack item */

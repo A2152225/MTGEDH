@@ -68,6 +68,7 @@ export const KEYWORD_GLOSSARY: Record<string, KeywordInfo> = {
     short: 'Int',
     color: '#4b5563',
     reminderText: "This creature can't be blocked except by artifact creatures and/or creatures that share a color with it.",
+    fullText: "A creature with intimidate can be blocked only by artifact creatures and/or creatures that share a color with it.",
     rulesReference: 'Rule 702.13',
     icon: '😠',
   },
