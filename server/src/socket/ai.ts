@@ -3,6 +3,11 @@
  * 
  * AI opponent integration for multiplayer games.
  * Handles AI player registration, decision-making, and action execution.
+ * 
+ * Key features:
+ * - Auto-selects commander from deck based on legendary creature type
+ * - Handles priority passing and turn progression
+ * - Broadcasts state updates to all players
  */
 
 import { randomBytes } from "crypto";
@@ -14,9 +19,302 @@ import { getDeck, listDecks } from "../db/decks.js";
 import { fetchCardsByExactNamesBatch, normalizeName, parseDecklist } from "../services/scryfall.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 
+/** MTG color identity symbols */
+const COLOR_IDENTITY_MAP: Record<string, string[]> = {
+  'W': ['white'],
+  'U': ['blue'],
+  'B': ['black'],
+  'R': ['red'],
+  'G': ['green'],
+};
+
+/**
+ * Extract color identity from a card's mana cost and oracle text
+ */
+function extractColorIdentity(card: any): string[] {
+  const colors = new Set<string>();
+  
+  // Extract from mana cost
+  const manaCost = card.mana_cost || '';
+  for (const colorSymbol of Object.keys(COLOR_IDENTITY_MAP)) {
+    if (manaCost.includes(colorSymbol)) {
+      colors.add(colorSymbol);
+    }
+  }
+  
+  // Extract from color_identity if available (Scryfall provides this)
+  if (Array.isArray(card.color_identity)) {
+    for (const c of card.color_identity) {
+      colors.add(c);
+    }
+  }
+  
+  // Extract from oracle text (for hybrid mana and ability costs)
+  const oracleText = card.oracle_text || '';
+  for (const colorSymbol of Object.keys(COLOR_IDENTITY_MAP)) {
+    if (oracleText.includes(`{${colorSymbol}}`)) {
+      colors.add(colorSymbol);
+    }
+  }
+  
+  return Array.from(colors);
+}
+
+/**
+ * Check if a card is a valid commander (legendary creature or has "can be your commander")
+ */
+function isValidCommander(card: any): boolean {
+  const typeLine = (card.type_line || '').toLowerCase();
+  const oracleText = (card.oracle_text || '').toLowerCase();
+  
+  // Must be legendary
+  if (!typeLine.includes('legendary')) {
+    return false;
+  }
+  
+  // Check if it's a creature
+  if (typeLine.includes('creature')) {
+    return true;
+  }
+  
+  // Check for "can be your commander" text (planeswalkers, etc.)
+  if (oracleText.includes('can be your commander')) {
+    return true;
+  }
+  
+  // Some planeswalkers with special abilities
+  if (typeLine.includes('planeswalker') && oracleText.includes('can be your commander')) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Check if a card has partner ability
+ */
+function hasPartner(card: any): boolean {
+  const oracleText = (card.oracle_text || '').toLowerCase();
+  return oracleText.includes('partner');
+}
+
+/**
+ * Check if a card has background ability
+ */
+function hasBackground(card: any): boolean {
+  const typeLine = (card.type_line || '').toLowerCase();
+  const oracleText = (card.oracle_text || '').toLowerCase();
+  return typeLine.includes('background') || oracleText.includes('choose a background');
+}
+
+/**
+ * Find the best commander(s) from a deck's card list
+ * Returns 1 or 2 commanders based on partner/background rules
+ */
+function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: string[] } {
+  // Find all valid commander candidates
+  const candidates = cards.filter(isValidCommander);
+  
+  if (candidates.length === 0) {
+    console.warn('[AI] No valid commander candidates found in deck');
+    return { commanders: [], colorIdentity: [] };
+  }
+  
+  // Find partner candidates
+  const partnerCandidates = candidates.filter(hasPartner);
+  const backgroundCandidates = cards.filter(c => (c.type_line || '').toLowerCase().includes('background'));
+  const chooseBackgroundCandidates = candidates.filter(hasBackground);
+  
+  let selectedCommanders: any[] = [];
+  
+  // Check for partner pair
+  if (partnerCandidates.length >= 2) {
+    // Select first two partners
+    selectedCommanders = partnerCandidates.slice(0, 2);
+    console.info('[AI] Selected partner commanders:', selectedCommanders.map(c => c.name));
+  }
+  // Check for background pair
+  else if (chooseBackgroundCandidates.length > 0 && backgroundCandidates.length > 0) {
+    selectedCommanders = [chooseBackgroundCandidates[0], backgroundCandidates[0]];
+    console.info('[AI] Selected commander + background:', selectedCommanders.map(c => c.name));
+  }
+  // Single commander
+  else {
+    selectedCommanders = [candidates[0]];
+    console.info('[AI] Selected single commander:', selectedCommanders[0]?.name);
+  }
+  
+  // Calculate combined color identity
+  const colorIdentity = new Set<string>();
+  for (const commander of selectedCommanders) {
+    for (const color of extractColorIdentity(commander)) {
+      colorIdentity.add(color);
+    }
+  }
+  
+  return {
+    commanders: selectedCommanders,
+    colorIdentity: Array.from(colorIdentity),
+  };
+}
+
 /** Generate a unique ID using crypto */
 function generateId(prefix: string): string {
   return `${prefix}_${randomBytes(8).toString('hex')}`;
+}
+
+/**
+ * Auto-select and set commander for an AI player based on their deck
+ * This is called after deck loading to ensure the AI can start the game
+ */
+export async function autoSelectAICommander(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID
+): Promise<boolean> {
+  try {
+    const game = ensureGame(gameId);
+    if (!game || !game.state) {
+      console.warn('[AI] autoSelectAICommander: game not found', { gameId, playerId });
+      return false;
+    }
+    
+    // Get the AI player's library (deck)
+    const zones = game.state.zones?.[playerId];
+    const library = zones?.library || [];
+    
+    if (library.length === 0) {
+      console.warn('[AI] autoSelectAICommander: no cards in library', { gameId, playerId });
+      return false;
+    }
+    
+    // Find the best commander(s) from the deck
+    const { commanders, colorIdentity } = findBestCommanders(library);
+    
+    if (commanders.length === 0) {
+      console.warn('[AI] autoSelectAICommander: no valid commander found', { gameId, playerId });
+      return false;
+    }
+    
+    // Set commander using the game's setCommander function
+    const commanderNames = commanders.map(c => c.name);
+    const commanderIds = commanders.map(c => c.id);
+    
+    console.info('[AI] Auto-selecting commander for AI:', {
+      gameId,
+      playerId,
+      commanderNames,
+      commanderIds,
+      colorIdentity,
+    });
+    
+    // Flag for pending opening draw (shuffle + draw 7)
+    if (typeof (game as any).flagPendingOpeningDraw === 'function') {
+      (game as any).flagPendingOpeningDraw(playerId);
+    } else if ((game as any).pendingInitialDraw) {
+      (game as any).pendingInitialDraw.add(playerId);
+    }
+    
+    // Call setCommander to set up the commander and trigger opening draw
+    if (typeof (game as any).setCommander === 'function') {
+      (game as any).setCommander(playerId, commanderNames, commanderIds, colorIdentity);
+      
+      // Persist the event
+      try {
+        await appendEvent(gameId, (game as any).seq || 0, 'setCommander', {
+          playerId,
+          commanderNames,
+          commanderIds,
+          colorIdentity,
+          isAI: true,
+        });
+      } catch (e) {
+        console.warn('[AI] Failed to persist setCommander event:', e);
+      }
+      
+      // Broadcast updated state to all players
+      broadcastGame(io, game, gameId);
+      
+      console.info('[AI] Commander set for AI player:', {
+        gameId,
+        playerId,
+        commanderNames,
+      });
+      
+      return true;
+    } else {
+      console.error('[AI] game.setCommander not available');
+      return false;
+    }
+    
+  } catch (error) {
+    console.error('[AI] Error auto-selecting commander:', error);
+    return false;
+  }
+}
+
+/**
+ * Handle AI game flow - called when game state changes
+ * Ensures AI progresses through pre-game, commander selection, and turn phases
+ */
+export async function handleAIGameFlow(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID
+): Promise<void> {
+  if (!isAIPlayer(gameId, playerId)) {
+    return;
+  }
+  
+  const game = ensureGame(gameId);
+  if (!game || !game.state) {
+    return;
+  }
+  
+  const phaseStr = String(game.state.phase || '').toUpperCase();
+  const commanderInfo = game.state.commandZone?.[playerId];
+  const hasCommander = commanderInfo?.commanderIds?.length > 0;
+  const zones = game.state.zones?.[playerId];
+  const hasHand = (zones?.handCount || 0) > 0 || (zones?.hand?.length || 0) > 0;
+  
+  console.info('[AI] handleAIGameFlow:', {
+    gameId,
+    playerId,
+    phase: phaseStr,
+    hasCommander,
+    hasHand,
+    handCount: zones?.handCount,
+  });
+  
+  // Pre-game phase: select commander if not done
+  if (phaseStr === '' || phaseStr === 'PRE_GAME') {
+    if (!hasCommander) {
+      console.info('[AI] AI needs to select commander');
+      
+      // Small delay to allow deck to be fully set up
+      setTimeout(async () => {
+        const success = await autoSelectAICommander(io, gameId, playerId);
+        if (success) {
+          console.info('[AI] Commander selection complete, continuing game flow');
+          // Re-trigger game flow after commander selection
+          setTimeout(() => handleAIGameFlow(io, gameId, playerId), 500);
+        }
+      }, 300);
+      return;
+    }
+    
+    // If we have a commander and hand, we're ready to proceed
+    if (hasCommander && hasHand) {
+      console.info('[AI] AI is ready to start game');
+      // The human player will typically start the game
+    }
+    return;
+  }
+  
+  // Active game phases: handle priority
+  if (game.state.priority === playerId) {
+    await handleAIPriority(io, gameId, playerId);
+  }
 }
 
 // Singleton AI Engine instance
@@ -546,6 +844,20 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       
       // Broadcast game state
       broadcastGame(io, game, gameId);
+      
+      // If deck was loaded, trigger auto-commander selection
+      if (deckLoaded) {
+        console.info('[AI] Triggering auto-commander selection for AI:', { gameId, aiPlayerId });
+        
+        // Small delay to ensure state is propagated
+        setTimeout(async () => {
+          try {
+            await handleAIGameFlow(io, gameId, aiPlayerId);
+          } catch (e) {
+            console.error('[AI] Error in AI game flow after deck load:', e);
+          }
+        }, 500);
+      }
       
     } catch (error) {
       console.error('[AI] Error creating game with AI:', error);
