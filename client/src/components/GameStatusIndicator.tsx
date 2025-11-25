@@ -1,5 +1,5 @@
 // client/src/components/GameStatusIndicator.tsx
-// Visual indicator for game-wide status (turn, phase, step, priority, etc.)
+// Visual indicator for game-wide status (turn, phase, step, priority, special designations, etc.)
 
 import React from 'react';
 import type { PlayerRef, PlayerID } from '../../../shared/src';
@@ -16,6 +16,11 @@ interface Props {
     phase: string;
     attackers?: readonly { permanentId: string; defending?: string }[];
   };
+  // Special game designations (Rules 724-730)
+  monarch?: PlayerID | null;
+  initiative?: PlayerID | null;
+  dayNight?: 'day' | 'night' | null;
+  cityBlessing?: Record<PlayerID, boolean>;
 }
 
 // Maps phase values to display names and colors
@@ -47,7 +52,10 @@ const stepConfig: Record<string, { label: string; subColor: string }> = {
   'cleanup': { label: 'Cleanup', subColor: '#c4b5fd' },
 };
 
-export function GameStatusIndicator({ turn, phase, step, turnPlayer, priority, players, you, combat }: Props) {
+export function GameStatusIndicator({ 
+  turn, phase, step, turnPlayer, priority, players, you, combat,
+  monarch, initiative, dayNight, cityBlessing
+}: Props) {
   const phaseKey = String(phase || '').toLowerCase();
   const stepKey = String(step || '').toLowerCase();
   
@@ -64,6 +72,14 @@ export function GameStatusIndicator({ turn, phase, step, turnPlayer, priority, p
   const isCombatPhase = phaseKey === 'combat';
   const attackerCount = combat?.attackers?.length || 0;
 
+  // Special designations
+  const monarchPlayer = monarch ? players.find(p => p.id === monarch) : null;
+  const isYouMonarch = monarch === you;
+  const initiativePlayer = initiative ? players.find(p => p.id === initiative) : null;
+  const isYouInitiative = initiative === you;
+  const youHaveBlessing = you ? cityBlessing?.[you] : false;
+  const anyoneHasBlessing = cityBlessing ? Object.values(cityBlessing).some(v => v) : false;
+
   return (
     <div style={{
       display: 'flex',
@@ -76,6 +92,8 @@ export function GameStatusIndicator({ turn, phase, step, turnPlayer, priority, p
       boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
       color: '#e5e7eb',
       fontSize: 13,
+      flexWrap: 'wrap',
+      rowGap: 8,
     }}>
       {/* Turn number */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -195,6 +213,134 @@ export function GameStatusIndicator({ turn, phase, step, turnPlayer, priority, p
           {youHavePriority ? '✓ You' : priorityPlayerName}
         </span>
       </div>
+
+      {/* Day/Night indicator */}
+      {dayNight && (
+        <>
+          <div style={{ width: 1, height: 32, background: 'rgba(255,255,255,0.15)' }} />
+          <div 
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '4px 10px',
+              borderRadius: 6,
+              background: dayNight === 'day' 
+                ? 'rgba(251,191,36,0.2)' 
+                : 'rgba(99,102,241,0.2)',
+              border: dayNight === 'day' 
+                ? '1px solid rgba(251,191,36,0.4)' 
+                : '1px solid rgba(99,102,241,0.4)',
+            }}
+            aria-label={`It is currently ${dayNight}`}
+          >
+            <span style={{ fontSize: 16 }}>
+              {dayNight === 'day' ? '☀️' : '🌙'}
+            </span>
+            <span style={{ 
+              fontWeight: 600, 
+              color: dayNight === 'day' ? '#fbbf24' : '#a5b4fc',
+              textTransform: 'capitalize'
+            }}>
+              {dayNight}
+            </span>
+          </div>
+        </>
+      )}
+
+      {/* Monarch indicator */}
+      {monarch && (
+        <>
+          <div style={{ width: 1, height: 32, background: 'rgba(255,255,255,0.15)' }} />
+          <div 
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '4px 10px',
+              borderRadius: 6,
+              background: isYouMonarch 
+                ? 'rgba(234,179,8,0.25)' 
+                : 'rgba(234,179,8,0.1)',
+              border: isYouMonarch 
+                ? '1px solid rgba(234,179,8,0.5)' 
+                : '1px solid rgba(234,179,8,0.3)',
+            }}
+            aria-label={`${isYouMonarch ? 'You are' : (monarchPlayer?.name || monarch) + ' is'} the Monarch`}
+          >
+            <span style={{ fontSize: 16 }}>👑</span>
+            <span style={{ 
+              fontWeight: 600, 
+              color: '#eab308'
+            }}>
+              {isYouMonarch ? 'You' : (monarchPlayer?.name || monarch)}
+            </span>
+          </div>
+        </>
+      )}
+
+      {/* Initiative indicator */}
+      {initiative && (
+        <>
+          <div style={{ width: 1, height: 32, background: 'rgba(255,255,255,0.15)' }} />
+          <div 
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '4px 10px',
+              borderRadius: 6,
+              background: isYouInitiative 
+                ? 'rgba(168,85,247,0.25)' 
+                : 'rgba(168,85,247,0.1)',
+              border: isYouInitiative 
+                ? '1px solid rgba(168,85,247,0.5)' 
+                : '1px solid rgba(168,85,247,0.3)',
+            }}
+            aria-label={`${isYouInitiative ? 'You have' : (initiativePlayer?.name || initiative) + ' has'} the Initiative`}
+          >
+            <span style={{ fontSize: 16 }}>🗡️</span>
+            <span style={{ color: '#9ca3af', fontSize: 11 }}>Initiative:</span>
+            <span style={{ 
+              fontWeight: 600, 
+              color: '#a855f7'
+            }}>
+              {isYouInitiative ? 'You' : (initiativePlayer?.name || initiative)}
+            </span>
+          </div>
+        </>
+      )}
+
+      {/* City's Blessing indicator (only show if anyone has it) */}
+      {anyoneHasBlessing && (
+        <>
+          <div style={{ width: 1, height: 32, background: 'rgba(255,255,255,0.15)' }} />
+          <div 
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '4px 10px',
+              borderRadius: 6,
+              background: youHaveBlessing 
+                ? 'rgba(20,184,166,0.25)' 
+                : 'rgba(20,184,166,0.1)',
+              border: youHaveBlessing 
+                ? '1px solid rgba(20,184,166,0.5)' 
+                : '1px solid rgba(20,184,166,0.3)',
+            }}
+            aria-label={youHaveBlessing ? "You have the City's Blessing" : "City's Blessing is active"}
+          >
+            <span style={{ fontSize: 16 }}>🏛️</span>
+            <span style={{ 
+              fontWeight: 600, 
+              color: '#14b8a6'
+            }}>
+              {youHaveBlessing ? "City's Blessing ✓" : "City's Blessing"}
+            </span>
+          </div>
+        </>
+      )}
     </div>
   );
 }

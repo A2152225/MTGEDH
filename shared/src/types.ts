@@ -221,6 +221,11 @@ export interface GameState {
   turn?: number;
   activePlayerIndex?: number;
   landsPlayedThisTurn?: Record<PlayerID, number>;
+  // Special game designations (Rules 724-730)
+  monarch?: PlayerID | null;
+  initiative?: PlayerID | null;
+  dayNight?: 'day' | 'night' | null;
+  cityBlessing?: Record<PlayerID, boolean>;
 }
 
 /* Client-scoped game view (lightweight diff of authoritative state) */
@@ -235,6 +240,11 @@ export type ClientGameView = Omit<GameState, 'battlefield' | 'stack' | 'players'
   experienceCounters?: Record<PlayerID, number>;
   // Combat state for display
   combat?: CombatInfo;
+  // Special game designations for display
+  monarch?: PlayerID | null;
+  initiative?: PlayerID | null;
+  dayNight?: 'day' | 'night' | null;
+  cityBlessing?: Record<PlayerID, boolean>;
 };
 
 /* Combat information for display purposes */

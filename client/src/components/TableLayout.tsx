@@ -128,6 +128,11 @@ export function TableLayout(props: {
   onSendChat?: (text: string) => void;
   chatView?: ClientGameView;
   chatYou?: PlayerID;
+  // Special game designations (Rules 724-730)
+  monarch?: PlayerID | null;
+  initiative?: PlayerID | null;
+  dayNight?: 'day' | 'night' | null;
+  cityBlessing?: Record<PlayerID, boolean>;
 }) {
   const {
     players, permanentsByPlayer, imagePref, isYouPlayer,
@@ -143,6 +148,7 @@ export function TableLayout(props: {
     onImportDeckText, onUseSavedDeck, onLocalImportConfirmChange,
     gameId, stackItems, importedCandidates, energyCounters, energy,
     chatMessages, onSendChat, chatView, chatYou,
+    monarch, initiative, dayNight, cityBlessing,
   } = props;
 
   // Snapshot debug
@@ -692,6 +698,64 @@ export function TableLayout(props: {
                               >
                                 Decks
                               </button>
+                            )}
+                            {/* Special designation badges for this player */}
+                            {monarch === pb.player.id && (
+                              <span
+                                aria-label="This player is the Monarch"
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  padding: '2px 8px',
+                                  borderRadius: 4,
+                                  background: 'rgba(234,179,8,0.2)',
+                                  border: '1px solid rgba(234,179,8,0.4)',
+                                  color: '#eab308',
+                                  fontSize: 11,
+                                  fontWeight: 600
+                                }}
+                              >
+                                👑 Monarch
+                              </span>
+                            )}
+                            {initiative === pb.player.id && (
+                              <span
+                                aria-label="This player has the Initiative"
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  padding: '2px 8px',
+                                  borderRadius: 4,
+                                  background: 'rgba(168,85,247,0.2)',
+                                  border: '1px solid rgba(168,85,247,0.4)',
+                                  color: '#a855f7',
+                                  fontSize: 11,
+                                  fontWeight: 600
+                                }}
+                              >
+                                🗡️ Initiative
+                              </span>
+                            )}
+                            {cityBlessing?.[pb.player.id] && (
+                              <span
+                                aria-label="This player has the City's Blessing"
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  padding: '2px 8px',
+                                  borderRadius: 4,
+                                  background: 'rgba(20,184,166,0.2)',
+                                  border: '1px solid rgba(20,184,166,0.4)',
+                                  color: '#14b8a6',
+                                  fontSize: 11,
+                                  fontWeight: 600
+                                }}
+                              >
+                                🏛️ Ascended
+                              </span>
                             )}
                           </div>
                           {onPlayerClick && (
