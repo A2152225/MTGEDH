@@ -214,11 +214,9 @@ function untapPermanentsForPlayer(ctx: GameContext, playerId: string) {
 
         // Check for stun counters (Rule 122.1c)
         // If a tapped permanent with a stun counter would become untapped, instead remove a stun counter
-        const stunCounters = permanent.counters?.stun || 0;
-        if (stunCounters > 0) {
+        if (permanent.counters && permanent.counters.stun > 0) {
           // Remove one stun counter instead of untapping
-          permanent.counters = permanent.counters || {};
-          permanent.counters.stun = stunCounters - 1;
+          permanent.counters.stun -= 1;
           if (permanent.counters.stun === 0) {
             delete permanent.counters.stun;
           }
@@ -268,8 +266,10 @@ export function nextTurn(ctx: GameContext) {
     (ctx as any).state.phase = "beginning";
     (ctx as any).state.step = "UNTAP";
 
-    // Untap all permanents controlled by the active player (Rule 502.3)
-    untapPermanentsForPlayer(ctx, next);
+    // Note: Untapping happens when leaving the UNTAP step (in nextStep),
+    // not at the start of the turn. This matches MTG rules where turn-based
+    // actions occur during the step, and allows cards to be played/tapped
+    // during the untap step before untapping occurs.
 
     // give priority to the active player at the start of turn
     (ctx as any).state.priority = next;
