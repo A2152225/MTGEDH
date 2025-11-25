@@ -25,8 +25,10 @@ export function ZonesPiles(props: {
   hideHandDetails?: boolean;
   canCastCommander?: boolean;
   onCastCommander?: (commanderId: string, commanderName: string, manaCost?: string, tax?: number) => void;
+  onViewGraveyard?: () => void;
+  onViewExile?: () => void;
 }) {
-  const { zones = SAFE_DEFAULT_ZONES, commander, isCommanderFormat, showHandCount = 0, hideHandDetails, canCastCommander, onCastCommander } = props;
+  const { zones = SAFE_DEFAULT_ZONES, commander, isCommanderFormat, showHandCount = 0, hideHandDetails, canCastCommander, onCastCommander, onViewGraveyard, onViewExile } = props;
 
   // Defensive local arrays
   const libArr = Array.isArray((zones as any).library) ? ((zones as any).library as KnownCardRef[]) : [];
@@ -40,7 +42,7 @@ export function ZonesPiles(props: {
   // Which commanders are currently in the command zone (not on stack/battlefield)
   const inCommandZone = (isCommanderFormat ? (commander as any)?.inCommandZone : undefined) as string[] | undefined;
 
-  function renderPile(label: string, count: number, topCard?: KnownCardRef, hideTopCard?: boolean) {
+  function renderPile(label: string, count: number, topCard?: KnownCardRef, hideTopCard?: boolean, onClick?: () => void) {
     const name = topCard?.name || "";
     // prefer art_crop -> normal -> small
     const img = topCard?.image_uris?.art_crop || topCard?.image_uris?.normal || topCard?.image_uris?.small || null;
@@ -49,6 +51,7 @@ export function ZonesPiles(props: {
     const showCardPreviewOnHover = !hideTopCard && topCard;
     const displayImage = !hideTopCard && img;
     const displayName = !hideTopCard && name;
+    const isClickable = !!onClick && count > 0;
     
     const body = (
       <div
@@ -58,7 +61,7 @@ export function ZonesPiles(props: {
           height: 100,
           borderRadius: 6,
           overflow: "hidden",
-          border: "1px solid rgba(255,255,255,0.12)",
+          border: isClickable ? "1px solid rgba(59, 130, 246, 0.5)" : "1px solid rgba(255,255,255,0.12)",
           background: "#0f0f0f",
           display: "flex",
           alignItems: "center",
@@ -67,7 +70,10 @@ export function ZonesPiles(props: {
           fontSize: 11,
           padding: 4,
           textAlign: "center",
+          cursor: isClickable ? "pointer" : "default",
+          transition: "border-color 0.15s",
         }}
+        onClick={onClick}
       >
         {displayImage && img ? (
           <img
@@ -77,13 +83,29 @@ export function ZonesPiles(props: {
           />
         ) : null}
         <span style={{ position: "relative", zIndex: 1 }}>{displayName || label}</span>
+        {isClickable && (
+          <div
+            style={{
+              position: "absolute",
+              bottom: 4,
+              right: 4,
+              backgroundColor: "rgba(59, 130, 246, 0.9)",
+              color: "#fff",
+              fontSize: 9,
+              padding: "2px 4px",
+              borderRadius: 3,
+            }}
+          >
+            Click
+          </div>
+        )}
       </div>
     );
 
     return (
       <div
         key={label}
-        title={topCard && !hideTopCard ? topCard.name : `${label} (${count})`}
+        title={isClickable ? `Click to view ${label}` : (topCard && !hideTopCard ? topCard.name : `${label} (${count})`)}
         style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 92 }}
         onMouseEnter={(e) => {
           if (showCardPreviewOnHover) showCardPreview(e.currentTarget as HTMLElement, topCard, { prefer: "above", anchorPadding: 0 });
@@ -204,8 +226,8 @@ export function ZonesPiles(props: {
       {/* Command zone now rendered before Library for expected layout */}
       {isCommanderFormat && commander ? <CommandSlots /> : null}
       {renderPile("Library", (zones.libraryCount ?? libArr.length ?? 0), libraryTop, true /* hideTopCard */)}
-      {renderPile("Graveyard", (zones.graveyardCount ?? grArr.length ?? 0), graveTop)}
-      {renderPile("Exile", ((zones as any).exile?.length ?? exArr.length ?? 0), exileTop)}
+      {renderPile("Graveyard", (zones.graveyardCount ?? grArr.length ?? 0), graveTop, false, onViewGraveyard)}
+      {renderPile("Exile", ((zones as any).exile?.length ?? exArr.length ?? 0), exileTop, false, onViewExile)}
     </div>
   );
 }
