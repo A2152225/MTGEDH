@@ -599,6 +599,25 @@ function doAutoPass(
 }
 
 /**
+ * Maps mana color symbols to their human-readable names.
+ */
+export const MANA_COLOR_NAMES: Record<string, string> = {
+  'W': 'white',
+  'U': 'blue',
+  'B': 'black',
+  'R': 'red',
+  'G': 'green',
+  'C': 'colorless',
+};
+
+/**
+ * Gets the human-readable name for a mana color symbol.
+ */
+export function getManaColorName(symbol: string): string {
+  return MANA_COLOR_NAMES[symbol] || symbol.toLowerCase();
+}
+
+/**
  * Parses a string mana cost into its individual components (color distribution, generic mana, etc.).
  */
 export function parseManaCost(

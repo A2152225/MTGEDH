@@ -1,5 +1,5 @@
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, appendGameEvent, parseManaCost } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName } from "./util";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem } from "../../shared/src";
@@ -141,7 +141,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const manaCost = cardInHand.mana_cost || "";
       const parsedCost = parseManaCost(manaCost);
       
-      // Calculate total mana cost (including commander tax if applicable - not needed for hand spells)
+      // Calculate total mana cost for spell from hand
       const totalGeneric = parsedCost.generic;
       const totalColored = parsedCost.colors;
       
@@ -162,7 +162,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         const needed = totalColored[color] || 0;
         const provided = paymentColors[color] || 0;
         if (provided < needed) {
-          missingColors.push(`${needed - provided} ${color === 'W' ? 'white' : color === 'U' ? 'blue' : color === 'B' ? 'black' : color === 'R' ? 'red' : color === 'G' ? 'green' : 'colorless'}`);
+          missingColors.push(`${needed - provided} ${getManaColorName(color)}`);
         }
         totalPaidMana += provided;
       }

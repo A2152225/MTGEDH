@@ -16,7 +16,7 @@
  */
 
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, emitStateToSocket, parseManaCost } from "./util";
+import { ensureGame, broadcastGame, emitStateToSocket, parseManaCost, getManaColorName } from "./util";
 import { appendEvent } from "../db";
 import { fetchCardByExactNameStrict } from "../services/scryfall";
 import type { PlayerID } from "../../shared/src";
@@ -442,7 +442,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         const needed = totalColored[color] || 0;
         const provided = paymentColors[color] || 0;
         if (provided < needed) {
-          missingColors.push(`${needed - provided} ${color === 'W' ? 'white' : color === 'U' ? 'blue' : color === 'B' ? 'black' : color === 'R' ? 'red' : color === 'G' ? 'green' : 'colorless'}`);
+          missingColors.push(`${needed - provided} ${getManaColorName(color)}`);
         }
         totalPaidMana += provided;
       }
