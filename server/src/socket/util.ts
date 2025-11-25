@@ -741,3 +741,92 @@ export function consumeManaFromPool(
   
   return { consumed, remaining: { ...pool } };
 }
+
+/**
+ * Gets the current mana pool for a player, initializing it if needed.
+ */
+export function getOrInitManaPool(
+  gameState: any,
+  playerId: string
+): Record<string, number> {
+  gameState.manaPool = gameState.manaPool || {};
+  gameState.manaPool[playerId] = gameState.manaPool[playerId] || {
+    white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+  };
+  return gameState.manaPool[playerId];
+}
+
+/**
+ * Calculates the total available mana by combining existing pool with new payment.
+ * Returns the combined pool in the same format as the mana pool (using color names as keys).
+ */
+export function calculateTotalAvailableMana(
+  existingPool: Record<string, number>,
+  newPayment: Array<{ mana: string }> | undefined
+): Record<string, number> {
+  // Start with a copy of the existing pool
+  const total: Record<string, number> = {
+    white: existingPool.white || 0,
+    blue: existingPool.blue || 0,
+    black: existingPool.black || 0,
+    red: existingPool.red || 0,
+    green: existingPool.green || 0,
+    colorless: existingPool.colorless || 0,
+  };
+  
+  // Add new payment
+  if (newPayment && newPayment.length > 0) {
+    for (const p of newPayment) {
+      const colorKey = MANA_COLOR_NAMES[p.mana];
+      if (colorKey) {
+        total[colorKey] = (total[colorKey] || 0) + 1;
+      }
+    }
+  }
+  
+  return total;
+}
+
+/**
+ * Validates if the total available mana (existing pool + new payment) can pay for a spell.
+ * Returns null if payment is sufficient, or an error message describing what's missing.
+ */
+export function validateManaPayment(
+  totalAvailable: Record<string, number>,
+  coloredCost: Record<string, number>,
+  genericCost: number
+): string | null {
+  const pool = { ...totalAvailable };
+  const missingColors: string[] = [];
+  
+  // Check colored requirements
+  for (const color of MANA_COLORS) {
+    const colorKey = MANA_COLOR_NAMES[color];
+    const needed = coloredCost[color] || 0;
+    const available = pool[colorKey] || 0;
+    
+    if (available < needed) {
+      missingColors.push(`${needed - available} ${getManaColorName(color)}`);
+    } else {
+      // Reserve this mana for the colored cost
+      pool[colorKey] -= needed;
+    }
+  }
+  
+  // Check generic requirement with remaining mana
+  const remainingTotal = Object.values(pool).reduce((a, b) => a + b, 0);
+  const missingGeneric = Math.max(0, genericCost - remainingTotal);
+  
+  if (missingColors.length > 0 || missingGeneric > 0) {
+    let errorMsg = "Insufficient mana.";
+    if (missingColors.length > 0) {
+      errorMsg += ` Missing: ${missingColors.join(', ')}.`;
+    }
+    if (missingGeneric > 0) {
+      errorMsg += ` Missing ${missingGeneric} generic mana.`;
+    }
+    return errorMsg;
+  }
+  
+  return null;
+}

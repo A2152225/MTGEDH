@@ -8,7 +8,9 @@ import {
   canPayCost,
   computeColorsNeededByOtherCards,
   calculateSuggestedPayment,
+  calculateRemainingCostAfterFloatingMana,
   type OtherCardInfo,
+  type ManaPool,
 } from '../utils/manaUtils';
 
 function canPayEnhanced(cost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] }, pool: Record<Color, number>): boolean {
@@ -83,25 +85,38 @@ export function PaymentPicker(props: {
   onChangeX?: (x: number) => void;
   onChange: (next: PaymentItem[]) => void;
   otherCardsInHand?: OtherCardInfo[];
+  floatingMana?: ManaPool;
 }) {
-  const { manaCost, manaCostDisplay, sources, chosen, xValue = 0, onChangeX, onChange, otherCardsInHand = [] } = props;
+  const { manaCost, manaCostDisplay, sources, chosen, xValue = 0, onChangeX, onChange, otherCardsInHand = [], floatingMana } = props;
 
   const parsed = useMemo(() => parseManaCost(manaCost), [manaCost]);
   const cost = useMemo(() => ({ colors: parsed.colors, generic: parsed.generic + Math.max(0, Number(xValue || 0) | 0), hybrids: parsed.hybrids }), [parsed, xValue]);
+  
+  // Calculate remaining cost after floating mana
+  const { colors: costAfterFloating, generic: genericAfterFloating, hybrids: hybridsAfterFloating } = useMemo(() => 
+    calculateRemainingCostAfterFloatingMana(cost, floatingMana), 
+    [cost, floatingMana]
+  );
+  const costForPayment = useMemo(() => ({ 
+    colors: costAfterFloating, 
+    generic: genericAfterFloating, 
+    hybrids: hybridsAfterFloating 
+  }), [costAfterFloating, genericAfterFloating, hybridsAfterFloating]);
+  
   const pool = useMemo(() => paymentToPool(chosen), [chosen]);
-  const satisfied = useMemo(() => canPayEnhanced(cost, pool), [cost, pool]);
-  const remaining = useMemo(() => remainingAfter(cost, pool), [cost, pool]);
+  const satisfied = useMemo(() => canPayEnhanced(costForPayment, pool), [costForPayment, pool]);
+  const remaining = useMemo(() => remainingAfter(costForPayment, pool), [costForPayment, pool]);
 
   const chosenById = useMemo(() => new Set(chosen.map(p => p.permanentId)), [chosen]);
 
   // Calculate colors needed by other cards in hand
   const colorsToPreserve = useMemo(() => computeColorsNeededByOtherCards(otherCardsInHand), [otherCardsInHand]);
   
-  // Calculate suggested payment when no sources have been chosen yet
+  // Calculate suggested payment when no sources have been chosen yet (considers floating mana)
   const suggestedPayment = useMemo(() => {
     if (chosen.length > 0) return new Map<string, Color>();
-    return calculateSuggestedPayment(cost, sources, colorsToPreserve);
-  }, [cost, sources, colorsToPreserve, chosen.length]);
+    return calculateSuggestedPayment(cost, sources, colorsToPreserve, floatingMana);
+  }, [cost, sources, colorsToPreserve, chosen.length, floatingMana]);
 
   const add = (permanentId: string, mana: Color) => {
     if (chosenById.has(permanentId)) return; // one per source
@@ -113,10 +128,10 @@ export function PaymentPicker(props: {
   const clear = () => onChange([]);
 
   const doAutoSelect = () => {
-    // Use the suggested payment to auto-fill
+    // Use the suggested payment to auto-fill (considers floating mana)
     if (suggestedPayment.size === 0) {
       // Recalculate if already chosen some
-      const newSuggested = calculateSuggestedPayment(cost, sources, colorsToPreserve);
+      const newSuggested = calculateSuggestedPayment(cost, sources, colorsToPreserve, floatingMana);
       const newPayment: PaymentItem[] = [];
       for (const [permanentId, mana] of newSuggested.entries()) {
         newPayment.push({ permanentId, mana });

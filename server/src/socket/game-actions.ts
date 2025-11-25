@@ -1,5 +1,5 @@
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment } from "./util";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem } from "../../shared/src";
@@ -145,57 +145,35 @@ export function registerGameActions(io: Server, socket: Socket) {
       const totalGeneric = parsedCost.generic;
       const totalColored = parsedCost.colors;
       
-      // Calculate what payment provides
-      const paymentColors: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
-      if (payment && payment.length > 0) {
-        for (const p of payment) {
-          paymentColors[p.mana] = (paymentColors[p.mana] || 0) + 1;
-        }
+      // Get existing mana pool (floating mana from previous spells)
+      const existingPool = getOrInitManaPool(game.state, playerId);
+      
+      // Calculate total available mana (existing pool + new payment)
+      const totalAvailable = calculateTotalAvailableMana(existingPool, payment);
+      
+      // Log floating mana if any
+      const floatingMana = Object.entries(existingPool).filter(([_, v]) => v > 0).map(([k, v]) => `${v} ${k}`).join(', ');
+      if (floatingMana) {
+        console.log(`[castSpellFromHand] Floating mana available in pool: ${floatingMana}`);
       }
-      
-      // Check if payment is sufficient
-      let usedForColoredCosts = 0;
-      const missingColors: string[] = [];
-      
-      // First check colored requirements
-      for (const color of MANA_COLORS) {
-        const needed = totalColored[color] || 0;
-        const provided = paymentColors[color] || 0;
-        if (provided < needed) {
-          missingColors.push(`${needed - provided} ${getManaColorName(color)}`);
-        }
-        // Only count the mana actually used to satisfy colored cost, not excess
-        usedForColoredCosts += Math.min(needed, provided);
-      }
-      
-      // Calculate leftover mana available for generic cost (total paid minus what was used for colored)
-      const totalPaidMana = Object.values(paymentColors).reduce((a: number, b: number) => a + b, 0);
-      const leftoverManaForGeneric = totalPaidMana - usedForColoredCosts;
-      const missingGeneric = Math.max(0, totalGeneric - leftoverManaForGeneric);
       
       // Calculate total required cost
       const coloredCostTotal = Object.values(totalColored).reduce((a: number, b: number) => a + b, 0);
-      
-      // Only validate payment if spell has a non-zero cost
       const totalCost = coloredCostTotal + totalGeneric;
+      
+      // Validate if total available mana can pay the cost
       if (totalCost > 0) {
-        if (missingColors.length > 0 || missingGeneric > 0) {
-          let errorMsg = "Insufficient mana to cast this spell.";
-          if (missingColors.length > 0) {
-            errorMsg += ` Missing: ${missingColors.join(', ')}.`;
-          }
-          if (missingGeneric > 0) {
-            errorMsg += ` Missing ${missingGeneric} generic mana.`;
-          }
+        const validationError = validateManaPayment(totalAvailable, totalColored, totalGeneric);
+        if (validationError) {
           socket.emit("error", {
             code: "INSUFFICIENT_MANA",
-            message: errorMsg,
+            message: `Insufficient mana to cast this spell. ${validationError}`,
           });
           return;
         }
       }
 
-      // Handle mana payment: tap permanents to generate mana
+      // Handle mana payment: tap permanents to generate mana (adds to pool)
       if (payment && payment.length > 0) {
         console.log(`[castSpellFromHand] Processing payment for ${cardInHand.name}:`, payment);
         
@@ -225,14 +203,8 @@ export function registerGameActions(io: Server, socket: Socket) {
           // Tap the permanent
           (permanent as any).tapped = true;
           
-          // Add mana to player's mana pool (initialize if needed)
-          game.state.manaPool = game.state.manaPool || {};
-          game.state.manaPool[playerId] = game.state.manaPool[playerId] || {
-            white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
-          };
-          
-          // Map mana color to pool property
-          const manaColorMap: Record<string, keyof typeof game.state.manaPool[typeof playerId]> = {
+          // Add mana to player's mana pool (already initialized via getOrInitManaPool above)
+          const manaColorMap: Record<string, string> = {
             'W': 'white',
             'U': 'blue',
             'B': 'black',
@@ -243,19 +215,20 @@ export function registerGameActions(io: Server, socket: Socket) {
           
           const poolKey = manaColorMap[mana];
           if (poolKey) {
-            game.state.manaPool[playerId][poolKey]++;
+            (game.state.manaPool[playerId] as Record<string, number>)[poolKey]++;
             console.log(`[castSpellFromHand] Added ${mana} mana to ${playerId}'s pool from ${(permanent as any).card?.name || permanentId}`);
           }
         }
-        
-        // Consume mana from pool to pay for the spell (leaves unspent mana for subsequent spells)
-        const pool = game.state.manaPool[playerId] as Record<string, number>;
-        consumeManaFromPool(pool, totalColored, totalGeneric, '[castSpellFromHand]');
-        
-        // Bump sequence to ensure state changes are visible
-        if (typeof game.bumpSeq === 'function') {
-          game.bumpSeq();
-        }
+      }
+      
+      // Consume mana from pool to pay for the spell
+      // This uses both floating mana and newly tapped mana, leaving unspent mana for subsequent spells
+      const pool = getOrInitManaPool(game.state, playerId);
+      consumeManaFromPool(pool, totalColored, totalGeneric, '[castSpellFromHand]');
+      
+      // Bump sequence to ensure state changes are visible
+      if (typeof game.bumpSeq === 'function') {
+        game.bumpSeq();
       }
 
       // Get RulesBridge for validation (optional - if not available, proceed with legacy logic)

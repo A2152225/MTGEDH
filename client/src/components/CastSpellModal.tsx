@@ -1,12 +1,15 @@
 import React, { useState, useMemo } from 'react';
 import { PaymentPicker } from './PaymentPicker';
+import { FloatingManaPool } from './FloatingManaPool';
 import type { PaymentItem, ManaColor } from '../../../shared/src';
 import {
   Color,
   parseManaCost,
   computeColorsNeededByOtherCards,
   calculateSuggestedPayment,
+  calculateRemainingCostAfterFloatingMana,
   type OtherCardInfo,
+  type ManaPool,
 } from '../utils/manaUtils';
 
 interface CastSpellModalProps {
@@ -15,6 +18,7 @@ interface CastSpellModalProps {
   manaCost?: string;
   availableSources: Array<{ id: string; name: string; options: Color[] }>;
   otherCardsInHand?: OtherCardInfo[];
+  floatingMana?: ManaPool;
   onConfirm: (payment: PaymentItem[]) => void;
   onCancel: () => void;
 }
@@ -25,19 +29,30 @@ export function CastSpellModal({
   manaCost,
   availableSources,
   otherCardsInHand = [],
+  floatingMana,
   onConfirm,
   onCancel,
 }: CastSpellModalProps) {
   const [payment, setPayment] = useState<PaymentItem[]>([]);
   const [xValue, setXValue] = useState(0);
 
-  // Calculate suggested payment for auto-fill
+  // Calculate suggested payment for auto-fill (considers floating mana)
   const suggestedPayment = useMemo(() => {
     const parsed = parseManaCost(manaCost);
     const cost = { colors: parsed.colors, generic: parsed.generic + Math.max(0, xValue), hybrids: parsed.hybrids };
     const colorsToPreserve = computeColorsNeededByOtherCards(otherCardsInHand);
-    return calculateSuggestedPayment(cost, availableSources, colorsToPreserve);
-  }, [manaCost, xValue, availableSources, otherCardsInHand]);
+    return calculateSuggestedPayment(cost, availableSources, colorsToPreserve, floatingMana);
+  }, [manaCost, xValue, availableSources, otherCardsInHand, floatingMana]);
+
+  // Calculate how much floating mana will be used
+  const floatingManaUsage = useMemo(() => {
+    if (!floatingMana) return null;
+    const parsed = parseManaCost(manaCost);
+    const cost = { colors: parsed.colors, generic: parsed.generic + Math.max(0, xValue), hybrids: parsed.hybrids };
+    const { usedFromPool } = calculateRemainingCostAfterFloatingMana(cost, floatingMana);
+    const totalUsed = Object.values(usedFromPool).reduce((a, b) => a + b, 0);
+    return totalUsed > 0 ? usedFromPool : null;
+  }, [manaCost, xValue, floatingMana]);
 
   if (!open) return null;
 
@@ -61,6 +76,9 @@ export function CastSpellModal({
     setXValue(0);
   };
 
+  // Check if there's floating mana that will be used
+  const hasFloatingManaToUse = floatingManaUsage && Object.values(floatingManaUsage).some(v => v > 0);
+
   return (
     <div style={backdrop}>
       <div style={modal}>
@@ -68,6 +86,30 @@ export function CastSpellModal({
           <h3 style={{ margin: 0, fontSize: 16 }}>Cast {cardName}</h3>
           <button onClick={handleCancel} style={{ fontSize: 18, padding: '2px 8px' }}>×</button>
         </div>
+
+        {/* Show floating mana pool if available */}
+        {floatingMana && (
+          <div style={{ marginBottom: 12 }}>
+            <FloatingManaPool manaPool={floatingMana} compact />
+            {hasFloatingManaToUse && (
+              <div style={{ 
+                marginTop: 6, 
+                fontSize: 12, 
+                color: '#68d391',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}>
+                ✓ Will use floating mana: {
+                  Object.entries(floatingManaUsage!)
+                    .filter(([_, v]) => v > 0)
+                    .map(([color, amount]) => `${amount} ${color}`)
+                    .join(', ')
+                }
+              </div>
+            )}
+          </div>
+        )}
 
         <PaymentPicker
           manaCost={manaCost}
@@ -78,6 +120,7 @@ export function CastSpellModal({
           onChangeX={setXValue}
           onChange={setPayment}
           otherCardsInHand={otherCardsInHand}
+          floatingMana={floatingMana}
         />
 
         <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>

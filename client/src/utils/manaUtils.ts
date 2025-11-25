@@ -139,24 +139,155 @@ export function computeColorsNeededByOtherCards(otherCards: OtherCardInfo[]): Se
 }
 
 /**
+ * Mana pool structure (floating mana)
+ */
+export interface ManaPool {
+  white?: number;
+  blue?: number;
+  black?: number;
+  red?: number;
+  green?: number;
+  colorless?: number;
+}
+
+/**
+ * Map from mana pool color names to mana symbols
+ */
+const POOL_TO_SYMBOL: Record<string, Color> = {
+  white: 'W',
+  blue: 'U',
+  black: 'B',
+  red: 'R',
+  green: 'G',
+  colorless: 'C',
+};
+
+/**
+ * Map from mana symbols to pool color names
+ */
+const SYMBOL_TO_POOL: Record<Color, string> = {
+  W: 'white',
+  U: 'blue',
+  B: 'black',
+  R: 'red',
+  G: 'green',
+  C: 'colorless',
+};
+
+/**
+ * Calculate how much of the cost can be paid from floating mana
+ * Returns the remaining cost after using floating mana
+ */
+export function calculateRemainingCostAfterFloatingMana(
+  cost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] },
+  floatingMana?: ManaPool
+): { colors: Record<Color, number>; generic: number; hybrids: Color[][]; usedFromPool: Record<string, number> } {
+  const costRemaining = { ...cost.colors };
+  let genericRemaining = cost.generic;
+  const hybridsRemaining = [...cost.hybrids];
+  const usedFromPool: Record<string, number> = {};
+  
+  if (!floatingMana) {
+    return { colors: costRemaining, generic: genericRemaining, hybrids: hybridsRemaining, usedFromPool };
+  }
+  
+  // Create a copy of the floating mana to track what we use
+  const poolRemaining: Record<string, number> = {
+    white: floatingMana.white || 0,
+    blue: floatingMana.blue || 0,
+    black: floatingMana.black || 0,
+    red: floatingMana.red || 0,
+    green: floatingMana.green || 0,
+    colorless: floatingMana.colorless || 0,
+  };
+  
+  // First, use floating mana for colored requirements
+  for (const c of MANA_COLORS) {
+    if (c === 'C') continue;
+    const poolKey = SYMBOL_TO_POOL[c];
+    while (costRemaining[c] > 0 && poolRemaining[poolKey] > 0) {
+      costRemaining[c]--;
+      poolRemaining[poolKey]--;
+      usedFromPool[poolKey] = (usedFromPool[poolKey] || 0) + 1;
+    }
+  }
+  
+  // Use colorless floating mana for colorless requirements
+  while (costRemaining['C'] > 0 && poolRemaining.colorless > 0) {
+    costRemaining['C']--;
+    poolRemaining.colorless--;
+    usedFromPool.colorless = (usedFromPool.colorless || 0) + 1;
+  }
+  
+  // Handle hybrid costs with floating mana
+  const satisfiedHybrids: number[] = [];
+  for (let i = 0; i < hybridsRemaining.length; i++) {
+    const hybrid = hybridsRemaining[i];
+    for (const c of hybrid) {
+      const poolKey = SYMBOL_TO_POOL[c];
+      if (poolRemaining[poolKey] > 0) {
+        poolRemaining[poolKey]--;
+        usedFromPool[poolKey] = (usedFromPool[poolKey] || 0) + 1;
+        satisfiedHybrids.push(i);
+        break;
+      }
+    }
+  }
+  // Remove satisfied hybrids (in reverse order to maintain indices)
+  for (let i = satisfiedHybrids.length - 1; i >= 0; i--) {
+    hybridsRemaining.splice(satisfiedHybrids[i], 1);
+  }
+  
+  // Use remaining floating mana for generic cost (prefer colorless first)
+  if (genericRemaining > 0 && poolRemaining.colorless > 0) {
+    const use = Math.min(poolRemaining.colorless, genericRemaining);
+    poolRemaining.colorless -= use;
+    genericRemaining -= use;
+    usedFromPool.colorless = (usedFromPool.colorless || 0) + use;
+  }
+  
+  // Use other colors for generic
+  for (const c of MANA_COLORS) {
+    if (genericRemaining <= 0) break;
+    const poolKey = SYMBOL_TO_POOL[c];
+    if (poolRemaining[poolKey] > 0) {
+      const use = Math.min(poolRemaining[poolKey], genericRemaining);
+      poolRemaining[poolKey] -= use;
+      genericRemaining -= use;
+      usedFromPool[poolKey] = (usedFromPool[poolKey] || 0) + use;
+    }
+  }
+  
+  return { colors: costRemaining, generic: genericRemaining, hybrids: hybridsRemaining, usedFromPool };
+}
+
+/**
  * Calculate suggested payment: sources and colors to use
- * Returns a map of permanentId -> suggested color
+ * Returns a map of permanentId -> suggested color, plus info about floating mana used
+ * 
+ * This function first uses any available floating mana, then taps sources for the remainder.
  * 
  * Priority for generic mana payment:
- * 1. Colorless-producing sources (e.g., Wastes, Sol Ring for {C})
- * 2. Single-color lands (e.g., basic lands)
- * 3. Multi-color lands (e.g., dual lands, Command Tower)
+ * 1. Floating mana (already in pool)
+ * 2. Colorless-producing sources (e.g., Wastes, Sol Ring for {C})
+ * 3. Single-color lands (e.g., basic lands)
+ * 4. Multi-color lands (e.g., dual lands, Command Tower)
  * 
  * Also preserves colors needed by other cards in hand when possible.
  */
 export function calculateSuggestedPayment(
   cost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] },
   sources: Array<{ id: string; name: string; options: Color[] }>,
-  colorsToPreserve: Set<Color>
+  colorsToPreserve: Set<Color>,
+  floatingMana?: ManaPool
 ): Map<string, Color> {
   const suggestions = new Map<string, Color>();
-  const costRemaining = { ...cost.colors };
-  let genericRemaining = cost.generic;
+  
+  // First, calculate what's left after using floating mana
+  const { colors: costRemaining, generic: genericRemaining, hybrids: hybridsRemaining } = 
+    calculateRemainingCostAfterFloatingMana(cost, floatingMana);
+  
+  let genericLeft = genericRemaining;
   
   // Track which sources we've used
   const usedSources = new Set<string>();
@@ -173,7 +304,7 @@ export function calculateSuggestedPayment(
   const colorOptionCount = (source: { options: Color[] }) => 
     source.options.filter(c => c !== 'C').length;
   
-  // First pass: assign sources for specific color requirements
+  // First pass: assign sources for specific color requirements (after floating mana)
   // For colored mana, prefer single-color sources first, then multi-color
   for (const c of MANA_COLORS) {
     if (c === 'C') continue; // Handle colorless separately
@@ -213,8 +344,8 @@ export function calculateSuggestedPayment(
     }
   }
   
-  // Second pass: handle hybrid costs (pick the color that's less needed by other cards)
-  for (const hybrid of cost.hybrids) {
+  // Second pass: handle remaining hybrid costs (after floating mana was used)
+  for (const hybrid of hybridsRemaining) {
     let bestColor: Color | null = null;
     let bestSource: { id: string; name: string; options: Color[] } | null = null;
     let bestScore = Infinity;
@@ -247,7 +378,7 @@ export function calculateSuggestedPayment(
   // Third pass: assign sources for generic cost
   // Priority: 1) colorless-only, 2) single-color, 3) multi-color
   // Also prefer sources that don't produce colors needed by other cards
-  if (genericRemaining > 0) {
+  if (genericLeft > 0) {
     const remainingSources = sources.filter(s => !usedSources.has(s.id));
     
     remainingSources.sort((a, b) => {
@@ -280,7 +411,7 @@ export function calculateSuggestedPayment(
     });
     
     for (const source of remainingSources) {
-      if (genericRemaining <= 0) break;
+      if (genericLeft <= 0) break;
       
       // Pick the best color from this source:
       // 1. Colorless if available
@@ -301,7 +432,7 @@ export function calculateSuggestedPayment(
       
       suggestions.set(source.id, bestColor);
       usedSources.add(source.id);
-      genericRemaining--;
+      genericLeft--;
     }
   }
   
