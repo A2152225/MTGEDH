@@ -168,16 +168,18 @@ export function TableLayout(props: {
 
   const sideOrder = useMemo(() => sidePlan(ordered.length), [ordered.length]);
 
-  // Layout constants - increased by ~50% for larger play area
-  const TILE_W = 110; const tileH = Math.round(TILE_W / 0.72);
-  const ZONES_W = 160; // Slightly larger zones panel
-  const GRID_GAP = 12; // Slightly larger gap
+  // Layout constants - sized for comfortable 7-card display in hand
+  const TILE_W = 115; // Slightly wider cards
+  const tileH = Math.round(TILE_W / 0.72);
+  const ZONES_W = 165; // Slightly larger zones panel
+  const GRID_GAP = 10; // Gap between cards
   // Hand row: 7 cards wide (max hand size at end of turn) + margins
-  const FREE_W = 7 * TILE_W + 6 * GRID_GAP + 30;
-  const FREE_H = Math.round(3 * tileH + 120); // Increased height for larger play area
-  const BOARD_W = FREE_W + ZONES_W + 28;
-  const BOARD_H = Math.round(FREE_H + tileH + 280); // Increased height for larger play area
-  const SEAT_GAP_X = 84, SEAT_GAP_Y = 84, CENTER_CLEAR_X = 150, CENTER_CLEAR_Y = 150, SIDE_PAD = 28;
+  // Ensure enough width for 7 cards without wrapping
+  const FREE_W = 7 * TILE_W + 6 * GRID_GAP + 40; // 7 cards + 6 gaps + extra padding
+  const FREE_H = Math.round(3 * tileH + 140); // Increased height for larger play area
+  const BOARD_W = FREE_W + ZONES_W + 32;
+  const BOARD_H = Math.round(FREE_H + tileH + 300); // Increased height for larger play area
+  const SEAT_GAP_X = 90, SEAT_GAP_Y = 90, CENTER_CLEAR_X = 160, CENTER_CLEAR_Y = 160, SIDE_PAD = 30;
 
   const seatPositions = useMemo(() => buildPositions({
     total: ordered.length,
