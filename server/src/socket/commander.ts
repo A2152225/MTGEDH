@@ -16,7 +16,7 @@
  */
 
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, emitStateToSocket } from "./util";
+import { ensureGame, broadcastGame, emitStateToSocket, parseManaCost } from "./util";
 import { appendEvent } from "../db";
 import { fetchCardByExactNameStrict } from "../services/scryfall";
 import type { PlayerID } from "../../shared/src";
@@ -349,6 +349,16 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         return;
       }
       
+      // Check if we're in PRE_GAME phase - spells cannot be cast during pre-game
+      const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
+      if (phaseStr === "" || phaseStr === "PRE_GAME") {
+        socket.emit("error", {
+          code: "PREGAME_NO_CAST",
+          message: "Cannot cast commander during pre-game. Start the game first by claiming turn and advancing to main phase.",
+        });
+        return;
+      }
+      
       // Get commander info to validate and resolve name if needed
       const commanderInfo = game.state?.commandZone?.[pid];
       if (!commanderInfo || !commanderInfo.commanderIds || commanderInfo.commanderIds.length === 0) {
@@ -404,6 +414,64 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           message: "Commander card details not found",
         });
         return;
+      }
+      
+      // Parse the mana cost to validate payment
+      const manaCost = commanderCard.mana_cost || "";
+      const parsedCost = parseManaCost(manaCost);
+      
+      // Calculate total mana cost including commander tax
+      const commanderTax = (commanderInfo as any).taxById?.[commanderId] || commanderInfo.tax || 0;
+      const totalGeneric = parsedCost.generic + commanderTax;
+      const totalColored = parsedCost.colors;
+      
+      // Calculate what payment provides
+      const paymentColors: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
+      if (payment && payment.length > 0) {
+        for (const p of payment) {
+          paymentColors[p.mana] = (paymentColors[p.mana] || 0) + 1;
+        }
+      }
+      
+      // Check if payment is sufficient
+      let totalPaidMana = 0;
+      const missingColors: string[] = [];
+      
+      // First check colored requirements
+      for (const color of ['W', 'U', 'B', 'R', 'G', 'C'] as const) {
+        const needed = totalColored[color] || 0;
+        const provided = paymentColors[color] || 0;
+        if (provided < needed) {
+          missingColors.push(`${needed - provided} ${color === 'W' ? 'white' : color === 'U' ? 'blue' : color === 'B' ? 'black' : color === 'R' ? 'red' : color === 'G' ? 'green' : 'colorless'}`);
+        }
+        totalPaidMana += provided;
+      }
+      
+      // Check generic mana (includes commander tax)
+      const coloredCostTotal = Object.values(totalColored).reduce((a: number, b: number) => a + b, 0);
+      const leftoverManaForGeneric = totalPaidMana - coloredCostTotal;
+      const missingGeneric = Math.max(0, totalGeneric - leftoverManaForGeneric);
+      
+      // Validate payment - commander has a base cost (even if {0}) plus commander tax
+      const totalCost = coloredCostTotal + totalGeneric;
+      if (totalCost > 0) {
+        if (missingColors.length > 0 || missingGeneric > 0) {
+          let errorMsg = `Insufficient mana to cast ${commanderCard.name}.`;
+          if (commanderTax > 0) {
+            errorMsg += ` (includes {${commanderTax}} commander tax)`;
+          }
+          if (missingColors.length > 0) {
+            errorMsg += ` Missing: ${missingColors.join(', ')}.`;
+          }
+          if (missingGeneric > 0) {
+            errorMsg += ` Missing ${missingGeneric} generic mana.`;
+          }
+          socket.emit("error", {
+            code: "INSUFFICIENT_MANA",
+            message: errorMsg,
+          });
+          return;
+        }
       }
       
       console.info(`[castCommander] Player ${pid} casting commander ${commanderId} (${commanderCard.name}) in game ${gameId}`);
