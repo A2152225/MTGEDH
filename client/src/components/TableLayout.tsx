@@ -112,6 +112,7 @@ export function TableLayout(props: {
   onPlayerClick?: ((pid: string) => void) | undefined;
   onPlayLandFromHand?: (cardId: string) => void;
   onCastFromHand?: (cardId: string) => void;
+  onCastCommander?: (commanderId: string, commanderName: string, manaCost?: string, tax?: number) => void;
   reasonCannotPlayLand?: (card: any) => string | null;
   reasonCannotCast?: (card: any) => string | null;
   onImportDeckText?: (txt: string, name?: string) => void;
@@ -135,7 +136,7 @@ export function TableLayout(props: {
     onRemove, onCounter, onBulkCounter,
     highlightPermTargets, selectedPermTargets, onPermanentClick,
     highlightPlayerTargets, selectedPlayerTargets, onPlayerClick,
-    onPlayLandFromHand, onCastFromHand, reasonCannotPlayLand, reasonCannotCast,
+    onPlayLandFromHand, onCastFromHand, onCastCommander, reasonCannotPlayLand, reasonCannotCast,
     onReorderHand, onShuffleHand,
     threeD, enablePanZoom = true,
     tableCloth, worldSize, onUpdatePermPos,
@@ -984,12 +985,17 @@ export function TableLayout(props: {
                             }
                             hideHandDetails={!isYouThis}
                             canCastCommander={!!(isCommanderFormat && isYouThis && gameId)}
-                            onCastCommander={(commanderIdOrName) => {
+                            onCastCommander={(commanderId, commanderName, manaCost, tax) => {
                               if (!gameId) return;
-                              socket.emit('castCommander', {
-                                gameId,
-                                commanderNameOrId: commanderIdOrName
-                              });
+                              // Use the callback if provided, otherwise emit directly
+                              if (onCastCommander) {
+                                onCastCommander(commanderId, commanderName, manaCost, tax);
+                              } else {
+                                socket.emit('castCommander', {
+                                  gameId,
+                                  commanderNameOrId: commanderId
+                                });
+                              }
                             }}
                           />
                         )}

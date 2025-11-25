@@ -124,7 +124,21 @@ export function passPriority(ctx: GameContext, playerId?: PlayerID) {
       return { changed: false, resolvedNow: false };
     }
 
-    // Find index of current priority in active array
+    // Check if there's something on the stack
+    const stackLen = Array.isArray(state.stack) ? state.stack.length : 0;
+
+    // For single-player games, passing priority should resolve the stack immediately
+    if (active.length === 1) {
+      if (stackLen > 0) {
+        // Single player passed priority with stack items - resolve immediately
+        ctx.bumpSeq();
+        return { changed: true, resolvedNow: true };
+      }
+      // Single player, empty stack - nothing to do
+      return { changed: false, resolvedNow: false };
+    }
+
+    // Multi-player: find index of current priority in active array
     const curIndex = active.indexOf(state.priority);
     let nextIndex = 0;
     if (curIndex === -1) {
@@ -135,7 +149,15 @@ export function passPriority(ctx: GameContext, playerId?: PlayerID) {
 
     const nextId = active[nextIndex];
 
-    // If priority stays the same (single active), nothing changed
+    // If we've cycled back to the turn player with a non-empty stack, resolve
+    if (nextId === state.turnPlayer && stackLen > 0) {
+      // All players have passed - resolve the top of the stack
+      state.priority = nextId;
+      ctx.bumpSeq();
+      return { changed: true, resolvedNow: true };
+    }
+
+    // If priority stays the same (shouldn't happen with >1 active), no change
     if (nextId === state.priority) {
       return { changed: false, resolvedNow: false };
     }
@@ -143,11 +165,7 @@ export function passPriority(ctx: GameContext, playerId?: PlayerID) {
     state.priority = nextId;
     ctx.bumpSeq();
 
-    // Basic heuristic: if stack empty and we cycled back to the turn player, no resolution happens here.
-    const stackLen = Array.isArray(state.stack) ? state.stack.length : 0;
-    const resolvedNow = false;
-
-    return { changed: true, resolvedNow };
+    return { changed: true, resolvedNow: false };
   } catch (err) {
     console.warn(`${ts()} passPriority stub failed:`, err);
     return { changed: false, resolvedNow: false };

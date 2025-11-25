@@ -24,7 +24,7 @@ export function ZonesPiles(props: {
   showHandCount?: number;
   hideHandDetails?: boolean;
   canCastCommander?: boolean;
-  onCastCommander?: (commanderIdOrName: string) => void;
+  onCastCommander?: (commanderId: string, commanderName: string, manaCost?: string, tax?: number) => void;
 }) {
   const { zones = SAFE_DEFAULT_ZONES, commander, isCommanderFormat, showHandCount = 0, hideHandDetails, canCastCommander, onCastCommander } = props;
 
@@ -34,8 +34,11 @@ export function ZonesPiles(props: {
   const exArr = Array.isArray((zones as any).exile) ? ((zones as any).exile as KnownCardRef[]) : [];
 
   const cmdNames = (isCommanderFormat ? (commander as any)?.commanderNames : undefined) as string[] | undefined;
-  const cmdCards = (isCommanderFormat ? (commander as any)?.commanderCards : undefined) as KnownCardRef[] | undefined;
+  const cmdCards = (isCommanderFormat ? (commander as any)?.commanderCards : undefined) as Array<KnownCardRef & { mana_cost?: string }> | undefined;
   const cmdIds = (isCommanderFormat ? (commander as any)?.commanderIds : undefined) as string[] | undefined;
+  const cmdTaxById = (isCommanderFormat ? (commander as any)?.taxById : undefined) as Record<string, number> | undefined;
+  // Which commanders are currently in the command zone (not on stack/battlefield)
+  const inCommandZone = (isCommanderFormat ? (commander as any)?.inCommandZone : undefined) as string[] | undefined;
 
   function renderPile(label: string, count: number, topCard?: KnownCardRef, hideTopCard?: boolean) {
     const name = topCard?.name || "";
@@ -99,11 +102,19 @@ export function ZonesPiles(props: {
 
   const CommandSlots = () => {
     const slotsCount = Math.max(1, Math.min(2, (cmdNames?.length || cmdIds?.length || 0) || 2));
-    const slots = Array.from({ length: slotsCount }).map((_, i) => ({
-      name: cmdNames?.[i] || "Commander",
-      card: cmdCards?.[i],
-      id: cmdIds?.[i],
-    }));
+    const slots = Array.from({ length: slotsCount }).map((_, i) => {
+      const id = cmdIds?.[i];
+      const card = cmdCards?.[i];
+      return {
+        name: cmdNames?.[i] || "Commander",
+        card,
+        id,
+        manaCost: card?.mana_cost,
+        tax: id ? (cmdTaxById?.[id] ?? 0) : 0,
+        // Check if commander is in command zone (can be cast)
+        isInCZ: id ? (inCommandZone ? inCommandZone.includes(id) : true) : false,
+      };
+    });
 
     return (
       <div title="Command Zone" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, minWidth: 92 }}>
@@ -115,6 +126,7 @@ export function ZonesPiles(props: {
             const commanderId = slot.id || previewCard?.id || name;
             // prefer art_crop -> normal -> small for commander tile too
             const img = previewCard?.image_uris?.art_crop || previewCard?.image_uris?.normal || previewCard?.image_uris?.small || null;
+            const canCast = canCastCommander && hasCard && slot.isInCZ && onCastCommander;
 
             return (
               <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
@@ -123,7 +135,7 @@ export function ZonesPiles(props: {
                     width: 72,
                     height: 100,
                     borderRadius: 6,
-                    border: hasCard ? "2px solid rgba(255,255,255,0.45)" : "2px dashed rgba(255,255,255,0.25)",
+                    border: hasCard ? (slot.isInCZ ? "2px solid rgba(255,255,255,0.45)" : "2px solid rgba(100,100,100,0.4)") : "2px dashed rgba(255,255,255,0.25)",
                     background: "#000",
                     display: "flex",
                     alignItems: "center",
@@ -135,6 +147,7 @@ export function ZonesPiles(props: {
                     textAlign: "center",
                     cursor: previewCard ? "pointer" : "default",
                     overflow: "hidden",
+                    opacity: slot.isInCZ ? 1 : 0.5,
                   }}
                   onMouseEnter={(e) => {
                     if (previewCard) showCardPreview(e.currentTarget as HTMLElement, previewCard, { prefer: "above", anchorPadding: 0 });
@@ -152,15 +165,26 @@ export function ZonesPiles(props: {
                   ) : null}
                   <span style={{ position: "relative", zIndex: 1, padding: "0 4px", textAlign: "center", fontSize: 11 }}>
                     {name}
+                    {!slot.isInCZ && <div style={{ fontSize: 9, opacity: 0.7 }}>(not in CZ)</div>}
                   </span>
                 </div>
 
-                {canCastCommander && hasCard && onCastCommander ? (
+                {/* Show tax and mana cost info */}
+                {slot.tax > 0 && (
+                  <div style={{ fontSize: 10, color: '#f59e0b' }}>Tax: {slot.tax}</div>
+                )}
+                
+                {canCast ? (
                   <div style={{ display: "inline-flex", gap: 6 }}>
-                    <button onClick={() => onCastCommander(commanderId)} title={`Cast ${name}`}>
+                    <button 
+                      onClick={() => onCastCommander(commanderId, name, slot.manaCost, slot.tax)} 
+                      title={`Cast ${name}${slot.manaCost ? ` (${slot.manaCost})` : ''}${slot.tax > 0 ? ` +${slot.tax} tax` : ''}`}
+                    >
                       Cast
                     </button>
                   </div>
+                ) : canCastCommander && hasCard && !slot.isInCZ ? (
+                  <div style={{ fontSize: 10, color: '#999' }}>Not in CZ</div>
                 ) : null}
               </div>
             );

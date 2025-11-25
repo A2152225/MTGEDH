@@ -315,9 +315,9 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
   });
 
   // Cast commander from command zone
-  socket.on("castCommander", (payload: { gameId: string; commanderId?: string; commanderNameOrId?: string }) => {
+  socket.on("castCommander", (payload: { gameId: string; commanderId?: string; commanderNameOrId?: string; payment?: Array<{ permanentId: string; mana: string }> }) => {
     try {
-      const { gameId } = payload;
+      const { gameId, payment } = payload;
       // Accept both commanderId and commanderNameOrId for backwards compatibility
       let commanderId = payload.commanderId ?? payload.commanderNameOrId;
       
@@ -377,6 +377,16 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         }
       }
       
+      // Check if the commander is in the command zone
+      const inCommandZone = (commanderInfo as any).inCommandZone as string[] || commanderInfo.commanderIds.slice();
+      if (!inCommandZone.includes(commanderId)) {
+        socket.emit("error", {
+          code: "COMMANDER_NOT_IN_CZ",
+          message: "Commander is not in the command zone (may already be on the stack or battlefield)",
+        });
+        return;
+      }
+      
       // Check priority - only active player can cast spells during their turn
       if (game.state.priority !== pid) {
         socket.emit("error", {
@@ -398,13 +408,70 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       
       console.info(`[castCommander] Player ${pid} casting commander ${commanderId} (${commanderCard.name}) in game ${gameId}`);
       
+      // Handle mana payment: tap permanents to generate mana
+      if (payment && payment.length > 0) {
+        console.log(`[castCommander] Processing payment for ${commanderCard.name}:`, payment);
+        
+        // Get player's battlefield
+        const zones = game.state?.zones?.[pid];
+        const battlefield = zones?.battlefield || game.state?.battlefield?.filter((p: any) => p.controller === pid) || [];
+        
+        // Process each payment item: tap the permanent and add mana to pool
+        for (const { permanentId, mana } of payment) {
+          // Search in global battlefield (the structure may be flat)
+          const globalBattlefield = game.state?.battlefield || [];
+          const permanent = globalBattlefield.find((p: any) => p?.id === permanentId && p?.controller === pid);
+          
+          if (!permanent) {
+            socket.emit("error", {
+              code: "PAYMENT_SOURCE_NOT_FOUND",
+              message: `Permanent ${permanentId} not found on battlefield`,
+            });
+            return;
+          }
+          
+          if ((permanent as any).tapped) {
+            socket.emit("error", {
+              code: "PAYMENT_SOURCE_TAPPED",
+              message: `${(permanent as any).card?.name || 'Permanent'} is already tapped`,
+            });
+            return;
+          }
+          
+          // Tap the permanent
+          (permanent as any).tapped = true;
+          console.log(`[castCommander] Tapped ${(permanent as any).card?.name || permanentId} for ${mana} mana`);
+          
+          // Add mana to player's mana pool (initialize if needed)
+          game.state.manaPool = game.state.manaPool || {};
+          game.state.manaPool[pid] = game.state.manaPool[pid] || {
+            white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+          };
+          
+          // Map mana color to pool property
+          const manaColorMap: Record<string, string> = {
+            'W': 'white',
+            'U': 'blue',
+            'B': 'black',
+            'R': 'red',
+            'G': 'green',
+            'C': 'colorless',
+          };
+          
+          const poolKey = manaColorMap[mana];
+          if (poolKey) {
+            (game.state.manaPool[pid] as any)[poolKey]++;
+          }
+        }
+      }
+      
       // Add commander to stack (simplified - real implementation would handle costs, targets, etc.)
       try {
         if (typeof (game as any).pushStack === "function") {
           const stackItem = {
             id: `stack_${Date.now()}_${commanderId}`,
             controller: pid,
-            card: { ...commanderCard, zone: "stack" },
+            card: { ...commanderCard, zone: "stack", isCommander: true },
             targets: [],
           };
           (game as any).pushStack(stackItem);
@@ -414,12 +481,12 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           game.state.stack.push({
             id: `stack_${Date.now()}_${commanderId}`,
             controller: pid,
-            card: { ...commanderCard, zone: "stack" },
+            card: { ...commanderCard, zone: "stack", isCommander: true },
             targets: [],
           } as any);
         }
         
-        // Update commander tax
+        // Update commander tax and remove from command zone
         if (typeof (game as any).castCommander === "function") {
           (game as any).castCommander(pid, commanderId);
         }
@@ -429,7 +496,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           (game as any).bumpSeq();
         }
         
-        appendEvent(gameId, game.seq, "castCommander", { playerId: pid, commanderId });
+        appendEvent(gameId, game.seq, "castCommander", { playerId: pid, commanderId, payment });
         
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
@@ -451,6 +518,137 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       console.error(`castCommander error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "CAST_COMMANDER_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
+
+  // Move commander back to command zone (e.g., when it would go to graveyard/exile)
+  socket.on("moveCommanderToCommandZone", (payload: { gameId: string; commanderNameOrId: string }) => {
+    try {
+      const { gameId, commanderNameOrId } = payload;
+      const pid: PlayerID | undefined = socket.data.playerId;
+      const spectator = socket.data.spectator;
+      
+      if (!pid || spectator) {
+        socket.emit("error", {
+          code: "MOVE_COMMANDER_NOT_PLAYER",
+          message: "Spectators cannot move commanders.",
+        });
+        return;
+      }
+      
+      if (!gameId || !commanderNameOrId) {
+        socket.emit("error", {
+          code: "MOVE_COMMANDER_INVALID",
+          message: "Missing gameId or commanderNameOrId",
+        });
+        return;
+      }
+      
+      const game = ensureGame(gameId);
+      if (!game) {
+        socket.emit("error", {
+          code: "GAME_NOT_FOUND",
+          message: "Game not found",
+        });
+        return;
+      }
+      
+      // Get commander info
+      const commanderInfo = game.state?.commandZone?.[pid];
+      if (!commanderInfo || !commanderInfo.commanderIds || commanderInfo.commanderIds.length === 0) {
+        socket.emit("error", {
+          code: "INVALID_COMMANDER",
+          message: "No commander set for this player",
+        });
+        return;
+      }
+      
+      // Resolve name to id if needed
+      let commanderId = commanderNameOrId;
+      if (!commanderInfo.commanderIds.includes(commanderId)) {
+        const commanderNames = (commanderInfo as any).commanderNames || [];
+        const nameIndex = commanderNames.findIndex((n: string) => 
+          n?.toLowerCase() === commanderId?.toLowerCase()
+        );
+        if (nameIndex >= 0 && commanderInfo.commanderIds[nameIndex]) {
+          commanderId = commanderInfo.commanderIds[nameIndex];
+        } else {
+          socket.emit("error", {
+            code: "INVALID_COMMANDER",
+            message: "That is not your commander",
+          });
+          return;
+        }
+      }
+      
+      // Get commander card details
+      const commanderCard = commanderInfo.commanderCards?.find((c: any) => c.id === commanderId);
+      const commanderName = commanderCard?.name || commanderId;
+      
+      // Check if commander is already in command zone
+      const inCommandZone = (commanderInfo as any).inCommandZone as string[] || [];
+      if (inCommandZone.includes(commanderId)) {
+        socket.emit("error", {
+          code: "COMMANDER_ALREADY_IN_CZ",
+          message: "Commander is already in the command zone",
+        });
+        return;
+      }
+      
+      // Move commander back to command zone
+      if (typeof (game as any).moveCommanderToCZ === "function") {
+        (game as any).moveCommanderToCZ(pid, commanderId);
+      } else {
+        // Fallback: manually update inCommandZone
+        if (!inCommandZone.includes(commanderId)) {
+          inCommandZone.push(commanderId);
+          (commanderInfo as any).inCommandZone = inCommandZone;
+        }
+        if (game.state?.commandZone) {
+          (game.state.commandZone as any)[pid] = commanderInfo;
+        }
+        if (typeof (game as any).bumpSeq === "function") {
+          (game as any).bumpSeq();
+        }
+      }
+      
+      // Remove commander from battlefield if present
+      const battlefield = game.state?.battlefield as any[] || [];
+      const bfIdx = battlefield.findIndex((p: any) => 
+        p?.card?.id === commanderId && p?.controller === pid
+      );
+      if (bfIdx >= 0) {
+        battlefield.splice(bfIdx, 1);
+        console.log(`[moveCommanderToCommandZone] Removed commander ${commanderId} from battlefield`);
+      }
+      
+      // Remove from stack if present
+      const stack = game.state?.stack as any[] || [];
+      const stackIdx = stack.findIndex((s: any) => 
+        s?.card?.id === commanderId && s?.controller === pid
+      );
+      if (stackIdx >= 0) {
+        stack.splice(stackIdx, 1);
+        console.log(`[moveCommanderToCommandZone] Removed commander ${commanderId} from stack`);
+      }
+      
+      appendEvent(gameId, game.seq, "moveCommanderToCZ", { playerId: pid, commanderId });
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${pid} moved ${commanderName} to the command zone.`,
+        ts: Date.now(),
+      });
+      
+      broadcastGame(io, game, gameId);
+    } catch (err: any) {
+      console.error(`moveCommanderToCommandZone error:`, err);
+      socket.emit("error", {
+        code: "MOVE_COMMANDER_ERROR",
         message: err?.message ?? String(err),
       });
     }
