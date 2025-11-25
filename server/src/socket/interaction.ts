@@ -3,6 +3,12 @@ import { ensureGame, appendGameEvent, broadcastGame, getPlayerName } from "./uti
 import { appendEvent } from "../db";
 import { games } from "./socket";
 
+// Simple unique ID generator for this module
+let idCounter = 0;
+function generateId(prefix: string): string {
+  return `${prefix}_${Date.now()}_${++idCounter}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
 /**
  * Check if a spell's oracle text indicates it's a tutor (search library) effect
  */
@@ -203,8 +209,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     const game = ensureGame(gameId);
     
-    // Get full library contents for the player
-    const library = game.searchLibrary(pid, "", 100);
+    // Get full library contents for the player (no limit for tutor effects)
+    const library = game.searchLibrary(pid, "", 1000);
     
     socket.emit("librarySearchRequest", {
       gameId,
@@ -256,7 +262,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       // Add to stack
       const stackItem = {
-        id: `stack_${Date.now()}_${cardId}`,
+        id: generateId("stack"),
         controller: pid,
         card: { ...card, zone: "stack", castWithAbility: abilityId },
         targets: [],
@@ -290,7 +296,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Add to battlefield
       game.state.battlefield = game.state.battlefield || [];
       game.state.battlefield.push({
-        id: `perm_${Date.now()}_${cardId}`,
+        id: generateId("perm"),
         controller: pid,
         owner: pid,
         tapped: false,
@@ -329,7 +335,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const tokenName = abilityId === "eternalize" ? `${cardName} (4/4 Zombie)` : `${cardName} (Zombie)`;
       game.state.battlefield = game.state.battlefield || [];
       game.state.battlefield.push({
-        id: `token_${Date.now()}_${cardId}`,
+        id: generateId("token"),
         controller: pid,
         owner: pid,
         tapped: false,
