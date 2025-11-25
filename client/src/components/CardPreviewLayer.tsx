@@ -29,6 +29,9 @@ function getInitialPreviewScale(): number {
   return DEFAULT_PREVIEW_SCALE;
 }
 
+// Gap between cards when showing multiple faces
+const MULTI_FACE_GAP = 8;
+
 type CardLike = {
   name?: string;
   type_line?: string;
@@ -116,7 +119,8 @@ export function CardPreviewLayer() {
   }, []);
 
   // Check if we have multiple faces to display
-  const faceCount = meta?.faces?.length || 1;
+  const hasFaces = meta?.faces && meta.faces.length > 1;
+  const faceCount = hasFaces ? meta!.faces!.length : 1;
 
   const pickAndSetPosition = useCallback((tkn: number) => {
     if (!anchor) return;
@@ -134,7 +138,7 @@ export function CardPreviewLayer() {
     // Use smaller scale for double-faced cards to fit both on screen
     const adjustedScale = faceCount > 1 ? 0.7 : 1;
     const cardW = Math.round(singleCardW * adjustedScale);
-    const cardGap = faceCount > 1 ? 8 : 0;
+    const cardGap = faceCount > 1 ? MULTI_FACE_GAP : 0;
     const previewW = cardW * faceCount + cardGap * (faceCount - 1);
     const previewH = Math.round(cardW / 0.72);
     const gap = 12;   // gap used for non-above placements
@@ -297,10 +301,6 @@ export function CardPreviewLayer() {
     );
   }
 
-  // Check if we have multiple faces to display
-  const hasFaces = meta.faces && meta.faces.length > 1;
-  const cardGap = 8;
-
   return (
     <>
       <PreviewScaleSlider
@@ -320,13 +320,13 @@ export function CardPreviewLayer() {
           pointerEvents: 'none',
           filter: 'drop-shadow(0 12px 24px rgba(0,0,0,0.6))',
           display: 'flex',
-          gap: hasFaces ? cardGap : 0,
+          gap: hasFaces ? MULTI_FACE_GAP : 0,
         }}
       >
         {hasFaces ? (
           // Render multiple faces side by side
           meta.faces!.map((face, idx) => {
-            const cardW = (pos.w - cardGap * (meta.faces!.length - 1)) / meta.faces!.length;
+            const cardW = (pos.w - MULTI_FACE_GAP * (meta.faces!.length - 1)) / meta.faces!.length;
             return (
               <div
                 key={idx}
