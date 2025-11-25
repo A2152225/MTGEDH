@@ -8,6 +8,9 @@
  * - Atomic state transitions
  * - Event emission for UI and simulation layers
  * - Win/loss condition detection
+ * 
+ * Note: Action handlers are now modularized in the actions/ directory.
+ * This file serves as the main orchestrator and maintains backward compatibility.
  */
 
 import type { GameState, PlayerID } from '../../shared/src';
@@ -70,65 +73,37 @@ import {
   TriggerEvent,
 } from './triggeredAbilities';
 
-/**
- * Engine events that can be observed by UI and simulation layers
- */
-export enum RulesEngineEvent {
-  // Game flow
-  GAME_STARTED = 'gameStarted',
-  TURN_STARTED = 'turnStarted',
-  PHASE_STARTED = 'phaseStarted',
-  STEP_STARTED = 'stepStarted',
-  PRIORITY_PASSED = 'priorityPassed',
-  
-  // Mulligan
-  MULLIGAN_DECISION = 'mulliganDecision',
-  MULLIGAN_COMPLETED = 'mulliganCompleted',
-  
-  // Spell casting
-  SPELL_CAST = 'spellCast',
-  SPELL_COUNTERED = 'spellCountered',
-  SPELL_RESOLVED = 'spellResolved',
-  
-  // Abilities
-  ABILITY_ACTIVATED = 'abilityActivated',
-  ABILITY_RESOLVED = 'abilityResolved',
-  TRIGGERED_ABILITY = 'triggeredAbility',
-  
-  // Mana
-  MANA_ABILITY_ACTIVATED = 'manaAbilityActivated',
-  MANA_ADDED = 'manaAdded',
-  MANA_SPENT = 'manaSpent',
-  MANA_POOL_EMPTIED = 'manaPoolEmptied',
-  
-  // Combat
-  COMBAT_DECLARED = 'combatDeclared',
-  ATTACKERS_DECLARED = 'attackersDeclared',
-  BLOCKERS_DECLARED = 'blockersDeclared',
-  DAMAGE_ASSIGNED = 'damageAssigned',
-  DAMAGE_DEALT = 'damageDealt',
-  
-  // State changes
-  STATE_BASED_ACTIONS = 'stateBasedActions',
-  PLAYER_LOST = 'playerLost',
-  PLAYER_WON = 'playerWon',
-  GAME_ENDED = 'gameEnded',
-  
-  // Card actions
-  CARD_DRAWN = 'cardDrawn',
-  CARD_DISCARDED = 'cardDiscarded',
-  PERMANENT_DESTROYED = 'permanentDestroyed',
-  CARD_EXILED = 'cardExiled',
-  PERMANENT_TAPPED = 'permanentTapped',
-  PERMANENT_UNTAPPED = 'permanentUntapped',
-}
+// Import modular action handlers
+import {
+  executeSacrifice,
+  validateSacrifice,
+  executeSearchLibrary,
+  validateSearchLibrary,
+  executeDeclareAttackers,
+  validateDeclareAttackers,
+  executeDeclareBlockers,
+  validateDeclareBlockers,
+  executeCombatDamage,
+  executeFetchland,
+  validateFetchland,
+  // Game automation
+  initializeGame,
+  drawInitialHand,
+  processMulligan,
+  completeMulliganPhase,
+  advanceGame,
+  passPriority as advancePassPriority,
+  performStateBasedActions,
+  checkWinConditions,
+  executeTurnBasedAction,
+  GamePhase,
+  GameStep,
+} from './actions';
 
-export interface RulesEvent {
-  readonly type: RulesEngineEvent;
-  readonly timestamp: number;
-  readonly gameId: string;
-  readonly data: any;
-}
+// Re-export events from core module, import for local use
+export { RulesEngineEvent, type RulesEvent } from './core/events';
+import { RulesEngineEvent } from './core/events';
+import type { RulesEvent } from './core/events';
 
 /**
  * Action validation result
@@ -287,7 +262,25 @@ export class RulesEngineAdapter {
     const cost: ManaCost = { generic: 0 };
     
     // Handle non-string input (could be already parsed object or null/undefined)
-    if (!manaCost || typeof manaCost !== 'string') {
+    if (!manaCost) {
+      return cost;
+    }
+    
+    // If already an object with mana properties, return it directly
+    if (typeof manaCost === 'object') {
+      return {
+        generic: manaCost.generic || 0,
+        white: manaCost.white || 0,
+        blue: manaCost.blue || 0,
+        black: manaCost.black || 0,
+        red: manaCost.red || 0,
+        green: manaCost.green || 0,
+        colorless: manaCost.colorless || 0,
+      };
+    }
+    
+    // Parse string format like "{R}{R}{2}"
+    if (typeof manaCost !== 'string') {
       return cost;
     }
     
@@ -421,6 +414,14 @@ export class RulesEngineAdapter {
       };
     }
     
+    // Create action context for modular handlers
+    const actionContext = {
+      getState: (gid: string) => this.gameStates.get(gid),
+      setState: (gid: string, state: GameState) => this.gameStates.set(gid, state),
+      emit: (event: RulesEvent) => this.emit(event),
+      gameId,
+    };
+    
     // Execute action based on type
     let result: EngineResult<GameState>;
     switch (action.type) {
@@ -437,16 +438,44 @@ export class RulesEngineAdapter {
         result = this.activateAbilityAction(gameId, action);
         break;
       case 'declareAttackers':
-        result = this.declareAttackers(gameId, action);
+        result = executeDeclareAttackers(gameId, action, actionContext);
         break;
       case 'declareBlockers':
-        result = this.declareBlockers(gameId, action);
+        result = executeDeclareBlockers(gameId, action, actionContext);
         break;
       case 'resolveStack':
         result = this.resolveStackTop(gameId);
         break;
       case 'advanceTurn':
-        result = this.advanceTurnPhaseStep(gameId);
+      case 'advanceGame':
+        result = advanceGame(gameId, actionContext);
+        break;
+      case 'sacrifice':
+        result = executeSacrifice(gameId, action, actionContext);
+        break;
+      case 'searchLibrary':
+        result = executeSearchLibrary(gameId, action, actionContext);
+        break;
+      case 'payLife':
+        result = this.payLifeAction(gameId, action);
+        break;
+      case 'activateFetchland':
+        result = executeFetchland(gameId, action, actionContext);
+        break;
+      case 'dealCombatDamage':
+        result = executeCombatDamage(gameId, action, actionContext);
+        break;
+      case 'initializeGame':
+        result = initializeGame(gameId, action.players, actionContext);
+        break;
+      case 'drawInitialHand':
+        result = drawInitialHand(gameId, action.playerId, action.handSize || 7, actionContext);
+        break;
+      case 'mulligan':
+        result = processMulligan(gameId, action.playerId, action.keep, actionContext);
+        break;
+      case 'completeMulligan':
+        result = completeMulliganPhase(gameId, actionContext);
         break;
       default:
         result = { next: currentState, log: ['Unknown action type'] };
@@ -803,65 +832,6 @@ export class RulesEngineAdapter {
   }
   
   /**
-   * Declare attackers
-   */
-  private declareAttackers(gameId: string, action: any): EngineResult<GameState> {
-    const state = this.gameStates.get(gameId)!;
-    
-    const combat = {
-      attackers: action.attackers || [],
-      blockers: [],
-      defendingPlayer: action.defendingPlayer,
-    };
-    
-    const nextState: GameState = {
-      ...state,
-      combat,
-    };
-    
-    this.emit({
-      type: RulesEngineEvent.ATTACKERS_DECLARED,
-      timestamp: Date.now(),
-      gameId,
-      data: { attackers: action.attackers, defender: action.defendingPlayer },
-    });
-    
-    return {
-      next: nextState,
-      log: [`Attackers declared: ${action.attackers.length} creatures`],
-    };
-  }
-  
-  /**
-   * Declare blockers
-   */
-  private declareBlockers(gameId: string, action: any): EngineResult<GameState> {
-    const state = this.gameStates.get(gameId)!;
-    
-    const combat = {
-      ...state.combat!,
-      blockers: action.blockers || [],
-    };
-    
-    const nextState: GameState = {
-      ...state,
-      combat,
-    };
-    
-    this.emit({
-      type: RulesEngineEvent.BLOCKERS_DECLARED,
-      timestamp: Date.now(),
-      gameId,
-      data: { blockers: action.blockers },
-    });
-    
-    return {
-      next: nextState,
-      log: [`Blockers declared: ${action.blockers.length} blocks`],
-    };
-  }
-  
-  /**
    * Advance turn/phase/step
    */
   private advanceTurnPhaseStep(gameId: string): EngineResult<GameState> {
@@ -1019,6 +989,44 @@ export class RulesEngineAdapter {
         log: [`${playerId} took a mulligan`],
       };
     }
+  }
+  
+  /**
+   * Pay life as a cost
+   */
+  private payLifeAction(gameId: string, action: any): EngineResult<GameState> {
+    const state = this.gameStates.get(gameId)!;
+    const player = state.players.find(p => p.id === action.playerId);
+    
+    if (!player) {
+      return { next: state, log: ['Player not found'] };
+    }
+    
+    const amount = action.amount || 1;
+    const newLife = (player.life || 0) - amount;
+    
+    const updatedPlayers = state.players.map(p =>
+      p.id === action.playerId
+        ? { ...p, life: newLife }
+        : p
+    );
+    
+    const nextState: GameState = {
+      ...state,
+      players: updatedPlayers,
+    };
+    
+    this.emit({
+      type: RulesEngineEvent.LIFE_PAID,
+      timestamp: Date.now(),
+      gameId,
+      data: { playerId: action.playerId, amount, newLife },
+    });
+    
+    return {
+      next: nextState,
+      log: [`${action.playerId} paid ${amount} life`],
+    };
   }
 }
 

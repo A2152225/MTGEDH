@@ -193,6 +193,83 @@ export class RulesBridge {
         timestamp: event.timestamp,
       });
     });
+    
+    // Phase and step events
+    rulesEngine.on(RulesEngineEvent.PHASE_STARTED, (event) => {
+      this.io.to(this.gameId).emit('phaseStarted', {
+        gameId: this.gameId,
+        phase: event.data.phase,
+        step: event.data.step,
+        timestamp: event.timestamp,
+      });
+    });
+    
+    rulesEngine.on(RulesEngineEvent.STEP_STARTED, (event) => {
+      this.io.to(this.gameId).emit('stepStarted', {
+        gameId: this.gameId,
+        step: event.data.step,
+        phase: event.data.phase,
+        timestamp: event.timestamp,
+      });
+    });
+    
+    rulesEngine.on(RulesEngineEvent.TURN_STARTED, (event) => {
+      this.io.to(this.gameId).emit('turnStarted', {
+        gameId: this.gameId,
+        turn: event.data.turn,
+        activePlayer: event.data.activePlayer,
+        timestamp: event.timestamp,
+      });
+    });
+    
+    // Mulligan events
+    rulesEngine.on(RulesEngineEvent.MULLIGAN_DECISION, (event) => {
+      this.io.to(this.gameId).emit('mulliganDecision', {
+        gameId: this.gameId,
+        playerId: event.data.playerId,
+        kept: event.data.kept,
+        newHandSize: event.data.newHandSize,
+        timestamp: event.timestamp,
+      });
+    });
+    
+    rulesEngine.on(RulesEngineEvent.MULLIGAN_COMPLETED, (event) => {
+      this.io.to(this.gameId).emit('mulliganCompleted', {
+        gameId: this.gameId,
+        playerId: event.data.playerId,
+        mulliganCount: event.data.mulliganCount,
+        timestamp: event.timestamp,
+      });
+    });
+    
+    // Fetch land and tutor events
+    rulesEngine.on(RulesEngineEvent.PERMANENT_SACRIFICED, (event) => {
+      this.io.to(this.gameId).emit('permanentSacrificed', {
+        gameId: this.gameId,
+        permanentId: event.data.permanentId,
+        playerId: event.data.playerId,
+        cardName: event.data.cardName,
+        timestamp: event.timestamp,
+      });
+    });
+    
+    rulesEngine.on(RulesEngineEvent.LIBRARY_SEARCHED, (event) => {
+      this.io.to(this.gameId).emit('librarySearched', {
+        gameId: this.gameId,
+        playerId: event.data.playerId,
+        criteria: event.data.criteria,
+        foundCount: event.data.foundCount,
+        timestamp: event.timestamp,
+      });
+    });
+    
+    rulesEngine.on(RulesEngineEvent.LIBRARY_SHUFFLED, (event) => {
+      this.io.to(this.gameId).emit('libraryShuffled', {
+        gameId: this.gameId,
+        playerId: event.data.playerId,
+        timestamp: event.timestamp,
+      });
+    });
   }
   
   /**
