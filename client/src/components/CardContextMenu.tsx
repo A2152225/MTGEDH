@@ -108,7 +108,9 @@ function parseActivatedAbilities(card: KnownCardRef): ActivatedAbilityOption[] {
     let fetchDescription = 'Search your library for a land';
     
     // Try to extract the land type from the oracle text
-    const landTypeMatch = oracleText.match(/search your library for (?:a|an) ([^,]+) card/i);
+    // Match patterns like "search your library for a Forest or Plains card"
+    // or "search your library for a basic land card"
+    const landTypeMatch = oracleText.match(/search your library for (?:a|an) ((?:basic )?(?:(?:Forest|Plains|Island|Mountain|Swamp)(?: or (?:Forest|Plains|Island|Mountain|Swamp))*|land)) card/i);
     if (landTypeMatch) {
       fetchDescription = `Search for: ${landTypeMatch[1]}`;
     }

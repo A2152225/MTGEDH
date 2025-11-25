@@ -373,7 +373,9 @@ export function applyMorophonReduction(
     excess += applyColorReduction(result, color, reduction);
   }
   
-  // Apply excess to generic (Rule 118.7c)
+  // Rule 118.7c: If a cost reduction reduces the cost of colored mana
+  // more than the spell/ability requires, the excess reduction is applied
+  // to the generic mana cost instead.
   result.generic = Math.max(0, (result.generic || 0) - excess);
   
   return result as ManaAmount;
