@@ -188,7 +188,7 @@ export async function autoSelectAICommander(
     }
     
     // Find the best commander(s) from the deck
-    const { commanders, colorIdentity } = findBestCommanders(library);
+    let { commanders, colorIdentity } = findBestCommanders(library);
     
     if (commanders.length === 0) {
       console.warn('[AI] autoSelectAICommander: no valid commander found', { gameId, playerId });
@@ -198,12 +198,10 @@ export async function autoSelectAICommander(
       );
       if (legendary) {
         console.warn('[AI] Using fallback legendary as commander:', legendary.name);
-        commanders.push(legendary);
-        for (const color of extractColorIdentity(legendary)) {
-          if (!colorIdentity.includes(color)) {
-            colorIdentity.push(color);
-          }
-        }
+        // Create new arrays with the fallback commander
+        commanders = [legendary];
+        const fallbackColors = extractColorIdentity(legendary);
+        colorIdentity = [...fallbackColors];
       } else {
         console.error('[AI] No legendary cards found in deck, cannot set commander');
         return false;
@@ -525,8 +523,12 @@ function chooseCardsToDiscard(game: any, playerId: PlayerID, discardCount: numbe
     }
     
     // Keep low-cost spells (easier to cast)
-    const cmc = (manaCost.match(/\d+/) || ['0'])[0];
-    score += Math.max(0, 10 - parseInt(cmc, 10));
+    // Calculate approximate CMC by counting generic mana + number of colored symbols
+    const genericMatch = manaCost.match(/\d+/);
+    const generic = genericMatch ? parseInt(genericMatch[0], 10) : 0;
+    const coloredSymbols = (manaCost.match(/\{[WUBRG]\}/gi) || []).length;
+    const approxCMC = generic + coloredSymbols;
+    score += Math.max(0, 10 - approxCMC);
     
     // Keep creatures (good for board presence)
     if (typeLine.includes('creature')) {
@@ -632,7 +634,9 @@ export async function handleAIPriority(
           console.info('[AI] Playing land:', landCard.name);
           await executeAIPlayLand(io, gameId, playerId, landCard.id);
           // After playing land, continue with more actions
-          setTimeout(() => handleAIPriority(io, gameId, playerId), AI_THINK_TIME_MS);
+          setTimeout(() => {
+            handleAIPriority(io, gameId, playerId).catch(console.error);
+          }, AI_THINK_TIME_MS);
           return;
         }
       }
