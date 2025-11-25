@@ -344,6 +344,12 @@ export async function fetchCardsByExactNamesBatch(
       try {
         const card = toCachedCard(d);
         out.set(lcKey(card.name), card);
+        // Also add face names for double-faced cards
+        if (card.card_faces) {
+          for (const f of card.card_faces) {
+            if (f.name) out.set(lcKey(f.name), card);
+          }
+        }
       } catch {
         // ignore individual conversion errors
       }
