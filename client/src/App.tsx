@@ -187,6 +187,25 @@ export function App() {
   const isYouPlayer =
     !!safeView && !!you && safeView.players.some((p) => p.id === you);
 
+  // Pre-game and mulligan state
+  const isPreGame = useMemo(() => {
+    if (!safeView) return false;
+    const phaseStr = String(safeView.phase || "").toUpperCase();
+    return phaseStr === "" || phaseStr === "PRE_GAME";
+  }, [safeView]);
+
+  const mulliganState = useMemo(() => {
+    if (!safeView || !you) return null;
+    return (safeView as any).mulliganState?.[you] || null;
+  }, [safeView, you]);
+
+  const hasKeptHand = mulliganState?.hasKeptHand || false;
+  const mulligansTaken = mulliganState?.mulligansTaken || 0;
+
+  // Can mulligan if in pre-game, haven't kept, and haven't hit max mulligans
+  const canMulligan = isPreGame && isYouPlayer && !hasKeptHand && mulligansTaken < 6;
+  const canKeepHand = isPreGame && isYouPlayer && !hasKeptHand;
+
   // Auto-collapse join panel once you're an active player
   React.useEffect(() => {
     if (isYouPlayer) {
@@ -571,6 +590,63 @@ export function App() {
               </span>
             )}
           </div>
+
+          {/* Mulligan buttons - visible only in pre-game */}
+          {isPreGame && isYouPlayer && (
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                alignItems: "center",
+                padding: 6,
+                border: "1px solid #c6a6ff",
+                borderRadius: 6,
+                background: "#f8f0ff",
+              }}
+            >
+              {hasKeptHand ? (
+                <span style={{ fontSize: 12, color: "#6b46c1", fontWeight: 500 }}>
+                  ✓ Hand kept{mulligansTaken > 0 ? ` (${7 - mulligansTaken} cards)` : ""}
+                </span>
+              ) : (
+                <>
+                  <span style={{ fontSize: 12, color: "#553c9a" }}>
+                    Mulligans: {mulligansTaken}
+                  </span>
+                  <button
+                    onClick={() => socket.emit("keepHand", { gameId: safeView?.id })}
+                    disabled={!canKeepHand}
+                    style={{
+                      background: "#48bb78",
+                      color: "white",
+                      border: "none",
+                      borderRadius: 4,
+                      padding: "4px 12px",
+                      cursor: canKeepHand ? "pointer" : "not-allowed",
+                      opacity: canKeepHand ? 1 : 0.5,
+                    }}
+                  >
+                    Keep Hand
+                  </button>
+                  <button
+                    onClick={() => socket.emit("mulligan", { gameId: safeView?.id })}
+                    disabled={!canMulligan}
+                    style={{
+                      background: "#ed8936",
+                      color: "white",
+                      border: "none",
+                      borderRadius: 4,
+                      padding: "4px 12px",
+                      cursor: canMulligan ? "pointer" : "not-allowed",
+                      opacity: canMulligan ? 1 : 0.5,
+                    }}
+                  >
+                    Mulligan
+                  </button>
+                </>
+              )}
+            </div>
+          )}
 
           {/* Buttons on the right, in a stable group */}
           <div
