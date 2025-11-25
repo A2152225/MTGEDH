@@ -248,6 +248,50 @@ export function registerGameActions(io: Server, socket: Socket) {
           }
         }
         
+        // Now consume the mana from the pool to pay for the spell
+        // This leaves unspent mana in the pool for subsequent spells
+        const pool = game.state.manaPool[playerId] as Record<string, number>;
+        const colorMap: Record<string, string> = {
+          'W': 'white', 'U': 'blue', 'B': 'black', 'R': 'red', 'G': 'green', 'C': 'colorless'
+        };
+        
+        // First, consume colored mana requirements
+        for (const color of MANA_COLORS) {
+          const colorKey = colorMap[color];
+          const needed = totalColored[color] || 0;
+          if (needed > 0 && colorKey && pool[colorKey] >= needed) {
+            pool[colorKey] -= needed;
+            console.log(`[castSpellFromHand] Consumed ${needed} ${color} mana from pool`);
+          }
+        }
+        
+        // Then, consume generic mana (use any available mana, preferring colorless first)
+        let genericLeft = totalGeneric;
+        // First use colorless
+        if (genericLeft > 0 && pool.colorless > 0) {
+          const useColorless = Math.min(pool.colorless, genericLeft);
+          pool.colorless -= useColorless;
+          genericLeft -= useColorless;
+          console.log(`[castSpellFromHand] Consumed ${useColorless} colorless mana for generic cost`);
+        }
+        // Then use other colors
+        for (const color of MANA_COLORS) {
+          if (genericLeft <= 0) break;
+          const colorKey = colorMap[color];
+          if (colorKey && pool[colorKey] > 0) {
+            const useColor = Math.min(pool[colorKey], genericLeft);
+            pool[colorKey] -= useColor;
+            genericLeft -= useColor;
+            console.log(`[castSpellFromHand] Consumed ${useColor} ${color} mana for generic cost`);
+          }
+        }
+        
+        // Log remaining mana in pool
+        const remainingMana = Object.entries(pool).filter(([_, v]) => v > 0).map(([k, v]) => `${v} ${k}`).join(', ');
+        if (remainingMana) {
+          console.log(`[castSpellFromHand] Unspent mana remaining in pool: ${remainingMana}`);
+        }
+        
         // Bump sequence to ensure state changes are visible
         if (typeof game.bumpSeq === 'function') {
           game.bumpSeq();

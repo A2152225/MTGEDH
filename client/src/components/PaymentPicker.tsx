@@ -152,6 +152,13 @@ function computeColorsNeededByOtherCards(otherCards: OtherCardInfo[]): Set<Color
 /**
  * Calculate suggested payment: sources and colors to use
  * Returns a map of permanentId -> suggested color
+ * 
+ * Priority for generic mana payment:
+ * 1. Colorless-producing sources (e.g., Wastes, Sol Ring for {C})
+ * 2. Single-color lands (e.g., basic lands)
+ * 3. Multi-color lands (e.g., dual lands, Command Tower)
+ * 
+ * Also preserves colors needed by other cards in hand when possible.
  */
 function calculateSuggestedPayment(
   cost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] },
@@ -165,19 +172,55 @@ function calculateSuggestedPayment(
   // Track which sources we've used
   const usedSources = new Set<string>();
   
+  // Helper: check if source produces only colorless
+  const isColorlessOnly = (source: { options: Color[] }) => 
+    source.options.length === 1 && source.options[0] === 'C';
+  
+  // Helper: check if source produces colorless among other options
+  const hasColorlessOption = (source: { options: Color[] }) => 
+    source.options.includes('C');
+  
+  // Helper: count non-colorless options (for sorting multi-color lands last)
+  const colorOptionCount = (source: { options: Color[] }) => 
+    source.options.filter(c => c !== 'C').length;
+  
   // First pass: assign sources for specific color requirements
+  // For colored mana, prefer single-color sources first, then multi-color
   for (const c of MANA_COLORS) {
+    if (c === 'C') continue; // Handle colorless separately
     if (costRemaining[c] <= 0) continue;
     
-    for (const source of sources) {
-      if (usedSources.has(source.id)) continue;
-      if (!source.options.includes(c)) continue;
+    // Sort sources: prefer sources with fewer options (more specific)
+    const colorSources = sources
+      .filter(s => !usedSources.has(s.id) && s.options.includes(c))
+      .sort((a, b) => a.options.length - b.options.length);
+    
+    for (const source of colorSources) {
+      if (costRemaining[c] <= 0) break;
       
       suggestions.set(source.id, c);
       usedSources.add(source.id);
       costRemaining[c]--;
+    }
+  }
+  
+  // Handle colorless mana requirement (specific {C} cost, not generic)
+  if (costRemaining['C'] > 0) {
+    const colorlessSources = sources
+      .filter(s => !usedSources.has(s.id) && s.options.includes('C'))
+      .sort((a, b) => {
+        // Prefer colorless-only sources
+        if (isColorlessOnly(a) && !isColorlessOnly(b)) return -1;
+        if (!isColorlessOnly(a) && isColorlessOnly(b)) return 1;
+        return a.options.length - b.options.length;
+      });
+    
+    for (const source of colorlessSources) {
+      if (costRemaining['C'] <= 0) break;
       
-      if (costRemaining[c] <= 0) break;
+      suggestions.set(source.id, 'C');
+      usedSources.add(source.id);
+      costRemaining['C']--;
     }
   }
   
@@ -185,6 +228,7 @@ function calculateSuggestedPayment(
   for (const hybrid of cost.hybrids) {
     let bestColor: Color | null = null;
     let bestSource: { id: string; name: string; options: Color[] } | null = null;
+    let bestScore = Infinity;
     
     for (const source of sources) {
       if (usedSources.has(source.id)) continue;
@@ -192,8 +236,13 @@ function calculateSuggestedPayment(
       for (const c of hybrid) {
         if (!source.options.includes(c)) continue;
         
-        // Prefer colors NOT needed by other cards
-        if (bestColor === null || (!colorsToPreserve.has(c) && colorsToPreserve.has(bestColor))) {
+        // Score: prefer colors NOT needed by other cards, and fewer options
+        const preservePenalty = colorsToPreserve.has(c) ? 100 : 0;
+        const optionPenalty = source.options.length;
+        const score = preservePenalty + optionPenalty;
+        
+        if (score < bestScore) {
+          bestScore = score;
           bestColor = c;
           bestSource = source;
         }
@@ -207,33 +256,57 @@ function calculateSuggestedPayment(
   }
   
   // Third pass: assign sources for generic cost
-  // Prefer sources that produce colors NOT needed by other cards
+  // Priority: 1) colorless-only, 2) single-color, 3) multi-color
+  // Also prefer sources that don't produce colors needed by other cards
   if (genericRemaining > 0) {
-    // Sort remaining sources: prefer single-color sources first, then prefer colors not needed by other cards
     const remainingSources = sources.filter(s => !usedSources.has(s.id));
     
     remainingSources.sort((a, b) => {
-      // Single option sources first
-      if (a.options.length !== b.options.length) {
-        return a.options.length - b.options.length;
+      // 1. Colorless-only sources first (best for generic)
+      const aColorlessOnly = isColorlessOnly(a);
+      const bColorlessOnly = isColorlessOnly(b);
+      if (aColorlessOnly && !bColorlessOnly) return -1;
+      if (!aColorlessOnly && bColorlessOnly) return 1;
+      
+      // 2. Sources with colorless option (can pay generic without "wasting" colored mana)
+      const aHasColorless = hasColorlessOption(a);
+      const bHasColorless = hasColorlessOption(b);
+      if (aHasColorless && !bHasColorless) return -1;
+      if (!aHasColorless && bHasColorless) return 1;
+      
+      // 3. Single-color sources before multi-color
+      const aColorCount = colorOptionCount(a);
+      const bColorCount = colorOptionCount(b);
+      if (aColorCount !== bColorCount) {
+        return aColorCount - bColorCount;
       }
-      // Then prefer sources that don't produce colors needed by other cards
-      const aHasPreservedColor = a.options.some(c => colorsToPreserve.has(c));
-      const bHasPreservedColor = b.options.some(c => colorsToPreserve.has(c));
+      
+      // 4. Prefer sources that don't produce colors needed by other cards
+      const aHasPreservedColor = a.options.some(c => c !== 'C' && colorsToPreserve.has(c));
+      const bHasPreservedColor = b.options.some(c => c !== 'C' && colorsToPreserve.has(c));
       if (!aHasPreservedColor && bHasPreservedColor) return -1;
       if (aHasPreservedColor && !bHasPreservedColor) return 1;
+      
       return 0;
     });
     
     for (const source of remainingSources) {
       if (genericRemaining <= 0) break;
       
-      // Pick the color least needed by other cards
-      let bestColor = source.options[0];
-      for (const c of source.options) {
-        if (!colorsToPreserve.has(c)) {
-          bestColor = c;
-          break;
+      // Pick the best color from this source:
+      // 1. Colorless if available
+      // 2. Color not needed by other cards
+      // 3. Any available color
+      let bestColor: Color;
+      if (source.options.includes('C')) {
+        bestColor = 'C';
+      } else {
+        bestColor = source.options[0];
+        for (const c of source.options) {
+          if (!colorsToPreserve.has(c)) {
+            bestColor = c;
+            break;
+          }
         }
       }
       
