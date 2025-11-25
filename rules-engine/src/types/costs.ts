@@ -269,6 +269,147 @@ export interface AlternativeCost {
   readonly cost: Cost | CompositeCost;
   readonly isOptional: boolean;         // Rule 118.9b
   readonly replacesManaCost: boolean;   // Rule 118.9c - Doesn't change mana cost
+  readonly source?: string;             // Source of the alternative cost (e.g., "Jodah, Archmage Eternal")
+  readonly description?: string;        // Human-readable description
+}
+
+/**
+ * Jodah, Archmage Eternal style alternative cost
+ * "You may pay {W}{U}{B}{R}{G} rather than pay the mana cost"
+ */
+export const JODAH_ALTERNATIVE_COST: ManaAmount = {
+  white: 1,
+  blue: 1,
+  black: 1,
+  red: 1,
+  green: 1,
+  generic: 0,
+  colorless: 0,
+};
+
+/**
+ * Create Jodah-style alternative cost
+ */
+export function createJodahAlternativeCost(): AlternativeCost {
+  return {
+    cost: {
+      type: CostType.MANA,
+      description: 'Pay {W}{U}{B}{R}{G} instead of mana cost',
+      isOptional: true,
+      isMandatory: false,
+      amount: JODAH_ALTERNATIVE_COST,
+    } as ManaCostPayment,
+    isOptional: true,
+    replacesManaCost: true,
+    source: 'Jodah, Archmage Eternal',
+    description: 'Pay {W}{U}{B}{R}{G} instead of mana cost',
+  };
+}
+
+/**
+ * Morophon-style cost reduction
+ * "Spells of the chosen type cost {W}{U}{B}{R}{G} less to cast"
+ */
+export interface MorophonCostReduction {
+  readonly creatureType: string;
+  readonly reduction: ManaAmount;
+}
+
+/**
+ * Create Morophon-style cost reduction
+ */
+export function createMorophonCostReduction(creatureType: string): MorophonCostReduction {
+  return {
+    creatureType,
+    reduction: {
+      white: 1,
+      blue: 1,
+      black: 1,
+      red: 1,
+      green: 1,
+      generic: 0,
+      colorless: 0,
+    },
+  };
+}
+
+/**
+ * Apply Morophon-style reduction (each color by 1)
+ * This is a specific reduction that removes one of each color
+ */
+export function applyMorophonReduction(
+  originalCost: ManaAmount,
+  reduction: ManaAmount
+): ManaAmount {
+  const result = { ...originalCost };
+  
+  // Reduce each color, with excess going to generic
+  let excess = 0;
+  
+  // White
+  const whiteReduction = reduction.white || 0;
+  const currentWhite = result.white || 0;
+  if (whiteReduction > currentWhite) {
+    excess += whiteReduction - currentWhite;
+    result.white = 0;
+  } else {
+    result.white = currentWhite - whiteReduction;
+  }
+  
+  // Blue
+  const blueReduction = reduction.blue || 0;
+  const currentBlue = result.blue || 0;
+  if (blueReduction > currentBlue) {
+    excess += blueReduction - currentBlue;
+    result.blue = 0;
+  } else {
+    result.blue = currentBlue - blueReduction;
+  }
+  
+  // Black
+  const blackReduction = reduction.black || 0;
+  const currentBlack = result.black || 0;
+  if (blackReduction > currentBlack) {
+    excess += blackReduction - currentBlack;
+    result.black = 0;
+  } else {
+    result.black = currentBlack - blackReduction;
+  }
+  
+  // Red
+  const redReduction = reduction.red || 0;
+  const currentRed = result.red || 0;
+  if (redReduction > currentRed) {
+    excess += redReduction - currentRed;
+    result.red = 0;
+  } else {
+    result.red = currentRed - redReduction;
+  }
+  
+  // Green
+  const greenReduction = reduction.green || 0;
+  const currentGreen = result.green || 0;
+  if (greenReduction > currentGreen) {
+    excess += greenReduction - currentGreen;
+    result.green = 0;
+  } else {
+    result.green = currentGreen - greenReduction;
+  }
+  
+  // Colorless
+  const colorlessReduction = reduction.colorless || 0;
+  const currentColorless = result.colorless || 0;
+  if (colorlessReduction > currentColorless) {
+    excess += colorlessReduction - currentColorless;
+    result.colorless = 0;
+  } else {
+    result.colorless = currentColorless - colorlessReduction;
+  }
+  
+  // Apply excess to generic (Rule 118.7c)
+  result.generic = Math.max(0, (result.generic || 0) - excess);
+  
+  return result;
 }
 
 /**

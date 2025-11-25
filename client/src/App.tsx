@@ -356,6 +356,41 @@ export function App() {
     return colors;
   };
 
+  // Check if a card is a fetch land or other "sacrifice to search" land (not a mana source)
+  const isFetchLandOrSacrificeSearchLand = (oracleText: string): boolean => {
+    const text = oracleText.toLowerCase();
+    // Fetch lands typically say "sacrifice" and "search" in oracle text
+    // They don't produce mana directly
+    if (text.includes('sacrifice') && text.includes('search')) {
+      return true;
+    }
+    // Check for common fetch land patterns
+    if (text.includes('sacrifice') && text.includes('put it onto the battlefield')) {
+      return true;
+    }
+    return false;
+  };
+
+  // Check if a land actually produces mana (has "add" in its oracle text for mana)
+  const landProducesMana = (oracleText: string): boolean => {
+    const text = oracleText.toLowerCase();
+    // Look for patterns like "add {W}", "add one mana of any color", etc.
+    // Must have "add" AND either mana symbols or "mana"
+    return text.includes('add') && (text.includes('{') || text.includes('mana'));
+  };
+
+  // Check if an artifact meets metalcraft requirement (3+ artifacts on battlefield)
+  const checkMetalcraft = (playerId: string): boolean => {
+    if (!safeView) return false;
+    const battlefield = (safeView.battlefield || []).filter(perm => perm.controller === playerId);
+    const artifactCount = battlefield.filter(perm => {
+      const card = perm.card;
+      if (!card || !('type_line' in card)) return false;
+      return ((card as any).type_line || '').toLowerCase().includes('artifact');
+    }).length;
+    return artifactCount >= 3;
+  };
+
   // Get available mana sources (untapped lands and mana-producing artifacts/creatures)
   const getAvailableManaSourcesForPlayer = (playerId: string) => {
     if (!safeView) return [];
@@ -376,6 +411,11 @@ export function App() {
       const oracleText = ((card as any).oracle_text || '').toLowerCase();
       const name = card.name;
       
+      // Skip fetch lands and sacrifice-to-search lands - they don't produce mana
+      if (typeLine.includes('land') && isFetchLandOrSacrificeSearchLand(oracleText)) {
+        continue;
+      }
+      
       // Collect colors based on basic land types (handles dual lands like Tropical Island)
       const basicColors: ManaColor[] = [];
       if (typeLine.includes('plains')) basicColors.push('W');
@@ -389,16 +429,27 @@ export function App() {
         sources.push({ id: perm.id, name, options: basicColors });
       } else if (typeLine.includes('land')) {
         // Non-basic land without basic land types - parse oracle text
-        const oracleColors = parseManaColorsFromOracleText(oracleText);
-        if (oracleColors.length > 0) {
-          sources.push({ id: perm.id, name, options: oracleColors });
-        } else {
-          // Default to colorless if we can't determine the colors
-          sources.push({ id: perm.id, name, options: ['C'] });
+        // Only include if it actually produces mana
+        if (landProducesMana(oracleText)) {
+          const oracleColors = parseManaColorsFromOracleText(oracleText);
+          if (oracleColors.length > 0) {
+            sources.push({ id: perm.id, name, options: oracleColors });
+          } else {
+            // Default to colorless if we can't determine the colors but it does produce mana
+            sources.push({ id: perm.id, name, options: ['C'] });
+          }
         }
+        // If land doesn't produce mana (e.g., fetch lands), skip it
       } else if (typeLine.includes('artifact') || typeLine.includes('creature')) {
         // Check for mana-producing artifacts/creatures
         if (oracleText.includes('add') && (oracleText.includes('mana') || oracleText.includes('{'))) {
+          // Special check for Mox Opal - requires metalcraft (3+ artifacts)
+          if (name.toLowerCase() === 'mox opal') {
+            if (!checkMetalcraft(playerId)) {
+              continue; // Skip Mox Opal if metalcraft not met
+            }
+          }
+          
           const artifactColors = parseManaColorsFromOracleText(oracleText);
           if (artifactColors.length > 0) {
             sources.push({ id: perm.id, name, options: artifactColors });

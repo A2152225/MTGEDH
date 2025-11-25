@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import type { BattlefieldPermanent, KnownCardRef } from '../../../shared/src';
 import type { ImagePref } from './BattlefieldGrid';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
+import { CardContextMenu } from './CardContextMenu';
 
 function canonicalLandKey(typeLine?: string, name?: string) {
   const tl = (typeLine || '').toLowerCase();
@@ -24,6 +25,13 @@ export function LandRow(props: {
   onCardClick?: (id: string) => void;
   onRemove?: (id: string) => void;
   onCounter?: (id: string, kind: string, delta: number) => void;
+  // Context menu callbacks
+  onTap?: (id: string) => void;
+  onUntap?: (id: string) => void;
+  onActivateAbility?: (permanentId: string, abilityId: string) => void;
+  onSacrifice?: (id: string) => void;
+  canActivate?: boolean;
+  playerId?: string;
 }) {
   const {
     lands,
@@ -34,7 +42,9 @@ export function LandRow(props: {
     selectedTargets,
     onCardClick,
     onRemove,
-    onCounter
+    onCounter,
+    onTap, onUntap, onActivateAbility, onSacrifice,
+    canActivate = true, playerId
   } = props;
 
   const items = useMemo(() => lands.map(p => {
@@ -46,13 +56,16 @@ export function LandRow(props: {
       img: kc?.image_uris?.[imagePref] || kc?.image_uris?.normal || kc?.image_uris?.small,
       tapped: !!p.tapped,
       counters: p.counters || {},
-      key: canonicalLandKey(kc?.type_line, kc?.name)
+      key: canonicalLandKey(kc?.type_line, kc?.name),
+      perm: p,
     };
   }), [lands, imagePref]);
 
   const [hovered, setHovered] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ permanent: BattlefieldPermanent; x: number; y: number } | null>(null);
 
   return (
+    <>
     <div
       style={{ display: 'flex', alignItems: 'flex-start', gap: 8, overflowX: 'auto', paddingBottom: 4, overscrollBehavior: 'contain' as any }}
       data-no-zoom
@@ -81,6 +94,11 @@ export function LandRow(props: {
             onMouseEnter={(e) => { setHovered(it.id); showCardPreview(e.currentTarget as HTMLElement, (lands[idx].card as any), { prefer: 'above', anchorPadding: 0 }); }}
             onMouseLeave={(e) => { setHovered(prev => prev === it.id ? null : prev); hideCardPreview(e.currentTarget as HTMLElement); }}
             onClick={onCardClick ? () => onCardClick(it.id) : undefined}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setContextMenu({ permanent: it.perm, x: e.clientX, y: e.clientY });
+            }}
             style={{
               position: 'relative',
               width: tileWidth,
@@ -142,5 +160,24 @@ export function LandRow(props: {
         );
       })}
     </div>
+    
+    {/* Context Menu */}
+    {contextMenu && (
+      <CardContextMenu
+        permanent={contextMenu.permanent}
+        x={contextMenu.x}
+        y={contextMenu.y}
+        onClose={() => setContextMenu(null)}
+        onTap={onTap}
+        onUntap={onUntap}
+        onActivateAbility={onActivateAbility}
+        onAddCounter={onCounter}
+        onSacrifice={onSacrifice}
+        onRemove={onRemove}
+        canActivate={canActivate}
+        playerId={playerId}
+      />
+    )}
+    </>
   );
 }
