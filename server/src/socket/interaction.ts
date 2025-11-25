@@ -3,8 +3,7 @@ import { ensureGame, appendGameEvent, broadcastGame, getPlayerName } from "./uti
 import { appendEvent } from "../db";
 import { games } from "./socket";
 import { 
-  cardHasCreatureType, 
-  permanentHasCreatureType as sharedPermanentHasCreatureType,
+  permanentHasCreatureType,
   findPermanentsWithCreatureType 
 } from "../../../shared/src/creatureTypes";
 
@@ -12,14 +11,6 @@ import {
 let idCounter = 0;
 function generateId(prefix: string): string {
   return `${prefix}_${Date.now()}_${++idCounter}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
-/**
- * Check if a permanent has a specific creature type.
- * Uses the shared implementation that handles Tribal, Kindred, and Changelings.
- */
-function permanentHasCreatureType(permanent: any, creatureType: string): boolean {
-  return sharedPermanentHasCreatureType(permanent, creatureType);
 }
 
 /**
@@ -71,7 +62,8 @@ function parseAbilityCost(oracleText: string): {
   
   // Check for tapping multiple creatures of a type
   // Pattern: "Tap X untapped [Type] you control"
-  const tapCreaturesMatch = text.match(/tap (\w+|\d+) untapped ([a-z]+)(?:s)? you control/i);
+  // Use \w+ instead of [a-z]+ to properly capture creature types
+  const tapCreaturesMatch = text.match(/tap (\w+|\d+) untapped (\w+)(?:s)? you control/i);
   if (tapCreaturesMatch) {
     const countStr = tapCreaturesMatch[1].toLowerCase();
     const countMap: Record<string, number> = {

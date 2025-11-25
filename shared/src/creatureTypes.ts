@@ -141,11 +141,7 @@ export function cardHasCreatureType(
   // - "Legendary Creature — Merfolk Wizard"
   
   // Find the dash separator (could be em-dash, en-dash, or hyphen)
-  const dashIndex = typeLineLower.indexOf("—") !== -1 
-    ? typeLineLower.indexOf("—") 
-    : typeLineLower.indexOf("–") !== -1
-      ? typeLineLower.indexOf("–")
-      : typeLineLower.indexOf("-");
+  const dashIndex = findDashIndex(typeLineLower);
   
   if (dashIndex !== -1) {
     // Get the subtypes portion (after the dash)
@@ -158,6 +154,20 @@ export function cardHasCreatureType(
   }
   
   return false;
+}
+
+/**
+ * Helper function to find the dash separator in a type line.
+ * Checks for em-dash, en-dash, or hyphen.
+ */
+function findDashIndex(typeLine: string): number {
+  const emDash = typeLine.indexOf("—");
+  if (emDash !== -1) return emDash;
+  
+  const enDash = typeLine.indexOf("–");
+  if (enDash !== -1) return enDash;
+  
+  return typeLine.indexOf("-");
 }
 
 /**
@@ -193,12 +203,8 @@ export function extractCreatureTypes(
     return [...CREATURE_TYPES];
   }
   
-  // Find the dash separator
-  const dashIndex = typeLine.indexOf("—") !== -1 
-    ? typeLine.indexOf("—") 
-    : typeLine.indexOf("–") !== -1
-      ? typeLine.indexOf("–")
-      : typeLine.indexOf("-");
+  // Find the dash separator using the shared helper
+  const dashIndex = findDashIndex(typeLine);
   
   if (dashIndex === -1) return [];
   
