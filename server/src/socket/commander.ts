@@ -315,9 +315,9 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
   });
 
   // Cast commander from command zone
-  socket.on("castCommander", (payload: { gameId: string; commanderId?: string; commanderNameOrId?: string }) => {
+  socket.on("castCommander", (payload: { gameId: string; commanderId?: string; commanderNameOrId?: string; payment?: Array<{ permanentId: string; mana: string }> }) => {
     try {
-      const { gameId } = payload;
+      const { gameId, payment } = payload;
       // Accept both commanderId and commanderNameOrId for backwards compatibility
       let commanderId = payload.commanderId ?? payload.commanderNameOrId;
       
@@ -377,6 +377,16 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         }
       }
       
+      // Check if the commander is in the command zone
+      const inCommandZone = (commanderInfo as any).inCommandZone as string[] || commanderInfo.commanderIds.slice();
+      if (!inCommandZone.includes(commanderId)) {
+        socket.emit("error", {
+          code: "COMMANDER_NOT_IN_CZ",
+          message: "Commander is not in the command zone (may already be on the stack or battlefield)",
+        });
+        return;
+      }
+      
       // Check priority - only active player can cast spells during their turn
       if (game.state.priority !== pid) {
         socket.emit("error", {
@@ -398,13 +408,70 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       
       console.info(`[castCommander] Player ${pid} casting commander ${commanderId} (${commanderCard.name}) in game ${gameId}`);
       
+      // Handle mana payment: tap permanents to generate mana
+      if (payment && payment.length > 0) {
+        console.log(`[castCommander] Processing payment for ${commanderCard.name}:`, payment);
+        
+        // Get player's battlefield
+        const zones = game.state?.zones?.[pid];
+        const battlefield = zones?.battlefield || game.state?.battlefield?.filter((p: any) => p.controller === pid) || [];
+        
+        // Process each payment item: tap the permanent and add mana to pool
+        for (const { permanentId, mana } of payment) {
+          // Search in global battlefield (the structure may be flat)
+          const globalBattlefield = game.state?.battlefield || [];
+          const permanent = globalBattlefield.find((p: any) => p?.id === permanentId && p?.controller === pid);
+          
+          if (!permanent) {
+            socket.emit("error", {
+              code: "PAYMENT_SOURCE_NOT_FOUND",
+              message: `Permanent ${permanentId} not found on battlefield`,
+            });
+            return;
+          }
+          
+          if ((permanent as any).tapped) {
+            socket.emit("error", {
+              code: "PAYMENT_SOURCE_TAPPED",
+              message: `${(permanent as any).card?.name || 'Permanent'} is already tapped`,
+            });
+            return;
+          }
+          
+          // Tap the permanent
+          (permanent as any).tapped = true;
+          console.log(`[castCommander] Tapped ${(permanent as any).card?.name || permanentId} for ${mana} mana`);
+          
+          // Add mana to player's mana pool (initialize if needed)
+          game.state.manaPool = game.state.manaPool || {};
+          game.state.manaPool[pid] = game.state.manaPool[pid] || {
+            white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+          };
+          
+          // Map mana color to pool property
+          const manaColorMap: Record<string, string> = {
+            'W': 'white',
+            'U': 'blue',
+            'B': 'black',
+            'R': 'red',
+            'G': 'green',
+            'C': 'colorless',
+          };
+          
+          const poolKey = manaColorMap[mana];
+          if (poolKey) {
+            (game.state.manaPool[pid] as any)[poolKey]++;
+          }
+        }
+      }
+      
       // Add commander to stack (simplified - real implementation would handle costs, targets, etc.)
       try {
         if (typeof (game as any).pushStack === "function") {
           const stackItem = {
             id: `stack_${Date.now()}_${commanderId}`,
             controller: pid,
-            card: { ...commanderCard, zone: "stack" },
+            card: { ...commanderCard, zone: "stack", isCommander: true },
             targets: [],
           };
           (game as any).pushStack(stackItem);
@@ -414,12 +481,12 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           game.state.stack.push({
             id: `stack_${Date.now()}_${commanderId}`,
             controller: pid,
-            card: { ...commanderCard, zone: "stack" },
+            card: { ...commanderCard, zone: "stack", isCommander: true },
             targets: [],
           } as any);
         }
         
-        // Update commander tax
+        // Update commander tax and remove from command zone
         if (typeof (game as any).castCommander === "function") {
           (game as any).castCommander(pid, commanderId);
         }
@@ -429,7 +496,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           (game as any).bumpSeq();
         }
         
-        appendEvent(gameId, game.seq, "castCommander", { playerId: pid, commanderId });
+        appendEvent(gameId, game.seq, "castCommander", { playerId: pid, commanderId, payment });
         
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,

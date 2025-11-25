@@ -23,14 +23,16 @@ export function setCommander(
   colorIdentity?: ("W" | "U" | "B" | "R" | "G")[]
 ) {
   const { commandZone, libraries, zones, pendingInitialDraw, bumpSeq, state } = ctx;
-  const info = commandZone[playerId] ?? { commanderIds: [], commanderNames: [], tax: 0, taxById: {} };
+  const info = commandZone[playerId] ?? { commanderIds: [], commanderNames: [], tax: 0, taxById: {}, inCommandZone: [] };
   info.commanderIds = commanderIds.slice();
   info.commanderNames = commanderNames.slice();
+  // Initialize inCommandZone to all commander IDs (all start in the command zone)
+  (info as any).inCommandZone = commanderIds.slice();
   if (!info.taxById) info.taxById = {};
   info.tax = Object.values(info.taxById || {}).reduce((a, b) => a + b, 0);
 
   // Build commanderCards snapshot (prefer prior cached, then library entries, then battlefield)
-  const built: Array<{ id: string; name: string; type_line?: string; oracle_text?: string; image_uris?: any }> = [];
+  const built: Array<{ id: string; name: string; type_line?: string; oracle_text?: string; image_uris?: any; mana_cost?: string }> = [];
   const prevCards = (info as any).commanderCards as any[] | undefined;
 
   // Snapshot before removing from library.
@@ -47,6 +49,7 @@ export function setCommander(
         type_line: (src as any).type_line,
         oracle_text: (src as any).oracle_text,
         image_uris: (src as any).image_uris,
+        mana_cost: (src as any).mana_cost,
       });
     } else {
       // placeholder minimal snapshot if we have only id
@@ -121,7 +124,19 @@ export function setCommander(
 
 export function castCommander(ctx: GameContext, playerId: PlayerID, commanderId: string) {
   const { commandZone, bumpSeq, state } = ctx;
-  const info = commandZone[playerId] ?? { commanderIds: [], tax: 0, taxById: {} };
+  const info = commandZone[playerId] ?? { commanderIds: [], tax: 0, taxById: {}, inCommandZone: [] };
+  
+  // Check if the commander is in the command zone
+  const inCZ = (info as any).inCommandZone as string[] || [];
+  if (!inCZ.includes(commanderId)) {
+    console.warn(`[castCommander] Commander ${commanderId} is not in command zone for player ${playerId}`);
+    return; // Don't allow casting if not in command zone
+  }
+  
+  // Remove commander from inCommandZone
+  (info as any).inCommandZone = inCZ.filter((id: string) => id !== commanderId);
+  console.log(`[castCommander] Removed commander ${commanderId} from command zone. Remaining in CZ:`, (info as any).inCommandZone);
+  
   if (!info.taxById) info.taxById = {};
   info.taxById[commanderId] = (info.taxById[commanderId] ?? 0) + 2;
   info.tax = Object.values(info.taxById).reduce((a, b) => a + b, 0);
@@ -135,6 +150,30 @@ export function castCommander(ctx: GameContext, playerId: PlayerID, commanderId:
   bumpSeq();
 }
 
-export function moveCommanderToCZ(ctx: GameContext, _playerId: PlayerID, _commanderId: string) {
+export function moveCommanderToCZ(ctx: GameContext, playerId: PlayerID, commanderId: string) {
+  const { commandZone, bumpSeq, state } = ctx;
+  const info = commandZone[playerId] ?? { commanderIds: [], tax: 0, taxById: {}, inCommandZone: [] };
+  
+  // Only add if it's a valid commander for this player
+  if (!info.commanderIds.includes(commanderId)) {
+    console.warn(`[moveCommanderToCZ] ${commanderId} is not a commander for player ${playerId}`);
+    return;
+  }
+  
+  // Add commander back to inCommandZone if not already there
+  const inCZ = (info as any).inCommandZone as string[] || [];
+  if (!inCZ.includes(commanderId)) {
+    inCZ.push(commanderId);
+    (info as any).inCommandZone = inCZ;
+    console.log(`[moveCommanderToCZ] Added commander ${commanderId} back to command zone for player ${playerId}`);
+  }
+  
+  commandZone[playerId] = info;
+  
+  // Also update state.commandZone
+  if (state && state.commandZone) {
+    (state.commandZone as any)[playerId] = info;
+  }
+  
   ctx.bumpSeq();
 }
