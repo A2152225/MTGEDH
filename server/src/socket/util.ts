@@ -10,12 +10,12 @@
 // and env-gated verbose logging when DEBUG_STATE=1.
 
 import type { Server } from "socket.io";
-import { games, priorityTimers, PRIORITY_TIMEOUT_MS } from "./socket";
-import { appendEvent, createGameIfNotExists, getEvents } from "../db";
-import { createInitialGameState } from "../state";
-import type { InMemoryGame } from "../state/types";
-import { GameManager } from "../GameManager";
-import type { GameID, PlayerID } from "../../shared/src";
+import { games, priorityTimers, PRIORITY_TIMEOUT_MS } from "./socket.js";
+import { appendEvent, createGameIfNotExists, getEvents } from "../db/index.js";
+import { createInitialGameState } from "../state/index.js";
+import type { InMemoryGame } from "../state/types.js";
+import { GameManager } from "../GameManager.js";
+import type { GameID, PlayerID } from "../../../shared/src/index.js";
 
 /* ------------------- Defensive normalization helpers ------------------- */
 

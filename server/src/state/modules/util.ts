@@ -11,4 +11,4 @@ export {
   appendGameEvent,
   clearPriorityTimer,
   schedulePriorityTimeout,
-} from "../../socket/util";
+} from "../../socket/util.js";

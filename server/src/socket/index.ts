@@ -1,17 +1,16 @@
 import type { Server } from "socket.io";
-import type { ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData } from "../../shared/src";
+import type { ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData } from "../../../shared/src/index.js";
 
-import { registerJoinHandlers } from "./join";
-import { registerGameActions } from "./game-actions";
-import { registerCommanderHandlers } from "./commander";
-import { registerDeckHandlers } from "./deck";
-import { registerInteractionHandlers } from "./interaction";
-import { registerPriorityHandlers } from "./priority";
-import { registerDisconnectHandlers } from "./disconnect";
-import { registerJudgeHandlers } from "./judge";
-// TODO: AI handlers require additional module resolution fixes
-// import { registerAIHandlers } from "./ai";
-import { GameManager } from "../GameManager";
+import { registerJoinHandlers } from "./join.js";
+import { registerGameActions } from "./game-actions.js";
+import { registerCommanderHandlers } from "./commander.js";
+import { registerDeckHandlers } from "./deck.js";
+import { registerInteractionHandlers } from "./interaction.js";
+import { registerPriorityHandlers } from "./priority.js";
+import { registerDisconnectHandlers } from "./disconnect.js";
+import { registerJudgeHandlers } from "./judge.js";
+import { registerAIHandlers } from "./ai.js";
+import { GameManager } from "../GameManager.js";
 
 /**
  * Registers all Socket.IO event handlers for the server,
@@ -36,7 +35,7 @@ export function registerSocketHandlers(
     registerPriorityHandlers(io, socket);
     registerDisconnectHandlers(io, socket);
 	registerJudgeHandlers(io, socket);
-    // TODO: registerAIHandlers(io, socket);
+    registerAIHandlers(io, socket);
 
     // Log disconnection reason
     socket.on("disconnect", (reason) => {
