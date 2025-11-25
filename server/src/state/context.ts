@@ -141,7 +141,7 @@ export function createContext(gameId: string): GameContext {
     gameId,
     state,
     libraries: new Map<PlayerID, KnownCardRef[]>(),
-    zones: {},
+    zones: state.zones as Record<PlayerID, PlayerZones>,  // Share the same object as state.zones
     life: {},
     poison: {},
     experience: {},

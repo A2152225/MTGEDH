@@ -302,37 +302,44 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
       }
       
-      // Legacy game state update: remove card from hand and add to stack
+      // Use applyEvent to properly route through state management system
+      // This ensures ctx.zones is updated (which viewFor uses), not just game.state.zones
       try {
-        // Remove from hand
-        const handCards = zones.hand as any[];
-        const idx = handCards.findIndex((c: any) => c && c.id === cardId);
-        if (idx !== -1) {
-          const [removedCard] = handCards.splice(idx, 1);
-          zones.handCount = handCards.length;
-          
-          // Add to stack
-          const stackItem = {
-            id: `stack_${Date.now()}_${cardId}`,
-            controller: playerId,
-            card: { ...removedCard, zone: "stack" },
-            targets: targets || [],
-          };
-          
-          if (typeof game.pushStack === 'function') {
-            game.pushStack(stackItem);
-          } else {
-            // Fallback: manually add to stack
-            game.state.stack = game.state.stack || [];
-            game.state.stack.push(stackItem as any);
+        if (typeof game.applyEvent === 'function') {
+          game.applyEvent({ type: "castSpell", playerId, cardId, targets: targets || [] });
+          console.log(`[castSpellFromHand] Player ${playerId} cast ${cardInHand.name} (${cardId}) via applyEvent`);
+        } else {
+          // Fallback for legacy game instances without applyEvent
+          // Remove from hand
+          const handCards = zones.hand as any[];
+          const idx = handCards.findIndex((c: any) => c && c.id === cardId);
+          if (idx !== -1) {
+            const [removedCard] = handCards.splice(idx, 1);
+            zones.handCount = handCards.length;
+            
+            // Add to stack
+            const stackItem = {
+              id: `stack_${Date.now()}_${cardId}`,
+              controller: playerId,
+              card: { ...removedCard, zone: "stack" },
+              targets: targets || [],
+            };
+            
+            if (typeof game.pushStack === 'function') {
+              game.pushStack(stackItem);
+            } else {
+              // Fallback: manually add to stack
+              game.state.stack = game.state.stack || [];
+              game.state.stack.push(stackItem as any);
+            }
+            
+            // Bump sequence
+            if (typeof game.bumpSeq === 'function') {
+              game.bumpSeq();
+            }
+            
+            console.log(`[castSpellFromHand] Player ${playerId} cast ${removedCard.name} (${cardId}) via fallback`);
           }
-          
-          // Bump sequence
-          if (typeof game.bumpSeq === 'function') {
-            game.bumpSeq();
-          }
-          
-          console.log(`[castSpellFromHand] Player ${playerId} cast ${removedCard.name} (${cardId})`);
         }
       } catch (e) {
         console.error('Failed to cast spell:', e);
@@ -343,7 +350,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
       
-      // Persist the event to DB only (don't re-apply since we already modified state above)
+      // Persist the event to DB
       try {
         appendEvent(gameId, (game as any).seq ?? 0, "castSpell", { playerId, cardId, targets });
       } catch (e) {
