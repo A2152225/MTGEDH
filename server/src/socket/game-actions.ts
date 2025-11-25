@@ -377,6 +377,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const cardInHand = hand.find((c: any) => c?.id === cardId);
       const cardName = cardInHand?.name || "";
       const cardImageUrl = cardInHand?.image_uris?.small || cardInHand?.image_uris?.normal;
+      if (!cardInHand) {
         return;
       }
 
