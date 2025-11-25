@@ -136,6 +136,45 @@ export function registerGameActions(io: Server, socket: Socket) {
         });
         return;
       }
+      
+      // Check timing restrictions for sorcery-speed spells
+      const oracleText = (cardInHand.oracle_text || "").toLowerCase();
+      const hasFlash = oracleText.includes("flash");
+      const isInstant = typeLine.includes("instant");
+      const isSorcerySpeed = !isInstant && !hasFlash;
+      
+      if (isSorcerySpeed) {
+        // Sorcery-speed spells can only be cast during your main phase
+        // when you have priority and the stack is empty
+        const stepStr = String(game.state?.step || "").toUpperCase().trim();
+        const isMainPhase = phaseStr.includes("MAIN") || stepStr.includes("MAIN");
+        const isYourTurn = game.state.turnPlayer === playerId;
+        const stackEmpty = !game.state.stack || game.state.stack.length === 0;
+        
+        if (!isMainPhase) {
+          socket.emit("error", {
+            code: "SORCERY_TIMING",
+            message: "This spell can only be cast during a main phase (it doesn't have flash).",
+          });
+          return;
+        }
+        
+        if (!isYourTurn) {
+          socket.emit("error", {
+            code: "SORCERY_TIMING",
+            message: "This spell can only be cast during your turn (it doesn't have flash).",
+          });
+          return;
+        }
+        
+        if (!stackEmpty) {
+          socket.emit("error", {
+            code: "SORCERY_TIMING",
+            message: "This spell can only be cast when the stack is empty (it doesn't have flash).",
+          });
+          return;
+        }
+      }
 
       // Parse the mana cost to validate payment
       const manaCost = cardInHand.mana_cost || "";

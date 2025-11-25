@@ -323,6 +323,114 @@ function clearManaPool(ctx: GameContext) {
 }
 
 /**
+ * Get the maximum hand size for a player.
+ * Default is 7, but effects like "no maximum hand size" can change this.
+ * @param ctx Game context
+ * @param playerId Player ID
+ * @returns Maximum hand size for the player
+ */
+function getMaxHandSize(ctx: GameContext, playerId: string): number {
+  try {
+    // Check if player has "no maximum hand size" effect
+    const state = (ctx as any).state;
+    if (!state) return 7;
+    
+    // Check player-specific overrides
+    const playerMaxHandSize = state.maxHandSize?.[playerId];
+    if (playerMaxHandSize === "unlimited" || playerMaxHandSize === Infinity) {
+      return Infinity;
+    }
+    if (typeof playerMaxHandSize === "number") {
+      return playerMaxHandSize;
+    }
+    
+    // Check for battlefield permanents that grant "no maximum hand size"
+    // Examples: Reliquary Tower, Thought Vessel, Spellbook
+    const battlefield = state.battlefield || [];
+    for (const perm of battlefield) {
+      if (perm && perm.controller === playerId) {
+        const oracle = (perm.card?.oracle_text || "").toLowerCase();
+        if (oracle.includes("you have no maximum hand size")) {
+          return Infinity;
+        }
+      }
+    }
+    
+    // Default maximum hand size
+    return 7;
+  } catch (err) {
+    console.warn(`${ts()} getMaxHandSize failed:`, err);
+    return 7;
+  }
+}
+
+/**
+ * Discard down to max hand size for the active player during cleanup step.
+ * Rule 514.1: At the beginning of the cleanup step, if the active player's hand
+ * contains more cards than their maximum hand size, they discard enough cards
+ * to reduce their hand to that number.
+ * 
+ * Note: This automatically discards from the end of the hand for now.
+ * A full implementation would allow the player to choose which cards to discard.
+ */
+function discardToMaxHandSize(ctx: GameContext, playerId: string): number {
+  try {
+    const state = (ctx as any).state;
+    if (!state) return 0;
+    
+    const maxHandSize = getMaxHandSize(ctx, playerId);
+    if (maxHandSize === Infinity) {
+      return 0; // No maximum hand size
+    }
+    
+    // Get player's hand
+    const zones = state.zones?.[playerId];
+    if (!zones || !Array.isArray(zones.hand)) {
+      return 0;
+    }
+    
+    const hand = zones.hand;
+    const handSize = hand.length;
+    
+    if (handSize <= maxHandSize) {
+      return 0; // Already at or below max
+    }
+    
+    const discardCount = handSize - maxHandSize;
+    const discardedCards = [];
+    
+    // Discard from the end of the hand (in a real implementation,
+    // this would prompt the player to choose which cards to discard)
+    for (let i = 0; i < discardCount; i++) {
+      const card = hand.pop();
+      if (card) {
+        discardedCards.push(card);
+        
+        // Move card to graveyard
+        zones.graveyard = zones.graveyard || [];
+        card.zone = "graveyard";
+        zones.graveyard.push(card);
+      }
+    }
+    
+    // Update counts
+    zones.handCount = hand.length;
+    zones.graveyardCount = zones.graveyard.length;
+    
+    if (discardCount > 0) {
+      console.log(
+        `${ts()} [discardToMaxHandSize] Player ${playerId} discarded ${discardCount} cards to max hand size ${maxHandSize}`
+      );
+    }
+    
+    return discardCount;
+  } catch (err) {
+    console.warn(`${ts()} discardToMaxHandSize failed:`, err);
+    return 0;
+  }
+}
+
+/**
  * nextStep: advance to next step within the current turn
  * Simple progression through main phases and steps.
  * Full step/phase automation would be more complex, but this provides basic progression.
@@ -384,6 +492,7 @@ export function nextStep(ctx: GameContext) {
       if (currentStep === "endStep" || currentStep === "end" || currentStep === "END") {
         nextStep = "CLEANUP";
       } else if (currentStep === "cleanup" || currentStep === "CLEANUP") {
+        // Cleanup step: discard down to max hand size before advancing to next turn
         // After cleanup, advance to next turn
         shouldAdvanceTurn = true;
       } else {
@@ -412,6 +521,19 @@ export function nextStep(ctx: GameContext) {
 
     // If we should advance to next turn, call nextTurn instead
     if (shouldAdvanceTurn) {
+      // Before advancing to next turn, discard down to max hand size (Rule 514.1)
+      try {
+        const turnPlayer = (ctx as any).state.turnPlayer;
+        if (turnPlayer) {
+          const discarded = discardToMaxHandSize(ctx, turnPlayer);
+          if (discarded > 0) {
+            console.log(`${ts()} [nextStep] Discarded ${discarded} cards during cleanup`);
+          }
+        }
+      } catch (err) {
+        console.warn(`${ts()} [nextStep] Failed to discard during cleanup:`, err);
+      }
+      
       console.log(`${ts()} [nextStep] Cleanup complete, advancing to next turn`);
       ctx.bumpSeq();
       nextTurn(ctx);
