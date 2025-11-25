@@ -186,10 +186,69 @@ export function setTurnDirection(ctx: GameContext, dir: 1 | -1) {
 }
 
 /**
+ * Untap all permanents controlled by the specified player.
+ * This implements Rule 502.3: During the untap step, the active player
+ * untaps all their permanents simultaneously.
+ * 
+ * Special handling:
+ * - Stun counters (Rule 122.1c): Instead of untapping, remove a stun counter
+ * - "Doesn't untap" effects: Skip untapping for permanents with this flag
+ */
+function untapPermanentsForPlayer(ctx: GameContext, playerId: string) {
+  try {
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return;
+
+    let untappedCount = 0;
+    let stunCountersRemoved = 0;
+    let skippedDueToEffects = 0;
+
+    for (const permanent of battlefield) {
+      if (permanent && permanent.controller === playerId && permanent.tapped) {
+        // Check for "doesn't untap during untap step" effects
+        const doesntUntap = permanent.doesntUntap || false;
+        if (doesntUntap) {
+          skippedDueToEffects++;
+          continue;
+        }
+
+        // Check for stun counters (Rule 122.1c)
+        // If a tapped permanent with a stun counter would become untapped, instead remove a stun counter
+        const stunCounters = permanent.counters?.stun || 0;
+        if (stunCounters > 0) {
+          // Remove one stun counter instead of untapping
+          permanent.counters = permanent.counters || {};
+          permanent.counters.stun = stunCounters - 1;
+          if (permanent.counters.stun === 0) {
+            delete permanent.counters.stun;
+          }
+          stunCountersRemoved++;
+          // Permanent stays tapped
+          continue;
+        }
+
+        // Normal untap
+        permanent.tapped = false;
+        untappedCount++;
+      }
+    }
+
+    if (untappedCount > 0 || stunCountersRemoved > 0 || skippedDueToEffects > 0) {
+      console.log(
+        `${ts()} [untapPermanentsForPlayer] Player ${playerId}: untapped ${untappedCount}, stun counters removed ${stunCountersRemoved}, skipped (doesn't untap) ${skippedDueToEffects}`
+      );
+    }
+  } catch (err) {
+    console.warn(`${ts()} untapPermanentsForPlayer failed:`, err);
+  }
+}
+
+/**
  * nextTurn: advance to next player's turn
  * - Updates turnPlayer to the next player in order
  * - Resets phase to "beginning" (start of turn)
  * - Sets step to "UNTAP" 
+ * - Untaps all permanents controlled by the new active player
  * - Gives priority to the active player
  * - Resets landsPlayedThisTurn for all players
  */
@@ -208,6 +267,9 @@ export function nextTurn(ctx: GameContext) {
     // Reset to beginning of turn
     (ctx as any).state.phase = "beginning";
     (ctx as any).state.step = "UNTAP";
+
+    // Untap all permanents controlled by the active player (Rule 502.3)
+    untapPermanentsForPlayer(ctx, next);
 
     // give priority to the active player at the start of turn
     (ctx as any).state.priority = next;
@@ -249,11 +311,13 @@ export function nextStep(ctx: GameContext) {
     let nextStep = currentStep;
     let shouldDraw = false;
     let shouldAdvanceTurn = false;
+    let shouldUntap = false;
 
     if (currentPhase === "beginning" || currentPhase === "PRE_GAME" || currentPhase === "pre_game" || currentPhase === "") {
       if (currentStep === "" || currentStep === "untap" || currentStep === "UNTAP") {
         nextPhase = "beginning";
         nextStep = "UPKEEP";
+        shouldUntap = true; // Untap all permanents when leaving UNTAP step
       } else if (currentStep === "upkeep" || currentStep === "UPKEEP") {
         nextPhase = "beginning";
         nextStep = "DRAW";
@@ -313,6 +377,20 @@ export function nextStep(ctx: GameContext) {
       ctx.bumpSeq();
       nextTurn(ctx);
       return;
+    }
+
+    // If we're leaving the UNTAP step, untap all permanents controlled by the active player (Rule 502.3)
+    if (shouldUntap) {
+      try {
+        const turnPlayer = (ctx as any).state.turnPlayer;
+        if (turnPlayer) {
+          untapPermanentsForPlayer(ctx, turnPlayer);
+        } else {
+          console.warn(`${ts()} [nextStep] No turnPlayer set, cannot untap permanents`);
+        }
+      } catch (err) {
+        console.warn(`${ts()} [nextStep] Failed to untap permanents:`, err);
+      }
     }
 
     // If we're entering the draw step, draw a card for the active player

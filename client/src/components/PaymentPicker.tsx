@@ -92,10 +92,36 @@ function remainingAfter(cost: { colors: Record<Color, number>; generic: number; 
   return { colors: leftColors, hybrids: unsatisfiedHybrids, generic: leftGeneric };
 }
 
-function costBadge(label: string, n: number) {
+function costBadge(label: string, n: number, variant: 'default' | 'selected' = 'default') {
   if (n <= 0) return null;
+  
+  const styles = variant === 'selected' 
+    ? { 
+        display: 'inline-flex', 
+        alignItems: 'center', 
+        gap: 4, 
+        padding: '2px 8px', 
+        border: '1px solid #2b6cb0', 
+        borderRadius: 12, 
+        fontSize: 12, 
+        background: '#ebf8ff', 
+        color: '#1a365d',
+        fontWeight: 500,
+      }
+    : { 
+        display: 'inline-flex', 
+        alignItems: 'center', 
+        gap: 4, 
+        padding: '2px 6px', 
+        border: '1px solid #ddd', 
+        borderRadius: 12, 
+        fontSize: 12, 
+        background: '#fafafa',
+        color: '#333',
+      };
+  
   return (
-    <span key={label} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 6px', border: '1px solid #ddd', borderRadius: 12, fontSize: 12, background: '#fafafa' }}>
+    <span key={label} style={styles}>
       {label} × {n}
     </span>
   );
@@ -305,9 +331,9 @@ export function PaymentPicker(props: {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <b>Selected:</b>
-        {MANA_COLORS.map(c => costBadge(c, pool[c]))}
-        {Object.values(pool).every(v => v === 0) && <span style={{ fontSize: 12, opacity: 0.7 }}>None (leave empty to auto-pay)</span>}
+        <b style={{ color: '#1a365d' }}>Selected:</b>
+        {MANA_COLORS.map(c => costBadge(c, pool[c], 'selected'))}
+        {Object.values(pool).every(v => v === 0) && <span style={{ fontSize: 12, color: '#666' }}>None (leave empty to auto-pay)</span>}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
