@@ -160,12 +160,17 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
       if (response.ok) {
         const data = await response.json();
         setSaveMessage('✓ Deck saved successfully');
-        // Refresh the deck list
-        if (onRefreshDecks) onRefreshDecks();
-        // Switch to select mode and select the new deck
+        // Refresh the deck list and wait a bit for it to complete
+        if (onRefreshDecks) {
+          onRefreshDecks();
+        }
+        // Switch to select mode and select the new deck after a short delay
+        // to allow the deck list to refresh
         if (data.deckId) {
-          setAiDeckId(data.deckId);
-          setAiDeckMode('select');
+          setTimeout(() => {
+            setAiDeckId(data.deckId);
+            setAiDeckMode('select');
+          }, 100);
         }
       } else {
         setSaveMessage('✗ Failed to save deck');

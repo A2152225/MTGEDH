@@ -13,6 +13,7 @@ import {
   deleteGame as dbDeleteGame,
 } from "./db";
 import { listDecks, saveDeck } from "./db/decks";
+import { parseDecklist } from "./services/scryfall";
 import type {
   ClientToServerEvents,
   ServerToClientEvents,
@@ -109,25 +110,15 @@ app.post("/api/decks", (req, res) => {
       return;
     }
     
-    // Parse deck to get card count (simple line-based count)
-    const lines = text.split(/\r?\n/).filter((l: string) => {
-      const trimmed = l.trim();
-      // Skip empty lines, comments, and section headers
-      return trimmed.length > 0 && 
-             !trimmed.startsWith('#') && 
-             !trimmed.startsWith('//') &&
-             !trimmed.toLowerCase().startsWith('sideboard') &&
-             !trimmed.toLowerCase().startsWith('commander');
-    });
-    
+    // Use the shared parseDecklist function for consistent parsing
     let cardCount = 0;
-    for (const line of lines) {
-      const match = line.match(/^(\d+)/);
-      if (match) {
-        cardCount += parseInt(match[1], 10) || 1;
-      } else {
-        cardCount += 1;
-      }
+    try {
+      const parsed = parseDecklist(text);
+      cardCount = parsed.reduce((sum, entry) => sum + (entry.count || 1), 0);
+    } catch (e) {
+      console.warn("[API] parseDecklist failed, using fallback count:", e);
+      // Fallback: simple line count
+      cardCount = text.split(/\r?\n/).filter((l: string) => l.trim().length > 0).length;
     }
     
     const deckId = `deck_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;

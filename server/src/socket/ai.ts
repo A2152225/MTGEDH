@@ -485,7 +485,8 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           
           aiPlayer.library = resolvedCards;
           aiPlayer.deckName = finalDeckName;
-          aiPlayer.deckId = aiDeckId;
+          // Use provided deckId or generate one for imported text
+          aiPlayer.deckId = aiDeckId || (aiDeckText ? `imported_${Date.now().toString(36)}` : null);
           deckLoaded = true;
           
           // Initialize zones for AI
