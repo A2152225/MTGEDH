@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import type { KnownCardRef } from '../../../shared/src';
+import type { KnownCardRef, CardFace } from '../../../shared/src';
 
 // A lightweight, global, fixed-position overlay that shows a readable
 // card image near a hovered element. It avoids covering the hovered card
@@ -29,11 +29,16 @@ function getInitialPreviewScale(): number {
   return DEFAULT_PREVIEW_SCALE;
 }
 
+// Gap between cards when showing multiple faces
+const MULTI_FACE_GAP = 8;
+
 type CardLike = {
   name?: string;
   type_line?: string;
   image_uris?: KnownCardRef['image_uris'];
   faceDown?: boolean;
+  card_faces?: CardFace[];
+  layout?: string;
 };
 
 type ShowDetail = {
@@ -57,15 +62,18 @@ function clamp(v: number, min: number, max: number) {
 }
 
 // Public API: request a preview anchored to a UI element.
-// Will only render if the viewer has a known face (image_uris present).
+// Will only render if the viewer has a known face (image_uris present or card_faces with images).
 export function showCardPreview(
   element: HTMLElement,
   card: CardLike,
   opts?: { prefer?: 'left' | 'right' | 'above' | 'below' | 'auto'; anchorPadding?: number }
 ) {
   if (!element || !card) return;
-  const hasImg = !!(card.image_uris?.normal || card.image_uris?.small || card.image_uris?.art_crop);
-  if (!hasImg) return;
+  // Check main image_uris
+  const hasMainImg = !!(card.image_uris?.normal || card.image_uris?.small || card.image_uris?.art_crop);
+  // Check card_faces for double-faced cards
+  const hasFaceImg = card.card_faces?.some(f => f.image_uris?.normal || f.image_uris?.small || f.image_uris?.art_crop);
+  if (!hasMainImg && !hasFaceImg) return;
   const evt = new CustomEvent<ShowDetail>(SHOW_EVT, {
     detail: { element, card, prefer: opts?.prefer, anchorPadding: opts?.anchorPadding },
   });
@@ -79,7 +87,12 @@ export function hideCardPreview(element?: HTMLElement) {
 
 export function CardPreviewLayer() {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  const [meta, setMeta] = useState<{ name?: string; type_line?: string; url?: string } | null>(null);
+  const [meta, setMeta] = useState<{ 
+    name?: string; 
+    type_line?: string; 
+    url?: string;
+    faces?: Array<{ name?: string; url: string }>;
+  } | null>(null);
   const [prefer, setPrefer] = useState<'left' | 'right' | 'above' | 'below' | 'auto'>('above');
   const [anchorPadding, setAnchorPadding] = useState<number>(0);
   
@@ -105,6 +118,10 @@ export function CardPreviewLayer() {
     }
   }, []);
 
+  // Check if we have multiple faces to display
+  const hasFaces = meta?.faces && meta.faces.length > 1;
+  const faceCount = hasFaces ? meta!.faces!.length : 1;
+
   const pickAndSetPosition = useCallback((tkn: number) => {
     if (!anchor) return;
     // Ignore if a newer show was processed
@@ -115,9 +132,15 @@ export function CardPreviewLayer() {
     const vh = window.innerHeight;
 
     // Readable preview size; MTG portrait aspect ~0.72 (w/h) - apply scale
+    // For double-faced cards, show two cards side by side
     const basePreviewW = 360;
-    const previewW = Math.round(basePreviewW * previewScale);
-    const previewH = Math.round(previewW / 0.72);
+    const singleCardW = Math.round(basePreviewW * previewScale);
+    // Use smaller scale for double-faced cards to fit both on screen
+    const adjustedScale = faceCount > 1 ? 0.7 : 1;
+    const cardW = Math.round(singleCardW * adjustedScale);
+    const cardGap = faceCount > 1 ? MULTI_FACE_GAP : 0;
+    const previewW = cardW * faceCount + cardGap * (faceCount - 1);
+    const previewH = Math.round(cardW / 0.72);
     const gap = 12;   // gap used for non-above placements
     const margin = 8; // viewport margin
 
@@ -183,7 +206,7 @@ export function CardPreviewLayer() {
 
     // Fallback: ensure we do not cover the anchor; default to above exact
     if (!tried) placeAboveExact();
-  }, [anchor, anchorPadding, prefer, previewScale]);
+  }, [anchor, anchorPadding, prefer, previewScale, faceCount]);
 
   const scheduleUpdate = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -197,15 +220,35 @@ export function CardPreviewLayer() {
       const el = ce.detail?.element;
       const card = ce.detail?.card;
       if (!el || !card) return;
+      
+      // Check for double-faced card with card_faces
+      const faces: Array<{ name?: string; url: string }> = [];
+      if (card.card_faces && card.card_faces.length > 1) {
+        for (const face of card.card_faces) {
+          const faceUrl = face.image_uris?.normal || face.image_uris?.small || face.image_uris?.art_crop;
+          if (faceUrl) {
+            faces.push({ name: face.name, url: faceUrl });
+          }
+        }
+      }
+      
+      // Get primary image URL
       const url = card.image_uris?.normal || card.image_uris?.small || card.image_uris?.art_crop;
-      if (!url) return;
+      
+      // If no main URL and no faces, skip
+      if (!url && faces.length === 0) return;
 
       // Bump token to invalidate any in-flight updates from previous anchor
       tokenRef.current++;
       setAnchor(el);
       setPrefer(ce.detail?.prefer ?? 'above');
       setAnchorPadding(Number.isFinite(ce.detail?.anchorPadding as number) ? (ce.detail?.anchorPadding as number) : 0);
-      setMeta({ name: card.name, type_line: card.type_line, url });
+      setMeta({ 
+        name: card.name, 
+        type_line: card.type_line, 
+        url: url || faces[0]?.url,
+        faces: faces.length > 1 ? faces : undefined,
+      });
 
       // Compute immediately for crisp transitions
       pickAndSetPosition(tokenRef.current);
@@ -276,36 +319,90 @@ export function CardPreviewLayer() {
           zIndex: 10000,
           pointerEvents: 'none',
           filter: 'drop-shadow(0 12px 24px rgba(0,0,0,0.6))',
+          display: 'flex',
+          gap: hasFaces ? MULTI_FACE_GAP : 0,
         }}
       >
-      <img
-        src={meta.url}
-        alt={meta.name || ''}
-        style={{
-          width: '100%',
-          height: '100%',
-          objectFit: 'cover',
-          borderRadius: 10,
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          bottom: 0,
-          padding: '6px 10px',
-          fontSize: 12,
-          color: '#fff',
-          textShadow: '0 1px 2px rgba(0,0,0,0.8)',
-          background: 'linear-gradient(transparent, rgba(0,0,0,0.75))',
-          borderBottomLeftRadius: 10,
-          borderBottomRightRadius: 10,
-        }}
-      >
-        <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{meta.name}</div>
+        {hasFaces ? (
+          // Render multiple faces side by side
+          meta.faces!.map((face, idx) => {
+            const cardW = (pos.w - MULTI_FACE_GAP * (meta.faces!.length - 1)) / meta.faces!.length;
+            return (
+              <div
+                key={idx}
+                style={{
+                  width: cardW,
+                  height: '100%',
+                  position: 'relative',
+                  borderRadius: 10,
+                  overflow: 'hidden',
+                }}
+              >
+                <img
+                  src={face.url}
+                  alt={face.name || ''}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    borderRadius: 10,
+                  }}
+                />
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    padding: '4px 8px',
+                    fontSize: 10,
+                    color: '#fff',
+                    textShadow: '0 1px 2px rgba(0,0,0,0.8)',
+                    background: 'linear-gradient(transparent, rgba(0,0,0,0.75))',
+                    borderBottomLeftRadius: 10,
+                    borderBottomRightRadius: 10,
+                  }}
+                >
+                  <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {face.name || (idx === 0 ? 'Front' : 'Back')}
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        ) : (
+          // Render single card
+          <>
+            <img
+              src={meta.url}
+              alt={meta.name || ''}
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                borderRadius: 10,
+              }}
+            />
+            <div
+              style={{
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                bottom: 0,
+                padding: '6px 10px',
+                fontSize: 12,
+                color: '#fff',
+                textShadow: '0 1px 2px rgba(0,0,0,0.8)',
+                background: 'linear-gradient(transparent, rgba(0,0,0,0.75))',
+                borderBottomLeftRadius: 10,
+                borderBottomRightRadius: 10,
+              }}
+            >
+              <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{meta.name}</div>
+            </div>
+          </>
+        )}
       </div>
-    </div>
     </>
   );
 }

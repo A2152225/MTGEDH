@@ -588,6 +588,8 @@ async function applyConfirmedImport(
             mana_cost: (c as any).mana_cost,
             power: (c as any).power,
             toughness: (c as any).toughness,
+            card_faces: (c as any).card_faces,
+            layout: (c as any).layout,
           }))
         );
         (game as any)._lastImportedDecksNames =
@@ -1011,7 +1013,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       const resolvedCards: Array<
         Pick<
           KnownCardRef,
-          "id" | "name" | "type_line" | "oracle_text" | "image_uris" | "mana_cost" | "power" | "toughness"
+          "id" | "name" | "type_line" | "oracle_text" | "image_uris" | "mana_cost" | "power" | "toughness" | "card_faces" | "layout"
         >
       > = [];
       const validationCards: any[] = [];
@@ -1036,6 +1038,8 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
               mana_cost: (c as any).mana_cost,
               power: (c as any).power,
               toughness: (c as any).toughness,
+              card_faces: (c as any).card_faces,
+              layout: (c as any).layout,
             });
           }
         }
@@ -1054,6 +1058,8 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
                 mana_cost: (c as any).mana_cost,
                 power: (c as any).power,
                 toughness: (c as any).toughness,
+                card_faces: (c as any).card_faces,
+                layout: (c as any).layout,
               });
             }
           } catch {
@@ -1103,6 +1109,8 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             mana_cost: (c as any).mana_cost,
             power: (c as any).power,
             toughness: (c as any).toughness,
+            card_faces: (c as any).card_faces,
+            layout: (c as any).layout,
           }))
         );
       } catch (e) {
@@ -1597,7 +1605,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         const resolvedCards: Array<
           Pick<
             KnownCardRef,
-            "id" | "name" | "type_line" | "oracle_text" | "image_uris" | "mana_cost" | "power" | "toughness"
+            "id" | "name" | "type_line" | "oracle_text" | "image_uris" | "mana_cost" | "power" | "toughness" | "card_faces" | "layout"
           >
         > = [];
         const missing: string[] = [];
@@ -1620,6 +1628,8 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
                 mana_cost: (c as any).mana_cost,
                 power: (c as any).power,
                 toughness: (c as any).toughness,
+                card_faces: (c as any).card_faces,
+                layout: (c as any).layout,
               });
             }
           }
@@ -1637,6 +1647,8 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
                   mana_cost: (c as any).mana_cost,
                   power: (c as any).power,
                   toughness: (c as any).toughness,
+                  card_faces: (c as any).card_faces,
+                  layout: (c as any).layout,
                 });
               }
             } catch {
@@ -1724,6 +1736,8 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
               mana_cost: (c as any).mana_cost,
               power: (c as any).power,
               toughness: (c as any).toughness,
+              card_faces: (c as any).card_faces,
+              layout: (c as any).layout,
             }))
           );
         } catch (e) {
