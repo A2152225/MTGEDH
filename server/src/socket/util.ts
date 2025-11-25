@@ -1084,3 +1084,28 @@ export function validateManaPayment(
   
   return null;
 }
+
+/**
+ * Emit an event to a specific player's connected sockets.
+ * Iterates through all connected sockets and emits to those with matching playerId.
+ */
+export function emitToPlayer(
+  io: Server,
+  playerId: string,
+  event: string,
+  payload: any
+): void {
+  try {
+    for (const socket of io.sockets.sockets.values()) {
+      try {
+        if ((socket.data as any)?.playerId === playerId && !(socket.data as any)?.spectator) {
+          socket.emit(event, payload);
+        }
+      } catch {
+        // ignore per-socket errors
+      }
+    }
+  } catch (err) {
+    console.warn(`[util] emitToPlayer failed for ${event}:`, err);
+  }
+}

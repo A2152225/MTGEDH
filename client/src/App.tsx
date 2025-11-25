@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { socket } from "./socket";
 import type {
   ClientGameView,
@@ -16,6 +16,9 @@ import NameInUseModal from "./components/NameInUseModal";
 import { ZonesPanel } from "./components/ZonesPanel";
 import { ScrySurveilModal } from "./components/ScrySurveilModal";
 import { CastSpellModal } from "./components/CastSpellModal";
+import { CombatSelectionModal, type AttackerSelection, type BlockerSelection } from "./components/CombatSelectionModal";
+import { ShockLandChoiceModal } from "./components/ShockLandChoiceModal";
+import { TriggeredAbilityModal, type TriggerPromptData } from "./components/TriggeredAbilityModal";
 import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
 import { useGameSocket } from "./hooks/useGameSocket";
@@ -177,6 +180,32 @@ export function App() {
   const [createGameModalOpen, setCreateGameModalOpen] = useState(false);
   const [savedDecks, setSavedDecks] = useState<any[]>([]);
 
+  // Combat selection modal state
+  const [combatModalOpen, setCombatModalOpen] = useState(false);
+  const [combatMode, setCombatMode] = useState<'attackers' | 'blockers'>('attackers');
+  
+  // Shock land choice modal state
+  const [shockLandModalOpen, setShockLandModalOpen] = useState(false);
+  const [shockLandData, setShockLandData] = useState<{
+    permanentId: string;
+    cardName: string;
+    imageUrl?: string;
+    currentLife?: number;
+  } | null>(null);
+  
+  // Triggered ability modal state
+  const [triggerModalOpen, setTriggerModalOpen] = useState(false);
+  const [pendingTriggers, setPendingTriggers] = useState<TriggerPromptData[]>([]);
+  
+  // Deck validation state
+  const [deckValidation, setDeckValidation] = useState<{
+    format: string;
+    cardCount: number;
+    illegal: { name: string; reason: string }[];
+    warnings: string[];
+    valid: boolean;
+  } | null>(null);
+
   // Fetch saved decks when create game modal opens
   React.useEffect(() => {
     if (createGameModalOpen) {
@@ -226,6 +255,88 @@ export function App() {
       socket.off("nameInUse", handler);
     };
   }, []);
+
+  // Combat phase detection - auto-open combat modal when step changes
+  React.useEffect(() => {
+    if (!safeView || !you) return;
+    
+    const step = String((safeView as any).step || "").toLowerCase();
+    const isYourTurn = safeView.turnPlayer === you;
+    
+    // Only show attacker modal on your turn during declare attackers step
+    if (step === "declareattackers" || step === "declare_attackers") {
+      if (isYourTurn) {
+        setCombatMode('attackers');
+        setCombatModalOpen(true);
+      }
+    }
+    // Show blocker modal when you're being attacked during declare blockers step
+    else if (step === "declareblockers" || step === "declare_blockers") {
+      // Find if there are attackers targeting you
+      const attackersTargetingYou = (safeView.battlefield || []).filter((p: any) => 
+        p.attacking === you
+      );
+      if (attackersTargetingYou.length > 0) {
+        setCombatMode('blockers');
+        setCombatModalOpen(true);
+      }
+    }
+    else {
+      setCombatModalOpen(false);
+    }
+  }, [safeView, you]);
+
+  // Shock land prompt listener
+  React.useEffect(() => {
+    const handler = (payload: any) => {
+      if (payload.gameId === safeView?.id) {
+        setShockLandData({
+          permanentId: payload.permanentId,
+          cardName: payload.cardName,
+          imageUrl: payload.imageUrl,
+          currentLife: payload.currentLife,
+        });
+        setShockLandModalOpen(true);
+      }
+    };
+    socket.on("shockLandPrompt", handler);
+    return () => {
+      socket.off("shockLandPrompt", handler);
+    };
+  }, [safeView?.id]);
+
+  // Triggered ability prompt listener
+  React.useEffect(() => {
+    const handler = (payload: any) => {
+      if (payload.gameId === safeView?.id && payload.trigger) {
+        setPendingTriggers(prev => [...prev, payload.trigger]);
+        setTriggerModalOpen(true);
+      }
+    };
+    socket.on("triggerPrompt", handler);
+    return () => {
+      socket.off("triggerPrompt", handler);
+    };
+  }, [safeView?.id]);
+
+  // Deck validation result listener
+  React.useEffect(() => {
+    const handler = (payload: any) => {
+      if (payload.gameId === safeView?.id) {
+        setDeckValidation({
+          format: payload.format,
+          cardCount: payload.cardCount,
+          illegal: payload.illegal || [],
+          warnings: payload.warnings || [],
+          valid: payload.valid,
+        });
+      }
+    };
+    socket.on("deckValidationResult", handler);
+    return () => {
+      socket.off("deckValidationResult", handler);
+    };
+  }, [safeView?.id]);
 
   const isTable = layout === "table";
   const canPass = !!safeView && !!you && safeView.priority === you;
@@ -546,6 +657,106 @@ export function App() {
     });
     setCastSpellModalOpen(true);
   };
+
+  // Combat handlers
+  const handleDeclareAttackers = (attackers: AttackerSelection[]) => {
+    if (!safeView) return;
+    socket.emit("declareAttackers", {
+      gameId: safeView.id,
+      attackers,
+    });
+    setCombatModalOpen(false);
+  };
+
+  const handleDeclareBlockers = (blockers: BlockerSelection[]) => {
+    if (!safeView) return;
+    socket.emit("declareBlockers", {
+      gameId: safeView.id,
+      blockers,
+    });
+    setCombatModalOpen(false);
+  };
+
+  const handleSkipCombat = () => {
+    if (!safeView) return;
+    if (combatMode === 'attackers') {
+      socket.emit("skipDeclareAttackers", { gameId: safeView.id });
+    } else {
+      socket.emit("skipDeclareBlockers", { gameId: safeView.id });
+    }
+    setCombatModalOpen(false);
+  };
+
+  // Shock land handlers
+  const handleShockLandPayLife = () => {
+    if (!safeView || !shockLandData) return;
+    socket.emit("shockLandChoice", {
+      gameId: safeView.id,
+      permanentId: shockLandData.permanentId,
+      payLife: true,
+    });
+    setShockLandModalOpen(false);
+    setShockLandData(null);
+  };
+
+  const handleShockLandTapped = () => {
+    if (!safeView || !shockLandData) return;
+    socket.emit("shockLandChoice", {
+      gameId: safeView.id,
+      permanentId: shockLandData.permanentId,
+      payLife: false,
+    });
+    setShockLandModalOpen(false);
+    setShockLandData(null);
+  };
+
+  // Trigger handlers
+  const handleResolveTrigger = (triggerId: string, choice: any) => {
+    if (!safeView) return;
+    socket.emit("resolveTrigger", {
+      gameId: safeView.id,
+      triggerId,
+      choice,
+    });
+    setPendingTriggers(prev => prev.filter(t => t.id !== triggerId));
+    if (pendingTriggers.length <= 1) {
+      setTriggerModalOpen(false);
+    }
+  };
+
+  const handleSkipTrigger = (triggerId: string) => {
+    if (!safeView) return;
+    socket.emit("skipTrigger", {
+      gameId: safeView.id,
+      triggerId,
+    });
+    setPendingTriggers(prev => prev.filter(t => t.id !== triggerId));
+    if (pendingTriggers.length <= 1) {
+      setTriggerModalOpen(false);
+    }
+  };
+
+  // Get creatures for combat modal
+  const myCreatures = useMemo(() => {
+    if (!safeView || !you) return [];
+    return (safeView.battlefield || []).filter((p: BattlefieldPermanent) => 
+      p.controller === you && 
+      (p.card as KnownCardRef)?.type_line?.toLowerCase().includes('creature')
+    );
+  }, [safeView, you]);
+
+  const attackingCreatures = useMemo(() => {
+    if (!safeView) return [];
+    return (safeView.battlefield || []).filter((p: any) => 
+      p.attacking && 
+      (p.card as KnownCardRef)?.type_line?.toLowerCase().includes('creature')
+    );
+  }, [safeView]);
+
+  const defenders = useMemo(() => {
+    if (!safeView || !you) return [];
+    return (safeView.players || []).filter((p: any) => p.id !== you);
+  }, [safeView, you]);
 
   return (
     <div
@@ -1301,6 +1512,81 @@ export function App() {
         onCreateGame={handleCreateGame}
         savedDecks={savedDecks}
       />
+
+      {/* Combat Selection Modal */}
+      <CombatSelectionModal
+        open={combatModalOpen}
+        mode={combatMode}
+        availableCreatures={myCreatures}
+        attackingCreatures={attackingCreatures}
+        defenders={defenders}
+        onConfirm={(selections) => {
+          if (combatMode === 'attackers') {
+            handleDeclareAttackers(selections as AttackerSelection[]);
+          } else {
+            handleDeclareBlockers(selections as BlockerSelection[]);
+          }
+        }}
+        onSkip={handleSkipCombat}
+        onCancel={() => setCombatModalOpen(false)}
+      />
+
+      {/* Shock Land Choice Modal */}
+      <ShockLandChoiceModal
+        open={shockLandModalOpen}
+        cardName={shockLandData?.cardName || ''}
+        cardImageUrl={shockLandData?.imageUrl}
+        currentLife={shockLandData?.currentLife}
+        onPayLife={handleShockLandPayLife}
+        onEnterTapped={handleShockLandTapped}
+      />
+
+      {/* Triggered Ability Modal */}
+      <TriggeredAbilityModal
+        open={triggerModalOpen}
+        triggers={pendingTriggers}
+        onResolve={handleResolveTrigger}
+        onSkip={handleSkipTrigger}
+      />
+
+      {/* Deck Validation Status */}
+      {deckValidation && !deckValidation.valid && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 16,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            backgroundColor: '#fef2f2',
+            border: '1px solid #fca5a5',
+            borderRadius: 8,
+            padding: '12px 16px',
+            zIndex: 9000,
+            maxWidth: 400,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <span style={{ fontWeight: 600, color: '#dc2626' }}>
+              ⚠️ Deck Validation Issues
+            </span>
+            <button
+              onClick={() => setDeckValidation(null)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#666' }}
+            >
+              ×
+            </button>
+          </div>
+          <div style={{ fontSize: 12, color: '#7f1d1d' }}>
+            {deckValidation.illegal.slice(0, 3).map((i, idx) => (
+              <div key={idx}>• {i.name}: {i.reason}</div>
+            ))}
+            {deckValidation.illegal.length > 3 && (
+              <div>...and {deckValidation.illegal.length - 3} more</div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

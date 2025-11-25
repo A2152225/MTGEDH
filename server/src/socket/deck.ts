@@ -1112,6 +1112,54 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         );
       }
 
+      // Run deck validation against game format
+      try {
+        const format = (game.state && (game.state as any).format) || "commander";
+        const validation = validateDeck(format, validationCards);
+        
+        if (validation.illegal.length > 0 || validation.warnings.length > 0) {
+          socket.emit("deckValidationResult", {
+            gameId,
+            format,
+            cardCount: resolvedCards.length,
+            illegal: validation.illegal,
+            warnings: validation.warnings,
+            valid: validation.illegal.length === 0,
+          });
+          
+          // Also log to chat if there are illegal cards
+          if (validation.illegal.length > 0) {
+            const illegalNames = validation.illegal.slice(0, 5).map(i => `${i.name} (${i.reason})`);
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `⚠️ Deck validation: ${validation.illegal.length} card(s) may not be legal in ${format}: ${illegalNames.join(", ")}${validation.illegal.length > 5 ? ", ..." : ""}`,
+              ts: Date.now(),
+            });
+          }
+          
+          console.info("[deck] Validation result", {
+            gameId,
+            format,
+            illegalCount: validation.illegal.length,
+            warningCount: validation.warnings.length,
+          });
+        } else {
+          // Send positive validation result
+          socket.emit("deckValidationResult", {
+            gameId,
+            format,
+            cardCount: resolvedCards.length,
+            illegal: [],
+            warnings: [],
+            valid: true,
+          });
+        }
+      } catch (e) {
+        console.warn("[deck] Deck validation failed:", e);
+      }
+
       if (missing.length) {
         try {
           socket.emit("deckImportMissing", { gameId, missing });

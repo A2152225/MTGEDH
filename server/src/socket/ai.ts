@@ -5,12 +5,19 @@
  * Handles AI player registration, decision-making, and action execution.
  */
 
+import { randomBytes } from "crypto";
 import type { Server, Socket } from "socket.io";
 import { AIEngine, AIStrategy, AIDecisionType, type AIDecisionContext, type AIPlayerConfig } from "../../../rules-engine/src/AIEngine.js";
 import { ensureGame, broadcastGame } from "./util.js";
 import { appendEvent } from "../db/index.js";
 import { getDeck, listDecks } from "../db/decks.js";
+import { fetchCardsByExactNamesBatch, normalizeName } from "../services/scryfall.js";
 import type { PlayerID } from "../../../shared/src/types.js";
+
+/** Generate a unique ID using crypto */
+function generateId(prefix: string): string {
+  return `${prefix}_${randomBytes(8).toString('hex')}`;
+}
 
 // Singleton AI Engine instance
 const aiEngine = new AIEngine();
@@ -398,24 +405,85 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       if (aiDeckId) {
         try {
           const deck = getDeck(aiDeckId);
-          if (deck && deck.entries) {
+          if (deck && deck.entries && deck.entries.length > 0) {
             console.info('[AI] Loading deck for AI:', { deckId: aiDeckId, deckName: deck.name, cardCount: deck.card_count });
             
-            // Initialize AI's library with deck entries
-            // Note: We need to resolve card names to full card objects
-            // For now, store deck entries so they can be resolved later
-            aiPlayer.deckEntries = deck.entries;
-            aiPlayer.deckName = deck.name;
-            aiPlayer.deckId = aiDeckId;
-            deckLoaded = true;
+            // Resolve card names to full card objects using Scryfall
+            const requestedNames = deck.entries.map((e: any) => e.name);
+            let byName: Map<string, any> | null = null;
             
-            console.info('[AI] Deck loaded for AI:', { 
-              aiPlayerId, 
-              deckName: deck.name, 
-              entries: deck.entries.length 
-            });
+            try {
+              byName = await fetchCardsByExactNamesBatch(requestedNames);
+            } catch (e) {
+              console.warn('[AI] Failed to fetch cards from Scryfall:', e);
+            }
+            
+            const resolvedCards: any[] = [];
+            const missing: string[] = [];
+            
+            if (byName) {
+              for (const { name, count } of deck.entries) {
+                const key = normalizeName(name).toLowerCase();
+                const card = byName.get(key);
+                if (!card) {
+                  missing.push(name);
+                  continue;
+                }
+                for (let i = 0; i < (count || 1); i++) {
+                  resolvedCards.push({
+                    id: generateId(`card_${card.id}`),
+                    name: card.name,
+                    type_line: card.type_line,
+                    oracle_text: card.oracle_text,
+                    image_uris: card.image_uris,
+                    mana_cost: card.mana_cost,
+                    power: card.power,
+                    toughness: card.toughness,
+                    zone: 'library',
+                  });
+                }
+              }
+            }
+            
+            if (resolvedCards.length > 0) {
+              // Shuffle the library
+              for (let i = resolvedCards.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [resolvedCards[i], resolvedCards[j]] = [resolvedCards[j], resolvedCards[i]];
+              }
+              
+              aiPlayer.library = resolvedCards;
+              aiPlayer.deckName = deck.name;
+              aiPlayer.deckId = aiDeckId;
+              deckLoaded = true;
+              
+              // Initialize zones for AI
+              game.state.zones = game.state.zones || {};
+              game.state.zones[aiPlayerId] = {
+                hand: [],
+                handCount: 0,
+                library: resolvedCards,
+                libraryCount: resolvedCards.length,
+                graveyard: [],
+                graveyardCount: 0,
+              };
+              
+              console.info('[AI] Deck resolved for AI:', { 
+                aiPlayerId, 
+                deckName: deck.name, 
+                resolvedCount: resolvedCards.length,
+                missingCount: missing.length,
+              });
+              
+              if (missing.length > 0) {
+                console.warn('[AI] Missing cards in AI deck:', missing.slice(0, 10));
+              }
+            } else {
+              deckLoadError = `No cards could be resolved from deck "${deck.name}"`;
+              console.warn('[AI] No cards resolved:', { deckId: aiDeckId, error: deckLoadError });
+            }
           } else {
-            deckLoadError = `Deck with ID "${aiDeckId}" not found in database`;
+            deckLoadError = `Deck with ID "${aiDeckId}" not found or is empty`;
             console.warn('[AI] Deck not found:', { deckId: aiDeckId, error: deckLoadError });
           }
         } catch (e) {
