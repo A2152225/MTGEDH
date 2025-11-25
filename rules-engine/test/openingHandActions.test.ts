@@ -12,6 +12,15 @@ import {
   parseChancellorTrigger,
   isFirstUpkeep,
   processFirstUpkeepTriggers,
+  // Mulligan phase integration
+  createMulliganPhaseState,
+  playerKeepsHand,
+  canTakeOpeningHandActions,
+  // Opening hand actions phase
+  createOpeningHandActionsPhaseState,
+  getCurrentOpeningHandPlayer,
+  playerCompletesOpeningHandActions,
+  isReadyToStartGame,
 } from '../src/openingHandActions';
 
 describe('Opening Hand Actions', () => {
@@ -220,6 +229,159 @@ describe('Opening Hand Actions', () => {
       expect(result.effects[0].type).toBe('create_token');
       expect(result.effects[0].tokenName).toBe('Phyrexian Goblin');
       expect(result.log.length).toBeGreaterThan(0);
+    });
+  });
+  
+  describe('Mulligan Phase Integration', () => {
+    describe('createMulliganPhaseState', () => {
+      it('creates initial state with all players pending', () => {
+        const state = createMulliganPhaseState(['player1', 'player2', 'player3']);
+        
+        expect(state.playerIds).toEqual(['player1', 'player2', 'player3']);
+        expect(state.playersWhoHaveKept).toEqual([]);
+        expect(state.isComplete).toBe(false);
+      });
+    });
+    
+    describe('playerKeepsHand', () => {
+      it('tracks player keeping hand', () => {
+        let state = createMulliganPhaseState(['player1', 'player2']);
+        state = playerKeepsHand(state, 'player1');
+        
+        expect(state.playersWhoHaveKept).toContain('player1');
+        expect(state.isComplete).toBe(false);
+      });
+      
+      it('completes when all players keep', () => {
+        let state = createMulliganPhaseState(['player1', 'player2']);
+        state = playerKeepsHand(state, 'player1');
+        state = playerKeepsHand(state, 'player2');
+        
+        expect(state.isComplete).toBe(true);
+      });
+      
+      it('ignores duplicate keep actions', () => {
+        let state = createMulliganPhaseState(['player1', 'player2']);
+        state = playerKeepsHand(state, 'player1');
+        state = playerKeepsHand(state, 'player1'); // duplicate
+        
+        expect(state.playersWhoHaveKept.length).toBe(1);
+      });
+    });
+    
+    describe('canTakeOpeningHandActions', () => {
+      it('returns false when mulligans not complete', () => {
+        const state = createMulliganPhaseState(['player1', 'player2']);
+        expect(canTakeOpeningHandActions(state)).toBe(false);
+      });
+      
+      it('returns true when all players have kept', () => {
+        let state = createMulliganPhaseState(['player1', 'player2']);
+        state = playerKeepsHand(state, 'player1');
+        state = playerKeepsHand(state, 'player2');
+        
+        expect(canTakeOpeningHandActions(state)).toBe(true);
+      });
+    });
+  });
+  
+  describe('Opening Hand Actions Phase', () => {
+    describe('createOpeningHandActionsPhaseState', () => {
+      it('creates state with player order', () => {
+        const state = createOpeningHandActionsPhaseState(['player1', 'player2', 'player3']);
+        
+        expect(state.playerOrder).toEqual(['player1', 'player2', 'player3']);
+        expect(state.currentPlayerIndex).toBe(0);
+        expect(state.isComplete).toBe(false);
+      });
+      
+      it('handles empty player list', () => {
+        const state = createOpeningHandActionsPhaseState([]);
+        expect(state.isComplete).toBe(true);
+      });
+    });
+    
+    describe('getCurrentOpeningHandPlayer', () => {
+      it('returns first player initially', () => {
+        const state = createOpeningHandActionsPhaseState(['player1', 'player2']);
+        expect(getCurrentOpeningHandPlayer(state)).toBe('player1');
+      });
+      
+      it('returns null when complete', () => {
+        let state = createOpeningHandActionsPhaseState(['player1']);
+        state = playerCompletesOpeningHandActions(state, 'player1');
+        
+        expect(getCurrentOpeningHandPlayer(state)).toBe(null);
+      });
+    });
+    
+    describe('playerCompletesOpeningHandActions', () => {
+      it('advances to next player', () => {
+        let state = createOpeningHandActionsPhaseState(['player1', 'player2', 'player3']);
+        state = playerCompletesOpeningHandActions(state, 'player1');
+        
+        expect(state.currentPlayerIndex).toBe(1);
+        expect(getCurrentOpeningHandPlayer(state)).toBe('player2');
+      });
+      
+      it('accumulates delayed triggers', () => {
+        const trigger = {
+          sourceCardId: 'chancellor-1',
+          sourceCardName: 'Chancellor of the Forge',
+          controllerId: 'player1',
+          triggerData: {
+            effectType: 'create_token' as const,
+            tokenName: 'Goblin',
+            tokenCount: 1,
+          },
+          triggersAt: 'first_upkeep' as const,
+        };
+        
+        let state = createOpeningHandActionsPhaseState(['player1', 'player2']);
+        state = playerCompletesOpeningHandActions(state, 'player1', [trigger]);
+        
+        expect(state.delayedTriggers.length).toBe(1);
+        expect(state.delayedTriggers[0].sourceCardName).toBe('Chancellor of the Forge');
+      });
+      
+      it('completes when all players done', () => {
+        let state = createOpeningHandActionsPhaseState(['player1', 'player2']);
+        state = playerCompletesOpeningHandActions(state, 'player1');
+        state = playerCompletesOpeningHandActions(state, 'player2');
+        
+        expect(state.isComplete).toBe(true);
+      });
+    });
+    
+    describe('isReadyToStartGame', () => {
+      it('returns false when mulligan not complete', () => {
+        const mulliganState = createMulliganPhaseState(['player1', 'player2']);
+        const openingHandState = createOpeningHandActionsPhaseState([]);
+        
+        expect(isReadyToStartGame(mulliganState, openingHandState)).toBe(false);
+      });
+      
+      it('returns false when opening hand actions not complete', () => {
+        let mulliganState = createMulliganPhaseState(['player1', 'player2']);
+        mulliganState = playerKeepsHand(mulliganState, 'player1');
+        mulliganState = playerKeepsHand(mulliganState, 'player2');
+        
+        const openingHandState = createOpeningHandActionsPhaseState(['player1', 'player2']);
+        
+        expect(isReadyToStartGame(mulliganState, openingHandState)).toBe(false);
+      });
+      
+      it('returns true when both phases complete', () => {
+        let mulliganState = createMulliganPhaseState(['player1', 'player2']);
+        mulliganState = playerKeepsHand(mulliganState, 'player1');
+        mulliganState = playerKeepsHand(mulliganState, 'player2');
+        
+        let openingHandState = createOpeningHandActionsPhaseState(['player1', 'player2']);
+        openingHandState = playerCompletesOpeningHandActions(openingHandState, 'player1');
+        openingHandState = playerCompletesOpeningHandActions(openingHandState, 'player2');
+        
+        expect(isReadyToStartGame(mulliganState, openingHandState)).toBe(true);
+      });
     });
   });
 });

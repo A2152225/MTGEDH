@@ -443,3 +443,145 @@ export function processFirstUpkeepTriggers(
   
   return { effects, log };
 }
+
+// ============================================================================
+// Mulligan Phase Integration
+// ============================================================================
+
+/**
+ * State for tracking mulligan phase completion
+ * Rule 103.5: Mulligan process must complete for all players before opening hand actions
+ */
+export interface MulliganPhaseState {
+  readonly playerIds: readonly string[];
+  readonly playersWhoHaveKept: readonly string[];
+  readonly isComplete: boolean;
+}
+
+/**
+ * Create initial mulligan phase state
+ */
+export function createMulliganPhaseState(playerIds: readonly string[]): MulliganPhaseState {
+  return {
+    playerIds,
+    playersWhoHaveKept: [],
+    isComplete: false,
+  };
+}
+
+/**
+ * Record a player keeping their hand
+ * Rule 103.5: When all players have kept their hands, mulligan phase is complete
+ */
+export function playerKeepsHand(
+  state: MulliganPhaseState,
+  playerId: string
+): MulliganPhaseState {
+  if (state.playersWhoHaveKept.includes(playerId)) {
+    return state; // Already kept
+  }
+  
+  const newPlayersWhoHaveKept = [...state.playersWhoHaveKept, playerId];
+  const isComplete = state.playerIds.every(id => newPlayersWhoHaveKept.includes(id));
+  
+  return {
+    ...state,
+    playersWhoHaveKept: newPlayersWhoHaveKept,
+    isComplete,
+  };
+}
+
+/**
+ * Check if mulligan phase is complete and opening hand actions can be taken
+ * Rule 103.6: Opening hand actions occur after mulligans are complete
+ */
+export function canTakeOpeningHandActions(state: MulliganPhaseState): boolean {
+  return state.isComplete;
+}
+
+/**
+ * State for the opening hand actions phase (after mulligans)
+ * Rule 103.6: Starting player takes all their opening hand actions first,
+ * then each other player in turn order
+ */
+export interface OpeningHandActionsPhaseState {
+  readonly playerOrder: readonly string[];
+  readonly currentPlayerIndex: number;
+  readonly playersCompleted: readonly string[];
+  readonly isComplete: boolean;
+  readonly delayedTriggers: readonly DelayedTrigger[];
+}
+
+/**
+ * Create opening hand actions phase state
+ * @param playerOrder - Players in turn order, starting player first
+ */
+export function createOpeningHandActionsPhaseState(
+  playerOrder: readonly string[]
+): OpeningHandActionsPhaseState {
+  return {
+    playerOrder,
+    currentPlayerIndex: 0,
+    playersCompleted: [],
+    isComplete: playerOrder.length === 0,
+    delayedTriggers: [],
+  };
+}
+
+/**
+ * Get the player who should take opening hand actions now
+ */
+export function getCurrentOpeningHandPlayer(
+  state: OpeningHandActionsPhaseState
+): string | null {
+  if (state.isComplete) return null;
+  return state.playerOrder[state.currentPlayerIndex] || null;
+}
+
+/**
+ * Record that a player has completed their opening hand actions
+ * @param state Current phase state
+ * @param playerId The player who completed their actions
+ * @param newDelayedTriggers Any new delayed triggers created (e.g., Chancellor reveals)
+ */
+export function playerCompletesOpeningHandActions(
+  state: OpeningHandActionsPhaseState,
+  playerId: string,
+  newDelayedTriggers: readonly DelayedTrigger[] = []
+): OpeningHandActionsPhaseState {
+  if (state.playersCompleted.includes(playerId)) {
+    return state; // Already completed
+  }
+  
+  const newPlayersCompleted = [...state.playersCompleted, playerId];
+  const newCurrentPlayerIndex = state.currentPlayerIndex + 1;
+  const isComplete = newCurrentPlayerIndex >= state.playerOrder.length;
+  
+  return {
+    ...state,
+    currentPlayerIndex: newCurrentPlayerIndex,
+    playersCompleted: newPlayersCompleted,
+    isComplete,
+    delayedTriggers: [...state.delayedTriggers, ...newDelayedTriggers],
+  };
+}
+
+/**
+ * Full pre-game setup sequence result
+ */
+export interface PreGameSetupResult {
+  readonly mulliganState: MulliganPhaseState;
+  readonly openingHandActionsState: OpeningHandActionsPhaseState;
+  readonly readyToStartGame: boolean;
+  readonly log: readonly string[];
+}
+
+/**
+ * Check if the game is ready to start (all pre-game phases complete)
+ */
+export function isReadyToStartGame(
+  mulliganState: MulliganPhaseState,
+  openingHandActionsState: OpeningHandActionsPhaseState
+): boolean {
+  return mulliganState.isComplete && openingHandActionsState.isComplete;
+}
