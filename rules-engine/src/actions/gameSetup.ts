@@ -112,6 +112,9 @@ export function drawInitialHand(
 
 /**
  * Shuffle a player's library
+ * Note: Uses Math.random() which is sufficient for casual play.
+ * For competitive/tournament play, consider implementing a more
+ * robust randomization method (e.g., server-side cryptographic RNG).
  */
 function shuffleLibrary(library: any[]): any[] {
   const shuffled = [...library];

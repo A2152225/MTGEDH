@@ -104,7 +104,9 @@ export function executeCleanupStep(
   }
   
   // Check for discard requirement
-  const maxHandSize = 7;
+  // Note: Default max hand size is 7, but can be modified by effects
+  // Read from player state if available, otherwise use default
+  const maxHandSize = (player as any).maxHandSize ?? 7;
   const handSize = (player.hand || []).length;
   const discardRequired = Math.max(0, handSize - maxHandSize);
   

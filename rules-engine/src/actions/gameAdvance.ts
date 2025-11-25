@@ -169,10 +169,12 @@ export function passPriority(
       return advanceGame(gameId, context);
     } else {
       // Resolve top of stack
-      // This would need to be implemented
+      // TODO: Implement full stack resolution with resolveStackTop
+      // For now, reset priority passes and continue
+      // Stack resolution will be handled by existing resolveStack action
       return {
         next: { ...state, priorityPasses: 0 } as any,
-        log: ['Resolving stack...'],
+        log: ['All players passed, ready to resolve stack'],
       };
     }
   }

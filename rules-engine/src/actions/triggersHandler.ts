@@ -59,6 +59,11 @@ export function processTriggers(
 
 /**
  * Find all triggered abilities on permanents
+ * 
+ * Note: This is a simplified detection that looks for trigger keywords.
+ * A full implementation would require parsing oracle text properly.
+ * This may produce false positives for text containing trigger keywords
+ * in non-ability contexts (e.g., reminder text, flavor references).
  */
 export function findTriggeredAbilities(state: GameState): TriggeredAbility[] {
   const abilities: TriggeredAbility[] = [];
@@ -68,10 +73,11 @@ export function findTriggeredAbilities(state: GameState): TriggeredAbility[] {
     for (const perm of player.battlefield || []) {
       const oracleText = perm.card?.oracle_text || '';
       
-      // Look for trigger keywords
-      if (oracleText.toLowerCase().includes('when ') ||
-          oracleText.toLowerCase().includes('whenever ') ||
-          oracleText.toLowerCase().includes('at the beginning')) {
+      // Look for trigger patterns at the start of sentences or after periods
+      // This reduces false positives from casual mentions in text
+      const triggerPattern = /(?:^|\.\s*)(when|whenever|at the beginning)/i;
+      
+      if (triggerPattern.test(oracleText)) {
         // This is a simplified detection - real implementation would parse oracle text
         abilities.push({
           id: `${perm.id}-trigger`,
@@ -79,7 +85,7 @@ export function findTriggeredAbilities(state: GameState): TriggeredAbility[] {
           sourceName: perm.card?.name || 'Unknown',
           controllerId: player.id,
           keyword: 'when' as any,
-          event: TriggerEvent.ENTERS_BATTLEFIELD, // Placeholder
+          event: TriggerEvent.ENTERS_BATTLEFIELD, // Placeholder - would need proper parsing
           effect: oracleText,
         });
       }
