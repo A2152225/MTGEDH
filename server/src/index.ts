@@ -12,6 +12,8 @@ import {
   listGames as dbListGames,
   deleteGame as dbDeleteGame,
 } from "./db";
+import { listDecks, saveDeck } from "./db/decks";
+import { parseDecklist } from "./services/scryfall";
 import type {
   ClientToServerEvents,
   ServerToClientEvents,
@@ -79,6 +81,63 @@ app.get("/api/games", (req, res) => {
   } catch (err) {
     console.error("GET /api/games failed:", err);
     res.status(500).json({ error: "Failed to list games" });
+  }
+});
+
+// API: list saved decks (for AI opponent deck selection)
+app.get("/api/decks", (req, res) => {
+  try {
+    const decks = listDecks();
+    res.json({ decks });
+  } catch (err) {
+    console.error("GET /api/decks failed:", err);
+    res.status(500).json({ error: "Failed to list decks" });
+  }
+});
+
+// API: save a deck (for AI opponent deck import)
+app.post("/api/decks", (req, res) => {
+  try {
+    const { name, text } = req.body;
+    
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      res.status(400).json({ error: "Deck name is required" });
+      return;
+    }
+    
+    if (!text || typeof text !== 'string' || !text.trim()) {
+      res.status(400).json({ error: "Deck text is required" });
+      return;
+    }
+    
+    // Use the shared parseDecklist function for consistent parsing
+    let cardCount = 0;
+    try {
+      const parsed = parseDecklist(text);
+      cardCount = parsed.reduce((sum, entry) => sum + (entry.count || 1), 0);
+    } catch (e) {
+      console.warn("[API] parseDecklist failed, using fallback count:", e);
+      // Fallback: simple line count
+      cardCount = text.split(/\r?\n/).filter((l: string) => l.trim().length > 0).length;
+    }
+    
+    const deckId = `deck_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    
+    saveDeck({
+      id: deckId,
+      name: name.trim(),
+      text: text.trim(),
+      created_by_id: 'api',
+      created_by_name: 'API Import',
+      card_count: cardCount,
+    });
+    
+    console.info("[API] Deck saved:", { deckId, name: name.trim(), cardCount });
+    
+    res.json({ success: true, deckId, cardCount });
+  } catch (err) {
+    console.error("POST /api/decks failed:", err);
+    res.status(500).json({ error: "Failed to save deck" });
   }
 });
 

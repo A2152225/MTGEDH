@@ -207,14 +207,18 @@ export function App() {
   } | null>(null);
 
   // Fetch saved decks when create game modal opens
+  const refreshSavedDecks = React.useCallback(() => {
+    fetch('/api/decks')
+      .then(res => res.ok ? res.json() : { decks: [] })
+      .then(data => setSavedDecks(data.decks || []))
+      .catch(() => setSavedDecks([]));
+  }, []);
+
   React.useEffect(() => {
     if (createGameModalOpen) {
-      fetch('/api/decks')
-        .then(res => res.ok ? res.json() : { decks: [] })
-        .then(data => setSavedDecks(data.decks || []))
-        .catch(() => setSavedDecks([]));
+      refreshSavedDecks();
     }
-  }, [createGameModalOpen]);
+  }, [createGameModalOpen, refreshSavedDecks]);
 
   // Handle game creation
   const handleCreateGame = (config: GameCreationConfig) => {
@@ -228,6 +232,9 @@ export function App() {
         aiName: config.aiName,
         aiStrategy: config.aiStrategy,
         aiDeckId: config.aiDeckId,
+        // New: support importing deck text directly
+        aiDeckText: config.aiDeckText,
+        aiDeckName: config.aiDeckName,
       });
     }
     
@@ -1511,6 +1518,7 @@ export function App() {
         onClose={() => setCreateGameModalOpen(false)}
         onCreateGame={handleCreateGame}
         savedDecks={savedDecks}
+        onRefreshDecks={refreshSavedDecks}
       />
 
       {/* Combat Selection Modal */}
