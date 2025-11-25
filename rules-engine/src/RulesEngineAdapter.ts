@@ -86,6 +86,18 @@ import {
   executeCombatDamage,
   executeFetchland,
   validateFetchland,
+  // Game automation
+  initializeGame,
+  drawInitialHand,
+  processMulligan,
+  completeMulliganPhase,
+  advanceGame,
+  passPriority as advancePassPriority,
+  performStateBasedActions,
+  checkWinConditions,
+  executeTurnBasedAction,
+  GamePhase,
+  GameStep,
 } from './actions';
 
 // Re-export events from core module, import for local use
@@ -435,7 +447,8 @@ export class RulesEngineAdapter {
         result = this.resolveStackTop(gameId);
         break;
       case 'advanceTurn':
-        result = this.advanceTurnPhaseStep(gameId);
+      case 'advanceGame':
+        result = advanceGame(gameId, actionContext);
         break;
       case 'sacrifice':
         result = executeSacrifice(gameId, action, actionContext);
@@ -451,6 +464,18 @@ export class RulesEngineAdapter {
         break;
       case 'dealCombatDamage':
         result = executeCombatDamage(gameId, action, actionContext);
+        break;
+      case 'initializeGame':
+        result = initializeGame(gameId, action.players, actionContext);
+        break;
+      case 'drawInitialHand':
+        result = drawInitialHand(gameId, action.playerId, action.handSize || 7, actionContext);
+        break;
+      case 'mulligan':
+        result = processMulligan(gameId, action.playerId, action.keep, actionContext);
+        break;
+      case 'completeMulligan':
+        result = completeMulliganPhase(gameId, actionContext);
         break;
       default:
         result = { next: currentState, log: ['Unknown action type'] };
