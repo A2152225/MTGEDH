@@ -11,6 +11,8 @@ import { registerDisconnectHandlers } from "./disconnect.js";
 import { registerJudgeHandlers } from "./judge.js";
 import { registerAIHandlers } from "./ai.js";
 import { registerCreatureTypeHandlers } from "./creature-type.js";
+import { registerCombatHandlers } from "./combat.js";
+import { registerTriggerHandlers } from "./triggers.js";
 import { GameManager } from "../GameManager.js";
 
 /**
@@ -38,6 +40,8 @@ export function registerSocketHandlers(
 	registerJudgeHandlers(io, socket);
     registerAIHandlers(io, socket);
     registerCreatureTypeHandlers(io, socket);
+    registerCombatHandlers(io, socket);
+    registerTriggerHandlers(io, socket);
 
     // Log disconnection reason
     socket.on("disconnect", (reason) => {
