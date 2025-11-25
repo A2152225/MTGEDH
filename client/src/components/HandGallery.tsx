@@ -203,7 +203,9 @@ export function HandGallery(props: HandGalleryProps) {
               if (!kc) return;
               if (onPlayLand && isLand(tl) && !cantPlayLand) {
                 onPlayLand(kc.id);
-              } else if (onCast && !cantCast) {
+              } else if (onCast && !isLand(tl)) {
+                // Allow cast attempt for non-land cards
+                // Server will validate priority and return appropriate error if needed
                 onCast(kc.id);
               }
             }}
