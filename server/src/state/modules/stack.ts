@@ -101,6 +101,19 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
   
   // Handle both card object and cardId string
   let card: any;
+  const cardId = typeof cardOrId === 'string' ? cardOrId : cardOrId?.id;
+  
+  // Check if this card is already on the battlefield (idempotency for replay)
+  if (cardId && Array.isArray(state.battlefield)) {
+    const alreadyOnBattlefield = state.battlefield.some(
+      (p: any) => p?.card?.id === cardId && p?.controller === playerId
+    );
+    if (alreadyOnBattlefield) {
+      console.info(`playLand: card ${cardId} already on battlefield for ${playerId}, skipping (replay idempotency)`);
+      return;
+    }
+  }
+  
   if (typeof cardOrId === 'string') {
     // Find card in player's hand
     const z = zones[playerId];
@@ -115,8 +128,8 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
     const handCards = z.hand as any[];
     const idx = handCards.findIndex((c: any) => c.id === cardOrId);
     if (idx === -1) {
-      const availableIds = handCards.map((c: any) => c.id || '(no id)').join(', ');
-      console.warn(`playLand: card ${cardOrId} not found in hand for player ${playerId}. Available cards: [${availableIds}]`);
+      // During replay, card might not be in hand anymore - this is okay
+      console.info(`playLand: card ${cardOrId} not found in hand for player ${playerId} (may be replay)`);
       return;
     }
     // Remove card from hand
@@ -179,6 +192,30 @@ export function castSpell(
   
   // Handle both card object and cardId string
   let card: any;
+  const cardId = typeof cardOrId === 'string' ? cardOrId : cardOrId?.id;
+  
+  // Check if this card is already on the stack or battlefield (idempotency for replay)
+  if (cardId) {
+    if (Array.isArray(state.stack)) {
+      const alreadyOnStack = state.stack.some(
+        (s: any) => s?.card?.id === cardId && s?.controller === playerId
+      );
+      if (alreadyOnStack) {
+        console.info(`castSpell: card ${cardId} already on stack for ${playerId}, skipping (replay idempotency)`);
+        return;
+      }
+    }
+    if (Array.isArray(state.battlefield)) {
+      const alreadyOnBattlefield = state.battlefield.some(
+        (p: any) => p?.card?.id === cardId && p?.controller === playerId
+      );
+      if (alreadyOnBattlefield) {
+        console.info(`castSpell: card ${cardId} already on battlefield for ${playerId}, skipping (replay idempotency)`);
+        return;
+      }
+    }
+  }
+  
   if (typeof cardOrId === 'string') {
     // Find card in player's hand
     const z = zones[playerId];
@@ -193,8 +230,8 @@ export function castSpell(
     const handCards = z.hand as any[];
     const idx = handCards.findIndex((c: any) => c.id === cardOrId);
     if (idx === -1) {
-      const availableIds = handCards.map((c: any) => c.id || '(no id)').join(', ');
-      console.warn(`castSpell: card ${cardOrId} not found in hand for player ${playerId}. Available cards: [${availableIds}]`);
+      // During replay, card might not be in hand anymore - this is okay
+      console.info(`castSpell: card ${cardOrId} not found in hand for player ${playerId} (may be replay)`);
       return;
     }
     // Remove card from hand
