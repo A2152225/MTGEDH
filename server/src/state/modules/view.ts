@@ -127,6 +127,8 @@ export function viewFor(
           mana_cost: (top as any).mana_cost,
           power: (top as any).power,
           toughness: (top as any).toughness,
+          card_faces: (top as any).card_faces,
+          layout: (top as any).layout,
           zone: "library",
         } as any;
       }

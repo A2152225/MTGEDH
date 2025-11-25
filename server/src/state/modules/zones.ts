@@ -20,7 +20,7 @@ export function importDeckResolved(
   cards: Array<
     Pick<
       KnownCardRef,
-      "id" | "name" | "type_line" | "oracle_text" | "image_uris" | "mana_cost" | "power" | "toughness"
+      "id" | "name" | "type_line" | "oracle_text" | "image_uris" | "mana_cost" | "power" | "toughness" | "card_faces" | "layout"
     >
   >
 ) {
@@ -36,6 +36,8 @@ export function importDeckResolved(
       mana_cost: (c as any).mana_cost,
       power: (c as any).power,
       toughness: (c as any).toughness,
+      card_faces: (c as any).card_faces,
+      layout: (c as any).layout,
       zone: "library",
     }))
   );
@@ -126,6 +128,8 @@ export function peekTopN(ctx: GameContext, playerId: PlayerID, n: number) {
     type_line: c.type_line,
     oracle_text: c.oracle_text,
     image_uris: (c as any).image_uris,
+    card_faces: (c as any).card_faces,
+    layout: (c as any).layout,
   }));
 }
 
@@ -293,7 +297,7 @@ export function applySurveil(ctx: GameContext, playerId: PlayerID, toGraveyard: 
 export function searchLibrary(ctx: GameContext, playerId: PlayerID, query: string, limit = 20) {
   const lib = ctx.libraries.get(playerId) || [];
   if (!query || typeof query !== "string") {
-    return lib.slice(0, Math.max(0, limit)).map(c => ({ id: c.id, name: c.name, type_line: c.type_line, oracle_text: c.oracle_text, image_uris: (c as any).image_uris }));
+    return lib.slice(0, Math.max(0, limit)).map(c => ({ id: c.id, name: c.name, type_line: c.type_line, oracle_text: c.oracle_text, image_uris: (c as any).image_uris, card_faces: (c as any).card_faces, layout: (c as any).layout }));
   }
   const q = query.trim().toLowerCase();
   const res: any[] = [];
@@ -301,7 +305,7 @@ export function searchLibrary(ctx: GameContext, playerId: PlayerID, query: strin
     if (res.length >= limit) break;
     const name = (c.name || "").toLowerCase();
     if (name.includes(q)) {
-      res.push({ id: c.id, name: c.name, type_line: c.type_line, oracle_text: c.oracle_text, image_uris: (c as any).image_uris });
+      res.push({ id: c.id, name: c.name, type_line: c.type_line, oracle_text: c.oracle_text, image_uris: (c as any).image_uris, card_faces: (c as any).card_faces, layout: (c as any).layout });
     }
   }
   return res;
