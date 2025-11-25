@@ -341,9 +341,9 @@ export function calculateFirstStrikeDamage(
           (result.damageToCreatures[blocker.permanentId] || 0) + assigned;
         remainingPower -= assigned;
         
-        // Deathtouch kills with any damage
+        // Deathtouch kills with any damage (unless blocker is indestructible)
         if (attacker.keywords.deathtouch && assigned > 0) {
-          if (!attacker.keywords.indestructible) {
+          if (!blocker.keywords.indestructible) {
             result.deaths.push(blocker.permanentId);
           }
         }
