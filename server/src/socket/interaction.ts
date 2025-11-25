@@ -368,6 +368,122 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         message: `${getPlayerName(game, pid)} created a token copy of ${cardName} using ${abilityId}.`,
         ts: Date.now(),
       });
+    } else if (abilityId === "return-from-graveyard" || abilityId === "graveyard-activated") {
+      // Generic return from graveyard ability (like Summon the School)
+      // For now, move to hand - in a full implementation, parse the oracle text
+      zones.graveyard.splice(cardIndex, 1);
+      zones.graveyardCount = zones.graveyard.length;
+      
+      // Move to hand
+      zones.hand = zones.hand || [];
+      zones.hand.push({ ...card, zone: "hand" });
+      zones.handCount = zones.hand.length;
+      
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+      
+      appendEvent(gameId, (game as any).seq ?? 0, "activateGraveyardAbility", {
+        playerId: pid,
+        cardId,
+        abilityId,
+      });
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} returned ${cardName} from graveyard to hand.`,
+        ts: Date.now(),
+      });
+    } else if (abilityId === "scavenge") {
+      // Scavenge - exile from graveyard (player needs to manually target creature for counters)
+      zones.graveyard.splice(cardIndex, 1);
+      zones.graveyardCount = zones.graveyard.length;
+      
+      // Move to exile
+      zones.exile = zones.exile || [];
+      zones.exile.push({ ...card, zone: "exile" });
+      
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+      
+      appendEvent(gameId, (game as any).seq ?? 0, "activateGraveyardAbility", {
+        playerId: pid,
+        cardId,
+        abilityId,
+      });
+      
+      // Calculate P/T for +1/+1 counters
+      const power = parseInt(card.power || "0", 10) || 0;
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} scavenged ${cardName}. Add ${power} +1/+1 counters to target creature.`,
+        ts: Date.now(),
+      });
+    } else if (abilityId === "encore") {
+      // Encore - exile from graveyard (creates tokens)
+      zones.graveyard.splice(cardIndex, 1);
+      zones.graveyardCount = zones.graveyard.length;
+      
+      // Move to exile
+      zones.exile = zones.exile || [];
+      zones.exile.push({ ...card, zone: "exile" });
+      
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+      
+      appendEvent(gameId, (game as any).seq ?? 0, "activateGraveyardAbility", {
+        playerId: pid,
+        cardId,
+        abilityId,
+      });
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} used encore on ${cardName}. Create a token copy for each opponent.`,
+        ts: Date.now(),
+      });
+    } else if (abilityId === "disturb") {
+      // Disturb - cast transformed from graveyard
+      zones.graveyard.splice(cardIndex, 1);
+      zones.graveyardCount = zones.graveyard.length;
+      
+      // Add to stack (transformed)
+      const stackItem = {
+        id: generateId("stack"),
+        controller: pid,
+        card: { ...card, zone: "stack", castWithAbility: "disturb", transformed: true },
+        targets: [],
+      };
+      
+      game.state.stack = game.state.stack || [];
+      game.state.stack.push(stackItem as any);
+      
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+      
+      appendEvent(gameId, (game as any).seq ?? 0, "activateGraveyardAbility", {
+        playerId: pid,
+        cardId,
+        abilityId,
+      });
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} cast ${cardName} using disturb (transformed).`,
+        ts: Date.now(),
+      });
     }
     
     broadcastGame(io, game, gameId);

@@ -113,6 +113,95 @@ function parseGraveyardAbilities(card: KnownCardRef): GraveyardAbility[] {
     });
   }
   
+  // Generic activated abilities from graveyard
+  // Look for patterns like "Tap X [creatures/permanents]: Return ~ from your graveyard"
+  // or abilities that can be activated while in graveyard
+  // Example: Summon the School - "Tap four untapped Merfolk you control: Return Summon the School from your graveyard to your hand."
+  
+  // Pattern: "[Cost]: Return ~ from your graveyard to your hand/battlefield"
+  const returnFromGraveyardMatch = card.oracle_text?.match(/([^.]+):\s*return\s+(?:~|this card|[^.]+)\s+from\s+your\s+graveyard\s+to\s+(?:your\s+)?(hand|the battlefield)/i);
+  if (returnFromGraveyardMatch) {
+    const cost = returnFromGraveyardMatch[1].trim();
+    const destination = returnFromGraveyardMatch[2].toLowerCase();
+    abilities.push({
+      id: 'return-from-graveyard',
+      label: 'Return from Graveyard',
+      description: `${cost}: Return to ${destination}`,
+      cost,
+    });
+  }
+  
+  // Pattern for activated abilities that work from graveyard
+  // Look for "Activate only if ~ is in your graveyard" or similar
+  if (oracleText.includes('activate') && (oracleText.includes('graveyard') || oracleText.includes('from your graveyard'))) {
+    // Try to extract the ability cost and effect
+    const activateMatch = card.oracle_text?.match(/([^.]+):\s*([^.]+)\.\s*(?:activate|you may activate)[^.]*(?:graveyard|from your graveyard)/i);
+    if (activateMatch && !abilities.some(a => a.id === 'return-from-graveyard')) {
+      abilities.push({
+        id: 'graveyard-activated',
+        label: 'Graveyard Ability',
+        description: `${activateMatch[1].trim()}: ${activateMatch[2].trim()}`,
+        cost: activateMatch[1].trim(),
+      });
+    }
+  }
+  
+  // Scavenge - exile from graveyard to put +1/+1 counters
+  if (oracleText.includes('scavenge')) {
+    const scavengeMatch = card.oracle_text?.match(/scavenge\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+    const cost = scavengeMatch ? scavengeMatch[1] : 'unknown';
+    abilities.push({
+      id: 'scavenge',
+      label: 'Scavenge',
+      description: `Exile to put +1/+1 counters for ${cost}`,
+      cost,
+    });
+  }
+  
+  // Encore - create token copies that attack each opponent
+  if (oracleText.includes('encore')) {
+    const encoreMatch = card.oracle_text?.match(/encore\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+    const cost = encoreMatch ? encoreMatch[1] : 'unknown';
+    abilities.push({
+      id: 'encore',
+      label: 'Encore',
+      description: `Create tokens for each opponent for ${cost}`,
+      cost,
+    });
+  }
+  
+  // Disturb - cast transformed from graveyard
+  if (oracleText.includes('disturb')) {
+    const disturbMatch = card.oracle_text?.match(/disturb\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+    const cost = disturbMatch ? disturbMatch[1] : 'unknown';
+    abilities.push({
+      id: 'disturb',
+      label: 'Disturb',
+      description: `Cast transformed from graveyard for ${cost}`,
+      cost,
+    });
+  }
+  
+  // Persist - returns with -1/-1 counter
+  if (oracleText.includes('persist')) {
+    abilities.push({
+      id: 'persist-info',
+      label: 'Has Persist',
+      description: 'When this dies without -1/-1 counter, it returns',
+      cost: 'automatic',
+    });
+  }
+  
+  // Undying - returns with +1/+1 counter
+  if (oracleText.includes('undying')) {
+    abilities.push({
+      id: 'undying-info',
+      label: 'Has Undying',
+      description: 'When this dies without +1/+1 counter, it returns',
+      cost: 'automatic',
+    });
+  }
+  
   return abilities;
 }
 
