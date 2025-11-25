@@ -305,6 +305,18 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             if (!existing.seatToken && seatToken)
               existing.seatToken = seatToken;
           }
+          
+          // Set turnPlayer and priority if not already set (non-spectators only)
+          // This matches the behavior in join.ts addPlayerIfMissing()
+          if (!spectator) {
+            if (!(ctx.state as any).turnPlayer) {
+              (ctx.state as any).turnPlayer = pid;
+            }
+            if (!(ctx.state as any).priority) {
+              (ctx.state as any).priority = pid;
+            }
+          }
+          
           // Zones will be normalized by reconcileZonesConsistency after replay.
         } catch (err) {
           console.warn("applyEvent(join): failed to rebuild player", err);
