@@ -18,6 +18,14 @@ import {
   executeCombatDamage,
   executeFetchland,
   validateFetchland,
+  // Combat validation helpers
+  isCurrentlyCreature,
+  hasDefender,
+  hasHaste,
+  canPermanentAttack,
+  canPermanentBlock,
+  getLegalAttackers,
+  getLegalBlockers,
 } from '../src/actions';
 
 // Helper to create a mock game state
@@ -427,5 +435,437 @@ describe('Fetchland Action', () => {
     
     const player = result.next.players.find(p => p.id === 'player1');
     expect(player?.life).toBe(39); // 40 - 1 life
+  });
+});
+
+describe('Combat Validation Helpers', () => {
+  describe('isCurrentlyCreature', () => {
+    it('should return true for permanents with Creature type line', () => {
+      const creature = {
+        id: 'c1',
+        card: { type_line: 'Creature — Bear' },
+      };
+      expect(isCurrentlyCreature(creature)).toBe(true);
+    });
+
+    it('should return false for enchantments', () => {
+      const enchantment = {
+        id: 'e1',
+        card: { type_line: 'Enchantment' },
+      };
+      expect(isCurrentlyCreature(enchantment)).toBe(false);
+    });
+
+    it('should return false for artifacts without creature type', () => {
+      const artifact = {
+        id: 'a1',
+        card: { type_line: 'Artifact' },
+      };
+      expect(isCurrentlyCreature(artifact)).toBe(false);
+    });
+
+    it('should return true for artifact creatures', () => {
+      const artifactCreature = {
+        id: 'ac1',
+        card: { type_line: 'Artifact Creature — Golem' },
+      };
+      expect(isCurrentlyCreature(artifactCreature)).toBe(true);
+    });
+
+    it('should return false for lands without animation', () => {
+      const land = {
+        id: 'l1',
+        card: { type_line: 'Land' },
+      };
+      expect(isCurrentlyCreature(land)).toBe(false);
+    });
+
+    it('should return true for permanents with Creature in types array', () => {
+      const animated = {
+        id: 'a1',
+        types: ['Artifact', 'Creature'],
+        card: { type_line: 'Artifact' },
+      };
+      expect(isCurrentlyCreature(animated)).toBe(true);
+    });
+
+    it('should return false when type removal modifier removes creature type', () => {
+      const transformed = {
+        id: 't1',
+        card: { type_line: 'Creature — Horror' },
+        modifiers: [
+          { type: 'typeChange', removesTypes: ['Creature'] },
+        ],
+      };
+      expect(isCurrentlyCreature(transformed)).toBe(false);
+    });
+  });
+
+  describe('hasDefender', () => {
+    it('should return true for creatures with defender keyword', () => {
+      const wall = {
+        id: 'w1',
+        card: { oracle_text: 'Defender' },
+      };
+      expect(hasDefender(wall)).toBe(true);
+    });
+
+    it('should return false for regular creatures', () => {
+      const bear = {
+        id: 'b1',
+        card: { oracle_text: '' },
+      };
+      expect(hasDefender(bear)).toBe(false);
+    });
+
+    it('should return true for creatures with granted defender', () => {
+      const creature = {
+        id: 'c1',
+        grantedAbilities: ['defender'],
+        card: { oracle_text: '' },
+      };
+      expect(hasDefender(creature)).toBe(true);
+    });
+  });
+
+  describe('hasHaste', () => {
+    it('should return true for creatures with haste keyword', () => {
+      const hasty = {
+        id: 'h1',
+        card: { oracle_text: 'Haste' },
+      };
+      expect(hasHaste(hasty)).toBe(true);
+    });
+
+    it('should return false for regular creatures', () => {
+      const slow = {
+        id: 's1',
+        card: { oracle_text: '' },
+      };
+      expect(hasHaste(slow)).toBe(false);
+    });
+
+    it('should return true for creatures with granted haste', () => {
+      const creature = {
+        id: 'c1',
+        grantedAbilities: ['haste'],
+        card: { oracle_text: '' },
+      };
+      expect(hasHaste(creature)).toBe(true);
+    });
+  });
+
+  describe('canPermanentAttack', () => {
+    it('should allow untapped creatures to attack', () => {
+      const creature = {
+        id: 'c1',
+        tapped: false,
+        card: { type_line: 'Creature — Bear', oracle_text: '' },
+      };
+      const result = canPermanentAttack(creature);
+      expect(result.canParticipate).toBe(true);
+    });
+
+    it('should reject tapped creatures', () => {
+      const creature = {
+        id: 'c1',
+        tapped: true,
+        card: { type_line: 'Creature — Bear', oracle_text: '' },
+      };
+      const result = canPermanentAttack(creature);
+      expect(result.canParticipate).toBe(false);
+      expect(result.reason).toContain('tapped');
+    });
+
+    it('should reject non-creatures (enchantments)', () => {
+      const enchantment = {
+        id: 'e1',
+        tapped: false,
+        card: { type_line: 'Enchantment', oracle_text: '' },
+      };
+      const result = canPermanentAttack(enchantment);
+      expect(result.canParticipate).toBe(false);
+      expect(result.reason).toContain('Only creatures can attack');
+    });
+
+    it('should reject creatures with defender', () => {
+      const wall = {
+        id: 'w1',
+        tapped: false,
+        card: { type_line: 'Creature — Wall', oracle_text: 'Defender' },
+      };
+      const result = canPermanentAttack(wall);
+      expect(result.canParticipate).toBe(false);
+      expect(result.reason).toContain('defender');
+    });
+
+    it('should reject creatures with summoning sickness without haste', () => {
+      const sick = {
+        id: 's1',
+        tapped: false,
+        summoningSickness: true,
+        card: { type_line: 'Creature — Bear', oracle_text: '' },
+      };
+      const result = canPermanentAttack(sick);
+      expect(result.canParticipate).toBe(false);
+      expect(result.reason).toContain('summoning sickness');
+    });
+
+    it('should allow creatures with summoning sickness if they have haste', () => {
+      const hasty = {
+        id: 'h1',
+        tapped: false,
+        summoningSickness: true,
+        card: { type_line: 'Creature — Goblin', oracle_text: 'Haste' },
+      };
+      const result = canPermanentAttack(hasty);
+      expect(result.canParticipate).toBe(true);
+    });
+
+    it('should reject creatures with cantAttack modifier', () => {
+      const pacified = {
+        id: 'p1',
+        tapped: false,
+        card: { type_line: 'Creature — Bear', oracle_text: '' },
+        modifiers: [{ type: 'cantAttack', reason: 'Pacifism' }],
+      };
+      const result = canPermanentAttack(pacified);
+      expect(result.canParticipate).toBe(false);
+      expect(result.reason).toContain('Pacifism');
+    });
+  });
+
+  describe('canPermanentBlock', () => {
+    it('should allow untapped creatures to block', () => {
+      const creature = {
+        id: 'c1',
+        tapped: false,
+        card: { type_line: 'Creature — Bear', oracle_text: '' },
+      };
+      const result = canPermanentBlock(creature);
+      expect(result.canParticipate).toBe(true);
+    });
+
+    it('should reject tapped creatures', () => {
+      const creature = {
+        id: 'c1',
+        tapped: true,
+        card: { type_line: 'Creature — Bear', oracle_text: '' },
+      };
+      const result = canPermanentBlock(creature);
+      expect(result.canParticipate).toBe(false);
+      expect(result.reason).toContain('tapped');
+    });
+
+    it('should reject non-creatures', () => {
+      const artifact = {
+        id: 'a1',
+        tapped: false,
+        card: { type_line: 'Artifact', oracle_text: '' },
+      };
+      const result = canPermanentBlock(artifact);
+      expect(result.canParticipate).toBe(false);
+      expect(result.reason).toContain('Only creatures can block');
+    });
+
+    it('should reject creatures with cantBlock modifier', () => {
+      const goaded = {
+        id: 'g1',
+        tapped: false,
+        card: { type_line: 'Creature — Bear', oracle_text: '' },
+        modifiers: [{ type: 'cantBlock', reason: 'Goaded' }],
+      };
+      const result = canPermanentBlock(goaded);
+      expect(result.canParticipate).toBe(false);
+    });
+  });
+
+  describe('getLegalAttackers', () => {
+    it('should return only legal attackers from battlefield', () => {
+      const gameState = {
+        players: [
+          {
+            id: 'player1',
+            battlefield: [
+              { id: 'c1', controller: 'player1', tapped: false, card: { type_line: 'Creature — Bear', oracle_text: '' } },
+              { id: 'c2', controller: 'player1', tapped: true, card: { type_line: 'Creature — Bear', oracle_text: '' } },
+              { id: 'e1', controller: 'player1', tapped: false, card: { type_line: 'Enchantment', oracle_text: '' } },
+              { id: 'c3', controller: 'player1', tapped: false, card: { type_line: 'Creature — Wall', oracle_text: 'Defender' } },
+            ],
+          },
+        ],
+        battlefield: [],
+      } as unknown as GameState;
+
+      const attackers = getLegalAttackers(gameState, 'player1');
+      expect(attackers).toEqual(['c1']); // Only the untapped creature without defender
+    });
+
+    it('should exclude creatures with summoning sickness unless they have haste', () => {
+      const gameState = {
+        players: [
+          {
+            id: 'player1',
+            battlefield: [
+              { id: 'c1', controller: 'player1', tapped: false, summoningSickness: true, card: { type_line: 'Creature — Bear', oracle_text: '' } },
+              { id: 'c2', controller: 'player1', tapped: false, summoningSickness: true, card: { type_line: 'Creature — Goblin', oracle_text: 'Haste' } },
+            ],
+          },
+        ],
+        battlefield: [],
+      } as unknown as GameState;
+
+      const attackers = getLegalAttackers(gameState, 'player1');
+      expect(attackers).toEqual(['c2']); // Only the creature with haste
+    });
+  });
+
+  describe('getLegalBlockers', () => {
+    it('should return only legal blockers from battlefield', () => {
+      const gameState = {
+        players: [
+          {
+            id: 'player1',
+            battlefield: [
+              { id: 'c1', controller: 'player1', tapped: false, card: { type_line: 'Creature — Bear', oracle_text: '' } },
+              { id: 'c2', controller: 'player1', tapped: true, card: { type_line: 'Creature — Bear', oracle_text: '' } },
+              { id: 'e1', controller: 'player1', tapped: false, card: { type_line: 'Enchantment', oracle_text: '' } },
+            ],
+          },
+        ],
+        battlefield: [],
+      } as unknown as GameState;
+
+      const blockers = getLegalBlockers(gameState, 'player1');
+      expect(blockers).toEqual(['c1']); // Only the untapped creature
+    });
+  });
+});
+
+describe('Combat Validation in Actions', () => {
+  let gameState: GameState;
+
+  beforeEach(() => {
+    gameState = {
+      id: 'test-game',
+      format: 'commander',
+      players: [
+        {
+          id: 'player1',
+          name: 'Player 1',
+          seat: 0,
+          life: 40,
+          battlefield: [],
+        },
+        {
+          id: 'player2',
+          name: 'Player 2',
+          seat: 1,
+          life: 40,
+          battlefield: [],
+        },
+      ],
+      startingLife: 40,
+      life: { player1: 40, player2: 40 },
+      turnPlayer: 'player1',
+      priority: 'player1',
+      stack: [],
+      battlefield: [],
+      commandZone: {},
+      phase: 'combat' as any,
+      step: 'DECLARE_ATTACKERS',
+      active: true,
+      turnOrder: ['player1', 'player2'],
+      activePlayerIndex: 0,
+    } as any;
+  });
+
+  it('should reject attacking with an enchantment (Cryptolith Rite case)', () => {
+    (gameState.players[0] as any).battlefield.push({
+      id: 'enchantment1',
+      controller: 'player1',
+      owner: 'player1',
+      tapped: false,
+      card: { name: 'Cryptolith Rite', type_line: 'Enchantment', oracle_text: '' },
+    });
+
+    const action = {
+      type: 'declareAttackers' as const,
+      playerId: 'player1',
+      attackers: [{ creatureId: 'enchantment1', defendingPlayerId: 'player2' }],
+    };
+
+    const result = validateDeclareAttackers(gameState, action);
+    expect(result.legal).toBe(false);
+    expect(result.reason).toContain('Only creatures can attack');
+  });
+
+  it('should reject attacking with a creature that has summoning sickness', () => {
+    (gameState.players[0] as any).battlefield.push({
+      id: 'creature1',
+      controller: 'player1',
+      owner: 'player1',
+      tapped: false,
+      summoningSickness: true,
+      card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '' },
+    });
+
+    const action = {
+      type: 'declareAttackers' as const,
+      playerId: 'player1',
+      attackers: [{ creatureId: 'creature1', defendingPlayerId: 'player2' }],
+    };
+
+    const result = validateDeclareAttackers(gameState, action);
+    expect(result.legal).toBe(false);
+    expect(result.reason).toContain('summoning sickness');
+  });
+
+  it('should allow attacking with a creature with haste even with summoning sickness', () => {
+    (gameState.players[0] as any).battlefield.push({
+      id: 'creature1',
+      controller: 'player1',
+      owner: 'player1',
+      tapped: false,
+      summoningSickness: true,
+      card: { name: 'Goblin Guide', type_line: 'Creature — Goblin Scout', oracle_text: 'Haste' },
+    });
+
+    const action = {
+      type: 'declareAttackers' as const,
+      playerId: 'player1',
+      attackers: [{ creatureId: 'creature1', defendingPlayerId: 'player2' }],
+    };
+
+    const result = validateDeclareAttackers(gameState, action);
+    expect(result.legal).toBe(true);
+  });
+
+  it('should reject blocking with a non-creature permanent', () => {
+    gameState.step = 'DECLARE_BLOCKERS';
+    
+    // Add an attacker
+    (gameState as any).combat = {
+      attackers: [{ cardId: 'attacker1', defendingPlayerId: 'player2' }],
+      blockers: [],
+    };
+
+    (gameState.players[1] as any).battlefield.push({
+      id: 'artifact1',
+      controller: 'player2',
+      owner: 'player2',
+      tapped: false,
+      card: { name: 'Sol Ring', type_line: 'Artifact', oracle_text: '' },
+    });
+
+    const action = {
+      type: 'declareBlockers' as const,
+      playerId: 'player2',
+      blockers: [{ blockerId: 'artifact1', attackerId: 'attacker1' }],
+    };
+
+    const result = validateDeclareBlockers(gameState, action);
+    expect(result.legal).toBe(false);
+    expect(result.reason).toContain('Only creatures can block');
   });
 });

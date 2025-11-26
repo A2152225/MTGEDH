@@ -11,6 +11,13 @@
  */
 
 import type { GameState, PlayerID } from '../../shared/src';
+import { 
+  getLegalAttackers, 
+  getLegalBlockers,
+  canPermanentAttack,
+  canPermanentBlock,
+  isCurrentlyCreature 
+} from './actions/combat';
 
 /**
  * AI Strategy level determines decision-making sophistication
@@ -171,17 +178,19 @@ export class AIEngine {
         };
       
       case AIDecisionType.DECLARE_ATTACKERS:
-        // Randomly decide which creatures attack
-        const player = context.gameState.players.find(p => p.id === playerId);
-        const creatures = player?.battlefield?.filter(c => 
-          c.types?.includes('Creature') && !c.tapped
-        ) || [];
-        const attackers = creatures.filter(() => Math.random() > 0.5);
+        // Use getLegalAttackers to get only valid attackers
+        // This ensures we only attack with creatures that:
+        // - Are currently creatures (not enchantments, etc.)
+        // - Are untapped
+        // - Don't have defender
+        // - Don't have summoning sickness (or have haste)
+        const legalAttackerIds = getLegalAttackers(context.gameState, playerId);
+        const randomAttackers = legalAttackerIds.filter(() => Math.random() > 0.5);
         return {
           type: decisionType,
           playerId,
-          action: { attackers: attackers.map(c => c.id) },
-          reasoning: 'Random attackers',
+          action: { attackers: randomAttackers },
+          reasoning: `Random attackers (${randomAttackers.length}/${legalAttackerIds.length} legal)`,
           confidence: 0.3,
         };
       
@@ -262,73 +271,70 @@ export class AIEngine {
   }
   
   /**
-   * Basic attack decision: attack with creatures if opponent's life is low or no blockers
+   * Basic attack decision using comprehensive combat validation.
+   * 
+   * Uses getLegalAttackers() to properly filter the battlefield to only
+   * permanents that can legally attack:
+   * - Must be a creature (not enchantments, artifacts without animation, etc.)
+   * - Must be untapped
+   * - Must not have defender
+   * - Must not have summoning sickness (unless has haste)
+   * - Must not have "can't attack" effects (e.g., Pacifism)
    */
   private makeBasicAttackDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    const player = context.gameState.players.find(p => p.id === context.playerId);
-    if (!player || !player.battlefield) {
+    // Use getLegalAttackers to get all valid attackers
+    const legalAttackerIds = getLegalAttackers(context.gameState, context.playerId);
+    
+    if (legalAttackerIds.length === 0) {
       return {
         type: AIDecisionType.DECLARE_ATTACKERS,
         playerId: context.playerId,
         action: { attackers: [] },
-        reasoning: 'No creatures to attack with',
-        confidence: 0,
-      };
-    }
-    
-    const creatures = player.battlefield.filter(c => 
-      c.types?.includes('Creature') && !c.tapped && !c.summmoningSickness
-    );
-    
-    if (creatures.length === 0) {
-      return {
-        type: AIDecisionType.DECLARE_ATTACKERS,
-        playerId: context.playerId,
-        action: { attackers: [] },
-        reasoning: 'No creatures can attack',
+        reasoning: 'No creatures can legally attack',
         confidence: 1,
       };
     }
     
-    // Simple heuristic: attack with all creatures
-    const attackers = creatures.map(c => c.id);
-    
+    // Simple heuristic: attack with all legal creatures
     return {
       type: AIDecisionType.DECLARE_ATTACKERS,
       playerId: context.playerId,
-      action: { attackers },
-      reasoning: `Attacking with ${attackers.length} creatures`,
+      action: { attackers: legalAttackerIds },
+      reasoning: `Attacking with ${legalAttackerIds.length} legal creatures`,
       confidence: 0.6,
     };
   }
   
   /**
    * Basic block decision: block to preserve life
+   * Uses proper combat validation to ensure only legal blockers are selected
    */
   private makeBasicBlockDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    const player = context.gameState.players.find(p => p.id === context.playerId);
-    if (!player || !player.battlefield) {
+    // Use getLegalBlockers to get all valid blockers
+    // This properly filters out:
+    // - Non-creatures (enchantments, artifacts, lands without animation)
+    // - Tapped creatures
+    // - Creatures with "can't block" effects
+    const legalBlockerIds = getLegalBlockers(context.gameState, context.playerId);
+    
+    if (legalBlockerIds.length === 0) {
       return {
         type: AIDecisionType.DECLARE_BLOCKERS,
         playerId: context.playerId,
         action: { blockers: [] },
-        reasoning: 'No creatures to block with',
-        confidence: 0,
+        reasoning: 'No creatures can legally block',
+        confidence: 1,
       };
     }
     
-    const blockers = player.battlefield.filter(c => 
-      c.types?.includes('Creature') && !c.tapped
-    );
-    
-    // Simple: block biggest attacker with biggest blocker
-    // TODO: Implement more sophisticated blocking logic
+    // Simple: don't block for now (TODO: implement smarter blocking)
+    // Future: block biggest attacker with biggest blocker, considering evasion
     
     return {
       type: AIDecisionType.DECLARE_BLOCKERS,
       playerId: context.playerId,
       action: { blockers: [] },
-      reasoning: 'Basic blocking',
+      reasoning: `Basic blocking (${legalBlockerIds.length} legal blockers available)`,
       confidence: 0.5,
     };
   }
@@ -349,20 +355,19 @@ export class AIEngine {
   
   /**
    * Aggressive strategy decisions
+   * Uses proper combat validation to ensure only legal attackers are selected
    */
   private makeAggressiveDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    // Aggressive AI always attacks, rarely blocks
+    // Aggressive AI always attacks with all legal creatures, rarely blocks
     if (context.decisionType === AIDecisionType.DECLARE_ATTACKERS) {
-      const player = context.gameState.players.find(p => p.id === context.playerId);
-      const creatures = player?.battlefield?.filter(c => 
-        c.types?.includes('Creature') && !c.tapped && !c.summmoningSickness
-      ) || [];
+      // Use getLegalAttackers to get only valid attackers
+      const legalAttackerIds = getLegalAttackers(context.gameState, context.playerId);
       
       return {
         type: AIDecisionType.DECLARE_ATTACKERS,
         playerId: context.playerId,
-        action: { attackers: creatures.map(c => c.id) },
-        reasoning: 'Aggressive: attack with everything',
+        action: { attackers: legalAttackerIds },
+        reasoning: `Aggressive: attack with all ${legalAttackerIds.length} legal creatures`,
         confidence: 0.9,
       };
     }
@@ -372,6 +377,7 @@ export class AIEngine {
   
   /**
    * Defensive strategy decisions
+   * Uses proper combat validation to ensure only legal attackers are selected
    */
   private makeDefensiveDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
     // Defensive AI rarely attacks, always blocks
@@ -381,16 +387,17 @@ export class AIEngine {
       
       // Only attack if life is high or opponent is low
       if (life > 30) {
-        const creatures = player?.battlefield?.filter(c => 
-          c.types?.includes('Creature') && !c.tapped && !c.summmoningSickness
-        ) || [];
-        const attackers = creatures.slice(0, Math.floor(creatures.length / 2));
+        // Use getLegalAttackers to get only valid attackers
+        const legalAttackerIds = getLegalAttackers(context.gameState, context.playerId);
+        // Attack with only half of legal creatures (defensive)
+        const attackerCount = Math.floor(legalAttackerIds.length / 2);
+        const attackers = legalAttackerIds.slice(0, attackerCount);
         
         return {
           type: AIDecisionType.DECLARE_ATTACKERS,
           playerId: context.playerId,
-          action: { attackers: attackers.map(c => c.id) },
-          reasoning: 'Defensive: cautious attack',
+          action: { attackers },
+          reasoning: `Defensive: cautious attack with ${attackers.length}/${legalAttackerIds.length} legal creatures`,
           confidence: 0.6,
         };
       }
