@@ -266,6 +266,8 @@ export function App() {
   // Track if we should prompt for deck import (for new players without a deck)
   const [showDeckImportPrompt, setShowDeckImportPrompt] = useState(false);
   const hasPromptedDeckImport = React.useRef(false);
+  // External control for deck manager visibility in TableLayout
+  const [tableDeckMgrOpen, setTableDeckMgrOpen] = useState(false);
 
   // Fetch saved decks when create game modal opens
   const refreshSavedDecks = React.useCallback(() => {
@@ -1490,11 +1492,8 @@ export function App() {
             <button
               onClick={() => {
                 setShowDeckImportPrompt(false);
-                // Scroll to the deck manager in the TableLayout
-                const deckBtn = document.querySelector('[title*="Deck"]');
-                if (deckBtn) {
-                  (deckBtn as HTMLButtonElement).click();
-                }
+                // Open the deck manager via state callback
+                setTableDeckMgrOpen(true);
               }}
               style={{
                 background: "#fff",
@@ -1615,6 +1614,8 @@ export function App() {
               onImportDeckText={(txt, nm) => requestImportDeck(txt, nm)}
               onUseSavedDeck={(deckId) => requestUseSavedDeck(deckId)}
               onLocalImportConfirmChange={handleLocalImportConfirmChange}
+              externalDeckMgrOpen={tableDeckMgrOpen}
+              onDeckMgrOpenChange={setTableDeckMgrOpen}
               gameId={safeView.id}
               stackItems={safeView.stack as any}
               importedCandidates={importedCandidates}

@@ -14,6 +14,17 @@ type GroupMode = 'name' | 'name+counters' | 'name+pt+attach' | 'name+counters+pt
 // Threshold for when to collapse tokens into a popup
 const COLLAPSE_THRESHOLD = 5;
 
+/** Token group data structure */
+interface TokenGroup {
+  key: string;
+  name: string;
+  countersSig: string;
+  ptSig: string;
+  attached: boolean;
+  ids: string[];
+  token?: BattlefieldPermanent;
+}
+
 export function TokenGroups(props: {
   tokens: BattlefieldPermanent[];
   groupMode: GroupMode;
@@ -56,8 +67,8 @@ export function TokenGroups(props: {
     };
   }, [popupOpen]);
 
-  const groups = useMemo(() => {
-    const map = new Map<string, { key: string; name: string; countersSig: string; ptSig: string; attached: boolean; ids: string[]; token?: BattlefieldPermanent }>();
+  const groups = useMemo<TokenGroup[]>(() => {
+    const map = new Map<string, TokenGroup>();
     for (const t of tokens) {
       const name = ((t.card as any)?.name as string) || 'Token';
       const countersSig = sigCounters(t.counters);
@@ -207,7 +218,7 @@ export function TokenGroups(props: {
 
 // Extracted content component for reuse
 function TokenGroupsContent(props: {
-  groups: Array<{ key: string; name: string; countersSig: string; ptSig: string; attached: boolean; ids: string[] }>;
+  groups: TokenGroup[];
   expanded: string | null;
   setExpanded: (key: string | null) => void;
   onBulkCounter: (ids: string[], deltas: Record<string, number>) => void;

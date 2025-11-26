@@ -72,7 +72,7 @@ function isManaSource(perm: BattlefieldPermanent): boolean {
   // Check oracle text for mana production abilities (only for artifacts and creatures)
   if ((typeLine.includes('artifact') || typeLine.includes('creature'))) {
     // Look for "{T}: Add" mana ability patterns
-    if (oracleText.includes('{t}: add') || oracleText.includes('{t}, sacrifice') && oracleText.includes('add')) {
+    if (oracleText.includes('{t}: add') || (oracleText.includes('{t}, sacrifice') && oracleText.includes('add'))) {
       // Exclude equipment and vehicles
       if (!typeLine.includes('equipment') && !typeLine.includes('vehicle')) {
         return true;
@@ -176,6 +176,9 @@ export function TableLayout(props: {
   onImportDeckText?: (txt: string, name?: string) => void;
   onUseSavedDeck?: (deckId: string) => void;
   onLocalImportConfirmChange?: (open: boolean) => void;
+  // External control for deck manager visibility
+  externalDeckMgrOpen?: boolean;
+  onDeckMgrOpenChange?: (open: boolean) => void;
   gameId?: GameID;
   stackItems?: any[];
   importedCandidates?: KnownCardRef[]; // no longer used for commander UI, but kept for potential future UI
@@ -204,6 +207,7 @@ export function TableLayout(props: {
     threeD, enablePanZoom = true,
     tableCloth, worldSize, onUpdatePermPos,
     onImportDeckText, onUseSavedDeck, onLocalImportConfirmChange,
+    externalDeckMgrOpen, onDeckMgrOpenChange,
     gameId, stackItems, importedCandidates, energyCounters, energy,
     chatMessages, onSendChat, chatView, chatYou,
     monarch, initiative, dayNight, cityBlessing,
@@ -438,7 +442,16 @@ export function TableLayout(props: {
     `translate(${container.w / 2}px, ${container.h / 2}px) scale(${cam.z}) translate(${-cam.x}px, ${-cam.y}px)`;
 
   // deck manager + import confirm
-  const [deckMgrOpen, setDeckMgrOpen] = useState(false);
+  const [deckMgrOpenInternal, setDeckMgrOpenInternal] = useState(false);
+  // Use external prop if provided, otherwise use internal state
+  const deckMgrOpen = externalDeckMgrOpen !== undefined ? externalDeckMgrOpen : deckMgrOpenInternal;
+  const setDeckMgrOpen = (open: boolean) => {
+    if (onDeckMgrOpenChange) {
+      onDeckMgrOpenChange(open);
+    } else {
+      setDeckMgrOpenInternal(open);
+    }
+  };
   const decksBtnRef = useRef<HTMLButtonElement | null>(null);
 
   const tableHasContent = useMemo(() => {
