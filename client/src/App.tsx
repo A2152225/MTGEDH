@@ -689,17 +689,15 @@ export function App() {
     // Don't auto-advance if there's something on the stack
     if ((safeView as any).stack?.length > 0) return;
     
-    // Phases that can be auto-advanced:
-    // - untap (no player usually needs to respond)
-    // - draw (after draw, typically pass)
-    // - cleanup (usually just pass unless special abilities)
-    const autoAdvancePhases = ['untap', 'cleanup'];
-    const autoAdvanceSteps = ['untap', 'cleanup'];
+    // Phases/steps that can be auto-advanced:
+    // - untap step (no player usually needs to respond)
+    // - cleanup step (usually just pass unless special abilities like Sundial of the Infinite)
+    // Note: Not auto-advancing draw step as the player may want to cast instants after drawing
+    const autoAdvanceableSteps = ['untap', 'cleanup'];
     
     // Check if we're in an auto-advance step
     const shouldAutoAdvance = 
-      autoAdvancePhases.includes(step) || 
-      autoAdvanceSteps.includes(step) ||
+      autoAdvanceableSteps.includes(step) ||
       phase.includes('untap') ||
       phase.includes('cleanup');
     

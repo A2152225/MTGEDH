@@ -1417,7 +1417,7 @@ export function TableLayout(props: {
                   overflowY: 'auto',
                   marginBottom: 4,
                   paddingRight: 2,
-                  minHeight: 0, // Needed for flex overflow
+                  minHeight: 0, // Allow flex child to shrink below content size for proper scrolling
                 }}
               >
                 {(!chatMessages || chatMessages.length === 0) && (
