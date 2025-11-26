@@ -39,25 +39,49 @@ export function formatColorIdentity(colors: string): string {
 
 export const COMMANDER_PRECONS: PreconYear[] = [
   {
-    year: 2024,
+    year: 2025,
     sets: [
       {
-        name: "Foundations",
-        code: "FDC",
+        name: "Final Fantasy",
+        code: "FIN",
         decks: [
-          { name: "Animated Army", commanders: ["Ellivere of the Wild Court"], colorIdentity: "GW" },
-          { name: "Endless Punishment", commanders: ["Orcas, the Spelunking Giant"], colorIdentity: "RB" },
-          { name: "Miracle Worker", commanders: ["Sylvar, the Devoted Druid"], colorIdentity: "WG" },
-          { name: "Unending Wave", commanders: ["Aminatou, the Fateshifter"], colorIdentity: "WUB" }
+          { name: "Revival Trance", commanders: ["Terra, Herald of Hope"], colorIdentity: "RWB" },
+          { name: "Limit Break", commanders: ["Cloud, Ex-SOLDIER"], colorIdentity: "RGW" },
+          { name: "Counter Blitz", commanders: ["Tidus, Yuna's Guardian"], colorIdentity: "GWU" },
+          { name: "Scions & Spellcraft", commanders: ["Y'shtola, Night's Blessed"], colorIdentity: "WUB" }
         ]
       },
+      {
+        name: "Tarkir: Dragonstorm",
+        code: "TDC",
+        decks: [
+          { name: "Abzan Armor", commanders: ["Felothar the Steadfast"], colorIdentity: "WBG" },
+          { name: "Jeskai Striker", commanders: ["Shiko and Narset, Unified"], colorIdentity: "URW" },
+          { name: "Sultai Arisen", commanders: ["Kotis, Sibsig Champion"], colorIdentity: "BGU" },
+          { name: "Mardu Surge", commanders: ["Neriv, Crackling Vanguard"], colorIdentity: "RWB" },
+          { name: "Temur Roar", commanders: ["Eshki, Temur's Roar"], colorIdentity: "GUR" }
+        ]
+      },
+      {
+        name: "Aetherdrift",
+        code: "ADC",
+        decks: [
+          { name: "Eternal Might", commanders: ["Temmet, Naktamun's Will"], colorIdentity: "WUB" },
+          { name: "Living Energy", commanders: ["Saheeli, Radiant Creator"], colorIdentity: "URG" }
+        ]
+      }
+    ]
+  },
+  {
+    year: 2024,
+    sets: [
       {
         name: "Duskmourn: House of Horror",
         code: "DSC",
         decks: [
           { name: "Death Toll", commanders: ["Zimone, All-Questioning"], colorIdentity: "BUG" },
           { name: "Jump Scare!", commanders: ["Valgavoth, Harrower of Souls"], colorIdentity: "RBU" },
-          { name: "Miracle Worker", commanders: ["Winter, Cynical Savior"], colorIdentity: "WB" },
+          { name: "Miracle Worker", commanders: ["Winter, Cynical Opportunist"], colorIdentity: "WB" },
           { name: "Endless Punishment", commanders: ["Toby, Beastie Befriender"], colorIdentity: "RGW" }
         ]
       },
@@ -65,8 +89,8 @@ export const COMMANDER_PRECONS: PreconYear[] = [
         name: "Bloomburrow",
         code: "BLC",
         decks: [
-          { name: "Animated Army", commanders: ["Ms. Bumbleflower"], colorIdentity: "GW" },
-          { name: "Family Matters", commanders: ["Finneas, Ace Archer"], colorIdentity: "GW" },
+          { name: "Animated Army", commanders: ["Bello, Bard of the Brambles"], colorIdentity: "RG" },
+          { name: "Family Matters", commanders: ["Zinnia, Matriarch of Seeds"], colorIdentity: "WUG" },
           { name: "Peace Offering", commanders: ["Clement, the Worrywort"], colorIdentity: "GW" },
           { name: "Squirreled Away", commanders: ["Hazel of the Rootbloom"], colorIdentity: "BG" }
         ]
