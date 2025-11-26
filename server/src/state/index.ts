@@ -50,6 +50,7 @@ export function createInitialGameState(gameId: string): InMemoryGame {
 
   const game: InMemoryGame = {
     // core state and seq
+    gameId,
     state: ctx.state,
 
     get seq() {
@@ -185,7 +186,7 @@ export function createInitialGameState(gameId: string): InMemoryGame {
     // event lifecycle / apply/replay/reset/skip/unskip/remove delegated to module
     applyEvent: (e: GameEvent) => applyEvent(ctx, e),
     replay: (events: GameEvent[]) => replay(ctx, events),
-    reset: (preservePlayers: boolean) => reset(ctx, preservePlayers),
+    reset: (preservePlayers?: boolean) => reset(ctx, preservePlayers ?? false),
     skip: (playerId: PlayerID) => skip(ctx, playerId),
     unskip: (playerId: PlayerID) => unskip(ctx, playerId),
     remove: (playerId: PlayerID) => remove(ctx, playerId),

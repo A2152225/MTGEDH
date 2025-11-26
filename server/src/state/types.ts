@@ -37,7 +37,7 @@ export interface InMemoryGame {
   // Library access and search
   libraries?: Map<PlayerID, any[]>;
   searchLibrary?: (playerId: PlayerID, query: string, limit: number) => any[];
-  selectFromLibrary?: (playerId: PlayerID, cardIds: string[], moveTo: any) => void;
+  selectFromLibrary?: (playerId: PlayerID, cardIds: string[], moveTo: any) => any[];
   moveHandToLibrary?: (playerId: PlayerID) => void;
   peekTopN?: (playerId: PlayerID, n: number) => any[];
   reorderHand?: (playerId: PlayerID, order: number[]) => boolean;

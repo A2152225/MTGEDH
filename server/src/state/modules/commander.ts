@@ -30,7 +30,7 @@ export function setCommander(
   // Initialize inCommandZone to all commander IDs (all start in the command zone)
   (info as any).inCommandZone = commanderIds.slice();
   if (!info.taxById) info.taxById = {};
-  info.tax = Object.values(info.taxById || {}).reduce((a, b) => a + b, 0);
+  info.tax = Object.values(info.taxById || {}).reduce((a: number, b: number) => a + b, 0);
 
   // Build commanderCards snapshot (prefer prior cached, then library entries, then battlefield)
   const built: Array<{ id: string; name: string; type_line?: string; oracle_text?: string; image_uris?: any; mana_cost?: string; power?: string; toughness?: string }> = [];
@@ -137,7 +137,7 @@ export function castCommander(ctx: GameContext, playerId: PlayerID, commanderId:
   
   if (!info.taxById) info.taxById = {};
   info.taxById[commanderId] = (info.taxById[commanderId] ?? 0) + 2;
-  info.tax = Object.values(info.taxById).reduce((a, b) => a + b, 0);
+  info.tax = Object.values(info.taxById).reduce((a: number, b: number) => a + b, 0);
   commandZone[playerId] = info;
   
   // Also update state.commandZone

@@ -152,6 +152,8 @@ export interface BattlefieldPermanent {
   // Phasing support
   phasedOut?: boolean;
   phaseOutController?: PlayerID;
+  // Teferi's Protection and similar effects
+  teferisProtection?: boolean;
 }
 
 /* Temporary effect applied to a permanent or player */
@@ -253,6 +255,25 @@ export interface GameState {
   pendingTargets?: any;
   // Creature type choices (Morophon, etc.)
   morophonChosenType?: string;
+  // Allow undos flag
+  allowUndos?: boolean;
+  // Creation timestamp
+  createdAt?: number;
+  // Turn timer settings
+  turnTimerEnabled?: boolean;
+  turnTimerSeconds?: number;
+  // Player protection effects (Teferi's Protection, etc.)
+  playerProtection?: Record<PlayerID, PlayerProtectionState>;
+  // Poison counters tracking
+  poisonCounters?: Record<PlayerID, number>;
+}
+
+/* Player protection state for effects like Teferi's Protection */
+export interface PlayerProtectionState {
+  teferisProtection?: boolean;
+  lifeCannotChange?: boolean;
+  protectionFromEverything?: boolean;
+  expiresAtCleanup?: boolean;
 }
 
 /* Client-scoped game view (lightweight diff of authoritative state) */

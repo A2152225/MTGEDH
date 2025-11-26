@@ -233,7 +233,7 @@ export function remove(ctx: any, playerId: PlayerID): void {
     if (ctx.experience && ctx.experience[playerId] !== undefined)
       delete ctx.experience[playerId];
     if (ctx.grants instanceof Map) {
-      for (const [owner, set] of Array.from(ctx.grants.entries())) {
+      for (const [owner, set] of ctx.grants.entries()) {
         if (set instanceof Set && set.has(playerId)) set.delete(playerId);
       }
     }

@@ -21,6 +21,15 @@ import { appendEvent } from "../db";
 import { fetchCardByExactNameStrict } from "../services/scryfall";
 import type { PlayerID } from "../../../shared/src";
 
+// Type helper for socket data
+interface SocketWithData extends Socket {
+  data: {
+    playerId?: string;
+    spectator?: boolean;
+    gameId?: string;
+  };
+}
+
 function normalizeNamesArray(payload: any): string[] {
   if (!payload) return [];
   if (Array.isArray(payload.commanderNames)) return payload.commanderNames.slice();
@@ -69,10 +78,11 @@ export function emitImportedDeckCandidatesToPlayer(
     const candidates = makeCandidateList(localArr);
 
     try {
-      for (const s of Array.from(io.sockets.sockets.values() as any)) {
+      for (const s of Array.from(io.sockets.sockets.values())) {
         try {
-          if (s?.data?.playerId === pid && !s?.data?.spectator) {
-            s.emit("importedDeckCandidates", { gameId, candidates });
+          const sock = s as SocketWithData;
+          if (sock?.data?.playerId === pid && !sock?.data?.spectator) {
+            sock.emit("importedDeckCandidates", { gameId, candidates });
           }
         } catch {
           /* ignore per-socket errors */
@@ -108,10 +118,11 @@ export function emitSuggestCommandersToPlayer(
       gameId,
       names: Array.isArray(names) ? names.slice(0, 2) : [],
     };
-    for (const s of Array.from(io.sockets.sockets.values() as any)) {
+    for (const s of Array.from(io.sockets.sockets.values())) {
       try {
-        if (s?.data?.playerId === pid && !s?.data?.spectator) {
-          s.emit("suggestCommanders", payload);
+        const sock = s as SocketWithData;
+        if (sock?.data?.playerId === pid && !sock?.data?.spectator) {
+          sock.emit("suggestCommanders", payload);
         }
       } catch {
         /* ignore per-socket errors */
