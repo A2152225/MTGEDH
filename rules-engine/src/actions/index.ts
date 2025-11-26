@@ -106,3 +106,32 @@ export {
   skipToPhase,
   passPriority,
 } from './gameAdvance';
+
+// Undo system
+export {
+  // Types
+  type UndoRequest,
+  type UndoState,
+  type GameEvent as UndoGameEvent,
+  type RequestUndoAction,
+  type RespondUndoAction,
+  type UndoValidationResult,
+  // Constants
+  DEFAULT_UNDO_TIMEOUT_MS,
+  // Functions
+  generateUndoRequestId,
+  createUndoState,
+  recordEvent,
+  validateUndoRequest,
+  createUndoRequest,
+  validateUndoResponse,
+  processUndoResponse,
+  checkUndoExpiration,
+  getEventsForUndo,
+  completeUndo,
+  cancelUndo,
+  getActionsToUndoCount,
+  getUndoDescription,
+  canRequestUndo,
+  getUndoApprovalStatus,
+} from './undo';
