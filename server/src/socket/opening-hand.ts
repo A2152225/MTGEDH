@@ -7,14 +7,28 @@ import { appendEvent } from "../db";
 
 /**
  * Check if a card has a Leyline-style opening hand ability
+ * 
+ * MTG rules: "If ~ is in your opening hand, you may begin the game with it on the battlefield."
+ * This matches cards like Leyline of the Void, Leyline of Sanctity, etc.
+ * 
+ * Also matches Gemstone Caverns: "If ~ is in your opening hand and you're not playing first,
+ * you may begin the game with ~ on the battlefield..."
  */
 function isLeylineCard(card: any): boolean {
   const oracleText = ((card?.oracle_text) || '').toLowerCase();
-  return (
-    oracleText.includes('opening hand') &&
-    oracleText.includes('begin the game') &&
-    oracleText.includes('battlefield')
+  const cardName = ((card?.name) || '').toLowerCase();
+  
+  // Check for the specific Leyline ability text pattern
+  // "If ~ is in your opening hand, you may begin the game with it on the battlefield."
+  const hasLeylineAbility = (
+    oracleText.includes('in your opening hand') &&
+    (oracleText.includes('begin the game with') || oracleText.includes('begin the game with it on the battlefield'))
   );
+  
+  // Also match by card name for known Leylines (as a backup)
+  const isKnownLeyline = cardName.startsWith('leyline of') || cardName === 'gemstone caverns';
+  
+  return hasLeylineAbility || isKnownLeyline;
 }
 
 /**
@@ -95,8 +109,8 @@ export function registerOpeningHandHandlers(io: Server, socket: Socket) {
       zones.handCount = hand.length;
 
       // Bump sequence
-      if (typeof game.bumpSeq === "function") {
-        game.bumpSeq();
+      if (typeof (game as any).bumpSeq === "function") {
+        (game as any).bumpSeq();
       }
 
       // Persist the event

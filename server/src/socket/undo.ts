@@ -3,7 +3,6 @@
 
 import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, getPlayerName } from "./util";
-import { appendEvent } from "../db";
 
 /**
  * Undo request state
@@ -20,17 +19,38 @@ interface UndoRequest {
   status: 'pending' | 'approved' | 'rejected' | 'expired' | 'cancelled';
 }
 
-// Store undo requests by gameId
+// Store undo requests by gameId - with cleanup on request completion/expiration
 const undoRequests = new Map<string, UndoRequest>();
 
 // Undo timeout in milliseconds (60 seconds)
 const UNDO_TIMEOUT_MS = 60000;
 
 /**
- * Generate unique undo request ID
+ * Generate unique undo request ID using crypto if available
  */
 function generateUndoId(): string {
+  // Use crypto.randomUUID() if available for better uniqueness
+  try {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      return `undo_${Date.now()}_${crypto.randomUUID().substring(0, 8)}`;
+    }
+  } catch {
+    // Fallback to Math.random()
+  }
   return `undo_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+}
+
+/**
+ * Clean up old expired requests to prevent memory leaks
+ */
+function cleanupExpiredRequests(): void {
+  const now = Date.now();
+  for (const [gameId, request] of undoRequests.entries()) {
+    if (request.status !== 'pending' || now > request.expiresAt + 60000) {
+      // Remove requests that are not pending or have been expired for over a minute
+      undoRequests.delete(gameId);
+    }
+  }
 }
 
 /**
@@ -61,6 +81,9 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
   // Request an undo
   socket.on("requestUndo", ({ gameId, actionsToUndo = 1 }: { gameId: string; actionsToUndo?: number }) => {
     try {
+      // Clean up expired requests periodically
+      cleanupExpiredRequests();
+
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;

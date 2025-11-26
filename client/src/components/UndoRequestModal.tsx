@@ -8,6 +8,9 @@
 
 import React, { useState, useEffect } from 'react';
 
+// Undo timeout in milliseconds - should match server's UNDO_TIMEOUT_MS
+const UNDO_TIMEOUT_MS = 60000;
+
 export interface UndoRequestData {
   undoId: string;
   requesterId: string;
@@ -163,7 +166,7 @@ export function UndoRequestModal({
           >
             <div
               style={{
-                width: `${(timeRemaining / 60000) * 100}%`,
+                width: `${(timeRemaining / UNDO_TIMEOUT_MS) * 100}%`,
                 height: '100%',
                 background: timeRemainingSeconds < 10 ? '#f56565' : '#fbbf24',
                 transition: 'width 1s linear',

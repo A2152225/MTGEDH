@@ -21,15 +21,25 @@ export interface OpeningHandActionsModalProps {
 
 /**
  * Check if a card has a Leyline-style opening hand ability
- * "If ~ is in your opening hand, you may begin the game with it on the battlefield."
+ * 
+ * MTG rules: "If ~ is in your opening hand, you may begin the game with it on the battlefield."
+ * This matches cards like Leyline of the Void, Leyline of Sanctity, etc.
+ * Also matches Gemstone Caverns.
  */
 function isLeylineCard(card: KnownCardRef): boolean {
   const oracleText = (card.oracle_text || '').toLowerCase();
-  return (
-    oracleText.includes('opening hand') &&
-    oracleText.includes('begin the game') &&
-    oracleText.includes('battlefield')
+  const cardName = (card.name || '').toLowerCase();
+  
+  // Check for the specific Leyline ability text pattern
+  const hasLeylineAbility = (
+    oracleText.includes('in your opening hand') &&
+    (oracleText.includes('begin the game with') || oracleText.includes('begin the game with it on the battlefield'))
   );
+  
+  // Also match by card name for known Leylines (as a backup)
+  const isKnownLeyline = cardName.startsWith('leyline of') || cardName === 'gemstone caverns';
+  
+  return hasLeylineAbility || isKnownLeyline;
 }
 
 export function OpeningHandActionsModal({
