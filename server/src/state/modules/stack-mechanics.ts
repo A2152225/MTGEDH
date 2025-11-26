@@ -309,7 +309,7 @@ export function counterStackItem(
   stackItemId: string,
   counteringPlayerId: string
 ): { success: boolean; counteredItem?: StackItem; reason?: string } {
-  const stack = ctx.state?.stack as StackItem[] || [];
+  const stack = (ctx.state?.stack || []) as any as StackItem[];
   const idx = stack.findIndex(item => item.id === stackItemId);
   
   if (idx === -1) {
@@ -400,7 +400,7 @@ export function copyStackItem(
   newController: string,
   newTargets?: StackTarget[]
 ): { success: boolean; copy?: StackItem; reason?: string } {
-  const stack = ctx.state?.stack as StackItem[] || [];
+  const stack = (ctx.state?.stack || []) as any as StackItem[] || [];
   const original = stack.find(item => item.id === stackItemId);
   
   if (!original) {
@@ -431,7 +431,7 @@ export function changeTargets(
   stackItemId: string,
   newTargets: StackTarget[]
 ): { success: boolean; reason?: string } {
-  const stack = ctx.state?.stack as StackItem[] || [];
+  const stack = (ctx.state?.stack || []) as any as StackItem[] || [];
   const item = stack.find(i => i.id === stackItemId);
   
   if (!item) {
@@ -452,7 +452,7 @@ export function changeTargets(
  * Get all items on the stack that can be countered
  */
 export function getCounterableStackItems(ctx: GameContext): StackItem[] {
-  const stack = ctx.state?.stack as StackItem[] || [];
+  const stack = (ctx.state?.stack || []) as any as StackItem[] || [];
   return stack.filter(item => item.canBeCountered && item.type !== 'mana_ability');
 }
 
@@ -460,7 +460,7 @@ export function getCounterableStackItems(ctx: GameContext): StackItem[] {
  * Get all triggered abilities on the stack
  */
 export function getTriggeredAbilitiesOnStack(ctx: GameContext): StackItem[] {
-  const stack = ctx.state?.stack as StackItem[] || [];
+  const stack = (ctx.state?.stack || []) as any as StackItem[] || [];
   return stack.filter(item => item.type === 'triggered_ability');
 }
 
@@ -468,7 +468,7 @@ export function getTriggeredAbilitiesOnStack(ctx: GameContext): StackItem[] {
  * Get all activated abilities on the stack (excluding mana abilities)
  */
 export function getActivatedAbilitiesOnStack(ctx: GameContext): StackItem[] {
-  const stack = ctx.state?.stack as StackItem[] || [];
+  const stack = (ctx.state?.stack || []) as any as StackItem[] || [];
   return stack.filter(item => item.type === 'activated_ability');
 }
 
@@ -476,7 +476,7 @@ export function getActivatedAbilitiesOnStack(ctx: GameContext): StackItem[] {
  * Check if the stack is empty
  */
 export function isStackEmpty(ctx: GameContext): boolean {
-  const stack = ctx.state?.stack as StackItem[] || [];
+  const stack = (ctx.state?.stack || []) as any as StackItem[] || [];
   return stack.length === 0;
 }
 
@@ -484,7 +484,7 @@ export function isStackEmpty(ctx: GameContext): boolean {
  * Get the top item of the stack (next to resolve)
  */
 export function getTopOfStack(ctx: GameContext): StackItem | null {
-  const stack = ctx.state?.stack as StackItem[] || [];
+  const stack = (ctx.state?.stack || []) as any as StackItem[] || [];
   return stack.length > 0 ? stack[stack.length - 1] : null;
 }
 
@@ -495,7 +495,7 @@ export function resolveTopOfStack(ctx: GameContext): {
   resolved: StackItem | null; 
   moveToZone?: string;
 } {
-  const stack = ctx.state?.stack as StackItem[] || [];
+  const stack = (ctx.state?.stack || []) as any as StackItem[] || [];
   
   if (stack.length === 0) {
     return { resolved: null };
