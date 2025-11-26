@@ -31,7 +31,7 @@ export function parsePT(raw?: string | number): number | undefined {
 }
 
 /**
- * Calculate the effective P/T for creatures with variable (*/*) power/toughness.
+ * Calculate the effective P/T for creatures with variable (star/star) power/toughness.
  * This implements the characteristic-defining abilities from card text.
  * 
  * Note: This is only for true variable P/T creatures like Tarmogoyf or Nighthowler.
