@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { COMMANDER_PRECONS, formatColorIdentity, searchPrecons, type PreconDeck, type PreconSet, type PreconYear } from '../../../shared/src/precons';
 
 interface PreconBrowserProps {
-  onSelectDeck: (commanders: string[], deckName: string, setName: string, year: number) => void;
+  onSelectDeck: (commanders: string[], deckName: string, setName: string, year: number, setCode: string, colorIdentity: string) => void;
   onClose?: () => void;
 }
 
@@ -41,7 +41,7 @@ export function PreconBrowser({ onSelectDeck, onClose }: PreconBrowserProps) {
   }, [searchQuery]);
 
   const handleDeckSelect = (deck: PreconDeck, set: PreconSet, year: number) => {
-    onSelectDeck(deck.commanders, deck.name, set.name, year);
+    onSelectDeck(deck.commanders, deck.name, set.name, year, set.code, deck.colorIdentity);
   };
 
   return (

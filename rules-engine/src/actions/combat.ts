@@ -62,8 +62,11 @@ export interface CombatValidationResult {
  * This considers:
  * - Base type line
  * - Type-changing effects (e.g., Imprisoned in the Moon removes creature type)
- * - Animation effects (e.g., Tezzeret making artifacts creatures)
+ * - Animation effects (e.g., Tezzeret making artifacts creatures, Nissa animating lands)
  * - Granted types from effects
+ * - Vehicles (only creatures when crewed this turn)
+ * - Spacecraft with Station (creatures when charge counter threshold met)
+ * - Bestow creatures (may be Auras when attached to another creature)
  * 
  * @param permanent - The permanent to check
  * @returns true if the permanent is currently a creature
@@ -71,36 +74,132 @@ export interface CombatValidationResult {
 export function isCurrentlyCreature(permanent: any): boolean {
   if (!permanent) return false;
   
-  // Check for explicit types array (from modifiers or card data)
-  if (permanent.types && Array.isArray(permanent.types)) {
-    if (permanent.types.includes('Creature')) return true;
-  }
-  
   // Check type_line from card data
   const typeLine = permanent.card?.type_line?.toLowerCase() || 
                    permanent.type_line?.toLowerCase() || '';
+  const oracleText = permanent.card?.oracle_text?.toLowerCase() || 
+                     permanent.oracle_text?.toLowerCase() || '';
   
-  // Check if type has been removed by effects (like Imprisoned in the Moon)
-  // Type removal effects typically set a modifier that overrides the type line
+  // FIRST: Check for the isCreature flag - this is set by animation effects
+  // like Tezzeret, Karn, Nissa, March of the Machines, etc.
+  // This takes highest priority as it represents the current game state
+  if (permanent.isCreature === true) {
+    return true;
+  }
+  
+  // Check for animation modifiers (Tezzeret, Karn, Ensoul Artifact, etc.)
+  // These effects turn non-creature permanents into creatures
   if (permanent.modifiers && Array.isArray(permanent.modifiers)) {
     for (const mod of permanent.modifiers) {
+      // Animation effects that make something a creature
+      if (mod.type === 'animation' || mod.type === 'ANIMATION' ||
+          mod.type === 'becomesCreature' || mod.type === 'BECOMES_CREATURE' ||
+          mod.type === 'tezzeret' || mod.type === 'ensoulArtifact' ||
+          mod.type === 'marchOfTheMachines' || mod.type === 'nissaAnimation' ||
+          mod.type === 'karnAnimation' || mod.type === 'manland') {
+        // Check if the animation is still active
+        if (mod.active !== false) {
+          return true;
+        }
+      }
+      
       // TYPE_CHANGE modifiers can add or remove types
-      if (mod.type === 'typeChange' || mod.type === 'TYPE_CHANGE') {
+      if (mod.type === 'typeChange' || mod.type === 'TYPE_CHANGE' || 
+          mod.type === 'imprisonedInTheMoon' || mod.type === 'songOfTheDryads' ||
+          mod.type === 'typeReplacement') {
         // If modifier explicitly removes creature type
         if (mod.removesTypes?.includes('Creature')) {
           return false;
         }
-        // If modifier sets a new type line that replaces the original
-        if (mod.newTypeLine && !mod.newTypeLine.toLowerCase().includes('creature')) {
-          return false;
+        // If modifier sets a new type line that replaces the original (e.g., "Land")
+        // These effects turn the permanent into something else entirely
+        if (mod.newTypeLine) {
+          const newType = mod.newTypeLine.toLowerCase();
+          // The new type line replaces all types - check if it includes creature
+          return newType.includes('creature');
         }
         // If modifier adds creature type
-        if (mod.addsTypes?.includes('Creature') || 
-            (mod.newTypeLine && mod.newTypeLine.toLowerCase().includes('creature'))) {
+        if (mod.addsTypes?.includes('Creature')) {
           return true;
         }
       }
     }
+  }
+  
+  // Check if this permanent is marked as having its types replaced
+  // (e.g., by Imprisoned in the Moon making it "just a land")
+  if (permanent.typesReplaced === true) {
+    // Check the current effective types
+    if (permanent.effectiveTypes && Array.isArray(permanent.effectiveTypes)) {
+      return permanent.effectiveTypes.includes('Creature');
+    }
+    // If types were replaced but no creature type, it's not a creature
+    return false;
+  }
+  
+  // Check for animated flag (used for lands that become creatures, artifacts animated by Tezzeret, etc.)
+  if (permanent.animated === true) {
+    return true;
+  }
+  
+  // Handle Bestow creatures - they can be Auras when cast with bestow
+  // A bestow creature on the battlefield is a creature UNLESS it's currently
+  // attached to another permanent as an Aura
+  if (oracleText.includes('bestow')) {
+    // Check if this permanent is currently attached to something (acting as an Aura)
+    if (permanent.attachedTo || permanent.enchanting) {
+      // It's attached to something, so it's an Aura (Enchantment), not a Creature
+      return false;
+    }
+    // If a bestow creature is on the battlefield unattached, it's a creature
+    // (This happens when the enchanted creature dies)
+    if (typeLine.includes('creature')) {
+      return true;
+    }
+  }
+  
+  // Handle Vehicles - they are NOT creatures unless crewed this turn
+  // Vehicles have "Artifact — Vehicle" type line and "Crew N" ability
+  if (typeLine.includes('vehicle')) {
+    // Check if the vehicle has been crewed this turn
+    // The game should set a 'crewed' or 'isCreature' flag when crew is activated
+    if (permanent.crewed === true) {
+      return true;
+    }
+    // Also check for granted creature type from crew effect
+    if (permanent.grantedTypes && Array.isArray(permanent.grantedTypes)) {
+      if (permanent.grantedTypes.includes('Creature')) return true;
+    }
+    // Vehicle not crewed - not a creature
+    return false;
+  }
+  
+  // Handle Spacecraft with Station mechanic
+  // Spacecraft become creatures when they have enough charge counters
+  if (typeLine.includes('spacecraft')) {
+    // Check if the spacecraft has met its station threshold
+    // This is tracked by the game when station ability resolves
+    if (permanent.stationed === true) {
+      return true;
+    }
+    // Also check for granted creature type from station effect
+    if (permanent.grantedTypes && Array.isArray(permanent.grantedTypes)) {
+      if (permanent.grantedTypes.includes('Creature')) return true;
+    }
+    // Check if counters meet the threshold (simplified check)
+    // The game should manage this, but we can check for charge counters
+    const chargeCounters = permanent.counters?.charge || permanent.counters?.['charge'] || 0;
+    const stationThreshold = permanent.stationThreshold || 0;
+    if (stationThreshold > 0 && chargeCounters >= stationThreshold) {
+      return true;
+    }
+    // Spacecraft not stationed - not a creature
+    return false;
+  }
+  
+  // Check for explicit types array (from modifiers or card data)
+  if (permanent.types && Array.isArray(permanent.types)) {
+    if (permanent.types.includes('Creature')) return true;
   }
   
   // Check granted types from effects (e.g., "becomes a creature")

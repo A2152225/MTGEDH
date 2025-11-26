@@ -499,6 +499,88 @@ describe('Combat Validation Helpers', () => {
       };
       expect(isCurrentlyCreature(transformed)).toBe(false);
     });
+
+    it('should return false for vehicles that have not been crewed', () => {
+      const vehicle = {
+        id: 'v1',
+        card: { type_line: 'Artifact — Vehicle', oracle_text: 'Crew 3' },
+      };
+      expect(isCurrentlyCreature(vehicle)).toBe(false);
+    });
+
+    it('should return true for vehicles that have been crewed', () => {
+      const crewedVehicle = {
+        id: 'v1',
+        card: { type_line: 'Artifact — Vehicle', oracle_text: 'Crew 3' },
+        crewed: true,
+      };
+      expect(isCurrentlyCreature(crewedVehicle)).toBe(true);
+    });
+
+    it('should return false for spacecraft that have not been stationed', () => {
+      const spacecraft = {
+        id: 's1',
+        card: { type_line: 'Artifact — Spacecraft', oracle_text: 'Station 4' },
+      };
+      expect(isCurrentlyCreature(spacecraft)).toBe(false);
+    });
+
+    it('should return true for spacecraft that have been stationed', () => {
+      const stationedSpacecraft = {
+        id: 's1',
+        card: { type_line: 'Artifact — Spacecraft', oracle_text: 'Station 4' },
+        stationed: true,
+      };
+      expect(isCurrentlyCreature(stationedSpacecraft)).toBe(true);
+    });
+
+    it('should return false for bestow creatures attached as auras', () => {
+      const bestowAsAura = {
+        id: 'b1',
+        card: { type_line: 'Enchantment Creature — Spirit', oracle_text: 'Bestow {3}{W}{W}' },
+        attachedTo: 'creature1',
+      };
+      expect(isCurrentlyCreature(bestowAsAura)).toBe(false);
+    });
+
+    it('should return true for bestow creatures not attached (standalone)', () => {
+      const bestowCreature = {
+        id: 'b1',
+        card: { type_line: 'Enchantment Creature — Spirit', oracle_text: 'Bestow {3}{W}{W}' },
+      };
+      expect(isCurrentlyCreature(bestowCreature)).toBe(true);
+    });
+
+    it('should return true for animated artifacts (Tezzeret effect)', () => {
+      const animatedArtifact = {
+        id: 'a1',
+        card: { type_line: 'Artifact' },
+        isCreature: true,
+      };
+      expect(isCurrentlyCreature(animatedArtifact)).toBe(true);
+    });
+
+    it('should return true for permanents with animation modifier', () => {
+      const animatedByTezzeret = {
+        id: 'a1',
+        card: { type_line: 'Artifact' },
+        modifiers: [
+          { type: 'animation', active: true },
+        ],
+      };
+      expect(isCurrentlyCreature(animatedByTezzeret)).toBe(true);
+    });
+
+    it('should return false for creatures affected by Imprisoned in the Moon', () => {
+      const imprisoned = {
+        id: 'c1',
+        card: { type_line: 'Creature — Angel' },
+        modifiers: [
+          { type: 'imprisonedInTheMoon', newTypeLine: 'Land' },
+        ],
+      };
+      expect(isCurrentlyCreature(imprisoned)).toBe(false);
+    });
   });
 
   describe('hasDefender', () => {
