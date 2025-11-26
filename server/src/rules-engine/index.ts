@@ -48,7 +48,10 @@ function derivedToughness(perm: BattlefieldPermanent): number | undefined {
   const plus = perm.counters?.['+1/+1'] ?? 0;
   const minus = perm.counters?.['-1/-1'] ?? 0;
   const net = plus - minus;
-  return perm.baseToughness + net;
+  const totalToughness = perm.baseToughness + net;
+  // Damage reduces effective toughness for SBA purposes
+  const damage = (perm as any).damage ?? 0;
+  return totalToughness - damage;
 }
 
 // Pure SBA pass

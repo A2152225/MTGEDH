@@ -3,7 +3,8 @@ import type { GameContext } from "../context";
 import { uid } from "../utils";
 
 export function addPlayerIfMissing(ctx: GameContext, id: PlayerID, name: string, desiredSeat?: number): number {
-  const { state, life, poison, experience, zones, commandZone, bumpSeq, libraries } = ctx;
+  const { state, life, poison, experience, commandZone, bumpSeq, libraries } = ctx;
+  const zones = state.zones = state.zones || {};
   const existing = (state.players as any as PlayerRef[]).find(p => p.id === id);
   if (existing) return existing.seat;
   const seat = (typeof desiredSeat === "number" ? desiredSeat : (state.players as any as PlayerRef[]).length) as PlayerRef["seat"];
@@ -43,7 +44,8 @@ export function join(
   fixedPlayerId?: PlayerID,
   seatTokenFromClient?: string
 ) {
-  const { joinedBySocket, playerToToken, tokenToPlayer, spectatorNames, state, zones, commandZone, poison, experience, libraries } = ctx;
+  const { joinedBySocket, playerToToken, tokenToPlayer, spectatorNames, state, commandZone, poison, experience, libraries } = ctx;
+  const zones = state.zones = state.zones || {};
   const existing = joinedBySocket.get(socketId);
   if (existing) return { playerId: existing.playerId, added: false, seatToken: playerToToken.get(existing.playerId) };
 
@@ -101,7 +103,8 @@ export function join(
 }
 
 export function leave(ctx: GameContext, playerId?: PlayerID): boolean {
-  const { state, life, poison, experience, commandZone, zones, libraries, inactive, playerToToken, tokenToPlayer, grants, participantsList, spectatorNames, bumpSeq } = ctx;
+  const { state, life, poison, experience, commandZone, libraries, inactive, playerToToken, tokenToPlayer, grants, participantsList, spectatorNames, bumpSeq } = ctx;
+  const zones = state.zones = state.zones || {};
   if (!playerId) return false;
   const idx = (state.players as any as PlayerRef[]).findIndex(p => p.id === playerId);
   if (idx >= 0) {

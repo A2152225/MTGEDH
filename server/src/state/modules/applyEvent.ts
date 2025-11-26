@@ -324,6 +324,21 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             if (!(ctx.state as any).priority) {
               (ctx.state as any).priority = pid;
             }
+            
+            // Initialize life, poison, experience for non-spectator players
+            const startingLife = ctx.state.startingLife ?? 40;
+            if (ctx.life) ctx.life[pid] = ctx.life[pid] ?? startingLife;
+            if (ctx.poison) ctx.poison[pid] = ctx.poison[pid] ?? 0;
+            if (ctx.experience) ctx.experience[pid] = ctx.experience[pid] ?? 0;
+            
+            // Initialize zones
+            const zones = ctx.state.zones = ctx.state.zones || {};
+            zones[pid] = zones[pid] ?? { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+            
+            // Initialize landsPlayedThisTurn
+            if (ctx.state.landsPlayedThisTurn) {
+              ctx.state.landsPlayedThisTurn[pid] = ctx.state.landsPlayedThisTurn[pid] ?? 0;
+            }
           }
           
           // Zones will be normalized by reconcileZonesConsistency after replay.

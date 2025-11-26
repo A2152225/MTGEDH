@@ -42,7 +42,8 @@ export function viewFor(
   viewer: PlayerID | "spectator:judge",
   _spectator: boolean
 ): ClientGameView {
-  const { state, zones, libraries, commandZone, inactive, poison, experience } = ctx;
+  const { state, libraries, commandZone, inactive, poison, experience } = ctx;
+  const zones = state.zones || {};
 
   const filteredBattlefield = state.battlefield.map((perm) => {
     const card = perm.card as any;

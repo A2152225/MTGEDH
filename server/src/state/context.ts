@@ -143,10 +143,10 @@ export function createContext(gameId: string): GameContext {
     gameId,
     state,
     libraries: new Map<PlayerID, KnownCardRef[]>(),
-    life: {},
+    life: state.life,  // Share the same object as state.life
     poison: {},
     experience: {},
-    commandZone: {} as any,
+    commandZone: state.commandZone,  // Share the same object as state.commandZone
     joinedBySocket: new Map(),
     participantsList: [],
     tokenToPlayer: new Map(),
@@ -167,8 +167,8 @@ export function createContext(gameId: string): GameContext {
     // Priority tracking for stack resolution
     passesInRow: { value: 0 },
 
-    // optional runtime containers (populated by other modules when used)
-    landsPlayedThisTurn: {},
+    // optional runtime containers - share with state where possible
+    landsPlayedThisTurn: state.landsPlayedThisTurn,  // Share with state
     maxLandsPerTurn: {},  // Default 1 per player, can be increased by effects
     additionalDrawsPerTurn: {},  // Extra draws per draw step (Font of Mythos, etc.)
     manaPool: {},
