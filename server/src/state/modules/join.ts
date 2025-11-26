@@ -21,7 +21,7 @@ export function addPlayerIfMissing(ctx: GameContext, id: PlayerID, name: string,
     if (libraries && typeof libraries.get === "function") {
       const lib = libraries.get(id);
       if (Array.isArray(lib)) libraryCount = lib.length;
-      else if (lib && typeof lib.length === "number") libraryCount = lib.length;
+      else if (lib && typeof (lib as any).length === "number") libraryCount = (lib as any).length;
     }
   } catch {
     libraryCount = 0;

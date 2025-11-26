@@ -8,10 +8,7 @@
     "resolveJsonModule": true,
     "declaration": true,
     "declarationMap": true,
-    "strictNullChecks": false,
-    "noImplicitAny": false,
-    "strictPropertyInitialization": false,
-    "strictBindCallApply": false
+    "strict": false
   },
   "include": ["src"]
 }

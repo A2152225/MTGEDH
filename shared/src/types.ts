@@ -49,6 +49,14 @@ export interface HiddenCardRef {
   faceDown: true;
   zone: 'battlefield' | 'exile' | 'stack' | 'library' | 'hand' | 'graveyard' | 'command';
   visibility: 'owner' | 'controller' | 'public' | 'none';
+  // Optional properties for compatibility with KnownCardRef (when card is revealed)
+  name?: string;
+  type_line?: string;
+  oracle_text?: string;
+  image_uris?: ImageUris;
+  mana_cost?: string;
+  power?: string | number;
+  toughness?: string | number;
 }
 
 /* Generic CardRef used across the app */
@@ -62,6 +70,8 @@ export interface PlayerRef {
   isSpectator?: boolean;
   inactive?: boolean;
   eliminated?: boolean;
+  // Optional server-side properties
+  life?: number;
 }
 
 /* Full server-side Player shape (subset exported for server) */
@@ -154,6 +164,8 @@ export interface BattlefieldPermanent {
   phaseOutController?: PlayerID;
   // Teferi's Protection and similar effects
   teferisProtection?: boolean;
+  // Echo paid tracking
+  echoPaid?: boolean;
 }
 
 /* Temporary effect applied to a permanent or player */
@@ -259,6 +271,10 @@ export interface GameState {
   allowUndos?: boolean;
   // Creation timestamp
   createdAt?: number;
+  // Last action timestamp
+  lastActionAt?: number;
+  // Commander damage tracking
+  commanderDamage?: Record<PlayerID, Record<PlayerID, number>>;
   // Turn timer settings
   turnTimerEnabled?: boolean;
   turnTimerSeconds?: number;
@@ -266,6 +282,8 @@ export interface GameState {
   playerProtection?: Record<PlayerID, PlayerProtectionState>;
   // Poison counters tracking
   poisonCounters?: Record<PlayerID, number>;
+  // Spectators list
+  spectators?: readonly PlayerRef[];
 }
 
 /* Player protection state for effects like Teferi's Protection */

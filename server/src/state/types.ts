@@ -5,9 +5,10 @@
 import type { PlayerID } from "../../../shared/src/types.js";
 import type { GameState } from "../../../shared/src/types.js";
 import type { KnownCardRef } from "../../../shared/src/types.js";
+import type { PlayerRef } from "../../../shared/src/types.js";
 
 // Re-export PlayerID for convenience
-export type { PlayerID, GameState, KnownCardRef };
+export type { PlayerID, GameState, KnownCardRef, PlayerRef };
 
 /* Game event type for replay/apply */
 export interface GameEvent {
