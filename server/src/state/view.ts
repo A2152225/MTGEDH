@@ -2,8 +2,8 @@
 // Create a client-scoped view from the authoritative GameContext.
 // Fixed import path to shared types.
 
-import type { GameContext } from "./context";
-import type { ClientGameView, PlayerID, PlayerRef, PlayerZones, KnownCardRef } from "../../../shared/src/types";
+import type { GameContext } from "./context.js";
+import type { ClientGameView, PlayerID, PlayerRef, PlayerZones, KnownCardRef } from "../../../shared/src/types.js";
 
 /**
  * Produce a ClientGameView for a specific viewer (playerId) or for a spectator.

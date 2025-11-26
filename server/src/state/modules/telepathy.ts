@@ -1,5 +1,5 @@
-import type { GameContext } from "../context";
-import type { PlayerID } from "../../../../shared/src";
+import type { GameContext } from "../context.js";
+import type { PlayerID } from "../../../../shared/src/index.js";
 
 export function grantTelepathyForPlayer(ctx: GameContext, telepath: PlayerID) {
   for (const p of ctx.state.players as any[]) {

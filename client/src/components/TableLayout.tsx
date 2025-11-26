@@ -29,6 +29,64 @@ import { socket } from '../socket';
 function clamp(n: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, n)); }
 function isLandTypeLine(tl?: string) { return /\bland\b/i.test(tl || ''); }
 
+/**
+ * Identifies mana sources (mana rocks and mana dorks).
+ * Mana rocks: Artifacts that produce mana (e.g., Sol Ring, Mana Crypt, signets)
+ * Mana dorks: Creatures that produce mana (e.g., Llanowar Elves, Birds of Paradise)
+ */
+function isManaSource(perm: BattlefieldPermanent): boolean {
+  const card = perm.card as any;
+  if (!card) return false;
+  const typeLine = (card.type_line || '').toLowerCase();
+  const oracleText = (card.oracle_text || '').toLowerCase();
+  const name = (card.name || '').toLowerCase();
+  
+  // Don't classify lands as mana sources here - they're handled separately
+  if (typeLine.includes('land')) return false;
+  
+  // Common mana rock patterns
+  const manaArtifacts = [
+    'sol ring', 'mana crypt', 'mana vault', 'grim monolith', 'lotus petal',
+    'chrome mox', 'mox diamond', 'mox opal', 'mox amber', 'lion\'s eye diamond',
+    'jeweled lotus', 'arcane signet', 'signet', 'talisman', 'fellwar stone',
+    'mind stone', 'thought vessel', 'commander\'s sphere', 'gilded lotus',
+    'thran dynamo', 'basalt monolith', 'worn powerstone', 'hedron archive',
+    'everflowing chalice', 'astral cornucopia', 'coalition relic',
+  ];
+  
+  // Common mana dork patterns
+  const manaDorks = [
+    'llanowar elves', 'elvish mystic', 'fyndhorn elves', 'birds of paradise',
+    'noble hierarch', 'bloom tender', 'priest of titania', 'elvish archdruid',
+    'deathrite shaman', 'sylvan caryatid', 'paradise druid', 'incubation druid',
+  ];
+  
+  // Check by name
+  for (const pattern of manaArtifacts) {
+    if (name.includes(pattern)) return true;
+  }
+  for (const pattern of manaDorks) {
+    if (name.includes(pattern)) return true;
+  }
+  
+  // Check oracle text for mana production abilities (only for artifacts and creatures)
+  if ((typeLine.includes('artifact') || typeLine.includes('creature'))) {
+    // Look for "{T}: Add" mana ability patterns
+    if (oracleText.includes('{t}: add') || (oracleText.includes('{t}, sacrifice') && oracleText.includes('add'))) {
+      // Exclude equipment and vehicles
+      if (!typeLine.includes('equipment') && !typeLine.includes('vehicle')) {
+        return true;
+      }
+    }
+    // Check for "add one mana of any color" or similar
+    if (oracleText.includes('add one mana') || oracleText.includes('add {')) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
 type Side = 0 | 1 | 2 | 3;
 type PlayerBoard = { player: PlayerRef; permanents: BattlefieldPermanent[] };
 
@@ -118,6 +176,9 @@ export function TableLayout(props: {
   onImportDeckText?: (txt: string, name?: string) => void;
   onUseSavedDeck?: (deckId: string) => void;
   onLocalImportConfirmChange?: (open: boolean) => void;
+  // External control for deck manager visibility
+  externalDeckMgrOpen?: boolean;
+  onDeckMgrOpenChange?: (open: boolean) => void;
   gameId?: GameID;
   stackItems?: any[];
   importedCandidates?: KnownCardRef[]; // no longer used for commander UI, but kept for potential future UI
@@ -146,6 +207,7 @@ export function TableLayout(props: {
     threeD, enablePanZoom = true,
     tableCloth, worldSize, onUpdatePermPos,
     onImportDeckText, onUseSavedDeck, onLocalImportConfirmChange,
+    externalDeckMgrOpen, onDeckMgrOpenChange,
     gameId, stackItems, importedCandidates, energyCounters, energy,
     chatMessages, onSendChat, chatView, chatYou,
     monarch, initiative, dayNight, cityBlessing,
@@ -380,7 +442,16 @@ export function TableLayout(props: {
     `translate(${container.w / 2}px, ${container.h / 2}px) scale(${cam.z}) translate(${-cam.x}px, ${-cam.y}px)`;
 
   // deck manager + import confirm
-  const [deckMgrOpen, setDeckMgrOpen] = useState(false);
+  const [deckMgrOpenInternal, setDeckMgrOpenInternal] = useState(false);
+  // Use external prop if provided, otherwise use internal state
+  const deckMgrOpen = externalDeckMgrOpen !== undefined ? externalDeckMgrOpen : deckMgrOpenInternal;
+  const setDeckMgrOpen = (open: boolean) => {
+    if (onDeckMgrOpenChange) {
+      onDeckMgrOpenChange(open);
+    } else {
+      setDeckMgrOpenInternal(open);
+    }
+  };
   const decksBtnRef = useRef<HTMLButtonElement | null>(null);
 
   const tableHasContent = useMemo(() => {
@@ -556,7 +627,10 @@ export function TableLayout(props: {
                 const tokens = perms.filter(x => (x.card as any)?.type_line === 'Token');
                 const nonTokens = perms.filter(x => (x.card as any)?.type_line !== 'Token');
                 const lands = splitLands ? nonTokens.filter(x => isLandTypeLine((x.card as any)?.type_line)) : [];
-                const others = splitLands ? nonTokens.filter(x => !isLandTypeLine((x.card as any)?.type_line)) : nonTokens;
+                // Separate mana sources (mana rocks/dorks) from other permanents
+                const nonLands = splitLands ? nonTokens.filter(x => !isLandTypeLine((x.card as any)?.type_line)) : nonTokens;
+                const manaSources = nonLands.filter(x => isManaSource(x));
+                const others = nonLands.filter(x => !isManaSource(x));
                 const canTargetPlayer = highlightPlayerTargets?.has(pb.player.id) ?? false;
                 const isPlayerSelected = selectedPlayerTargets?.has(pb.player.id) ?? false;
                 const isYouThis = you && pb.player.id === you;
@@ -838,6 +912,42 @@ export function TableLayout(props: {
                               imagePref={imagePref}
                               tileWidth={TILE_W}
                               overlapRatio={0.33}
+                              highlightTargets={highlightPermTargets}
+                              selectedTargets={selectedPermTargets}
+                              onCardClick={onPermanentClick}
+                              onRemove={isYouPlayer ? onRemove : undefined}
+                              onCounter={isYouPlayer ? onCounter : undefined}
+                              onTap={isYouThis && gameId ? (id) => socket.emit('tapPermanent', { gameId, permanentId: id }) : undefined}
+                              onUntap={isYouThis && gameId ? (id) => socket.emit('untapPermanent', { gameId, permanentId: id }) : undefined}
+                              onActivateAbility={isYouThis && gameId ? (permanentId, abilityId) => socket.emit('activateBattlefieldAbility', { gameId, permanentId, abilityId }) : undefined}
+                              onSacrifice={isYouThis && gameId ? (id) => socket.emit('sacrificePermanent', { gameId, permanentId: id }) : undefined}
+                              canActivate={isYouThis}
+                              playerId={isYouThis ? you : undefined}
+                            />
+                          </div>
+                        )}
+
+                        {/* Mana Sources Row (mana rocks, dorks) - positioned near lands for easy access */}
+                        {manaSources.length > 0 && (
+                          <div style={{ marginTop: 8 }} data-no-zoom>
+                            <div
+                              style={{
+                                fontSize: 11,
+                                opacity: 0.65,
+                                marginBottom: 4,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6
+                              }}
+                            >
+                              <span style={{ color: '#fbbf24' }}>💎</span>
+                              <span>Mana Sources ({manaSources.length})</span>
+                            </div>
+                            <LandRow
+                              lands={manaSources}
+                              imagePref={imagePref}
+                              tileWidth={Math.round(TILE_W * 0.85)}
+                              overlapRatio={0.4}
                               highlightTargets={highlightPermTargets}
                               selectedTargets={selectedPermTargets}
                               onCardClick={onPermanentClick}

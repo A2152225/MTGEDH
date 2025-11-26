@@ -3,9 +3,13 @@
  * This file mirrors the original applyEvent/replay logic from the monolith.
  */
 
-import type { GameContext } from "../context";
-import type { PlayerID } from "../types";
-import type { GameEvent } from "../types";
+import type { GameContext } from "../context.js";
+import type { PlayerID, GameEvent } from "../types.js";
+import {
+  reset,
+  skip,
+  unskip,
+} from "./applyEvent.js";
 import {
   importDeckResolved,
   shuffleLibrary,
@@ -17,8 +21,8 @@ import {
   peekTopN,
   applyScry,
   applySurveil,
-} from "./zones";
-import { setCommander, castCommander, moveCommanderToCZ } from "./commander";
+} from "./zones.js";
+import { setCommander, castCommander, moveCommanderToCZ } from "./commander.js";
 import {
   updateCounters,
   applyUpdateCountersBulk,
@@ -26,10 +30,10 @@ import {
   removePermanent,
   applyEngineEffects,
   runSBA,
-} from "./counters_tokens";
-import { pushStack, resolveTopOfStack, playLand } from "./stack";
-import { nextTurn, nextStep, passPriority } from "./turn";
-import { reconcileZonesConsistency } from "./zones";
+} from "./counters_tokens.js";
+import { pushStack, resolveTopOfStack, playLand } from "./stack.js";
+import { nextTurn, nextStep, passPriority } from "./turn.js";
+import { reconcileZonesConsistency } from "./zones.js";
 
 /* applyEvent: mirror of monolithic behavior */
 export function applyEvent(ctx: GameContext, e: GameEvent) {
