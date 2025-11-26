@@ -22,6 +22,10 @@ import { BounceLandChoiceModal } from "./components/BounceLandChoiceModal";
 import { TriggeredAbilityModal, type TriggerPromptData } from "./components/TriggeredAbilityModal";
 import { MulliganBottomModal } from "./components/MulliganBottomModal";
 import { DiscardSelectionModal } from "./components/DiscardSelectionModal";
+import { OpeningHandActionsModal } from "./components/OpeningHandActionsModal";
+import { LibrarySearchModal } from "./components/LibrarySearchModal";
+import { TargetSelectionModal, type TargetOption } from "./components/TargetSelectionModal";
+import { UndoRequestModal, type UndoRequestData } from "./components/UndoRequestModal";
 import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
 import { useGameSocket } from "./hooks/useGameSocket";
@@ -213,10 +217,42 @@ export function App() {
   const [mulliganBottomModalOpen, setMulliganBottomModalOpen] = useState(false);
   const [mulliganBottomCount, setMulliganBottomCount] = useState(0);
 
-  // Cleanup discard selection modal state
+   // Cleanup discard selection modal state
   const [discardModalOpen, setDiscardModalOpen] = useState(false);
   const [discardCount, setDiscardCount] = useState(0);
   const [discardMaxHandSize, setDiscardMaxHandSize] = useState(7);
+  
+  // Opening hand actions modal state (Leylines)
+  const [openingHandActionsModalOpen, setOpeningHandActionsModalOpen] = useState(false);
+  
+  // Library search modal state (Tutors)
+  const [librarySearchModalOpen, setLibrarySearchModalOpen] = useState(false);
+  const [librarySearchData, setLibrarySearchData] = useState<{
+    cards: KnownCardRef[];
+    title: string;
+    description?: string;
+    filter?: { types?: string[]; subtypes?: string[]; maxCmc?: number };
+    maxSelections: number;
+    moveTo: 'hand' | 'battlefield' | 'top' | 'graveyard';
+    shuffleAfter: boolean;
+    targetPlayerId?: string; // Whose library we're searching (for Gitaxian Probe, etc.)
+  } | null>(null);
+  
+  // Target selection modal state
+  const [targetModalOpen, setTargetModalOpen] = useState(false);
+  const [targetModalData, setTargetModalData] = useState<{
+    title: string;
+    description?: string;
+    source?: { name: string; imageUrl?: string };
+    targets: TargetOption[];
+    minTargets: number;
+    maxTargets: number;
+    effectId?: string; // For tracking which effect requested the targets
+  } | null>(null);
+  
+  // Undo request modal state
+  const [undoModalOpen, setUndoModalOpen] = useState(false);
+  const [undoRequestData, setUndoRequestData] = useState<UndoRequestData | null>(null);
   
   // Deck validation state
   const [deckValidation, setDeckValidation] = useState<{
@@ -398,6 +434,133 @@ export function App() {
       socket.off("deckValidationResult", handler);
     };
   }, [safeView?.id]);
+
+  // Library search request listener (Tutor effects)
+  React.useEffect(() => {
+    const handler = (payload: any) => {
+      if (payload.gameId === safeView?.id) {
+        setLibrarySearchData({
+          cards: payload.cards || [],
+          title: payload.title || 'Search Library',
+          description: payload.description,
+          filter: payload.filter,
+          maxSelections: payload.maxSelections || 1,
+          moveTo: payload.moveTo || 'hand',
+          shuffleAfter: payload.shuffleAfter !== false,
+          targetPlayerId: payload.targetPlayerId, // For searching opponent's library
+        });
+        setLibrarySearchModalOpen(true);
+      }
+    };
+    socket.on("librarySearchRequest", handler);
+    return () => {
+      socket.off("librarySearchRequest", handler);
+    };
+  }, [safeView?.id]);
+
+  // Target selection request listener
+  React.useEffect(() => {
+    const handler = (payload: any) => {
+      if (payload.gameId === safeView?.id) {
+        // Convert payload targets to TargetOption format
+        const targets: TargetOption[] = (payload.targets || []).map((t: any) => ({
+          id: t.id,
+          type: t.type || 'permanent',
+          name: t.name,
+          displayName: t.displayName,
+          imageUrl: t.imageUrl,
+          controller: t.controller,
+          typeLine: t.typeLine,
+          life: t.life,
+          zone: t.zone,
+          owner: t.owner,
+          card: t.card,
+        }));
+
+        setTargetModalData({
+          title: payload.title || 'Select Targets',
+          description: payload.description,
+          source: payload.source,
+          targets,
+          minTargets: payload.minTargets ?? 1,
+          maxTargets: payload.maxTargets ?? 1,
+          effectId: payload.effectId,
+        });
+        setTargetModalOpen(true);
+      }
+    };
+    socket.on("targetSelectionRequest", handler);
+    return () => {
+      socket.off("targetSelectionRequest", handler);
+    };
+  }, [safeView?.id]);
+
+  // Opening hand actions prompt listener (for Leylines after mulligan)
+  React.useEffect(() => {
+    const handler = (payload: any) => {
+      if (payload.gameId === safeView?.id) {
+        setOpeningHandActionsModalOpen(true);
+      }
+    };
+    socket.on("openingHandActionsPrompt", handler);
+    return () => {
+      socket.off("openingHandActionsPrompt", handler);
+    };
+  }, [safeView?.id]);
+
+  // Undo request listener
+  React.useEffect(() => {
+    const handleUndoRequest = (payload: any) => {
+      if (payload.gameId === safeView?.id) {
+        setUndoRequestData({
+          undoId: payload.undoId,
+          requesterId: payload.requesterId,
+          requesterName: payload.requesterName,
+          description: payload.description,
+          actionsToUndo: payload.actionsToUndo,
+          expiresAt: payload.expiresAt,
+          approvals: payload.approvals || {},
+          playerIds: payload.playerIds || [],
+        });
+        setUndoModalOpen(true);
+      }
+    };
+
+    const handleUndoUpdate = (payload: any) => {
+      if (payload.gameId === safeView?.id && undoRequestData?.undoId === payload.undoId) {
+        setUndoRequestData(prev => prev ? {
+          ...prev,
+          approvals: payload.approvals || prev.approvals,
+        } : null);
+      }
+    };
+
+    const handleUndoCancelled = (payload: any) => {
+      if (payload.gameId === safeView?.id) {
+        setUndoModalOpen(false);
+        setUndoRequestData(null);
+      }
+    };
+
+    const handleUndoConfirmed = (payload: any) => {
+      if (payload.gameId === safeView?.id) {
+        setUndoModalOpen(false);
+        setUndoRequestData(null);
+      }
+    };
+
+    socket.on("undoRequest", handleUndoRequest);
+    socket.on("undoUpdate", handleUndoUpdate);
+    socket.on("undoCancelled", handleUndoCancelled);
+    socket.on("undoConfirmed", handleUndoConfirmed);
+
+    return () => {
+      socket.off("undoRequest", handleUndoRequest);
+      socket.off("undoUpdate", handleUndoUpdate);
+      socket.off("undoCancelled", handleUndoCancelled);
+      socket.off("undoConfirmed", handleUndoConfirmed);
+    };
+  }, [safeView?.id, undoRequestData?.undoId]);
 
   const isTable = layout === "table";
   const canPass = !!safeView && !!you && safeView.priority === you;
@@ -833,6 +996,107 @@ export function App() {
     }
   };
 
+  // Library search handlers (Tutor effects)
+  const handleLibrarySearchConfirm = (selectedCardIds: string[], moveTo: string) => {
+    if (!safeView) return;
+    socket.emit("librarySearchSelect", {
+      gameId: safeView.id,
+      selectedCardIds,
+      moveTo,
+      targetPlayerId: librarySearchData?.targetPlayerId,
+    });
+    setLibrarySearchModalOpen(false);
+    setLibrarySearchData(null);
+  };
+
+  const handleLibrarySearchCancel = () => {
+    if (!safeView) return;
+    socket.emit("librarySearchCancel", {
+      gameId: safeView.id,
+    });
+    setLibrarySearchModalOpen(false);
+    setLibrarySearchData(null);
+  };
+
+  // Target selection handlers
+  const handleTargetConfirm = (selectedTargetIds: string[]) => {
+    if (!safeView || !targetModalData) return;
+    socket.emit("targetSelectionConfirm", {
+      gameId: safeView.id,
+      effectId: targetModalData.effectId,
+      selectedTargetIds,
+    });
+    setTargetModalOpen(false);
+    setTargetModalData(null);
+  };
+
+  const handleTargetCancel = () => {
+    if (!safeView) return;
+    socket.emit("targetSelectionCancel", {
+      gameId: safeView.id,
+      effectId: targetModalData?.effectId,
+    });
+    setTargetModalOpen(false);
+    setTargetModalData(null);
+  };
+
+  // Opening hand actions handlers (Leylines)
+  const handleOpeningHandActionsConfirm = (selectedCardIds: string[]) => {
+    if (!safeView) return;
+    socket.emit("playOpeningHandCards", {
+      gameId: safeView.id,
+      cardIds: selectedCardIds,
+    });
+    setOpeningHandActionsModalOpen(false);
+  };
+
+  const handleOpeningHandActionsSkip = () => {
+    if (!safeView) return;
+    socket.emit("skipOpeningHandActions", {
+      gameId: safeView.id,
+    });
+    setOpeningHandActionsModalOpen(false);
+  };
+
+  // Undo handlers
+  const handleUndoApprove = () => {
+    if (!safeView || !undoRequestData) return;
+    socket.emit("respondUndo", {
+      gameId: safeView.id,
+      undoId: undoRequestData.undoId,
+      approved: true,
+    });
+  };
+
+  const handleUndoReject = () => {
+    if (!safeView || !undoRequestData) return;
+    socket.emit("respondUndo", {
+      gameId: safeView.id,
+      undoId: undoRequestData.undoId,
+      approved: false,
+    });
+    setUndoModalOpen(false);
+    setUndoRequestData(null);
+  };
+
+  const handleUndoCancel = () => {
+    if (!safeView || !undoRequestData) return;
+    socket.emit("cancelUndo", {
+      gameId: safeView.id,
+      undoId: undoRequestData.undoId,
+    });
+    setUndoModalOpen(false);
+    setUndoRequestData(null);
+  };
+
+  const handleRequestUndo = () => {
+    if (!safeView) return;
+    socket.emit("requestUndo", {
+      gameId: safeView.id,
+      actionsToUndo: 1,
+    });
+  };
+
   // Get creatures for combat modal
   const myCreatures = useMemo(() => {
     if (!safeView || !you) return [];
@@ -1115,6 +1379,17 @@ export function App() {
               disabled={!canPass}
             >
               Pass Priority
+            </button>
+            <button
+              onClick={handleRequestUndo}
+              disabled={!isYouPlayer}
+              style={{
+                background: '#6b7280',
+                marginLeft: 8,
+              }}
+              title="Request to undo the last action (requires all players to approve)"
+            >
+              ⏪ Undo
             </button>
           </div>
         </div>
@@ -1706,6 +1981,57 @@ export function App() {
           setDiscardModalOpen(false);
           setDiscardCount(0);
         }}
+      />
+
+      {/* Opening Hand Actions Modal (Leylines) */}
+      <OpeningHandActionsModal
+        open={openingHandActionsModalOpen}
+        hand={useMemo(() => {
+          if (!safeView || !you) return [];
+          const zones = safeView.zones?.[you];
+          const hand = zones?.hand || [];
+          return hand.filter((c: any) => c && c.name) as KnownCardRef[];
+        }, [safeView, you])}
+        onConfirm={handleOpeningHandActionsConfirm}
+        onSkip={handleOpeningHandActionsSkip}
+      />
+
+      {/* Library Search Modal (Tutors) */}
+      <LibrarySearchModal
+        open={librarySearchModalOpen}
+        cards={librarySearchData?.cards || []}
+        playerId={librarySearchData?.targetPlayerId || you || ''}
+        title={librarySearchData?.title || 'Search Library'}
+        description={librarySearchData?.description}
+        filter={librarySearchData?.filter}
+        maxSelections={librarySearchData?.maxSelections || 1}
+        moveTo={librarySearchData?.moveTo || 'hand'}
+        shuffleAfter={librarySearchData?.shuffleAfter ?? true}
+        onConfirm={handleLibrarySearchConfirm}
+        onCancel={handleLibrarySearchCancel}
+      />
+
+      {/* Target Selection Modal */}
+      <TargetSelectionModal
+        open={targetModalOpen}
+        title={targetModalData?.title || 'Select Targets'}
+        description={targetModalData?.description}
+        source={targetModalData?.source}
+        targets={targetModalData?.targets || []}
+        minTargets={targetModalData?.minTargets ?? 1}
+        maxTargets={targetModalData?.maxTargets ?? 1}
+        onConfirm={handleTargetConfirm}
+        onCancel={handleTargetCancel}
+      />
+
+      {/* Undo Request Modal */}
+      <UndoRequestModal
+        open={undoModalOpen}
+        you={you || ''}
+        request={undoRequestData}
+        onApprove={handleUndoApprove}
+        onReject={handleUndoReject}
+        onCancel={handleUndoCancel}
       />
 
       {/* Deck Validation Status */}

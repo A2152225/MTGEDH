@@ -4,6 +4,7 @@ import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem } from "../../shared/src";
 import { requiresCreatureTypeSelection, requestCreatureTypeSelection } from "./creature-type";
+import { checkAndPromptOpeningHandActions } from "./opening-hand";
 
 /** Shock lands and similar "pay life or enter tapped" lands */
 const SHOCK_LANDS = new Set([
@@ -1726,6 +1727,9 @@ export function registerGameActions(io: Server, socket: Socket) {
           ts: Date.now(),
         });
 
+        // Check for opening hand actions (Leylines) and prompt if any exist
+        checkAndPromptOpeningHandActions(io, game, gameId, playerId);
+
         broadcastGame(io, game, gameId);
       }
     } catch (err: any) {
@@ -1850,6 +1854,9 @@ export function registerGameActions(io: Server, socket: Socket) {
         message: `${getPlayerName(game, playerId)} keeps their hand (${hand.length} cards, put ${cardsToBottom.length} to bottom).`,
         ts: Date.now(),
       });
+
+      // Check for opening hand actions (Leylines) and prompt if any exist
+      checkAndPromptOpeningHandActions(io, game, gameId, playerId);
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {

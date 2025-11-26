@@ -1194,4 +1194,208 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     
     broadcastGame(io, game, gameId);
   });
+
+  // Library search selection (response to librarySearchRequest from tutors)
+  socket.on("librarySearchSelect", ({ gameId, selectedCardIds, moveTo, targetPlayerId }: { 
+    gameId: string; 
+    selectedCardIds: string[]; 
+    moveTo: string;
+    targetPlayerId?: string; // For searching opponent's library (Gitaxian Probe, etc.)
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    
+    // Determine whose library we're searching
+    const libraryOwner = targetPlayerId || pid;
+    
+    // Get the library 
+    let library: any[] = [];
+    if (typeof game.libraries?.get === "function") {
+      library = game.libraries.get(libraryOwner) || [];
+    }
+    
+    const zones = game.state?.zones?.[libraryOwner];
+    if (!zones) {
+      socket.emit("error", {
+        code: "ZONES_NOT_FOUND",
+        message: "Player zones not found",
+      });
+      return;
+    }
+    
+    const movedCardNames: string[] = [];
+    
+    for (const cardId of selectedCardIds) {
+      const cardIndex = library.findIndex((c: any) => c?.id === cardId);
+      if (cardIndex === -1) continue;
+      
+      const [card] = library.splice(cardIndex, 1);
+      movedCardNames.push(card.name || "Unknown");
+      
+      // Move to destination
+      switch (moveTo) {
+        case 'hand': {
+          const myZones = game.state?.zones?.[pid];
+          if (myZones) {
+            myZones.hand = myZones.hand || [];
+            card.zone = 'hand';
+            myZones.hand.push(card);
+            myZones.handCount = myZones.hand.length;
+          }
+          break;
+        }
+        case 'battlefield': {
+          game.state.battlefield = game.state.battlefield || [];
+          game.state.battlefield.push({
+            id: card.id,
+            card: { ...card, zone: 'battlefield' },
+            controller: pid,
+            owner: libraryOwner,
+            tapped: false,
+            counters: {},
+          });
+          break;
+        }
+        case 'top': {
+          // Put on top of library
+          card.zone = 'library';
+          library.unshift(card);
+          break;
+        }
+        case 'graveyard': {
+          const targetZones = game.state?.zones?.[libraryOwner];
+          if (targetZones) {
+            targetZones.graveyard = targetZones.graveyard || [];
+            card.zone = 'graveyard';
+            targetZones.graveyard.push(card);
+            targetZones.graveyardCount = targetZones.graveyard.length;
+          }
+          break;
+        }
+      }
+    }
+    
+    // Update library
+    if (typeof game.libraries?.set === "function") {
+      game.libraries.set(libraryOwner, library);
+    }
+    zones.libraryCount = library.length;
+    
+    // Shuffle library after search (standard for tutors)
+    if (typeof game.shuffleLibrary === "function") {
+      game.shuffleLibrary(libraryOwner);
+    }
+    
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+    
+    appendEvent(gameId, (game as any).seq ?? 0, "librarySearchSelect", {
+      playerId: pid,
+      libraryOwner,
+      selectedCardIds,
+      moveTo,
+    });
+    
+    const ownerName = libraryOwner === pid ? "their" : `${getPlayerName(game, libraryOwner)}'s`;
+    const destName = moveTo === 'hand' ? 'hand' : moveTo === 'battlefield' ? 'the battlefield' : moveTo === 'top' ? 'the top of their library' : 'graveyard';
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} searched ${ownerName} library and put ${movedCardNames.join(", ")} to ${destName}.`,
+      ts: Date.now(),
+    });
+    
+    broadcastGame(io, game, gameId);
+  });
+
+  // Library search cancel
+  socket.on("librarySearchCancel", ({ gameId }: { gameId: string }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    
+    // Just shuffle library (most tutor effects require shuffle even if not finding)
+    if (typeof game.shuffleLibrary === "function") {
+      game.shuffleLibrary(pid);
+    }
+    
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} finished searching their library.`,
+      ts: Date.now(),
+    });
+    
+    broadcastGame(io, game, gameId);
+  });
+
+  // Target selection confirmation
+  socket.on("targetSelectionConfirm", ({ gameId, effectId, selectedTargetIds }: {
+    gameId: string;
+    effectId?: string;
+    selectedTargetIds: string[];
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    
+    // Store targets for the pending effect/spell
+    // This will be used when the spell/ability resolves
+    game.state.pendingTargets = game.state.pendingTargets || {};
+    game.state.pendingTargets[effectId || 'default'] = {
+      playerId: pid,
+      targetIds: selectedTargetIds,
+    };
+    
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+    
+    appendEvent(gameId, (game as any).seq ?? 0, "targetSelectionConfirm", {
+      playerId: pid,
+      effectId,
+      selectedTargetIds,
+    });
+    
+    console.log(`[targetSelectionConfirm] Player ${pid} selected targets:`, selectedTargetIds);
+    
+    broadcastGame(io, game, gameId);
+  });
+
+  // Target selection cancel
+  socket.on("targetSelectionCancel", ({ gameId, effectId }: {
+    gameId: string;
+    effectId?: string;
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    
+    // Cancel the spell/effect if targets are required but not provided
+    // For now, just log and broadcast
+    console.log(`[targetSelectionCancel] Player ${pid} cancelled target selection for effect ${effectId}`);
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} cancelled target selection.`,
+      ts: Date.now(),
+    });
+    
+    broadcastGame(io, game, gameId);
+  });
 }

@@ -13,6 +13,8 @@ import { registerAIHandlers } from "./ai.js";
 import { registerCreatureTypeHandlers } from "./creature-type.js";
 import { registerCombatHandlers } from "./combat.js";
 import { registerTriggerHandlers } from "./triggers.js";
+import { registerOpeningHandHandlers } from "./opening-hand.js";
+import { registerUndoHandlers } from "./undo.js";
 import { GameManager } from "../GameManager.js";
 
 /**
@@ -42,6 +44,8 @@ export function registerSocketHandlers(
     registerCreatureTypeHandlers(io, socket);
     registerCombatHandlers(io, socket);
     registerTriggerHandlers(io, socket);
+    registerOpeningHandHandlers(io, socket);
+    registerUndoHandlers(io, socket);
 
     // Log disconnection reason
     socket.on("disconnect", (reason) => {
