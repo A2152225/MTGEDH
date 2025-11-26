@@ -102,6 +102,12 @@ export * from './librarySearchEffects';
 // Export opening hand actions (Rule 103.6 - Leyline and Chancellor effects)
 export * from './openingHandActions';
 
+// Export token creation system (Rule 701.7 and Rule 111)
+export * from './tokenCreation';
+
+// Export combat automation (Rules 508-510)
+export * from './combatAutomation';
+
 // Export modular action handlers
 export * from './actions';
 
