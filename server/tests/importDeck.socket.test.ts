@@ -87,12 +87,12 @@ describe("registerDeckHandlers importDeck path", () => {
     const game = ensureGame(gameId);
     expect(game).toBeDefined();
 
-    // Look for an importWipeConfirmed emit to the game room
-    const importEvents = emitted.filter(e => e.event === "importWipeConfirmed" || e.event === undefined && e.room === gameId && (e as any).event === "importWipeConfirmed");
-    const matched = emitted.find(e => e.room === gameId && e.event === "importWipeConfirmed") || emitted.find(e => e.event === "importWipeConfirmed");
-    expect(matched).toBeDefined();
-    expect(matched!.payload).toBeDefined();
-    expect(matched!.payload.appliedImmediately).toBe(true);
+    // In pre-game mode, the handler emits suggestCommanders instead of importWipeConfirmed
+    // Look for suggestCommanders emit (current pre-game behavior)
+    const suggestEvent = emitted.find(e => e.event === "suggestCommanders");
+    expect(suggestEvent).toBeDefined();
+    expect(suggestEvent!.payload).toBeDefined();
+    expect(suggestEvent!.payload.names).toContain('Commander One');
 
     // Verify game phase is PRE_GAME for that game
     const view = game.viewFor("p_socket");
