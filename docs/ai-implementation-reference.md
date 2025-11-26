@@ -81,6 +81,48 @@ Extracts colors from:
 | `AI_THINK_TIME_MS` | 500ms | Delay before AI takes next action |
 | `AI_REACTION_DELAY_MS` | 300ms | Delay for AI to respond to state changes |
 
+## AI Spell Casting
+
+### Mana Calculation
+
+```typescript
+// Calculate available mana from untapped lands
+calculateAvailableMana(game, playerId) → { total, colors, landsByColor }
+```
+
+- `total`: Number of untapped lands (each can produce 1 mana)
+- `colors`: Map of color → count of lands that can produce it
+- `landsByColor`: Map of color → list of land IDs
+
+### Spell Cost Parsing
+
+```typescript
+parseSpellCost("{2}{G}{G}") → { cmc: 4, colors: { G: 2 }, generic: 2, hybrids: [] }
+parseSpellCost("{R/W}{R/W}") → { cmc: 2, colors: {}, generic: 0, hybrids: [["R","W"], ["R","W"]] }
+```
+
+Handles:
+- Generic mana (`{1}`, `{2}`)
+- Colored mana (`{W}`, `{U}`, `{B}`, `{R}`, `{G}`)
+- Hybrid mana (`{R/W}`, `{2/G}`)
+
+### Spell Priority
+
+AI casts spells based on priority scoring:
+- Creatures: +30 (board presence)
+- Removal (destroy/exile): +25
+- Card draw: +20
+- Artifacts/enchantments: +20
+- Ramp (land search): +15
+- Low CMC bonus: +0 to +10
+
+### Land Selection for Payment
+
+`getPaymentLands()` intelligently selects which lands to tap:
+1. Prefers single-color lands for colored requirements (saves dual lands)
+2. Uses multi-color lands for generic mana
+3. Returns land IDs with their assigned color to produce
+
 ## State Access Patterns
 
 ### Getting Player Zones

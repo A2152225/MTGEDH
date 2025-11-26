@@ -505,57 +505,77 @@ function getLandManaProduction(card: any): string[] {
 
 /**
  * Calculate available mana from untapped lands on the battlefield
+ * Returns total land count and a map of which lands can produce each color
  */
-function calculateAvailableMana(game: any, playerId: PlayerID): { total: number; colors: Record<string, number> } {
+function calculateAvailableMana(game: any, playerId: PlayerID): { total: number; colors: Record<string, number>; landsByColor: Map<string, string[]> } {
   const battlefield = game.state?.battlefield || [];
   const colors: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
+  const landsByColor = new Map<string, string[]>();
   let total = 0;
+  
+  // Initialize landsByColor
+  for (const color of ['W', 'U', 'B', 'R', 'G', 'C']) {
+    landsByColor.set(color, []);
+  }
   
   for (const perm of battlefield) {
     if (perm && perm.controller === playerId && !perm.tapped) {
       const typeLine = (perm.card?.type_line || '').toLowerCase();
       if (typeLine.includes('land')) {
         const producedColors = getLandManaProduction(perm.card);
-        // For simplicity, count each untapped land as 1 mana
-        // In reality, some lands produce multiple mana, but this is a basic implementation
+        // Each land counts as 1 mana total, but can produce any of its colors
         total++;
+        
+        // Track which lands can produce each color (for smart selection later)
         for (const color of producedColors) {
+          const lands = landsByColor.get(color) || [];
+          lands.push(perm.id);
+          landsByColor.set(color, lands);
+          // The color count represents how many lands CAN produce this color
+          // (not actual mana available, since each land can only be tapped once)
           colors[color] = (colors[color] || 0) + 1;
         }
       }
     }
   }
   
-  return { total, colors };
+  return { total, colors, landsByColor };
 }
 
 /**
  * Parse mana cost and return total CMC and color requirements
+ * Handles hybrid mana by treating it as requiring any of its colors
  */
-function parseSpellCost(manaCost: string): { cmc: number; colors: Record<string, number>; generic: number } {
+function parseSpellCost(manaCost: string): { cmc: number; colors: Record<string, number>; generic: number; hybrids: string[][] } {
   const colors: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0 };
+  const hybrids: string[][] = [];
   let generic = 0;
   
-  if (!manaCost) return { cmc: 0, colors, generic: 0 };
+  if (!manaCost) return { cmc: 0, colors, generic: 0, hybrids: [] };
   
   const tokens = manaCost.match(/\{[^}]+\}/g) || [];
   for (const token of tokens) {
     const clean = token.replace(/[{}]/g, '').toUpperCase();
     if (/^\d+$/.test(clean)) {
       generic += parseInt(clean, 10);
-    } else if (clean.length === 1 && colors.hasOwnProperty(clean)) {
+    } else if (clean.includes('/')) {
+      // Hybrid mana like {R/W} or {2/W}
+      const parts = clean.split('/');
+      hybrids.push(parts);
+    } else if (clean.length === 1 && Object.prototype.hasOwnProperty.call(colors, clean)) {
       colors[clean] = (colors[clean] || 0) + 1;
     }
   }
   
+  // CMC includes hybrid mana (each hybrid counts as 1)
   const coloredTotal = Object.values(colors).reduce((a, b) => a + b, 0);
-  return { cmc: generic + coloredTotal, colors, generic };
+  return { cmc: generic + coloredTotal + hybrids.length, colors, generic, hybrids };
 }
 
 /**
  * Check if AI can afford to cast a spell given available mana
  */
-function canAffordSpell(available: { total: number; colors: Record<string, number> }, cost: { cmc: number; colors: Record<string, number>; generic: number }): boolean {
+function canAffordSpell(available: { total: number; colors: Record<string, number> }, cost: { cmc: number; colors: Record<string, number>; generic: number; hybrids?: string[][] }): boolean {
   // Check if we have enough total mana
   if (available.total < cost.cmc) return false;
   
@@ -565,6 +585,22 @@ function canAffordSpell(available: { total: number; colors: Record<string, numbe
       // Count lands that can produce this color
       const availableOfColor = available.colors[color] || 0;
       if (availableOfColor < needed) return false;
+    }
+  }
+  
+  // Check hybrid mana requirements (need at least one of the options)
+  if (cost.hybrids && cost.hybrids.length > 0) {
+    for (const hybrid of cost.hybrids) {
+      // For hybrid, check if we can pay with any of the options
+      const canPayHybrid = hybrid.some(option => {
+        if (/^\d+$/.test(option)) {
+          // Numeric option like {2/W} - can pay with 2 generic
+          return available.total >= parseInt(option, 10);
+        }
+        // Color option - need a land that produces this color
+        return (available.colors[option] || 0) > 0;
+      });
+      if (!canPayHybrid) return false;
     }
   }
   
@@ -651,43 +687,73 @@ function calculateSpellPriority(card: any, game: any, playerId: PlayerID): numbe
 
 /**
  * Get untapped lands that can pay for a spell
+ * Returns land IDs in the order they should be tapped, with the color each should produce
  */
-function getPaymentLands(game: any, playerId: PlayerID, cost: { colors: Record<string, number>; generic: number }): string[] {
+function getPaymentLands(game: any, playerId: PlayerID, cost: { colors: Record<string, number>; generic: number }): Array<{ landId: string; produceColor: string }> {
   const battlefield = game.state?.battlefield || [];
-  const landIds: string[] = [];
-  const usedColors: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0 };
+  const payments: Array<{ landId: string; produceColor: string }> = [];
+  const usedLandIds = new Set<string>(); // Track which lands we've already assigned
+  const colorsPaid: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0 };
   let genericPaid = 0;
   
-  // First pass: pay colored requirements
+  // Collect all available lands with their produced colors
+  const availableLands: Array<{ perm: any; producedColors: string[] }> = [];
   for (const perm of battlefield) {
     if (perm && perm.controller === playerId && !perm.tapped) {
       const typeLine = (perm.card?.type_line || '').toLowerCase();
       if (typeLine.includes('land')) {
         const producedColors = getLandManaProduction(perm.card);
-        
-        // Check if this land can pay a colored requirement
-        let usedForColor = false;
-        for (const color of producedColors) {
-          const needed = cost.colors[color] || 0;
-          const used = usedColors[color] || 0;
-          if (needed > used) {
-            landIds.push(perm.id);
-            usedColors[color] = used + 1;
-            usedForColor = true;
-            break;
-          }
-        }
-        
-        // If not used for color and we need generic mana, use for generic
-        if (!usedForColor && genericPaid < cost.generic) {
-          landIds.push(perm.id);
-          genericPaid++;
-        }
+        availableLands.push({ perm, producedColors });
       }
     }
   }
   
-  return landIds;
+  // First pass: assign lands to colored requirements
+  // Prefer single-color lands for specific colors to save multi-color lands for flexibility
+  for (const [color, needed] of Object.entries(cost.colors)) {
+    if (needed <= 0) continue;
+    
+    while (colorsPaid[color] < needed) {
+      // Find an unassigned land that can produce this color
+      // Prefer lands that ONLY produce this color (basic lands)
+      let bestLand: { perm: any; producedColors: string[] } | null = null;
+      
+      // First look for single-color lands
+      for (const land of availableLands) {
+        if (!usedLandIds.has(land.perm.id) && land.producedColors.includes(color)) {
+          if (land.producedColors.length === 1) {
+            bestLand = land;
+            break; // Perfect match - single color land
+          }
+          if (!bestLand) {
+            bestLand = land; // Save as fallback
+          }
+        }
+      }
+      
+      if (bestLand) {
+        usedLandIds.add(bestLand.perm.id);
+        payments.push({ landId: bestLand.perm.id, produceColor: color });
+        colorsPaid[color]++;
+      } else {
+        break; // No more lands available for this color
+      }
+    }
+  }
+  
+  // Second pass: assign remaining lands to generic mana
+  for (const land of availableLands) {
+    if (genericPaid >= cost.generic) break;
+    if (!usedLandIds.has(land.perm.id)) {
+      usedLandIds.add(land.perm.id);
+      // Use the first produced color (or colorless)
+      const color = land.producedColors[0] || 'C';
+      payments.push({ landId: land.perm.id, produceColor: color });
+      genericPaid++;
+    }
+  }
+  
+  return payments;
 }
 
 /**
@@ -1048,31 +1114,29 @@ async function executeAICastSpell(
   console.info('[AI] Casting spell:', { gameId, playerId, cardName: card.name, cost });
   
   try {
-    // Get lands to tap for mana payment
-    const paymentLandIds = getPaymentLands(game, playerId, cost);
+    // Get lands to tap for mana payment (returns land IDs with their assigned colors)
+    const payments = getPaymentLands(game, playerId, cost);
     
-    // Tap the lands and add mana to pool
+    // Initialize mana pool if needed
+    (game.state as any).manaPool = (game.state as any).manaPool || {};
+    (game.state as any).manaPool[playerId] = (game.state as any).manaPool[playerId] || {
+      white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+    };
+    
+    const colorMap: Record<string, string> = { 
+      W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green', C: 'colorless' 
+    };
+    
+    // Tap the lands and add mana to pool based on assigned colors
     const battlefield = game.state?.battlefield || [];
-    for (const landId of paymentLandIds) {
-      const perm = battlefield.find((p: any) => p?.id === landId);
+    for (const payment of payments) {
+      const perm = battlefield.find((p: any) => p?.id === payment.landId);
       if (perm && !perm.tapped) {
         perm.tapped = true;
         
-        // Add mana to pool based on land type
-        const producedColors = getLandManaProduction(perm.card);
-        (game.state as any).manaPool = (game.state as any).manaPool || {};
-        (game.state as any).manaPool[playerId] = (game.state as any).manaPool[playerId] || {
-          white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
-        };
-        
-        // Add first produced color to pool
-        if (producedColors.length > 0) {
-          const colorMap: Record<string, string> = { 
-            W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green', C: 'colorless' 
-          };
-          const colorKey = colorMap[producedColors[0]] || 'colorless';
-          (game.state as any).manaPool[playerId][colorKey]++;
-        }
+        // Add the specific color this land was assigned to produce
+        const colorKey = colorMap[payment.produceColor] || 'colorless';
+        (game.state as any).manaPool[playerId][colorKey]++;
       }
     }
     
@@ -1099,11 +1163,32 @@ async function executeAICastSpell(
       }
     }
     
-    // Clear mana pool (simplified - spell paid for)
-    if ((game.state as any).manaPool?.[playerId]) {
-      (game.state as any).manaPool[playerId] = {
-        white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
-      };
+    // Consume mana from pool to pay for spell (leave any excess)
+    const pool = (game.state as any).manaPool[playerId];
+    
+    // Pay colored costs first
+    for (const [color, needed] of Object.entries(cost.colors)) {
+      const colorKey = colorMap[color];
+      if (colorKey && needed > 0) {
+        pool[colorKey] = Math.max(0, (pool[colorKey] || 0) - (needed as number));
+      }
+    }
+    
+    // Pay generic cost with remaining mana (prefer colorless first)
+    let genericLeft = cost.generic;
+    if (genericLeft > 0 && pool.colorless > 0) {
+      const use = Math.min(pool.colorless, genericLeft);
+      pool.colorless -= use;
+      genericLeft -= use;
+    }
+    // Use colored mana for remaining generic
+    for (const colorKey of ['white', 'blue', 'black', 'red', 'green']) {
+      if (genericLeft <= 0) break;
+      if (pool[colorKey] > 0) {
+        const use = Math.min(pool[colorKey], genericLeft);
+        pool[colorKey] -= use;
+        genericLeft -= use;
+      }
     }
     
     // Persist event
