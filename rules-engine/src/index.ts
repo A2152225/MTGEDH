@@ -96,6 +96,9 @@ export * from './prioritySystem';
 // Export cleanup step implementation (Rule 514)
 export * from './cleanupStep';
 
+// Export library search restriction effects (Aven Mindcensor, etc.)
+export * from './librarySearchEffects';
+
 // Export opening hand actions (Rule 103.6 - Leyline and Chancellor effects)
 export * from './openingHandActions';
 
