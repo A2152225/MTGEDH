@@ -64,6 +64,35 @@ function getPlayerIds(game: any): string[] {
 }
 
 /**
+ * Get all AI player IDs from a game
+ */
+function getAIPlayerIds(game: any): string[] {
+  const players = game.state?.players || [];
+  return players
+    .filter((p: any) => p && !p.spectator && p.isAI)
+    .map((p: any) => p.id);
+}
+
+/**
+ * Get all human (non-AI) player IDs from a game
+ */
+function getHumanPlayerIds(game: any): string[] {
+  const players = game.state?.players || [];
+  return players
+    .filter((p: any) => p && !p.spectator && !p.isAI)
+    .map((p: any) => p.id);
+}
+
+/**
+ * Check if a player is an AI player
+ */
+function isAIPlayer(game: any, playerId: string): boolean {
+  const players = game.state?.players || [];
+  const player = players.find((p: any) => p && p.id === playerId);
+  return player?.isAI === true;
+}
+
+/**
  * Check if all players have approved
  */
 function checkAllApproved(request: UndoRequest, playerIds: string[]): boolean {
@@ -108,8 +137,10 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
       }
 
       const playerIds = getPlayerIds(game);
+      const humanPlayerIds = getHumanPlayerIds(game);
+      const aiPlayerIds = getAIPlayerIds(game);
       
-      // If single player, auto-approve
+      // If single player, auto-approve immediately
       if (playerIds.length === 1) {
         // TODO: Actually perform the undo by replaying events
         io.to(gameId).emit("chat", {
@@ -125,6 +156,15 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
         return;
       }
 
+      // Build initial approvals: requester auto-approves, AI players auto-approve
+      const initialApprovals: Record<string, boolean> = { [playerId]: true };
+      for (const aiId of aiPlayerIds) {
+        // Don't add the requester twice (they're already auto-approved)
+        if (aiId !== playerId) {
+          initialApprovals[aiId] = true;
+        }
+      }
+
       // Create new undo request
       const request: UndoRequest = {
         id: generateUndoId(),
@@ -134,13 +174,30 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
         actionsToUndo,
         createdAt: Date.now(),
         expiresAt: Date.now() + UNDO_TIMEOUT_MS,
-        approvals: { [playerId]: true }, // Requester auto-approves
+        approvals: initialApprovals, // Requester auto-approves, AI players auto-approve
         status: 'pending',
       };
 
+      // Check if all players have already approved (all non-requester humans are AI)
+      if (checkAllApproved(request, playerIds)) {
+        request.status = 'approved';
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} used undo (${actionsToUndo} action${actionsToUndo > 1 ? 's' : ''}). AI opponents auto-approved.`,
+          ts: Date.now(),
+        });
+        
+        socket.emit("undoComplete", { gameId, success: true });
+        broadcastGame(io, game, gameId);
+        return;
+      }
+
       undoRequests.set(gameId, request);
 
-      // Notify all players
+      // Notify all players (only human players need to respond)
       io.to(gameId).emit("undoRequest", {
         gameId,
         undoId: request.id,
@@ -153,11 +210,16 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
         playerIds,
       });
 
+      // Notify about AI auto-approval if applicable
+      const aiApprovalMessage = aiPlayerIds.length > 0 
+        ? ` AI opponents auto-approved. Waiting for human players.`
+        : ` All players must approve.`;
+
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `${request.requesterName} requested an undo. All players must approve.`,
+        message: `${request.requesterName} requested an undo.${aiApprovalMessage}`,
         ts: Date.now(),
       });
 

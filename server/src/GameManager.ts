@@ -126,6 +126,7 @@ class MinimalGameAdapter {
   seq: number;
   _rngSeed?: number;
   _rng?: () => number;
+  _fallbackLibraries?: Record<string, any[]>; // Fallback library storage (not in zones)
 
   constructor(id?: string) {
     this.id = id || `g_${randomUUID()}`;
@@ -142,6 +143,7 @@ class MinimalGameAdapter {
     this.seq = 0;
     this._rngSeed = undefined;
     this._rng = undefined;
+    this._fallbackLibraries = {};
   }
 
   // RNG API
@@ -235,35 +237,37 @@ class MinimalGameAdapter {
     this.bumpSeq();
   }
 
-  // Shallow hook for deck import resolution (no-op)
+  // Shallow hook for deck import resolution
+  // Note: For proper games, ctx.libraries Map is the authoritative source.
+  // This fallback stores only libraryCount in zones, not the full library array.
   importDeckResolved(playerId: string, cards: any[]) {
     this.state.zones = this.state.zones || {};
     this.state.zones[playerId] = this.state.zones[playerId] || {
       hand: [],
       handCount: 0,
-      library: [],
       libraryCount: 0,
       graveyard: [],
     };
-    this.state.zones[playerId].library = cards.map((c: any) => ({
+    // Store the library in a private property for the fallback draw implementation
+    // but don't duplicate it in zones
+    this._fallbackLibraries = this._fallbackLibraries || {};
+    this._fallbackLibraries[playerId] = cards.map((c: any) => ({
       ...c,
       zone: "library",
     }));
-    this.state.zones[playerId].libraryCount = (
-      this.state.zones[playerId].library || []
-    ).length;
+    this.state.zones[playerId].libraryCount = this._fallbackLibraries[playerId].length;
     this.bumpSeq();
   }
 
   // Shuffle / draw simple implementations for fallback flows
   shuffleLibrary(playerId: string) {
     try {
-      const z = (this.state.zones || {})[playerId];
-      if (!z || !Array.isArray(z.library)) return;
+      const lib = this._fallbackLibraries?.[playerId];
+      if (!lib || !Array.isArray(lib)) return;
       // Fisher-Yates
-      for (let i = z.library.length - 1; i > 0; i--) {
+      for (let i = lib.length - 1; i > 0; i--) {
         const j = Math.floor(this.rng() * (i + 1));
-        [z.library[i], z.library[j]] = [z.library[j], z.library[i]];
+        [lib[i], lib[j]] = [lib[j], lib[i]];
       }
       this.bumpSeq();
     } catch (e) {
@@ -275,12 +279,13 @@ class MinimalGameAdapter {
       const z = (this.state.zones || {})[playerId];
       if (!z) return;
       z.hand = z.hand || [];
-      while (count-- > 0 && z.library && z.library.length > 0) {
-        const c = z.library.shift();
+      const lib = this._fallbackLibraries?.[playerId];
+      while (count-- > 0 && lib && lib.length > 0) {
+        const c = lib.shift();
         z.hand.push(c);
       }
       z.handCount = z.hand.length;
-      z.libraryCount = z.library ? z.library.length : 0;
+      z.libraryCount = lib ? lib.length : 0;
       this.bumpSeq();
     } catch (e) {
       /* ignore */

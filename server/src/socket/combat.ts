@@ -94,8 +94,30 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         }
 
         // Check for summoning sickness (can't attack unless haste)
-        // This would require tracking when creatures entered the battlefield
-        // For now, we'll skip this check and rely on the rules engine
+        if ((creature as any).summoningSickness) {
+          // More robust haste detection using keyword ability patterns
+          const oracleText = ((creature as any).card?.oracle_text || "").toLowerCase();
+          const keywords = (creature as any).card?.keywords || [];
+          const grantedAbilities = (creature as any).grantedAbilities || [];
+          
+          // Check for haste in multiple places:
+          // 1. Keywords array from Scryfall data
+          // 2. Granted abilities from effects
+          // 3. Oracle text (with more specific matching to avoid false positives)
+          const hasHaste = 
+            keywords.some((k: string) => k.toLowerCase() === 'haste') ||
+            grantedAbilities.some((a: string) => a.toLowerCase() === 'haste') ||
+            // Match "haste" as a standalone word or at beginning of ability text
+            /\bhaste\b/i.test(oracleText);
+          
+          if (!hasHaste) {
+            socket.emit("error", {
+              code: "SUMMONING_SICKNESS",
+              message: `${(creature as any).card?.name || "Creature"} has summoning sickness and cannot attack`,
+            });
+            return;
+          }
+        }
 
         attackerIds.push(attacker.creatureId);
         
@@ -104,7 +126,11 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         
         // Tap the attacker (unless it has vigilance)
         const oracleText = ((creature as any).card?.oracle_text || "").toLowerCase();
-        if (!oracleText.includes("vigilance")) {
+        const keywords = (creature as any).card?.keywords || [];
+        const hasVigilance = 
+          keywords.some((k: string) => k.toLowerCase() === 'vigilance') ||
+          /\bvigilance\b/i.test(oracleText);
+        if (!hasVigilance) {
           (creature as any).tapped = true;
         }
       }

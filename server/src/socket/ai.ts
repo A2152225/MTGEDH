@@ -1411,7 +1411,10 @@ async function executeAIPlayLand(
  * 3. Lands that don't produce needed colors
  */
 async function handleBounceLandETB(game: any, playerId: PlayerID, bounceLandName: string): Promise<void> {
-  const battlefield = game.state?.battlefield || [];
+  // Ensure battlefield exists on game state
+  game.state = game.state || {};
+  game.state.battlefield = game.state.battlefield || [];
+  const battlefield = game.state.battlefield;
   const zones = game.state?.zones?.[playerId];
   
   // Find all lands controlled by this player (excluding the bounce land just played)
@@ -1601,13 +1604,15 @@ async function executeAICastSpell(
       (game as any).bumpSeq();
     }
     
-    // Broadcast updated state
+    // Broadcast updated state to all players
     broadcastGame(io, game, gameId);
     
-    // After a delay, resolve the spell (simplified - no responses from AI)
+    // IMPORTANT: After casting a spell, pass priority to opponents
+    // This allows human players to respond before the spell resolves
+    // The spell will resolve when all players pass priority in succession
     setTimeout(async () => {
-      await resolveAISpell(io, gameId, playerId);
-    }, AI_THINK_TIME_MS);
+      await executePassPriority(io, gameId, playerId);
+    }, AI_REACTION_DELAY_MS);
     
   } catch (error) {
     console.error('[AI] Error casting spell:', error);
@@ -2164,7 +2169,6 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           // Use importDeckResolved to properly populate the context's libraries Map
           // This ensures shuffle/draw operations work correctly later.
           
-          aiPlayer.library = resolvedCards;
           aiPlayer.deckName = finalDeckName;
           // Use provided deckId or generate one for imported text
           aiPlayer.deckId = aiDeckId || (aiDeckText ? `imported_${Date.now().toString(36)}` : null);
@@ -2186,11 +2190,11 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
             (game.state.zones as any)[aiPlayerId] = {
               hand: [],
               handCount: 0,
-              library: resolvedCards,
               libraryCount: resolvedCards.length,
               graveyard: [],
               graveyardCount: 0,
             };
+            // Note: We don't set library in zones - the authoritative source is ctx.libraries
           }
           
           console.info('[AI] Deck resolved for AI:', { 
