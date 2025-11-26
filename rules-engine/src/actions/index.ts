@@ -31,6 +31,7 @@ export {
   isCurrentlyCreature,
   hasDefender,
   hasHaste,
+  hasLifelink,
   canPermanentAttack,
   canPermanentBlock,
   checkEvasionAbilities,

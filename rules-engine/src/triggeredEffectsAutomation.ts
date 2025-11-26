@@ -270,20 +270,96 @@ export function parseDiesTriggers(card: KnownCardRef, permanentId: string): Trig
 
 /**
  * Check if a permanent should enter tapped
+ * Handles conditional ETB tapped effects:
+ * - "enters the battlefield tapped" (always tapped)
+ * - Fast lands: "unless you control two or fewer other lands" (tapped if 3+ lands)
+ * - Slow lands: "unless you control two or more other lands" (tapped if 0-1 lands)
+ * - Check lands: "unless you control a [type]" (tapped if no matching land)
+ * - Shock lands: handled separately via player choice
+ * 
+ * @param card - The card entering the battlefield
+ * @param controlledLandCount - Number of lands the player controls (optional)
+ * @param controlledLandTypes - Array of land subtypes controlled (optional)
+ * @returns true if the permanent should enter tapped
  */
-export function shouldEnterTapped(card: KnownCardRef): boolean {
+export function shouldEnterTapped(
+  card: KnownCardRef,
+  controlledLandCount?: number,
+  controlledLandTypes?: string[]
+): boolean {
   const oracleText = (card.oracle_text || '').toLowerCase();
+  const cardName = (card.name || '').toLowerCase();
   
-  // Direct "enters the battlefield tapped"
-  if (oracleText.includes('enters the battlefield tapped') || 
-      oracleText.includes('enters tapped')) {
+  // Direct "enters the battlefield tapped" with no condition
+  // But not "enters the battlefield tapped unless" (conditional)
+  if ((oracleText.includes('enters the battlefield tapped') || 
+       oracleText.includes('enters tapped')) &&
+      !oracleText.includes('unless') &&
+      !oracleText.includes('if you')) {
     return true;
   }
   
-  // Conditional ETB tapped (check lands)
+  // Shock lands - handled via player choice (pay 2 life or tapped)
+  // Don't auto-tap here; the choice modal handles this
+  const shockLands = [
+    'blood crypt', 'breeding pool', 'godless shrine', 'hallowed fountain',
+    'overgrown tomb', 'sacred foundry', 'steam vents', 'stomping ground',
+    'temple garden', 'watery grave'
+  ];
+  if (shockLands.includes(cardName)) {
+    // Default to tapped; player choice will override if they pay life
+    return true;
+  }
+  
+  // Fast lands (Kaladesh, etc): "unless you control two or fewer other lands"
+  // Examples: Blooming Marsh, Botanical Sanctum, Concealed Courtyard
+  // Enters tapped if controlling 3+ other lands
+  const fastLandPattern = /enters the battlefield tapped unless you control two or fewer other lands/i;
+  if (fastLandPattern.test(oracleText)) {
+    // If we have land count info, check condition
+    if (controlledLandCount !== undefined) {
+      // Fast lands enter tapped if you control 3+ OTHER lands (not counting itself)
+      return controlledLandCount > 2;
+    }
+    // Without land count, we can't determine; assume tapped for safety
+    return true;
+  }
+  
+  // Slow lands (MID/VOW): "unless you control two or more other lands"
+  // Examples: Deserted Beach, Haunted Ridge
+  // Enters tapped if controlling 0-1 other lands
+  const slowLandPattern = /enters the battlefield tapped unless you control two or more other lands/i;
+  if (slowLandPattern.test(oracleText)) {
+    if (controlledLandCount !== undefined) {
+      // Slow lands enter tapped if you control 0-1 OTHER lands
+      return controlledLandCount < 2;
+    }
+    return true;
+  }
+  
+  // Check lands: "unless you control a [type]"
+  // Examples: Dragonskull Summit (Swamp or Mountain)
+  const checkLandPattern = /enters the battlefield tapped unless you control (?:a|an) ([\w\s]+)/i;
+  const checkMatch = oracleText.match(checkLandPattern);
+  if (checkMatch) {
+    const requiredTypes = checkMatch[1].toLowerCase().split(/\s+or\s+/).map(t => t.trim());
+    
+    if (controlledLandTypes && controlledLandTypes.length > 0) {
+      // Check if player controls any of the required types
+      const hasRequiredType = requiredTypes.some(reqType => 
+        controlledLandTypes.some(controlled => 
+          controlled.toLowerCase().includes(reqType)
+        )
+      );
+      return !hasRequiredType; // Tapped if no matching type
+    }
+    // Without type info, assume tapped
+    return true;
+  }
+  
+  // Generic "enters the battlefield tapped unless" (catch-all for unknown conditions)
   if (oracleText.includes('enters the battlefield tapped unless')) {
-    // For simplicity, assume conditional lands enter tapped
-    // A more complete implementation would check the condition
+    // For unknown conditions, default to tapped for safety
     return true;
   }
   

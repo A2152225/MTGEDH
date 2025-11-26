@@ -817,7 +817,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
     
     const permanent = battlefield[permIndex];
-    const cardName = (permanent as any).card?.name || "Unknown";
+    const card = (permanent as any).card;
+    const cardName = card?.name || "Unknown";
+    const oracleText = (card?.oracle_text || "").toLowerCase();
+    
+    // Check if this is a fetch land or similar with search effect
+    const isFetchLand = oracleText.includes("sacrifice") && oracleText.includes("search your library");
     
     // Remove from battlefield
     battlefield.splice(permIndex, 1);
@@ -826,7 +831,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const zones = (game.state as any)?.zones?.[pid];
     if (zones) {
       zones.graveyard = zones.graveyard || [];
-      zones.graveyard.push({ ...(permanent as any).card, zone: "graveyard" });
+      zones.graveyard.push({ ...card, zone: "graveyard" });
       zones.graveyardCount = zones.graveyard.length;
     }
     
@@ -843,6 +848,53 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       message: `${getPlayerName(game, pid)} sacrificed ${cardName}.`,
       ts: Date.now(),
     });
+    
+    // If this was a fetch land, trigger library search
+    if (isFetchLand) {
+      // Check if it's a true fetch (pay 1 life) - note life was not paid since this is manual sacrifice
+      const isTrueFetch = oracleText.includes("pay 1 life");
+      
+      if (isTrueFetch) {
+        // Notify that the player should have paid life
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `Note: ${cardName} requires paying 1 life to search (use Fetch Land ability for automatic life payment).`,
+          ts: Date.now(),
+        });
+      }
+      
+      // Parse what land types this fetch can find
+      const filter = parseSearchCriteria(oracleText);
+      
+      // Build description for the search prompt
+      let searchDescription = "Search your library for a land card";
+      if (filter.subtypes && filter.subtypes.length > 0) {
+        const landTypes = filter.subtypes.filter(s => !s.includes("basic")).map(s => s.charAt(0).toUpperCase() + s.slice(1));
+        if (landTypes.length > 0) {
+          searchDescription = `Search for a ${landTypes.join(" or ")} card`;
+        }
+        if (filter.subtypes.includes("basic")) {
+          searchDescription = `Search for a basic ${landTypes.join(" or ")} card`;
+        }
+      }
+      
+      // Get full library for search
+      const library = game.searchLibrary ? game.searchLibrary(pid, "", 1000) : [];
+      
+      // Send library search request to the player
+      socket.emit("librarySearchRequest", {
+        gameId,
+        cards: library,
+        title: `${cardName}`,
+        description: searchDescription,
+        filter,
+        maxSelections: 1,
+        moveTo: "battlefield",
+        shuffleAfter: true,
+      });
+    }
     
     broadcastGame(io, game, gameId);
   });
@@ -972,6 +1024,24 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
       
+      // Check for Metalcraft requirement (Mox Opal)
+      // Rule 702.80 - Metalcraft abilities only work if you control 3+ artifacts
+      if (oracleText.includes('metalcraft')) {
+        const artifactCount = battlefield.filter((p: any) => {
+          if (p.controller !== pid) return false;
+          const permTypeLine = (p.card?.type_line || '').toLowerCase();
+          return permTypeLine.includes('artifact');
+        }).length;
+        
+        if (artifactCount < 3) {
+          socket.emit("error", {
+            code: "METALCRAFT_NOT_ACTIVE",
+            message: `Metalcraft is not active. You control ${artifactCount} artifacts (need 3 or more).`,
+          });
+          return;
+        }
+      }
+      
       // Tap the permanent
       (permanent as any).tapped = true;
       
@@ -1021,6 +1091,86 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
       
       appendEvent(gameId, (game as any).seq ?? 0, "activateManaAbility", { playerId: pid, permanentId, abilityId, manaColor });
+      
+      broadcastGame(io, game, gameId);
+      return;
+    }
+    
+    // Handle planeswalker abilities (pw-ability-N)
+    if (abilityId.startsWith("pw-ability-")) {
+      // Parse ability index
+      const abilityIndex = parseInt(abilityId.replace("pw-ability-", ""), 10);
+      
+      // Parse the planeswalker ability from oracle text
+      const pwAbilityPattern = /\[([+−\-]?\d+)\]:\s*([^[\]]+?)(?=\n|\[|$)/gi;
+      const abilities: { loyaltyCost: number; text: string }[] = [];
+      let pwMatch;
+      while ((pwMatch = pwAbilityPattern.exec(oracleText)) !== null) {
+        const costStr = pwMatch[1].replace('−', '-');
+        const cost = parseInt(costStr, 10);
+        abilities.push({ loyaltyCost: cost, text: pwMatch[2].trim() });
+      }
+      
+      if (abilityIndex < 0 || abilityIndex >= abilities.length) {
+        socket.emit("error", {
+          code: "INVALID_ABILITY",
+          message: `Ability index ${abilityIndex} not found on ${cardName}`,
+        });
+        return;
+      }
+      
+      const ability = abilities[abilityIndex];
+      
+      // Get current loyalty
+      const currentLoyalty = (permanent as any).counters?.loyalty || 0;
+      const loyaltyCost = ability.loyaltyCost;
+      
+      // Check if we can pay the cost
+      // For minus abilities, check we have enough loyalty
+      if (loyaltyCost < 0 && currentLoyalty + loyaltyCost < 0) {
+        socket.emit("error", {
+          code: "INSUFFICIENT_LOYALTY",
+          message: `${cardName} has ${currentLoyalty} loyalty, need at least ${Math.abs(loyaltyCost)} to activate this ability`,
+        });
+        return;
+      }
+      
+      // Check if planeswalker has already activated an ability this turn
+      // (Rule 606.3: Only one loyalty ability per turn per planeswalker)
+      if ((permanent as any).loyaltyActivatedThisTurn) {
+        socket.emit("error", {
+          code: "LOYALTY_ALREADY_USED",
+          message: `${cardName} has already activated a loyalty ability this turn`,
+        });
+        return;
+      }
+      
+      // Apply loyalty cost
+      const newLoyalty = currentLoyalty + loyaltyCost;
+      (permanent as any).counters = (permanent as any).counters || {};
+      (permanent as any).counters.loyalty = newLoyalty;
+      (permanent as any).loyaltyActivatedThisTurn = true;
+      
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+      
+      appendEvent(gameId, (game as any).seq ?? 0, "activatePlaneswalkerAbility", { 
+        playerId: pid, 
+        permanentId, 
+        abilityIndex, 
+        loyaltyCost,
+        newLoyalty,
+      });
+      
+      const costSign = loyaltyCost >= 0 ? "+" : "";
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} activated ${cardName}'s [${costSign}${loyaltyCost}] ability. (Loyalty: ${currentLoyalty} → ${newLoyalty})`,
+        ts: Date.now(),
+      });
       
       broadcastGame(io, game, gameId);
       return;

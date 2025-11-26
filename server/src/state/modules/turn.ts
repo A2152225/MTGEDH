@@ -187,6 +187,57 @@ export function setTurnDirection(ctx: GameContext, dir: 1 | -1) {
 }
 
 /**
+ * Clear combat state from all permanents on the battlefield.
+ * Should be called when transitioning out of combat phase.
+ * Rule 506.4: When combat ends, remove all combat-related states from permanents.
+ */
+function clearCombatState(ctx: GameContext) {
+  try {
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return;
+    
+    let clearedCount = 0;
+    for (const permanent of battlefield) {
+      if (!permanent) continue;
+      
+      // Clear attacking state
+      if (permanent.attacking !== undefined) {
+        delete permanent.attacking;
+        clearedCount++;
+      }
+      
+      // Clear blocking state  
+      if (permanent.blocking !== undefined) {
+        delete permanent.blocking;
+        clearedCount++;
+      }
+      
+      // Clear blockedBy state
+      if (permanent.blockedBy !== undefined) {
+        delete permanent.blockedBy;
+        clearedCount++;
+      }
+      
+      // Clear combat damage received this turn (optional - depends on implementation)
+      if (permanent.combatDamageThisTurn !== undefined) {
+        delete permanent.combatDamageThisTurn;
+      }
+    }
+    
+    // Clear combat state on game state
+    if ((ctx as any).state.combat !== undefined) {
+      delete (ctx as any).state.combat;
+    }
+    
+    if (clearedCount > 0) {
+      console.log(`${ts()} [clearCombatState] Cleared combat state from ${clearedCount} permanents`);
+    }
+  } catch (err) {
+    console.warn(`${ts()} clearCombatState failed:`, err);
+  }
+}
+
+/**
  * Untap all permanents controlled by the specified player.
  * This implements Rule 502.3: During the untap step, the active player
  * untaps all their permanents simultaneously.
@@ -547,6 +598,8 @@ export function nextStep(ctx: GameContext) {
         // After endCombat, go to postcombatMain
         nextPhase = "postcombatMain";
         nextStep = "MAIN2";
+        // Clear combat state when leaving combat phase (Rule 506.4)
+        clearCombatState(ctx);
       }
     } else if (currentPhase === "postcombatMain" || currentPhase === "main2") {
       nextPhase = "ending";
