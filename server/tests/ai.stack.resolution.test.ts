@@ -3,6 +3,32 @@ import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID, KnownCardRef } from '../../shared/src';
 
 /**
+ * Helper to create a Lightning Bolt card for testing
+ */
+function createLightningBolt(id: string = 'card_bolt'): Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'> {
+  return {
+    id,
+    name: 'Lightning Bolt',
+    type_line: 'Instant',
+    oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+    image_uris: undefined
+  };
+}
+
+/**
+ * Helper to create an instant spell card for testing
+ */
+function createInstantSpell(id: string, name: string, oracleText: string = ''): Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'> {
+  return {
+    id,
+    name,
+    type_line: 'Instant',
+    oracle_text: oracleText,
+    image_uris: undefined
+  };
+}
+
+/**
  * Tests for AI stack resolution functionality
  * These tests verify that when an AI passes priority after all players have passed,
  * the stack properly resolves.
@@ -19,21 +45,14 @@ describe('AI Stack Resolution', () => {
       g.applyEvent({ type: 'join', playerId: p1, name: 'Player 1' });
       g.applyEvent({ type: 'join', playerId: p2, name: 'Player 2' });
       
-      // Put a spell on the stack
-      const lightningBolt: Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'> = {
-        id: 'card_bolt',
-        name: 'Lightning Bolt',
-        type_line: 'Instant',
-        oracle_text: 'Lightning Bolt deals 3 damage to any target.',
-        image_uris: undefined
-      };
+      // Put a spell on the stack using the helper function
       const stackId = 'st_test123';
       g.applyEvent({
         type: 'pushStack',
         item: {
           id: stackId,
           controller: p1,
-          card: lightningBolt,
+          card: createLightningBolt(),
           targets: []
         }
       });
@@ -85,20 +104,13 @@ describe('AI Stack Resolution', () => {
       g.applyEvent({ type: 'join', playerId: p2, name: 'Player 2' });
       g.applyEvent({ type: 'join', playerId: p3, name: 'Player 3' });
       
-      // Put a spell on the stack
-      const bolt: Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'> = {
-        id: 'card_bolt2',
-        name: 'Lightning Bolt',
-        type_line: 'Instant',
-        oracle_text: 'Lightning Bolt deals 3 damage to any target.',
-        image_uris: undefined
-      };
+      // Put a spell on the stack using the helper function
       g.applyEvent({
         type: 'pushStack',
         item: {
           id: 'st_3p_test',
           controller: p1,
-          card: bolt,
+          card: createLightningBolt('card_bolt2'),
           targets: []
         }
       });
@@ -128,20 +140,13 @@ describe('AI Stack Resolution', () => {
       g.applyEvent({ type: 'join', playerId: p1, name: 'Player 1' });
       g.applyEvent({ type: 'join', playerId: p2, name: 'Player 2' });
       
-      // Put first spell on the stack
-      const spell1: Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'> = {
-        id: 'card_spell1',
-        name: 'Giant Growth',
-        type_line: 'Instant',
-        oracle_text: 'Target creature gets +3/+3 until end of turn.',
-        image_uris: undefined
-      };
+      // Put first spell on the stack using the helper function
       g.applyEvent({
         type: 'pushStack',
         item: {
           id: 'st_spell1',
           controller: p1,
-          card: spell1,
+          card: createInstantSpell('card_spell1', 'Giant Growth', 'Target creature gets +3/+3 until end of turn.'),
           targets: []
         }
       });
@@ -207,20 +212,13 @@ describe('AI Stack Resolution', () => {
       // Join player
       g.applyEvent({ type: 'join', playerId: p1, name: 'Player 1' });
       
-      // Put an instant spell on the stack
-      const instant: Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'> = {
-        id: 'card_bolt3',
-        name: 'Lightning Bolt',
-        type_line: 'Instant',
-        oracle_text: 'Lightning Bolt deals 3 damage to any target.',
-        image_uris: undefined
-      };
+      // Put an instant spell on the stack using the helper function
       g.applyEvent({
         type: 'pushStack',
         item: {
           id: 'st_bolt',
           controller: p1,
-          card: instant,
+          card: createLightningBolt('card_bolt3'),
           targets: []
         }
       });
