@@ -24,6 +24,9 @@ import type { PlayerID } from "../../../shared/src/types.js";
  * Note: This does NOT handle "can't attack" effects like Defang or Pacifism,
  * which are checked separately in the attack validation.
  * 
+ * NOTE: This function is intentionally duplicated from rules-engine/src/actions/combat.ts
+ * to avoid circular dependencies. Keep both versions in sync when making changes.
+ * 
  * @param permanent - The permanent to check
  * @returns true if the permanent is currently a creature
  */

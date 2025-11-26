@@ -430,8 +430,10 @@ export async function fetchCardsFromSetByColorIdentity(
   
   // Build the Scryfall search query
   // e.g., "set:c21 id<=WUB" for cards in C21 that fit within WUB color identity
+  // Note: 'C' represents colorless and is filtered out since Scryfall uses id<=<colors>
+  // For colorless commanders, we search with no color restriction
   const colors = colorIdentity.toUpperCase().split('').filter(c => 'WUBRG'.includes(c));
-  const colorQuery = colors.length > 0 ? `id<=${colors.join('')}` : '';
+  const colorQuery = colors.length > 0 ? `id<=${colors.join('')}` : 'id<=C'; // id<=C means colorless only
   const query = `set:${setCode.toLowerCase()} ${colorQuery}`.trim();
   
   let url = `https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}&order=cmc&unique=cards`;

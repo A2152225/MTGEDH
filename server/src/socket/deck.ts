@@ -30,6 +30,9 @@ import {
   emitSuggestCommandersToPlayer,
 } from "./commander";
 
+// Minimum number of cards to consider a precon import as a "full deck"
+const MIN_PRECON_DECK_SIZE = 50;
+
 /**
  * Deck socket handlers with:
  * - deck import resolution (batch + fallback)
@@ -2665,7 +2668,8 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
                 }
               }
               
-              fetchedFullDeck = resolvedCards.length > 10; // Consider it a full deck if we have more than 10 cards
+              // Consider it a partial deck if we have more than 10 cards (commanders + some deck cards)
+              fetchedFullDeck = resolvedCards.length > 10;
               
               console.info("[deck] importPreconDeck fetched cards from set", {
                 gameId,
@@ -2710,7 +2714,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         }
 
         // If we got a full deck, apply it like a normal import
-        if (fetchedFullDeck && resolvedCards.length >= 50) {
+        if (fetchedFullDeck && resolvedCards.length >= MIN_PRECON_DECK_SIZE) {
           const rawPhase = (game.state && (game.state as any).phase) ?? "";
           const phaseStr = String(rawPhase).toUpperCase().trim();
           const seqVal =
