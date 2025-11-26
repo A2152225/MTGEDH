@@ -1116,11 +1116,38 @@ const SHOCK_LANDS = new Set([
 ]);
 
 /**
- * Check if a land always enters tapped (tap lands, temples, etc.)
+ * List of bounce lands (karoo lands / aqueducts) that return a land to hand
+ * These tap for 2 mana of different colors and enter tapped
+ */
+const BOUNCE_LANDS = new Set([
+  // Ravnica bounce lands
+  "azorius chancery", "boros garrison", "dimir aqueduct", "golgari rot farm",
+  "gruul turf", "izzet boilerworks", "orzhov basilica", "rakdos carnarium",
+  "selesnya sanctuary", "simic growth chamber",
+  // Commander/other bounce lands
+  "coral atoll", "dormant volcano", "everglades", "jungle basin", "karoo",
+  // Moonring/other variants
+  "guildless commons"
+]);
+
+/**
+ * Check if a land is a bounce land (returns a land to hand when it enters)
+ */
+function isBounceLand(cardName: string): boolean {
+  return BOUNCE_LANDS.has((cardName || '').toLowerCase().trim());
+}
+
+/**
+ * Check if a land always enters tapped (tap lands, temples, bounce lands, etc.)
  */
 function landEntersTapped(card: any): boolean {
   const oracleText = (card?.oracle_text || '').toLowerCase();
   const cardName = (card?.name || '').toLowerCase();
+  
+  // Bounce lands always enter tapped
+  if (isBounceLand(cardName)) {
+    return true;
+  }
   
   // Check for explicit "enters the battlefield tapped" without conditions
   if (oracleText.includes('enters the battlefield tapped') && 
@@ -1270,6 +1297,11 @@ async function executeAIPlayLand(
       }
     }
     
+    // Handle bounce land ETB trigger - return a land to hand
+    if (cardToPlay && isBounceLand((cardToPlay.name || '').toLowerCase())) {
+      await handleBounceLandETB(game, playerId, cardToPlay.name);
+    }
+    
     // Persist event
     try {
       await appendEvent(gameId, (game as any).seq || 0, 'playLand', { 
@@ -1278,6 +1310,7 @@ async function executeAIPlayLand(
         isAI: true,
         entersTapped,
         paidLife: paidLife ? 2 : 0,
+        isBounceLand: cardToPlay ? isBounceLand((cardToPlay.name || '').toLowerCase()) : false,
       });
     } catch (e) {
       console.warn('[AI] Failed to persist playLand event:', e);
@@ -1293,6 +1326,90 @@ async function executeAIPlayLand(
     
   } catch (error) {
     console.error('[AI] Error playing land:', error);
+  }
+}
+
+/**
+ * Handle bounce land ETB trigger - AI must return a land to hand
+ * AI prefers to return:
+ * 1. Basic lands (least valuable)
+ * 2. Tapped lands
+ * 3. Lands that don't produce needed colors
+ */
+async function handleBounceLandETB(game: any, playerId: PlayerID, bounceLandName: string): Promise<void> {
+  const battlefield = game.state?.battlefield || [];
+  const zones = game.state?.zones?.[playerId];
+  
+  // Find all lands controlled by this player (excluding the bounce land just played)
+  const controlledLands = battlefield.filter((perm: any) => {
+    if (perm.controller !== playerId) return false;
+    const typeLine = (perm.card?.type_line || '').toLowerCase();
+    if (!typeLine.includes('land')) return false;
+    // Don't return the bounce land we just played
+    const permName = (perm.card?.name || '').toLowerCase();
+    if (permName === bounceLandName.toLowerCase()) return false;
+    return true;
+  });
+  
+  if (controlledLands.length === 0) {
+    // No other lands to return - in this case the bounce land must be sacrificed
+    // This is a rare edge case; for now we'll skip the bounce
+    console.info('[AI] No land to return for bounce land, skipping ETB trigger');
+    return;
+  }
+  
+  // Score lands to determine which to return (lower score = return first)
+  const scoredLands = controlledLands.map((perm: any) => {
+    let score = 50; // Base score
+    const card = perm.card;
+    const typeLine = (card?.type_line || '').toLowerCase();
+    const cardName = (card?.name || '').toLowerCase();
+    
+    // Basic lands are least valuable (return first)
+    if (typeLine.includes('basic')) {
+      score -= 30;
+    }
+    
+    // Tapped lands are good to return (can replay untapped later potentially)
+    if (perm.tapped) {
+      score -= 10;
+    }
+    
+    // Lands that only produce colorless are less valuable
+    const producedColors = getManaProduction(card);
+    if (producedColors.length === 1 && producedColors[0] === 'C') {
+      score -= 5;
+    }
+    
+    // Don't return lands that produce multiple colors (they're valuable)
+    if (producedColors.length > 2) {
+      score += 20;
+    }
+    
+    return { perm, score };
+  });
+  
+  // Sort by score (lowest first = return first)
+  scoredLands.sort((a: any, b: any) => a.score - b.score);
+  
+  // Return the lowest-scored land to hand
+  const landToReturn = scoredLands[0]?.perm;
+  if (landToReturn) {
+    // Remove from battlefield
+    const idx = battlefield.indexOf(landToReturn);
+    if (idx !== -1) {
+      battlefield.splice(idx, 1);
+    }
+    
+    // Add to hand
+    if (zones) {
+      zones.hand = zones.hand || [];
+      const returnedCard = { ...landToReturn.card, zone: 'hand' };
+      (zones.hand as any[]).push(returnedCard);
+      zones.handCount = (zones.hand as any[]).length;
+    }
+    
+    console.info('[AI] Bounce land returned to hand:', landToReturn.card?.name);
   }
 }
 

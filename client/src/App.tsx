@@ -18,6 +18,7 @@ import { ScrySurveilModal } from "./components/ScrySurveilModal";
 import { CastSpellModal } from "./components/CastSpellModal";
 import { CombatSelectionModal, type AttackerSelection, type BlockerSelection } from "./components/CombatSelectionModal";
 import { ShockLandChoiceModal } from "./components/ShockLandChoiceModal";
+import { BounceLandChoiceModal } from "./components/BounceLandChoiceModal";
 import { TriggeredAbilityModal, type TriggerPromptData } from "./components/TriggeredAbilityModal";
 import { MulliganBottomModal } from "./components/MulliganBottomModal";
 import { DiscardSelectionModal } from "./components/DiscardSelectionModal";
@@ -195,6 +196,15 @@ export function App() {
     currentLife?: number;
   } | null>(null);
   
+  // Bounce land choice modal state
+  const [bounceLandModalOpen, setBounceLandModalOpen] = useState(false);
+  const [bounceLandData, setBounceLandData] = useState<{
+    bounceLandId: string;
+    bounceLandName: string;
+    imageUrl?: string;
+    landsToChoose: Array<{ permanentId: string; cardName: string; imageUrl?: string }>;
+  } | null>(null);
+  
   // Triggered ability modal state
   const [triggerModalOpen, setTriggerModalOpen] = useState(false);
   const [pendingTriggers, setPendingTriggers] = useState<TriggerPromptData[]>([]);
@@ -320,6 +330,25 @@ export function App() {
     socket.on("shockLandPrompt", handler);
     return () => {
       socket.off("shockLandPrompt", handler);
+    };
+  }, [safeView?.id]);
+
+  // Bounce land prompt listener
+  React.useEffect(() => {
+    const handler = (payload: any) => {
+      if (payload.gameId === safeView?.id) {
+        setBounceLandData({
+          bounceLandId: payload.bounceLandId,
+          bounceLandName: payload.bounceLandName,
+          imageUrl: payload.imageUrl,
+          landsToChoose: payload.landsToChoose || [],
+        });
+        setBounceLandModalOpen(true);
+      }
+    };
+    socket.on("bounceLandPrompt", handler);
+    return () => {
+      socket.off("bounceLandPrompt", handler);
     };
   }, [safeView?.id]);
 
@@ -764,6 +793,18 @@ export function App() {
     });
     setShockLandModalOpen(false);
     setShockLandData(null);
+  };
+
+  // Bounce land handler - player selects which land to return
+  const handleBounceLandSelect = (permanentId: string) => {
+    if (!safeView || !bounceLandData) return;
+    socket.emit("bounceLandChoice", {
+      gameId: safeView.id,
+      bounceLandId: bounceLandData.bounceLandId,
+      returnPermanentId: permanentId,
+    });
+    setBounceLandModalOpen(false);
+    setBounceLandData(null);
   };
 
   // Trigger handlers
@@ -1604,6 +1645,15 @@ export function App() {
         currentLife={shockLandData?.currentLife}
         onPayLife={handleShockLandPayLife}
         onEnterTapped={handleShockLandTapped}
+      />
+
+      {/* Bounce Land Choice Modal */}
+      <BounceLandChoiceModal
+        open={bounceLandModalOpen}
+        bounceLandName={bounceLandData?.bounceLandName || ''}
+        bounceLandImageUrl={bounceLandData?.imageUrl}
+        landsToChoose={bounceLandData?.landsToChoose || []}
+        onSelectLand={handleBounceLandSelect}
       />
 
       {/* Triggered Ability Modal */}

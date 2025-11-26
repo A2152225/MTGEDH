@@ -145,6 +145,115 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
   });
 
   /**
+   * Handle bounce land ETB choice - player selects which land to return to hand
+   */
+  socket.on("bounceLandChoice", async ({
+    gameId,
+    bounceLandId,
+    returnPermanentId,
+  }: {
+    gameId: string;
+    bounceLandId: string;
+    returnPermanentId: string;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId as PlayerID | undefined;
+      
+      if (!game || !playerId) {
+        socket.emit("error", {
+          code: "BOUNCE_LAND_ERROR",
+          message: "Game not found or player not identified",
+        });
+        return;
+      }
+
+      // Find the bounce land permanent
+      const battlefield = game.state?.battlefield || [];
+      const bounceLand = battlefield.find((p: any) => 
+        p.id === bounceLandId && p.controller === playerId
+      );
+      
+      if (!bounceLand) {
+        socket.emit("error", {
+          code: "PERMANENT_NOT_FOUND",
+          message: "Bounce land not found on battlefield",
+        });
+        return;
+      }
+
+      // Find the land to return
+      const landToReturn = battlefield.find((p: any) => 
+        p.id === returnPermanentId && p.controller === playerId
+      );
+      
+      if (!landToReturn) {
+        socket.emit("error", {
+          code: "PERMANENT_NOT_FOUND",
+          message: "Land to return not found on battlefield",
+        });
+        return;
+      }
+
+      const bounceLandName = (bounceLand as any).card?.name || "Bounce Land";
+      const returnedLandName = (landToReturn as any).card?.name || "Land";
+
+      // Remove the land from battlefield
+      const idx = battlefield.indexOf(landToReturn);
+      if (idx !== -1) {
+        battlefield.splice(idx, 1);
+      }
+
+      // Add the land to player's hand
+      const zones = game.state?.zones?.[playerId];
+      if (zones) {
+        zones.hand = zones.hand || [];
+        const returnedCard = { ...(landToReturn as any).card, zone: 'hand' };
+        (zones.hand as any[]).push(returnedCard);
+        zones.handCount = (zones.hand as any[]).length;
+      }
+
+      // Send chat message
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, playerId)}'s ${bounceLandName} returns ${returnedLandName} to hand.`,
+        ts: Date.now(),
+      });
+
+      // Persist the event
+      try {
+        await appendEvent(gameId, (game as any).seq || 0, "bounceLandChoice", {
+          playerId,
+          bounceLandId,
+          returnPermanentId,
+          bounceLandName,
+          returnedLandName,
+        });
+      } catch (e) {
+        console.warn("[triggers] Failed to persist bounceLandChoice event:", e);
+      }
+
+      // Bump sequence and broadcast
+      if (typeof (game as any).bumpSeq === "function") {
+        (game as any).bumpSeq();
+      }
+
+      broadcastGame(io, game, gameId);
+      
+      console.log(`[triggers] ${bounceLandName} returned ${returnedLandName} to hand for player ${playerId} in game ${gameId}`);
+      
+    } catch (err: any) {
+      console.error(`[triggers] bounceLandChoice error:`, err);
+      socket.emit("error", {
+        code: "BOUNCE_LAND_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
+
+  /**
    * Handle triggered ability resolution
    */
   socket.on("resolveTrigger", async ({

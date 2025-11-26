@@ -24,6 +24,26 @@ function isShockLand(cardName: string): boolean {
 }
 
 /**
+ * List of bounce lands (karoo lands / aqueducts) that return a land to hand
+ * These tap for 2 mana of different colors and enter tapped
+ */
+const BOUNCE_LANDS = new Set([
+  // Ravnica bounce lands
+  "azorius chancery", "boros garrison", "dimir aqueduct", "golgari rot farm",
+  "gruul turf", "izzet boilerworks", "orzhov basilica", "rakdos carnarium",
+  "selesnya sanctuary", "simic growth chamber",
+  // Commander/other bounce lands
+  "coral atoll", "dormant volcano", "everglades", "jungle basin", "karoo",
+  // Guildless commons
+  "guildless commons"
+]);
+
+/** Check if a card name is a bounce land */
+function isBounceLand(cardName: string): boolean {
+  return BOUNCE_LANDS.has((cardName || "").toLowerCase().trim());
+}
+
+/**
  * Calculate cost reduction for a spell based on battlefield effects.
  * Returns an object with the reduction for each color and generic cost.
  * 
@@ -454,6 +474,45 @@ export function registerGameActions(io: Server, socket: Socket) {
             imageUrl: cardImageUrl,
             currentLife,
           });
+        }
+      }
+
+      // Check if this is a bounce land and prompt the player to return a land
+      if (isBounceLand(cardName)) {
+        // Find the permanent that was just played (should be on battlefield now)
+        const battlefield = game.state?.battlefield || [];
+        const bounceLandPerm = battlefield.find((p: any) => 
+          p.card?.name?.toLowerCase() === cardName.toLowerCase() && 
+          p.controller === playerId
+        );
+        
+        if (bounceLandPerm) {
+          // Mark it as tapped (bounce lands always enter tapped)
+          bounceLandPerm.tapped = true;
+          
+          // Find other lands the player controls (to return one)
+          const otherLands = battlefield.filter((p: any) => {
+            if (p.controller !== playerId) return false;
+            if (p.id === bounceLandPerm.id) return false; // Not the bounce land itself
+            const typeLine = (p.card?.type_line || '').toLowerCase();
+            return typeLine.includes('land');
+          });
+          
+          if (otherLands.length > 0) {
+            // Emit bounce land prompt to the player
+            emitToPlayer(io, playerId as string, "bounceLandPrompt", {
+              gameId,
+              bounceLandId: bounceLandPerm.id,
+              bounceLandName: cardName,
+              imageUrl: cardImageUrl,
+              landsToChoose: otherLands.map((p: any) => ({
+                permanentId: p.id,
+                cardName: p.card?.name || "Land",
+                imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+              })),
+            });
+          }
+          // If no other lands, the bounce land stays (edge case)
         }
       }
 

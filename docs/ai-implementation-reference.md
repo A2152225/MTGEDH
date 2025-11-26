@@ -112,10 +112,17 @@ AI handles special land entry conditions:
 **Tap Lands** (Temples, Guildgates, Refuges):
 - Automatically enter tapped
 
+**Bounce Lands / Karoo Lands** (Azorius Chancery, Dimir Aqueduct, etc.):
+- Always enter tapped
+- Return a land to hand (AI selects least valuable land)
+- AI prefers to return: basic lands > tapped lands > single-color lands
+
 ```typescript
 landEntersTapped(card) → boolean  // Always enters tapped?
 isShockLand(cardName) → boolean   // Pay life option?
+isBounceLand(cardName) → boolean  // Return land to hand?
 shouldAIPayShockLandLife(game, playerId) → boolean  // AI decision
+handleBounceLandETB(game, playerId, landName) → void  // Return land logic
 ```
 
 ### Spell Cost Parsing
