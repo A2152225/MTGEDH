@@ -1604,13 +1604,15 @@ async function executeAICastSpell(
       (game as any).bumpSeq();
     }
     
-    // Broadcast updated state
+    // Broadcast updated state to all players
     broadcastGame(io, game, gameId);
     
-    // After a delay, resolve the spell (simplified - no responses from AI)
+    // IMPORTANT: After casting a spell, pass priority to opponents
+    // This allows human players to respond before the spell resolves
+    // The spell will resolve when all players pass priority in succession
     setTimeout(async () => {
-      await resolveAISpell(io, gameId, playerId);
-    }, AI_THINK_TIME_MS);
+      await executePassPriority(io, gameId, playerId);
+    }, AI_REACTION_DELAY_MS);
     
   } catch (error) {
     console.error('[AI] Error casting spell:', error);
