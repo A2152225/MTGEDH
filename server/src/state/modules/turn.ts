@@ -18,6 +18,7 @@ import type { GameContext } from "../context.js";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { drawCards } from "./zones.js";
 import { recalculatePlayerEffects } from "./game-state-effects.js";
+import { getBeginningOfCombatTriggers } from "./triggered-abilities.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -585,6 +586,17 @@ export function nextStep(ctx: GameContext) {
     } else if (currentPhase === "precombatMain" || currentPhase === "main1") {
       nextPhase = "combat";
       nextStep = "BEGIN_COMBAT";
+      
+      // Process beginning of combat triggers (e.g., Hakbal of the Surging Soul)
+      const turnPlayer = (ctx as any).state?.turnPlayer;
+      if (turnPlayer) {
+        const combatTriggers = getBeginningOfCombatTriggers(ctx, turnPlayer);
+        if (combatTriggers.length > 0) {
+          console.log(`${ts()} [nextStep] Found ${combatTriggers.length} beginning of combat triggers`);
+          // Store pending triggers on the game state for the socket layer to process
+          (ctx as any).state.pendingCombatTriggers = combatTriggers;
+        }
+      }
     } else if (currentPhase === "combat") {
       if (currentStep === "beginCombat" || currentStep === "BEGIN_COMBAT") {
         nextStep = "DECLARE_ATTACKERS";
