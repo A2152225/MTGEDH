@@ -309,8 +309,8 @@ export function createTokenPermanent(
     basePower: characteristics.power,
     baseToughness: characteristics.toughness,
     isToken: true,
-    createdAt: timestamp,
-    sourceId,
+    // Note: sourceId passed to function can be used for trigger tracking
+    // but is not stored on the permanent itself
   };
   
   return token;

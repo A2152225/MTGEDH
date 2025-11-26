@@ -103,7 +103,7 @@ function checkCreatureDeaths(state: GameState): {
   for (const perm of allPermanents) {
     if (!perm.card?.type_line?.toLowerCase().includes('creature')) continue;
     
-    const baseToughness = parseInt(perm.card.toughness || '0', 10);
+    const baseToughness = parseInt(String(perm.card.toughness || '0'), 10);
     const toughnessModifier = perm.counters?.['toughness'] || 0;
     const toughness = baseToughness + toughnessModifier;
     const damage = perm.counters?.damage || 0;

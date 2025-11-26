@@ -41,6 +41,8 @@ export interface KnownCardRef {
   knownTo?: PlayerID[]; // who knows the card face/identity
   card_faces?: CardFace[]; // for double-faced/transform/split cards
   layout?: string; // card layout type (e.g., 'transform', 'modal_dfc', 'split')
+  colors?: readonly string[]; // color identifiers ('W', 'U', 'B', 'R', 'G')
+  cmc?: number; // converted mana cost
 }
 
 /* Hidden card representation for face-down and private zones */
@@ -139,6 +141,16 @@ export interface CommanderInfo {
   inCommandZone?: readonly string[];
 }
 
+/* Modifier applied to a permanent (power/toughness, abilities, etc.) */
+export interface PermanentModifier {
+  readonly type: 'powerToughness' | 'POWER_TOUGHNESS' | 'ability' | 'ABILITY' | string;
+  readonly power?: number;
+  readonly toughness?: number;
+  readonly ability?: string;
+  readonly sourceId?: string;
+  readonly duration?: 'permanent' | 'end_of_turn' | 'end_of_combat';
+}
+
 /* Battlefield permanent shape */
 export interface BattlefieldPermanent {
   id: string;
@@ -149,6 +161,8 @@ export interface BattlefieldPermanent {
   basePower?: number;
   baseToughness?: number;
   attachedTo?: string;
+  attachments?: string[];           // IDs of permanents attached to this one (auras, equipment)
+  modifiers?: readonly PermanentModifier[]; // Power/toughness and other modifiers from effects
   effectivePower?: number;
   effectiveToughness?: number;
   isCommander?: boolean;
