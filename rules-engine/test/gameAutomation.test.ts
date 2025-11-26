@@ -53,13 +53,13 @@ describe('Game Phases', () => {
   it('should advance from draw to precombat main', () => {
     const { phase, step } = getNextGameStep(GamePhase.BEGINNING, GameStep.DRAW);
     expect(phase).toBe(GamePhase.PRECOMBAT_MAIN);
-    expect(step).toBe(GameStep.MAIN);
+    expect(step).toBe(GameStep.MAIN1);
   });
 
   it('should advance from precombat main to combat', () => {
-    const { phase, step } = getNextGameStep(GamePhase.PRECOMBAT_MAIN, GameStep.MAIN);
+    const { phase, step } = getNextGameStep(GamePhase.PRECOMBAT_MAIN, GameStep.MAIN1);
     expect(phase).toBe(GamePhase.COMBAT);
-    expect(step).toBe(GameStep.BEGINNING_OF_COMBAT);
+    expect(step).toBe(GameStep.BEGIN_COMBAT);
   });
 
   it('should advance from cleanup to new turn', () => {
@@ -71,7 +71,7 @@ describe('Game Phases', () => {
 
   it('should identify priority steps correctly', () => {
     expect(doesStepReceivePriority(GameStep.UPKEEP)).toBe(true);
-    expect(doesStepReceivePriority(GameStep.MAIN)).toBe(true);
+    expect(doesStepReceivePriority(GameStep.MAIN1)).toBe(true);
     expect(doesStepReceivePriority(GameStep.UNTAP)).toBe(false);
     expect(doesStepReceivePriority(GameStep.CLEANUP)).toBe(false);
   });
