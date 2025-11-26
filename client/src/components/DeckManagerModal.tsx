@@ -102,7 +102,11 @@ export function DeckManagerModal({
       setServerDecks(prev => prev.filter(d => d.id !== deckId));
       if (detail?.id === deckId) setDetail(null);
     };
-    const onError = ({ message }: { message: string }) => setServerErr(message);
+    const onError = ({ message }: { message: string }) => {
+      setServerErr(message);
+      // Clear caching state on error
+      setCachingDeckId(null);
+    };
     const onCached = ({ deckId }: { deckId: string }) => {
       setCachingDeckId(null);
       // Refresh the deck list to show updated cache status
