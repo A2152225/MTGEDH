@@ -48,7 +48,7 @@ import {
   MANIFESTED_CHARACTERISTICS,
   canTurnManifestFaceUp,
   canTurnFaceUpWithMorph,
-  canInstantSorceryTurnFaceUp,
+  canManifestedInstantSorceryTurnFaceUp,
   MANIFEST_ONE_AT_A_TIME,
   createManifestedPermanent,
   
@@ -304,8 +304,8 @@ describe('Rule 701: Keyword Actions - Part 5', () => {
     });
     
     it('should not turn face up if instant/sorcery (Rule 701.40g)', () => {
-      expect(canInstantSorceryTurnFaceUp(true)).toBe(false);
-      expect(canInstantSorceryTurnFaceUp(false)).toBe(true);
+      expect(canManifestedInstantSorceryTurnFaceUp(true)).toBe(false);
+      expect(canManifestedInstantSorceryTurnFaceUp(false)).toBe(true);
     });
     
     it('should create manifested permanent state', () => {

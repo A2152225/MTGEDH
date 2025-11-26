@@ -13,7 +13,7 @@ import {
   // Phasing
   phasing, phaseOut, phaseIn, isPhasedOut, hasRedundantPhasing,
   // Buyback
-  buyback, payBuyback, shouldReturnToHand, hasRedundantBuyback,
+  buyback, payBuyback, shouldBuybackReturnToHand, hasRedundantBuyback,
   // Shadow
   shadow, canBlockWithShadow, canBeBlockedByShadow, hasRedundantShadow,
   // Cycling
@@ -33,7 +33,7 @@ import {
   // Fear
   fear, canBlockFear, hasRedundantFear,
   // Morph
-  morph, megamorph, castFaceDown, turnFaceUp, getFaceDownStats, hasRedundantMorph,
+  morph, megamorph, morphCastFaceDown, morphTurnFaceUp, getFaceDownStats, hasRedundantMorph,
 } from '../src/keywordAbilities';
 
 describe('Keyword Abilities - Part 2 (Rules 702.21-702.37)', () => {
@@ -178,7 +178,7 @@ describe('Keyword Abilities - Part 2 (Rules 702.21-702.37)', () => {
     it('should track buyback payment', () => {
       const ability = buyback('spell-1', '{3}');
       const paid = payBuyback(ability);
-      expect(shouldReturnToHand(paid)).toBe(true);
+      expect(shouldBuybackReturnToHand(paid)).toBe(true);
     });
 
     it('should treat multiple buyback as redundant', () => {
@@ -411,10 +411,10 @@ describe('Keyword Abilities - Part 2 (Rules 702.21-702.37)', () => {
 
     it('should cast face down and turn face up', () => {
       const ability = morph('card-1', '{4}{G}');
-      const faceDown = castFaceDown(ability);
+      const faceDown = morphCastFaceDown(ability);
       expect(faceDown.isFaceDown).toBe(true);
       
-      const faceUp = turnFaceUp(faceDown);
+      const faceUp = morphTurnFaceUp(faceDown);
       expect(faceUp.isFaceDown).toBe(false);
     });
 
