@@ -466,6 +466,231 @@ function findPlayableLand(game: any, playerId: PlayerID): any | null {
 }
 
 /**
+ * Determine what color of mana a land produces based on its type and oracle text
+ */
+function getLandManaProduction(card: any): string[] {
+  const typeLine = (card?.type_line || '').toLowerCase();
+  const oracleText = (card?.oracle_text || '').toLowerCase();
+  const colors: string[] = [];
+  
+  // Basic land types produce their respective colors
+  if (typeLine.includes('plains')) colors.push('W');
+  if (typeLine.includes('island')) colors.push('U');
+  if (typeLine.includes('swamp')) colors.push('B');
+  if (typeLine.includes('mountain')) colors.push('R');
+  if (typeLine.includes('forest')) colors.push('G');
+  
+  // Check oracle text for mana abilities
+  if (oracleText.includes('{w}') || oracleText.includes('add {w}')) colors.push('W');
+  if (oracleText.includes('{u}') || oracleText.includes('add {u}')) colors.push('U');
+  if (oracleText.includes('{b}') || oracleText.includes('add {b}')) colors.push('B');
+  if (oracleText.includes('{r}') || oracleText.includes('add {r}')) colors.push('R');
+  if (oracleText.includes('{g}') || oracleText.includes('add {g}')) colors.push('G');
+  if (oracleText.includes('{c}') || oracleText.includes('add {c}')) colors.push('C');
+  
+  // Lands that add any color (e.g., Command Tower, City of Brass)
+  if (oracleText.includes('add one mana of any color') || 
+      oracleText.includes('any color of mana')) {
+    return ['W', 'U', 'B', 'R', 'G']; // Can produce any color
+  }
+  
+  // If no specific colors found but it's a land, assume colorless
+  if (colors.length === 0) {
+    colors.push('C');
+  }
+  
+  // Remove duplicates
+  return [...new Set(colors)];
+}
+
+/**
+ * Calculate available mana from untapped lands on the battlefield
+ */
+function calculateAvailableMana(game: any, playerId: PlayerID): { total: number; colors: Record<string, number> } {
+  const battlefield = game.state?.battlefield || [];
+  const colors: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
+  let total = 0;
+  
+  for (const perm of battlefield) {
+    if (perm && perm.controller === playerId && !perm.tapped) {
+      const typeLine = (perm.card?.type_line || '').toLowerCase();
+      if (typeLine.includes('land')) {
+        const producedColors = getLandManaProduction(perm.card);
+        // For simplicity, count each untapped land as 1 mana
+        // In reality, some lands produce multiple mana, but this is a basic implementation
+        total++;
+        for (const color of producedColors) {
+          colors[color] = (colors[color] || 0) + 1;
+        }
+      }
+    }
+  }
+  
+  return { total, colors };
+}
+
+/**
+ * Parse mana cost and return total CMC and color requirements
+ */
+function parseSpellCost(manaCost: string): { cmc: number; colors: Record<string, number>; generic: number } {
+  const colors: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0 };
+  let generic = 0;
+  
+  if (!manaCost) return { cmc: 0, colors, generic: 0 };
+  
+  const tokens = manaCost.match(/\{[^}]+\}/g) || [];
+  for (const token of tokens) {
+    const clean = token.replace(/[{}]/g, '').toUpperCase();
+    if (/^\d+$/.test(clean)) {
+      generic += parseInt(clean, 10);
+    } else if (clean.length === 1 && colors.hasOwnProperty(clean)) {
+      colors[clean] = (colors[clean] || 0) + 1;
+    }
+  }
+  
+  const coloredTotal = Object.values(colors).reduce((a, b) => a + b, 0);
+  return { cmc: generic + coloredTotal, colors, generic };
+}
+
+/**
+ * Check if AI can afford to cast a spell given available mana
+ */
+function canAffordSpell(available: { total: number; colors: Record<string, number> }, cost: { cmc: number; colors: Record<string, number>; generic: number }): boolean {
+  // Check if we have enough total mana
+  if (available.total < cost.cmc) return false;
+  
+  // Check if we can pay colored requirements
+  for (const [color, needed] of Object.entries(cost.colors)) {
+    if (needed > 0) {
+      // Count lands that can produce this color
+      const availableOfColor = available.colors[color] || 0;
+      if (availableOfColor < needed) return false;
+    }
+  }
+  
+  return true;
+}
+
+/**
+ * Find castable spells in AI's hand, sorted by priority
+ */
+function findCastableSpells(game: any, playerId: PlayerID): any[] {
+  const zones = game.state?.zones?.[playerId];
+  const hand = Array.isArray(zones?.hand) ? zones.hand : [];
+  const availableMana = calculateAvailableMana(game, playerId);
+  
+  const castable: any[] = [];
+  
+  for (const card of hand) {
+    const typeLine = (card?.type_line || '').toLowerCase();
+    
+    // Skip lands
+    if (typeLine.includes('land')) continue;
+    
+    // Skip cards without mana cost (usually special cards)
+    const manaCost = card?.mana_cost;
+    if (!manaCost) continue;
+    
+    // Parse cost and check affordability
+    const cost = parseSpellCost(manaCost);
+    if (canAffordSpell(availableMana, cost)) {
+      castable.push({
+        card,
+        cost,
+        typeLine,
+        priority: calculateSpellPriority(card, game, playerId),
+      });
+    }
+  }
+  
+  // Sort by priority (highest first)
+  castable.sort((a, b) => b.priority - a.priority);
+  
+  return castable;
+}
+
+/**
+ * Calculate priority for casting a spell (higher = cast first)
+ */
+function calculateSpellPriority(card: any, game: any, playerId: PlayerID): number {
+  let priority = 50; // Base priority
+  const typeLine = (card?.type_line || '').toLowerCase();
+  const oracleText = (card?.oracle_text || '').toLowerCase();
+  
+  // Creatures are good for board presence
+  if (typeLine.includes('creature')) {
+    priority += 30;
+  }
+  
+  // Artifacts and enchantments that help are good
+  if (typeLine.includes('artifact') || typeLine.includes('enchantment')) {
+    priority += 20;
+  }
+  
+  // Removal spells are valuable
+  if (oracleText.includes('destroy') || oracleText.includes('exile')) {
+    priority += 25;
+  }
+  
+  // Card draw is valuable
+  if (oracleText.includes('draw') && oracleText.includes('card')) {
+    priority += 20;
+  }
+  
+  // Ramp is valuable early
+  if (oracleText.includes('search your library') && oracleText.includes('land')) {
+    priority += 15;
+  }
+  
+  // Lower CMC spells get slight priority (play on curve)
+  const cost = parseSpellCost(card?.mana_cost || '');
+  priority += Math.max(0, 10 - cost.cmc);
+  
+  return priority;
+}
+
+/**
+ * Get untapped lands that can pay for a spell
+ */
+function getPaymentLands(game: any, playerId: PlayerID, cost: { colors: Record<string, number>; generic: number }): string[] {
+  const battlefield = game.state?.battlefield || [];
+  const landIds: string[] = [];
+  const usedColors: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0 };
+  let genericPaid = 0;
+  
+  // First pass: pay colored requirements
+  for (const perm of battlefield) {
+    if (perm && perm.controller === playerId && !perm.tapped) {
+      const typeLine = (perm.card?.type_line || '').toLowerCase();
+      if (typeLine.includes('land')) {
+        const producedColors = getLandManaProduction(perm.card);
+        
+        // Check if this land can pay a colored requirement
+        let usedForColor = false;
+        for (const color of producedColors) {
+          const needed = cost.colors[color] || 0;
+          const used = usedColors[color] || 0;
+          if (needed > used) {
+            landIds.push(perm.id);
+            usedColors[color] = used + 1;
+            usedForColor = true;
+            break;
+          }
+        }
+        
+        // If not used for color and we need generic mana, use for generic
+        if (!usedForColor && genericPaid < cost.generic) {
+          landIds.push(perm.id);
+          genericPaid++;
+        }
+      }
+    }
+  }
+  
+  return landIds;
+}
+
+/**
  * Check the maximum hand size for a player (considering "no maximum hand size" effects)
  */
 function getAIMaxHandSize(game: any, playerId: PlayerID): number {
@@ -641,8 +866,20 @@ export async function handleAIPriority(
         }
       }
       
-      // TODO: Try to cast spells (future enhancement)
-      // For now, just advance step
+      // Try to cast spells
+      const castableSpells = findCastableSpells(game, playerId);
+      if (castableSpells.length > 0) {
+        const bestSpell = castableSpells[0]; // Already sorted by priority
+        console.info('[AI] Casting spell:', bestSpell.card.name, 'with priority', bestSpell.priority);
+        await executeAICastSpell(io, gameId, playerId, bestSpell.card, bestSpell.cost);
+        // After casting, continue with more actions
+        setTimeout(() => {
+          handleAIPriority(io, gameId, playerId).catch(console.error);
+        }, AI_THINK_TIME_MS);
+        return;
+      }
+      
+      // No more actions, advance step
       console.info('[AI] Main phase, no more actions, advancing step');
       await executeAdvanceStep(io, gameId, playerId);
       return;
@@ -792,6 +1029,180 @@ async function executeAIPlayLand(
     
   } catch (error) {
     console.error('[AI] Error playing land:', error);
+  }
+}
+
+/**
+ * Execute AI casting a spell
+ */
+async function executeAICastSpell(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  card: any,
+  cost: { colors: Record<string, number>; generic: number; cmc: number }
+): Promise<void> {
+  const game = ensureGame(gameId);
+  if (!game) return;
+  
+  console.info('[AI] Casting spell:', { gameId, playerId, cardName: card.name, cost });
+  
+  try {
+    // Get lands to tap for mana payment
+    const paymentLandIds = getPaymentLands(game, playerId, cost);
+    
+    // Tap the lands and add mana to pool
+    const battlefield = game.state?.battlefield || [];
+    for (const landId of paymentLandIds) {
+      const perm = battlefield.find((p: any) => p?.id === landId);
+      if (perm && !perm.tapped) {
+        perm.tapped = true;
+        
+        // Add mana to pool based on land type
+        const producedColors = getLandManaProduction(perm.card);
+        (game.state as any).manaPool = (game.state as any).manaPool || {};
+        (game.state as any).manaPool[playerId] = (game.state as any).manaPool[playerId] || {
+          white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+        };
+        
+        // Add first produced color to pool
+        if (producedColors.length > 0) {
+          const colorMap: Record<string, string> = { 
+            W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green', C: 'colorless' 
+          };
+          const colorKey = colorMap[producedColors[0]] || 'colorless';
+          (game.state as any).manaPool[playerId][colorKey]++;
+        }
+      }
+    }
+    
+    // Move card from hand to stack
+    const zones = game.state?.zones?.[playerId];
+    if (zones && Array.isArray(zones.hand)) {
+      const hand = zones.hand as any[];
+      const idx = hand.findIndex((c: any) => c?.id === card.id);
+      if (idx !== -1) {
+        const [removedCard] = hand.splice(idx, 1);
+        zones.handCount = hand.length;
+        
+        // Add to stack
+        game.state.stack = game.state.stack || [];
+        const stackItem = {
+          id: `stack_${Date.now()}_${card.id}`,
+          controller: playerId,
+          card: { ...removedCard, zone: 'stack' },
+          targets: [],
+        };
+        game.state.stack.push(stackItem as any);
+        
+        console.info('[AI] Spell added to stack:', card.name);
+      }
+    }
+    
+    // Clear mana pool (simplified - spell paid for)
+    if ((game.state as any).manaPool?.[playerId]) {
+      (game.state as any).manaPool[playerId] = {
+        white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+      };
+    }
+    
+    // Persist event
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'castSpell', { 
+        playerId, 
+        cardId: card.id, 
+        cardName: card.name,
+        isAI: true 
+      });
+    } catch (e) {
+      console.warn('[AI] Failed to persist castSpell event:', e);
+    }
+    
+    // Bump sequence
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    
+    // Broadcast updated state
+    broadcastGame(io, game, gameId);
+    
+    // After a delay, resolve the spell (simplified - no responses from AI)
+    setTimeout(async () => {
+      await resolveAISpell(io, gameId, playerId);
+    }, AI_THINK_TIME_MS);
+    
+  } catch (error) {
+    console.error('[AI] Error casting spell:', error);
+  }
+}
+
+/**
+ * Resolve AI's spell from the stack
+ */
+async function resolveAISpell(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID
+): Promise<void> {
+  const game = ensureGame(gameId);
+  if (!game) return;
+  
+  const stack = game.state?.stack || [];
+  if (stack.length === 0) return;
+  
+  // Get top of stack (last item)
+  const topItem = stack[stack.length - 1] as any;
+  if (!topItem || topItem.controller !== playerId) return;
+  
+  console.info('[AI] Resolving spell:', topItem.card?.name);
+  
+  try {
+    // Remove from stack
+    stack.pop();
+    
+    const card = topItem.card as any;
+    if (!card) return;
+    
+    const typeLine = (card.type_line || '').toLowerCase();
+    
+    // Determine where to put the resolved card
+    if (typeLine.includes('creature') || typeLine.includes('artifact') || 
+        typeLine.includes('enchantment') || typeLine.includes('planeswalker')) {
+      // Permanents go to battlefield
+      game.state.battlefield = game.state.battlefield || [];
+      const permanent = {
+        id: `perm_${Date.now()}_${card.id}`,
+        controller: playerId,
+        owner: playerId,
+        card: { ...card, zone: 'battlefield' },
+        tapped: false,
+        counters: {},
+        // For creatures, track summoning sickness
+        summoningSickness: typeLine.includes('creature'),
+      };
+      game.state.battlefield.push(permanent as any);
+      console.info('[AI] Permanent entered battlefield:', card.name);
+    } else {
+      // Instants and sorceries go to graveyard
+      const zones = game.state?.zones?.[playerId];
+      if (zones) {
+        zones.graveyard = zones.graveyard || [];
+        (zones.graveyard as any[]).push({ ...card, zone: 'graveyard' });
+        zones.graveyardCount = (zones.graveyard as any[]).length;
+      }
+      console.info('[AI] Spell resolved to graveyard:', card.name);
+    }
+    
+    // Bump sequence
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    
+    // Broadcast updated state
+    broadcastGame(io, game, gameId);
+    
+  } catch (error) {
+    console.error('[AI] Error resolving spell:', error);
   }
 }
 
