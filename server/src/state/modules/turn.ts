@@ -449,13 +449,44 @@ function setupCleanupDiscard(ctx: GameContext, playerId: string): { needsInterac
       return { needsInteraction: true, discardCount: state.pendingDiscardSelection[playerId].count };
     }
     
-    // Get player's hand
-    const zones = state.zones?.[playerId];
-    if (!zones || !Array.isArray(zones.hand)) {
-      return { needsInteraction: false, discardCount: 0 };
+    // Get player's hand - check both ctx.zones and state.zones for compatibility
+    // ctx.zones is the authoritative source, but state.zones may be used in some views
+    let hand: any[] = [];
+    
+    // First try ctx.zones (authoritative)
+    const ctxZones = (ctx as any).zones?.[playerId];
+    if (ctxZones && Array.isArray(ctxZones.hand)) {
+      hand = ctxZones.hand;
+    } else {
+      // Fallback to state.zones
+      const stateZones = state.zones?.[playerId];
+      if (stateZones && Array.isArray(stateZones.hand)) {
+        hand = stateZones.hand;
+      }
     }
     
-    const hand = zones.hand;
+    if (hand.length === 0) {
+      // Try handCount as a fallback (some views only sync count, not full hand)
+      const handCount = ctxZones?.handCount ?? state.zones?.[playerId]?.handCount ?? 0;
+      if (handCount <= maxHandSize) {
+        return { needsInteraction: false, discardCount: 0 };
+      }
+      const discardCount = handCount - maxHandSize;
+      
+      state.pendingDiscardSelection = state.pendingDiscardSelection || {};
+      state.pendingDiscardSelection[playerId] = {
+        count: discardCount,
+        maxHandSize,
+        handSize: handCount,
+      };
+      
+      console.log(
+        `${ts()} [setupCleanupDiscard] Player ${playerId} needs to discard ${discardCount} cards (handCount: ${handCount}, max: ${maxHandSize})`
+      );
+      
+      return { needsInteraction: true, discardCount };
+    }
+    
     const handSize = hand.length;
     
     if (handSize <= maxHandSize) {
