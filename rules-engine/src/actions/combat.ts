@@ -681,13 +681,13 @@ export function executeDeclareAttackers(
   const combatAttackers: CombatantInfo[] = action.attackers.map(a => ({
     permanentId: a.creatureId,
     defending: a.defendingPlayerId,
-    blockedBy: [] as readonly string[],
+    blockedBy: [],
   }));
   
   const combat: CombatInfo = {
     phase: 'declareAttackers',
     attackers: combatAttackers,
-    blockers: [] as readonly CombatantInfo[],
+    blockers: [],
   };
   
   const nextState: GameState = {
@@ -804,13 +804,13 @@ export function executeDeclareBlockers(
     const blockersForAttacker = action.blockers.filter(b => b.attackerId === a.permanentId);
     return {
       ...a,
-      blockedBy: blockersForAttacker.map(b => b.blockerId) as readonly string[],
+      blockedBy: blockersForAttacker.map(b => b.blockerId),
     };
   });
   
   const combatBlockers: CombatantInfo[] = action.blockers.map(b => ({
     permanentId: b.blockerId,
-    blocking: [b.attackerId] as readonly string[],
+    blocking: [b.attackerId],
     damage: b.damageOrder,
   }));
   

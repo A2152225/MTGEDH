@@ -18,7 +18,8 @@ export * from './mana';
 export * from './numbers';
 
 // Rules 108-110 - Cards, Objects, Permanents
-// Note: Zone is also defined in zones.ts - we re-export the one from objects.ts for backward compatibility
+// Note: Zone enum is defined in both objects.ts and zones.ts with identical values.
+// We export from objects.ts first; zones.ts excludes Zone to avoid duplicate exports.
 export * from './objects';
 
 // Rule 111-112, 114 - Tokens, Spells, Emblems
