@@ -24,7 +24,6 @@ CREATE TABLE IF NOT EXISTS decks (
   folder TEXT DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS decks_created_at_idx ON decks(created_at DESC);
-CREATE INDEX IF NOT EXISTS decks_folder_idx ON decks(folder);
 `);
 
 // Migration: add resolved_cards column if it doesn't exist (for existing databases)
@@ -38,9 +37,10 @@ try {
   const hasFolder = tableInfo.some(col => col.name === 'folder');
   if (!hasFolder) {
     db.exec(`ALTER TABLE decks ADD COLUMN folder TEXT DEFAULT ''`);
-    db.exec(`CREATE INDEX IF NOT EXISTS decks_folder_idx ON decks(folder)`);
     console.log('[DB] Added folder column to decks table');
   }
+  // Always ensure folder index exists (safe for new and migrated databases)
+  db.exec(`CREATE INDEX IF NOT EXISTS decks_folder_idx ON decks(folder)`);
 } catch (e) {
   console.warn('[DB] Migration check failed:', e);
 }
