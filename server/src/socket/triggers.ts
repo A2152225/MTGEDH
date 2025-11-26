@@ -168,8 +168,12 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
         return;
       }
 
+      // Ensure game state and battlefield exist
+      game.state = game.state || {};
+      game.state.battlefield = game.state.battlefield || [];
+      
       // Find the bounce land permanent
-      const battlefield = game.state?.battlefield || [];
+      const battlefield = game.state.battlefield;
       const bounceLand = battlefield.find((p: any) => 
         p.id === bounceLandId && p.controller === playerId
       );

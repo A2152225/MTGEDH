@@ -159,7 +159,10 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
       // Build initial approvals: requester auto-approves, AI players auto-approve
       const initialApprovals: Record<string, boolean> = { [playerId]: true };
       for (const aiId of aiPlayerIds) {
-        initialApprovals[aiId] = true;
+        // Don't add the requester twice (they're already auto-approved)
+        if (aiId !== playerId) {
+          initialApprovals[aiId] = true;
+        }
       }
 
       // Create new undo request

@@ -1411,7 +1411,10 @@ async function executeAIPlayLand(
  * 3. Lands that don't produce needed colors
  */
 async function handleBounceLandETB(game: any, playerId: PlayerID, bounceLandName: string): Promise<void> {
-  const battlefield = game.state?.battlefield || [];
+  // Ensure battlefield exists on game state
+  game.state = game.state || {};
+  game.state.battlefield = game.state.battlefield || [];
+  const battlefield = game.state.battlefield;
   const zones = game.state?.zones?.[playerId];
   
   // Find all lands controlled by this player (excluding the bounce land just played)

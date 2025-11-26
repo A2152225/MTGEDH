@@ -205,7 +205,10 @@ export function createUndoRequest(
   // Build initial approvals: requester auto-approves, AI players auto-approve
   const initialApprovals = new Set([action.playerId]);
   for (const aiId of aiPlayerIds) {
-    initialApprovals.add(aiId);
+    // Don't add the requester twice (they're already auto-approved)
+    if (aiId !== action.playerId) {
+      initialApprovals.add(aiId);
+    }
   }
   
   const request: UndoRequest = {
