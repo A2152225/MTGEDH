@@ -51,7 +51,7 @@ export function disguise(source: string, disguiseCost: string): DisguiseAbility 
  * @param ability - Disguise ability
  * @returns Updated ability
  */
-export function castFaceDown(ability: DisguiseAbility): DisguiseAbility {
+export function disguiseCastFaceDown(ability: DisguiseAbility): DisguiseAbility {
   return {
     ...ability,
     isFaceDown: true,
@@ -65,7 +65,7 @@ export function castFaceDown(ability: DisguiseAbility): DisguiseAbility {
  * @param xValue - Value of X if cost includes X
  * @returns Updated ability
  */
-export function turnFaceUp(ability: DisguiseAbility, xValue?: number): DisguiseAbility {
+export function disguiseTurnFaceUp(ability: DisguiseAbility, xValue?: number): DisguiseAbility {
   return {
     ...ability,
     isFaceDown: false,

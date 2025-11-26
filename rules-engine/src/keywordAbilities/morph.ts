@@ -38,12 +38,12 @@ export function morph(source: string, cost: string): MorphAbility {
 
 /**
  * Casts spell face down with morph
- * Rule 702.37a
+ * Rule 702.37a - Pay {3} instead of mana cost to cast as 2/2 face-down creature
  * 
  * @param ability - The morph ability
  * @returns Updated ability in face-down state
  */
-export function castFaceDown(ability: MorphAbility): MorphAbility {
+export function morphCastFaceDown(ability: MorphAbility): MorphAbility {
   return {
     ...ability,
     isFaceDown: true,
@@ -51,13 +51,13 @@ export function castFaceDown(ability: MorphAbility): MorphAbility {
 }
 
 /**
- * Turns a face-down permanent face up
- * Rule 702.37b
+ * Turns a face-down morphed permanent face up
+ * Rule 702.37b - Pay morph cost to turn face up at any time you have priority
  * 
  * @param ability - The morph ability
  * @returns Updated ability in face-up state
  */
-export function turnFaceUp(ability: MorphAbility): MorphAbility {
+export function morphTurnFaceUp(ability: MorphAbility): MorphAbility {
   return {
     ...ability,
     isFaceDown: false,

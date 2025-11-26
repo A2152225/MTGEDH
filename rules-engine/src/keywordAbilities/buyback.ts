@@ -52,13 +52,13 @@ export function payBuyback(ability: BuybackAbility): BuybackAbility {
 }
 
 /**
- * Checks if spell returns to hand instead of graveyard
- * Rule 702.27a
+ * Checks if spell returns to hand instead of graveyard after resolution
+ * Rule 702.27a - If buyback was paid, spell goes to hand instead of graveyard
  * 
  * @param ability - The buyback ability
- * @returns True if buyback was paid
+ * @returns True if buyback was paid and spell should return to hand
  */
-export function shouldReturnToHand(ability: BuybackAbility): boolean {
+export function shouldBuybackReturnToHand(ability: BuybackAbility): boolean {
   return ability.wasPaid;
 }
 

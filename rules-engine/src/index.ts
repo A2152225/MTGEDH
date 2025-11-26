@@ -73,13 +73,60 @@ export * from './flipCards';
 export * from './levelerCards';
 
 // Rule 712: Double-Faced Cards
-export * from './doubleFacedCards';
+// Note: ./types re-exports keywordActions which includes transform.ts
+// Only export types/functions not already in keywordActions
+export {
+  CardFace,
+  DoubleFacedCardType,
+  FaceCharacteristics,
+  DoubleFacedCard,
+  determineFrontFace,
+  isTransformingDoubleFacedCard,
+  isModalDoubleFacedCard,
+  getModalDFCCharacteristicsOutsideGame,
+  chooseFaceToCast,
+  putModalDFCOntoBattlefield,
+  getModalDFCCopyCharacteristics,
+  getCurrentFaceCharacteristics,
+  SpecialBackFace,
+  isSecondCard,
+  getTransformingDFCCharacteristicsOutsideGame,
+  canCastFace,
+  putTransformingDFCOntoBattlefield,
+  putTransformingDFCOntoBattlefieldTransformed,
+  putTransformingDFCAsCopyOntoBattlefield,
+  createTransformingTokenCopy,
+} from './doubleFacedCards';
 
-// Rules 713-719: Remaining Card Types  
-export * from './remainingCardTypes';
+// Rules 713-719: Remaining Card Types
+// Note: Some symbols conflict with ./types (castNormally, isCaseSolved)
+export {
+  AdventurerCard,
+  AdventureState,
+  castAsAdventure,
+  PrototypeCard,
+  isPrototypeCard,
+  getPrototypeCharacteristics,
+  CaseCard,
+  getActiveCaseAbilities,
+  ClassCard,
+  isClassCard,
+  getClassLevel,
+  AttractionCard,
+  isAttractionCard,
+} from './remainingCardTypes';
 
 // Rules 720-732: Special Game Mechanics
-export * from './specialGameMechanics';
+// Note: StationAbility conflicts with ./types
+export {
+  MonarchState,
+  becomeMonarch,
+  handleMonarchCombatDamage,
+  InitiativeState,
+  takeInitiative,
+  DayNightState,
+  checkDayNight,
+} from './specialGameMechanics';
 
 // Rule 702: Keyword Abilities
 export * from './keywordAbilities';
@@ -97,8 +144,15 @@ export * from './AIEngine';
 // Game Simulator
 export * from './GameSimulator';
 
-// Spell Casting (Rule 601)
-export * from './spellCasting';
+// Spell Casting (Rule 601) - exclude StackObject (conflicts with types)
+export {
+  type SpellCastingContext,
+  type CastingResult,
+  payManaCost,
+  createStackObject,
+  validateSpellTiming,
+  castSpell,
+} from './spellCasting';
 
 // Mana Abilities (Rule 605) - ManaAbility conflicts with types
 export {
@@ -149,8 +203,24 @@ export {
   type TriggerCheckResult,
 } from './triggeredEffectsAutomation';
 
-// Game Events (Rule 603)
-export * from './gameEvents';
+// Game Events (Rule 603) - exclude TriggerCondition (conflicts with types)
+export {
+  GameEventType,
+  type GameEvent,
+  type GameEventData,
+  type TriggerFilter,
+  type EventTriggeredAbility,
+  type PendingTrigger,
+  createGameEvent,
+  createCardDrawnEvent,
+  createStepStartedEvent,
+  matchesTriggerCondition,
+  findTriggeredAbilitiesForEvent,
+  createPendingTriggersFromEvent,
+  sortTriggersByAPNAP,
+  KNOWN_DRAW_TRIGGERS,
+  detectDrawTriggers,
+} from './gameEvents';
 
 // Priority System (Rule 117) - PriorityState conflicts
 export {

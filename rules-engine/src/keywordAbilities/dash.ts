@@ -100,8 +100,9 @@ export function hasHasteFromDash(ability: DashAbility): boolean {
 /**
  * Check if should trigger return to hand at end step
  * Rule 702.109a - Delayed triggered ability created when dash cost paid
+ * Dash creatures return at the beginning of the next end step
  */
-export function shouldReturnToHand(ability: DashAbility): boolean {
+export function shouldDashReturnAtEndStep(ability: DashAbility): boolean {
   return ability.wasPaid && !ability.returnedToHand;
 }
 
