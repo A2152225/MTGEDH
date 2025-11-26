@@ -236,10 +236,18 @@ export async function autoSelectAICommander(
       return false;
     }
     
-    // Get the AI player's library (deck) from zones
-    // The library should have been populated by importDeckResolved earlier
-    const zones = game.state.zones?.[playerId] as any;
-    const library = zones?.library || [];
+    // Get the AI player's library (deck)
+    // The library is stored in ctx.libraries Map via importDeckResolved.
+    // Use searchLibrary with empty query to get all cards (up to limit).
+    let library: any[] = [];
+    if (typeof (game as any).searchLibrary === 'function') {
+      // searchLibrary returns cards from ctx.libraries Map
+      library = (game as any).searchLibrary(playerId, '', 1000) || [];
+    } else {
+      // Fallback to zones.library if searchLibrary not available (e.g., MinimalGameAdapter)
+      const zones = game.state.zones?.[playerId] as any;
+      library = zones?.library || [];
+    }
     
     if (library.length === 0) {
       console.warn('[AI] autoSelectAICommander: no cards in library', { gameId, playerId });
