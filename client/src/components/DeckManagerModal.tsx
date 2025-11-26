@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { socket } from '../socket';
 import type { SavedDeckSummary, SavedDeckDetail, GameID, DeckFolder } from '../../../shared/src/decks';
+import { PreconBrowser } from './PreconBrowser';
 
 type SavedLocalDeck = { id: string; name: string; text: string; savedAt: number };
 
@@ -49,7 +50,7 @@ export function DeckManagerModal({
   wide,
   onUseSavedDeck
 }: DeckManagerModalProps) {
-  const [tab, setTab] = useState<'local' | 'server' | 'preview'>('local');
+  const [tab, setTab] = useState<'local' | 'server' | 'preview' | 'precons'>('local');
 
   // Local input
   const [localList, setLocalList] = useState<SavedLocalDeck[]>([]);
@@ -280,6 +281,7 @@ export function DeckManagerModal({
           <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
             <button type="button" onClick={() => { setTab('local'); setDetail(null); }} disabled={tab === 'local'}>Local</button>
             {canServer && <button type="button" onClick={() => { setTab('server'); setDetail(null); }} disabled={tab === 'server'}>Server</button>}
+            <button type="button" onClick={() => { setTab('precons'); setDetail(null); }} disabled={tab === 'precons'} style={{ background: tab === 'precons' ? undefined : '#2a4a2a' }}>📦 Precons</button>
             {detail && <button type="button" onClick={() => setTab('preview')} disabled={tab === 'preview'}>Preview</button>}
           </div>
 
@@ -463,6 +465,27 @@ export function DeckManagerModal({
                 <button type="button" onClick={() => setTab('server')}>Back</button>
               </div>
             </div>
+          )}
+
+          {tab === 'precons' && (
+            <PreconBrowser
+              onSelectDeck={(commanders, deckName, setName, year) => {
+                // When a precon is selected, we need to fetch the decklist
+                // For now, we'll emit a request to get the precon decklist from the server
+                // The server will need to fetch from an external source like Moxfield or Scryfall
+                if (gameId) {
+                  socket.emit('importPreconDeck', { 
+                    gameId, 
+                    commanders, 
+                    deckName, 
+                    setName, 
+                    year,
+                    cacheCards 
+                  });
+                }
+                onClose();
+              }}
+            />
           )}
         </div>
       </div>

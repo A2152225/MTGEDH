@@ -2507,4 +2507,154 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       }
     }
   );
+
+  // importPreconDeck - import a preconstructed Commander deck
+  socket.on(
+    "importPreconDeck",
+    async ({
+      gameId,
+      commanders,
+      deckName,
+      setName,
+      year,
+      cacheCards,
+    }: {
+      gameId: string;
+      commanders: string[];
+      deckName: string;
+      setName: string;
+      year: number;
+      cacheCards?: boolean;
+    }) => {
+      try {
+        console.info("[deck] importPreconDeck called", {
+          gameId,
+          deckName,
+          setName,
+          year,
+          commanders,
+          playerId: socket.data.playerId,
+        });
+
+        if (!gameId || typeof gameId !== "string") {
+          socket.emit("deckError", { gameId, message: "GameId required." });
+          return;
+        }
+
+        const pid = socket.data.playerId as PlayerID | undefined;
+        const spectator = socket.data.spectator;
+        if (!pid || spectator) {
+          socket.emit("deckError", {
+            gameId,
+            message: "Spectators cannot import decks.",
+          });
+          return;
+        }
+
+        const game = ensureGame(gameId);
+        if (!game) {
+          socket.emit("deckError", { gameId, message: "Game not found." });
+          return;
+        }
+
+        // Search for the precon deck list using the commanders
+        // We'll use Scryfall's deck search API or construct a basic deck
+        // For now, we'll emit a chat message and let the user know to paste the deck list manually
+        // In the future, this could integrate with Moxfield API or a precon database
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `🔍 Searching for precon deck: "${deckName}" from ${setName} (${year})...`,
+          ts: Date.now(),
+        });
+
+        // Try to search for the deck commanders on Scryfall to get their IDs
+        // Then construct a basic deck with the commanders
+        const resolvedCommanders: any[] = [];
+        for (const commanderName of commanders) {
+          try {
+            const card = await fetchCardByExactNameStrict(commanderName);
+            if (card) {
+              resolvedCommanders.push({
+                id: card.id,
+                name: card.name,
+                type_line: card.type_line,
+                oracle_text: card.oracle_text,
+                image_uris: card.image_uris,
+                mana_cost: (card as any).mana_cost,
+                power: (card as any).power,
+                toughness: (card as any).toughness,
+                card_faces: (card as any).card_faces,
+                layout: (card as any).layout,
+              });
+            }
+          } catch (e) {
+            console.warn(`Failed to fetch commander "${commanderName}":`, e);
+          }
+        }
+
+        if (resolvedCommanders.length === 0) {
+          socket.emit("deckError", {
+            gameId,
+            message: `Could not find commanders for "${deckName}". Please import the deck manually.`,
+          });
+          return;
+        }
+
+        // Emit a message with the commanders found
+        const commanderNames = resolvedCommanders.map(c => c.name).join(', ');
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `✅ Found commanders: ${commanderNames}. Note: Full precon decklists require manual import. Visit Moxfield or EDHREC to get the complete list.`,
+          ts: Date.now(),
+        });
+
+        // Set the commanders as available candidates for the player
+        try {
+          (game as any)._lastImportedDecks =
+            (game as any)._lastImportedDecks || new Map<PlayerID, any[]>();
+          (game as any)._lastImportedDecks.set(pid, resolvedCommanders);
+        } catch (e) {
+          console.warn("importPreconDeck: could not set _lastImportedDecks", e);
+        }
+
+        // Emit suggest commanders to the player
+        socket.emit("suggestCommanders", {
+          gameId,
+          names: commanders,
+        });
+
+        // Emit the resolved commanders as deck candidates
+        socket.emit("importedDeckCandidates", {
+          gameId,
+          candidates: resolvedCommanders,
+        });
+
+        // Also emit info about where to get the full decklist
+        socket.emit("preconDeckInfo", {
+          gameId,
+          deckName,
+          setName,
+          year,
+          commanders: resolvedCommanders,
+          message: `To import the full "${deckName}" deck, visit Moxfield or EDHREC and paste the decklist in the Local tab.`,
+          urls: {
+            moxfield: `https://www.moxfield.com/search?q=${encodeURIComponent(deckName + ' ' + setName)}`,
+            edhrec: `https://edhrec.com/precon/${encodeURIComponent(deckName.toLowerCase().replace(/\s+/g, '-'))}`,
+          }
+        });
+
+      } catch (err) {
+        console.error("importPreconDeck handler failed:", err);
+        socket.emit("deckError", {
+          gameId,
+          message: "Failed to import precon deck.",
+        });
+      }
+    }
+  );
 }
