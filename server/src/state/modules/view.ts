@@ -7,7 +7,7 @@ import type {
   ClientGameView,
 } from "../../../../shared/src";
 import type { GameContext } from "../context";
-import { parsePT } from "../utils";
+import { parsePT, calculateVariablePT } from "../utils";
 
 /**
  * Determine if `viewer` can see `owner`'s hidden zones (hand, library top, etc.)
@@ -51,12 +51,22 @@ export function viewFor(
     let effectivePower: number | undefined;
     let effectiveToughness: number | undefined;
     if (isCreature) {
-      const baseP =
+      let baseP =
         typeof perm.basePower === "number" ? perm.basePower : parsePT(card?.power);
-      const baseT =
+      let baseT =
         typeof perm.baseToughness === "number"
           ? perm.baseToughness
           : parsePT(card?.toughness);
+      
+      // Handle variable P/T (*/*) creatures like Morophon
+      if (baseP === undefined || baseT === undefined) {
+        const variablePT = calculateVariablePT({ ...card, controller: perm.controller }, state);
+        if (variablePT) {
+          baseP = baseP ?? variablePT.power;
+          baseT = baseT ?? variablePT.toughness;
+        }
+      }
+      
       if (typeof baseP === "number" && typeof baseT === "number") {
         const plus = perm.counters?.["+1/+1"] ?? 0;
         const minus = perm.counters?.["-1/-1"] ?? 0;
