@@ -203,6 +203,60 @@ describe('Undo System', () => {
       
       expect(newState.pendingUndo!.targetActionIndex).toBe(0);
     });
+
+    it('should auto-approve AI players', () => {
+      const action: RequestUndoAction = {
+        type: 'requestUndo',
+        playerId: 'player1',
+        actionsToUndo: 1,
+      };
+      
+      // player3 is AI
+      const aiPlayerIds = ['player3'];
+      const newState = createUndoRequest(undoState, action, allPlayerIds, aiPlayerIds);
+      
+      expect(newState.pendingUndo).not.toBeNull();
+      expect(newState.pendingUndo!.status).toBe('pending'); // Still pending - need player2 to approve
+      expect(newState.pendingUndo!.approvals.has('player1')).toBe(true); // Requester auto-approved
+      expect(newState.pendingUndo!.approvals.has('player3')).toBe(true); // AI auto-approved
+      expect(newState.pendingUndo!.approvals.has('player2')).toBe(false); // Human needs to approve
+    });
+
+    it('should auto-approve when all non-requester players are AI', () => {
+      const action: RequestUndoAction = {
+        type: 'requestUndo',
+        playerId: 'player1',
+        actionsToUndo: 1,
+      };
+      
+      // player2 and player3 are AI
+      const aiPlayerIds = ['player2', 'player3'];
+      const newState = createUndoRequest(undoState, action, allPlayerIds, aiPlayerIds);
+      
+      expect(newState.pendingUndo).not.toBeNull();
+      expect(newState.pendingUndo!.status).toBe('approved'); // Auto-approved since all are AI
+      expect(newState.pendingUndo!.approvals.has('player1')).toBe(true);
+      expect(newState.pendingUndo!.approvals.has('player2')).toBe(true);
+      expect(newState.pendingUndo!.approvals.has('player3')).toBe(true);
+    });
+
+    it('should remain pending when human players need to approve', () => {
+      const action: RequestUndoAction = {
+        type: 'requestUndo',
+        playerId: 'player1',
+        actionsToUndo: 1,
+      };
+      
+      // No AI players - all humans
+      const aiPlayerIds: string[] = [];
+      const newState = createUndoRequest(undoState, action, allPlayerIds, aiPlayerIds);
+      
+      expect(newState.pendingUndo).not.toBeNull();
+      expect(newState.pendingUndo!.status).toBe('pending');
+      expect(newState.pendingUndo!.approvals.has('player1')).toBe(true);
+      expect(newState.pendingUndo!.approvals.has('player2')).toBe(false);
+      expect(newState.pendingUndo!.approvals.has('player3')).toBe(false);
+    });
   });
 
   describe('validateUndoResponse', () => {

@@ -189,30 +189,39 @@ export function validateUndoRequest(
  * @param undoState - Current undo state
  * @param action - The undo request action
  * @param allPlayerIds - All player IDs in the game
+ * @param aiPlayerIds - IDs of AI players who should auto-approve (optional)
  * @returns Updated undo state with the pending request
  */
 export function createUndoRequest(
   undoState: UndoState,
   action: RequestUndoAction,
-  allPlayerIds: readonly string[]
+  allPlayerIds: readonly string[],
+  aiPlayerIds: readonly string[] = []
 ): UndoState {
   const targetIndex = action.targetActionIndex !== undefined
     ? action.targetActionIndex
     : undoState.eventHistory.length - (action.actionsToUndo || 1);
+  
+  // Build initial approvals: requester auto-approves, AI players auto-approve
+  const initialApprovals = new Set([action.playerId]);
+  for (const aiId of aiPlayerIds) {
+    initialApprovals.add(aiId);
+  }
   
   const request: UndoRequest = {
     id: generateUndoRequestId(),
     requesterId: action.playerId,
     targetActionIndex: targetIndex,
     createdAt: Date.now(),
-    approvals: new Set([action.playerId]), // Requester auto-approves
+    approvals: initialApprovals, // Requester and AI players auto-approve
     rejections: new Set(),
     status: 'pending',
     expiresAt: Date.now() + undoState.undoTimeoutMs,
   };
   
-  // If single player game, auto-approve
-  if (allPlayerIds.length === 1) {
+  // Check if all players have already approved (single player or all non-requester are AI)
+  const allApproved = allPlayerIds.every(id => request.approvals.has(id));
+  if (allPlayerIds.length === 1 || allApproved) {
     return {
       ...undoState,
       pendingUndo: {
