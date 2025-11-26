@@ -3,7 +3,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { socket } from '../socket';
-import type { SavedDeckSummary, SavedDeckDetail, GameID } from '../../../shared/src/decks';
+import type { SavedDeckSummary, SavedDeckDetail, GameID, DeckFolder } from '../../../shared/src/decks';
+import { PreconBrowser } from './PreconBrowser';
 
 type SavedLocalDeck = { id: string; name: string; text: string; savedAt: number };
 
@@ -29,7 +30,7 @@ function uid(prefix = 'd'): string {
 export interface DeckManagerModalProps {
   open: boolean;
   onClose: () => void;
-  onImportText: (text: string, name?: string) => void;
+  onImportText: (text: string, name?: string, cacheCards?: boolean) => void;
   gameId?: GameID;
   canServer?: boolean;
   anchorEl?: HTMLElement | null; // button to tether under
@@ -49,7 +50,7 @@ export function DeckManagerModal({
   wide,
   onUseSavedDeck
 }: DeckManagerModalProps) {
-  const [tab, setTab] = useState<'local' | 'server' | 'preview'>('local');
+  const [tab, setTab] = useState<'local' | 'server' | 'preview' | 'precons'>('local');
 
   // Local input
   const [localList, setLocalList] = useState<SavedLocalDeck[]>([]);
@@ -58,6 +59,8 @@ export function DeckManagerModal({
   const [localFilter, setLocalFilter] = useState('');
   const [localErr, setLocalErr] = useState<string | null>(null);
   const [alsoSaveToServer, setAlsoSaveToServer] = useState(false);
+  const [cacheCards, setCacheCards] = useState(true);
+  const [cachingDeckId, setCachingDeckId] = useState<string | null>(null);
 
   // Server decks
   const [serverDecks, setServerDecks] = useState<SavedDeckSummary[]>([]);
@@ -65,6 +68,13 @@ export function DeckManagerModal({
   const [detail, setDetail] = useState<SavedDeckDetail | null>(null);
   const [serverErr, setServerErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Folder navigation
+  const [folders, setFolders] = useState<DeckFolder[]>([]);
+  const [currentFolder, setCurrentFolder] = useState<string>('');
+  const [newFolderName, setNewFolderName] = useState('');
+  const [showFolderInput, setShowFolderInput] = useState(false);
+  const [selectedFolder, setSelectedFolder] = useState<string>('');
 
   // Tether position
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
@@ -80,7 +90,10 @@ export function DeckManagerModal({
   // Socket listeners
   useEffect(() => {
     if (!open) return;
-    const onList = ({ decks }: { decks: SavedDeckSummary[] }) => setServerDecks(decks);
+    const onList = ({ decks, folders: folderTree }: { decks: SavedDeckSummary[]; folders?: DeckFolder[] }) => {
+      setServerDecks(decks);
+      if (folderTree) setFolders(folderTree);
+    };
     const onDetail = ({ deck }: { deck: SavedDeckDetail }) => { setDetail(deck); setTab('preview'); };
     const onSaved = () => { setSaving(false); gameId && socket.emit('listSavedDecks', { gameId }); };
     const onRenamed = ({ deck }: { deck: SavedDeckSummary }) =>
@@ -89,7 +102,20 @@ export function DeckManagerModal({
       setServerDecks(prev => prev.filter(d => d.id !== deckId));
       if (detail?.id === deckId) setDetail(null);
     };
-    const onError = ({ message }: { message: string }) => setServerErr(message);
+    const onError = ({ message }: { message: string }) => {
+      setServerErr(message);
+      // Clear caching state on error
+      setCachingDeckId(null);
+    };
+    const onCached = ({ deckId }: { deckId: string }) => {
+      setCachingDeckId(null);
+      // Refresh the deck list to show updated cache status
+      if (gameId) socket.emit('listSavedDecks', { gameId });
+    };
+    const onMoved = () => {
+      // Refresh the deck list after moving
+      if (gameId) socket.emit('listSavedDecks', { gameId });
+    };
 
     socket.on('savedDecksList', onList);
     socket.on('savedDeckDetail', onDetail);
@@ -97,6 +123,8 @@ export function DeckManagerModal({
     socket.on('deckRenamed', onRenamed);
     socket.on('deckDeleted', onDeleted);
     socket.on('deckError', onError);
+    socket.on('deckCached', onCached);
+    socket.on('deckMoved', onMoved);
 
     return () => {
       socket.off('savedDecksList', onList);
@@ -105,6 +133,8 @@ export function DeckManagerModal({
       socket.off('deckRenamed', onRenamed);
       socket.off('deckDeleted', onDeleted);
       socket.off('deckError', onError);
+      socket.off('deckCached', onCached);
+      socket.off('deckMoved', onMoved);
     };
   }, [open, gameId, detail]);
 
@@ -187,9 +217,9 @@ export function DeckManagerModal({
   };
 
   const importLocal = (d: SavedLocalDeck) => {
-    onImportText(d.text, d.name);
+    onImportText(d.text, d.name, cacheCards);
     if (alsoSaveToServer && canServer && gameId) {
-      socket.emit('saveDeck', { gameId, name: d.name || 'Deck', list: d.text });
+      socket.emit('saveDeck', { gameId, name: d.name || 'Deck', list: d.text, cacheCards });
     }
   };
 
@@ -206,7 +236,12 @@ export function DeckManagerModal({
     if (!canServer || !gameId) return;
     if (!localText.trim() || !localName.trim()) { setServerErr('Name & text required'); return; }
     setSaving(true);
-    socket.emit('saveDeck', { gameId, name: localName.trim(), list: localText });
+    socket.emit('saveDeck', { gameId, name: localName.trim(), list: localText, cacheCards });
+  };
+  const cacheDeck = (deckId: string) => {
+    if (!gameId) return;
+    setCachingDeckId(deckId);
+    socket.emit('cacheSavedDeck', { gameId, deckId });
   };
 
   const backdropStyle: React.CSSProperties = {
@@ -250,6 +285,7 @@ export function DeckManagerModal({
           <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
             <button type="button" onClick={() => { setTab('local'); setDetail(null); }} disabled={tab === 'local'}>Local</button>
             {canServer && <button type="button" onClick={() => { setTab('server'); setDetail(null); }} disabled={tab === 'server'}>Server</button>}
+            <button type="button" onClick={() => { setTab('precons'); setDetail(null); }} disabled={tab === 'precons'} style={{ background: tab === 'precons' ? undefined : '#2a4a2a' }}>📦 Precons</button>
             {detail && <button type="button" onClick={() => setTab('preview')} disabled={tab === 'preview'}>Preview</button>}
           </div>
 
@@ -269,6 +305,10 @@ export function DeckManagerModal({
                   placeholder="Name"
                   style={{ width: '100%', marginTop: 8 }}
                 />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                  <input id="cache-cards" type="checkbox" checked={cacheCards} onChange={e => setCacheCards(e.target.checked)} />
+                  <label htmlFor="cache-cards" style={{ fontSize: 12, color: '#ddd' }}>Cache card data (faster loading next time)</label>
+                </div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                   <input
                     type="file"
@@ -336,15 +376,31 @@ export function DeckManagerModal({
                 <div style={{ border: '1px solid #333', borderRadius: 6, padding: 6, maxHeight: 320, overflowY: 'auto', background: '#111' }}>
                   {filteredServer.length === 0 && <div style={{ fontSize: 12, color: '#888' }}>None</div>}
                   {filteredServer.map(d => (
-                    <div key={d.id} style={{ borderBottom: '1px solid #222', padding: '6px 4px', display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 8, alignItems: 'center' }}>
+                    <div key={d.id} style={{ borderBottom: '1px solid #222', padding: '6px 4px', display: 'grid', gridTemplateColumns: '1fr auto auto auto auto auto', gap: 6, alignItems: 'center' }}>
                       <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 12, color: '#eee', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.name}</div>
+                        <div style={{ fontSize: 12, color: '#eee', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: 4 }}>
+                          {d.name}
+                          {d.has_cached_cards && (
+                            <span title="Card data cached - faster loading" style={{ fontSize: 10, color: '#4ade80', marginLeft: 4 }}>⚡</span>
+                          )}
+                        </div>
                         <div style={{ fontSize: 10, color: '#999' }}>
                           {new Date(d.created_at).toLocaleDateString()} • {d.created_by_name} • {d.card_count} cards
                         </div>
                       </div>
                       <button type="button" onClick={() => requestDetail(d.id)} style={{ fontSize: 11 }}>View</button>
                       <button type="button" onClick={() => importServer(d.id)} style={{ fontSize: 11 }}>Use</button>
+                      {!d.has_cached_cards && (
+                        <button
+                          type="button"
+                          onClick={() => cacheDeck(d.id)}
+                          disabled={cachingDeckId === d.id}
+                          style={{ fontSize: 11, color: '#fbbf24' }}
+                          title="Cache card data for faster loading"
+                        >
+                          {cachingDeckId === d.id ? '…' : 'Cache'}
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => { gameId && socket.emit('renameSavedDeck', { gameId, deckId: d.id, name: prompt('Rename deck', d.name) || d.name }); }}
@@ -378,6 +434,10 @@ export function DeckManagerModal({
                   placeholder="Name"
                   style={{ width: '100%', marginTop: 8 }}
                 />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                  <input id="cache-cards-server" type="checkbox" checked={cacheCards} onChange={e => setCacheCards(e.target.checked)} />
+                  <label htmlFor="cache-cards-server" style={{ fontSize: 12, color: '#ddd' }}>Cache card data</label>
+                </div>
                 <button
                   type="button"
                   onClick={saveServer}
@@ -392,7 +452,12 @@ export function DeckManagerModal({
 
           {tab === 'preview' && detail && (
             <div>
-              <h5 style={{ margin: '4px 0', fontSize: 14 }}>{detail.name}</h5>
+              <h5 style={{ margin: '4px 0', fontSize: 14 }}>
+                {detail.name}
+                {detail.has_cached_cards && (
+                  <span title="Card data cached" style={{ fontSize: 10, color: '#4ade80', marginLeft: 6 }}>⚡ Cached</span>
+                )}
+              </h5>
               <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 6 }}>
                 By {detail.created_by_name} • {new Date(detail.created_at).toLocaleString()} • {detail.card_count} cards
               </div>
@@ -404,6 +469,27 @@ export function DeckManagerModal({
                 <button type="button" onClick={() => setTab('server')}>Back</button>
               </div>
             </div>
+          )}
+
+          {tab === 'precons' && (
+            <PreconBrowser
+              onSelectDeck={(commanders, deckName, setName, year) => {
+                // When a precon is selected, we need to fetch the decklist
+                // For now, we'll emit a request to get the precon decklist from the server
+                // The server will need to fetch from an external source like Moxfield or Scryfall
+                if (gameId) {
+                  socket.emit('importPreconDeck', { 
+                    gameId, 
+                    commanders, 
+                    deckName, 
+                    setName, 
+                    year,
+                    cacheCards 
+                  });
+                }
+                onClose();
+              }}
+            />
           )}
         </div>
       </div>

@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 
 interface Props {
   open: boolean;
-  onImport: (list: string) => void;
+  onImport: (list: string, cacheCards?: boolean) => void;
   onSpectate: () => void;
 }
 
 export function DeckPromptModal({ open, onImport, onSpectate }: Props) {
   const [text, setText] = useState('');
   const [fileError, setFileError] = useState<string | null>(null);
+  const [cacheCards, setCacheCards] = useState(true);
 
   if (!open) return null;
   return (
@@ -38,8 +39,19 @@ export function DeckPromptModal({ open, onImport, onSpectate }: Props) {
           />
           {fileError && <div style={{ color:'#f87171', fontSize:11 }}>{fileError}</div>}
         </div>
+        <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:10 }}>
+          <input
+            id="cache-cards-prompt"
+            type="checkbox"
+            checked={cacheCards}
+            onChange={e => setCacheCards(e.target.checked)}
+          />
+          <label htmlFor="cache-cards-prompt" style={{ fontSize:12, color:'#ddd' }}>
+            Cache card data (faster loading next time)
+          </label>
+        </div>
         <div style={{ display:'flex', gap:8, marginTop:10 }}>
-          <button disabled={!text.trim()} onClick={()=>onImport(text)}>Import Deck</button>
+          <button disabled={!text.trim()} onClick={()=>onImport(text, cacheCards)}>Import Deck</button>
           <button onClick={onSpectate}>Spectate</button>
         </div>
       </div>
