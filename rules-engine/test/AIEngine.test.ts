@@ -329,4 +329,164 @@ describe('AIEngine', () => {
       expect(history.length).toBe(0);
     });
   });
+  
+  describe('New Decision Types', () => {
+    beforeEach(() => {
+      aiEngine.registerAI({
+        playerId: 'ai1',
+        strategy: AIStrategy.BASIC,
+        thinkTime: 0,
+      });
+      
+      testGameState.players[0].battlefield = [
+        { 
+          id: 'creature1', 
+          name: 'Grizzly Bears', 
+          controller: 'ai1',
+          card: { 
+            name: 'Grizzly Bears', 
+            type_line: 'Creature - Bear', 
+            power: '2', 
+            toughness: '2' 
+          },
+          basePower: 2,
+          baseToughness: 2,
+          tapped: false,
+          counters: {},
+        },
+        { 
+          id: 'token1', 
+          name: 'Treasure', 
+          controller: 'ai1',
+          card: { 
+            name: 'Treasure', 
+            type_line: 'Artifact - Treasure',
+          },
+          isToken: true,
+          tapped: false,
+          counters: {},
+        },
+      ];
+    });
+    
+    it('should make sacrifice decisions prioritizing tokens', async () => {
+      const context: AIDecisionContext = {
+        gameState: testGameState,
+        playerId: 'ai1',
+        decisionType: AIDecisionType.SACRIFICE,
+        options: [],
+        constraints: { count: 1, type: 'permanent' },
+      };
+      
+      const decision = await aiEngine.makeDecision(context);
+      
+      expect(decision.type).toBe(AIDecisionType.SACRIFICE);
+      expect(decision.action.sacrificed).toBeDefined();
+      expect(decision.action.sacrificed.length).toBe(1);
+      // Should prefer sacrificing the token (lower value)
+      expect(decision.action.sacrificed[0]).toBe('token1');
+    });
+    
+    it('should make target selection decisions', async () => {
+      const context: AIDecisionContext = {
+        gameState: testGameState,
+        playerId: 'ai1',
+        decisionType: AIDecisionType.SELECT_TARGET,
+        options: [testGameState.players[1]], // opponent
+        constraints: { count: 1, type: 'player' },
+      };
+      
+      const decision = await aiEngine.makeDecision(context);
+      
+      expect(decision.type).toBe(AIDecisionType.SELECT_TARGET);
+      expect(decision.action.targets).toBeDefined();
+      expect(decision.action.targets.length).toBe(1);
+    });
+    
+    it('should make triggered ability decisions', async () => {
+      const context: AIDecisionContext = {
+        gameState: testGameState,
+        playerId: 'ai1',
+        decisionType: AIDecisionType.TRIGGERED_ABILITY,
+        options: [],
+        constraints: { optional: true, effect: 'draw a card' },
+      };
+      
+      const decision = await aiEngine.makeDecision(context);
+      
+      expect(decision.type).toBe(AIDecisionType.TRIGGERED_ABILITY);
+      expect(decision.action.accept).toBe(true); // Should accept draw effects
+    });
+    
+    it('should decline harmful optional triggers', async () => {
+      const context: AIDecisionContext = {
+        gameState: testGameState,
+        playerId: 'ai1',
+        decisionType: AIDecisionType.TRIGGERED_ABILITY,
+        options: [],
+        constraints: { optional: true, effect: 'sacrifice a creature' },
+      };
+      
+      const decision = await aiEngine.makeDecision(context);
+      
+      expect(decision.type).toBe(AIDecisionType.TRIGGERED_ABILITY);
+      expect(decision.action.accept).toBe(false); // Should decline sacrifice effects
+    });
+    
+    it('should make token creation decisions', async () => {
+      const context: AIDecisionContext = {
+        gameState: testGameState,
+        playerId: 'ai1',
+        decisionType: AIDecisionType.CREATE_TOKEN,
+        options: ['1/1 Soldier', '2/2 Zombie'],
+        constraints: { type: 'creature', count: 2 },
+      };
+      
+      const decision = await aiEngine.makeDecision(context);
+      
+      expect(decision.type).toBe(AIDecisionType.CREATE_TOKEN);
+      expect(decision.action.tokenType).toBeDefined();
+      expect(decision.action.count).toBe(2);
+    });
+    
+    it('should make discard decisions', async () => {
+      testGameState.players[0].hand = [
+        { id: 'land1', name: 'Forest', types: ['Land'] },
+        { id: 'spell1', name: 'Lightning Bolt', types: ['Instant'], cmc: 1 },
+        { id: 'creature1', name: 'Tarmogoyf', types: ['Creature'], cmc: 2 },
+      ];
+      
+      const context: AIDecisionContext = {
+        gameState: testGameState,
+        playerId: 'ai1',
+        decisionType: AIDecisionType.DISCARD,
+        options: [],
+        constraints: { count: 1 },
+      };
+      
+      const decision = await aiEngine.makeDecision(context);
+      
+      expect(decision.type).toBe(AIDecisionType.DISCARD);
+      expect(decision.action.discarded).toBeDefined();
+      expect(decision.action.discarded.length).toBe(1);
+      // Should discard land (lowest value in hand)
+      expect(decision.action.discarded[0]).toBe('land1');
+    });
+    
+    it('should make mode choice decisions', async () => {
+      const context: AIDecisionContext = {
+        gameState: testGameState,
+        playerId: 'ai1',
+        decisionType: AIDecisionType.CHOOSE_MODE,
+        options: ['mode1', 'mode2', 'mode3'],
+        constraints: { count: 2 },
+      };
+      
+      const decision = await aiEngine.makeDecision(context);
+      
+      expect(decision.type).toBe(AIDecisionType.CHOOSE_MODE);
+      expect(decision.action.modes).toBeDefined();
+      expect(decision.action.modes.length).toBe(2);
+    });
+  });
 });
