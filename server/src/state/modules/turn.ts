@@ -449,25 +449,17 @@ function setupCleanupDiscard(ctx: GameContext, playerId: string): { needsInterac
       return { needsInteraction: true, discardCount: state.pendingDiscardSelection[playerId].count };
     }
     
-    // Get player's hand - check both ctx.zones and state.zones for compatibility
-    // ctx.zones is the authoritative source, but state.zones may be used in some views
+    // Get player's hand from state.zones (authoritative source)
     let hand: any[] = [];
-    
-    // First try ctx.zones (authoritative)
-    const ctxZones = (ctx as any).zones?.[playerId];
-    if (ctxZones && Array.isArray(ctxZones.hand)) {
-      hand = ctxZones.hand;
-    } else {
-      // Fallback to state.zones
-      const stateZones = state.zones?.[playerId];
-      if (stateZones && Array.isArray(stateZones.hand)) {
-        hand = stateZones.hand;
-      }
+    const zones = state.zones || {};
+    const playerZones = zones[playerId];
+    if (playerZones && Array.isArray(playerZones.hand)) {
+      hand = playerZones.hand;
     }
     
     if (hand.length === 0) {
       // Try handCount as a fallback (some views only sync count, not full hand)
-      const handCount = ctxZones?.handCount ?? state.zones?.[playerId]?.handCount ?? 0;
+      const handCount = playerZones?.handCount ?? 0;
       if (handCount <= maxHandSize) {
         return { needsInteraction: false, discardCount: 0 };
       }
@@ -600,7 +592,7 @@ export function nextStep(ctx: GameContext) {
     let shouldAdvanceTurn = false;
     let shouldUntap = false;
 
-    if (currentPhase === "beginning" || currentPhase === "PRE_GAME" || currentPhase === "pre_game" || currentPhase === "") {
+    if (currentPhase === "beginning" || currentPhase === "pre_game" || currentPhase === "") {
       if (currentStep === "" || currentStep === "untap" || currentStep === "UNTAP") {
         nextPhase = "beginning";
         nextStep = "UPKEEP";

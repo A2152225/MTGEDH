@@ -19,7 +19,7 @@ export interface GameContext {
   state: GameState;
   // runtime maps / caches
   libraries: Map<PlayerID, KnownCardRef[]>;
-  zones: Record<PlayerID, PlayerZones>;
+  // Note: zones are stored in ctx.state.zones (single source of truth)
   // public counters (runtime)
   life: Record<PlayerID, number>;
   poison: Record<PlayerID, number>;
@@ -127,7 +127,7 @@ export function createContext(gameId: string): GameContext {
     stack: [],
     battlefield: [],
     commandZone: {} as any,
-    phase: "PRE_GAME" as any,
+    phase: "pre_game" as any,
     step: undefined,
     active: false,
     zones: {},
@@ -143,11 +143,10 @@ export function createContext(gameId: string): GameContext {
     gameId,
     state,
     libraries: new Map<PlayerID, KnownCardRef[]>(),
-    zones: state.zones as Record<PlayerID, PlayerZones>,  // Share the same object as state.zones
-    life: {},
+    life: state.life,  // Share the same object as state.life
     poison: {},
     experience: {},
-    commandZone: {} as any,
+    commandZone: state.commandZone,  // Share the same object as state.commandZone
     joinedBySocket: new Map(),
     participantsList: [],
     tokenToPlayer: new Map(),
@@ -168,8 +167,8 @@ export function createContext(gameId: string): GameContext {
     // Priority tracking for stack resolution
     passesInRow: { value: 0 },
 
-    // optional runtime containers (populated by other modules when used)
-    landsPlayedThisTurn: {},
+    // optional runtime containers - share with state where possible
+    landsPlayedThisTurn: state.landsPlayedThisTurn,  // Share with state
     maxLandsPerTurn: {},  // Default 1 per player, can be increased by effects
     additionalDrawsPerTurn: {},  // Extra draws per draw step (Font of Mythos, etc.)
     manaPool: {},

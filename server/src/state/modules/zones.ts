@@ -24,7 +24,8 @@ export function importDeckResolved(
     >
   >
 ) {
-  const { libraries, zones, bumpSeq } = ctx as any;
+  const { libraries, state, bumpSeq } = ctx as any;
+  const zones = state.zones = state.zones || {};
   libraries.set(
     playerId,
     cards.map((c) => ({
@@ -57,7 +58,8 @@ export function shuffleLibrary(ctx: GameContext, playerId: PlayerID) {
     [lib[i], lib[j]] = [lib[j], lib[i]];
   }
   ctx.libraries.set(playerId, lib);
-  const z = ctx.zones[playerId] || (ctx.zones[playerId] = { hand: [], handCount: 0, libraryCount: lib.length, graveyard: [], graveyardCount: 0 } as any);
+  const zones = ctx.state.zones = ctx.state.zones || {};
+  const z = zones[playerId] || (zones[playerId] = { hand: [], handCount: 0, libraryCount: lib.length, graveyard: [], graveyardCount: 0 } as any);
   z.libraryCount = lib.length;
   ctx.bumpSeq();
 }
@@ -67,7 +69,8 @@ export function shuffleLibrary(ctx: GameContext, playerId: PlayerID) {
  */
 export function drawCards(ctx: GameContext, playerId: PlayerID, count: number) {
   const lib = ctx.libraries.get(playerId) || [];
-  const z = ctx.zones[playerId] || (ctx.zones[playerId] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 } as any);
+  const zones = ctx.state.zones = ctx.state.zones || {};
+  const z = zones[playerId] || (zones[playerId] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 } as any);
   const drawn: KnownCardRef[] = [];
   for (let i = 0; i < count && lib.length > 0; i++) {
     const c = lib.shift()!;
@@ -85,7 +88,8 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number) {
  * moveHandToLibrary: Move the player's whole hand onto top of library
  */
 export function moveHandToLibrary(ctx: GameContext, playerId: PlayerID) {
-  const z = ctx.zones[playerId];
+  const zones = ctx.state.zones || {};
+  const z = zones[playerId];
   if (!z) return 0;
   const hand = (z.hand as any[]) || [];
   const lib = ctx.libraries.get(playerId) || [];
@@ -105,7 +109,8 @@ export function moveHandToLibrary(ctx: GameContext, playerId: PlayerID) {
  * shuffleHand
  */
 export function shuffleHand(ctx: GameContext, playerId: PlayerID) {
-  const z = ctx.zones?.[playerId];
+  const zones = ctx.state.zones || {};
+  const z = zones[playerId];
   if (!z) return;
   const hand = (z.hand as any[]) || [];
   for (let i = hand.length - 1; i > 0; i--) {
@@ -158,7 +163,8 @@ export function selectFromLibrary(ctx: GameContext, playerId: PlayerID, cardIds:
 
   ctx.libraries.set(playerId, lib);
 
-  const z = ctx.zones[playerId] || (ctx.zones[playerId] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 } as any);
+  const zones = ctx.state.zones = ctx.state.zones || {};
+  const z = zones[playerId] || (zones[playerId] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 } as any);
   const moved: KnownCardRef[] = [];
 
   for (const id of cardIds) {
@@ -195,7 +201,8 @@ export function selectFromLibrary(ctx: GameContext, playerId: PlayerID, cardIds:
  * reorderHand: reorder the player's hand according to index array
  */
 export function reorderHand(ctx: GameContext, playerId: PlayerID, order: number[]) {
-  const z = ctx.zones?.[playerId];
+  const zones = ctx.state.zones || {};
+  const z = zones[playerId];
   if (!z) return false;
   const hand = (z.hand as any[]) || [];
   const n = hand.length;
@@ -237,14 +244,15 @@ export function applyScry(ctx: GameContext, playerId: PlayerID, keepTopOrder: st
     const c = byId.get(id);
     if (c) lib.unshift({ ...c, zone: "library" });
   }
-  ctx.zones[playerId] = ctx.zones[playerId] || {
+  const zones = ctx.state.zones = ctx.state.zones || {};
+  zones[playerId] = zones[playerId] || {
     hand: [],
     handCount: 0,
     libraryCount: 0,
     graveyard: [],
     graveyardCount: 0,
   } as any;
-  ctx.zones[playerId]!.libraryCount = lib.length;
+  zones[playerId]!.libraryCount = lib.length;
   ctx.libraries.set(playerId, lib);
   ctx.bumpSeq();
 }
@@ -262,9 +270,10 @@ export function applySurveil(ctx: GameContext, playerId: PlayerID, toGraveyard: 
       byId.set(id, c);
     }
   }
+  const zones = ctx.state.zones = ctx.state.zones || {};
   const z =
-    ctx.zones[playerId] ||
-    (ctx.zones[playerId] = {
+    zones[playerId] ||
+    (zones[playerId] = {
       hand: [],
       handCount: 0,
       libraryCount: 0,
@@ -319,12 +328,14 @@ export function reconcileZonesConsistency(ctx: GameContext, playerId?: PlayerID)
       ? [playerId]
       : ((ctx.state.players as any as { id: PlayerID }[]) || []).map((p) => p.id);
 
+  const zones = ctx.state.zones = ctx.state.zones || {};
+  
   for (const pid of players) {
     try {
-      if (!ctx.zones[pid]) {
-        ctx.zones[pid] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 } as any;
+      if (!zones[pid]) {
+        zones[pid] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 } as any;
       }
-      const z = ctx.zones[pid] as any;
+      const z = zones[pid] as any;
 
       if (!ctx.libraries.has(pid)) ctx.libraries.set(pid, []);
       const lib = ctx.libraries.get(pid) || [];
@@ -366,7 +377,8 @@ export function reconcileZonesConsistency(ctx: GameContext, playerId?: PlayerID)
  * that was placed by importDeckResolved or stored in _lastImportedDecks.
  */
 export function applyPreGameReset(ctx: GameContext, playerId: PlayerID) {
-  const { state, libraries, zones, bumpSeq, life, poison, experience, commandZone } = ctx as any;
+  const { state, libraries, bumpSeq, life, poison, experience, commandZone } = ctx as any;
+  const zones = state.zones = state.zones || {};
 
   // If libraries map doesn't contain the imported deck but an import buffer exists, use it.
   try {
@@ -419,8 +431,8 @@ export function applyPreGameReset(ctx: GameContext, playerId: PlayerID) {
     (ctx as any).manaPool[playerId] = { white:0, blue:0, black:0, red:0, green:0, colorless:0, generic:0 };
   }
 
-  // Set global phase to PRE_GAME (authoritative)
-  (state as any).phase = "PRE_GAME";
+  // Set global phase to pre_game (authoritative)
+  (state as any).phase = "pre_game";
 
   // ensure consistency and bump sequence
   reconcileZonesConsistency(ctx, playerId);

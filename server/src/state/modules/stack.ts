@@ -14,7 +14,7 @@ import { recalculatePlayerEffects } from "./game-state-effects.js";
  * - exileEntireStack
  *
  * exileEntireStack moves all items from the stack into controller exile zones
- * (ctx.zones[controller].exile). It returns the number of items exiled and bumps seq.
+ * (ctx.state.zones[controller].exile). It returns the number of items exiled and bumps seq.
  * It is conservative and defensive about shapes so it won't throw on unexpected input.
  */
 
@@ -91,7 +91,8 @@ export function resolveTopOfStack(ctx: GameContext) {
     }
   } else if (card) {
     // Non-permanent spell (instant/sorcery) - goes to graveyard after resolution
-    const z = ctx.zones[controller];
+    const zones = ctx.state.zones || {};
+    const z = zones[controller];
     if (z) {
       z.graveyard = z.graveyard || [];
       (z.graveyard as any[]).push({ ...card, zone: "graveyard" });
@@ -105,7 +106,8 @@ export function resolveTopOfStack(ctx: GameContext) {
 
 /* Place a land onto the battlefield for a player (simplified) */
 export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
-  const { state, bumpSeq, zones } = ctx;
+  const { state, bumpSeq } = ctx;
+  const zones = state.zones = state.zones || {};
   
   // Handle both card object and cardId string
   let card: any;
@@ -204,7 +206,8 @@ export function castSpell(
   cardOrId: any,
   targets?: any[]
 ) {
-  const { state, bumpSeq, zones } = ctx;
+  const { state, bumpSeq } = ctx;
+  const zones = state.zones = state.zones || {};
   
   // Handle both card object and cardId string
   let card: any;
@@ -289,8 +292,8 @@ export function castSpell(
  * Exile the entire stack to players' exile zones.
  *
  * Behavior:
- * - Moves all items from state.stack into each item's controller exile array under ctx.zones[controller].exile.
- * - Ensures ctx.zones[controller] exists and has exile array.
+ * - Moves all items from state.stack into each item's controller exile array under ctx.state.zones[controller].exile.
+ * - Ensures ctx.state.zones[controller] exists and has exile array.
  * - Returns the number of items exiled.
  * - Bumps seq on success.
  *
@@ -303,12 +306,13 @@ export function exileEntireStack(ctx: GameContext, invokedBy?: PlayerID): number
   if (!s || !Array.isArray(s.stack) || s.stack.length === 0) return 0;
 
   try {
+    const zones = s.zones = s.zones || {};
     const moved = s.stack.splice(0, s.stack.length);
     let count = 0;
     for (const item of moved) {
       const controller = (item && (item.controller as PlayerID)) || invokedBy || "unknown";
       // Ensure zones shape exists
-      (ctx.zones[controller] as any) = (ctx.zones[controller] as any) || {
+      (zones[controller] as any) = (zones[controller] as any) || {
         hand: [],
         handCount: 0,
         libraryCount: ctx.libraries.get(controller)?.length ?? 0,
@@ -316,7 +320,7 @@ export function exileEntireStack(ctx: GameContext, invokedBy?: PlayerID): number
         graveyardCount: 0,
         exile: [],
       };
-      const z = (ctx.zones[controller] as any);
+      const z = (zones[controller] as any);
       z.exile = z.exile || [];
       // Normalize card record pushed to exile
       if (item.card && typeof item.card === "object") {
@@ -329,8 +333,8 @@ export function exileEntireStack(ctx: GameContext, invokedBy?: PlayerID): number
     }
 
     // Update counts for all affected players
-    for (const pid of Object.keys(ctx.zones)) {
-      const z = (ctx.zones as any)[pid];
+    for (const pid of Object.keys(zones)) {
+      const z = (zones as any)[pid];
       if (z) {
         z.graveyardCount = (z.graveyard || []).length;
         z.libraryCount = (ctx.libraries.get(pid) || []).length;

@@ -12,6 +12,16 @@ describe('Turn step engine basics', () => {
     g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
     g.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
 
+    // Set up libraries for both players so draw step can actually draw
+    const sampleDeck = Array.from({ length: 10 }, (_, i) => ({
+      id: `card_${i}`,
+      name: `Test Card ${i}`,
+      type_line: 'Creature',
+      oracle_text: '',
+    }));
+    g.importDeckResolved(p1, sampleDeck);
+    g.importDeckResolved(p2, sampleDeck);
+
     // Start of game: nextTurn sets BEGINNING/UNTAP for p2 (since turnPlayer starts as p1 on join)
     g.applyEvent({ type: 'nextTurn' });
     expect(g.state.phase).toBe(GamePhase.BEGINNING);
@@ -29,10 +39,11 @@ describe('Turn step engine basics', () => {
     const perm = g.state.battlefield.find(p => p.id === permId)!;
     expect(perm.tapped).toBe(false);
 
-    g.applyEvent({ type: 'nextStep' }); // DRAW
+    // Capture hand count BEFORE entering draw step (draw happens when entering DRAW)
+    const startHand = g.state.zones?.[g.state.turnPlayer]?.handCount ?? 0;
+    g.applyEvent({ type: 'nextStep' }); // DRAW - card is drawn here
     expect(g.state.step).toBe(GameStep.DRAW);
 
-    const startHand = g.state.zones?.[g.state.turnPlayer]?.handCount ?? 0;
     g.applyEvent({ type: 'nextStep' }); // MAIN1
     expect(g.state.phase).toBe(GamePhase.PRECOMBAT_MAIN);
     expect(g.state.step).toBe(GameStep.MAIN1);
@@ -51,7 +62,7 @@ describe('Turn step engine basics', () => {
     expect(g.state.step).toBe(GameStep.MAIN2);
 
     g.applyEvent({ type: 'nextStep' }); // END
-    expect(g.state.phase).toBe(GamePhase.END);
+    expect(g.state.phase).toBe(GamePhase.ENDING);
     expect(g.state.step).toBe(GameStep.END);
 
     g.applyEvent({ type: 'nextStep' }); // CLEANUP

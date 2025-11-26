@@ -42,7 +42,7 @@ export function createToken(
       counters: {},
       basePower,
       baseToughness,
-      card: { id: uid("card"), name, type_line: "Token", zone: "battlefield" }
+      card: { id: uid("card"), name, type_line: "Token Creature", zone: "battlefield" }
     });
   }
   bumpSeq();
@@ -67,7 +67,8 @@ export function removePermanent(ctx: GameContext, permanentId: string) {
 }
 
 export function movePermanentToExile(ctx: GameContext, permanentId: string) {
-  const { state, zones, bumpSeq } = ctx;
+  const { state, bumpSeq } = ctx;
+  const zones = state.zones = state.zones || {};
   const idx = state.battlefield.findIndex(p => p.id === permanentId);
   if (idx < 0) return;
   const perm = state.battlefield.splice(idx,1)[0];

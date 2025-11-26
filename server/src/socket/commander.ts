@@ -368,7 +368,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       
       // Check if we're in PRE_GAME phase - spells cannot be cast during pre-game
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
-      if (phaseStr === "" || phaseStr === "PRE_GAME") {
+      if (phaseStr === "" || phaseStr === "pre_game") {
         socket.emit("error", {
           code: "PREGAME_NO_CAST",
           message: "Cannot cast commander during pre-game. Start the game first by claiming turn and advancing to main phase.",

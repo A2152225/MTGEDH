@@ -36,10 +36,13 @@ import {
   removePermanent,
   applyEngineEffects,
   runSBA,
+  movePermanentToExile,
 } from "./counters_tokens";
 import { pushStack, resolveTopOfStack, playLand, castSpell } from "./stack";
 import { nextTurn, nextStep, passPriority } from "./turn";
 import { join, leave as leaveModule } from "./join";
+import { resolveSpell } from "../../rules-engine/targeting";
+import { evaluateAction } from "../../rules-engine/index";
 
 /* -------- Helpers ---------- */
 
@@ -94,7 +97,14 @@ export function reset(ctx: any, preservePlayers = false): void {
     ctx.state = ctx.state || {};
     ctx.state.battlefield = [];
     ctx.state.stack = [];
-    ctx.state.commandZone = {};
+    // Clear commandZone in place to preserve reference identity
+    if (ctx.state.commandZone && typeof ctx.state.commandZone === 'object') {
+      for (const key of Object.keys(ctx.state.commandZone)) {
+        delete ctx.state.commandZone[key];
+      }
+    } else {
+      ctx.state.commandZone = {};
+    }
     ctx.state.zones = ctx.state.zones || {};
     ctx.libraries = ctx.libraries || new Map<string, any[]>();
     ctx.life = ctx.life || {};
@@ -215,8 +225,8 @@ export function remove(ctx: any, playerId: PlayerID): void {
     }
     if (ctx.libraries && typeof ctx.libraries.delete === "function")
       ctx.libraries.delete(playerId);
-    if ((ctx as any).zones && (ctx as any).zones[playerId])
-      delete (ctx as any).zones[playerId];
+    if (ctx.state.zones && ctx.state.zones[playerId])
+      delete ctx.state.zones[playerId];
     if (ctx.life && ctx.life[playerId] !== undefined) delete ctx.life[playerId];
     if (ctx.poison && ctx.poison[playerId] !== undefined)
       delete ctx.poison[playerId];
@@ -314,6 +324,21 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             }
             if (!(ctx.state as any).priority) {
               (ctx.state as any).priority = pid;
+            }
+            
+            // Initialize life, poison, experience for non-spectator players
+            const startingLife = ctx.state.startingLife ?? 40;
+            if (ctx.life) ctx.life[pid] = ctx.life[pid] ?? startingLife;
+            if (ctx.poison) ctx.poison[pid] = ctx.poison[pid] ?? 0;
+            if (ctx.experience) ctx.experience[pid] = ctx.experience[pid] ?? 0;
+            
+            // Initialize zones
+            const zones = ctx.state.zones = ctx.state.zones || {};
+            zones[pid] = zones[pid] ?? { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+            
+            // Initialize landsPlayedThisTurn
+            if (ctx.state.landsPlayedThisTurn) {
+              ctx.state.landsPlayedThisTurn[pid] = ctx.state.landsPlayedThisTurn[pid] ?? 0;
             }
           }
           
@@ -421,7 +446,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       case "setCommander": {
         const pid = (e as any).playerId;
         // Check hand count BEFORE calling setCommander to know if we need opening draw
-        const zonesBefore = ctx.zones?.[pid];
+        const zones = ctx.state.zones || {};
+        const zonesBefore = zones[pid];
         const handCountBefore = zonesBefore
           ? (typeof zonesBefore.handCount === "number" ? zonesBefore.handCount : (Array.isArray(zonesBefore.hand) ? zonesBefore.hand.length : 0))
           : 0;
@@ -495,7 +521,23 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       }
 
       case "dealDamage": {
-        const effects: any[] = (e as any).effects || [];
+        // Handle both legacy effects format and new action format
+        let effects: any[] = (e as any).effects || [];
+        
+        // If targetPermanentId is provided, evaluate using rules engine
+        const targetPermanentId = (e as any).targetPermanentId;
+        const amount = (e as any).amount;
+        if (targetPermanentId && amount > 0) {
+          const action = {
+            type: 'DEAL_DAMAGE' as const,
+            targetPermanentId,
+            amount,
+            wither: Boolean((e as any).wither),
+            infect: Boolean((e as any).infect),
+          };
+          effects = [...evaluateAction(ctx.state, action)];
+        }
+        
         try {
           applyEngineEffects(ctx as any, effects);
         } catch {}
@@ -506,7 +548,69 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       }
 
       case "resolveSpell": {
-        // Engine-driven resolution handled elsewhere
+        // Execute spell effects based on spec and chosen targets
+        const spec = (e as any).spec;
+        const chosen = (e as any).chosen || [];
+        
+        // Handle COUNTER_TARGET_SPELL specially since it's not in the targeting module
+        if (spec?.op === 'COUNTER_TARGET_SPELL') {
+          for (const target of chosen) {
+            if (target.kind === 'stack') {
+              const stackIdx = ctx.state.stack.findIndex((s: any) => s.id === target.id);
+              if (stackIdx >= 0) {
+                const countered = ctx.state.stack.splice(stackIdx, 1)[0];
+                // Move the countered spell to its controller's graveyard
+                const controller = (countered as any).controller as PlayerID;
+                const zones = ctx.state.zones = ctx.state.zones || {};
+                zones[controller] = zones[controller] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+                const gy = (zones[controller] as any).graveyard = (zones[controller] as any).graveyard || [];
+                if ((countered as any).card) {
+                  gy.push((countered as any).card);
+                  (zones[controller] as any).graveyardCount = gy.length;
+                }
+              }
+            }
+          }
+          ctx.bumpSeq();
+          break;
+        }
+        
+        if (spec && typeof resolveSpell === 'function') {
+          try {
+            const effects = resolveSpell(spec, chosen, ctx.state);
+            // Apply each effect
+            for (const eff of effects) {
+              switch (eff.kind) {
+                case 'DestroyPermanent':
+                  removePermanent(ctx as any, eff.id);
+                  break;
+                case 'MoveToExile':
+                  movePermanentToExile(ctx as any, eff.id);
+                  break;
+                case 'DamagePermanent': {
+                  // Apply damage to permanent (may kill it via SBA)
+                  const perm = ctx.state.battlefield.find((p: any) => p.id === eff.id);
+                  if (perm) {
+                    (perm as any).damage = ((perm as any).damage || 0) + eff.amount;
+                  }
+                  break;
+                }
+                case 'DamagePlayer': {
+                  // Reduce player life
+                  if (ctx.life && eff.playerId) {
+                    ctx.life[eff.playerId] = (ctx.life[eff.playerId] ?? ctx.state.startingLife ?? 40) - eff.amount;
+                  }
+                  break;
+                }
+              }
+            }
+            // Run state-based actions after applying effects
+            runSBA(ctx as any);
+            ctx.bumpSeq();
+          } catch (err) {
+            console.warn('[applyEvent] resolveSpell failed:', err);
+          }
+        }
         break;
       }
 
@@ -667,7 +771,8 @@ export function replay(ctx: GameContext, events: GameEvent[]) {
       
       if (needsShuffle || needsDraw) {
         // Check if hand is empty (meaning opening draw hasn't happened)
-        const z = ctx.zones?.[pid];
+        const zones = ctx.state.zones || {};
+        const z = zones[pid];
         const handCount = z
           ? (typeof z.handCount === "number" ? z.handCount : (Array.isArray(z.hand) ? z.hand.length : 0))
           : 0;

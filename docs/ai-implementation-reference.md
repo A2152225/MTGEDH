@@ -19,7 +19,7 @@ This document captures key architectural details about the AI opponent system fo
 | `server/src/state/modules/turn.ts` | Turn/step progression, `nextStep()`, `nextTurn()` |
 | `server/src/state/modules/commander.ts` | Commander selection, triggers `pendingInitialDraw` → shuffle+draw 7 |
 | `server/src/state/modules/zones.ts` | Library, hand, graveyard management |
-| `server/src/state/context.ts` | Game context with state, libraries Map, zones |
+| `server/src/state/context.ts` | Game context with state (zones, life, commandZone are in `ctx.state`) |
 
 ## Key Implementation Details
 
