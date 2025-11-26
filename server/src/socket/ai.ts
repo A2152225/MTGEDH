@@ -466,9 +466,10 @@ function findPlayableLand(game: any, playerId: PlayerID): any | null {
 }
 
 /**
- * Determine what color of mana a land produces based on its type and oracle text
+ * Determine what color of mana a permanent can produce based on its type and oracle text
+ * Works for lands, mana rocks (artifacts), and creatures with mana abilities
  */
-function getLandManaProduction(card: any): string[] {
+function getManaProduction(card: any): string[] {
   const typeLine = (card?.type_line || '').toLowerCase();
   const oracleText = (card?.oracle_text || '').toLowerCase();
   const colors: string[] = [];
@@ -480,7 +481,8 @@ function getLandManaProduction(card: any): string[] {
   if (typeLine.includes('mountain')) colors.push('R');
   if (typeLine.includes('forest')) colors.push('G');
   
-  // Check oracle text for mana abilities
+  // Check oracle text for mana abilities (tap: add mana patterns)
+  // Common patterns: "{T}: Add {W}", "Add {G}", "{T}: Add one mana of any color"
   if (oracleText.includes('{w}') || oracleText.includes('add {w}')) colors.push('W');
   if (oracleText.includes('{u}') || oracleText.includes('add {u}')) colors.push('U');
   if (oracleText.includes('{b}') || oracleText.includes('add {b}')) colors.push('B');
@@ -488,14 +490,22 @@ function getLandManaProduction(card: any): string[] {
   if (oracleText.includes('{g}') || oracleText.includes('add {g}')) colors.push('G');
   if (oracleText.includes('{c}') || oracleText.includes('add {c}')) colors.push('C');
   
-  // Lands that add any color (e.g., Command Tower, City of Brass)
+  // Permanents that add any color (e.g., Command Tower, City of Brass, Mana Confluence, Chromatic Lantern affected permanents)
   if (oracleText.includes('add one mana of any color') || 
-      oracleText.includes('any color of mana')) {
+      oracleText.includes('any color of mana') ||
+      oracleText.includes('mana of any one color') ||
+      oracleText.includes('add one mana of any type')) {
     return ['W', 'U', 'B', 'R', 'G']; // Can produce any color
   }
   
+  // Sol Ring and similar - "Add {C}{C}" means it produces 2 colorless
+  // For simplicity, we just track that it can produce colorless
+  if (oracleText.includes('{c}{c}') || oracleText.includes('add {c}{c}')) {
+    colors.push('C');
+  }
+  
   // If no specific colors found but it's a land, assume colorless
-  if (colors.length === 0) {
+  if (colors.length === 0 && typeLine.includes('land')) {
     colors.push('C');
   }
   
@@ -504,42 +514,89 @@ function getLandManaProduction(card: any): string[] {
 }
 
 /**
- * Calculate available mana from untapped lands on the battlefield
- * Returns total land count and a map of which lands can produce each color
+ * Check if a permanent has a mana ability (can tap for mana)
  */
-function calculateAvailableMana(game: any, playerId: PlayerID): { total: number; colors: Record<string, number>; landsByColor: Map<string, string[]> } {
+function hasManaAbility(card: any): boolean {
+  const oracleText = (card?.oracle_text || '').toLowerCase();
+  const typeLine = (card?.type_line || '').toLowerCase();
+  
+  // Lands always have implicit mana abilities (basic lands)
+  if (typeLine.includes('land')) return true;
+  
+  // Check for tap-to-add-mana pattern: "{T}: Add" or "{T}, ... : Add"
+  if (oracleText.includes('{t}') && oracleText.includes('add {')) return true;
+  if (oracleText.includes('{t}') && oracleText.includes('add one mana')) return true;
+  if (oracleText.includes('{t}') && oracleText.includes('add mana')) return true;
+  
+  // Known mana rocks and dorks
+  const cardName = (card?.name || '').toLowerCase();
+  const knownManaSources = [
+    'sol ring', 'mana crypt', 'mana vault', 'arcane signet', 'mind stone',
+    'fellwar stone', 'thought vessel', 'commander\'s sphere', 'chromatic lantern',
+    'llanowar elves', 'elvish mystic', 'birds of paradise', 'noble hierarch',
+    'deathrite shaman', 'avacyn\'s pilgrim', 'elves of deep shadow',
+    'bloom tender', 'priest of titania', 'elvish archdruid'
+  ];
+  if (knownManaSources.some(name => cardName.includes(name))) return true;
+  
+  return false;
+}
+
+/**
+ * Check if a creature has summoning sickness (can't tap for mana)
+ */
+function hasCreatureSummoningSickness(perm: any): boolean {
+  const typeLine = (perm.card?.type_line || '').toLowerCase();
+  if (!typeLine.includes('creature')) return false;
+  
+  // Check for summoning sickness flag or if it just entered
+  return perm.summoningSickness === true;
+}
+
+/**
+ * Calculate available mana from untapped mana sources on the battlefield
+ * Includes lands, mana rocks (artifacts), and creatures with mana abilities
+ * Returns total mana available and a map of which sources can produce each color
+ */
+function calculateAvailableMana(game: any, playerId: PlayerID): { total: number; colors: Record<string, number>; sourcesByColor: Map<string, string[]> } {
   const battlefield = game.state?.battlefield || [];
   const colors: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
-  const landsByColor = new Map<string, string[]>();
+  const sourcesByColor = new Map<string, string[]>();
   let total = 0;
   
-  // Initialize landsByColor
+  // Initialize sourcesByColor
   for (const color of ['W', 'U', 'B', 'R', 'G', 'C']) {
-    landsByColor.set(color, []);
+    sourcesByColor.set(color, []);
   }
   
   for (const perm of battlefield) {
     if (perm && perm.controller === playerId && !perm.tapped) {
-      const typeLine = (perm.card?.type_line || '').toLowerCase();
-      if (typeLine.includes('land')) {
-        const producedColors = getLandManaProduction(perm.card);
-        // Each land counts as 1 mana total, but can produce any of its colors
-        total++;
-        
-        // Track which lands can produce each color (for smart selection later)
-        for (const color of producedColors) {
-          const lands = landsByColor.get(color) || [];
-          lands.push(perm.id);
-          landsByColor.set(color, lands);
-          // The color count represents how many lands CAN produce this color
-          // (not actual mana available, since each land can only be tapped once)
-          colors[color] = (colors[color] || 0) + 1;
-        }
+      // Check if this permanent can produce mana
+      if (!hasManaAbility(perm.card)) continue;
+      
+      // Creatures with summoning sickness can't tap for mana
+      if (hasCreatureSummoningSickness(perm)) continue;
+      
+      const producedColors = getManaProduction(perm.card);
+      if (producedColors.length === 0) continue;
+      
+      // Check if this source produces 2 mana (Sol Ring, Mana Crypt, etc.)
+      const oracleText = (perm.card?.oracle_text || '').toLowerCase();
+      const producesTwoColorless = oracleText.includes('{c}{c}') || oracleText.includes('add {c}{c}');
+      total += producesTwoColorless ? 2 : 1;
+      
+      // Track which sources can produce each color
+      for (const color of producedColors) {
+        const sources = sourcesByColor.get(color) || [];
+        sources.push(perm.id);
+        sourcesByColor.set(color, sources);
+        // The color count represents how many sources CAN produce this color
+        colors[color] = (colors[color] || 0) + (producesTwoColorless && color === 'C' ? 2 : 1);
       }
     }
   }
   
-  return { total, colors, landsByColor };
+  return { total, colors, sourcesByColor };
 }
 
 /**
@@ -686,71 +743,89 @@ function calculateSpellPriority(card: any, game: any, playerId: PlayerID): numbe
 }
 
 /**
- * Get untapped lands that can pay for a spell
- * Returns land IDs in the order they should be tapped, with the color each should produce
+ * Get untapped mana sources (lands, artifacts, creatures) that can pay for a spell
+ * Returns source IDs in the order they should be tapped, with the color each should produce
  */
-function getPaymentLands(game: any, playerId: PlayerID, cost: { colors: Record<string, number>; generic: number }): Array<{ landId: string; produceColor: string }> {
+function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record<string, number>; generic: number }): Array<{ sourceId: string; produceColor: string }> {
   const battlefield = game.state?.battlefield || [];
-  const payments: Array<{ landId: string; produceColor: string }> = [];
-  const usedLandIds = new Set<string>(); // Track which lands we've already assigned
+  const payments: Array<{ sourceId: string; produceColor: string }> = [];
+  const usedSourceIds = new Set<string>(); // Track which sources we've already assigned
   const colorsPaid: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0 };
   let genericPaid = 0;
   
-  // Collect all available lands with their produced colors
-  const availableLands: Array<{ perm: any; producedColors: string[] }> = [];
+  // Collect all available mana sources with their produced colors
+  const availableSources: Array<{ perm: any; producedColors: string[]; isLand: boolean; producesTwoMana: boolean }> = [];
   for (const perm of battlefield) {
     if (perm && perm.controller === playerId && !perm.tapped) {
+      // Check if this permanent can produce mana
+      if (!hasManaAbility(perm.card)) continue;
+      
+      // Creatures with summoning sickness can't tap for mana
+      if (hasCreatureSummoningSickness(perm)) continue;
+      
+      const producedColors = getManaProduction(perm.card);
+      if (producedColors.length === 0) continue;
+      
       const typeLine = (perm.card?.type_line || '').toLowerCase();
-      if (typeLine.includes('land')) {
-        const producedColors = getLandManaProduction(perm.card);
-        availableLands.push({ perm, producedColors });
-      }
+      const oracleText = (perm.card?.oracle_text || '').toLowerCase();
+      const isLand = typeLine.includes('land');
+      const producesTwoMana = oracleText.includes('{c}{c}') || oracleText.includes('add {c}{c}');
+      
+      availableSources.push({ perm, producedColors, isLand, producesTwoMana });
     }
   }
   
-  // First pass: assign lands to colored requirements
-  // Prefer single-color lands for specific colors to save multi-color lands for flexibility
+  // First pass: assign sources to colored requirements
+  // Prefer single-color sources for specific colors to save multi-color sources for flexibility
+  // Also prefer lands over mana rocks/creatures for colored mana
   for (const [color, needed] of Object.entries(cost.colors)) {
     if (needed <= 0) continue;
     
     while (colorsPaid[color] < needed) {
-      // Find an unassigned land that can produce this color
-      // Prefer lands that ONLY produce this color (basic lands)
-      let bestLand: { perm: any; producedColors: string[] } | null = null;
+      // Find an unassigned source that can produce this color
+      // Priority: single-color land > single-color artifact > multi-color land > multi-color artifact
+      let bestSource: { perm: any; producedColors: string[]; isLand: boolean; producesTwoMana: boolean } | null = null;
+      let bestScore = -1;
       
-      // First look for single-color lands
-      for (const land of availableLands) {
-        if (!usedLandIds.has(land.perm.id) && land.producedColors.includes(color)) {
-          if (land.producedColors.length === 1) {
-            bestLand = land;
-            break; // Perfect match - single color land
-          }
-          if (!bestLand) {
-            bestLand = land; // Save as fallback
-          }
+      for (const source of availableSources) {
+        if (usedSourceIds.has(source.perm.id)) continue;
+        if (!source.producedColors.includes(color)) continue;
+        
+        // Score: prefer single-color lands, then single-color artifacts, then multi
+        let score = 0;
+        if (source.producedColors.length === 1) score += 10; // Single color is better
+        if (source.isLand) score += 5; // Lands are slightly preferred over rocks
+        
+        if (score > bestScore) {
+          bestScore = score;
+          bestSource = source;
         }
       }
       
-      if (bestLand) {
-        usedLandIds.add(bestLand.perm.id);
-        payments.push({ landId: bestLand.perm.id, produceColor: color });
+      if (bestSource) {
+        usedSourceIds.add(bestSource.perm.id);
+        payments.push({ sourceId: bestSource.perm.id, produceColor: color });
         colorsPaid[color]++;
       } else {
-        break; // No more lands available for this color
+        break; // No more sources available for this color
       }
     }
   }
   
-  // Second pass: assign remaining lands to generic mana
-  for (const land of availableLands) {
-    if (genericPaid >= cost.generic) break;
-    if (!usedLandIds.has(land.perm.id)) {
-      usedLandIds.add(land.perm.id);
-      // Use the first produced color (or colorless)
-      const color = land.producedColors[0] || 'C';
-      payments.push({ landId: land.perm.id, produceColor: color });
-      genericPaid++;
-    }
+  // Second pass: assign remaining sources to generic mana
+  // For sources that produce 2 mana (Sol Ring), they count for 2 generic
+  let genericNeeded = cost.generic;
+  for (const source of availableSources) {
+    if (genericNeeded <= 0) break;
+    if (usedSourceIds.has(source.perm.id)) continue;
+    
+    usedSourceIds.add(source.perm.id);
+    // Use the first produced color (or colorless)
+    const color = source.producedColors[0] || 'C';
+    payments.push({ sourceId: source.perm.id, produceColor: color });
+    
+    // Sol Ring type sources pay for 2 generic
+    genericNeeded -= source.producesTwoMana ? 2 : 1;
   }
   
   return payments;
@@ -1032,6 +1107,70 @@ export async function handleAIPriority(
 }
 
 /**
+ * List of shock lands and similar "pay life or enter tapped" lands
+ */
+const SHOCK_LANDS = new Set([
+  "blood crypt", "breeding pool", "godless shrine", "hallowed fountain",
+  "overgrown tomb", "sacred foundry", "steam vents", "stomping ground",
+  "temple garden", "watery grave"
+]);
+
+/**
+ * Check if a land always enters tapped (tap lands, temples, etc.)
+ */
+function landEntersTapped(card: any): boolean {
+  const oracleText = (card?.oracle_text || '').toLowerCase();
+  const cardName = (card?.name || '').toLowerCase();
+  
+  // Check for explicit "enters the battlefield tapped" without conditions
+  if (oracleText.includes('enters the battlefield tapped') && 
+      !oracleText.includes('unless') && 
+      !oracleText.includes('you may pay')) {
+    return true;
+  }
+  
+  // Known tapped lands (temples, gain lands, etc.)
+  const knownTappedLands = [
+    'temple of', 'guildgate', 'refuge', 'life-gain land',
+    'thriving', 'vivid', 'transguild promenade', 'rupture spire'
+  ];
+  if (knownTappedLands.some(pattern => cardName.includes(pattern))) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Check if a land is a shock land (can pay 2 life to enter untapped)
+ */
+function isShockLand(cardName: string): boolean {
+  return SHOCK_LANDS.has((cardName || '').toLowerCase().trim());
+}
+
+/**
+ * Check if AI should pay 2 life for a shock land to enter untapped
+ * Generally, AI should pay life if:
+ * - Life is above 10
+ * - Or if this is the only land that can produce a needed color this turn
+ */
+function shouldAIPayShockLandLife(game: any, playerId: PlayerID): boolean {
+  // Get current life total
+  const players = game.state?.players || [];
+  const player = players.find((p: any) => p.id === playerId);
+  const currentLife = player?.life ?? 40;
+  
+  // If life is comfortably above 10, pay the life for tempo
+  // In Commander starting at 40 life, 2 life is worth the untapped land
+  if (currentLife > 10) {
+    return true;
+  }
+  
+  // If life is low, enter tapped to preserve life
+  return false;
+}
+
+/**
  * Execute AI playing a land
  */
 async function executeAIPlayLand(
@@ -1046,12 +1185,65 @@ async function executeAIPlayLand(
   console.info('[AI] Playing land:', { gameId, playerId, cardId });
   
   try {
+    // Find the card in hand to check its properties
+    const zones = game.state?.zones?.[playerId];
+    let cardToPlay: any = null;
+    
+    if (zones && Array.isArray(zones.hand)) {
+      cardToPlay = (zones.hand as any[]).find((c: any) => c?.id === cardId);
+    }
+    
+    // Determine if this land enters tapped
+    let entersTapped = false;
+    let paidLife = false;
+    
+    if (cardToPlay) {
+      const cardName = (cardToPlay.name || '').toLowerCase();
+      
+      // Check if it's a shock land
+      if (isShockLand(cardName)) {
+        // AI decides whether to pay 2 life
+        if (shouldAIPayShockLandLife(game, playerId)) {
+          // Pay 2 life to enter untapped (but keep a buffer of at least 4 life)
+          const players = game.state?.players || [];
+          const player = players.find((p: any) => p.id === playerId) as any;
+          if (player && player.life >= 4) {
+            player.life -= 2;
+            paidLife = true;
+            console.info('[AI] Paid 2 life for shock land to enter untapped:', cardName);
+          } else {
+            // Life too low, enters tapped to preserve life buffer
+            entersTapped = true;
+          }
+        } else {
+          // Choose not to pay, enters tapped
+          entersTapped = true;
+          console.info('[AI] Shock land enters tapped (chose not to pay):', cardName);
+        }
+      } else if (landEntersTapped(cardToPlay)) {
+        // This land always enters tapped
+        entersTapped = true;
+        console.info('[AI] Land enters tapped:', cardName);
+      }
+    }
+    
     // Use game's playLand method if available
     if (typeof (game as any).playLand === 'function') {
       (game as any).playLand(playerId, cardId);
+      
+      // If land should enter tapped, find and tap it
+      if (entersTapped) {
+        const battlefield = game.state?.battlefield || [];
+        const newPerm = battlefield.find((p: any) => 
+          p.controller === playerId && 
+          (p.card?.id === cardId || p.card?.name === cardToPlay?.name)
+        );
+        if (newPerm) {
+          newPerm.tapped = true;
+        }
+      }
     } else {
       // Fallback: manually move card from hand to battlefield
-      const zones = game.state?.zones?.[playerId];
       if (zones && Array.isArray(zones.hand)) {
         const hand = zones.hand as any[];
         const idx = hand.findIndex((c: any) => c?.id === cardId);
@@ -1059,14 +1251,14 @@ async function executeAIPlayLand(
           const [card] = hand.splice(idx, 1);
           zones.handCount = hand.length;
           
-          // Add to battlefield
+          // Add to battlefield (tapped if necessary)
           game.state.battlefield = game.state.battlefield || [];
           const permanent = {
             id: `perm_${Date.now()}_${cardId}`,
             controller: playerId,
             owner: playerId,
             card: { ...card, zone: 'battlefield' },
-            tapped: false,
+            tapped: entersTapped,
             counters: {},
           };
           game.state.battlefield.push(permanent as any);
@@ -1080,7 +1272,13 @@ async function executeAIPlayLand(
     
     // Persist event
     try {
-      await appendEvent(gameId, (game as any).seq || 0, 'playLand', { playerId, cardId, isAI: true });
+      await appendEvent(gameId, (game as any).seq || 0, 'playLand', { 
+        playerId, 
+        cardId, 
+        isAI: true,
+        entersTapped,
+        paidLife: paidLife ? 2 : 0,
+      });
     } catch (e) {
       console.warn('[AI] Failed to persist playLand event:', e);
     }
@@ -1114,8 +1312,8 @@ async function executeAICastSpell(
   console.info('[AI] Casting spell:', { gameId, playerId, cardName: card.name, cost });
   
   try {
-    // Get lands to tap for mana payment (returns land IDs with their assigned colors)
-    const payments = getPaymentLands(game, playerId, cost);
+    // Get mana sources to tap for payment (lands, artifacts, creatures)
+    const payments = getPaymentSources(game, playerId, cost);
     
     // Initialize mana pool if needed
     (game.state as any).manaPool = (game.state as any).manaPool || {};
@@ -1127,16 +1325,20 @@ async function executeAICastSpell(
       W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green', C: 'colorless' 
     };
     
-    // Tap the lands and add mana to pool based on assigned colors
+    // Tap the mana sources and add mana to pool based on assigned colors
     const battlefield = game.state?.battlefield || [];
     for (const payment of payments) {
-      const perm = battlefield.find((p: any) => p?.id === payment.landId);
+      const perm = battlefield.find((p: any) => p?.id === payment.sourceId) as any;
       if (perm && !perm.tapped) {
         perm.tapped = true;
         
-        // Add the specific color this land was assigned to produce
+        // Check if this source produces 2 mana (Sol Ring, etc.)
+        const oracleText = ((perm.card as any)?.oracle_text || '').toLowerCase();
+        const producesTwoMana = oracleText.includes('{c}{c}') || oracleText.includes('add {c}{c}');
+        
+        // Add the specific color this source was assigned to produce
         const colorKey = colorMap[payment.produceColor] || 'colorless';
-        (game.state as any).manaPool[playerId][colorKey]++;
+        (game.state as any).manaPool[playerId][colorKey] += producesTwoMana ? 2 : 1;
       }
     }
     

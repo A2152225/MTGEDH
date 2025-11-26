@@ -86,13 +86,37 @@ Extracts colors from:
 ### Mana Calculation
 
 ```typescript
-// Calculate available mana from untapped lands
-calculateAvailableMana(game, playerId) → { total, colors, landsByColor }
+// Calculate available mana from all untapped mana sources
+calculateAvailableMana(game, playerId) → { total, colors, sourcesByColor }
 ```
 
-- `total`: Number of untapped lands (each can produce 1 mana)
-- `colors`: Map of color → count of lands that can produce it
-- `landsByColor`: Map of color → list of land IDs
+- `total`: Total mana available (lands + mana rocks + mana dorks)
+- `colors`: Map of color → count of sources that can produce it
+- `sourcesByColor`: Map of color → list of source IDs
+
+Mana sources include:
+- **Lands**: Basic lands, dual lands, fetch lands
+- **Mana rocks**: Sol Ring, Mana Crypt, Signets, etc.
+- **Mana creatures**: Llanowar Elves, Birds of Paradise, etc.
+
+Sol Ring and similar sources that produce 2 mana are counted properly.
+
+### Land Entry Behavior
+
+AI handles special land entry conditions:
+
+**Shock Lands** (Blood Crypt, Breeding Pool, etc.):
+- AI pays 2 life if life > 10 (enter untapped for tempo)
+- AI lets it enter tapped if life ≤ 10 (preserve life)
+
+**Tap Lands** (Temples, Guildgates, Refuges):
+- Automatically enter tapped
+
+```typescript
+landEntersTapped(card) → boolean  // Always enters tapped?
+isShockLand(cardName) → boolean   // Pay life option?
+shouldAIPayShockLandLife(game, playerId) → boolean  // AI decision
+```
 
 ### Spell Cost Parsing
 
@@ -116,12 +140,13 @@ AI casts spells based on priority scoring:
 - Ramp (land search): +15
 - Low CMC bonus: +0 to +10
 
-### Land Selection for Payment
+### Mana Source Selection for Payment
 
-`getPaymentLands()` intelligently selects which lands to tap:
-1. Prefers single-color lands for colored requirements (saves dual lands)
-2. Uses multi-color lands for generic mana
-3. Returns land IDs with their assigned color to produce
+`getPaymentSources()` intelligently selects which sources to tap:
+1. Prefers single-color sources for colored requirements (saves multi-color)
+2. Prefers lands over artifacts/creatures for colored mana
+3. Uses Sol Ring (2 mana) efficiently for generic costs
+4. Returns source IDs with their assigned color to produce
 
 ## State Access Patterns
 
