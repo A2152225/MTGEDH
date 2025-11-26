@@ -29,7 +29,7 @@ function uid(prefix = 'd'): string {
 export interface DeckManagerModalProps {
   open: boolean;
   onClose: () => void;
-  onImportText: (text: string, name?: string) => void;
+  onImportText: (text: string, name?: string, cacheCards?: boolean) => void;
   gameId?: GameID;
   canServer?: boolean;
   anchorEl?: HTMLElement | null; // button to tether under
@@ -58,6 +58,8 @@ export function DeckManagerModal({
   const [localFilter, setLocalFilter] = useState('');
   const [localErr, setLocalErr] = useState<string | null>(null);
   const [alsoSaveToServer, setAlsoSaveToServer] = useState(false);
+  const [cacheCards, setCacheCards] = useState(true);
+  const [cachingDeckId, setCachingDeckId] = useState<string | null>(null);
 
   // Server decks
   const [serverDecks, setServerDecks] = useState<SavedDeckSummary[]>([]);
@@ -90,6 +92,11 @@ export function DeckManagerModal({
       if (detail?.id === deckId) setDetail(null);
     };
     const onError = ({ message }: { message: string }) => setServerErr(message);
+    const onCached = ({ deckId }: { deckId: string }) => {
+      setCachingDeckId(null);
+      // Refresh the deck list to show updated cache status
+      if (gameId) socket.emit('listSavedDecks', { gameId });
+    };
 
     socket.on('savedDecksList', onList);
     socket.on('savedDeckDetail', onDetail);
@@ -97,6 +104,7 @@ export function DeckManagerModal({
     socket.on('deckRenamed', onRenamed);
     socket.on('deckDeleted', onDeleted);
     socket.on('deckError', onError);
+    socket.on('deckCached', onCached);
 
     return () => {
       socket.off('savedDecksList', onList);
@@ -105,6 +113,7 @@ export function DeckManagerModal({
       socket.off('deckRenamed', onRenamed);
       socket.off('deckDeleted', onDeleted);
       socket.off('deckError', onError);
+      socket.off('deckCached', onCached);
     };
   }, [open, gameId, detail]);
 

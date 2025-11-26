@@ -15,6 +15,7 @@ import {
   getDeck as getDeckDB,
   renameDeck as renameDeckDB,
   deleteDeck as deleteDeckDB,
+  updateDeckResolvedCards,
 } from "../db/decks";
 import type { KnownCardRef, PlayerID } from "../../shared/src";
 import { GamePhase } from "@mtgedh/shared";
@@ -1577,68 +1578,75 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         const list = saved.text || "";
         const deckName = saved.name || deckId;
 
-        // Parse decklist from saved text
-        let parsed: Array<{ name: string; count: number }>;
-        try {
-          parsed = parseDecklist(list);
-          if (!Array.isArray(parsed) || parsed.length === 0) {
-            socket.emit("deckError", {
-              gameId,
-              message: "Saved deck appears empty or invalid.",
-            });
-            return;
-          }
-        } catch {
-          socket.emit("deckError", {
-            gameId,
-            message: "Failed to parse saved deck list.",
-          });
-          return;
-        }
-
-        const requestedNames = parsed.map((p) => p.name);
-        let byName: Map<string, any> | null = null;
-        try {
-          byName = await fetchCardsByExactNamesBatch(requestedNames);
-        } catch {
-          byName = null;
-        }
-
-        const resolvedCards: Array<
+        // Check if we have cached resolved cards
+        const hasCachedCards = saved.cached_cards && Array.isArray(saved.cached_cards) && saved.cached_cards.length > 0;
+        
+        let resolvedCards: Array<
           Pick<
             KnownCardRef,
             "id" | "name" | "type_line" | "oracle_text" | "image_uris" | "mana_cost" | "power" | "toughness" | "card_faces" | "layout"
           >
         > = [];
-        const missing: string[] = [];
+        let missing: string[] = [];
+        let usedCache = false;
 
-        if (byName) {
-          for (const { name, count } of parsed) {
-            const key = normalizeName(name).toLowerCase();
-            const c = byName.get(key);
-            if (!c) {
-              missing.push(name);
-              continue;
-            }
-            for (let i = 0; i < (count || 1); i++) {
-              resolvedCards.push({
-                id: c.id,
-                name: c.name,
-                type_line: c.type_line,
-                oracle_text: c.oracle_text,
-                image_uris: c.image_uris,
-                mana_cost: (c as any).mana_cost,
-                power: (c as any).power,
-                toughness: (c as any).toughness,
-                card_faces: (c as any).card_faces,
-                layout: (c as any).layout,
-              });
-            }
-          }
+        if (hasCachedCards) {
+          // Use cached cards - no need to query Scryfall API
+          resolvedCards = saved.cached_cards!.map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            type_line: c.type_line,
+            oracle_text: c.oracle_text,
+            image_uris: c.image_uris,
+            mana_cost: c.mana_cost,
+            power: c.power,
+            toughness: c.toughness,
+            card_faces: c.card_faces,
+            layout: c.layout,
+          }));
+          usedCache = true;
+          console.info("[deck] useSavedDeck using cached cards", {
+            gameId,
+            deckId,
+            cachedCount: resolvedCards.length,
+          });
         } else {
-          for (const { name, count } of parsed) {
-            try {
-              const c = await fetchCardByExactNameStrict(name);
+          // No cache - need to resolve from Scryfall
+          // Parse decklist from saved text
+          let parsed: Array<{ name: string; count: number }>;
+          try {
+            parsed = parseDecklist(list);
+            if (!Array.isArray(parsed) || parsed.length === 0) {
+              socket.emit("deckError", {
+                gameId,
+                message: "Saved deck appears empty or invalid.",
+              });
+              return;
+            }
+          } catch {
+            socket.emit("deckError", {
+              gameId,
+              message: "Failed to parse saved deck list.",
+            });
+            return;
+          }
+
+          const requestedNames = parsed.map((p) => p.name);
+          let byName: Map<string, any> | null = null;
+          try {
+            byName = await fetchCardsByExactNamesBatch(requestedNames);
+          } catch {
+            byName = null;
+          }
+
+          if (byName) {
+            for (const { name, count } of parsed) {
+              const key = normalizeName(name).toLowerCase();
+              const c = byName.get(key);
+              if (!c) {
+                missing.push(name);
+                continue;
+              }
               for (let i = 0; i < (count || 1); i++) {
                 resolvedCards.push({
                   id: c.id,
@@ -1653,8 +1661,28 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
                   layout: (c as any).layout,
                 });
               }
-            } catch {
-              missing.push(name);
+            }
+          } else {
+            for (const { name, count } of parsed) {
+              try {
+                const c = await fetchCardByExactNameStrict(name);
+                for (let i = 0; i < (count || 1); i++) {
+                  resolvedCards.push({
+                    id: c.id,
+                    name: c.name,
+                    type_line: c.type_line,
+                    oracle_text: c.oracle_text,
+                    image_uris: c.image_uris,
+                    mana_cost: (c as any).mana_cost,
+                    power: (c as any).power,
+                    toughness: (c as any).toughness,
+                    card_faces: (c as any).card_faces,
+                    layout: (c as any).layout,
+                  });
+                }
+              } catch {
+                missing.push(name);
+              }
             }
           }
         }
@@ -1668,6 +1696,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           gameId,
           deckId,
           playerId: pid,
+          usedCache,
           resolvedCount: resolvedCards.length,
           missingCount: missing.length,
           firstCard: sampleFirst
@@ -1945,100 +1974,151 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       gameId,
       name,
       list,
+      cacheCards,
     }: {
       gameId: string;
       name: string;
       list: string;
+      cacheCards?: boolean;
     }) => {
-      try {
-        console.info("[deck] saveDeck called", {
-          gameId,
-          name,
-          playerId: socket.data.playerId,
-        });
+      (async () => {
+        try {
+          console.info("[deck] saveDeck called", {
+            gameId,
+            name,
+            cacheCards,
+            playerId: socket.data.playerId,
+          });
 
-        if (!gameId || typeof gameId !== "string") {
-          socket.emit("deckError", { gameId, message: "GameId required." });
-          return;
-        }
+          if (!gameId || typeof gameId !== "string") {
+            socket.emit("deckError", { gameId, message: "GameId required." });
+            return;
+          }
 
-        const pid = socket.data.playerId as PlayerID | undefined;
-        const spectator = socket.data.spectator;
-        if (!pid || spectator) {
+          const pid = socket.data.playerId as PlayerID | undefined;
+          const spectator = socket.data.spectator;
+          if (!pid || spectator) {
+            socket.emit("deckError", {
+              gameId,
+              message: "Spectators cannot save decks.",
+            });
+            return;
+          }
+
+          if (!name || typeof name !== "string" || !name.trim()) {
+            socket.emit("deckError", { gameId, message: "Deck name required." });
+            return;
+          }
+
+          if (!list || typeof list !== "string" || !list.trim()) {
+            socket.emit("deckError", { gameId, message: "Deck list required." });
+            return;
+          }
+
+          const game = ensureGame(gameId);
+          if (!game) {
+            socket.emit("deckError", { gameId, message: "Game not found." });
+            return;
+          }
+
+          // Parse the deck list to get card count
+          let cardCount = 0;
+          let parsed: Array<{ name: string; count: number }> = [];
+          try {
+            parsed = parseDecklist(list);
+            cardCount = parsed.reduce((sum, p) => sum + (p.count || 0), 0);
+          } catch (e) {
+            console.warn("saveDeck: parseDecklist failed, using line count estimate", e);
+            // Fallback: count non-empty, non-comment, non-section-header lines
+            const lines = list.split(/\r?\n/).filter((l) => !shouldSkipDeckLine(l));
+            cardCount = lines.length;
+          }
+
+          // Get player name from game state
+          const playerName =
+            (game.state.players as any[])?.find((p) => p.id === pid)?.name ||
+            String(pid);
+
+          const deckId = `deck_${Date.now()}_${Math.random()
+            .toString(36)
+            .slice(2, 8)}`;
+
+          // If caching is requested, resolve cards from Scryfall
+          let resolvedCardsJson: string | null = null;
+          if (cacheCards && parsed.length > 0) {
+            try {
+              const requestedNames = parsed.map((p) => p.name);
+              const byName = await fetchCardsByExactNamesBatch(requestedNames);
+              
+              if (byName) {
+                const resolvedCards: any[] = [];
+                for (const { name, count } of parsed) {
+                  const key = normalizeName(name).toLowerCase();
+                  const c = byName.get(key);
+                  if (c) {
+                    for (let i = 0; i < (count || 1); i++) {
+                      resolvedCards.push({
+                        id: c.id,
+                        name: c.name,
+                        type_line: c.type_line,
+                        oracle_text: c.oracle_text,
+                        image_uris: c.image_uris,
+                        mana_cost: c.mana_cost,
+                        power: c.power,
+                        toughness: c.toughness,
+                        card_faces: c.card_faces,
+                        layout: c.layout,
+                      });
+                    }
+                  }
+                }
+                if (resolvedCards.length > 0) {
+                  resolvedCardsJson = JSON.stringify(resolvedCards);
+                  console.info("[deck] saveDeck caching resolved cards", {
+                    deckId,
+                    resolvedCount: resolvedCards.length,
+                  });
+                }
+              }
+            } catch (e) {
+              console.warn("saveDeck: failed to resolve cards for caching", e);
+              // Continue without caching - still save the deck
+            }
+          }
+
+          saveDeckDB({
+            id: deckId,
+            name: name.trim(),
+            text: list,
+            created_by_id: pid,
+            created_by_name: playerName,
+            card_count: cardCount,
+            resolved_cards: resolvedCardsJson,
+          });
+
+          console.info("[deck] saveDeck saved", {
+            gameId,
+            deckId,
+            name: name.trim(),
+            cardCount,
+            cached: !!resolvedCardsJson,
+          });
+
+          socket.emit("deckSaved", { gameId, deckId, cached: !!resolvedCardsJson });
+
+          // Broadcast updated deck list to all clients in the game
+          io.to(gameId).emit("savedDecksList", {
+            gameId,
+            decks: listDecks(),
+          });
+        } catch (err) {
+          console.error("saveDeck handler failed:", err);
           socket.emit("deckError", {
             gameId,
-            message: "Spectators cannot save decks.",
+            message: "Failed to save deck.",
           });
-          return;
         }
-
-        if (!name || typeof name !== "string" || !name.trim()) {
-          socket.emit("deckError", { gameId, message: "Deck name required." });
-          return;
-        }
-
-        if (!list || typeof list !== "string" || !list.trim()) {
-          socket.emit("deckError", { gameId, message: "Deck list required." });
-          return;
-        }
-
-        const game = ensureGame(gameId);
-        if (!game) {
-          socket.emit("deckError", { gameId, message: "Game not found." });
-          return;
-        }
-
-        // Parse the deck list to get card count
-        let cardCount = 0;
-        try {
-          const parsed = parseDecklist(list);
-          cardCount = parsed.reduce((sum, p) => sum + (p.count || 0), 0);
-        } catch (e) {
-          console.warn("saveDeck: parseDecklist failed, using line count estimate", e);
-          // Fallback: count non-empty, non-comment, non-section-header lines
-          const lines = list.split(/\r?\n/).filter((l) => !shouldSkipDeckLine(l));
-          cardCount = lines.length;
-        }
-
-        // Get player name from game state
-        const playerName =
-          (game.state.players as any[])?.find((p) => p.id === pid)?.name ||
-          String(pid);
-
-        const deckId = `deck_${Date.now()}_${Math.random()
-          .toString(36)
-          .slice(2, 8)}`;
-
-        saveDeckDB({
-          id: deckId,
-          name: name.trim(),
-          text: list,
-          created_by_id: pid,
-          created_by_name: playerName,
-          card_count: cardCount,
-        });
-
-        console.info("[deck] saveDeck saved", {
-          gameId,
-          deckId,
-          name: name.trim(),
-          cardCount,
-        });
-
-        socket.emit("deckSaved", { gameId, deckId });
-
-        // Broadcast updated deck list to all clients in the game
-        io.to(gameId).emit("savedDecksList", {
-          gameId,
-          decks: listDecks(),
-        });
-      } catch (err) {
-        console.error("saveDeck handler failed:", err);
-        socket.emit("deckError", {
-          gameId,
-          message: "Failed to save deck.",
-        });
-      }
+      })();
     }
   );
 
@@ -2201,6 +2281,155 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         socket.emit("deckError", {
           gameId,
           message: "Failed to delete deck.",
+        });
+      }
+    }
+  );
+
+  // cacheSavedDeck - add cached card data to an existing saved deck
+  socket.on(
+    "cacheSavedDeck",
+    async ({ gameId, deckId }: { gameId: string; deckId: string }) => {
+      try {
+        console.info("[deck] cacheSavedDeck called", {
+          gameId,
+          deckId,
+          playerId: socket.data.playerId,
+        });
+
+        if (!gameId || typeof gameId !== "string") {
+          socket.emit("deckError", { gameId, message: "GameId required." });
+          return;
+        }
+
+        if (!deckId || typeof deckId !== "string") {
+          socket.emit("deckError", { gameId, message: "DeckId required." });
+          return;
+        }
+
+        const pid = socket.data.playerId as PlayerID | undefined;
+        const spectator = socket.data.spectator;
+        if (!pid || spectator) {
+          socket.emit("deckError", {
+            gameId,
+            message: "Spectators cannot cache decks.",
+          });
+          return;
+        }
+
+        const saved = getDeckDB(deckId);
+        if (!saved) {
+          socket.emit("deckError", { gameId, message: "Deck not found." });
+          return;
+        }
+
+        // Check if already cached
+        if (saved.has_cached_cards) {
+          socket.emit("deckCached", { gameId, deckId, alreadyCached: true });
+          return;
+        }
+
+        // Parse and resolve cards
+        const list = saved.text || "";
+        let parsed: Array<{ name: string; count: number }>;
+        try {
+          parsed = parseDecklist(list);
+          if (!Array.isArray(parsed) || parsed.length === 0) {
+            socket.emit("deckError", {
+              gameId,
+              message: "Deck appears empty or invalid.",
+            });
+            return;
+          }
+        } catch {
+          socket.emit("deckError", {
+            gameId,
+            message: "Failed to parse deck list.",
+          });
+          return;
+        }
+
+        const requestedNames = parsed.map((p) => p.name);
+        let byName: Map<string, any> | null = null;
+        try {
+          byName = await fetchCardsByExactNamesBatch(requestedNames);
+        } catch (e) {
+          console.warn("cacheSavedDeck: fetchCardsByExactNamesBatch failed", e);
+          socket.emit("deckError", {
+            gameId,
+            message: "Failed to fetch card data from Scryfall.",
+          });
+          return;
+        }
+
+        if (!byName) {
+          socket.emit("deckError", {
+            gameId,
+            message: "Failed to resolve cards.",
+          });
+          return;
+        }
+
+        const resolvedCards: any[] = [];
+        for (const { name, count } of parsed) {
+          const key = normalizeName(name).toLowerCase();
+          const c = byName.get(key);
+          if (c) {
+            for (let i = 0; i < (count || 1); i++) {
+              resolvedCards.push({
+                id: c.id,
+                name: c.name,
+                type_line: c.type_line,
+                oracle_text: c.oracle_text,
+                image_uris: c.image_uris,
+                mana_cost: c.mana_cost,
+                power: c.power,
+                toughness: c.toughness,
+                card_faces: c.card_faces,
+                layout: c.layout,
+              });
+            }
+          }
+        }
+
+        if (resolvedCards.length === 0) {
+          socket.emit("deckError", {
+            gameId,
+            message: "No cards could be resolved.",
+          });
+          return;
+        }
+
+        // Update the deck with cached cards
+        const resolvedCardsJson = JSON.stringify(resolvedCards);
+        const updated = updateDeckResolvedCards(deckId, resolvedCardsJson);
+
+        if (!updated) {
+          socket.emit("deckError", {
+            gameId,
+            message: "Failed to update deck cache.",
+          });
+          return;
+        }
+
+        console.info("[deck] cacheSavedDeck completed", {
+          gameId,
+          deckId,
+          cachedCount: resolvedCards.length,
+        });
+
+        socket.emit("deckCached", { gameId, deckId, cachedCount: resolvedCards.length });
+
+        // Broadcast updated deck list to show the cached indicator
+        io.to(gameId).emit("savedDecksList", {
+          gameId,
+          decks: listDecks(),
+        });
+      } catch (err) {
+        console.error("cacheSavedDeck handler failed:", err);
+        socket.emit("deckError", {
+          gameId,
+          message: "Failed to cache deck.",
         });
       }
     }

@@ -19,19 +19,33 @@ CREATE TABLE IF NOT EXISTS decks (
   created_at INTEGER NOT NULL,
   created_by_id TEXT NOT NULL,
   created_by_name TEXT NOT NULL,
-  card_count INTEGER NOT NULL
+  card_count INTEGER NOT NULL,
+  resolved_cards TEXT
 );
 CREATE INDEX IF NOT EXISTS decks_created_at_idx ON decks(created_at DESC);
 `);
 
+// Migration: add resolved_cards column if it doesn't exist (for existing databases)
+try {
+  const tableInfo = db.prepare("PRAGMA table_info(decks)").all() as Array<{ name: string }>;
+  const hasResolvedCards = tableInfo.some(col => col.name === 'resolved_cards');
+  if (!hasResolvedCards) {
+    db.exec(`ALTER TABLE decks ADD COLUMN resolved_cards TEXT`);
+    console.log('[DB] Added resolved_cards column to decks table');
+  }
+} catch (e) {
+  console.warn('[DB] Migration check for resolved_cards failed:', e);
+}
+
 const insertStmt = db.prepare(`
-  INSERT INTO decks (id, name, text, created_at, created_by_id, created_by_name, card_count)
-  VALUES (@id, @name, @text, @created_at, @created_by_id, @created_by_name, @card_count)
+  INSERT INTO decks (id, name, text, created_at, created_by_id, created_by_name, card_count, resolved_cards)
+  VALUES (@id, @name, @text, @created_at, @created_by_id, @created_by_name, @card_count, @resolved_cards)
 `);
-const listStmt = db.prepare(`SELECT id, name, created_at, created_by_id, created_by_name, card_count FROM decks ORDER BY created_at DESC`);
+const listStmt = db.prepare(`SELECT id, name, created_at, created_by_id, created_by_name, card_count, CASE WHEN resolved_cards IS NOT NULL AND resolved_cards != '' THEN 1 ELSE 0 END as has_cached_cards FROM decks ORDER BY created_at DESC`);
 const getStmt = db.prepare(`SELECT * FROM decks WHERE id = ?`);
 const renameStmt = db.prepare(`UPDATE decks SET name = ? WHERE id = ?`);
 const deleteStmt = db.prepare(`DELETE FROM decks WHERE id = ?`);
+const updateResolvedCardsStmt = db.prepare(`UPDATE decks SET resolved_cards = ? WHERE id = ?`);
 
 export function saveDeck(deck: {
   id: string;
@@ -40,30 +54,81 @@ export function saveDeck(deck: {
   created_by_id: string;
   created_by_name: string;
   card_count: number;
+  resolved_cards?: string | null;
 }) {
   insertStmt.run({
     ...deck,
-    created_at: Date.now()
+    created_at: Date.now(),
+    resolved_cards: deck.resolved_cards ?? null
   });
 }
 
-export function listDecks(): SavedDeckSummary[] {
-  return listStmt.all() as SavedDeckSummary[];
+/**
+ * Update the cached resolved cards for an existing deck.
+ * This allows caching card data after import.
+ */
+export function updateDeckResolvedCards(id: string, resolvedCards: string | null): boolean {
+  const info = updateResolvedCardsStmt.run(resolvedCards, id);
+  return info.changes > 0;
 }
 
-export function getDeck(id: string): SavedDeckDetail | null {
-  const row = getStmt.get(id);
-  if (!row) return null;
-  const summary: SavedDeckSummary = {
+export function listDecks(): SavedDeckSummary[] {
+  const rows = listStmt.all() as Array<{
+    id: string;
+    name: string;
+    created_at: number;
+    created_by_id: string;
+    created_by_name: string;
+    card_count: number;
+    has_cached_cards: number;
+  }>;
+  return rows.map(row => ({
     id: row.id,
     name: row.name,
     created_at: row.created_at,
     created_by_id: row.created_by_id,
     created_by_name: row.created_by_name,
-    card_count: row.card_count
-  };
+    card_count: row.card_count,
+    has_cached_cards: row.has_cached_cards === 1
+  }));
+}
+
+export function getDeck(id: string): SavedDeckDetail | null {
+  const row = getStmt.get(id) as {
+    id: string;
+    name: string;
+    text: string;
+    created_at: number;
+    created_by_id: string;
+    created_by_name: string;
+    card_count: number;
+    resolved_cards: string | null;
+  } | undefined;
+  if (!row) return null;
+  
+  // Parse cached resolved cards if present
+  let cachedCards: SavedDeckDetail['cached_cards'] = undefined;
+  if (row.resolved_cards) {
+    try {
+      cachedCards = JSON.parse(row.resolved_cards);
+    } catch (e) {
+      console.warn('[DB] Failed to parse resolved_cards for deck', id, e);
+    }
+  }
+  
   const entries = parseDecklistEntries(row.text);
-  return { ...summary, text: row.text, entries };
+  return {
+    id: row.id,
+    name: row.name,
+    created_at: row.created_at,
+    created_by_id: row.created_by_id,
+    created_by_name: row.created_by_name,
+    card_count: row.card_count,
+    text: row.text,
+    entries,
+    has_cached_cards: !!cachedCards && cachedCards.length > 0,
+    cached_cards: cachedCards
+  };
 }
 
 export function renameDeck(id: string, name: string): SavedDeckSummary | null {
