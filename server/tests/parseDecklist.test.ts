@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseDecklist, shouldSkipDeckLine } from '../src/services/scryfall';
+import { parseDecklist, shouldSkipDeckLine, extractMoxfieldDeckId, isMoxfieldUrl } from '../src/services/scryfall';
 
 describe('shouldSkipDeckLine', () => {
   it('returns true for empty lines', () => {
@@ -193,5 +193,47 @@ Mainboard
       expect(result).toContainEqual({ name: 'Lightning Bolt', count: 1 });
       expect(result).toContainEqual({ name: 'Swords to Plowshares', count: 1 });
     });
+  });
+});
+
+describe('extractMoxfieldDeckId', () => {
+  it('extracts deck ID from standard moxfield URL', () => {
+    expect(extractMoxfieldDeckId('https://moxfield.com/decks/K_R2ARDl_0W6Bs-mVi-vCA'))
+      .toBe('K_R2ARDl_0W6Bs-mVi-vCA');
+  });
+
+  it('extracts deck ID from www.moxfield URL', () => {
+    expect(extractMoxfieldDeckId('https://www.moxfield.com/decks/abc123'))
+      .toBe('abc123');
+  });
+
+  it('extracts deck ID from URL with query params', () => {
+    expect(extractMoxfieldDeckId('https://moxfield.com/decks/xyz789?tab=mainboard'))
+      .toBe('xyz789');
+  });
+
+  it('returns null for non-moxfield URLs', () => {
+    expect(extractMoxfieldDeckId('https://archidekt.com/decks/123')).toBe(null);
+    expect(extractMoxfieldDeckId('https://google.com')).toBe(null);
+  });
+
+  it('returns null for invalid input', () => {
+    expect(extractMoxfieldDeckId('')).toBe(null);
+    expect(extractMoxfieldDeckId(null as any)).toBe(null);
+    expect(extractMoxfieldDeckId(undefined as any)).toBe(null);
+  });
+});
+
+describe('isMoxfieldUrl', () => {
+  it('returns true for valid moxfield URLs', () => {
+    expect(isMoxfieldUrl('https://moxfield.com/decks/abc123')).toBe(true);
+    expect(isMoxfieldUrl('https://www.moxfield.com/decks/xyz789')).toBe(true);
+    expect(isMoxfieldUrl('http://moxfield.com/decks/test')).toBe(true);
+  });
+
+  it('returns false for non-moxfield URLs', () => {
+    expect(isMoxfieldUrl('https://archidekt.com/decks/123')).toBe(false);
+    expect(isMoxfieldUrl('https://moxfield.com')).toBe(false);
+    expect(isMoxfieldUrl('not a url')).toBe(false);
   });
 });
