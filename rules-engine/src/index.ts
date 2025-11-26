@@ -398,7 +398,6 @@ export {
 
 // Core types
 export { 
-  type EngineResult,
   type ActionValidation,
   type BaseAction,
   type GameActionType,

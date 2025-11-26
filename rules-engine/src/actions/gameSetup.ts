@@ -44,8 +44,8 @@ export function initializeGame(
     stack: [],
     battlefield: [],
     commandZone: {},
-    phase: GamePhase.PRE_GAME as any,
-    step: GameStep.SETUP as any,
+    phase: GamePhase.PRE_GAME,
+    step: GameStep.UNTAP, // Start at UNTAP; mulligan phase handled separately
     active: true,
     turnOrder: players.map(p => p.id),
     activePlayerIndex: 0,
