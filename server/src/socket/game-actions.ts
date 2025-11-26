@@ -3,6 +3,7 @@ import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColor
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem } from "../../shared/src";
+import { requiresCreatureTypeSelection, requestCreatureTypeSelection } from "./creature-type";
 
 /** Shock lands and similar "pay life or enter tapped" lands */
 const SHOCK_LANDS = new Set([
@@ -41,6 +42,46 @@ const BOUNCE_LANDS = new Set([
 /** Check if a card name is a bounce land */
 function isBounceLand(cardName: string): boolean {
   return BOUNCE_LANDS.has((cardName || "").toLowerCase().trim());
+}
+
+/**
+ * Check newly entered permanents for creature type selection requirements
+ * and request selection from the player if needed.
+ */
+function checkCreatureTypeSelectionForNewPermanents(
+  io: Server,
+  game: any,
+  gameId: string
+): void {
+  const battlefield = game.state?.battlefield || [];
+  
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+    
+    // Skip if already has a chosen creature type
+    if (permanent.chosenCreatureType) continue;
+    
+    // Check if this card requires creature type selection
+    const { required, reason } = requiresCreatureTypeSelection(permanent.card);
+    
+    if (required) {
+      const controller = permanent.controller;
+      const cardName = permanent.card.name || "Unknown";
+      const permanentId = permanent.id;
+      
+      // Request creature type selection from the controller
+      requestCreatureTypeSelection(
+        io,
+        gameId,
+        controller,
+        permanentId,
+        cardName,
+        reason
+      );
+      
+      console.log(`[game-actions] Requesting creature type selection for ${cardName} (${permanentId}) from ${controller}`);
+    }
+  }
 }
 
 /**
@@ -520,6 +561,9 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
       }
 
+      // Check for creature type selection requirements (e.g., Cavern of Souls, Unclaimed Territory)
+      checkCreatureTypeSelectionForNewPermanents(io, game, gameId);
+
       broadcastGame(io, game, gameId);
     } catch (err: any) {
       console.error(`playLand error for game ${gameId}:`, err);
@@ -864,11 +908,84 @@ export function registerGameActions(io: Server, socket: Socket) {
       appendGameEvent(game, gameId, "passPriority", { by: playerId });
 
       if (resolvedNow) {
+        // Capture the top spell before it resolves (for tutor effect handling)
+        const stackBefore = game.state?.stack || [];
+        const topItem = stackBefore.length > 0 ? stackBefore[stackBefore.length - 1] : null;
+        const resolvedCard = topItem?.card;
+        const resolvedController = topItem?.controller;
+        
         // Directly call resolveTopOfStack to ensure the spell resolves
         // (appendGameEvent may fail silently if applyEvent has issues)
         if (typeof (game as any).resolveTopOfStack === 'function') {
           (game as any).resolveTopOfStack();
           console.log(`[passPriority] Stack resolved for game ${gameId}`);
+          
+          // Check for creature type selection requirements on newly entered permanents
+          // (e.g., Morophon, Cavern of Souls, Kindred Discovery)
+          checkCreatureTypeSelectionForNewPermanents(io, game, gameId);
+          
+          // Check if the resolved spell has a tutor effect (search library)
+          if (resolvedCard && resolvedController) {
+            const oracleText = (resolvedCard.oracle_text || '').toLowerCase();
+            const typeLine = (resolvedCard.type_line || '').toLowerCase();
+            const isInstantOrSorcery = typeLine.includes('instant') || typeLine.includes('sorcery');
+            
+            if (isInstantOrSorcery && oracleText.includes('search your library')) {
+              // This spell has a tutor effect - trigger library search
+              const cardName = resolvedCard.name || 'Spell';
+              
+              // Parse what we're searching for
+              let searchDescription = 'Search your library for a card';
+              const forMatch = oracleText.match(/search your library for (?:a|an|up to \w+) ([^,\.]+)/i);
+              if (forMatch) {
+                searchDescription = `Search for: ${forMatch[1].trim()}`;
+              }
+              
+              // Detect destination
+              let moveTo = 'hand';
+              if (oracleText.includes('put it onto the battlefield') || 
+                  oracleText.includes('put that card onto the battlefield')) {
+                moveTo = 'battlefield';
+              } else if (oracleText.includes('put it on top of your library') || 
+                         oracleText.includes('put that card on top')) {
+                moveTo = 'top';
+              }
+              
+              // Build filter for specific card types
+              const filter: { types?: string[]; subtypes?: string[] } = {};
+              const types: string[] = [];
+              if (oracleText.includes('planeswalker')) types.push('planeswalker');
+              if (oracleText.includes('creature')) types.push('creature');
+              if (oracleText.includes('artifact')) types.push('artifact');
+              if (oracleText.includes('enchantment')) types.push('enchantment');
+              if (oracleText.includes('land')) types.push('land');
+              if (types.length > 0) filter.types = types;
+              
+              // Get library for the spell's controller
+              const library = typeof game.searchLibrary === 'function' 
+                ? game.searchLibrary(resolvedController, "", 1000) 
+                : [];
+              
+              // Find the socket for the controller and send library search request
+              for (const s of io.sockets.sockets.values()) {
+                if (s.data?.playerId === resolvedController && !s.data?.spectator) {
+                  s.emit("librarySearchRequest", {
+                    gameId,
+                    cards: library,
+                    title: cardName,
+                    description: searchDescription,
+                    filter,
+                    maxSelections: 1,
+                    moveTo,
+                    shuffleAfter: true,
+                  });
+                  break;
+                }
+              }
+              
+              console.log(`[passPriority] Triggered library search for ${cardName} by ${resolvedController}`);
+            }
+          }
         }
         appendGameEvent(game, gameId, "resolveTopOfStack");
         io.to(gameId).emit("chat", {
