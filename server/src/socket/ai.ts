@@ -236,7 +236,8 @@ export async function autoSelectAICommander(
       return false;
     }
     
-    // Get the AI player's library (deck)
+    // Get the AI player's library (deck) from zones
+    // The library should have been populated by importDeckResolved earlier
     const zones = game.state.zones?.[playerId] as any;
     const library = zones?.library || [];
     
@@ -245,12 +246,7 @@ export async function autoSelectAICommander(
       return false;
     }
     
-    // IMPORTANT: Ensure the libraries Map in the game context is populated
-    // This is required for setCommander to find and snapshot the commander cards
-    if ((game as any).libraries && typeof (game as any).libraries.set === 'function') {
-      (game as any).libraries.set(playerId, library);
-      console.info('[AI] Populated libraries Map for player:', playerId, 'with', library.length, 'cards');
-    }
+    console.info('[AI] autoSelectAICommander: found library with', library.length, 'cards');
     
     // Find the best commander(s) from the deck (uses original unshuffled order)
     let { commanders, colorIdentity } = findBestCommanders(library);
@@ -2133,7 +2129,8 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         if (resolvedCards.length > 0) {
           // IMPORTANT: Don't shuffle yet - we need the original order for commander detection
           // The commander(s) are typically first in the decklist.
-          // Store the unshuffled deck for now; shuffling happens after commander selection.
+          // Use importDeckResolved to properly populate the context's libraries Map
+          // This ensures shuffle/draw operations work correctly later.
           
           aiPlayer.library = resolvedCards;
           aiPlayer.deckName = finalDeckName;
@@ -2141,21 +2138,27 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           aiPlayer.deckId = aiDeckId || (aiDeckText ? `imported_${Date.now().toString(36)}` : null);
           deckLoaded = true;
           
-          // Initialize zones for AI (with unshuffled library - will be shuffled after commander selection)
-          game.state.zones = game.state.zones || {};
-          (game.state.zones as any)[aiPlayerId] = {
-            hand: [],
-            handCount: 0,
-            library: resolvedCards,
-            libraryCount: resolvedCards.length,
-            graveyard: [],
-            graveyardCount: 0,
-          };
-          
-          // Also populate the libraries Map in the game context if available
-          // This is needed for setCommander to find the commander cards
-          if ((game as any).libraries && typeof (game as any).libraries.set === 'function') {
-            (game as any).libraries.set(aiPlayerId, resolvedCards);
+          // Use the game's importDeckResolved function to properly populate the libraries Map
+          // This is critical for shuffle/draw operations to work correctly
+          if (typeof (game as any).importDeckResolved === 'function') {
+            (game as any).importDeckResolved(aiPlayerId, resolvedCards);
+            console.info('[AI] Deck imported via importDeckResolved for AI:', { 
+              aiPlayerId, 
+              deckName: finalDeckName, 
+              resolvedCount: resolvedCards.length,
+            });
+          } else {
+            // Fallback: manually initialize zones (this may cause issues with shuffle/draw)
+            console.warn('[AI] importDeckResolved not available, using fallback zone initialization');
+            game.state.zones = game.state.zones || {};
+            (game.state.zones as any)[aiPlayerId] = {
+              hand: [],
+              handCount: 0,
+              library: resolvedCards,
+              libraryCount: resolvedCards.length,
+              graveyard: [],
+              graveyardCount: 0,
+            };
           }
           
           console.info('[AI] Deck resolved for AI:', { 
