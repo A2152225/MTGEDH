@@ -4,4 +4,4 @@
 // This keeps the existing relative imports working without changing many files.
 // If your real socket entry exports 'games' from a different file, adjust the path below.
 
-export { games } from "../../socket/socket";
+export { games } from "../../socket/socket.js";

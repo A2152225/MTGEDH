@@ -4,11 +4,11 @@
  * modules (zones, replay, etc.). This module prefers zones, then replay, and
  * throws if neither provides the implementation to avoid silent failures.
  */
-import type { PlayerID } from "../types";
-import type { GameContext } from "../context";
+import type { PlayerID } from "../../../../shared/src/index.js";
+import type { GameContext } from "../context.js";
 
-import * as zones from "./zones";
-import * as replay from "./replay";
+import * as zones from "./zones.js";
+import * as replay from "./replay.js";
 
 export function applyScry(ctx: GameContext, playerId: PlayerID, keepTopOrder: string[], bottomOrder: string[]) {
   if (typeof (zones as any).applyScry === "function") return (zones as any).applyScry(ctx, playerId, keepTopOrder, bottomOrder);

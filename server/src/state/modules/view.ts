@@ -5,9 +5,10 @@ import type {
   CommanderInfo,
   KnownCardRef,
   ClientGameView,
-} from "../../../../shared/src";
-import type { GameContext } from "../context";
-import { parsePT, calculateVariablePT } from "../utils";
+  BattlefieldPermanent,
+} from "../../../../shared/src/index.js";
+import type { GameContext } from "../context.js";
+import { parsePT, calculateVariablePT } from "../utils.js";
 
 /**
  * Determine if `viewer` can see `owner`'s hidden zones (hand, library top, etc.)
@@ -45,7 +46,7 @@ export function viewFor(
   const { state, libraries, commandZone, inactive, poison, experience } = ctx;
   const zones = state.zones || {};
 
-  const filteredBattlefield = state.battlefield.map((perm) => {
+  const filteredBattlefield = state.battlefield.map((perm: BattlefieldPermanent) => {
     const card = perm.card as any;
     const typeLine = String(card?.type_line || "").toLowerCase();
     const isCreature = /\bcreature\b/.test(typeLine);
@@ -113,9 +114,9 @@ export function viewFor(
     const rawHand = Array.isArray(z.hand) ? (z.hand as KnownCardRef[]) : [];
     const visibleHand: KnownCardRef[] = rawHand.map((c) => {
       // Clone so we don't mutate authoritative objects
-      const base: KnownCardRef = {
+      const base = {
         ...c,
-      };
+      } as any;
       // Visibility is purely per-viewer: owner, Telepathy/judge grants, AND not face-down.
       base.known = canSee && !base.faceDown;
       return base;
@@ -153,8 +154,8 @@ export function viewFor(
       graveyardCount:
         (z as any).graveyardCount ?? (z.graveyard as any[])?.length ?? 0,
       exile: (z as any).exile,
-      libraryTop,
-    };
+      ...(libraryTop ? { libraryTop } : {}),
+    } as any;
 
     const baseInfo = commandZone[p.id];
     if (baseInfo) {
