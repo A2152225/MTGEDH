@@ -1,11 +1,134 @@
 import type { Server, Socket } from "socket.io";
-import { ensureGame, appendGameEvent, broadcastGame, getPlayerName } from "./util";
+import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer } from "./util";
 import { appendEvent } from "../db";
 import { games } from "./socket";
 import { 
   permanentHasCreatureType,
   findPermanentsWithCreatureType 
 } from "../../../shared/src/creatureTypes";
+
+// ============================================================================
+// Library Search Restriction Handling (Aven Mindcensor, Stranglehold, etc.)
+// ============================================================================
+
+/** Known cards that prevent or restrict library searching */
+const SEARCH_PREVENTION_CARDS: Record<string, { affectsOpponents: boolean; affectsSelf: boolean }> = {
+  "stranglehold": { affectsOpponents: true, affectsSelf: false },
+  "ashiok, dream render": { affectsOpponents: true, affectsSelf: false },
+  "mindlock orb": { affectsOpponents: true, affectsSelf: true },
+  "shadow of doubt": { affectsOpponents: true, affectsSelf: true },
+  "leonin arbiter": { affectsOpponents: true, affectsSelf: true }, // Can pay {2}
+};
+
+/** Known cards that limit library searching to top N cards */
+const SEARCH_LIMIT_CARDS: Record<string, { limit: number; affectsOpponents: boolean }> = {
+  "aven mindcensor": { limit: 4, affectsOpponents: true },
+};
+
+/** Known cards that trigger when opponents search */
+const SEARCH_TRIGGER_CARDS: Record<string, { effect: string; affectsOpponents: boolean }> = {
+  "ob nixilis, unshackled": { effect: "Sacrifice a creature and lose 10 life", affectsOpponents: true },
+};
+
+/** Known cards that give control during opponent's search */
+const SEARCH_CONTROL_CARDS = new Set(["opposition agent"]);
+
+/**
+ * Check for search restrictions affecting a player
+ */
+function checkLibrarySearchRestrictions(
+  game: any,
+  searchingPlayerId: string
+): {
+  canSearch: boolean;
+  limitToTop?: number;
+  triggerEffects: { cardName: string; effect: string; controllerId: string }[];
+  controlledBy?: string;
+  reason?: string;
+  paymentRequired?: { cardName: string; amount: string };
+} {
+  const battlefield = game.state?.battlefield || [];
+  const triggerEffects: { cardName: string; effect: string; controllerId: string }[] = [];
+  let canSearch = true;
+  let limitToTop: number | undefined;
+  let controlledBy: string | undefined;
+  let reason: string | undefined;
+  let paymentRequired: { cardName: string; amount: string } | undefined;
+  
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    
+    const cardName = (perm.card.name || "").toLowerCase();
+    const controllerId = perm.controller;
+    const isOpponent = controllerId !== searchingPlayerId;
+    
+    // Check prevention cards
+    for (const [name, info] of Object.entries(SEARCH_PREVENTION_CARDS)) {
+      if (cardName.includes(name)) {
+        const applies = (isOpponent && info.affectsOpponents) || (!isOpponent && info.affectsSelf);
+        if (applies) {
+          // Special case: Leonin Arbiter allows payment
+          if (name === "leonin arbiter") {
+            paymentRequired = { cardName: perm.card.name, amount: "{2}" };
+          } else {
+            canSearch = false;
+            reason = `${perm.card.name} prevents library searching`;
+          }
+        }
+      }
+    }
+    
+    // Check limit cards (Aven Mindcensor)
+    for (const [name, info] of Object.entries(SEARCH_LIMIT_CARDS)) {
+      if (cardName.includes(name)) {
+        if (isOpponent && info.affectsOpponents) {
+          if (limitToTop === undefined || info.limit < limitToTop) {
+            limitToTop = info.limit;
+          }
+        }
+      }
+    }
+    
+    // Check trigger cards (Ob Nixilis)
+    for (const [name, info] of Object.entries(SEARCH_TRIGGER_CARDS)) {
+      if (cardName.includes(name)) {
+        if (isOpponent && info.affectsOpponents) {
+          triggerEffects.push({
+            cardName: perm.card.name,
+            effect: info.effect,
+            controllerId,
+          });
+        }
+      }
+    }
+    
+    // Check control cards (Opposition Agent)
+    if (SEARCH_CONTROL_CARDS.has(cardName)) {
+      if (isOpponent) {
+        controlledBy = controllerId;
+      }
+    }
+  }
+  
+  return {
+    canSearch,
+    limitToTop,
+    triggerEffects,
+    controlledBy,
+    reason,
+    paymentRequired,
+  };
+}
+
+/**
+ * Get searchable library cards considering Aven Mindcensor effect
+ */
+function getSearchableLibraryCards(library: any[], limitToTop?: number): any[] {
+  if (limitToTop !== undefined && limitToTop > 0) {
+    return library.slice(0, limitToTop);
+  }
+  return library;
+}
 
 // Simple unique ID generator for this module
 let idCounter = 0;
@@ -287,18 +410,71 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     const game = ensureGame(gameId);
     
-    // Get full library contents for the player (no limit for tutor effects)
-    const library = game.searchLibrary(pid, "", 1000);
+    // Check for search restrictions (Aven Mindcensor, Stranglehold, etc.)
+    const searchCheck = checkLibrarySearchRestrictions(game, pid);
+    
+    // If search is completely prevented
+    if (!searchCheck.canSearch) {
+      socket.emit("error", {
+        code: "SEARCH_PREVENTED",
+        message: searchCheck.reason || "Library search is prevented",
+      });
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)}'s library search was prevented${searchCheck.reason ? ': ' + searchCheck.reason : ''}.`,
+        ts: Date.now(),
+      });
+      return;
+    }
+    
+    // Get library contents (may be limited by Aven Mindcensor)
+    const fullLibrary = game.searchLibrary(pid, "", 1000);
+    const searchableCards = getSearchableLibraryCards(fullLibrary, searchCheck.limitToTop);
+    
+    // If there are trigger effects (Ob Nixilis), notify
+    if (searchCheck.triggerEffects.length > 0) {
+      for (const trigger of searchCheck.triggerEffects) {
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${trigger.cardName} triggers: ${trigger.effect}`,
+          ts: Date.now(),
+        });
+        
+        // Note: Trigger resolution (e.g., Ob Nixilis forcing sacrifice/life loss)
+        // would require pushing to the stack and resolving. For now, we notify
+        // the players via chat. Full implementation would use the stack system.
+      }
+    }
+    
+    // Build description with restriction info
+    let finalDescription = description || "";
+    if (searchCheck.limitToTop) {
+      finalDescription = `${finalDescription ? finalDescription + " " : ""}(Searching top ${searchCheck.limitToTop} cards only - Aven Mindcensor)`;
+    }
+    if (searchCheck.paymentRequired) {
+      finalDescription = `${finalDescription ? finalDescription + " " : ""}(Must pay ${searchCheck.paymentRequired.amount} to ${searchCheck.paymentRequired.cardName})`;
+    }
     
     socket.emit("librarySearchRequest", {
       gameId,
-      cards: library,
+      cards: searchableCards,
       title: title || "Search Library",
-      description,
+      description: finalDescription || undefined,
       filter,
       maxSelections: maxSelections || 1,
       moveTo: moveTo || "hand",
       shuffleAfter: shuffleAfter !== false,
+      searchRestrictions: {
+        limitedToTop: searchCheck.limitToTop,
+        paymentRequired: searchCheck.paymentRequired,
+        triggerEffects: searchCheck.triggerEffects,
+        controlledBy: searchCheck.controlledBy,
+      },
     });
   });
 
@@ -995,18 +1171,67 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       });
       
       // Get full library for search
-      const library = game.searchLibrary ? game.searchLibrary(pid, "", 1000) : [];
+      const fullLibrary = game.searchLibrary ? game.searchLibrary(pid, "", 1000) : [];
+      
+      // Check for search restrictions (Aven Mindcensor, Stranglehold, etc.)
+      const searchCheck = checkLibrarySearchRestrictions(game, pid);
+      
+      // If search is prevented, the land was already sacrificed - still shuffle but fail search
+      if (!searchCheck.canSearch) {
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, pid)}'s search was prevented by ${searchCheck.reason}. Library shuffled.`,
+          ts: Date.now(),
+        });
+        
+        // Still shuffle the library
+        if (typeof game.shuffleLibrary === "function") {
+          game.shuffleLibrary(pid);
+        }
+        
+        broadcastGame(io, game, gameId);
+        return;
+      }
+      
+      // Apply Aven Mindcensor effect if present
+      const searchableCards = getSearchableLibraryCards(fullLibrary, searchCheck.limitToTop);
+      
+      // If there are trigger effects (Ob Nixilis), notify
+      if (searchCheck.triggerEffects.length > 0) {
+        for (const trigger of searchCheck.triggerEffects) {
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `${trigger.cardName} triggers: ${trigger.effect}`,
+            ts: Date.now(),
+          });
+        }
+      }
+      
+      // Build description with restriction info
+      let finalDescription = searchDescription;
+      if (searchCheck.limitToTop) {
+        finalDescription = `${searchDescription} (Aven Mindcensor: top ${searchCheck.limitToTop} cards only)`;
+      }
       
       // Send library search request to the player
       socket.emit("librarySearchRequest", {
         gameId,
-        cards: library,
+        cards: searchableCards,
         title: `${cardName}`,
-        description: searchDescription,
+        description: finalDescription,
         filter,
         maxSelections: 1,
         moveTo: "battlefield",
         shuffleAfter: true,
+        searchRestrictions: {
+          limitedToTop: searchCheck.limitToTop,
+          paymentRequired: searchCheck.paymentRequired,
+          triggerEffects: searchCheck.triggerEffects,
+        },
       });
       
       broadcastGame(io, game, gameId);
@@ -1248,14 +1473,44 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         }
         case 'battlefield': {
           game.state.battlefield = game.state.battlefield || [];
+          const permanentId = card.id;
+          const cardName = (card.name || "").toLowerCase();
+          
+          // Check if this is a shock land that needs a prompt
+          const SHOCK_LANDS = new Set([
+            "blood crypt", "breeding pool", "godless shrine", "hallowed fountain",
+            "overgrown tomb", "sacred foundry", "steam vents", "stomping ground",
+            "temple garden", "watery grave"
+          ]);
+          
+          const isShockLand = SHOCK_LANDS.has(cardName);
+          
+          // Shock lands enter tapped by default unless player pays 2 life
+          // The prompt will allow them to choose (pay life = untapped, don't pay = tapped)
+          const shouldEnterTapped = isShockLand; // Tapped by default for shock lands
+          
           game.state.battlefield.push({
-            id: card.id,
+            id: permanentId,
             card: { ...card, zone: 'battlefield' },
             controller: pid,
             owner: libraryOwner,
-            tapped: false,
+            tapped: shouldEnterTapped,
             counters: {},
           });
+          
+          // If it's a shock land, emit prompt to player to optionally pay life to untap
+          if (isShockLand) {
+            const currentLife = (game.state as any)?.life?.[pid] || 40;
+            const cardImageUrl = card.image_uris?.small || card.image_uris?.normal;
+            
+            socket.emit("shockLandPrompt", {
+              gameId,
+              permanentId,
+              cardName: card.name,
+              imageUrl: cardImageUrl,
+              currentLife,
+            });
+          }
           break;
         }
         case 'top': {

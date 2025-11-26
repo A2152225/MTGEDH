@@ -1657,7 +1657,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Check if we're in PRE_GAME phase
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
-      if (phaseStr !== "" && phaseStr !== "pre_game") {
+      if (phaseStr !== "" && phaseStr !== "PRE_GAME") {
         socket.emit("error", {
           code: "NOT_PREGAME",
           message: "Can only keep hand during pre-game",
@@ -1877,7 +1877,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Check if we're in PRE_GAME phase
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
-      if (phaseStr !== "" && phaseStr !== "pre_game") {
+      if (phaseStr !== "" && phaseStr !== "PRE_GAME") {
         socket.emit("error", {
           code: "NOT_PREGAME",
           message: "Can only mulligan during pre-game",

@@ -239,6 +239,130 @@ function clearCombatState(ctx: GameContext) {
 }
 
 /**
+ * Clear damage from all permanents on the battlefield.
+ * Rule 514.2 / 703.4p: During the cleanup step, all damage marked on permanents
+ * is removed simultaneously. This happens after discarding to hand size and
+ * before "until end of turn" effects end.
+ * 
+ * Damage can be tracked in multiple ways:
+ * - `markedDamage`: Direct damage tracking property
+ * - `damage`: Alternative damage tracking property
+ * - `counters.damage`: Counter-based damage tracking
+ */
+function clearDamageFromPermanents(ctx: GameContext) {
+  try {
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return;
+    
+    let clearedCount = 0;
+    
+    for (const permanent of battlefield) {
+      if (!permanent) continue;
+      
+      let hadDamage = false;
+      
+      // Clear markedDamage property
+      if (permanent.markedDamage !== undefined && permanent.markedDamage > 0) {
+        hadDamage = true;
+        permanent.markedDamage = 0;
+      }
+      
+      // Clear damage property (alternative tracking)
+      if (permanent.damage !== undefined && permanent.damage > 0) {
+        hadDamage = true;
+        permanent.damage = 0;
+      }
+      
+      // Clear damage counter if present (safely check for undefined)
+      if (permanent.counters && typeof permanent.counters.damage === 'number' && permanent.counters.damage > 0) {
+        hadDamage = true;
+        permanent.counters.damage = 0;
+      }
+      
+      if (hadDamage) {
+        clearedCount++;
+      }
+    }
+    
+    if (clearedCount > 0) {
+      console.log(`${ts()} [clearDamageFromPermanents] Cleared damage from ${clearedCount} permanent(s) (Rule 514.2/703.4p)`);
+    }
+  } catch (err) {
+    console.warn(`${ts()} clearDamageFromPermanents failed:`, err);
+  }
+}
+
+/**
+ * End all "until end of turn" and "this turn" effects.
+ * Rule 514.2: These effects end simultaneously with damage removal during cleanup.
+ */
+function endTemporaryEffects(ctx: GameContext) {
+  try {
+    const state = (ctx as any).state;
+    if (!state) return;
+    
+    let endedCount = 0;
+    
+    // Clear temporary effects stored on battlefield permanents
+    const battlefield = state.battlefield || [];
+    for (const permanent of battlefield) {
+      if (!permanent) continue;
+      
+      // Clear "until end of turn" modifiers
+      if (permanent.untilEndOfTurn) {
+        delete permanent.untilEndOfTurn;
+        endedCount++;
+      }
+      
+      // Clear temporary power/toughness modifications
+      if (permanent.tempPowerMod !== undefined) {
+        delete permanent.tempPowerMod;
+        endedCount++;
+      }
+      if (permanent.tempToughnessMod !== undefined) {
+        delete permanent.tempToughnessMod;
+        endedCount++;
+      }
+      
+      // Clear temporary granted abilities
+      if (permanent.tempAbilities && permanent.tempAbilities.length > 0) {
+        permanent.tempAbilities = [];
+        endedCount++;
+      }
+      
+      // Clear "this turn" flags
+      if (permanent.summoningSickness === false && permanent.enteredThisTurn) {
+        // If it entered this turn, reset summoning sickness handling
+        delete permanent.enteredThisTurn;
+      }
+      
+      // Clear "attacked this turn" and similar combat flags
+      if (permanent.attackedThisTurn) {
+        delete permanent.attackedThisTurn;
+      }
+      if (permanent.blockedThisTurn) {
+        delete permanent.blockedThisTurn;
+      }
+    }
+    
+    // Clear game-level temporary effects
+    if (state.temporaryEffects && state.temporaryEffects.length > 0) {
+      const beforeCount = state.temporaryEffects.length;
+      state.temporaryEffects = state.temporaryEffects.filter((effect: any) => 
+        effect.duration !== 'until_end_of_turn' && effect.duration !== 'this_turn'
+      );
+      endedCount += beforeCount - state.temporaryEffects.length;
+    }
+    
+    if (endedCount > 0) {
+      console.log(`${ts()} [endTemporaryEffects] Ended ${endedCount} temporary effect(s) (Rule 514.2)`);
+    }
+  } catch (err) {
+    console.warn(`${ts()} endTemporaryEffects failed:`, err);
+  }
+}
+
+/**
  * Untap all permanents controlled by the specified player.
  * This implements Rule 502.3: During the untap step, the active player
  * untaps all their permanents simultaneously.
@@ -672,7 +796,7 @@ export function nextStep(ctx: GameContext) {
 
     // If we should advance to next turn, call nextTurn instead
     if (shouldAdvanceTurn) {
-      // Before advancing to next turn, check if discard is needed (Rule 514.1)
+      // Rule 514.1: Check if discard is needed before advancing
       try {
         const turnPlayer = (ctx as any).state.turnPlayer;
         if (turnPlayer) {
@@ -686,6 +810,15 @@ export function nextStep(ctx: GameContext) {
         }
       } catch (err) {
         console.warn(`${ts()} [nextStep] Failed to check discard during cleanup:`, err);
+      }
+      
+      // Rule 514.2: Clear damage from all permanents and end temporary effects
+      // This happens simultaneously after discarding
+      try {
+        clearDamageFromPermanents(ctx);
+        endTemporaryEffects(ctx);
+      } catch (err) {
+        console.warn(`${ts()} [nextStep] Failed to clear damage/effects during cleanup:`, err);
       }
       
       console.log(`${ts()} [nextStep] Cleanup complete, advancing to next turn`);
