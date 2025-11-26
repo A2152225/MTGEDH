@@ -271,17 +271,18 @@ export class AIEngine {
   }
   
   /**
-   * Basic attack decision: attack with creatures if opponent's life is low or no blockers
-   * Uses proper combat validation to ensure only legal attackers are selected
+   * Basic attack decision using comprehensive combat validation.
+   * 
+   * Uses getLegalAttackers() to properly filter the battlefield to only
+   * permanents that can legally attack:
+   * - Must be a creature (not enchantments, artifacts without animation, etc.)
+   * - Must be untapped
+   * - Must not have defender
+   * - Must not have summoning sickness (unless has haste)
+   * - Must not have "can't attack" effects (e.g., Pacifism)
    */
   private makeBasicAttackDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
     // Use getLegalAttackers to get all valid attackers
-    // This properly filters out:
-    // - Non-creatures (enchantments, artifacts, lands without animation)
-    // - Tapped creatures
-    // - Creatures with defender
-    // - Creatures with summoning sickness (unless they have haste)
-    // - Creatures with "can't attack" effects
     const legalAttackerIds = getLegalAttackers(context.gameState, context.playerId);
     
     if (legalAttackerIds.length === 0) {

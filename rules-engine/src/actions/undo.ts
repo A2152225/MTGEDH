@@ -85,10 +85,21 @@ export interface UndoValidationResult {
 export const DEFAULT_UNDO_TIMEOUT_MS = 60000;
 
 /**
+ * Counter for unique undo request IDs within a session
+ */
+let undoRequestCounter = 0;
+
+/**
  * Generate a unique ID for undo requests
+ * Uses a combination of timestamp, counter, and random value for uniqueness
  */
 export function generateUndoRequestId(): string {
-  return `undo_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  undoRequestCounter++;
+  // Combine timestamp, counter, and crypto-safe random bytes if available
+  const randomPart = typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID().substring(0, 8)
+    : Math.random().toString(36).substring(2, 10);
+  return `undo_${Date.now()}_${undoRequestCounter}_${randomPart}`;
 }
 
 /**
