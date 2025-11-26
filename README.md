@@ -158,6 +158,7 @@ See [Rules Engine Integration](./docs/rules-engine-integration.md) for architect
 - [Game Simulation Guide](./docs/simulation-guide.md)
 - [AI Strategy Development](./docs/ai-strategies.md)
 - [Keyword Actions Guide](./docs/keyword-actions-guide.md)
+- [IIS Setup Guide](./docs/iis-setup-guide.md) - Deploy with IIS on Windows
 
 ## Contributing
 
