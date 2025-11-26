@@ -2167,7 +2167,6 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           // Use importDeckResolved to properly populate the context's libraries Map
           // This ensures shuffle/draw operations work correctly later.
           
-          aiPlayer.library = resolvedCards;
           aiPlayer.deckName = finalDeckName;
           // Use provided deckId or generate one for imported text
           aiPlayer.deckId = aiDeckId || (aiDeckText ? `imported_${Date.now().toString(36)}` : null);
@@ -2189,11 +2188,11 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
             (game.state.zones as any)[aiPlayerId] = {
               hand: [],
               handCount: 0,
-              library: resolvedCards,
               libraryCount: resolvedCards.length,
               graveyard: [],
               graveyardCount: 0,
             };
+            // Note: We don't set library in zones - the authoritative source is ctx.libraries
           }
           
           console.info('[AI] Deck resolved for AI:', { 

@@ -500,29 +500,30 @@ async function applyConfirmedImport(
         }
       } else {
         try {
+          // Fallback: only update libraryCount in zones, not the full library array
+          // The authoritative source for library data should be ctx.libraries or _fallbackLibraries
           game.state = game.state || {};
           game.state.zones = game.state.zones || {};
           game.state.zones[p.initiator] =
             game.state.zones[p.initiator] || {
               hand: [],
               handCount: 0,
-              library: [],
               libraryCount: 0,
               graveyard: [],
               graveyardCount: 0,
             };
-          game.state.zones[p.initiator].library = mapped;
+          // Note: We don't store library in zones - only the count
           game.state.zones[p.initiator].libraryCount =
             typeof p.parsedCount === "number"
               ? p.parsedCount
               : mapped.length;
-          console.info("[import] state.zones library overwrite", {
+          console.info("[import] state.zones libraryCount update (no library array duplication)", {
             gameId: p.gameId,
             playerId: p.initiator,
             libraryCount: game.state.zones[p.initiator].libraryCount,
           });
         } catch (e) {
-          console.warn("applyConfirmedImport: state.zones overwrite failed", e);
+          console.warn("applyConfirmedImport: state.zones update failed", e);
         }
       }
     } catch (e) {

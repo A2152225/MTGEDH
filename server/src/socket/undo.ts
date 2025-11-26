@@ -140,8 +140,8 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
       const humanPlayerIds = getHumanPlayerIds(game);
       const aiPlayerIds = getAIPlayerIds(game);
       
-      // If single player or only one human player (rest are AI), auto-approve
-      if (playerIds.length === 1 || humanPlayerIds.length === 1) {
+      // If single player, auto-approve immediately
+      if (playerIds.length === 1) {
         // TODO: Actually perform the undo by replaying events
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
