@@ -16,6 +16,8 @@ import {
   renameDeck as renameDeckDB,
   deleteDeck as deleteDeckDB,
   updateDeckResolvedCards,
+  moveDeckToFolder,
+  buildFolderTree,
 } from "../db/decks";
 import type { KnownCardRef, PlayerID } from "../../shared/src";
 import { GamePhase } from "@mtgedh/shared";
@@ -1975,11 +1977,13 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       name,
       list,
       cacheCards,
+      folder,
     }: {
       gameId: string;
       name: string;
       list: string;
       cacheCards?: boolean;
+      folder?: string;
     }) => {
       (async () => {
         try {
@@ -1987,6 +1991,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             gameId,
             name,
             cacheCards,
+            folder,
             playerId: socket.data.playerId,
           });
 
@@ -2094,6 +2099,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             created_by_name: playerName,
             card_count: cardCount,
             resolved_cards: resolvedCardsJson,
+            folder: folder || '',
           });
 
           console.info("[deck] saveDeck saved", {
@@ -2102,14 +2108,17 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             name: name.trim(),
             cardCount,
             cached: !!resolvedCardsJson,
+            folder: folder || '',
           });
 
           socket.emit("deckSaved", { gameId, deckId, cached: !!resolvedCardsJson });
 
-          // Broadcast updated deck list to all clients in the game
+          // Broadcast updated deck list and folder tree to all clients in the game
+          const allDecks = listDecks();
           io.to(gameId).emit("savedDecksList", {
             gameId,
-            decks: listDecks(),
+            decks: allDecks,
+            folders: buildFolderTree(allDecks),
           });
         } catch (err) {
           console.error("saveDeck handler failed:", err);
@@ -2123,10 +2132,11 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
   );
 
   // listSavedDecks - get all saved decks
-  socket.on("listSavedDecks", ({ gameId }: { gameId: string }) => {
+  socket.on("listSavedDecks", ({ gameId, folder }: { gameId: string; folder?: string }) => {
     try {
       console.info("[deck] listSavedDecks called", {
         gameId,
+        folder,
         playerId: socket.data.playerId,
       });
 
@@ -2135,8 +2145,16 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         return;
       }
 
-      const decks = listDecks();
-      socket.emit("savedDecksList", { gameId, decks });
+      const allDecks = listDecks();
+      const decksToShow = folder !== undefined 
+        ? allDecks.filter(d => d.folder === folder)
+        : allDecks;
+      socket.emit("savedDecksList", { 
+        gameId, 
+        decks: decksToShow,
+        folders: buildFolderTree(allDecks),
+        currentFolder: folder || ''
+      });
     } catch (err) {
       console.error("listSavedDecks handler failed:", err);
       socket.emit("deckError", {
@@ -2421,15 +2439,70 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         socket.emit("deckCached", { gameId, deckId, cachedCount: resolvedCards.length });
 
         // Broadcast updated deck list to show the cached indicator
+        const allDecks = listDecks();
         io.to(gameId).emit("savedDecksList", {
           gameId,
-          decks: listDecks(),
+          decks: allDecks,
+          folders: buildFolderTree(allDecks),
         });
       } catch (err) {
         console.error("cacheSavedDeck handler failed:", err);
         socket.emit("deckError", {
           gameId,
           message: "Failed to cache deck.",
+        });
+      }
+    }
+  );
+
+  // moveDeckToFolder - move a deck to a different folder
+  socket.on(
+    "moveDeckToFolder",
+    ({ gameId, deckId, folder }: { gameId: string; deckId: string; folder: string }) => {
+      try {
+        console.info("[deck] moveDeckToFolder called", {
+          gameId,
+          deckId,
+          folder,
+          playerId: socket.data.playerId,
+        });
+
+        if (!gameId || typeof gameId !== "string") {
+          socket.emit("deckError", { gameId, message: "GameId required." });
+          return;
+        }
+
+        if (!deckId || typeof deckId !== "string") {
+          socket.emit("deckError", { gameId, message: "DeckId required." });
+          return;
+        }
+
+        const moved = moveDeckToFolder(deckId, folder || '');
+        if (!moved) {
+          socket.emit("deckError", { gameId, message: "Deck not found." });
+          return;
+        }
+
+        console.info("[deck] moveDeckToFolder completed", {
+          gameId,
+          deckId,
+          folder,
+        });
+
+        socket.emit("deckMoved", { gameId, deckId, folder });
+
+        // Broadcast updated deck list
+        const allDecks = listDecks();
+        io.to(gameId).emit("savedDecksList", {
+          gameId,
+          decks: allDecks,
+          folders: buildFolderTree(allDecks),
+        });
+      } catch (err) {
+        console.error("moveDeckToFolder handler failed:", err);
+        socket.emit("deckError", {
+          gameId,
+          message: "Failed to move deck.",
         });
       }
     }

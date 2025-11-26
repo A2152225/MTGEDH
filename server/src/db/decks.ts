@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import Database from 'better-sqlite3';
-import type { SavedDeckSummary, SavedDeckDetail } from '../../../shared/src/decks';
+import type { SavedDeckSummary, SavedDeckDetail, DeckFolder } from '../../../shared/src/decks';
 
 const DATA_DIR = path.join(process.cwd(), 'server', 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -20,9 +20,11 @@ CREATE TABLE IF NOT EXISTS decks (
   created_by_id TEXT NOT NULL,
   created_by_name TEXT NOT NULL,
   card_count INTEGER NOT NULL,
-  resolved_cards TEXT
+  resolved_cards TEXT,
+  folder TEXT DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS decks_created_at_idx ON decks(created_at DESC);
+CREATE INDEX IF NOT EXISTS decks_folder_idx ON decks(folder);
 `);
 
 // Migration: add resolved_cards column if it doesn't exist (for existing databases)
@@ -33,19 +35,28 @@ try {
     db.exec(`ALTER TABLE decks ADD COLUMN resolved_cards TEXT`);
     console.log('[DB] Added resolved_cards column to decks table');
   }
+  const hasFolder = tableInfo.some(col => col.name === 'folder');
+  if (!hasFolder) {
+    db.exec(`ALTER TABLE decks ADD COLUMN folder TEXT DEFAULT ''`);
+    db.exec(`CREATE INDEX IF NOT EXISTS decks_folder_idx ON decks(folder)`);
+    console.log('[DB] Added folder column to decks table');
+  }
 } catch (e) {
-  console.warn('[DB] Migration check for resolved_cards failed:', e);
+  console.warn('[DB] Migration check failed:', e);
 }
 
 const insertStmt = db.prepare(`
-  INSERT INTO decks (id, name, text, created_at, created_by_id, created_by_name, card_count, resolved_cards)
-  VALUES (@id, @name, @text, @created_at, @created_by_id, @created_by_name, @card_count, @resolved_cards)
+  INSERT INTO decks (id, name, text, created_at, created_by_id, created_by_name, card_count, resolved_cards, folder)
+  VALUES (@id, @name, @text, @created_at, @created_by_id, @created_by_name, @card_count, @resolved_cards, @folder)
 `);
-const listStmt = db.prepare(`SELECT id, name, created_at, created_by_id, created_by_name, card_count, CASE WHEN resolved_cards IS NOT NULL AND resolved_cards != '' THEN 1 ELSE 0 END as has_cached_cards FROM decks ORDER BY created_at DESC`);
+const listStmt = db.prepare(`SELECT id, name, created_at, created_by_id, created_by_name, card_count, folder, CASE WHEN resolved_cards IS NOT NULL AND resolved_cards != '' THEN 1 ELSE 0 END as has_cached_cards FROM decks ORDER BY folder, created_at DESC`);
+const listByFolderStmt = db.prepare(`SELECT id, name, created_at, created_by_id, created_by_name, card_count, folder, CASE WHEN resolved_cards IS NOT NULL AND resolved_cards != '' THEN 1 ELSE 0 END as has_cached_cards FROM decks WHERE folder = ? ORDER BY created_at DESC`);
 const getStmt = db.prepare(`SELECT * FROM decks WHERE id = ?`);
 const renameStmt = db.prepare(`UPDATE decks SET name = ? WHERE id = ?`);
 const deleteStmt = db.prepare(`DELETE FROM decks WHERE id = ?`);
 const updateResolvedCardsStmt = db.prepare(`UPDATE decks SET resolved_cards = ? WHERE id = ?`);
+const updateFolderStmt = db.prepare(`UPDATE decks SET folder = ? WHERE id = ?`);
+const listFoldersStmt = db.prepare(`SELECT DISTINCT folder FROM decks WHERE folder != '' ORDER BY folder`);
 
 export function saveDeck(deck: {
   id: string;
@@ -55,11 +66,13 @@ export function saveDeck(deck: {
   created_by_name: string;
   card_count: number;
   resolved_cards?: string | null;
+  folder?: string;
 }) {
   insertStmt.run({
     ...deck,
     created_at: Date.now(),
-    resolved_cards: deck.resolved_cards ?? null
+    resolved_cards: deck.resolved_cards ?? null,
+    folder: deck.folder ?? ''
   });
 }
 
@@ -72,8 +85,19 @@ export function updateDeckResolvedCards(id: string, resolvedCards: string | null
   return info.changes > 0;
 }
 
-export function listDecks(): SavedDeckSummary[] {
-  const rows = listStmt.all() as Array<{
+/**
+ * Move a deck to a different folder.
+ */
+export function moveDeckToFolder(id: string, folder: string): boolean {
+  const info = updateFolderStmt.run(folder, id);
+  return info.changes > 0;
+}
+
+export function listDecks(folder?: string): SavedDeckSummary[] {
+  const rows = (folder !== undefined 
+    ? listByFolderStmt.all(folder) 
+    : listStmt.all()
+  ) as Array<{
     id: string;
     name: string;
     created_at: number;
@@ -81,6 +105,7 @@ export function listDecks(): SavedDeckSummary[] {
     created_by_name: string;
     card_count: number;
     has_cached_cards: number;
+    folder: string | null;
   }>;
   return rows.map(row => ({
     id: row.id,
@@ -89,8 +114,86 @@ export function listDecks(): SavedDeckSummary[] {
     created_by_id: row.created_by_id,
     created_by_name: row.created_by_name,
     card_count: row.card_count,
-    has_cached_cards: row.has_cached_cards === 1
+    has_cached_cards: row.has_cached_cards === 1,
+    folder: row.folder || ''
   }));
+}
+
+/**
+ * Get list of all unique folder paths.
+ */
+export function listFolders(): string[] {
+  const rows = listFoldersStmt.all() as Array<{ folder: string }>;
+  return rows.map(r => r.folder);
+}
+
+/**
+ * Build a folder tree structure from deck data.
+ */
+export function buildFolderTree(decks: SavedDeckSummary[]): DeckFolder[] {
+  const folderMap = new Map<string, { decks: number; children: Set<string> }>();
+  
+  // Initialize root
+  folderMap.set('', { decks: 0, children: new Set() });
+  
+  for (const deck of decks) {
+    const folder = deck.folder || '';
+    
+    // Count decks in this folder
+    if (!folderMap.has(folder)) {
+      folderMap.set(folder, { decks: 0, children: new Set() });
+    }
+    folderMap.get(folder)!.decks++;
+    
+    // Build parent chain
+    if (folder) {
+      const parts = folder.split('/');
+      let currentPath = '';
+      for (let i = 0; i < parts.length; i++) {
+        const parentPath = currentPath;
+        currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
+        
+        if (!folderMap.has(currentPath)) {
+          folderMap.set(currentPath, { decks: 0, children: new Set() });
+        }
+        
+        // Add this folder as child of parent
+        if (!folderMap.has(parentPath)) {
+          folderMap.set(parentPath, { decks: 0, children: new Set() });
+        }
+        folderMap.get(parentPath)!.children.add(currentPath);
+      }
+    }
+  }
+  
+  // Build tree recursively
+  function buildNode(path: string): DeckFolder {
+    const data = folderMap.get(path) || { decks: 0, children: new Set() };
+    const name = path ? path.split('/').pop()! : 'Root';
+    
+    const subfolders: DeckFolder[] = [];
+    for (const childPath of data.children) {
+      subfolders.push(buildNode(childPath));
+    }
+    subfolders.sort((a, b) => a.name.localeCompare(b.name));
+    
+    return {
+      name,
+      path,
+      subfolders,
+      deckCount: data.decks
+    };
+  }
+  
+  // Get root level folders
+  const rootData = folderMap.get('') || { decks: 0, children: new Set() };
+  const rootFolders: DeckFolder[] = [];
+  for (const childPath of rootData.children) {
+    rootFolders.push(buildNode(childPath));
+  }
+  rootFolders.sort((a, b) => a.name.localeCompare(b.name));
+  
+  return rootFolders;
 }
 
 export function getDeck(id: string): SavedDeckDetail | null {
@@ -103,6 +206,7 @@ export function getDeck(id: string): SavedDeckDetail | null {
     created_by_name: string;
     card_count: number;
     resolved_cards: string | null;
+    folder: string | null;
   } | undefined;
   if (!row) return null;
   
@@ -127,7 +231,8 @@ export function getDeck(id: string): SavedDeckDetail | null {
     text: row.text,
     entries,
     has_cached_cards: !!cachedCards && cachedCards.length > 0,
-    cached_cards: cachedCards
+    cached_cards: cachedCards,
+    folder: row.folder || ''
   };
 }
 
@@ -135,7 +240,7 @@ export function renameDeck(id: string, name: string): SavedDeckSummary | null {
   renameStmt.run(name, id);
   const d = getDeck(id);
   if (!d) return null;
-  const { text, entries, ...summary } = d;
+  const { text, entries, cached_cards, ...summary } = d;
   return summary;
 }
 

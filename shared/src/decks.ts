@@ -7,6 +7,8 @@ export interface SavedDeckSummary {
   card_count: number;
   /** Indicates if this deck has cached Scryfall card data */
   has_cached_cards?: boolean;
+  /** Folder path for organizing decks (e.g., "Precons/2024/Bloomburrow") */
+  folder?: string;
 }
 
 /** Cached card data from Scryfall */
@@ -45,4 +47,12 @@ export interface SavedDeckDetail extends SavedDeckSummary {
   entries: Array<{ name: string; count: number }>;
   /** Cached resolved card data from Scryfall (if available) */
   cached_cards?: CachedCard[];
+}
+
+/** Folder structure for organizing decks */
+export interface DeckFolder {
+  name: string;
+  path: string;
+  subfolders: DeckFolder[];
+  deckCount: number;
 }
