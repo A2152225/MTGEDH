@@ -34,10 +34,13 @@ export function parsePT(raw?: string | number): number | undefined {
  * Calculate the effective P/T for creatures with variable (*/*) power/toughness.
  * This implements the characteristic-defining abilities from card text.
  * 
+ * Note: This is only for true variable P/T creatures like Tarmogoyf or Nighthowler.
+ * Cards with fixed P/T (like Morophon 6/6) should have their values parsed normally.
+ * 
  * Examples:
- * - Morophon, the Boundless: Defined as 6/6 in its type line
  * - Tarmogoyf: Count card types in all graveyards
  * - Nighthowler: Count creatures in graveyards
+ * - Consuming Aberration: Count cards in opponents' graveyards
  * 
  * @param card - The card data with oracle_text and type information
  * @param gameState - Optional game state for dynamic calculations
@@ -53,19 +56,9 @@ export function calculateVariablePT(
   const oracleText = (card.oracle_text || '').toLowerCase();
   const typeLine = (card.type_line || '').toLowerCase();
   
-  // Morophon, the Boundless - Defined as 6/6
-  if (name.includes('morophon')) {
-    return { power: 6, toughness: 6 };
-  }
-  
-  // Marit Lage - Defined as 20/20
+  // Marit Lage token - Defined as 20/20
   if (name.includes('marit lage')) {
     return { power: 20, toughness: 20 };
-  }
-  
-  // Scion of Draco - Defined as 4/4
-  if (name.includes('scion of draco')) {
-    return { power: 4, toughness: 4 };
   }
   
   // Check oracle text for common patterns
@@ -108,8 +101,8 @@ export function calculateVariablePT(
     }
   }
   
-  // For cards we can't calculate, check if there's a defined base in the type line
-  // Some cards define their size in reminder text like "(This creature has base power 6/6)"
+  // For cards we can't calculate, check if there's a defined base in reminder text
+  // Some cards define their size like "(This creature has base power 6/6)"
   const sizeMatch = oracleText.match(/base power and toughness (\d+)\/(\d+)/i);
   if (sizeMatch) {
     return { power: parseInt(sizeMatch[1], 10), toughness: parseInt(sizeMatch[2], 10) };
