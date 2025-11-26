@@ -147,6 +147,11 @@ export interface BattlefieldPermanent {
   targetedBy?: string[];          // IDs of spells/abilities targeting this permanent
   // Temporary effects applied to this permanent (e.g., "exile if dies this turn", "gains +1/+1 until end of turn")
   temporaryEffects?: readonly TemporaryEffect[];
+  // Creature type choice for changeling/tribal effects (e.g., Mistform Ultimus)
+  chosenCreatureType?: string;
+  // Phasing support
+  phasedOut?: boolean;
+  phaseOutController?: PlayerID;
 }
 
 /* Temporary effect applied to a permanent or player */
@@ -240,6 +245,14 @@ export interface GameState {
   initiative?: PlayerID | null;
   dayNight?: 'day' | 'night' | null;
   cityBlessing?: Record<PlayerID, boolean>;
+  // Mana pool for each player
+  manaPool?: Record<PlayerID, ManaPool>;
+  // Combat state
+  combat?: CombatInfo;
+  // Pending targets for spells/abilities
+  pendingTargets?: any;
+  // Creature type choices (Morophon, etc.)
+  morophonChosenType?: string;
 }
 
 /* Client-scoped game view (lightweight diff of authoritative state) */
@@ -282,6 +295,17 @@ export interface StateDiff<T> {
   full?: T;
   patch?: Partial<T>;
   seq: number;
+}
+
+/* Mana pool for a player */
+export interface ManaPool {
+  white: number;
+  blue: number;
+  black: number;
+  red: number;
+  green: number;
+  colorless: number;
+  generic?: number;
 }
 
 /* Payment item for mana payment during spell casting */
@@ -329,6 +353,12 @@ export interface AutomationErrorReport {
   resolution?: string;
   fixedInVersion?: string;
 }
+
+/* Target reference for spells and abilities */
+export type TargetRef = 
+  | { kind: 'permanent'; id: string }
+  | { kind: 'player'; id: string }
+  | { kind: 'card'; id: string; zone: string };
 
 /* In-memory game type for server */
 export interface InMemoryGame {

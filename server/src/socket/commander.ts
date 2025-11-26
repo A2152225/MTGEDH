@@ -19,7 +19,7 @@ import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, emitStateToSocket, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment } from "./util";
 import { appendEvent } from "../db";
 import { fetchCardByExactNameStrict } from "../services/scryfall";
-import type { PlayerID } from "../../shared/src";
+import type { PlayerID } from "../../../shared/src";
 
 function normalizeNamesArray(payload: any): string[] {
   if (!payload) return [];

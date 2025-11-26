@@ -1,12 +1,13 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
     "outDir": "dist",
     "sourceMap": true,
     "resolveJsonModule": true,
-    "noEmit": true
+    "declaration": true,
+    "declarationMap": true
   },
   "include": ["src"]
 }

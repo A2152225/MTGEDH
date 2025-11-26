@@ -19,7 +19,7 @@ import {
   moveDeckToFolder,
   buildFolderTree,
 } from "../db/decks";
-import type { KnownCardRef, PlayerID } from "../../shared/src";
+import type { KnownCardRef, PlayerID } from "../../../shared/src";
 import { GamePhase } from "@mtgedh/shared";
 
 // NEW: helpers to push candidate/suggest events to player's sockets

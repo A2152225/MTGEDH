@@ -64,7 +64,7 @@ export function createInitialGameState(gameId: string): InMemoryGame {
 
     // lifecycle / participants
     join: (socketId, playerName, spectator, fixedPlayerId, seatTokenFromClient) =>
-      join(ctx, socketId, playerName, spectator, fixedPlayerId, seatTokenFromClient),
+      join(ctx, socketId, playerName, spectator ?? false, fixedPlayerId, seatTokenFromClient),
     leave: (playerId?: PlayerID) => leave(ctx, playerId),
     disconnect: (socketId: string) => disconnect(ctx, socketId),
     participants: () => participants(ctx),
@@ -162,7 +162,7 @@ export function createInitialGameState(gameId: string): InMemoryGame {
     removePermanent: (permanentId: string) => removePermanent(ctx, permanentId),
     movePermanentToExile: (permanentId: string) => movePermanentToExile(ctx, permanentId),
     applyEngineEffects: (effects: readonly any[]) => applyEngineEffects(ctx, effects),
-    runSBA: (playerId: PlayerID) => runSBA(ctx, playerId),
+    runSBA: () => runSBA(ctx),
 
     // stack
     pushStack: (item) => pushStack(ctx, item),
@@ -173,7 +173,7 @@ export function createInitialGameState(gameId: string): InMemoryGame {
     playLand: (playerId: PlayerID, card) => playLand(ctx, playerId, card),
 
     // view
-    viewFor: (viewer?: PlayerID, spectator?: boolean) => viewFor(ctx, viewer, !!spectator),
+    viewFor: (viewer?: PlayerID, spectator?: boolean) => viewFor(ctx, viewer ?? "", !!spectator),
 
     // step scheduling helpers (runtime-only)
     scheduleStepsAfterCurrent: (steps: any[]) => scheduleStepsAfterCurrent(ctx, steps),

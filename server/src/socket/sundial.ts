@@ -1,6 +1,6 @@
 import type { Server, Socket } from "socket.io";
 import { ensureGame, appendGameEvent, broadcastGame } from "./util";
-import { GameStep } from "../../shared/src";
+import { GameStep } from "../../../shared/src";
 
 /**
  * Payload:

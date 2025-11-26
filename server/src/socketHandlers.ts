@@ -1,9 +1,9 @@
 import { Socket, Server } from 'socket.io';
-import { GameManager } from './GameManager';
+import GameManager from './GameManager';
 import { GameActionType, GameAction, AutomationErrorReport } from '@mtgedh/shared';
 import { v4 as uuidv4 } from 'uuid';
 
-export function setupSocketHandlers(socket: Socket, gameManager: GameManager, io: Server) {
+export function setupSocketHandlers(socket: Socket, gameManager: typeof GameManager, io: Server) {
   
   // Join game
   socket.on('joinGame', (data: { gameId: string; playerName: string }, callback) => {

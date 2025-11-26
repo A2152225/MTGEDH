@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import Database from 'better-sqlite3';
-import type { SavedDeckSummary, SavedDeckDetail } from '../../../shared/src/decks';
+import type { SavedDeckSummary, SavedDeckDetail } from '../../shared/src/decks';
 
 const DATA_DIR = path.join(process.cwd(), 'server', 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -33,6 +33,16 @@ const getStmt = db.prepare(`SELECT * FROM decks WHERE id = ?`);
 const renameStmt = db.prepare(`UPDATE decks SET name = ? WHERE id = ?`);
 const deleteStmt = db.prepare(`DELETE FROM decks WHERE id = ?`);
 
+interface DeckRow {
+  id: string;
+  name: string;
+  text: string;
+  created_at: number;
+  created_by_id: string;
+  created_by_name: string;
+  card_count: number;
+}
+
 export function saveDeck(deck: {
   id: string;
   name: string;
@@ -52,7 +62,7 @@ export function listDecks(): SavedDeckSummary[] {
 }
 
 export function getDeck(id: string): SavedDeckDetail | null {
-  const row = getStmt.get(id);
+  const row = getStmt.get(id) as DeckRow | undefined;
   if (!row) return null;
   const summary: SavedDeckSummary = {
     id: row.id,
