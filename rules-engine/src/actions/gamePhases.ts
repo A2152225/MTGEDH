@@ -3,47 +3,13 @@
  * 
  * Game phase and step definitions and transitions.
  * Follows MTG Comprehensive Rules for turn structure.
+ * 
+ * Note: These enums align with the shared types in shared/src/types.ts
  */
 
-/**
- * Game phases matching comprehensive rules
- */
-export enum GamePhase {
-  PRE_GAME = 'PRE_GAME',
-  BEGINNING = 'BEGINNING',
-  PRECOMBAT_MAIN = 'PRECOMBAT_MAIN',
-  COMBAT = 'COMBAT',
-  POSTCOMBAT_MAIN = 'POSTCOMBAT_MAIN',
-  ENDING = 'ENDING',
-}
-
-/**
- * Game steps within phases
- */
-export enum GameStep {
-  // Pre-game
-  SETUP = 'SETUP',
-  MULLIGAN = 'MULLIGAN',
-  
-  // Beginning phase
-  UNTAP = 'UNTAP',
-  UPKEEP = 'UPKEEP',
-  DRAW = 'DRAW',
-  
-  // Main phases
-  MAIN = 'MAIN',
-  
-  // Combat phase
-  BEGINNING_OF_COMBAT = 'BEGINNING_OF_COMBAT',
-  DECLARE_ATTACKERS = 'DECLARE_ATTACKERS',
-  DECLARE_BLOCKERS = 'DECLARE_BLOCKERS',
-  COMBAT_DAMAGE = 'COMBAT_DAMAGE',
-  END_OF_COMBAT = 'END_OF_COMBAT',
-  
-  // Ending phase
-  END_STEP = 'END_STEP',
-  CLEANUP = 'CLEANUP',
-}
+// Re-export the shared types for consistency
+export { GamePhase, GameStep } from '../../../shared/src';
+import { GamePhase, GameStep } from '../../../shared/src';
 
 /**
  * Steps that receive priority
@@ -51,13 +17,14 @@ export enum GameStep {
 export const PRIORITY_STEPS = new Set([
   GameStep.UPKEEP,
   GameStep.DRAW,
-  GameStep.MAIN,
-  GameStep.BEGINNING_OF_COMBAT,
+  GameStep.MAIN1,
+  GameStep.MAIN2,
+  GameStep.BEGIN_COMBAT,
   GameStep.DECLARE_ATTACKERS,
   GameStep.DECLARE_BLOCKERS,
-  GameStep.COMBAT_DAMAGE,
-  GameStep.END_OF_COMBAT,
-  GameStep.END_STEP,
+  GameStep.DAMAGE,
+  GameStep.END_COMBAT,
+  GameStep.END,
 ]);
 
 /**
@@ -68,45 +35,39 @@ export function getNextGameStep(
   step: GameStep
 ): { phase: GamePhase; step: GameStep; isNewTurn: boolean } {
   switch (step) {
-    // Pre-game flow
-    case GameStep.SETUP:
-      return { phase: GamePhase.PRE_GAME, step: GameStep.MULLIGAN, isNewTurn: false };
-    case GameStep.MULLIGAN:
-      return { phase: GamePhase.BEGINNING, step: GameStep.UNTAP, isNewTurn: false };
-    
     // Beginning phase
     case GameStep.UNTAP:
       return { phase: GamePhase.BEGINNING, step: GameStep.UPKEEP, isNewTurn: false };
     case GameStep.UPKEEP:
       return { phase: GamePhase.BEGINNING, step: GameStep.DRAW, isNewTurn: false };
     case GameStep.DRAW:
-      return { phase: GamePhase.PRECOMBAT_MAIN, step: GameStep.MAIN, isNewTurn: false };
+      return { phase: GamePhase.PRECOMBAT_MAIN, step: GameStep.MAIN1, isNewTurn: false };
+    
+    // Main 1
+    case GameStep.MAIN1:
+      return { phase: GamePhase.COMBAT, step: GameStep.BEGIN_COMBAT, isNewTurn: false };
     
     // Combat phase
-    case GameStep.BEGINNING_OF_COMBAT:
+    case GameStep.BEGIN_COMBAT:
       return { phase: GamePhase.COMBAT, step: GameStep.DECLARE_ATTACKERS, isNewTurn: false };
     case GameStep.DECLARE_ATTACKERS:
       return { phase: GamePhase.COMBAT, step: GameStep.DECLARE_BLOCKERS, isNewTurn: false };
     case GameStep.DECLARE_BLOCKERS:
-      return { phase: GamePhase.COMBAT, step: GameStep.COMBAT_DAMAGE, isNewTurn: false };
-    case GameStep.COMBAT_DAMAGE:
-      return { phase: GamePhase.COMBAT, step: GameStep.END_OF_COMBAT, isNewTurn: false };
-    case GameStep.END_OF_COMBAT:
-      return { phase: GamePhase.POSTCOMBAT_MAIN, step: GameStep.MAIN, isNewTurn: false };
+      return { phase: GamePhase.COMBAT, step: GameStep.DAMAGE, isNewTurn: false };
+    case GameStep.DAMAGE:
+      return { phase: GamePhase.COMBAT, step: GameStep.END_COMBAT, isNewTurn: false };
+    case GameStep.END_COMBAT:
+      return { phase: GamePhase.POSTCOMBAT_MAIN, step: GameStep.MAIN2, isNewTurn: false };
+    
+    // Main 2
+    case GameStep.MAIN2:
+      return { phase: GamePhase.ENDING, step: GameStep.END, isNewTurn: false };
     
     // End phase
-    case GameStep.END_STEP:
+    case GameStep.END:
       return { phase: GamePhase.ENDING, step: GameStep.CLEANUP, isNewTurn: false };
     case GameStep.CLEANUP:
       return { phase: GamePhase.BEGINNING, step: GameStep.UNTAP, isNewTurn: true };
-    
-    // Main phase transitions
-    case GameStep.MAIN:
-      if (phase === GamePhase.PRECOMBAT_MAIN) {
-        return { phase: GamePhase.COMBAT, step: GameStep.BEGINNING_OF_COMBAT, isNewTurn: false };
-      } else {
-        return { phase: GamePhase.ENDING, step: GameStep.END_STEP, isNewTurn: false };
-      }
     
     default:
       return { phase, step, isNewTurn: false };

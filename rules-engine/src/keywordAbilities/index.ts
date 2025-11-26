@@ -90,7 +90,13 @@ export * from './flash';
 export * from './flying';
 export * from './haste';
 export * from './hexproof';
-export * from './indestructible';
+// Indestructible - exclude canBeDestroyed (conflicts with types/cardTypes)
+export {
+  IndestructibleAbility,
+  indestructible,
+  destroyedByLethalDamage,
+  hasRedundantIndestructible,
+} from './indestructible';
 export * from './lifelink';
 export * from './reach';
 export * from './trample';
@@ -200,7 +206,12 @@ export * from './menace';
 // Part 7: Export BFZ through HOU era keyword abilities
 export * from './renown';
 export * from './awaken';
-export * from './devoid';
+// Devoid - exclude isColorless (conflicts with types/colors)
+export {
+  DevoidAbility,
+  devoid,
+  hasRedundantDevoid,
+} from './devoid';
 export * from './ingest';
 export * from './myriad';
 export * from './surge';

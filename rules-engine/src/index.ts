@@ -4,6 +4,10 @@
  * Based on MagicCompRules 20251114.txt
  * 
  * All functions are side-effect free and operate on immutable inputs
+ * 
+ * Note: This module uses explicit named exports to avoid duplicate export conflicts.
+ * Type definitions are the canonical source and are exported first.
+ * Implementation modules with conflicting names export with aliases.
  */
 import type { GameState, PlayerID } from '../../shared/src';
 
@@ -12,107 +16,399 @@ export interface EngineResult<T> {
   readonly log?: readonly string[];
 }
 
-// Export all Game Concepts types (Rules 100-123)
+// =============================================================================
+// CANONICAL TYPE EXPORTS (from ./types)
+// These are the authoritative type definitions for the rules engine
+// =============================================================================
 export * from './types';
 
-// Export Rule 703: Turn-Based Actions
-export * from './turnBasedActions';
+// =============================================================================
+// IMPLEMENTATION MODULE EXPORTS
+// These modules provide implementations. Where names conflict with types,
+// we either skip the duplicate or use an alias.
+// =============================================================================
 
-// Export Rule 704: State-Based Actions
+// Rule 703: Turn-Based Actions
+// Note: performDraw, performPhasing, performUntap have different signatures than types/turnStructure
+// We export the implementation versions with aliases
+export {
+  TurnBasedAction,
+  TurnBasedActionType,
+  TURN_BASED_ACTIONS_NO_CONTROLLER,
+  TURN_BASED_ACTIONS_HAPPEN_FIRST,
+  TURN_BASED_ACTIONS_DONT_USE_STACK,
+  performPhasing as executePhasingAction,
+  performDayNightCheck,
+  performUntap as executeUntapAction,
+  performDraw as executeDrawAction,
+  performSchemeAction,
+  performLoreCounters,
+  performRollAttractions,
+  performChooseDefender,
+  performDeclareAttackers as executeAttackerDeclaration,
+  performDeclareBlockers as executeBlockerDeclaration,
+  performAssignCombatDamage,
+  performDealCombatDamage,
+  performDiscardToHandSize,
+  performCleanupDamageAndEffects,
+  performEmptyManaPools,
+} from './turnBasedActions';
+
+// Rule 704: State-Based Actions
 export * from './stateBasedActions';
 
-// Export Rule 705: Flipping a Coin
+// Rule 705-706: Coin Flip and Die Roll
 export * from './coinFlip';
-
-// Export Rule 706: Rolling a Die
 export * from './dieRoll';
 
-// Export Rule 707: Copying Objects
+// Rule 707: Copying Objects
 export * from './copyingObjects';
 
-// Export Rule 708: Face-Down Spells and Permanents
+// Rule 708: Face-Down Objects
 export * from './faceDownObjects';
 
-// Export Rule 709: Split Cards
+// Rule 709-711: Split, Flip, and Leveler Cards
 export * from './splitCards';
-
-// Export Rule 710: Flip Cards
 export * from './flipCards';
-
-// Export Rule 711: Leveler Cards
 export * from './levelerCards';
 
-// Export Rule 712: Double-Faced Cards
-export * from './doubleFacedCards';
+// Rule 712: Double-Faced Cards
+// Note: ./types re-exports keywordActions which includes transform.ts
+// Only export types/functions not already in keywordActions
+export {
+  CardFace,
+  DoubleFacedCardType,
+  FaceCharacteristics,
+  DoubleFacedCard,
+  determineFrontFace,
+  isTransformingDoubleFacedCard,
+  isModalDoubleFacedCard,
+  getModalDFCCharacteristicsOutsideGame,
+  chooseFaceToCast,
+  putModalDFCOntoBattlefield,
+  getModalDFCCopyCharacteristics,
+  getCurrentFaceCharacteristics,
+  SpecialBackFace,
+  isSecondCard,
+  getTransformingDFCCharacteristicsOutsideGame,
+  canCastFace,
+  putTransformingDFCOntoBattlefield,
+  putTransformingDFCOntoBattlefieldTransformed,
+  putTransformingDFCAsCopyOntoBattlefield,
+  createTransformingTokenCopy,
+} from './doubleFacedCards';
 
-// Export Rules 713-719: Remaining Card Types
-export * from './remainingCardTypes';
+// Rules 713-719: Remaining Card Types
+// Note: Some symbols conflict with ./types (castNormally, isCaseSolved)
+export {
+  AdventurerCard,
+  hasAdventure,
+  castAsAdventure,
+  PrototypeCard,
+  hasPrototype,
+  getPrototypeCharacteristics,
+  CaseCard,
+  getActiveCaseAbilities,
+  ClassCard,
+  getActiveClassAbilities,
+  getClassLevel,
+  AttractionCard,
+  AttractionDeck,
+  createAttractionDeck,
+} from './remainingCardTypes';
 
-// Export Rules 720-732: Special Game Mechanics
-export * from './specialGameMechanics';
+// Rules 720-732: Special Game Mechanics
+// Note: StationAbility, CardCharacteristics conflict with ./types
+export {
+  MonarchState,
+  becomeMonarch,
+  shouldMonarchDraw,
+  InitiativeState,
+  takeInitiative,
+  shouldVentureFromInitiative,
+  DayNightState,
+  initializeDayNight,
+  checkDayNightChange,
+} from './specialGameMechanics';
 
-// Export Keyword Abilities (Rule 702)
+// Rule 702: Keyword Abilities
 export * from './keywordAbilities';
 
-// Export Keyword Actions (Rule 701)
-export * from './keywordActions';
+// Rule 701: Keyword Actions (already exported via types)
 
-// Export Rules Engine Adapter
-export * from './RulesEngineAdapter';
+// Rules Engine Adapter
+export { RulesEngineAdapter, rulesEngine } from './RulesEngineAdapter';
+// Re-export RulesEngineEvent and RulesEvent from core
+export { RulesEngineEvent, type RulesEvent } from './core/events';
 
-// Export AI Engine
+// AI Engine
 export * from './AIEngine';
 
-// Export Game Simulator
+// Game Simulator
 export * from './GameSimulator';
 
-// Export spell casting system (Rule 601)
-export * from './spellCasting';
+// Spell Casting (Rule 601) - exclude StackObject (conflicts with types)
+export {
+  type SpellCastingContext,
+  type CastingResult,
+  payManaCost,
+  createStackObject,
+  validateSpellTiming,
+  castSpell,
+} from './spellCasting';
 
-// Export mana abilities (Rule 605)
-export * from './manaAbilities';
+// Mana Abilities (Rule 605) - ManaAbility conflicts with types
+export {
+  type TapForManaContext,
+  activateManaAbility,
+  canActivateManaAbility,
+  tapPermanentForMana,
+  createBasicLandManaAbility,
+} from './manaAbilities';
 
-// Export stack operations (Rule 405)
-export * from './stackOperations';
+// Stack Operations (Rule 405) - Stack, StackObject conflict with types
+export {
+  createEmptyStack,
+  peekStack,
+  isStackEmpty,
+  getStackSize,
+  resolveStackObject,
+  counterStackObject,
+} from './stackOperations';
 
-// Export activated abilities (Rule 602)
-export * from './activatedAbilities';
+// Activated Abilities (Rule 602) - ActivatedAbility, ActivationRestriction conflict
+export {
+  type ActivationContext,
+  type ActivationResult,
+  activateAbility,
+} from './activatedAbilities';
 
-// Export triggered abilities (Rule 603)
-export * from './triggeredAbilities';
+// Triggered Abilities (Rule 603) - Many conflicts
+export {
+  TriggerKeyword,
+  type TriggerQueue,
+  createEmptyTriggerQueue,
+  processEvent,
+} from './triggeredAbilities';
 
-// Export static abilities (Rule 604)
-export * from './staticAbilities';
+// Static Abilities (Rule 604) - StaticAbility, StaticEffectType conflict
+export {
+  parseStaticAbilities,
+  matchesFilter,
+  calculateEffectivePT,
+  collectStaticAbilities,
+  applyStaticAbilitiesToBattlefield,
+} from './staticAbilities';
 
-// Export triggered effects automation
-export * from './triggeredEffectsAutomation';
+// Triggered Effects Automation
+export {
+  TriggerType,
+  EffectAction,
+  type EffectTargetFilter,
+  type TriggeredEffect,
+  parseETBEffects,
+  parseDiesTriggers,
+  shouldEnterTapped,
+  createETBTriggers,
+  autoResolveTrigger,
+} from './triggeredEffectsAutomation';
 
-// Export comprehensive event-based trigger system (Rule 603)
-export * from './gameEvents';
+// Game Events (Rule 603) - exclude TriggerCondition (conflicts with types)
+export {
+  GameEventType,
+  type GameEvent,
+  type GameEventData,
+  type TriggerFilter,
+  type EventTriggeredAbility,
+  type PendingTrigger,
+  createGameEvent,
+  createCardDrawnEvent,
+  createStepStartedEvent,
+  matchesTriggerCondition,
+  findTriggeredAbilitiesForEvent,
+  createPendingTriggersFromEvent,
+  sortTriggersByAPNAP,
+  KNOWN_DRAW_TRIGGERS,
+  detectDrawTriggers,
+} from './gameEvents';
 
-// Export enhanced priority system (Rule 117)
-export * from './prioritySystem';
+// Priority System (Rule 117)
+export {
+  type PlayerPrioritySettings,
+  DEFAULT_PRIORITY_SETTINGS,
+  createPrioritySettings,
+  type PriorityState,
+  type PriorityCheckResult,
+  checkAutoPass,
+  passPriority as priorityPassPriority,
+  resetPriorityAfterAction,
+  grantPriorityToActivePlayer,
+  allPlayersPassed,
+} from './prioritySystem';
 
-// Export cleanup step implementation (Rule 514)
-export * from './cleanupStep';
+// Cleanup Step (Rule 514)
+export {
+  type CleanupResult,
+  type DamageTrackedPermanent,
+  type CleanupStepState,
+  createCleanupStepState,
+  checkHandSize,
+  clearDamageFromPermanents,
+  endTemporaryEffects,
+} from './cleanupStep';
 
-// Export library search restriction effects (Aven Mindcensor, etc.)
+// Library Search Effects
 export * from './librarySearchEffects';
 
-// Export opening hand actions (Rule 103.6 - Leyline and Chancellor effects)
-export * from './openingHandActions';
+// Opening Hand Actions
+export {
+  OpeningHandActionType,
+  type OpeningHandAction,
+  type OpeningHandTriggerData,
+  type OpeningHandResult,
+  type OpeningHandPermanent,
+  type DelayedTrigger,
+  detectOpeningHandAction,
+  parseChancellorTrigger,
+  createOpeningHandAction,
+  findOpeningHandActions,
+} from './openingHandActions';
 
-// Export token creation system (Rule 701.7 and Rule 111)
-export * from './tokenCreation';
+// Token Creation
+export {
+  type TokenCharacteristics,
+  type TokenCreationRequest,
+  type CreatedToken,
+  type TokenCreationResult,
+  type ETBTriggerInfo,
+  type TokenTriggerInfo,
+  COMMON_TOKENS,
+  createTokenPermanent,
+  parseTokenCreationFromText,
+  detectTokenETBTriggers,
+} from './tokenCreation';
 
-// Export combat automation (Rules 508-510)
-export * from './combatAutomation';
+// Combat Automation
+export {
+  type CombatKeywords,
+  type CombatCreature,
+  type AttackDeclaration,
+  type BlockDeclaration,
+  type DamageAssignment,
+  type CombatResult,
+  type CombatTrigger,
+  type BlockValidation,
+  extractCombatKeywords,
+  getCreaturePower,
+  getCreatureToughness,
+  createCombatCreature,
+  canCreatureAttack,
+  canCreatureBlock,
+  calculateLethalDamage,
+} from './combatAutomation';
 
-// Export modular action handlers
-export * from './actions';
+// Action Handlers - Many conflicts, export with care
+export {
+  // Sacrifice
+  validateSacrifice,
+  executeSacrifice,
+  // Search Library
+  validateSearchLibrary,
+  executeSearchLibrary,
+  type SearchLibraryAction,
+  // Combat actions
+  validateDeclareAttackers,
+  executeDeclareAttackers,
+  validateDeclareBlockers,
+  executeDeclareBlockers,
+  executeCombatDamage,
+  isCurrentlyCreature,
+  canPermanentAttack,
+  canPermanentBlock,
+  checkEvasionAbilities,
+  getCombatDamageValue,
+  getLegalAttackers,
+  getLegalBlockers,
+  type DeclareAttackersAction,
+  type DeclareBlockersAction,
+  type DealCombatDamageAction,
+  type AttackerDeclaration,
+  type BlockerDeclaration,
+  type CombatDamageAssignment,
+  type CombatValidationResult,
+  // Fetchland
+  validateFetchland,
+  executeFetchland,
+  createEvolvingWildsAction,
+  createEnemyFetchlandAction,
+  createAlliedFetchlandAction,
+  type FetchlandAction,
+  // Game phases - use aliases to avoid conflict with shared types
+  GamePhase as RulesGamePhase,
+  GameStep as RulesGameStep,
+  getNextGameStep,
+  isInCombat,
+  PRIORITY_STEPS,
+  // State-based actions handler
+  performStateBasedActions,
+  checkWinConditions,
+  type SBAResult,
+  // Turn actions
+  executeUntapStep,
+  executeDrawStep,
+  executeTurnBasedAction,
+  // Triggers handler
+  processTriggers,
+  findTriggeredAbilities,
+  checkETBTriggers,
+  checkDiesTriggers,
+  checkStepTriggers,
+  type TriggerResult,
+  // Game setup
+  initializeGame,
+  drawInitialHand,
+  processMulligan,
+  completeMulliganPhase,
+  // Game advancement
+  advanceGame,
+  skipToPhase,
+  // Undo
+  type UndoRequest,
+  type UndoState,
+  type RequestUndoAction,
+  type RespondUndoAction,
+  type UndoValidationResult,
+  DEFAULT_UNDO_TIMEOUT_MS,
+  generateUndoRequestId,
+  createUndoState,
+  recordEvent,
+  validateUndoRequest,
+  createUndoRequest,
+  validateUndoResponse,
+  processUndoResponse,
+  checkUndoExpiration,
+  getEventsForUndo,
+  completeUndo,
+  cancelUndo,
+  getActionsToUndoCount,
+  getUndoDescription,
+  canRequestUndo,
+  getUndoApprovalStatus,
+} from './actions';
 
-// Export core types and events
-export * from './core';
+// Core types
+export { 
+  type ActionValidation,
+  type BaseAction,
+  type GameActionType,
+  type ActionHandler,
+  type ActionContext,
+  type ActionRegistry,
+} from './core';
+
+// =============================================================================
+// LEGACY COMPATIBILITY
+// =============================================================================
 
 // Legacy function - kept for compatibility
 export function passPriority(state: Readonly<GameState>, by: PlayerID): EngineResult<GameState> {

@@ -144,50 +144,33 @@ export function executeTurnBasedAction(
   context: ActionContext
 ): EngineResult<GameState> {
   const activePlayer = state.players[state.activePlayerIndex || 0];
-  const step = state.step as GameStep;
+  const step = state.step;
   let currentState = state;
   const allLogs: string[] = [];
   
-  switch (step) {
-    case GameStep.UNTAP: {
-      const result = executeUntapStep(currentState, activePlayer.id);
-      currentState = result.state;
-      allLogs.push(...result.logs);
-      break;
-    }
-    
-    case GameStep.DRAW: {
-      const result = executeDrawStep(currentState, activePlayer.id, context, gameId);
-      currentState = result.state;
-      allLogs.push(...result.logs);
-      break;
-    }
-    
-    case GameStep.CLEANUP: {
-      const result = executeCleanupStep(currentState, activePlayer.id);
-      currentState = result.state;
-      allLogs.push(...result.logs);
-      break;
-    }
-    
-    case GameStep.UPKEEP:
-      allLogs.push('Upkeep step begins');
-      break;
-      
-    case GameStep.MAIN:
-      allLogs.push('Main phase');
-      break;
-      
-    case GameStep.BEGINNING_OF_COMBAT:
-      allLogs.push('Beginning of combat');
-      break;
-      
-    case GameStep.END_STEP:
-      allLogs.push('End step begins');
-      break;
-      
-    default:
-      allLogs.push(`Step: ${step}`);
+  // Handle step-based actions using shared GameStep values
+  if (step === GameStep.UNTAP) {
+    const result = executeUntapStep(currentState, activePlayer.id);
+    currentState = result.state;
+    allLogs.push(...result.logs);
+  } else if (step === GameStep.DRAW) {
+    const result = executeDrawStep(currentState, activePlayer.id, context, gameId);
+    currentState = result.state;
+    allLogs.push(...result.logs);
+  } else if (step === GameStep.CLEANUP) {
+    const result = executeCleanupStep(currentState, activePlayer.id);
+    currentState = result.state;
+    allLogs.push(...result.logs);
+  } else if (step === GameStep.UPKEEP) {
+    allLogs.push('Upkeep step begins');
+  } else if (step === GameStep.MAIN1 || step === GameStep.MAIN2) {
+    allLogs.push('Main phase');
+  } else if (step === GameStep.BEGIN_COMBAT) {
+    allLogs.push('Beginning of combat');
+  } else if (step === GameStep.END) {
+    allLogs.push('End step begins');
+  } else {
+    allLogs.push(`Step: ${step}`);
   }
   
   context.emit({

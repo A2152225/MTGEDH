@@ -104,13 +104,13 @@ export function canTurnFaceUpWithDisguise(hasDisguise: boolean): boolean {
 export const MANIFEST_ONE_AT_A_TIME = true;
 
 /**
- * Rule 701.40g: Instant/sorcery can't turn face up
+ * Rule 701.40g: Instant/sorcery can't turn face up when manifested
  * 
  * If a manifested permanent that's represented by an instant or sorcery card
  * would turn face up, its controller reveals it and leaves it face down.
  * Abilities that trigger whenever a permanent is turned face up won't trigger.
  */
-export function canInstantSorceryTurnFaceUp(
+export function canManifestedInstantSorceryTurnFaceUp(
   isInstantOrSorcery: boolean
 ): boolean {
   return !isInstantOrSorcery;

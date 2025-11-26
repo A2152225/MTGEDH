@@ -18,13 +18,35 @@ export * from './mana';
 export * from './numbers';
 
 // Rules 108-110 - Cards, Objects, Permanents
+// Note: Zone enum is defined in both objects.ts and zones.ts with identical values.
+// We export from objects.ts first; zones.ts excludes Zone to avoid duplicate exports.
 export * from './objects';
 
 // Rule 111-112, 114 - Tokens, Spells, Emblems
 export * from './gameObjects';
 
 // Rule 113 - Abilities
-export * from './abilities';
+// Note: ActivationRestriction, TriggerCondition, TriggeredAbility are also defined in spellsAbilitiesEffects.ts
+// We use explicit re-exports to avoid conflicts
+export {
+  AbilityCategory,
+  ActivatedAbility,
+  ActivationRestriction,
+  TriggeredAbility,
+  TriggerCondition,
+  TriggerEvent,
+  StaticAbility,
+  StaticEffectType,
+  AbilityZoneRestriction,
+  AbilitySource,
+  AbilityOnStack,
+  ManaAbility,
+  LoyaltyAbility,
+  Ability,
+  isStackableAbility,
+  isManaAbility,
+  isLoyaltyAbility,
+} from './abilities';
 
 // Rule 115 - Targets
 export * from './targets';
@@ -54,7 +76,55 @@ export * from './cardTypes';
 // Section 4: Zones (Rules 400-408)
 
 // Rules 400-408 - Zones (Library, Hand, Battlefield, Graveyard, Stack, Exile, Command)
-export * from './zones';
+// Note: Zone enum is already exported from objects.ts; exclude it here to avoid duplicate export
+export {
+  isHiddenZone,
+  Library,
+  createLibrary,
+  getTopCard,
+  getLibrarySize,
+  putCardInLibrary,
+  Hand,
+  createHand,
+  getMaximumHandSize,
+  getHandSize,
+  addCardToHand,
+  removeCardFromHand,
+  Battlefield,
+  createBattlefield,
+  isPermanentOnBattlefield,
+  addPermanentToBattlefield,
+  removePermanentFromBattlefield,
+  Graveyard,
+  createGraveyard,
+  putCardInGraveyard,
+  getGraveyardCards,
+  getTopGraveyardCard,
+  StackObject,
+  Stack,
+  createStack,
+  getTopStackObject,
+  ExiledCard,
+  Exile,
+  createExile,
+  exileCard,
+  canExamineExiledCard,
+  Ante,
+  createAnte,
+  CommandZone,
+  createCommandZone,
+  addToCommandZone,
+  isInCommandZone,
+  Sideboard,
+  createSideboard,
+  isSideboardCard,
+  ZoneState,
+  createZoneState,
+  // Exclude Zone, isPublicZone, pushToStack, popFromStack, isStackEmpty to avoid duplicate exports
+} from './zones';
+
+// Re-export isPublicZone from zones.ts with explicit name to avoid conflict with objects.ts
+export { isPublicZone } from './zones';
 
 // Section 5: Turn Structure (Rules 500-514)
 
@@ -64,7 +134,48 @@ export * from './turnStructure';
 // Section 6: Spells, Abilities, and Effects (Rules 600+)
 
 // Rules 601-615 - Casting Spells, Activating Abilities, Triggered Abilities, Resolving, Continuous Effects, Replacement/Prevention
-export * from './spellsAbilitiesEffects';
+// Note: ActivationRestriction, TriggerCondition, TriggeredAbility are also defined in abilities.ts
+// We use explicit re-exports to avoid conflicts (already exported from abilities.ts)
+export {
+  CastingStep,
+  CastingProcess,
+  createCastingProcess,
+  announceSpell,
+  chooseModes,
+  chooseTargets,
+  determineTotalCost,
+  payCosts,
+  isSpellIllegal,
+  ActivationStep,
+  ActivationProcess,
+  createActivationProcess,
+  canActivateWithRestrictions,
+  TriggerType,
+  TriggerInstance,
+  createTriggerInstance,
+  putTriggersOnStack,
+  ResolutionContext,
+  ResolutionStep,
+  ResolutionProcess,
+  checkResolutionLegality,
+  getDestinationAfterResolution,
+  EffectDuration,
+  ContinuousEffect,
+  createContinuousEffect,
+  hasEffectExpired,
+  Layer,
+  PTSublayer,
+  ReplacementType,
+  ReplacementEffect,
+  createReplacementEffect,
+  ETBReplacement,
+  applySelfReplacementFirst,
+  PreventionEffect,
+  createPreventionShield,
+  applyPrevention,
+  // Note: ActivationRestriction, TriggerCondition, TriggeredAbility are intentionally omitted
+  // as they are already exported from abilities.ts
+} from './spellsAbilitiesEffects';
 
 // Section 7: Additional Rules (Rules 700+)
 

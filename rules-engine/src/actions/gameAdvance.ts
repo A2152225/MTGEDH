@@ -28,16 +28,17 @@ export function advanceGame(
     };
   }
   
-  const currentPhase = (state.phase as GamePhase) || GamePhase.PRE_GAME;
-  const currentStep = (state.step as GameStep) || GameStep.SETUP;
+  // Use the shared types directly since gamePhases now re-exports them
+  const currentPhase = state.phase || GamePhase.PRE_GAME;
+  const currentStep = state.step || GameStep.UNTAP;
   
   // Get next step
   const { phase: nextPhase, step: nextStep, isNewTurn } = getNextGameStep(currentPhase, currentStep);
   
   let updatedState: GameState = {
     ...state,
-    phase: nextPhase as any,
-    step: nextStep as any,
+    phase: nextPhase,
+    step: nextStep,
   };
   
   const logs: string[] = [`Advanced to ${nextPhase} - ${nextStep}`];

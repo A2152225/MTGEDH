@@ -22,6 +22,7 @@ export enum CostType {
   PAY_ENERGY = 'pay_energy',        // Paying energy counters
   MILL = 'mill',                    // Putting cards from library to graveyard
   REVEAL = 'reveal',                // Revealing card
+  COMPOSITE = 'composite',          // Composite cost (multiple costs combined)
   OTHER = 'other'                   // Other cost types
 }
 

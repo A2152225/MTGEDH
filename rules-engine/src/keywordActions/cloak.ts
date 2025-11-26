@@ -61,9 +61,9 @@ export function canTurnCloakedFaceUp(
 export const CLOAK_ONE_AT_A_TIME = true;
 
 /**
- * Rule 701.58g: Instant/sorcery can't turn face up
+ * Rule 701.58g: Instant/sorcery can't turn face up when cloaked
  */
-export function canInstantSorceryTurnFaceUp(
+export function canCloakedInstantSorceryTurnFaceUp(
   isInstantOrSorcery: boolean
 ): boolean {
   return !isInstantOrSorcery;

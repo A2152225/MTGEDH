@@ -9,6 +9,7 @@ import type { GameState } from '../../shared/src';
 import type { EngineResult } from './index';
 import { searchZone, completeSearch, type SearchAction, type SearchCriteria } from './keywordActions/search';
 import { sacrificePermanent, canSacrifice } from './keywordActions/sacrifice';
+import { RulesEngineEvent } from './core/events';
 
 /**
  * Example of what needs to be added to RulesEngineAdapter
