@@ -7,6 +7,8 @@ import {
   validateDeck,
   normalizeName,
   shouldSkipDeckLine,
+  fetchDeckFromMoxfield,
+  isMoxfieldUrl,
 } from "../services/scryfall";
 import { ensureGame, broadcastGame } from "./util";
 import { appendEvent } from "../db";
@@ -978,6 +980,63 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         return;
       }
 
+      let effectiveList = list;
+      let effectiveDeckName = deckName;
+
+      // Check if the list is actually a Moxfield URL - fetch the deck first
+      if (list && isMoxfieldUrl(list.trim())) {
+        console.info("[deck] importDeck detected Moxfield URL, will fetch deck from Moxfield", {
+          gameId,
+          url: list.trim(),
+        });
+        
+        const pid = socket.data.playerId as PlayerID | undefined;
+        const spectator = socket.data.spectator;
+        if (!pid || spectator) {
+          socket.emit("deckError", {
+            gameId,
+            message: "Spectators cannot import decks.",
+          });
+          return;
+        }
+
+        const game = ensureGame(gameId);
+        if (!game) {
+          socket.emit("deckError", { gameId, message: "Game not found." });
+          return;
+        }
+
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `🔍 Detected Moxfield URL, fetching deck...`,
+          ts: Date.now(),
+        });
+
+        try {
+          const moxfieldDeck = await fetchDeckFromMoxfield(list.trim());
+          // Convert Moxfield deck to decklist text format
+          effectiveList = moxfieldDeck.cards.map(c => `${c.count} ${c.name}`).join('\n');
+          effectiveDeckName = deckName || moxfieldDeck.name;
+          
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `📦 Found deck "${moxfieldDeck.name}" with ${moxfieldDeck.cards.length} cards (Commanders: ${moxfieldDeck.commanders.join(', ')})`,
+            ts: Date.now(),
+          });
+        } catch (err) {
+          console.error("Failed to fetch deck from Moxfield:", err);
+          socket.emit("deckError", {
+            gameId,
+            message: `Failed to fetch deck from Moxfield: ${err instanceof Error ? err.message : String(err)}`,
+          });
+          return;
+        }
+      }
+
       const pid = socket.data.playerId as PlayerID | undefined;
       const spectator = socket.data.spectator;
       if (!pid || spectator) {
@@ -994,10 +1053,10 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         return;
       }
 
-      // Parse decklist
+      // Parse decklist (using effectiveList which may have been converted from Moxfield)
       let parsed: Array<{ name: string; count: number }>;
       try {
-        parsed = parseDecklist(list);
+        parsed = parseDecklist(effectiveList);
         if (!Array.isArray(parsed) || parsed.length === 0) {
           socket.emit("deckError", {
             gameId,
@@ -1224,7 +1283,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           initiator: pid,
           resolvedCards,
           parsedCount: parsed.reduce((s, p) => s + (p.count || 0), 0),
-          deckName,
+          deckName: effectiveDeckName,
           save,
           responses: { [pid]: "yes" },
           timeout: null,
@@ -1333,7 +1392,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         initiator: pid,
         resolvedCards,
         parsedCount: parsed.reduce((s, p) => s + (p.count || 0), 0),
-        deckName,
+        deckName: effectiveDeckName,
         save,
         responses,
         timeout: null,
@@ -1384,7 +1443,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           confirmId,
           gameId,
           initiator: pid,
-          deckName,
+          deckName: effectiveDeckName,
           resolvedCount: resolvedCards.length,
           expectedCount: pendingConfirm.parsedCount,
           players,
@@ -2832,6 +2891,487 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         socket.emit("deckError", {
           gameId,
           message: "Failed to import precon deck.",
+        });
+      }
+    }
+  );
+
+  // importDeckFromUrl - import a deck from a Moxfield URL
+  socket.on(
+    "importDeckFromUrl",
+    async ({
+      gameId,
+      url,
+      save,
+    }: {
+      gameId: string;
+      url: string;
+      save?: boolean;
+    }) => {
+      try {
+        console.info("[deck] importDeckFromUrl called", {
+          gameId,
+          url,
+          playerId: socket.data.playerId,
+        });
+
+        if (!gameId || typeof gameId !== "string") {
+          socket.emit("deckError", { gameId, message: "GameId required." });
+          return;
+        }
+
+        if (!url || typeof url !== "string") {
+          socket.emit("deckError", { gameId, message: "URL required." });
+          return;
+        }
+
+        const pid = socket.data.playerId as PlayerID | undefined;
+        const spectator = socket.data.spectator;
+        if (!pid || spectator) {
+          socket.emit("deckError", {
+            gameId,
+            message: "Spectators cannot import decks.",
+          });
+          return;
+        }
+
+        const game = ensureGame(gameId);
+        if (!game) {
+          socket.emit("deckError", { gameId, message: "Game not found." });
+          return;
+        }
+
+        // Validate URL format
+        if (!isMoxfieldUrl(url)) {
+          socket.emit("deckError", {
+            gameId,
+            message: "Currently only Moxfield URLs are supported (e.g., https://moxfield.com/decks/...).",
+          });
+          return;
+        }
+
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `🔍 Fetching deck from Moxfield...`,
+          ts: Date.now(),
+        });
+
+        // Fetch deck from Moxfield
+        let moxfieldDeck: Awaited<ReturnType<typeof fetchDeckFromMoxfield>>;
+        try {
+          moxfieldDeck = await fetchDeckFromMoxfield(url);
+        } catch (err) {
+          console.error("Failed to fetch deck from Moxfield:", err);
+          socket.emit("deckError", {
+            gameId,
+            message: `Failed to fetch deck from Moxfield: ${err instanceof Error ? err.message : String(err)}`,
+          });
+          return;
+        }
+
+        const { name: deckName, commanders, cards: parsed } = moxfieldDeck;
+
+        console.info("[deck] importDeckFromUrl fetched from Moxfield", {
+          gameId,
+          deckName,
+          commanders,
+          cardCount: parsed.length,
+        });
+
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `📦 Found deck "${deckName}" with ${parsed.length} cards (Commanders: ${commanders.join(', ')})`,
+          ts: Date.now(),
+        });
+
+        // Now resolve the cards via Scryfall (same as importDeck)
+        const requestedNames = parsed.map((p) => p.name);
+        let byName: Map<string, any> | null = null;
+        try {
+          byName = await fetchCardsByExactNamesBatch(requestedNames);
+        } catch {
+          byName = null;
+        }
+
+        const resolvedCards: Array<
+          Pick<
+            KnownCardRef,
+            "id" | "name" | "type_line" | "oracle_text" | "image_uris" | "mana_cost" | "power" | "toughness" | "card_faces" | "layout"
+          >
+        > = [];
+        const validationCards: any[] = [];
+        const missing: string[] = [];
+
+        if (byName) {
+          for (const { name, count } of parsed) {
+            const key = normalizeName(name).toLowerCase();
+            const c = byName.get(key);
+            if (!c) {
+              missing.push(name);
+              continue;
+            }
+            for (let i = 0; i < (count || 1); i++) {
+              validationCards.push(c);
+              resolvedCards.push({
+                id: c.id,
+                name: c.name,
+                type_line: c.type_line,
+                oracle_text: c.oracle_text,
+                image_uris: c.image_uris,
+                mana_cost: (c as any).mana_cost,
+                power: (c as any).power,
+                toughness: (c as any).toughness,
+                card_faces: (c as any).card_faces,
+                layout: (c as any).layout,
+              });
+            }
+          }
+        } else {
+          for (const { name, count } of parsed) {
+            try {
+              const c = await fetchCardByExactNameStrict(name);
+              for (let i = 0; i < (count || 1); i++) {
+                validationCards.push(c);
+                resolvedCards.push({
+                  id: c.id,
+                  name: c.name,
+                  type_line: c.type_line,
+                  oracle_text: c.oracle_text,
+                  image_uris: c.image_uris,
+                  mana_cost: (c as any).mana_cost,
+                  power: (c as any).power,
+                  toughness: (c as any).toughness,
+                  card_faces: (c as any).card_faces,
+                  layout: (c as any).layout,
+                });
+              }
+            } catch {
+              missing.push(name);
+            }
+          }
+        }
+
+        console.info("[deck] importDeckFromUrl resolved cards", {
+          gameId,
+          playerId: pid,
+          resolvedCount: resolvedCards.length,
+          missingCount: missing.length,
+        });
+
+        try {
+          (game as any)._lastImportedDecks =
+            (game as any)._lastImportedDecks || new Map<PlayerID, any[]>();
+          (game as any)._lastImportedDecks.set(
+            pid,
+            resolvedCards.map((c) => ({
+              id: c.id,
+              name: c.name,
+              type_line: c.type_line,
+              oracle_text: c.oracle_text,
+              image_uris: c.image_uris,
+              mana_cost: (c as any).mana_cost,
+              power: (c as any).power,
+              toughness: (c as any).toughness,
+              card_faces: (c as any).card_faces,
+              layout: (c as any).layout,
+            }))
+          );
+        } catch (e) {
+          console.warn(
+            "Could not set _lastImportedDecks on game object for importDeckFromUrl:",
+            e
+          );
+        }
+
+        // Run deck validation against game format
+        try {
+          const format = (game.state && (game.state as any).format) || "commander";
+          const validation = validateDeck(format, validationCards);
+          
+          if (validation.illegal.length > 0 || validation.warnings.length > 0) {
+            socket.emit("deckValidationResult", {
+              gameId,
+              format,
+              cardCount: resolvedCards.length,
+              illegal: validation.illegal,
+              warnings: validation.warnings,
+              valid: validation.illegal.length === 0,
+            });
+            
+            if (validation.illegal.length > 0) {
+              const illegalNames = validation.illegal.slice(0, 5).map(i => `${i.name} (${i.reason})`);
+              io.to(gameId).emit("chat", {
+                id: `m_${Date.now()}`,
+                gameId,
+                from: "system",
+                message: `⚠️ Deck validation: ${validation.illegal.length} card(s) may not be legal in ${format}: ${illegalNames.join(", ")}${validation.illegal.length > 5 ? ", ..." : ""}`,
+                ts: Date.now(),
+              });
+            }
+          } else {
+            socket.emit("deckValidationResult", {
+              gameId,
+              format,
+              cardCount: resolvedCards.length,
+              illegal: [],
+              warnings: [],
+              valid: true,
+            });
+          }
+        } catch (e) {
+          console.warn("[deck] Deck validation failed:", e);
+        }
+
+        if (missing.length) {
+          try {
+            socket.emit("deckImportMissing", { gameId, missing });
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `Missing cards: ${missing
+                .slice(0, 10)
+                .join(", ")}${missing.length > 10 ? ", …" : ""}`,
+              ts: Date.now(),
+            });
+          } catch (e) {
+            console.warn("emit deckImportMissing failed", e);
+          }
+        }
+
+        const rawPhase = (game.state && (game.state as any).phase) ?? "";
+        const phaseStr = String(rawPhase).toUpperCase().trim();
+        const seqVal =
+          typeof (game as any).seq === "number" ? (game as any).seq : null;
+        const isPreGame =
+          phaseStr === "" ||
+          phaseStr.includes("PRE") ||
+          phaseStr.includes("BEGIN") ||
+          seqVal === 0 ||
+          seqVal === null;
+
+        console.info("[deck] importDeckFromUrl pregame-check", {
+          gameId,
+          playerId: pid,
+          phaseStr,
+          seqVal,
+          isPreGame,
+        });
+
+        if (isPreGame) {
+          const confirmId = `imp_${Date.now()}_${Math.random()
+            .toString(36)
+            .slice(2, 8)}`;
+          const pending: PendingConfirm = {
+            gameId,
+            initiator: pid,
+            resolvedCards,
+            parsedCount: parsed.reduce((s, p) => s + (p.count || 0), 0),
+            deckName,
+            save,
+            responses: { [pid]: "yes" },
+            timeout: null,
+            snapshotZones:
+              game.state &&
+              (game.state as any).zones &&
+              (game.state as any).zones[pid]
+                ? JSON.parse(
+                    JSON.stringify((game.state as any).zones[pid])
+                  )
+                : null,
+            snapshotCommandZone:
+              game.state &&
+              (game.state as any).commandZone &&
+              (game.state as any).commandZone[pid]
+                ? JSON.parse(
+                    JSON.stringify(
+                      (game.state as any).commandZone[pid]
+                    )
+                  )
+                : null,
+            snapshotPhase:
+              game.state && (game.state as any).phase !== undefined
+                ? (game.state as any).phase
+                : null,
+            applyImporterOnly: true,
+          };
+          pendingImportConfirmations.set(confirmId, pending);
+
+          try {
+            clearPlayerTransientZonesForImport(game, pid);
+            addPendingInitialDrawFlag(game, pid);
+            try {
+              broadcastGame(io, game, gameId);
+            } catch {
+              /* best-effort */
+            }
+          } catch (e) {
+            console.warn(
+              "importDeckFromUrl (pre-game): clearing transient zones/flags failed",
+              e
+            );
+          }
+
+          try {
+            console.info("[deck] importDeckFromUrl (pre-game) emitting suggestCommanders", {
+              gameId,
+              playerId: pid,
+              names: commanders,
+            });
+            try {
+              socket.emit("suggestCommanders", { gameId, names: commanders });
+            } catch {
+              /* ignore */
+            }
+          } catch {
+            /* ignore */
+          }
+
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `✅ Imported ${resolvedCards.length} cards from Moxfield for "${deckName}"`,
+            ts: Date.now(),
+          });
+
+          setTimeout(() => {
+            applyConfirmedImport(io, confirmId, socket).catch((err) => {
+              console.error("immediate applyConfirmedImport failed:", err);
+              cancelConfirmation(io, confirmId, "apply_failed");
+            });
+          }, 200);
+          return;
+        }
+
+        // Mid-game path: require unanimous approval (same as importDeck)
+        const activePlayerIds = getActivePlayerIds(game, io, gameId);
+        const players =
+          activePlayerIds.length > 0
+            ? activePlayerIds
+            : (game.state.players || [])
+                .map((p: any) => p.id)
+                .filter(Boolean) as string[];
+
+        const confirmId = `imp_${Date.now()}_${Math.random()
+          .toString(36)
+          .slice(2, 8)}`;
+        const responses: Record<string, "pending" | "yes" | "no"> = {};
+        for (const pl of players) responses[pl] = "pending";
+        responses[pid] = "yes";
+
+        const snapshotZones =
+          game.state &&
+          (game.state as any).zones &&
+          (game.state as any).zones[pid]
+            ? JSON.parse(JSON.stringify((game.state as any).zones[pid]))
+            : null;
+        const snapshotCommandZone =
+          game.state &&
+          (game.state as any).commandZone &&
+          (game.state as any).commandZone[pid]
+            ? JSON.parse(
+                JSON.stringify((game.state as any).commandZone[pid])
+              )
+            : null;
+        const snapshotPhase =
+          game.state && (game.state as any).phase !== undefined
+            ? (game.state as any).phase
+            : null;
+
+        const pendingConfirm: PendingConfirm = {
+          gameId,
+          initiator: pid,
+          resolvedCards,
+          parsedCount: parsed.reduce((s, p) => s + (p.count || 0), 0),
+          deckName,
+          save,
+          responses,
+          timeout: null,
+          snapshotZones,
+          snapshotCommandZone,
+          snapshotPhase,
+          applyImporterOnly: false,
+        };
+
+        const TIMEOUT_MS = 60_000;
+        pendingConfirm.timeout = setTimeout(() => {
+          cancelConfirmation(io, confirmId, "timeout");
+        }, TIMEOUT_MS);
+
+        pendingImportConfirmations.set(confirmId, pendingConfirm);
+
+        try {
+          clearPlayerTransientZonesForImport(game, pid);
+          try {
+            broadcastGame(io, game, gameId);
+          } catch {
+            /* best-effort */
+          }
+        } catch (e) {
+          console.warn("importDeckFromUrl: clearing transient zones failed", e);
+        }
+
+        try {
+          addPendingInitialDrawFlag(game, pid);
+          try {
+            broadcastGame(io, game, gameId);
+          } catch {
+            /* best-effort */
+          }
+        } catch (e) {
+          console.warn("importDeckFromUrl: addPendingInitialDrawFlag failed", e);
+        }
+
+        try {
+          console.info("[deck] emitting importWipeConfirmRequest", {
+            gameId,
+            confirmId,
+            initiator: pid,
+            players: players.length,
+            resolvedCount: resolvedCards.length,
+          });
+          io.to(gameId).emit("importWipeConfirmRequest", {
+            confirmId,
+            gameId,
+            initiator: pid,
+            deckName,
+            resolvedCount: resolvedCards.length,
+            expectedCount: pendingConfirm.parsedCount,
+            players,
+            timeoutMs: TIMEOUT_MS,
+          });
+        } catch (err) {
+          console.warn("importDeckFromUrl: emit importWipeConfirmRequest failed", err);
+        }
+
+        broadcastConfirmUpdate(io, confirmId, pendingConfirm);
+
+        try {
+          if (players.length <= 1) {
+            console.info("[deck] auto-applyConfirmedImport for single player", {
+              gameId,
+              confirmId,
+            });
+            setTimeout(() => {
+              applyConfirmedImport(io, confirmId).catch((err) => {
+                console.error("auto applyConfirmedImport failed:", err);
+                cancelConfirmation(io, confirmId, "apply_failed");
+              });
+            }, 250);
+          }
+        } catch (e) {
+          console.warn("importDeckFromUrl: auto-apply single-player failed", e);
+        }
+      } catch (err) {
+        console.error("importDeckFromUrl handler failed:", err);
+        socket.emit("deckError", {
+          gameId,
+          message: "Failed to import deck from URL.",
         });
       }
     }

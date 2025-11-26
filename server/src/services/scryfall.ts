@@ -503,3 +503,148 @@ export function validateDeck(format: string, cards: ScryfallCard[]): { illegal: 
 
   return { illegal, warnings };
 }
+
+//
+// Moxfield URL parsing and deck fetching
+//
+
+/**
+ * Extract the deck ID from a Moxfield URL.
+ * Supports various Moxfield URL formats:
+ * - https://moxfield.com/decks/{deckId}
+ * - https://www.moxfield.com/decks/{deckId}
+ * - https://moxfield.com/decks/{deckId}?...
+ * 
+ * @param url - The Moxfield deck URL
+ * @returns The deck ID if found, null otherwise
+ */
+export function extractMoxfieldDeckId(url: string): string | null {
+  if (!url || typeof url !== 'string') return null;
+  
+  // Match patterns like moxfield.com/decks/{deckId}
+  const match = url.match(/moxfield\.com\/decks\/([a-zA-Z0-9_-]+)/i);
+  return match ? match[1] : null;
+}
+
+/**
+ * Moxfield API response types (subset of what we need)
+ */
+interface MoxfieldCardEntry {
+  quantity: number;
+  card: {
+    name: string;
+    scryfall_id?: string;
+    type_line?: string;
+    oracle_text?: string;
+    mana_cost?: string;
+  };
+}
+
+interface MoxfieldDeckResponse {
+  id: string;
+  name: string;
+  format?: string;
+  mainboard?: Record<string, MoxfieldCardEntry>;
+  commanders?: Record<string, MoxfieldCardEntry>;
+  sideboard?: Record<string, MoxfieldCardEntry>;
+  publicId?: string;
+}
+
+/**
+ * Fetch a deck from Moxfield by URL or deck ID.
+ * 
+ * @param urlOrId - Either a full Moxfield URL or just the deck ID
+ * @returns Object containing deck name, commanders, and card list as ParsedLine array
+ * @throws Error if the deck cannot be fetched or parsed
+ */
+export async function fetchDeckFromMoxfield(urlOrId: string): Promise<{
+  name: string;
+  commanders: string[];
+  cards: ParsedLine[];
+  format?: string;
+}> {
+  // Extract deck ID from URL if needed
+  const deckId = urlOrId.includes('moxfield.com') 
+    ? extractMoxfieldDeckId(urlOrId) 
+    : urlOrId;
+  
+  if (!deckId) {
+    throw new Error('Invalid Moxfield URL or deck ID');
+  }
+  
+  // Moxfield API endpoint
+  const apiUrl = `https://api2.moxfield.com/v2/decks/all/${encodeURIComponent(deckId)}`;
+  
+  const f = ensureFetch();
+  
+  let data: MoxfieldDeckResponse;
+  try {
+    const response = await f(apiUrl, {
+      headers: {
+        'User-Agent': 'MTGEDH-DeckImporter/1.0',
+        'Accept': 'application/json',
+      },
+    });
+    
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error(`Moxfield deck not found: ${deckId}`);
+      }
+      throw new Error(`Moxfield API error: ${response.status}`);
+    }
+    
+    data = await response.json() as MoxfieldDeckResponse;
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('Moxfield')) {
+      throw err;
+    }
+    throw new Error(`Failed to fetch deck from Moxfield: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  
+  // Extract commanders
+  const commanders: string[] = [];
+  if (data.commanders) {
+    for (const entry of Object.values(data.commanders)) {
+      if (entry.card?.name) {
+        commanders.push(entry.card.name);
+      }
+    }
+  }
+  
+  // Extract cards from mainboard
+  const cards: ParsedLine[] = [];
+  
+  // Add commanders first (they should be in the deck)
+  for (const entry of Object.values(data.commanders || {})) {
+    if (entry.card?.name) {
+      cards.push({
+        name: entry.card.name,
+        count: entry.quantity || 1,
+      });
+    }
+  }
+  
+  // Add mainboard cards
+  for (const entry of Object.values(data.mainboard || {})) {
+    if (entry.card?.name) {
+      cards.push({
+        name: entry.card.name,
+        count: entry.quantity || 1,
+      });
+    }
+  }
+  
+  return {
+    name: data.name || 'Imported Deck',
+    commanders,
+    cards,
+    format: data.format,
+  };
+}
+
+/**
+ * Check if a string looks like a Moxfield URL
+ */
+export function isMoxfieldUrl(str: string): boolean {
+  return /moxfield\.com\/decks\//i.test(str);
+}
