@@ -1248,14 +1248,44 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         }
         case 'battlefield': {
           game.state.battlefield = game.state.battlefield || [];
+          const permanentId = card.id;
+          const cardName = (card.name || "").toLowerCase();
+          
+          // Check if this is a shock land that needs a prompt
+          const SHOCK_LANDS = new Set([
+            "blood crypt", "breeding pool", "godless shrine", "hallowed fountain",
+            "overgrown tomb", "sacred foundry", "steam vents", "stomping ground",
+            "temple garden", "watery grave"
+          ]);
+          
+          const isShockLand = SHOCK_LANDS.has(cardName);
+          
+          // By default, lands from search enter untapped unless shock land
+          // Shock lands will be handled by a prompt
+          const shouldEnterTapped = false; // Will be set by prompt response
+          
           game.state.battlefield.push({
-            id: card.id,
+            id: permanentId,
             card: { ...card, zone: 'battlefield' },
             controller: pid,
             owner: libraryOwner,
-            tapped: false,
+            tapped: shouldEnterTapped,
             counters: {},
           });
+          
+          // If it's a shock land, emit prompt to player
+          if (isShockLand) {
+            const currentLife = (game.state as any)?.life?.[pid] || 40;
+            const cardImageUrl = card.image_uris?.small || card.image_uris?.normal;
+            
+            socket.emit("shockLandPrompt", {
+              gameId,
+              permanentId,
+              cardName: card.name,
+              imageUrl: cardImageUrl,
+              currentLife,
+            });
+          }
           break;
         }
         case 'top': {

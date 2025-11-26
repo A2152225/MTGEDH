@@ -87,6 +87,15 @@ export * from './staticAbilities';
 // Export triggered effects automation
 export * from './triggeredEffectsAutomation';
 
+// Export comprehensive event-based trigger system (Rule 603)
+export * from './gameEvents';
+
+// Export enhanced priority system (Rule 117)
+export * from './prioritySystem';
+
+// Export cleanup step implementation (Rule 514)
+export * from './cleanupStep';
+
 // Export opening hand actions (Rule 103.6 - Leyline and Chancellor effects)
 export * from './openingHandActions';
 
