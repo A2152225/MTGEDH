@@ -7,5 +7,6 @@ export type {
   SocketData, 
   ChatMsg,
   PermanentID,
-  CardID 
+  CardID,
+  GameID as EventGameID
 } from "./events.js";

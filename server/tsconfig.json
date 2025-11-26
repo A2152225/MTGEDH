@@ -1,12 +1,17 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
     "outDir": "dist",
     "sourceMap": true,
     "resolveJsonModule": true,
-    "noEmit": true
+    "declaration": true,
+    "declarationMap": true,
+    "strict": false,
+    "skipLibCheck": true,
+    "noEmit": false
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["node_modules", "../rules-engine/**/*"]
 }

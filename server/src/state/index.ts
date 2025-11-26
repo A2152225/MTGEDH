@@ -50,6 +50,7 @@ export function createInitialGameState(gameId: string): InMemoryGame {
 
   const game: InMemoryGame = {
     // core state and seq
+    gameId,
     state: ctx.state,
 
     get seq() {
@@ -64,7 +65,7 @@ export function createInitialGameState(gameId: string): InMemoryGame {
 
     // lifecycle / participants
     join: (socketId, playerName, spectator, fixedPlayerId, seatTokenFromClient) =>
-      join(ctx, socketId, playerName, spectator, fixedPlayerId, seatTokenFromClient),
+      join(ctx, socketId, playerName, spectator ?? false, fixedPlayerId, seatTokenFromClient),
     leave: (playerId?: PlayerID) => leave(ctx, playerId),
     disconnect: (socketId: string) => disconnect(ctx, socketId),
     participants: () => participants(ctx),
@@ -162,7 +163,7 @@ export function createInitialGameState(gameId: string): InMemoryGame {
     removePermanent: (permanentId: string) => removePermanent(ctx, permanentId),
     movePermanentToExile: (permanentId: string) => movePermanentToExile(ctx, permanentId),
     applyEngineEffects: (effects: readonly any[]) => applyEngineEffects(ctx, effects),
-    runSBA: (playerId: PlayerID) => runSBA(ctx, playerId),
+    runSBA: () => runSBA(ctx),
 
     // stack
     pushStack: (item) => pushStack(ctx, item),
@@ -173,7 +174,7 @@ export function createInitialGameState(gameId: string): InMemoryGame {
     playLand: (playerId: PlayerID, card) => playLand(ctx, playerId, card),
 
     // view
-    viewFor: (viewer?: PlayerID, spectator?: boolean) => viewFor(ctx, viewer, !!spectator),
+    viewFor: (viewer?: PlayerID, spectator?: boolean) => viewFor(ctx, viewer ?? "", !!spectator),
 
     // step scheduling helpers (runtime-only)
     scheduleStepsAfterCurrent: (steps: any[]) => scheduleStepsAfterCurrent(ctx, steps),
@@ -185,7 +186,7 @@ export function createInitialGameState(gameId: string): InMemoryGame {
     // event lifecycle / apply/replay/reset/skip/unskip/remove delegated to module
     applyEvent: (e: GameEvent) => applyEvent(ctx, e),
     replay: (events: GameEvent[]) => replay(ctx, events),
-    reset: (preservePlayers: boolean) => reset(ctx, preservePlayers),
+    reset: (preservePlayers?: boolean) => reset(ctx, preservePlayers ?? false),
     skip: (playerId: PlayerID) => skip(ctx, playerId),
     unskip: (playerId: PlayerID) => unskip(ctx, playerId),
     remove: (playerId: PlayerID) => remove(ctx, playerId),

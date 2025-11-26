@@ -16,11 +16,11 @@ import {
   drawCards,
   selectFromLibrary,
   moveHandToLibrary,
-  reorderHand,
-  shuffleHand,
-  peekTopN,
-  applyScry,
-  applySurveil,
+  reorderHand as zonesReorderHand,
+  shuffleHand as zonesShuffleHand,
+  peekTopN as zonesPeekTopN,
+  applyScry as zonesApplyScry,
+  applySurveil as zonesApplySurveil,
 } from "./zones.js";
 import { setCommander, castCommander, moveCommanderToCZ } from "./commander.js";
 import {

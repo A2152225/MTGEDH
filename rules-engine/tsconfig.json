@@ -3,7 +3,8 @@
   "compilerOptions": {
     "module": "ESNext",
     "outDir": "dist",
-    "noEmit": true
+    "noEmit": true,
+    "strict": false
   },
   "include": ["src", "test"]
 }

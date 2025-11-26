@@ -107,10 +107,10 @@ export type PersistedEvent = {
  */
 export function getEvents(gameId: string): PersistedEvent[] {
   ensureDB();
-  const stmt = db!.prepare<{ game_id: string }, { type: string; payload: string | null }>(
+  const stmt = db!.prepare(
     `SELECT type, payload FROM events WHERE game_id = ? ORDER BY id ASC`
   );
-  const rows = stmt.all(gameId);
+  const rows = stmt.all(gameId) as Array<{ type: string; payload: string | null }>;
   return rows.map((r) => ({
     type: r.type,
     payload: safeParseJSON(r.payload),
@@ -180,7 +180,7 @@ export function appendEvent(gameId: string, seq: number, type: string, payload: 
 
 /* ====================== helpers ====================== */
 
-function ensureDB(): asserts db is DB {
+function ensureDB(): void {
   if (!db) throw new Error('DB not initialized. Call initDb() first.');
 }
 

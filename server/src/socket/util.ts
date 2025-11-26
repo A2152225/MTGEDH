@@ -37,7 +37,7 @@ function defaultPlayerZones() {
 function ensureStateZonesForPlayers(game: any) {
   try {
     if (!game) return;
-    game.state = game.state || {};
+    game.state = (game.state || {}) as any;
     game.state.players = game.state.players || [];
     game.state.zones = game.state.zones || {};
     for (const p of game.state.players) {

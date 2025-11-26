@@ -333,10 +333,11 @@ export function addAgeCounter(ctx: GameContext, permanentId: string): number {
   const permanent = battlefield.find((p: any) => p?.id === permanentId);
   
   if (permanent) {
-    permanent.counters = permanent.counters || {};
-    permanent.counters["age"] = (permanent.counters["age"] || 0) + 1;
+    const counters = { ...(permanent.counters || {}) };
+    counters["age"] = (counters["age"] || 0) + 1;
+    (permanent as any).counters = counters;
     ctx.bumpSeq();
-    return permanent.counters["age"];
+    return counters["age"];
   }
   return 0;
 }
@@ -349,9 +350,11 @@ export function removeFadeCounter(ctx: GameContext, permanentId: string): boolea
   const permanent = battlefield.find((p: any) => p?.id === permanentId);
   
   if (permanent && permanent.counters?.["fade"] > 0) {
-    permanent.counters["fade"] -= 1;
+    const counters = { ...(permanent.counters || {}) };
+    counters["fade"] -= 1;
+    (permanent as any).counters = counters;
     ctx.bumpSeq();
-    return permanent.counters["fade"] > 0;
+    return counters["fade"] > 0;
   }
   return false;
 }
@@ -364,9 +367,11 @@ export function removeTimeCounter(ctx: GameContext, permanentId: string): boolea
   const permanent = battlefield.find((p: any) => p?.id === permanentId);
   
   if (permanent && permanent.counters?.["time"] > 0) {
-    permanent.counters["time"] -= 1;
+    const counters = { ...(permanent.counters || {}) };
+    counters["time"] -= 1;
+    (permanent as any).counters = counters;
     ctx.bumpSeq();
-    return permanent.counters["time"] > 0;
+    return counters["time"] > 0;
   }
   return false;
 }

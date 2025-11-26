@@ -1,12 +1,18 @@
 import { Socket, Server } from 'socket.io';
-import { GameManager } from './GameManager';
+import GameManager from './GameManager';
 import { GameActionType, GameAction, AutomationErrorReport } from '@mtgedh/shared';
 import { v4 as uuidv4 } from 'uuid';
 
-export function setupSocketHandlers(socket: Socket, gameManager: GameManager, io: Server) {
+// Note: This file uses GameManager methods that may not exist on all implementations.
+// The actual socket handlers are registered in src/socket/*.ts
+export function setupSocketHandlers(socket: Socket, gameManager: any, io: Server) {
   
   // Join game
-  socket.on('joinGame', (data: { gameId: string; playerName: string }, callback) => {
+  socket.on('joinGame', (data: { gameId: string; playerName: string }, callback: any) => {
+    if (typeof gameManager?.joinGame !== 'function') {
+      callback({ success: false, error: 'joinGame not supported by this GameManager' });
+      return;
+    }
     const player = gameManager.joinGame(data.gameId, {
       name: data.playerName,
       socketId: socket.id
@@ -25,9 +31,10 @@ export function setupSocketHandlers(socket: Socket, gameManager: GameManager, io
   
   // Start game
   socket.on('startGame', (data: { gameId: string }) => {
+    if (typeof gameManager?.startGame !== 'function') return;
     const success = gameManager.startGame(data.gameId);
     if (success) {
-      const game = gameManager.getGame(data.gameId);
+      const game = gameManager.getGame?.(data.gameId);
       io.to(data.gameId).emit('gameStarted', game);
     }
   });
@@ -35,7 +42,7 @@ export function setupSocketHandlers(socket: Socket, gameManager: GameManager, io
   // Pass priority
   socket.on('passPriority', (data: { gameId: string; playerId: string }) => {
     // Handle priority passing logic
-    const game = gameManager.getGame(data.gameId);
+    const game = gameManager?.getGame?.(data.gameId);
     if (game) {
       io.to(data.gameId).emit('priorityPassed', { playerId: data.playerId, game });
     }

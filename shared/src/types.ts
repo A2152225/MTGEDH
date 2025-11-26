@@ -49,6 +49,14 @@ export interface HiddenCardRef {
   faceDown: true;
   zone: 'battlefield' | 'exile' | 'stack' | 'library' | 'hand' | 'graveyard' | 'command';
   visibility: 'owner' | 'controller' | 'public' | 'none';
+  // Optional properties for compatibility with KnownCardRef (when card is revealed)
+  name?: string;
+  type_line?: string;
+  oracle_text?: string;
+  image_uris?: ImageUris;
+  mana_cost?: string;
+  power?: string | number;
+  toughness?: string | number;
 }
 
 /* Generic CardRef used across the app */
@@ -62,6 +70,19 @@ export interface PlayerRef {
   isSpectator?: boolean;
   inactive?: boolean;
   eliminated?: boolean;
+  // Optional server-side properties
+  life?: number;
+  // Additional optional properties used by rules-engine
+  hand?: any[];
+  library?: any[];
+  graveyard?: any[];
+  battlefield?: any[];
+  exile?: any[];
+  commandZone?: any[];
+  counters?: Record<string, number>;
+  hasLost?: boolean;
+  commanderDamage?: Record<string, number>;
+  manaPool?: ManaPool;
 }
 
 /* Full server-side Player shape (subset exported for server) */
@@ -147,6 +168,19 @@ export interface BattlefieldPermanent {
   targetedBy?: string[];          // IDs of spells/abilities targeting this permanent
   // Temporary effects applied to this permanent (e.g., "exile if dies this turn", "gains +1/+1 until end of turn")
   temporaryEffects?: readonly TemporaryEffect[];
+  // Creature type choice for changeling/tribal effects (e.g., Mistform Ultimus)
+  chosenCreatureType?: string;
+  // Phasing support
+  phasedOut?: boolean;
+  phaseOutController?: PlayerID;
+  // Teferi's Protection and similar effects
+  teferisProtection?: boolean;
+  // Echo paid tracking
+  echoPaid?: boolean;
+  // Token flag
+  isToken?: boolean;
+  // Summoning sickness
+  summoningSickness?: boolean;
 }
 
 /* Temporary effect applied to a permanent or player */
@@ -240,6 +274,42 @@ export interface GameState {
   initiative?: PlayerID | null;
   dayNight?: 'day' | 'night' | null;
   cityBlessing?: Record<PlayerID, boolean>;
+  // Mana pool for each player
+  manaPool?: Record<PlayerID, ManaPool>;
+  // Combat state
+  combat?: CombatInfo;
+  // Pending targets for spells/abilities
+  pendingTargets?: any;
+  // Creature type choices (Morophon, etc.) - can be string for global or Record for per-permanent
+  morophonChosenType?: string | Record<string, string>;
+  // Allow undos flag
+  allowUndos?: boolean;
+  // Creation timestamp
+  createdAt?: number;
+  // Last action timestamp
+  lastActionAt?: number;
+  // Commander damage tracking
+  commanderDamage?: Record<PlayerID, Record<PlayerID, number>>;
+  // Turn timer settings
+  turnTimerEnabled?: boolean;
+  turnTimerSeconds?: number;
+  // Player protection effects (Teferi's Protection, etc.)
+  playerProtection?: Record<PlayerID, PlayerProtectionState>;
+  // Poison counters tracking
+  poisonCounters?: Record<PlayerID, number>;
+  // Spectators list
+  spectators?: readonly PlayerRef[];
+  // Rules engine compatibility
+  winner?: PlayerID | null;
+  priorityPlayerIndex?: number;
+}
+
+/* Player protection state for effects like Teferi's Protection */
+export interface PlayerProtectionState {
+  teferisProtection?: boolean;
+  lifeCannotChange?: boolean;
+  protectionFromEverything?: boolean;
+  expiresAtCleanup?: boolean;
 }
 
 /* Client-scoped game view (lightweight diff of authoritative state) */
@@ -282,6 +352,17 @@ export interface StateDiff<T> {
   full?: T;
   patch?: Partial<T>;
   seq: number;
+}
+
+/* Mana pool for a player */
+export interface ManaPool {
+  white: number;
+  blue: number;
+  black: number;
+  red: number;
+  green: number;
+  colorless: number;
+  generic?: number;
 }
 
 /* Payment item for mana payment during spell casting */
@@ -329,6 +410,12 @@ export interface AutomationErrorReport {
   resolution?: string;
   fixedInVersion?: string;
 }
+
+/* Target reference for spells and abilities */
+export type TargetRef = 
+  | { kind: 'permanent'; id: string }
+  | { kind: 'player'; id: string }
+  | { kind: 'card'; id: string; zone: string };
 
 /* In-memory game type for server */
 export interface InMemoryGame {

@@ -4,7 +4,9 @@ import type {
   ServerToClientEvents,
   InterServerEvents,
   SocketData,
-} from "../../shared/src";
+  GameID,
+} from "../../../shared/src";
+import type { InMemoryGame } from "../state/types";
 import { registerJoinHandlers } from "./join";
 import { registerGameActions } from "./game-actions";
 import { registerCommanderHandlers } from "./commander";

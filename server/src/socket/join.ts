@@ -89,7 +89,7 @@ function makeSeatToken() {
 function ensureStateZonesForPlayers(game: any) {
   try {
     if (!game) return;
-    game.state = game.state || {};
+    game.state = (game.state || {}) as any;
     game.state.players = game.state.players || [];
     game.state.zones = game.state.zones || {};
     for (const p of game.state.players) {
@@ -403,12 +403,12 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                     try {
                       (game as any).seedRng(seed);
                     } catch (e) {
-                      game.state = game.state || {};
+                      game.state = (game.state || {}) as any;
                       (game.state as any).rngSeed = seed;
                       (game as any)._rngSeed = seed;
                     }
                   } else {
-                    game.state = game.state || {};
+                    game.state = (game.state || {}) as any;
                     (game.state as any).rngSeed = seed;
                     (game as any)._rngSeed = seed;
                   }
@@ -504,7 +504,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
               if (forcedFixedPlayerId) {
                 playerId = forcedFixedPlayerId;
                 try {
-                  game.state = game.state || {};
+                  game.state = (game.state || {}) as any;
                   game.state.players = game.state.players || [];
                   const playerObj = (game.state.players as any[]).find(
                     (p) => p.id === playerId
@@ -662,7 +662,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                 seatToken: tokenToUse,
                 socketId: socket.id,
               };
-              game.state = game.state || {};
+              game.state = (game.state || {}) as any;
               game.state.players = game.state.players || [];
               game.state.players.push(playerObj);
               playerId = newId;

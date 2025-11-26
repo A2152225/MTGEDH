@@ -2,7 +2,7 @@ import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer } from "./util";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
-import type { PaymentItem } from "../../shared/src";
+import type { PaymentItem } from "../../../shared/src";
 import { requiresCreatureTypeSelection, requestCreatureTypeSelection } from "./creature-type";
 import { checkAndPromptOpeningHandActions } from "./opening-hand";
 
@@ -441,8 +441,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       const zones = game.state?.zones?.[playerId];
       const hand = Array.isArray(zones?.hand) ? zones.hand : [];
       const cardInHand = hand.find((c: any) => c?.id === cardId);
-      const cardName = cardInHand?.name || "";
-      const cardImageUrl = cardInHand?.image_uris?.small || cardInHand?.image_uris?.normal;
+      const cardName = (cardInHand as any)?.name || "";
+      const cardImageUrl = (cardInHand as any)?.image_uris?.small || (cardInHand as any)?.image_uris?.normal;
       if (!cardInHand) {
         return;
       }
@@ -759,7 +759,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           
           const poolKey = manaColorMap[mana];
           if (poolKey) {
-            (game.state.manaPool[playerId] as Record<string, number>)[poolKey]++;
+            (game.state.manaPool[playerId] as any)[poolKey]++;
             console.log(`[castSpellFromHand] Added ${mana} mana to ${playerId}'s pool from ${(permanent as any).card?.name || permanentId}`);
           }
         }
@@ -1386,7 +1386,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           console.warn(
             `[shuffleHand] game.shuffleHand not available, using fallback for game ${gameId}`
           );
-          game.state = game.state || {};
+          game.state = (game.state || {}) as any;
           game.state.zones = game.state.zones || {};
           const zones = game.state.zones[playerId] || null;
           if (!zones || !Array.isArray(zones.hand)) {
@@ -1606,7 +1606,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       game.reset(true);
       // Make restarted games start in PRE_GAME to be consistent
       try {
-        game.state = game.state || {};
+        game.state = (game.state || {}) as any;
         (game.state as any).phase = "pre_game";
       } catch {
         /* best effort */
@@ -1628,7 +1628,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       game.reset(false);
       // Ensure cleared restart is PRE_GAME as well
       try {
-        game.state = game.state || {};
+        game.state = (game.state || {}) as any;
         (game.state as any).phase = "pre_game";
       } catch {
         /* best effort */
@@ -1669,7 +1669,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const mulligansTaken = (game.state as any).mulliganState?.[playerId]?.mulligansTaken || 0;
 
       // Track mulligan state - mark as pending bottom selection if mulligans were taken
-      game.state = game.state || {};
+      game.state = (game.state || {}) as any;
       (game.state as any).mulliganState = (game.state as any).mulliganState || {};
       
       if (mulligansTaken > 0) {
@@ -1908,7 +1908,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
 
       // Track mulligan state
-      game.state = game.state || {};
+      game.state = (game.state || {}) as any;
       (game.state as any).mulliganState = (game.state as any).mulliganState || {};
       (game.state as any).mulliganState[playerId] = {
         hasKeptHand: false,

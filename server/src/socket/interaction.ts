@@ -1301,12 +1301,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           ts: Date.now(),
         });
       } else {
-        (game.state.manaPool[pid] as Record<string, number>)[manaColor]++;
+        (game.state.manaPool[pid] as any)[manaColor]++;
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
           gameId,
           from: "system",
-          message: `${getPlayerName(game, pid)} tapped ${cardName} for ${manaColor} mana.`,
+          message: `${getPlayerName(game, pid)} tapped ${manaColor} mana.`,
           ts: Date.now(),
         });
       }

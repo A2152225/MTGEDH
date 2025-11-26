@@ -19,7 +19,7 @@ import {
   moveDeckToFolder,
   buildFolderTree,
 } from "../db/decks";
-import type { KnownCardRef, PlayerID } from "../../shared/src";
+import type { KnownCardRef, PlayerID, GameState } from "../../../shared/src";
 import { GamePhase } from "@mtgedh/shared";
 
 // NEW: helpers to push candidate/suggest events to player's sockets
@@ -145,20 +145,20 @@ function restoreSnapshotIfPresent(io: Server, confirmId: string) {
     if (!game) return;
 
     if (p.snapshotZones) {
-      game.state = game.state || {};
+      game.state = (game.state || {}) as GameState;
       game.state.zones = game.state.zones || {};
       game.state.zones[p.initiator] = p.snapshotZones;
     }
 
     if (p.snapshotCommandZone) {
-      game.state = game.state || {};
+      game.state = (game.state || {}) as GameState;
       game.state.commandZone = game.state.commandZone || {};
       game.state.commandZone[p.initiator] = p.snapshotCommandZone;
     }
 
     if (typeof p.snapshotPhase !== "undefined") {
       try {
-        game.state = game.state || {};
+        game.state = (game.state || {}) as GameState;
         (game.state as any).phase = p.snapshotPhase;
       } catch (e) {
         console.warn("restoreSnapshotIfPresent: failed to restore phase", e);
@@ -505,7 +505,7 @@ async function applyConfirmedImport(
         try {
           // Fallback: only update libraryCount in zones, not the full library array
           // The authoritative source for library data should be ctx.libraries or _fallbackLibraries
-          game.state = game.state || {};
+          game.state = (game.state || {}) as GameState;
           game.state.zones = game.state.zones || {};
           game.state.zones[p.initiator] =
             game.state.zones[p.initiator] || {
@@ -638,13 +638,14 @@ async function applyConfirmedImport(
           }
 
           try {
-            for (const s of Array.from(io.sockets.sockets.values() as any)) {
+            for (const s of Array.from(io.sockets.sockets.values())) {
               try {
+                const sock = s as { data?: { playerId?: string; spectator?: boolean }; emit?: any };
                 if (
-                  s?.data?.playerId === p.initiator &&
-                  !s?.data?.spectator
+                  sock?.data?.playerId === p.initiator &&
+                  !sock?.data?.spectator
                 ) {
-                  s.emit("importApplied", {
+                  sock.emit?.("importApplied", {
                     confirmId,
                     gameId: p.gameId,
                     by: p.initiator,
@@ -1591,6 +1592,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         > = [];
         let missing: string[] = [];
         let usedCache = false;
+        let parsed: Array<{ name: string; count: number }> = [];
 
         if (hasCachedCards) {
           // Use cached cards - no need to query Scryfall API
@@ -1615,7 +1617,6 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         } else {
           // No cache - need to resolve from Scryfall
           // Parse decklist from saved text
-          let parsed: Array<{ name: string; count: number }>;
           try {
             parsed = parseDecklist(list);
             if (!Array.isArray(parsed) || parsed.length === 0) {
