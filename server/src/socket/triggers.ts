@@ -169,7 +169,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
       }
 
       // Ensure game state and battlefield exist
-      game.state = game.state || {};
+      game.state = (game.state || {}) as any;
       game.state.battlefield = game.state.battlefield || [];
       
       // Find the bounce land permanent

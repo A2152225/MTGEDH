@@ -1412,7 +1412,7 @@ async function executeAIPlayLand(
  */
 async function handleBounceLandETB(game: any, playerId: PlayerID, bounceLandName: string): Promise<void> {
   // Ensure battlefield exists on game state
-  game.state = game.state || {};
+  game.state = (game.state || {}) as any;
   game.state.battlefield = game.state.battlefield || [];
   const battlefield = game.state.battlefield;
   const zones = game.state?.zones?.[playerId];
@@ -2068,7 +2068,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       }
       
       // Set format and starting life
-      game.state = game.state || {};
+      game.state = (game.state || {}) as any;
       (game.state as any).format = format || 'commander';
       (game.state as any).startingLife = startingLife || (format === 'commander' ? 40 : 20);
       
@@ -2287,7 +2287,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       const strategy = (aiStrategy as AIStrategy) || AIStrategy.BASIC;
       
       // Add AI to game state
-      game.state = game.state || {};
+      game.state = (game.state || {}) as any;
       game.state.players = game.state.players || [];
       game.state.players.push({
         id: aiPlayerId,

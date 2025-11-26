@@ -213,8 +213,9 @@ export function registerCreatureTypeHandlers(io: Server, socket: Socket) {
         const cardName = (permanent.card?.name || "").toLowerCase();
         if (cardName.includes("morophon")) {
           // Morophon reduces the cost of spells of the chosen type by {W}{U}{B}{R}{G}
-          game.state.morophonChosenType = game.state.morophonChosenType || {};
-          game.state.morophonChosenType[pending.permanentId] = creatureType;
+          const morophonChosenType = (game.state.morophonChosenType || {}) as Record<string, string>;
+          morophonChosenType[pending.permanentId] = creatureType;
+          game.state.morophonChosenType = morophonChosenType;
         }
         
         console.log(`[creatureType] Player ${playerId} chose ${creatureType} for ${pending.cardName}`);

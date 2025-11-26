@@ -494,7 +494,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         
         // Get player's battlefield
         const zones = game.state?.zones?.[pid];
-        const battlefield = zones?.battlefield || game.state?.battlefield?.filter((p: any) => p.controller === pid) || [];
+        const battlefield = (zones as any)?.battlefield || game.state?.battlefield?.filter((p: any) => p.controller === pid) || [];
         
         // Process each payment item: tap the permanent and add mana to pool
         for (const { permanentId, mana } of payment) {
@@ -594,7 +594,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         });
       }
     } catch (err: any) {
-      console.error(`castCommander error for game ${gameId}:`, err);
+      console.error(`castCommander error:`, err);
       socket.emit("error", {
         code: "CAST_COMMANDER_ERROR",
         message: err?.message ?? String(err),

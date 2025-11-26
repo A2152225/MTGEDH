@@ -72,6 +72,17 @@ export interface PlayerRef {
   eliminated?: boolean;
   // Optional server-side properties
   life?: number;
+  // Additional optional properties used by rules-engine
+  hand?: any[];
+  library?: any[];
+  graveyard?: any[];
+  battlefield?: any[];
+  exile?: any[];
+  commandZone?: any[];
+  counters?: Record<string, number>;
+  hasLost?: boolean;
+  commanderDamage?: Record<string, number>;
+  manaPool?: ManaPool;
 }
 
 /* Full server-side Player shape (subset exported for server) */
@@ -166,6 +177,10 @@ export interface BattlefieldPermanent {
   teferisProtection?: boolean;
   // Echo paid tracking
   echoPaid?: boolean;
+  // Token flag
+  isToken?: boolean;
+  // Summoning sickness
+  summoningSickness?: boolean;
 }
 
 /* Temporary effect applied to a permanent or player */
@@ -265,8 +280,8 @@ export interface GameState {
   combat?: CombatInfo;
   // Pending targets for spells/abilities
   pendingTargets?: any;
-  // Creature type choices (Morophon, etc.)
-  morophonChosenType?: string;
+  // Creature type choices (Morophon, etc.) - can be string for global or Record for per-permanent
+  morophonChosenType?: string | Record<string, string>;
   // Allow undos flag
   allowUndos?: boolean;
   // Creation timestamp
@@ -284,6 +299,9 @@ export interface GameState {
   poisonCounters?: Record<PlayerID, number>;
   // Spectators list
   spectators?: readonly PlayerRef[];
+  // Rules engine compatibility
+  winner?: PlayerID | null;
+  priorityPlayerIndex?: number;
 }
 
 /* Player protection state for effects like Teferi's Protection */

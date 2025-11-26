@@ -8,7 +8,9 @@
     "resolveJsonModule": true,
     "declaration": true,
     "declarationMap": true,
-    "strict": false
+    "strict": false,
+    "skipLibCheck": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["../rules-engine"]
 }
