@@ -23,6 +23,9 @@ import type { PlayerID } from "../../../shared/src/types.js";
 const AI_THINK_TIME_MS = 500;
 const AI_REACTION_DELAY_MS = 300;
 
+/** Maximum cards to retrieve when searching the entire library for commander selection */
+const MAX_LIBRARY_SEARCH_LIMIT = 1000;
+
 /** MTG color identity symbols */
 const COLOR_IDENTITY_MAP: Record<string, string> = {
   'W': 'white',
@@ -242,7 +245,7 @@ export async function autoSelectAICommander(
     let library: any[] = [];
     if (typeof (game as any).searchLibrary === 'function') {
       // searchLibrary returns cards from ctx.libraries Map
-      library = (game as any).searchLibrary(playerId, '', 1000) || [];
+      library = (game as any).searchLibrary(playerId, '', MAX_LIBRARY_SEARCH_LIMIT) || [];
     } else {
       // Fallback to zones.library if searchLibrary not available (e.g., MinimalGameAdapter)
       const zones = game.state.zones?.[playerId] as any;
