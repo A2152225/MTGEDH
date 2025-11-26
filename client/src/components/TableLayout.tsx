@@ -562,6 +562,17 @@ export function TableLayout(props: {
 
   // local chat input state for overlay
   const [chatText, setChatText] = useState("");
+  
+  // Chat panel state: collapsed and size
+  const [chatCollapsed, setChatCollapsed] = useState(false);
+  const [chatSize, setChatSize] = useState<'small' | 'medium' | 'large'>('small');
+  
+  // Chat size dimensions
+  const chatSizeConfig = {
+    small: { width: 220, height: 150 },
+    medium: { width: 300, height: 220 },
+    large: { width: 400, height: 300 },
+  };
 
   const handleSendChat = () => {
     if (!chatText.trim() || !onSendChat) return;
@@ -1291,8 +1302,8 @@ export function TableLayout(props: {
             left: 8,
             bottom: enablePanZoom ? 52 : 8, // just above zoom controls
             zIndex: 11,
-            maxWidth: '28%',
-            maxHeight: '40%',
+            width: chatCollapsed ? 'auto' : chatSizeConfig[chatSize].width,
+            height: chatCollapsed ? 'auto' : chatSizeConfig[chatSize].height,
             background: 'rgba(10,10,10,0.6)',
             borderRadius: 8,
             border: '1px solid rgba(255,255,255,0.18)',
@@ -1301,86 +1312,162 @@ export function TableLayout(props: {
             fontSize: 11,
             display: 'flex',
             flexDirection: 'column',
-            opacity: 0.35,
-            transition: 'opacity 0.15s ease-in-out',
+            opacity: chatCollapsed ? 0.6 : 0.35,
+            transition: 'opacity 0.15s ease-in-out, width 0.2s ease-in-out, height 0.2s ease-in-out',
             pointerEvents: 'auto',
+            overflow: 'hidden',
           }}
           onMouseEnter={(e) => {
             (e.currentTarget as HTMLDivElement).style.opacity = '1';
           }}
           onMouseLeave={(e) => {
-            (e.currentTarget as HTMLDivElement).style.opacity = '0.35';
+            (e.currentTarget as HTMLDivElement).style.opacity = chatCollapsed ? '0.6' : '0.35';
           }}
         >
           <div
             style={{
               fontWeight: 600,
-              marginBottom: 4,
+              marginBottom: chatCollapsed ? 0 : 4,
               fontSize: 11,
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
+              gap: 4,
             }}
           >
-            <span>Chat</span>
-            <span style={{ opacity: 0.7, fontSize: 10 }}>
-              {chatMessages?.length ?? 0} msg
-            </span>
-          </div>
-          <div
-            style={{
-              flex: 1,
-              overflowY: 'auto',
-              marginBottom: 4,
-              paddingRight: 2,
-            }}
-          >
-            {(!chatMessages || chatMessages.length === 0) && (
-              <div style={{ color: '#bbb' }}>No messages</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <button
+                type="button"
+                onClick={() => setChatCollapsed(!chatCollapsed)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#f9f9f9',
+                  cursor: 'pointer',
+                  padding: 0,
+                  fontSize: 10,
+                }}
+                title={chatCollapsed ? 'Expand chat' : 'Collapse chat'}
+              >
+                {chatCollapsed ? '▶' : '▼'}
+              </button>
+              <span>Chat</span>
+              <span style={{ opacity: 0.7, fontSize: 10 }}>
+                ({chatMessages?.length ?? 0})
+              </span>
+            </div>
+            {!chatCollapsed && (
+              <div style={{ display: 'flex', gap: 2 }}>
+                <button
+                  type="button"
+                  onClick={() => setChatSize('small')}
+                  style={{
+                    background: chatSize === 'small' ? 'rgba(255,255,255,0.2)' : 'none',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: 3,
+                    color: '#f9f9f9',
+                    cursor: 'pointer',
+                    padding: '1px 4px',
+                    fontSize: 9,
+                  }}
+                  title="Small"
+                >
+                  S
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChatSize('medium')}
+                  style={{
+                    background: chatSize === 'medium' ? 'rgba(255,255,255,0.2)' : 'none',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: 3,
+                    color: '#f9f9f9',
+                    cursor: 'pointer',
+                    padding: '1px 4px',
+                    fontSize: 9,
+                  }}
+                  title="Medium"
+                >
+                  M
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChatSize('large')}
+                  style={{
+                    background: chatSize === 'large' ? 'rgba(255,255,255,0.2)' : 'none',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: 3,
+                    color: '#f9f9f9',
+                    cursor: 'pointer',
+                    padding: '1px 4px',
+                    fontSize: 9,
+                  }}
+                  title="Large"
+                >
+                  L
+                </button>
+              </div>
             )}
-            {chatMessages &&
-              chatMessages.slice(-40).map((m) => (
-                <div key={m.id} style={{ marginBottom: 3 }}>
-                  <span style={{ fontWeight: 600 }}>
-                    {displaySender(m.from)}:
-                  </span>{" "}
-                  <span>{m.message}</span>
-                </div>
-              ))}
           </div>
-          <div style={{ display: 'flex', gap: 4 }}>
-            <input
-              value={chatText}
-              onChange={(e) => setChatText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleSendChat();
-              }}
-              placeholder="Type..."
-              style={{
-                flex: 1,
-                fontSize: 11,
-                padding: '2px 4px',
-                borderRadius: 4,
-                border: '1px solid #444',
-                background: '#111',
-                color: '#f9f9f9',
-              }}
-            />
-            <button
-              type="button"
-              onClick={handleSendChat}
-              style={{
-                fontSize: 11,
-                padding: '2px 6px',
-                borderRadius: 4,
-                border: '1px solid #4ade80',
-                background: '#166534',
-                color: '#f9f9f9',
-              }}
-            >
-              Send
-            </button>
-          </div>
+          {!chatCollapsed && (
+            <>
+              <div
+                style={{
+                  flex: 1,
+                  overflowY: 'auto',
+                  marginBottom: 4,
+                  paddingRight: 2,
+                  minHeight: 0, // Needed for flex overflow
+                }}
+              >
+                {(!chatMessages || chatMessages.length === 0) && (
+                  <div style={{ color: '#bbb' }}>No messages</div>
+                )}
+                {chatMessages &&
+                  chatMessages.slice(-40).map((m) => (
+                    <div key={m.id} style={{ marginBottom: 3 }}>
+                      <span style={{ fontWeight: 600 }}>
+                        {displaySender(m.from)}:
+                      </span>{" "}
+                      <span>{m.message}</span>
+                    </div>
+                  ))}
+              </div>
+              <div style={{ display: 'flex', gap: 4 }}>
+                <input
+                  value={chatText}
+                  onChange={(e) => setChatText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSendChat();
+                  }}
+                  placeholder="Type..."
+                  style={{
+                    flex: 1,
+                    fontSize: 11,
+                    padding: '2px 4px',
+                    borderRadius: 4,
+                    border: '1px solid #444',
+                    background: '#111',
+                    color: '#f9f9f9',
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={handleSendChat}
+                  style={{
+                    fontSize: 11,
+                    padding: '2px 6px',
+                    borderRadius: 4,
+                    border: '1px solid #4ade80',
+                    background: '#166534',
+                    color: '#f9f9f9',
+                  }}
+                >
+                  Send
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
 

@@ -269,6 +269,29 @@ export function App() {
   // External control for deck manager visibility in TableLayout
   const [tableDeckMgrOpen, setTableDeckMgrOpen] = useState(false);
 
+  // Auto-advance phases/steps setting
+  // When enabled, automatically passes priority during untap, draw, and cleanup phases
+  // if the player has nothing to do
+  const [autoAdvancePhases, setAutoAdvancePhases] = useState(() => {
+    try {
+      const stored = localStorage.getItem('mtgedh:autoAdvancePhases');
+      return stored === 'true';
+    } catch {
+      return false;
+    }
+  });
+  
+  // Toggle auto-advance and persist to localStorage
+  const handleToggleAutoAdvance = React.useCallback(() => {
+    setAutoAdvancePhases(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('mtgedh:autoAdvancePhases', String(next));
+      } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+
   // Fetch saved decks when create game modal opens
   const refreshSavedDecks = React.useCallback(() => {
     fetch('/api/decks')
@@ -647,6 +670,47 @@ export function App() {
       setShowDeckImportPrompt(false);
     }
   }, [you]);
+
+  // Auto-advance phases effect
+  // Automatically passes priority during phases where the player can't do much:
+  // - Untap step (nothing to do during untap except special abilities)
+  // - Draw step (after drawing, usually just pass)
+  // - Cleanup step (unless special abilities like Sundial of the Infinite)
+  React.useEffect(() => {
+    if (!autoAdvancePhases || !safeView || !you) return;
+    // Only auto-advance if it's our turn and we have priority
+    if (safeView.priority !== you) return;
+    if (safeView.turnPlayer !== you) return;
+    
+    // Only auto-advance during certain phases/steps
+    const step = String(safeView.step || '').toLowerCase();
+    const phase = String(safeView.phase || '').toLowerCase();
+    
+    // Don't auto-advance if there's something on the stack
+    if ((safeView as any).stack?.length > 0) return;
+    
+    // Phases that can be auto-advanced:
+    // - untap (no player usually needs to respond)
+    // - draw (after draw, typically pass)
+    // - cleanup (usually just pass unless special abilities)
+    const autoAdvancePhases = ['untap', 'cleanup'];
+    const autoAdvanceSteps = ['untap', 'cleanup'];
+    
+    // Check if we're in an auto-advance step
+    const shouldAutoAdvance = 
+      autoAdvancePhases.includes(step) || 
+      autoAdvanceSteps.includes(step) ||
+      phase.includes('untap') ||
+      phase.includes('cleanup');
+    
+    if (shouldAutoAdvance) {
+      // Small delay to allow any animations/updates
+      const timer = setTimeout(() => {
+        socket.emit('nextStep', { gameId: safeView.id });
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [autoAdvancePhases, safeView, you]);
 
   const canAdvanceStep = useMemo(() => {
     if (!safeView || !you) return false;
@@ -1410,6 +1474,21 @@ export function App() {
               disabled={!canPass}
             >
               Pass Priority
+            </button>
+            <button
+              onClick={handleToggleAutoAdvance}
+              style={{
+                background: autoAdvancePhases ? '#10b981' : '#6b7280',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 4,
+                padding: '4px 8px',
+                cursor: 'pointer',
+                fontSize: 11,
+              }}
+              title="Auto-advance through untap/cleanup phases (reduces manual clicking)"
+            >
+              {autoAdvancePhases ? '⚡ Auto' : '⚡ Manual'}
             </button>
             <button
               onClick={handleRequestUndo}
