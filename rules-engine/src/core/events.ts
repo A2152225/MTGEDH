@@ -69,6 +69,10 @@ export enum RulesEngineEvent {
   // Zone transitions
   ZONE_CHANGE = 'zoneChange',
   CARD_REVEALED = 'cardRevealed',
+  
+  // Life changes
+  LIFE_GAINED = 'lifeGained',
+  LIFE_LOST = 'lifeLost',
 }
 
 export interface RulesEvent {

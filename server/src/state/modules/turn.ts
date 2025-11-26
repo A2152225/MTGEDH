@@ -18,6 +18,7 @@ import type { GameContext } from "../context.js";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { drawCards } from "./zones.js";
 import { recalculatePlayerEffects } from "./game-state-effects.js";
+import { getBeginningOfCombatTriggers } from "./triggered-abilities.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -183,6 +184,57 @@ export function setTurnDirection(ctx: GameContext, dir: 1 | -1) {
     ctx.bumpSeq();
   } catch (err) {
     console.warn(`${ts()} setTurnDirection failed:`, err);
+  }
+}
+
+/**
+ * Clear combat state from all permanents on the battlefield.
+ * Should be called when transitioning out of combat phase.
+ * Rule 506.4: When combat ends, remove all combat-related states from permanents.
+ */
+function clearCombatState(ctx: GameContext) {
+  try {
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return;
+    
+    let clearedCount = 0;
+    for (const permanent of battlefield) {
+      if (!permanent) continue;
+      
+      // Clear attacking state
+      if (permanent.attacking !== undefined) {
+        delete permanent.attacking;
+        clearedCount++;
+      }
+      
+      // Clear blocking state  
+      if (permanent.blocking !== undefined) {
+        delete permanent.blocking;
+        clearedCount++;
+      }
+      
+      // Clear blockedBy state
+      if (permanent.blockedBy !== undefined) {
+        delete permanent.blockedBy;
+        clearedCount++;
+      }
+      
+      // Clear combat damage received this turn (optional - depends on implementation)
+      if (permanent.combatDamageThisTurn !== undefined) {
+        delete permanent.combatDamageThisTurn;
+      }
+    }
+    
+    // Clear combat state on game state
+    if ((ctx as any).state.combat !== undefined) {
+      delete (ctx as any).state.combat;
+    }
+    
+    if (clearedCount > 0) {
+      console.log(`${ts()} [clearCombatState] Cleared combat state from ${clearedCount} permanents`);
+    }
+  } catch (err) {
+    console.warn(`${ts()} clearCombatState failed:`, err);
   }
 }
 
@@ -534,6 +586,17 @@ export function nextStep(ctx: GameContext) {
     } else if (currentPhase === "precombatMain" || currentPhase === "main1") {
       nextPhase = "combat";
       nextStep = "BEGIN_COMBAT";
+      
+      // Process beginning of combat triggers (e.g., Hakbal of the Surging Soul)
+      const turnPlayer = (ctx as any).state?.turnPlayer;
+      if (turnPlayer) {
+        const combatTriggers = getBeginningOfCombatTriggers(ctx, turnPlayer);
+        if (combatTriggers.length > 0) {
+          console.log(`${ts()} [nextStep] Found ${combatTriggers.length} beginning of combat triggers`);
+          // Store pending triggers on the game state for the socket layer to process
+          (ctx as any).state.pendingCombatTriggers = combatTriggers;
+        }
+      }
     } else if (currentPhase === "combat") {
       if (currentStep === "beginCombat" || currentStep === "BEGIN_COMBAT") {
         nextStep = "DECLARE_ATTACKERS";
@@ -547,6 +610,8 @@ export function nextStep(ctx: GameContext) {
         // After endCombat, go to postcombatMain
         nextPhase = "postcombatMain";
         nextStep = "MAIN2";
+        // Clear combat state when leaving combat phase (Rule 506.4)
+        clearCombatState(ctx);
       }
     } else if (currentPhase === "postcombatMain" || currentPhase === "main2") {
       nextPhase = "ending";

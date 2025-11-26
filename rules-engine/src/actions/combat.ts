@@ -839,7 +839,51 @@ export function executeDeclareBlockers(
 }
 
 /**
+ * Check if a permanent has the lifelink keyword ability (Rule 702.15)
+ * 
+ * @param permanent - The permanent to check
+ * @returns true if the permanent has lifelink
+ */
+export function hasLifelink(permanent: any): boolean {
+  if (!permanent) return false;
+  
+  // Check oracle text for lifelink keyword
+  const oracleText = permanent.card?.oracle_text?.toLowerCase() || 
+                     permanent.oracle_text?.toLowerCase() || '';
+  if (oracleText.includes('lifelink')) return true;
+  
+  // Check granted abilities
+  if (permanent.grantedAbilities && Array.isArray(permanent.grantedAbilities)) {
+    if (permanent.grantedAbilities.some((a: string) => a.toLowerCase() === 'lifelink')) {
+      return true;
+    }
+  }
+  
+  // Check modifiers for granted lifelink
+  if (permanent.modifiers && Array.isArray(permanent.modifiers)) {
+    for (const mod of permanent.modifiers) {
+      if (mod.type === 'abilityGrant' || mod.type === 'ABILITY_GRANT') {
+        if (mod.ability?.toLowerCase() === 'lifelink') return true;
+      }
+    }
+  }
+  
+  // Check abilities array if present
+  if (permanent.abilities && Array.isArray(permanent.abilities)) {
+    if (permanent.abilities.some((a: any) => 
+      a.type === 'lifelink' || a.name?.toLowerCase() === 'lifelink'
+    )) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
  * Execute combat damage
+ * Handles lifelink (Rule 702.15) - damage dealt by source with lifelink
+ * causes that source's controller to gain that much life
  */
 export function executeCombatDamage(
   gameId: string,
@@ -859,12 +903,21 @@ export function executeCombatDamage(
   let currentState = { ...state };
   const logs: string[] = [];
   
+  // Track life gained from lifelink by controller
+  const lifelinkGain: Map<string, number> = new Map();
+  
   for (const attacker of action.attackers) {
     const creature = attacker.creature;
     const damage = attacker.damage || creature?.power || 0;
     
+    // Find the actual permanent on the battlefield for ability checks
+    const permanentOnBattlefield = currentState.battlefield?.find((p: any) => p.id === attacker.attackerId);
+    const creatureHasLifelink = hasLifelink(permanentOnBattlefield) || hasLifelink(creature);
+    const controllerId = permanentOnBattlefield?.controller || creature?.controller;
+    
     if (attacker.blockedBy && attacker.blockedBy.length > 0) {
       // Creature is blocked - deal damage to blockers
+      let totalDamageDealt = 0;
       for (const block of attacker.blockedBy) {
         const damageToBlocker = block.damageAssigned || damage;
         
@@ -887,13 +940,20 @@ export function executeCombatDamage(
           
           currentState = { ...currentState, battlefield: updatedBattlefield };
           logs.push(`${creature?.name || 'Creature'} deals ${damageToBlocker} damage to ${blocker?.card?.name || 'blocker'}`);
+          totalDamageDealt += damageToBlocker;
         }
+      }
+      
+      // Apply lifelink for damage dealt to blockers (Rule 702.15b)
+      if (creatureHasLifelink && totalDamageDealt > 0 && controllerId) {
+        const currentGain = lifelinkGain.get(controllerId) || 0;
+        lifelinkGain.set(controllerId, currentGain + totalDamageDealt);
       }
     } else if (attacker.defendingPlayerId) {
       // Unblocked - deal damage to defending player
       const defender = currentState.players.find(p => p.id === attacker.defendingPlayerId);
       
-      if (defender) {
+      if (defender && damage > 0) {
         const newLife = (defender.life || 40) - damage;
         
         currentState = {
@@ -906,6 +966,12 @@ export function executeCombatDamage(
         };
         
         logs.push(`${creature?.name || 'Creature'} deals ${damage} combat damage to ${attacker.defendingPlayerId}`);
+        
+        // Apply lifelink for damage dealt to player (Rule 702.15b)
+        if (creatureHasLifelink && controllerId) {
+          const currentGain = lifelinkGain.get(controllerId) || 0;
+          lifelinkGain.set(controllerId, currentGain + damage);
+        }
         
         // Handle commander damage
         if (creature?.isCommander) {
@@ -930,6 +996,32 @@ export function executeCombatDamage(
           
           logs.push(`Commander damage: ${totalCommanderDamage}/21 from ${creature.name}`);
         }
+      }
+    }
+  }
+  
+  // Apply all lifelink gains (Rule 702.15b)
+  for (const [playerId, lifeGained] of lifelinkGain) {
+    if (lifeGained > 0) {
+      const player = currentState.players.find(p => p.id === playerId);
+      if (player) {
+        const newLife = (player.life || 40) + lifeGained;
+        currentState = {
+          ...currentState,
+          players: currentState.players.map(p =>
+            p.id === playerId
+              ? { ...p, life: newLife }
+              : p
+          ),
+        };
+        logs.push(`${playerId} gains ${lifeGained} life (lifelink)`);
+        
+        context.emit({
+          type: RulesEngineEvent.LIFE_GAINED,
+          timestamp: Date.now(),
+          gameId,
+          data: { playerId, amount: lifeGained, source: 'lifelink' },
+        });
       }
     }
   }

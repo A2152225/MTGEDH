@@ -32,7 +32,7 @@ export function setCommander(
   info.tax = Object.values(info.taxById || {}).reduce((a, b) => a + b, 0);
 
   // Build commanderCards snapshot (prefer prior cached, then library entries, then battlefield)
-  const built: Array<{ id: string; name: string; type_line?: string; oracle_text?: string; image_uris?: any; mana_cost?: string }> = [];
+  const built: Array<{ id: string; name: string; type_line?: string; oracle_text?: string; image_uris?: any; mana_cost?: string; power?: string; toughness?: string }> = [];
   const prevCards = (info as any).commanderCards as any[] | undefined;
 
   // Snapshot before removing from library.
@@ -50,6 +50,8 @@ export function setCommander(
         oracle_text: (src as any).oracle_text,
         image_uris: (src as any).image_uris,
         mana_cost: (src as any).mana_cost,
+        power: (src as any).power,
+        toughness: (src as any).toughness,
       });
     } else {
       // placeholder minimal snapshot if we have only id

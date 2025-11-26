@@ -485,3 +485,128 @@ export function processUndyingPersist(
   battlefield.push(newPermanent as any);
   ctx.bumpSeq();
 }
+
+/**
+ * Beginning of combat trigger types
+ */
+export interface BeginningOfCombatTrigger {
+  permanentId: string;
+  cardName: string;
+  controllerId: string;
+  description: string;
+  effect?: string;
+  mandatory: boolean;
+  requiresChoice?: boolean;
+}
+
+/**
+ * Known cards with beginning of combat triggers
+ */
+const KNOWN_BEGINNING_COMBAT_TRIGGERS: Record<string, { effect: string; requiresChoice?: boolean }> = {
+  "hakbal of the surging soul": { effect: "Reveal the top card of your library. If it's a land, put it onto the battlefield tapped. Otherwise, put a +1/+1 counter on Hakbal." },
+  "etali, primal storm": { effect: "Exile cards from each opponent's library and cast them without paying mana costs" },
+  "marisi, breaker of the coil": { effect: "Goaded creatures can't block" },
+  "aurelia, the warleader": { effect: "Untap all creatures, additional combat phase (first combat each turn)" },
+  "gisela, blade of goldnight": { effect: "Damage dealt to opponents is doubled; damage dealt to you is halved" },
+  "iroas, god of victory": { effect: "Creatures you control have menace and prevent damage that would be dealt to them" },
+  "xenagos, god of revels": { effect: "Choose target creature you control. It gains haste and gets +X/+X" },
+  "combat celebrant": { effect: "You may exert for additional combat phase" },
+  "grand warlord radha": { effect: "Add mana equal to attacking creatures at beginning of combat" },
+  "saskia the unyielding": { effect: "Damage to chosen player is dealt to them again" },
+  "najeela, the blade-blossom": { effect: "Create 1/1 Warrior token when attacking" },
+  "grand arbiter augustin iv": { effect: "Your spells cost less; opponent spells cost more" },
+};
+
+/**
+ * Detect beginning of combat triggers from a permanent's abilities
+ */
+export function detectBeginningOfCombatTriggers(card: any, permanent: any): BeginningOfCombatTrigger[] {
+  const triggers: BeginningOfCombatTrigger[] = [];
+  const oracleText = (card?.oracle_text || "");
+  const lowerOracle = oracleText.toLowerCase();
+  const cardName = card?.name || "Unknown";
+  const lowerName = cardName.toLowerCase();
+  const permanentId = permanent?.id || "";
+  const controllerId = permanent?.controller || "";
+  
+  // Check known cards
+  for (const [knownName, info] of Object.entries(KNOWN_BEGINNING_COMBAT_TRIGGERS)) {
+    if (lowerName.includes(knownName)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        description: info.effect,
+        effect: info.effect,
+        mandatory: true,
+        requiresChoice: info.requiresChoice,
+      });
+    }
+  }
+  
+  // Generic "at the beginning of combat on your turn" detection
+  const beginCombatMatch = oracleText.match(/at the beginning of combat on your turn,?\s*([^.]+)/i);
+  if (beginCombatMatch && !triggers.some(t => t.description === beginCombatMatch[1].trim())) {
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: beginCombatMatch[1].trim(),
+      effect: beginCombatMatch[1].trim(),
+      mandatory: true,
+    });
+  }
+  
+  // "At the beginning of each combat" - triggers on all players' combats
+  const eachCombatMatch = oracleText.match(/at the beginning of each combat,?\s*([^.]+)/i);
+  if (eachCombatMatch) {
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: eachCombatMatch[1].trim(),
+      effect: eachCombatMatch[1].trim(),
+      mandatory: true,
+    });
+  }
+  
+  return triggers;
+}
+
+/**
+ * Get all beginning of combat triggers for the active player's combat step
+ */
+export function getBeginningOfCombatTriggers(
+  ctx: GameContext,
+  activePlayerId: string
+): BeginningOfCombatTrigger[] {
+  const triggers: BeginningOfCombatTrigger[] = [];
+  const battlefield = ctx.state?.battlefield || [];
+  
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+    
+    const permTriggers = detectBeginningOfCombatTriggers(permanent.card, permanent);
+    
+    for (const trigger of permTriggers) {
+      const lowerOracle = (permanent.card.oracle_text || '').toLowerCase();
+      
+      // "At the beginning of combat on your turn" - only for controller
+      if (lowerOracle.includes('on your turn')) {
+        if (permanent.controller === activePlayerId) {
+          triggers.push(trigger);
+        }
+      }
+      // "At the beginning of each combat" - triggers regardless of whose combat
+      else if (lowerOracle.includes('each combat')) {
+        triggers.push(trigger);
+      }
+      // Default: assume "on your turn" if not specified
+      else if (permanent.controller === activePlayerId) {
+        triggers.push(trigger);
+      }
+    }
+  }
+  
+  return triggers;
+}

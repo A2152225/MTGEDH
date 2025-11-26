@@ -111,6 +111,8 @@ export interface CommanderInfo {
     oracle_text?: string;
     image_uris?: ImageUris;
     mana_cost?: string;
+    power?: string;
+    toughness?: string;
   }>;
   /** Which commander IDs are currently in the command zone (not on stack/battlefield) */
   inCommandZone?: readonly string[];
