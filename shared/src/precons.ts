@@ -42,6 +42,14 @@ export const COMMANDER_PRECONS: PreconYear[] = [
     year: 2025,
     sets: [
       {
+        name: "Edge of Eternities",
+        code: "EOE",
+        decks: [
+          { name: "World Shaper", commanders: ["Hearthhull, the Worldseed", "Szarel, Genesis Shepherd"], colorIdentity: "BRG" },
+          { name: "Counter Intelligence", commanders: ["Inspirit, Flagship Vessel", "Kilo, Apogee Mind"], colorIdentity: "URW" }
+        ]
+      },
+      {
         name: "Final Fantasy",
         code: "FIN",
         decks: [
