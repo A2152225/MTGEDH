@@ -14,6 +14,7 @@
  */
 
 import type { GameState, PlayerID } from '../../shared/src';
+import { GameStep as SharedGameStep } from '../../shared/src';
 import type { EngineResult } from './index';
 import {
   Phase,
@@ -259,11 +260,9 @@ export class RulesEngineAdapter {
    * Parse mana cost string like "{2}{U}{U}" into a ManaCost object
    */
   private parseManaCostString(manaCost: string | any): ManaCost {
-    const cost: ManaCost = { generic: 0 };
-    
     // Handle non-string input (could be already parsed object or null/undefined)
     if (!manaCost) {
-      return cost;
+      return { generic: 0 };
     }
     
     // If already an object with mana properties, return it directly
@@ -281,34 +280,43 @@ export class RulesEngineAdapter {
     
     // Parse string format like "{R}{R}{2}"
     if (typeof manaCost !== 'string') {
-      return cost;
+      return { generic: 0 };
     }
     
     const tokens = manaCost.match(/\{[^}]+\}/g) || [];
+    
+    // Build up the cost object without mutations
+    let generic = 0;
+    let white = 0;
+    let blue = 0;
+    let black = 0;
+    let red = 0;
+    let green = 0;
+    let colorless = 0;
     
     for (const token of tokens) {
       const symbol = token.replace(/[{}]/g, '').toUpperCase();
       
       if (/^\d+$/.test(symbol)) {
         // Generic mana like {2}
-        cost.generic = (cost.generic || 0) + parseInt(symbol, 10);
+        generic += parseInt(symbol, 10);
       } else if (symbol === 'W') {
-        cost.white = (cost.white || 0) + 1;
+        white += 1;
       } else if (symbol === 'U') {
-        cost.blue = (cost.blue || 0) + 1;
+        blue += 1;
       } else if (symbol === 'B') {
-        cost.black = (cost.black || 0) + 1;
+        black += 1;
       } else if (symbol === 'R') {
-        cost.red = (cost.red || 0) + 1;
+        red += 1;
       } else if (symbol === 'G') {
-        cost.green = (cost.green || 0) + 1;
+        green += 1;
       } else if (symbol === 'C') {
-        cost.colorless = (cost.colorless || 0) + 1;
+        colorless += 1;
       }
       // Note: hybrid mana, phyrexian mana, etc. not implemented yet
     }
     
-    return cost;
+    return { generic, white, blue, black, red, green, colorless };
   }
   
   /**
@@ -360,7 +368,7 @@ export class RulesEngineAdapter {
    */
   private validateAttackerDeclaration(state: GameState, action: any): ActionValidation {
     // Check if it's the declare attackers step
-    if (state.step !== 'declareAttackers') {
+    if (state.step !== SharedGameStep.DECLARE_ATTACKERS) {
       return {
         legal: false,
         reason: 'Not in declare attackers step',
@@ -384,7 +392,7 @@ export class RulesEngineAdapter {
    */
   private validateBlockerDeclaration(state: GameState, action: any): ActionValidation {
     // Check if it's the declare blockers step
-    if (state.step !== 'declareBlockers') {
+    if (state.step !== SharedGameStep.DECLARE_BLOCKERS) {
       return {
         legal: false,
         reason: 'Not in declare blockers step',

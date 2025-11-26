@@ -10,7 +10,8 @@
  * - Rule 510: Combat Damage Step
  */
 
-import type { GameState } from '../../../shared/src';
+import type { GameState, CombatInfo, CombatantInfo } from '../../../shared/src';
+import { GameStep as SharedGameStep } from '../../../shared/src';
 import type { EngineResult, ActionContext, BaseAction } from '../core/types';
 import { RulesEngineEvent } from '../core/events';
 
@@ -610,7 +611,7 @@ export function validateDeclareAttackers(
   action: DeclareAttackersAction
 ): { legal: boolean; reason?: string } {
   // Check if it's the declare attackers step
-  if (state.step !== 'declareAttackers' && state.step !== 'DECLARE_ATTACKERS') {
+  if (state.step !== SharedGameStep.DECLARE_ATTACKERS) {
     return { legal: false, reason: 'Not in declare attackers step' };
   }
   
@@ -676,16 +677,17 @@ export function executeDeclareAttackers(
     return perm;
   });
   
-  // Build combat state
-  const combat = {
-    attackers: action.attackers.map(a => ({
-      cardId: a.creatureId,
-      defendingPlayerId: a.defendingPlayerId,
-      blocked: false,
-      blockedBy: [],
-    })),
-    blockers: [],
-    declared: true,
+  // Build combat state matching the CombatInfo interface from shared types
+  const combatAttackers: CombatantInfo[] = action.attackers.map(a => ({
+    permanentId: a.creatureId,
+    defending: a.defendingPlayerId,
+    blockedBy: [] as readonly string[],
+  }));
+  
+  const combat: CombatInfo = {
+    phase: 'declareAttackers',
+    attackers: combatAttackers,
+    blockers: [] as readonly CombatantInfo[],
   };
   
   const nextState: GameState = {
@@ -723,7 +725,7 @@ export function validateDeclareBlockers(
   action: DeclareBlockersAction
 ): { legal: boolean; reason?: string } {
   // Check if it's the declare blockers step
-  if (state.step !== 'declareBlockers' && state.step !== 'DECLARE_BLOCKERS') {
+  if (state.step !== SharedGameStep.DECLARE_BLOCKERS) {
     return { legal: false, reason: 'Not in declare blockers step' };
   }
   
@@ -796,25 +798,26 @@ export function executeDeclareBlockers(
     };
   }
   
-  // Update combat state with blockers
-  const attackers = (state.combat?.attackers || []).map((a: any) => {
-    const blockers = action.blockers.filter(b => b.attackerId === a.cardId);
+  // Update combat state with blockers matching CombatInfo interface
+  const existingAttackers = state.combat?.attackers || [];
+  const updatedAttackers: CombatantInfo[] = existingAttackers.map((a: CombatantInfo) => {
+    const blockersForAttacker = action.blockers.filter(b => b.attackerId === a.permanentId);
     return {
       ...a,
-      blocked: blockers.length > 0,
-      blockedBy: blockers.map(b => b.blockerId),
+      blockedBy: blockersForAttacker.map(b => b.blockerId) as readonly string[],
     };
   });
   
-  const combat = {
-    ...state.combat,
-    attackers,
-    blockers: action.blockers.map(b => ({
-      cardId: b.blockerId,
-      blocking: b.attackerId,
-      damageAssignment: b.damageOrder,
-    })),
-    declared: true,
+  const combatBlockers: CombatantInfo[] = action.blockers.map(b => ({
+    permanentId: b.blockerId,
+    blocking: [b.attackerId] as readonly string[],
+    damage: b.damageOrder,
+  }));
+  
+  const combat: CombatInfo = {
+    phase: 'declareBlockers',
+    attackers: updatedAttackers,
+    blockers: combatBlockers,
   };
   
   const nextState: GameState = {
