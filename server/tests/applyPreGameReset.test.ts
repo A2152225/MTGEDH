@@ -1,3 +1,4 @@
+import { describe, test, expect } from 'vitest';
 import { createContext } from "../src/state/context";
 import {
   importDeckResolved,
@@ -28,7 +29,8 @@ describe("applyPreGameReset (zones)", () => {
     } as any);
 
     // Populate zones for player: hand with one card, graveyard has one
-    ctx.zones[playerId] = {
+    ctx.state.zones = ctx.state.zones || {};
+    ctx.state.zones[playerId] = {
       hand: [{ id: "h1", name: "InHand" } as any],
       handCount: 1,
       libraryCount: ctx.libraries.get(playerId)?.length ?? 0,
@@ -44,7 +46,7 @@ describe("applyPreGameReset (zones)", () => {
 
     // Ensure preconditions
     expect(ctx.state.battlefield.some((p) => p.controller === playerId)).toBeTruthy();
-    expect((ctx.zones[playerId] as any).handCount).toBe(1);
+    expect((ctx.state.zones[playerId] as any).handCount).toBe(1);
     expect(ctx.life[playerId]).toBe(7);
 
     // Apply the pre-game reset
@@ -60,7 +62,7 @@ describe("applyPreGameReset (zones)", () => {
     expect(ctx.experience[playerId]).toBe(0);
 
     // Zones: hand/graveyard/exile cleared
-    const z = ctx.zones[playerId];
+    const z = ctx.state.zones[playerId];
     expect(z).toBeDefined();
     expect((z as any).handCount).toBe(0);
     expect((z as any).graveyardCount).toBe(0);

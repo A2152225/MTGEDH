@@ -133,7 +133,7 @@ class MinimalGameAdapter {
       players: [],
       zones: {},
       commandZone: {},
-      phase: "PRE_GAME",
+      phase: "pre_game",
       format: "commander",
       startingLife: 40,
       priority: null,
@@ -218,7 +218,7 @@ class MinimalGameAdapter {
         players,
         zones: {},
         commandZone: {},
-        phase: "PRE_GAME",
+        phase: "pre_game",
         format: this.state.format || "commander",
         startingLife: this.state.startingLife || 40,
       };
@@ -227,7 +227,7 @@ class MinimalGameAdapter {
         players: [],
         zones: {},
         commandZone: {},
-        phase: "PRE_GAME",
+        phase: "pre_game",
         format: this.state.format || "commander",
         startingLife: this.state.startingLife || 40,
       };
@@ -326,17 +326,17 @@ class GameManagerClass {
         opts.startingState &&
         typeof opts.startingState.phase !== "undefined"
           ? opts.startingState.phase
-          : "PRE_GAME";
+          : "pre_game";
       if (opts && opts.startingState && typeof opts.startingState === "object") {
         const incoming = { ...opts.startingState };
         if (typeof incoming.phase === "undefined") delete incoming.phase;
         game.state = { ...game.state, ...incoming };
         if (typeof opts.startingState.phase === "undefined")
-          game.state.phase = "PRE_GAME";
+          game.state.phase = "pre_game";
       }
     } catch (e) {
       game.state = game.state || {};
-      game.state.phase = "PRE_GAME";
+      game.state.phase = "pre_game";
     }
 
     try {
@@ -539,14 +539,14 @@ class GameManagerClass {
             players,
             zones: {},
             commandZone: {},
-            phase: "PRE_GAME",
+            phase: "pre_game",
           };
         } else {
           game.state = {
             players: [],
             zones: {},
             commandZone: {},
-            phase: "PRE_GAME",
+            phase: "pre_game",
           };
         }
       }
@@ -555,7 +555,7 @@ class GameManagerClass {
       game.state = game.state || {};
     }
     try {
-      game.state.phase = "PRE_GAME";
+      game.state.phase = "pre_game";
     } catch (e) {
       /* ignore */
     }

@@ -210,7 +210,8 @@ export function replay(ctx: GameContext, events: GameEvent[]) {
 /* Helpers ported from original monolith */
 
 export function reorderHand(ctx: GameContext, playerId: PlayerID, order: number[]) {
-  const z = ctx.zones?.[playerId];
+  const zones = ctx.state.zones || {};
+  const z = zones[playerId];
   if (!z) return false;
   const hand = (z.hand as any[]) || [];
   const n = hand.length;
@@ -229,7 +230,8 @@ export function reorderHand(ctx: GameContext, playerId: PlayerID, order: number[
 }
 
 export function shuffleHand(ctx: GameContext, playerId: PlayerID) {
-  const z = ctx.zones?.[playerId];
+  const zones = ctx.state.zones || {};
+  const z = zones[playerId];
   if (!z) return;
   const hand = (z.hand as any[]) || [];
   for (let i = hand.length - 1; i > 0; i--) {
@@ -243,7 +245,7 @@ export function shuffleHand(ctx: GameContext, playerId: PlayerID) {
 
 export function peekTopN(ctx: GameContext, playerId: PlayerID, n: number) {
   const lib = ctx.libraries.get(playerId) || [];
-  return lib.slice(0, Math.max(0, n | 0)).map((c) => ({
+  return lib.slice(0, Math.max(0, n | 0)).map((c: any) => ({
     id: c.id,
     name: c.name,
     type_line: c.type_line,
@@ -257,7 +259,7 @@ export function applyScry(ctx: GameContext, playerId: PlayerID, keepTopOrder: st
   if (keepTopOrder.length + bottomOrder.length === 0) return;
   const byId = new Map<string, any>();
   for (const id of [...keepTopOrder, ...bottomOrder]) {
-    const idx = lib.findIndex((c) => c.id === id);
+    const idx = lib.findIndex((c: any) => c.id === id);
     if (idx >= 0) {
       const [c] = lib.splice(idx, 1);
       byId.set(id, c);
@@ -272,14 +274,15 @@ export function applyScry(ctx: GameContext, playerId: PlayerID, keepTopOrder: st
     const c = byId.get(id);
     if (c) lib.unshift({ ...c, zone: "library" });
   }
-  ctx.zones[playerId] = ctx.zones[playerId] || {
+  const zones = ctx.state.zones = ctx.state.zones || {};
+  zones[playerId] = zones[playerId] || {
     hand: [],
     handCount: 0,
     libraryCount: 0,
     graveyard: [],
     graveyardCount: 0,
   } as any;
-  ctx.zones[playerId]!.libraryCount = lib.length;
+  zones[playerId]!.libraryCount = lib.length;
   ctx.libraries.set(playerId, lib);
   ctx.bumpSeq();
 }
@@ -289,15 +292,16 @@ export function applySurveil(ctx: GameContext, playerId: PlayerID, toGraveyard: 
   if (toGraveyard.length + keepTopOrder.length === 0) return;
   const byId = new Map<string, any>();
   for (const id of [...toGraveyard, ...keepTopOrder]) {
-    const idx = lib.findIndex((c) => c.id === id);
+    const idx = lib.findIndex((c: any) => c.id === id);
     if (idx >= 0) {
       const [c] = lib.splice(idx, 1);
       byId.set(id, c);
     }
   }
+  const zones = ctx.state.zones = ctx.state.zones || {};
   const z =
-    ctx.zones[playerId] ||
-    (ctx.zones[playerId] = {
+    zones[playerId] ||
+    (zones[playerId] = {
       hand: [],
       handCount: 0,
       libraryCount: 0,

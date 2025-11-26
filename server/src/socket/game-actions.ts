@@ -584,7 +584,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Check if we're in PRE_GAME phase - spells cannot be cast during pre-game
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
-      if (phaseStr === "" || phaseStr === "PRE_GAME") {
+      if (phaseStr === "" || phaseStr === "pre_game") {
         socket.emit("error", {
           code: "PREGAME_NO_CAST",
           message: "Cannot cast spells during pre-game. Start the game first by claiming turn and advancing to main phase.",
@@ -824,7 +824,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
       
       // Use applyEvent to properly route through state management system
-      // This ensures ctx.zones is updated (which viewFor uses), not just game.state.zones
+      // This ensures ctx.state.zones is updated (which viewFor uses)
       try {
         if (typeof game.applyEvent === 'function') {
           game.applyEvent({ type: "castSpell", playerId, cardId, targets: targets || [] });
@@ -1017,7 +1017,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
       const pregame =
         phaseStr === "" ||
-        phaseStr === "PRE_GAME" ||
+        phaseStr === "pre_game" ||
         phaseStr.includes("BEGIN");
 
       if (!pregame) {
@@ -1083,7 +1083,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
       const pregame =
         phaseStr === "" ||
-        phaseStr === "PRE_GAME" ||
+        phaseStr === "pre_game" ||
         phaseStr.includes("BEGIN");
 
       const playersArr: any[] =
@@ -1241,7 +1241,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
       const pregame =
         phaseStr === "" ||
-        phaseStr === "PRE_GAME" ||
+        phaseStr === "pre_game" ||
         phaseStr.includes("BEGIN");
 
       const playersArr: any[] =
@@ -1607,7 +1607,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Make restarted games start in PRE_GAME to be consistent
       try {
         game.state = game.state || {};
-        (game.state as any).phase = "PRE_GAME";
+        (game.state as any).phase = "pre_game";
       } catch {
         /* best effort */
       }
@@ -1629,7 +1629,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Ensure cleared restart is PRE_GAME as well
       try {
         game.state = game.state || {};
-        (game.state as any).phase = "PRE_GAME";
+        (game.state as any).phase = "pre_game";
       } catch {
         /* best effort */
       }
@@ -1657,7 +1657,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Check if we're in PRE_GAME phase
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
-      if (phaseStr !== "" && phaseStr !== "PRE_GAME") {
+      if (phaseStr !== "" && phaseStr !== "pre_game") {
         socket.emit("error", {
           code: "NOT_PREGAME",
           message: "Can only keep hand during pre-game",
@@ -1877,7 +1877,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Check if we're in PRE_GAME phase
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
-      if (phaseStr !== "" && phaseStr !== "PRE_GAME") {
+      if (phaseStr !== "" && phaseStr !== "pre_game") {
         socket.emit("error", {
           code: "NOT_PREGAME",
           message: "Can only mulligan during pre-game",

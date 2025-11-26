@@ -36,7 +36,7 @@ export function viewFor(ctx: GameContext, viewer?: PlayerID, spectator = false):
     manaPool: state.manaPool ? { ...state.manaPool } : undefined,
   };
 
-  const zones = (ctx as any).zones || {};
+  const zones = state.zones || {};
   const libraries: Map<string, any[]> = (ctx as any).libraries || new Map();
 
   for (const pid of Object.keys(zones)) {

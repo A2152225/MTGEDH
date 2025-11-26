@@ -19,7 +19,7 @@ export interface GameContext {
   state: GameState;
   // runtime maps / caches
   libraries: Map<PlayerID, KnownCardRef[]>;
-  zones: Record<PlayerID, PlayerZones>;
+  // Note: zones are stored in ctx.state.zones (single source of truth)
   // public counters (runtime)
   life: Record<PlayerID, number>;
   poison: Record<PlayerID, number>;
@@ -127,7 +127,7 @@ export function createContext(gameId: string): GameContext {
     stack: [],
     battlefield: [],
     commandZone: {} as any,
-    phase: "PRE_GAME" as any,
+    phase: "pre_game" as any,
     step: undefined,
     active: false,
     zones: {},
@@ -143,7 +143,6 @@ export function createContext(gameId: string): GameContext {
     gameId,
     state,
     libraries: new Map<PlayerID, KnownCardRef[]>(),
-    zones: state.zones as Record<PlayerID, PlayerZones>,  // Share the same object as state.zones
     life: {},
     poison: {},
     experience: {},

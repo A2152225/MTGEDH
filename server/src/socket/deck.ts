@@ -239,7 +239,7 @@ function clearPlayerTransientZonesForImport(game: any, pid: PlayerID) {
 
     // mark pre-game (best-effort; not required)
     try {
-      (game.state as any).phase = "PRE_GAME";
+      (game.state as any).phase = "pre_game";
     } catch {
       /* ignore */
     }

@@ -22,7 +22,8 @@ export function setCommander(
   commanderIds: string[] = [],
   colorIdentity?: ("W" | "U" | "B" | "R" | "G")[]
 ) {
-  const { commandZone, libraries, zones, pendingInitialDraw, bumpSeq, state } = ctx;
+  const { commandZone, libraries, pendingInitialDraw, bumpSeq, state } = ctx;
+  const zones = state.zones = state.zones || {};
   const info = commandZone[playerId] ?? { commanderIds: [], commanderNames: [], tax: 0, taxById: {}, inCommandZone: [] };
   info.commanderIds = commanderIds.slice();
   info.commanderNames = commanderNames.slice();
@@ -78,11 +79,6 @@ export function setCommander(
       zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: lib.length, graveyard: [], graveyardCount: 0 } as any;
       zones[playerId]!.libraryCount = lib.length;
       console.log(`[setCommander] Updated zones[${playerId}].libraryCount to ${lib.length}`);
-      
-      // Also update state.zones if it exists so the library count is sent to clients
-      if (state && state.zones && (state.zones as any)[playerId]) {
-        (state.zones as any)[playerId].libraryCount = lib.length;
-      }
     }
   } else {
     console.log(`[setCommander] Library is empty or null for player ${playerId}`);
@@ -99,7 +95,7 @@ export function setCommander(
   // If player was marked for pending opening draw, do shuffle + draw(7) but only if hand is empty.
   if (pendingInitialDraw && pendingInitialDraw.has(playerId)) {
     try {
-      const z = zones[playerId] || (ctx.state && (ctx.state as any).zones && (ctx.state as any).zones[playerId]) || null;
+      const z = zones[playerId] || null;
       const handCount = z ? (typeof z.handCount === "number" ? z.handCount : (Array.isArray(z.hand) ? z.hand.length : 0)) : 0;
 
       // Idempotency: only perform opening draw if hand is empty (handCount === 0)

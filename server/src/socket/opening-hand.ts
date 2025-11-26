@@ -48,7 +48,7 @@ export function registerOpeningHandHandlers(io: Server, socket: Socket) {
 
       // Check if we're in PRE_GAME phase
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
-      if (phaseStr !== "" && phaseStr !== "PRE_GAME") {
+      if (phaseStr !== "" && phaseStr !== "pre_game") {
         socket.emit("error", {
           code: "NOT_PREGAME",
           message: "Can only play opening hand cards during pre-game",

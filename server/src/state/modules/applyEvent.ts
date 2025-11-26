@@ -215,8 +215,8 @@ export function remove(ctx: any, playerId: PlayerID): void {
     }
     if (ctx.libraries && typeof ctx.libraries.delete === "function")
       ctx.libraries.delete(playerId);
-    if ((ctx as any).zones && (ctx as any).zones[playerId])
-      delete (ctx as any).zones[playerId];
+    if (ctx.state.zones && ctx.state.zones[playerId])
+      delete ctx.state.zones[playerId];
     if (ctx.life && ctx.life[playerId] !== undefined) delete ctx.life[playerId];
     if (ctx.poison && ctx.poison[playerId] !== undefined)
       delete ctx.poison[playerId];
@@ -421,7 +421,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       case "setCommander": {
         const pid = (e as any).playerId;
         // Check hand count BEFORE calling setCommander to know if we need opening draw
-        const zonesBefore = ctx.zones?.[pid];
+        const zones = ctx.state.zones || {};
+        const zonesBefore = zones[pid];
         const handCountBefore = zonesBefore
           ? (typeof zonesBefore.handCount === "number" ? zonesBefore.handCount : (Array.isArray(zonesBefore.hand) ? zonesBefore.hand.length : 0))
           : 0;
@@ -667,7 +668,8 @@ export function replay(ctx: GameContext, events: GameEvent[]) {
       
       if (needsShuffle || needsDraw) {
         // Check if hand is empty (meaning opening draw hasn't happened)
-        const z = ctx.zones?.[pid];
+        const zones = ctx.state.zones || {};
+        const z = zones[pid];
         const handCount = z
           ? (typeof z.handCount === "number" ? z.handCount : (Array.isArray(z.hand) ? z.hand.length : 0))
           : 0;
