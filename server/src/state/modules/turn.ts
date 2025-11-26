@@ -17,6 +17,7 @@
 import type { GameContext } from "../context.js";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { drawCards } from "./zones.js";
+import { recalculatePlayerEffects } from "./game-state-effects.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -278,6 +279,13 @@ export function nextTurn(ctx: GameContext) {
     (ctx as any).state.landsPlayedThisTurn = (ctx as any).state.landsPlayedThisTurn || {};
     for (const pid of players) {
       (ctx as any).state.landsPlayedThisTurn[pid] = 0;
+    }
+
+    // Recalculate player effects based on battlefield (Exploration, Font of Mythos, etc.)
+    try {
+      recalculatePlayerEffects(ctx);
+    } catch (err) {
+      console.warn(`${ts()} [nextTurn] Failed to recalculate player effects:`, err);
     }
 
     console.log(
@@ -613,13 +621,18 @@ export function nextStep(ctx: GameContext) {
     }
 
     // If we're entering the draw step, draw a card for the active player
+    // Also apply any additional draw effects (Font of Mythos, Rites of Flourishing, etc.)
     if (shouldDraw) {
       try {
         const turnPlayer = (ctx as any).state.turnPlayer;
         if (turnPlayer) {
-          const drawn = drawCards(ctx, turnPlayer, 1);
+          // Calculate total cards to draw: 1 (base) + any additional draws from effects
+          const additionalDraws = (ctx as any).additionalDrawsPerTurn?.[turnPlayer] || 0;
+          const totalDraws = 1 + additionalDraws;
+          
+          const drawn = drawCards(ctx, turnPlayer, totalDraws);
           console.log(
-            `${ts()} [nextStep] Drew ${drawn.length} card(s) for ${turnPlayer} at draw step`
+            `${ts()} [nextStep] Drew ${drawn.length} card(s) for ${turnPlayer} at draw step (base: 1, additional: ${additionalDraws})`
           );
         } else {
           console.warn(`${ts()} [nextStep] No turnPlayer set, cannot draw card`);

@@ -1,6 +1,7 @@
 import type { PlayerID } from "../types.js";
 import type { GameContext } from "../context.js";
 import { uid, parsePT } from "../utils.js";
+import { recalculatePlayerEffects } from "./game-state-effects.js";
 
 /**
  * Stack / resolution helpers (extracted).
@@ -81,6 +82,13 @@ export function resolveTopOfStack(ctx: GameContext) {
     } as any);
     
     console.log(`[resolveTopOfStack] Permanent ${card.name || 'unnamed'} entered battlefield under ${controller}`);
+    
+    // Recalculate player effects when permanents ETB (for Exploration, Font of Mythos, etc.)
+    try {
+      recalculatePlayerEffects(ctx);
+    } catch (err) {
+      console.warn('[resolveTopOfStack] Failed to recalculate player effects:', err);
+    }
   } else if (card) {
     // Non-permanent spell (instant/sorcery) - goes to graveyard after resolution
     const z = ctx.zones[controller];
@@ -171,6 +179,14 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
   } as any);
   state.landsPlayedThisTurn = state.landsPlayedThisTurn || {};
   state.landsPlayedThisTurn[playerId] = (state.landsPlayedThisTurn[playerId] ?? 0) + 1;
+  
+  // Recalculate player effects when lands ETB (some lands might have effects)
+  try {
+    recalculatePlayerEffects(ctx);
+  } catch (err) {
+    console.warn('[playLand] Failed to recalculate player effects:', err);
+  }
+  
   bumpSeq();
 }
 

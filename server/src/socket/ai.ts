@@ -23,6 +23,9 @@ import type { PlayerID } from "../../../shared/src/types.js";
 const AI_THINK_TIME_MS = 500;
 const AI_REACTION_DELAY_MS = 300;
 
+/** Maximum cards to retrieve when searching the entire library for commander selection */
+const MAX_LIBRARY_SEARCH_LIMIT = 1000;
+
 /** MTG color identity symbols */
 const COLOR_IDENTITY_MAP: Record<string, string> = {
   'W': 'white',
@@ -236,10 +239,18 @@ export async function autoSelectAICommander(
       return false;
     }
     
-    // Get the AI player's library (deck) from zones
-    // The library should have been populated by importDeckResolved earlier
-    const zones = game.state.zones?.[playerId] as any;
-    const library = zones?.library || [];
+    // Get the AI player's library (deck)
+    // The library is stored in ctx.libraries Map via importDeckResolved.
+    // Use searchLibrary with empty query to get all cards (up to limit).
+    let library: any[] = [];
+    if (typeof (game as any).searchLibrary === 'function') {
+      // searchLibrary returns cards from ctx.libraries Map
+      library = (game as any).searchLibrary(playerId, '', MAX_LIBRARY_SEARCH_LIMIT) || [];
+    } else {
+      // Fallback to zones.library if searchLibrary not available (e.g., MinimalGameAdapter)
+      const zones = game.state.zones?.[playerId] as any;
+      library = zones?.library || [];
+    }
     
     if (library.length === 0) {
       console.warn('[AI] autoSelectAICommander: no cards in library', { gameId, playerId });
@@ -507,8 +518,10 @@ function canAIPlayLand(game: any, playerId: PlayerID): boolean {
   const isMainPhase = phase.includes('main') || step.includes('main');
   const isAITurn = game.state?.turnPlayer === playerId;
   const landsPlayed = game.state?.landsPlayedThisTurn?.[playerId] || 0;
+  // Default max is 1, but effects like Exploration, Azusa, Rites of Flourishing can increase it
+  const maxLands = (game.maxLandsPerTurn?.[playerId] ?? game.state?.maxLandsPerTurn?.[playerId]) || 1;
   
-  return isMainPhase && isAITurn && landsPlayed < 1;
+  return isMainPhase && isAITurn && landsPlayed < maxLands;
 }
 
 /**

@@ -550,3 +550,133 @@ export function checkEmptyLibraryDraw(
   
   return { loses: true, wins: false, reason: "Drew from empty library" };
 }
+
+/**
+ * Cards that grant additional land plays per turn
+ * Key: lowercase card name (partial match), Value: number of additional land drops
+ */
+const ADDITIONAL_LAND_PLAY_CARDS: Record<string, { lands: number; affectsAll?: boolean }> = {
+  "exploration": { lands: 1 },
+  "burgeoning": { lands: 0 }, // Special: play lands on opponents' turns, not extra per turn
+  "azusa, lost but seeking": { lands: 2 },
+  "oracle of mul daya": { lands: 1 },
+  "dryad of the ilysian grove": { lands: 1 },
+  "wayward swordtooth": { lands: 1 },
+  "mina and denn, wildborn": { lands: 1 },
+  "rites of flourishing": { lands: 1, affectsAll: true },
+  "ghirapur orrery": { lands: 1, affectsAll: true },
+  "horn of greed": { lands: 0 }, // Draws when playing lands, not extra land drops
+  "walking atlas": { lands: 0 }, // Activated ability, not continuous
+  "sakura-tribe scout": { lands: 0 }, // Activated ability
+  "llanowar scout": { lands: 0 }, // Activated ability
+  "skyshroud ranger": { lands: 0 }, // Activated ability
+  "fastbond": { lands: 99 }, // Unlimited land drops (pay 1 life each)
+  "courser of kruphix": { lands: 0 }, // Play from top of library, not extra
+  "crucible of worlds": { lands: 0 }, // Play from graveyard, not extra
+  "ramunap excavator": { lands: 0 }, // Play from graveyard, not extra
+};
+
+/**
+ * Cards that grant additional draws per draw step
+ * Key: lowercase card name (partial match), Value: number of additional cards to draw
+ */
+const ADDITIONAL_DRAW_CARDS: Record<string, { draws: number; affectsAll?: boolean; affectsOpponents?: boolean }> = {
+  "rites of flourishing": { draws: 1, affectsAll: true },
+  "font of mythos": { draws: 2, affectsAll: true },
+  "howling mine": { draws: 1, affectsAll: true },
+  "temple bell": { draws: 0 }, // Activated ability, not automatic
+  "dictate of kruphix": { draws: 1, affectsAll: true },
+  "kami of the crescent moon": { draws: 1, affectsAll: true },
+  "seizan, perverter of truth": { draws: 2, affectsOpponents: true }, // Opponents draw 2, lose 2 life
+  "nekusar, the mindrazer": { draws: 0 }, // Deals damage on draw, doesn't grant extra
+  "consecrated sphinx": { draws: 0 }, // Triggered ability on opponent draw
+  "sylvan library": { draws: 2 }, // Controller draws 2 extra, may put back or pay life
+  "rhystic study": { draws: 0 }, // Triggered ability when opponent casts
+  "mystic remora": { draws: 0 }, // Triggered ability when opponent casts
+  "braids, conjurer adept": { draws: 0 }, // ETB from hand effect
+  "wedding ring": { draws: 0 }, // Triggered on opponent draw
+  "anvil of bogardan": { draws: 1, affectsAll: true }, // +1 draw, discard a card
+  "well of ideas": { draws: 2 }, // Controller draws 2 extra on draw step
+  "master of the feast": { draws: 1, affectsOpponents: true }, // Each opponent draws 1
+};
+
+/**
+ * Calculate the maximum number of lands a player can play this turn
+ * based on battlefield permanents
+ */
+export function calculateMaxLandsPerTurn(ctx: GameContext, playerId: string): number {
+  let maxLands = 1; // Base: 1 land per turn
+  
+  const battlefield = getActivePermanents(ctx);
+  
+  for (const perm of battlefield) {
+    const cardName = (perm.card?.name || "").toLowerCase();
+    
+    for (const [knownName, effect] of Object.entries(ADDITIONAL_LAND_PLAY_CARDS)) {
+      if (cardName.includes(knownName) && effect.lands > 0) {
+        // Check if this effect applies to this player
+        const isController = perm.controller === playerId;
+        if (isController || effect.affectsAll) {
+          maxLands += effect.lands;
+        }
+      }
+    }
+  }
+  
+  return maxLands;
+}
+
+/**
+ * Calculate the number of additional cards to draw during draw step
+ * based on battlefield permanents
+ */
+export function calculateAdditionalDraws(ctx: GameContext, playerId: string): number {
+  let additionalDraws = 0;
+  
+  const battlefield = getActivePermanents(ctx);
+  
+  for (const perm of battlefield) {
+    const cardName = (perm.card?.name || "").toLowerCase();
+    
+    for (const [knownName, effect] of Object.entries(ADDITIONAL_DRAW_CARDS)) {
+      if (cardName.includes(knownName) && effect.draws > 0) {
+        const isController = perm.controller === playerId;
+        const isOpponent = !isController;
+        
+        // Check if this effect applies to this player
+        if (isController && !effect.affectsOpponents) {
+          additionalDraws += effect.draws;
+        } else if (effect.affectsAll) {
+          additionalDraws += effect.draws;
+        } else if (effect.affectsOpponents && isOpponent) {
+          additionalDraws += effect.draws;
+        }
+      }
+    }
+  }
+  
+  return additionalDraws;
+}
+
+/**
+ * Update player's maxLandsPerTurn and additionalDrawsPerTurn based on battlefield state
+ * This should be called after permanents ETB or leave the battlefield
+ */
+export function recalculatePlayerEffects(ctx: GameContext, playerId?: string): void {
+  const players = (ctx.state?.players as any[]) || [];
+  const targetPlayers = playerId ? [{ id: playerId }] : players;
+  
+  for (const p of targetPlayers) {
+    const pid = p.id;
+    
+    // Calculate and set max lands per turn
+    const maxLands = calculateMaxLandsPerTurn(ctx, pid);
+    (ctx as any).maxLandsPerTurn = (ctx as any).maxLandsPerTurn || {};
+    (ctx as any).maxLandsPerTurn[pid] = maxLands;
+    
+    // Calculate and set additional draws per turn
+    const additionalDraws = calculateAdditionalDraws(ctx, pid);
+    (ctx as any).additionalDrawsPerTurn = (ctx as any).additionalDrawsPerTurn || {};
+    (ctx as any).additionalDrawsPerTurn[pid] = additionalDraws;
+  }
+}
