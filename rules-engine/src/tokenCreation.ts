@@ -301,7 +301,7 @@ export function createTokenPermanent(
       oracle_text: characteristics.abilities.join('\n'),
       power: characteristics.power?.toString(),
       toughness: characteristics.toughness?.toString(),
-      colors: characteristics.colors as string[],
+      colors: [...characteristics.colors], // Convert readonly to mutable array
       mana_cost: '',
       cmc: 0,
       image_uris: {},

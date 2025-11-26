@@ -124,6 +124,24 @@ export interface BlockValidation {
 }
 
 /**
+ * Type for granted ability (can be string or object with name)
+ */
+interface GrantedAbility {
+  readonly name?: string;
+  readonly type?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Type for power/toughness modifier
+ */
+interface PowerToughnessModifier {
+  readonly type: 'powerToughness' | 'POWER_TOUGHNESS';
+  readonly power?: number;
+  readonly toughness?: number;
+}
+
+/**
  * Extract combat keywords from a permanent
  */
 export function extractCombatKeywords(perm: BattlefieldPermanent): CombatKeywords {
@@ -132,8 +150,11 @@ export function extractCombatKeywords(perm: BattlefieldPermanent): CombatKeyword
   const typeLine = (card?.type_line || '').toLowerCase();
   
   // Check oracle text and granted abilities
-  const grantedAbilities = (perm.grantedAbilities || [])
-    .map(a => (typeof a === 'string' ? a : (a as any).name || '')).join(' ').toLowerCase();
+  const grantedAbilitiesArray = perm.grantedAbilities || [];
+  const grantedAbilities = grantedAbilitiesArray
+    .map((a: string | GrantedAbility) => 
+      typeof a === 'string' ? a : (a.name || '')
+    ).join(' ').toLowerCase();
   const allText = oracleText + ' ' + grantedAbilities;
   
   // Check for protection
@@ -182,7 +203,8 @@ export function getCreaturePower(perm: BattlefieldPermanent): number {
   if (perm.modifiers) {
     for (const mod of perm.modifiers) {
       if (mod.type === 'powerToughness' || mod.type === 'POWER_TOUGHNESS') {
-        power += (mod as any).power || 0;
+        const ptMod = mod as PowerToughnessModifier;
+        power += (ptMod.power || 0);
       }
     }
   }
@@ -206,7 +228,8 @@ export function getCreatureToughness(perm: BattlefieldPermanent): number {
   if (perm.modifiers) {
     for (const mod of perm.modifiers) {
       if (mod.type === 'powerToughness' || mod.type === 'POWER_TOUGHNESS') {
-        toughness += (mod as any).toughness || 0;
+        const ptMod = mod as PowerToughnessModifier;
+        toughness += (ptMod.toughness || 0);
       }
     }
   }
