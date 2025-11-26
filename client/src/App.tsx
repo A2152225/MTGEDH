@@ -263,6 +263,10 @@ export function App() {
     valid: boolean;
   } | null>(null);
 
+  // Track if we should prompt for deck import (for new players without a deck)
+  const [showDeckImportPrompt, setShowDeckImportPrompt] = useState(false);
+  const hasPromptedDeckImport = React.useRef(false);
+
   // Fetch saved decks when create game modal opens
   const refreshSavedDecks = React.useCallback(() => {
     fetch('/api/decks')
@@ -616,6 +620,31 @@ export function App() {
       setJoinCollapsed(true);
     }
   }, [isYouPlayer]);
+
+  // Auto-show deck import prompt for players without a deck (when joining in pre-game)
+  React.useEffect(() => {
+    if (!isYouPlayer || !isPreGame || !you || !safeView) return;
+    if (hasPromptedDeckImport.current) return;
+
+    // Check if player has no cards in library yet
+    const zones = safeView.zones?.[you];
+    const libraryCount = zones?.libraryCount ?? 0;
+    const handCount = zones?.handCount ?? 0;
+
+    // If no deck loaded (library + hand both empty), prompt for deck import
+    if (libraryCount === 0 && handCount === 0) {
+      hasPromptedDeckImport.current = true;
+      setShowDeckImportPrompt(true);
+    }
+  }, [isYouPlayer, isPreGame, you, safeView]);
+
+  // Reset prompt state when leaving game
+  React.useEffect(() => {
+    if (!you) {
+      hasPromptedDeckImport.current = false;
+      setShowDeckImportPrompt(false);
+    }
+  }, [you]);
 
   const canAdvanceStep = useMemo(() => {
     if (!safeView || !you) return false;
@@ -1412,6 +1441,73 @@ export function App() {
               style={{ marginLeft: 12 }}
             >
               Dismiss
+            </button>
+          </div>
+        )}
+
+        {/* DECK IMPORT PROMPT - Shows when player joins without a deck */}
+        {showDeckImportPrompt && isPreGame && (
+          <div
+            style={{
+              background: "linear-gradient(135deg, #1e40af 0%, #7c3aed 100%)",
+              padding: 16,
+              borderRadius: 8,
+              marginBottom: 8,
+              border: "1px solid #60a5fa",
+              boxShadow: "0 4px 12px rgba(37, 99, 235, 0.3)",
+              display: "flex",
+              alignItems: "center",
+              gap: 16,
+            }}
+          >
+            <div style={{ fontSize: 32 }}>📚</div>
+            <div style={{ flex: 1, color: "#fff" }}>
+              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>
+                Welcome to the game!
+              </div>
+              <div style={{ fontSize: 13, opacity: 0.9 }}>
+                Import a deck to get started. You can paste a decklist or load a saved deck.
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setShowDeckImportPrompt(false);
+                // Note: The deck manager is inside TableLayout - we can signal to open it
+                // by scrolling down or via a ref/callback
+              }}
+              style={{
+                background: "rgba(255,255,255,0.2)",
+                border: "1px solid rgba(255,255,255,0.3)",
+                borderRadius: 6,
+                padding: "8px 16px",
+                color: "#fff",
+                fontSize: 13,
+                cursor: "pointer",
+              }}
+            >
+              Dismiss
+            </button>
+            <button
+              onClick={() => {
+                setShowDeckImportPrompt(false);
+                // Scroll to the deck manager in the TableLayout
+                const deckBtn = document.querySelector('[title*="Deck"]');
+                if (deckBtn) {
+                  (deckBtn as HTMLButtonElement).click();
+                }
+              }}
+              style={{
+                background: "#fff",
+                border: "none",
+                borderRadius: 6,
+                padding: "8px 16px",
+                color: "#1e40af",
+                fontWeight: 600,
+                fontSize: 13,
+                cursor: "pointer",
+              }}
+            >
+              Import Deck →
             </button>
           </div>
         )}

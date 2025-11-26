@@ -131,6 +131,7 @@ export function FreeField(props: {
       baseLoyalty?: number;
       loyalty?: number;
       targetedBy?: string[];
+      temporaryEffects?: readonly { id: string; description: string; icon?: string; expiresAt?: string; sourceName?: string }[];
     }> = [];
 
     const gap = 10;
@@ -173,6 +174,9 @@ export function FreeField(props: {
       // Targeting
       const targetedBy = p.targetedBy;
 
+      // Temporary effects
+      const temporaryEffects = (p as any).temporaryEffects;
+
       const counters = p.counters || {};
       const existing = (p as any).pos || null;
       const pos = existing ? { ...existing } : nextAuto();
@@ -198,6 +202,7 @@ export function FreeField(props: {
         baseLoyalty,
         loyalty,
         targetedBy,
+        temporaryEffects,
       });
     }
     return placed;
@@ -255,7 +260,7 @@ export function FreeField(props: {
         overflow: 'visible' // Allow attack indicators to overflow
       }}
     >
-      {items.map(({ id, name, img, pos, tapped, isCreature, isPlaneswalker, counters, baseP, baseT, raw, effP, effT, abilities, attacking, blocking, blockedBy, baseLoyalty, loyalty, targetedBy }) => {
+      {items.map(({ id, name, img, pos, tapped, isCreature, isPlaneswalker, counters, baseP, baseT, raw, effP, effT, abilities, attacking, blocking, blockedBy, baseLoyalty, loyalty, targetedBy, temporaryEffects }) => {
         const x = clamp(pos?.x ?? 0, 0, Math.max(0, widthPx - tileWidth));
         const y = clamp(pos?.y ?? 0, 0, Math.max(0, heightPx - tileH));
         const z = pos?.z ?? 0;
@@ -265,6 +270,7 @@ export function FreeField(props: {
         const isAttacking = !!attacking;
         const isBlocking = blocking && blocking.length > 0;
         const isTargeted = targetedBy && targetedBy.length > 0;
+        const hasTemporaryEffects = temporaryEffects && temporaryEffects.length > 0;
 
         // Border color based on state
         let borderColor = '#2b2b2b';
@@ -503,6 +509,39 @@ export function FreeField(props: {
                     +{abilities.length - 4}
                   </span>
                 )}
+              </div>
+            )}
+
+            {/* Temporary Effects Badge - shows when card has temporary effects applied */}
+            {hasTemporaryEffects && (
+              <div 
+                style={{
+                  position: 'absolute',
+                  left: Math.round(4 * scale),
+                  bottom: Math.round(28 * scale),
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: Math.round(3 * scale),
+                  padding: `${Math.round(3 * scale)}px ${Math.round(6 * scale)}px`,
+                  borderRadius: Math.round(4 * scale),
+                  background: 'linear-gradient(135deg, rgba(139,92,246,0.9), rgba(168,85,247,0.9))',
+                  border: '1px solid rgba(196,181,253,0.5)',
+                  boxShadow: '0 2px 6px rgba(139,92,246,0.4)',
+                  zIndex: 16,
+                  cursor: 'help',
+                }}
+                title={temporaryEffects!.map(e => 
+                  `${e.icon || '✨'} ${e.description}${e.expiresAt ? ` (${e.expiresAt.replace(/_/g, ' ')})` : ''}${e.sourceName ? ` - from ${e.sourceName}` : ''}`
+                ).join('\n')}
+              >
+                <span style={{ fontSize: Math.round(10 * scale) }}>✨</span>
+                <span style={{
+                  fontSize: Math.round(9 * scale),
+                  fontWeight: 600,
+                  color: '#fff',
+                }}>
+                  {temporaryEffects!.length} Effect{temporaryEffects!.length !== 1 ? 's' : ''}
+                </span>
               </div>
             )}
 

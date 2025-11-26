@@ -145,6 +145,18 @@ export interface BattlefieldPermanent {
   loyalty?: number;               // Current loyalty counter value
   // Targeting state (for visual indicators)
   targetedBy?: string[];          // IDs of spells/abilities targeting this permanent
+  // Temporary effects applied to this permanent (e.g., "exile if dies this turn", "gains +1/+1 until end of turn")
+  temporaryEffects?: readonly TemporaryEffect[];
+}
+
+/* Temporary effect applied to a permanent or player */
+export interface TemporaryEffect {
+  id: string;
+  description: string;           // Human-readable description
+  icon?: string;                 // Icon/emoji for the effect
+  expiresAt?: 'end_of_turn' | 'end_of_combat' | 'next_upkeep' | 'leaves_battlefield';
+  sourceId?: string;             // ID of the permanent/spell that created this effect
+  sourceName?: string;           // Name of the source
 }
 
 /* Stack item */
