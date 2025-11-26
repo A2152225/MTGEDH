@@ -1866,9 +1866,12 @@ async function executePassPriority(
   console.info('[AI] Passing priority:', { gameId, playerId });
   
   try {
+    let resolvedNow = false;
+    
     // Use game's pass priority method if available
     if (typeof (game as any).passPriority === 'function') {
-      (game as any).passPriority(playerId);
+      const result = (game as any).passPriority(playerId);
+      resolvedNow = result?.resolvedNow ?? false;
     } else {
       // Fallback: advance priority manually
       const state = game.state;
@@ -1887,6 +1890,22 @@ async function executePassPriority(
       await appendEvent(gameId, (game as any).seq || 0, 'passPriority', { playerId });
     } catch (e) {
       console.warn('[AI] Failed to persist passPriority event:', e);
+    }
+    
+    // If all players passed priority in succession, resolve the top of the stack
+    if (resolvedNow) {
+      console.info('[AI] All players passed priority, resolving top of stack');
+      if (typeof (game as any).resolveTopOfStack === 'function') {
+        (game as any).resolveTopOfStack();
+        console.log(`[AI] Stack resolved for game ${gameId}`);
+      }
+      
+      // Persist the resolution event
+      try {
+        await appendEvent(gameId, (game as any).seq || 0, 'resolveTopOfStack', { playerId });
+      } catch (e) {
+        console.warn('[AI] Failed to persist resolveTopOfStack event:', e);
+      }
     }
     
     // Broadcast updated state
