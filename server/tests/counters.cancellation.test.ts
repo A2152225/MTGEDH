@@ -30,6 +30,7 @@ describe('+1/+1 and -1/-1 counters annihilation via SBA', () => {
     g.updateCounters(perm.id, { '-1/-1': +1 });
     expect(perm.counters?.['+1/+1']).toBeUndefined();
     expect(perm.counters?.['-1/-1']).toBeUndefined();
-    expect(perm.counters && Object.keys(perm.counters).length).toBe(0);
+    // When all counters cancel out, counters may be undefined or empty object
+    expect(perm.counters === undefined || Object.keys(perm.counters).length === 0).toBe(true);
   });
 });

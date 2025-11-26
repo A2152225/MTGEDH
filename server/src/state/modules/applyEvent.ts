@@ -42,6 +42,7 @@ import { pushStack, resolveTopOfStack, playLand, castSpell } from "./stack";
 import { nextTurn, nextStep, passPriority } from "./turn";
 import { join, leave as leaveModule } from "./join";
 import { resolveSpell } from "../../rules-engine/targeting";
+import { evaluateAction } from "../../rules-engine/index";
 
 /* -------- Helpers ---------- */
 
@@ -520,7 +521,23 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       }
 
       case "dealDamage": {
-        const effects: any[] = (e as any).effects || [];
+        // Handle both legacy effects format and new action format
+        let effects: any[] = (e as any).effects || [];
+        
+        // If targetPermanentId is provided, evaluate using rules engine
+        const targetPermanentId = (e as any).targetPermanentId;
+        const amount = (e as any).amount;
+        if (targetPermanentId && amount > 0) {
+          const action = {
+            type: 'DEAL_DAMAGE' as const,
+            targetPermanentId,
+            amount,
+            wither: Boolean((e as any).wither),
+            infect: Boolean((e as any).infect),
+          };
+          effects = [...evaluateAction(ctx.state, action)];
+        }
+        
         try {
           applyEngineEffects(ctx as any, effects);
         } catch {}
