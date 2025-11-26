@@ -473,10 +473,10 @@ export function DeckManagerModal({
 
           {tab === 'precons' && (
             <PreconBrowser
-              onSelectDeck={(commanders, deckName, setName, year) => {
+              onSelectDeck={(commanders, deckName, setName, year, setCode, colorIdentity) => {
                 // When a precon is selected, we need to fetch the decklist
                 // For now, we'll emit a request to get the precon decklist from the server
-                // The server will need to fetch from an external source like Moxfield or Scryfall
+                // The server will fetch from Scryfall using the set code and color identity
                 if (gameId) {
                   socket.emit('importPreconDeck', { 
                     gameId, 
@@ -484,6 +484,8 @@ export function DeckManagerModal({
                     deckName, 
                     setName, 
                     year,
+                    setCode,
+                    colorIdentity,
                     cacheCards 
                   });
                 }

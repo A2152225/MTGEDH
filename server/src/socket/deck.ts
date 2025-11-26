@@ -3,6 +3,7 @@ import {
   parseDecklist,
   fetchCardsByExactNamesBatch,
   fetchCardByExactNameStrict,
+  fetchCardsFromSetByColorIdentity,
   validateDeck,
   normalizeName,
   shouldSkipDeckLine,
@@ -21,6 +22,7 @@ import {
 } from "../db/decks";
 import type { KnownCardRef, PlayerID, GameState } from "../../../shared/src";
 import { GamePhase } from "@mtgedh/shared";
+import { COMMANDER_PRECONS } from "../../../shared/src/precons";
 
 // NEW: helpers to push candidate/suggest events to player's sockets
 import {
@@ -2519,6 +2521,8 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       setName,
       year,
       cacheCards,
+      setCode,
+      colorIdentity,
     }: {
       gameId: string;
       commanders: string[];
@@ -2526,14 +2530,18 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       setName: string;
       year: number;
       cacheCards?: boolean;
+      setCode?: string;
+      colorIdentity?: string;
     }) => {
       try {
         console.info("[deck] importPreconDeck called", {
           gameId,
           deckName,
           setName,
+          setCode,
           year,
           commanders,
+          colorIdentity,
           playerId: socket.data.playerId,
         });
 
@@ -2558,21 +2566,37 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           return;
         }
 
-        // Search for the precon deck list using the commanders
-        // We'll use Scryfall's deck search API or construct a basic deck
-        // For now, we'll emit a chat message and let the user know to paste the deck list manually
-        // In the future, this could integrate with Moxfield API or a precon database
+        // Find the precon data from our database
+        let preconSetCode = setCode;
+        let preconColorIdentity = colorIdentity;
         
+        if (!preconSetCode || !preconColorIdentity) {
+          // Look up the precon in our data
+          for (const yearData of COMMANDER_PRECONS) {
+            if (yearData.year === year) {
+              for (const set of yearData.sets) {
+                if (set.name === setName || set.code === setCode) {
+                  preconSetCode = set.code;
+                  const deck = set.decks.find(d => d.name === deckName);
+                  if (deck) {
+                    preconColorIdentity = deck.colorIdentity;
+                  }
+                  break;
+                }
+              }
+            }
+          }
+        }
+
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
           gameId,
           from: "system",
-          message: `🔍 Searching for precon deck: "${deckName}" from ${setName} (${year})...`,
+          message: `🔍 Fetching precon deck: "${deckName}" from ${setName} (${year})...`,
           ts: Date.now(),
         });
 
-        // Try to search for the deck commanders on Scryfall to get their IDs
-        // Then construct a basic deck with the commanders
+        // First, resolve the commanders
         const resolvedCommanders: any[] = [];
         for (const commanderName of commanders) {
           try {
@@ -2604,23 +2628,169 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           return;
         }
 
-        // Emit a message with the commanders found
-        const commanderNames = resolvedCommanders.map(c => c.name).join(', ');
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `✅ Found commanders: ${commanderNames}. Note: Full precon decklists require manual import. Visit Moxfield or EDHREC to get the complete list.`,
-          ts: Date.now(),
-        });
+        // Try to fetch the full decklist from Scryfall using set code and color identity
+        let resolvedCards: any[] = [...resolvedCommanders];
+        let fetchedFullDeck = false;
 
-        // Set the commanders as available candidates for the player
+        if (preconSetCode && preconColorIdentity) {
+          try {
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `📦 Fetching cards from set ${preconSetCode} with color identity ${preconColorIdentity}...`,
+              ts: Date.now(),
+            });
+
+            const setCards = await fetchCardsFromSetByColorIdentity(preconSetCode, preconColorIdentity);
+            
+            if (setCards.length > 0) {
+              // Filter to exclude commanders (already added) and format the cards
+              const commanderNames = new Set(resolvedCommanders.map(c => c.name.toLowerCase()));
+              
+              for (const card of setCards) {
+                if (!commanderNames.has(card.name.toLowerCase())) {
+                  resolvedCards.push({
+                    id: card.id,
+                    name: card.name,
+                    type_line: card.type_line,
+                    oracle_text: card.oracle_text,
+                    image_uris: card.image_uris,
+                    mana_cost: (card as any).mana_cost,
+                    power: (card as any).power,
+                    toughness: (card as any).toughness,
+                    card_faces: (card as any).card_faces,
+                    layout: (card as any).layout,
+                  });
+                }
+              }
+              
+              fetchedFullDeck = resolvedCards.length > 10; // Consider it a full deck if we have more than 10 cards
+              
+              console.info("[deck] importPreconDeck fetched cards from set", {
+                gameId,
+                deckName,
+                setCode: preconSetCode,
+                colorIdentity: preconColorIdentity,
+                cardCount: resolvedCards.length,
+              });
+            }
+          } catch (e) {
+            console.warn("importPreconDeck: failed to fetch set cards", e);
+          }
+        }
+
+        // Emit status message
+        const commanderNames = resolvedCommanders.map(c => c.name).join(', ');
+        if (fetchedFullDeck) {
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `✅ Imported ${resolvedCards.length} cards for "${deckName}" (Commanders: ${commanderNames})`,
+            ts: Date.now(),
+          });
+        } else {
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `✅ Found commanders: ${commanderNames}. Note: Could not fetch full decklist from Scryfall. Visit Moxfield or EDHREC to get the complete list.`,
+            ts: Date.now(),
+          });
+        }
+
+        // Store the imported deck
         try {
           (game as any)._lastImportedDecks =
             (game as any)._lastImportedDecks || new Map<PlayerID, any[]>();
-          (game as any)._lastImportedDecks.set(pid, resolvedCommanders);
+          (game as any)._lastImportedDecks.set(pid, resolvedCards);
         } catch (e) {
           console.warn("importPreconDeck: could not set _lastImportedDecks", e);
+        }
+
+        // If we got a full deck, apply it like a normal import
+        if (fetchedFullDeck && resolvedCards.length >= 50) {
+          const rawPhase = (game.state && (game.state as any).phase) ?? "";
+          const phaseStr = String(rawPhase).toUpperCase().trim();
+          const seqVal =
+            typeof (game as any).seq === "number" ? (game as any).seq : null;
+          const isPreGame =
+            phaseStr === "" ||
+            phaseStr.includes("PRE") ||
+            phaseStr.includes("BEGIN") ||
+            seqVal === 0 ||
+            seqVal === null;
+
+          if (isPreGame) {
+            const confirmId = `imp_${Date.now()}_${Math.random()
+              .toString(36)
+              .slice(2, 8)}`;
+            const pending: PendingConfirm = {
+              gameId,
+              initiator: pid,
+              resolvedCards,
+              parsedCount: resolvedCards.length,
+              deckName: `${deckName} (${setName} ${year})`,
+              save: false,
+              responses: { [pid]: "yes" },
+              timeout: null,
+              snapshotZones:
+                game.state &&
+                (game.state as any).zones &&
+                (game.state as any).zones[pid]
+                  ? JSON.parse(
+                      JSON.stringify((game.state as any).zones[pid])
+                    )
+                  : null,
+              snapshotCommandZone:
+                game.state &&
+                (game.state as any).commandZone &&
+                (game.state as any).commandZone[pid]
+                  ? JSON.parse(
+                      JSON.stringify(
+                        (game.state as any).commandZone[pid]
+                      )
+                    )
+                  : null,
+              snapshotPhase:
+                game.state && (game.state as any).phase !== undefined
+                  ? (game.state as any).phase
+                  : null,
+              applyImporterOnly: true,
+            };
+            pendingImportConfirmations.set(confirmId, pending);
+
+            try {
+              clearPlayerTransientZonesForImport(game, pid);
+              addPendingInitialDrawFlag(game, pid);
+              try {
+                broadcastGame(io, game, gameId);
+              } catch {
+                /* best-effort */
+              }
+            } catch (e) {
+              console.warn(
+                "importPreconDeck (pre-game): clearing transient zones/flags failed",
+                e
+              );
+            }
+
+            // Emit suggest commanders to the player
+            socket.emit("suggestCommanders", {
+              gameId,
+              names: commanders,
+            });
+
+            setTimeout(() => {
+              applyConfirmedImport(io, confirmId, socket).catch((err) => {
+                console.error("importPreconDeck applyConfirmedImport failed:", err);
+                cancelConfirmation(io, confirmId, "apply_failed");
+              });
+            }, 200);
+            
+            return;
+          }
         }
 
         // Emit suggest commanders to the player
@@ -2629,10 +2799,10 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           names: commanders,
         });
 
-        // Emit the resolved commanders as deck candidates
+        // Emit the resolved cards as deck candidates
         socket.emit("importedDeckCandidates", {
           gameId,
-          candidates: resolvedCommanders,
+          candidates: resolvedCards,
         });
 
         // Also emit info about where to get the full decklist
@@ -2642,7 +2812,11 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           setName,
           year,
           commanders: resolvedCommanders,
-          message: `To import the full "${deckName}" deck, visit Moxfield or EDHREC and paste the decklist in the Local tab.`,
+          cardCount: resolvedCards.length,
+          fetchedFullDeck,
+          message: fetchedFullDeck 
+            ? `Imported ${resolvedCards.length} cards for "${deckName}".`
+            : `To import the full "${deckName}" deck, visit Moxfield or EDHREC and paste the decklist in the Local tab.`,
           urls: {
             moxfield: `https://www.moxfield.com/search?q=${encodeURIComponent(deckName + ' ' + setName)}`,
             edhrec: `https://edhrec.com/precon/${encodeURIComponent(deckName.toLowerCase().replace(/\s+/g, '-'))}`,

@@ -414,6 +414,60 @@ export async function fetchCardsByExactNamesBatch(
   return out;
 }
 
+/**
+ * Fetch cards from a specific set that match a color identity.
+ * This is useful for fetching precon deck cards from Commander sets.
+ * 
+ * @param setCode - The set code (e.g., "C21", "MOC", "DSC")
+ * @param colorIdentity - The color identity to filter by (e.g., "WUB", "RG")
+ * @returns Array of ScryfallCard objects matching the criteria
+ */
+export async function fetchCardsFromSetByColorIdentity(
+  setCode: string,
+  colorIdentity: string
+): Promise<ScryfallCard[]> {
+  const results: ScryfallCard[] = [];
+  
+  // Build the Scryfall search query
+  // e.g., "set:c21 id<=WUB" for cards in C21 that fit within WUB color identity
+  const colors = colorIdentity.toUpperCase().split('').filter(c => 'WUBRG'.includes(c));
+  const colorQuery = colors.length > 0 ? `id<=${colors.join('')}` : '';
+  const query = `set:${setCode.toLowerCase()} ${colorQuery}`.trim();
+  
+  let url = `https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}&order=cmc&unique=cards`;
+  
+  try {
+    while (url) {
+      const resp = await fetch(url, {
+        headers: { 'User-Agent': 'MTGEDH-DeckImporter/1.0' }
+      });
+      
+      if (!resp.ok) {
+        console.warn(`Scryfall search failed for "${query}": ${resp.status}`);
+        break;
+      }
+      
+      const data = await resp.json();
+      
+      if (data.data && Array.isArray(data.data)) {
+        results.push(...data.data);
+      }
+      
+      // Handle pagination
+      url = data.has_more ? data.next_page : '';
+      
+      // Rate limiting
+      if (url) {
+        await new Promise(r => setTimeout(r, 100));
+      }
+    }
+  } catch (err) {
+    console.error(`Error fetching cards from set ${setCode}:`, err);
+  }
+  
+  return results;
+}
+
 //
 // Deck legality (format-level)
 //
