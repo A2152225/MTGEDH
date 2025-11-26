@@ -284,8 +284,8 @@ export function calculateEffectivePT(
   }
   
   // Start with base P/T
-  let power = parseInt(card.power || '0') || 0;
-  let toughness = parseInt(card.toughness || '0') || 0;
+  let power = parseInt(String(card.power || '0')) || 0;
+  let toughness = parseInt(String(card.toughness || '0')) || 0;
   
   // Apply counters
   const plusCounters = permanent.counters?.['+1/+1'] || 0;

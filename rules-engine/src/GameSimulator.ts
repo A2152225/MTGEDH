@@ -9,7 +9,7 @@
  * - Headless mode for bulk testing
  */
 
-import type { GameState, PlayerID } from '../../shared/src';
+import type { GameState, PlayerID, SeatIndex } from '../../shared/src';
 import { RulesEngineAdapter, RulesEngineEvent, type RulesEvent } from './RulesEngineAdapter';
 import { AIEngine, AIStrategy, AIPlayerConfig, AIDecisionType, type AIDecisionContext } from './AIEngine';
 
@@ -202,6 +202,7 @@ export class GameSimulator {
     const players = config.players.map((p, index) => ({
       id: p.id,
       name: p.name,
+      seat: index as SeatIndex, // Required by PlayerRef
       life: config.startingLife,
       hand: [],
       library: [], // Will be populated with deck
@@ -212,6 +213,12 @@ export class GameSimulator {
       counters: {},
       hasLost: false,
     }));
+    
+    // Create life totals map
+    const life: Record<string, number> = {};
+    for (const p of players) {
+      life[p.id] = config.startingLife;
+    }
     
     return {
       id: config.gameId,
@@ -232,6 +239,13 @@ export class GameSimulator {
       lastActionAt: Date.now(),
       spectators: [],
       status: 'inProgress' as any,
+      // Required GameState properties
+      life,
+      turnPlayer: players[0]?.id || '',
+      priority: players[0]?.id || '',
+      battlefield: [],
+      commandZone: {},
+      active: true,
     };
   }
   

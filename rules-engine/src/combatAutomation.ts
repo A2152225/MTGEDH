@@ -192,7 +192,7 @@ export function extractCombatKeywords(perm: BattlefieldPermanent): CombatKeyword
  */
 export function getCreaturePower(perm: BattlefieldPermanent): number {
   const card = perm.card as KnownCardRef;
-  let power = perm.basePower ?? (parseInt(card?.power || '0', 10) || 0);
+  let power = perm.basePower ?? (parseInt(String(card?.power || '0'), 10) || 0);
   
   // Add +1/+1 counters
   power += (perm.counters?.['+1/+1'] || 0);
@@ -217,7 +217,7 @@ export function getCreaturePower(perm: BattlefieldPermanent): number {
  */
 export function getCreatureToughness(perm: BattlefieldPermanent): number {
   const card = perm.card as KnownCardRef;
-  let toughness = perm.baseToughness ?? (parseInt(card?.toughness || '0', 10) || 0);
+  let toughness = perm.baseToughness ?? (parseInt(String(card?.toughness || '0'), 10) || 0);
   
   // Add +1/+1 counters
   toughness += (perm.counters?.['+1/+1'] || 0);

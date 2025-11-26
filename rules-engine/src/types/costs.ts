@@ -106,9 +106,10 @@ export interface RemoveCounterCost extends Cost {
  * Composite cost (multiple costs combined)
  */
 export interface CompositeCost {
+  readonly type: 'composite';           // Type discriminator
   readonly costs: readonly Cost[];
-  readonly isAdditional: boolean;     // Rule 118.8 - Additional cost
-  readonly isAlternative: boolean;    // Rule 118.9 - Alternative cost
+  readonly isAdditional: boolean;       // Rule 118.8 - Additional cost
+  readonly isAlternative: boolean;      // Rule 118.9 - Alternative cost
 }
 
 /**

@@ -8,7 +8,7 @@
  */
 
 import { ManaCost } from './mana';
-import { Cost } from './costs';
+import { Cost, CostType, CompositeCost } from './costs';
 import { TargetType } from './targets';
 
 /**
@@ -45,7 +45,7 @@ export interface CastingProcess {
   readonly targets?: readonly string[];
   readonly manaCost?: ManaCost;
   readonly additionalCosts?: readonly Cost[];
-  readonly totalCost?: Cost;
+  readonly totalCost?: Cost | CompositeCost;
   readonly complete: boolean;
 }
 
@@ -118,13 +118,23 @@ export function determineTotalCost(
     throw new Error('Cannot determine cost - wrong step');
   }
   
+  // Create mana cost as a proper Cost object
+  const manaCostItem: Cost = {
+    type: CostType.MANA,
+    description: 'Mana cost',
+    isOptional: false,
+    isMandatory: true
+  };
+  
   // Total cost includes mana cost + additional costs
-  const totalCost: Cost = {
+  const totalCost: CompositeCost = {
     type: 'composite',
     costs: [
-      { type: 'mana', manaCost },
+      manaCostItem,
       ...(additionalCosts || [])
-    ]
+    ],
+    isAdditional: false,
+    isAlternative: false
   };
   
   return {

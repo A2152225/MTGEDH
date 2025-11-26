@@ -13,3 +13,4 @@ coverage/
 .idea/
 /server/server/
 /server/data/
+/logs/

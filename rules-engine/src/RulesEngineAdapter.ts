@@ -870,12 +870,17 @@ export class RulesEngineAdapter {
     
     // Check for player losses
     for (const player of state.players) {
+      // Convert Record to Map for commanderDamage if it exists
+      const commanderDamageMap = player.commanderDamage 
+        ? new Map(Object.entries(player.commanderDamage))
+        : undefined;
+        
       const lossCheck: PlayerLossCheck = {
         playerId: player.id,
         lifeTotal: player.life,
         poisonCounters: player.counters?.poison || 0,
         librarySize: player.library?.length || 0,
-        commanderDamage: player.commanderDamage,
+        commanderDamage: commanderDamageMap,
       };
       
       const lossCondition = checkPlayerLoss(lossCheck);
