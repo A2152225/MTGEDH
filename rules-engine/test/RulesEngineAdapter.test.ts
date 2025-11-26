@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { RulesEngineAdapter, RulesEngineEvent } from '../src/RulesEngineAdapter';
 import type { GameState } from '../../shared/src';
+import { GameStep } from '../../shared/src';
 
 describe('RulesEngineAdapter', () => {
   let adapter: RulesEngineAdapter;
@@ -166,7 +167,7 @@ describe('RulesEngineAdapter', () => {
     
     it('should validate attacker declaration in correct step', () => {
       // Set game to declare attackers step
-      testGameState.step = 'declareAttackers' as any;
+      testGameState.step = GameStep.DECLARE_ATTACKERS;
       adapter.initializeGame('test-game', testGameState);
       
       const validation = adapter.validateAction('test-game', {
