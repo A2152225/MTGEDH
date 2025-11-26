@@ -3,6 +3,11 @@
  * 
  * Combat-related action handlers.
  * Handles declaring attackers, blockers, and dealing combat damage.
+ * 
+ * Rules references:
+ * - Rule 508: Declare Attackers Step
+ * - Rule 509: Declare Blockers Step
+ * - Rule 510: Combat Damage Step
  */
 
 import type { GameState } from '../../../shared/src';
@@ -44,7 +49,561 @@ export interface DealCombatDamageAction extends BaseAction {
 }
 
 /**
+ * Result of checking if a permanent can participate in combat
+ */
+export interface CombatValidationResult {
+  readonly canParticipate: boolean;
+  readonly reason?: string;
+}
+
+/**
+ * Check if a permanent is currently a creature (Rule 302)
+ * This considers:
+ * - Base type line
+ * - Type-changing effects (e.g., Imprisoned in the Moon removes creature type)
+ * - Animation effects (e.g., Tezzeret making artifacts creatures)
+ * - Granted types from effects
+ * 
+ * @param permanent - The permanent to check
+ * @returns true if the permanent is currently a creature
+ */
+export function isCurrentlyCreature(permanent: any): boolean {
+  if (!permanent) return false;
+  
+  // Check for explicit types array (from modifiers or card data)
+  if (permanent.types && Array.isArray(permanent.types)) {
+    if (permanent.types.includes('Creature')) return true;
+  }
+  
+  // Check type_line from card data
+  const typeLine = permanent.card?.type_line?.toLowerCase() || 
+                   permanent.type_line?.toLowerCase() || '';
+  
+  // Check if type has been removed by effects (like Imprisoned in the Moon)
+  // Type removal effects typically set a modifier that overrides the type line
+  if (permanent.modifiers && Array.isArray(permanent.modifiers)) {
+    for (const mod of permanent.modifiers) {
+      // TYPE_CHANGE modifiers can add or remove types
+      if (mod.type === 'typeChange' || mod.type === 'TYPE_CHANGE') {
+        // If modifier explicitly removes creature type
+        if (mod.removesTypes?.includes('Creature')) {
+          return false;
+        }
+        // If modifier sets a new type line that replaces the original
+        if (mod.newTypeLine && !mod.newTypeLine.toLowerCase().includes('creature')) {
+          return false;
+        }
+        // If modifier adds creature type
+        if (mod.addsTypes?.includes('Creature') || 
+            (mod.newTypeLine && mod.newTypeLine.toLowerCase().includes('creature'))) {
+          return true;
+        }
+      }
+    }
+  }
+  
+  // Check granted types from effects (e.g., "becomes a creature")
+  if (permanent.grantedTypes && Array.isArray(permanent.grantedTypes)) {
+    if (permanent.grantedTypes.includes('Creature')) return true;
+  }
+  
+  // Check if the base type line includes creature
+  if (typeLine.includes('creature')) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Check if a permanent has the defender keyword ability (Rule 702.3)
+ * 
+ * @param permanent - The permanent to check
+ * @returns true if the permanent has defender
+ */
+export function hasDefender(permanent: any): boolean {
+  if (!permanent) return false;
+  
+  // Check oracle text for defender keyword
+  const oracleText = permanent.card?.oracle_text?.toLowerCase() || 
+                     permanent.oracle_text?.toLowerCase() || '';
+  if (oracleText.includes('defender')) return true;
+  
+  // Check type line (some cards have it inline like "Creature — Wall")
+  const typeLine = permanent.card?.type_line?.toLowerCase() || 
+                   permanent.type_line?.toLowerCase() || '';
+  // Walls historically had defender, but since 2004 it's explicit
+  
+  // Check granted abilities
+  if (permanent.grantedAbilities && Array.isArray(permanent.grantedAbilities)) {
+    if (permanent.grantedAbilities.some((a: string) => a.toLowerCase() === 'defender')) {
+      return true;
+    }
+  }
+  
+  // Check modifiers for granted defender
+  if (permanent.modifiers && Array.isArray(permanent.modifiers)) {
+    for (const mod of permanent.modifiers) {
+      if (mod.type === 'abilityGrant' || mod.type === 'ABILITY_GRANT') {
+        if (mod.ability?.toLowerCase() === 'defender') return true;
+      }
+    }
+  }
+  
+  // Check abilities array if present
+  if (permanent.abilities && Array.isArray(permanent.abilities)) {
+    if (permanent.abilities.some((a: any) => 
+      a.type === 'defender' || a.name?.toLowerCase() === 'defender'
+    )) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * Check if a permanent has a "can't attack" restriction
+ * This includes:
+ * - Defender keyword (Rule 702.3)
+ * - Effects that say "can't attack" (e.g., Pacifism, Arrest)
+ * - Creature is tapped
+ * - Summoning sickness (Rule 302.6)
+ * 
+ * @param permanent - The permanent to check
+ * @param controllerId - The controller's player ID
+ * @returns CombatValidationResult with canParticipate and reason
+ */
+export function canPermanentAttack(permanent: any, controllerId?: string): CombatValidationResult {
+  if (!permanent) {
+    return { canParticipate: false, reason: 'Permanent not found' };
+  }
+  
+  // Must be a creature to attack (Rule 508.1a)
+  if (!isCurrentlyCreature(permanent)) {
+    return { canParticipate: false, reason: 'Only creatures can attack' };
+  }
+  
+  // Cannot attack if tapped (Rule 508.1a)
+  if (permanent.tapped) {
+    return { canParticipate: false, reason: 'Cannot attack with tapped creature' };
+  }
+  
+  // Cannot attack with defender (Rule 702.3b)
+  if (hasDefender(permanent)) {
+    return { canParticipate: false, reason: 'Creatures with defender cannot attack' };
+  }
+  
+  // Check for summoning sickness (Rule 302.6)
+  // A creature can't attack unless it has been under its controller's 
+  // control continuously since the beginning of their most recent turn
+  if (permanent.summoningSickness || permanent.summmoningSickness) {
+    // Check for haste which bypasses summoning sickness
+    if (!hasHaste(permanent)) {
+      return { canParticipate: false, reason: 'Creature has summoning sickness' };
+    }
+  }
+  
+  // Check for "can't attack" modifiers (e.g., Pacifism, Arrest)
+  if (permanent.modifiers && Array.isArray(permanent.modifiers)) {
+    for (const mod of permanent.modifiers) {
+      if (mod.type === 'cantAttack' || mod.type === 'CANT_ATTACK') {
+        return { canParticipate: false, reason: mod.reason || 'This creature cannot attack' };
+      }
+    }
+  }
+  
+  // Check oracle text for "can't attack" effects on attached auras/equipment
+  const oracleText = permanent.card?.oracle_text?.toLowerCase() || '';
+  if (oracleText.includes("can't attack") || oracleText.includes("cannot attack")) {
+    // Self-restricting abilities like "can't attack alone" are handled differently
+    // Full implementation would check specific conditions
+  }
+  
+  return { canParticipate: true };
+}
+
+/**
+ * Check if a permanent has the haste keyword ability (Rule 702.10)
+ * 
+ * @param permanent - The permanent to check
+ * @returns true if the permanent has haste
+ */
+export function hasHaste(permanent: any): boolean {
+  if (!permanent) return false;
+  
+  // Check oracle text for haste keyword
+  const oracleText = permanent.card?.oracle_text?.toLowerCase() || 
+                     permanent.oracle_text?.toLowerCase() || '';
+  if (oracleText.includes('haste')) return true;
+  
+  // Check granted abilities
+  if (permanent.grantedAbilities && Array.isArray(permanent.grantedAbilities)) {
+    if (permanent.grantedAbilities.some((a: string) => a.toLowerCase() === 'haste')) {
+      return true;
+    }
+  }
+  
+  // Check modifiers for granted haste
+  if (permanent.modifiers && Array.isArray(permanent.modifiers)) {
+    for (const mod of permanent.modifiers) {
+      if (mod.type === 'abilityGrant' || mod.type === 'ABILITY_GRANT') {
+        if (mod.ability?.toLowerCase() === 'haste') return true;
+      }
+    }
+  }
+  
+  // Check abilities array if present
+  if (permanent.abilities && Array.isArray(permanent.abilities)) {
+    if (permanent.abilities.some((a: any) => 
+      a.type === 'haste' || a.name?.toLowerCase() === 'haste'
+    )) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * Check if a permanent has a "can't block" restriction
+ * This includes:
+ * - Effects that say "can't block" (e.g., Cobblebrute, Goblin Heelcutter)
+ * - Creature is tapped
+ * - Shadow/fear/menace/flying restrictions (vs specific attackers)
+ * 
+ * @param permanent - The permanent to check
+ * @param attacker - The attacking creature (optional, for evasion checks)
+ * @returns CombatValidationResult with canParticipate and reason
+ */
+export function canPermanentBlock(permanent: any, attacker?: any): CombatValidationResult {
+  if (!permanent) {
+    return { canParticipate: false, reason: 'Permanent not found' };
+  }
+  
+  // Must be a creature to block (Rule 509.1a)
+  if (!isCurrentlyCreature(permanent)) {
+    return { canParticipate: false, reason: 'Only creatures can block' };
+  }
+  
+  // Cannot block if tapped (Rule 509.1a)
+  if (permanent.tapped) {
+    return { canParticipate: false, reason: 'Cannot block with tapped creature' };
+  }
+  
+  // Check for "can't block" modifiers
+  if (permanent.modifiers && Array.isArray(permanent.modifiers)) {
+    for (const mod of permanent.modifiers) {
+      if (mod.type === 'cantBlock' || mod.type === 'CANT_BLOCK') {
+        return { canParticipate: false, reason: mod.reason || 'This creature cannot block' };
+      }
+    }
+  }
+  
+  // Check oracle text for "can't block" self-restrictions
+  const oracleText = permanent.card?.oracle_text?.toLowerCase() || '';
+  if (oracleText.includes("can't block") && !oracleText.includes("can't be blocked")) {
+    // Check if it's a self-restriction (simple cases)
+    // Full implementation would parse the oracle text more carefully
+    if (!oracleText.includes("can't block creatures") && 
+        !oracleText.includes("can't block except")) {
+      return { canParticipate: false, reason: 'This creature cannot block' };
+    }
+  }
+  
+  // If an attacker is provided, check evasion abilities
+  if (attacker) {
+    const evasionResult = checkEvasionAbilities(permanent, attacker);
+    if (!evasionResult.canParticipate) {
+      return evasionResult;
+    }
+  }
+  
+  return { canParticipate: true };
+}
+
+/**
+ * Check evasion abilities when blocking
+ * Flying, shadow, horsemanship, menace, fear, intimidate, skulk, etc.
+ * 
+ * @param blocker - The potential blocking creature
+ * @param attacker - The attacking creature
+ * @returns CombatValidationResult
+ */
+export function checkEvasionAbilities(blocker: any, attacker: any): CombatValidationResult {
+  const attackerText = attacker.card?.oracle_text?.toLowerCase() || 
+                       attacker.oracle_text?.toLowerCase() || '';
+  const blockerText = blocker.card?.oracle_text?.toLowerCase() || 
+                      blocker.oracle_text?.toLowerCase() || '';
+  
+  // Flying (Rule 702.9) - can only be blocked by creatures with flying or reach
+  if (attackerText.includes('flying') || hasAbility(attacker, 'flying')) {
+    if (!attackerText.includes('reach') && !hasAbility(blocker, 'reach') &&
+        !blockerText.includes('flying') && !hasAbility(blocker, 'flying')) {
+      return { canParticipate: false, reason: 'Cannot block a creature with flying without flying or reach' };
+    }
+  }
+  
+  // Shadow (Rule 702.27) - can only be blocked by creatures with shadow
+  if (attackerText.includes('shadow') || hasAbility(attacker, 'shadow')) {
+    if (!blockerText.includes('shadow') && !hasAbility(blocker, 'shadow')) {
+      return { canParticipate: false, reason: 'Only creatures with shadow can block creatures with shadow' };
+    }
+  }
+  
+  // Horsemanship (Rule 702.30) - can only be blocked by creatures with horsemanship
+  if (attackerText.includes('horsemanship') || hasAbility(attacker, 'horsemanship')) {
+    if (!blockerText.includes('horsemanship') && !hasAbility(blocker, 'horsemanship')) {
+      return { canParticipate: false, reason: 'Only creatures with horsemanship can block creatures with horsemanship' };
+    }
+  }
+  
+  return { canParticipate: true };
+}
+
+/**
+ * Helper to check if a permanent has a specific ability
+ */
+function hasAbility(permanent: any, abilityName: string): boolean {
+  if (!permanent) return false;
+  
+  const lowerName = abilityName.toLowerCase();
+  
+  // Check granted abilities
+  if (permanent.grantedAbilities && Array.isArray(permanent.grantedAbilities)) {
+    if (permanent.grantedAbilities.some((a: string) => a.toLowerCase() === lowerName)) {
+      return true;
+    }
+  }
+  
+  // Check abilities array
+  if (permanent.abilities && Array.isArray(permanent.abilities)) {
+    if (permanent.abilities.some((a: any) => 
+      a.type?.toLowerCase() === lowerName || a.name?.toLowerCase() === lowerName
+    )) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * Get the combat damage value for a creature
+ * Handles power/toughness swaps (e.g., Doran, the Siege Tower)
+ * 
+ * @param permanent - The creature dealing combat damage
+ * @param state - The game state (to check for global effects)
+ * @returns The damage value to use
+ */
+export function getCombatDamageValue(permanent: any, state?: GameState): number {
+  if (!permanent) return 0;
+  
+  // Default to power
+  let power = getPermanentPower(permanent);
+  let toughness = getPermanentToughness(permanent);
+  
+  // Check for power/toughness damage swap effects
+  // (e.g., Doran, the Siege Tower - "Each creature assigns combat damage equal to its toughness rather than its power")
+  if (permanent.modifiers && Array.isArray(permanent.modifiers)) {
+    for (const mod of permanent.modifiers) {
+      if (mod.type === 'combatDamageFromToughness' || mod.useToughnessForDamage) {
+        return toughness;
+      }
+    }
+  }
+  
+  // Check global state for effects like Doran
+  if (state?.battlefield) {
+    for (const perm of state.battlefield as any[]) {
+      const text = perm.card?.oracle_text?.toLowerCase() || '';
+      if (text.includes('assigns combat damage equal to its toughness')) {
+        return toughness;
+      }
+    }
+  }
+  
+  return Math.max(0, power);
+}
+
+/**
+ * Get a permanent's current power value
+ */
+function getPermanentPower(permanent: any): number {
+  // Use effective power if calculated
+  if (typeof permanent.effectivePower === 'number') {
+    return permanent.effectivePower;
+  }
+  
+  // Use base power plus counters
+  let power = permanent.basePower ?? 0;
+  
+  // Parse from card if needed
+  if (typeof power !== 'number') {
+    const cardPower = permanent.card?.power || permanent.power;
+    power = typeof cardPower === 'string' ? parseInt(cardPower, 10) || 0 : cardPower || 0;
+  }
+  
+  // Add +1/+1 counters
+  if (permanent.counters && typeof permanent.counters['+1/+1'] === 'number') {
+    power += permanent.counters['+1/+1'];
+  }
+  
+  // Subtract -1/-1 counters
+  if (permanent.counters && typeof permanent.counters['-1/-1'] === 'number') {
+    power -= permanent.counters['-1/-1'];
+  }
+  
+  // Apply power modifiers
+  if (permanent.modifiers && Array.isArray(permanent.modifiers)) {
+    for (const mod of permanent.modifiers) {
+      if (mod.type === 'powerToughness' || mod.type === 'POWER_TOUGHNESS') {
+        if (typeof mod.power === 'number') {
+          power += mod.power;
+        }
+      }
+    }
+  }
+  
+  return power;
+}
+
+/**
+ * Get a permanent's current toughness value
+ */
+function getPermanentToughness(permanent: any): number {
+  // Use effective toughness if calculated
+  if (typeof permanent.effectiveToughness === 'number') {
+    return permanent.effectiveToughness;
+  }
+  
+  // Use base toughness plus counters
+  let toughness = permanent.baseToughness ?? 0;
+  
+  // Parse from card if needed
+  if (typeof toughness !== 'number') {
+    const cardToughness = permanent.card?.toughness || permanent.toughness;
+    toughness = typeof cardToughness === 'string' ? parseInt(cardToughness, 10) || 0 : cardToughness || 0;
+  }
+  
+  // Add +1/+1 counters
+  if (permanent.counters && typeof permanent.counters['+1/+1'] === 'number') {
+    toughness += permanent.counters['+1/+1'];
+  }
+  
+  // Subtract -1/-1 counters
+  if (permanent.counters && typeof permanent.counters['-1/-1'] === 'number') {
+    toughness -= permanent.counters['-1/-1'];
+  }
+  
+  // Apply toughness modifiers
+  if (permanent.modifiers && Array.isArray(permanent.modifiers)) {
+    for (const mod of permanent.modifiers) {
+      if (mod.type === 'powerToughness' || mod.type === 'POWER_TOUGHNESS') {
+        if (typeof mod.toughness === 'number') {
+          toughness += mod.toughness;
+        }
+      }
+    }
+  }
+  
+  return toughness;
+}
+
+/**
+ * Get all legal attackers for a player
+ * Filters battlefield to only creatures that can legally attack
+ * 
+ * @param state - The game state
+ * @param playerId - The player declaring attackers
+ * @returns Array of permanent IDs that can attack
+ */
+export function getLegalAttackers(state: GameState, playerId: string): string[] {
+  const legalAttackers: string[] = [];
+  
+  // Check global battlefield
+  if (state.battlefield) {
+    for (const perm of state.battlefield as any[]) {
+      if (perm.controller === playerId) {
+        const result = canPermanentAttack(perm, playerId);
+        if (result.canParticipate) {
+          legalAttackers.push(perm.id);
+        }
+      }
+    }
+  }
+  
+  // Check player-specific battlefield
+  const player = state.players?.find((p: any) => p.id === playerId);
+  if (player?.battlefield) {
+    for (const perm of player.battlefield as any[]) {
+      const result = canPermanentAttack(perm, playerId);
+      if (result.canParticipate && !legalAttackers.includes(perm.id)) {
+        legalAttackers.push(perm.id);
+      }
+    }
+  }
+  
+  return legalAttackers;
+}
+
+/**
+ * Get all legal blockers for a player against a specific attacker
+ * 
+ * @param state - The game state
+ * @param playerId - The player declaring blockers
+ * @param attackerId - The attacking creature to block (optional)
+ * @returns Array of permanent IDs that can block
+ */
+export function getLegalBlockers(state: GameState, playerId: string, attackerId?: string): string[] {
+  const legalBlockers: string[] = [];
+  let attacker: any = null;
+  
+  // Find the attacker if specified
+  if (attackerId) {
+    attacker = (state.battlefield as any[])?.find((p: any) => p.id === attackerId);
+    if (!attacker) {
+      const attackerPlayer = state.players?.find((p: any) => 
+        p.battlefield?.some((c: any) => c.id === attackerId)
+      );
+      attacker = attackerPlayer?.battlefield?.find((c: any) => c.id === attackerId);
+    }
+  }
+  
+  // Check global battlefield
+  if (state.battlefield) {
+    for (const perm of state.battlefield as any[]) {
+      if (perm.controller === playerId) {
+        const result = canPermanentBlock(perm, attacker);
+        if (result.canParticipate) {
+          legalBlockers.push(perm.id);
+        }
+      }
+    }
+  }
+  
+  // Check player-specific battlefield
+  const player = state.players?.find((p: any) => p.id === playerId);
+  if (player?.battlefield) {
+    for (const perm of player.battlefield as any[]) {
+      const result = canPermanentBlock(perm, attacker);
+      if (result.canParticipate && !legalBlockers.includes(perm.id)) {
+        legalBlockers.push(perm.id);
+      }
+    }
+  }
+  
+  return legalBlockers;
+}
+
+/**
  * Validate declare attackers action
+ * Uses comprehensive combat validation to check:
+ * - Permanent must be a creature (not enchantment, artifact, etc.)
+ * - Must be untapped
+ * - Must not have defender
+ * - Must not have summoning sickness (unless has haste)
+ * - Must not have "can't attack" effects
  */
 export function validateDeclareAttackers(
   state: GameState,
@@ -61,35 +620,29 @@ export function validateDeclareAttackers(
     return { legal: false, reason: 'Only active player can declare attackers' };
   }
   
-  // Validate each attacker
+  // Validate each attacker using comprehensive validation
   for (const attacker of action.attackers) {
     // Check global battlefield and player-specific battlefield
-    let creature = state.battlefield?.find(
+    let permanent = state.battlefield?.find(
       (p: any) => p.id === attacker.creatureId && p.controller === action.playerId
     );
     
     // Also check player's own battlefield if not found globally
-    if (!creature) {
+    if (!permanent) {
       const player = state.players.find(p => p.id === action.playerId);
-      creature = player?.battlefield?.find(
+      permanent = player?.battlefield?.find(
         (p: any) => p.id === attacker.creatureId
       );
     }
     
-    if (!creature) {
-      return { legal: false, reason: `Creature ${attacker.creatureId} not found on battlefield` };
+    if (!permanent) {
+      return { legal: false, reason: `Permanent ${attacker.creatureId} not found on battlefield` };
     }
     
-    // Check if creature can attack (not tapped, has haste or was on battlefield since start of turn)
-    if ((creature as any).tapped) {
-      return { legal: false, reason: 'Cannot attack with tapped creature' };
-    }
-    
-    // Check for defender keyword
-    const typeLine = (creature as any).card?.type_line?.toLowerCase() || '';
-    const oracleText = (creature as any).card?.oracle_text?.toLowerCase() || '';
-    if (typeLine.includes('defender') || oracleText.includes('defender')) {
-      return { legal: false, reason: 'Creatures with defender cannot attack' };
+    // Use comprehensive attack validation
+    const validationResult = canPermanentAttack(permanent, action.playerId);
+    if (!validationResult.canParticipate) {
+      return { legal: false, reason: validationResult.reason || 'Cannot attack with this permanent' };
     }
   }
   
@@ -159,6 +712,11 @@ export function executeDeclareAttackers(
 
 /**
  * Validate declare blockers action
+ * Uses comprehensive combat validation to check:
+ * - Permanent must be a creature (not enchantment, artifact, etc.)
+ * - Must be untapped
+ * - Must not have "can't block" effects
+ * - Checks evasion abilities (flying, shadow, etc.)
  */
 export function validateDeclareBlockers(
   state: GameState,
@@ -169,27 +727,51 @@ export function validateDeclareBlockers(
     return { legal: false, reason: 'Not in declare blockers step' };
   }
   
-  // Validate each blocker
+  // Validate each blocker using comprehensive validation
   for (const blocker of action.blockers) {
-    const creature = state.battlefield?.find(
+    // Find the blocker permanent
+    let permanent = state.battlefield?.find(
       (p: any) => p.id === blocker.blockerId && p.controller === action.playerId
     );
     
-    if (!creature) {
-      return { legal: false, reason: `Creature ${blocker.blockerId} not found on battlefield` };
+    // Also check player's own battlefield if not found globally
+    if (!permanent) {
+      const player = state.players.find(p => p.id === action.playerId);
+      permanent = player?.battlefield?.find(
+        (p: any) => p.id === blocker.blockerId
+      );
     }
     
-    // Check if creature can block (not tapped)
-    if ((creature as any).tapped) {
-      return { legal: false, reason: 'Cannot block with tapped creature' };
+    if (!permanent) {
+      return { legal: false, reason: `Permanent ${blocker.blockerId} not found on battlefield` };
     }
     
-    // Check if attacker exists
-    const attackerExists = state.combat?.attackers?.some(
-      (a: any) => a.cardId === blocker.attackerId
+    // Find the attacker being blocked (for evasion checks)
+    let attacker = state.battlefield?.find(
+      (p: any) => p.id === blocker.attackerId
     );
-    if (!attackerExists) {
-      return { legal: false, reason: `Attacker ${blocker.attackerId} not found` };
+    if (!attacker) {
+      // Check in combat state
+      const attackerInfo = state.combat?.attackers?.find(
+        (a: any) => a.cardId === blocker.attackerId
+      );
+      if (!attackerInfo) {
+        return { legal: false, reason: `Attacker ${blocker.attackerId} not found` };
+      }
+      // Try to find the actual permanent
+      for (const player of state.players) {
+        const found = player.battlefield?.find((p: any) => p.id === blocker.attackerId);
+        if (found) {
+          attacker = found;
+          break;
+        }
+      }
+    }
+    
+    // Use comprehensive block validation (includes evasion checks)
+    const validationResult = canPermanentBlock(permanent, attacker);
+    if (!validationResult.canParticipate) {
+      return { legal: false, reason: validationResult.reason || 'Cannot block with this permanent' };
     }
   }
   

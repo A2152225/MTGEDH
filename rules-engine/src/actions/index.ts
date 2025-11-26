@@ -27,12 +27,23 @@ export {
   validateDeclareBlockers,
   executeDeclareBlockers,
   executeCombatDamage,
+  // Combat validation helpers
+  isCurrentlyCreature,
+  hasDefender,
+  hasHaste,
+  canPermanentAttack,
+  canPermanentBlock,
+  checkEvasionAbilities,
+  getCombatDamageValue,
+  getLegalAttackers,
+  getLegalBlockers,
   type DeclareAttackersAction,
   type DeclareBlockersAction,
   type DealCombatDamageAction,
   type AttackerDeclaration,
   type BlockerDeclaration,
   type CombatDamageAssignment,
+  type CombatValidationResult,
 } from './combat';
 
 // Fetchland actions
