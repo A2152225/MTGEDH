@@ -59,6 +59,8 @@ export interface GameContext {
 
   // misc runtime helpers that modules may call
   landsPlayedThisTurn?: Record<PlayerID, number>;
+  maxLandsPerTurn?: Record<PlayerID, number>;  // Default 1, can be increased by effects like Exploration, Azusa
+  additionalDrawsPerTurn?: Record<PlayerID, number>;  // Extra draws per draw step (Font of Mythos, Rites of Flourishing)
   manaPool?: Record<PlayerID, any>;
   // other internal transient flags & helpers
   pendingInitialDrawFlag?: any;
@@ -168,6 +170,8 @@ export function createContext(gameId: string): GameContext {
 
     // optional runtime containers (populated by other modules when used)
     landsPlayedThisTurn: {},
+    maxLandsPerTurn: {},  // Default 1 per player, can be increased by effects
+    additionalDrawsPerTurn: {},  // Extra draws per draw step (Font of Mythos, etc.)
     manaPool: {},
   };
 

@@ -382,11 +382,15 @@ export function registerGameActions(io: Server, socket: Socket) {
       if (!game || !playerId) return;
 
       // Check land-per-turn limit (before rules engine validation)
+      // Default max is 1, but effects like Exploration, Azusa, Rites of Flourishing can increase it
       const landsPlayed = (game.state?.landsPlayedThisTurn?.[playerId] || 0);
-      if (landsPlayed >= 1) {
+      const maxLands = ((game as any).maxLandsPerTurn?.[playerId] ?? (game.state as any)?.maxLandsPerTurn?.[playerId]) || 1;
+      if (landsPlayed >= maxLands) {
         socket.emit("error", {
           code: "LAND_LIMIT_REACHED",
-          message: "You have already played a land this turn",
+          message: maxLands > 1 
+            ? `You have already played ${landsPlayed} land(s) this turn (max ${maxLands})`
+            : "You have already played a land this turn",
         });
         return;
       }

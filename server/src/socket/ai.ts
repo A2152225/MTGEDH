@@ -518,8 +518,10 @@ function canAIPlayLand(game: any, playerId: PlayerID): boolean {
   const isMainPhase = phase.includes('main') || step.includes('main');
   const isAITurn = game.state?.turnPlayer === playerId;
   const landsPlayed = game.state?.landsPlayedThisTurn?.[playerId] || 0;
+  // Default max is 1, but effects like Exploration, Azusa, Rites of Flourishing can increase it
+  const maxLands = (game.maxLandsPerTurn?.[playerId] ?? game.state?.maxLandsPerTurn?.[playerId]) || 1;
   
-  return isMainPhase && isAITurn && landsPlayed < 1;
+  return isMainPhase && isAITurn && landsPlayed < maxLands;
 }
 
 /**

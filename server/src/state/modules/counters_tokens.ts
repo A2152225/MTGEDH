@@ -2,6 +2,7 @@ import type { PlayerID } from "../../../../shared/src";
 import type { GameContext } from "../context";
 import { applyStateBasedActions, evaluateAction } from "../../rules-engine";
 import { uid } from "../utils";
+import { recalculatePlayerEffects } from "./game-state-effects.js";
 
 export function updateCounters(ctx: GameContext, permanentId: string, deltas: Record<string, number>) {
   const { state, bumpSeq } = ctx;
@@ -55,6 +56,13 @@ export function removePermanent(ctx: GameContext, permanentId: string) {
     state.battlefield.splice(idx,1);
     bumpSeq();
     runSBA(ctx);
+    
+    // Recalculate player effects when permanents leave (for Exploration, Font of Mythos, etc.)
+    try {
+      recalculatePlayerEffects(ctx);
+    } catch (err) {
+      console.warn('[removePermanent] Failed to recalculate player effects:', err);
+    }
   }
 }
 
