@@ -94,8 +94,17 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         }
 
         // Check for summoning sickness (can't attack unless haste)
-        // This would require tracking when creatures entered the battlefield
-        // For now, we'll skip this check and rely on the rules engine
+        if ((creature as any).summoningSickness) {
+          const oracleText = ((creature as any).card?.oracle_text || "").toLowerCase();
+          const hasHaste = oracleText.includes("haste");
+          if (!hasHaste) {
+            socket.emit("error", {
+              code: "SUMMONING_SICKNESS",
+              message: `${(creature as any).card?.name || "Creature"} has summoning sickness and cannot attack`,
+            });
+            return;
+          }
+        }
 
         attackerIds.push(attacker.creatureId);
         
