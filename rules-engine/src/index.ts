@@ -102,30 +102,33 @@ export {
 // Note: Some symbols conflict with ./types (castNormally, isCaseSolved)
 export {
   AdventurerCard,
-  AdventureState,
+  hasAdventure,
   castAsAdventure,
   PrototypeCard,
-  isPrototypeCard,
+  hasPrototype,
   getPrototypeCharacteristics,
   CaseCard,
   getActiveCaseAbilities,
   ClassCard,
-  isClassCard,
+  getActiveClassAbilities,
   getClassLevel,
   AttractionCard,
-  isAttractionCard,
+  AttractionDeck,
+  createAttractionDeck,
 } from './remainingCardTypes';
 
 // Rules 720-732: Special Game Mechanics
-// Note: StationAbility conflicts with ./types
+// Note: StationAbility, CardCharacteristics conflict with ./types
 export {
   MonarchState,
   becomeMonarch,
-  handleMonarchCombatDamage,
+  shouldMonarchDraw,
   InitiativeState,
   takeInitiative,
+  shouldVentureFromInitiative,
   DayNightState,
-  checkDayNight,
+  initializeDayNight,
+  checkDayNightChange,
 } from './specialGameMechanics';
 
 // Rule 702: Keyword Abilities
@@ -197,10 +200,17 @@ export {
   applyStaticAbilitiesToBattlefield,
 } from './staticAbilities';
 
-// Triggered Effects Automation - PendingTrigger, TriggerType conflict
+// Triggered Effects Automation
 export {
-  TriggeredEffectsEngine,
-  type TriggerCheckResult,
+  TriggerType,
+  EffectAction,
+  type EffectTargetFilter,
+  type TriggeredEffect,
+  parseETBEffects,
+  parseDiesTriggers,
+  shouldEnterTapped,
+  createETBTriggers,
+  autoResolveTrigger,
 } from './triggeredEffectsAutomation';
 
 // Game Events (Rule 603) - exclude TriggerCondition (conflicts with types)
@@ -222,60 +232,79 @@ export {
   detectDrawTriggers,
 } from './gameEvents';
 
-// Priority System (Rule 117) - PriorityState conflicts
+// Priority System (Rule 117)
 export {
-  type PriorityAction,
-  type PriorityResult,
-  createPriorityState,
-  grantPriority,
-  holdPriority,
-  hasPriority,
-  getNextPriorityPlayer,
+  type PlayerPrioritySettings,
+  DEFAULT_PRIORITY_SETTINGS,
+  createPrioritySettings,
+  type PriorityState,
+  type PriorityCheckResult,
+  checkAutoPass,
+  passPriority as priorityPassPriority,
+  resetPriorityAfterAction,
+  grantPriorityToActivePlayer,
+  allPlayersPassed,
 } from './prioritySystem';
 
-// Cleanup Step (Rule 514) - Some function name conflicts
+// Cleanup Step (Rule 514)
 export {
+  type CleanupResult,
+  type DamageTrackedPermanent,
   type CleanupStepState,
-  type CleanupStepResult,
-  getDiscardCount,
-  processEndOfTurnEffects,
-  removeDamageFromPermanents,
+  createCleanupStepState,
+  checkHandSize,
+  clearDamageFromPermanents,
+  endTemporaryEffects,
 } from './cleanupStep';
 
 // Library Search Effects
 export * from './librarySearchEffects';
 
-// Opening Hand Actions - OpeningHandAction conflicts
+// Opening Hand Actions
 export {
-  type OpeningHandContext,
-  processOpeningHandActions,
-  getOpeningHandActionCards,
-  executeLeylineAction,
-  executeChancellorAction,
+  OpeningHandActionType,
+  type OpeningHandAction,
+  type OpeningHandTriggerData,
+  type OpeningHandResult,
+  type OpeningHandPermanent,
+  type DelayedTrigger,
+  detectOpeningHandAction,
+  parseChancellorTrigger,
+  createOpeningHandAction,
+  findOpeningHandActions,
 } from './openingHandActions';
 
-// Token Creation - createTokens conflicts
+// Token Creation
 export {
-  type TokenTemplate,
-  type TokenCreationContext,
-  createToken,
-  createPredefinedToken,
-  modifyTokenOnCreation,
+  type TokenCharacteristics,
+  type TokenCreationRequest,
+  type CreatedToken,
+  type TokenCreationResult,
+  type ETBTriggerInfo,
+  type TokenTriggerInfo,
+  COMMON_TOKENS,
+  createTokenPermanent,
+  parseTokenCreationFromText,
+  detectTokenETBTriggers,
 } from './tokenCreation';
 
 // Combat Automation
 export {
-  type CombatState,
-  type AttackerInfo,
-  type BlockerInfo,
-  type CombatDamageResult,
-  initializeCombat,
-  declareAttacker,
-  declareBlocker,
-  orderBlockers,
-  calculateCombatDamage,
-  processCombatDamage,
-  endCombat,
+  type CombatKeywords,
+  type CombatCreature,
+  type AttackDeclaration,
+  type BlockDeclaration,
+  type DamageAssignment,
+  type CombatResult,
+  type CombatTrigger,
+  type BlockValidation,
+  extractCombatKeywords,
+  getCreaturePower,
+  getCreatureToughness,
+  createCombatCreature,
+  canCreatureAttack,
+  canCreatureBlock,
+  calculateLethalDamage,
 } from './combatAutomation';
 
 // Action Handlers - Many conflicts, export with care
@@ -367,8 +396,16 @@ export {
   getUndoApprovalStatus,
 } from './actions';
 
-// Core types - ActionContext, BaseAction
-export { type ActionContext, type BaseAction, type ActionResult } from './core';
+// Core types
+export { 
+  type EngineResult,
+  type ActionValidation,
+  type BaseAction,
+  type GameActionType,
+  type ActionHandler,
+  type ActionContext,
+  type ActionRegistry,
+} from './core';
 
 // =============================================================================
 // LEGACY COMPATIBILITY
