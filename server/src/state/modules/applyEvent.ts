@@ -36,10 +36,12 @@ import {
   removePermanent,
   applyEngineEffects,
   runSBA,
+  movePermanentToExile,
 } from "./counters_tokens";
 import { pushStack, resolveTopOfStack, playLand, castSpell } from "./stack";
 import { nextTurn, nextStep, passPriority } from "./turn";
 import { join, leave as leaveModule } from "./join";
+import { resolveSpell } from "../../rules-engine/targeting";
 
 /* -------- Helpers ---------- */
 
@@ -94,7 +96,14 @@ export function reset(ctx: any, preservePlayers = false): void {
     ctx.state = ctx.state || {};
     ctx.state.battlefield = [];
     ctx.state.stack = [];
-    ctx.state.commandZone = {};
+    // Clear commandZone in place to preserve reference identity
+    if (ctx.state.commandZone && typeof ctx.state.commandZone === 'object') {
+      for (const key of Object.keys(ctx.state.commandZone)) {
+        delete ctx.state.commandZone[key];
+      }
+    } else {
+      ctx.state.commandZone = {};
+    }
     ctx.state.zones = ctx.state.zones || {};
     ctx.libraries = ctx.libraries || new Map<string, any[]>();
     ctx.life = ctx.life || {};
@@ -507,7 +516,45 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       }
 
       case "resolveSpell": {
-        // Engine-driven resolution handled elsewhere
+        // Execute spell effects based on spec and chosen targets
+        const spec = (e as any).spec;
+        const chosen = (e as any).chosen || [];
+        if (spec && typeof resolveSpell === 'function') {
+          try {
+            const effects = resolveSpell(spec, chosen, ctx.state);
+            // Apply each effect
+            for (const eff of effects) {
+              switch (eff.kind) {
+                case 'DestroyPermanent':
+                  removePermanent(ctx as any, eff.id);
+                  break;
+                case 'MoveToExile':
+                  movePermanentToExile(ctx as any, eff.id);
+                  break;
+                case 'DamagePermanent': {
+                  // Apply damage to permanent (may kill it via SBA)
+                  const perm = ctx.state.battlefield.find((p: any) => p.id === eff.id);
+                  if (perm) {
+                    (perm as any).damage = ((perm as any).damage || 0) + eff.amount;
+                  }
+                  break;
+                }
+                case 'DamagePlayer': {
+                  // Reduce player life
+                  if (ctx.life && eff.playerId) {
+                    ctx.life[eff.playerId] = (ctx.life[eff.playerId] ?? ctx.state.startingLife ?? 40) - eff.amount;
+                  }
+                  break;
+                }
+              }
+            }
+            // Run state-based actions after applying effects
+            runSBA(ctx as any);
+            ctx.bumpSeq();
+          } catch (err) {
+            console.warn('[applyEvent] resolveSpell failed:', err);
+          }
+        }
         break;
       }
 
