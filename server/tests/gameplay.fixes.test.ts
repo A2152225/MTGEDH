@@ -121,7 +121,8 @@ describe('Gameplay fixes - land play, commander casting, priority, win condition
       
       // Game state should remain consistent
       expect(g.state.battlefield.length).toBe(0);
-      expect(g.state.landsPlayedThisTurn?.[p1]).toBe(undefined);
+      // landsPlayedThisTurn is initialized to 0 for players on join
+      expect(g.state.landsPlayedThisTurn?.[p1]).toBe(0);
     });
     
     it('should not increment landsPlayedThisTurn if card not found', () => {
@@ -183,6 +184,9 @@ describe('Gameplay fixes - land play, commander casting, priority, win condition
       const cmdInfoAfter = (g.state.commandZone as any)?.[p1];
       expect(cmdInfoAfter?.tax).toBe(2); // First cast adds 2 generic mana
       expect(cmdInfoAfter?.taxById?.['cmd_1']).toBe(2);
+      
+      // Return commander to command zone (simulating it being moved back)
+      g.moveCommanderToCZ(p1, 'cmd_1');
       
       // Cast again - tax should increase
       g.castCommander(p1, 'cmd_1');

@@ -5,13 +5,14 @@
  * and the game transitions to PRE_GAME.
  */
 
+import { describe, test, expect, vi, beforeEach } from "vitest";
 import { registerDeckHandlers } from "../src/socket/deck";
 import { games } from "../src/socket/socket";
 import { ensureGame } from "../src/socket/util";
 import { GamePhase } from "../../shared/src/types";
 
 // Mock the scryfall service module used by the handler
-jest.mock("../src/services/scryfall", () => {
+vi.mock("../src/services/scryfall", () => {
   return {
     parseDecklist: (list: string) => {
       // Very simple parser: return lines like "1 Name" or "Name"

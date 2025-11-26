@@ -551,6 +551,30 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         // Execute spell effects based on spec and chosen targets
         const spec = (e as any).spec;
         const chosen = (e as any).chosen || [];
+        
+        // Handle COUNTER_TARGET_SPELL specially since it's not in the targeting module
+        if (spec?.op === 'COUNTER_TARGET_SPELL') {
+          for (const target of chosen) {
+            if (target.kind === 'stack') {
+              const stackIdx = ctx.state.stack.findIndex((s: any) => s.id === target.id);
+              if (stackIdx >= 0) {
+                const countered = ctx.state.stack.splice(stackIdx, 1)[0];
+                // Move the countered spell to its controller's graveyard
+                const controller = (countered as any).controller as PlayerID;
+                const zones = ctx.state.zones = ctx.state.zones || {};
+                zones[controller] = zones[controller] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+                const gy = (zones[controller] as any).graveyard = (zones[controller] as any).graveyard || [];
+                if ((countered as any).card) {
+                  gy.push((countered as any).card);
+                  (zones[controller] as any).graveyardCount = gy.length;
+                }
+              }
+            }
+          }
+          ctx.bumpSeq();
+          break;
+        }
+        
         if (spec && typeof resolveSpell === 'function') {
           try {
             const effects = resolveSpell(spec, chosen, ctx.state);
