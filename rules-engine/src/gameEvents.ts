@@ -117,7 +117,7 @@ export interface GameEventData {
   amount?: number;
   source?: string;
   target?: string;
-  isCombart?: boolean;
+  isCombat?: boolean;
   
   // Counter specific
   counterType?: string;

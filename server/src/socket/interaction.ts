@@ -445,7 +445,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           ts: Date.now(),
         });
         
-        // TODO: Add actual trigger resolution to stack
+        // Note: Trigger resolution (e.g., Ob Nixilis forcing sacrifice/life loss)
+        // would require pushing to the stack and resolving. For now, we notify
+        // the players via chat. Full implementation would use the stack system.
       }
     }
     
@@ -1483,9 +1485,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           
           const isShockLand = SHOCK_LANDS.has(cardName);
           
-          // By default, lands from search enter untapped unless shock land
-          // Shock lands will be handled by a prompt
-          const shouldEnterTapped = false; // Will be set by prompt response
+          // Shock lands enter tapped by default unless player pays 2 life
+          // The prompt will allow them to choose (pay life = untapped, don't pay = tapped)
+          const shouldEnterTapped = isShockLand; // Tapped by default for shock lands
           
           game.state.battlefield.push({
             id: permanentId,
@@ -1496,7 +1498,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             counters: {},
           });
           
-          // If it's a shock land, emit prompt to player
+          // If it's a shock land, emit prompt to player to optionally pay life to untap
           if (isShockLand) {
             const currentLife = (game.state as any)?.life?.[pid] || 40;
             const cardImageUrl = card.image_uris?.small || card.image_uris?.normal;
