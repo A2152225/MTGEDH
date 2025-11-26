@@ -299,14 +299,12 @@ export function shouldEnterTapped(
     return true;
   }
   
-  // Shock lands - handled via player choice (pay 2 life or tapped)
+  // Shock lands and similar "pay life or enter tapped" - handled via player choice
+  // Pattern: "pay 2 life" in oracle text with ETB condition
   // Don't auto-tap here; the choice modal handles this
-  const shockLands = [
-    'blood crypt', 'breeding pool', 'godless shrine', 'hallowed fountain',
-    'overgrown tomb', 'sacred foundry', 'steam vents', 'stomping ground',
-    'temple garden', 'watery grave'
-  ];
-  if (shockLands.includes(cardName)) {
+  if (oracleText.includes('pay 2 life') && 
+      (oracleText.includes('enters the battlefield tapped unless') || 
+       oracleText.includes('as ~ enters the battlefield'))) {
     // Default to tapped; player choice will override if they pay life
     return true;
   }
