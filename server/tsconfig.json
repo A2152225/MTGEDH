@@ -9,8 +9,9 @@
     "declaration": true,
     "declarationMap": true,
     "strict": false,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "noEmit": false
   },
   "include": ["src"],
-  "exclude": ["../rules-engine"]
+  "exclude": ["node_modules", "../rules-engine/**/*"]
 }
