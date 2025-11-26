@@ -32,7 +32,7 @@ describe('AI Turn Handling', () => {
     });
     
     it('should check if commander is valid', () => {
-      // Test commander detection logic
+      // Test commander detection logic - including Vehicles and Stations
       const isValidCommander = (card: any): boolean => {
         const typeLine = (card.type_line || '').toLowerCase();
         const oracleText = (card.oracle_text || '').toLowerCase();
@@ -42,6 +42,16 @@ describe('AI Turn Handling', () => {
         }
         
         if (typeLine.includes('creature')) {
+          return true;
+        }
+        
+        // Legendary Vehicles can be commanders
+        if (typeLine.includes('vehicle')) {
+          return true;
+        }
+        
+        // Legendary Stations can be commanders
+        if (typeLine.includes('station')) {
           return true;
         }
         
@@ -73,9 +83,83 @@ describe('AI Turn Handling', () => {
         oracle_text: 'Teferi, Temporal Archmage can be your commander.',
       };
       
+      const legendaryVehicle = {
+        id: 'vehicle_1',
+        name: 'Weatherlight',
+        type_line: 'Legendary Artifact — Vehicle',
+        oracle_text: 'Flying. Crew 3.',
+      };
+      
+      const legendaryStation = {
+        id: 'station_1',
+        name: 'Example Legendary Station',
+        type_line: 'Legendary Artifact — Station',
+        oracle_text: 'Station ability...',
+      };
+      
+      const nonLegendaryVehicle = {
+        id: 'vehicle_2',
+        name: 'Smugglers Copter',
+        type_line: 'Artifact — Vehicle',
+        oracle_text: 'Flying. Crew 1.',
+      };
+      
       expect(isValidCommander(legendaryCreature)).toBe(true);
       expect(isValidCommander(nonLegendary)).toBe(false);
       expect(isValidCommander(planeswalkerCommander)).toBe(true);
+      expect(isValidCommander(legendaryVehicle)).toBe(true);
+      expect(isValidCommander(legendaryStation)).toBe(true);
+      expect(isValidCommander(nonLegendaryVehicle)).toBe(false);
+    });
+    
+    it('should prioritize first cards in decklist for commander selection', () => {
+      // Test that commander selection prioritizes first cards in decklist
+      const isValidCommander = (card: any): boolean => {
+        const typeLine = (card.type_line || '').toLowerCase();
+        const oracleText = (card.oracle_text || '').toLowerCase();
+        if (!typeLine.includes('legendary')) return false;
+        if (typeLine.includes('creature')) return true;
+        if (typeLine.includes('vehicle')) return true;
+        if (typeLine.includes('station')) return true;
+        if (oracleText.includes('can be your commander')) return true;
+        return false;
+      };
+      
+      // Simulate a deck where Morophon is first, followed by Hope
+      const morophon = {
+        id: 'morophon_1',
+        name: 'Morophon, the Boundless',
+        type_line: 'Legendary Creature — Shapeshifter',
+        mana_cost: '{7}',
+        color_identity: ['W', 'U', 'B', 'R', 'G'],
+        oracle_text: 'Changeling. As Morophon enters the battlefield, choose a creature type...',
+      };
+      
+      const hope = {
+        id: 'hope_1',
+        name: 'Hope of Ghirapur',
+        type_line: 'Legendary Artifact Creature — Thopter',
+        mana_cost: '{1}',
+        color_identity: [],
+        oracle_text: 'Flying...',
+      };
+      
+      const randomCreature = {
+        id: 'creature_1',
+        name: 'Some Legendary Creature',
+        type_line: 'Legendary Creature — Human',
+        mana_cost: '{W}{U}',
+        color_identity: ['W', 'U'],
+        oracle_text: '',
+      };
+      
+      // Deck with Morophon first (unshuffled)
+      const deckWithMorophonFirst = [morophon, hope, randomCreature];
+      
+      // Simple commander selection that prioritizes first cards
+      const firstTwoCandidates = deckWithMorophonFirst.slice(0, 2).filter(isValidCommander);
+      expect(firstTwoCandidates.length).toBeGreaterThan(0);
+      expect(firstTwoCandidates[0].name).toBe('Morophon, the Boundless');
     });
     
     it('should extract color identity from cards', () => {

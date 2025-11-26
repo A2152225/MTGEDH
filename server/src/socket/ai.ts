@@ -65,7 +65,13 @@ function extractColorIdentity(card: any): string[] {
 }
 
 /**
- * Check if a card is a valid commander (legendary creature or has "can be your commander")
+ * Check if a card is a valid commander
+ * Valid commanders include:
+ * - Legendary creatures
+ * - Legendary planeswalkers with "can be your commander"
+ * - Legendary Vehicles (as of recent rules changes)
+ * - Legendary cards with Station type
+ * - Any card with "can be your commander" text
  */
 function isValidCommander(card: any): boolean {
   const typeLine = (card.type_line || '').toLowerCase();
@@ -78,6 +84,16 @@ function isValidCommander(card: any): boolean {
   
   // Check if it's a creature
   if (typeLine.includes('creature')) {
+    return true;
+  }
+  
+  // Check if it's a Vehicle (legendary Vehicles can now be commanders)
+  if (typeLine.includes('vehicle')) {
+    return true;
+  }
+  
+  // Check if it has Station type (legendary Stations can be commanders)
+  if (typeLine.includes('station')) {
     return true;
   }
   
@@ -109,6 +125,13 @@ function hasBackground(card: any): boolean {
 /**
  * Find the best commander(s) from a deck's card list
  * Returns 1 or 2 commanders based on partner/background rules
+ * 
+ * Priority order:
+ * 1. Check first 1-2 cards in decklist (commanders are typically listed first)
+ * 2. Look for partner pairs or commander+background pairs
+ * 3. Fall back to first valid commander candidate
+ * 
+ * Also calculates combined color identity of the selected commander(s)
  */
 function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: string[] } {
   // Find all valid commander candidates
@@ -119,26 +142,61 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
     return { commanders: [], colorIdentity: [] };
   }
   
-  // Find partner candidates
+  // Find partner candidates and background candidates
   const partnerCandidates = candidates.filter(hasPartner);
   const backgroundCandidates = cards.filter(c => (c.type_line || '').toLowerCase().includes('background'));
   const chooseBackgroundCandidates = candidates.filter(hasBackground);
   
   let selectedCommanders: any[] = [];
   
-  // Check for partner pair
-  if (partnerCandidates.length >= 2) {
-    // Select first two partners
+  // Priority 1: Check first 2 cards - commanders are often at the start of decklists
+  const firstTwoCards = cards.slice(0, 2);
+  const firstTwoCandidates = firstTwoCards.filter(isValidCommander);
+  
+  if (firstTwoCandidates.length > 0) {
+    // Check if first two cards are both partners
+    if (firstTwoCandidates.length === 2 && 
+        hasPartner(firstTwoCandidates[0]) && hasPartner(firstTwoCandidates[1])) {
+      selectedCommanders = firstTwoCandidates;
+      console.info('[AI] Selected partner commanders from first 2 cards:', selectedCommanders.map(c => c.name));
+    }
+    // Check if first two cards are commander + background pair
+    else if (firstTwoCandidates.length >= 1) {
+      const firstCard = firstTwoCandidates[0];
+      const secondCard = firstTwoCards[1];
+      
+      if (hasBackground(firstCard) && secondCard && 
+          (secondCard.type_line || '').toLowerCase().includes('background')) {
+        selectedCommanders = [firstCard, secondCard];
+        console.info('[AI] Selected commander + background from first 2 cards:', selectedCommanders.map(c => c.name));
+      } else if (secondCard && isValidCommander(secondCard) &&
+                 (secondCard.type_line || '').toLowerCase().includes('background') && 
+                 hasBackground(firstCard)) {
+        selectedCommanders = [firstCard, secondCard];
+        console.info('[AI] Selected commander + background from first 2 cards:', selectedCommanders.map(c => c.name));
+      } else {
+        // Just use the first valid commander from the decklist
+        selectedCommanders = [firstTwoCandidates[0]];
+        console.info('[AI] Selected single commander from first card(s):', selectedCommanders[0]?.name);
+      }
+    }
+  }
+  
+  // Priority 2: If no commanders found in first 2 cards, check for partner pairs elsewhere
+  if (selectedCommanders.length === 0 && partnerCandidates.length >= 2) {
     selectedCommanders = partnerCandidates.slice(0, 2);
     console.info('[AI] Selected partner commanders:', selectedCommanders.map(c => c.name));
   }
-  // Check for background pair
-  else if (chooseBackgroundCandidates.length > 0 && backgroundCandidates.length > 0) {
+  
+  // Priority 3: Check for background pair
+  if (selectedCommanders.length === 0 && 
+      chooseBackgroundCandidates.length > 0 && backgroundCandidates.length > 0) {
     selectedCommanders = [chooseBackgroundCandidates[0], backgroundCandidates[0]];
     console.info('[AI] Selected commander + background:', selectedCommanders.map(c => c.name));
   }
-  // Single commander
-  else {
+  
+  // Priority 4: Fall back to first valid commander candidate
+  if (selectedCommanders.length === 0) {
     selectedCommanders = [candidates[0]];
     console.info('[AI] Selected single commander:', selectedCommanders[0]?.name);
   }
@@ -178,7 +236,8 @@ export async function autoSelectAICommander(
       return false;
     }
     
-    // Get the AI player's library (deck)
+    // Get the AI player's library (deck) from zones
+    // The library should have been populated by importDeckResolved earlier
     const zones = game.state.zones?.[playerId] as any;
     const library = zones?.library || [];
     
@@ -187,7 +246,9 @@ export async function autoSelectAICommander(
       return false;
     }
     
-    // Find the best commander(s) from the deck
+    console.info('[AI] autoSelectAICommander: found library with', library.length, 'cards');
+    
+    // Find the best commander(s) from the deck (uses original unshuffled order)
     let { commanders, colorIdentity } = findBestCommanders(library);
     
     if (commanders.length === 0) {
@@ -2058,6 +2119,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
                 mana_cost: card.mana_cost,
                 power: card.power,
                 toughness: card.toughness,
+                color_identity: card.color_identity, // Include color_identity from Scryfall
                 zone: 'library',
               });
             }
@@ -2065,11 +2127,10 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         }
         
         if (resolvedCards.length > 0) {
-          // Shuffle the library
-          for (let i = resolvedCards.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [resolvedCards[i], resolvedCards[j]] = [resolvedCards[j], resolvedCards[i]];
-          }
+          // IMPORTANT: Don't shuffle yet - we need the original order for commander detection
+          // The commander(s) are typically first in the decklist.
+          // Use importDeckResolved to properly populate the context's libraries Map
+          // This ensures shuffle/draw operations work correctly later.
           
           aiPlayer.library = resolvedCards;
           aiPlayer.deckName = finalDeckName;
@@ -2077,16 +2138,28 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           aiPlayer.deckId = aiDeckId || (aiDeckText ? `imported_${Date.now().toString(36)}` : null);
           deckLoaded = true;
           
-          // Initialize zones for AI
-          game.state.zones = game.state.zones || {};
-          (game.state.zones as any)[aiPlayerId] = {
-            hand: [],
-            handCount: 0,
-            library: resolvedCards,
-            libraryCount: resolvedCards.length,
-            graveyard: [],
-            graveyardCount: 0,
-          };
+          // Use the game's importDeckResolved function to properly populate the libraries Map
+          // This is critical for shuffle/draw operations to work correctly
+          if (typeof (game as any).importDeckResolved === 'function') {
+            (game as any).importDeckResolved(aiPlayerId, resolvedCards);
+            console.info('[AI] Deck imported via importDeckResolved for AI:', { 
+              aiPlayerId, 
+              deckName: finalDeckName, 
+              resolvedCount: resolvedCards.length,
+            });
+          } else {
+            // Fallback: manually initialize zones (this may cause issues with shuffle/draw)
+            console.warn('[AI] importDeckResolved not available, using fallback zone initialization');
+            game.state.zones = game.state.zones || {};
+            (game.state.zones as any)[aiPlayerId] = {
+              hand: [],
+              handCount: 0,
+              library: resolvedCards,
+              libraryCount: resolvedCards.length,
+              graveyard: [],
+              graveyardCount: 0,
+            };
+          }
           
           console.info('[AI] Deck resolved for AI:', { 
             aiPlayerId, 
