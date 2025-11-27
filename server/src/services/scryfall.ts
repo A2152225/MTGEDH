@@ -547,6 +547,7 @@ interface MoxfieldDeckResponse {
   mainboard?: Record<string, MoxfieldCardEntry>;
   commanders?: Record<string, MoxfieldCardEntry>;
   sideboard?: Record<string, MoxfieldCardEntry>;
+  companions?: Record<string, MoxfieldCardEntry>;
   publicId?: string;
 }
 
@@ -613,26 +614,56 @@ export async function fetchDeckFromMoxfield(urlOrId: string): Promise<{
   
   // Extract cards from mainboard
   const cards: ParsedLine[] = [];
+  const seenCards = new Set<string>(); // Track cards to avoid duplicates
   
   // Add commanders first (they should be in the deck)
   for (const entry of Object.values(data.commanders || {})) {
     if (entry.card?.name) {
-      cards.push({
-        name: entry.card.name,
-        count: entry.quantity || 1,
-      });
+      const normalizedName = entry.card.name.toLowerCase();
+      if (!seenCards.has(normalizedName)) {
+        cards.push({
+          name: entry.card.name,
+          count: entry.quantity || 1,
+        });
+        seenCards.add(normalizedName);
+      }
     }
   }
   
-  // Add mainboard cards
-  for (const entry of Object.values(data.mainboard || {})) {
+  // Add companion if present (for Companion mechanic)
+  for (const entry of Object.values(data.companions || {})) {
     if (entry.card?.name) {
-      cards.push({
-        name: entry.card.name,
-        count: entry.quantity || 1,
-      });
+      const normalizedName = entry.card.name.toLowerCase();
+      if (!seenCards.has(normalizedName)) {
+        cards.push({
+          name: entry.card.name,
+          count: entry.quantity || 1,
+        });
+        seenCards.add(normalizedName);
+      }
     }
   }
+  
+  // Add mainboard cards (skipping any already added as commanders/companions)
+  for (const entry of Object.values(data.mainboard || {})) {
+    if (entry.card?.name) {
+      const normalizedName = entry.card.name.toLowerCase();
+      if (!seenCards.has(normalizedName)) {
+        cards.push({
+          name: entry.card.name,
+          count: entry.quantity || 1,
+        });
+        seenCards.add(normalizedName);
+      } else {
+        // Card already exists (commander in mainboard), don't add duplicate
+        console.log(`[fetchDeckFromMoxfield] Skipping duplicate: ${entry.card.name} (already added as commander/companion)`);
+      }
+    }
+  }
+  
+  // Log total card count for debugging
+  const totalCards = cards.reduce((sum, c) => sum + c.count, 0);
+  console.log(`[fetchDeckFromMoxfield] Deck "${data.name}": ${cards.length} unique cards, ${totalCards} total cards`);
   
   return {
     name: data.name || 'Imported Deck',

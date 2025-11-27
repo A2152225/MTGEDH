@@ -321,7 +321,7 @@ export const COMMANDER_PRECONS: PreconYear[] = [
         name: "Kaldheim",
         code: "KHC",
         decks: [
-          { name: "Elven Empire", commanders: ["Lathril, Blade of the Elves"], colorIdentity: "BG", decklistUrl: "https://www.moxfield.com/decks/diwSjxSEw0O9MDyJU9EYkg" },
+          { name: "Elven Empire", commanders: ["Lathril, Blade of the Elves"], colorIdentity: "BG", decklistUrl: "https://www.moxfield.com/decks/XrG-Ct9Mx0SZxXKayAp09w" },
           { name: "Phantom Premonition", commanders: ["Ranar the Ever-Watchful"], colorIdentity: "WU", decklistUrl: "https://www.moxfield.com/decks/Go1B3kYCPk6ckaI7hPdShw" }
         ]
       }
