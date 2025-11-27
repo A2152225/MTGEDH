@@ -1435,13 +1435,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Determine whose library we're searching
     const libraryOwner = targetPlayerId || pid;
     
-    // Get the library - try multiple sources for reliability
-    // Priority: 1) game.libraries Map, 2) zones.library array
-    let library: any[] = [];
-    if (typeof game.libraries?.get === "function") {
-      library = game.libraries.get(libraryOwner) || [];
-    }
-    
     const zones = game.state?.zones?.[libraryOwner];
     if (!zones) {
       socket.emit("error", {
@@ -1451,110 +1444,143 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
-    // Fallback: if library from game.libraries is empty, try zones.library
-    // Note: zones.library may not be in the type definition but is added dynamically
-    if (library.length === 0 && Array.isArray((zones as any).library) && (zones as any).library.length > 0) {
-      library = (zones as any).library;
-      console.log(`[librarySearchSelect] Using zones.library fallback for ${libraryOwner}`);
-    }
-    
     const movedCardNames: string[] = [];
     
-    for (const cardId of selectedCardIds) {
-      const cardIndex = library.findIndex((c: any) => c?.id === cardId);
-      if (cardIndex === -1) {
-        console.warn(`[librarySearchSelect] Card ${cardId} not found in library (library size: ${library.length})`);
-        continue;
+    // Use the game's selectFromLibrary function for supported destinations
+    // This properly accesses the internal libraries Map
+    if (moveTo === 'hand' || moveTo === 'graveyard' || moveTo === 'exile') {
+      // selectFromLibrary handles hand, graveyard, exile
+      if (typeof game.selectFromLibrary === 'function') {
+        const moved = game.selectFromLibrary(libraryOwner, selectedCardIds, moveTo as any);
+        for (const card of moved) {
+          movedCardNames.push((card as any).name || "Unknown");
+        }
+      } else {
+        console.error('[librarySearchSelect] game.selectFromLibrary not available');
+        socket.emit("error", {
+          code: "INTERNAL_ERROR",
+          message: "Library selection not available",
+        });
+        return;
+      }
+    } else if (moveTo === 'battlefield' || moveTo === 'top') {
+      // For 'battlefield' and 'top', we need special handling:
+      // - battlefield: selectFromLibrary returns minimal objects, need to get full card data first
+      // - top: use applyScry to reorder library and put cards on top
+      
+      // Get current library for card data lookup (BEFORE modifying)
+      const libraryData = typeof game.searchLibrary === 'function' 
+        ? game.searchLibrary(libraryOwner, "", 1000) 
+        : [];
+      
+      // Create a map of card data by ID for full card info
+      const cardDataById = new Map<string, any>();
+      for (const card of libraryData) {
+        cardDataById.set(card.id, card);
       }
       
-      const [card] = library.splice(cardIndex, 1);
-      movedCardNames.push(card.name || "Unknown");
-      
-      // Move to destination
-      switch (moveTo) {
-        case 'hand': {
-          const myZones = game.state?.zones?.[pid];
-          if (myZones) {
-            myZones.hand = myZones.hand || [];
-            card.zone = 'hand';
-            myZones.hand.push(card);
-            myZones.handCount = myZones.hand.length;
-          }
-          break;
-        }
-        case 'battlefield': {
+      if (moveTo === 'battlefield') {
+        // Use selectFromLibrary to remove from library, then add to battlefield
+        if (typeof game.selectFromLibrary === 'function') {
+          const moved = game.selectFromLibrary(libraryOwner, selectedCardIds, 'battlefield' as any);
+          
           game.state.battlefield = game.state.battlefield || [];
-          const permanentId = card.id;
-          const cardName = (card.name || "").toLowerCase();
           
-          // Check if this is a shock land that needs a prompt
-          const SHOCK_LANDS = new Set([
-            "blood crypt", "breeding pool", "godless shrine", "hallowed fountain",
-            "overgrown tomb", "sacred foundry", "steam vents", "stomping ground",
-            "temple garden", "watery grave"
-          ]);
-          
-          const isShockLand = SHOCK_LANDS.has(cardName);
-          
-          // Shock lands enter tapped by default unless player pays 2 life
-          // The prompt will allow them to choose (pay life = untapped, don't pay = tapped)
-          const shouldEnterTapped = isShockLand; // Tapped by default for shock lands
-          
-          game.state.battlefield.push({
-            id: permanentId,
-            card: { ...card, zone: 'battlefield' },
-            controller: pid,
-            owner: libraryOwner,
-            tapped: shouldEnterTapped,
-            counters: {},
-          });
-          
-          // If it's a shock land, emit prompt to player to optionally pay life to untap
-          if (isShockLand) {
-            const currentLife = (game.state as any)?.life?.[pid] || 40;
-            const cardImageUrl = card.image_uris?.small || card.image_uris?.normal;
+          for (const minimalCard of moved) {
+            const cardId = (minimalCard as any).id;
+            // Get full card data from our lookup or use what we have
+            const fullCard = cardDataById.get(cardId) || minimalCard;
             
-            socket.emit("shockLandPrompt", {
-              gameId,
-              permanentId,
-              cardName: card.name,
-              imageUrl: cardImageUrl,
-              currentLife,
-            });
+            movedCardNames.push((fullCard as any).name || (minimalCard as any).name || "Unknown");
+            
+            const cardName = ((fullCard as any).name || "").toLowerCase();
+            
+            // Check if this is a shock land that needs a prompt
+            const SHOCK_LANDS = new Set([
+              "blood crypt", "breeding pool", "godless shrine", "hallowed fountain",
+              "overgrown tomb", "sacred foundry", "steam vents", "stomping ground",
+              "temple garden", "watery grave"
+            ]);
+            
+            const isShockLand = SHOCK_LANDS.has(cardName);
+            
+            // Check if this land enters tapped based on oracle text
+            const oracleText = ((fullCard as any).oracle_text || "").toLowerCase();
+            
+            // Lands that always enter tapped (shock lands enter tapped by default, prompt for paying 2 life)
+            const entersTapped = 
+              isShockLand ||
+              (oracleText.includes('enters the battlefield tapped') && 
+               !oracleText.includes('unless') && 
+               !oracleText.includes('you may pay'));
+            
+            const permanentId = generateId("perm");
+            
+            game.state.battlefield.push({
+              id: permanentId,
+              card: { ...fullCard, zone: 'battlefield' },
+              controller: pid,
+              owner: libraryOwner,
+              tapped: entersTapped,
+              counters: {},
+            } as any);
+            
+            // If it's a shock land, emit prompt to player to optionally pay life to untap
+            if (isShockLand) {
+              const currentLife = (game.state as any)?.life?.[pid] || 40;
+              const cardImageUrl = (fullCard as any).image_uris?.small || (fullCard as any).image_uris?.normal;
+              
+              socket.emit("shockLandPrompt", {
+                gameId,
+                permanentId,
+                cardName: (fullCard as any).name,
+                imageUrl: cardImageUrl,
+                currentLife,
+              });
+            }
           }
-          break;
+        } else {
+          console.error('[librarySearchSelect] game.selectFromLibrary not available');
         }
-        case 'top': {
-          // Put on top of library
-          card.zone = 'library';
-          library.unshift(card);
-          break;
-        }
-        case 'graveyard': {
-          const targetZones = game.state?.zones?.[libraryOwner];
-          if (targetZones) {
-            targetZones.graveyard = targetZones.graveyard || [];
-            card.zone = 'graveyard';
-            targetZones.graveyard.push(card);
-            targetZones.graveyardCount = targetZones.graveyard.length;
+      } else {
+        // moveTo === 'top': For tutors that put card on top of library (e.g., Vampiric Tutor)
+        // Correct sequence: remove card → shuffle library → put card on top
+        // This ensures the rest of the library is properly randomized and hidden info is protected
+        
+        // Get full card data before any operations
+        const cardsToTop: any[] = [];
+        for (const cardId of selectedCardIds) {
+          const card = cardDataById.get(cardId);
+          if (card) {
+            movedCardNames.push((card as any).name || "Unknown");
+            cardsToTop.push({ ...card });
           }
-          break;
+        }
+        
+        if (typeof game.selectFromLibrary === 'function' && 
+            typeof game.shuffleLibrary === 'function' &&
+            typeof game.putCardsOnTopOfLibrary === 'function') {
+          // Step 1: Remove the selected cards from library
+          // Using 'battlefield' as destination just removes them without placing anywhere
+          game.selectFromLibrary(libraryOwner, selectedCardIds, 'battlefield' as any);
+          
+          // Step 2: Shuffle the remaining library (this randomizes the order, protecting hidden info)
+          game.shuffleLibrary(libraryOwner);
+          
+          // Step 3: Put the saved cards on top of the library
+          game.putCardsOnTopOfLibrary(libraryOwner, cardsToTop);
+          
+          console.info('[librarySearchSelect] Cards put on top of library after shuffle:', 
+            cardsToTop.map(c => c.name).join(', '));
+        } else {
+          console.warn('[librarySearchSelect] Required functions not available for top destination');
         }
       }
     }
-    
-    // Update library in both sources for consistency
-    if (typeof game.libraries?.set === "function") {
-      game.libraries.set(libraryOwner, library);
-    }
-    // Also sync zones.library to keep both sources in sync
-    if (zones) {
-      (zones as any).library = library;
-    }
-    zones.libraryCount = library.length;
     
     // Shuffle library after search (standard for tutors)
-    if (typeof game.shuffleLibrary === "function") {
+    // EXCEPTION: Don't shuffle if moveTo === 'top' since shuffling is handled specially above
+    if (moveTo !== 'top' && typeof game.shuffleLibrary === "function") {
       game.shuffleLibrary(libraryOwner);
     }
     

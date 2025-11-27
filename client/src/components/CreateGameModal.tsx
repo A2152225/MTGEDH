@@ -92,7 +92,14 @@ const AI_STRATEGY_INFO: Record<AIStrategy, { name: string; description: string }
 export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], onRefreshDecks }: CreateGameModalProps) {
   // Form state
   const [gameId, setGameId] = useState(() => `game_${Date.now().toString(36)}`);
-  const [playerName, setPlayerName] = useState('Player');
+  // Load player name from localStorage for persistence across sessions
+  const [playerName, setPlayerName] = useState(() => {
+    try {
+      return localStorage.getItem('mtgedh:playerName') || 'Player';
+    } catch {
+      return 'Player';
+    }
+  });
   const [format, setFormat] = useState<GameFormat>('commander');
   const [startingLife, setStartingLife] = useState(40);
   
@@ -188,9 +195,17 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
     // Sanitize and validate game ID
     const sanitizedGameId = sanitizeGameId(gameId.trim()) || `game_${Date.now().toString(36)}`;
     
+    // Save player name to localStorage for future sessions
+    const finalPlayerName = playerName.trim() || 'Player';
+    try {
+      localStorage.setItem('mtgedh:playerName', finalPlayerName);
+    } catch {
+      // Ignore storage errors
+    }
+    
     const config: GameCreationConfig = {
       gameId: sanitizedGameId,
-      playerName: playerName.trim() || 'Player',
+      playerName: finalPlayerName,
       format,
       startingLife,
       includeAI,

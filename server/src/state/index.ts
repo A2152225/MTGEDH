@@ -20,6 +20,9 @@ import {
   selectFromLibrary,
   moveHandToLibrary,
   searchLibrary,
+  putCardsOnTopOfLibrary,
+  putCardsOnBottomOfLibrary,
+  putCardAtPositionInLibrary,
   reconcileZonesConsistency,
   reorderHand as zonesReorderHand,
   shuffleHand as zonesShuffleHand,
@@ -127,6 +130,9 @@ export function createInitialGameState(gameId: string): InMemoryGame {
       selectFromLibrary(ctx, playerId, cardIds, moveTo),
     moveHandToLibrary: (playerId: PlayerID) => moveHandToLibrary(ctx, playerId),
     searchLibrary: (playerId: PlayerID, query: string, limit: number) => searchLibrary(ctx, playerId, query, limit),
+    putCardsOnTopOfLibrary: (playerId: PlayerID, cards: any[]) => putCardsOnTopOfLibrary(ctx, playerId, cards),
+    putCardsOnBottomOfLibrary: (playerId: PlayerID, cards: any[]) => putCardsOnBottomOfLibrary(ctx, playerId, cards),
+    putCardAtPositionInLibrary: (playerId: PlayerID, card: any, position: number) => putCardAtPositionInLibrary(ctx, playerId, card, position),
 
     // zone helpers
     reconcileZonesConsistency: (playerId?: PlayerID) => reconcileZonesConsistency(ctx, playerId),

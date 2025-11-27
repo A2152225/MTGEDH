@@ -418,11 +418,35 @@ export async function handleAIGameFlow(
       return;
     }
     
-    // If we have a commander and hand, we're ready to proceed
+    // If we have a commander and hand, auto-keep the hand
+    // This is critical to prevent the game from stalling when waiting for AI to keep hand
     if (hasCommander && hasHand) {
-      console.info('[AI] AI is ready to start game');
-      // AI is ready - if no turn player is set and AI should take initiative, we could start
-      // But typically the human player starts the game
+      // Check if AI has already kept their hand
+      const mulliganState = (game.state as any).mulliganState || {};
+      const aiMulliganState = mulliganState[playerId];
+      
+      if (!aiMulliganState || !aiMulliganState.hasKeptHand) {
+        // AI automatically keeps hand - set mulligan state
+        console.info('[AI] AI automatically keeping hand');
+        
+        (game.state as any).mulliganState = (game.state as any).mulliganState || {};
+        (game.state as any).mulliganState[playerId] = {
+          hasKeptHand: true,
+          mulligansTaken: 0,
+        };
+        
+        // Bump sequence to propagate state change
+        if (typeof (game as any).bumpSeq === 'function') {
+          (game as any).bumpSeq();
+        }
+        
+        console.info('[AI] AI is ready to start game (hand kept)');
+        
+        // Broadcast updated state so human players see AI has kept hand
+        broadcastGame(io, game, gameId);
+      } else {
+        console.info('[AI] AI has already kept hand, ready to start game');
+      }
     }
     return;
   }

@@ -43,6 +43,9 @@ export interface InMemoryGame {
   peekTopN?: (playerId: PlayerID, n: number) => any[];
   reorderHand?: (playerId: PlayerID, order: number[]) => boolean;
   shuffleHand?: (playerId: PlayerID) => void;
+  putCardsOnTopOfLibrary?: (playerId: PlayerID, cards: any[]) => void;
+  putCardsOnBottomOfLibrary?: (playerId: PlayerID, cards: any[]) => void;
+  putCardAtPositionInLibrary?: (playerId: PlayerID, card: any, position: number) => void;
 
   // Commander operations
   setCommander: (playerId: PlayerID, commanderNames: string[], commanderIds?: string[], colorIdentity?: ("W"|"U"|"B"|"R"|"G")[]) => void;
