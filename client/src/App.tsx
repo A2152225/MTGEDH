@@ -260,6 +260,7 @@ export function App() {
   // Undo request modal state
   const [undoModalOpen, setUndoModalOpen] = useState(false);
   const [undoRequestData, setUndoRequestData] = useState<UndoRequestData | null>(null);
+  const [undoCount, setUndoCount] = useState<number>(1); // Number of actions to undo
   
   // Split/Adventure card choice modal state
   const [splitCardModalOpen, setSplitCardModalOpen] = useState(false);
@@ -1277,11 +1278,12 @@ export function App() {
     setUndoRequestData(null);
   };
 
-  const handleRequestUndo = () => {
+  const handleRequestUndo = (count: number = 1) => {
     if (!safeView) return;
+    const actionsToUndo = Math.max(1, Math.min(10, count)); // Clamp between 1 and 10
     socket.emit("requestUndo", {
       gameId: safeView.id,
-      actionsToUndo: 1,
+      actionsToUndo,
     });
   };
 
@@ -1633,6 +1635,24 @@ export function App() {
                   >
                     Mulligan
                   </button>
+                  {/* Random starting player button - only show if no turn player set yet */}
+                  {!safeView?.turnPlayer && (
+                    <button
+                      onClick={() => socket.emit("randomizeStartingPlayer", { gameId: safeView?.id })}
+                      style={{
+                        background: "#805ad5",
+                        color: "white",
+                        border: "none",
+                        borderRadius: 4,
+                        padding: "4px 12px",
+                        cursor: "pointer",
+                        marginLeft: 8,
+                      }}
+                      title="Randomly select which player goes first"
+                    >
+                      🎲 Random Start
+                    </button>
+                  )}
                 </>
               )}
             </div>
@@ -1695,17 +1715,37 @@ export function App() {
             >
               {autoAdvancePhases ? '⚡ Auto' : '⚡ Manual'}
             </button>
-            <button
-              onClick={handleRequestUndo}
-              disabled={!isYouPlayer}
-              style={{
-                background: '#6b7280',
-                marginLeft: 8,
-              }}
-              title="Request to undo the last action (requires all players to approve)"
-            >
-              ⏪ Undo
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 8 }}>
+              <select
+                value={undoCount}
+                onChange={(e) => setUndoCount(Number(e.target.value))}
+                disabled={!isYouPlayer}
+                style={{
+                  padding: '4px 6px',
+                  borderRadius: 4,
+                  border: '1px solid #4b5563',
+                  background: '#374151',
+                  color: '#fff',
+                  fontSize: 12,
+                  cursor: isYouPlayer ? 'pointer' : 'not-allowed',
+                }}
+                title="Number of actions to undo"
+              >
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => handleRequestUndo(undoCount)}
+                disabled={!isYouPlayer}
+                style={{
+                  background: '#6b7280',
+                }}
+                title={`Request to undo ${undoCount} action${undoCount > 1 ? 's' : ''} (requires all players to approve)`}
+              >
+                ⏪ Undo
+              </button>
+            </div>
           </div>
         </div>
 

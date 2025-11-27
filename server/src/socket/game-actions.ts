@@ -90,6 +90,40 @@ function detectETBTappedPattern(oracleText: string): 'always' | 'conditional' | 
 }
 
 /**
+ * Check if all non-spectator players have kept their hands during pre-game.
+ * Returns { allKept: boolean, waitingPlayers: string[] }
+ */
+function checkAllPlayersKeptHands(game: any): { allKept: boolean; waitingPlayers: string[] } {
+  try {
+    const players = game.state?.players || [];
+    const mulliganState = (game.state as any)?.mulliganState || {};
+    
+    const nonSpectatorPlayers = players.filter((p: any) => p && !p.spectator);
+    const waitingPlayers: string[] = [];
+    
+    for (const player of nonSpectatorPlayers) {
+      const playerId = player.id;
+      const playerMulliganState = mulliganState[playerId];
+      
+      // Player hasn't kept their hand if:
+      // 1. No mulligan state exists, OR
+      // 2. hasKeptHand is explicitly false
+      if (!playerMulliganState || !playerMulliganState.hasKeptHand) {
+        waitingPlayers.push(player.name || playerId);
+      }
+    }
+    
+    return {
+      allKept: waitingPlayers.length === 0,
+      waitingPlayers,
+    };
+  } catch (err) {
+    console.warn("checkAllPlayersKeptHands failed:", err);
+    return { allKept: false, waitingPlayers: [] };
+  }
+}
+
+/**
  * Check newly entered permanents for creature type selection requirements
  * and request selection from the player if needed.
  */
@@ -1262,6 +1296,65 @@ export function registerGameActions(io: Server, socket: Socket) {
     }
   });
 
+  // Randomize starting player
+  socket.on("randomizeStartingPlayer", ({ gameId }: { gameId: string }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
+      const isPreGame =
+        phaseStr === "" || phaseStr === "PRE_GAME" || phaseStr.includes("PRE");
+
+      if (!isPreGame) {
+        socket.emit("error", {
+          code: "RANDOMIZE_NOT_PREGAME",
+          message: "Randomizing starting player only allowed in pre-game.",
+        });
+        return;
+      }
+
+      const players = (game.state?.players || []).filter((p: any) => p && !p.spectator);
+      if (players.length === 0) {
+        socket.emit("error", {
+          code: "RANDOMIZE_NO_PLAYERS",
+          message: "No players to randomize.",
+        });
+        return;
+      }
+
+      // Pick a random player
+      const randomIndex = Math.floor(Math.random() * players.length);
+      const randomPlayer = players[randomIndex];
+      
+      // Set as active player
+      try {
+        game.state.turnPlayer = randomPlayer.id;
+        appendGameEvent(game, gameId, "randomizeStartingPlayer", { 
+          selectedPlayerId: randomPlayer.id,
+          by: playerId
+        });
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `🎲 ${getPlayerName(game, randomPlayer.id)} was randomly selected to go first!`,
+          ts: Date.now(),
+        });
+        broadcastGame(io, game, gameId);
+      } catch (e) {
+        console.error("randomizeStartingPlayer: failed to set turnPlayer", e);
+        socket.emit("error", {
+          code: "RANDOMIZE_FAILED",
+          message: String(e),
+        });
+      }
+    } catch (err) {
+      console.error("randomizeStartingPlayer handler failed:", err);
+    }
+  });
+
   // Next turn
   socket.on("nextTurn", async ({ gameId }: { gameId: string }) => {
     try {
@@ -1287,6 +1380,21 @@ export function registerGameActions(io: Server, socket: Socket) {
         phaseStr === "" ||
         phaseStr === "pre_game" ||
         phaseStr.includes("BEGIN");
+
+      // If we're in pre-game, check that all players have kept their hands before allowing transition
+      if (pregame) {
+        const { allKept, waitingPlayers } = checkAllPlayersKeptHands(game);
+        if (!allKept && waitingPlayers.length > 0) {
+          socket.emit("error", {
+            code: "PREGAME_HANDS_NOT_KEPT",
+            message: `Waiting for player(s) to keep their hand: ${waitingPlayers.join(", ")}`,
+          });
+          console.info(
+            `[nextTurn] rejected - not all players kept hands (waiting: ${waitingPlayers.join(", ")})`
+          );
+          return;
+        }
+      }
 
       const playersArr: any[] =
         game.state && Array.isArray(game.state.players)
@@ -1445,6 +1553,21 @@ export function registerGameActions(io: Server, socket: Socket) {
         phaseStr === "" ||
         phaseStr === "pre_game" ||
         phaseStr.includes("BEGIN");
+
+      // If we're in pre-game, check that all players have kept their hands before allowing transition
+      if (pregame) {
+        const { allKept, waitingPlayers } = checkAllPlayersKeptHands(game);
+        if (!allKept && waitingPlayers.length > 0) {
+          socket.emit("error", {
+            code: "PREGAME_HANDS_NOT_KEPT",
+            message: `Waiting for player(s) to keep their hand: ${waitingPlayers.join(", ")}`,
+          });
+          console.info(
+            `[nextStep] rejected - not all players kept hands (waiting: ${waitingPlayers.join(", ")})`
+          );
+          return;
+        }
+      }
 
       const playersArr: any[] =
         game.state && Array.isArray(game.state.players)

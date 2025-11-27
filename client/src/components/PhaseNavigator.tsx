@@ -44,7 +44,10 @@ const PHASE_ORDER = [
 ];
 
 // Mapping of phase IDs to phase/step values for skip-to-phase functionality
+// Note: We support skipping to any phase, not just post-combat
 const PHASE_STEP_MAP: Record<string, { phase: string; step: string }> = {
+  'draw': { phase: 'beginning', step: 'DRAW' },
+  'main1': { phase: 'precombatMain', step: 'MAIN1' },
   'main2': { phase: 'postcombatMain', step: 'MAIN2' },
   'endStep': { phase: 'ending', step: 'END' },
   'cleanup': { phase: 'ending', step: 'CLEANUP' },
@@ -109,13 +112,19 @@ export function PhaseNavigator({
      'endcombat', 'end_combat'].some(s => currentStepLower.includes(s) || currentStepLower === s);
   
   // Find current position in phase order
+  // Priority: 1) Combat phase special case 2) Exact step match 3) Step contains id
+  // Note: We do NOT match on phase alone, since multiple steps share the same phase
   const currentIndex = PHASE_ORDER.findIndex(p => {
     // For combat phase, match if we're in any combat step
     if (p.id === 'combat' && isInCombat) return true;
-    return p.id === currentStepLower || 
-      p.phase === currentPhaseLower ||
-      currentStepLower.includes(p.id) ||
-      currentPhaseLower.includes(p.id);
+    // Exact step match (case-insensitive)
+    if (p.id === currentStepLower) return true;
+    // Step contains the phase id (e.g., step "MAIN1" contains "main1")
+    if (currentStepLower.includes(p.id)) return true;
+    // Special case for main phases - match on phase name with step verification
+    if (p.id === 'main1' && currentPhaseLower === 'precombatmain') return true;
+    if (p.id === 'main2' && currentPhaseLower === 'postcombatmain') return true;
+    return false;
   });
   
   // Can only advance if it's your turn, stack is empty, and we're not already advancing
