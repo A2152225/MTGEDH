@@ -7,6 +7,7 @@ import type {
   ChatMsg,
   BattlefieldPermanent,
   CardRef,
+  CardFace,
 } from "../../shared/src";
 import { TableLayout } from "./components/TableLayout";
 import { CardPreviewLayer } from "./components/CardPreviewLayer";
@@ -26,6 +27,7 @@ import { OpeningHandActionsModal } from "./components/OpeningHandActionsModal";
 import { LibrarySearchModal } from "./components/LibrarySearchModal";
 import { TargetSelectionModal, type TargetOption } from "./components/TargetSelectionModal";
 import { UndoRequestModal, type UndoRequestData } from "./components/UndoRequestModal";
+import { SplitCardChoiceModal, type CardFaceOption } from "./components/SplitCardChoiceModal";
 import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
 import { useGameSocket } from "./hooks/useGameSocket";
@@ -254,6 +256,16 @@ export function App() {
   // Undo request modal state
   const [undoModalOpen, setUndoModalOpen] = useState(false);
   const [undoRequestData, setUndoRequestData] = useState<UndoRequestData | null>(null);
+  
+  // Split/Adventure card choice modal state
+  const [splitCardModalOpen, setSplitCardModalOpen] = useState(false);
+  const [splitCardData, setSplitCardData] = useState<{
+    cardId: string;
+    cardName: string;
+    layout: string;
+    faces: CardFaceOption[];
+    canFuse: boolean;
+  } | null>(null);
   
   // Deck validation state
   const [deckValidation, setDeckValidation] = useState<{
@@ -1191,6 +1203,55 @@ export function App() {
     });
   };
 
+  // Split/Adventure card choice handler
+  const handleSplitCardChoose = (faceId: string, fused?: boolean) => {
+    if (!splitCardData || !safeView || !you) return;
+    
+    const zones = safeView.zones?.[you];
+    const hand = zones?.hand || [];
+    const card = hand.find((c: any) => c?.id === splitCardData.cardId) as KnownCardRef | undefined;
+    if (!card) {
+      setSplitCardModalOpen(false);
+      setSplitCardData(null);
+      return;
+    }
+    
+    const cardFaces = (card as any).card_faces as CardFace[] | undefined;
+    
+    // Determine mana cost based on choice
+    let manaCost: string | undefined;
+    let displayName = splitCardData.cardName;
+    
+    if (fused && cardFaces && cardFaces.length >= 2) {
+      // Fuse: combine both costs
+      manaCost = (cardFaces[0]?.mana_cost || '') + (cardFaces[1]?.mana_cost || '');
+      displayName = `${cardFaces[0]?.name || 'Left'} // ${cardFaces[1]?.name || 'Right'}`;
+    } else if (faceId.startsWith('face_') && cardFaces) {
+      const faceIndex = parseInt(faceId.replace('face_', ''), 10);
+      const chosenFace = cardFaces[faceIndex];
+      if (chosenFace) {
+        manaCost = chosenFace.mana_cost;
+        displayName = chosenFace.name || displayName;
+      }
+    }
+    
+    // Close split card modal and open payment modal
+    setSplitCardModalOpen(false);
+    setSplitCardData(null);
+    
+    setSpellToCast({
+      cardId: splitCardData.cardId,
+      cardName: displayName,
+      manaCost: manaCost || (card as any).mana_cost,
+    });
+    setCastSpellModalOpen(true);
+  };
+
+  const handleSplitCardCancel = () => {
+    setSplitCardModalOpen(false);
+    setSplitCardData(null);
+  };
+
   // Get creatures for combat modal
   const myCreatures = useMemo(() => {
     if (!safeView || !you) return [];
@@ -1661,16 +1722,55 @@ export function App() {
                 // Find the card in hand to get its name and mana cost
                 const zones = safeView.zones?.[you];
                 const hand = zones?.hand || [];
-                const card = hand.find((c: any) => c?.id === cardId);
+                const card = hand.find((c: any) => c?.id === cardId) as KnownCardRef | undefined;
                 if (!card) return;
                 
-                // Open payment modal
-                setSpellToCast({
-                  cardId,
-                  cardName: (card as any).name || 'Card',
-                  manaCost: (card as any).mana_cost,
-                });
-                setCastSpellModalOpen(true);
+                // Check if this is a split/adventure/modal card that needs face selection
+                const layout = (card as any).layout || '';
+                const cardFaces = (card as any).card_faces as CardFace[] | undefined;
+                const hasFaces = cardFaces && cardFaces.length >= 2;
+                const needsFaceChoice = hasFaces && (
+                  layout === 'split' || 
+                  layout === 'adventure' || 
+                  layout === 'modal_dfc' ||
+                  layout === 'transform'
+                );
+                
+                if (needsFaceChoice && cardFaces) {
+                  // Check if the card has fuse ability
+                  const oracleText = ((card as any).oracle_text || '').toLowerCase();
+                  const canFuse = layout === 'split' && oracleText.includes('fuse');
+                  
+                  // Build face options
+                  const faces: CardFaceOption[] = cardFaces.map((face, idx) => ({
+                    id: `face_${idx}`,
+                    name: face.name || `Face ${idx + 1}`,
+                    manaCost: face.mana_cost,
+                    typeLine: face.type_line,
+                    oracleText: face.oracle_text,
+                    imageUrl: face.image_uris?.small || face.image_uris?.normal,
+                    // For adventure cards, the creature (first face) is the default
+                    isDefault: layout === 'adventure' && idx === 0,
+                  }));
+                  
+                  // Show split card choice modal
+                  setSplitCardData({
+                    cardId,
+                    cardName: card.name || 'Card',
+                    layout,
+                    faces,
+                    canFuse,
+                  });
+                  setSplitCardModalOpen(true);
+                } else {
+                  // Regular card - go directly to payment modal
+                  setSpellToCast({
+                    cardId,
+                    cardName: (card as any).name || 'Card',
+                    manaCost: (card as any).mana_cost,
+                  });
+                  setCastSpellModalOpen(true);
+                }
               }}
               onCastCommander={handleCastCommander}
               reasonCannotPlayLand={reasonCannotPlayLand}
@@ -2223,6 +2323,17 @@ export function App() {
         onApprove={handleUndoApprove}
         onReject={handleUndoReject}
         onCancel={handleUndoCancel}
+      />
+
+      {/* Split/Adventure Card Choice Modal */}
+      <SplitCardChoiceModal
+        open={splitCardModalOpen}
+        cardName={splitCardData?.cardName || ''}
+        layout={splitCardData?.layout || ''}
+        faces={splitCardData?.faces || []}
+        canFuse={splitCardData?.canFuse}
+        onChoose={handleSplitCardChoose}
+        onCancel={handleSplitCardCancel}
       />
 
       {/* Deck Validation Status */}

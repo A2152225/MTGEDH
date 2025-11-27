@@ -46,6 +46,50 @@ function isBounceLand(cardName: string): boolean {
 }
 
 /**
+ * Check if a land should always enter tapped based on oracle text patterns.
+ * This detects common ETB-tapped land patterns like:
+ * - "enters the battlefield tapped"
+ * - "comes into play tapped"
+ * - Conditional ETB tapped (unless you control X, etc.)
+ * 
+ * Returns:
+ * - 'always': Always enters tapped (e.g., Temples, Gain lands, Guildgates)
+ * - 'conditional': Has conditional entry (shock lands handled separately)
+ * - 'never': Normal entry
+ */
+function detectETBTappedPattern(oracleText: string): 'always' | 'conditional' | 'never' {
+  const text = (oracleText || '').toLowerCase();
+  
+  // Check for "enters the battlefield tapped" or "comes into play tapped"
+  const etbTappedMatch = 
+    text.includes('enters the battlefield tapped') ||
+    text.includes('enters tapped') ||
+    text.includes('comes into play tapped');
+  
+  if (!etbTappedMatch) {
+    return 'never';
+  }
+  
+  // Check for conditional patterns (these need player choice or are already handled)
+  const conditionalPatterns = [
+    'unless you',           // "unless you control" / "unless you pay"
+    'you may pay',          // Shock lands
+    'if you control',       // Checklands
+    'if you don\'t',        // Various conditionals
+    'if an opponent',       // Fast lands (sort of)
+  ];
+  
+  for (const pattern of conditionalPatterns) {
+    if (text.includes(pattern)) {
+      return 'conditional';
+    }
+  }
+  
+  // Unconditional ETB tapped
+  return 'always';
+}
+
+/**
  * Check newly entered permanents for creature type selection requirements
  * and request selection from the player if needed.
  */
@@ -635,6 +679,28 @@ export function registerGameActions(io: Server, socket: Socket) {
             });
           }
           // If no other lands, the bounce land stays (edge case)
+        }
+      }
+
+      // Check for other ETB-tapped lands (temples, gain lands, guildgates, etc.)
+      // This detects lands that always enter tapped based on oracle text
+      if (!isShockLand(cardName) && !isBounceLand(cardName)) {
+        const oracleText = (cardInHand as any)?.oracle_text || '';
+        const etbPattern = detectETBTappedPattern(oracleText);
+        
+        if (etbPattern === 'always') {
+          // Find the permanent that was just played and mark it tapped
+          const battlefield = game.state?.battlefield || [];
+          const permanent = battlefield.find((p: any) => 
+            p.card?.name?.toLowerCase() === cardName.toLowerCase() && 
+            p.controller === playerId &&
+            !p.tapped // Only tap if not already tapped
+          );
+          
+          if (permanent) {
+            permanent.tapped = true;
+            console.log(`[playLand] ${cardName} enters tapped (ETB-tapped pattern detected)`);
+          }
         }
       }
 

@@ -263,11 +263,10 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
   const battlefield = state.battlefield || [];
   const hasHaste = isCreature && creatureWillHaveHaste(card, playerId, battlefield);
   
-  // Rule 302.6: Only CREATURES have summoning sickness, not lands or other permanents
-  // A land that enters the battlefield does NOT have summoning sickness
-  // Even if a land later becomes a creature (e.g., via animation like Dryad Arbor's type),
-  // the summoning sickness check happens when it tries to attack/tap, not when it enters
-  // Note: Dryad Arbor is a "Land Creature" so it enters AS a creature and would have summoning sickness
+  // Rule 302.6: Summoning sickness applies to CREATURES (including creature lands like Dryad Arbor)
+  // - A pure land (not a creature) does NOT have summoning sickness
+  // - A "Land Creature" like Dryad Arbor DOES have summoning sickness because it's a creature
+  // - If a land becomes a creature later (via animation), it would need to be checked at that time
   const hasSummoningSickness = isCreature && !hasHaste;
   
   state.battlefield = state.battlefield || [];
