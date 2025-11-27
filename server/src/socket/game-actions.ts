@@ -2113,18 +2113,22 @@ export function registerGameActions(io: Server, socket: Socket) {
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
-      // Check if we're in PRE_GAME phase
-      const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
-      if (phaseStr !== "" && phaseStr !== "PRE_GAME") {
+      // Allow keeping hand even if we've moved past PRE_GAME
+      // This is needed because players might need to keep their hand after the game advances
+      // (e.g., if the game moves to UNTAP before all hands are kept)
+      const mulliganState = (game.state as any).mulliganState?.[playerId];
+      
+      // Check if player has already kept their hand
+      if (mulliganState?.hasKeptHand) {
         socket.emit("error", {
-          code: "NOT_PREGAME",
-          message: "Can only keep hand during pre-game",
+          code: "ALREADY_KEPT",
+          message: "You have already kept your hand",
         });
         return;
       }
 
       // Get current mulligan count
-      const mulligansTaken = (game.state as any).mulliganState?.[playerId]?.mulligansTaken || 0;
+      const mulligansTaken = mulliganState?.mulligansTaken || 0;
 
       // Track mulligan state - mark as pending bottom selection if mulligans were taken
       game.state = (game.state || {}) as any;

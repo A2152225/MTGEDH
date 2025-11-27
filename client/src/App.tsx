@@ -657,9 +657,17 @@ export function App() {
     }
   }, [pendingBottomCount, hasKeptHand]);
 
-  // Can mulligan if in pre-game, haven't kept, and haven't hit max mulligans
-  const canMulligan = isPreGame && isYouPlayer && !hasKeptHand && mulligansTaken < 6 && pendingBottomCount === 0;
-  const canKeepHand = isPreGame && isYouPlayer && !hasKeptHand && pendingBottomCount === 0;
+  // Show mulligan buttons if player hasn't kept their hand yet
+  // This should work even if we've moved past PRE_GAME (e.g., to UNTAP)
+  // because the player still needs to keep their hand before continuing
+  const needsToKeepHand = isYouPlayer && !hasKeptHand && pendingBottomCount === 0;
+  
+  // Can mulligan if haven't kept and haven't hit max mulligans
+  const canMulligan = needsToKeepHand && mulligansTaken < 6;
+  const canKeepHand = needsToKeepHand;
+  
+  // Show the mulligan UI if in pre-game OR if hand hasn't been kept yet
+  const showMulliganUI = (isPreGame || !hasKeptHand) && isYouPlayer;
 
   // Auto-collapse join panel once you're an active player
   React.useEffect(() => {
@@ -1579,17 +1587,18 @@ export function App() {
             gap: 8,
           }}
         >
-          {/* Mulligan buttons - visible only in pre-game */}
-          {isPreGame && isYouPlayer && (
+          {/* Mulligan buttons - visible when player needs to keep their hand */}
+          {/* Show even after moving past PRE_GAME if hand hasn't been kept */}
+          {showMulliganUI && (
             <div
               style={{
                 display: "flex",
                 gap: 8,
                 alignItems: "center",
                 padding: 6,
-                border: "1px solid #c6a6ff",
+                border: !hasKeptHand && !isPreGame ? "2px solid #e53e3e" : "1px solid #c6a6ff",
                 borderRadius: 6,
-                background: "#f8f0ff",
+                background: !hasKeptHand && !isPreGame ? "#fff5f5" : "#f8f0ff",
               }}
             >
               {hasKeptHand ? (
@@ -1602,6 +1611,11 @@ export function App() {
                 </span>
               ) : (
                 <>
+                  {!isPreGame && (
+                    <span style={{ fontSize: 12, color: "#e53e3e", fontWeight: 600 }}>
+                      ⚠️ Keep your hand to continue!
+                    </span>
+                  )}
                   <span style={{ fontSize: 12, color: "#553c9a" }}>
                     Mulligans: {mulligansTaken}
                   </span>
@@ -1659,7 +1673,7 @@ export function App() {
           )}
 
           {/* Spacer to push buttons to the right when no mulligan panel */}
-          {(!isPreGame || !isYouPlayer) && <div style={{ flex: 1 }} />}
+          {!showMulliganUI && <div style={{ flex: 1 }} />}
 
           {/* Buttons on the right, in a stable group */}
           <div
