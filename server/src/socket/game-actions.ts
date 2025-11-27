@@ -2744,8 +2744,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       let library: any[] = [];
       if (typeof (game as any).getLibrary === "function") {
         library = (game as any).getLibrary(targetPid) || [];
-      } else if (Array.isArray(zones.library)) {
-        library = zones.library;
+      } else if (Array.isArray((zones as any).library)) {
+        library = (zones as any).library;
       }
 
       // Rule 701.17b: Can't mill more than library size

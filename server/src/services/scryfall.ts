@@ -102,7 +102,22 @@ function stripSetCollectorNumber(name: string): string {
 }
 
 export function parseDecklist(list: string): ParsedLine[] {
-  const lines = list
+  // Preprocess: Handle Moxfield copy-paste format where everything is on one line
+  // Pattern: "Commander(1) 1 Card Name Creatures(40) 1 Card Name ..."
+  // We need to split on section headers and card entries
+  let preprocessed = list;
+  
+  // Check if input looks like Moxfield single-line format (has section headers like "Creatures(40)")
+  if (/\w+\(\d+\)/.test(list) && list.split('\n').length <= 3) {
+    // Remove section headers like "Commander(1)", "Creatures(40)", "Lands(37)", etc.
+    preprocessed = list.replace(/\b(Commander|Creatures?|Sorcery|Sorceries|Instant|Instants|Artifact|Artifacts|Enchantment|Enchantments|Land|Lands|Planeswalker|Planeswalkers|Battle|Battles)\s*\(\d+\)\s*/gi, '\n');
+    
+    // Split on card entries: "1 Card Name" or "16 Forest"
+    // Insert newlines before each card count pattern, but be careful not to break card names with numbers
+    preprocessed = preprocessed.replace(/\s+(\d+)\s+([A-Z])/g, '\n$1 $2');
+  }
+  
+  const lines = preprocessed
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean);
