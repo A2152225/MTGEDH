@@ -240,8 +240,8 @@ export function truncateEventsForUndo(gameId: string, keepCount: number): number
     return info.changes;
   }
   
-  // Get the max ID to keep
-  const maxIdToKeep = Math.max(...eventsToKeep.map(e => e.id));
+  // Get the max ID to keep using reduce (safer than Math.max with spread for large arrays)
+  const maxIdToKeep = eventsToKeep.reduce((max, e) => Math.max(max, e.id), 0);
   
   // Delete events with ID greater than the max ID to keep
   const delStmt = db!.prepare(

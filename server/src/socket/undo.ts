@@ -2,7 +2,7 @@
 // Socket handlers for the undo system with player approval
 
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, getPlayerName } from "./util";
+import { ensureGame, broadcastGame, getPlayerName, transformDbEventsForReplay } from "./util";
 import { getEvents, truncateEventsForUndo, getEventCount } from "../db";
 import GameManager from "../GameManager";
 import { createInitialGameState } from "../state/index";
@@ -161,14 +161,8 @@ function performUndo(gameId: string, actionsToUndo: number): { success: boolean;
     
     // Replay the remaining events
     if (remainingEvents.length > 0 && typeof freshGame.replay === "function") {
-      // Transform events from DB format to replay format
-      const replayEvents = remainingEvents.map((e: any) =>
-        e && e.type
-          ? e.payload && typeof e.payload === "object"
-            ? { type: e.type, ...(e.payload as any) }
-            : { type: e.type }
-          : e
-      );
+      // Transform events from DB format to replay format using shared utility
+      const replayEvents = transformDbEventsForReplay(remainingEvents);
       
       try {
         freshGame.replay(replayEvents);
@@ -180,11 +174,25 @@ function performUndo(gameId: string, actionsToUndo: number): { success: boolean;
     }
     
     // Replace the game in GameManager with the fresh replayed state
-    // We need to update the in-memory game reference
+    // We need to update the in-memory game reference properly
     const existingGame = GameManager.getGame(gameId);
     if (existingGame) {
-      // Copy the fresh state to the existing game object to preserve references
-      Object.assign(existingGame.state, freshGame.state);
+      // Deep copy the fresh game state to avoid shared references
+      // We can't just replace the game object because socket handlers hold references to it
+      try {
+        // Clear existing state properties
+        for (const key of Object.keys(existingGame.state)) {
+          delete (existingGame.state as any)[key];
+        }
+        // Deep copy the fresh state properties
+        const freshStateClone = JSON.parse(JSON.stringify(freshGame.state));
+        for (const [key, value] of Object.entries(freshStateClone)) {
+          (existingGame.state as any)[key] = value;
+        }
+      } catch (copyErr) {
+        console.warn('[undo] Deep copy failed, falling back to Object.assign:', copyErr);
+        Object.assign(existingGame.state, freshGame.state);
+      }
       
       // Also update seq if it exists
       if (typeof (freshGame as any).seq !== 'undefined') {

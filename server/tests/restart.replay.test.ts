@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
+import { transformDbEventsForReplay } from '../src/socket/util';
 import type { KnownCardRef, PlayerID } from '../../shared/src';
 
 function mkCards(n: number, prefix = 'Card'): Array<Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text'>> {
@@ -9,17 +10,6 @@ function mkCards(n: number, prefix = 'Card'): Array<Pick<KnownCardRef, 'id' | 'n
     type_line: 'Test',
     oracle_text: ''
   }));
-}
-
-// Simulate the event transformation that happens in GameManager.ensureGame
-function transformDbEventsForReplay(events: Array<{ type: string; payload?: any }>): any[] {
-  return events.map((e: any) =>
-    e && e.type
-      ? e.payload && typeof e.payload === "object"
-        ? { type: e.type, ...(e.payload as any) }
-        : { type: e.type }
-      : e
-  );
 }
 
 describe('Server restart replay', () => {
