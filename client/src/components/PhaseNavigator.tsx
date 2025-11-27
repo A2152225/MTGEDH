@@ -23,6 +23,7 @@ interface PhaseNavigatorProps {
   stackEmpty: boolean;
   onNextStep: () => void;
   onPassPriority: () => void;
+  onAdvancingChange?: (isAdvancing: boolean) => void;
 }
 
 // Define the order of phases/steps for navigation
@@ -51,9 +52,15 @@ export function PhaseNavigator({
   stackEmpty,
   onNextStep,
   onPassPriority,
+  onAdvancingChange,
 }: PhaseNavigatorProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isAdvancing, setIsAdvancing] = useState(false); // Track if we're in the middle of advancing phases
+  
+  // Notify parent when advancing state changes
+  useEffect(() => {
+    onAdvancingChange?.(isAdvancing);
+  }, [isAdvancing, onAdvancingChange]);
   
   // Dragging state
   const [position, setPosition] = useState<{ x: number; y: number }>(() => {
