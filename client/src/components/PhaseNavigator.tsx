@@ -151,6 +151,7 @@ export function PhaseNavigator({
     
     // Get target phase info
     const targetPhase = PHASE_ORDER[targetIndex];
+    const targetMapping = PHASE_STEP_MAP[targetPhase.id];
     
     // Check if we're jumping from before combat to after combat
     // If current is Main 1 (index 3) or earlier, and target is Main 2 (index 5) or later
@@ -159,30 +160,22 @@ export function PhaseNavigator({
     const isAfterCombat = targetIndex >= 5;   // Main 2 or later
     const skippingOverCombat = isBeforeCombat && isAfterCombat;
     
-    // If we're skipping over combat and have the skip-to-phase callback, use it
-    // This allows jumping directly to the target phase without going through combat steps
-    if (skippingOverCombat && onSkipToPhase) {
+    // Use skipToPhase for reliable direct navigation when:
+    // 1. We have a mapping for the target phase, AND
+    // 2. Either we're skipping over combat, OR the target is in our phase map (for reliability)
+    // This prevents the step-by-step loop from overshooting due to timing issues
+    if (onSkipToPhase && targetMapping) {
       try {
-        const targetMapping = PHASE_STEP_MAP[targetPhase.id];
-        if (targetMapping) {
-          onSkipToPhase(targetMapping.phase, targetMapping.step);
-        } else {
-          // Fallback to step-by-step if target not mapped
-          for (let i = 0; i < stepsToAdvance; i++) {
-            onNextStep();
-            if (i < stepsToAdvance - 1) {
-              await new Promise(resolve => setTimeout(resolve, 750));
-            }
-          }
-        }
+        onSkipToPhase(targetMapping.phase, targetMapping.step);
       } finally {
         setTimeout(() => setIsAdvancing(false), 500);
       }
       return;
     }
     
+    // Fallback to step-by-step only for phases not in the map (combat, untap, upkeep)
+    // For these phases, step-by-step is needed because they don't have direct mappings
     try {
-      // Advance step by step with delays
       for (let i = 0; i < stepsToAdvance; i++) {
         onNextStep();
         // Wait 0.75 seconds between steps (except after the last one)
