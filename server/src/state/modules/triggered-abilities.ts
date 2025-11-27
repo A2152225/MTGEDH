@@ -728,3 +728,142 @@ export function getBeginningOfCombatTriggers(
   
   return triggers;
 }
+
+// ============================================================================
+// Death Trigger System
+// ============================================================================
+
+export interface DeathTriggerResult {
+  source: {
+    permanentId: string;
+    cardName: string;
+    controllerId: string;
+  };
+  effect: string;
+  targets?: string[]; // Player IDs affected
+  requiresSacrificeSelection?: boolean;
+  sacrificeFrom?: string; // Player ID who must sacrifice
+}
+
+/**
+ * Find all death triggers that should fire when a creature dies
+ * @param ctx Game context
+ * @param dyingCreature The creature that died
+ * @param dyingCreatureController The controller of the dying creature
+ * @returns Array of triggered abilities that should fire
+ */
+export function getDeathTriggers(
+  ctx: GameContext,
+  dyingCreature: any,
+  dyingCreatureController: string
+): DeathTriggerResult[] {
+  const results: DeathTriggerResult[] = [];
+  const battlefield = ctx.state?.battlefield || [];
+  const dyingTypeLine = (dyingCreature?.card?.type_line || '').toLowerCase();
+  const isCreature = dyingTypeLine.includes('creature');
+  
+  if (!isCreature) return results;
+  
+  // Check all permanents on the battlefield for death triggers
+  for (const permanent of battlefield) {
+    if (!permanent) continue;
+    
+    const card = permanent.card;
+    if (!card) continue;
+    
+    const cardName = (card.name || '').toLowerCase();
+    const oracleText = (card.oracle_text || '').toLowerCase();
+    const permanentController = permanent.controller;
+    
+    // Check known death trigger cards
+    for (const [knownName, info] of Object.entries(KNOWN_DEATH_TRIGGERS)) {
+      if (cardName.includes(knownName)) {
+        let shouldTrigger = false;
+        
+        switch (info.triggerOn) {
+          case 'controlled':
+            // Triggers when a creature YOU control dies
+            shouldTrigger = dyingCreatureController === permanentController;
+            break;
+          case 'any':
+            // Triggers when ANY creature dies
+            shouldTrigger = true;
+            break;
+          case 'own':
+            // Triggers when THIS creature dies (shouldn't match here since it's not on battlefield)
+            shouldTrigger = false;
+            break;
+        }
+        
+        if (shouldTrigger) {
+          // Determine if this requires sacrifice selection
+          const requiresSacrifice = info.effect.toLowerCase().includes('sacrifice');
+          
+          results.push({
+            source: {
+              permanentId: permanent.id,
+              cardName: card.name,
+              controllerId: permanentController,
+            },
+            effect: info.effect,
+            requiresSacrificeSelection: requiresSacrifice,
+          });
+        }
+      }
+    }
+    
+    // Generic detection: "Whenever a creature you control dies"
+    if (oracleText.includes('whenever a creature you control dies') && 
+        dyingCreatureController === permanentController) {
+      const effectMatch = oracleText.match(/whenever a creature you control dies,?\s*([^.]+)/i);
+      if (effectMatch && !results.some(r => r.source.permanentId === permanent.id)) {
+        const effect = effectMatch[1].trim();
+        results.push({
+          source: {
+            permanentId: permanent.id,
+            cardName: card.name,
+            controllerId: permanentController,
+          },
+          effect,
+          requiresSacrificeSelection: effect.toLowerCase().includes('sacrifice'),
+        });
+      }
+    }
+    
+    // Generic detection: "Whenever a creature dies"
+    if (oracleText.includes('whenever a creature dies') && 
+        !oracleText.includes('whenever a creature you control dies')) {
+      const effectMatch = oracleText.match(/whenever a creature dies,?\s*([^.]+)/i);
+      if (effectMatch && !results.some(r => r.source.permanentId === permanent.id)) {
+        const effect = effectMatch[1].trim();
+        results.push({
+          source: {
+            permanentId: permanent.id,
+            cardName: card.name,
+            controllerId: permanentController,
+          },
+          effect,
+          requiresSacrificeSelection: effect.toLowerCase().includes('sacrifice'),
+        });
+      }
+    }
+  }
+  
+  return results;
+}
+
+/**
+ * Get list of players who need to sacrifice a creature due to Grave Pact-style effects
+ * @param ctx Game context
+ * @param triggerController The controller of the trigger source
+ * @returns Array of player IDs who must sacrifice
+ */
+export function getPlayersWhoMustSacrifice(
+  ctx: GameContext,
+  triggerController: string
+): string[] {
+  const players = ctx.state?.players || [];
+  return players
+    .map((p: any) => p.id)
+    .filter((pid: string) => pid !== triggerController);
+}

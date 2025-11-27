@@ -267,6 +267,21 @@ export function App() {
     reason: string;
   } | null>(null);
   
+  // Sacrifice selection modal state (for Grave Pact, Dictate of Erebos, etc.)
+  const [sacrificeModalOpen, setSacrificeModalOpen] = useState(false);
+  const [sacrificeModalData, setSacrificeModalData] = useState<{
+    triggerId: string;
+    sourceName: string;
+    sourceController: string;
+    reason: string;
+    creatures: Array<{
+      id: string;
+      name: string;
+      imageUrl?: string;
+      typeLine?: string;
+    }>;
+  } | null>(null);
+  
   // Undo request modal state
   const [undoModalOpen, setUndoModalOpen] = useState(false);
   const [undoRequestData, setUndoRequestData] = useState<UndoRequestData | null>(null);
@@ -591,6 +606,38 @@ export function App() {
     socket.on("creatureTypeSelectionRequest", handler);
     return () => {
       socket.off("creatureTypeSelectionRequest", handler);
+    };
+  }, [safeView?.id]);
+
+  // Sacrifice selection listener (for Grave Pact, Dictate of Erebos, etc.)
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      triggerId: string;
+      sourceName: string;
+      sourceController: string;
+      reason: string;
+      creatures: Array<{
+        id: string;
+        name: string;
+        imageUrl?: string;
+        typeLine?: string;
+      }>;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        setSacrificeModalData({
+          triggerId: payload.triggerId,
+          sourceName: payload.sourceName,
+          sourceController: payload.sourceController,
+          reason: payload.reason,
+          creatures: payload.creatures,
+        });
+        setSacrificeModalOpen(true);
+      }
+    };
+    socket.on("sacrificeSelectionRequest", handler);
+    return () => {
+      socket.off("sacrificeSelectionRequest", handler);
     };
   }, [safeView?.id]);
 
@@ -2609,6 +2656,37 @@ export function App() {
         onCancel={() => {
           setCreatureTypeModalOpen(false);
           setCreatureTypeModalData(null);
+        }}
+      />
+
+      {/* Sacrifice Selection Modal (for Grave Pact, Dictate of Erebos, etc.) */}
+      <TargetSelectionModal
+        open={sacrificeModalOpen}
+        title={`Sacrifice a Creature`}
+        description={sacrificeModalData ? `${sacrificeModalData.sourceName} triggers: ${sacrificeModalData.reason}` : undefined}
+        targets={sacrificeModalData?.creatures.map(c => ({
+          id: c.id,
+          type: 'permanent' as const,
+          name: c.name,
+          imageUrl: c.imageUrl,
+          typeLine: c.typeLine,
+        })) || []}
+        minTargets={1}
+        maxTargets={1}
+        onConfirm={(selectedIds) => {
+          if (selectedIds.length > 0 && sacrificeModalData && safeView?.id) {
+            socket.emit("sacrificeSelected", {
+              gameId: safeView.id,
+              triggerId: sacrificeModalData.triggerId,
+              permanentId: selectedIds[0],
+            });
+            setSacrificeModalOpen(false);
+            setSacrificeModalData(null);
+          }
+        }}
+        onCancel={() => {
+          // Can't cancel sacrifice - must select
+          // Show a warning instead
         }}
       />
 
