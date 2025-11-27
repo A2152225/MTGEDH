@@ -180,15 +180,32 @@ export {
 export {
   type ActivationContext,
   type ActivationResult,
+  type ParsedCostComponent,
+  type ParsedActivatedAbility,
   activateAbility,
+  parseActivatedAbilitiesFromText,
+  hasTapAbility,
+  hasManaAbility,
+  getManaAbilities,
 } from './activatedAbilities';
 
 // Triggered Abilities (Rule 603) - Many conflicts
 export {
   TriggerKeyword,
+  TriggerEvent,
   type TriggerQueue,
+  type ParsedTrigger,
   createEmptyTriggerQueue,
   processEvent,
+  parseTriggeredAbilitiesFromText,
+  createEndStepTrigger,
+  createLandfallTrigger,
+  createCombatDamageToPlayerTrigger,
+  createSpellCastTrigger,
+  createLifeGainTrigger,
+  createSacrificeTrigger,
+  createCompoundTrigger,
+  checkMultipleTriggers,
 } from './triggeredAbilities';
 
 // Static Abilities (Rule 604) - StaticAbility, StaticEffectType conflict
@@ -212,6 +229,19 @@ export {
   createETBTriggers,
   autoResolveTrigger,
 } from './triggeredEffectsAutomation';
+
+// Replacement Effects (Rule 614)
+export {
+  ReplacementEffectType,
+  type ParsedReplacementEffect,
+  type ReplacementResult,
+  type ETBConditionCheck,
+  parseReplacementEffectsFromText,
+  evaluateETBCondition,
+  applyReplacementEffect,
+  collectReplacementEffects,
+  sortReplacementEffects,
+} from './replacementEffects';
 
 // Game Events (Rule 603) - exclude TriggerCondition (conflicts with types)
 export {

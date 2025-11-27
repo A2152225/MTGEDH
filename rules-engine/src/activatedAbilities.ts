@@ -253,3 +253,367 @@ export function createActivatedAbility(
     restrictions,
   };
 }
+
+/**
+ * Parsed cost component from oracle text
+ */
+export interface ParsedCostComponent {
+  readonly type: 'mana' | 'tap' | 'untap' | 'sacrifice' | 'discard' | 'pay_life' | 'exile' | 'remove_counter' | 'other';
+  readonly manaCost?: ManaCost;
+  readonly sacrificeFilter?: string;
+  readonly discardCount?: number;
+  readonly lifeAmount?: number;
+  readonly counterType?: string;
+  readonly counterCount?: number;
+  readonly description: string;
+}
+
+/**
+ * Parsed activated ability from oracle text
+ */
+export interface ParsedActivatedAbility {
+  readonly costs: ParsedCostComponent[];
+  readonly effect: string;
+  readonly requiresTap: boolean;
+  readonly sorcerySpeed: boolean;
+  readonly oncePerTurn: boolean;
+  readonly isManaAbility: boolean;
+}
+
+/**
+ * Parse activated abilities from oracle text
+ * Format: "[Cost]: [Effect]"
+ */
+export function parseActivatedAbilitiesFromText(
+  oracleText: string,
+  permanentId: string,
+  controllerId: string,
+  cardName: string
+): ActivatedAbility[] {
+  const abilities: ActivatedAbility[] = [];
+  const text = oracleText.toLowerCase();
+  
+  // Pattern to match activated ability format: "Cost: Effect"
+  // The cost comes before the colon, effect after
+  const abilityPattern = /([^.]+?):\s*([^.]+\.)/gi;
+  
+  let match;
+  let index = 0;
+  
+  while ((match = abilityPattern.exec(text)) !== null) {
+    const costText = match[1].trim();
+    const effectText = match[2].trim();
+    
+    // Skip if this looks like a triggered ability (starts with when/whenever/at)
+    if (/^(when|whenever|at\s+the\s+beginning)/i.test(costText)) {
+      continue;
+    }
+    
+    // Skip if this is reminder text (contains parentheses at start)
+    if (costText.startsWith('(')) {
+      continue;
+    }
+    
+    const parsedCosts = parseCostComponents(costText);
+    const parsed = analyzeActivatedAbility(costText, effectText);
+    
+    // Determine mana cost from parsed components
+    let manaCost: ManaCost | undefined;
+    for (const cost of parsedCosts) {
+      if (cost.type === 'mana' && cost.manaCost) {
+        manaCost = cost.manaCost;
+        break;
+      }
+    }
+    
+    // Build restrictions
+    const restrictions: ActivationRestriction[] = [];
+    
+    if (parsed.sorcerySpeed) {
+      restrictions.push({
+        type: 'timing',
+        description: 'Activate only as a sorcery',
+        requiresSorceryTiming: true,
+      });
+    }
+    
+    if (parsed.oncePerTurn) {
+      restrictions.push({
+        type: 'frequency',
+        description: 'Activate only once each turn',
+        maxPerTurn: 1,
+      });
+    }
+    
+    // Build additional costs
+    const additionalCosts: Cost[] = parsedCosts
+      .filter(c => c.type !== 'mana')
+      .map(c => ({
+        type: c.type,
+        description: c.description,
+      }));
+    
+    abilities.push({
+      id: `${permanentId}-activated-${index}`,
+      sourceId: permanentId,
+      sourceName: cardName,
+      controllerId,
+      manaCost,
+      additionalCosts: additionalCosts.length > 0 ? additionalCosts : undefined,
+      effect: effectText,
+      restrictions: restrictions.length > 0 ? restrictions : undefined,
+      isManaAbility: parsed.isManaAbility,
+    });
+    
+    index++;
+  }
+  
+  return abilities;
+}
+
+/**
+ * Parse cost components from a cost string
+ */
+function parseCostComponents(costText: string): ParsedCostComponent[] {
+  const components: ParsedCostComponent[] = [];
+  const text = costText.toLowerCase();
+  
+  // Check for tap symbol
+  if (text.includes('{t}') || text.includes('tap') && !text.includes('untap')) {
+    components.push({
+      type: 'tap',
+      description: 'Tap this permanent',
+    });
+  }
+  
+  // Check for untap symbol
+  if (text.includes('{q}') || text.includes('untap this')) {
+    components.push({
+      type: 'untap',
+      description: 'Untap this permanent',
+    });
+  }
+  
+  // Check for sacrifice costs
+  const sacrificeMatch = text.match(/sacrifice (?:a |an |this )?(\w+)?/i);
+  if (sacrificeMatch) {
+    components.push({
+      type: 'sacrifice',
+      sacrificeFilter: sacrificeMatch[1] || 'this',
+      description: `Sacrifice ${sacrificeMatch[1] || 'this permanent'}`,
+    });
+  }
+  
+  // Check for discard costs
+  const discardMatch = text.match(/discard (?:a card|(\d+) cards?)/i);
+  if (discardMatch) {
+    components.push({
+      type: 'discard',
+      discardCount: discardMatch[1] ? parseInt(discardMatch[1]) : 1,
+      description: `Discard ${discardMatch[1] || '1'} card(s)`,
+    });
+  }
+  
+  // Check for pay life costs
+  const lifeMatch = text.match(/pay (\d+) life/i);
+  if (lifeMatch) {
+    components.push({
+      type: 'pay_life',
+      lifeAmount: parseInt(lifeMatch[1]),
+      description: `Pay ${lifeMatch[1]} life`,
+    });
+  }
+  
+  // Check for exile costs
+  if (text.includes('exile') && !text.includes('you may exile')) {
+    components.push({
+      type: 'exile',
+      description: 'Exile a card',
+    });
+  }
+  
+  // Check for remove counter costs
+  const counterMatch = text.match(/remove (?:a |an |(\d+) )?(\+1\/\+1|charge|loyalty|\w+) counters?/i);
+  if (counterMatch) {
+    components.push({
+      type: 'remove_counter',
+      counterCount: counterMatch[1] ? parseInt(counterMatch[1]) : 1,
+      counterType: counterMatch[2],
+      description: `Remove ${counterMatch[1] || '1'} ${counterMatch[2]} counter(s)`,
+    });
+  }
+  
+  // Parse mana cost (look for mana symbols)
+  const manaCost = parseManaCostFromText(text);
+  if (manaCost && (manaCost.generic || 0) + (manaCost.white || 0) + (manaCost.blue || 0) + 
+      (manaCost.black || 0) + (manaCost.red || 0) + (manaCost.green || 0) + (manaCost.colorless || 0) > 0) {
+    components.push({
+      type: 'mana',
+      manaCost,
+      description: `Pay mana cost`,
+    });
+  }
+  
+  return components;
+}
+
+/**
+ * Parse mana cost from text containing mana symbols
+ */
+function parseManaCostFromText(text: string): ManaCost {
+  const cost: ManaCost = {
+    generic: 0,
+    white: 0,
+    blue: 0,
+    black: 0,
+    red: 0,
+    green: 0,
+    colorless: 0,
+  };
+  
+  // Match mana symbols like {1}, {W}, {U}, {B}, {R}, {G}, {C}
+  const manaPattern = /\{([0-9]+|[wubrgc])\}/gi;
+  let match;
+  
+  while ((match = manaPattern.exec(text)) !== null) {
+    const symbol = match[1].toUpperCase();
+    
+    if (/^\d+$/.test(symbol)) {
+      cost.generic = (cost.generic || 0) + parseInt(symbol);
+    } else {
+      switch (symbol) {
+        case 'W': cost.white = (cost.white || 0) + 1; break;
+        case 'U': cost.blue = (cost.blue || 0) + 1; break;
+        case 'B': cost.black = (cost.black || 0) + 1; break;
+        case 'R': cost.red = (cost.red || 0) + 1; break;
+        case 'G': cost.green = (cost.green || 0) + 1; break;
+        case 'C': cost.colorless = (cost.colorless || 0) + 1; break;
+      }
+    }
+  }
+  
+  return cost;
+}
+
+/**
+ * Check if effect text produces mana
+ */
+function producesMana(effectText: string): boolean {
+  const text = effectText.toLowerCase();
+  
+  // Check for explicit mana symbols
+  if (text.includes('{w}') || text.includes('{u}') || text.includes('{b}') ||
+      text.includes('{r}') || text.includes('{g}') || text.includes('{c}')) {
+    return true;
+  }
+  
+  // Check for "mana of any color" or "one mana of any color" patterns
+  if (text.includes('mana of any color') || text.includes('any mana') ||
+      text.includes('one mana') || text.includes('two mana') ||
+      text.includes('mana of that color')) {
+    return true;
+  }
+  
+  // Check for basic "add mana" pattern
+  if (text.includes('add') && text.includes('mana')) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Check if effect text targets
+ */
+function hasTargeting(effectText: string): boolean {
+  const text = effectText.toLowerCase();
+  
+  // Check for explicit targeting
+  if (text.includes('target')) {
+    return true;
+  }
+  
+  // Check for implicit targeting patterns
+  if (text.includes('choose a') && (text.includes('creature') || text.includes('player'))) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Analyze activated ability for special properties
+ */
+function analyzeActivatedAbility(costText: string, effectText: string): ParsedActivatedAbility {
+  const text = (costText + ' ' + effectText).toLowerCase();
+  
+  const requiresTap = costText.toLowerCase().includes('{t}') || 
+                      (costText.toLowerCase().includes('tap') && !costText.toLowerCase().includes('untap'));
+  const sorcerySpeed = effectText.toLowerCase().includes('activate only as a sorcery') || 
+                       effectText.toLowerCase().includes('only any time you could cast a sorcery');
+  const oncePerTurn = effectText.toLowerCase().includes('activate only once') || 
+                      effectText.toLowerCase().includes('activate this ability only once');
+  
+  // Check if this is a mana ability
+  // Mana abilities: 
+  // 1. Must produce mana
+  // 2. Cannot target (Rule 605.1b)
+  // 3. Cannot be a loyalty ability (Rule 605.1a)
+  const addsMana = effectText.toLowerCase().includes('add') && producesMana(effectText);
+  const hasTarget = hasTargeting(effectText);
+  const isLoyalty = costText.includes('+') || costText.includes('−') || 
+                    /^[-+]?\d+$/.test(costText.trim());
+  
+  const isManaAbility = addsMana && !hasTarget && !isLoyalty;
+  
+  return {
+    costs: [], // Will be filled by parseCostComponents
+    effect: effectText,
+    requiresTap,
+    sorcerySpeed,
+    oncePerTurn,
+    isManaAbility,
+  };
+}
+
+/**
+ * Check if a permanent has any activated abilities with tap cost
+ */
+export function hasTapAbility(oracleText: string): boolean {
+  return oracleText.includes('{T}') || 
+         oracleText.toLowerCase().includes('{t}:') ||
+         /tap\s*:/i.test(oracleText);
+}
+
+/**
+ * Check if a permanent has a mana ability
+ */
+export function hasManaAbility(oracleText: string): boolean {
+  const text = oracleText.toLowerCase();
+  
+  // Must have a colon (activated ability format)
+  if (!text.includes(':')) return false;
+  
+  // Must not target
+  if (text.includes('target')) return false;
+  
+  // Check for mana production
+  if (text.includes('add {')) return true;
+  if (text.includes('add') && text.includes('mana')) return true;
+  if (text.includes('mana of any color')) return true;
+  
+  return false;
+}
+
+/**
+ * Get all mana abilities from oracle text
+ */
+export function getManaAbilities(
+  oracleText: string,
+  permanentId: string,
+  controllerId: string,
+  cardName: string
+): ActivatedAbility[] {
+  const allAbilities = parseActivatedAbilitiesFromText(oracleText, permanentId, controllerId, cardName);
+  return allAbilities.filter(a => a.isManaAbility);
+}
