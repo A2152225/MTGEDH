@@ -5,7 +5,6 @@ import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, getPlayerName, transformDbEventsForReplay } from "./util";
 import { getEvents, truncateEventsForUndo, getEventCount } from "../db";
 import GameManager from "../GameManager";
-import { createInitialGameState } from "../state/index";
 
 /**
  * Undo request state
@@ -114,8 +113,16 @@ function checkAnyRejected(request: UndoRequest): boolean {
  * 1. Getting the current event count
  * 2. Calculating how many events to keep
  * 3. Truncating the event log in the database
- * 4. Creating a fresh game state
- * 5. Replaying the remaining events
+ * 4. Resetting the existing game state (preserving socket/participant mappings)
+ * 5. Replaying the remaining events on the SAME game context
+ * 
+ * IMPORTANT: We use the existing game's reset + replay methods rather than creating
+ * a fresh game. This ensures:
+ * - The RNG state is properly reset and re-seeded from the rngSeed event
+ * - Libraries (card arrays) are properly rebuilt from deckImportResolved events
+ * - Socket/participant mappings are preserved (joinedBySocket, participantsList, etc.)
+ * - Life/poison/experience counters are properly restored
+ * - All internal context state matches what was replayed
  * 
  * Returns true on success, false on failure
  */
@@ -156,59 +163,98 @@ function performUndo(gameId: string, actionsToUndo: number): { success: boolean;
       remainingEvents = [];
     }
     
-    // Create a fresh game state
-    const freshGame = createInitialGameState(gameId);
+    // Get the existing game - we'll reset and replay on the SAME game context
+    // This preserves socket mappings and internal state references
+    const existingGame = GameManager.getGame(gameId);
     
-    // Replay the remaining events
-    if (remainingEvents.length > 0 && typeof freshGame.replay === "function") {
+    if (!existingGame) {
+      console.error(`[undo] Game ${gameId} not found in GameManager`);
+      return { success: false, error: "Game not found" };
+    }
+    
+    // Save participant mappings before reset (in case reset clears them)
+    let savedParticipants: Array<{ socketId: string; playerId: string; spectator: boolean }> = [];
+    try {
+      if (typeof existingGame.participants === 'function') {
+        savedParticipants = existingGame.participants().map((p: any) => ({
+          socketId: p.socketId,
+          playerId: p.playerId,
+          spectator: !!p.spectator,
+        }));
+      }
+    } catch (e) {
+      console.warn('[undo] Failed to save participants:', e);
+    }
+    
+    // Reset the game state while preserving player roster
+    // This clears libraries, zones, battlefield, stack, counters, etc.
+    // but keeps the player list so replay can work with existing player IDs
+    if (typeof existingGame.reset === 'function') {
+      try {
+        existingGame.reset(true); // preservePlayers = true
+        console.log(`[undo] Reset game state for ${gameId}`);
+      } catch (resetErr) {
+        console.error(`[undo] Reset failed for game ${gameId}:`, resetErr);
+        return { success: false, error: "Failed to reset game state" };
+      }
+    } else {
+      console.error(`[undo] Game ${gameId} does not have reset method`);
+      return { success: false, error: "Game does not support reset" };
+    }
+    
+    // Replay the remaining events on the SAME game context
+    // This rebuilds all state including:
+    // - RNG seed and state (from rngSeed event)
+    // - Libraries (from deckImportResolved events)
+    // - Shuffled order (from shuffleLibrary events)  
+    // - Hand contents (from drawCards events)
+    // - Mulligan results (from mulligan events)
+    // - All other game actions
+    if (remainingEvents.length > 0 && typeof existingGame.replay === 'function') {
       // Transform events from DB format to replay format using shared utility
       const replayEvents = transformDbEventsForReplay(remainingEvents);
       
       try {
-        freshGame.replay(replayEvents);
+        existingGame.replay(replayEvents);
         console.log(`[undo] Replayed ${replayEvents.length} events for game ${gameId}`);
       } catch (replayErr) {
         console.error(`[undo] Replay failed for game ${gameId}:`, replayErr);
         return { success: false, error: "Failed to replay events" };
       }
+    } else if (remainingEvents.length === 0) {
+      console.log(`[undo] No events to replay for game ${gameId} (undid all actions)`);
     }
     
-    // Replace the game in GameManager with the fresh replayed state
-    // We need to update the in-memory game reference properly
-    const existingGame = GameManager.getGame(gameId);
-    if (existingGame) {
-      // Deep copy the fresh game state to avoid shared references
-      // We can't just replace the game object because socket handlers hold references to it
-      try {
-        // Clear existing state properties
-        for (const key of Object.keys(existingGame.state)) {
-          delete (existingGame.state as any)[key];
+    // Restore participant socket mappings if they were lost during reset
+    // This ensures connected clients stay connected after undo
+    try {
+      if (savedParticipants.length > 0 && typeof existingGame.join === 'function') {
+        // Check if participants were preserved
+        const currentParticipants = typeof existingGame.participants === 'function' 
+          ? existingGame.participants() 
+          : [];
+        
+        // If participants were lost during reset, try to restore them
+        if (currentParticipants.length === 0 && savedParticipants.length > 0) {
+          console.log(`[undo] Restoring ${savedParticipants.length} participant(s) for game ${gameId}`);
+          for (const p of savedParticipants) {
+            if (p.socketId && p.playerId) {
+              try {
+                existingGame.join(p.socketId, p.playerId, p.spectator, p.playerId);
+              } catch (joinErr) {
+                console.warn(`[undo] Failed to restore participant ${p.playerId}:`, joinErr);
+              }
+            }
+          }
         }
-        // Use structuredClone for efficient deep cloning (available in Node 17+)
-        // Falls back to JSON parse/stringify if not available
-        let freshStateClone: any;
-        if (typeof structuredClone === 'function') {
-          freshStateClone = structuredClone(freshGame.state);
-        } else {
-          freshStateClone = JSON.parse(JSON.stringify(freshGame.state));
-        }
-        for (const [key, value] of Object.entries(freshStateClone)) {
-          (existingGame.state as any)[key] = value;
-        }
-      } catch (copyErr) {
-        console.warn('[undo] Deep copy failed, falling back to Object.assign:', copyErr);
-        Object.assign(existingGame.state, freshGame.state);
       }
-      
-      // Also update seq if it exists
-      if (typeof (freshGame as any).seq !== 'undefined') {
-        (existingGame as any).seq = (freshGame as any).seq;
-      }
-      
-      // Bump seq to trigger UI updates
-      if (typeof existingGame.bumpSeq === 'function') {
-        existingGame.bumpSeq();
-      }
+    } catch (e) {
+      console.warn('[undo] Failed to restore participants:', e);
+    }
+    
+    // Bump seq to trigger UI updates
+    if (typeof existingGame.bumpSeq === 'function') {
+      existingGame.bumpSeq();
     }
     
     return { success: true };

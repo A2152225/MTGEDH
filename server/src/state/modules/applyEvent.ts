@@ -130,17 +130,23 @@ export function reset(ctx: any, preservePlayers = false): void {
           graveyard: [],
           graveyardCount: 0,
         };
+        // Clear hand
         ctx.state.zones[pid].hand = [];
         ctx.state.zones[pid].handCount = 0;
+        // Clear library
         if (ctx.libraries && typeof ctx.libraries.set === "function")
           ctx.libraries.set(pid, []);
         else (ctx.libraries as any)[pid] = [];
         ctx.state.zones[pid].libraryCount = 0;
-        ctx.state.zones[pid].graveyard =
-          ctx.state.zones[pid].graveyard || [];
-        ctx.state.zones[pid].graveyardCount = (
-          ctx.state.zones[pid].graveyard || []
-        ).length;
+        // Clear graveyard (important for undo to properly restore previous state)
+        ctx.state.zones[pid].graveyard = [];
+        ctx.state.zones[pid].graveyardCount = 0;
+        // Clear exile if it exists
+        if (ctx.state.zones[pid].exile !== undefined) {
+          ctx.state.zones[pid].exile = [];
+          ctx.state.zones[pid].exileCount = 0;
+        }
+        // Reset life and counters
         ctx.life[pid] = ctx.state.startingLife ?? ctx.life[pid] ?? 40;
         if (ctx.poison) ctx.poison[pid] = 0;
         if (ctx.experience) ctx.experience[pid] = 0;
@@ -155,6 +161,28 @@ export function reset(ctx: any, preservePlayers = false): void {
       (ctx as any).pendingInitialDraw.clear();
     } else {
       (ctx as any).pendingInitialDraw = new Set<string>();
+    }
+
+    // Clear RNG state so it can be properly re-initialized from rngSeed event during replay
+    // This is critical for undo to work correctly - the RNG must be reset to produce
+    // the same shuffle/draw sequence when events are replayed
+    try {
+      ctx.rngSeed = null;
+      // Create a fresh RNG function that will be replaced by rngSeed event
+      // Using a new random seed as fallback in case no rngSeed event exists
+      const fallbackSeed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
+      ctx.rng = (function (seed: number) {
+        let t = seed >>> 0;
+        return function () {
+          t = (t + 0x6d2b79f5) >>> 0;
+          let r = t;
+          r = Math.imul(r ^ (r >>> 15), r | 1);
+          r ^= r + Math.imul(r ^ (r >>> 7), r | 61);
+          return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+        };
+      })(fallbackSeed);
+    } catch {
+      // ignore RNG reset errors
     }
 
     // Reset bump/seq if present
