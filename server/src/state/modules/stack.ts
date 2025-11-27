@@ -2,6 +2,7 @@ import type { PlayerID } from "../../../../shared/src/index.js";
 import type { GameContext } from "../context.js";
 import { uid, parsePT } from "../utils.js";
 import { recalculatePlayerEffects } from "./game-state-effects.js";
+import { categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
 
 /**
  * Stack / resolution helpers (extracted).
@@ -147,6 +148,7 @@ export function resolveTopOfStack(ctx: GameContext) {
   const { state, bumpSeq } = ctx;
   const card = item.card;
   const controller = item.controller as PlayerID;
+  const targets = (item as any).targets || [];
   
   if (card && isPermanentTypeLine(card.type_line)) {
     // Permanent spell resolves - move to battlefield
@@ -195,18 +197,159 @@ export function resolveTopOfStack(ctx: GameContext) {
       console.warn('[resolveTopOfStack] Failed to recalculate player effects:', err);
     }
   } else if (card) {
-    // Non-permanent spell (instant/sorcery) - goes to graveyard after resolution
+    // Non-permanent spell (instant/sorcery) - execute effects before moving to graveyard
+    const oracleText = card.oracle_text || '';
+    const spellSpec = categorizeSpell(card.name || '', oracleText);
+    
+    if (spellSpec) {
+      // Convert targets array to TargetRef format if needed
+      const targetRefs: TargetRef[] = targets.map((t: any) => {
+        if (typeof t === 'string') {
+          return { kind: 'permanent' as const, id: t };
+        }
+        return t;
+      });
+      
+      // Generate effects based on spell type and targets
+      const effects = resolveSpell(spellSpec, targetRefs, state as any);
+      
+      // Execute each effect
+      for (const effect of effects) {
+        executeSpellEffect(ctx, effect, controller, card.name || 'spell');
+      }
+      
+      // Handle special spell effects not covered by the base system
+      // Beast Within: "Destroy target permanent. Its controller creates a 3/3 green Beast creature token."
+      if (oracleText.toLowerCase().includes('its controller creates') && targetRefs.length > 0) {
+        const targetPerm = state.battlefield?.find((p: any) => p.id === targetRefs[0]?.id);
+        if (targetPerm) {
+          const tokenController = targetPerm.controller as PlayerID;
+          // Check for token creation patterns
+          const tokenMatch = oracleText.match(/creates?\s+(?:a\s+)?(\d+)\/(\d+)\s+(\w+)\s+(\w+)/i);
+          if (tokenMatch) {
+            const power = parseInt(tokenMatch[1], 10);
+            const toughness = parseInt(tokenMatch[2], 10);
+            const tokenName = `${tokenMatch[4]} Token`;
+            createBeastToken(ctx, tokenController, tokenName, power, toughness);
+          }
+        }
+      }
+    }
+    
+    // Move spell to graveyard after resolution
     const zones = ctx.state.zones || {};
     const z = zones[controller];
     if (z) {
       z.graveyard = z.graveyard || [];
       (z.graveyard as any[]).push({ ...card, zone: "graveyard" });
       z.graveyardCount = (z.graveyard as any[]).length;
-      console.log(`[resolveTopOfStack] Spell ${card.name || 'unnamed'} moved to graveyard for ${controller}`);
+      console.log(`[resolveTopOfStack] Spell ${card.name || 'unnamed'} resolved and moved to graveyard for ${controller}`);
     }
   }
   
   bumpSeq();
+}
+
+/**
+ * Execute a single spell effect
+ */
+function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: PlayerID, spellName: string): void {
+  const { state } = ctx;
+  
+  switch (effect.kind) {
+    case 'DestroyPermanent': {
+      const battlefield = state.battlefield || [];
+      const idx = battlefield.findIndex((p: any) => p.id === effect.id);
+      if (idx !== -1) {
+        const destroyed = battlefield.splice(idx, 1)[0];
+        const owner = (destroyed as any).owner || (destroyed as any).controller;
+        const zones = ctx.state.zones || {};
+        const z = zones[owner];
+        if (z) {
+          z.graveyard = z.graveyard || [];
+          const card = (destroyed as any).card;
+          if (card) {
+            (z.graveyard as any[]).push({ ...card, zone: "graveyard" });
+            z.graveyardCount = (z.graveyard as any[]).length;
+          }
+        }
+        console.log(`[resolveSpell] ${spellName} destroyed ${(destroyed as any).card?.name || effect.id}`);
+      }
+      break;
+    }
+    case 'MoveToExile': {
+      const battlefield = state.battlefield || [];
+      const idx = battlefield.findIndex((p: any) => p.id === effect.id);
+      if (idx !== -1) {
+        const exiled = battlefield.splice(idx, 1)[0];
+        const owner = (exiled as any).owner || (exiled as any).controller;
+        const zones = ctx.state.zones || {};
+        const z = zones[owner];
+        if (z) {
+          z.exile = z.exile || [];
+          const card = (exiled as any).card;
+          if (card) {
+            (z.exile as any[]).push({ ...card, zone: "exile" });
+          }
+        }
+        console.log(`[resolveSpell] ${spellName} exiled ${(exiled as any).card?.name || effect.id}`);
+      }
+      break;
+    }
+    case 'DamagePermanent': {
+      const battlefield = state.battlefield || [];
+      const perm = battlefield.find((p: any) => p.id === effect.id);
+      if (perm) {
+        (perm as any).damage = ((perm as any).damage || 0) + effect.amount;
+        console.log(`[resolveSpell] ${spellName} dealt ${effect.amount} damage to ${(perm as any).card?.name || effect.id}`);
+      }
+      break;
+    }
+    case 'DamagePlayer': {
+      const players = state.players || [];
+      const player = players.find((p: any) => p.id === effect.playerId);
+      if (player) {
+        (player as any).life = ((player as any).life || 40) - effect.amount;
+        console.log(`[resolveSpell] ${spellName} dealt ${effect.amount} damage to player ${effect.playerId}`);
+      }
+      break;
+    }
+    case 'Broadcast': {
+      console.log(`[resolveSpell] ${effect.message}`);
+      break;
+    }
+  }
+}
+
+/**
+ * Create a token creature (helper for Beast Within and similar)
+ */
+function createBeastToken(ctx: GameContext, controller: PlayerID, name: string, power: number, toughness: number): void {
+  const { state, bumpSeq } = ctx;
+  
+  state.battlefield = state.battlefield || [];
+  const tokenId = uid("token");
+  state.battlefield.push({
+    id: tokenId,
+    controller,
+    owner: controller,
+    tapped: false,
+    counters: {},
+    basePower: power,
+    baseToughness: toughness,
+    summoningSickness: true,
+    isToken: true,
+    card: {
+      id: tokenId,
+      name,
+      type_line: "Token Creature — Beast",
+      power: String(power),
+      toughness: String(toughness),
+      zone: "battlefield",
+    },
+  } as any);
+  
+  console.log(`[resolveSpell] Created ${power}/${toughness} ${name} token for ${controller}`);
 }
 
 /* Place a land onto the battlefield for a player (simplified) */

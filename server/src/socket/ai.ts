@@ -18,6 +18,7 @@ import { appendEvent } from "../db/index.js";
 import { getDeck, listDecks } from "../db/decks.js";
 import { fetchCardsByExactNamesBatch, normalizeName, parseDecklist } from "../services/scryfall.js";
 import type { PlayerID } from "../../../shared/src/types.js";
+import { categorizeSpell, evaluateTargeting, type SpellSpec, type TargetRef } from "../rules-engine/targeting.js";
 
 /** AI timing delays for more natural behavior */
 const AI_THINK_TIME_MS = 500;
@@ -1536,6 +1537,56 @@ async function executeAICastSpell(
       }
     }
     
+    // Determine targets for targeted spells
+    let targets: TargetRef[] = [];
+    const oracleText = card.oracle_text || '';
+    const spellSpec = categorizeSpell(card.name, oracleText);
+    
+    if (spellSpec && spellSpec.minTargets > 0) {
+      // This spell requires targets - use evaluateTargeting to find valid options
+      const validTargets = evaluateTargeting(game.state as any, playerId, spellSpec);
+      
+      if (validTargets.length > 0) {
+        // AI target selection logic:
+        // For removal spells, prefer targeting opponent's permanents
+        // Prioritize high-threat targets
+        const opponentTargets = validTargets.filter((t: TargetRef) => {
+          if (t.kind !== 'permanent') return false;
+          const perm = battlefield.find((p: any) => p.id === t.id);
+          return perm && perm.controller !== playerId;
+        });
+        
+        // Sort opponent targets by threat level (creatures with higher power first)
+        opponentTargets.sort((a: TargetRef, b: TargetRef) => {
+          const permA = battlefield.find((p: any) => p.id === a.id);
+          const permB = battlefield.find((p: any) => p.id === b.id);
+          const powerA = parseInt(String(permA?.basePower ?? permA?.card?.power ?? '0'), 10) || 0;
+          const powerB = parseInt(String(permB?.basePower ?? permB?.card?.power ?? '0'), 10) || 0;
+          return powerB - powerA; // Higher power first
+        });
+        
+        // Select targets (prefer opponent's, fallback to any valid)
+        if (opponentTargets.length > 0) {
+          targets = opponentTargets.slice(0, spellSpec.maxTargets);
+        } else {
+          targets = validTargets.slice(0, spellSpec.maxTargets);
+        }
+        
+        console.info('[AI] Selected targets for spell:', { 
+          cardName: card.name, 
+          targetCount: targets.length,
+          targets: targets.map((t: TargetRef) => {
+            const perm = battlefield.find((p: any) => p.id === t.id);
+            return perm?.card?.name || t.id;
+          })
+        });
+      } else {
+        // No valid targets available - cannot cast this spell
+        console.warn('[AI] Cannot cast spell - no valid targets:', card.name);
+        return;
+      }
+    }
+    
     // Move card from hand to stack
     const zones = game.state?.zones?.[playerId];
     if (zones && Array.isArray(zones.hand)) {
@@ -1545,17 +1596,17 @@ async function executeAICastSpell(
         const [removedCard] = hand.splice(idx, 1);
         zones.handCount = hand.length;
         
-        // Add to stack
+        // Add to stack with targets
         game.state.stack = game.state.stack || [];
         const stackItem = {
           id: `stack_${Date.now()}_${card.id}`,
           controller: playerId,
           card: { ...removedCard, zone: 'stack' },
-          targets: [],
+          targets: targets,
         };
         game.state.stack.push(stackItem as any);
         
-        console.info('[AI] Spell added to stack:', card.name);
+        console.info('[AI] Spell added to stack:', card.name, 'with', targets.length, 'target(s)');
       }
     }
     
