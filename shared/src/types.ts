@@ -111,6 +111,30 @@ export interface Player {
   manaPool?: any;
 }
 
+/**
+ * Player status for counter tracking and protection effects
+ * 
+ * Rule 122: Players can have counters placed on them, tracking various resources
+ * and effects throughout the game.
+ * 
+ * @property poison - Poison counters (Rule 122.1a, Rule 104.3d - lose at 10)
+ * @property experience - Experience counters for Commander experience abilities
+ * @property energy - Energy counters (resource for Kaladesh-style effects)
+ * @property hexproof - Player has hexproof (can't be targeted by opponents)
+ * @property shroud - Player has shroud (can't be targeted)
+ * @property lifeCannotChange - Player's life total can't change
+ * @property protectionFromEverything - Teferi's Protection style effect
+ */
+export interface PlayerStatus {
+  poison?: number;
+  experience?: number;
+  energy?: number;
+  hexproof?: boolean;
+  shroud?: boolean;
+  lifeCannotChange?: boolean;
+  protectionFromEverything?: boolean;
+}
+
 /* Player zones shape used in views */
 export interface PlayerZones {
   hand: KnownCardRef[] | string[]; // sometimes only counts are present in views

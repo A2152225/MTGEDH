@@ -406,6 +406,107 @@ export {
   type ActionRegistry,
 } from './core';
 
+// Player Counters (poison, energy, experience)
+export {
+  PlayerCounterType,
+  type PlayerCounterState,
+  type CounterChangeEvent,
+  type CounterOperationResult,
+  createPlayerCounterState,
+  getPlayerCounter,
+  addPlayerCounters,
+  removePlayerCounters,
+  payEnergy,
+  canPayEnergy,
+  hasLostDueToPoison,
+  processInfectDamageToPlayer,
+  processToxicCombatDamage,
+  processPoisonousAbility,
+  gainExperience,
+  gainEnergy,
+  getPlayerCounterTypes,
+  playerHasCounters,
+  proliferatePlayer,
+} from './playerCounters';
+
+// Emblem Support
+export {
+  type Emblem,
+  type EmblemSpec,
+  type EmblemCreationResult,
+  type EmblemAbilityInfo,
+  createEmblem,
+  createEmblemFromPlaneswalker,
+  createCustomEmblem,
+  emblemHasAbility,
+  isTriggeredEmblem,
+  isStaticEmblem,
+  getPlayerEmblems,
+  parseEmblemAbility,
+  getAvailableEmblemNames,
+  getEmblemSpec,
+  COMMON_EMBLEMS,
+} from './emblemSupport';
+
+// Alternate Costs (Morophon, Jodah, Force of Will, etc.)
+export {
+  AlternateCostType,
+  type AlternateCost,
+  type CostReduction,
+  type CostReductionCondition,
+  WUBRG_COST,
+  MOROPHON_REDUCTION,
+  createJodahCost,
+  createMorophonReduction,
+  createPitchCost,
+  createEvokeCost,
+  createDashCost,
+  createFlashbackCost,
+  createMadnessCost,
+  createMiracleCost,
+  applyCostReduction,
+  getTotalManaValue,
+  isCostZero,
+  creatureTypeMatchesCondition,
+  getApplicableCostReductions,
+  calculateFinalCost,
+  canPayPitchCost,
+} from './alternateCosts';
+
+// Tribal Support
+export {
+  TribalTriggerType,
+  type TribalEffect,
+  type TribalTriggerEvent,
+  hasChangeling,
+  getAllCreatureTypes,
+  permanentQualifiesForTribal,
+  countCreaturesOfType,
+  findCreaturesOfType,
+  detectCastTribalTriggers,
+  detectETBTribalTriggers,
+  detectTribalEffectInText,
+  COMMON_TRIBAL_EFFECTS,
+} from './tribalSupport';
+
+// Damage Processing (infect, wither, toxic, etc.)
+export {
+  type DamageSourceCharacteristics,
+  DamageRecipientType,
+  type DamageEvent,
+  type DamageResult,
+  parseDamageAbilities,
+  createDamageSourceFromPermanent,
+  processDamageToPlayer,
+  processDamageToCreature,
+  processDamageToPlaneswalker,
+  processDamageToBattle,
+  processDamage,
+  wouldCreatureDieFromMinusCounters,
+  calculateEffectiveToughness,
+  createDamageEvent,
+} from './damageProcessing';
+
 // =============================================================================
 // LEGACY COMPATIBILITY
 // =============================================================================
