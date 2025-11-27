@@ -574,9 +574,11 @@ export function TableLayout(props: {
     onLocalImportConfirmChange?.(false);
   };
 
+  // Play area background - deep blue-purple gradient for better visual distinction
+  // Changed from green to provide better contrast with cards and UI elements
   const clothBg: React.CSSProperties = props.tableCloth?.imageUrl
     ? { backgroundImage: `url(${props.tableCloth.imageUrl})`, backgroundSize: 'cover', backgroundRepeat: 'no-repeat', backgroundPosition: 'center' }
-    : { background: 'radial-gradient(ellipse at center, rgba(0,128,64,0.9) 0%, rgba(3,62,35,0.95) 60%, rgba(2,40,22,1) 100%)' };
+    : { background: 'radial-gradient(ellipse at center, rgba(40,50,80,0.95) 0%, rgba(25,32,55,0.97) 50%, rgba(15,18,35,1) 100%)' };
 
   // local chat input state for overlay
   const [chatText, setChatText] = useState("");
@@ -741,43 +743,75 @@ export function TableLayout(props: {
                             }}
                           >
                             <span style={{ fontSize: 14 }}>{pb.player.name}</span>
+                            {/* Enhanced Counter Display Panel */}
                             <div
                               style={{
                                 display: 'flex',
-                                gap: 8,
-                                fontSize: 11,
-                                background: 'rgba(0,0,0,0.3)',
-                                padding: '3px 8px',
-                                borderRadius: 4
+                                gap: 10,
+                                fontSize: 12,
+                                background: 'linear-gradient(135deg, rgba(0,0,0,0.5) 0%, rgba(20,20,30,0.6) 100%)',
+                                padding: '6px 12px',
+                                borderRadius: 6,
+                                border: '1px solid rgba(255,255,255,0.1)',
+                                boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.3)'
                               }}
                             >
-                              <span aria-label={`Life: ${lifeVal}`} style={{ color: '#4ade80', fontWeight: 600 }}>
-                                ❤️ {lifeVal}
-                              </span>
-                              <span
-                                aria-label={`Poison Counters: ${poisonVal}`}
-                                style={{
-                                  color:
-                                    poisonVal > 0 ? '#f87171' : '#888',
-                                  fontWeight: poisonVal > 0 ? 600 : 400
+                              {/* Life Counter - Always visible, larger */}
+                              <span 
+                                aria-label={`Life: ${lifeVal}`} 
+                                title="Life Total"
+                                style={{ 
+                                  color: lifeVal <= 10 ? '#ef4444' : lifeVal <= 20 ? '#fbbf24' : '#4ade80', 
+                                  fontWeight: 700,
+                                  fontSize: 14,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 3
                                 }}
                               >
-                                ☠️ {poisonVal}
+                                ❤️ {lifeVal}
                               </span>
+                              {/* Separator */}
+                              <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 10 }}>|</span>
+                              {/* Poison Counter - Critical warning at 7+ */}
+                              <span
+                                aria-label={`Poison Counters: ${poisonVal}`}
+                                title={`Poison Counters (Lose at 10)`}
+                                style={{
+                                  color: poisonVal >= 7 ? '#dc2626' : poisonVal > 0 ? '#f87171' : 'rgba(136,136,136,0.6)',
+                                  fontWeight: poisonVal > 0 ? 700 : 400,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 3,
+                                  animation: poisonVal >= 7 ? 'pulse 1.5s infinite' : 'none'
+                                }}
+                              >
+                                ☠️ {poisonVal}{poisonVal >= 7 && <span style={{ fontSize: 9, marginLeft: 2 }}>⚠</span>}
+                              </span>
+                              {/* Experience Counter */}
                               <span
                                 aria-label={`Experience Counters: ${xpVal}`}
+                                title="Experience Counters"
                                 style={{
-                                  color: xpVal > 0 ? '#60a5fa' : '#888',
-                                  fontWeight: xpVal > 0 ? 600 : 400
+                                  color: xpVal > 0 ? '#60a5fa' : 'rgba(136,136,136,0.6)',
+                                  fontWeight: xpVal > 0 ? 600 : 400,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 3
                                 }}
                               >
                                 ⭐ {xpVal}
                               </span>
+                              {/* Energy Counter - Resource to spend */}
                               <span
                                 aria-label={`Energy Counters: ${energyVal}`}
+                                title="Energy Counters (Resource)"
                                 style={{ 
-                                  color: energyVal > 0 ? '#ffd166' : '#888',
-                                  fontWeight: energyVal > 0 ? 600 : 400
+                                  color: energyVal > 0 ? '#fbbf24' : 'rgba(136,136,136,0.6)',
+                                  fontWeight: energyVal > 0 ? 600 : 400,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 3
                                 }}
                               >
                                 ⚡ {energyVal}

@@ -111,6 +111,17 @@ export interface Player {
   manaPool?: any;
 }
 
+/* Player status for counter tracking and protection effects */
+export interface PlayerStatus {
+  poison?: number;
+  experience?: number;
+  energy?: number;
+  hexproof?: boolean;
+  shroud?: boolean;
+  lifeCannotChange?: boolean;
+  protectionFromEverything?: boolean;
+}
+
 /* Player zones shape used in views */
 export interface PlayerZones {
   hand: KnownCardRef[] | string[]; // sometimes only counts are present in views
