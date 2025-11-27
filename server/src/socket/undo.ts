@@ -2,7 +2,10 @@
 // Socket handlers for the undo system with player approval
 
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, getPlayerName } from "./util";
+import { ensureGame, broadcastGame, getPlayerName, transformDbEventsForReplay } from "./util";
+import { getEvents, truncateEventsForUndo, getEventCount } from "../db";
+import GameManager from "../GameManager";
+import { createInitialGameState } from "../state/index";
 
 /**
  * Undo request state
@@ -106,6 +109,115 @@ function checkAnyRejected(request: UndoRequest): boolean {
   return Object.values(request.approvals).some(v => v === false);
 }
 
+/**
+ * Perform the actual undo by:
+ * 1. Getting the current event count
+ * 2. Calculating how many events to keep
+ * 3. Truncating the event log in the database
+ * 4. Creating a fresh game state
+ * 5. Replaying the remaining events
+ * 
+ * Returns true on success, false on failure
+ */
+function performUndo(gameId: string, actionsToUndo: number): { success: boolean; error?: string } {
+  try {
+    // Get current event count
+    let eventCount: number;
+    try {
+      eventCount = getEventCount(gameId);
+    } catch (e) {
+      console.warn(`[undo] Failed to get event count for game ${gameId}:`, e);
+      return { success: false, error: "Database not available" };
+    }
+    
+    if (eventCount === 0) {
+      return { success: false, error: "No actions to undo" };
+    }
+    
+    // Calculate how many events to keep
+    const eventsToKeep = Math.max(0, eventCount - actionsToUndo);
+    
+    console.log(`[undo] Performing undo for game ${gameId}: keeping ${eventsToKeep} of ${eventCount} events`);
+    
+    // Truncate the event log in the database
+    try {
+      truncateEventsForUndo(gameId, eventsToKeep);
+    } catch (e) {
+      console.error(`[undo] Failed to truncate events for game ${gameId}:`, e);
+      return { success: false, error: "Failed to truncate event log" };
+    }
+    
+    // Get the remaining events
+    let remainingEvents: any[];
+    try {
+      remainingEvents = getEvents(gameId);
+    } catch (e) {
+      console.warn(`[undo] Failed to get events after truncation:`, e);
+      remainingEvents = [];
+    }
+    
+    // Create a fresh game state
+    const freshGame = createInitialGameState(gameId);
+    
+    // Replay the remaining events
+    if (remainingEvents.length > 0 && typeof freshGame.replay === "function") {
+      // Transform events from DB format to replay format using shared utility
+      const replayEvents = transformDbEventsForReplay(remainingEvents);
+      
+      try {
+        freshGame.replay(replayEvents);
+        console.log(`[undo] Replayed ${replayEvents.length} events for game ${gameId}`);
+      } catch (replayErr) {
+        console.error(`[undo] Replay failed for game ${gameId}:`, replayErr);
+        return { success: false, error: "Failed to replay events" };
+      }
+    }
+    
+    // Replace the game in GameManager with the fresh replayed state
+    // We need to update the in-memory game reference properly
+    const existingGame = GameManager.getGame(gameId);
+    if (existingGame) {
+      // Deep copy the fresh game state to avoid shared references
+      // We can't just replace the game object because socket handlers hold references to it
+      try {
+        // Clear existing state properties
+        for (const key of Object.keys(existingGame.state)) {
+          delete (existingGame.state as any)[key];
+        }
+        // Use structuredClone for efficient deep cloning (available in Node 17+)
+        // Falls back to JSON parse/stringify if not available
+        let freshStateClone: any;
+        if (typeof structuredClone === 'function') {
+          freshStateClone = structuredClone(freshGame.state);
+        } else {
+          freshStateClone = JSON.parse(JSON.stringify(freshGame.state));
+        }
+        for (const [key, value] of Object.entries(freshStateClone)) {
+          (existingGame.state as any)[key] = value;
+        }
+      } catch (copyErr) {
+        console.warn('[undo] Deep copy failed, falling back to Object.assign:', copyErr);
+        Object.assign(existingGame.state, freshGame.state);
+      }
+      
+      // Also update seq if it exists
+      if (typeof (freshGame as any).seq !== 'undefined') {
+        (existingGame as any).seq = (freshGame as any).seq;
+      }
+      
+      // Bump seq to trigger UI updates
+      if (typeof existingGame.bumpSeq === 'function') {
+        existingGame.bumpSeq();
+      }
+    }
+    
+    return { success: true };
+  } catch (err: any) {
+    console.error(`[undo] performUndo failed for game ${gameId}:`, err);
+    return { success: false, error: err?.message || "Unknown error" };
+  }
+}
+
 export function registerUndoHandlers(io: Server, socket: Socket) {
   // Request an undo
   socket.on("requestUndo", ({ gameId, actionsToUndo = 1 }: { gameId: string; actionsToUndo?: number }) => {
@@ -140,19 +252,28 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
       const humanPlayerIds = getHumanPlayerIds(game);
       const aiPlayerIds = getAIPlayerIds(game);
       
-      // If single player, auto-approve immediately
+      // If single player, auto-approve and perform undo immediately
       if (playerIds.length === 1) {
-        // TODO: Actually perform the undo by replaying events
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, playerId)} used undo (${actionsToUndo} action${actionsToUndo > 1 ? 's' : ''}).`,
-          ts: Date.now(),
-        });
+        // Actually perform the undo
+        const undoResult = performUndo(gameId, actionsToUndo);
         
-        socket.emit("undoComplete", { gameId, success: true });
-        broadcastGame(io, game, gameId);
+        if (undoResult.success) {
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `${getPlayerName(game, playerId)} used undo (${actionsToUndo} action${actionsToUndo > 1 ? 's' : ''}).`,
+            ts: Date.now(),
+          });
+          
+          socket.emit("undoComplete", { gameId, success: true });
+          broadcastGame(io, game, gameId);
+        } else {
+          socket.emit("error", {
+            code: "UNDO_FAILED",
+            message: undoResult.error || "Failed to perform undo",
+          });
+        }
         return;
       }
 
@@ -182,16 +303,26 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
       if (checkAllApproved(request, playerIds)) {
         request.status = 'approved';
         
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, playerId)} used undo (${actionsToUndo} action${actionsToUndo > 1 ? 's' : ''}). AI opponents auto-approved.`,
-          ts: Date.now(),
-        });
+        // Actually perform the undo
+        const undoResult = performUndo(gameId, actionsToUndo);
         
-        socket.emit("undoComplete", { gameId, success: true });
-        broadcastGame(io, game, gameId);
+        if (undoResult.success) {
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `${getPlayerName(game, playerId)} used undo (${actionsToUndo} action${actionsToUndo > 1 ? 's' : ''}). AI opponents auto-approved.`,
+            ts: Date.now(),
+          });
+          
+          socket.emit("undoComplete", { gameId, success: true });
+          broadcastGame(io, game, gameId);
+        } else {
+          socket.emit("error", {
+            code: "UNDO_FAILED",
+            message: undoResult.error || "Failed to perform undo",
+          });
+        }
         return;
       }
 
@@ -326,21 +457,39 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
       if (checkAllApproved(request, playerIds)) {
         request.status = 'approved';
 
-        // TODO: Actually perform the undo by replaying events
-        io.to(gameId).emit("undoConfirmed", {
-          gameId,
-          undoId: request.id,
-        });
+        // Actually perform the undo by replaying events
+        const undoResult = performUndo(gameId, request.actionsToUndo);
+        
+        if (undoResult.success) {
+          io.to(gameId).emit("undoConfirmed", {
+            gameId,
+            undoId: request.id,
+          });
 
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `Undo approved by all players! ${request.description} undone.`,
-          ts: Date.now(),
-        });
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `Undo approved by all players! ${request.description} undone.`,
+            ts: Date.now(),
+          });
 
-        broadcastGame(io, game, gameId);
+          broadcastGame(io, game, gameId);
+        } else {
+          io.to(gameId).emit("undoCancelled", {
+            gameId,
+            undoId: request.id,
+            reason: undoResult.error || "Failed to perform undo",
+          });
+          
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `Undo failed: ${undoResult.error || "Unknown error"}`,
+            ts: Date.now(),
+          });
+        }
       } else {
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,

@@ -625,15 +625,21 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       }
 
       case "playLand": {
-        playLand(ctx as any, (e as any).playerId, (e as any).cardId || (e as any).card);
+        // Prefer full card object for replay (contains all card data)
+        // Fall back to cardId for backward compatibility with old events
+        const cardData = (e as any).card || (e as any).cardId;
+        playLand(ctx as any, (e as any).playerId, cardData);
         break;
       }
 
       case "castSpell": {
+        // Prefer full card object for replay (contains all card data)
+        // Fall back to cardId for backward compatibility with old events
+        const spellCardData = (e as any).card || (e as any).cardId;
         castSpell(
           ctx as any, 
           (e as any).playerId, 
-          (e as any).cardId || (e as any).card,
+          spellCardData,
           (e as any).targets
         );
         break;

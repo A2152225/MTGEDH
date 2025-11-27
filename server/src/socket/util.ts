@@ -2,7 +2,7 @@
 // Socket helper utilities used by server socket handlers.
 // Provides: ensureGame (create/replay), broadcastGame, appendGameEvent,
 // priority timer scheduling (schedulePriorityTimeout + doAutoPass),
-// clearPriorityTimer, and a parseManaCost helper.
+// clearPriorityTimer, parseManaCost helper, and transformDbEventsForReplay.
 //
 // This is a full-file authoritative implementation (no truncation).
 //
@@ -16,6 +16,25 @@ import { createInitialGameState } from "../state/index.js";
 import type { InMemoryGame } from "../state/types.js";
 import { GameManager } from "../GameManager.js";
 import type { GameID, PlayerID } from "../../../shared/src/index.js";
+
+/* ------------------- Event transformation helpers ------------------- */
+
+/**
+ * Transform events from DB format { type, payload } to replay format { type, ...payload }
+ * This is used when replaying events after a server restart or during undo.
+ * 
+ * DB format: { type: 'playLand', payload: { playerId: 'p1', cardId: 'c1' } }
+ * Replay format: { type: 'playLand', playerId: 'p1', cardId: 'c1' }
+ */
+export function transformDbEventsForReplay(events: Array<{ type: string; payload?: any }>): any[] {
+  return events.map((e: any) =>
+    e && e.type
+      ? e.payload && typeof e.payload === "object"
+        ? { type: e.type, ...(e.payload as any) }
+        : { type: e.type }
+      : e
+  );
+}
 
 /* ------------------- Defensive normalization helpers ------------------- */
 

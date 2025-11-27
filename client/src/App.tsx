@@ -35,6 +35,7 @@ import type { PaymentItem, ManaColor } from "../../shared/src";
 import { GameStatusIndicator } from "./components/GameStatusIndicator";
 import { CreateGameModal, type GameCreationConfig } from "./components/CreateGameModal";
 import { PhaseNavigator } from "./components/PhaseNavigator";
+import { DeckManagerModal } from "./components/DeckManagerModal";
 
 /** Map engine/internal phase enum to human-friendly name */
 function prettyPhase(phase?: string | null): string {
@@ -189,6 +190,9 @@ export function App() {
   // Create Game modal state
   const [createGameModalOpen, setCreateGameModalOpen] = useState(false);
   const [savedDecks, setSavedDecks] = useState<any[]>([]);
+
+  // Deck Builder modal state (standalone, outside of game)
+  const [deckBuilderOpen, setDeckBuilderOpen] = useState(false);
 
   // Combat selection modal state
   const [combatModalOpen, setCombatModalOpen] = useState(false);
@@ -1502,6 +1506,19 @@ export function App() {
                   + Create Game
                 </button>
                 <button
+                  onClick={() => setDeckBuilderOpen(true)}
+                  style={{
+                    backgroundColor: "#6366f1",
+                    color: "white",
+                    border: "none",
+                    borderRadius: 4,
+                    padding: "4px 12px",
+                    cursor: "pointer",
+                  }}
+                >
+                  🗂️ Deck Builder
+                </button>
+                <button
                   onClick={() =>
                     socket.emit("requestState", { gameId: gameIdInput })
                   }
@@ -2307,6 +2324,20 @@ export function App() {
         onCreateGame={handleCreateGame}
         savedDecks={savedDecks}
         onRefreshDecks={refreshSavedDecks}
+      />
+
+      {/* Standalone Deck Builder Modal */}
+      <DeckManagerModal
+        open={deckBuilderOpen}
+        onClose={() => setDeckBuilderOpen(false)}
+        onImportText={(text, name) => {
+          // In standalone mode, we just close the modal
+          // The deck is saved locally or to server within the modal
+          setDeckBuilderOpen(false);
+        }}
+        gameId={undefined}
+        canServer={false}
+        wide
       />
 
       {/* Combat Selection Modal */}

@@ -218,3 +218,52 @@ export function deleteGame(gameId: string): boolean {
     return false;
   }
 }
+
+/**
+ * Truncate events for a game to support undo functionality.
+ * Keeps only the first `keepCount` events and deletes the rest.
+ * Returns the number of events deleted.
+ */
+export function truncateEventsForUndo(gameId: string, keepCount: number): number {
+  ensureDB();
+  
+  // First get the IDs of events to keep (the first keepCount events)
+  const getEventsStmt = db!.prepare(
+    `SELECT id FROM events WHERE game_id = ? ORDER BY id ASC LIMIT ?`
+  );
+  const eventsToKeep = getEventsStmt.all(gameId, keepCount) as Array<{ id: number }>;
+  
+  if (eventsToKeep.length === 0) {
+    // No events to keep, delete all
+    const delAll = db!.prepare(`DELETE FROM events WHERE game_id = ?`);
+    const info = delAll.run(gameId);
+    return info.changes;
+  }
+  
+  // Get the max ID to keep using reduce (safer than Math.max with spread for large arrays)
+  // Use first element as initial value to handle edge cases correctly
+  const maxIdToKeep = eventsToKeep.reduce((max, e) => Math.max(max, e.id), eventsToKeep[0].id);
+  
+  // Delete events with ID greater than the max ID to keep
+  const delStmt = db!.prepare(
+    `DELETE FROM events WHERE game_id = ? AND id > ?`
+  );
+  try {
+    const info = delStmt.run(gameId, maxIdToKeep);
+    console.log(`[DB] truncateEventsForUndo: deleted ${info.changes} events for game ${gameId}, kept ${keepCount}`);
+    return info.changes;
+  } catch (err) {
+    console.error("[DB] truncateEventsForUndo failed:", (err as Error).message);
+    return 0;
+  }
+}
+
+/**
+ * Get the count of events for a game.
+ */
+export function getEventCount(gameId: string): number {
+  ensureDB();
+  const stmt = db!.prepare(`SELECT COUNT(*) as count FROM events WHERE game_id = ?`);
+  const result = stmt.get(gameId) as { count: number } | undefined;
+  return result?.count || 0;
+}
