@@ -355,7 +355,12 @@ export function gainEnergy(
 }
 
 /**
- * Get all counter types a player has (for proliferate targeting)
+ * Get all counter types a player has with value > 0 (for proliferate targeting)
+ * 
+ * Rule 701.34a: When a player proliferates, they choose any number of players
+ * and/or permanents that have one or more counters on them.
+ * 
+ * @returns Array of counter type names where the player has at least 1 counter
  */
 export function getPlayerCounterTypes(state: PlayerCounterState): string[] {
   const types: string[] = [];

@@ -345,21 +345,15 @@ export function processDamage(
 }
 
 /**
- * Check if a creature would die from -1/-1 counters (toughness <= 0)
- * Rule 704.5f: If a creature has toughness 0 or less, it's put into its owner's graveyard.
- */
-export function wouldCreatureDieFromMinusCounters(
-  baseToughness: number,
-  existingMinusCounters: number,
-  newMinusCounters: number,
-  otherToughnessModifiers: number = 0
-): boolean {
-  const totalToughness = baseToughness + otherToughnessModifiers - existingMinusCounters - newMinusCounters;
-  return totalToughness <= 0;
-}
-
-/**
- * Calculate effective toughness after -1/-1 counters
+ * Calculate effective toughness after counters and modifiers
+ * 
+ * This is the core calculation shared by multiple functions.
+ * 
+ * @param baseToughness - Creature's printed toughness
+ * @param minusCounters - Number of -1/-1 counters
+ * @param plusCounters - Number of +1/+1 counters (default 0)
+ * @param modifiers - Other toughness modifiers from effects (default 0)
+ * @returns The calculated effective toughness
  */
 export function calculateEffectiveToughness(
   baseToughness: number,
@@ -368,6 +362,27 @@ export function calculateEffectiveToughness(
   modifiers: number = 0
 ): number {
   return baseToughness + plusCounters - minusCounters + modifiers;
+}
+
+/**
+ * Check if a creature would die from -1/-1 counters (toughness <= 0)
+ * Rule 704.5f: If a creature has toughness 0 or less, it's put into its owner's graveyard.
+ * 
+ * Uses calculateEffectiveToughness for the core calculation.
+ */
+export function wouldCreatureDieFromMinusCounters(
+  baseToughness: number,
+  existingMinusCounters: number,
+  newMinusCounters: number,
+  otherToughnessModifiers: number = 0
+): boolean {
+  const totalToughness = calculateEffectiveToughness(
+    baseToughness,
+    existingMinusCounters + newMinusCounters,
+    0, // plusCounters
+    otherToughnessModifiers
+  );
+  return totalToughness <= 0;
 }
 
 /**

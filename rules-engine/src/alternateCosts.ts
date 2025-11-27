@@ -271,6 +271,21 @@ export function createMiracleCost(
 }
 
 /**
+ * Helper function to apply reduction to a single color
+ * Returns [newValue, excessReduction]
+ */
+function applyColorReduction(
+  originalValue: number | undefined,
+  reductionValue: number | undefined
+): [number, number] {
+  const orig = originalValue || 0;
+  const red = reductionValue || 0;
+  const newValue = Math.max(0, orig - red);
+  const excess = Math.max(0, red - orig);
+  return [newValue, excess];
+}
+
+/**
  * Apply cost reduction to a mana cost
  * Rule 118.7: If a cost is reduced, apply the reduction to the appropriate mana.
  * Rule 118.7c: If reducing colored mana more than the cost requires,
@@ -280,38 +295,27 @@ export function applyCostReduction(
   originalCost: ManaCost,
   reduction: ManaCost
 ): ManaCost {
+  const colors = ['white', 'blue', 'black', 'red', 'green'] as const;
   let excess = 0;
+  const result: Partial<ManaCost> = {};
   
-  // Apply reduction to each color
-  const white = Math.max(0, (originalCost.white || 0) - (reduction.white || 0));
-  excess += Math.max(0, (reduction.white || 0) - (originalCost.white || 0));
+  // Apply reduction to each color, accumulating excess
+  for (const color of colors) {
+    const [newValue, colorExcess] = applyColorReduction(
+      originalCost[color],
+      reduction[color]
+    );
+    result[color] = newValue;
+    excess += colorExcess;
+  }
   
-  const blue = Math.max(0, (originalCost.blue || 0) - (reduction.blue || 0));
-  excess += Math.max(0, (reduction.blue || 0) - (originalCost.blue || 0));
+  // Handle colorless separately (no excess to generic)
+  result.colorless = Math.max(0, (originalCost.colorless || 0) - (reduction.colorless || 0));
   
-  const black = Math.max(0, (originalCost.black || 0) - (reduction.black || 0));
-  excess += Math.max(0, (reduction.black || 0) - (originalCost.black || 0));
+  // Apply excess from colors to generic cost
+  result.generic = Math.max(0, (originalCost.generic || 0) - excess - (reduction.generic || 0));
   
-  const red = Math.max(0, (originalCost.red || 0) - (reduction.red || 0));
-  excess += Math.max(0, (reduction.red || 0) - (originalCost.red || 0));
-  
-  const green = Math.max(0, (originalCost.green || 0) - (reduction.green || 0));
-  excess += Math.max(0, (reduction.green || 0) - (originalCost.green || 0));
-  
-  const colorless = Math.max(0, (originalCost.colorless || 0) - (reduction.colorless || 0));
-  
-  // Apply excess to generic cost
-  const generic = Math.max(0, (originalCost.generic || 0) - excess - (reduction.generic || 0));
-  
-  return {
-    white,
-    blue,
-    black,
-    red,
-    green,
-    colorless,
-    generic,
-  };
+  return result as ManaCost;
 }
 
 /**
