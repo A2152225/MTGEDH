@@ -76,7 +76,13 @@ function costBadge(label: string, n: number, variant: 'default' | 'selected' = '
   );
 }
 
-export function PaymentPicker(props: {
+export interface ConvokeCreature {
+  id: string;
+  name: string;
+  colors: Color[];  // Colors this creature can pay for
+}
+
+export interface PaymentPickerProps {
   manaCost?: string;
   manaCostDisplay?: string;
   sources: Array<{ id: string; name: string; options: Color[] }>;
@@ -86,8 +92,29 @@ export function PaymentPicker(props: {
   onChange: (next: PaymentItem[]) => void;
   otherCardsInHand?: OtherCardInfo[];
   floatingMana?: ManaPool;
-}) {
-  const { manaCost, manaCostDisplay, sources, chosen, xValue = 0, onChangeX, onChange, otherCardsInHand = [], floatingMana } = props;
+  // Convoke support
+  hasConvoke?: boolean;
+  convokeCreatures?: ConvokeCreature[];
+  chosenConvokeCreatures?: string[];  // IDs of creatures tapped for convoke
+  onConvokeChange?: (creatureIds: string[]) => void;
+}
+
+export function PaymentPicker(props: PaymentPickerProps) {
+  const { 
+    manaCost, 
+    manaCostDisplay, 
+    sources, 
+    chosen, 
+    xValue = 0, 
+    onChangeX, 
+    onChange, 
+    otherCardsInHand = [], 
+    floatingMana,
+    hasConvoke = false,
+    convokeCreatures = [],
+    chosenConvokeCreatures = [],
+    onConvokeChange,
+  } = props;
 
   const parsed = useMemo(() => parseManaCost(manaCost), [manaCost]);
   const cost = useMemo(() => ({ colors: parsed.colors, generic: parsed.generic + Math.max(0, Number(xValue || 0) | 0), hybrids: parsed.hybrids }), [parsed, xValue]);
@@ -268,6 +295,89 @@ export function PaymentPicker(props: {
           <div style={{ opacity: 0.7, fontSize: 12 }}>No untapped mana sources available</div>
         )}
       </div>
+
+      {/* Convoke Section */}
+      {hasConvoke && convokeCreatures.length > 0 && (
+        <div style={{ marginTop: 12, padding: 12, backgroundColor: 'rgba(168, 85, 247, 0.1)', borderRadius: 8, border: '1px solid rgba(168, 85, 247, 0.3)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: '#a855f7' }}>🎭 Convoke</span>
+            <span style={{ fontSize: 12, color: '#888' }}>
+              Tap creatures to pay for colored or generic mana ({chosenConvokeCreatures.length} selected)
+            </span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8, maxHeight: 160, overflow: 'auto' }}>
+            {convokeCreatures.map(creature => {
+              const isSelected = chosenConvokeCreatures.includes(creature.id);
+              return (
+                <div
+                  key={creature.id}
+                  onClick={() => {
+                    if (!onConvokeChange) return;
+                    if (isSelected) {
+                      onConvokeChange(chosenConvokeCreatures.filter(id => id !== creature.id));
+                    } else {
+                      onConvokeChange([...chosenConvokeCreatures, creature.id]);
+                    }
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '8px 10px',
+                    borderRadius: 6,
+                    border: isSelected ? '2px solid #a855f7' : '1px solid rgba(168, 85, 247, 0.3)',
+                    backgroundColor: isSelected ? 'rgba(168, 85, 247, 0.2)' : 'transparent',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => {}}
+                    style={{ pointerEvents: 'none' }}
+                  />
+                  <div style={{ flex: 1, overflow: 'hidden' }}>
+                    <div style={{ 
+                      fontWeight: 500, 
+                      fontSize: 12, 
+                      whiteSpace: 'nowrap', 
+                      overflow: 'hidden', 
+                      textOverflow: 'ellipsis' 
+                    }}>
+                      {creature.name}
+                    </div>
+                    <div style={{ fontSize: 10, color: '#888', display: 'flex', gap: 4 }}>
+                      {creature.colors.length > 0 ? (
+                        creature.colors.map(c => (
+                          <span key={c} style={{ 
+                            padding: '1px 4px', 
+                            borderRadius: 3, 
+                            backgroundColor: 'rgba(255,255,255,0.1)',
+                            fontSize: 9,
+                          }}>
+                            {c}
+                          </span>
+                        ))
+                      ) : (
+                        <span>Generic only</span>
+                      )}
+                    </div>
+                  </div>
+                  {isSelected && (
+                    <span style={{ color: '#a855f7', fontWeight: 600, fontSize: 14 }}>✓</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {chosenConvokeCreatures.length > 0 && (
+            <div style={{ marginTop: 8, fontSize: 11, color: '#a855f7' }}>
+              Tapping {chosenConvokeCreatures.length} creature{chosenConvokeCreatures.length !== 1 ? 's' : ''} to reduce cost by {chosenConvokeCreatures.length} mana
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

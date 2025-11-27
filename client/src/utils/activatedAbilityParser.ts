@@ -30,16 +30,37 @@ export interface ParsedActivatedAbility {
   lifeCost?: number;
   loyaltyCost?: number;  // For planeswalker abilities
   otherCosts?: string[];
+  // Tap other permanents cost (e.g., "Tap an untapped Merfolk you control")
+  tapOtherPermanentsCost?: TapOtherPermanentsCost;
   // Ability characteristics
   isManaAbility: boolean;
   isLoyaltyAbility: boolean;
   isFetchAbility: boolean;
+  isMillAbility?: boolean;  // Mill abilities (target player mills cards)
   // Activation restrictions
   timingRestriction?: 'sorcery' | 'instant';
   oncePerTurn?: boolean;
   // For targeting
   requiresTarget?: boolean;
   targetDescription?: string;
+  // Mill specific
+  millCount?: number;  // Number of cards to mill
+  millTargetType?: 'player' | 'self' | 'opponent' | 'any';  // Who mills
+}
+
+/**
+ * Represents a cost that requires tapping other permanents
+ * (e.g., Drowner of Secrets: "Tap an untapped Merfolk you control")
+ */
+export interface TapOtherPermanentsCost {
+  count: number;  // How many permanents to tap (1, 2, etc.)
+  filter: {
+    types?: string[];  // Required types (e.g., ['Merfolk', 'creature'])
+    controller?: 'you' | 'any';  // Who controls the permanents
+    mustBeUntapped?: boolean;  // Must be untapped (always true for tap costs)
+    notSelf?: boolean;  // Cannot be the source permanent itself ("another")
+  };
+  description: string;  // Human-readable description
 }
 
 /**
@@ -118,6 +139,85 @@ function parseManaProduction(text: string): string | null {
   return null;
 }
 
+import { parseNumberFromText } from '../../../shared/src/textUtils';
+
+/**
+ * Parse mill effects from oracle text
+ * Returns mill count and target type if this is a mill ability
+ * 
+ * Patterns matched:
+ * - "Target player mills X cards" / "target player puts the top X cards of their library into their graveyard"
+ * - "Each player mills X cards"
+ * - "Target opponent mills X cards"
+ * - "Mill X cards" (self-mill)
+ * - "You mill X cards"
+ */
+function parseMillEffect(effectText: string): { 
+  isMillAbility: boolean; 
+  millCount?: number; 
+  millTargetType?: 'player' | 'self' | 'opponent' | 'any';
+} | null {
+  const lower = effectText.toLowerCase();
+  
+  // Pattern: "target player mills X cards" or "target player puts the top X cards...into...graveyard"
+  const targetPlayerMillMatch = lower.match(/target\s+player\s+(?:mills?\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)|puts?\s+the\s+top\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?\s+.*(?:into|in)\s+(?:their|his or her)\s+graveyard)/i);
+  if (targetPlayerMillMatch) {
+    const numStr = targetPlayerMillMatch[1] || targetPlayerMillMatch[2];
+    const count = parseNumberFromText(numStr);
+    return { isMillAbility: true, millCount: count, millTargetType: 'player' };
+  }
+  
+  // Pattern: "target opponent mills X cards"
+  const targetOpponentMillMatch = lower.match(/target\s+opponent\s+mills?\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)/i);
+  if (targetOpponentMillMatch) {
+    const numStr = targetOpponentMillMatch[1];
+    const count = parseNumberFromText(numStr);
+    return { isMillAbility: true, millCount: count, millTargetType: 'opponent' };
+  }
+  
+  // Pattern: "each player mills X cards" or "each opponent mills X cards"
+  const eachPlayerMillMatch = lower.match(/each\s+(?:player|opponent)\s+mills?\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)/i);
+  if (eachPlayerMillMatch) {
+    const numStr = eachPlayerMillMatch[1];
+    const count = parseNumberFromText(numStr);
+    const targetType = lower.includes('each opponent') ? 'opponent' : 'any';
+    return { isMillAbility: true, millCount: count, millTargetType: targetType };
+  }
+  
+  // Pattern: self mill - "mill X cards" without target, or "you mill X cards"
+  const selfMillMatch = lower.match(/(?:^|\.\s*|,\s*)(?:you\s+)?mills?\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?/i);
+  if (selfMillMatch && !lower.includes('target')) {
+    const numStr = selfMillMatch[1];
+    const count = parseNumberFromText(numStr);
+    return { isMillAbility: true, millCount: count, millTargetType: 'self' };
+  }
+  
+  return null;
+}
+
+/**
+ * Check if a cost string indicates tapping the source permanent (vs. tapping other permanents)
+ * 
+ * Returns true for:
+ * - {T} symbol
+ * - "T" alone
+ * 
+ * Returns false for:
+ * - "Tap an untapped [Type]" - this is tapping other permanents
+ * - "Tap another" - this is tapping other permanents
+ */
+function isSelfTapCost(costStr: string): boolean {
+  const lower = costStr.toLowerCase();
+  
+  // These patterns indicate tapping OTHER permanents, not self
+  if (lower.includes('tap an untapped') || lower.includes('tap another')) {
+    return false;
+  }
+  
+  // Check for tap symbol
+  return lower.includes('{t}') || lower === 't';
+}
+
 /**
  * Parse cost components from cost string
  */
@@ -129,21 +229,32 @@ function parseCostComponents(costStr: string): {
   lifeCost?: number;
   loyaltyCost?: number;
   otherCosts: string[];
+  tapOtherPermanentsCost?: TapOtherPermanentsCost;
 } {
-  const result = {
+  const result: {
+    requiresTap: boolean;
+    requiresUntap: boolean;
+    requiresSacrifice: boolean;
+    manaCost?: string;
+    lifeCost?: number;
+    loyaltyCost?: number;
+    otherCosts: string[];
+    tapOtherPermanentsCost?: TapOtherPermanentsCost;
+  } = {
     requiresTap: false,
     requiresUntap: false,
     requiresSacrifice: false,
-    manaCost: undefined as string | undefined,
-    lifeCost: undefined as number | undefined,
-    loyaltyCost: undefined as number | undefined,
-    otherCosts: [] as string[],
+    manaCost: undefined,
+    lifeCost: undefined,
+    loyaltyCost: undefined,
+    otherCosts: [],
+    tapOtherPermanentsCost: undefined,
   };
 
   const lowerCost = costStr.toLowerCase();
   
-  // Check for tap symbol
-  if (lowerCost.includes('{t}') || lowerCost === 't' || /\btap\b/i.test(costStr)) {
+  // Check for self-tap cost using the helper function
+  if (isSelfTapCost(costStr)) {
     result.requiresTap = true;
   }
   
@@ -181,12 +292,40 @@ function parseCostComponents(costStr: string): {
     result.loyaltyCost = parseInt(loyaltyMatch[1].replace('−', '-'), 10);
   }
   
+  // Parse tap-other-permanents cost (e.g., "Tap an untapped Merfolk you control")
+  // Patterns:
+  // - "Tap an untapped [Type] you control"
+  // - "Tap another untapped [Type] you control"
+  // - "Tap two untapped [Types] you control"
+  const tapOtherMatch = costStr.match(/tap\s+(an(?:other)?|two|three|\d+)\s+untapped\s+([^:,]+?)(?:\s+you\s+control)?(?::|,|$)/i);
+  if (tapOtherMatch) {
+    const countWord = tapOtherMatch[1].toLowerCase();
+    let count = 1;
+    if (countWord === 'two') count = 2;
+    else if (countWord === 'three') count = 3;
+    else if (/^\d+$/.test(countWord)) count = parseInt(countWord, 10);
+    
+    const typeStr = tapOtherMatch[2].trim();
+    const types = typeStr.split(/\s+/).filter(t => t.length > 0);
+    const notSelf = countWord === 'another' || lowerCost.includes('another');
+    
+    result.tapOtherPermanentsCost = {
+      count,
+      filter: {
+        types,
+        controller: 'you',
+        mustBeUntapped: true,
+        notSelf,
+      },
+      description: tapOtherMatch[0].trim(),
+    };
+  }
+  
   // Other costs
   const otherCostPatterns = [
     /discard\s+(?:a|an|one)\s+card/i,
     /exile\s+(?:a|an|one)\s+card/i,
     /remove\s+\d+\s+counters?/i,
-    /tap\s+(?:an?|two|three)\s+untapped\s+\w+/i,
   ];
   
   for (const pattern of otherCostPatterns) {
@@ -414,10 +553,22 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
       // Check for once per turn
       const oncePerTurn = /activate\s+(?:this\s+ability\s+)?only\s+once\s+(?:each|per)\s+turn/i.test(oracleText);
       
+      // Check for mill effect
+      const millEffect = parseMillEffect(effectPart);
+      const isMillAbility = millEffect?.isMillAbility || false;
+      const millCount = millEffect?.millCount;
+      const millTargetType = millEffect?.millTargetType;
+      
       // Create a label - make it more descriptive
       let label: string;
       if (isManaAbility) {
         label = `Add ${manaProduced}`;
+      } else if (isMillAbility && millCount) {
+        // Mill ability label
+        const targetStr = millTargetType === 'self' ? '' : 
+                         millTargetType === 'opponent' ? 'opponent ' : 
+                         millTargetType === 'player' ? 'target player ' : '';
+        label = `Mill ${millCount} (${targetStr || 'self'})`;
       } else if (costComponents.requiresSacrifice) {
         // Try to get a better label from the effect
         const shortEffect = effectPart.split('.')[0];
@@ -456,6 +607,9 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
         isManaAbility,
         isLoyaltyAbility: false,
         isFetchAbility: false,
+        isMillAbility,
+        millCount,
+        millTargetType,
         timingRestriction,
         oncePerTurn,
         requiresTarget,
@@ -612,12 +766,14 @@ export function hasUntapAbility(card: KnownCardRef): boolean {
 export function getAbilityIcon(ability: ParsedActivatedAbility): string {
   if (ability.isManaAbility) return '💎';
   if (ability.isFetchAbility) return '🔍';
+  if (ability.isMillAbility) return '📚';  // Mill icon (books/library)
   if (ability.isLoyaltyAbility) {
     if (ability.loyaltyCost && ability.loyaltyCost > 0) return '⬆️';
     if (ability.loyaltyCost && ability.loyaltyCost < 0) return '⬇️';
     return '🔄';
   }
   if (ability.requiresSacrifice) return '💀';
+  if (ability.tapOtherPermanentsCost) return '👆';  // Tap other permanents
   if (ability.requiresTap) return '↪️';
   if (ability.requiresTarget) return '🎯';
   return '✨';
@@ -646,6 +802,9 @@ export function formatAbilityCost(ability: ParsedActivatedAbility): string {
   }
   if (ability.loyaltyCost !== undefined) {
     parts.push(ability.loyaltyCost > 0 ? `+${ability.loyaltyCost}` : `${ability.loyaltyCost}`);
+  }
+  if (ability.tapOtherPermanentsCost) {
+    parts.push(ability.tapOtherPermanentsCost.description);
   }
   if (ability.otherCosts) {
     parts.push(...ability.otherCosts);
