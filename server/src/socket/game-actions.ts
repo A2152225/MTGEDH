@@ -1568,6 +1568,112 @@ export function registerGameActions(io: Server, socket: Socket) {
     }
   });
 
+  // Skip to a specific phase (used when player wants to skip combat entirely)
+  // This allows jumping from pre-combat to post-combat without going through combat steps
+  socket.on("skipToPhase", async ({ gameId, targetPhase, targetStep }: { 
+    gameId: string; 
+    targetPhase: string;
+    targetStep: string;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      // Debug logging
+      try {
+        console.info(
+          `[skipToPhase] request from player=${playerId} game=${gameId} turnPlayer=${
+            game.state?.turnPlayer
+          } currentPhase=${String(game.state?.phase)} currentStep=${String(
+            game.state?.step
+          )} targetPhase=${targetPhase} targetStep=${targetStep}`
+        );
+      } catch {
+        /* ignore */
+      }
+
+      // Only active player may skip phases
+      if (game.state.turnPlayer && game.state.turnPlayer !== playerId) {
+        socket.emit("error", {
+          code: "SKIP_TO_PHASE",
+          message: "Only the active player can skip to a phase.",
+        });
+        return;
+      }
+
+      // Ensure stack is empty
+      if (game.state.stack && game.state.stack.length > 0) {
+        socket.emit("error", {
+          code: "SKIP_TO_PHASE",
+          message: "Cannot skip phases while the stack is not empty.",
+        });
+        return;
+      }
+
+      // Update phase and step directly
+      (game.state as any).phase = targetPhase;
+      (game.state as any).step = targetStep;
+
+      // Clear any combat state since we're skipping combat
+      try {
+        // Set combat to undefined rather than deleting for better performance
+        (game.state as any).combat = undefined;
+        
+        // Clear attacking/blocking states from permanents
+        const battlefield = (game.state as any)?.battlefield;
+        if (Array.isArray(battlefield)) {
+          for (const permanent of battlefield) {
+            if (!permanent) continue;
+            // Set to undefined instead of deleting for better performance
+            if (permanent.attacking !== undefined) permanent.attacking = undefined;
+            if (permanent.blocking !== undefined) permanent.blocking = undefined;
+            if (permanent.blockedBy !== undefined) permanent.blockedBy = undefined;
+          }
+        }
+      } catch (err) {
+        console.warn(`[skipToPhase] Failed to clear combat state:`, err);
+      }
+
+      // Bump sequence
+      if (typeof (game as any).bumpSeq === "function") {
+        (game as any).bumpSeq();
+      }
+
+      // Persist event
+      try {
+        appendEvent(
+          gameId,
+          (game as any).seq || 0,
+          "skipToPhase",
+          { by: playerId, targetPhase, targetStep }
+        );
+      } catch (e) {
+        console.warn("appendEvent(skipToPhase) failed", e);
+      }
+
+      console.log(
+        `[skipToPhase] Skipped to phase=${targetPhase}, step=${targetStep} for game ${gameId}`
+      );
+
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, playerId)} skipped to ${targetPhase} phase (no combat).`,
+        ts: Date.now(),
+      });
+
+      broadcastGame(io, game, gameId);
+    } catch (err: any) {
+      console.error(`skipToPhase error for game ${gameId}:`, err);
+      socket.emit("error", {
+        code: "SKIP_TO_PHASE_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
+
   // Shuffle player's hand (server-authoritative) — randomize order of cards in hand.
   socket.on("shuffleHand", ({ gameId }: { gameId: string }) => {
     try {

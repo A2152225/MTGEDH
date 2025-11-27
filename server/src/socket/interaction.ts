@@ -1435,7 +1435,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Determine whose library we're searching
     const libraryOwner = targetPlayerId || pid;
     
-    // Get the library 
+    // Get the library - try multiple sources for reliability
+    // Priority: 1) game.libraries Map, 2) zones.library array
     let library: any[] = [];
     if (typeof game.libraries?.get === "function") {
       library = game.libraries.get(libraryOwner) || [];
@@ -1450,11 +1451,21 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
+    // Fallback: if library from game.libraries is empty, try zones.library
+    // Note: zones.library may not be in the type definition but is added dynamically
+    if (library.length === 0 && Array.isArray((zones as any).library) && (zones as any).library.length > 0) {
+      library = (zones as any).library;
+      console.log(`[librarySearchSelect] Using zones.library fallback for ${libraryOwner}`);
+    }
+    
     const movedCardNames: string[] = [];
     
     for (const cardId of selectedCardIds) {
       const cardIndex = library.findIndex((c: any) => c?.id === cardId);
-      if (cardIndex === -1) continue;
+      if (cardIndex === -1) {
+        console.warn(`[librarySearchSelect] Card ${cardId} not found in library (library size: ${library.length})`);
+        continue;
+      }
       
       const [card] = library.splice(cardIndex, 1);
       movedCardNames.push(card.name || "Unknown");
@@ -1532,9 +1543,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
     }
     
-    // Update library
+    // Update library in both sources for consistency
     if (typeof game.libraries?.set === "function") {
       game.libraries.set(libraryOwner, library);
+    }
+    // Also sync zones.library to keep both sources in sync
+    if (zones) {
+      (zones as any).library = library;
     }
     zones.libraryCount = library.length;
     
