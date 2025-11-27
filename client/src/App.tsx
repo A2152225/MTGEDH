@@ -305,6 +305,7 @@ export function App() {
   const [undoModalOpen, setUndoModalOpen] = useState(false);
   const [undoRequestData, setUndoRequestData] = useState<UndoRequestData | null>(null);
   const [undoCount, setUndoCount] = useState<number>(1); // Number of actions to undo
+  const [availableUndoCount, setAvailableUndoCount] = useState<number>(0); // Available events to undo
   
   // Split/Adventure card choice modal state
   const [splitCardModalOpen, setSplitCardModalOpen] = useState(false);
@@ -328,6 +329,8 @@ export function App() {
   // Track if we should prompt for deck import (for new players without a deck)
   const [showDeckImportPrompt, setShowDeckImportPrompt] = useState(false);
   const hasPromptedDeckImport = React.useRef(false);
+  // Track if we've already auto-skipped attackers for this combat step
+  const hasAutoSkippedAttackers = React.useRef<string | null>(null);
   // External control for deck manager visibility in TableLayout
   const [tableDeckMgrOpen, setTableDeckMgrOpen] = useState(false);
 
@@ -421,12 +424,35 @@ export function App() {
     
     const step = String((safeView as any).step || "").toLowerCase();
     const isYourTurn = safeView.turnPlayer === you;
+    const stackLength = (safeView as any).stack?.length || 0;
+    const turnId = `${safeView.turn}-${step}`; // Unique ID for this combat step
     
     // Only show attacker modal on your turn during declare attackers step
     if (step === "declareattackers" || step === "declare_attackers") {
       if (isYourTurn) {
-        setCombatMode('attackers');
-        setCombatModalOpen(true);
+        // Check if there are any valid creatures that can attack
+        const validAttackers = (safeView.battlefield || []).filter((p: BattlefieldPermanent) => {
+          if (p.controller !== you) return false;
+          const typeLine = (p.card as KnownCardRef)?.type_line?.toLowerCase() || '';
+          if (!typeLine.includes('creature')) return false;
+          // Check if creature can attack (not tapped, no summoning sickness unless haste, no defender)
+          if (p.tapped) return false;
+          return canCreatureAttack(p);
+        });
+        
+        if (validAttackers.length === 0) {
+          // No valid attackers - auto-skip declare attackers
+          // Only skip if stack is empty and we haven't already skipped for this step
+          if (stackLength === 0 && hasAutoSkippedAttackers.current !== turnId) {
+            hasAutoSkippedAttackers.current = turnId;
+            socket.emit("skipDeclareAttackers", { gameId: safeView.id });
+          }
+          // Don't show the modal either way
+          setCombatModalOpen(false);
+        } else {
+          setCombatMode('attackers');
+          setCombatModalOpen(true);
+        }
       }
     }
     // Show blocker modal when you're being attacked during declare blockers step
@@ -442,6 +468,10 @@ export function App() {
     }
     else {
       setCombatModalOpen(false);
+      // Reset auto-skip tracker when we leave combat steps
+      if (hasAutoSkippedAttackers.current) {
+        hasAutoSkippedAttackers.current = null;
+      }
     }
   }, [safeView, you]);
 
@@ -714,6 +744,29 @@ export function App() {
     };
   }, [safeView?.id, undoRequestData?.undoId]);
 
+  // Listen for undo count updates
+  React.useEffect(() => {
+    const handleUndoCountUpdate = (payload: { gameId: string; eventCount: number }) => {
+      if (payload.gameId === safeView?.id) {
+        setAvailableUndoCount(payload.eventCount);
+      }
+    };
+
+    socket.on("undoCountUpdate", handleUndoCountUpdate);
+
+    return () => {
+      socket.off("undoCountUpdate", handleUndoCountUpdate);
+    };
+  }, [safeView?.id]);
+
+  // Request undo count on game state changes (no polling to reduce overhead)
+  React.useEffect(() => {
+    if (!safeView?.id) return;
+    
+    // Request undo count on game state change
+    socket.emit("getUndoCount", { gameId: safeView.id });
+  }, [safeView?.id, safeView?.turn, safeView?.step, safeView?.priority]);
+
   const isTable = layout === "table";
   const canPass = !!safeView && !!you && safeView.priority === you;
   const isYouPlayer =
@@ -770,6 +823,48 @@ export function App() {
   // Show the mulligan UI if in pre-game OR if hand hasn't been kept yet
   const showMulliganUI = (isPreGame || !hasKeptHand) && isYouPlayer;
 
+  // Check if all players have kept their hands
+  const allPlayersKeptHands = useMemo(() => {
+    if (!safeView) return false;
+    const players = safeView.players || [];
+    const mulliganStateAll = (safeView as any).mulliganState || {};
+    
+    for (const player of players) {
+      if ((player as any).spectator) continue;
+      const state = mulliganStateAll[player.id];
+      if (!state || !state.hasKeptHand) {
+        return false;
+      }
+    }
+    return players.length > 0;
+  }, [safeView]);
+
+  // Check if all players have imported decks (library + hand > 0)
+  const allPlayersHaveDecks = useMemo(() => {
+    if (!safeView) return false;
+    const players = safeView.players || [];
+    const zones = safeView.zones || {};
+    
+    for (const player of players) {
+      if ((player as any).spectator) continue;
+      const playerZones = zones[player.id];
+      const libraryCount = playerZones?.libraryCount ?? 0;
+      const handCount = playerZones?.handCount ?? 0;
+      if (libraryCount === 0 && handCount === 0) {
+        return false;
+      }
+    }
+    return players.length > 0;
+  }, [safeView]);
+
+  // Determine reason why phase advancement might be blocked (only during pregame)
+  const phaseAdvanceBlockReason = useMemo(() => {
+    if (!isPreGame) return null; // Only block during pregame
+    if (!allPlayersHaveDecks) return 'Waiting for all players to import decks';
+    if (!allPlayersKeptHands) return 'Waiting for all players to keep hands';
+    return null;
+  }, [isPreGame, allPlayersHaveDecks, allPlayersKeptHands]);
+
   // Auto-collapse join panel once you're an active player
   React.useEffect(() => {
     if (isYouPlayer) {
@@ -823,6 +918,10 @@ export function App() {
     // Don't auto-advance if there's something on the stack
     if ((safeView as any).stack?.length > 0) return;
     
+    // Don't auto-advance during cleanup if we have pending discard selection
+    const isCleanup = step === 'cleanup' || phase.includes('cleanup');
+    if (isCleanup && pendingDiscardSelection && pendingDiscardSelection.count > 0) return;
+    
     // Phases/steps that can be auto-advanced:
     // - untap step (no player usually needs to respond)
     // - cleanup step (usually just pass unless special abilities like Sundial of the Infinite)
@@ -833,7 +932,7 @@ export function App() {
     const shouldAutoAdvance = 
       autoAdvanceableSteps.includes(step) ||
       phase.includes('untap') ||
-      phase.includes('cleanup');
+      isCleanup;
     
     if (shouldAutoAdvance) {
       // Small delay to allow any animations/updates
@@ -846,12 +945,14 @@ export function App() {
 
   const canAdvanceStep = useMemo(() => {
     if (!safeView || !you) return false;
+    // During pregame, must have all players ready before advancing
+    if (isPreGame && (!allPlayersHaveDecks || !allPlayersKeptHands)) return false;
     if (safeView.turnPlayer === you) return true;
     const phaseStr = String(safeView.phase || "").toUpperCase();
     if (phaseStr === "PRE_GAME" && safeView.players?.[0]?.id === you)
       return true;
     return false;
-  }, [safeView, you]);
+  }, [safeView, you, isPreGame, allPlayersHaveDecks, allPlayersKeptHands]);
 
   const canAdvanceTurn = canAdvanceStep;
 
@@ -1389,7 +1490,9 @@ export function App() {
 
   const handleRequestUndo = (count: number = 1) => {
     if (!safeView) return;
-    const actionsToUndo = Math.max(1, Math.min(10, count)); // Clamp between 1 and 10
+    // Clamp between 1 and available count (max 50)
+    const maxUndo = Math.min(availableUndoCount, 50);
+    const actionsToUndo = Math.max(1, Math.min(maxUndo, count));
     socket.emit("requestUndo", {
       gameId: safeView.id,
       actionsToUndo,
@@ -1848,7 +1951,7 @@ export function App() {
               <select
                 value={undoCount}
                 onChange={(e) => setUndoCount(Number(e.target.value))}
-                disabled={!isYouPlayer}
+                disabled={!isYouPlayer || availableUndoCount === 0}
                 style={{
                   padding: '4px 6px',
                   borderRadius: 4,
@@ -1856,23 +1959,30 @@ export function App() {
                   background: '#374151',
                   color: '#fff',
                   fontSize: 12,
-                  cursor: isYouPlayer ? 'pointer' : 'not-allowed',
+                  cursor: isYouPlayer && availableUndoCount > 0 ? 'pointer' : 'not-allowed',
                 }}
-                title="Number of actions to undo"
+                title={availableUndoCount > 0 ? `Number of actions to undo (${availableUndoCount} available)` : 'No actions to undo'}
               >
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
-                  <option key={n} value={n}>{n}</option>
-                ))}
+                {availableUndoCount > 0 
+                  ? Array.from({ length: Math.min(availableUndoCount, 50) }, (_, i) => i + 1).map(n => (
+                      <option key={n} value={n}>{n}</option>
+                    ))
+                  : <option value={1}>0</option>
+                }
               </select>
               <button
                 onClick={() => handleRequestUndo(undoCount)}
-                disabled={!isYouPlayer}
+                disabled={!isYouPlayer || availableUndoCount === 0}
                 style={{
-                  background: '#6b7280',
+                  background: availableUndoCount > 0 ? '#6b7280' : '#4b5563',
+                  opacity: availableUndoCount > 0 ? 1 : 0.5,
                 }}
-                title={`Request to undo ${undoCount} action${undoCount > 1 ? 's' : ''} (requires all players to approve)`}
+                title={availableUndoCount > 0 
+                  ? `Request to undo ${undoCount} action${undoCount > 1 ? 's' : ''} (requires all players to approve)`
+                  : 'No actions to undo'
+                }
               >
-                ⏪ Undo
+                ⏪ Undo ({availableUndoCount})
               </button>
             </div>
           </div>
@@ -2144,6 +2254,8 @@ export function App() {
           isYourTurn={safeView.turnPlayer === you}
           hasPriority={safeView.priority === you}
           stackEmpty={!((safeView as any).stack?.length > 0)}
+          allPlayersReady={allPlayersHaveDecks && allPlayersKeptHands}
+          phaseAdvanceBlockReason={phaseAdvanceBlockReason}
           onNextStep={() => socket.emit("nextStep", { gameId: safeView.id })}
           onPassPriority={() => socket.emit("passPriority", { gameId: safeView.id, by: you })}
           onAdvancingChange={setPhaseNavigatorAdvancing}

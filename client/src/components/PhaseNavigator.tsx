@@ -21,6 +21,8 @@ interface PhaseNavigatorProps {
   isYourTurn: boolean;
   hasPriority: boolean;
   stackEmpty: boolean;
+  allPlayersReady?: boolean; // True if all players have decks and kept hands
+  phaseAdvanceBlockReason?: string | null; // Reason why advancing is blocked
   onNextStep: () => void;
   onPassPriority: () => void;
   onAdvancingChange?: (isAdvancing: boolean) => void;
@@ -61,6 +63,8 @@ export function PhaseNavigator({
   isYourTurn,
   hasPriority,
   stackEmpty,
+  allPlayersReady = true,
+  phaseAdvanceBlockReason,
   onNextStep,
   onPassPriority,
   onAdvancingChange,
@@ -127,22 +131,27 @@ export function PhaseNavigator({
     return false;
   });
   
-  // Can only advance if it's your turn, stack is empty, and we're not already advancing
-  const canAdvance = isYourTurn && stackEmpty && !isAdvancing;
+  // Can only advance if it's your turn, stack is empty, not already advancing, and all players ready
+  const canAdvance = isYourTurn && stackEmpty && !isAdvancing && allPlayersReady;
   
   // Handle clicking on a phase to advance to it
   // If jumping from pre-combat to post-combat, skip combat entirely without asking for attackers
   // This assumes player doesn't want to attack when they explicitly skip past combat
   const handlePhaseClick = useCallback(async (targetIndex: number) => {
+    // Early exit checks - but set isAdvancing first to prevent double-clicks
+    if (isAdvancing) return; // Already advancing, ignore click
     if (!canAdvance) return;
     if (targetIndex <= currentIndex) return; // Can't go backward
     
     const stepsToAdvance = targetIndex - currentIndex;
     if (stepsToAdvance <= 0) return;
     
+    // Immediately disable further clicks
+    setIsAdvancing(true);
+    
     // Get target phase info
     const targetPhase = PHASE_ORDER[targetIndex];
-    const currentPhaseInfo = PHASE_ORDER[currentIndex];
+    const targetMapping = PHASE_STEP_MAP[targetPhase.id];
     
     // Check if we're jumping from before combat to after combat
     // If current is Main 1 (index 3) or earlier, and target is Main 2 (index 5) or later
@@ -151,34 +160,22 @@ export function PhaseNavigator({
     const isAfterCombat = targetIndex >= 5;   // Main 2 or later
     const skippingOverCombat = isBeforeCombat && isAfterCombat;
     
-    // If we're skipping over combat and have the skip-to-phase callback, use it
-    // This allows jumping directly to the target phase without going through combat steps
-    if (skippingOverCombat && onSkipToPhase) {
-      setIsAdvancing(true);
+    // Use skipToPhase for reliable direct navigation when:
+    // 1. We have a mapping for the target phase, AND
+    // 2. Either we're skipping over combat, OR the target is in our phase map (for reliability)
+    // This prevents the step-by-step loop from overshooting due to timing issues
+    if (onSkipToPhase && targetMapping) {
       try {
-        const targetMapping = PHASE_STEP_MAP[targetPhase.id];
-        if (targetMapping) {
-          onSkipToPhase(targetMapping.phase, targetMapping.step);
-        } else {
-          // Fallback to step-by-step if target not mapped
-          for (let i = 0; i < stepsToAdvance; i++) {
-            onNextStep();
-            if (i < stepsToAdvance - 1) {
-              await new Promise(resolve => setTimeout(resolve, 750));
-            }
-          }
-        }
+        onSkipToPhase(targetMapping.phase, targetMapping.step);
       } finally {
-        setTimeout(() => setIsAdvancing(false), 200);
+        setTimeout(() => setIsAdvancing(false), 500);
       }
       return;
     }
     
-    // Disable buttons while advancing
-    setIsAdvancing(true);
-    
+    // Fallback to step-by-step only for phases not in the map (combat, untap, upkeep)
+    // For these phases, step-by-step is needed because they don't have direct mappings
     try {
-      // Advance step by step with delays
       for (let i = 0; i < stepsToAdvance; i++) {
         onNextStep();
         // Wait 0.75 seconds between steps (except after the last one)
@@ -187,10 +184,11 @@ export function PhaseNavigator({
         }
       }
     } finally {
-      // Re-enable buttons after a short delay to let the final state settle
-      setTimeout(() => setIsAdvancing(false), 200);
+      // Re-enable buttons after a longer delay to let the final state settle
+      // This helps prevent accidental double-advances
+      setTimeout(() => setIsAdvancing(false), 500);
     }
-  }, [canAdvance, currentIndex, onNextStep, onSkipToPhase]);
+  }, [canAdvance, currentIndex, isAdvancing, onNextStep, onSkipToPhase]);
   
   // Drag handlers
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -473,8 +471,23 @@ export function PhaseNavigator({
         </div>
       )}
       
+      {/* Status hint - blocked by players not ready */}
+      {phaseAdvanceBlockReason && (
+        <div style={{ 
+          marginTop: 8, 
+          fontSize: 10, 
+          color: '#fbbf24',
+          textAlign: 'center',
+          padding: '4px 8px',
+          background: 'rgba(251, 191, 36, 0.1)',
+          borderRadius: 4,
+        }}>
+          ⚠️ {phaseAdvanceBlockReason}
+        </div>
+      )}
+      
       {/* Status hint */}
-      {!isYourTurn && (
+      {!isYourTurn && !phaseAdvanceBlockReason && (
         <div style={{ 
           marginTop: 8, 
           fontSize: 10, 

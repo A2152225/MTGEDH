@@ -124,6 +124,45 @@ function checkAllPlayersKeptHands(game: any): { allKept: boolean; waitingPlayers
 }
 
 /**
+ * Check if all non-spectator players have imported/selected their decks.
+ * A player has a deck if their library has cards (libraryCount > 0).
+ * Returns { allHaveDecks: boolean, waitingPlayers: string[] }
+ */
+function checkAllPlayersHaveDecks(game: any): { allHaveDecks: boolean; waitingPlayers: string[] } {
+  try {
+    const players = game.state?.players || [];
+    const zones = game.state?.zones || {};
+    
+    const nonSpectatorPlayers = players.filter((p: any) => p && !p.spectator);
+    const waitingPlayers: string[] = [];
+    
+    for (const player of nonSpectatorPlayers) {
+      const playerId = player.id;
+      const playerZones = zones[playerId];
+      
+      // Player doesn't have a deck if:
+      // 1. No zones exist for them, OR
+      // 2. libraryCount is 0 or undefined AND handCount is 0 or undefined
+      // (hand can have cards if they've drawn already)
+      const libraryCount = playerZones?.libraryCount ?? 0;
+      const handCount = playerZones?.handCount ?? 0;
+      
+      if (libraryCount === 0 && handCount === 0) {
+        waitingPlayers.push(player.name || playerId);
+      }
+    }
+    
+    return {
+      allHaveDecks: waitingPlayers.length === 0,
+      waitingPlayers,
+    };
+  } catch (err) {
+    console.warn("checkAllPlayersHaveDecks failed:", err);
+    return { allHaveDecks: false, waitingPlayers: [] };
+  }
+}
+
+/**
  * Check newly entered permanents for creature type selection requirements
  * and request selection from the player if needed.
  */
@@ -1408,8 +1447,21 @@ export function registerGameActions(io: Server, socket: Socket) {
         phaseStr === "pre_game" ||
         phaseStr.includes("BEGIN");
 
-      // If we're in pre-game, check that all players have kept their hands before allowing transition
+      // During pre-game, check that all players have imported their decks
       if (pregame) {
+        const { allHaveDecks, waitingPlayers: deckWaiters } = checkAllPlayersHaveDecks(game);
+        if (!allHaveDecks && deckWaiters.length > 0) {
+          socket.emit("error", {
+            code: "PREGAME_DECKS_NOT_LOADED",
+            message: `Waiting for player(s) to import their deck: ${deckWaiters.join(", ")}`,
+          });
+          console.info(
+            `[nextTurn] rejected - not all players have decks (waiting: ${deckWaiters.join(", ")})`
+          );
+          return;
+        }
+
+        // Check that all players have kept their hands before allowing transition
         const { allKept, waitingPlayers } = checkAllPlayersKeptHands(game);
         if (!allKept && waitingPlayers.length > 0) {
           socket.emit("error", {
@@ -1581,8 +1633,21 @@ export function registerGameActions(io: Server, socket: Socket) {
         phaseStr === "pre_game" ||
         phaseStr.includes("BEGIN");
 
-      // If we're in pre-game, check that all players have kept their hands before allowing transition
+      // During pre-game, check that all players have imported their decks
       if (pregame) {
+        const { allHaveDecks, waitingPlayers: deckWaiters } = checkAllPlayersHaveDecks(game);
+        if (!allHaveDecks && deckWaiters.length > 0) {
+          socket.emit("error", {
+            code: "PREGAME_DECKS_NOT_LOADED",
+            message: `Waiting for player(s) to import their deck: ${deckWaiters.join(", ")}`,
+          });
+          console.info(
+            `[nextStep] rejected - not all players have decks (waiting: ${deckWaiters.join(", ")})`
+          );
+          return;
+        }
+
+        // Check that all players have kept their hands before allowing transition
         const { allKept, waitingPlayers } = checkAllPlayersKeptHands(game);
         if (!allKept && waitingPlayers.length > 0) {
           socket.emit("error", {

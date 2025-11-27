@@ -600,4 +600,26 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
       console.error(`cancelUndo error for game ${gameId}:`, err);
     }
   });
+
+  // Get available undo count (number of events that can be undone)
+  socket.on("getUndoCount", ({ gameId }: { gameId: string }) => {
+    try {
+      const game = ensureGame(gameId);
+      if (!game) return;
+
+      let eventCount = 0;
+      try {
+        eventCount = getEventCount(gameId);
+      } catch (e) {
+        console.warn(`[getUndoCount] Failed to get event count for game ${gameId}:`, e);
+      }
+
+      socket.emit("undoCountUpdate", {
+        gameId,
+        eventCount,
+      });
+    } catch (err: any) {
+      console.error(`getUndoCount error for game ${gameId}:`, err);
+    }
+  });
 }

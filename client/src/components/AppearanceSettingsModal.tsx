@@ -6,6 +6,7 @@ import {
   saveAppearanceSettings,
   DEFAULT_APPEARANCE_SETTINGS,
 } from '../utils/appearanceSettings';
+import { ColorPicker } from './ColorPicker';
 
 interface AppearanceSettingsModalProps {
   open: boolean;
@@ -269,60 +270,38 @@ export function AppearanceSettingsModal({
             {currentBg.type === 'color' && (
               <div style={{ marginBottom: 16 }}>
                 <div style={{ color: '#aaa', fontSize: 12, marginBottom: 8 }}>Color</div>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                  <input
-                    type="color"
-                    value={currentBg.color}
-                    onChange={(e) => updateBg({ color: e.target.value })}
-                    style={{
-                      width: 50,
-                      height: 40,
-                      padding: 0,
-                      border: '2px solid rgba(255, 255, 255, 0.3)',
-                      borderRadius: 6,
-                      cursor: 'pointer',
-                    }}
-                  />
-                  <input
-                    type="text"
-                    value={currentBg.color}
-                    onChange={(e) => updateBg({ color: e.target.value })}
-                    placeholder="#1a2540"
-                    style={{
-                      flex: 1,
-                      padding: '10px 12px',
-                      fontSize: 13,
-                      borderRadius: 6,
-                      border: '1px solid rgba(255, 255, 255, 0.2)',
-                      background: 'rgba(0, 0, 0, 0.4)',
-                      color: '#fff',
-                      fontFamily: 'monospace',
-                    }}
-                  />
-                </div>
+                
+                {/* Custom HSL Color Picker */}
+                <ColorPicker
+                  value={currentBg.color}
+                  onChange={(color) => updateBg({ color })}
+                />
                 
                 {/* Quick color swatches */}
-                <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
-                  {[
-                    '#0a0a12', '#1a2540', '#2d1f47', '#1a3020', '#3a1a1a',
-                    '#102840', '#2a3a5a', '#0f0a1a', '#000000', '#1a1a2e',
-                  ].map((color) => (
-                    <button
-                      key={color}
-                      onClick={() => updateBg({ color })}
-                      title={color}
-                      style={{
-                        width: 28,
-                        height: 28,
-                        borderRadius: 4,
-                        background: color,
-                        border: currentBg.color === color 
-                          ? '2px solid #60a5fa' 
-                          : '1px solid rgba(255, 255, 255, 0.3)',
-                        cursor: 'pointer',
-                      }}
-                    />
-                  ))}
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ color: '#888', fontSize: 11, marginBottom: 6 }}>Quick Presets</div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {[
+                      '#0a0a12', '#1a2540', '#2d1f47', '#1a3020', '#3a1a1a',
+                      '#102840', '#2a3a5a', '#0f0a1a', '#000000', '#1a1a2e',
+                    ].map((color) => (
+                      <button
+                        key={color}
+                        onClick={() => updateBg({ color })}
+                        title={color}
+                        style={{
+                          width: 28,
+                          height: 28,
+                          borderRadius: 4,
+                          background: color,
+                          border: currentBg.color === color 
+                            ? '2px solid #60a5fa' 
+                            : '1px solid rgba(255, 255, 255, 0.3)',
+                          cursor: 'pointer',
+                        }}
+                      />
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
