@@ -1,11 +1,16 @@
 /**
  * PhaseNavigator.tsx
  * 
- * A floating phase/step navigation component that allows players to quickly
+ * A floating, draggable phase/step navigation component that allows players to quickly
  * advance through turn phases by clicking on the desired phase.
+ * 
+ * Features:
+ * - Draggable to reposition anywhere on screen
+ * - Simplified combat display (just "Combat" with normal step advancement)
+ * - End Turn moves to end phase for cleanup/discard
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import type { PlayerID } from '../../../shared/src';
 
 interface PhaseNavigatorProps {
@@ -19,21 +24,21 @@ interface PhaseNavigatorProps {
   onNextStep: () => void;
   onNextTurn: () => void;
   onPassPriority: () => void;
+  onGoToEndPhase?: () => void; // Optional callback for going directly to end phase
 }
 
 // Define the order of phases/steps for navigation
+// Simplified: Combat is now a single entry that advances through combat normally
+// When you click Combat, it goes to begin combat, then attackers selection
+// (if no attackers declared, blockers/damage are skipped automatically by the server)
 const PHASE_ORDER = [
   { id: 'untap', label: 'Untap', phase: 'beginning', icon: '🔓' },
   { id: 'upkeep', label: 'Upkeep', phase: 'beginning', icon: '⏰' },
   { id: 'draw', label: 'Draw', phase: 'beginning', icon: '🎴' },
   { id: 'main1', label: 'Main 1', phase: 'precombatMain', icon: '✨' },
-  { id: 'beginCombat', label: 'Begin Combat', phase: 'combat', icon: '⚔️' },
-  { id: 'declareAttackers', label: 'Attackers', phase: 'combat', icon: '🗡️' },
-  { id: 'declareBlockers', label: 'Blockers', phase: 'combat', icon: '🛡️' },
-  { id: 'combatDamage', label: 'Damage', phase: 'combat', icon: '💥' },
-  { id: 'endCombat', label: 'End Combat', phase: 'combat', icon: '🏁' },
+  { id: 'combat', label: 'Combat', phase: 'combat', icon: '⚔️', isCombatPhase: true },
   { id: 'main2', label: 'Main 2', phase: 'postcombatMain', icon: '✨' },
-  { id: 'endStep', label: 'End Step', phase: 'ending', icon: '🌙' },
+  { id: 'endStep', label: 'End', phase: 'ending', icon: '🌙' },
   { id: 'cleanup', label: 'Cleanup', phase: 'ending', icon: '🧹' },
 ];
 
@@ -48,25 +53,52 @@ export function PhaseNavigator({
   onNextStep,
   onNextTurn,
   onPassPriority,
+  onGoToEndPhase,
 }: PhaseNavigatorProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  
+  // Dragging state
+  const [position, setPosition] = useState<{ x: number; y: number }>(() => {
+    // Try to restore saved position, otherwise use default bottom-right
+    try {
+      const saved = localStorage.getItem('mtgedh:phaseNavigatorPos');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (typeof parsed.x === 'number' && typeof parsed.y === 'number') {
+          return parsed;
+        }
+      }
+    } catch { /* ignore */ }
+    return { x: window.innerWidth - 340, y: window.innerHeight - 340 };
+  });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartPos = useRef<{ x: number; y: number; startX: number; startY: number } | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   
   const currentStepLower = (currentStep || '').toLowerCase();
   const currentPhaseLower = (currentPhase || '').toLowerCase();
   
+  // Check if we're in any combat step
+  const isInCombat = currentPhaseLower === 'combat' || 
+    ['begincombat', 'begin_combat', 'declareattackers', 'declare_attackers', 
+     'declareblockers', 'declare_blockers', 'combatdamage', 'combat_damage', 'damage',
+     'endcombat', 'end_combat'].some(s => currentStepLower.includes(s) || currentStepLower === s);
+  
   // Find current position in phase order
-  const currentIndex = PHASE_ORDER.findIndex(p => 
-    p.id === currentStepLower || 
-    p.phase === currentPhaseLower ||
-    currentStepLower.includes(p.id) ||
-    currentPhaseLower.includes(p.id)
-  );
+  const currentIndex = PHASE_ORDER.findIndex(p => {
+    // For combat phase, match if we're in any combat step
+    if (p.id === 'combat' && isInCombat) return true;
+    return p.id === currentStepLower || 
+      p.phase === currentPhaseLower ||
+      currentStepLower.includes(p.id) ||
+      currentPhaseLower.includes(p.id);
+  });
   
   // Can only advance if it's your turn and stack is empty
   const canAdvance = isYourTurn && stackEmpty;
   
   // Handle clicking on a phase to advance to it
-  const handlePhaseClick = async (targetIndex: number) => {
+  const handlePhaseClick = useCallback(async (targetIndex: number) => {
     if (!canAdvance) return;
     if (targetIndex <= currentIndex) return; // Can't go backward
     
@@ -79,25 +111,97 @@ export function PhaseNavigator({
         await new Promise(resolve => setTimeout(resolve, 150));
       }
     }
-  };
+  }, [canAdvance, currentIndex, onNextStep]);
+  
+  // Handle End Turn button - should go to end phase, not skip to next turn
+  const handleEndTurn = useCallback(() => {
+    if (!canAdvance) return;
+    
+    // If there's a specific callback for going to end phase, use it
+    if (onGoToEndPhase) {
+      onGoToEndPhase();
+      return;
+    }
+    
+    // Otherwise use the default behavior
+    onNextTurn();
+  }, [canAdvance, onGoToEndPhase, onNextTurn]);
+  
+  // Drag handlers
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    // Only start drag from the header area
+    const target = e.target as HTMLElement;
+    if (!target.closest('[data-drag-handle]')) return;
+    
+    e.preventDefault();
+    setIsDragging(true);
+    dragStartPos.current = {
+      x: position.x,
+      y: position.y,
+      startX: e.clientX,
+      startY: e.clientY,
+    };
+  }, [position]);
+  
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isDragging || !dragStartPos.current) return;
+    
+    const dx = e.clientX - dragStartPos.current.startX;
+    const dy = e.clientY - dragStartPos.current.startY;
+    
+    // Calculate new position, clamping to window bounds
+    const newX = Math.max(0, Math.min(window.innerWidth - 340, dragStartPos.current.x + dx));
+    const newY = Math.max(0, Math.min(window.innerHeight - 100, dragStartPos.current.y + dy));
+    
+    setPosition({ x: newX, y: newY });
+  }, [isDragging]);
+  
+  const handleMouseUp = useCallback(() => {
+    if (isDragging) {
+      setIsDragging(false);
+      dragStartPos.current = null;
+      
+      // Save position to localStorage
+      try {
+        localStorage.setItem('mtgedh:phaseNavigatorPos', JSON.stringify(position));
+      } catch { /* ignore */ }
+    }
+  }, [isDragging, position]);
+  
+  // Attach global mouse event listeners when dragging
+  useEffect(() => {
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDragging, handleMouseMove, handleMouseUp]);
   
   if (!isExpanded) {
     // Collapsed view - just show current phase and expand button
     return (
       <div
+        ref={containerRef}
+        onMouseDown={handleMouseDown}
         style={{
           position: 'fixed',
-          bottom: 60,
-          right: 12,
+          left: position.x,
+          top: position.y,
           zIndex: 100,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'flex-end',
           gap: 8,
+          cursor: isDragging ? 'grabbing' : 'default',
+          userSelect: 'none',
         }}
       >
         <button
-          onClick={() => setIsExpanded(true)}
+          data-drag-handle
+          onClick={() => !isDragging && setIsExpanded(true)}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -107,11 +211,11 @@ export function PhaseNavigator({
             border: '1px solid rgba(99,102,241,0.4)',
             background: 'rgba(30,30,50,0.95)',
             color: '#e5e7eb',
-            cursor: 'pointer',
+            cursor: isDragging ? 'grabbing' : 'grab',
             fontSize: 12,
             boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
           }}
-          title="Click to expand phase navigator"
+          title="Drag to move, click to expand phase navigator"
         >
           <span style={{ fontSize: 14 }}>⏩</span>
           <span>Phase Navigator</span>
@@ -122,10 +226,12 @@ export function PhaseNavigator({
 
   return (
     <div
+      ref={containerRef}
+      onMouseDown={handleMouseDown}
       style={{
         position: 'fixed',
-        bottom: 60,
-        right: 12,
+        left: position.x,
+        top: position.y,
         zIndex: 100,
         background: 'rgba(20,20,35,0.98)',
         borderRadius: 12,
@@ -134,20 +240,26 @@ export function PhaseNavigator({
         padding: 12,
         maxWidth: 320,
         color: '#e5e7eb',
+        cursor: isDragging ? 'grabbing' : 'default',
+        userSelect: 'none',
       }}
     >
-      {/* Header */}
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center',
-        marginBottom: 10,
-        paddingBottom: 8,
-        borderBottom: '1px solid rgba(255,255,255,0.1)',
-      }}>
+      {/* Header - draggable */}
+      <div 
+        data-drag-handle
+        style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center',
+          marginBottom: 10,
+          paddingBottom: 8,
+          borderBottom: '1px solid rgba(255,255,255,0.1)',
+          cursor: isDragging ? 'grabbing' : 'grab',
+        }}
+      >
         <span style={{ fontWeight: 600, fontSize: 13 }}>⏩ Phase Navigator</span>
         <button
-          onClick={() => setIsExpanded(false)}
+          onClick={(e) => { e.stopPropagation(); setIsExpanded(false); }}
           style={{
             background: 'none',
             border: 'none',
@@ -161,7 +273,7 @@ export function PhaseNavigator({
         </button>
       </div>
       
-      {/* Phase grid */}
+      {/* Phase grid - simplified 4 columns, 2 rows */}
       <div style={{ 
         display: 'grid', 
         gridTemplateColumns: 'repeat(4, 1fr)',
@@ -177,7 +289,7 @@ export function PhaseNavigator({
           return (
             <button
               key={phase.id}
-              onClick={() => isClickable && handlePhaseClick(index)}
+              onClick={(e) => { e.stopPropagation(); isClickable && handlePhaseClick(index); }}
               disabled={!isClickable}
               style={{
                 display: 'flex',
@@ -220,6 +332,22 @@ export function PhaseNavigator({
         })}
       </div>
       
+      {/* Combat step indicator when in combat */}
+      {isInCombat && (
+        <div style={{
+          marginBottom: 8,
+          padding: '4px 8px',
+          background: 'rgba(239, 68, 68, 0.15)',
+          border: '1px solid rgba(239, 68, 68, 0.3)',
+          borderRadius: 6,
+          fontSize: 10,
+          color: '#fca5a5',
+          textAlign: 'center',
+        }}>
+          ⚔️ Combat: {currentStepLower.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2')}
+        </div>
+      )}
+      
       {/* Quick action buttons */}
       <div style={{ 
         display: 'flex', 
@@ -228,7 +356,7 @@ export function PhaseNavigator({
         borderTop: '1px solid rgba(255,255,255,0.1)',
       }}>
         <button
-          onClick={onNextStep}
+          onClick={(e) => { e.stopPropagation(); onNextStep(); }}
           disabled={!canAdvance}
           style={{
             flex: 1,
@@ -245,7 +373,7 @@ export function PhaseNavigator({
           Next Step
         </button>
         <button
-          onClick={onNextTurn}
+          onClick={(e) => { e.stopPropagation(); handleEndTurn(); }}
           disabled={!canAdvance}
           style={{
             flex: 1,
@@ -258,11 +386,12 @@ export function PhaseNavigator({
             fontSize: 11,
             fontWeight: 500,
           }}
+          title="Move to end phase (end step and cleanup)"
         >
           End Turn
         </button>
         <button
-          onClick={onPassPriority}
+          onClick={(e) => { e.stopPropagation(); onPassPriority(); }}
           disabled={!hasPriority}
           style={{
             flex: 1,

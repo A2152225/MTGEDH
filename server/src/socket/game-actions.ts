@@ -415,6 +415,82 @@ function applyCostReduction(
   return result;
 }
 
+/**
+ * Check if a creature has haste (either inherently or from effects)
+ * Rule 702.10: Haste allows a creature to attack and use tap abilities immediately
+ * 
+ * Sources of haste:
+ * - Creature's own oracle text containing "haste"
+ * - Granted abilities on the permanent (from other effects)
+ * - Battlefield permanents that grant haste to creatures (e.g., "creatures you control have haste")
+ * - Specific creature type grants (e.g., "Goblin creatures you control have haste")
+ */
+function creatureHasHaste(permanent: any, battlefield: any[], controller: string): boolean {
+  try {
+    const permCard = permanent?.card || {};
+    const permTypeLine = (permCard.type_line || "").toLowerCase();
+    const permOracleText = (permCard.oracle_text || "").toLowerCase();
+    
+    // 1. Check creature's own oracle text
+    if (permOracleText.includes('haste')) {
+      return true;
+    }
+    
+    // 2. Check granted abilities on the permanent
+    const grantedAbilities = permanent?.grantedAbilities || [];
+    if (Array.isArray(grantedAbilities) && grantedAbilities.some((a: string) => 
+      a && a.toLowerCase().includes('haste')
+    )) {
+      return true;
+    }
+    
+    // 3. Check battlefield for permanents that grant haste
+    for (const perm of battlefield) {
+      if (!perm || !perm.card) continue;
+      
+      const grantorOracle = (perm.card.oracle_text || "").toLowerCase();
+      const grantorController = perm.controller;
+      
+      // Only check permanents that could grant haste to this creature
+      // Common patterns: "creatures you control have haste", "Goblin creatures you control have haste"
+      
+      // Check for global "creatures you control have haste" effects
+      if (grantorController === controller) {
+        if (grantorOracle.includes('creatures you control have haste') ||
+            grantorOracle.includes('other creatures you control have haste')) {
+          return true;
+        }
+        
+        // Check for tribal haste grants (e.g., "Goblin creatures you control have haste")
+        // Extract creature types from the permanent being checked
+        const creatureTypes = extractCreatureTypes(permTypeLine);
+        for (const creatureType of creatureTypes) {
+          const pattern = new RegExp(`${creatureType}[^.]*have haste`, 'i');
+          if (pattern.test(grantorOracle)) {
+            return true;
+          }
+        }
+        
+        // Check for "all creatures have haste" (rare but exists)
+        if (grantorOracle.includes('all creatures have haste')) {
+          return true;
+        }
+      }
+      
+      // Check for effects that grant haste to all creatures (both players)
+      if (grantorOracle.includes('all creatures have haste') ||
+          grantorOracle.includes('each creature has haste')) {
+        return true;
+      }
+    }
+    
+    return false;
+  } catch (err) {
+    console.warn('[creatureHasHaste] Error checking haste:', err);
+    return false;
+  }
+}
+
 export function registerGameActions(io: Server, socket: Socket) {
   // Play land from hand
   socket.on("playLand", ({ gameId, cardId }: { gameId: string; cardId: string }) => {
@@ -740,6 +816,26 @@ export function registerGameActions(io: Server, socket: Socket) {
             socket.emit("error", {
               code: "PAYMENT_SOURCE_TAPPED",
               message: `${(permanent as any).card?.name || 'Permanent'} is already tapped`,
+            });
+            return;
+          }
+          
+          // Rule 302.6 / 702.10: Check summoning sickness for creatures with tap abilities
+          // A creature can't use tap/untap abilities unless it has been continuously controlled
+          // since the turn began OR it has haste (from any source)
+          const permCard = (permanent as any).card || {};
+          const permTypeLine = (permCard.type_line || "").toLowerCase();
+          const permIsCreature = /\bcreature\b/.test(permTypeLine);
+          
+          // Check if creature has haste from any source (own text, granted abilities, or battlefield effects)
+          const hasHaste = creatureHasHaste(permanent, globalBattlefield, playerId);
+          
+          // summoningSickness is set when creatures enter the battlefield
+          // If a creature has summoning sickness and doesn't have haste, it can't use tap abilities
+          if (permIsCreature && (permanent as any).summoningSickness && !hasHaste) {
+            socket.emit("error", {
+              code: "SUMMONING_SICKNESS",
+              message: `${permCard.name || 'Creature'} has summoning sickness and cannot be tapped for mana this turn`,
             });
             return;
           }
