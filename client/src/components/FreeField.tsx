@@ -4,6 +4,8 @@ import type { ImagePref } from './BattlefieldGrid';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 import { getKeywordInfo, KEYWORD_GLOSSARY } from '../utils/keywordGlossary';
 import { CardContextMenu } from './CardContextMenu';
+import { ActivatedAbilityButtons } from './ActivatedAbilityButtons';
+import type { ParsedActivatedAbility } from '../utils/activatedAbilityParser';
 
 function parsePT(raw?: string | number): number | undefined {
   if (typeof raw === 'number') return raw;
@@ -88,19 +90,34 @@ export function FreeField(props: {
   // Context menu callbacks
   onTap?: (id: string) => void;
   onUntap?: (id: string) => void;
-  onActivateAbility?: (permanentId: string, abilityId: string) => void;
+  onActivateAbility?: (permanentId: string, abilityId: string, ability?: ParsedActivatedAbility) => void;
   onAddCounter?: (id: string, kind: string, delta: number) => void;
   onSacrifice?: (id: string) => void;
   onRemove?: (id: string) => void;
   canActivate?: boolean;
   playerId?: string;
+  // Game state for ability activation context
+  hasPriority?: boolean;
+  isOwnTurn?: boolean;
+  isMainPhase?: boolean;
+  stackEmpty?: boolean;
+  // Thousand-Year Elixir and similar effects
+  hasThousandYearElixirEffect?: boolean;
+  // Display options for ability buttons
+  showActivatedAbilityButtons?: boolean;
 }) {
   const {
     perms, imagePref, tileWidth, widthPx, heightPx,
     draggable = false, onMove, highlightTargets, selectedTargets, onCardClick,
     players = [],
     onTap, onUntap, onActivateAbility, onAddCounter, onSacrifice, onRemove,
-    canActivate = true, playerId
+    canActivate = true, playerId,
+    hasPriority = false,
+    isOwnTurn = false,
+    isMainPhase = false,
+    stackEmpty = true,
+    hasThousandYearElixirEffect = false,
+    showActivatedAbilityButtons = true,
   } = props;
 
   const tileH = Math.round(tileWidth / 0.72);
@@ -661,6 +678,23 @@ export function FreeField(props: {
                   </span>
                 )}
               </div>
+            )}
+
+            {/* Activated Ability Buttons - shown on hover */}
+            {showActivatedAbilityButtons && raw.controller === playerId && (
+              <ActivatedAbilityButtons
+                perm={raw}
+                tileWidth={tileWidth}
+                hasPriority={hasPriority}
+                isOwnTurn={isOwnTurn}
+                isMainPhase={isMainPhase}
+                stackEmpty={stackEmpty}
+                hasThousandYearElixirEffect={hasThousandYearElixirEffect}
+                onActivateAbility={onActivateAbility}
+                showOnHover={true}
+                maxVisible={3}
+                position="left"
+              />
             )}
           </div>
         );

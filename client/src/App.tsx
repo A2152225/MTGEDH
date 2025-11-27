@@ -1801,6 +1801,10 @@ export function App() {
               onSendChat={sendChat}
               chatView={view || undefined}
               chatYou={you || undefined}
+              priority={safeView.priority}
+              phase={String(safeView.phase || '')}
+              step={String(safeView.step || '')}
+              turnPlayer={safeView.turnPlayer}
             />
           ) : (
             <div style={{ padding: 20, color: "#666" }}>
