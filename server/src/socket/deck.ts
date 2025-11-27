@@ -39,11 +39,16 @@ const MIN_PRECON_DECK_SIZE = 50;
  * Generate a unique instance ID for a card to avoid duplicate ID issues
  * when importing multiple copies of the same card (e.g., 12 Forests).
  * The generated ID includes the original Scryfall ID for reference.
+ * Uses crypto.randomBytes for better uniqueness guarantees.
  */
+let cardInstanceCounter = 0;
 function generateUniqueCardInstanceId(scryfallId: string): string {
+  // Use a combination of counter, timestamp, and random bytes for uniqueness
+  const counter = (++cardInstanceCounter).toString(36);
   const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 8);
-  return `${scryfallId}_${timestamp}_${random}`;
+  // Use crypto for better randomness
+  const randomBytes = require('crypto').randomBytes(4).toString('hex');
+  return `${scryfallId}_${timestamp}_${counter}_${randomBytes}`;
 }
 
 /**
