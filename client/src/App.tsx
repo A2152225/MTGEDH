@@ -904,8 +904,9 @@ export function App() {
     if (!card) return false;
     
     const oracleText = (card.oracle_text || '').toLowerCase();
-    const keywords = card.keywords || [];
-    const grantedAbilities = (perm as any).grantedAbilities || [];
+    // Keywords array from Scryfall data (not in TypeScript interface but present at runtime)
+    const keywords = ((card as any).keywords as string[]) || [];
+    const grantedAbilities = ((perm as any).grantedAbilities as string[]) || [];
     
     // Check for haste in multiple places:
     // 1. Keywords array from Scryfall data
@@ -1336,8 +1337,9 @@ export function App() {
     if (!card) return false;
     
     const oracleText = (card.oracle_text || '').toLowerCase();
-    const keywords = card.keywords || [];
-    const grantedAbilities = (perm as any).grantedAbilities || [];
+    // Keywords array from Scryfall data (not in TypeScript interface but present at runtime)
+    const keywords = ((card as any).keywords as string[]) || [];
+    const grantedAbilities = ((perm as any).grantedAbilities as string[]) || [];
     
     // Check for defender - creatures with defender can't attack (unless granted by effects)
     const hasDefender = 
@@ -1949,7 +1951,6 @@ export function App() {
           hasPriority={safeView.priority === you}
           stackEmpty={!((safeView as any).stack?.length > 0)}
           onNextStep={() => socket.emit("nextStep", { gameId: safeView.id })}
-          onNextTurn={() => socket.emit("nextTurn", { gameId: safeView.id })}
           onPassPriority={() => socket.emit("passPriority", { gameId: safeView.id, by: you })}
         />
       )}

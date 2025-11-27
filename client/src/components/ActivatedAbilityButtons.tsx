@@ -398,28 +398,28 @@ export function ActivatedAbilityButtons({
     }
   };
   
-  // Positioning styles
+  // Positioning styles - buttons appear inside the card to avoid clipping by parent containers
   const containerStyle: React.CSSProperties = position === 'left' ? {
     position: 'absolute',
-    left: Math.round(-4 * scale),
+    left: Math.round(4 * scale),
     top: '50%',
-    transform: 'translateY(-50%) translateX(-100%)',
+    transform: 'translateY(-50%)',
     display: 'flex',
     flexDirection: 'column',
     gap: Math.round(3 * scale),
-    zIndex: 20,
+    zIndex: 30,
     opacity: shouldShow ? 1 : 0,
     transition: 'opacity 0.15s ease',
     pointerEvents: shouldShow ? 'auto' : 'none',
   } : {
     position: 'absolute',
     left: '50%',
-    bottom: Math.round(-4 * scale),
-    transform: 'translateX(-50%) translateY(100%)',
+    bottom: Math.round(4 * scale),
+    transform: 'translateX(-50%)',
     display: 'flex',
     flexDirection: 'row',
     gap: Math.round(3 * scale),
-    zIndex: 20,
+    zIndex: 30,
     opacity: shouldShow ? 1 : 0,
     transition: 'opacity 0.15s ease',
     pointerEvents: shouldShow ? 'auto' : 'none',
@@ -435,23 +435,10 @@ export function ActivatedAbilityButtons({
       style={{
         position: 'absolute',
         inset: 0,
-        pointerEvents: 'none',
+        pointerEvents: showOnHover ? 'auto' : 'none',
       }}
     >
-      {/* Hover zone to trigger ability display */}
-      <div
-        style={{
-          position: 'absolute',
-          left: position === 'left' ? -Math.round(40 * scale) : 0,
-          top: 0,
-          width: position === 'left' ? Math.round(40 * scale) : '100%',
-          height: '100%',
-          pointerEvents: showOnHover ? 'auto' : 'none',
-        }}
-        onMouseEnter={() => setHovered(true)}
-      />
-      
-      {/* Ability buttons container */}
+      {/* Ability buttons container - now inside the card */}
       <div style={containerStyle}>
         {visibleAbilities.map(({ ability, canActivate, reason }) => (
           <AbilityButton
