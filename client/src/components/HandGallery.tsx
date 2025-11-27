@@ -25,6 +25,22 @@ function isLand(tl?: string): boolean {
   return !!tl && /\bland\b/i.test(tl);
 }
 
+/**
+ * Get the type_line for a card, handling cards with card_faces
+ */
+function getTypeLine(card: KnownCardRef): string | undefined {
+  // First check the card's root type_line
+  if (card.type_line) {
+    return card.type_line;
+  }
+  // For cards with card_faces (like DFCs), check the first face
+  const faces = (card as any).card_faces;
+  if (Array.isArray(faces) && faces.length > 0 && faces[0].type_line) {
+    return faces[0].type_line;
+  }
+  return undefined;
+}
+
 export function HandGallery(props: HandGalleryProps) {
   const {
     cards,
@@ -169,7 +185,7 @@ export function HandGallery(props: HandGalleryProps) {
         const isKnown = (c as KnownCardRef).name !== undefined && !(c as any).faceDown;
         const kc = isKnown ? c as KnownCardRef : null;
         const name = kc?.name || 'Card';
-        const tl = kc?.type_line;
+        const tl = kc ? getTypeLine(kc) : undefined;
         const img = kc?.image_uris?.[imagePref] || kc?.image_uris?.normal || kc?.image_uris?.small;
 
         const cantPlayLand = kc && isLand(tl) && reasonCannotPlayLand ? reasonCannotPlayLand(kc) : null;

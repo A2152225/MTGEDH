@@ -22,15 +22,14 @@ interface PhaseNavigatorProps {
   hasPriority: boolean;
   stackEmpty: boolean;
   onNextStep: () => void;
-  onNextTurn: () => void;
   onPassPriority: () => void;
-  onGoToEndPhase?: () => void; // Optional callback for going directly to end phase
 }
 
 // Define the order of phases/steps for navigation
 // Simplified: Combat is now a single entry that advances through combat normally
 // When you click Combat, it goes to begin combat, then attackers selection
 // (if no attackers declared, blockers/damage are skipped automatically by the server)
+// Note: Cleanup automatically advances to next turn after discarding to hand size
 const PHASE_ORDER = [
   { id: 'untap', label: 'Untap', phase: 'beginning', icon: '🔓' },
   { id: 'upkeep', label: 'Upkeep', phase: 'beginning', icon: '⏰' },
@@ -51,11 +50,10 @@ export function PhaseNavigator({
   hasPriority,
   stackEmpty,
   onNextStep,
-  onNextTurn,
   onPassPriority,
-  onGoToEndPhase,
 }: PhaseNavigatorProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isAdvancing, setIsAdvancing] = useState(false); // Track if we're in the middle of advancing phases
   
   // Dragging state
   const [position, setPosition] = useState<{ x: number; y: number }>(() => {
@@ -104,38 +102,35 @@ export function PhaseNavigator({
       currentPhaseLower.includes(p.id);
   });
   
-  // Can only advance if it's your turn and stack is empty
-  const canAdvance = isYourTurn && stackEmpty;
+  // Can only advance if it's your turn, stack is empty, and we're not already advancing
+  const canAdvance = isYourTurn && stackEmpty && !isAdvancing;
   
   // Handle clicking on a phase to advance to it
+  // Advances step by step with 0.75 second delays, disabling buttons during advancement
   const handlePhaseClick = useCallback(async (targetIndex: number) => {
     if (!canAdvance) return;
     if (targetIndex <= currentIndex) return; // Can't go backward
     
-    // Advance step by step with delays to allow server processing
     const stepsToAdvance = targetIndex - currentIndex;
-    for (let i = 0; i < stepsToAdvance; i++) {
-      onNextStep();
-      // Wait between steps to allow server to process
-      if (i < stepsToAdvance - 1) {
-        await new Promise(resolve => setTimeout(resolve, 150));
+    if (stepsToAdvance <= 0) return;
+    
+    // Disable buttons while advancing
+    setIsAdvancing(true);
+    
+    try {
+      // Advance step by step with delays
+      for (let i = 0; i < stepsToAdvance; i++) {
+        onNextStep();
+        // Wait 0.75 seconds between steps (except after the last one)
+        if (i < stepsToAdvance - 1) {
+          await new Promise(resolve => setTimeout(resolve, 750));
+        }
       }
+    } finally {
+      // Re-enable buttons after a short delay to let the final state settle
+      setTimeout(() => setIsAdvancing(false), 200);
     }
   }, [canAdvance, currentIndex, onNextStep]);
-  
-  // Handle End Turn button - should go to end phase, not skip to next turn
-  const handleEndTurn = useCallback(() => {
-    if (!canAdvance) return;
-    
-    // If there's a specific callback for going to end phase, use it
-    if (onGoToEndPhase) {
-      onGoToEndPhase();
-      return;
-    }
-    
-    // Otherwise use the default behavior
-    onNextTurn();
-  }, [canAdvance, onGoToEndPhase, onNextTurn]);
   
   // Drag handlers
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -383,24 +378,6 @@ export function PhaseNavigator({
           Next Step
         </button>
         <button
-          onClick={(e) => { e.stopPropagation(); handleEndTurn(); }}
-          disabled={!canAdvance}
-          style={{
-            flex: 1,
-            padding: '6px 10px',
-            borderRadius: 6,
-            border: 'none',
-            background: canAdvance ? '#8b5cf6' : '#4b5563',
-            color: '#fff',
-            cursor: canAdvance ? 'pointer' : 'not-allowed',
-            fontSize: 11,
-            fontWeight: 500,
-          }}
-          title="Move to end phase (end step and cleanup)"
-        >
-          End Turn
-        </button>
-        <button
           onClick={(e) => { e.stopPropagation(); onPassPriority(); }}
           disabled={!hasPriority}
           style={{
@@ -418,6 +395,23 @@ export function PhaseNavigator({
           Pass
         </button>
       </div>
+      
+      {/* Advancing indicator */}
+      {isAdvancing && (
+        <div style={{ 
+          marginTop: 8, 
+          fontSize: 10, 
+          color: '#fbbf24',
+          textAlign: 'center',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 6,
+        }}>
+          <span style={{ animation: 'pulse 1s infinite' }}>⏳</span>
+          Advancing phases...
+        </div>
+      )}
       
       {/* Status hint */}
       {!isYourTurn && (

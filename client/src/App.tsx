@@ -794,6 +794,11 @@ export function App() {
   };
 
   // Parse mana colors from oracle text for lands and mana-producing permanents
+  /**
+   * Parse mana colors from oracle text.
+   * Returns an array of colors - for cards that produce multiple mana of the same color
+   * (like Sol Ring which adds {C}{C}), the color will be duplicated.
+   */
   const parseManaColorsFromOracleText = (oracleText: string): ManaColor[] => {
     const colors: ManaColor[] = [];
     const text = oracleText.toLowerCase();
@@ -810,13 +815,37 @@ export function App() {
       return ['W', 'U', 'B', 'R', 'G', 'C'];
     }
     
-    // Check for specific mana symbols in "add {X}" patterns
-    if (text.includes('{w}') || text.includes('add {w}') || text.includes('white')) colors.push('W');
-    if (text.includes('{u}') || text.includes('add {u}') || text.includes('blue')) colors.push('U');
-    if (text.includes('{b}') || text.includes('add {b}') || text.includes('black')) colors.push('B');
-    if (text.includes('{r}') || text.includes('add {r}') || text.includes('red')) colors.push('R');
-    if (text.includes('{g}') || text.includes('add {g}') || text.includes('green')) colors.push('G');
-    if (text.includes('{c}') || text.includes('add {c}') || text.includes('colorless')) colors.push('C');
+    // Count mana symbols in "add {X}{X}" patterns
+    // This handles cards like Sol Ring ({T}: Add {C}{C}) which produce multiple mana
+    const addPattern = /add\s+((?:\{[wubrgc]\})+)/gi;
+    let match;
+    while ((match = addPattern.exec(text)) !== null) {
+      const manaSymbols = match[1];
+      // Count each symbol type
+      const wCount = (manaSymbols.match(/\{w\}/gi) || []).length;
+      const uCount = (manaSymbols.match(/\{u\}/gi) || []).length;
+      const bCount = (manaSymbols.match(/\{b\}/gi) || []).length;
+      const rCount = (manaSymbols.match(/\{r\}/gi) || []).length;
+      const gCount = (manaSymbols.match(/\{g\}/gi) || []).length;
+      const cCount = (manaSymbols.match(/\{c\}/gi) || []).length;
+      
+      for (let i = 0; i < wCount; i++) colors.push('W');
+      for (let i = 0; i < uCount; i++) colors.push('U');
+      for (let i = 0; i < bCount; i++) colors.push('B');
+      for (let i = 0; i < rCount; i++) colors.push('R');
+      for (let i = 0; i < gCount; i++) colors.push('G');
+      for (let i = 0; i < cCount; i++) colors.push('C');
+    }
+    
+    // If no mana symbols found in add patterns, check for basic patterns
+    if (colors.length === 0) {
+      if (text.includes('{w}') || text.includes('add {w}') || text.includes('white')) colors.push('W');
+      if (text.includes('{u}') || text.includes('add {u}') || text.includes('blue')) colors.push('U');
+      if (text.includes('{b}') || text.includes('add {b}') || text.includes('black')) colors.push('B');
+      if (text.includes('{r}') || text.includes('add {r}') || text.includes('red')) colors.push('R');
+      if (text.includes('{g}') || text.includes('add {g}') || text.includes('green')) colors.push('G');
+      if (text.includes('{c}') || text.includes('add {c}') || text.includes('colorless')) colors.push('C');
+    }
     
     return colors;
   };
@@ -854,6 +883,41 @@ export function App() {
       return ((card as any).type_line || '').toLowerCase().includes('artifact');
     }).length;
     return artifactCount >= 3;
+  };
+
+  /**
+   * Check if a creature permanent can use tap abilities (considering summoning sickness).
+   * Rule 302.6: A creature can't attack or use tap/untap abilities unless it's been 
+   * continuously controlled since the turn began, or it has haste.
+   * 
+   * @param perm The battlefield permanent to check
+   * @returns true if the creature can use tap abilities
+   */
+  const canCreatureUseTapAbility = (perm: BattlefieldPermanent): boolean => {
+    // If creature doesn't have summoning sickness, it can tap
+    if (!perm.summoningSickness) {
+      return true;
+    }
+    
+    // Check for haste - creature can tap even with summoning sickness
+    const card = perm.card as KnownCardRef;
+    if (!card) return false;
+    
+    const oracleText = (card.oracle_text || '').toLowerCase();
+    // Keywords array from Scryfall data (not in TypeScript interface but present at runtime)
+    const keywords = ((card as any).keywords as string[]) || [];
+    const grantedAbilities = ((perm as any).grantedAbilities as string[]) || [];
+    
+    // Check for haste in multiple places:
+    // 1. Keywords array from Scryfall data
+    // 2. Granted abilities from effects
+    // 3. Oracle text (with specific matching)
+    const hasHaste = 
+      keywords.some((k: string) => k.toLowerCase() === 'haste') ||
+      grantedAbilities.some((a: string) => a.toLowerCase().includes('haste')) ||
+      /\bhaste\b/i.test(oracleText);
+    
+    return hasHaste;
   };
 
   // Get available mana sources (untapped lands and mana-producing artifacts/creatures)
@@ -906,6 +970,13 @@ export function App() {
         }
         // If land doesn't produce mana (e.g., fetch lands), skip it
       } else if (typeLine.includes('artifact') || typeLine.includes('creature')) {
+        // For creatures, check summoning sickness - they can't use tap abilities if they have it
+        // unless they have haste. Rule 302.6.
+        const isCreature = typeLine.includes('creature');
+        if (isCreature && !canCreatureUseTapAbility(perm)) {
+          continue; // Skip creatures with summoning sickness and no haste
+        }
+        
         // Check for mana-producing artifacts/creatures
         if (oracleText.includes('add') && (oracleText.includes('mana') || oracleText.includes('{'))) {
           // Check for Metalcraft requirement in oracle text (e.g., Mox Opal)
@@ -1252,13 +1323,63 @@ export function App() {
     setSplitCardData(null);
   };
 
-  // Get creatures for combat modal
+  /**
+   * Check if a creature can attack (considering summoning sickness).
+   * Rule 302.6: A creature can't attack unless it's been continuously controlled 
+   * since the turn began, or it has haste.
+   * Also checks for defender keyword which prevents attacking.
+   * 
+   * @param perm The battlefield permanent to check
+   * @returns true if the creature can attack
+   */
+  const canCreatureAttack = (perm: BattlefieldPermanent): boolean => {
+    const card = perm.card as KnownCardRef;
+    if (!card) return false;
+    
+    const oracleText = (card.oracle_text || '').toLowerCase();
+    // Keywords array from Scryfall data (not in TypeScript interface but present at runtime)
+    const keywords = ((card as any).keywords as string[]) || [];
+    const grantedAbilities = ((perm as any).grantedAbilities as string[]) || [];
+    
+    // Check for defender - creatures with defender can't attack (unless granted by effects)
+    const hasDefender = 
+      keywords.some((k: string) => k.toLowerCase() === 'defender') ||
+      /\bdefender\b/i.test(oracleText);
+    
+    // Check if defender has been removed by effects (e.g., "creatures with defender can attack")
+    const defenderCanAttack = grantedAbilities.some((a: string) => 
+      a.toLowerCase().includes('defender') && a.toLowerCase().includes('attack')
+    );
+    
+    if (hasDefender && !defenderCanAttack) {
+      return false;
+    }
+    
+    // Check summoning sickness - only matters if creature has it
+    if (!perm.summoningSickness) {
+      return true;
+    }
+    
+    // Check for haste - creature can attack even with summoning sickness
+    const hasHaste = 
+      keywords.some((k: string) => k.toLowerCase() === 'haste') ||
+      grantedAbilities.some((a: string) => a.toLowerCase().includes('haste')) ||
+      /\bhaste\b/i.test(oracleText);
+    
+    return hasHaste;
+  };
+
+  // Get creatures for combat modal - filter to only those that can attack
   const myCreatures = useMemo(() => {
     if (!safeView || !you) return [];
-    return (safeView.battlefield || []).filter((p: BattlefieldPermanent) => 
-      p.controller === you && 
-      (p.card as KnownCardRef)?.type_line?.toLowerCase().includes('creature')
-    );
+    return (safeView.battlefield || []).filter((p: BattlefieldPermanent) => {
+      if (p.controller !== you) return false;
+      const typeLine = (p.card as KnownCardRef)?.type_line?.toLowerCase() || '';
+      if (!typeLine.includes('creature')) return false;
+      
+      // Filter out creatures that cannot attack (summoning sickness without haste, or defender)
+      return canCreatureAttack(p);
+    });
   }, [safeView, you]);
 
   const attackingCreatures = useMemo(() => {
@@ -1830,7 +1951,6 @@ export function App() {
           hasPriority={safeView.priority === you}
           stackEmpty={!((safeView as any).stack?.length > 0)}
           onNextStep={() => socket.emit("nextStep", { gameId: safeView.id })}
-          onNextTurn={() => socket.emit("nextTurn", { gameId: safeView.id })}
           onPassPriority={() => socket.emit("passPriority", { gameId: safeView.id, by: you })}
         />
       )}
