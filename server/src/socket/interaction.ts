@@ -1449,8 +1449,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Use the game's selectFromLibrary function for supported destinations
     // This properly accesses the internal libraries Map
     if (moveTo === 'hand' || moveTo === 'graveyard' || moveTo === 'exile') {
-      // selectFromLibrary handles hand, graveyard, exile, battlefield
-      // For hand/graveyard/exile, it moves the card appropriately
+      // selectFromLibrary handles hand, graveyard, exile
       if (typeof game.selectFromLibrary === 'function') {
         const moved = game.selectFromLibrary(libraryOwner, selectedCardIds, moveTo as any);
         for (const card of moved) {
@@ -1464,49 +1463,17 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         });
         return;
       }
-    } else if (moveTo === 'battlefield') {
-      // For battlefield, we need to:
-      // 1. Get the cards from library using selectFromLibrary with 'battlefield' (returns card info)
-      // 2. Create permanents on the battlefield manually
-      if (typeof game.selectFromLibrary === 'function') {
-        const moved = game.selectFromLibrary(libraryOwner, selectedCardIds, 'battlefield' as any);
-        
-        // Get full card data from searchLibrary since selectFromLibrary returns minimal objects
-        const fullLibrary = typeof game.searchLibrary === 'function' 
-          ? game.searchLibrary(libraryOwner, "", 1000) 
-          : [];
-        const cardDataById = new Map<string, any>();
-        for (const card of fullLibrary) {
-          cardDataById.set(card.id, card);
-        }
-        
-        // Also search using the zone cards before they were removed
-        // Since we just called selectFromLibrary, we need to use the original search results
-        // Actually, we need to get card data BEFORE calling selectFromLibrary
-        // Let me restructure this
-      } else {
-        console.error('[librarySearchSelect] game.selectFromLibrary not available');
-      }
-    } else if (moveTo === 'top') {
-      // For 'top', we need to remove from library and put back on top
-      // Use applyScry pattern: remove cards, then put them back on top
-      // Since applyScry isn't directly usable here, we use selectFromLibrary
-      // and then manually handle putting back on top
+    } else if (moveTo === 'battlefield' || moveTo === 'top') {
+      // For 'battlefield' and 'top', we need special handling:
+      // - battlefield: selectFromLibrary returns minimal objects, need to get full card data first
+      // - top: use applyScry to reorder library and put cards on top
       
-      // This is tricky - selectFromLibrary removes the card, but we can't easily put it back on top
-      // without direct access to ctx.libraries
-      // As a workaround, let's use the search results we already have in the client
-    }
-    
-    // For 'battlefield' and 'top', we need a different approach
-    // Get full library data first, then process
-    if (moveTo === 'battlefield' || moveTo === 'top') {
-      // Get current library for card data lookup (before modifying)
+      // Get current library for card data lookup (BEFORE modifying)
       const libraryData = typeof game.searchLibrary === 'function' 
         ? game.searchLibrary(libraryOwner, "", 1000) 
         : [];
       
-      // Create a map of card data by ID
+      // Create a map of card data by ID for full card info
       const cardDataById = new Map<string, any>();
       for (const card of libraryData) {
         cardDataById.set(card.id, card);
@@ -1537,14 +1504,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             
             const isShockLand = SHOCK_LANDS.has(cardName);
             
-            // Lands from fetch searches typically enter tapped unless they're basic lands
-            // Check if this is a tap land (enters tapped) based on oracle text
+            // Check if this land enters tapped based on oracle text
             const oracleText = ((fullCard as any).oracle_text || "").toLowerCase();
-            const typeLine = ((fullCard as any).type_line || "").toLowerCase();
             
-            // Lands that always enter tapped
+            // Lands that always enter tapped (shock lands enter tapped by default, prompt for paying 2 life)
             const entersTapped = 
-              isShockLand || // Shock lands enter tapped by default (prompt for paying 2 life)
+              isShockLand ||
               (oracleText.includes('enters the battlefield tapped') && 
                !oracleText.includes('unless') && 
                !oracleText.includes('you may pay'));
@@ -1574,13 +1539,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               });
             }
           }
+        } else {
+          console.error('[librarySearchSelect] game.selectFromLibrary not available');
         }
-      } else if (moveTo === 'top') {
-        // For 'top', we use applyScry which can put cards on top of library
-        // First, get the cards we want to put on top
-        // applyScry expects: keepTopOrder (card IDs to put on top) and bottomOrder (to put on bottom)
+      } else {
+        // moveTo === 'top': use applyScry to put cards on top of library
         if (typeof game.applyScry === 'function') {
-          // Use applyScry with the selected cards going to top, nothing to bottom
           game.applyScry(libraryOwner, selectedCardIds, []);
           
           // Get card names from our lookup
@@ -1592,7 +1556,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           }
         } else {
           console.warn('[librarySearchSelect] game.applyScry not available for top destination');
-          // Fallback: just note that cards stay in library
+          // Fallback: just note that cards stay in library (but won't be properly on top)
           for (const cardId of selectedCardIds) {
             const card = cardDataById.get(cardId);
             if (card) {
