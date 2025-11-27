@@ -94,13 +94,17 @@ export interface ParsedMillEffect {
   readonly requiresTarget: boolean;
 }
 
+// Word to number mapping is now in shared/textUtils.ts
+// Import would be: import { parseNumberFromText } from '../../../shared/src/textUtils';
+// For now, we keep a local copy to avoid circular dependency issues with the rules engine
+
 /**
- * Word to number mapping for parsing
+ * Word to number mapping for parsing (local copy for rules-engine isolation)
  */
 const WORD_TO_NUMBER: Record<string, number> = {
   'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
   'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
-  'eleven': 11, 'twelve': 12, 'thirteen': 13,
+  'eleven': 11, 'twelve': 12, 'thirteen': 13, 'fourteen': 14, 'fifteen': 15,
   'a': 1, 'an': 1,
 };
 

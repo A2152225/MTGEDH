@@ -139,6 +139,8 @@ function parseManaProduction(text: string): string | null {
   return null;
 }
 
+import { parseNumberFromText } from '../../../shared/src/textUtils';
+
 /**
  * Parse mill effects from oracle text
  * Returns mill count and target type if this is a mill ability
@@ -157,18 +159,11 @@ function parseMillEffect(effectText: string): {
 } | null {
   const lower = effectText.toLowerCase();
   
-  // Word to number mapping
-  const wordToNum: Record<string, number> = {
-    'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
-    'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
-    'a': 1, 'an': 1,
-  };
-  
   // Pattern: "target player mills X cards" or "target player puts the top X cards...into...graveyard"
   const targetPlayerMillMatch = lower.match(/target\s+player\s+(?:mills?\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)|puts?\s+the\s+top\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?\s+.*(?:into|in)\s+(?:their|his or her)\s+graveyard)/i);
   if (targetPlayerMillMatch) {
     const numStr = targetPlayerMillMatch[1] || targetPlayerMillMatch[2];
-    const count = wordToNum[numStr.toLowerCase()] || parseInt(numStr, 10) || 1;
+    const count = parseNumberFromText(numStr);
     return { isMillAbility: true, millCount: count, millTargetType: 'player' };
   }
   
@@ -176,7 +171,7 @@ function parseMillEffect(effectText: string): {
   const targetOpponentMillMatch = lower.match(/target\s+opponent\s+mills?\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)/i);
   if (targetOpponentMillMatch) {
     const numStr = targetOpponentMillMatch[1];
-    const count = wordToNum[numStr.toLowerCase()] || parseInt(numStr, 10) || 1;
+    const count = parseNumberFromText(numStr);
     return { isMillAbility: true, millCount: count, millTargetType: 'opponent' };
   }
   
@@ -184,7 +179,7 @@ function parseMillEffect(effectText: string): {
   const eachPlayerMillMatch = lower.match(/each\s+(?:player|opponent)\s+mills?\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)/i);
   if (eachPlayerMillMatch) {
     const numStr = eachPlayerMillMatch[1];
-    const count = wordToNum[numStr.toLowerCase()] || parseInt(numStr, 10) || 1;
+    const count = parseNumberFromText(numStr);
     const targetType = lower.includes('each opponent') ? 'opponent' : 'any';
     return { isMillAbility: true, millCount: count, millTargetType: targetType };
   }
@@ -193,11 +188,34 @@ function parseMillEffect(effectText: string): {
   const selfMillMatch = lower.match(/(?:^|\.\s*|,\s*)(?:you\s+)?mills?\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?/i);
   if (selfMillMatch && !lower.includes('target')) {
     const numStr = selfMillMatch[1];
-    const count = wordToNum[numStr.toLowerCase()] || parseInt(numStr, 10) || 1;
+    const count = parseNumberFromText(numStr);
     return { isMillAbility: true, millCount: count, millTargetType: 'self' };
   }
   
   return null;
+}
+
+/**
+ * Check if a cost string indicates tapping the source permanent (vs. tapping other permanents)
+ * 
+ * Returns true for:
+ * - {T} symbol
+ * - "T" alone
+ * 
+ * Returns false for:
+ * - "Tap an untapped [Type]" - this is tapping other permanents
+ * - "Tap another" - this is tapping other permanents
+ */
+function isSelfTapCost(costStr: string): boolean {
+  const lower = costStr.toLowerCase();
+  
+  // These patterns indicate tapping OTHER permanents, not self
+  if (lower.includes('tap an untapped') || lower.includes('tap another')) {
+    return false;
+  }
+  
+  // Check for tap symbol
+  return lower.includes('{t}') || lower === 't';
 }
 
 /**
@@ -235,8 +253,8 @@ function parseCostComponents(costStr: string): {
 
   const lowerCost = costStr.toLowerCase();
   
-  // Check for tap symbol (but not "tap an untapped" pattern)
-  if ((lowerCost.includes('{t}') || lowerCost === 't') && !lowerCost.includes('tap an untapped') && !lowerCost.includes('tap another')) {
+  // Check for self-tap cost using the helper function
+  if (isSelfTapCost(costStr)) {
     result.requiresTap = true;
   }
   

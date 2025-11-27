@@ -1,5 +1,6 @@
 export * from "./types.js";
 export * from "./creatureTypes.js";
+export * from "./textUtils.js";
 export type { 
   ClientToServerEvents, 
   ServerToClientEvents, 
