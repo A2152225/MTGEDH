@@ -1,5 +1,8 @@
 import type { GameState, PlayerID, TargetRef, BattlefieldPermanent } from '../../../shared/src';
 
+// Re-export TargetRef for consumers of this module
+export type { TargetRef };
+
 // Spell spec derived heuristically from oracle text
 export type SpellOp =
   | 'DESTROY_TARGET' | 'EXILE_TARGET'
@@ -75,7 +78,9 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
   for (const p of state.battlefield) {
     if (spec.filter === 'CREATURE' && !isCreature(p)) continue;
     if (spec.filter === 'PLANESWALKER' && !isPlaneswalker(p)) continue;
+    // 'PERMANENT' filter allows any permanent; 'ANY' is for "any target" which only includes creatures/planeswalkers/players
     if (spec.filter === 'ANY' && !(isCreature(p) || isPlaneswalker(p))) continue;
+    // For 'PERMANENT' filter, all permanents are valid targets
     if (hasHexproofOrShroud(p, state) && p.controller !== caster) continue;
     out.push({ kind: 'permanent', id: p.id });
   }

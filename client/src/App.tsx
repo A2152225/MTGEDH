@@ -308,6 +308,10 @@ export function App() {
       return next;
     });
   }, []);
+  
+  // Track when PhaseNavigator is actively advancing through phases
+  // This prevents auto-advance from interfering with manual phase navigation
+  const [phaseNavigatorAdvancing, setPhaseNavigatorAdvancing] = useState(false);
 
   // Fetch saved decks when create game modal opens
   const refreshSavedDecks = React.useCallback(() => {
@@ -695,6 +699,9 @@ export function App() {
   // - Cleanup step (unless special abilities like Sundial of the Infinite)
   React.useEffect(() => {
     if (!autoAdvancePhases || !safeView || !you) return;
+    // Don't auto-advance if PhaseNavigator is actively advancing through phases
+    // This prevents interference when user clicks to advance to a specific phase
+    if (phaseNavigatorAdvancing) return;
     // Only auto-advance if it's our turn and we have priority
     if (safeView.priority !== you) return;
     if (safeView.turnPlayer !== you) return;
@@ -725,7 +732,7 @@ export function App() {
       }, 300);
       return () => clearTimeout(timer);
     }
-  }, [autoAdvancePhases, safeView, you]);
+  }, [autoAdvancePhases, safeView, you, phaseNavigatorAdvancing]);
 
   const canAdvanceStep = useMemo(() => {
     if (!safeView || !you) return false;
@@ -1969,6 +1976,7 @@ export function App() {
           stackEmpty={!((safeView as any).stack?.length > 0)}
           onNextStep={() => socket.emit("nextStep", { gameId: safeView.id })}
           onPassPriority={() => socket.emit("passPriority", { gameId: safeView.id, by: you })}
+          onAdvancingChange={setPhaseNavigatorAdvancing}
         />
       )}
 
