@@ -329,6 +329,8 @@ export function App() {
   // Track if we should prompt for deck import (for new players without a deck)
   const [showDeckImportPrompt, setShowDeckImportPrompt] = useState(false);
   const hasPromptedDeckImport = React.useRef(false);
+  // Track if we've already auto-skipped attackers for this combat step
+  const hasAutoSkippedAttackers = React.useRef<string | null>(null);
   // External control for deck manager visibility in TableLayout
   const [tableDeckMgrOpen, setTableDeckMgrOpen] = useState(false);
 
@@ -423,6 +425,7 @@ export function App() {
     const step = String((safeView as any).step || "").toLowerCase();
     const isYourTurn = safeView.turnPlayer === you;
     const stackLength = (safeView as any).stack?.length || 0;
+    const turnId = `${safeView.turn}-${step}`; // Unique ID for this combat step
     
     // Only show attacker modal on your turn during declare attackers step
     if (step === "declareattackers" || step === "declare_attackers") {
@@ -439,8 +442,9 @@ export function App() {
         
         if (validAttackers.length === 0) {
           // No valid attackers - auto-skip declare attackers
-          // Only skip if stack is empty (combat triggers have resolved)
-          if (stackLength === 0) {
+          // Only skip if stack is empty and we haven't already skipped for this step
+          if (stackLength === 0 && hasAutoSkippedAttackers.current !== turnId) {
+            hasAutoSkippedAttackers.current = turnId;
             socket.emit("skipDeclareAttackers", { gameId: safeView.id });
           }
           // Don't show the modal either way
@@ -464,6 +468,10 @@ export function App() {
     }
     else {
       setCombatModalOpen(false);
+      // Reset auto-skip tracker when we leave combat steps
+      if (hasAutoSkippedAttackers.current) {
+        hasAutoSkippedAttackers.current = null;
+      }
     }
   }, [safeView, you]);
 
@@ -751,20 +759,13 @@ export function App() {
     };
   }, [safeView?.id]);
 
-  // Request undo count periodically and on game state changes
+  // Request undo count on game state changes (no polling to reduce overhead)
   React.useEffect(() => {
     if (!safeView?.id) return;
     
     // Request undo count on game state change
     socket.emit("getUndoCount", { gameId: safeView.id });
-    
-    // Refresh every 10 seconds
-    const interval = setInterval(() => {
-      socket.emit("getUndoCount", { gameId: safeView.id });
-    }, 10000);
-
-    return () => clearInterval(interval);
-  }, [safeView?.id, safeView?.turn, safeView?.step]);
+  }, [safeView?.id, safeView?.turn, safeView?.step, safeView?.priority]);
 
   const isTable = layout === "table";
   const canPass = !!safeView && !!you && safeView.priority === you;
@@ -856,12 +857,13 @@ export function App() {
     return players.length > 0;
   }, [safeView]);
 
-  // Determine reason why phase advancement might be blocked
+  // Determine reason why phase advancement might be blocked (only during pregame)
   const phaseAdvanceBlockReason = useMemo(() => {
+    if (!isPreGame) return null; // Only block during pregame
     if (!allPlayersHaveDecks) return 'Waiting for all players to import decks';
     if (!allPlayersKeptHands) return 'Waiting for all players to keep hands';
     return null;
-  }, [allPlayersHaveDecks, allPlayersKeptHands]);
+  }, [isPreGame, allPlayersHaveDecks, allPlayersKeptHands]);
 
   // Auto-collapse join panel once you're an active player
   React.useEffect(() => {
@@ -916,6 +918,10 @@ export function App() {
     // Don't auto-advance if there's something on the stack
     if ((safeView as any).stack?.length > 0) return;
     
+    // Don't auto-advance during cleanup if we have pending discard selection
+    const isCleanup = step === 'cleanup' || phase.includes('cleanup');
+    if (isCleanup && pendingDiscardSelection && pendingDiscardSelection.count > 0) return;
+    
     // Phases/steps that can be auto-advanced:
     // - untap step (no player usually needs to respond)
     // - cleanup step (usually just pass unless special abilities like Sundial of the Infinite)
@@ -926,7 +932,7 @@ export function App() {
     const shouldAutoAdvance = 
       autoAdvanceableSteps.includes(step) ||
       phase.includes('untap') ||
-      phase.includes('cleanup');
+      isCleanup;
     
     if (shouldAutoAdvance) {
       // Small delay to allow any animations/updates
@@ -939,14 +945,14 @@ export function App() {
 
   const canAdvanceStep = useMemo(() => {
     if (!safeView || !you) return false;
-    // Must have all players ready before advancing
-    if (!allPlayersHaveDecks || !allPlayersKeptHands) return false;
+    // During pregame, must have all players ready before advancing
+    if (isPreGame && (!allPlayersHaveDecks || !allPlayersKeptHands)) return false;
     if (safeView.turnPlayer === you) return true;
     const phaseStr = String(safeView.phase || "").toUpperCase();
     if (phaseStr === "PRE_GAME" && safeView.players?.[0]?.id === you)
       return true;
     return false;
-  }, [safeView, you, allPlayersHaveDecks, allPlayersKeptHands]);
+  }, [safeView, you, isPreGame, allPlayersHaveDecks, allPlayersKeptHands]);
 
   const canAdvanceTurn = canAdvanceStep;
 

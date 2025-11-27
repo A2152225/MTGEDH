@@ -1447,30 +1447,32 @@ export function registerGameActions(io: Server, socket: Socket) {
         phaseStr === "pre_game" ||
         phaseStr.includes("BEGIN");
 
-      // Check that all players have imported their decks before allowing any phase advancement
-      const { allHaveDecks, waitingPlayers: deckWaiters } = checkAllPlayersHaveDecks(game);
-      if (!allHaveDecks && deckWaiters.length > 0) {
-        socket.emit("error", {
-          code: "PREGAME_DECKS_NOT_LOADED",
-          message: `Waiting for player(s) to import their deck: ${deckWaiters.join(", ")}`,
-        });
-        console.info(
-          `[nextTurn] rejected - not all players have decks (waiting: ${deckWaiters.join(", ")})`
-        );
-        return;
-      }
+      // During pre-game, check that all players have imported their decks
+      if (pregame) {
+        const { allHaveDecks, waitingPlayers: deckWaiters } = checkAllPlayersHaveDecks(game);
+        if (!allHaveDecks && deckWaiters.length > 0) {
+          socket.emit("error", {
+            code: "PREGAME_DECKS_NOT_LOADED",
+            message: `Waiting for player(s) to import their deck: ${deckWaiters.join(", ")}`,
+          });
+          console.info(
+            `[nextTurn] rejected - not all players have decks (waiting: ${deckWaiters.join(", ")})`
+          );
+          return;
+        }
 
-      // Check that all players have kept their hands before allowing transition
-      const { allKept, waitingPlayers } = checkAllPlayersKeptHands(game);
-      if (!allKept && waitingPlayers.length > 0) {
-        socket.emit("error", {
-          code: "PREGAME_HANDS_NOT_KEPT",
-          message: `Waiting for player(s) to keep their hand: ${waitingPlayers.join(", ")}`,
-        });
-        console.info(
-          `[nextTurn] rejected - not all players kept hands (waiting: ${waitingPlayers.join(", ")})`
-        );
-        return;
+        // Check that all players have kept their hands before allowing transition
+        const { allKept, waitingPlayers } = checkAllPlayersKeptHands(game);
+        if (!allKept && waitingPlayers.length > 0) {
+          socket.emit("error", {
+            code: "PREGAME_HANDS_NOT_KEPT",
+            message: `Waiting for player(s) to keep their hand: ${waitingPlayers.join(", ")}`,
+          });
+          console.info(
+            `[nextTurn] rejected - not all players kept hands (waiting: ${waitingPlayers.join(", ")})`
+          );
+          return;
+        }
       }
 
       const playersArr: any[] =
@@ -1631,30 +1633,32 @@ export function registerGameActions(io: Server, socket: Socket) {
         phaseStr === "pre_game" ||
         phaseStr.includes("BEGIN");
 
-      // Check that all players have imported their decks before allowing any phase advancement
-      const { allHaveDecks, waitingPlayers: deckWaiters } = checkAllPlayersHaveDecks(game);
-      if (!allHaveDecks && deckWaiters.length > 0) {
-        socket.emit("error", {
-          code: "PREGAME_DECKS_NOT_LOADED",
-          message: `Waiting for player(s) to import their deck: ${deckWaiters.join(", ")}`,
-        });
-        console.info(
-          `[nextStep] rejected - not all players have decks (waiting: ${deckWaiters.join(", ")})`
-        );
-        return;
-      }
+      // During pre-game, check that all players have imported their decks
+      if (pregame) {
+        const { allHaveDecks, waitingPlayers: deckWaiters } = checkAllPlayersHaveDecks(game);
+        if (!allHaveDecks && deckWaiters.length > 0) {
+          socket.emit("error", {
+            code: "PREGAME_DECKS_NOT_LOADED",
+            message: `Waiting for player(s) to import their deck: ${deckWaiters.join(", ")}`,
+          });
+          console.info(
+            `[nextStep] rejected - not all players have decks (waiting: ${deckWaiters.join(", ")})`
+          );
+          return;
+        }
 
-      // Check that all players have kept their hands before allowing transition
-      const { allKept, waitingPlayers } = checkAllPlayersKeptHands(game);
-      if (!allKept && waitingPlayers.length > 0) {
-        socket.emit("error", {
-          code: "PREGAME_HANDS_NOT_KEPT",
-          message: `Waiting for player(s) to keep their hand: ${waitingPlayers.join(", ")}`,
-        });
-        console.info(
-          `[nextStep] rejected - not all players kept hands (waiting: ${waitingPlayers.join(", ")})`
-        );
-        return;
+        // Check that all players have kept their hands before allowing transition
+        const { allKept, waitingPlayers } = checkAllPlayersKeptHands(game);
+        if (!allKept && waitingPlayers.length > 0) {
+          socket.emit("error", {
+            code: "PREGAME_HANDS_NOT_KEPT",
+            message: `Waiting for player(s) to keep their hand: ${waitingPlayers.join(", ")}`,
+          });
+          console.info(
+            `[nextStep] rejected - not all players kept hands (waiting: ${waitingPlayers.join(", ")})`
+          );
+          return;
+        }
       }
 
       const playersArr: any[] =
