@@ -29,6 +29,7 @@ import { TargetSelectionModal, type TargetOption } from "./components/TargetSele
 import { UndoRequestModal, type UndoRequestData } from "./components/UndoRequestModal";
 import { SplitCardChoiceModal, type CardFaceOption } from "./components/SplitCardChoiceModal";
 import { CreatureTypeSelectModal } from "./components/CreatureTypeSelectModal";
+import { AppearanceSettingsModal } from "./components/AppearanceSettingsModal";
 import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
 import { useGameSocket } from "./hooks/useGameSocket";
@@ -37,6 +38,11 @@ import { GameStatusIndicator } from "./components/GameStatusIndicator";
 import { CreateGameModal, type GameCreationConfig } from "./components/CreateGameModal";
 import { PhaseNavigator } from "./components/PhaseNavigator";
 import { DeckManagerModal } from "./components/DeckManagerModal";
+import {
+  type AppearanceSettings,
+  loadAppearanceSettings,
+  saveAppearanceSettings,
+} from "./utils/appearanceSettings";
 
 /** Map engine/internal phase enum to human-friendly name */
 function prettyPhase(phase?: string | null): string {
@@ -166,6 +172,19 @@ export function App() {
     () =>
       (localStorage.getItem("mtgedh:layout") as "rows" | "table") || "table"
   );
+
+  // Appearance settings state (cached in localStorage)
+  const [appearanceSettings, setAppearanceSettings] = useState<AppearanceSettings>(
+    () => loadAppearanceSettings()
+  );
+  const [appearanceModalOpen, setAppearanceModalOpen] = useState(false);
+
+  // Handle appearance settings update
+  const handleAppearanceSettingsApply = (settings: AppearanceSettings) => {
+    setAppearanceSettings(settings);
+    // Already saved in modal, but ensure sync
+    saveAppearanceSettings(settings);
+  };
 
   const [peek, setPeek] = useState<{
     mode: "scry" | "surveil";
@@ -1631,6 +1650,20 @@ export function App() {
                 >
                   Debug
                 </button>
+                <button
+                  onClick={() => setAppearanceModalOpen(true)}
+                  style={{
+                    backgroundColor: "#6366f1",
+                    color: "white",
+                    border: "none",
+                    borderRadius: 4,
+                    padding: "4px 12px",
+                    cursor: "pointer",
+                  }}
+                  title="Customize table and play area colors"
+                >
+                  🎨 Appearance
+                </button>
               </div>
 
               <div style={{ marginTop: 8 }}>
@@ -2060,6 +2093,7 @@ export function App() {
               enablePanZoom
               tableCloth={{ imageUrl: "" }}
               worldSize={12000}
+              appearanceSettings={appearanceSettings}
               onUpdatePermPos={(id, x, y, z) =>
                 safeView &&
                 socket.emit("updatePermanentPos", {
@@ -2483,6 +2517,13 @@ export function App() {
         gameId={undefined}
         canServer={false}
         wide
+      />
+
+      {/* Appearance Settings Modal */}
+      <AppearanceSettingsModal
+        open={appearanceModalOpen}
+        onClose={() => setAppearanceModalOpen(false)}
+        onApply={handleAppearanceSettingsApply}
       />
 
       {/* Combat Selection Modal */}

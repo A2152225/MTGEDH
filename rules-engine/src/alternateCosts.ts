@@ -297,7 +297,9 @@ export function applyCostReduction(
 ): ManaCost {
   const colors = ['white', 'blue', 'black', 'red', 'green'] as const;
   let excess = 0;
-  const result: Partial<ManaCost> = {};
+  
+  // Use mutable intermediate object for building the result
+  const result: { [key: string]: number } = {};
   
   // Apply reduction to each color, accumulating excess
   for (const color of colors) {

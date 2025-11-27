@@ -1,0 +1,262 @@
+/**
+ * Appearance settings for the game table and play areas.
+ * These settings are cached in localStorage for persistence across sessions.
+ */
+
+import type React from 'react';
+
+export interface AppearanceSettings {
+  // Table background (the outer area)
+  tableBackground: {
+    type: 'color' | 'image';
+    color: string;       // CSS color value
+    imageUrl: string;    // URL or empty string
+  };
+  // Play area background (the inner card play zones)
+  playAreaBackground: {
+    type: 'color' | 'image';
+    color: string;       // CSS color value
+    imageUrl: string;    // URL or empty string
+  };
+}
+
+// Default settings with improved contrast
+export const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {
+  tableBackground: {
+    type: 'color',
+    color: '#0a0a12', // Very dark blue-black
+    imageUrl: '',
+  },
+  playAreaBackground: {
+    type: 'color',
+    color: '#1a2540', // Dark blue with better contrast
+    imageUrl: '',
+  },
+};
+
+// Preset themes for quick selection
+export interface AppearancePreset {
+  name: string;
+  settings: AppearanceSettings;
+}
+
+export const APPEARANCE_PRESETS: AppearancePreset[] = [
+  {
+    name: 'Classic Dark',
+    settings: {
+      tableBackground: {
+        type: 'color',
+        color: '#0a0a12',
+        imageUrl: '',
+      },
+      playAreaBackground: {
+        type: 'color',
+        color: '#1a2540',
+        imageUrl: '',
+      },
+    },
+  },
+  {
+    name: 'Deep Purple',
+    settings: {
+      tableBackground: {
+        type: 'color',
+        color: '#0f0a1a',
+        imageUrl: '',
+      },
+      playAreaBackground: {
+        type: 'color',
+        color: '#2d1f47',
+        imageUrl: '',
+      },
+    },
+  },
+  {
+    name: 'Forest Green',
+    settings: {
+      tableBackground: {
+        type: 'color',
+        color: '#0a1008',
+        imageUrl: '',
+      },
+      playAreaBackground: {
+        type: 'color',
+        color: '#1a3020',
+        imageUrl: '',
+      },
+    },
+  },
+  {
+    name: 'Crimson Night',
+    settings: {
+      tableBackground: {
+        type: 'color',
+        color: '#120808',
+        imageUrl: '',
+      },
+      playAreaBackground: {
+        type: 'color',
+        color: '#3a1a1a',
+        imageUrl: '',
+      },
+    },
+  },
+  {
+    name: 'Ocean Blue',
+    settings: {
+      tableBackground: {
+        type: 'color',
+        color: '#050a14',
+        imageUrl: '',
+      },
+      playAreaBackground: {
+        type: 'color',
+        color: '#102840',
+        imageUrl: '',
+      },
+    },
+  },
+  {
+    name: 'High Contrast',
+    settings: {
+      tableBackground: {
+        type: 'color',
+        color: '#000000',
+        imageUrl: '',
+      },
+      playAreaBackground: {
+        type: 'color',
+        color: '#2a3a5a',
+        imageUrl: '',
+      },
+    },
+  },
+];
+
+const STORAGE_KEY = 'mtgedh:appearanceSettings';
+
+/**
+ * Load appearance settings from localStorage.
+ * Returns default settings if not found or invalid.
+ */
+export function loadAppearanceSettings(): AppearanceSettings {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      // Validate structure
+      if (
+        parsed &&
+        typeof parsed === 'object' &&
+        parsed.tableBackground &&
+        parsed.playAreaBackground
+      ) {
+        return {
+          tableBackground: {
+            type: parsed.tableBackground.type === 'image' ? 'image' : 'color',
+            color: typeof parsed.tableBackground.color === 'string' 
+              ? parsed.tableBackground.color 
+              : DEFAULT_APPEARANCE_SETTINGS.tableBackground.color,
+            imageUrl: typeof parsed.tableBackground.imageUrl === 'string' 
+              ? parsed.tableBackground.imageUrl 
+              : '',
+          },
+          playAreaBackground: {
+            type: parsed.playAreaBackground.type === 'image' ? 'image' : 'color',
+            color: typeof parsed.playAreaBackground.color === 'string' 
+              ? parsed.playAreaBackground.color 
+              : DEFAULT_APPEARANCE_SETTINGS.playAreaBackground.color,
+            imageUrl: typeof parsed.playAreaBackground.imageUrl === 'string' 
+              ? parsed.playAreaBackground.imageUrl 
+              : '',
+          },
+        };
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to load appearance settings from localStorage:', e);
+  }
+  return { ...DEFAULT_APPEARANCE_SETTINGS };
+}
+
+/**
+ * Save appearance settings to localStorage.
+ */
+export function saveAppearanceSettings(settings: AppearanceSettings): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+  } catch (e) {
+    console.warn('Failed to save appearance settings to localStorage:', e);
+  }
+}
+
+/**
+ * Generate CSS background style for a background setting.
+ */
+export function getBackgroundStyle(
+  bg: AppearanceSettings['tableBackground'] | AppearanceSettings['playAreaBackground']
+): React.CSSProperties {
+  if (bg.type === 'image' && bg.imageUrl) {
+    return {
+      backgroundImage: `url(${bg.imageUrl})`,
+      backgroundSize: 'cover',
+      backgroundRepeat: 'no-repeat',
+      backgroundPosition: 'center',
+    };
+  }
+  return {
+    background: bg.color,
+  };
+}
+
+/**
+ * Generate a gradient style for the play area (adds depth effect).
+ */
+export function getPlayAreaGradientStyle(
+  bg: AppearanceSettings['playAreaBackground']
+): React.CSSProperties {
+  if (bg.type === 'image' && bg.imageUrl) {
+    return {
+      backgroundImage: `url(${bg.imageUrl})`,
+      backgroundSize: 'cover',
+      backgroundRepeat: 'no-repeat',
+      backgroundPosition: 'center',
+    };
+  }
+  
+  // Create a radial gradient for depth effect
+  const baseColor = bg.color;
+  
+  // Parse the color to create lighter/darker variants
+  // For simplicity, we'll use the color as the center and darken edges
+  return {
+    background: `radial-gradient(ellipse at center, ${baseColor} 0%, ${adjustColor(baseColor, -20)} 50%, ${adjustColor(baseColor, -40)} 100%)`,
+  };
+}
+
+/**
+ * Adjust a hex color by a percentage.
+ * Positive amount = lighter, negative = darker.
+ */
+function adjustColor(color: string, amount: number): string {
+  // Handle hex colors
+  if (color.startsWith('#')) {
+    const hex = color.slice(1);
+    const num = parseInt(hex, 16);
+    
+    let r = (num >> 16) + amount;
+    let g = ((num >> 8) & 0x00FF) + amount;
+    let b = (num & 0x0000FF) + amount;
+    
+    r = Math.max(0, Math.min(255, r));
+    g = Math.max(0, Math.min(255, g));
+    b = Math.max(0, Math.min(255, b));
+    
+    return '#' + (
+      (1 << 24) + (r << 16) + (g << 8) + b
+    ).toString(16).slice(1);
+  }
+  
+  // For non-hex colors, return as-is
+  return color;
+}

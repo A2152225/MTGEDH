@@ -25,6 +25,8 @@ import { FreeField } from './FreeField';
 import { DeckManagerModal } from './DeckManagerModal';
 import { CentralStack } from './CentralStack';
 import { socket } from '../socket';
+import type { AppearanceSettings } from '../utils/appearanceSettings';
+import { getPlayAreaGradientStyle, getBackgroundStyle } from '../utils/appearanceSettings';
 
 function clamp(n: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, n)); }
 function isLandTypeLine(tl?: string) { return /\bland\b/i.test(tl || ''); }
@@ -201,6 +203,8 @@ export function TableLayout(props: {
   turnPlayer?: PlayerID | null;
   // Thousand-Year Elixir effect
   hasThousandYearElixirEffect?: boolean;
+  // Appearance customization
+  appearanceSettings?: AppearanceSettings;
 }) {
   const {
     players, permanentsByPlayer, imagePref, isYouPlayer,
@@ -220,6 +224,7 @@ export function TableLayout(props: {
     monarch, initiative, dayNight, cityBlessing,
     priority, phase, step, turnPlayer,
     hasThousandYearElixirEffect = false,
+    appearanceSettings,
   } = props;
 
   // Snapshot debug
@@ -574,11 +579,35 @@ export function TableLayout(props: {
     onLocalImportConfirmChange?.(false);
   };
 
-  // Play area background - deep blue-purple gradient for better visual distinction
-  // Changed from green to provide better contrast with cards and UI elements
-  const clothBg: React.CSSProperties = props.tableCloth?.imageUrl
-    ? { backgroundImage: `url(${props.tableCloth.imageUrl})`, backgroundSize: 'cover', backgroundRepeat: 'no-repeat', backgroundPosition: 'center' }
-    : { background: 'radial-gradient(ellipse at center, rgba(40,50,80,0.95) 0%, rgba(25,32,55,0.97) 50%, rgba(15,18,35,1) 100%)' };
+  // Play area background - uses appearance settings if provided
+  // Falls back to improved default with better contrast
+  const clothBg: React.CSSProperties = useMemo(() => {
+    if (appearanceSettings) {
+      return getPlayAreaGradientStyle(appearanceSettings.playAreaBackground);
+    }
+    // Legacy support for tableCloth prop
+    if (props.tableCloth?.imageUrl) {
+      return {
+        backgroundImage: `url(${props.tableCloth.imageUrl})`,
+        backgroundSize: 'cover',
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: 'center',
+      };
+    }
+    // Default improved gradient with better contrast
+    return {
+      background: 'radial-gradient(ellipse at center, #1a2540 0%, #121830 50%, #0a0f1f 100%)',
+    };
+  }, [appearanceSettings, props.tableCloth?.imageUrl]);
+
+  // Table background (outer container) - uses appearance settings if provided
+  const tableContainerBg: React.CSSProperties = useMemo(() => {
+    if (appearanceSettings) {
+      return getBackgroundStyle(appearanceSettings.tableBackground);
+    }
+    // Default dark background
+    return { background: '#0a0a12' };
+  }, [appearanceSettings]);
 
   // local chat input state for overlay
   const [chatText, setChatText] = useState("");
@@ -624,7 +653,7 @@ export function TableLayout(props: {
         width: '100%',
         height: '72vh',
         overflow: 'hidden',
-        background: '#0b0b0b',
+        ...tableContainerBg,
         border: '1px solid #222',
         borderRadius: 12,
         userSelect: 'none',
