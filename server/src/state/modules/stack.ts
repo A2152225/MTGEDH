@@ -169,7 +169,14 @@ export function resolveTopOfStack(ctx: GameContext) {
       card: { ...card, zone: "battlefield" },
     } as any);
     
-    console.log(`[resolveTopOfStack] Permanent ${card.name || 'unnamed'} entered battlefield under ${controller}${hasSummoningSickness ? ' (summoning sickness)' : hasHaste ? ' (haste)' : ''}`);
+    // Build a readable status message for logging
+    let statusNote = '';
+    if (hasSummoningSickness) {
+      statusNote = ' (summoning sickness)';
+    } else if (hasHaste) {
+      statusNote = ' (haste)';
+    }
+    console.log(`[resolveTopOfStack] Permanent ${card.name || 'unnamed'} entered battlefield under ${controller}${statusNote}`);
     
     // Recalculate player effects when permanents ETB (for Exploration, Font of Mythos, etc.)
     try {

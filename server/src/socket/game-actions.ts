@@ -901,7 +901,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           if (permIsCreature && (permanent as any).summoningSickness && !hasHaste) {
             socket.emit("error", {
               code: "SUMMONING_SICKNESS",
-              message: `${permCard.name || 'Creature'} has summoning sickness and cannot be tapped for mana this turn`,
+              message: `${permCard.name || 'Creature'} has summoning sickness and cannot use tap abilities this turn`,
             });
             return;
           }

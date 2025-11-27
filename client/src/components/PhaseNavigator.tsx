@@ -65,11 +65,21 @@ export function PhaseNavigator({
       if (saved) {
         const parsed = JSON.parse(saved);
         if (typeof parsed.x === 'number' && typeof parsed.y === 'number') {
-          return parsed;
+          // Validate saved position is still visible
+          const maxX = Math.max(0, window.innerWidth - 100);
+          const maxY = Math.max(0, window.innerHeight - 100);
+          return { 
+            x: Math.min(parsed.x, maxX), 
+            y: Math.min(parsed.y, maxY) 
+          };
         }
       }
     } catch { /* ignore */ }
-    return { x: window.innerWidth - 340, y: window.innerHeight - 340 };
+    // Default to bottom-right with safe margins
+    // Use percentage-based positioning that works on smaller screens
+    const defaultX = Math.max(20, window.innerWidth - 340);
+    const defaultY = Math.max(60, window.innerHeight - 340);
+    return { x: defaultX, y: defaultY };
   });
   const [isDragging, setIsDragging] = useState(false);
   const dragStartPos = useRef<{ x: number; y: number; startX: number; startY: number } | null>(null);
