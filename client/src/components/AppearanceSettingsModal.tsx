@@ -208,7 +208,7 @@ export function AppearanceSettingsModal({
           }}>
             {activeTab === 'table' 
               ? '🎴 The tablecloth area that surrounds all player boards'
-              : '🃏 The field section where each player\'s cards are displayed'}
+              : '🃏 The field section where player cards are displayed'}
           </div>
 
           {/* Settings Panel */}
