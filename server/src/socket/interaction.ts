@@ -1543,32 +1543,43 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           console.error('[librarySearchSelect] game.selectFromLibrary not available');
         }
       } else {
-        // moveTo === 'top': use applyScry to put cards on top of library
-        if (typeof game.applyScry === 'function') {
-          game.applyScry(libraryOwner, selectedCardIds, []);
+        // moveTo === 'top': For tutors that put card on top of library (e.g., Vampiric Tutor)
+        // Correct sequence: remove card → shuffle library → put card on top
+        // This ensures the rest of the library is properly randomized and hidden info is protected
+        
+        // Get full card data before any operations
+        const cardsToTop: any[] = [];
+        for (const cardId of selectedCardIds) {
+          const card = cardDataById.get(cardId);
+          if (card) {
+            movedCardNames.push((card as any).name || "Unknown");
+            cardsToTop.push({ ...card });
+          }
+        }
+        
+        if (typeof game.selectFromLibrary === 'function' && 
+            typeof game.shuffleLibrary === 'function' &&
+            typeof game.putCardsOnTopOfLibrary === 'function') {
+          // Step 1: Remove the selected cards from library
+          // Using 'battlefield' as destination just removes them without placing anywhere
+          game.selectFromLibrary(libraryOwner, selectedCardIds, 'battlefield' as any);
           
-          // Get card names from our lookup
-          for (const cardId of selectedCardIds) {
-            const card = cardDataById.get(cardId);
-            if (card) {
-              movedCardNames.push((card as any).name || "Unknown");
-            }
-          }
+          // Step 2: Shuffle the remaining library (this randomizes the order, protecting hidden info)
+          game.shuffleLibrary(libraryOwner);
+          
+          // Step 3: Put the saved cards on top of the library
+          game.putCardsOnTopOfLibrary(libraryOwner, cardsToTop);
+          
+          console.info('[librarySearchSelect] Cards put on top of library after shuffle:', 
+            cardsToTop.map(c => c.name).join(', '));
         } else {
-          console.warn('[librarySearchSelect] game.applyScry not available for top destination');
-          // Fallback: just note that cards stay in library (but won't be properly on top)
-          for (const cardId of selectedCardIds) {
-            const card = cardDataById.get(cardId);
-            if (card) {
-              movedCardNames.push((card as any).name || "Unknown");
-            }
-          }
+          console.warn('[librarySearchSelect] Required functions not available for top destination');
         }
       }
     }
     
     // Shuffle library after search (standard for tutors)
-    // EXCEPTION: Don't shuffle if moveTo === 'top' since that would defeat the purpose
+    // EXCEPTION: Don't shuffle if moveTo === 'top' since shuffling is handled specially above
     if (moveTo !== 'top' && typeof game.shuffleLibrary === "function") {
       game.shuffleLibrary(libraryOwner);
     }

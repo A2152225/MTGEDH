@@ -320,6 +320,92 @@ export function searchLibrary(ctx: GameContext, playerId: PlayerID, query: strin
   return res;
 }
 
+/**
+ * putCardsOnTopOfLibrary
+ * Adds card objects to the top of the player's library.
+ * Used for effects like "search your library, shuffle, then put the card on top"
+ * (e.g., Vampiric Tutor, Mystical Tutor).
+ * Also useful for Chaos Warp (shuffle permanent into library, then reveal top).
+ * 
+ * @param cards - Array of card objects to put on top (in order, first card will be on top)
+ */
+export function putCardsOnTopOfLibrary(ctx: GameContext, playerId: PlayerID, cards: any[]) {
+  if (!Array.isArray(cards) || cards.length === 0) return;
+  
+  const lib = ctx.libraries.get(playerId) || [];
+  
+  // Add cards to the top of the library (first card in array = top of library)
+  for (let i = cards.length - 1; i >= 0; i--) {
+    const card = cards[i];
+    lib.unshift({ ...card, zone: 'library' });
+  }
+  
+  ctx.libraries.set(playerId, lib);
+  
+  // Update library count
+  const zones = ctx.state.zones = ctx.state.zones || {};
+  const z = zones[playerId] || (zones[playerId] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 } as any);
+  z.libraryCount = lib.length;
+  
+  ctx.bumpSeq();
+}
+
+/**
+ * putCardsOnBottomOfLibrary
+ * Adds card objects to the bottom of the player's library.
+ * Used for effects like Condemn (put attacking creature on bottom of owner's library).
+ * 
+ * @param cards - Array of card objects to put on bottom
+ */
+export function putCardsOnBottomOfLibrary(ctx: GameContext, playerId: PlayerID, cards: any[]) {
+  if (!Array.isArray(cards) || cards.length === 0) return;
+  
+  const lib = ctx.libraries.get(playerId) || [];
+  
+  // Add cards to the bottom of the library
+  for (const card of cards) {
+    lib.push({ ...card, zone: 'library' });
+  }
+  
+  ctx.libraries.set(playerId, lib);
+  
+  // Update library count
+  const zones = ctx.state.zones = ctx.state.zones || {};
+  const z = zones[playerId] || (zones[playerId] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 } as any);
+  z.libraryCount = lib.length;
+  
+  ctx.bumpSeq();
+}
+
+/**
+ * putCardAtPositionInLibrary
+ * Inserts a card at a specific position in the player's library.
+ * Used for effects like Approach of the Second Sun (put 7th from top when cast from hand).
+ * 
+ * @param card - Card object to insert
+ * @param position - 0-indexed position from top (0 = top, 6 = 7th from top)
+ */
+export function putCardAtPositionInLibrary(ctx: GameContext, playerId: PlayerID, card: any, position: number) {
+  if (!card) return;
+  
+  const lib = ctx.libraries.get(playerId) || [];
+  
+  // Clamp position to valid range
+  const insertAt = Math.max(0, Math.min(position, lib.length));
+  
+  // Insert card at the specified position
+  lib.splice(insertAt, 0, { ...card, zone: 'library' });
+  
+  ctx.libraries.set(playerId, lib);
+  
+  // Update library count
+  const zones = ctx.state.zones = ctx.state.zones || {};
+  const z = zones[playerId] || (zones[playerId] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 } as any);
+  z.libraryCount = lib.length;
+  
+  ctx.bumpSeq();
+}
+
 /* ===== consistency helper (exported) ===== */
 
 export function reconcileZonesConsistency(ctx: GameContext, playerId?: PlayerID) {
@@ -452,6 +538,9 @@ export default {
   applyScry,
   applySurveil,
   searchLibrary,
+  putCardsOnTopOfLibrary,
+  putCardsOnBottomOfLibrary,
+  putCardAtPositionInLibrary,
   reconcileZonesConsistency,
   applyPreGameReset
 };
