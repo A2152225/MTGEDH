@@ -138,15 +138,19 @@ export function PhaseNavigator({
   // If jumping from pre-combat to post-combat, skip combat entirely without asking for attackers
   // This assumes player doesn't want to attack when they explicitly skip past combat
   const handlePhaseClick = useCallback(async (targetIndex: number) => {
+    // Early exit checks - but set isAdvancing first to prevent double-clicks
+    if (isAdvancing) return; // Already advancing, ignore click
     if (!canAdvance) return;
     if (targetIndex <= currentIndex) return; // Can't go backward
     
     const stepsToAdvance = targetIndex - currentIndex;
     if (stepsToAdvance <= 0) return;
     
+    // Immediately disable further clicks
+    setIsAdvancing(true);
+    
     // Get target phase info
     const targetPhase = PHASE_ORDER[targetIndex];
-    const currentPhaseInfo = PHASE_ORDER[currentIndex];
     
     // Check if we're jumping from before combat to after combat
     // If current is Main 1 (index 3) or earlier, and target is Main 2 (index 5) or later
@@ -158,7 +162,6 @@ export function PhaseNavigator({
     // If we're skipping over combat and have the skip-to-phase callback, use it
     // This allows jumping directly to the target phase without going through combat steps
     if (skippingOverCombat && onSkipToPhase) {
-      setIsAdvancing(true);
       try {
         const targetMapping = PHASE_STEP_MAP[targetPhase.id];
         if (targetMapping) {
@@ -173,13 +176,10 @@ export function PhaseNavigator({
           }
         }
       } finally {
-        setTimeout(() => setIsAdvancing(false), 200);
+        setTimeout(() => setIsAdvancing(false), 500);
       }
       return;
     }
-    
-    // Disable buttons while advancing
-    setIsAdvancing(true);
     
     try {
       // Advance step by step with delays
@@ -191,10 +191,11 @@ export function PhaseNavigator({
         }
       }
     } finally {
-      // Re-enable buttons after a short delay to let the final state settle
-      setTimeout(() => setIsAdvancing(false), 200);
+      // Re-enable buttons after a longer delay to let the final state settle
+      // This helps prevent accidental double-advances
+      setTimeout(() => setIsAdvancing(false), 500);
     }
-  }, [canAdvance, currentIndex, onNextStep, onSkipToPhase]);
+  }, [canAdvance, currentIndex, isAdvancing, onNextStep, onSkipToPhase]);
   
   // Drag handlers
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
