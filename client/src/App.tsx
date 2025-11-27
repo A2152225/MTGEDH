@@ -32,6 +32,7 @@ import { useGameSocket } from "./hooks/useGameSocket";
 import type { PaymentItem, ManaColor } from "../../shared/src";
 import { GameStatusIndicator } from "./components/GameStatusIndicator";
 import { CreateGameModal, type GameCreationConfig } from "./components/CreateGameModal";
+import { PhaseNavigator } from "./components/PhaseNavigator";
 
 /** Map engine/internal phase enum to human-friendly name */
 function prettyPhase(phase?: string | null): string {
@@ -1713,6 +1714,25 @@ export function App() {
       <div />
 
       <CardPreviewLayer />
+
+      {/* Phase Navigator - Floating component for quick phase navigation */}
+      {safeView && you && (
+        <PhaseNavigator
+          currentPhase={safeView.phase}
+          currentStep={safeView.step}
+          turnPlayer={safeView.turnPlayer}
+          you={you}
+          isYourTurn={safeView.turnPlayer === you}
+          hasPriority={safeView.priority === you}
+          stackEmpty={!(safeView as any).stack?.length}
+          onAdvanceToPhase={(targetPhase) => {
+            // This is handled internally by PhaseNavigator
+          }}
+          onNextStep={() => socket.emit("nextStep", { gameId: safeView.id })}
+          onNextTurn={() => socket.emit("nextTurn", { gameId: safeView.id })}
+          onPassPriority={() => socket.emit("passPriority", { gameId: safeView.id, by: you })}
+        />
+      )}
 
       {/* Commander selection UI */}
       {effectiveGameId &&
