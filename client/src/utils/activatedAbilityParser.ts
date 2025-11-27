@@ -365,12 +365,16 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
   // - "{2}, {T}, Sacrifice CARDNAME: Draw two cards." (common)
   // The pattern looks for text starting with { that contains : followed by effect text
   
+  // Pre-compile regex patterns for performance
+  const activatedAbilityPattern = /^(\{[^}]+\}(?:,?\s*\{[^}]+\})*(?:,?\s*(?:Sacrifice[^:]*|Pay[^:]*|Discard[^:]*|Exile[^:]*|Remove[^:]*|Tap[^:]*|Untap[^:]*))?)\s*:\s*(.+)$/i;
+  const triggeredAbilityPattern = /^(when|whenever|at)\b/i;
+  
   // Split oracle text by newlines and process each line/sentence
   const sentences = oracleText.split(/\n/);
   for (const sentence of sentences) {
     // Match pattern: starts with mana/tap costs, followed by colon, then effect
     // This pattern captures: {cost}{cost}... or {cost}, {cost}, ... : effect
-    const abilityMatch = sentence.match(/^(\{[^}]+\}(?:,?\s*\{[^}]+\})*(?:,?\s*(?:Sacrifice[^:]*|Pay[^:]*|Discard[^:]*|Exile[^:]*|Remove[^:]*|Tap[^:]*|Untap[^:]*))?)\s*:\s*(.+)$/i);
+    const abilityMatch = sentence.match(activatedAbilityPattern);
     
     if (abilityMatch) {
       const costPart = abilityMatch[1].trim();
@@ -380,7 +384,7 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
       if (!costPart) continue;
       
       // Skip if this looks like a triggered ability (starts with "when", "whenever", "at")
-      if (/^(when|whenever|at)\b/i.test(effectPart)) continue;
+      if (triggeredAbilityPattern.test(effectPart)) continue;
       
       // Skip if this is already captured (basic land mana, fetch, or planeswalker)
       if (abilities.some(a => a.effect.toLowerCase().includes(effectPart.toLowerCase().slice(0, 20)))) {
@@ -575,7 +579,14 @@ export function grantsHasteForTapAbilities(card: KnownCardRef): boolean {
   }
   
   // Check for "can be activated as though this creature has haste"
-  if (oracleText.includes('activated abilit') && 
+  if (oracleText.includes('activated abilities') && 
+      oracleText.includes('as though') &&
+      oracleText.includes('haste')) {
+    return true;
+  }
+  
+  // Also check for singular form
+  if (oracleText.includes('activated ability') && 
       oracleText.includes('as though') &&
       oracleText.includes('haste')) {
     return true;

@@ -11,6 +11,7 @@ import {
   type ParsedActivatedAbility,
   type ActivationContext,
 } from '../utils/activatedAbilityParser';
+import { KeywordHighlighter } from './KeywordHighlighter';
 
 export interface ActivatedAbilityButtonsProps {
   perm: BattlefieldPermanent;
@@ -28,6 +29,225 @@ export interface ActivatedAbilityButtonsProps {
   showOnHover?: boolean;
   maxVisible?: number;
   position?: 'left' | 'bottom';
+}
+
+/**
+ * Individual ability button component with hover state and keyword-highlighted tooltip
+ */
+function AbilityButton({
+  ability,
+  canActivate,
+  reason,
+  scale,
+  onActivate,
+}: {
+  ability: ParsedActivatedAbility;
+  canActivate: boolean;
+  reason?: string;
+  scale: number;
+  onActivate: () => void;
+}) {
+  const [isHovered, setIsHovered] = useState(false);
+  const [showTooltip, setShowTooltip] = useState(false);
+  
+  const icon = getAbilityIcon(ability);
+  const costText = formatAbilityCost(ability);
+  
+  // Color based on ability type
+  let bgColor = 'rgba(30, 41, 59, 0.95)';
+  let borderColor = 'rgba(100, 116, 139, 0.6)';
+  let accentColor = '#64748b';
+  
+  if (ability.isManaAbility) {
+    bgColor = 'rgba(16, 185, 129, 0.9)';
+    borderColor = 'rgba(52, 211, 153, 0.8)';
+    accentColor = '#10b981';
+  } else if (ability.isFetchAbility) {
+    bgColor = 'rgba(139, 92, 246, 0.9)';
+    borderColor = 'rgba(167, 139, 250, 0.8)';
+    accentColor = '#8b5cf6';
+  } else if (ability.isLoyaltyAbility) {
+    bgColor = 'rgba(168, 85, 247, 0.9)';
+    borderColor = 'rgba(192, 132, 252, 0.8)';
+    accentColor = '#a855f7';
+  } else if (ability.requiresSacrifice) {
+    bgColor = 'rgba(239, 68, 68, 0.9)';
+    borderColor = 'rgba(252, 165, 165, 0.8)';
+    accentColor = '#ef4444';
+  }
+  
+  if (!canActivate) {
+    bgColor = 'rgba(55, 65, 81, 0.8)';
+    borderColor = 'rgba(75, 85, 99, 0.6)';
+    accentColor = '#6b7280';
+  }
+  
+  return (
+    <div
+      style={{ position: 'relative', display: 'inline-block' }}
+      onMouseEnter={() => {
+        setIsHovered(true);
+        // Delay showing tooltip to avoid flashing
+        setTimeout(() => setShowTooltip(true), 200);
+      }}
+      onMouseLeave={() => {
+        setIsHovered(false);
+        setShowTooltip(false);
+      }}
+    >
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          if (canActivate) {
+            onActivate();
+          }
+        }}
+        disabled={!canActivate}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: Math.round(4 * scale),
+          padding: `${Math.round(4 * scale)}px ${Math.round(8 * scale)}px`,
+          background: bgColor,
+          border: `1px solid ${borderColor}`,
+          borderRadius: Math.round(6 * scale),
+          color: canActivate ? '#fff' : '#9ca3af',
+          fontSize: Math.round(10 * scale),
+          fontWeight: 500,
+          cursor: canActivate ? 'pointer' : 'not-allowed',
+          whiteSpace: 'nowrap',
+          boxShadow: canActivate && isHovered 
+            ? '0 4px 12px rgba(0,0,0,0.4)' 
+            : canActivate 
+              ? '0 2px 8px rgba(0,0,0,0.3)' 
+              : 'none',
+          transform: canActivate && isHovered ? 'scale(1.05)' : 'scale(1)',
+          transition: 'transform 0.1s ease, box-shadow 0.1s ease',
+          opacity: canActivate ? 1 : 0.6,
+          pointerEvents: 'auto',
+        }}
+      >
+        <span style={{ fontSize: Math.round(12 * scale) }}>{icon}</span>
+        <span style={{ 
+          maxWidth: Math.round(80 * scale),
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}>
+          {ability.label}
+        </span>
+      </button>
+      
+      {/* Enhanced tooltip with keyword highlighting */}
+      {isHovered && showTooltip && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: '100%',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            marginBottom: 8,
+            padding: '10px 14px',
+            background: 'rgba(15, 23, 42, 0.98)',
+            border: `1px solid ${accentColor}`,
+            borderRadius: 8,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+            zIndex: 1000,
+            whiteSpace: 'normal',
+            width: 'max-content',
+            maxWidth: 280,
+            textAlign: 'left',
+            pointerEvents: 'none',
+          }}
+        >
+          {/* Title */}
+          <div
+            style={{
+              fontSize: Math.round(11 * scale),
+              fontWeight: 700,
+              color: accentColor,
+              marginBottom: 6,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <span>{icon}</span>
+            <span>{ability.label}</span>
+          </div>
+          
+          {/* Cost */}
+          <div
+            style={{
+              fontSize: Math.round(9 * scale),
+              color: '#94a3b8',
+              marginBottom: 8,
+              padding: '4px 8px',
+              background: 'rgba(0,0,0,0.3)',
+              borderRadius: 4,
+              display: 'inline-block',
+            }}
+          >
+            Cost: {costText}
+          </div>
+          
+          {/* Description with keyword highlighting */}
+          <div style={{ marginTop: 4 }}>
+            <KeywordHighlighter
+              text={ability.description}
+              fontSize={Math.round(10 * scale)}
+              baseColor="#e2e8f0"
+            />
+          </div>
+          
+          {/* Reason why it can't be activated */}
+          {!canActivate && reason && (
+            <div
+              style={{
+                marginTop: 8,
+                padding: '4px 8px',
+                background: 'rgba(239, 68, 68, 0.2)',
+                border: '1px solid rgba(239, 68, 68, 0.4)',
+                borderRadius: 4,
+                fontSize: Math.round(9 * scale),
+                color: '#fca5a5',
+              }}
+            >
+              ⚠️ {reason}
+            </div>
+          )}
+          
+          {/* Timing restrictions */}
+          {ability.timingRestriction && (
+            <div
+              style={{
+                marginTop: 6,
+                fontSize: Math.round(8 * scale),
+                color: '#94a3b8',
+                fontStyle: 'italic',
+              }}
+            >
+              {ability.timingRestriction === 'sorcery' 
+                ? '⏱️ Activate only as a sorcery' 
+                : '⚡ Activate at instant speed'}
+            </div>
+          )}
+          
+          {ability.oncePerTurn && (
+            <div
+              style={{
+                marginTop: 4,
+                fontSize: Math.round(8 * scale),
+                color: '#94a3b8',
+                fontStyle: 'italic',
+              }}
+            >
+              🔄 Once per turn
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -233,89 +453,16 @@ export function ActivatedAbilityButtons({
       
       {/* Ability buttons container */}
       <div style={containerStyle}>
-        {visibleAbilities.map(({ ability, canActivate, reason }) => {
-          const icon = getAbilityIcon(ability);
-          const costText = formatAbilityCost(ability);
-          
-          // Color based on ability type
-          let bgColor = 'rgba(30, 41, 59, 0.95)';
-          let borderColor = 'rgba(100, 116, 139, 0.6)';
-          
-          if (ability.isManaAbility) {
-            bgColor = 'rgba(16, 185, 129, 0.9)';
-            borderColor = 'rgba(52, 211, 153, 0.8)';
-          } else if (ability.isFetchAbility) {
-            bgColor = 'rgba(139, 92, 246, 0.9)';
-            borderColor = 'rgba(167, 139, 250, 0.8)';
-          } else if (ability.isLoyaltyAbility) {
-            bgColor = 'rgba(168, 85, 247, 0.9)';
-            borderColor = 'rgba(192, 132, 252, 0.8)';
-          } else if (ability.requiresSacrifice) {
-            bgColor = 'rgba(239, 68, 68, 0.9)';
-            borderColor = 'rgba(252, 165, 165, 0.8)';
-          }
-          
-          if (!canActivate) {
-            bgColor = 'rgba(55, 65, 81, 0.8)';
-            borderColor = 'rgba(75, 85, 99, 0.6)';
-          }
-          
-          return (
-            <button
-              key={ability.id}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (canActivate) {
-                  handleActivate(ability);
-                }
-              }}
-              disabled={!canActivate}
-              title={canActivate 
-                ? `${ability.label}\n${ability.description}\nCost: ${costText}`
-                : `${ability.label}\n${reason || 'Cannot activate'}`
-              }
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: Math.round(4 * scale),
-                padding: `${Math.round(4 * scale)}px ${Math.round(8 * scale)}px`,
-                background: bgColor,
-                border: `1px solid ${borderColor}`,
-                borderRadius: Math.round(6 * scale),
-                color: canActivate ? '#fff' : '#9ca3af',
-                fontSize: Math.round(10 * scale),
-                fontWeight: 500,
-                cursor: canActivate ? 'pointer' : 'not-allowed',
-                whiteSpace: 'nowrap',
-                boxShadow: canActivate 
-                  ? '0 2px 8px rgba(0,0,0,0.3)' 
-                  : 'none',
-                transition: 'transform 0.1s ease, box-shadow 0.1s ease',
-                opacity: canActivate ? 1 : 0.6,
-                pointerEvents: 'auto',
-              }}
-              onMouseOver={(e) => {
-                if (canActivate) {
-                  e.currentTarget.style.transform = 'scale(1.05)';
-                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.4)';
-                }
-              }}
-              onMouseOut={(e) => {
-                e.currentTarget.style.transform = 'scale(1)';
-                e.currentTarget.style.boxShadow = canActivate ? '0 2px 8px rgba(0,0,0,0.3)' : 'none';
-              }}
-            >
-              <span style={{ fontSize: Math.round(12 * scale) }}>{icon}</span>
-              <span style={{ 
-                maxWidth: Math.round(80 * scale),
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}>
-                {ability.label}
-              </span>
-            </button>
-          );
-        })}
+        {visibleAbilities.map(({ ability, canActivate, reason }) => (
+          <AbilityButton
+            key={ability.id}
+            ability={ability}
+            canActivate={canActivate}
+            reason={reason}
+            scale={scale}
+            onActivate={() => handleActivate(ability)}
+          />
+        ))}
         
         {/* Show more button */}
         {hasMore && !expanded && (
