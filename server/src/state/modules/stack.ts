@@ -70,6 +70,16 @@ function creatureWillHaveHaste(
           return true;
         }
         
+        // Check for "activate abilities... as though... had haste" effects
+        // This covers Thousand-Year Elixir: "You may activate abilities of creatures 
+        // you control as though those creatures had haste."
+        if (grantorOracle.includes('as though') && 
+            grantorOracle.includes('had haste') &&
+            (grantorOracle.includes('creatures you control') || 
+             grantorOracle.includes('activate abilities'))) {
+          return true;
+        }
+        
         // Check for tribal haste grants (e.g., "Goblin creatures you control have haste")
         const creatureTypes = extractCreatureTypes(cardTypeLine);
         for (const creatureType of creatureTypes) {
