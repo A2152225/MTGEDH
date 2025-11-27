@@ -54,6 +54,8 @@ import {
   getActualMillCount,
   canFindMilledCard,
   createMillResult,
+  parseMillFromOracleText,
+  hasMillEffect,
 } from '../src/keywordActions';
 
 describe('Rule 701: Keyword Actions - Part 2', () => {
@@ -341,6 +343,80 @@ describe('Rule 701: Keyword Actions - Part 2', () => {
       expect(result.playerId).toBe('player1');
       expect(result.milledCards).toHaveLength(3);
       expect(result.destinationZone).toBe('graveyard');
+    });
+  });
+
+  describe('Rule 701.17: Mill Parsing', () => {
+    it('should parse "target player mills X cards" pattern', () => {
+      const result = parseMillFromOracleText('Target player mills three cards.');
+      
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe('mill');
+      expect(result?.count).toBe(3);
+      expect(result?.targetType).toBe('player');
+      expect(result?.requiresTarget).toBe(true);
+    });
+    
+    it('should parse "target opponent mills X cards" pattern', () => {
+      const result = parseMillFromOracleText('Target opponent mills two cards.');
+      
+      expect(result).not.toBeNull();
+      expect(result?.count).toBe(2);
+      expect(result?.targetType).toBe('opponent');
+      expect(result?.requiresTarget).toBe(true);
+    });
+    
+    it('should parse "each player mills X cards" pattern', () => {
+      const result = parseMillFromOracleText('Each player mills four cards.');
+      
+      expect(result).not.toBeNull();
+      expect(result?.count).toBe(4);
+      expect(result?.targetType).toBe('each');
+      expect(result?.requiresTarget).toBe(false);
+    });
+    
+    it('should parse "each opponent mills X cards" pattern', () => {
+      const result = parseMillFromOracleText('Each opponent mills five cards.');
+      
+      expect(result).not.toBeNull();
+      expect(result?.count).toBe(5);
+      expect(result?.targetType).toBe('each-opponent');
+      expect(result?.requiresTarget).toBe(false);
+    });
+    
+    it('should parse self-mill patterns', () => {
+      const result = parseMillFromOracleText('Mill three cards.');
+      
+      expect(result).not.toBeNull();
+      expect(result?.count).toBe(3);
+      expect(result?.targetType).toBe('self');
+      expect(result?.requiresTarget).toBe(false);
+    });
+    
+    it('should parse "you mill X cards" pattern', () => {
+      const result = parseMillFromOracleText('You mill two cards.');
+      
+      expect(result).not.toBeNull();
+      expect(result?.count).toBe(2);
+      expect(result?.targetType).toBe('self');
+    });
+    
+    it('should parse numeric counts', () => {
+      const result = parseMillFromOracleText('Target player mills 10 cards.');
+      
+      expect(result).not.toBeNull();
+      expect(result?.count).toBe(10);
+    });
+    
+    it('should detect mill effects with hasMillEffect', () => {
+      expect(hasMillEffect('Target player mills three cards.')).toBe(true);
+      expect(hasMillEffect('Draw a card.')).toBe(false);
+      expect(hasMillEffect('Each opponent mills two cards.')).toBe(true);
+    });
+    
+    it('should return null for non-mill text', () => {
+      expect(parseMillFromOracleText('Draw two cards.')).toBeNull();
+      expect(parseMillFromOracleText('Target creature gets +2/+2.')).toBeNull();
     });
   });
 });
