@@ -3,6 +3,8 @@
  * These settings are cached in localStorage for persistence across sessions.
  */
 
+import type React from 'react';
+
 export interface AppearanceSettings {
   // Table background (the outer area)
   tableBackground: {
