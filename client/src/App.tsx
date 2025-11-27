@@ -2685,8 +2685,8 @@ export function App() {
           }
         }}
         onCancel={() => {
-          // Can't cancel sacrifice - must select
-          // Show a warning instead
+          // Sacrifice is mandatory - inform the user they must select
+          alert("You must sacrifice a creature to this triggered ability.");
         }}
       />
 
