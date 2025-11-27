@@ -579,11 +579,11 @@ export function TableLayout(props: {
     onLocalImportConfirmChange?.(false);
   };
 
-  // Play area background - uses appearance settings if provided
-  // Falls back to improved default with better contrast
+  // Table surface background (the large "tablecloth" area behind all player boards)
+  // Uses tableBackground setting for the outer table surface
   const clothBg: React.CSSProperties = useMemo(() => {
     if (appearanceSettings) {
-      return getPlayAreaGradientStyle(appearanceSettings.playAreaBackground);
+      return getBackgroundStyle(appearanceSettings.tableBackground);
     }
     // Legacy support for tableCloth prop
     if (props.tableCloth?.imageUrl) {
@@ -594,19 +594,31 @@ export function TableLayout(props: {
         backgroundPosition: 'center',
       };
     }
-    // Default improved gradient with better contrast
+    // Default dark background for table surface
     return {
-      background: 'radial-gradient(ellipse at center, #1a2540 0%, #121830 50%, #0a0f1f 100%)',
+      background: '#0a0a12',
     };
   }, [appearanceSettings, props.tableCloth?.imageUrl]);
 
-  // Table background (outer container) - uses appearance settings if provided
+  // Table container background (outer viewport container)
   const tableContainerBg: React.CSSProperties = useMemo(() => {
     if (appearanceSettings) {
       return getBackgroundStyle(appearanceSettings.tableBackground);
     }
     // Default dark background
     return { background: '#0a0a12' };
+  }, [appearanceSettings]);
+
+  // Player board background (the individual field sections where each player's cards are)
+  // Uses playAreaBackground setting for per-player card areas
+  const playerBoardBg: React.CSSProperties = useMemo(() => {
+    if (appearanceSettings) {
+      return getPlayAreaGradientStyle(appearanceSettings.playAreaBackground);
+    }
+    // Default semi-transparent gradient overlay
+    return {
+      background: 'linear-gradient(145deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)',
+    };
   }, [appearanceSettings]);
 
   // local chat input state for overlay
@@ -738,7 +750,7 @@ export function TableLayout(props: {
                     <div
                       style={{
                         position: 'relative',
-                        background: 'linear-gradient(145deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)',
+                        ...playerBoardBg,
                         backdropFilter: 'blur(4px)',
                         borderRadius: 12,
                         padding: 12,
