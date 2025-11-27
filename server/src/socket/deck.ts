@@ -36,6 +36,17 @@ import {
 const MIN_PRECON_DECK_SIZE = 50;
 
 /**
+ * Generate a unique instance ID for a card to avoid duplicate ID issues
+ * when importing multiple copies of the same card (e.g., 12 Forests).
+ * The generated ID includes the original Scryfall ID for reference.
+ */
+function generateUniqueCardInstanceId(scryfallId: string): string {
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).substring(2, 8);
+  return `${scryfallId}_${timestamp}_${random}`;
+}
+
+/**
  * Deck socket handlers with:
  * - deck import resolution (batch + fallback)
  * - per-game per-player import buffer (_lastImportedDecks)
@@ -1099,8 +1110,9 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           }
           for (let i = 0; i < (count || 1); i++) {
             validationCards.push(c);
+            // Generate unique instance ID to avoid duplicate ID issues with multiple copies
             resolvedCards.push({
-              id: c.id,
+              id: generateUniqueCardInstanceId(c.id),
               name: c.name,
               type_line: c.type_line,
               oracle_text: c.oracle_text,
@@ -1119,8 +1131,9 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             const c = await fetchCardByExactNameStrict(name);
             for (let i = 0; i < (count || 1); i++) {
               validationCards.push(c);
+              // Generate unique instance ID to avoid duplicate ID issues with multiple copies
               resolvedCards.push({
-                id: c.id,
+                id: generateUniqueCardInstanceId(c.id),
                 name: c.name,
                 type_line: c.type_line,
                 oracle_text: c.oracle_text,
@@ -1716,7 +1729,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
               }
               for (let i = 0; i < (count || 1); i++) {
                 resolvedCards.push({
-                  id: c.id,
+                  id: generateUniqueCardInstanceId(c.id),
                   name: c.name,
                   type_line: c.type_line,
                   oracle_text: c.oracle_text,
@@ -1735,7 +1748,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
                 const c = await fetchCardByExactNameStrict(name);
                 for (let i = 0; i < (count || 1); i++) {
                   resolvedCards.push({
-                    id: c.id,
+                    id: generateUniqueCardInstanceId(c.id),
                     name: c.name,
                     type_line: c.type_line,
                     oracle_text: c.oracle_text,

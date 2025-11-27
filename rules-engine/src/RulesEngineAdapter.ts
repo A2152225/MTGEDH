@@ -218,7 +218,18 @@ export class RulesEngineAdapter {
    */
   private validateSpellCast(state: GameState, action: any): ActionValidation {
     // Check if player has priority
-    const activePlayer = state.players[state.priorityPlayerIndex];
+    // Handle undefined priorityPlayerIndex gracefully
+    if (state.priorityPlayerIndex === undefined || state.priorityPlayerIndex === null) {
+      // If no priority player set, allow the action (legacy fallback)
+      return { legal: true };
+    }
+    
+    const activePlayer = state.players?.[state.priorityPlayerIndex];
+    if (!activePlayer) {
+      // If player not found at index, allow the action (legacy fallback)
+      return { legal: true };
+    }
+    
     if (activePlayer.id !== action.playerId) {
       return {
         legal: false,

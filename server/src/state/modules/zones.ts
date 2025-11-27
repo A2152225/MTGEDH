@@ -13,6 +13,7 @@ import { uid } from "../utils.js";
 /**
  * importDeckResolved
  * Populate ctx.libraries[playerId] with resolved KnownCardRef objects.
+ * Clears all existing zones (hand, graveyard, exile, commander zone) for a clean import.
  */
 export function importDeckResolved(
   ctx: GameContext,
@@ -26,6 +27,35 @@ export function importDeckResolved(
 ) {
   const { libraries, state, bumpSeq } = ctx as any;
   const zones = state.zones = state.zones || {};
+  
+  // Clear all existing zones for this player to ensure clean deck import
+  // This prevents issues with loading a new deck over an existing one
+  zones[playerId] = {
+    hand: [],
+    handCount: 0,
+    libraryCount: 0,
+    graveyard: [],
+    graveyardCount: 0,
+    exile: [],
+    exileCount: 0,
+  };
+  
+  // Clear commander zone if it exists
+  if (state.commandZone && state.commandZone[playerId]) {
+    state.commandZone[playerId] = {
+      commanderIds: [],
+      commanderCards: [],
+    };
+  }
+  
+  // Clear battlefield of player's permanents
+  if (Array.isArray(state.battlefield)) {
+    state.battlefield = state.battlefield.filter((p: any) => 
+      p.controller !== playerId && p.owner !== playerId
+    );
+  }
+  
+  // Now import the new deck
   libraries.set(
     playerId,
     cards.map((c) => ({
@@ -43,7 +73,6 @@ export function importDeckResolved(
     }))
   );
   const libLen = libraries.get(playerId)?.length ?? 0;
-  zones[playerId] = zones[playerId] ?? { hand: [], handCount: 0, libraryCount: libLen, graveyard: [], graveyardCount: 0 } as any;
   zones[playerId]!.libraryCount = libLen;
   bumpSeq();
 }
