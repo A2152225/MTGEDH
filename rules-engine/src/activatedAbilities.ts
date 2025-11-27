@@ -496,25 +496,75 @@ function parseManaCostFromText(text: string): ManaCost {
 }
 
 /**
+ * Check if effect text produces mana
+ */
+function producesMana(effectText: string): boolean {
+  const text = effectText.toLowerCase();
+  
+  // Check for explicit mana symbols
+  if (text.includes('{w}') || text.includes('{u}') || text.includes('{b}') ||
+      text.includes('{r}') || text.includes('{g}') || text.includes('{c}')) {
+    return true;
+  }
+  
+  // Check for "mana of any color" or "one mana of any color" patterns
+  if (text.includes('mana of any color') || text.includes('any mana') ||
+      text.includes('one mana') || text.includes('two mana') ||
+      text.includes('mana of that color')) {
+    return true;
+  }
+  
+  // Check for basic "add mana" pattern
+  if (text.includes('add') && text.includes('mana')) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Check if effect text targets
+ */
+function hasTargeting(effectText: string): boolean {
+  const text = effectText.toLowerCase();
+  
+  // Check for explicit targeting
+  if (text.includes('target')) {
+    return true;
+  }
+  
+  // Check for implicit targeting patterns
+  if (text.includes('choose a') && (text.includes('creature') || text.includes('player'))) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
  * Analyze activated ability for special properties
  */
 function analyzeActivatedAbility(costText: string, effectText: string): ParsedActivatedAbility {
   const text = (costText + ' ' + effectText).toLowerCase();
   
-  const requiresTap = costText.includes('{t}') || costText.includes('tap');
-  const sorcerySpeed = effectText.includes('activate only as a sorcery') || 
-                       effectText.includes('only any time you could cast a sorcery');
-  const oncePerTurn = effectText.includes('activate only once') || 
-                      effectText.includes('activate this ability only once');
+  const requiresTap = costText.toLowerCase().includes('{t}') || 
+                      (costText.toLowerCase().includes('tap') && !costText.toLowerCase().includes('untap'));
+  const sorcerySpeed = effectText.toLowerCase().includes('activate only as a sorcery') || 
+                       effectText.toLowerCase().includes('only any time you could cast a sorcery');
+  const oncePerTurn = effectText.toLowerCase().includes('activate only once') || 
+                      effectText.toLowerCase().includes('activate this ability only once');
   
   // Check if this is a mana ability
-  // Mana abilities: add mana, don't target, don't use stack
-  const isManaAbility = (effectText.includes('add') && 
-                         (effectText.includes('{w}') || effectText.includes('{u}') ||
-                          effectText.includes('{b}') || effectText.includes('{r}') ||
-                          effectText.includes('{g}') || effectText.includes('{c}') ||
-                          effectText.includes('mana'))) &&
-                        !effectText.includes('target');
+  // Mana abilities: 
+  // 1. Must produce mana
+  // 2. Cannot target (Rule 605.1b)
+  // 3. Cannot be a loyalty ability (Rule 605.1a)
+  const addsMana = effectText.toLowerCase().includes('add') && producesMana(effectText);
+  const hasTarget = hasTargeting(effectText);
+  const isLoyalty = costText.includes('+') || costText.includes('−') || 
+                    /^[-+]?\d+$/.test(costText.trim());
+  
+  const isManaAbility = addsMana && !hasTarget && !isLoyalty;
   
   return {
     costs: [], // Will be filled by parseCostComponents
@@ -540,9 +590,19 @@ export function hasTapAbility(oracleText: string): boolean {
  */
 export function hasManaAbility(oracleText: string): boolean {
   const text = oracleText.toLowerCase();
-  return text.includes('add {') && 
-         text.includes(':') &&
-         !text.includes('target');
+  
+  // Must have a colon (activated ability format)
+  if (!text.includes(':')) return false;
+  
+  // Must not target
+  if (text.includes('target')) return false;
+  
+  // Check for mana production
+  if (text.includes('add {')) return true;
+  if (text.includes('add') && text.includes('mana')) return true;
+  if (text.includes('mana of any color')) return true;
+  
+  return false;
 }
 
 /**

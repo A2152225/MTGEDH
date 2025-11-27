@@ -757,8 +757,24 @@ function detectEventFromCondition(condition: string): { event: TriggerEvent; fil
     return { event: TriggerEvent.TARGETED };
   }
   
-  // Default to ETB if can't determine
-  return { event: TriggerEvent.ENTERS_BATTLEFIELD };
+  // Leaves/left battlefield triggers
+  if (text.includes('leaves the battlefield') || text.includes('left the battlefield')) {
+    return { event: TriggerEvent.LEAVES_BATTLEFIELD };
+  }
+  
+  // Return to hand triggers
+  if (text.includes('returned to') && text.includes('hand')) {
+    return { event: TriggerEvent.RETURNED_TO_HAND };
+  }
+  
+  // Generic ETB trigger if "enters" is in the text
+  if (text.includes('enters')) {
+    return { event: TriggerEvent.ENTERS_BATTLEFIELD };
+  }
+  
+  // For unrecognized patterns, return a custom event to avoid false matches
+  // Callers should handle CUSTOM events appropriately
+  return { event: TriggerEvent.ENTERS_BATTLEFIELD, filter: 'unknown_trigger_pattern' };
 }
 
 /**

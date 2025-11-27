@@ -107,9 +107,8 @@ describe('Activated Ability Parsing', () => {
     });
     
     it('should detect mana ability with any mana', () => {
-      // The hasManaAbility function checks for "{" after "add", which "any color" doesn't have
-      // This is a known limitation - it works with mana symbols
-      expect(hasManaAbility('{T}: Add {R} or {G}.')).toBe(true);
+      // The hasManaAbility now handles "mana of any color" pattern
+      expect(hasManaAbility('{T}: Add one mana of any color.')).toBe(true);
     });
     
     it('should not detect abilities with target', () => {
