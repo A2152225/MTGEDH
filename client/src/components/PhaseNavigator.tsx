@@ -21,6 +21,8 @@ interface PhaseNavigatorProps {
   isYourTurn: boolean;
   hasPriority: boolean;
   stackEmpty: boolean;
+  allPlayersReady?: boolean; // True if all players have decks and kept hands
+  phaseAdvanceBlockReason?: string | null; // Reason why advancing is blocked
   onNextStep: () => void;
   onPassPriority: () => void;
   onAdvancingChange?: (isAdvancing: boolean) => void;
@@ -61,6 +63,8 @@ export function PhaseNavigator({
   isYourTurn,
   hasPriority,
   stackEmpty,
+  allPlayersReady = true,
+  phaseAdvanceBlockReason,
   onNextStep,
   onPassPriority,
   onAdvancingChange,
@@ -127,8 +131,8 @@ export function PhaseNavigator({
     return false;
   });
   
-  // Can only advance if it's your turn, stack is empty, and we're not already advancing
-  const canAdvance = isYourTurn && stackEmpty && !isAdvancing;
+  // Can only advance if it's your turn, stack is empty, not already advancing, and all players ready
+  const canAdvance = isYourTurn && stackEmpty && !isAdvancing && allPlayersReady;
   
   // Handle clicking on a phase to advance to it
   // If jumping from pre-combat to post-combat, skip combat entirely without asking for attackers
@@ -473,8 +477,23 @@ export function PhaseNavigator({
         </div>
       )}
       
+      {/* Status hint - blocked by players not ready */}
+      {phaseAdvanceBlockReason && (
+        <div style={{ 
+          marginTop: 8, 
+          fontSize: 10, 
+          color: '#fbbf24',
+          textAlign: 'center',
+          padding: '4px 8px',
+          background: 'rgba(251, 191, 36, 0.1)',
+          borderRadius: 4,
+        }}>
+          ⚠️ {phaseAdvanceBlockReason}
+        </div>
+      )}
+      
       {/* Status hint */}
-      {!isYourTurn && (
+      {!isYourTurn && !phaseAdvanceBlockReason && (
         <div style={{ 
           marginTop: 8, 
           fontSize: 10, 
