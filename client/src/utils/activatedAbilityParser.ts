@@ -357,70 +357,107 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
   }
   
   // ======== GENERAL ACTIVATED ABILITIES ========
-  // Parse "{cost}: {effect}" patterns from oracle text
-  // This regex matches activated ability patterns
-  const activatedPattern = /(?:^|\n)(\{[^}:]+\}(?:,?\s*\{[^}:]+\})*(?:,?\s*[^:]+)?)\s*:\s*([^.]+(?:\.[^:]*)?)/gi;
+  // Parse "{cost}, {cost}: {effect}" patterns from oracle text
+  // Standard MTG activated ability format: costs separated by commas, then colon, then effect
+  // Examples:
+  // - "{4}, {T}: Target creature can't be blocked this turn." (Rogue's Passage)
+  // - "{T}: Add {C}." (Wastes)
+  // - "{2}, {T}, Sacrifice CARDNAME: Draw two cards." (common)
+  // The pattern looks for text starting with { that contains : followed by effect text
   
-  let match;
-  while ((match = activatedPattern.exec(oracleText)) !== null) {
-    const costPart = match[1].trim();
-    const effectPart = match[2].trim();
+  // Split oracle text by newlines and process each line/sentence
+  const sentences = oracleText.split(/\n/);
+  for (const sentence of sentences) {
+    // Match pattern: starts with mana/tap costs, followed by colon, then effect
+    // This pattern captures: {cost}{cost}... or {cost}, {cost}, ... : effect
+    const abilityMatch = sentence.match(/^(\{[^}]+\}(?:,?\s*\{[^}]+\})*(?:,?\s*(?:Sacrifice[^:]*|Pay[^:]*|Discard[^:]*|Exile[^:]*|Remove[^:]*|Tap[^:]*|Untap[^:]*))?)\s*:\s*(.+)$/i);
     
-    // Skip if this is already captured (basic land mana, fetch, or planeswalker)
-    if (abilities.some(a => a.effect.toLowerCase().includes(effectPart.toLowerCase().slice(0, 20)))) {
-      continue;
-    }
-    
-    const costComponents = parseCostComponents(costPart);
-    const manaProduced = parseManaProduction(effectPart);
-    const isManaAbility = !!manaProduced && !effectPart.toLowerCase().includes('target');
-    
-    // Determine if this requires a target
-    const requiresTarget = /\btarget\b/i.test(effectPart);
-    let targetDescription: string | undefined;
-    if (requiresTarget) {
-      const targetMatch = effectPart.match(/target\s+([^.]+)/i);
-      if (targetMatch) {
-        targetDescription = targetMatch[1].trim();
+    if (abilityMatch) {
+      const costPart = abilityMatch[1].trim();
+      const effectPart = abilityMatch[2].trim();
+      
+      // Skip if cost is empty or just whitespace
+      if (!costPart) continue;
+      
+      // Skip if this looks like a triggered ability (starts with "when", "whenever", "at")
+      if (/^(when|whenever|at)\b/i.test(effectPart)) continue;
+      
+      // Skip if this is already captured (basic land mana, fetch, or planeswalker)
+      if (abilities.some(a => a.effect.toLowerCase().includes(effectPart.toLowerCase().slice(0, 20)))) {
+        continue;
       }
+      
+      const costComponents = parseCostComponents(costPart);
+      const manaProduced = parseManaProduction(effectPart);
+      const isManaAbility = !!manaProduced && !effectPart.toLowerCase().includes('target');
+      
+      // Determine if this requires a target
+      const requiresTarget = /\btarget\b/i.test(effectPart);
+      let targetDescription: string | undefined;
+      if (requiresTarget) {
+        const targetMatch = effectPart.match(/target\s+([^.]+)/i);
+        if (targetMatch) {
+          targetDescription = targetMatch[1].trim();
+        }
+      }
+      
+      // Check for timing restrictions in the full oracle text
+      let timingRestriction: 'sorcery' | 'instant' | undefined;
+      if (/activate\s+(?:this\s+ability\s+)?(?:only\s+)?(?:as\s+a\s+)?sorcery/i.test(oracleText)) {
+        timingRestriction = 'sorcery';
+      }
+      
+      // Check for once per turn
+      const oncePerTurn = /activate\s+(?:this\s+ability\s+)?only\s+once\s+(?:each|per)\s+turn/i.test(oracleText);
+      
+      // Create a label - make it more descriptive
+      let label: string;
+      if (isManaAbility) {
+        label = `Add ${manaProduced}`;
+      } else if (costComponents.requiresSacrifice) {
+        // Try to get a better label from the effect
+        const shortEffect = effectPart.split('.')[0];
+        if (shortEffect.length <= 30) {
+          label = shortEffect;
+        } else {
+          label = 'Sacrifice: ' + shortEffect.split(' ').slice(0, 2).join(' ') + '...';
+        }
+      } else if (requiresTarget) {
+        // For targeting abilities, show what it does
+        const shortEffect = effectPart.split('.')[0];
+        if (shortEffect.length <= 30) {
+          label = shortEffect;
+        } else {
+          label = targetDescription 
+            ? `Target ${targetDescription.split(' ').slice(0, 2).join(' ')}...` 
+            : 'Target';
+        }
+      } else {
+        // Get first sentence or first few words
+        const shortEffect = effectPart.split('.')[0];
+        if (shortEffect.length <= 30) {
+          label = shortEffect;
+        } else {
+          label = effectPart.split(' ').slice(0, 4).join(' ') + '...';
+        }
+      }
+      
+      abilities.push({
+        id: `${card.id}-ability-${abilityIndex++}`,
+        label,
+        description: effectPart.length > 100 ? effectPart.slice(0, 97) + '...' : effectPart,
+        cost: costPart,
+        effect: effectPart,
+        ...costComponents,
+        isManaAbility,
+        isLoyaltyAbility: false,
+        isFetchAbility: false,
+        timingRestriction,
+        oncePerTurn,
+        requiresTarget,
+        targetDescription,
+      });
     }
-    
-    // Check for timing restrictions
-    let timingRestriction: 'sorcery' | 'instant' | undefined;
-    if (/activate\s+(?:this\s+ability\s+)?(?:only\s+)?(?:as\s+a\s+)?sorcery/i.test(oracleText)) {
-      timingRestriction = 'sorcery';
-    }
-    
-    // Check for once per turn
-    const oncePerTurn = /activate\s+(?:this\s+ability\s+)?only\s+once\s+(?:each|per)\s+turn/i.test(oracleText);
-    
-    // Create a label
-    let label: string;
-    if (isManaAbility) {
-      label = `Add ${manaProduced}`;
-    } else if (costComponents.requiresSacrifice) {
-      label = 'Sacrifice';
-    } else if (requiresTarget) {
-      label = targetDescription ? `Target ${targetDescription.split(' ').slice(0, 2).join(' ')}...` : 'Target';
-    } else {
-      label = effectPart.split(' ').slice(0, 3).join(' ') + (effectPart.split(' ').length > 3 ? '...' : '');
-    }
-    
-    abilities.push({
-      id: `${card.id}-ability-${abilityIndex++}`,
-      label,
-      description: effectPart.length > 80 ? effectPart.slice(0, 77) + '...' : effectPart,
-      cost: costPart,
-      effect: effectPart,
-      ...costComponents,
-      isManaAbility,
-      isLoyaltyAbility: false,
-      isFetchAbility: false,
-      timingRestriction,
-      oncePerTurn,
-      requiresTarget,
-      targetDescription,
-    });
   }
   
   // ======== "TAP: ADD" PATTERN (simpler mana abilities) ========
