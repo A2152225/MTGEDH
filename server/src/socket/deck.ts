@@ -1036,11 +1036,14 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           effectiveList = moxfieldDeck.cards.map(c => `${c.count} ${c.name}`).join('\n');
           effectiveDeckName = deckName || moxfieldDeck.name;
           
+          // Calculate total card count (not just unique cards)
+          const totalCardCount = moxfieldDeck.cards.reduce((sum, c) => sum + c.count, 0);
+          
           io.to(gameId).emit("chat", {
             id: `m_${Date.now()}`,
             gameId,
             from: "system",
-            message: `📦 Found deck "${moxfieldDeck.name}" with ${moxfieldDeck.cards.length} cards (Commanders: ${moxfieldDeck.commanders.join(', ')})`,
+            message: `📦 Found deck "${moxfieldDeck.name}" with ${totalCardCount} cards (${moxfieldDeck.cards.length} unique) (Commanders: ${moxfieldDeck.commanders.join(', ')})`,
             ts: Date.now(),
           });
         } catch (err) {

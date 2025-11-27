@@ -1,5 +1,5 @@
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction } from "./util";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem } from "../../../shared/src";
@@ -935,7 +935,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         const globalBattlefield = game.state?.battlefield || [];
         
         // Process each payment item: tap the permanent and add mana to pool
-        for (const { permanentId, mana } of payment) {
+        for (const { permanentId, mana, count } of payment) {
           const permanent = globalBattlefield.find((p: any) => p?.id === permanentId && p?.controller === playerId);
           
           if (!permanent) {
@@ -987,10 +987,37 @@ export function registerGameActions(io: Server, socket: Socket) {
             'C': 'colorless',
           };
           
+          // Calculate actual mana production considering:
+          // - Fixed multi-mana (Sol Ring: {C}{C})
+          // - Dynamic mana (Gaea's Cradle, Wirewood Channeler)
+          // - Land enchantments (Wild Growth, Overgrowth)
+          // - Global effects (Caged Sun, Mana Reflection, Mirari's Wake)
+          let manaAmount: number;
+          
+          if (count !== undefined && count !== null) {
+            // Client provided explicit count - use it
+            manaAmount = count;
+          } else {
+            // Calculate dynamically based on game state
+            const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana);
+            manaAmount = manaInfo.totalAmount;
+            
+            // If there are bonus mana of different colors, add those too
+            for (const bonus of manaInfo.bonusMana) {
+              if (bonus.color !== mana && bonus.amount > 0) {
+                const bonusPoolKey = manaColorMap[bonus.color];
+                if (bonusPoolKey) {
+                  (game.state.manaPool[playerId] as any)[bonusPoolKey] += bonus.amount;
+                  console.log(`[castSpellFromHand] Added ${bonus.amount} ${bonus.color} bonus mana from enchantments/effects`);
+                }
+              }
+            }
+          }
+          
           const poolKey = manaColorMap[mana];
-          if (poolKey) {
-            (game.state.manaPool[playerId] as any)[poolKey]++;
-            console.log(`[castSpellFromHand] Added ${mana} mana to ${playerId}'s pool from ${(permanent as any).card?.name || permanentId}`);
+          if (poolKey && manaAmount > 0) {
+            (game.state.manaPool[playerId] as any)[poolKey] += manaAmount;
+            console.log(`[castSpellFromHand] Added ${manaAmount} ${mana} mana to ${playerId}'s pool from ${(permanent as any).card?.name || permanentId}`);
           }
         }
       }
@@ -2086,18 +2113,22 @@ export function registerGameActions(io: Server, socket: Socket) {
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
-      // Check if we're in PRE_GAME phase
-      const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
-      if (phaseStr !== "" && phaseStr !== "PRE_GAME") {
+      // Allow keeping hand even if we've moved past PRE_GAME
+      // This is needed because players might need to keep their hand after the game advances
+      // (e.g., if the game moves to UNTAP before all hands are kept)
+      const mulliganState = (game.state as any).mulliganState?.[playerId];
+      
+      // Check if player has already kept their hand
+      if (mulliganState?.hasKeptHand) {
         socket.emit("error", {
-          code: "NOT_PREGAME",
-          message: "Can only keep hand during pre-game",
+          code: "ALREADY_KEPT",
+          message: "You have already kept your hand",
         });
         return;
       }
 
       // Get current mulligan count
-      const mulligansTaken = (game.state as any).mulliganState?.[playerId]?.mulligansTaken || 0;
+      const mulligansTaken = mulliganState?.mulligansTaken || 0;
 
       // Track mulligan state - mark as pending bottom selection if mulligans were taken
       game.state = (game.state || {}) as any;
@@ -2517,6 +2548,285 @@ export function registerGameActions(io: Server, socket: Socket) {
       console.error(`cleanupDiscard error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "CLEANUP_DISCARD_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
+
+  // ============================================================================
+  // Life Total Adjustment
+  // ============================================================================
+
+  /**
+   * Adjust a player's life total by a delta (positive for gain, negative for loss)
+   */
+  socket.on("adjustLife", ({ gameId, delta, targetPlayerId }: { 
+    gameId: string; 
+    delta: number; 
+    targetPlayerId?: string;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId || socket.data.spectator) return;
+
+      // Target player defaults to the acting player
+      const targetPid = targetPlayerId || playerId;
+
+      // Ensure life object exists
+      if (!game.state.life) {
+        game.state.life = {};
+      }
+
+      // Get current life (default to starting life)
+      const startingLife = (game.state as any).startingLife ?? 40;
+      const currentLife = (game.state.life as any)[targetPid] ?? startingLife;
+      const newLife = currentLife + delta;
+
+      // Update life total
+      (game.state.life as any)[targetPid] = newLife;
+
+      // Also update the ctx.life if it exists (for compatibility with modules)
+      if ((game as any).life) {
+        (game as any).life[targetPid] = newLife;
+      }
+
+      // Bump sequence
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+
+      // Persist the event
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, "adjustLife", { 
+          playerId: targetPid, 
+          delta,
+          oldLife: currentLife,
+          newLife,
+          by: playerId,
+        });
+      } catch (e) {
+        console.warn("appendEvent(adjustLife) failed:", e);
+      }
+
+      // Emit chat message
+      const actionType = delta > 0 ? "gained" : "lost";
+      const actionAmount = Math.abs(delta);
+      const targetName = getPlayerName(game, targetPid);
+      const isOwnLife = targetPid === playerId;
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${targetName} ${actionType} ${actionAmount} life. (${currentLife} → ${newLife})`,
+        ts: Date.now(),
+      });
+
+      console.log(`[adjustLife] ${targetName} ${actionType} ${actionAmount} life (${currentLife} → ${newLife}) in game ${gameId}`);
+
+      broadcastGame(io, game, gameId);
+    } catch (err: any) {
+      console.error(`adjustLife error for game ${gameId}:`, err);
+      socket.emit("error", {
+        code: "ADJUST_LIFE_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
+
+  /**
+   * Set a player's life total to a specific value
+   */
+  socket.on("setLife", ({ gameId, life, targetPlayerId }: { 
+    gameId: string; 
+    life: number; 
+    targetPlayerId?: string;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId || socket.data.spectator) return;
+
+      // Target player defaults to the acting player
+      const targetPid = targetPlayerId || playerId;
+
+      // Ensure life object exists
+      if (!game.state.life) {
+        game.state.life = {};
+      }
+
+      // Get current life
+      const startingLife = (game.state as any).startingLife ?? 40;
+      const currentLife = (game.state.life as any)[targetPid] ?? startingLife;
+
+      // Set new life total
+      (game.state.life as any)[targetPid] = life;
+
+      // Also update the ctx.life if it exists (for compatibility with modules)
+      if ((game as any).life) {
+        (game as any).life[targetPid] = life;
+      }
+
+      // Bump sequence
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+
+      // Persist the event
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, "setLife", { 
+          playerId: targetPid, 
+          oldLife: currentLife,
+          newLife: life,
+          by: playerId,
+        });
+      } catch (e) {
+        console.warn("appendEvent(setLife) failed:", e);
+      }
+
+      // Emit chat message
+      const targetName = getPlayerName(game, targetPid);
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${targetName}'s life total set to ${life}. (was ${currentLife})`,
+        ts: Date.now(),
+      });
+
+      console.log(`[setLife] ${targetName}'s life set to ${life} (was ${currentLife}) in game ${gameId}`);
+
+      broadcastGame(io, game, gameId);
+    } catch (err: any) {
+      console.error(`setLife error for game ${gameId}:`, err);
+      socket.emit("error", {
+        code: "SET_LIFE_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
+
+  // ============================================================================
+  // Mill (put cards from library to graveyard)
+  // ============================================================================
+
+  /**
+   * Mill a number of cards from a player's library to their graveyard
+   * Rule 701.17: For a player to mill a number of cards, that player puts that
+   * many cards from the top of their library into their graveyard.
+   */
+  socket.on("mill", ({ gameId, count, targetPlayerId }: { 
+    gameId: string; 
+    count: number; 
+    targetPlayerId?: string;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId || socket.data.spectator) return;
+
+      // Target player defaults to the acting player
+      const targetPid = targetPlayerId || playerId;
+
+      // Get the target player's zones
+      const zones = game.state?.zones?.[targetPid];
+      if (!zones) {
+        socket.emit("error", {
+          code: "ZONES_NOT_FOUND",
+          message: "Player zones not found",
+        });
+        return;
+      }
+
+      // Get the library (may be stored differently in different game state formats)
+      let library: any[] = [];
+      if (typeof (game as any).getLibrary === "function") {
+        library = (game as any).getLibrary(targetPid) || [];
+      } else if (Array.isArray((zones as any).library)) {
+        library = (zones as any).library;
+      }
+
+      // Rule 701.17b: Can't mill more than library size
+      const actualCount = Math.min(count, library.length);
+      if (actualCount <= 0) {
+        socket.emit("error", {
+          code: "NOTHING_TO_MILL",
+          message: "No cards to mill",
+        });
+        return;
+      }
+
+      // Get the top N cards from library
+      const milledCards: any[] = [];
+      for (let i = 0; i < actualCount; i++) {
+        const card = library.shift(); // Remove from top of library
+        if (card) {
+          card.zone = "graveyard";
+          milledCards.push(card);
+        }
+      }
+
+      // Update library count
+      zones.libraryCount = library.length;
+
+      // Add milled cards to graveyard
+      zones.graveyard = zones.graveyard || [];
+      for (const card of milledCards) {
+        zones.graveyard.push(card);
+      }
+      zones.graveyardCount = zones.graveyard.length;
+
+      // Bump sequence
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+
+      // Persist the event
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, "mill", { 
+          playerId: targetPid, 
+          count: actualCount,
+          cardIds: milledCards.map((c: any) => c.id),
+          by: playerId,
+        });
+      } catch (e) {
+        console.warn("appendEvent(mill) failed:", e);
+      }
+
+      // Emit chat message with milled card names
+      const targetName = getPlayerName(game, targetPid);
+      const cardNames = milledCards
+        .filter((c: any) => c?.name)
+        .map((c: any) => c.name)
+        .slice(0, 5); // Show up to 5 card names
+      const moreCount = milledCards.length - cardNames.length;
+      
+      let millMessage = `${targetName} milled ${actualCount} card${actualCount !== 1 ? 's' : ''}`;
+      if (cardNames.length > 0) {
+        millMessage += `: ${cardNames.join(', ')}`;
+        if (moreCount > 0) {
+          millMessage += ` and ${moreCount} more`;
+        }
+      }
+      millMessage += '.';
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: millMessage,
+        ts: Date.now(),
+      });
+
+      console.log(`[mill] ${targetName} milled ${actualCount} cards in game ${gameId}`);
+
+      broadcastGame(io, game, gameId);
+    } catch (err: any) {
+      console.error(`mill error for game ${gameId}:`, err);
+      socket.emit("error", {
+        code: "MILL_ERROR",
         message: err?.message ?? String(err),
       });
     }

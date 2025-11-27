@@ -145,9 +145,17 @@ export function PaymentPicker(props: PaymentPickerProps) {
     return calculateSuggestedPayment(cost, sources, colorsToPreserve, floatingMana);
   }, [cost, sources, colorsToPreserve, chosen.length, floatingMana]);
 
+  // Helper to get mana count for a source (based on options array length)
+  const getManaCountForSource = (permanentId: string): number => {
+    const source = sources.find(s => s.id === permanentId);
+    if (!source) return 1;
+    return source.options.length; // ['C', 'C'] for Sol Ring = 2
+  };
+
   const add = (permanentId: string, mana: Color) => {
     if (chosenById.has(permanentId)) return; // one per source
-    onChange([...chosen, { permanentId, mana }]);
+    const count = getManaCountForSource(permanentId);
+    onChange([...chosen, { permanentId, mana, count }]);
   };
   const remove = (permanentId: string) => {
     onChange(chosen.filter(p => p.permanentId !== permanentId));
@@ -161,13 +169,15 @@ export function PaymentPicker(props: PaymentPickerProps) {
       const newSuggested = calculateSuggestedPayment(cost, sources, colorsToPreserve, floatingMana);
       const newPayment: PaymentItem[] = [];
       for (const [permanentId, mana] of newSuggested.entries()) {
-        newPayment.push({ permanentId, mana });
+        const count = getManaCountForSource(permanentId);
+        newPayment.push({ permanentId, mana, count });
       }
       onChange(newPayment);
     } else {
       const newPayment: PaymentItem[] = [];
       for (const [permanentId, mana] of suggestedPayment.entries()) {
-        newPayment.push({ permanentId, mana });
+        const count = getManaCountForSource(permanentId);
+        newPayment.push({ permanentId, mana, count });
       }
       onChange(newPayment);
     }

@@ -28,6 +28,7 @@ import { LibrarySearchModal } from "./components/LibrarySearchModal";
 import { TargetSelectionModal, type TargetOption } from "./components/TargetSelectionModal";
 import { UndoRequestModal, type UndoRequestData } from "./components/UndoRequestModal";
 import { SplitCardChoiceModal, type CardFaceOption } from "./components/SplitCardChoiceModal";
+import { CreatureTypeSelectModal } from "./components/CreatureTypeSelectModal";
 import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
 import { useGameSocket } from "./hooks/useGameSocket";
@@ -255,6 +256,30 @@ export function App() {
     minTargets: number;
     maxTargets: number;
     effectId?: string; // For tracking which effect requested the targets
+  } | null>(null);
+  
+  // Creature type selection modal state (for Cavern of Souls, Kindred Discovery, etc.)
+  const [creatureTypeModalOpen, setCreatureTypeModalOpen] = useState(false);
+  const [creatureTypeModalData, setCreatureTypeModalData] = useState<{
+    confirmId: string;
+    permanentId: string;
+    cardName: string;
+    reason: string;
+  } | null>(null);
+  
+  // Sacrifice selection modal state (for Grave Pact, Dictate of Erebos, etc.)
+  const [sacrificeModalOpen, setSacrificeModalOpen] = useState(false);
+  const [sacrificeModalData, setSacrificeModalData] = useState<{
+    triggerId: string;
+    sourceName: string;
+    sourceController: string;
+    reason: string;
+    creatures: Array<{
+      id: string;
+      name: string;
+      imageUrl?: string;
+      typeLine?: string;
+    }>;
   } | null>(null);
   
   // Undo request modal state
@@ -559,6 +584,63 @@ export function App() {
     };
   }, [safeView?.id]);
 
+  // Creature type selection listener (for Cavern of Souls, Kindred Discovery, etc.)
+  React.useEffect(() => {
+    const handler = (payload: {
+      confirmId: string;
+      gameId: string;
+      permanentId: string;
+      cardName: string;
+      reason: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        setCreatureTypeModalData({
+          confirmId: payload.confirmId,
+          permanentId: payload.permanentId,
+          cardName: payload.cardName,
+          reason: payload.reason,
+        });
+        setCreatureTypeModalOpen(true);
+      }
+    };
+    socket.on("creatureTypeSelectionRequest", handler);
+    return () => {
+      socket.off("creatureTypeSelectionRequest", handler);
+    };
+  }, [safeView?.id]);
+
+  // Sacrifice selection listener (for Grave Pact, Dictate of Erebos, etc.)
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      triggerId: string;
+      sourceName: string;
+      sourceController: string;
+      reason: string;
+      creatures: Array<{
+        id: string;
+        name: string;
+        imageUrl?: string;
+        typeLine?: string;
+      }>;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        setSacrificeModalData({
+          triggerId: payload.triggerId,
+          sourceName: payload.sourceName,
+          sourceController: payload.sourceController,
+          reason: payload.reason,
+          creatures: payload.creatures,
+        });
+        setSacrificeModalOpen(true);
+      }
+    };
+    socket.on("sacrificeSelectionRequest", handler);
+    return () => {
+      socket.off("sacrificeSelectionRequest", handler);
+    };
+  }, [safeView?.id]);
+
   // Undo request listener
   React.useEffect(() => {
     const handleUndoRequest = (payload: any) => {
@@ -657,9 +739,17 @@ export function App() {
     }
   }, [pendingBottomCount, hasKeptHand]);
 
-  // Can mulligan if in pre-game, haven't kept, and haven't hit max mulligans
-  const canMulligan = isPreGame && isYouPlayer && !hasKeptHand && mulligansTaken < 6 && pendingBottomCount === 0;
-  const canKeepHand = isPreGame && isYouPlayer && !hasKeptHand && pendingBottomCount === 0;
+  // Show mulligan buttons if player hasn't kept their hand yet
+  // This should work even if we've moved past PRE_GAME (e.g., to UNTAP)
+  // because the player still needs to keep their hand before continuing
+  const needsToKeepHand = isYouPlayer && !hasKeptHand && pendingBottomCount === 0;
+  
+  // Can mulligan if haven't kept and haven't hit max mulligans
+  const canMulligan = needsToKeepHand && mulligansTaken < 6;
+  const canKeepHand = needsToKeepHand;
+  
+  // Show the mulligan UI if in pre-game OR if hand hasn't been kept yet
+  const showMulliganUI = (isPreGame || !hasKeptHand) && isYouPlayer;
 
   // Auto-collapse join panel once you're an active player
   React.useEffect(() => {
@@ -1579,17 +1669,18 @@ export function App() {
             gap: 8,
           }}
         >
-          {/* Mulligan buttons - visible only in pre-game */}
-          {isPreGame && isYouPlayer && (
+          {/* Mulligan buttons - visible when player needs to keep their hand */}
+          {/* Show even after moving past PRE_GAME if hand hasn't been kept */}
+          {showMulliganUI && (
             <div
               style={{
                 display: "flex",
                 gap: 8,
                 alignItems: "center",
                 padding: 6,
-                border: "1px solid #c6a6ff",
+                border: !hasKeptHand && !isPreGame ? "2px solid #e53e3e" : "1px solid #c6a6ff",
                 borderRadius: 6,
-                background: "#f8f0ff",
+                background: !hasKeptHand && !isPreGame ? "#fff5f5" : "#f8f0ff",
               }}
             >
               {hasKeptHand ? (
@@ -1602,6 +1693,11 @@ export function App() {
                 </span>
               ) : (
                 <>
+                  {!isPreGame && (
+                    <span style={{ fontSize: 12, color: "#e53e3e", fontWeight: 600 }}>
+                      ⚠️ Keep your hand to continue!
+                    </span>
+                  )}
                   <span style={{ fontSize: 12, color: "#553c9a" }}>
                     Mulligans: {mulligansTaken}
                   </span>
@@ -1659,7 +1755,7 @@ export function App() {
           )}
 
           {/* Spacer to push buttons to the right when no mulligan panel */}
-          {(!isPreGame || !isYouPlayer) && <div style={{ flex: 1 }} />}
+          {!showMulliganUI && <div style={{ flex: 1 }} />}
 
           {/* Buttons on the right, in a stable group */}
           <div
@@ -2538,6 +2634,60 @@ export function App() {
         canFuse={splitCardData?.canFuse}
         onChoose={handleSplitCardChoose}
         onCancel={handleSplitCardCancel}
+      />
+
+      {/* Creature Type Selection Modal */}
+      <CreatureTypeSelectModal
+        open={creatureTypeModalOpen}
+        title={`Choose a Creature Type for ${creatureTypeModalData?.cardName || 'this card'}`}
+        description={creatureTypeModalData?.reason}
+        cardName={creatureTypeModalData?.cardName}
+        onSelect={(creatureType) => {
+          if (creatureTypeModalData && safeView?.id) {
+            socket.emit("creatureTypeSelected", {
+              gameId: safeView.id,
+              confirmId: creatureTypeModalData.confirmId,
+              creatureType,
+            });
+            setCreatureTypeModalOpen(false);
+            setCreatureTypeModalData(null);
+          }
+        }}
+        onCancel={() => {
+          setCreatureTypeModalOpen(false);
+          setCreatureTypeModalData(null);
+        }}
+      />
+
+      {/* Sacrifice Selection Modal (for Grave Pact, Dictate of Erebos, etc.) */}
+      <TargetSelectionModal
+        open={sacrificeModalOpen}
+        title={`Sacrifice a Creature`}
+        description={sacrificeModalData ? `${sacrificeModalData.sourceName} triggers: ${sacrificeModalData.reason}` : undefined}
+        targets={sacrificeModalData?.creatures.map(c => ({
+          id: c.id,
+          type: 'permanent' as const,
+          name: c.name,
+          imageUrl: c.imageUrl,
+          typeLine: c.typeLine,
+        })) || []}
+        minTargets={1}
+        maxTargets={1}
+        onConfirm={(selectedIds) => {
+          if (selectedIds.length > 0 && sacrificeModalData && safeView?.id) {
+            socket.emit("sacrificeSelected", {
+              gameId: safeView.id,
+              triggerId: sacrificeModalData.triggerId,
+              permanentId: selectedIds[0],
+            });
+            setSacrificeModalOpen(false);
+            setSacrificeModalData(null);
+          }
+        }}
+        onCancel={() => {
+          // Sacrifice is mandatory - inform the user they must select
+          alert("You must sacrifice a creature to this triggered ability.");
+        }}
       />
 
       {/* Deck Validation Status */}

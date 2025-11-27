@@ -385,6 +385,8 @@ export type ManaColor = 'W' | 'U' | 'B' | 'R' | 'G' | 'C';
 export interface PaymentItem {
   permanentId: string;
   mana: ManaColor;
+  /** Number of mana produced by this tap (default 1, e.g., Sol Ring produces 2) */
+  count?: number;
 }
 
 /* Game action types for socket communication */

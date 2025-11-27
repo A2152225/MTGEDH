@@ -133,7 +133,10 @@ export function CardOverlay({
   // Targeted by indicator
   const targetedBy = perm.targetedBy || [];
 
-  const scale = tileWidth / 110; // Base scale factor
+  // Scale factor with minimum to ensure readability on small cards
+  // Minimum scale of 0.7 ensures text remains readable even on small tiles
+  const rawScale = tileWidth / 110;
+  const scale = Math.max(0.7, rawScale);
 
   return (
     <>

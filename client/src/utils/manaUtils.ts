@@ -76,10 +76,12 @@ export function parseManaCost(manaCost?: string): ParsedManaCost {
 
 /**
  * Convert a payment array into a mana pool record
+ * Uses the count field if provided for multi-mana sources like Sol Ring
  */
 export function paymentToPool(payment: PaymentItem[]): Record<Color, number> {
   return payment.reduce<Record<Color, number>>((acc, p) => {
-    acc[p.mana] = (acc[p.mana] || 0) + 1;
+    const amount = p.count ?? 1;
+    acc[p.mana] = (acc[p.mana] || 0) + amount;
     return acc;
   }, { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 });
 }
@@ -262,8 +264,32 @@ export function calculateRemainingCostAfterFloatingMana(
 }
 
 /**
+ * Calculate the total mana a source produces when tapped.
+ * Counts duplicates in the options array to handle multi-mana sources like Sol Ring.
+ * 
+ * Examples:
+ * - Forest: options = ['G'] -> returns { G: 1 }
+ * - Sol Ring: options = ['C', 'C'] -> returns { C: 2 }
+ * - Command Tower: options = ['W', 'U', 'B', 'R', 'G'] -> returns { W: 1, U: 1, B: 1, R: 1, G: 1 } (choice)
+ */
+export function getManaProductionPerColor(options: Color[]): Record<Color, number> {
+  const production: Record<Color, number> = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
+  for (const c of options) {
+    production[c] = (production[c] || 0) + 1;
+  }
+  return production;
+}
+
+/**
+ * Get total mana produced by a source (sum of all colors in options)
+ */
+export function getTotalManaProduction(options: Color[]): number {
+  return options.length;
+}
+
+/**
  * Calculate suggested payment: sources and colors to use
- * Returns a map of permanentId -> suggested color, plus info about floating mana used
+ * Returns a map of permanentId -> { color, count }, plus info about floating mana used
  * 
  * This function first uses any available floating mana, then taps sources for the remainder.
  * 
@@ -292,17 +318,25 @@ export function calculateSuggestedPayment(
   // Track which sources we've used
   const usedSources = new Set<string>();
   
+  // Helper: get unique colors (for choice sources like Command Tower)
+  const getUniqueColors = (options: Color[]) => [...new Set(options)];
+  
   // Helper: check if source produces only colorless
-  const isColorlessOnly = (source: { options: Color[] }) => 
-    source.options.length === 1 && source.options[0] === 'C';
+  const isColorlessOnly = (source: { options: Color[] }) => {
+    const unique = getUniqueColors(source.options);
+    return unique.length === 1 && unique[0] === 'C';
+  };
   
   // Helper: check if source produces colorless among other options
   const hasColorlessOption = (source: { options: Color[] }) => 
     source.options.includes('C');
   
-  // Helper: count non-colorless options (for sorting multi-color lands last)
+  // Helper: count unique non-colorless options (for sorting multi-color lands last)
   const colorOptionCount = (source: { options: Color[] }) => 
-    source.options.filter(c => c !== 'C').length;
+    getUniqueColors(source.options).filter(c => c !== 'C').length;
+  
+  // Helper: get total mana this source produces (counts duplicates)
+  const getManaAmount = (source: { options: Color[] }) => source.options.length;
   
   // First pass: assign sources for specific color requirements (after floating mana)
   // For colored mana, prefer single-color sources first, then multi-color
@@ -310,10 +344,10 @@ export function calculateSuggestedPayment(
     if (c === 'C') continue; // Handle colorless separately
     if (costRemaining[c] <= 0) continue;
     
-    // Sort sources: prefer sources with fewer options (more specific)
+    // Sort sources: prefer sources with fewer unique options (more specific)
     const colorSources = sources
       .filter(s => !usedSources.has(s.id) && s.options.includes(c))
-      .sort((a, b) => a.options.length - b.options.length);
+      .sort((a, b) => getUniqueColors(a.options).length - getUniqueColors(b.options).length);
     
     for (const source of colorSources) {
       if (costRemaining[c] <= 0) break;
@@ -378,6 +412,7 @@ export function calculateSuggestedPayment(
   // Third pass: assign sources for generic cost
   // Priority: 1) colorless-only, 2) single-color, 3) multi-color
   // Also prefer sources that don't produce colors needed by other cards
+  // IMPORTANT: Account for multi-mana sources (Sol Ring produces 2 colorless)
   if (genericLeft > 0) {
     const remainingSources = sources.filter(s => !usedSources.has(s.id));
     
@@ -388,20 +423,27 @@ export function calculateSuggestedPayment(
       if (aColorlessOnly && !bColorlessOnly) return -1;
       if (!aColorlessOnly && bColorlessOnly) return 1;
       
-      // 2. Sources with colorless option (can pay generic without "wasting" colored mana)
+      // 2. Multi-mana sources first (more efficient - Sol Ring > basic land)
+      const aManaAmount = getManaAmount(a);
+      const bManaAmount = getManaAmount(b);
+      if (aManaAmount !== bManaAmount) {
+        return bManaAmount - aManaAmount; // Higher amount first
+      }
+      
+      // 3. Sources with colorless option (can pay generic without "wasting" colored mana)
       const aHasColorless = hasColorlessOption(a);
       const bHasColorless = hasColorlessOption(b);
       if (aHasColorless && !bHasColorless) return -1;
       if (!aHasColorless && bHasColorless) return 1;
       
-      // 3. Single-color sources before multi-color
+      // 4. Single-color sources before multi-color
       const aColorCount = colorOptionCount(a);
       const bColorCount = colorOptionCount(b);
       if (aColorCount !== bColorCount) {
         return aColorCount - bColorCount;
       }
       
-      // 4. Prefer sources that don't produce colors needed by other cards
+      // 5. Prefer sources that don't produce colors needed by other cards
       const aHasPreservedColor = a.options.some(c => c !== 'C' && colorsToPreserve.has(c));
       const bHasPreservedColor = b.options.some(c => c !== 'C' && colorsToPreserve.has(c));
       if (!aHasPreservedColor && bHasPreservedColor) return -1;
@@ -413,8 +455,11 @@ export function calculateSuggestedPayment(
     for (const source of remainingSources) {
       if (genericLeft <= 0) break;
       
+      // Calculate how much mana this source produces
+      const manaAmount = getManaAmount(source);
+      
       // Pick the best color from this source:
-      // 1. Colorless if available
+      // 1. Colorless if available (for multi-mana colorless like Sol Ring)
       // 2. Color not needed by other cards
       // 3. Any available color
       let bestColor: Color;
@@ -422,7 +467,7 @@ export function calculateSuggestedPayment(
         bestColor = 'C';
       } else {
         bestColor = source.options[0];
-        for (const c of source.options) {
+        for (const c of getUniqueColors(source.options)) {
           if (!colorsToPreserve.has(c)) {
             bestColor = c;
             break;
@@ -432,7 +477,8 @@ export function calculateSuggestedPayment(
       
       suggestions.set(source.id, bestColor);
       usedSources.add(source.id);
-      genericLeft--;
+      // Decrement by the actual mana produced (e.g., 2 for Sol Ring)
+      genericLeft -= manaAmount;
     }
   }
   

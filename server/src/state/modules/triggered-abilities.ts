@@ -44,6 +44,8 @@ export interface TriggeredAbility {
     | 'creature_attacks'
     | 'etb'
     | 'creature_etb'
+    | 'permanent_etb'     // Altar of the Brood style - whenever ANY permanent enters
+    | 'another_permanent_etb' // Whenever ANOTHER permanent enters under your control
     | 'deals_damage'
     | 'deals_combat_damage'
     | 'annihilator'
@@ -53,6 +55,7 @@ export interface TriggeredAbility {
   description: string;
   effect?: string;
   value?: number; // For Annihilator N, etc.
+  millAmount?: number; // For mill triggers like Altar of the Brood
   mandatory: boolean;
   requiresTarget?: boolean;
   targetType?: string;
@@ -88,6 +91,69 @@ const KNOWN_ATTACK_TRIGGERS: Record<string, { effect: string; value?: number }> 
   "marisi, breaker of the coil": { effect: "Goad all creatures that player controls" },
   "grand warlord radha": { effect: "Add mana for each attacking creature" },
   "neheb, the eternal": { effect: "Add {R} for each life opponent lost (postcombat)" },
+};
+
+/**
+ * Known cards with ETB triggers (enters the battlefield)
+ */
+const KNOWN_ETB_TRIGGERS: Record<string, { 
+  effect: string; 
+  triggerOn: 'self' | 'creature' | 'another_permanent' | 'any_permanent';
+  millAmount?: number;
+}> = {
+  "altar of the brood": { 
+    effect: "Each opponent mills 1 card", 
+    triggerOn: 'another_permanent',
+    millAmount: 1,
+  },
+  "impact tremors": { 
+    effect: "Each opponent loses 1 life", 
+    triggerOn: 'creature',
+  },
+  "purphoros, god of the forge": { 
+    effect: "Each opponent loses 2 life", 
+    triggerOn: 'creature',
+  },
+  "soul warden": { 
+    effect: "You gain 1 life", 
+    triggerOn: 'creature',
+  },
+  "soul's attendant": { 
+    effect: "You may gain 1 life", 
+    triggerOn: 'creature',
+  },
+  "essence warden": { 
+    effect: "You gain 1 life", 
+    triggerOn: 'creature',
+  },
+  "ajani's welcome": { 
+    effect: "You gain 1 life", 
+    triggerOn: 'creature',
+  },
+  "corpse knight": { 
+    effect: "Each opponent loses 1 life", 
+    triggerOn: 'creature',
+  },
+  "blood seeker": { 
+    effect: "Creature's controller loses 1 life", 
+    triggerOn: 'creature',
+  },
+  "suture priest": { 
+    effect: "You gain 1 life; if opponent's creature, they lose 1 life", 
+    triggerOn: 'creature',
+  },
+  "impassioned orator": { 
+    effect: "You gain 1 life", 
+    triggerOn: 'creature',
+  },
+  "dina, soul steeper": { 
+    effect: "Each opponent loses 1 life when you gain life", 
+    triggerOn: 'self', // Actually triggers on life gain, but she's an ETB-related card
+  },
+  "cathar's crusade": { 
+    effect: "+1/+1 counter on each creature you control", 
+    triggerOn: 'creature',
+  },
 };
 
 /**
@@ -293,18 +359,50 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 }
 
 /**
- * Detect ETB triggers
+ * Detect ETB triggers from a card
  */
-export function detectETBTriggers(card: any): TriggeredAbility[] {
+export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[] {
   const triggers: TriggeredAbility[] = [];
   const oracleText = (card?.oracle_text || "");
   const cardName = card?.name || "Unknown";
+  const lowerName = cardName.toLowerCase();
+  const permanentId = permanent?.id || "";
+  
+  // Check known ETB trigger cards first
+  for (const [knownName, info] of Object.entries(KNOWN_ETB_TRIGGERS)) {
+    if (lowerName.includes(knownName)) {
+      let triggerType: TriggeredAbility['triggerType'];
+      switch (info.triggerOn) {
+        case 'another_permanent':
+          triggerType = 'another_permanent_etb';
+          break;
+        case 'any_permanent':
+          triggerType = 'permanent_etb';
+          break;
+        case 'creature':
+          triggerType = 'creature_etb';
+          break;
+        default:
+          triggerType = 'etb';
+      }
+      
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType,
+        description: info.effect,
+        effect: info.effect,
+        millAmount: info.millAmount,
+        mandatory: true,
+      });
+    }
+  }
   
   // "When ~ enters the battlefield"
   const etbMatch = oracleText.match(/when\s+(?:~|this creature|this permanent)\s+enters the battlefield,?\s*([^.]+)/i);
-  if (etbMatch) {
+  if (etbMatch && !triggers.some(t => t.triggerType === 'etb')) {
     triggers.push({
-      permanentId: "", // Will be set when permanent is created
+      permanentId,
       cardName,
       triggerType: 'etb',
       description: etbMatch[1].trim(),
@@ -315,9 +413,9 @@ export function detectETBTriggers(card: any): TriggeredAbility[] {
   
   // "Whenever a creature enters the battlefield under your control"
   const creatureETBMatch = oracleText.match(/whenever a creature enters the battlefield under your control,?\s*([^.]+)/i);
-  if (creatureETBMatch) {
+  if (creatureETBMatch && !triggers.some(t => t.triggerType === 'creature_etb')) {
     triggers.push({
-      permanentId: "",
+      permanentId,
       cardName,
       triggerType: 'creature_etb',
       description: creatureETBMatch[1].trim(),
@@ -326,7 +424,27 @@ export function detectETBTriggers(card: any): TriggeredAbility[] {
     });
   }
   
+  // "Whenever another permanent enters the battlefield under your control" (Altar of the Brood pattern)
+  const anotherPermanentETBMatch = oracleText.match(/whenever another (?:creature|permanent) enters the battlefield under your control,?\s*([^.]+)/i);
+  if (anotherPermanentETBMatch && !triggers.some(t => t.triggerType === 'another_permanent_etb')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'another_permanent_etb',
+      description: anotherPermanentETBMatch[1].trim(),
+      effect: anotherPermanentETBMatch[1].trim(),
+      mandatory: true,
+    });
+  }
+  
   return triggers;
+}
+
+/**
+ * Check if a permanent has ETB triggers that should fire when a permanent enters
+ */
+export function getETBTriggersForPermanent(card: any, permanent: any): TriggeredAbility[] {
+  return detectETBTriggers(card, permanent);
 }
 
 /**
@@ -609,4 +727,143 @@ export function getBeginningOfCombatTriggers(
   }
   
   return triggers;
+}
+
+// ============================================================================
+// Death Trigger System
+// ============================================================================
+
+export interface DeathTriggerResult {
+  source: {
+    permanentId: string;
+    cardName: string;
+    controllerId: string;
+  };
+  effect: string;
+  targets?: string[]; // Player IDs affected
+  requiresSacrificeSelection?: boolean;
+  sacrificeFrom?: string; // Player ID who must sacrifice
+}
+
+/**
+ * Find all death triggers that should fire when a creature dies
+ * @param ctx Game context
+ * @param dyingCreature The creature that died
+ * @param dyingCreatureController The controller of the dying creature
+ * @returns Array of triggered abilities that should fire
+ */
+export function getDeathTriggers(
+  ctx: GameContext,
+  dyingCreature: any,
+  dyingCreatureController: string
+): DeathTriggerResult[] {
+  const results: DeathTriggerResult[] = [];
+  const battlefield = ctx.state?.battlefield || [];
+  const dyingTypeLine = (dyingCreature?.card?.type_line || '').toLowerCase();
+  const isCreature = dyingTypeLine.includes('creature');
+  
+  if (!isCreature) return results;
+  
+  // Check all permanents on the battlefield for death triggers
+  for (const permanent of battlefield) {
+    if (!permanent) continue;
+    
+    const card = permanent.card;
+    if (!card) continue;
+    
+    const cardName = (card.name || '').toLowerCase();
+    const oracleText = (card.oracle_text || '').toLowerCase();
+    const permanentController = permanent.controller;
+    
+    // Check known death trigger cards
+    for (const [knownName, info] of Object.entries(KNOWN_DEATH_TRIGGERS)) {
+      if (cardName.includes(knownName)) {
+        let shouldTrigger = false;
+        
+        switch (info.triggerOn) {
+          case 'controlled':
+            // Triggers when a creature YOU control dies
+            shouldTrigger = dyingCreatureController === permanentController;
+            break;
+          case 'any':
+            // Triggers when ANY creature dies
+            shouldTrigger = true;
+            break;
+          case 'own':
+            // Triggers when THIS creature dies (shouldn't match here since it's not on battlefield)
+            shouldTrigger = false;
+            break;
+        }
+        
+        if (shouldTrigger) {
+          // Determine if this requires sacrifice selection
+          const requiresSacrifice = info.effect.toLowerCase().includes('sacrifice');
+          
+          results.push({
+            source: {
+              permanentId: permanent.id,
+              cardName: card.name,
+              controllerId: permanentController,
+            },
+            effect: info.effect,
+            requiresSacrificeSelection: requiresSacrifice,
+          });
+        }
+      }
+    }
+    
+    // Generic detection: "Whenever a creature you control dies"
+    if (oracleText.includes('whenever a creature you control dies') && 
+        dyingCreatureController === permanentController) {
+      const effectMatch = oracleText.match(/whenever a creature you control dies,?\s*([^.]+)/i);
+      if (effectMatch && !results.some(r => r.source.permanentId === permanent.id)) {
+        const effect = effectMatch[1].trim();
+        results.push({
+          source: {
+            permanentId: permanent.id,
+            cardName: card.name,
+            controllerId: permanentController,
+          },
+          effect,
+          requiresSacrificeSelection: effect.toLowerCase().includes('sacrifice'),
+        });
+      }
+    }
+    
+    // Generic detection: "Whenever a creature dies"
+    if (oracleText.includes('whenever a creature dies') && 
+        !oracleText.includes('whenever a creature you control dies')) {
+      const effectMatch = oracleText.match(/whenever a creature dies,?\s*([^.]+)/i);
+      if (effectMatch && !results.some(r => r.source.permanentId === permanent.id)) {
+        const effect = effectMatch[1].trim();
+        results.push({
+          source: {
+            permanentId: permanent.id,
+            cardName: card.name,
+            controllerId: permanentController,
+          },
+          effect,
+          requiresSacrificeSelection: effect.toLowerCase().includes('sacrifice'),
+        });
+      }
+    }
+  }
+  
+  return results;
+}
+
+/**
+ * Get list of players who need to sacrifice a creature due to Grave Pact-style effects
+ * @param ctx Game context
+ * @param triggerController The controller of the trigger source
+ * @returns Array of player IDs who must sacrifice
+ */
+export function getPlayersWhoMustSacrifice(
+  ctx: GameContext,
+  triggerController: string
+): string[] {
+  const players = ctx.state?.players || [];
+  return players
+    .map((p: any) => p.id)
+    .filter((pid: string) => pid !== triggerController);
 }

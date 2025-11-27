@@ -263,7 +263,9 @@ export function FreeField(props: {
 
   function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
 
-  const scale = tileWidth / 110;
+  // Scale factor with minimum to ensure readability
+  const rawScale = tileWidth / 110;
+  const scale = Math.max(0.7, rawScale);
 
   return (
     <div

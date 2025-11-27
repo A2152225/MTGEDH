@@ -6,6 +6,7 @@ import {
   permanentHasCreatureType,
   findPermanentsWithCreatureType 
 } from "../../../shared/src/creatureTypes";
+import { getDeathTriggers, getPlayersWhoMustSacrifice } from "../state/modules/triggered-abilities";
 
 // ============================================================================
 // Library Search Restriction Handling (Aven Mindcensor, Stranglehold, etc.)
@@ -996,6 +997,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const card = (permanent as any).card;
     const cardName = card?.name || "Unknown";
     const oracleText = (card?.oracle_text || "").toLowerCase();
+    const typeLine = (card?.type_line || "").toLowerCase();
+    const isCreature = typeLine.includes("creature");
     
     // Check if this is a fetch land or similar with search effect
     const isFetchLand = oracleText.includes("sacrifice") && oracleText.includes("search your library");
@@ -1024,6 +1027,72 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       message: `${getPlayerName(game, pid)} sacrificed ${cardName}.`,
       ts: Date.now(),
     });
+    
+    // Check for death triggers (Grave Pact, Blood Artist, etc.) if this was a creature
+    if (isCreature) {
+      try {
+        const deathTriggers = getDeathTriggers(game as any, permanent, pid);
+        
+        for (const trigger of deathTriggers) {
+          // Emit a chat message about the trigger
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}_${trigger.source.permanentId}`,
+            gameId,
+            from: "system",
+            message: `⚡ ${trigger.source.cardName} triggers: ${trigger.effect}`,
+            ts: Date.now(),
+          });
+          
+          // If this trigger requires sacrifice selection (Grave Pact, Dictate of Erebos, etc.)
+          if (trigger.requiresSacrificeSelection) {
+            const playersToSacrifice = getPlayersWhoMustSacrifice(game as any, trigger.source.controllerId);
+            
+            for (const targetPlayerId of playersToSacrifice) {
+              // Get creatures controlled by this player
+              const creatures = battlefield.filter((p: any) => 
+                p?.controller === targetPlayerId && 
+                (p?.card?.type_line || "").toLowerCase().includes("creature")
+              );
+              
+              if (creatures.length > 0) {
+                // Emit sacrifice selection request to the player
+                emitToPlayer(io, targetPlayerId, "sacrificeSelectionRequest", {
+                  gameId,
+                  triggerId: `sac_${Date.now()}_${trigger.source.permanentId}`,
+                  sourceName: trigger.source.cardName,
+                  sourceController: trigger.source.controllerId,
+                  reason: trigger.effect,
+                  creatures: creatures.map((c: any) => ({
+                    id: c.id,
+                    name: c.card?.name || "Unknown",
+                    imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
+                    typeLine: c.card?.type_line,
+                  })),
+                });
+                
+                io.to(gameId).emit("chat", {
+                  id: `m_${Date.now()}_sac_${targetPlayerId}`,
+                  gameId,
+                  from: "system",
+                  message: `${getPlayerName(game, targetPlayerId)} must sacrifice a creature.`,
+                  ts: Date.now(),
+                });
+              } else {
+                io.to(gameId).emit("chat", {
+                  id: `m_${Date.now()}_nosac_${targetPlayerId}`,
+                  gameId,
+                  from: "system",
+                  message: `${getPlayerName(game, targetPlayerId)} has no creatures to sacrifice.`,
+                  ts: Date.now(),
+                });
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[sacrificePermanent] Error processing death triggers:", err);
+      }
+    }
     
     // If this was a fetch land, trigger library search
     if (isFetchLand) {
@@ -1689,6 +1758,86 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       gameId,
       from: "system",
       message: `${getPlayerName(game, pid)} cancelled target selection.`,
+      ts: Date.now(),
+    });
+    
+    broadcastGame(io, game, gameId);
+  });
+
+  // ============================================================================
+  // Sacrifice Selection (for Grave Pact, Dictate of Erebos, etc.)
+  // ============================================================================
+
+  /**
+   * Handle sacrifice selection response from a player
+   * This is used when a Grave Pact-style effect requires opponents to sacrifice
+   */
+  socket.on("sacrificeSelected", ({ 
+    gameId, 
+    triggerId, 
+    permanentId 
+  }: { 
+    gameId: string; 
+    triggerId: string; 
+    permanentId: string;
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit("error", {
+        code: "GAME_NOT_FOUND",
+        message: "Game not found",
+      });
+      return;
+    }
+
+    const battlefield = game.state?.battlefield || [];
+    
+    // Find the permanent to sacrifice
+    const permIndex = battlefield.findIndex((p: any) => 
+      p?.id === permanentId && p?.controller === pid
+    );
+    
+    if (permIndex === -1) {
+      socket.emit("error", {
+        code: "PERMANENT_NOT_FOUND",
+        message: "Permanent not found or not controlled by you",
+      });
+      return;
+    }
+    
+    const permanent = battlefield[permIndex];
+    const card = (permanent as any).card;
+    const cardName = card?.name || "Unknown";
+    
+    // Remove from battlefield
+    battlefield.splice(permIndex, 1);
+    
+    // Move to graveyard
+    const zones = (game.state as any)?.zones?.[pid];
+    if (zones) {
+      zones.graveyard = zones.graveyard || [];
+      zones.graveyard.push({ ...card, zone: "graveyard" });
+      zones.graveyardCount = zones.graveyard.length;
+    }
+    
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+    
+    appendEvent(gameId, (game as any).seq ?? 0, "sacrificeSelected", { 
+      playerId: pid, 
+      permanentId,
+      triggerId,
+    });
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} sacrificed ${cardName} to the triggered ability.`,
       ts: Date.now(),
     });
     
