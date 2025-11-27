@@ -1724,10 +1724,7 @@ export function App() {
           you={you}
           isYourTurn={safeView.turnPlayer === you}
           hasPriority={safeView.priority === you}
-          stackEmpty={!(safeView as any).stack?.length}
-          onAdvanceToPhase={(targetPhase) => {
-            // This is handled internally by PhaseNavigator
-          }}
+          stackEmpty={!((safeView as any).stack?.length > 0)}
           onNextStep={() => socket.emit("nextStep", { gameId: safeView.id })}
           onNextTurn={() => socket.emit("nextTurn", { gameId: safeView.id })}
           onPassPriority={() => socket.emit("passPriority", { gameId: safeView.id, by: you })}

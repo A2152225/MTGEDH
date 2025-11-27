@@ -16,7 +16,6 @@ interface PhaseNavigatorProps {
   isYourTurn: boolean;
   hasPriority: boolean;
   stackEmpty: boolean;
-  onAdvanceToPhase: (targetPhase: string) => void;
   onNextStep: () => void;
   onNextTurn: () => void;
   onPassPriority: () => void;
@@ -46,7 +45,6 @@ export function PhaseNavigator({
   isYourTurn,
   hasPriority,
   stackEmpty,
-  onAdvanceToPhase,
   onNextStep,
   onNextTurn,
   onPassPriority,
@@ -68,14 +66,18 @@ export function PhaseNavigator({
   const canAdvance = isYourTurn && stackEmpty;
   
   // Handle clicking on a phase to advance to it
-  const handlePhaseClick = (targetIndex: number) => {
+  const handlePhaseClick = async (targetIndex: number) => {
     if (!canAdvance) return;
     if (targetIndex <= currentIndex) return; // Can't go backward
     
-    // Emit multiple nextStep events to reach the target phase
+    // Advance step by step with delays to allow server processing
     const stepsToAdvance = targetIndex - currentIndex;
     for (let i = 0; i < stepsToAdvance; i++) {
-      setTimeout(() => onNextStep(), i * 100);
+      onNextStep();
+      // Wait between steps to allow server to process
+      if (i < stepsToAdvance - 1) {
+        await new Promise(resolve => setTimeout(resolve, 150));
+      }
     }
   };
   
@@ -286,7 +288,7 @@ export function PhaseNavigator({
           color: '#9ca3af',
           textAlign: 'center',
         }}>
-          Waiting for {turnPlayer === you ? 'your turn' : 'opponent'}...
+          Waiting for opponent's turn...
         </div>
       )}
     </div>
