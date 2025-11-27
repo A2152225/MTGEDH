@@ -184,8 +184,14 @@ function performUndo(gameId: string, actionsToUndo: number): { success: boolean;
         for (const key of Object.keys(existingGame.state)) {
           delete (existingGame.state as any)[key];
         }
-        // Deep copy the fresh state properties
-        const freshStateClone = JSON.parse(JSON.stringify(freshGame.state));
+        // Use structuredClone for efficient deep cloning (available in Node 17+)
+        // Falls back to JSON parse/stringify if not available
+        let freshStateClone: any;
+        if (typeof structuredClone === 'function') {
+          freshStateClone = structuredClone(freshGame.state);
+        } else {
+          freshStateClone = JSON.parse(JSON.stringify(freshGame.state));
+        }
         for (const [key, value] of Object.entries(freshStateClone)) {
           (existingGame.state as any)[key] = value;
         }
