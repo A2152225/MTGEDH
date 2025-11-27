@@ -43,6 +43,7 @@ import { nextTurn, nextStep, passPriority } from "./turn";
 import { join, leave as leaveModule } from "./join";
 import { resolveSpell } from "../../rules-engine/targeting";
 import { evaluateAction } from "../../rules-engine/index";
+import { mulberry32 } from "../../utils/rng";
 
 /* -------- Helpers ---------- */
 
@@ -171,16 +172,7 @@ export function reset(ctx: any, preservePlayers = false): void {
       // Create a fresh RNG function that will be replaced by rngSeed event
       // Using a new random seed as fallback in case no rngSeed event exists
       const fallbackSeed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
-      ctx.rng = (function (seed: number) {
-        let t = seed >>> 0;
-        return function () {
-          t = (t + 0x6d2b79f5) >>> 0;
-          let r = t;
-          r = Math.imul(r ^ (r >>> 15), r | 1);
-          r ^= r + Math.imul(r ^ (r >>> 7), r | 61);
-          return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
-        };
-      })(fallbackSeed);
+      ctx.rng = mulberry32(fallbackSeed);
     } catch {
       // ignore RNG reset errors
     }

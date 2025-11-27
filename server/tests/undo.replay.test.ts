@@ -266,4 +266,112 @@ describe('Undo and Replay', () => {
       expect(replayEvents[4]).toEqual({ type: 'mulligan', playerId: 'p1' });
     });
   });
+
+  describe('RNG determinism verification', () => {
+    it('should produce identical results for the same seed with multiple sequential operations', () => {
+      // This test verifies that given the same seed and same sequence of operations,
+      // the RNG always produces the same results - critical for undo to work correctly
+      const gameId = 'rng_determinism_test';
+      const p1 = 'p_test' as PlayerID;
+      const deck = mkCards(60);
+      const seed = 333333333;
+
+      // Run the same sequence of operations twice in separate game instances
+      // Both should produce identical results
+      
+      // First run
+      const g1 = createInitialGameState(gameId);
+      g1.applyEvent({ type: 'rngSeed', seed });
+      g1.applyEvent({ type: 'deckImportResolved', playerId: p1, cards: deck });
+      g1.applyEvent({ type: 'shuffleLibrary', playerId: p1 });
+      g1.applyEvent({ type: 'drawCards', playerId: p1, count: 7 });
+      // Mulligan (shuffle hand into library, shuffle, draw 7 again)
+      g1.applyEvent({ type: 'mulligan', playerId: p1 });
+      // Draw 3 more cards
+      g1.applyEvent({ type: 'drawCards', playerId: p1, count: 3 });
+      // Shuffle hand (uses RNG)
+      g1.applyEvent({ type: 'shuffleHand', playerId: p1 });
+      
+      const hand1 = (g1.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
+      const lib1 = g1.peekTopN!(p1, 10).map((c: any) => c.name);
+      
+      // Second run - completely new game instance with same operations
+      const g2 = createInitialGameState(gameId + '_copy');
+      g2.applyEvent({ type: 'rngSeed', seed });
+      g2.applyEvent({ type: 'deckImportResolved', playerId: p1, cards: deck });
+      g2.applyEvent({ type: 'shuffleLibrary', playerId: p1 });
+      g2.applyEvent({ type: 'drawCards', playerId: p1, count: 7 });
+      g2.applyEvent({ type: 'mulligan', playerId: p1 });
+      g2.applyEvent({ type: 'drawCards', playerId: p1, count: 3 });
+      g2.applyEvent({ type: 'shuffleHand', playerId: p1 });
+      
+      const hand2 = (g2.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
+      const lib2 = g2.peekTopN!(p1, 10).map((c: any) => c.name);
+      
+      // Both runs should produce identical results
+      expect(hand2).toEqual(hand1);
+      expect(lib2).toEqual(lib1);
+      expect(hand1.length).toBe(10); // 7 from mulligan + 3 more draws
+    });
+
+    it('should produce different results with different seeds', () => {
+      const gameId = 'rng_diff_seeds_test';
+      const p1 = 'p_test' as PlayerID;
+      const deck = mkCards(30);
+
+      // First seed
+      const g1 = createInitialGameState(gameId + '_1');
+      g1.applyEvent({ type: 'rngSeed', seed: 111111111 });
+      g1.applyEvent({ type: 'deckImportResolved', playerId: p1, cards: deck });
+      g1.applyEvent({ type: 'shuffleLibrary', playerId: p1 });
+      g1.applyEvent({ type: 'drawCards', playerId: p1, count: 7 });
+      const hand1 = (g1.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
+
+      // Different seed
+      const g2 = createInitialGameState(gameId + '_2');
+      g2.applyEvent({ type: 'rngSeed', seed: 222222222 });
+      g2.applyEvent({ type: 'deckImportResolved', playerId: p1, cards: deck });
+      g2.applyEvent({ type: 'shuffleLibrary', playerId: p1 });
+      g2.applyEvent({ type: 'drawCards', playerId: p1, count: 7 });
+      const hand2 = (g2.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
+
+      // Different seeds should produce different hands (statistically very unlikely to match)
+      expect(hand2).not.toEqual(hand1);
+    });
+
+    it('should maintain RNG state across multiple shuffles deterministically', () => {
+      // This tests that multiple shuffles in sequence are all deterministic
+      const gameId = 'rng_multi_shuffle_test';
+      const p1 = 'p_test' as PlayerID;
+      const deck = mkCards(30);
+      const seed = 444444444;
+
+      const events = [
+        { type: 'rngSeed', seed },
+        { type: 'deckImportResolved', playerId: p1, cards: deck },
+        { type: 'shuffleLibrary', playerId: p1 },
+        { type: 'drawCards', playerId: p1, count: 5 },
+        { type: 'shuffleLibrary', playerId: p1 }, // Second shuffle
+        { type: 'drawCards', playerId: p1, count: 5 },
+        { type: 'shuffleLibrary', playerId: p1 }, // Third shuffle
+        { type: 'drawCards', playerId: p1, count: 5 },
+      ];
+
+      // Run 1
+      const g1 = createInitialGameState(gameId);
+      for (const e of events) g1.applyEvent(e);
+      const hand1 = (g1.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
+      const lib1 = g1.peekTopN!(p1, 10).map((c: any) => c.name);
+
+      // Run 2 - same events via replay
+      const g2 = createInitialGameState(gameId + '_replay');
+      g2.replay!(events);
+      const hand2 = (g2.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
+      const lib2 = g2.peekTopN!(p1, 10).map((c: any) => c.name);
+
+      expect(hand2).toEqual(hand1);
+      expect(lib2).toEqual(lib1);
+      expect(hand1.length).toBe(15); // 5 + 5 + 5
+    });
+  });
 });
