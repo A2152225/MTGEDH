@@ -43,6 +43,13 @@ const PHASE_ORDER = [
   { id: 'cleanup', label: 'Cleanup', phase: 'ending', icon: '🧹' },
 ];
 
+// Mapping of phase IDs to phase/step values for skip-to-phase functionality
+const PHASE_STEP_MAP: Record<string, { phase: string; step: string }> = {
+  'main2': { phase: 'postcombatMain', step: 'MAIN2' },
+  'endStep': { phase: 'ending', step: 'END' },
+  'cleanup': { phase: 'ending', step: 'CLEANUP' },
+};
+
 export function PhaseNavigator({
   currentPhase,
   currentStep,
@@ -140,14 +147,7 @@ export function PhaseNavigator({
     if (skippingOverCombat && onSkipToPhase) {
       setIsAdvancing(true);
       try {
-        // Map the target phase to the correct phase/step values
-        const phaseStepMap: Record<string, { phase: string; step: string }> = {
-          'main2': { phase: 'postcombatMain', step: 'MAIN2' },
-          'endStep': { phase: 'ending', step: 'END' },
-          'cleanup': { phase: 'ending', step: 'CLEANUP' },
-        };
-        
-        const targetMapping = phaseStepMap[targetPhase.id];
+        const targetMapping = PHASE_STEP_MAP[targetPhase.id];
         if (targetMapping) {
           onSkipToPhase(targetMapping.phase, targetMapping.step);
         } else {

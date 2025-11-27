@@ -1617,18 +1617,18 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Clear any combat state since we're skipping combat
       try {
-        if ((game.state as any).combat !== undefined) {
-          delete (game.state as any).combat;
-        }
+        // Set combat to undefined rather than deleting for better performance
+        (game.state as any).combat = undefined;
         
         // Clear attacking/blocking states from permanents
         const battlefield = (game.state as any)?.battlefield;
         if (Array.isArray(battlefield)) {
           for (const permanent of battlefield) {
             if (!permanent) continue;
-            if (permanent.attacking !== undefined) delete permanent.attacking;
-            if (permanent.blocking !== undefined) delete permanent.blocking;
-            if (permanent.blockedBy !== undefined) delete permanent.blockedBy;
+            // Set to undefined instead of deleting for better performance
+            if (permanent.attacking !== undefined) permanent.attacking = undefined;
+            if (permanent.blocking !== undefined) permanent.blocking = undefined;
+            if (permanent.blockedBy !== undefined) permanent.blockedBy = undefined;
           }
         }
       } catch (err) {
