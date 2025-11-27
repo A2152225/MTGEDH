@@ -15,6 +15,7 @@ import { registerCombatHandlers } from "./combat.js";
 import { registerTriggerHandlers } from "./triggers.js";
 import { registerOpeningHandHandlers } from "./opening-hand.js";
 import { registerUndoHandlers } from "./undo.js";
+import { registerJoinForcesHandlers } from "./join-forces.js";
 import { GameManager } from "../GameManager.js";
 
 /**
@@ -46,6 +47,7 @@ export function registerSocketHandlers(
     registerTriggerHandlers(io, socket);
     registerOpeningHandHandlers(io, socket);
     registerUndoHandlers(io, socket);
+    registerJoinForcesHandlers(io, socket);
 
     // Log disconnection reason
     socket.on("disconnect", (reason) => {

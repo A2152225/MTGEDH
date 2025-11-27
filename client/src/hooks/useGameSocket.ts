@@ -475,21 +475,26 @@ export function useGameSocket(): UseGameSocketState {
 
     // generic confirm workflow (import or judge)
     const onConfirmRequest = (payload: any) => {
-      setConfirmPayload(payload);
-      setConfirmId(payload.confirmId);
+      // Update all confirm-related state atomically
+      // React 18+ batches these updates automatically
       const initial: ImportConfirmVotes = {};
       for (const pid of payload.players || []) initial[pid] = "pending";
       if (payload.initiator) initial[payload.initiator] = "yes";
+      
+      setConfirmPayload(payload);
+      setConfirmId(payload.confirmId);
       setConfirmVotes(initial);
       setConfirmOpen(true);
     };
     const onConfirmUpdate = (update: any) => {
       if (!update || !update.confirmId) return;
-      if (!confirmId || update.confirmId === confirmId)
+      // Only update if we have a matching confirmId
+      if (confirmId && update.confirmId === confirmId)
         setConfirmVotes(update.responses);
     };
     const onConfirmCancelled = (info: any) => {
       if (!info || !info.confirmId) return;
+      // Only clear if we have a matching confirmId or if we have no confirmId
       if (!confirmId || info.confirmId === confirmId) {
         setConfirmOpen(false);
         setConfirmPayload(null);
