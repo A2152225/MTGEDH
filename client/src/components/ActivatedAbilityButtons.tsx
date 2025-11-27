@@ -307,7 +307,9 @@ export function ActivatedAbilityButtons({
   const [hovered, setHovered] = useState(false);
   
   const kc = perm.card as KnownCardRef;
-  const scale = tileWidth / 110;
+  // Scale factor with minimum to ensure readability
+  const rawScale = tileWidth / 110;
+  const scale = Math.max(0.7, rawScale);
   
   // Parse abilities from the card
   const abilities = useMemo(() => {
