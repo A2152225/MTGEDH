@@ -638,9 +638,16 @@ export function registerGameActions(io: Server, socket: Socket) {
         console.warn('Legacy playLand failed:', e);
       }
       
-      // Persist the event to DB only (don't re-apply since game.playLand already applied it)
+      // Persist the event to DB with full card data for reliable replay after server restart
+      // Note: We store the full card object so that during replay the card can be placed on
+      // the battlefield even if the hand state differs
       try {
-        appendEvent(gameId, (game as any).seq ?? 0, "playLand", { playerId, cardId });
+        appendEvent(gameId, (game as any).seq ?? 0, "playLand", { 
+          playerId, 
+          cardId,
+          // Include full card data for replay to work correctly after server restart
+          card: cardInHand
+        });
       } catch (e) {
         console.warn('appendEvent(playLand) failed:', e);
       }
@@ -1060,9 +1067,15 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
       
-      // Persist the event to DB
+      // Persist the event to DB with full card data for reliable replay after server restart
       try {
-        appendEvent(gameId, (game as any).seq ?? 0, "castSpell", { playerId, cardId, targets });
+        appendEvent(gameId, (game as any).seq ?? 0, "castSpell", { 
+          playerId, 
+          cardId, 
+          targets,
+          // Include full card data for replay to work correctly after server restart
+          card: cardInHand
+        });
       } catch (e) {
         console.warn('appendEvent(castSpell) failed:', e);
       }

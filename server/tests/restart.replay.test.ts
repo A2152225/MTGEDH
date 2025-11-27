@@ -266,4 +266,70 @@ describe('Server restart replay', () => {
     expect(hand2).toEqual(hand1);
     expect(lib2).toEqual(lib1);
   });
+
+  it('should correctly replay playLand events and preserve lands on battlefield', () => {
+    const gameId = 'land_replay_test';
+    const p1 = 'p_test' as PlayerID;
+    // Create a deck with lands at the top to ensure we draw one
+    // Put the land first so after deterministic shuffle, we're more likely to get it
+    const land = { id: 'land_1', name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '{T}: Add {G}.', image_uris: { small: 'forest.jpg' } };
+    const deck = [
+      land,
+      ...mkCards(59, 'Card')
+    ];
+    const seed = 12121212; // Use a seed that results in the land being drawn
+
+    // Session 1: import deck, draw (no shuffle to ensure deterministic result)
+    const g1 = createInitialGameState(gameId);
+    g1.seedRng(seed);
+    g1.importDeckResolved(p1, deck);
+    // Don't shuffle - just draw the first 7 cards including the land
+    g1.drawCards(p1, 7);
+    
+    // The land should be in hand (it's the first card in the deck)
+    const hand1Before = (g1.state.zones?.[p1]?.hand ?? []) as any[];
+    const landInHand = hand1Before.find((c: any) => c.type_line?.toLowerCase().includes('land'));
+    
+    expect(landInHand).toBeDefined();
+    expect(landInHand?.name).toBe('Forest');
+    
+    // Play the land
+    g1.playLand(p1, landInHand);
+    
+    const battlefield1 = (g1.state?.battlefield ?? []) as any[];
+    const landsOnBattlefield1 = battlefield1.filter((p: any) => 
+      p.controller === p1 && p.card?.type_line?.toLowerCase().includes('land')
+    );
+    
+    console.log('Land replay - Session 1 - Lands on battlefield:', landsOnBattlefield1.map((p: any) => p.card?.name));
+    
+    // The land should be on the battlefield
+    expect(landsOnBattlefield1.length).toBe(1);
+    expect(landsOnBattlefield1[0].card.name).toBe('Forest');
+
+    // Session 2: Replay with full card data in playLand event (the fix)
+    const dbEvents = [
+      { type: 'rngSeed', payload: { seed } },
+      { type: 'deckImportResolved', payload: { playerId: p1, cards: deck } },
+      { type: 'drawCards', payload: { playerId: p1, count: 7 } },
+      // The fix: include full card data in the event so replay works after server restart
+      { type: 'playLand', payload: { playerId: p1, cardId: landInHand.id, card: landInHand } },
+    ];
+    
+    const replayEvents = transformDbEventsForReplay(dbEvents);
+
+    const g2 = createInitialGameState(gameId);
+    (g2 as any).replay(replayEvents);
+    
+    const battlefield2 = (g2.state?.battlefield ?? []) as any[];
+    const landsOnBattlefield2 = battlefield2.filter((p: any) => 
+      p.controller === p1 && p.card?.type_line?.toLowerCase().includes('land')
+    );
+    
+    console.log('Land replay - Session 2 (replay) - Lands on battlefield:', landsOnBattlefield2.map((p: any) => p.card?.name));
+
+    // After replay, the land should still be on battlefield
+    expect(landsOnBattlefield2.length).toBe(1);
+    expect(landsOnBattlefield2[0].card.name).toBe('Forest');
+  });
 });
