@@ -24,6 +24,7 @@ interface PhaseNavigatorProps {
   onNextStep: () => void;
   onPassPriority: () => void;
   onAdvancingChange?: (isAdvancing: boolean) => void;
+  onSkipToPhase?: (targetPhase: string, targetStep: string) => void;
 }
 
 // Define the order of phases/steps for navigation
@@ -53,6 +54,7 @@ export function PhaseNavigator({
   onNextStep,
   onPassPriority,
   onAdvancingChange,
+  onSkipToPhase,
 }: PhaseNavigatorProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isAdvancing, setIsAdvancing] = useState(false); // Track if we're in the middle of advancing phases
@@ -113,13 +115,55 @@ export function PhaseNavigator({
   const canAdvance = isYourTurn && stackEmpty && !isAdvancing;
   
   // Handle clicking on a phase to advance to it
-  // Advances step by step with 0.75 second delays, disabling buttons during advancement
+  // If jumping from pre-combat to post-combat, skip combat entirely without asking for attackers
+  // This assumes player doesn't want to attack when they explicitly skip past combat
   const handlePhaseClick = useCallback(async (targetIndex: number) => {
     if (!canAdvance) return;
     if (targetIndex <= currentIndex) return; // Can't go backward
     
     const stepsToAdvance = targetIndex - currentIndex;
     if (stepsToAdvance <= 0) return;
+    
+    // Get target phase info
+    const targetPhase = PHASE_ORDER[targetIndex];
+    const currentPhaseInfo = PHASE_ORDER[currentIndex];
+    
+    // Check if we're jumping from before combat to after combat
+    // If current is Main 1 (index 3) or earlier, and target is Main 2 (index 5) or later
+    // then skip combat entirely - player is explicitly choosing not to attack
+    const isBeforeCombat = currentIndex <= 3; // Main 1 or earlier
+    const isAfterCombat = targetIndex >= 5;   // Main 2 or later
+    const skippingOverCombat = isBeforeCombat && isAfterCombat;
+    
+    // If we're skipping over combat and have the skip-to-phase callback, use it
+    // This allows jumping directly to the target phase without going through combat steps
+    if (skippingOverCombat && onSkipToPhase) {
+      setIsAdvancing(true);
+      try {
+        // Map the target phase to the correct phase/step values
+        const phaseStepMap: Record<string, { phase: string; step: string }> = {
+          'main2': { phase: 'postcombatMain', step: 'MAIN2' },
+          'endStep': { phase: 'ending', step: 'END' },
+          'cleanup': { phase: 'ending', step: 'CLEANUP' },
+        };
+        
+        const targetMapping = phaseStepMap[targetPhase.id];
+        if (targetMapping) {
+          onSkipToPhase(targetMapping.phase, targetMapping.step);
+        } else {
+          // Fallback to step-by-step if target not mapped
+          for (let i = 0; i < stepsToAdvance; i++) {
+            onNextStep();
+            if (i < stepsToAdvance - 1) {
+              await new Promise(resolve => setTimeout(resolve, 750));
+            }
+          }
+        }
+      } finally {
+        setTimeout(() => setIsAdvancing(false), 200);
+      }
+      return;
+    }
     
     // Disable buttons while advancing
     setIsAdvancing(true);
@@ -137,7 +181,7 @@ export function PhaseNavigator({
       // Re-enable buttons after a short delay to let the final state settle
       setTimeout(() => setIsAdvancing(false), 200);
     }
-  }, [canAdvance, currentIndex, onNextStep]);
+  }, [canAdvance, currentIndex, onNextStep, onSkipToPhase]);
   
   // Drag handlers
   const handleMouseDown = useCallback((e: React.MouseEvent) => {

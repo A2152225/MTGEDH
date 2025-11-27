@@ -1977,6 +1977,7 @@ export function App() {
           onNextStep={() => socket.emit("nextStep", { gameId: safeView.id })}
           onPassPriority={() => socket.emit("passPriority", { gameId: safeView.id, by: you })}
           onAdvancingChange={setPhaseNavigatorAdvancing}
+          onSkipToPhase={(targetPhase, targetStep) => socket.emit("skipToPhase", { gameId: safeView.id, targetPhase, targetStep })}
         />
       )}
 
