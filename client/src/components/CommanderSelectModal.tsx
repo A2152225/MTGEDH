@@ -25,6 +25,7 @@ export interface CommanderSelectModalProps {
   deckList?: string;
   candidates?: KnownCardRef[];
   onConfirm: (names: string[], ids?: string[]) => void;
+  onCancel?: () => void;  // Called when user explicitly cancels (closes without confirming)
   max: number;
 }
 
@@ -46,7 +47,7 @@ function normalizeNameLower(s: string) {
 }
 
 export const CommanderSelectModal: React.FC<CommanderSelectModalProps> = ({
-  open, onClose, deckList = '', candidates = [], onConfirm, max
+  open, onClose, deckList = '', candidates = [], onConfirm, onCancel, max
 }) => {
   // Tile sizing (tweakable)
   const IMAGE_H = 293;
@@ -233,8 +234,16 @@ export const CommanderSelectModal: React.FC<CommanderSelectModalProps> = ({
     alignItems: 'center'
   };
 
+  // Handle backdrop click - call onCancel to properly cancel the selection
+  const handleBackdropClick = () => {
+    if (onCancel) {
+      onCancel();
+    }
+    onClose();
+  };
+
   return createPortal(
-    <div style={backdrop} onClick={() => onClose()}>
+    <div style={backdrop} onClick={handleBackdropClick}>
       <div style={box} onClick={e => e.stopPropagation()}>
         <div style={headerStyle}>
           <div>
@@ -243,7 +252,7 @@ export const CommanderSelectModal: React.FC<CommanderSelectModalProps> = ({
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={() => { setSelectedIds([]); setManualNames(Array.from({ length: max }, (_, i) => i === 0 ? '' : '')); }}>Clear All</button>
-            <button onClick={() => onClose()}>Close</button>
+            <button onClick={handleBackdropClick}>Close</button>
           </div>
         </div>
 

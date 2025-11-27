@@ -579,11 +579,12 @@ const ADDITIONAL_LAND_PLAY_CARDS: Record<string, { lands: number; affectsAll?: b
 /**
  * Cards that grant additional draws per draw step
  * Key: lowercase card name (partial match), Value: number of additional cards to draw
+ * Note: requiresUntapped means the permanent must be untapped to provide the effect (e.g., Howling Mine)
  */
-const ADDITIONAL_DRAW_CARDS: Record<string, { draws: number; affectsAll?: boolean; affectsOpponents?: boolean }> = {
+const ADDITIONAL_DRAW_CARDS: Record<string, { draws: number; affectsAll?: boolean; affectsOpponents?: boolean; requiresUntapped?: boolean }> = {
   "rites of flourishing": { draws: 1, affectsAll: true },
   "font of mythos": { draws: 2, affectsAll: true },
-  "howling mine": { draws: 1, affectsAll: true },
+  "howling mine": { draws: 1, affectsAll: true, requiresUntapped: true }, // Only works when untapped
   "temple bell": { draws: 0 }, // Activated ability, not automatic
   "dictate of kruphix": { draws: 1, affectsAll: true },
   "kami of the crescent moon": { draws: 1, affectsAll: true },
@@ -598,6 +599,8 @@ const ADDITIONAL_DRAW_CARDS: Record<string, { draws: number; affectsAll?: boolea
   "anvil of bogardan": { draws: 1, affectsAll: true }, // +1 draw, discard a card
   "well of ideas": { draws: 2 }, // Controller draws 2 extra on draw step
   "master of the feast": { draws: 1, affectsOpponents: true }, // Each opponent draws 1
+  "horn of greed": { draws: 0 }, // Triggered on land play, not draw step
+  "jace beleren": { draws: 0 }, // Planeswalker ability, not automatic
 };
 
 /**
@@ -640,6 +643,12 @@ export function calculateAdditionalDraws(ctx: GameContext, playerId: string): nu
     
     for (const [knownName, effect] of Object.entries(ADDITIONAL_DRAW_CARDS)) {
       if (cardName.includes(knownName) && effect.draws > 0) {
+        // Check if this card requires being untapped (e.g., Howling Mine)
+        // "At the beginning of each player's draw step, if Howling Mine is untapped, that player draws an additional card."
+        if (effect.requiresUntapped && perm.tapped) {
+          continue; // Skip tapped permanents that require being untapped
+        }
+        
         const isController = perm.controller === playerId;
         const isOpponent = !isController;
         

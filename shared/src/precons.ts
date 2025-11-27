@@ -72,7 +72,7 @@ export const COMMANDER_PRECONS: PreconYear[] = [
       },
       {
         name: "Aetherdrift",
-        code: "ADC",
+        code: "DRC",
         decks: [
           { name: "Eternal Might", commanders: ["Temmet, Naktamun's Will"], colorIdentity: "WUB", decklistUrl: "https://moxfield.com/decks/XrG-Ct9Mx0SZxXKayAp09w" },
           { name: "Living Energy", commanders: ["Saheeli, Radiant Creator"], colorIdentity: "URG", decklistUrl: "https://moxfield.com/decks/jWSmSfkdGEijTfTX_d8qNQ" }

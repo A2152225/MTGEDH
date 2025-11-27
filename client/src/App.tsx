@@ -32,6 +32,7 @@ import { useGameSocket } from "./hooks/useGameSocket";
 import type { PaymentItem, ManaColor } from "../../shared/src";
 import { GameStatusIndicator } from "./components/GameStatusIndicator";
 import { CreateGameModal, type GameCreationConfig } from "./components/CreateGameModal";
+import { PhaseNavigator } from "./components/PhaseNavigator";
 
 /** Map engine/internal phase enum to human-friendly name */
 function prettyPhase(phase?: string | null): string {
@@ -268,6 +269,29 @@ export function App() {
   const hasPromptedDeckImport = React.useRef(false);
   // External control for deck manager visibility in TableLayout
   const [tableDeckMgrOpen, setTableDeckMgrOpen] = useState(false);
+
+  // Auto-advance phases/steps setting
+  // When enabled, automatically passes priority during untap, draw, and cleanup phases
+  // if the player has nothing to do
+  const [autoAdvancePhases, setAutoAdvancePhases] = useState(() => {
+    try {
+      const stored = localStorage.getItem('mtgedh:autoAdvancePhases');
+      return stored === 'true';
+    } catch {
+      return false;
+    }
+  });
+  
+  // Toggle auto-advance and persist to localStorage
+  const handleToggleAutoAdvance = React.useCallback(() => {
+    setAutoAdvancePhases(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('mtgedh:autoAdvancePhases', String(next));
+      } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
 
   // Fetch saved decks when create game modal opens
   const refreshSavedDecks = React.useCallback(() => {
@@ -647,6 +671,45 @@ export function App() {
       setShowDeckImportPrompt(false);
     }
   }, [you]);
+
+  // Auto-advance phases effect
+  // Automatically passes priority during phases where the player can't do much:
+  // - Untap step (nothing to do during untap except special abilities)
+  // - Draw step (after drawing, usually just pass)
+  // - Cleanup step (unless special abilities like Sundial of the Infinite)
+  React.useEffect(() => {
+    if (!autoAdvancePhases || !safeView || !you) return;
+    // Only auto-advance if it's our turn and we have priority
+    if (safeView.priority !== you) return;
+    if (safeView.turnPlayer !== you) return;
+    
+    // Only auto-advance during certain phases/steps
+    const step = String(safeView.step || '').toLowerCase();
+    const phase = String(safeView.phase || '').toLowerCase();
+    
+    // Don't auto-advance if there's something on the stack
+    if ((safeView as any).stack?.length > 0) return;
+    
+    // Phases/steps that can be auto-advanced:
+    // - untap step (no player usually needs to respond)
+    // - cleanup step (usually just pass unless special abilities like Sundial of the Infinite)
+    // Note: Not auto-advancing draw step as the player may want to cast instants after drawing
+    const autoAdvanceableSteps = ['untap', 'cleanup'];
+    
+    // Check if we're in an auto-advance step
+    const shouldAutoAdvance = 
+      autoAdvanceableSteps.includes(step) ||
+      phase.includes('untap') ||
+      phase.includes('cleanup');
+    
+    if (shouldAutoAdvance) {
+      // Small delay to allow any animations/updates
+      const timer = setTimeout(() => {
+        socket.emit('nextStep', { gameId: safeView.id });
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [autoAdvancePhases, safeView, you]);
 
   const canAdvanceStep = useMemo(() => {
     if (!safeView || !you) return false;
@@ -1412,6 +1475,21 @@ export function App() {
               Pass Priority
             </button>
             <button
+              onClick={handleToggleAutoAdvance}
+              style={{
+                background: autoAdvancePhases ? '#10b981' : '#6b7280',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 4,
+                padding: '4px 8px',
+                cursor: 'pointer',
+                fontSize: 11,
+              }}
+              title="Auto-advance through untap/cleanup phases (reduces manual clicking)"
+            >
+              {autoAdvancePhases ? '⚡ Auto' : '⚡ Manual'}
+            </button>
+            <button
               onClick={handleRequestUndo}
               disabled={!isYouPlayer}
               style={{
@@ -1636,6 +1714,22 @@ export function App() {
       <div />
 
       <CardPreviewLayer />
+
+      {/* Phase Navigator - Floating component for quick phase navigation */}
+      {safeView && you && (
+        <PhaseNavigator
+          currentPhase={safeView.phase}
+          currentStep={safeView.step}
+          turnPlayer={safeView.turnPlayer}
+          you={you}
+          isYourTurn={safeView.turnPlayer === you}
+          hasPriority={safeView.priority === you}
+          stackEmpty={!((safeView as any).stack?.length > 0)}
+          onNextStep={() => socket.emit("nextStep", { gameId: safeView.id })}
+          onNextTurn={() => socket.emit("nextTurn", { gameId: safeView.id })}
+          onPassPriority={() => socket.emit("passPriority", { gameId: safeView.id, by: you })}
+        />
+      )}
 
       {/* Commander selection UI */}
       {effectiveGameId &&
