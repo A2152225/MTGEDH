@@ -174,6 +174,7 @@ export function AppearanceSettingsModal({
                 color: activeTab === 'table' ? '#60a5fa' : '#888',
                 cursor: 'pointer',
               }}
+              title="The tablecloth area surrounding all player boards"
             >
               Table Background
             </button>
@@ -189,9 +190,25 @@ export function AppearanceSettingsModal({
                 color: activeTab === 'playArea' ? '#60a5fa' : '#888',
                 cursor: 'pointer',
               }}
+              title="Each player's card area (where cards are displayed)"
             >
-              Play Area Background
+              Player Field
             </button>
+          </div>
+
+          {/* Description for active tab */}
+          <div style={{ 
+            color: '#888', 
+            fontSize: 11, 
+            marginBottom: 12,
+            padding: '8px 12px',
+            background: 'rgba(255, 255, 255, 0.03)',
+            borderRadius: 6,
+            borderLeft: '2px solid #3b82f6',
+          }}>
+            {activeTab === 'table' 
+              ? '🎴 The tablecloth area that surrounds all player boards'
+              : '🃏 The field section where player cards are displayed'}
           </div>
 
           {/* Settings Panel */}
@@ -392,7 +409,7 @@ export function AppearanceSettingsModal({
                     ),
                   }}
                 >
-                  Play Area
+                  Player Field
                 </div>
               </div>
             </div>
