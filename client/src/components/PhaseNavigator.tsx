@@ -123,8 +123,9 @@ export function PhaseNavigator({
     }
   }, [canAdvance, currentIndex, onNextStep]);
   
-  // Handle End Turn button - should go to end phase, not skip to next turn
-  const handleEndTurn = useCallback(() => {
+  // Handle End Turn button - should go through end phase properly, not skip to next turn
+  // This advances step by step to ensure cleanup happens
+  const handleEndTurn = useCallback(async () => {
     if (!canAdvance) return;
     
     // If there's a specific callback for going to end phase, use it
@@ -133,9 +134,27 @@ export function PhaseNavigator({
       return;
     }
     
-    // Otherwise use the default behavior
-    onNextTurn();
-  }, [canAdvance, onGoToEndPhase, onNextTurn]);
+    // Find the end step index and advance there step by step
+    const endStepIndex = PHASE_ORDER.findIndex(p => p.id === 'endStep');
+    
+    if (endStepIndex > currentIndex && currentIndex >= 0) {
+      // Advance step by step to end step
+      const stepsToAdvance = endStepIndex - currentIndex;
+      for (let i = 0; i < stepsToAdvance; i++) {
+        onNextStep();
+        // Wait between steps to allow server to process
+        if (i < stepsToAdvance - 1) {
+          await new Promise(resolve => setTimeout(resolve, 150));
+        }
+      }
+    } else if (currentIndex >= endStepIndex) {
+      // Already at or past end step, just advance to move through cleanup
+      onNextStep();
+    } else {
+      // Fallback: just advance one step if we can't determine position
+      onNextStep();
+    }
+  }, [canAdvance, currentIndex, onGoToEndPhase, onNextStep]);
   
   // Drag handlers
   const handleMouseDown = useCallback((e: React.MouseEvent) => {

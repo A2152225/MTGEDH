@@ -574,6 +574,23 @@ export function registerGameActions(io: Server, socket: Socket) {
       const cardName = (cardInHand as any)?.name || "";
       const cardImageUrl = (cardInHand as any)?.image_uris?.small || (cardInHand as any)?.image_uris?.normal;
       if (!cardInHand) {
+        console.warn(`[playLand] Card ${cardId} not found in hand for player ${playerId}`);
+        socket.emit("error", {
+          code: "CARD_NOT_IN_HAND",
+          message: "Card not found in hand. It may have already been played or moved.",
+        });
+        return;
+      }
+      
+      // Validate that the card is actually a land (check type_line)
+      const typeLine = (cardInHand as any)?.type_line || "";
+      const isLand = /\bland\b/i.test(typeLine);
+      if (!isLand) {
+        console.warn(`[playLand] Card ${cardName} (${cardId}) is not a land. Type line: ${typeLine}`);
+        socket.emit("error", {
+          code: "NOT_A_LAND",
+          message: `${cardName || "This card"} is not a land and cannot be played with playLand.`,
+        });
         return;
       }
 
