@@ -250,6 +250,10 @@ export function registerJoinForcesHandlers(io: Server, socket: Socket) {
       }
       
       // Record the contribution
+      // Note: Mana payment validation is handled client-side via availableMana prop.
+      // The server accepts any non-negative amount because Join Forces effects
+      // may also allow tapping creatures/artifacts for mana, using mana abilities,
+      // or other complex mana sources that the server cannot easily validate.
       const contribution = Math.max(0, Math.floor(amount));
       pending.contributions[playerId] = contribution;
       pending.responded.add(playerId);

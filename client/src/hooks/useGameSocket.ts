@@ -475,20 +475,16 @@ export function useGameSocket(): UseGameSocketState {
 
     // generic confirm workflow (import or judge)
     const onConfirmRequest = (payload: any) => {
-      // Clear any previous confirmation state before setting new one
-      // This ensures the dialog properly updates when changing decks mid-game
-      setConfirmOpen(false);
+      // Update all confirm-related state atomically
+      // React 18+ batches these updates automatically
+      const initial: ImportConfirmVotes = {};
+      for (const pid of payload.players || []) initial[pid] = "pending";
+      if (payload.initiator) initial[payload.initiator] = "yes";
       
-      // Small delay to ensure React processes the close before reopening
-      setTimeout(() => {
-        setConfirmPayload(payload);
-        setConfirmId(payload.confirmId);
-        const initial: ImportConfirmVotes = {};
-        for (const pid of payload.players || []) initial[pid] = "pending";
-        if (payload.initiator) initial[payload.initiator] = "yes";
-        setConfirmVotes(initial);
-        setConfirmOpen(true);
-      }, 50);
+      setConfirmPayload(payload);
+      setConfirmId(payload.confirmId);
+      setConfirmVotes(initial);
+      setConfirmOpen(true);
     };
     const onConfirmUpdate = (update: any) => {
       if (!update || !update.confirmId) return;
