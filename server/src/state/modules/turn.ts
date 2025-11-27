@@ -363,6 +363,37 @@ function endTemporaryEffects(ctx: GameContext) {
 }
 
 /**
+ * Clear summoning sickness from all permanents controlled by the specified player.
+ * Rule 302.6: A creature's activated ability with tap/untap symbol can't be
+ * activated unless the creature has been under its controller's control continuously
+ * since their most recent turn began.
+ * 
+ * This is called at the start of the player's turn. Once a creature has been
+ * controlled since the turn began, it no longer has summoning sickness.
+ */
+function clearSummoningSicknessForPlayer(ctx: GameContext, playerId: string) {
+  try {
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return;
+
+    let clearedCount = 0;
+
+    for (const permanent of battlefield) {
+      if (permanent && permanent.controller === playerId && permanent.summoningSickness) {
+        permanent.summoningSickness = false;
+        clearedCount++;
+      }
+    }
+
+    if (clearedCount > 0) {
+      console.log(`${ts()} [clearSummoningSicknessForPlayer] Cleared summoning sickness from ${clearedCount} permanent(s) for ${playerId}`);
+    }
+  } catch (err) {
+    console.warn(`${ts()} clearSummoningSicknessForPlayer failed:`, err);
+  }
+}
+
+/**
  * Untap all permanents controlled by the specified player.
  * This implements Rule 502.3: During the untap step, the active player
  * untaps all their permanents simultaneously.
@@ -423,6 +454,7 @@ function untapPermanentsForPlayer(ctx: GameContext, playerId: string) {
  * - Updates turnPlayer to the next player in order
  * - Resets phase to "beginning" (start of turn)
  * - Sets step to "UNTAP" 
+ * - Clears summoning sickness for the new active player's creatures (Rule 302.6)
  * - Untaps all permanents controlled by the new active player
  * - Gives priority to the active player
  * - Resets landsPlayedThisTurn for all players
@@ -442,6 +474,15 @@ export function nextTurn(ctx: GameContext) {
     // Reset to beginning of turn
     (ctx as any).state.phase = "beginning";
     (ctx as any).state.step = "UNTAP";
+
+    // Rule 302.6: Clear summoning sickness at the BEGINNING of the turn
+    // This is independent of untapping - a creature that doesn't untap due to
+    // an effect still loses summoning sickness at the start of its controller's turn
+    try {
+      clearSummoningSicknessForPlayer(ctx, next);
+    } catch (err) {
+      console.warn(`${ts()} [nextTurn] Failed to clear summoning sickness:`, err);
+    }
 
     // Note: Untapping happens when leaving the UNTAP step (in nextStep),
     // not at the start of the turn. This matches MTG rules where turn-based
@@ -828,10 +869,12 @@ export function nextStep(ctx: GameContext) {
     }
 
     // If we're leaving the UNTAP step, untap all permanents controlled by the active player (Rule 502.3)
+    // Note: Summoning sickness is already cleared at the beginning of the turn (in nextTurn)
     if (shouldUntap) {
       try {
         const turnPlayer = (ctx as any).state.turnPlayer;
         if (turnPlayer) {
+          // Untap all permanents
           untapPermanentsForPlayer(ctx, turnPlayer);
         } else {
           console.warn(`${ts()} [nextStep] No turnPlayer set, cannot untap permanents`);

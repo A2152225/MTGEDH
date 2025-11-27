@@ -18,6 +18,92 @@ import { recalculatePlayerEffects } from "./game-state-effects.js";
  * It is conservative and defensive about shapes so it won't throw on unexpected input.
  */
 
+/**
+ * Extract creature types from a type line
+ */
+function extractCreatureTypes(typeLine: string): string[] {
+  const types: string[] = [];
+  const lower = typeLine.toLowerCase();
+  
+  // Check for creature types after "—" or "-"
+  const dashIndex = lower.indexOf("—") !== -1 ? lower.indexOf("—") : lower.indexOf("-");
+  if (dashIndex !== -1) {
+    const subtypes = lower.slice(dashIndex + 1).trim().split(/\s+/);
+    types.push(...subtypes.filter(t => t.length > 0));
+  }
+  
+  return types;
+}
+
+/**
+ * Check if a creature entering the battlefield would have haste
+ * from effects already on the battlefield.
+ * 
+ * This is used when determining if a creature should have summoning sickness.
+ * Rule 702.10: Haste allows a creature to attack and use tap abilities immediately.
+ */
+function creatureWillHaveHaste(
+  card: any,
+  controller: string,
+  battlefield: any[]
+): boolean {
+  try {
+    const cardTypeLine = (card?.type_line || "").toLowerCase();
+    const cardOracleText = (card?.oracle_text || "").toLowerCase();
+    
+    // 1. Check if the creature itself has haste
+    if (cardOracleText.includes('haste')) {
+      return true;
+    }
+    
+    // 2. Check battlefield for permanents that grant haste
+    for (const perm of battlefield) {
+      if (!perm || !perm.card) continue;
+      
+      const grantorOracle = (perm.card.oracle_text || "").toLowerCase();
+      const grantorController = perm.controller;
+      
+      // Check for "creatures you control have haste" effects
+      if (grantorController === controller) {
+        if (grantorOracle.includes('creatures you control have haste') ||
+            grantorOracle.includes('other creatures you control have haste')) {
+          return true;
+        }
+        
+        // Check for "activate abilities... as though... had haste" effects
+        // This covers Thousand-Year Elixir: "You may activate abilities of creatures 
+        // you control as though those creatures had haste."
+        if (grantorOracle.includes('as though') && 
+            grantorOracle.includes('had haste') &&
+            (grantorOracle.includes('creatures you control') || 
+             grantorOracle.includes('activate abilities'))) {
+          return true;
+        }
+        
+        // Check for tribal haste grants (e.g., "Goblin creatures you control have haste")
+        const creatureTypes = extractCreatureTypes(cardTypeLine);
+        for (const creatureType of creatureTypes) {
+          const pattern = new RegExp(`${creatureType}[^.]*have haste`, 'i');
+          if (pattern.test(grantorOracle)) {
+            return true;
+          }
+        }
+      }
+      
+      // Check for effects that grant haste to all creatures
+      if (grantorOracle.includes('all creatures have haste') ||
+          grantorOracle.includes('each creature has haste')) {
+        return true;
+      }
+    }
+    
+    return false;
+  } catch (err) {
+    console.warn('[creatureWillHaveHaste] Error checking haste:', err);
+    return false;
+  }
+}
+
 /* Push an item onto the stack */
 export function pushStack(
   ctx: GameContext,
@@ -69,6 +155,17 @@ export function resolveTopOfStack(ctx: GameContext) {
     const baseP = isCreature ? parsePT((card as any).power) : undefined;
     const baseT = isCreature ? parsePT((card as any).toughness) : undefined;
     
+    // Check if the creature has haste from any source (own text or battlefield effects)
+    // Rule 702.10: Haste allows ignoring summoning sickness
+    const battlefield = state.battlefield || [];
+    const hasHaste = isCreature && creatureWillHaveHaste(card, controller, battlefield);
+    
+    // Creatures have summoning sickness when they enter (unless they have haste)
+    // Rule 302.6: A creature's activated ability with tap/untap symbol can't be
+    // activated unless the creature has been under controller's control since 
+    // their most recent turn began.
+    const hasSummoningSickness = isCreature && !hasHaste;
+    
     state.battlefield = state.battlefield || [];
     state.battlefield.push({
       id: uid("perm"),
@@ -78,10 +175,18 @@ export function resolveTopOfStack(ctx: GameContext) {
       counters: {},
       basePower: baseP,
       baseToughness: baseT,
+      summoningSickness: hasSummoningSickness,
       card: { ...card, zone: "battlefield" },
     } as any);
     
-    console.log(`[resolveTopOfStack] Permanent ${card.name || 'unnamed'} entered battlefield under ${controller}`);
+    // Build a readable status message for logging
+    let statusNote = '';
+    if (hasSummoningSickness) {
+      statusNote = ' (summoning sickness)';
+    } else if (hasHaste) {
+      statusNote = ' (haste)';
+    }
+    console.log(`[resolveTopOfStack] Permanent ${card.name || 'unnamed'} entered battlefield under ${controller}${statusNote}`);
     
     // Recalculate player effects when permanents ETB (for Exploration, Font of Mythos, etc.)
     try {
@@ -166,8 +271,21 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
   
   const tl = (card.type_line || "").toLowerCase();
   const isCreature = /\bcreature\b/.test(tl);
+  const isLand = /\bland\b/.test(tl);
   const baseP = isCreature ? parsePT((card as any).power) : undefined;
   const baseT = isCreature ? parsePT((card as any).toughness) : undefined;
+  
+  // Check if the permanent has haste from any source (own text or battlefield effects)
+  // Rule 702.10: Haste allows ignoring summoning sickness
+  const battlefield = state.battlefield || [];
+  const hasHaste = isCreature && creatureWillHaveHaste(card, playerId, battlefield);
+  
+  // Rule 302.6: Summoning sickness applies to CREATURES (including creature lands like Dryad Arbor)
+  // - A pure land (not a creature) does NOT have summoning sickness
+  // - A "Land Creature" like Dryad Arbor DOES have summoning sickness because it's a creature
+  // - If a land becomes a creature later (via animation), it would need to be checked at that time
+  const hasSummoningSickness = isCreature && !hasHaste;
+  
   state.battlefield = state.battlefield || [];
   state.battlefield.push({
     id: uid("perm"),
@@ -177,6 +295,7 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
     counters: {},
     basePower: baseP,
     baseToughness: baseT,
+    summoningSickness: hasSummoningSickness,
     card: { ...card, zone: "battlefield" },
   } as any);
   state.landsPlayedThisTurn = state.landsPlayedThisTurn || {};
