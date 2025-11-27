@@ -28,6 +28,7 @@ import { LibrarySearchModal } from "./components/LibrarySearchModal";
 import { TargetSelectionModal, type TargetOption } from "./components/TargetSelectionModal";
 import { UndoRequestModal, type UndoRequestData } from "./components/UndoRequestModal";
 import { SplitCardChoiceModal, type CardFaceOption } from "./components/SplitCardChoiceModal";
+import { CreatureTypeSelectModal } from "./components/CreatureTypeSelectModal";
 import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
 import { useGameSocket } from "./hooks/useGameSocket";
@@ -255,6 +256,15 @@ export function App() {
     minTargets: number;
     maxTargets: number;
     effectId?: string; // For tracking which effect requested the targets
+  } | null>(null);
+  
+  // Creature type selection modal state (for Cavern of Souls, Kindred Discovery, etc.)
+  const [creatureTypeModalOpen, setCreatureTypeModalOpen] = useState(false);
+  const [creatureTypeModalData, setCreatureTypeModalData] = useState<{
+    confirmId: string;
+    permanentId: string;
+    cardName: string;
+    reason: string;
   } | null>(null);
   
   // Undo request modal state
@@ -556,6 +566,31 @@ export function App() {
     socket.on("openingHandActionsPrompt", handler);
     return () => {
       socket.off("openingHandActionsPrompt", handler);
+    };
+  }, [safeView?.id]);
+
+  // Creature type selection listener (for Cavern of Souls, Kindred Discovery, etc.)
+  React.useEffect(() => {
+    const handler = (payload: {
+      confirmId: string;
+      gameId: string;
+      permanentId: string;
+      cardName: string;
+      reason: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        setCreatureTypeModalData({
+          confirmId: payload.confirmId,
+          permanentId: payload.permanentId,
+          cardName: payload.cardName,
+          reason: payload.reason,
+        });
+        setCreatureTypeModalOpen(true);
+      }
+    };
+    socket.on("creatureTypeSelectionRequest", handler);
+    return () => {
+      socket.off("creatureTypeSelectionRequest", handler);
     };
   }, [safeView?.id]);
 
@@ -2552,6 +2587,29 @@ export function App() {
         canFuse={splitCardData?.canFuse}
         onChoose={handleSplitCardChoose}
         onCancel={handleSplitCardCancel}
+      />
+
+      {/* Creature Type Selection Modal */}
+      <CreatureTypeSelectModal
+        open={creatureTypeModalOpen}
+        title={`Choose a Creature Type for ${creatureTypeModalData?.cardName || 'this card'}`}
+        description={creatureTypeModalData?.reason}
+        cardName={creatureTypeModalData?.cardName}
+        onSelect={(creatureType) => {
+          if (creatureTypeModalData && safeView?.id) {
+            socket.emit("creatureTypeSelected", {
+              gameId: safeView.id,
+              confirmId: creatureTypeModalData.confirmId,
+              creatureType,
+            });
+            setCreatureTypeModalOpen(false);
+            setCreatureTypeModalData(null);
+          }
+        }}
+        onCancel={() => {
+          setCreatureTypeModalOpen(false);
+          setCreatureTypeModalData(null);
+        }}
       />
 
       {/* Deck Validation Status */}
