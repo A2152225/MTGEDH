@@ -194,6 +194,13 @@ export function TableLayout(props: {
   initiative?: PlayerID | null;
   dayNight?: 'day' | 'night' | null;
   cityBlessing?: Record<PlayerID, boolean>;
+  // Game state for activated ability buttons
+  priority?: PlayerID | null;
+  phase?: string;
+  step?: string;
+  turnPlayer?: PlayerID | null;
+  // Thousand-Year Elixir effect
+  hasThousandYearElixirEffect?: boolean;
 }) {
   const {
     players, permanentsByPlayer, imagePref, isYouPlayer,
@@ -211,6 +218,8 @@ export function TableLayout(props: {
     gameId, stackItems, importedCandidates, energyCounters, energy,
     chatMessages, onSendChat, chatView, chatYou,
     monarch, initiative, dayNight, cityBlessing,
+    priority, phase, step, turnPlayer,
+    hasThousandYearElixirEffect = false,
   } = props;
 
   // Snapshot debug
@@ -235,6 +244,15 @@ export function TableLayout(props: {
   }, [players, permanentsByPlayer, you]);
 
   const sideOrder = useMemo(() => sidePlan(ordered.length), [ordered.length]);
+
+  // Compute game state for activated ability buttons
+  const hasPriority = useMemo(() => you && priority === you, [you, priority]);
+  const isOwnTurn = useMemo(() => you && turnPlayer === you, [you, turnPlayer]);
+  const isMainPhase = useMemo(() => {
+    const p = (phase || '').toLowerCase();
+    return p.includes('main') || p.includes('precombat') || p.includes('postcombat');
+  }, [phase]);
+  const stackEmpty = useMemo(() => !stackItems || stackItems.length === 0, [stackItems]);
 
   // Layout constants - sized for comfortable 7-card display in hand
   // Extended play areas by ~15% for better card visibility
@@ -905,6 +923,12 @@ export function TableLayout(props: {
                           onRemove={isYouThis ? onRemove : undefined}
                           canActivate={isYouThis}
                           playerId={isYouThis ? you : undefined}
+                          hasPriority={hasPriority}
+                          isOwnTurn={isOwnTurn}
+                          isMainPhase={isMainPhase}
+                          stackEmpty={stackEmpty}
+                          hasThousandYearElixirEffect={hasThousandYearElixirEffect}
+                          showActivatedAbilityButtons={isYouThis}
                         />
 
                         {lands.length > 0 && (
