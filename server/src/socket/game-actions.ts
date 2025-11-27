@@ -1,5 +1,5 @@
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction } from "./util";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem } from "../../../shared/src";
@@ -935,7 +935,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         const globalBattlefield = game.state?.battlefield || [];
         
         // Process each payment item: tap the permanent and add mana to pool
-        for (const { permanentId, mana } of payment) {
+        for (const { permanentId, mana, count } of payment) {
           const permanent = globalBattlefield.find((p: any) => p?.id === permanentId && p?.controller === playerId);
           
           if (!permanent) {
@@ -987,10 +987,37 @@ export function registerGameActions(io: Server, socket: Socket) {
             'C': 'colorless',
           };
           
+          // Calculate actual mana production considering:
+          // - Fixed multi-mana (Sol Ring: {C}{C})
+          // - Dynamic mana (Gaea's Cradle, Wirewood Channeler)
+          // - Land enchantments (Wild Growth, Overgrowth)
+          // - Global effects (Caged Sun, Mana Reflection, Mirari's Wake)
+          let manaAmount: number;
+          
+          if (count !== undefined && count !== null) {
+            // Client provided explicit count - use it
+            manaAmount = count;
+          } else {
+            // Calculate dynamically based on game state
+            const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana);
+            manaAmount = manaInfo.totalAmount;
+            
+            // If there are bonus mana of different colors, add those too
+            for (const bonus of manaInfo.bonusMana) {
+              if (bonus.color !== mana && bonus.amount > 0) {
+                const bonusPoolKey = manaColorMap[bonus.color];
+                if (bonusPoolKey) {
+                  (game.state.manaPool[playerId] as any)[bonusPoolKey] += bonus.amount;
+                  console.log(`[castSpellFromHand] Added ${bonus.amount} ${bonus.color} bonus mana from enchantments/effects`);
+                }
+              }
+            }
+          }
+          
           const poolKey = manaColorMap[mana];
-          if (poolKey) {
-            (game.state.manaPool[playerId] as any)[poolKey]++;
-            console.log(`[castSpellFromHand] Added ${mana} mana to ${playerId}'s pool from ${(permanent as any).card?.name || permanentId}`);
+          if (poolKey && manaAmount > 0) {
+            (game.state.manaPool[playerId] as any)[poolKey] += manaAmount;
+            console.log(`[castSpellFromHand] Added ${manaAmount} ${mana} mana to ${playerId}'s pool from ${(permanent as any).card?.name || permanentId}`);
           }
         }
       }

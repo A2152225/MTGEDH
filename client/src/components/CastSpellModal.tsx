@@ -471,6 +471,13 @@ export function CastSpellModal({
 
   if (!open) return null;
 
+  // Helper to get mana count for a source (based on options array length)
+  const getManaCountForSource = (permanentId: string): number => {
+    const source = availableSources.find(s => s.id === permanentId);
+    if (!source) return 1;
+    return source.options.length; // ['C', 'C'] for Sol Ring = 2
+  };
+
   const handleConfirm = () => {
     // If no payment was manually selected, use the suggested payment
     let finalPayment = payment;
@@ -478,6 +485,7 @@ export function CastSpellModal({
       finalPayment = Array.from(suggestedPayment.entries()).map(([permanentId, mana]) => ({
         permanentId,
         mana,
+        count: getManaCountForSource(permanentId),
       }));
     }
     onConfirm(finalPayment, selectedCostId !== 'normal' ? selectedCostId : undefined);

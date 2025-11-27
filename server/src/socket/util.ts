@@ -1148,6 +1148,346 @@ export function validateManaPayment(
 }
 
 /**
+ * Mana production info for a permanent
+ */
+export interface ManaProductionInfo {
+  /** Base colors this permanent can produce */
+  colors: string[];
+  /** Base amount of mana produced per tap (before multipliers) */
+  baseAmount: number;
+  /** Whether the amount is dynamic (depends on game state) */
+  isDynamic: boolean;
+  /** Description of how mana is calculated (for dynamic sources) */
+  dynamicDescription?: string;
+  /** Extra mana from enchantments/effects on this permanent */
+  bonusMana: { color: string; amount: number }[];
+  /** Multiplier from global effects (Mana Reflection, Nyxbloom Ancient) */
+  multiplier: number;
+  /** Total mana produced (baseAmount * multiplier + bonuses) */
+  totalAmount: number;
+}
+
+/**
+ * Calculate the actual mana produced when a permanent is tapped.
+ * 
+ * This considers:
+ * - Fixed multi-mana (Sol Ring: {C}{C})
+ * - Dynamic mana (Gaea's Cradle: {G} per creature)
+ * - Land enchantments (Wild Growth, Utopia Sprawl, Overgrowth)
+ * - Global effects (Caged Sun, Mana Reflection, Mirari's Wake, Nyxbloom Ancient)
+ * 
+ * @param gameState - Current game state
+ * @param permanent - The permanent being tapped for mana
+ * @param playerId - Controller of the permanent
+ * @param chosenColor - For "any color" abilities, which color was chosen
+ * @returns ManaProductionInfo with calculated mana amounts
+ */
+export function calculateManaProduction(
+  gameState: any,
+  permanent: any,
+  playerId: string,
+  chosenColor?: string
+): ManaProductionInfo {
+  const card = permanent?.card || {};
+  const oracleText = (card.oracle_text || '').toLowerCase();
+  const typeLine = (card.type_line || '').toLowerCase();
+  const cardName = (card.name || '').toLowerCase();
+  const battlefield = gameState?.battlefield || [];
+  
+  const result: ManaProductionInfo = {
+    colors: [],
+    baseAmount: 1,
+    isDynamic: false,
+    bonusMana: [],
+    multiplier: 1,
+    totalAmount: 1,
+  };
+  
+  // ===== STEP 1: Determine base mana production from the card itself =====
+  
+  // Check for fixed multi-mana patterns: "Add {C}{C}" (Sol Ring), "Add {G}{G}" (Overgrowth)
+  const fixedManaMatch = oracleText.match(/add\s+((?:\{[wubrgc]\})+)/gi);
+  if (fixedManaMatch) {
+    for (const match of fixedManaMatch) {
+      const symbols = match.match(/\{[wubrgc]\}/gi) || [];
+      if (symbols.length > 0) {
+        result.baseAmount = symbols.length;
+        // Get the color(s)
+        for (const sym of symbols) {
+          const color = sym.replace(/[{}]/g, '').toUpperCase();
+          if (!result.colors.includes(color)) {
+            result.colors.push(color);
+          }
+        }
+      }
+    }
+  }
+  
+  // Check for "any color" patterns
+  if (oracleText.includes('any color') || oracleText.includes('mana of any color')) {
+    result.colors = ['W', 'U', 'B', 'R', 'G'];
+    if (chosenColor && result.colors.includes(chosenColor)) {
+      result.colors = [chosenColor];
+    }
+  }
+  
+  // Handle basic land types
+  if (typeLine.includes('plains') && !result.colors.includes('W')) result.colors.push('W');
+  if (typeLine.includes('island') && !result.colors.includes('U')) result.colors.push('U');
+  if (typeLine.includes('swamp') && !result.colors.includes('B')) result.colors.push('B');
+  if (typeLine.includes('mountain') && !result.colors.includes('R')) result.colors.push('R');
+  if (typeLine.includes('forest') && !result.colors.includes('G')) result.colors.push('G');
+  
+  // ===== STEP 2: Check for dynamic mana production =====
+  
+  // Gaea's Cradle - "Add {G} for each creature you control"
+  if (cardName.includes("gaea's cradle") || 
+      (oracleText.includes('add {g}') && oracleText.includes('for each creature'))) {
+    const creatureCount = battlefield.filter((p: any) => 
+      p && p.controller === playerId && 
+      (p.card?.type_line || '').toLowerCase().includes('creature')
+    ).length;
+    result.isDynamic = true;
+    result.baseAmount = creatureCount;
+    result.dynamicDescription = `{G} for each creature you control (${creatureCount})`;
+    result.colors = ['G'];
+  }
+  
+  // Serra's Sanctum - "Add {W} for each enchantment you control"
+  if (cardName.includes("serra's sanctum") ||
+      (oracleText.includes('add {w}') && oracleText.includes('for each enchantment'))) {
+    const enchantmentCount = battlefield.filter((p: any) =>
+      p && p.controller === playerId &&
+      (p.card?.type_line || '').toLowerCase().includes('enchantment')
+    ).length;
+    result.isDynamic = true;
+    result.baseAmount = enchantmentCount;
+    result.dynamicDescription = `{W} for each enchantment you control (${enchantmentCount})`;
+    result.colors = ['W'];
+  }
+  
+  // Tolarian Academy - "Add {U} for each artifact you control"
+  if (cardName.includes("tolarian academy") ||
+      (oracleText.includes('add {u}') && oracleText.includes('for each artifact'))) {
+    const artifactCount = battlefield.filter((p: any) =>
+      p && p.controller === playerId &&
+      (p.card?.type_line || '').toLowerCase().includes('artifact')
+    ).length;
+    result.isDynamic = true;
+    result.baseAmount = artifactCount;
+    result.dynamicDescription = `{U} for each artifact you control (${artifactCount})`;
+    result.colors = ['U'];
+  }
+  
+  // Three Tree City - "Add X mana of any color, where X is the number of creature types among creatures you control"
+  if (cardName.includes("three tree city") ||
+      (oracleText.includes('creature types') && oracleText.includes('among creatures you control'))) {
+    // Count unique creature types
+    const creatureTypes = new Set<string>();
+    for (const p of battlefield) {
+      if (p && p.controller === playerId && (p.card?.type_line || '').toLowerCase().includes('creature')) {
+        const typeParts = (p.card?.type_line || '').split('—');
+        if (typeParts.length > 1) {
+          const subtypes = typeParts[1].trim().split(/\s+/);
+          for (const subtype of subtypes) {
+            if (subtype.length > 0) creatureTypes.add(subtype.toLowerCase());
+          }
+        }
+      }
+    }
+    result.isDynamic = true;
+    result.baseAmount = creatureTypes.size;
+    result.dynamicDescription = `Mana for each creature type (${creatureTypes.size} types)`;
+    result.colors = ['W', 'U', 'B', 'R', 'G'];
+    if (chosenColor) result.colors = [chosenColor];
+  }
+  
+  // Wirewood Channeler, Priest of Titania style - "Add {G} for each Elf"
+  if (oracleText.includes('for each elf') || 
+      (cardName.includes('priest of titania')) ||
+      (cardName.includes('wirewood channeler'))) {
+    const elfCount = battlefield.filter((p: any) =>
+      p && p.controller === playerId &&
+      (p.card?.type_line || '').toLowerCase().includes('elf')
+    ).length;
+    result.isDynamic = true;
+    result.baseAmount = elfCount;
+    result.dynamicDescription = `Mana for each Elf you control (${elfCount})`;
+    if (cardName.includes('wirewood channeler')) {
+      result.colors = ['W', 'U', 'B', 'R', 'G'];
+      if (chosenColor) result.colors = [chosenColor];
+    } else {
+      result.colors = ['G'];
+    }
+  }
+  
+  // ===== STEP 3: Check for aura enchantments on this permanent (Wild Growth, etc.) =====
+  
+  // Find auras attached to this permanent
+  for (const perm of battlefield) {
+    if (!perm || perm.controller !== playerId) continue;
+    
+    const permTypeLine = (perm.card?.type_line || '').toLowerCase();
+    const permOracleText = (perm.card?.oracle_text || '').toLowerCase();
+    const permName = (perm.card?.name || '').toLowerCase();
+    
+    // Check if this is an aura enchanting our permanent
+    const isAura = permTypeLine.includes('enchantment') && permTypeLine.includes('aura');
+    const isAttachedToUs = (perm as any).attachedTo === permanent.id || 
+                           (perm as any).enchanting === permanent.id;
+    
+    if (isAura && isAttachedToUs) {
+      // Wild Growth - "Whenever enchanted land is tapped for mana, add an additional {G}"
+      if (permName.includes('wild growth') || 
+          (permOracleText.includes('additional {g}') && permOracleText.includes('tapped for mana'))) {
+        result.bonusMana.push({ color: 'G', amount: 1 });
+      }
+      
+      // Fertile Ground - "Whenever enchanted land is tapped for mana, add an additional mana of any color"
+      if (permName.includes('fertile ground') ||
+          (permOracleText.includes('additional') && permOracleText.includes('any color'))) {
+        result.bonusMana.push({ color: chosenColor || 'C', amount: 1 });
+      }
+      
+      // Overgrowth - "Whenever enchanted land is tapped for mana, add {G}{G}"
+      if (permName.includes('overgrowth') ||
+          (permOracleText.includes('add {g}{g}') && permOracleText.includes('tapped for mana'))) {
+        result.bonusMana.push({ color: 'G', amount: 2 });
+      }
+      
+      // Utopia Sprawl - "Whenever enchanted Forest is tapped for mana, add one mana of the chosen color"
+      if (permName.includes('utopia sprawl')) {
+        const chosenAuraColor = (perm as any).chosenColor || chosenColor || 'G';
+        result.bonusMana.push({ color: chosenAuraColor, amount: 1 });
+      }
+      
+      // Dawn's Reflection - "Whenever enchanted land is tapped for mana, add two mana of any one color"
+      if (permName.includes("dawn's reflection")) {
+        result.bonusMana.push({ color: chosenColor || 'G', amount: 2 });
+      }
+      
+      // Market Festival - "Whenever enchanted land is tapped for mana, add two mana of any one color"
+      if (permName.includes('market festival')) {
+        result.bonusMana.push({ color: chosenColor || 'G', amount: 2 });
+      }
+      
+      // Weirding Wood - "Whenever enchanted land is tapped for mana, add an additional mana of any color"
+      if (permName.includes('weirding wood')) {
+        result.bonusMana.push({ color: chosenColor || 'G', amount: 1 });
+      }
+      
+      // Trace of Abundance - "Whenever enchanted land is tapped for mana, add one mana of any color"
+      if (permName.includes('trace of abundance')) {
+        result.bonusMana.push({ color: chosenColor || 'G', amount: 1 });
+      }
+      
+      // Sheltered Aerie - "Whenever enchanted land is tapped for mana, add one mana of any color"
+      if (permName.includes('sheltered aerie')) {
+        result.bonusMana.push({ color: chosenColor || 'G', amount: 1 });
+      }
+    }
+  }
+  
+  // ===== STEP 4: Check for global mana-boosting effects =====
+  
+  const isLand = typeLine.includes('land');
+  const cardColors = (card.colors || []).map((c: string) => c.toUpperCase());
+  
+  for (const perm of battlefield) {
+    if (!perm) continue;
+    
+    const permOracleText = (perm.card?.oracle_text || '').toLowerCase();
+    const permName = (perm.card?.name || '').toLowerCase();
+    const permController = perm.controller;
+    
+    // Only apply effects from our own permanents or global effects
+    const isOurs = permController === playerId;
+    
+    // Caged Sun - "Whenever a land you control is tapped for mana of the chosen color, add one additional mana of that color"
+    if (permName.includes('caged sun') && isOurs && isLand) {
+      const chosenSunColor = (perm as any).chosenColor || 'C';
+      if (result.colors.includes(chosenSunColor) || (chosenColor && chosenSunColor === chosenColor)) {
+        result.bonusMana.push({ color: chosenSunColor, amount: 1 });
+      }
+    }
+    
+    // Gauntlet of Power - "Whenever a basic land is tapped for mana of the chosen color, add one additional mana of that color"
+    if (permName.includes('gauntlet of power') && isOurs && typeLine.includes('basic')) {
+      const chosenGauntletColor = (perm as any).chosenColor || 'C';
+      if (result.colors.includes(chosenGauntletColor) || (chosenColor && chosenGauntletColor === chosenColor)) {
+        result.bonusMana.push({ color: chosenGauntletColor, amount: 1 });
+      }
+    }
+    
+    // Mirari's Wake - "Whenever you tap a land for mana, add one mana of any type that land produced"
+    if (permName.includes("mirari's wake") && isOurs && isLand) {
+      // Adds one of the same type
+      const producedColor = chosenColor || result.colors[0] || 'C';
+      result.bonusMana.push({ color: producedColor, amount: 1 });
+    }
+    
+    // Zendikar Resurgent - "Whenever you tap a land for mana, add one mana of any type that land produced"
+    if (permName.includes('zendikar resurgent') && isOurs && isLand) {
+      const producedColor = chosenColor || result.colors[0] || 'C';
+      result.bonusMana.push({ color: producedColor, amount: 1 });
+    }
+    
+    // Mana Reflection - "If you tap a permanent for mana, it produces double"
+    if (permName.includes('mana reflection') && isOurs) {
+      result.multiplier *= 2;
+    }
+    
+    // Nyxbloom Ancient - "If you tap a permanent for mana, it produces three times as much"
+    if (permName.includes('nyxbloom ancient') && isOurs) {
+      result.multiplier *= 3;
+    }
+    
+    // Mana Flare - "Whenever a player taps a land for mana, that land produces an additional mana"
+    if (permName.includes('mana flare') && isLand) {
+      const producedColor = chosenColor || result.colors[0] || 'C';
+      result.bonusMana.push({ color: producedColor, amount: 1 });
+    }
+    
+    // Dictate of Karametra - "Whenever a player taps a land for mana, that land produces an additional mana"
+    if (permName.includes('dictate of karametra') && isLand) {
+      const producedColor = chosenColor || result.colors[0] || 'C';
+      result.bonusMana.push({ color: producedColor, amount: 1 });
+    }
+    
+    // Heartbeat of Spring - Same as Mana Flare
+    if (permName.includes('heartbeat of spring') && isLand) {
+      const producedColor = chosenColor || result.colors[0] || 'C';
+      result.bonusMana.push({ color: producedColor, amount: 1 });
+    }
+    
+    // Vorinclex, Voice of Hunger - "Whenever you tap a land for mana, add one mana of any type that land could produce"
+    if (permName.includes('vorinclex') && permName.includes('voice of hunger') && isOurs && isLand) {
+      const producedColor = chosenColor || result.colors[0] || 'C';
+      result.bonusMana.push({ color: producedColor, amount: 1 });
+    }
+  }
+  
+  // ===== STEP 5: Calculate total mana =====
+  
+  // Base amount * multiplier
+  let total = result.baseAmount * result.multiplier;
+  
+  // Add bonus mana (bonuses are NOT multiplied in most cases, but for simplicity we add them after)
+  for (const bonus of result.bonusMana) {
+    total += bonus.amount;
+  }
+  
+  result.totalAmount = Math.max(0, total);
+  
+  // If no colors determined, default to colorless
+  if (result.colors.length === 0) {
+    result.colors = ['C'];
+  }
+  
+  return result;
+}
+
+/**
  * Emit an event to a specific player's connected sockets.
  * Iterates through all connected sockets and emits to those with matching playerId.
  */
