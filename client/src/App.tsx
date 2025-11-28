@@ -20,6 +20,7 @@ import { CastSpellModal } from "./components/CastSpellModal";
 import { CombatSelectionModal, type AttackerSelection, type BlockerSelection } from "./components/CombatSelectionModal";
 import { ShockLandChoiceModal } from "./components/ShockLandChoiceModal";
 import { BounceLandChoiceModal } from "./components/BounceLandChoiceModal";
+import { SacrificeUnlessPayModal } from "./components/SacrificeUnlessPayModal";
 import { TriggeredAbilityModal, type TriggerPromptData } from "./components/TriggeredAbilityModal";
 import { MulliganBottomModal } from "./components/MulliganBottomModal";
 import { DiscardSelectionModal } from "./components/DiscardSelectionModal";
@@ -234,6 +235,15 @@ export function App() {
     bounceLandName: string;
     imageUrl?: string;
     landsToChoose: Array<{ permanentId: string; cardName: string; imageUrl?: string }>;
+  } | null>(null);
+  
+  // Sacrifice unless pay modal state (Transguild Promenade, Gateway Plaza, etc.)
+  const [sacrificeUnlessPayModalOpen, setSacrificeUnlessPayModalOpen] = useState(false);
+  const [sacrificeUnlessPayData, setSacrificeUnlessPayData] = useState<{
+    permanentId: string;
+    cardName: string;
+    manaCost: string;
+    imageUrl?: string;
   } | null>(null);
   
   // Triggered ability modal state
@@ -520,6 +530,25 @@ export function App() {
     socket.on("bounceLandPrompt", handler);
     return () => {
       socket.off("bounceLandPrompt", handler);
+    };
+  }, [safeView?.id]);
+
+  // Sacrifice unless pay prompt listener (Transguild Promenade, Gateway Plaza, Rupture Spire)
+  React.useEffect(() => {
+    const handler = (payload: any) => {
+      if (payload.gameId === safeView?.id) {
+        setSacrificeUnlessPayData({
+          permanentId: payload.permanentId,
+          cardName: payload.cardName,
+          manaCost: payload.manaCost,
+          imageUrl: payload.imageUrl,
+        });
+        setSacrificeUnlessPayModalOpen(true);
+      }
+    };
+    socket.on("sacrificeUnlessPayPrompt", handler);
+    return () => {
+      socket.off("sacrificeUnlessPayPrompt", handler);
     };
   }, [safeView?.id]);
 
@@ -1428,6 +1457,29 @@ export function App() {
     setBounceLandData(null);
   };
 
+  // Sacrifice unless pay handlers (Transguild Promenade, Gateway Plaza, etc.)
+  const handleSacrificeUnlessPayMana = () => {
+    if (!safeView || !sacrificeUnlessPayData) return;
+    socket.emit("sacrificeUnlessPayChoice", {
+      gameId: safeView.id,
+      permanentId: sacrificeUnlessPayData.permanentId,
+      payMana: true,
+    });
+    setSacrificeUnlessPayModalOpen(false);
+    setSacrificeUnlessPayData(null);
+  };
+
+  const handleSacrificeUnlessPaySacrifice = () => {
+    if (!safeView || !sacrificeUnlessPayData) return;
+    socket.emit("sacrificeUnlessPayChoice", {
+      gameId: safeView.id,
+      permanentId: sacrificeUnlessPayData.permanentId,
+      payMana: false,
+    });
+    setSacrificeUnlessPayModalOpen(false);
+    setSacrificeUnlessPayData(null);
+  };
+
   // Trigger handlers
   const handleResolveTrigger = (triggerId: string, choice: any) => {
     if (!safeView) return;
@@ -1452,6 +1504,18 @@ export function App() {
     if (pendingTriggers.length <= 1) {
       setTriggerModalOpen(false);
     }
+  };
+
+  // Handle ordering of multiple simultaneous triggers
+  const handleOrderTriggersConfirm = (orderedTriggerIds: string[]) => {
+    if (!safeView) return;
+    socket.emit("orderTriggers", {
+      gameId: safeView.id,
+      orderedTriggerIds,
+    });
+    // Clear all the ordered triggers from pending
+    setPendingTriggers(prev => prev.filter(t => !orderedTriggerIds.includes(t.id)));
+    setTriggerModalOpen(false);
   };
 
   // Library search handlers (Tutor effects)
@@ -2736,12 +2800,23 @@ export function App() {
         onSelectLand={handleBounceLandSelect}
       />
 
+      {/* Sacrifice Unless Pay Modal (Transguild Promenade, Gateway Plaza, etc.) */}
+      <SacrificeUnlessPayModal
+        open={sacrificeUnlessPayModalOpen}
+        cardName={sacrificeUnlessPayData?.cardName || ''}
+        cardImageUrl={sacrificeUnlessPayData?.imageUrl}
+        manaCost={sacrificeUnlessPayData?.manaCost || '{1}'}
+        onPayMana={handleSacrificeUnlessPayMana}
+        onSacrifice={handleSacrificeUnlessPaySacrifice}
+      />
+
       {/* Triggered Ability Modal */}
       <TriggeredAbilityModal
         open={triggerModalOpen}
         triggers={pendingTriggers}
         onResolve={handleResolveTrigger}
         onSkip={handleSkipTrigger}
+        onOrderConfirm={handleOrderTriggersConfirm}
       />
 
       {/* Mulligan Bottom Selection Modal (London Mulligan) */}

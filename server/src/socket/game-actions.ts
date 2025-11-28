@@ -8,6 +8,7 @@ import { checkAndPromptOpeningHandActions } from "./opening-hand";
 import { emitSacrificeUnlessPayPrompt } from "./triggers";
 import { detectSpellCastTriggers, type SpellCastTrigger } from "../state/modules/triggered-abilities";
 import { categorizeSpell, evaluateTargeting } from "../rules-engine/targeting";
+import { recalculatePlayerEffects } from "../state/modules/game-state-effects";
 
 /** Shock lands and similar "pay life or enter tapped" lands */
 const SHOCK_LANDS = new Set([
@@ -1162,29 +1163,29 @@ export function registerGameActions(io: Server, socket: Socket) {
           // Mark it as tapped (bounce lands always enter tapped)
           bounceLandPerm.tapped = true;
           
-          // Find other lands the player controls (to return one)
-          const otherLands = battlefield.filter((p: any) => {
+          // Find all lands the player controls, INCLUDING the bounce land itself.
+          // Per MTG rules, the bounce land can return itself to hand.
+          // This is important for turn 1 scenarios where it's the only land you control.
+          const landsToReturn = battlefield.filter((p: any) => {
             if (p.controller !== playerId) return false;
-            if (p.id === bounceLandPerm.id) return false; // Not the bounce land itself
             const typeLine = (p.card?.type_line || '').toLowerCase();
             return typeLine.includes('land');
           });
           
-          if (otherLands.length > 0) {
+          if (landsToReturn.length > 0) {
             // Emit bounce land prompt to the player
             emitToPlayer(io, playerId as string, "bounceLandPrompt", {
               gameId,
               bounceLandId: bounceLandPerm.id,
               bounceLandName: cardName,
               imageUrl: cardImageUrl,
-              landsToChoose: otherLands.map((p: any) => ({
+              landsToChoose: landsToReturn.map((p: any) => ({
                 permanentId: p.id,
                 cardName: p.card?.name || "Land",
                 imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
               })),
             });
           }
-          // If no other lands, the bounce land stays (edge case)
         }
       }
 
@@ -2523,13 +2524,21 @@ export function registerGameActions(io: Server, socket: Socket) {
       if (needsDraw && turnPlayer) {
         try {
           if (typeof (game as any).drawCards === "function") {
+            // Recalculate player effects to ensure additional draws from Howling Mine, etc. are counted
+            // This is important when skipping phases because the effects may not have been calculated yet
+            try {
+              recalculatePlayerEffects(game as any, turnPlayer);
+            } catch (recalcErr) {
+              console.warn(`[skipToPhase] Failed to recalculate player effects:`, recalcErr);
+            }
+            
             // Calculate total cards to draw: 1 (base) + any additional draws from effects
             const additionalDraws = (game as any).additionalDrawsPerTurn?.[turnPlayer] || 0;
             const totalDraws = 1 + additionalDraws;
             
             const drawn = (game as any).drawCards(turnPlayer, totalDraws);
             console.log(
-              `[skipToPhase] Drew ${drawn?.length || totalDraws} card(s) for ${turnPlayer} (skipped from ${currentStep} to ${targetStep})`
+              `[skipToPhase] Drew ${drawn?.length || totalDraws} card(s) for ${turnPlayer} (skipped from ${currentStep} to ${targetStep}, additional: ${additionalDraws})`
             );
             
             // Check for miracle on the first drawn card

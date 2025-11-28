@@ -408,6 +408,107 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
   });
 
   /**
+   * Handle ordering multiple simultaneous triggers
+   * When a player controls multiple triggers that trigger at the same time,
+   * they choose the order in which they go on the stack.
+   * The first trigger in the array goes on the stack first (resolves last).
+   */
+  socket.on("orderTriggers", async ({
+    gameId,
+    orderedTriggerIds,
+  }: {
+    gameId: string;
+    orderedTriggerIds: string[];
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId as PlayerID | undefined;
+      
+      if (!game || !playerId) {
+        return;
+      }
+
+      const triggerQueue = (game as any).triggerQueue || [];
+      
+      // Find and remove the triggers from the queue
+      const triggersToStack: any[] = [];
+      for (const triggerId of orderedTriggerIds) {
+        const triggerIndex = triggerQueue.findIndex((t: any) => t.id === triggerId);
+        if (triggerIndex !== -1) {
+          const trigger = triggerQueue.splice(triggerIndex, 1)[0];
+          triggersToStack.push(trigger);
+        }
+      }
+      
+      if (triggersToStack.length === 0) {
+        socket.emit("error", {
+          code: "TRIGGERS_NOT_FOUND",
+          message: "No valid triggers found to order",
+        });
+        return;
+      }
+
+      // Put triggers on the stack in the specified order
+      // First in orderedTriggerIds goes on stack first (resolves last)
+      game.state.stack = game.state.stack || [];
+      
+      for (const trigger of triggersToStack) {
+        const stackItem = {
+          id: `stack_trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          type: 'ability',
+          controller: playerId,
+          card: {
+            id: trigger.sourceId,
+            name: `${trigger.sourceName} (trigger)`,
+            type_line: 'Triggered Ability',
+            oracle_text: trigger.effect,
+            image_uris: trigger.imageUrl ? { small: trigger.imageUrl, normal: trigger.imageUrl } : undefined,
+          },
+          targets: trigger.targets || [],
+        };
+        
+        game.state.stack.push(stackItem as any);
+      }
+      
+      // Send chat message about the triggers being put on the stack
+      const triggerNames = triggersToStack.map((t: any) => t.sourceName).join(', ');
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, playerId)} puts ${triggersToStack.length} triggered abilities on the stack: ${triggerNames}`,
+        ts: Date.now(),
+      });
+
+      // Persist the event
+      try {
+        await appendEvent(gameId, (game as any).seq || 0, "orderTriggers", {
+          playerId,
+          orderedTriggerIds,
+        });
+      } catch (e) {
+        console.warn("[triggers] Failed to persist orderTriggers event:", e);
+      }
+
+      // Bump sequence and broadcast
+      if (typeof (game as any).bumpSeq === "function") {
+        (game as any).bumpSeq();
+      }
+
+      broadcastGame(io, game, gameId);
+      
+      console.log(`[triggers] ${playerId} ordered ${triggersToStack.length} triggers onto stack in game ${gameId}`);
+      
+    } catch (err: any) {
+      console.error(`[triggers] orderTriggers error:`, err);
+      socket.emit("error", {
+        code: "ORDER_TRIGGERS_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
+
+  /**
    * Handle "sacrifice unless you pay" ETB choice (Transguild Promenade, Gateway Plaza, Rupture Spire)
    * Player can either pay the mana cost or sacrifice the permanent
    */
