@@ -182,6 +182,8 @@ export function viewFor(
 
   console.log("[VIEW_FOR_DEBUG]", {
     viewer,
+    stackLength: state.stack?.length || 0,
+    stackItems: state.stack?.slice(0, 3).map((s: any) => s?.card?.name || s?.id) || [],
     zones: Object.fromEntries(
       Object.entries(filteredZones).map(([pid, z]) => [
         pid,
