@@ -4,6 +4,7 @@ import { uid, parsePT } from "../utils.js";
 import { recalculatePlayerEffects } from "./game-state-effects.js";
 import { categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
 import { getETBTriggersForPermanent, type TriggeredAbility } from "./triggered-abilities.js";
+import { addExtraTurn } from "./turn.js";
 
 /**
  * Stack / resolution helpers (extracted).
@@ -282,6 +283,52 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
     }
     
+    // Handle extra turn spells (Time Warp, Time Walk, Temporal Mastery, etc.)
+    const oracleTextLower = oracleText.toLowerCase();
+    if (isExtraTurnSpell(card.name, oracleTextLower)) {
+      // Determine who gets the extra turn
+      // Most extra turn spells give the caster an extra turn
+      // "Target player takes an extra turn" would need target handling
+      let extraTurnPlayer = controller;
+      
+      // Check for "target player takes an extra turn" pattern
+      if (oracleTextLower.includes('target player') && oracleTextLower.includes('extra turn')) {
+        // Use target if provided
+        if (targets.length > 0 && targets[0]?.kind === 'player') {
+          extraTurnPlayer = targets[0].id as PlayerID;
+        }
+      }
+      
+      addExtraTurn(ctx, extraTurnPlayer, card.name || 'Extra turn spell');
+      console.log(`[resolveTopOfStack] Extra turn granted to ${extraTurnPlayer} by ${card.name}`);
+    }
+    
+    // Handle Path to Exile - exile target creature, controller may search for basic land
+    if (card.name?.toLowerCase().includes('path to exile') || 
+        (oracleTextLower.includes('exile target creature') && 
+         oracleTextLower.includes('search') && 
+         oracleTextLower.includes('basic land'))) {
+      // The exile is already handled by the targeting system
+      // The search effect should be triggered for the exiled creature's controller
+      // This requires player interaction, so we'll set up a pending search prompt
+      if (targets.length > 0) {
+        const targetPerm = state.battlefield?.find((p: any) => p.id === targets[0]?.id || p.id === targets[0]);
+        if (targetPerm) {
+          const creatureController = targetPerm.controller as PlayerID;
+          // Set up pending search - the creature's controller may search for a basic land
+          (state as any).pendingLibrarySearch = (state as any).pendingLibrarySearch || {};
+          (state as any).pendingLibrarySearch[creatureController] = {
+            type: 'path_to_exile',
+            searchFor: 'basic land',
+            tapped: true,
+            optional: true,
+            source: card.name || 'Path to Exile',
+          };
+          console.log(`[resolveTopOfStack] Path to Exile: ${creatureController} may search for a basic land`);
+        }
+      }
+    }
+    
     // Move spell to graveyard after resolution
     const zones = ctx.state.zones || {};
     const z = zones[controller];
@@ -365,6 +412,60 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
       break;
     }
   }
+}
+
+/**
+ * Check if a spell grants an extra turn
+ * Handles cards like: Time Warp, Time Walk, Temporal Mastery, Nexus of Fate,
+ * Alrund's Epiphany, Karn's Temporal Sundering, etc.
+ */
+function isExtraTurnSpell(cardName: string, oracleTextLower: string): boolean {
+  const nameLower = (cardName || '').toLowerCase();
+  
+  // Known extra turn spell names
+  const extraTurnSpells = new Set([
+    'time warp',
+    'time walk',
+    'temporal mastery',
+    'nexus of fate',
+    'expropriate',
+    "alrund's epiphany",
+    "karn's temporal sundering",
+    'temporal manipulation',
+    'time stretch',
+    'beacon of tomorrows',
+    'capture of jingzhou',
+    'temporal trespass',
+    'walk the aeons',
+    'savor the moment',
+    'final fortune',
+    "warrior's oath",
+    'last chance',
+    'chance for glory',
+    'medomai the ageless',
+    'magistrate\'s scepter',
+    'part the waterveil',
+    'lighthouse chronologist',
+    'wanderwine prophets',
+    'emrakul, the promised end',
+    'ugin\'s nexus',
+    'sage of hours',
+    'notorious throng',
+  ]);
+  
+  if (extraTurnSpells.has(nameLower)) {
+    return true;
+  }
+  
+  // Generic detection via oracle text
+  // "Take an extra turn" or "takes an extra turn" are the common patterns
+  if (oracleTextLower.includes('take an extra turn') ||
+      oracleTextLower.includes('takes an extra turn') ||
+      oracleTextLower.includes('extra turn after this one')) {
+    return true;
+  }
+  
+  return false;
 }
 
 /**
@@ -583,12 +684,40 @@ export function castSpell(
     }
   }
   
+  // Build target details for display
+  const targetDetails: Array<{ id: string; type: 'permanent' | 'player'; name?: string }> = [];
+  if (targets && targets.length > 0) {
+    for (const target of targets) {
+      const targetId = typeof target === 'string' ? target : target.id;
+      const targetKind = typeof target === 'object' ? target.kind : undefined;
+      
+      if (targetKind === 'player') {
+        // Find player name
+        const player = (state.players || []).find((p: any) => p.id === targetId);
+        targetDetails.push({
+          id: targetId,
+          type: 'player',
+          name: player?.name || targetId,
+        });
+      } else {
+        // Find permanent name
+        const perm = (state.battlefield || []).find((p: any) => p.id === targetId);
+        targetDetails.push({
+          id: targetId,
+          type: 'permanent',
+          name: perm?.card?.name || targetId,
+        });
+      }
+    }
+  }
+  
   // Add to stack
   const stackItem = {
     id: uid("stack"),
     controller: playerId,
     card: { ...card, zone: "stack" },
     targets: targets || [],
+    targetDetails: targetDetails.length > 0 ? targetDetails : undefined,
   };
   
   state.stack = state.stack || [];

@@ -607,6 +607,7 @@ function untapPermanentsForPlayer(ctx: GameContext, playerId: string) {
 
 /**
  * nextTurn: advance to next player's turn
+ * - Checks for extra turns first (Rule 500.7)
  * - Updates turnPlayer to the next player in order
  * - Resets phase to "beginning" (start of turn)
  * - Sets step to "UNTAP" 
@@ -623,8 +624,27 @@ export function nextTurn(ctx: GameContext) {
       : [];
     if (!players.length) return;
     const current = (ctx as any).state.turnPlayer;
-    const idx = players.indexOf(current);
-    const next = idx === -1 ? players[0] : players[(idx + 1) % players.length];
+    
+    // Increment turn number
+    (ctx as any).state.turnNumber = ((ctx as any).state.turnNumber || 0) + 1;
+    const turnNumber = (ctx as any).state.turnNumber;
+    
+    // Rule 500.7: Check for extra turns
+    // Extra turns are stored in a LIFO stack (most recently created is taken first)
+    let next: string;
+    const extraTurns = (ctx as any).state.extraTurns as any[] || [];
+    
+    if (extraTurns.length > 0) {
+      // Take the first extra turn from the stack
+      const extraTurn = extraTurns.shift();
+      next = extraTurn.playerId;
+      console.log(`${ts()} [nextTurn] Taking extra turn for ${next} (turn ${turnNumber})`);
+    } else {
+      // Normal turn progression
+      const idx = players.indexOf(current);
+      next = idx === -1 ? players[0] : players[(idx + 1) % players.length];
+    }
+    
     (ctx as any).state.turnPlayer = next;
 
     // Reset to beginning of turn
@@ -653,6 +673,9 @@ export function nextTurn(ctx: GameContext) {
     for (const pid of players) {
       (ctx as any).state.landsPlayedThisTurn[pid] = 0;
     }
+    
+    // Reset cards drawn this turn for all players (for miracle tracking)
+    (ctx as any).state.cardsDrawnThisTurn = {};
 
     // Recalculate player effects based on battlefield (Exploration, Font of Mythos, etc.)
     try {
@@ -1247,6 +1270,78 @@ export function removeScheduledSteps(ctx: any, steps: any[]) {
   }
 }
 
+/**
+ * Add an extra turn for a player (Rule 500.7)
+ * Extra turns are taken in LIFO order - the most recently added turn is taken first.
+ * 
+ * @param ctx - Game context
+ * @param playerId - The player who will take the extra turn
+ * @param source - Optional source description (e.g., "Time Warp", "Nexus of Fate")
+ */
+export function addExtraTurn(ctx: GameContext, playerId: string, source?: string): void {
+  try {
+    const state = (ctx as any).state;
+    if (!state) return;
+    
+    // Initialize extra turns array if needed
+    state.extraTurns = state.extraTurns || [];
+    
+    // Add the extra turn to the front (LIFO order)
+    const turnNumber = state.turnNumber || 0;
+    state.extraTurns.unshift({
+      playerId,
+      afterTurnNumber: turnNumber,
+      source: source || 'Unknown',
+      createdAt: Date.now(),
+    });
+    
+    console.log(`${ts()} [addExtraTurn] Extra turn added for ${playerId} from "${source || 'Unknown'}" (current turn: ${turnNumber})`);
+    ctx.bumpSeq();
+  } catch (err) {
+    console.warn(`${ts()} addExtraTurn failed:`, err);
+  }
+}
+
+/**
+ * Get pending extra turns for display/debugging
+ */
+export function getExtraTurns(ctx: GameContext): Array<{ playerId: string; source?: string }> {
+  try {
+    const state = (ctx as any).state;
+    return (state?.extraTurns || []).map((et: any) => ({
+      playerId: et.playerId,
+      source: et.source,
+    }));
+  } catch (err) {
+    return [];
+  }
+}
+
+/**
+ * Skip a player's extra turn (for effects like Discontinuity or Stranglehold)
+ * @param ctx - Game context
+ * @param playerId - The player whose extra turn should be skipped
+ * @returns true if an extra turn was skipped
+ */
+export function skipExtraTurn(ctx: GameContext, playerId: string): boolean {
+  try {
+    const state = (ctx as any).state;
+    if (!state?.extraTurns?.length) return false;
+    
+    const idx = state.extraTurns.findIndex((et: any) => et.playerId === playerId);
+    if (idx >= 0) {
+      const skipped = state.extraTurns.splice(idx, 1)[0];
+      console.log(`${ts()} [skipExtraTurn] Skipped extra turn for ${playerId} from "${skipped.source || 'Unknown'}"`);
+      ctx.bumpSeq();
+      return true;
+    }
+    return false;
+  } catch (err) {
+    console.warn(`${ts()} skipExtraTurn failed:`, err);
+    return false;
+  }
+}
+
 export default {
   passPriority,
   setTurnDirection,
@@ -1258,4 +1353,7 @@ export default {
   clearScheduledSteps,
   getScheduledSteps,
   removeScheduledSteps,
+  addExtraTurn,
+  getExtraTurns,
+  skipExtraTurn,
 };

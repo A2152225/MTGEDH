@@ -12,6 +12,9 @@ import {
   clearScheduledSteps,
   getScheduledSteps,
   removeScheduledSteps,
+  addExtraTurn,
+  getExtraTurns,
+  skipExtraTurn,
 } from "./modules/turn";
 import {
   importDeckResolved,

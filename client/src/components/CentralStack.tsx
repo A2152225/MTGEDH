@@ -1,47 +1,113 @@
-import React from 'react';
-import type { StackItem, KnownCardRef, PlayerID } from '../../../shared/src';
+import React, { useState, useCallback, useRef } from 'react';
+import type { StackItem, KnownCardRef, PlayerID, BattlefieldPermanent } from '../../../shared/src';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 
 interface Props {
   stack: StackItem[];
+  battlefield?: BattlefieldPermanent[];
   you?: PlayerID;
   priorityPlayer?: PlayerID;
   onPass?: () => void;
 }
 
-export function CentralStack({ stack, you, priorityPlayer, onPass }: Props) {
+export function CentralStack({ stack, battlefield, you, priorityPlayer, onPass }: Props) {
+  // Position state for dragging
+  const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef<{ x: number; y: number; posX: number; posY: number } | null>(null);
+  
   // Don't render if stack is empty
   if (stack.length === 0) {
     return null;
   }
+  
+  // Helper to find a permanent's card data by ID for hover preview
+  const findTargetCard = (targetId: string): KnownCardRef | undefined => {
+    if (!battlefield) return undefined;
+    const perm = battlefield.find(p => p.id === targetId);
+    return perm?.card as KnownCardRef | undefined;
+  };
+  
+  // Drag handlers
+  const handleMouseDown = (e: React.MouseEvent) => {
+    // Only start drag on the header area
+    if ((e.target as HTMLElement).closest('[data-drag-handle]')) {
+      e.preventDefault();
+      const currentX = position?.x ?? 0;
+      const currentY = position?.y ?? 0;
+      dragStartRef.current = { x: e.clientX, y: e.clientY, posX: currentX, posY: currentY };
+      setIsDragging(true);
+      
+      const handleMouseMove = (moveEvent: MouseEvent) => {
+        if (dragStartRef.current) {
+          const deltaX = moveEvent.clientX - dragStartRef.current.x;
+          const deltaY = moveEvent.clientY - dragStartRef.current.y;
+          setPosition({
+            x: dragStartRef.current.posX + deltaX,
+            y: dragStartRef.current.posY + deltaY,
+          });
+        }
+      };
+      
+      const handleMouseUp = () => {
+        setIsDragging(false);
+        dragStartRef.current = null;
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+      
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+  };
+  
+  // Calculate transform based on position
+  const transform = position 
+    ? `translate(calc(-50% + ${position.x}px), calc(-50% + ${position.y}px))`
+    : 'translate(-50%, -50%)';
 
   return (
-    <div style={{
-      position:'absolute',
-      left:'50%',
-      top:'50%',
-      transform:'translate(-50%, -50%)',
-      background:'linear-gradient(135deg, rgba(20,20,30,0.95), rgba(40,40,60,0.95))',
-      border:'2px solid #6366f1',
-      borderRadius:12,
-      padding:16,
-      minWidth:280,
-      maxWidth:400,
-      pointerEvents:'auto',
-      zIndex:100,
-      boxShadow:'0 8px 32px rgba(99,102,241,0.4), 0 0 60px rgba(99,102,241,0.2)',
-      backdropFilter:'blur(8px)'
-    }}>
-      {/* Header */}
-      <div style={{ 
-        display:'flex', 
-        justifyContent:'space-between', 
-        alignItems:'center', 
-        marginBottom:12,
-        paddingBottom:8,
-        borderBottom:'1px solid rgba(99,102,241,0.3)'
+    <div 
+      onMouseDown={handleMouseDown}
+      style={{
+        position:'absolute',
+        left:'50%',
+        top:'50%',
+        transform,
+        background:'linear-gradient(135deg, rgba(20,20,30,0.95), rgba(40,40,60,0.95))',
+        border:'2px solid #6366f1',
+        borderRadius:12,
+        padding:16,
+        minWidth:280,
+        maxWidth:400,
+        pointerEvents:'auto',
+        zIndex:100,
+        boxShadow:'0 8px 32px rgba(99,102,241,0.4), 0 0 60px rgba(99,102,241,0.2)',
+        backdropFilter:'blur(8px)',
+        cursor: isDragging ? 'grabbing' : 'default',
+        userSelect: isDragging ? 'none' : 'auto',
+      }}>
+      {/* Header - drag handle */}
+      <div 
+        data-drag-handle
+        style={{ 
+          display:'flex', 
+          justifyContent:'space-between', 
+          alignItems:'center', 
+          marginBottom:12,
+          paddingBottom:8,
+          borderBottom:'1px solid rgba(99,102,241,0.3)',
+          cursor: 'grab',
       }}>
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+          {/* Drag grip indicator */}
+          <span style={{ 
+            color:'#6b7280', 
+            fontSize:14,
+            letterSpacing:2,
+            marginRight:4,
+            opacity:0.6
+          }}>⋮⋮</span>
           <span style={{ 
             fontSize:20, 
             fontWeight:'bold',
@@ -170,6 +236,84 @@ export function CentralStack({ stack, you, priorityPlayer, onPass }: Props) {
                   {it.controller ? `by ${it.controller}` : ''}
                   {isTopOfStack && ' • Resolving next'}
                 </div>
+                {/* Display targets if any */}
+                {(it.targetDetails && it.targetDetails.length > 0) ? (
+                  <div style={{ 
+                    fontSize:11, 
+                    color:'#f87171',
+                    marginTop:4,
+                    display:'flex',
+                    alignItems:'center',
+                    gap:4,
+                    flexWrap:'wrap'
+                  }}>
+                    <span style={{ color:'#9ca3af' }}>→</span>
+                    <span style={{ fontWeight:'500' }}>
+                      {it.targetDetails.map((t, i) => {
+                        const targetCard = t.type === 'permanent' ? findTargetCard(t.id) : undefined;
+                        
+                        if (t.type === 'player') {
+                          // Player target - just show name (like declare attackers)
+                          return (
+                            <span key={t.id}>
+                              {i > 0 && ', '}
+                              <span style={{ 
+                                color: '#60a5fa',
+                                fontWeight:'600'
+                              }}>
+                                {t.name || t.id}
+                              </span>
+                            </span>
+                          );
+                        } else {
+                          // Permanent target - add hover preview
+                          return (
+                            <span 
+                              key={t.id}
+                              onMouseEnter={(e) => {
+                                e.stopPropagation();
+                                if (targetCard) {
+                                  showCardPreview(e.currentTarget as HTMLElement, targetCard, { prefer:'right', anchorPadding:8 });
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                e.stopPropagation();
+                                if (targetCard) {
+                                  hideCardPreview(e.currentTarget as HTMLElement);
+                                }
+                              }}
+                              style={{ cursor: targetCard ? 'pointer' : 'default' }}
+                            >
+                              {i > 0 && ', '}
+                              <span style={{ 
+                                color: '#f87171',
+                                fontWeight:'600',
+                                textDecoration: targetCard ? 'underline dotted' : 'none',
+                                textUnderlineOffset: '2px'
+                              }}>
+                                {t.name || t.id}
+                              </span>
+                            </span>
+                          );
+                        }
+                      })}
+                    </span>
+                  </div>
+                ) : (it.targets && it.targets.length > 0) ? (
+                  <div style={{ 
+                    fontSize:11, 
+                    color:'#f87171',
+                    marginTop:4,
+                    display:'flex',
+                    alignItems:'center',
+                    gap:4
+                  }}>
+                    <span style={{ color:'#9ca3af' }}>→</span>
+                    <span style={{ fontWeight:'500' }}>
+                      {it.targets.join(', ')}
+                    </span>
+                  </div>
+                ) : null}
               </div>
             </div>
           );
