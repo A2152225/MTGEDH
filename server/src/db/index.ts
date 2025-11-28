@@ -52,8 +52,12 @@ export async function initDb(): Promise<void> {
     try {
       db.exec('ALTER TABLE games ADD COLUMN created_by_socket_id TEXT');
       console.log('[DB] Added created_by_socket_id column');
-    } catch (e) {
-      // Column might already exist from a different migration path
+    } catch (e: any) {
+      // Log migration failure unless it's a "duplicate column" error
+      const errMsg = String(e?.message || '');
+      if (!errMsg.toLowerCase().includes('duplicate column')) {
+        console.warn('[DB] Migration warning for created_by_socket_id:', errMsg);
+      }
     }
   }
   
@@ -63,8 +67,12 @@ export async function initDb(): Promise<void> {
     try {
       db.exec('ALTER TABLE games ADD COLUMN created_by_player_id TEXT');
       console.log('[DB] Added created_by_player_id column');
-    } catch (e) {
-      // Column might already exist
+    } catch (e: any) {
+      // Log migration failure unless it's a "duplicate column" error
+      const errMsg = String(e?.message || '');
+      if (!errMsg.toLowerCase().includes('duplicate column')) {
+        console.warn('[DB] Migration warning for created_by_player_id:', errMsg);
+      }
     }
   }
 }
