@@ -320,13 +320,18 @@ export function getTotalManaProduction(options: Color[]): number {
   if (options.length === 1) return 1;
   
   // Check if this is a "choice" source (all unique colors) or "multi-mana" source (has duplicates)
-  if (isChoiceSource(options)) {
-    // Choice source: produces 1 mana of any of the listed colors
-    return 1;
+  // Optimized: check for duplicates without creating a Set for every call
+  const seen = new Set<Color>();
+  for (const c of options) {
+    if (seen.has(c)) {
+      // Found a duplicate - this is a multi-mana source
+      return options.length;
+    }
+    seen.add(c);
   }
   
-  // Multi-mana source: count total options (duplicates represent additional mana)
-  return options.length;
+  // All unique - this is a choice source that produces 1 mana
+  return 1;
 }
 
 /**
