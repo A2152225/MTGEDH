@@ -214,33 +214,9 @@ function performUndo(gameId: string, actionsToUndo: number): { success: boolean;
       // Transform events from DB format to replay format using shared utility
       const replayEvents = transformDbEventsForReplay(remainingEvents);
       
-      // Debug: log event types being replayed
-      const eventTypes = replayEvents.map((e: any) => e.type);
-      console.log(`[undo] Event types to replay for ${gameId}:`, eventTypes);
-      
-      // Debug: check if rngSeed is present
-      const rngSeedEvent = replayEvents.find((e: any) => e.type === 'rngSeed');
-      if (rngSeedEvent) {
-        console.log(`[undo] Found rngSeed event with seed: ${(rngSeedEvent as any).seed}`);
-      } else {
-        console.warn(`[undo] WARNING: No rngSeed event found in replay events!`);
-      }
-      
       try {
         existingGame.replay(replayEvents);
         console.log(`[undo] Replayed ${replayEvents.length} events for game ${gameId}`);
-        
-        // Debug: log resulting hand after replay
-        const state = existingGame.state;
-        if (state && state.zones) {
-          for (const [pid, zones] of Object.entries(state.zones)) {
-            const z = zones as any;
-            if (z && z.hand) {
-              const handNames = (z.hand as any[]).map((c: any) => c?.name || 'unknown').slice(0, 5);
-              console.log(`[undo] Player ${pid} hand after replay (first 5): ${handNames.join(', ')}`);
-            }
-          }
-        }
       } catch (replayErr) {
         console.error(`[undo] Replay failed for game ${gameId}:`, replayErr);
         return { success: false, error: "Failed to replay events" };
