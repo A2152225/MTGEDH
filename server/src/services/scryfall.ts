@@ -159,6 +159,52 @@ export function parseDecklist(list: string): ParsedLine[] {
   return Array.from(acc.entries()).map(([name, count]) => ({ name, count }));
 }
 
+/**
+ * Expand a parsed decklist into individual card lines.
+ * Cards with count > 1 will be expanded into that many separate entries.
+ * 
+ * Example:
+ *   Input: [{ name: "Forest", count: 4 }, { name: "Sol Ring", count: 1 }]
+ *   Output: [
+ *     { name: "Forest", count: 1 },
+ *     { name: "Forest", count: 1 },
+ *     { name: "Forest", count: 1 },
+ *     { name: "Forest", count: 1 },
+ *     { name: "Sol Ring", count: 1 }
+ *   ]
+ * 
+ * This is useful for displaying decklists where each card instance should be shown separately.
+ */
+export function expandDecklistToIndividualCards(cards: ParsedLine[]): ParsedLine[] {
+  const expanded: ParsedLine[] = [];
+  for (const card of cards) {
+    const count = Math.max(1, card.count || 1);
+    for (let i = 0; i < count; i++) {
+      expanded.push({ name: card.name, count: 1 });
+    }
+  }
+  return expanded;
+}
+
+/**
+ * Convert a ParsedLine array to a decklist string format,
+ * expanding cards with quantity > 1 into separate lines.
+ * 
+ * Example:
+ *   Input: [{ name: "Forest", count: 4 }, { name: "Sol Ring", count: 1 }]
+ *   Output: "1 Forest\n1 Forest\n1 Forest\n1 Forest\n1 Sol Ring"
+ */
+export function parsedDecklistToExpandedString(cards: ParsedLine[]): string {
+  const lines: string[] = [];
+  for (const card of cards) {
+    const count = Math.max(1, card.count || 1);
+    for (let i = 0; i < count; i++) {
+      lines.push(`1 ${card.name}`);
+    }
+  }
+  return lines.join('\n');
+}
+
 //
 // Cache + helpers
 //

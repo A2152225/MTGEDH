@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseDecklist, shouldSkipDeckLine, extractMoxfieldDeckId, isMoxfieldUrl } from '../src/services/scryfall';
+import { parseDecklist, shouldSkipDeckLine, extractMoxfieldDeckId, isMoxfieldUrl, expandDecklistToIndividualCards, parsedDecklistToExpandedString } from '../src/services/scryfall';
 
 describe('shouldSkipDeckLine', () => {
   it('returns true for empty lines', () => {
@@ -235,5 +235,69 @@ describe('isMoxfieldUrl', () => {
     expect(isMoxfieldUrl('https://archidekt.com/decks/123')).toBe(false);
     expect(isMoxfieldUrl('https://moxfield.com')).toBe(false);
     expect(isMoxfieldUrl('not a url')).toBe(false);
+  });
+});
+
+describe('expandDecklistToIndividualCards', () => {
+  it('expands cards with count > 1 into separate entries', () => {
+    const input = [
+      { name: 'Forest', count: 4 },
+      { name: 'Sol Ring', count: 1 },
+    ];
+    const result = expandDecklistToIndividualCards(input);
+    expect(result).toHaveLength(5);
+    expect(result.filter(c => c.name === 'Forest')).toHaveLength(4);
+    expect(result.filter(c => c.name === 'Sol Ring')).toHaveLength(1);
+    // All should have count 1
+    result.forEach(c => expect(c.count).toBe(1));
+  });
+
+  it('handles single-count cards correctly', () => {
+    const input = [
+      { name: 'Card A', count: 1 },
+      { name: 'Card B', count: 1 },
+    ];
+    const result = expandDecklistToIndividualCards(input);
+    expect(result).toHaveLength(2);
+  });
+
+  it('handles empty input', () => {
+    const result = expandDecklistToIndividualCards([]);
+    expect(result).toHaveLength(0);
+  });
+
+  it('handles large counts', () => {
+    const input = [{ name: 'Island', count: 20 }];
+    const result = expandDecklistToIndividualCards(input);
+    expect(result).toHaveLength(20);
+    result.forEach(c => {
+      expect(c.name).toBe('Island');
+      expect(c.count).toBe(1);
+    });
+  });
+});
+
+describe('parsedDecklistToExpandedString', () => {
+  it('converts cards to expanded string format', () => {
+    const input = [
+      { name: 'Forest', count: 3 },
+      { name: 'Sol Ring', count: 1 },
+    ];
+    const result = parsedDecklistToExpandedString(input);
+    expect(result).toBe('1 Forest\n1 Forest\n1 Forest\n1 Sol Ring');
+  });
+
+  it('handles empty input', () => {
+    const result = parsedDecklistToExpandedString([]);
+    expect(result).toBe('');
+  });
+
+  it('handles cards with count 1', () => {
+    const input = [
+      { name: 'Card A', count: 1 },
+      { name: 'Card B', count: 1 },
+    ];
+    const result = parsedDecklistToExpandedString(input);
+    expect(result).toBe('1 Card A\n1 Card B');
   });
 });

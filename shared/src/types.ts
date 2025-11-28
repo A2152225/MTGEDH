@@ -219,6 +219,10 @@ export interface BattlefieldPermanent {
   isToken?: boolean;
   // Summoning sickness
   summoningSickness?: boolean;
+  // Mobilize tokens - sacrifice at end step
+  sacrificeAtEndStep?: boolean;
+  // Is currently attacking (for tokens created attacking)
+  isAttacking?: boolean;
 }
 
 /* Temporary effect applied to a permanent or player */

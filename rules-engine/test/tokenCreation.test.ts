@@ -329,4 +329,44 @@ describe('Token Entry Scenarios', () => {
     expect(result.tokens[0].token.basePower).toBe(0);
     expect(result.tokens[0].token.baseToughness).toBe(1);
   });
+
+  it('should have 1/1 Warrior token for Mobilize ability', () => {
+    const warrior = COMMON_TOKENS['1/1 Warrior'];
+    expect(warrior).toBeDefined();
+    expect(warrior.name).toBe('Warrior');
+    expect(warrior.colors).toContain('R');
+    expect(warrior.power).toBe(1);
+    expect(warrior.toughness).toBe(1);
+    expect(warrior.entersTapped).toBe(true);
+  });
+
+  it('should have 0/1 Plant token definition', () => {
+    const plant = COMMON_TOKENS['0/1 Plant'];
+    expect(plant).toBeDefined();
+    expect(plant.name).toBe('Plant');
+    expect(plant.colors).toContain('G');
+    expect(plant.power).toBe(0);
+    expect(plant.toughness).toBe(1);
+  });
+
+  it('should have Eldrazi Spawn and Scion tokens', () => {
+    const spawn = COMMON_TOKENS['0/1 Eldrazi Spawn'];
+    expect(spawn).toBeDefined();
+    expect(spawn.power).toBe(0);
+    expect(spawn.toughness).toBe(1);
+    expect(spawn.abilities).toContain('Sacrifice this creature: Add {C}.');
+    
+    const scion = COMMON_TOKENS['1/1 Eldrazi Scion'];
+    expect(scion).toBeDefined();
+    expect(scion.power).toBe(1);
+    expect(scion.toughness).toBe(1);
+  });
+
+  it('should have Faerie Rogue token for Bitterblossom', () => {
+    const faerie = COMMON_TOKENS['1/1 Faerie Rogue (Flying)'];
+    expect(faerie).toBeDefined();
+    expect(faerie.name).toBe('Faerie Rogue');
+    expect(faerie.colors).toContain('B');
+    expect(faerie.abilities).toContain('Flying');
+  });
 });

@@ -261,6 +261,136 @@ export const COMMON_TOKENS: Record<string, TokenCharacteristics> = {
     toughness: 1,
     abilities: [],
   },
+  // Mobilize - Red Warrior tokens (tapped, attacking, sacrifice at end step)
+  '1/1 Warrior': {
+    name: 'Warrior',
+    colors: ['R'],
+    types: ['Creature'],
+    subtypes: ['Warrior'],
+    power: 1,
+    toughness: 1,
+    abilities: [],
+    entersTapped: true,
+  },
+  // Faerie Rogue for Bitterblossom
+  '1/1 Faerie Rogue (Flying)': {
+    name: 'Faerie Rogue',
+    colors: ['B'],
+    types: ['Creature'],
+    subtypes: ['Faerie', 'Rogue'],
+    power: 1,
+    toughness: 1,
+    abilities: ['Flying'],
+  },
+  // Eldrazi tokens
+  '0/1 Eldrazi Spawn': {
+    name: 'Eldrazi Spawn',
+    colors: [],
+    types: ['Creature'],
+    subtypes: ['Eldrazi', 'Spawn'],
+    power: 0,
+    toughness: 1,
+    abilities: ['Sacrifice this creature: Add {C}.'],
+  },
+  '1/1 Eldrazi Scion': {
+    name: 'Eldrazi Scion',
+    colors: [],
+    types: ['Creature'],
+    subtypes: ['Eldrazi', 'Scion'],
+    power: 1,
+    toughness: 1,
+    abilities: ['Sacrifice this creature: Add {C}.'],
+  },
+  // Plant token for Avenger of Zendikar
+  '0/1 Plant': {
+    name: 'Plant',
+    colors: ['G'],
+    types: ['Creature'],
+    subtypes: ['Plant'],
+    power: 0,
+    toughness: 1,
+    abilities: [],
+  },
+  // Elf Warrior
+  '1/1 Elf Warrior': {
+    name: 'Elf Warrior',
+    colors: ['G'],
+    types: ['Creature'],
+    subtypes: ['Elf', 'Warrior'],
+    power: 1,
+    toughness: 1,
+    abilities: [],
+  },
+  // Soldier with haste (Assemble the Legion)
+  '1/1 Soldier (Haste)': {
+    name: 'Soldier',
+    colors: ['R', 'W'],
+    types: ['Creature'],
+    subtypes: ['Soldier'],
+    power: 1,
+    toughness: 1,
+    abilities: ['Haste'],
+  },
+  // Cat token
+  '1/1 Cat': {
+    name: 'Cat',
+    colors: ['W'],
+    types: ['Creature'],
+    subtypes: ['Cat'],
+    power: 1,
+    toughness: 1,
+    abilities: [],
+  },
+  // Snake token
+  '1/1 Snake': {
+    name: 'Snake',
+    colors: ['G'],
+    types: ['Creature'],
+    subtypes: ['Snake'],
+    power: 1,
+    toughness: 1,
+    abilities: [],
+  },
+  // Bird token
+  '1/1 Bird (Flying)': {
+    name: 'Bird',
+    colors: ['W'],
+    types: ['Creature'],
+    subtypes: ['Bird'],
+    power: 1,
+    toughness: 1,
+    abilities: ['Flying'],
+  },
+  // Elemental token (Ball Lightning style)
+  '3/1 Elemental (Trample, Haste)': {
+    name: 'Elemental',
+    colors: ['R'],
+    types: ['Creature'],
+    subtypes: ['Elemental'],
+    power: 3,
+    toughness: 1,
+    abilities: ['Trample', 'Haste'],
+  },
+  // Insect token
+  '1/1 Insect': {
+    name: 'Insect',
+    colors: ['G'],
+    types: ['Creature'],
+    subtypes: ['Insect'],
+    power: 1,
+    toughness: 1,
+    abilities: [],
+  },
+  // Wurm token
+  '6/6 Wurm (Trample)': {
+    name: 'Wurm',
+    colors: ['G'],
+    types: ['Creature'],
+    subtypes: ['Wurm'],
+    power: 6,
+    toughness: 6,
+    abilities: ['Trample'],
+  },
 };
 
 /**

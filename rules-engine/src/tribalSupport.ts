@@ -376,6 +376,250 @@ export function detectTribalEffectInText(oracleText: string): {
   };
 }
 
+/**
+ * Banneret-style cost reduction effect
+ * Cards like Stonybrook Banneret, Frogtosser Banneret, etc.
+ * that reduce the cost of specific creature types by {1}
+ */
+export interface BanneretCostReduction {
+  readonly sourceId: string;
+  readonly sourceName: string;
+  readonly controllerId: PlayerID;
+  readonly creatureTypes: readonly string[];
+  readonly reduction: number; // Usually 1 for most Bannerets
+  readonly reducesGeneric: boolean; // Whether it reduces generic mana
+  readonly reducesColored?: ManaColorReduction; // For effects that reduce specific colors
+}
+
+/**
+ * Mana color reduction specification
+ * For effects like Morophon that reduce specific colors
+ */
+export interface ManaColorReduction {
+  readonly white?: number;
+  readonly blue?: number;
+  readonly black?: number;
+  readonly red?: number;
+  readonly green?: number;
+}
+
+/**
+ * Well-known Banneret cards and their creature type reductions
+ */
+export const BANNERET_CARDS: Record<string, { types: string[]; reduction: number }> = {
+  // Lorwyn/Morningtide Bannerets
+  'stonybrook banneret': { types: ['Merfolk', 'Wizard'], reduction: 1 },
+  'brighthearth banneret': { types: ['Elemental', 'Warrior'], reduction: 1 },
+  'frogtosser banneret': { types: ['Goblin', 'Rogue'], reduction: 1 },
+  'bosk banneret': { types: ['Treefolk', 'Shaman'], reduction: 1 },
+  'ballyrush banneret': { types: ['Kithkin', 'Soldier'], reduction: 1 },
+  
+  // Other cost reducers by creature type
+  'goblin warchief': { types: ['Goblin'], reduction: 1 },
+  'dragonspeaker shaman': { types: ['Dragon'], reduction: 2 },
+  'dragonlord\'s servant': { types: ['Dragon'], reduction: 1 },
+  'herald of secret streams': { types: ['Merfolk'], reduction: 0 }, // Doesn't reduce cost, included for completeness
+  'undead warchief': { types: ['Zombie'], reduction: 1 },
+  'semblance anvil': { types: ['imprinted'], reduction: 2 }, // Type depends on imprinted card
+  'cloud key': { types: ['chosen'], reduction: 1 }, // Player chooses card type
+  'helm of awakening': { types: ['all'], reduction: 1 }, // All spells cost {1} less
+  'bontu\'s monument': { types: ['Creature'], reduction: 1 }, // Just black creatures
+  'hazoret\'s monument': { types: ['Creature'], reduction: 1 }, // Just red creatures
+  'kefnet\'s monument': { types: ['Creature'], reduction: 1 }, // Just blue creatures
+  'oketra\'s monument': { types: ['Creature'], reduction: 1 }, // Just white creatures
+  'rhonas\'s monument': { types: ['Creature'], reduction: 1 }, // Just green creatures
+  'foundry inspector': { types: ['Artifact'], reduction: 1 },
+  'etherium sculptor': { types: ['Artifact'], reduction: 1 },
+  'jhoira\'s familiar': { types: ['Artifact', 'Historic'], reduction: 1 },
+};
+
+/**
+ * Create a Banneret-style cost reduction
+ */
+export function createBanneretReduction(
+  sourceId: string,
+  sourceName: string,
+  controllerId: PlayerID,
+  creatureTypes: readonly string[],
+  reduction: number = 1
+): BanneretCostReduction {
+  return {
+    sourceId,
+    sourceName,
+    controllerId,
+    creatureTypes,
+    reduction,
+    reducesGeneric: true,
+  };
+}
+
+/**
+ * Detect Banneret-style cost reduction from oracle text
+ * Patterns:
+ * - "[Type] spells you cast cost {1} less to cast"
+ * - "[Type] and [Type] spells you cast cost {1} less to cast"
+ * - "Creature spells of the chosen type you cast cost {1} less to cast"
+ */
+export function detectBanneretReduction(
+  oracleText: string,
+  cardName: string
+): { types: string[]; reduction: number } | null {
+  const lower = oracleText.toLowerCase();
+  const nameLower = cardName.toLowerCase();
+  
+  // Check known Banneret cards first
+  const known = BANNERET_CARDS[nameLower];
+  if (known) {
+    return known;
+  }
+  
+  // Pattern: "[Type] spells you cast cost {X} less to cast"
+  // Pattern: "[Type] and [Type] spells cost {X} less to cast"
+  // Pattern: "[Type] creatures you cast cost {X} less to cast"
+  const patterns = [
+    /(\w+(?:\s+and\s+\w+)*)\s+(?:spells|creatures)\s+(?:you\s+cast\s+)?cost\s*\{(\d+)\}\s*less/i,
+    /(\w+)\s+creature\s+spells\s+cost\s*\{(\d+)\}\s*less/i,
+    /creature\s+spells\s+of\s+the\s+chosen\s+type\s+(?:you\s+cast\s+)?cost\s*\{(\d+)\}\s*less/i,
+  ];
+  
+  for (const pattern of patterns) {
+    const match = lower.match(pattern);
+    if (match) {
+      // Extract types
+      const typeStr = match[1];
+      const reduction = parseInt(match[2] || match[1], 10) || 1;
+      
+      if (typeStr) {
+        const types = typeStr.split(/\s+and\s+/).map(t => 
+          t.charAt(0).toUpperCase() + t.slice(1)
+        );
+        return { types, reduction };
+      }
+      
+      // "chosen type" placeholder
+      return { types: ['chosen'], reduction };
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Get applicable Banneret cost reductions for a spell being cast
+ */
+export function getApplicableBanneretReductions(
+  battlefield: readonly BattlefieldPermanent[],
+  castingPlayerId: PlayerID,
+  spellCard: KnownCardRef
+): BanneretCostReduction[] {
+  const reductions: BanneretCostReduction[] = [];
+  const spellTypeLine = (spellCard.type_line || '').toLowerCase();
+  const spellTypes = extractCreatureTypes(spellCard.type_line || '');
+  const isCreature = spellTypeLine.includes('creature');
+  const isArtifact = spellTypeLine.includes('artifact');
+  
+  for (const permanent of battlefield) {
+    // Only check permanents controlled by the casting player
+    if (permanent.controller !== castingPlayerId) continue;
+    
+    const card = permanent.card as KnownCardRef;
+    const oracleText = card?.oracle_text || '';
+    const cardName = card?.name || '';
+    
+    const detected = detectBanneretReduction(oracleText, cardName);
+    if (!detected) continue;
+    
+    // Check if the spell qualifies for this reduction
+    let applies = false;
+    
+    for (const type of detected.types) {
+      if (type === 'all') {
+        applies = true;
+        break;
+      }
+      if (type === 'chosen') {
+        // For "chosen type" effects, we'd need to track what was chosen
+        // For now, assume it applies if it's a creature
+        applies = isCreature;
+        break;
+      }
+      if (type === 'Artifact' && isArtifact) {
+        applies = true;
+        break;
+      }
+      if (type === 'Creature' && isCreature) {
+        applies = true;
+        break;
+      }
+      if (type === 'Historic' && (isArtifact || spellTypeLine.includes('legendary') || spellTypeLine.includes('saga'))) {
+        applies = true;
+        break;
+      }
+      // Check creature subtypes
+      if (spellTypes.some(st => st.toLowerCase() === type.toLowerCase())) {
+        applies = true;
+        break;
+      }
+      // Check for changeling - if spell has changeling and type is a valid creature type
+      if (hasChangeling(card?.oracle_text, card?.type_line) && 
+          CREATURE_TYPES.some(ct => ct.toLowerCase() === type.toLowerCase())) {
+        applies = true;
+        break;
+      }
+    }
+    
+    if (applies) {
+      reductions.push(createBanneretReduction(
+        permanent.id,
+        cardName,
+        castingPlayerId,
+        detected.types,
+        detected.reduction
+      ));
+    }
+  }
+  
+  return reductions;
+}
+
+/**
+ * Calculate total generic mana reduction from Banneret effects
+ */
+export function calculateBanneretReduction(
+  reductions: readonly BanneretCostReduction[]
+): number {
+  let total = 0;
+  for (const r of reductions) {
+    if (r.reducesGeneric) {
+      total += r.reduction;
+    }
+  }
+  return total;
+}
+
+/**
+ * Apply Banneret reductions to a mana cost
+ * Returns the reduced cost (minimum 0 for generic)
+ */
+export function applyBanneretReductions(
+  manaCost: { generic?: number; white?: number; blue?: number; black?: number; red?: number; green?: number; colorless?: number },
+  reductions: readonly BanneretCostReduction[]
+): { generic?: number; white?: number; blue?: number; black?: number; red?: number; green?: number; colorless?: number } {
+  const totalReduction = calculateBanneretReduction(reductions);
+  
+  if (totalReduction === 0) {
+    return manaCost;
+  }
+  
+  // Banneret reductions typically reduce generic mana only
+  const newGeneric = Math.max(0, (manaCost.generic || 0) - totalReduction);
+  
+  return {
+    ...manaCost,
+    generic: newGeneric,
+  };
+}
+
 export default {
   hasChangeling,
   getAllCreatureTypes,
@@ -387,4 +631,11 @@ export default {
   detectTribalEffectInText,
   COMMON_TRIBAL_EFFECTS,
   TribalTriggerType,
+  // Banneret support
+  createBanneretReduction,
+  detectBanneretReduction,
+  getApplicableBanneretReductions,
+  calculateBanneretReduction,
+  applyBanneretReductions,
+  BANNERET_CARDS,
 };

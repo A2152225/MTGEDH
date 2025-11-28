@@ -4015,4 +4015,117 @@ export function registerGameActions(io: Server, socket: Socket) {
       console.error(`declineMiracle error for game ${gameId}:`, err);
     }
   });
+
+  /**
+   * Get cost reduction information for cards in hand.
+   * This allows the UI to display modified casting costs when Banneret-type effects are active.
+   * 
+   * Emits: costReductionInfo with { cardId: { reducedManaCost: string, reduction: number, sources: string[] } }
+   */
+  socket.on("getCostReductions", async ({ gameId }: { gameId: string }) => {
+    try {
+      const playerId = socket.data.playerId as string | undefined;
+      if (!playerId) return;
+
+      const game = ensureGame(gameId);
+      if (!game) return;
+
+      const zones = game.state?.zones?.[playerId];
+      if (!zones) return;
+
+      const hand = zones.hand || [];
+      const costInfo: Record<string, {
+        originalCost: string;
+        reducedCost: string;
+        genericReduction: number;
+        colorReduction: Record<string, number>;
+        sources: string[];
+      }> = {};
+
+      for (const card of hand) {
+        // Type guard: hand can contain strings (card IDs) or KnownCardRef objects
+        if (!card || typeof card === 'string') continue;
+        if (!card.id) continue;
+
+        const cardManaCost = (card as any).mana_cost || "";
+        if (!cardManaCost) continue;
+
+        const reduction = calculateCostReduction(game, playerId, card, false);
+        
+        if (reduction.generic > 0 || Object.values(reduction.colors).some(v => v > 0)) {
+          // Calculate reduced mana cost string
+          const parsed = parseManaCost(cardManaCost);
+          const reducedGeneric = Math.max(0, parsed.generic - reduction.generic);
+          
+          // Build the reduced cost string
+          let reducedCostStr = "";
+          
+          // Add colored mana symbols
+          for (const [color, count] of Object.entries(parsed.colors)) {
+            const colorReduction = reduction.colors[color] || 0;
+            const remaining = Math.max(0, count - colorReduction);
+            for (let i = 0; i < remaining; i++) {
+              reducedCostStr += `{${color.charAt(0).toUpperCase()}}`;
+            }
+          }
+          
+          // Add generic mana if any
+          if (reducedGeneric > 0 || reducedCostStr === "") {
+            reducedCostStr = `{${reducedGeneric}}` + reducedCostStr;
+          }
+
+          costInfo[card.id] = {
+            originalCost: cardManaCost,
+            reducedCost: reducedCostStr,
+            genericReduction: reduction.generic,
+            colorReduction: reduction.colors,
+            sources: reduction.messages,
+          };
+        }
+      }
+
+      // Also check commanders in command zone (via game state, not game.commanders)
+      const commanderState = (game as any).state?.commandZone?.[playerId];
+      if (commanderState?.cards) {
+        const inCommandZone = commanderState.inZone || [];
+        for (const cmdCard of commanderState.cards) {
+          if (!cmdCard?.id || !inCommandZone.includes(cmdCard.id)) continue;
+
+          const cardManaCost = cmdCard.mana_cost || "";
+          if (!cardManaCost) continue;
+
+          const reduction = calculateCostReduction(game, playerId, cmdCard, false);
+          
+          if (reduction.generic > 0 || Object.values(reduction.colors).some(v => v > 0)) {
+            const parsed = parseManaCost(cardManaCost);
+            const reducedGeneric = Math.max(0, parsed.generic - reduction.generic);
+            
+            let reducedCostStr = "";
+            for (const [color, count] of Object.entries(parsed.colors)) {
+              const colorReduction = reduction.colors[color] || 0;
+              const remaining = Math.max(0, count - colorReduction);
+              for (let i = 0; i < remaining; i++) {
+                reducedCostStr += `{${color.charAt(0).toUpperCase()}}`;
+              }
+            }
+            if (reducedGeneric > 0 || reducedCostStr === "") {
+              reducedCostStr = `{${reducedGeneric}}` + reducedCostStr;
+            }
+
+            costInfo[cmdCard.id] = {
+              originalCost: cardManaCost,
+              reducedCost: reducedCostStr,
+              genericReduction: reduction.generic,
+              colorReduction: reduction.colors,
+              sources: reduction.messages,
+            };
+          }
+        }
+      }
+
+      socket.emit("costReductionInfo", { gameId, costInfo });
+    } catch (err: any) {
+      console.error(`getCostReductions error for game ${gameId}:`, err);
+    }
+  });
 }
