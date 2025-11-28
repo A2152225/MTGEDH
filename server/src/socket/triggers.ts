@@ -406,6 +406,117 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
       console.error(`[triggers] skipTrigger error:`, err);
     }
   });
+
+  /**
+   * Handle "sacrifice unless you pay" ETB choice (Transguild Promenade, Gateway Plaza, Rupture Spire)
+   * Player can either pay the mana cost or sacrifice the permanent
+   */
+  socket.on("sacrificeUnlessPayChoice", async ({
+    gameId,
+    permanentId,
+    payMana,
+  }: {
+    gameId: string;
+    permanentId: string;
+    payMana: boolean;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId as PlayerID | undefined;
+      
+      if (!game || !playerId) {
+        socket.emit("error", {
+          code: "SACRIFICE_UNLESS_PAY_ERROR",
+          message: "Game not found or player not identified",
+        });
+        return;
+      }
+
+      // Ensure game state exists
+      game.state = (game.state || {}) as any;
+      game.state.battlefield = game.state.battlefield || [];
+      
+      // Find the permanent
+      const battlefield = game.state.battlefield;
+      const permIndex = battlefield.findIndex((p: any) => 
+        p.id === permanentId && p.controller === playerId
+      );
+      
+      if (permIndex === -1) {
+        socket.emit("error", {
+          code: "PERMANENT_NOT_FOUND",
+          message: "Permanent not found on battlefield",
+        });
+        return;
+      }
+
+      const permanent = battlefield[permIndex];
+      const cardName = (permanent as any).card?.name || "Permanent";
+
+      if (payMana) {
+        // Player chose to pay - permanent stays on battlefield
+        // Note: Mana payment is handled by the client/mana system
+        // We just need to acknowledge the choice
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} pays {1} for ${cardName}.`,
+          ts: Date.now(),
+        });
+      } else {
+        // Player chose not to pay - sacrifice the permanent
+        const card = (permanent as any).card;
+        
+        // Remove from battlefield
+        battlefield.splice(permIndex, 1);
+        
+        // Move to graveyard
+        const zones = game.state?.zones?.[playerId];
+        if (zones) {
+          zones.graveyard = zones.graveyard || [];
+          (zones.graveyard as any[]).push({ ...card, zone: 'graveyard' });
+          zones.graveyardCount = (zones.graveyard as any[]).length;
+        }
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} sacrifices ${cardName} (didn't pay {1}).`,
+          ts: Date.now(),
+        });
+      }
+
+      // Persist the event
+      try {
+        await appendEvent(gameId, (game as any).seq || 0, "sacrificeUnlessPayChoice", {
+          playerId,
+          permanentId,
+          payMana,
+          cardName,
+        });
+      } catch (e) {
+        console.warn("[triggers] Failed to persist sacrificeUnlessPayChoice event:", e);
+      }
+
+      // Bump sequence and broadcast
+      if (typeof (game as any).bumpSeq === "function") {
+        (game as any).bumpSeq();
+      }
+
+      broadcastGame(io, game, gameId);
+      
+      console.log(`[triggers] ${payMana ? "Paid for" : "Sacrificed"} ${cardName} for player ${playerId} in game ${gameId}`);
+      
+    } catch (err: any) {
+      console.error(`[triggers] sacrificeUnlessPayChoice error:`, err);
+      socket.emit("error", {
+        code: "SACRIFICE_UNLESS_PAY_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
 }
 
 /**
@@ -450,5 +561,27 @@ export function emitTriggerPrompt(
   emitToPlayer(io, playerId, "triggerPrompt", {
     gameId,
     trigger,
+  });
+}
+
+/**
+ * Emit "sacrifice unless you pay" prompt to a player
+ * Used for cards like Transguild Promenade, Gateway Plaza, Rupture Spire
+ */
+export function emitSacrificeUnlessPayPrompt(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  permanentId: string,
+  cardName: string,
+  manaCost: string,
+  imageUrl?: string
+): void {
+  emitToPlayer(io, playerId, "sacrificeUnlessPayPrompt", {
+    gameId,
+    permanentId,
+    cardName,
+    manaCost,
+    imageUrl,
   });
 }
