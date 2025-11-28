@@ -433,6 +433,32 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       });
 
       console.log(`[combat] Player ${playerId} declared ${attackerCount} attackers in game ${gameId}`);
+
+      // After declaring attackers, advance to declare blockers step
+      // This prevents the game from getting stuck in the declare attackers step
+      if (typeof (game as any).nextStep === "function") {
+        try {
+          (game as any).nextStep();
+          
+          // Persist the step advance event
+          try {
+            await appendEvent(gameId, (game as any).seq || 0, "nextStep", {
+              playerId,
+              fromStep: "DECLARE_ATTACKERS",
+              toStep: "DECLARE_BLOCKERS",
+            });
+          } catch (e) {
+            console.warn("[combat] Failed to persist nextStep event:", e);
+          }
+          
+          // Broadcast updated state after step change
+          broadcastGame(io, game, gameId);
+          
+          console.log(`[combat] Advanced to declare blockers step for game ${gameId}`);
+        } catch (e) {
+          console.warn("[combat] game.nextStep failed after declareAttackers:", e);
+        }
+      }
       
     } catch (err: any) {
       console.error(`[combat] declareAttackers error for game ${gameId}:`, err);
@@ -588,6 +614,32 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       });
 
       console.log(`[combat] Player ${playerId} declared ${blockerCount} blockers in game ${gameId}`);
+
+      // After declaring blockers, advance to combat damage step
+      // This prevents the game from getting stuck in the declare blockers step
+      if (typeof (game as any).nextStep === "function") {
+        try {
+          (game as any).nextStep();
+          
+          // Persist the step advance event
+          try {
+            await appendEvent(gameId, (game as any).seq || 0, "nextStep", {
+              playerId,
+              fromStep: "DECLARE_BLOCKERS",
+              toStep: "DAMAGE",
+            });
+          } catch (e) {
+            console.warn("[combat] Failed to persist nextStep event:", e);
+          }
+          
+          // Broadcast updated state after step change
+          broadcastGame(io, game, gameId);
+          
+          console.log(`[combat] Advanced to combat damage step for game ${gameId}`);
+        } catch (e) {
+          console.warn("[combat] game.nextStep failed after declareBlockers:", e);
+        }
+      }
       
     } catch (err: any) {
       console.error(`[combat] declareBlockers error for game ${gameId}:`, err);

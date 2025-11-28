@@ -2053,6 +2053,10 @@ async function executeDeclareAttackers(
     await appendEvent(gameId, (game as any).seq || 0, 'declareAttackers', { playerId, attackerIds });
     broadcastGame(io, game, gameId);
     
+    // After declaring attackers, advance to declare blockers step
+    // This prevents the AI from getting stuck in a loop trying to declare attackers again
+    await executeAdvanceStep(io, gameId, playerId);
+    
   } catch (error) {
     console.error('[AI] Error declaring attackers:', error);
     await executePassPriority(io, gameId, playerId);
@@ -2080,6 +2084,10 @@ async function executeDeclareBlockers(
     
     await appendEvent(gameId, (game as any).seq || 0, 'declareBlockers', { playerId, blockers });
     broadcastGame(io, game, gameId);
+    
+    // After declaring blockers, advance to combat damage step
+    // This prevents the AI from getting stuck in a loop trying to declare blockers again
+    await executeAdvanceStep(io, gameId, playerId);
     
   } catch (error) {
     console.error('[AI] Error declaring blockers:', error);
