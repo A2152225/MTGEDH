@@ -27,7 +27,8 @@ export interface UpkeepTrigger {
     | 'upkeep_effect'
     | 'each_upkeep'
     | 'each_player_upkeep'
-    | 'opponent_upkeep';
+    | 'opponent_upkeep'
+    | 'upkeep_create_copy';  // Progenitor Mimic - create token copy at beginning of upkeep
   cost?: string;
   description: string;
   effect?: string;
@@ -37,6 +38,7 @@ export interface UpkeepTrigger {
   requiresChoice?: boolean;
   controllerTrigger: boolean; // True if triggers on controller's upkeep
   anyPlayerTrigger: boolean;  // True if triggers on any player's upkeep
+  copySourceId?: string; // For copy effects - the permanent to copy
 }
 
 /**
@@ -75,6 +77,7 @@ const KNOWN_UPKEEP_CARDS: Record<string, { effect: string; mandatory: boolean; r
   "verdant force": { effect: "Create 1/1 Saproling", mandatory: true },
   "awakening zone": { effect: "Create 0/1 Eldrazi Spawn", mandatory: true },
   "from beyond": { effect: "Create 1/1 Eldrazi Scion", mandatory: true },
+  "progenitor mimic": { effect: "If this creature isn't a token, create a token that's a copy of this creature", mandatory: true },
   
   // Tutoring/Library manipulation
   "search for azcanta": { effect: "Surveil 1, may transform if 7+ cards in graveyard", mandatory: true, requiresChoice: true },

@@ -18,7 +18,16 @@ import type { GameContext } from "../context.js";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { drawCards } from "./zones.js";
 import { recalculatePlayerEffects } from "./game-state-effects.js";
-import { getBeginningOfCombatTriggers } from "./triggered-abilities.js";
+import { 
+  getBeginningOfCombatTriggers, 
+  getEndStepTriggers, 
+  getDrawStepTriggers,
+  getEndOfCombatTriggers,
+  getUntapStepEffects,
+  applyUntapStepEffect,
+  isPermanentPreventedFromUntapping
+} from "./triggered-abilities.js";
+import { getUpkeepTriggersForPlayer } from "./upkeep-triggers.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -503,6 +512,7 @@ function anyPlayerHasSundialEffect(ctx: GameContext): boolean {
  * Special handling:
  * - Stun counters (Rule 122.1c): Instead of untapping, remove a stun counter
  * - "Doesn't untap" effects: Skip untapping for permanents with this flag
+ * - Static effects: Check for cards like Intruder Alarm that prevent untapping
  */
 function untapPermanentsForPlayer(ctx: GameContext, playerId: string) {
   try {
@@ -515,11 +525,22 @@ function untapPermanentsForPlayer(ctx: GameContext, playerId: string) {
 
     for (const permanent of battlefield) {
       if (permanent && permanent.controller === playerId && permanent.tapped) {
-        // Check for "doesn't untap during untap step" effects
+        // Check for "doesn't untap during untap step" flag on the permanent
         const doesntUntap = permanent.doesntUntap || false;
         if (doesntUntap) {
           skippedDueToEffects++;
           continue;
+        }
+
+        // Check for static effects that prevent untapping (Intruder Alarm, Claustrophobia, etc.)
+        try {
+          if (isPermanentPreventedFromUntapping(ctx, permanent, playerId)) {
+            skippedDueToEffects++;
+            continue;
+          }
+        } catch (e) {
+          // If check fails, allow untapping to prevent game state from getting stuck
+          console.warn(`${ts()} [untapPermanentsForPlayer] Failed to check untap prevention for ${permanent.card?.name}:`, e);
         }
 
         // Check for stun counters (Rule 122.1c)
@@ -538,6 +559,13 @@ function untapPermanentsForPlayer(ctx: GameContext, playerId: string) {
         // Normal untap
         permanent.tapped = false;
         untappedCount++;
+      }
+    }
+
+    // Clear any "doesn't untap next turn" flags that were set by spells like Sleep
+    for (const permanent of battlefield) {
+      if (permanent && permanent.controller === playerId && permanent.doesntUntapNextTurn) {
+        delete permanent.doesntUntapNextTurn;
       }
     }
 
@@ -901,10 +929,31 @@ export function nextStep(ctx: GameContext) {
         nextPhase = "beginning";
         nextStep = "UPKEEP";
         shouldUntap = true; // Untap all permanents when leaving UNTAP step
+        
+        // Process beginning of upkeep triggers (e.g., Phyrexian Arena, Progenitor Mimic, cumulative upkeep)
+        const turnPlayer = (ctx as any).state?.turnPlayer;
+        if (turnPlayer) {
+          const upkeepTriggers = getUpkeepTriggersForPlayer(ctx, turnPlayer);
+          if (upkeepTriggers.length > 0) {
+            console.log(`${ts()} [nextStep] Found ${upkeepTriggers.length} upkeep triggers`);
+            // Store pending triggers on the game state for the socket layer to process
+            (ctx as any).state.pendingUpkeepTriggers = upkeepTriggers;
+          }
+        }
       } else if (currentStep === "upkeep" || currentStep === "UPKEEP") {
         nextPhase = "beginning";
         nextStep = "DRAW";
         shouldDraw = true; // Draw a card when entering draw step
+        
+        // Process draw step triggers (rare, but some cards have them)
+        const turnPlayer = (ctx as any).state?.turnPlayer;
+        if (turnPlayer) {
+          const drawTriggers = getDrawStepTriggers(ctx, turnPlayer);
+          if (drawTriggers.length > 0) {
+            console.log(`${ts()} [nextStep] Found ${drawTriggers.length} draw step triggers`);
+            (ctx as any).state.pendingDrawStepTriggers = drawTriggers;
+          }
+        }
       } else {
         // After draw, go to precombatMain
         nextPhase = "precombatMain";
@@ -933,6 +982,16 @@ export function nextStep(ctx: GameContext) {
         nextStep = "DAMAGE";
       } else if (currentStep === "combatDamage" || currentStep === "DAMAGE") {
         nextStep = "END_COMBAT";
+        
+        // Process end of combat triggers
+        const turnPlayer = (ctx as any).state?.turnPlayer;
+        if (turnPlayer) {
+          const endCombatTriggers = getEndOfCombatTriggers(ctx, turnPlayer);
+          if (endCombatTriggers.length > 0) {
+            console.log(`${ts()} [nextStep] Found ${endCombatTriggers.length} end of combat triggers`);
+            (ctx as any).state.pendingEndOfCombatTriggers = endCombatTriggers;
+          }
+        }
       } else {
         // After endCombat, go to postcombatMain
         nextPhase = "postcombatMain";
@@ -943,6 +1002,17 @@ export function nextStep(ctx: GameContext) {
     } else if (currentPhase === "postcombatMain" || currentPhase === "main2") {
       nextPhase = "ending";
       nextStep = "END";
+      
+      // Process beginning of end step triggers (e.g., Kynaios and Tiro, Meren, Atraxa)
+      const turnPlayer = (ctx as any).state?.turnPlayer;
+      if (turnPlayer) {
+        const endStepTriggers = getEndStepTriggers(ctx, turnPlayer);
+        if (endStepTriggers.length > 0) {
+          console.log(`${ts()} [nextStep] Found ${endStepTriggers.length} end step triggers`);
+          // Store pending triggers on the game state for the socket layer to process
+          (ctx as any).state.pendingEndStepTriggers = endStepTriggers;
+        }
+      }
     } else if (currentPhase === "ending") {
       if (currentStep === "endStep" || currentStep === "end" || currentStep === "END") {
         nextStep = "CLEANUP";
@@ -1041,8 +1111,18 @@ export function nextStep(ctx: GameContext) {
       try {
         const turnPlayer = (ctx as any).state.turnPlayer;
         if (turnPlayer) {
-          // Untap all permanents
+          // Untap all permanents for the turn player
           untapPermanentsForPlayer(ctx, turnPlayer);
+          
+          // Apply Unwinding Clock, Seedborn Muse, and similar effects
+          // These untap OTHER players' permanents during the turn player's untap step
+          const untapEffects = getUntapStepEffects(ctx, turnPlayer);
+          for (const effect of untapEffects) {
+            const count = applyUntapStepEffect(ctx, effect);
+            if (count > 0) {
+              console.log(`${ts()} [nextStep] ${effect.cardName} untapped ${count} permanents for ${effect.controllerId}`);
+            }
+          }
         } else {
           console.warn(`${ts()} [nextStep] No turnPlayer set, cannot untap permanents`);
         }

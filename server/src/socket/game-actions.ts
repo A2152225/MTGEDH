@@ -5,6 +5,7 @@ import { GameManager } from "../GameManager";
 import type { PaymentItem } from "../../../shared/src";
 import { requiresCreatureTypeSelection, requestCreatureTypeSelection } from "./creature-type";
 import { checkAndPromptOpeningHandActions } from "./opening-hand";
+import { emitSacrificeUnlessPayPrompt } from "./triggers";
 
 /** Shock lands and similar "pay life or enter tapped" lands */
 const SHOCK_LANDS = new Set([
@@ -43,6 +44,35 @@ const BOUNCE_LANDS = new Set([
 /** Check if a card name is a bounce land */
 function isBounceLand(cardName: string): boolean {
   return BOUNCE_LANDS.has((cardName || "").toLowerCase().trim());
+}
+
+/**
+ * Check if a land has "sacrifice unless you pay" ETB trigger
+ * Returns the mana cost to pay, or null if not applicable
+ * 
+ * This detection is purely oracle-text-based, no hardcoded card names.
+ * Pattern: "When ~ enters the battlefield, sacrifice it unless you pay {X}"
+ */
+function detectSacrificeUnlessPayETB(cardName: string, oracleText: string): string | null {
+  const lowerText = (oracleText || "").toLowerCase();
+  
+  // Check oracle text for the "sacrifice unless you pay" pattern
+  // This handles Transguild Promenade, Gateway Plaza, Rupture Spire, and any future cards
+  const patterns = [
+    // "When ~ enters the battlefield, sacrifice it unless you pay {1}"
+    /when\s+(?:~|this\s+\w+)\s+enters\s+(?:the\s+battlefield)?,?\s*sacrifice\s+(?:~|it|this\s+\w+)\s+unless\s+you\s+pay\s+(\{[^}]+\})/i,
+    // "sacrifice ~ unless you pay {1}" (without the "when enters" prefix)
+    /sacrifice\s+(?:~|it|this\s+\w+)\s+unless\s+you\s+pay\s+(\{[^}]+\})/i,
+  ];
+  
+  for (const pattern of patterns) {
+    const match = lowerText.match(pattern);
+    if (match) {
+      return match[1];
+    }
+  }
+  
+  return null;
 }
 
 /**
@@ -489,6 +519,38 @@ function calculateCostReduction(
         }
       }
       
+      // Stonybrook Banneret: Merfolk and Wizard spells cost {1} less
+      if (permName.includes("stonybrook banneret")) {
+        if (cardTypeLine.includes("merfolk") || cardTypeLine.includes("wizard")) {
+          reduction.generic += 1;
+          reduction.messages.push(`Stonybrook Banneret: -{1}`);
+        }
+      }
+      
+      // Ballyrush Banneret: Kithkin and Soldier spells cost {1} less
+      if (permName.includes("ballyrush banneret")) {
+        if (cardTypeLine.includes("kithkin") || cardTypeLine.includes("soldier")) {
+          reduction.generic += 1;
+          reduction.messages.push(`Ballyrush Banneret: -{1}`);
+        }
+      }
+      
+      // Bosk Banneret: Treefolk and Shaman spells cost {1} less
+      if (permName.includes("bosk banneret")) {
+        if (cardTypeLine.includes("treefolk") || cardTypeLine.includes("shaman")) {
+          reduction.generic += 1;
+          reduction.messages.push(`Bosk Banneret: -{1}`);
+        }
+      }
+      
+      // Brighthearth Banneret: Elemental and Warrior spells cost {1} less
+      if (permName.includes("brighthearth banneret")) {
+        if (cardTypeLine.includes("elemental") || cardTypeLine.includes("warrior")) {
+          reduction.generic += 1;
+          reduction.messages.push(`Brighthearth Banneret: -{1}`);
+        }
+      }
+      
       // ============================================
       // CARD TYPE BASED REDUCTIONS
       // ============================================
@@ -908,10 +970,11 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Check if this is a shock land and prompt the player
       if (isShockLand(cardName)) {
-        // Find the permanent that was just played (should be on battlefield now)
+        // Find the permanent that was just played by its unique card ID (not by name)
+        // This ensures we find the correct permanent when multiple copies of the same card exist
         const battlefield = game.state?.battlefield || [];
         const permanent = battlefield.find((p: any) => 
-          p.card?.name?.toLowerCase() === cardName.toLowerCase() && 
+          p.card?.id === cardId && 
           p.controller === playerId
         );
         
@@ -933,10 +996,11 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Check if this is a bounce land and prompt the player to return a land
       if (isBounceLand(cardName)) {
-        // Find the permanent that was just played (should be on battlefield now)
+        // Find the permanent that was just played by its unique card ID (not by name)
+        // This ensures we find the correct permanent when multiple copies of the same card exist
         const battlefield = game.state?.battlefield || [];
         const bounceLandPerm = battlefield.find((p: any) => 
-          p.card?.name?.toLowerCase() === cardName.toLowerCase() && 
+          p.card?.id === cardId && 
           p.controller === playerId
         );
         
@@ -977,10 +1041,11 @@ export function registerGameActions(io: Server, socket: Socket) {
         const etbPattern = detectETBTappedPattern(oracleText);
         
         if (etbPattern === 'always') {
-          // Find the permanent that was just played and mark it tapped
+          // Find the permanent that was just played by its unique card ID (not by name)
+          // This ensures we find the correct permanent when multiple copies of the same card exist
           const battlefield = game.state?.battlefield || [];
           const permanent = battlefield.find((p: any) => 
-            p.card?.name?.toLowerCase() === cardName.toLowerCase() && 
+            p.card?.id === cardId && 
             p.controller === playerId &&
             !p.tapped // Only tap if not already tapped
           );
@@ -989,6 +1054,32 @@ export function registerGameActions(io: Server, socket: Socket) {
             permanent.tapped = true;
             console.log(`[playLand] ${cardName} enters tapped (ETB-tapped pattern detected)`);
           }
+        }
+      }
+
+      // Check for "sacrifice unless you pay" ETB triggers (Transguild Promenade, Gateway Plaza, etc.)
+      const oracleText = (cardInHand as any)?.oracle_text || '';
+      const sacrificeCost = detectSacrificeUnlessPayETB(cardName, oracleText);
+      if (sacrificeCost) {
+        // Find the permanent that was just played
+        const battlefield = game.state?.battlefield || [];
+        const permanent = battlefield.find((p: any) => 
+          p.card?.id === cardId && 
+          p.controller === playerId
+        );
+        
+        if (permanent) {
+          // Emit sacrifice-unless-pay prompt to the player
+          emitSacrificeUnlessPayPrompt(
+            io,
+            gameId,
+            playerId as string,
+            permanent.id,
+            cardName,
+            sacrificeCost,
+            cardImageUrl
+          );
+          console.log(`[playLand] ${cardName} has "sacrifice unless you pay ${sacrificeCost}" ETB trigger`);
         }
       }
 

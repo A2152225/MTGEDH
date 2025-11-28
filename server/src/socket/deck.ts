@@ -1681,8 +1681,10 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
 
         if (hasCachedCards) {
           // Use cached cards - no need to query Scryfall API
+          // IMPORTANT: Generate unique instance IDs even for cached cards to avoid
+          // duplicate ID issues with multiple copies of the same card (e.g., basic lands)
           resolvedCards = saved.cached_cards!.map((c: any) => ({
-            id: c.id,
+            id: generateUniqueCardInstanceId(c.id),
             name: c.name,
             type_line: c.type_line,
             oracle_text: c.oracle_text,
@@ -2685,8 +2687,9 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           try {
             const card = await fetchCardByExactNameStrict(commanderName);
             if (card) {
+              // Generate unique instance ID even for commanders
               resolvedCommanders.push({
-                id: card.id,
+                id: generateUniqueCardInstanceId(card.id),
                 name: card.name,
                 type_line: card.type_line,
                 oracle_text: card.oracle_text,
@@ -2733,8 +2736,10 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
               
               for (const card of setCards) {
                 if (!commanderNames.has(card.name.toLowerCase())) {
+                  // Generate unique instance ID to avoid duplicate ID issues
+                  // with multiple copies of the same card (e.g., basic lands)
                   resolvedCards.push({
-                    id: card.id,
+                    id: generateUniqueCardInstanceId(card.id),
                     name: card.name,
                     type_line: card.type_line,
                     oracle_text: card.oracle_text,
@@ -3037,8 +3042,9 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             }
             for (let i = 0; i < (count || 1); i++) {
               validationCards.push(c);
+              // Generate unique instance ID to avoid duplicate ID issues with multiple copies
               resolvedCards.push({
-                id: c.id,
+                id: generateUniqueCardInstanceId(c.id),
                 name: c.name,
                 type_line: c.type_line,
                 oracle_text: c.oracle_text,
@@ -3057,8 +3063,9 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
               const c = await fetchCardByExactNameStrict(name);
               for (let i = 0; i < (count || 1); i++) {
                 validationCards.push(c);
+                // Generate unique instance ID to avoid duplicate ID issues with multiple copies
                 resolvedCards.push({
-                  id: c.id,
+                  id: generateUniqueCardInstanceId(c.id),
                   name: c.name,
                   type_line: c.type_line,
                   oracle_text: c.oracle_text,
