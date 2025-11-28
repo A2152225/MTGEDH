@@ -9,6 +9,7 @@ import {
   computeColorsNeededByOtherCards,
   calculateSuggestedPayment,
   calculateRemainingCostAfterFloatingMana,
+  getTotalManaProduction,
   type OtherCardInfo,
   type ManaPool,
 } from '../utils/manaUtils';
@@ -145,11 +146,14 @@ export function PaymentPicker(props: PaymentPickerProps) {
     return calculateSuggestedPayment(cost, sources, colorsToPreserve, floatingMana);
   }, [cost, sources, colorsToPreserve, chosen.length, floatingMana]);
 
-  // Helper to get mana count for a source (based on options array length)
+  // Helper to get mana count for a source
+  // Uses getTotalManaProduction which correctly handles choice sources vs multi-mana sources:
+  // - Sol Ring ['C','C'] = 2 mana (duplicates = multi-mana)
+  // - Command Tower ['W','U','B','R','G'] = 1 mana (all unique = choice)
   const getManaCountForSource = (permanentId: string): number => {
     const source = sources.find(s => s.id === permanentId);
     if (!source) return 1;
-    return source.options.length; // ['C', 'C'] for Sol Ring = 2
+    return getTotalManaProduction(source.options);
   };
 
   const add = (permanentId: string, mana: Color) => {

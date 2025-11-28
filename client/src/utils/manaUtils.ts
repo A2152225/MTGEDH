@@ -281,9 +281,51 @@ export function getManaProductionPerColor(options: Color[]): Record<Color, numbe
 }
 
 /**
- * Get total mana produced by a source (sum of all colors in options)
+ * Check if a source is a "choice" source (multiple color options, produces 1 mana)
+ * vs a "multi-mana" source (duplicates in options, produces multiple mana)
+ * 
+ * Examples:
+ * - Forest: ['G'] -> false (single option, single mana)
+ * - Sol Ring: ['C', 'C'] -> false (duplicates = 2 colorless mana)
+ * - Command Tower: ['W', 'U', 'B', 'R', 'G'] -> true (5 unique = choice of 1 mana)
+ * - Gilded Lotus: ['U', 'U', 'U'] -> false (duplicates = 3 blue mana)
+ * 
+ * The key insight: if all options are unique AND there are more than 1, it's a choice.
+ * Multi-mana sources have duplicate entries (same color appears multiple times).
+ */
+export function isChoiceSource(options: Color[]): boolean {
+  if (options.length <= 1) return false;
+  const unique = new Set(options);
+  // If all colors are unique and there are multiple, it's a choice (produces 1 mana)
+  // If there are duplicates, it's a multi-mana source
+  return unique.size === options.length;
+}
+
+/**
+ * Get total mana produced by a source.
+ * 
+ * IMPORTANT: Distinguishes between:
+ * 1. Multi-mana sources (duplicates in options = multiple mana): Sol Ring ['C','C'] = 2 mana
+ * 2. Choice sources (unique options = one mana with color choice): Command Tower ['W','U','B','R','G'] = 1 mana
+ * 
+ * Examples:
+ * - Forest: ['G'] -> 1 mana
+ * - Sol Ring: ['C', 'C'] -> 2 mana (duplicate = multi-mana)
+ * - Command Tower: ['W', 'U', 'B', 'R', 'G'] -> 1 mana (all unique = choice)
+ * - Gilded Lotus: ['U', 'U', 'U'] -> 3 mana (duplicate = multi-mana)
+ * - Temple of Abandon: ['R', 'G'] -> 1 mana (choice between colors)
  */
 export function getTotalManaProduction(options: Color[]): number {
+  if (options.length === 0) return 0;
+  if (options.length === 1) return 1;
+  
+  // Check if this is a "choice" source (all unique colors) or "multi-mana" source (has duplicates)
+  if (isChoiceSource(options)) {
+    // Choice source: produces 1 mana of any of the listed colors
+    return 1;
+  }
+  
+  // Multi-mana source: count total options (duplicates represent additional mana)
   return options.length;
 }
 
@@ -335,8 +377,9 @@ export function calculateSuggestedPayment(
   const colorOptionCount = (source: { options: Color[] }) => 
     getUniqueColors(source.options).filter(c => c !== 'C').length;
   
-  // Helper: get total mana this source produces (counts duplicates)
-  const getManaAmount = (source: { options: Color[] }) => source.options.length;
+  // Helper: get total mana this source produces
+  // Uses getTotalManaProduction which correctly handles choice sources vs multi-mana sources
+  const getManaAmount = (source: { options: Color[] }) => getTotalManaProduction(source.options);
   
   // First pass: assign sources for specific color requirements (after floating mana)
   // For colored mana, prefer single-color sources first, then multi-color
