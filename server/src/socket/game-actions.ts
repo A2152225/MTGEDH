@@ -519,6 +519,38 @@ function calculateCostReduction(
         }
       }
       
+      // Stonybrook Banneret: Merfolk and Wizard spells cost {1} less
+      if (permName.includes("stonybrook banneret")) {
+        if (cardTypeLine.includes("merfolk") || cardTypeLine.includes("wizard")) {
+          reduction.generic += 1;
+          reduction.messages.push(`Stonybrook Banneret: -{1}`);
+        }
+      }
+      
+      // Ballyrush Banneret: Kithkin and Soldier spells cost {1} less
+      if (permName.includes("ballyrush banneret")) {
+        if (cardTypeLine.includes("kithkin") || cardTypeLine.includes("soldier")) {
+          reduction.generic += 1;
+          reduction.messages.push(`Ballyrush Banneret: -{1}`);
+        }
+      }
+      
+      // Bosk Banneret: Treefolk and Shaman spells cost {1} less
+      if (permName.includes("bosk banneret")) {
+        if (cardTypeLine.includes("treefolk") || cardTypeLine.includes("shaman")) {
+          reduction.generic += 1;
+          reduction.messages.push(`Bosk Banneret: -{1}`);
+        }
+      }
+      
+      // Brighthearth Banneret: Elemental and Warrior spells cost {1} less
+      if (permName.includes("brighthearth banneret")) {
+        if (cardTypeLine.includes("elemental") || cardTypeLine.includes("warrior")) {
+          reduction.generic += 1;
+          reduction.messages.push(`Brighthearth Banneret: -{1}`);
+        }
+      }
+      
       // ============================================
       // CARD TYPE BASED REDUCTIONS
       // ============================================
