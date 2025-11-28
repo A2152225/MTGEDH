@@ -684,12 +684,40 @@ export function castSpell(
     }
   }
   
+  // Build target details for display
+  const targetDetails: Array<{ id: string; type: 'permanent' | 'player'; name?: string }> = [];
+  if (targets && targets.length > 0) {
+    for (const target of targets) {
+      const targetId = typeof target === 'string' ? target : target.id;
+      const targetKind = typeof target === 'object' ? target.kind : undefined;
+      
+      if (targetKind === 'player') {
+        // Find player name
+        const player = (state.players || []).find((p: any) => p.id === targetId);
+        targetDetails.push({
+          id: targetId,
+          type: 'player',
+          name: player?.name || targetId,
+        });
+      } else {
+        // Find permanent name
+        const perm = (state.battlefield || []).find((p: any) => p.id === targetId);
+        targetDetails.push({
+          id: targetId,
+          type: 'permanent',
+          name: perm?.card?.name || targetId,
+        });
+      }
+    }
+  }
+  
   // Add to stack
   const stackItem = {
     id: uid("stack"),
     controller: playerId,
     card: { ...card, zone: "stack" },
     targets: targets || [],
+    targetDetails: targetDetails.length > 0 ? targetDetails : undefined,
   };
   
   state.stack = state.stack || [];
