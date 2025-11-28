@@ -1080,8 +1080,38 @@ export async function handleAIPriority(
   });
   
   try {
-    // If it's not the AI's turn, just pass priority
+    // If it's not the AI's turn, handle special cases where non-turn player needs to act
     if (!isAITurn) {
+      // DECLARE_BLOCKERS step: The defending player (non-turn player) needs to declare blockers
+      if (phase === 'combat' && (step.includes('blockers') || step === 'declare_blockers')) {
+        console.info('[AI] Not AI turn, but it\'s DECLARE_BLOCKERS step - AI needs to decide on blockers');
+        
+        // Check if blockers have already been declared this step
+        const battlefield = game.state?.battlefield || [];
+        const alreadyDeclaredBlockers = battlefield.some((perm: any) => 
+          perm.controller === playerId && Array.isArray(perm.blocking) && perm.blocking.length > 0
+        );
+        
+        if (!alreadyDeclaredBlockers) {
+          // AI needs to declare blockers
+          const context: AIDecisionContext = {
+            gameState: game.state as any,
+            playerId,
+            decisionType: AIDecisionType.DECLARE_BLOCKERS,
+            options: [],
+          };
+          
+          const decision = await aiEngine.makeDecision(context);
+          
+          if (decision.action?.blockers?.length > 0) {
+            await executeDeclareBlockers(io, gameId, playerId, decision.action.blockers);
+            return;
+          }
+          // No blockers to declare - fall through to pass priority
+        }
+      }
+      
+      // Default behavior for non-turn player: pass priority
       console.info('[AI] Not AI turn, passing priority');
       await executePassPriority(io, gameId, playerId);
       return;

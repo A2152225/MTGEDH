@@ -46,6 +46,14 @@ export function requestCreatureTypeSelection(
   cardName: string,
   reason: string
 ): string {
+  // Check if there's already a pending selection for this permanent
+  for (const [existingConfirmId, pending] of pendingSelections.entries()) {
+    if (pending.permanentId === permanentId && pending.gameId === gameId) {
+      console.log(`[creatureType] Selection already pending for ${cardName} (${existingConfirmId}), skipping duplicate request`);
+      return existingConfirmId;
+    }
+  }
+  
   const confirmId = createConfirmId();
   
   // Store pending selection

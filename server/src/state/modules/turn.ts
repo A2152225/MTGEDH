@@ -28,6 +28,7 @@ import {
   isPermanentPreventedFromUntapping
 } from "./triggered-abilities.js";
 import { getUpkeepTriggersForPlayer } from "./upkeep-triggers.js";
+import { parseCreatureKeywords } from "./combat-mechanics.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -271,6 +272,232 @@ function clearCombatState(ctx: GameContext) {
   } catch (err) {
     console.warn(`${ts()} clearCombatState failed:`, err);
   }
+}
+
+/**
+ * Deal combat damage during the DAMAGE step.
+ * Rule 510: Combat damage is assigned and dealt simultaneously.
+ * 
+ * Handles:
+ * - Unblocked attackers deal damage to defending player
+ * - Blocked attackers deal damage to blockers (with damage assignment order)
+ * - Blockers deal damage to attackers they block
+ * - Trample: Excess damage from blocked attacker goes to defending player
+ * - Lifelink: Controller gains life equal to damage dealt
+ * - Deathtouch: Any damage is lethal (kills creature)
+ * - First Strike / Double Strike: Handled in separate damage step (not implemented here yet)
+ * 
+ * Returns summary of damage dealt for logging/notification.
+ */
+function dealCombatDamage(ctx: GameContext): {
+  damageToPlayers: Record<string, number>;
+  lifeGainForPlayers: Record<string, number>;
+  creaturesDestroyed: string[];
+} {
+  const result = {
+    damageToPlayers: {} as Record<string, number>,
+    lifeGainForPlayers: {} as Record<string, number>,
+    creaturesDestroyed: [] as string[],
+  };
+  
+  try {
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return result;
+    
+    // Find all attacking creatures
+    const attackers = battlefield.filter((perm: any) => perm && perm.attacking);
+    
+    if (attackers.length === 0) {
+      console.log(`${ts()} [dealCombatDamage] No attackers, skipping combat damage`);
+      return result;
+    }
+    
+    // Get life totals object
+    const life = (ctx as any).state?.life || {};
+    const startingLife = (ctx as any).state?.startingLife || 40;
+    
+    for (const attacker of attackers) {
+      // Get attacker's power and keywords
+      const card = attacker.card || {};
+      const keywords = parseCreatureKeywords(card, attacker);
+      const attackerPower = parseInt(String(attacker.basePower ?? card.power ?? '0'), 10) || 0;
+      const attackerController = attacker.controller;
+      const defendingTarget = attacker.attacking; // Player ID or planeswalker ID
+      
+      // Check if this attacker is blocked
+      const blockedBy = attacker.blockedBy || [];
+      const isBlocked = blockedBy.length > 0;
+      
+      if (attackerPower <= 0) {
+        // 0 or negative power deals no damage
+        continue;
+      }
+      
+      if (!isBlocked) {
+        // UNBLOCKED ATTACKER: Deal damage to defending player
+        // Get the defending player ID (stored in attacker.attacking)
+        const defendingPlayerId = defendingTarget;
+        
+        if (defendingPlayerId && !defendingPlayerId.startsWith('perm_')) {
+          // Damage to player
+          const currentLife = life[defendingPlayerId] ?? startingLife;
+          life[defendingPlayerId] = currentLife - attackerPower;
+          
+          result.damageToPlayers[defendingPlayerId] = 
+            (result.damageToPlayers[defendingPlayerId] || 0) + attackerPower;
+          
+          console.log(`${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${attackerPower} combat damage to ${defendingPlayerId} (${currentLife} -> ${life[defendingPlayerId]})`);
+          
+          // Lifelink: Controller gains life equal to damage dealt
+          if (keywords.lifelink) {
+            const controllerLife = life[attackerController] ?? startingLife;
+            life[attackerController] = controllerLife + attackerPower;
+            
+            result.lifeGainForPlayers[attackerController] = 
+              (result.lifeGainForPlayers[attackerController] || 0) + attackerPower;
+            
+            console.log(`${ts()} [dealCombatDamage] ${card.name || 'Attacker'} lifelink: ${attackerController} gained ${attackerPower} life (${controllerLife} -> ${life[attackerController]})`);
+          }
+        }
+        // TODO: Handle attacking planeswalkers (defendingTarget starts with 'perm_')
+      } else {
+        // BLOCKED ATTACKER: Deal damage to blockers
+        let remainingDamage = attackerPower;
+        
+        for (const blockerId of blockedBy) {
+          const blocker = battlefield.find((p: any) => p?.id === blockerId);
+          if (!blocker) continue;
+          
+          const blockerCard = blocker.card || {};
+          const blockerToughness = parseInt(String(blocker.baseToughness ?? blockerCard.toughness ?? '0'), 10) || 0;
+          const blockerDamage = blocker.markedDamage || 0;
+          const remainingToughness = blockerToughness - blockerDamage;
+          
+          // Calculate damage to assign to this blocker
+          // With deathtouch, only 1 damage is needed; otherwise, assign lethal (remaining toughness)
+          let damageToBlocker = keywords.deathtouch ? Math.min(1, remainingDamage) : Math.min(remainingToughness, remainingDamage);
+          
+          // Actually, MTG rules say attacker must assign at least lethal damage to first blocker before moving on
+          // For simplicity, we assign lethal damage (or all remaining) to each blocker in order
+          damageToBlocker = Math.min(remainingToughness > 0 ? remainingToughness : 1, remainingDamage);
+          if (keywords.deathtouch && damageToBlocker > 0) {
+            // With deathtouch, 1 damage is lethal, but we still track real damage
+            damageToBlocker = Math.min(remainingDamage, blockerToughness);
+          }
+          
+          if (damageToBlocker > 0) {
+            // Mark damage on blocker
+            blocker.markedDamage = (blocker.markedDamage || 0) + damageToBlocker;
+            remainingDamage -= damageToBlocker;
+            
+            console.log(`${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${damageToBlocker} damage to blocker ${blockerCard.name || blockerId}`);
+            
+            // Check if blocker dies
+            const totalDamageOnBlocker = blocker.markedDamage || 0;
+            const isDead = totalDamageOnBlocker >= blockerToughness || (keywords.deathtouch && totalDamageOnBlocker > 0);
+            
+            if (isDead) {
+              result.creaturesDestroyed.push(blockerId);
+              console.log(`${ts()} [dealCombatDamage] Blocker ${blockerCard.name || blockerId} received lethal damage`);
+            }
+            
+            // Lifelink for damage dealt to blocker
+            if (keywords.lifelink) {
+              const controllerLife = life[attackerController] ?? startingLife;
+              life[attackerController] = controllerLife + damageToBlocker;
+              
+              result.lifeGainForPlayers[attackerController] = 
+                (result.lifeGainForPlayers[attackerController] || 0) + damageToBlocker;
+            }
+          }
+          
+          if (remainingDamage <= 0 && !keywords.trample) break;
+        }
+        
+        // Trample: Excess damage goes to defending player
+        if (keywords.trample && remainingDamage > 0) {
+          const defendingPlayerId = defendingTarget;
+          
+          if (defendingPlayerId && !defendingPlayerId.startsWith('perm_')) {
+            const currentLife = life[defendingPlayerId] ?? startingLife;
+            life[defendingPlayerId] = currentLife - remainingDamage;
+            
+            result.damageToPlayers[defendingPlayerId] = 
+              (result.damageToPlayers[defendingPlayerId] || 0) + remainingDamage;
+            
+            console.log(`${ts()} [dealCombatDamage] ${card.name || 'Attacker'} trample: dealt ${remainingDamage} excess damage to ${defendingPlayerId}`);
+            
+            // Lifelink for trample damage
+            if (keywords.lifelink) {
+              const controllerLife = life[attackerController] ?? startingLife;
+              life[attackerController] = controllerLife + remainingDamage;
+              
+              result.lifeGainForPlayers[attackerController] = 
+                (result.lifeGainForPlayers[attackerController] || 0) + remainingDamage;
+            }
+          }
+        }
+        
+        // Blockers deal damage back to attackers
+        for (const blockerId of blockedBy) {
+          const blocker = battlefield.find((p: any) => p?.id === blockerId);
+          if (!blocker) continue;
+          
+          const blockerCard = blocker.card || {};
+          const blockerKeywords = parseCreatureKeywords(blockerCard, blocker);
+          const blockerPower = parseInt(String(blocker.basePower ?? blockerCard.power ?? '0'), 10) || 0;
+          
+          if (blockerPower > 0) {
+            // Deal damage to attacker
+            attacker.markedDamage = (attacker.markedDamage || 0) + blockerPower;
+            
+            console.log(`${ts()} [dealCombatDamage] Blocker ${blockerCard.name || blockerId} dealt ${blockerPower} damage to attacker ${card.name || attacker.id}`);
+            
+            // Check if attacker dies
+            const attackerToughness = parseInt(String(attacker.baseToughness ?? card.toughness ?? '0'), 10) || 0;
+            const totalDamageOnAttacker = attacker.markedDamage || 0;
+            const isDead = totalDamageOnAttacker >= attackerToughness || (blockerKeywords.deathtouch && totalDamageOnAttacker > 0);
+            
+            if (isDead && !result.creaturesDestroyed.includes(attacker.id)) {
+              result.creaturesDestroyed.push(attacker.id);
+              console.log(`${ts()} [dealCombatDamage] Attacker ${card.name || attacker.id} received lethal damage`);
+            }
+            
+            // Lifelink for blocker
+            if (blockerKeywords.lifelink) {
+              const blockerController = blocker.controller;
+              const controllerLife = life[blockerController] ?? startingLife;
+              life[blockerController] = controllerLife + blockerPower;
+              
+              result.lifeGainForPlayers[blockerController] = 
+                (result.lifeGainForPlayers[blockerController] || 0) + blockerPower;
+              
+              console.log(`${ts()} [dealCombatDamage] Blocker ${blockerCard.name || blockerId} lifelink: ${blockerController} gained ${blockerPower} life`);
+            }
+          }
+        }
+      }
+    }
+    
+    // Update life state
+    (ctx as any).state.life = life;
+    
+    // Move dead creatures to graveyard (state-based actions)
+    // This should be handled separately by SBA processing, but we mark them here
+    for (const deadId of result.creaturesDestroyed) {
+      const deadPerm = battlefield.find((p: any) => p?.id === deadId);
+      if (deadPerm) {
+        deadPerm.markedForDestruction = true;
+      }
+    }
+    
+    console.log(`${ts()} [dealCombatDamage] Combat damage complete. Damage to players: ${JSON.stringify(result.damageToPlayers)}, Life gained: ${JSON.stringify(result.lifeGainForPlayers)}, Creatures destroyed: ${result.creaturesDestroyed.length}`);
+    
+  } catch (err) {
+    console.warn(`${ts()} dealCombatDamage failed:`, err);
+  }
+  
+  return result;
 }
 
 /**
@@ -1029,6 +1256,17 @@ export function nextStep(ctx: GameContext) {
         nextStep = "DECLARE_BLOCKERS";
       } else if (currentStep === "declareBlockers" || currentStep === "DECLARE_BLOCKERS") {
         nextStep = "DAMAGE";
+        // Deal combat damage when entering the DAMAGE step (Rule 510)
+        // This handles unblocked attackers dealing damage to players,
+        // blocked attackers/blockers dealing damage to each other,
+        // lifelink life gain, and marking creatures for destruction
+        try {
+          const combatResult = dealCombatDamage(ctx);
+          // Store the result for the socket layer to broadcast
+          (ctx as any).state.lastCombatDamageResult = combatResult;
+        } catch (err) {
+          console.warn(`${ts()} [nextStep] Failed to deal combat damage:`, err);
+        }
       } else if (currentStep === "combatDamage" || currentStep === "DAMAGE") {
         nextStep = "END_COMBAT";
         
