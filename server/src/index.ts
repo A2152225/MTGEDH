@@ -72,6 +72,7 @@ app.get("/api/games", (req, res) => {
         format: row.format,
         startingLife: row.starting_life,
         createdAt: row.created_at,
+        createdByPlayerId: row.created_by_player_id || null,
         playersCount,
         turn,
         phase,

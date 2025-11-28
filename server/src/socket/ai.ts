@@ -2161,8 +2161,14 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
     try {
       console.info('[AI] Creating game with AI:', { gameId, playerName, aiName, aiStrategy, hasText: !!aiDeckText });
       
-      // Ensure game exists
-      const game = ensureGame(gameId);
+      // Generate a player ID for the human player (will be set when they join)
+      // The socket.id is used as the creator identifier for now
+      const creatorSocketId = socket.id;
+      
+      // Ensure game exists and track creator
+      const game = ensureGame(gameId, { 
+        createdBySocketId: creatorSocketId 
+      });
       if (!game) {
         socket.emit('error', { code: 'GAME_NOT_FOUND', message: 'Failed to create game' });
         return;

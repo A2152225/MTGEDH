@@ -234,13 +234,21 @@ export function getPlayerName(game: any, playerId: PlayerID): string {
 /* ------------------- Core exported utilities (based on original file) ------------------- */
 
 /**
+ * Options for ensureGame when creating a new game with creator tracking.
+ */
+export interface EnsureGameOptions {
+  createdBySocketId?: string;
+  createdByPlayerId?: string;
+}
+
+/**
  * Ensures that the specified game exists in both database and memory, creating it if necessary.
  * Prefer using the centralized GameManager to ensure consistent factory/reset behavior.
  * Falls back to the local create/replay flow if GameManager is not available or fails.
  *
  * Returns an InMemoryGame wrapper with a fully-initialized runtime state.
  */
-export function ensureGame(gameId: string): InMemoryGame {
+export function ensureGame(gameId: string, options?: EnsureGameOptions): InMemoryGame {
   // Defensive validation: reject invalid/falsy gameId early to prevent creating games with no id.
   if (!gameId || typeof gameId !== "string" || gameId.trim() === "") {
     const msg = `ensureGame called with invalid gameId: ${String(gameId)}`;
@@ -288,7 +296,13 @@ export function ensureGame(gameId: string): InMemoryGame {
     try {
       const fmt = (game as any).state?.format ?? "commander";
       const startingLife = (game as any).state?.startingLife ?? 40;
-      createGameIfNotExists(gameId, String(fmt), startingLife);
+      createGameIfNotExists(
+        gameId, 
+        String(fmt), 
+        startingLife,
+        options?.createdBySocketId,
+        options?.createdByPlayerId
+      );
     } catch (err) {
       console.warn(
         "ensureGame: createGameIfNotExists failed (continuing):",
