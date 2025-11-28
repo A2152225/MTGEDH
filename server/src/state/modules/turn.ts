@@ -394,6 +394,80 @@ function clearSummoningSicknessForPlayer(ctx: GameContext, playerId: string) {
 }
 
 /**
+ * Check if any player has a "Sundial-like" effect available.
+ * Sundial of the Infinite and similar cards can end the turn during cleanup,
+ * which means players should be given priority during cleanup if they control
+ * such an effect.
+ * 
+ * Rule 514.3: Players normally don't get priority during cleanup step unless
+ * state-based actions are performed or abilities trigger. However, if a player
+ * has an ability that could affect the game during cleanup (like Sundial),
+ * we should give them an opportunity to act.
+ * 
+ * Cards that have "end the turn" effects include:
+ * - Sundial of the Infinite
+ * - Obeka, Brute Chronologist
+ * - Discontinuity
+ * - Day's Undoing (though it ends turn on resolution)
+ */
+function playerHasSundialEffect(ctx: GameContext, playerId: string): boolean {
+  try {
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return false;
+    
+    // Check battlefield for permanents with "end the turn" activated abilities
+    for (const permanent of battlefield) {
+      if (!permanent || permanent.controller !== playerId) continue;
+      
+      const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
+      const cardName = (permanent.card?.name || "").toLowerCase();
+      
+      // Check for Sundial of the Infinite specifically
+      if (cardName.includes("sundial")) {
+        return true;
+      }
+      
+      // Check for "end the turn" in oracle text (activated ability pattern)
+      // This catches cards like Obeka that have ": End the turn"
+      if (oracleText.includes("end the turn") && 
+          (oracleText.includes(":") || oracleText.includes("tap"))) {
+        return true;
+      }
+    }
+    
+    // Could also check command zone for commanders with "end the turn" abilities
+    // that could be cast, but for now we focus on battlefield permanents
+    
+    return false;
+  } catch (err) {
+    console.warn(`${ts()} [playerHasSundialEffect] Error checking for Sundial effects:`, err);
+    return false;
+  }
+}
+
+/**
+ * Check if any player in the game has a Sundial-like effect available.
+ */
+function anyPlayerHasSundialEffect(ctx: GameContext): boolean {
+  try {
+    const players = Array.isArray((ctx as any).state?.players) 
+      ? (ctx as any).state.players.map((p: any) => p.id) 
+      : [];
+    
+    for (const playerId of players) {
+      if (playerHasSundialEffect(ctx, playerId)) {
+        return true;
+      }
+    }
+    
+    return false;
+  } catch (err) {
+    console.warn(`${ts()} [anyPlayerHasSundialEffect] Error checking for Sundial effects:`, err);
+    return false;
+  }
+}
+
+/**
  * Untap all permanents controlled by the specified player.
  * This implements Rule 502.3: During the untap step, the active player
  * untaps all their permanents simultaneously.
@@ -807,13 +881,20 @@ export function nextStep(ctx: GameContext) {
     } else if (currentPhase === "ending") {
       if (currentStep === "endStep" || currentStep === "end" || currentStep === "END") {
         nextStep = "CLEANUP";
+        // When entering cleanup step, check if we should auto-advance to next turn
+        // This happens when no discard is needed, stack is empty, no triggers, and no Sundial effect
+        shouldAdvanceTurn = true; // Set flag to check for auto-advance after entering cleanup
       } else if (currentStep === "cleanup" || currentStep === "CLEANUP") {
-        // Cleanup step: discard down to max hand size before advancing to next turn
-        // After cleanup, advance to next turn
+        // Cleanup step: player has already had opportunity to use Sundial
+        // Now advance to next turn (after discard check)
         shouldAdvanceTurn = true;
+        // Mark that we're proceeding from cleanup (not entering it)
+        // So we skip the Sundial check since player already passed
+        (ctx as any)._cleanupProceed = true;
       } else {
         // Stay at cleanup if unknown step
         nextStep = "CLEANUP";
+        shouldAdvanceTurn = true; // Also check for auto-advance in this case
       }
     } else {
       // Unknown phase, move to precombatMain as a safe default
@@ -837,6 +918,17 @@ export function nextStep(ctx: GameContext) {
 
     // If we should advance to next turn, call nextTurn instead
     if (shouldAdvanceTurn) {
+      // Check if we're proceeding from cleanup (player already had chance to use Sundial)
+      const cleanupProceed = (ctx as any)._cleanupProceed === true;
+      delete (ctx as any)._cleanupProceed; // Clear the flag
+      
+      // Check if any player has a Sundial-like effect available
+      // Only check this when ENTERING cleanup, not when proceeding from it
+      const hasSundialEffect = !cleanupProceed && anyPlayerHasSundialEffect(ctx);
+      
+      // Check if stack is empty
+      const stackEmpty = !Array.isArray((ctx as any).state.stack) || (ctx as any).state.stack.length === 0;
+      
       // Rule 514.1: Check if discard is needed before advancing
       try {
         const turnPlayer = (ctx as any).state.turnPlayer;
@@ -851,6 +943,16 @@ export function nextStep(ctx: GameContext) {
         }
       } catch (err) {
         console.warn(`${ts()} [nextStep] Failed to check discard during cleanup:`, err);
+      }
+      
+      // If any player has a Sundial-like effect and stack is empty, 
+      // don't auto-advance - let players have a chance to use it
+      // Per Rule 514.3: Normally no priority during cleanup, but if triggers or SBAs occur, priority is given
+      // We extend this to also give priority when Sundial effects are available
+      if (hasSundialEffect && stackEmpty) {
+        console.log(`${ts()} [nextStep] Player has Sundial effect available, pausing at cleanup for potential action`);
+        ctx.bumpSeq();
+        return; // Stop here - player can use Sundial effect or pass to advance
       }
       
       // Rule 514.2: Clear damage from all permanents and end temporary effects

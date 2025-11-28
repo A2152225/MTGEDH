@@ -65,11 +65,77 @@ describe('Turn step engine basics', () => {
     expect(g.state.phase).toBe(GamePhase.ENDING);
     expect(g.state.step).toBe(GameStep.END);
 
-    g.applyEvent({ type: 'nextStep' }); // CLEANUP
-    expect(g.state.step).toBe(GameStep.CLEANUP);
-
+    // When advancing from END step with no discard needed and no Sundial effect,
+    // cleanup step auto-advances to next turn (Rule 514.3 - no priority during cleanup)
     const prevTurnPlayer = g.state.turnPlayer;
-    g.applyEvent({ type: 'nextStep' }); // rolls to next turn (UNTAP)
+    g.applyEvent({ type: 'nextStep' }); // CLEANUP -> auto-advances to next turn
+    expect(g.state.turnPlayer).not.toBe(prevTurnPlayer);
+    expect(g.state.phase).toBe(GamePhase.BEGINNING);
+    expect(g.state.step).toBe(GameStep.UNTAP);
+  });
+
+  it('pauses at cleanup step when Sundial of the Infinite is on battlefield', () => {
+    const g = createInitialGameState('t_steps_sundial');
+
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+
+    // Set up libraries for both players
+    const sampleDeck = Array.from({ length: 10 }, (_, i) => ({
+      id: `card_${i}`,
+      name: `Test Card ${i}`,
+      type_line: 'Creature',
+      oracle_text: '',
+    }));
+    g.importDeckResolved(p1, sampleDeck);
+    g.importDeckResolved(p2, sampleDeck);
+
+    // Start of game
+    g.applyEvent({ type: 'nextTurn' });
+    expect(g.state.turnPlayer).toBe(p2);
+
+    // Add Sundial of the Infinite to player 2's battlefield
+    g.state.battlefield.push({
+      id: 'sundial_1',
+      controller: p2,
+      card: {
+        id: 'sundial_card',
+        name: 'Sundial of the Infinite',
+        type_line: 'Artifact',
+        oracle_text: '{1}, {T}: End the turn. Activate only during your turn.',
+        mana_cost: '{2}',
+      },
+      tapped: false,
+    } as any);
+
+    // Advance to END step
+    g.applyEvent({ type: 'nextStep' }); // UPKEEP
+    g.applyEvent({ type: 'nextStep' }); // DRAW
+    g.applyEvent({ type: 'nextStep' }); // MAIN1
+    g.applyEvent({ type: 'nextStep' }); // BEGIN_COMBAT
+    g.applyEvent({ type: 'nextStep' }); // DECLARE_ATTACKERS
+    g.applyEvent({ type: 'nextStep' }); // DECLARE_BLOCKERS
+    g.applyEvent({ type: 'nextStep' }); // DAMAGE
+    g.applyEvent({ type: 'nextStep' }); // END_COMBAT
+    g.applyEvent({ type: 'nextStep' }); // MAIN2
+    g.applyEvent({ type: 'nextStep' }); // END
+
+    expect(g.state.phase).toBe(GamePhase.ENDING);
+    expect(g.state.step).toBe(GameStep.END);
+
+    // When advancing from END step with Sundial available, should pause at CLEANUP
+    // to give player a chance to use it
+    const prevTurnPlayer = g.state.turnPlayer;
+    g.applyEvent({ type: 'nextStep' }); // Should stay at CLEANUP
+    
+    expect(g.state.turnPlayer).toBe(prevTurnPlayer); // Same player's turn
+    expect(g.state.phase).toBe(GamePhase.ENDING);
+    expect(g.state.step).toBe(GameStep.CLEANUP); // Paused at cleanup
+
+    // Now if player decides to pass (not use Sundial), another nextStep should advance
+    g.applyEvent({ type: 'nextStep' }); // Now should advance to next turn
     expect(g.state.turnPlayer).not.toBe(prevTurnPlayer);
     expect(g.state.phase).toBe(GamePhase.BEGINNING);
     expect(g.state.step).toBe(GameStep.UNTAP);
