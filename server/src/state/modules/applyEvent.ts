@@ -783,7 +783,6 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           state.mulliganState[pid].hasKeptHand = true;
           
           ctx.bumpSeq();
-          console.log(`[applyEvent] mulliganPutToBottom: moved ${cardIds.length} cards to bottom for ${pid}`);
         } catch (err) {
           console.warn("applyEvent(mulliganPutToBottom): failed", err);
         }
