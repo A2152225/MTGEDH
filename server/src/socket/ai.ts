@@ -1152,6 +1152,20 @@ export async function handleAIPriority(
     // COMBAT PHASES: Handle attack/block declarations
     if (phase === 'combat') {
       if (step.includes('attackers') || step === 'declare_attackers') {
+        // Check if attackers have already been declared this step
+        // by looking for any creatures marked as attacking
+        const battlefield = game.state?.battlefield || [];
+        const alreadyDeclaredAttackers = battlefield.some((perm: any) => 
+          perm.controller === playerId && perm.attacking
+        );
+        
+        if (alreadyDeclaredAttackers) {
+          // Attackers already declared, just pass priority to allow responses
+          console.info('[AI] Attackers already declared, passing priority for responses');
+          await executePassPriority(io, gameId, playerId);
+          return;
+        }
+        
         // Determine what type of decision is needed
         const context: AIDecisionContext = {
           gameState: game.state as any,
@@ -1172,6 +1186,20 @@ export async function handleAIPriority(
       }
       
       if (step.includes('blockers') || step === 'declare_blockers') {
+        // Check if blockers have already been declared this step
+        // by looking for any creatures marked as blocking
+        const battlefield = game.state?.battlefield || [];
+        const alreadyDeclaredBlockers = battlefield.some((perm: any) => 
+          perm.controller === playerId && perm.blocking && perm.blocking.length > 0
+        );
+        
+        if (alreadyDeclaredBlockers) {
+          // Blockers already declared, just pass priority to allow responses
+          console.info('[AI] Blockers already declared, passing priority for responses');
+          await executePassPriority(io, gameId, playerId);
+          return;
+        }
+        
         const context: AIDecisionContext = {
           gameState: game.state as any,
           playerId,
@@ -1973,11 +2001,13 @@ async function executePassPriority(
   
   try {
     let resolvedNow = false;
+    let advanceStep = false;
     
     // Use game's pass priority method if available
     if (typeof (game as any).passPriority === 'function') {
       const result = (game as any).passPriority(playerId);
       resolvedNow = result?.resolvedNow ?? false;
+      advanceStep = result?.advanceStep ?? false;
     } else {
       // Fallback: advance priority manually
       const state = game.state;
@@ -2011,6 +2041,22 @@ async function executePassPriority(
         await appendEvent(gameId, (game as any).seq || 0, 'resolveTopOfStack', { playerId });
       } catch (e) {
         console.warn('[AI] Failed to persist resolveTopOfStack event:', e);
+      }
+    }
+    
+    // If all players passed priority with empty stack, advance to next step
+    if (advanceStep) {
+      console.info('[AI] All players passed priority with empty stack, advancing step');
+      if (typeof (game as any).nextStep === 'function') {
+        (game as any).nextStep();
+        console.log(`[AI] Advanced to next step for game ${gameId}`);
+      }
+      
+      // Persist the step advance event
+      try {
+        await appendEvent(gameId, (game as any).seq || 0, 'nextStep', { playerId, reason: 'allPlayersPassed' });
+      } catch (e) {
+        console.warn('[AI] Failed to persist nextStep event:', e);
       }
     }
     
@@ -2053,9 +2099,10 @@ async function executeDeclareAttackers(
     await appendEvent(gameId, (game as any).seq || 0, 'declareAttackers', { playerId, attackerIds });
     broadcastGame(io, game, gameId);
     
-    // After declaring attackers, advance to declare blockers step
-    // This prevents the AI from getting stuck in a loop trying to declare attackers again
-    await executeAdvanceStep(io, gameId, playerId);
+    // After declaring attackers, pass priority to allow opponents to respond
+    // (cast instants, activate abilities before moving to declare blockers)
+    // The step will advance when all players pass priority in succession
+    await executePassPriority(io, gameId, playerId);
     
   } catch (error) {
     console.error('[AI] Error declaring attackers:', error);
@@ -2085,9 +2132,10 @@ async function executeDeclareBlockers(
     await appendEvent(gameId, (game as any).seq || 0, 'declareBlockers', { playerId, blockers });
     broadcastGame(io, game, gameId);
     
-    // After declaring blockers, advance to combat damage step
-    // This prevents the AI from getting stuck in a loop trying to declare blockers again
-    await executeAdvanceStep(io, gameId, playerId);
+    // After declaring blockers, pass priority to allow responses
+    // (cast instants, activate abilities before combat damage)
+    // The step will advance when all players pass priority in succession
+    await executePassPriority(io, gameId, playerId);
     
   } catch (error) {
     console.error('[AI] Error declaring blockers:', error);

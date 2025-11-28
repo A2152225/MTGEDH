@@ -1477,7 +1477,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
-      const { changed, resolvedNow } = game.passPriority(playerId);
+      const { changed, resolvedNow, advanceStep } = game.passPriority(playerId);
       if (!changed) return;
 
       appendGameEvent(game, gameId, "passPriority", { by: playerId });
@@ -1571,6 +1571,26 @@ export function registerGameActions(io: Server, socket: Socket) {
           ts: Date.now(),
         });
       }
+
+      // If all players passed priority with empty stack, advance to next step
+      if (advanceStep) {
+        if (typeof (game as any).nextStep === 'function') {
+          (game as any).nextStep();
+          console.log(`[passPriority] All players passed priority - advanced to next step for game ${gameId}`);
+          
+          appendGameEvent(game, gameId, "nextStep", { reason: 'allPlayersPassed' });
+          
+          const newStep = (game.state as any)?.step || 'unknown';
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `Step advanced to ${newStep}.`,
+            ts: Date.now(),
+          });
+        }
+      }
+
       broadcastGame(io, game, gameId);
     } catch (err: any) {
       console.error(`passPriority error for game ${gameId}:`, err);
