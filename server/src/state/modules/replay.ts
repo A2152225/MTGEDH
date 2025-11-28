@@ -192,6 +192,64 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       applySurveil(ctx, (e as any).playerId, (e as any).toGraveyard, (e as any).keepTopOrder);
       break;
 
+    case "shockLandChoice": {
+      // Replay shock land choice - either pay life or tap the land
+      const battlefield = ctx.state?.battlefield || [];
+      const perm = battlefield.find((p: any) => p.id === (e as any).permanentId);
+      if (perm) {
+        if ((e as any).payLife) {
+          // Pay 2 life to enter untapped
+          const life = ctx.state?.life || {};
+          life[(e as any).playerId] = (life[(e as any).playerId] || 40) - 2;
+          ctx.state.life = life;
+          perm.tapped = false;
+        } else {
+          // Enter tapped
+          perm.tapped = true;
+        }
+        ctx.bumpSeq();
+      }
+      break;
+    }
+
+    case "bounceLandChoice": {
+      // Replay bounce land choice - return a land to hand
+      const battlefield = ctx.state?.battlefield || [];
+      const permIdx = battlefield.findIndex((p: any) => p.id === (e as any).returnPermanentId);
+      if (permIdx !== -1) {
+        const perm = battlefield.splice(permIdx, 1)[0];
+        const zones = ctx.state?.zones?.[(e as any).playerId];
+        if (zones) {
+          zones.hand = zones.hand || [];
+          (zones.hand as any[]).push({ ...perm.card, zone: 'hand' });
+          zones.handCount = (zones.hand as any[]).length;
+        }
+        ctx.bumpSeq();
+      }
+      break;
+    }
+
+    case "sacrificeUnlessPayChoice": {
+      // Replay sacrifice-unless-pay choice - either pay mana or sacrifice
+      const battlefield = ctx.state?.battlefield || [];
+      if (!(e as any).payMana) {
+        // Sacrifice the permanent
+        const permIdx = battlefield.findIndex((p: any) => p.id === (e as any).permanentId);
+        if (permIdx !== -1) {
+          const perm = battlefield.splice(permIdx, 1)[0];
+          const zones = ctx.state?.zones?.[(e as any).playerId];
+          if (zones) {
+            zones.graveyard = zones.graveyard || [];
+            (zones.graveyard as any[]).push({ ...perm.card, zone: 'graveyard' });
+            zones.graveyardCount = (zones.graveyard as any[]).length;
+          }
+          ctx.bumpSeq();
+        }
+      }
+      // If payMana is true, the permanent stays - no state change needed
+      break;
+    }
+
     case "passPriority":
       break;
   }

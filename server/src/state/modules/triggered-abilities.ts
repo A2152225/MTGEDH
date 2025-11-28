@@ -889,3 +889,957 @@ export function getPlayersWhoMustSacrifice(
     .map((p: any) => p.id)
     .filter((pid: string) => pid !== triggerController);
 }
+
+// ============================================================================
+// End Step Trigger System
+// ============================================================================
+
+export interface EndStepTrigger {
+  permanentId: string;
+  cardName: string;
+  controllerId: string;
+  triggerType: 'end_step_resource' | 'end_step_effect';
+  description: string;
+  effect?: string;
+  mandatory: boolean;
+  requiresChoice?: boolean;
+  affectsAllPlayers?: boolean;
+}
+
+/**
+ * Known cards with end step triggered abilities
+ */
+const KNOWN_END_STEP_TRIGGERS: Record<string, { 
+  effect: string; 
+  mandatory: boolean; 
+  requiresChoice?: boolean;
+  affectsAllPlayers?: boolean;
+}> = {
+  "kynaios and tiro of meletis": { 
+    effect: "Each player may draw a card or play a land (you draw a card)", 
+    mandatory: true,
+    requiresChoice: true,
+    affectsAllPlayers: true,
+  },
+  "edric, spymaster of trest": { 
+    effect: "Opponents who dealt combat damage to your opponents draw a card", 
+    mandatory: true,
+  },
+  "nekusar, the mindrazer": { 
+    effect: "Each player draws a card at end step (draw step)", 
+    mandatory: true,
+  },
+  "meren of clan nel toth": { 
+    effect: "Return a creature card from graveyard based on experience counters", 
+    mandatory: true,
+    requiresChoice: true,
+  },
+  "atraxa, praetors' voice": { 
+    effect: "Proliferate", 
+    mandatory: true,
+  },
+  "wound reflection": { 
+    effect: "Each opponent loses life equal to life they lost this turn", 
+    mandatory: true,
+  },
+};
+
+/**
+ * Detect end step triggers from a card's oracle text
+ */
+export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger[] {
+  const triggers: EndStepTrigger[] = [];
+  const oracleText = (card?.oracle_text || "");
+  const lowerOracle = oracleText.toLowerCase();
+  const cardName = card?.name || "Unknown";
+  const lowerName = cardName.toLowerCase();
+  const permanentId = permanent?.id || "";
+  const controllerId = permanent?.controller || "";
+  
+  // Check known cards first
+  for (const [knownName, info] of Object.entries(KNOWN_END_STEP_TRIGGERS)) {
+    if (lowerName.includes(knownName)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'end_step_resource',
+        description: info.effect,
+        effect: info.effect,
+        mandatory: info.mandatory,
+        requiresChoice: info.requiresChoice,
+        affectsAllPlayers: info.affectsAllPlayers,
+      });
+    }
+  }
+  
+  // Generic detection: "At the beginning of each end step" or "At the beginning of your end step"
+  const endStepMatch = oracleText.match(/at the beginning of (?:each|your) end step,?\s*([^.]+)/i);
+  if (endStepMatch && !triggers.some(t => t.description === endStepMatch[1].trim())) {
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'end_step_effect',
+      description: endStepMatch[1].trim(),
+      effect: endStepMatch[1].trim(),
+      mandatory: true,
+    });
+  }
+  
+  return triggers;
+}
+
+/**
+ * Get all end step triggers for the active player's end step
+ */
+export function getEndStepTriggers(
+  ctx: GameContext,
+  activePlayerId: string
+): EndStepTrigger[] {
+  const triggers: EndStepTrigger[] = [];
+  const battlefield = ctx.state?.battlefield || [];
+  
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+    
+    const permTriggers = detectEndStepTriggers(permanent.card, permanent);
+    
+    for (const trigger of permTriggers) {
+      const lowerOracle = (permanent.card.oracle_text || '').toLowerCase();
+      
+      // "At the beginning of your end step" - only for controller
+      if (lowerOracle.includes('your end step')) {
+        if (permanent.controller === activePlayerId) {
+          triggers.push(trigger);
+        }
+      }
+      // "At the beginning of each end step" - triggers regardless of whose turn
+      else if (lowerOracle.includes('each end step')) {
+        triggers.push(trigger);
+      }
+      // Default: assume "your end step" if not specified
+      else if (permanent.controller === activePlayerId) {
+        triggers.push(trigger);
+      }
+    }
+  }
+  
+  return triggers;
+}
+
+// ============================================================================
+// Draw Step Trigger System
+// ============================================================================
+
+export interface DrawStepTrigger {
+  permanentId: string;
+  cardName: string;
+  controllerId: string;
+  description: string;
+  effect?: string;
+  mandatory: boolean;
+}
+
+/**
+ * Detect draw step triggers from a card's oracle text
+ * Pattern: "At the beginning of your draw step" or "At the beginning of each player's draw step"
+ */
+export function detectDrawStepTriggers(card: any, permanent: any): DrawStepTrigger[] {
+  const triggers: DrawStepTrigger[] = [];
+  const oracleText = (card?.oracle_text || "");
+  const cardName = card?.name || "Unknown";
+  const permanentId = permanent?.id || "";
+  const controllerId = permanent?.controller || "";
+  
+  // "At the beginning of your draw step"
+  const yourDrawMatch = oracleText.match(/at the beginning of your draw step,?\s*([^.]+)/i);
+  if (yourDrawMatch) {
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: yourDrawMatch[1].trim(),
+      effect: yourDrawMatch[1].trim(),
+      mandatory: true,
+    });
+  }
+  
+  // "At the beginning of each player's draw step"
+  const eachDrawMatch = oracleText.match(/at the beginning of each player's draw step,?\s*([^.]+)/i);
+  if (eachDrawMatch) {
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: eachDrawMatch[1].trim(),
+      effect: eachDrawMatch[1].trim(),
+      mandatory: true,
+    });
+  }
+  
+  return triggers;
+}
+
+/**
+ * Get all draw step triggers for the active player's draw step
+ */
+export function getDrawStepTriggers(
+  ctx: GameContext,
+  activePlayerId: string
+): DrawStepTrigger[] {
+  const triggers: DrawStepTrigger[] = [];
+  const battlefield = ctx.state?.battlefield || [];
+  
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+    
+    const permTriggers = detectDrawStepTriggers(permanent.card, permanent);
+    
+    for (const trigger of permTriggers) {
+      const lowerOracle = (permanent.card.oracle_text || '').toLowerCase();
+      
+      if (lowerOracle.includes('your draw step')) {
+        if (permanent.controller === activePlayerId) {
+          triggers.push(trigger);
+        }
+      } else if (lowerOracle.includes('each player')) {
+        triggers.push(trigger);
+      } else if (permanent.controller === activePlayerId) {
+        triggers.push(trigger);
+      }
+    }
+  }
+  
+  return triggers;
+}
+
+// ============================================================================
+// End of Combat Trigger System
+// ============================================================================
+
+export interface EndOfCombatTrigger {
+  permanentId: string;
+  cardName: string;
+  controllerId: string;
+  description: string;
+  effect?: string;
+  mandatory: boolean;
+}
+
+/**
+ * Detect end of combat triggers from a card's oracle text
+ * Pattern: "At end of combat" or "At the end of combat"
+ */
+export function detectEndOfCombatTriggers(card: any, permanent: any): EndOfCombatTrigger[] {
+  const triggers: EndOfCombatTrigger[] = [];
+  const oracleText = (card?.oracle_text || "");
+  const cardName = card?.name || "Unknown";
+  const permanentId = permanent?.id || "";
+  const controllerId = permanent?.controller || "";
+  
+  // "At end of combat" or "At the end of combat"
+  const endCombatMatch = oracleText.match(/at (?:the )?end of combat,?\s*([^.]+)/i);
+  if (endCombatMatch) {
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: endCombatMatch[1].trim(),
+      effect: endCombatMatch[1].trim(),
+      mandatory: true,
+    });
+  }
+  
+  return triggers;
+}
+
+/**
+ * Get all end of combat triggers
+ */
+export function getEndOfCombatTriggers(
+  ctx: GameContext,
+  activePlayerId: string
+): EndOfCombatTrigger[] {
+  const triggers: EndOfCombatTrigger[] = [];
+  const battlefield = ctx.state?.battlefield || [];
+  
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+    
+    const permTriggers = detectEndOfCombatTriggers(permanent.card, permanent);
+    triggers.push(...permTriggers);
+  }
+  
+  return triggers;
+}
+
+// ============================================================================
+// Untap Step Effects System
+// ============================================================================
+
+export interface UntapStepEffect {
+  permanentId: string;
+  cardName: string;
+  controllerId: string;
+  description: string;
+  effect?: string;
+  untapType: 'artifacts' | 'creatures' | 'all' | 'lands' | 'specific';
+  onOtherPlayersTurn: boolean; // True for Unwinding Clock, Seedborn Muse
+  onYourTurn: boolean;
+}
+
+/**
+ * Detect untap step effects from a card's oracle text
+ * Handles cards like:
+ * - Unwinding Clock: "Untap all artifacts you control during each other player's untap step"
+ * - Seedborn Muse: "Untap all permanents you control during each other player's untap step"
+ * - Prophet of Kruphix (banned): Similar to Seedborn Muse
+ * - Wilderness Reclamation: "At the beginning of your end step, untap all lands you control"
+ */
+export function detectUntapStepEffects(card: any, permanent: any): UntapStepEffect[] {
+  const effects: UntapStepEffect[] = [];
+  const oracleText = (card?.oracle_text || "").toLowerCase();
+  const cardName = card?.name || "Unknown";
+  const permanentId = permanent?.id || "";
+  const controllerId = permanent?.controller || "";
+  
+  // "Untap all artifacts you control during each other player's untap step" (Unwinding Clock)
+  if (oracleText.includes('untap all artifacts') && oracleText.includes('other player')) {
+    effects.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: "Untap all artifacts you control during each other player's untap step",
+      untapType: 'artifacts',
+      onOtherPlayersTurn: true,
+      onYourTurn: false,
+    });
+  }
+  
+  // "Untap all permanents you control during each other player's untap step" (Seedborn Muse)
+  if (oracleText.includes('untap all permanents') && oracleText.includes('other player')) {
+    effects.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: "Untap all permanents you control during each other player's untap step",
+      untapType: 'all',
+      onOtherPlayersTurn: true,
+      onYourTurn: false,
+    });
+  }
+  
+  // "Untap all creatures you control during each other player's untap step"
+  if (oracleText.includes('untap all creatures') && oracleText.includes('other player')) {
+    effects.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: "Untap all creatures you control during each other player's untap step",
+      untapType: 'creatures',
+      onOtherPlayersTurn: true,
+      onYourTurn: false,
+    });
+  }
+  
+  // Generic pattern: "untap all X you control during each other player's untap step"
+  const untapOtherMatch = oracleText.match(/untap all (\w+)(?: you control)? during each other player's untap step/i);
+  if (untapOtherMatch && !effects.length) {
+    const type = untapOtherMatch[1].toLowerCase();
+    let untapType: UntapStepEffect['untapType'] = 'specific';
+    if (type === 'artifacts') untapType = 'artifacts';
+    else if (type === 'creatures') untapType = 'creatures';
+    else if (type === 'permanents') untapType = 'all';
+    else if (type === 'lands') untapType = 'lands';
+    
+    effects.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Untap all ${type} you control during each other player's untap step`,
+      untapType,
+      onOtherPlayersTurn: true,
+      onYourTurn: false,
+    });
+  }
+  
+  return effects;
+}
+
+/**
+ * Get all untap step effects that apply during a specific player's untap step
+ * @param ctx Game context
+ * @param untapPlayerOd The player whose untap step it is
+ * @returns Effects that should trigger
+ */
+export function getUntapStepEffects(
+  ctx: GameContext,
+  untapPlayerId: string
+): UntapStepEffect[] {
+  const effects: UntapStepEffect[] = [];
+  const battlefield = ctx.state?.battlefield || [];
+  
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+    
+    const permEffects = detectUntapStepEffects(permanent.card, permanent);
+    
+    for (const effect of permEffects) {
+      // Check if this effect applies
+      const isControllersTurn = permanent.controller === untapPlayerId;
+      
+      if (effect.onOtherPlayersTurn && !isControllersTurn) {
+        // Effects like Unwinding Clock trigger on OTHER players' untap steps
+        effects.push(effect);
+      } else if (effect.onYourTurn && isControllersTurn) {
+        // Effects that trigger on your own untap step
+        effects.push(effect);
+      }
+    }
+  }
+  
+  return effects;
+}
+
+/**
+ * Apply untap step effects (actually untap the permanents)
+ * @param ctx Game context
+ * @param effect The untap effect to apply
+ */
+export function applyUntapStepEffect(ctx: GameContext, effect: UntapStepEffect): number {
+  const battlefield = ctx.state?.battlefield || [];
+  let untappedCount = 0;
+  
+  for (const permanent of battlefield) {
+    if (!permanent || permanent.controller !== effect.controllerId) continue;
+    if (!permanent.tapped) continue; // Already untapped
+    
+    const typeLine = (permanent.card?.type_line || '').toLowerCase();
+    let shouldUntap = false;
+    
+    switch (effect.untapType) {
+      case 'all':
+        shouldUntap = true;
+        break;
+      case 'artifacts':
+        shouldUntap = typeLine.includes('artifact');
+        break;
+      case 'creatures':
+        shouldUntap = typeLine.includes('creature');
+        break;
+      case 'lands':
+        shouldUntap = typeLine.includes('land');
+        break;
+      case 'specific':
+        // Would need more specific matching based on the effect
+        break;
+    }
+    
+    if (shouldUntap) {
+      permanent.tapped = false;
+      untappedCount++;
+    }
+  }
+  
+  if (untappedCount > 0) {
+    ctx.bumpSeq();
+  }
+  
+  return untappedCount;
+}
+
+// ============================================================================
+// ETB-Triggered Untap Effects (Intruder Alarm, Thornbite Staff, etc.)
+// ============================================================================
+
+export interface ETBUntapEffect {
+  permanentId: string;
+  cardName: string;
+  controllerId: string;
+  description: string;
+  untapType: 'all_creatures' | 'equipped_creature' | 'controller_creatures' | 'all_permanents';
+  triggerCondition: 'creature_etb' | 'any_etb' | 'nontoken_creature_etb';
+}
+
+/**
+ * Detect ETB-triggered untap effects from a card's oracle text
+ * Handles cards like:
+ * - Intruder Alarm: "Whenever a creature enters the battlefield, untap all creatures"
+ * - Thornbite Staff: "Whenever a creature dies, untap equipped creature" (death trigger, but similar pattern)
+ * - Jeskai Ascendancy: "Whenever you cast a noncreature spell, creatures you control get +1/+1 and untap"
+ */
+export function detectETBUntapEffects(card: any, permanent: any): ETBUntapEffect[] {
+  const effects: ETBUntapEffect[] = [];
+  const oracleText = (card?.oracle_text || "").toLowerCase();
+  const cardName = card?.name || "Unknown";
+  const permanentId = permanent?.id || "";
+  const controllerId = permanent?.controller || "";
+  
+  // "Whenever a creature enters the battlefield, untap all creatures" (Intruder Alarm)
+  if (oracleText.includes('whenever a creature enters') && oracleText.includes('untap all creatures')) {
+    effects.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: "Whenever a creature enters the battlefield, untap all creatures",
+      untapType: 'all_creatures',
+      triggerCondition: 'creature_etb',
+    });
+  }
+  
+  // "Whenever a creature enters the battlefield under your control, untap" patterns
+  if (oracleText.includes('whenever a creature enters the battlefield under your control') && 
+      oracleText.includes('untap')) {
+    effects.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: "Whenever a creature enters the battlefield under your control, untap target creature",
+      untapType: 'controller_creatures',
+      triggerCondition: 'creature_etb',
+    });
+  }
+  
+  // Generic pattern: "whenever a creature enters the battlefield" + "untap"
+  const creatureETBUntapMatch = oracleText.match(/whenever a creature enters (?:the battlefield)?[^.]*untap ([^.]+)/i);
+  if (creatureETBUntapMatch && !effects.length) {
+    effects.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever a creature enters the battlefield, untap ${creatureETBUntapMatch[1]}`,
+      untapType: 'all_creatures',
+      triggerCondition: 'creature_etb',
+    });
+  }
+  
+  // "Whenever a nontoken creature enters" patterns
+  if (oracleText.includes('whenever a nontoken creature enters') && oracleText.includes('untap')) {
+    effects.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: "Whenever a nontoken creature enters the battlefield, untap",
+      untapType: 'all_creatures',
+      triggerCondition: 'nontoken_creature_etb',
+    });
+  }
+  
+  return effects;
+}
+
+/**
+ * Get ETB untap effects that should trigger when a creature enters
+ */
+export function getETBUntapEffects(
+  ctx: GameContext,
+  enteringPermanent: any,
+  isToken: boolean
+): ETBUntapEffect[] {
+  const effects: ETBUntapEffect[] = [];
+  const battlefield = ctx.state?.battlefield || [];
+  
+  // Check if the entering permanent is a creature
+  const typeLine = (enteringPermanent?.card?.type_line || '').toLowerCase();
+  const isCreature = typeLine.includes('creature');
+  
+  if (!isCreature) {
+    return effects; // Only creature ETBs trigger these effects
+  }
+  
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+    if (permanent.id === enteringPermanent?.id) continue; // Skip the entering permanent itself
+    
+    const permEffects = detectETBUntapEffects(permanent.card, permanent);
+    
+    for (const effect of permEffects) {
+      // Check trigger condition
+      if (effect.triggerCondition === 'creature_etb') {
+        effects.push(effect);
+      } else if (effect.triggerCondition === 'nontoken_creature_etb' && !isToken) {
+        effects.push(effect);
+      }
+    }
+  }
+  
+  return effects;
+}
+
+/**
+ * Apply an ETB untap effect (actually untap the permanents)
+ */
+export function applyETBUntapEffect(ctx: GameContext, effect: ETBUntapEffect): number {
+  const battlefield = ctx.state?.battlefield || [];
+  let untappedCount = 0;
+  
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.tapped) continue;
+    
+    const typeLine = (permanent.card?.type_line || '').toLowerCase();
+    let shouldUntap = false;
+    
+    switch (effect.untapType) {
+      case 'all_creatures':
+        shouldUntap = typeLine.includes('creature');
+        break;
+      case 'controller_creatures':
+        shouldUntap = typeLine.includes('creature') && permanent.controller === effect.controllerId;
+        break;
+      case 'all_permanents':
+        shouldUntap = true;
+        break;
+      case 'equipped_creature':
+        // Would need to track equipment attachment
+        break;
+    }
+    
+    if (shouldUntap) {
+      permanent.tapped = false;
+      untappedCount++;
+    }
+  }
+  
+  if (untappedCount > 0) {
+    ctx.bumpSeq();
+  }
+  
+  return untappedCount;
+}
+
+// ============================================================================
+// Spell-Cast Untap Triggers (Jeskai Ascendancy, Paradox Engine)
+// ============================================================================
+
+export interface SpellCastUntapEffect {
+  permanentId: string;
+  cardName: string;
+  controllerId: string;
+  description: string;
+  untapType: 'nonland_permanents' | 'creatures' | 'all';
+  spellCondition: 'noncreature' | 'any' | 'instant_sorcery';
+}
+
+/**
+ * Detect spell-cast untap triggers
+ * - Paradox Engine: "Whenever you cast a spell, untap all nonland permanents you control"
+ * - Jeskai Ascendancy: "Whenever you cast a noncreature spell, creatures you control get +1/+1 until end of turn. Untap those creatures."
+ */
+export function detectSpellCastUntapEffects(card: any, permanent: any): SpellCastUntapEffect[] {
+  const effects: SpellCastUntapEffect[] = [];
+  const oracleText = (card?.oracle_text || "").toLowerCase();
+  const cardName = card?.name || "Unknown";
+  const permanentId = permanent?.id || "";
+  const controllerId = permanent?.controller || "";
+  
+  // "Whenever you cast a spell, untap all nonland permanents you control" (Paradox Engine - banned but pattern useful)
+  if (oracleText.includes('whenever you cast a spell') && 
+      oracleText.includes('untap all nonland permanents')) {
+    effects.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: "Whenever you cast a spell, untap all nonland permanents you control",
+      untapType: 'nonland_permanents',
+      spellCondition: 'any',
+    });
+  }
+  
+  // "Whenever you cast a noncreature spell" + "untap" (Jeskai Ascendancy pattern)
+  if (oracleText.includes('whenever you cast a noncreature spell') && 
+      oracleText.includes('untap')) {
+    effects.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: "Whenever you cast a noncreature spell, untap creatures you control",
+      untapType: 'creatures',
+      spellCondition: 'noncreature',
+    });
+  }
+  
+  // Generic "whenever you cast" + "untap" pattern
+  const castUntapMatch = oracleText.match(/whenever you cast (?:a |an )?(\w+)?\s*spell[^.]*untap/i);
+  if (castUntapMatch && !effects.length) {
+    const spellType = castUntapMatch[1]?.toLowerCase() || 'any';
+    let spellCondition: SpellCastUntapEffect['spellCondition'] = 'any';
+    if (spellType === 'noncreature') spellCondition = 'noncreature';
+    else if (spellType === 'instant' || spellType === 'sorcery') spellCondition = 'instant_sorcery';
+    
+    effects.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever you cast a ${spellType} spell, untap`,
+      untapType: 'nonland_permanents',
+      spellCondition,
+    });
+  }
+  
+  return effects;
+}
+
+/**
+ * Get spell-cast untap effects for a player casting a spell
+ */
+export function getSpellCastUntapEffects(
+  ctx: GameContext,
+  casterId: string,
+  spellCard: any
+): SpellCastUntapEffect[] {
+  const effects: SpellCastUntapEffect[] = [];
+  const battlefield = ctx.state?.battlefield || [];
+  
+  const spellTypeLine = (spellCard?.type_line || '').toLowerCase();
+  const isCreatureSpell = spellTypeLine.includes('creature');
+  const isInstantOrSorcery = spellTypeLine.includes('instant') || spellTypeLine.includes('sorcery');
+  
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+    if (permanent.controller !== casterId) continue; // Only controller's permanents trigger
+    
+    const permEffects = detectSpellCastUntapEffects(permanent.card, permanent);
+    
+    for (const effect of permEffects) {
+      let shouldTrigger = false;
+      
+      switch (effect.spellCondition) {
+        case 'any':
+          shouldTrigger = true;
+          break;
+        case 'noncreature':
+          shouldTrigger = !isCreatureSpell;
+          break;
+        case 'instant_sorcery':
+          shouldTrigger = isInstantOrSorcery;
+          break;
+      }
+      
+      if (shouldTrigger) {
+        effects.push(effect);
+      }
+    }
+  }
+  
+  return effects;
+}
+
+/**
+ * Apply a spell-cast untap effect
+ */
+export function applySpellCastUntapEffect(ctx: GameContext, effect: SpellCastUntapEffect): number {
+  const battlefield = ctx.state?.battlefield || [];
+  let untappedCount = 0;
+  
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.tapped) continue;
+    if (permanent.controller !== effect.controllerId) continue;
+    
+    const typeLine = (permanent.card?.type_line || '').toLowerCase();
+    let shouldUntap = false;
+    
+    switch (effect.untapType) {
+      case 'nonland_permanents':
+        shouldUntap = !typeLine.includes('land');
+        break;
+      case 'creatures':
+        shouldUntap = typeLine.includes('creature');
+        break;
+      case 'all':
+        shouldUntap = true;
+        break;
+    }
+    
+    if (shouldUntap) {
+      permanent.tapped = false;
+      untappedCount++;
+    }
+  }
+  
+  if (untappedCount > 0) {
+    ctx.bumpSeq();
+  }
+  
+  return untappedCount;
+}
+
+// ============================================================================
+// "Doesn't Untap" Static Effects (Intruder Alarm, Frozen, Exhaustion, etc.)
+// ============================================================================
+
+export interface DoesntUntapEffect {
+  permanentId: string;
+  cardName: string;
+  controllerId: string;
+  description: string;
+  affectedType: 'all_creatures' | 'all_lands' | 'all_permanents' | 'specific_permanent' | 'controller_creatures' | 'controller_lands';
+  affectedController?: 'all' | 'controller' | 'opponents';
+  targetPermanentId?: string; // For effects that target a specific permanent (like Claustrophobia)
+}
+
+/**
+ * Detect "doesn't untap" static effects from a card's oracle text
+ * Handles cards like:
+ * - Intruder Alarm: "Creatures don't untap during their controllers' untap steps"
+ * - Winter Orb: "As long as Winter Orb is untapped, players can't untap more than one land during their untap steps"
+ * - Static Orb: "As long as Static Orb is untapped, players can't untap more than two permanents during their untap steps"
+ * - Stasis: "Players skip their untap steps"
+ * - Frozen Aether: "Artifacts, creatures, and lands your opponents control enter the battlefield tapped"
+ * - Claustrophobia: "Enchanted creature doesn't untap during its controller's untap step"
+ * - Sleep: "Tap all creatures target player controls. Those creatures don't untap during that player's next untap step"
+ */
+export function detectDoesntUntapEffects(card: any, permanent: any): DoesntUntapEffect[] {
+  const effects: DoesntUntapEffect[] = [];
+  const oracleText = (card?.oracle_text || "").toLowerCase();
+  const cardName = card?.name || "Unknown";
+  const permanentId = permanent?.id || "";
+  const controllerId = permanent?.controller || "";
+  
+  // "Creatures don't untap during their controllers' untap steps" (Intruder Alarm)
+  if (oracleText.includes("creatures don't untap") || 
+      oracleText.includes("creatures do not untap")) {
+    effects.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: "Creatures don't untap during their controllers' untap steps",
+      affectedType: 'all_creatures',
+      affectedController: 'all',
+    });
+  }
+  
+  // "Lands don't untap" patterns (e.g., Rising Waters)
+  if (oracleText.includes("lands don't untap") || 
+      oracleText.includes("lands do not untap")) {
+    effects.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: "Lands don't untap during their controllers' untap steps",
+      affectedType: 'all_lands',
+      affectedController: 'all',
+    });
+  }
+  
+  // "Enchanted creature doesn't untap" (Claustrophobia, Narcolepsy, Ice Cage)
+  if (oracleText.includes("enchanted creature doesn't untap") ||
+      oracleText.includes("enchanted creature does not untap")) {
+    // This affects a specific creature - the one it's attached to
+    effects.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: "Enchanted creature doesn't untap during its controller's untap step",
+      affectedType: 'specific_permanent',
+      targetPermanentId: permanent?.attachedTo, // The permanent this aura is attached to
+    });
+  }
+  
+  // "This creature doesn't untap" (self-referential, like Rust Tick)
+  if (oracleText.includes("this creature doesn't untap") ||
+      oracleText.includes("~ doesn't untap")) {
+    effects.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: "This creature doesn't untap during your untap step",
+      affectedType: 'specific_permanent',
+      targetPermanentId: permanentId,
+    });
+  }
+  
+  // "Artifacts you control don't untap" or similar controller-specific effects
+  if (oracleText.match(/artifacts you control don't untap/i)) {
+    effects.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: "Artifacts you control don't untap during your untap step",
+      affectedType: 'all_permanents', // Would need more specific type
+      affectedController: 'controller',
+    });
+  }
+  
+  return effects;
+}
+
+/**
+ * Check if a permanent is prevented from untapping by static effects
+ * @param ctx Game context  
+ * @param permanentToUntap The permanent trying to untap
+ * @param untapPlayerId The player whose untap step it is
+ * @returns true if the permanent should NOT untap
+ */
+export function isPermanentPreventedFromUntapping(
+  ctx: GameContext,
+  permanentToUntap: any,
+  untapPlayerId: string
+): boolean {
+  const battlefield = ctx.state?.battlefield || [];
+  const permTypeLine = (permanentToUntap?.card?.type_line || '').toLowerCase();
+  const isCreature = permTypeLine.includes('creature');
+  const isLand = permTypeLine.includes('land');
+  const permController = permanentToUntap?.controller;
+  
+  // Check all permanents for "doesn't untap" effects
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+    
+    const doesntUntapEffects = detectDoesntUntapEffects(permanent.card, permanent);
+    
+    for (const effect of doesntUntapEffects) {
+      // Check if this effect applies to the permanent trying to untap
+      
+      // Specific permanent targeting (like Claustrophobia)
+      if (effect.affectedType === 'specific_permanent') {
+        if (effect.targetPermanentId === permanentToUntap.id) {
+          return true; // This permanent is specifically prevented from untapping
+        }
+        continue;
+      }
+      
+      // Check controller restriction
+      let controllerMatches = false;
+      switch (effect.affectedController) {
+        case 'all':
+          controllerMatches = true;
+          break;
+        case 'controller':
+          controllerMatches = permController === effect.controllerId;
+          break;
+        case 'opponents':
+          controllerMatches = permController !== effect.controllerId;
+          break;
+      }
+      
+      if (!controllerMatches) continue;
+      
+      // Check type restriction
+      switch (effect.affectedType) {
+        case 'all_creatures':
+          if (isCreature) return true;
+          break;
+        case 'all_lands':
+          if (isLand) return true;
+          break;
+        case 'all_permanents':
+          return true;
+        case 'controller_creatures':
+          if (isCreature && permController === untapPlayerId) return true;
+          break;
+        case 'controller_lands':
+          if (isLand && permController === untapPlayerId) return true;
+          break;
+      }
+    }
+  }
+  
+  // Also check if the permanent itself has a "doesn't untap" flag
+  // This can be set by spells like Sleep or Hands of Binding
+  if (permanentToUntap.doesntUntapNextTurn === true) {
+    return true;
+  }
+  
+  return false;
+}
