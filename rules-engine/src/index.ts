@@ -598,6 +598,85 @@ export {
   type RestrictionCardName,
 } from './castingRestrictions';
 
+// Flicker and Blink Effects
+export {
+  FlickerTiming,
+  FlickerReturnController,
+  parseFlickerEffect,
+  executeFlicker,
+  returnFlickeredPermanent,
+  checkDelayedFlickerReturns,
+  isFlickerCard,
+  getFlickerEffectForCard,
+  handleCommanderFlicker,
+  COMMON_FLICKER_CARDS,
+  type FlickerEffect,
+  type FlickeredObject,
+  type DelayedFlickerReturn,
+  type FlickerResult,
+  type FlickerReturnResult,
+} from './flickerAndBlink';
+
+// Zone Change Tracking
+export {
+  Zone,
+  ZoneChangeCause,
+  createZoneChangeTracker,
+  createZoneChangeEvent,
+  getTriggerEventForZoneChange,
+  getSecondaryTriggerEvents,
+  trackZoneChange,
+  processPendingZoneChanges,
+  clearProcessedChanges,
+  checkETBTriggers as zoneCheckETBTriggers,
+  checkLTBTriggers,
+  checkDiesTriggers as zoneCheckDiesTriggers,
+  checkSacrificeTriggers,
+  getAllZoneChangeTriggers,
+  type ZoneChangeEvent,
+  type ZoneChangeContext,
+  type PendingZoneChange,
+  type ZoneChangeTracker,
+} from './zoneChangeTracking';
+
+// Delayed Triggered Abilities
+export {
+  DelayedTriggerTiming,
+  createDelayedTriggerRegistry,
+  createDelayedTrigger,
+  registerDelayedTrigger,
+  checkDelayedTriggers,
+  processDelayedTriggers,
+  expireDelayedTriggers,
+  parseDelayedTriggerFromText,
+  createFlickerReturnTrigger,
+  createSacrificeAtEndTrigger,
+  createWhenLeavesTrigger,
+  createNextUpkeepTrigger,
+  type DelayedTriggeredAbility,
+  type DelayedTriggerRegistry,
+} from './delayedTriggeredAbilities';
+
+// Enhanced Combat Damage Automation
+export {
+  CombatDamagePhase,
+  hasFirstStrikeDamage,
+  hasRegularDamage,
+  calculateLethalDamageForBlocker,
+  assignDamageToBlockers,
+  calculateTrampleToPlayer,
+  processUnblockedAttacker,
+  processBlockerDamageToAttacker,
+  calculateLifelinkGains,
+  determineCreatureDeaths,
+  createCombatDamageTriggers,
+  hasFirstStrikersInCombat,
+  calculateCombatDamage,
+  type DetailedDamageAssignment,
+  type CombatDamageCalculation,
+  type BlockerOrder,
+} from './combatDamageEnhanced';
+
 // =============================================================================
 // LEGACY COMPATIBILITY
 // =============================================================================
