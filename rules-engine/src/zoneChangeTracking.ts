@@ -171,7 +171,7 @@ export function createZoneChangeEvent(
   } = {}
 ): ZoneChangeEvent {
   return {
-    id: `zone-change-${objectId}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+    id: `zone-change-${objectId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     objectId,
     objectName,
     fromZone,

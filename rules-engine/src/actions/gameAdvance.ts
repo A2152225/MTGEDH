@@ -356,7 +356,6 @@ function enterBattlefield(state: GameState, permanent: any, controllerId: string
     id: permanent.id || `perm-${Date.now()}`,
     card: permanent.card || permanent,
     controller: controllerId,
-    controllerId,
     tapped: false,
     summoningSickness: true,
     counters: {},

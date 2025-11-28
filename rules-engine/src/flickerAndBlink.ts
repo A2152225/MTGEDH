@@ -373,7 +373,7 @@ export function returnFlickeredPermanent(
   flickeredObj: FlickeredObject,
   flickerEffect: FlickerEffect,
   timestamp: number,
-  generateNewId: () => string = () => `perm-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+  generateNewId: () => string = () => `perm-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
 ): FlickerReturnResult {
   const logs: string[] = [];
   const etbTriggers: TriggerInstance[] = [];
