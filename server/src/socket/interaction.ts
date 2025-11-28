@@ -213,6 +213,14 @@ function parseAbilityCost(oracleText: string): {
 
 /**
  * Check if a spell's oracle text indicates it's a tutor (search library) effect
+ * and parse the intended destination for the searched card.
+ * 
+ * Common tutor destination patterns:
+ * - "put it into your hand" -> hand (Demonic Tutor, Vampiric Tutor final)
+ * - "put it onto the battlefield" -> battlefield (Green Sun's Zenith, Eladamri's Call)
+ * - "put it on top of your library" -> top (Vampiric Tutor, Mystical Tutor, Worldly Tutor)
+ * - "put it into your graveyard" -> graveyard (Entomb, Buried Alive)
+ * - "reveal it" (then hand) -> hand (most white/blue tutors)
  */
 function detectTutorEffect(oracleText: string): { isTutor: boolean; searchCriteria?: string; destination?: string } {
   if (!oracleText) return { isTutor: false };
@@ -222,7 +230,7 @@ function detectTutorEffect(oracleText: string): { isTutor: boolean; searchCriter
   // Common tutor patterns
   if (text.includes('search your library')) {
     let searchCriteria = '';
-    let destination = 'hand';
+    let destination = 'hand'; // Default destination
     
     // Detect what type of card to search for
     const forMatch = text.match(/search your library for (?:a|an|up to \w+) ([^,\.]+)/i);
@@ -230,15 +238,35 @@ function detectTutorEffect(oracleText: string): { isTutor: boolean; searchCriter
       searchCriteria = forMatch[1].trim();
     }
     
-    // Detect destination
-    if (text.includes('put it into your hand') || text.includes('put that card into your hand')) {
-      destination = 'hand';
-    } else if (text.includes('put it onto the battlefield') || text.includes('put that card onto the battlefield')) {
-      destination = 'battlefield';
-    } else if (text.includes('put it on top of your library') || text.includes('put that card on top')) {
+    // Detect destination - order matters! More specific patterns first
+    
+    // Top of library patterns (Vampiric Tutor, Mystical Tutor, Worldly Tutor, Enlightened Tutor)
+    if (text.includes('put it on top of your library') || 
+        text.includes('put that card on top of your library') ||
+        text.includes('put it on top') ||
+        text.includes('put that card on top')) {
       destination = 'top';
-    } else if (text.includes('put it into your graveyard')) {
+    }
+    // Battlefield patterns (Green Sun's Zenith, Chord of Calling, Natural Order)
+    else if (text.includes('put it onto the battlefield') || 
+             text.includes('put that card onto the battlefield') ||
+             text.includes('put onto the battlefield') ||
+             text.includes('enters the battlefield')) {
+      destination = 'battlefield';
+    }
+    // Graveyard patterns (Entomb, Buried Alive)
+    else if (text.includes('put it into your graveyard') || 
+             text.includes('put that card into your graveyard') ||
+             text.includes('put into your graveyard')) {
       destination = 'graveyard';
+    }
+    // Hand patterns (Demonic Tutor, Diabolic Tutor, Grim Tutor)
+    else if (text.includes('put it into your hand') || 
+             text.includes('put that card into your hand') ||
+             text.includes('add it to your hand') ||
+             text.includes('reveal it') || // Most reveal tutors put to hand
+             text.includes('reveal that card')) {
+      destination = 'hand';
     }
     
     return { isTutor: true, searchCriteria, destination };

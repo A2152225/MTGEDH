@@ -1275,25 +1275,26 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 export function replay(ctx: GameContext, events: GameEvent[]) {
   if (!Array.isArray(events)) return;
   
-  // Track which events are present to detect old-style event sequences
-  const hasShuffleAfterSetCommander = new Set<string>();
-  const hasDrawAfterSetCommander = new Set<string>();
-  let lastSetCommanderPlayer: string | null = null;
+  // Track which players have shuffle/draw events anywhere in the event list
+  // This is used to detect old-style games that don't have explicit shuffle/draw events
+  // and need backward compatibility handling
+  const playersWithShuffleEvent = new Set<string>();
+  const playersWithDrawEvent = new Set<string>();
+  const playersWithSetCommander = new Set<string>();
   
-  // First pass: detect what events exist after each setCommander
-  for (let i = 0; i < events.length; i++) {
-    const e = events[i];
+  // First pass: detect which players have which event types
+  for (const e of events) {
     if (!e || typeof e.type !== "string") continue;
     
+    const pid = (e as any).playerId as string | undefined;
+    if (!pid) continue;
+    
     if (e.type === "setCommander") {
-      lastSetCommanderPlayer = (e as any).playerId;
-    } else if (lastSetCommanderPlayer) {
-      if (e.type === "shuffleLibrary" && (e as any).playerId === lastSetCommanderPlayer) {
-        hasShuffleAfterSetCommander.add(lastSetCommanderPlayer);
-      }
-      if (e.type === "drawCards" && (e as any).playerId === lastSetCommanderPlayer) {
-        hasDrawAfterSetCommander.add(lastSetCommanderPlayer);
-      }
+      playersWithSetCommander.add(pid);
+    } else if (e.type === "shuffleLibrary") {
+      playersWithShuffleEvent.add(pid);
+    } else if (e.type === "drawCards") {
+      playersWithDrawEvent.add(pid);
     }
   }
   
@@ -1311,12 +1312,13 @@ export function replay(ctx: GameContext, events: GameEvent[]) {
     }
     applyEvent(ctx, e);
     
-    // Backward compatibility: if setCommander was called and there are no subsequent
-    // shuffleLibrary/drawCards events for this player, do them now
+    // Backward compatibility: if setCommander was called and there are no
+    // shuffleLibrary/drawCards events FOR THIS PLAYER in the event list, do them now
+    // This handles old games that don't have explicit shuffle/draw events after setCommander
     if (e.type === "setCommander") {
       const pid = (e as any).playerId;
-      const needsShuffle = !hasShuffleAfterSetCommander.has(pid);
-      const needsDraw = !hasDrawAfterSetCommander.has(pid);
+      const needsShuffle = !playersWithShuffleEvent.has(pid);
+      const needsDraw = !playersWithDrawEvent.has(pid);
       
       if (needsShuffle || needsDraw) {
         // Check if hand is empty (meaning opening draw hasn't happened)

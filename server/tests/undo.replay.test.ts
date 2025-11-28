@@ -374,4 +374,116 @@ describe('Undo and Replay', () => {
       expect(hand1.length).toBe(15); // 5 + 5 + 5
     });
   });
+
+  describe('Multi-player undo scenarios', () => {
+    it('should preserve both players hands after undo when shuffle/draw events are persisted', () => {
+      // This test simulates the bug scenario where undo was changing hands
+      // The fix ensures that when events include explicit shuffle/draw for each player,
+      // the replay produces identical results
+      const gameId = 'undo_multiplayer_test';
+      const p1 = 'p_human' as PlayerID;
+      const p2 = 'p_ai' as PlayerID;
+      const deck1 = mkCards(30, 'Human_Card');
+      const deck2 = mkCards(30, 'AI_Card');
+      const seed = 555555555;
+
+      // Initial game setup - both players import, shuffle, draw
+      const game = createInitialGameState(gameId);
+      
+      // These events simulate what would be persisted to the database
+      const allEvents = [
+        { type: 'rngSeed', seed },
+        // AI player setup
+        { type: 'deckImportResolved', playerId: p2, cards: deck2 },
+        { type: 'setCommander', playerId: p2, commanderNames: ['AI Commander'], commanderIds: ['AI_Card_1'] },
+        { type: 'shuffleLibrary', playerId: p2 },
+        { type: 'drawCards', playerId: p2, count: 7 },
+        // Human player setup
+        { type: 'deckImportResolved', playerId: p1, cards: deck1 },
+        { type: 'setCommander', playerId: p1, commanderNames: ['Human Commander'], commanderIds: ['Human_Card_1'] },
+        { type: 'shuffleLibrary', playerId: p1 },
+        { type: 'drawCards', playerId: p1, count: 7 },
+        // Some game actions
+        { type: 'drawCards', playerId: p1, count: 1 }, // Turn 1 draw
+      ];
+
+      // Apply all events
+      for (const e of allEvents) game.applyEvent(e);
+      
+      const humanHand1 = (game.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
+      const aiHand1 = (game.state.zones?.[p2]?.hand ?? []).map((c: any) => c.name);
+
+      // Simulate undo: reset and replay all but the last event
+      game.reset!(true);
+      const eventsWithoutLast = allEvents.slice(0, -1);
+      game.replay!(eventsWithoutLast);
+      
+      const humanHand2 = (game.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
+      const aiHand2 = (game.state.zones?.[p2]?.hand ?? []).map((c: any) => c.name);
+
+      // Human hand should have one less card (the undone draw)
+      expect(humanHand2.length).toBe(humanHand1.length - 1);
+      // But the original 7 cards should be the same
+      expect(humanHand2).toEqual(humanHand1.slice(0, 7));
+      // AI hand should be completely unchanged
+      expect(aiHand2).toEqual(aiHand1);
+    });
+
+    it('should handle repeated undos without changing hands', () => {
+      // Simulates the bug where clicking undo multiple times gave different hands each time
+      const gameId = 'undo_repeated_test';
+      const p1 = 'p_test' as PlayerID;
+      const deck = mkCards(30);
+      const seed = 666666666;
+
+      const setupEvents = [
+        { type: 'rngSeed', seed },
+        { type: 'deckImportResolved', playerId: p1, cards: deck },
+        { type: 'shuffleLibrary', playerId: p1 },
+        { type: 'drawCards', playerId: p1, count: 7 },
+      ];
+
+      const gameActions = [
+        { type: 'drawCards', playerId: p1, count: 1 },
+        { type: 'drawCards', playerId: p1, count: 1 },
+        { type: 'drawCards', playerId: p1, count: 1 },
+      ];
+
+      const game = createInitialGameState(gameId);
+      
+      // Apply setup events
+      for (const e of setupEvents) game.applyEvent(e);
+      const initialHand = (game.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
+      
+      // Apply game actions
+      for (const e of gameActions) game.applyEvent(e);
+      
+      // Now simulate undoing each action one by one
+      // Each undo should give the same hand if we undo to the same point
+      
+      // Undo 1: back to 9 cards
+      game.reset!(true);
+      game.replay!([...setupEvents, ...gameActions.slice(0, 2)]);
+      const hand9 = (game.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
+      
+      // Undo 2: back to 8 cards  
+      game.reset!(true);
+      game.replay!([...setupEvents, ...gameActions.slice(0, 1)]);
+      const hand8 = (game.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
+      
+      // Undo 3: back to 7 cards (initial)
+      game.reset!(true);
+      game.replay!(setupEvents);
+      const hand7 = (game.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
+      
+      // The hand at 7 cards should match the initial hand
+      expect(hand7).toEqual(initialHand);
+      // The hand at 8 cards should be initial + first draw
+      expect(hand8.slice(0, 7)).toEqual(initialHand);
+      expect(hand8.length).toBe(8);
+      // The hand at 9 cards should be initial + first two draws
+      expect(hand9.slice(0, 7)).toEqual(initialHand);
+      expect(hand9.length).toBe(9);
+    });
+  });
 });

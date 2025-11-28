@@ -27,6 +27,9 @@ const AI_REACTION_DELAY_MS = 300;
 /** Maximum cards to retrieve when searching the entire library for commander selection */
 const MAX_LIBRARY_SEARCH_LIMIT = 1000;
 
+/** Initial hand size for commander format (7 cards) */
+const INITIAL_HAND_SIZE = 7;
+
 /** MTG color identity symbols */
 const COLOR_IDENTITY_MAP: Record<string, string> = {
   'W': 'white',
@@ -300,6 +303,16 @@ export async function autoSelectAICommander(
       (game as any).pendingInitialDraw.add(playerId);
     }
     
+    // Check if we'll do the opening draw (hand empty and pending flag set)
+    // This mirrors the logic in commander.ts socket handler
+    const pendingSet = (game as any).pendingInitialDraw as Set<string> | undefined;
+    const willDoOpeningDraw = pendingSet && pendingSet.has(playerId);
+    const zonesBefore = game.state?.zones?.[playerId];
+    const handCountBefore = zonesBefore
+      ? (typeof zonesBefore.handCount === "number" ? zonesBefore.handCount : (Array.isArray(zonesBefore.hand) ? zonesBefore.hand.length : 0))
+      : 0;
+    const doingOpeningDraw = willDoOpeningDraw && handCountBefore === 0;
+    
     // Call setCommander to set up the commander and trigger opening draw
     if (typeof (game as any).setCommander === 'function') {
       (game as any).setCommander(playerId, commanderNames, commanderIds, colorIdentity);
@@ -311,8 +324,11 @@ export async function autoSelectAICommander(
       console.info('[AI] After setCommander - hand count:', handCount);
       
       // If hand is empty, manually trigger shuffle and draw
+      // (This is a fallback if the pendingInitialDraw didn't work)
+      let didManualDraw = false;
       if (handCount === 0) {
         console.info('[AI] Hand is empty after setCommander, manually triggering shuffle and draw');
+        didManualDraw = true;
         
         // Shuffle the library
         if (typeof (game as any).shuffleLibrary === 'function') {
@@ -320,14 +336,14 @@ export async function autoSelectAICommander(
           console.info('[AI] Library shuffled');
         }
         
-        // Draw 7 cards
+        // Draw initial hand
         if (typeof (game as any).drawCards === 'function') {
-          const drawn = (game as any).drawCards(playerId, 7);
+          const drawn = (game as any).drawCards(playerId, INITIAL_HAND_SIZE);
           console.info('[AI] Drew', drawn?.length || 0, 'cards');
         }
       }
       
-      // Persist the event
+      // Persist the events - this is critical for undo/replay to work correctly
       try {
         await appendEvent(gameId, (game as any).seq || 0, 'setCommander', {
           playerId,
@@ -336,6 +352,14 @@ export async function autoSelectAICommander(
           colorIdentity,
           isAI: true,
         });
+        
+        // Persist shuffle and draw events if opening draw happened
+        // This ensures undo/replay produces the same hand contents
+        if (doingOpeningDraw || didManualDraw) {
+          await appendEvent(gameId, (game as any).seq || 0, 'shuffleLibrary', { playerId });
+          await appendEvent(gameId, (game as any).seq || 0, 'drawCards', { playerId, count: INITIAL_HAND_SIZE });
+          console.info('[AI] Persisted opening draw events (shuffle + draw) for player', playerId);
+        }
       } catch (e) {
         console.warn('[AI] Failed to persist setCommander event:', e);
       }
