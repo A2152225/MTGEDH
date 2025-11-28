@@ -1609,7 +1609,6 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Get RulesBridge for validation (optional - if not available, proceed with legacy logic)
       const bridge = (GameManager as any).getRulesBridge?.(gameId);
-      let bridgeExecutedSuccessfully = false;
       
       if (bridge) {
         try {
@@ -1651,19 +1650,20 @@ export function registerGameActions(io: Server, socket: Socket) {
             return;
           }
           
-          // Bridge executed successfully - skip applyEvent to avoid double execution
-          bridgeExecutedSuccessfully = true;
-          console.log(`[castSpellFromHand] Player ${playerId} cast ${cardInHand.name} (${cardId}) via RulesBridge`);
+          // RulesBridge validation passed - log it but still apply to real game state below
+          // The RulesBridge only validates and updates its internal state copy, NOT the actual game.state
+          // We MUST call applyEvent to update the real game state (remove from hand, add to stack)
+          console.log(`[castSpellFromHand] Player ${playerId} cast ${cardInHand.name} (${cardId}) - RulesBridge validated`);
         } catch (bridgeErr) {
           console.warn('Rules engine validation failed, falling back to legacy:', bridgeErr);
           // Continue with legacy logic below
         }
       }
       
-      // Use applyEvent to properly route through state management system (if bridge didn't already handle it)
+      // Always use applyEvent to properly route through state management system
       // This ensures ctx.state.zones is updated (which viewFor uses)
-      if (!bridgeExecutedSuccessfully) {
-        try {
+      // The RulesBridge above only validates - it does NOT modify the actual game state
+      try {
           // Check stack length before attempting to cast
           const stackLengthBefore = game.state.stack?.length || 0;
           
@@ -1751,7 +1751,6 @@ export function registerGameActions(io: Server, socket: Socket) {
           message: String(e),
         });
         return;
-      }
       }
       
       // Persist the event to DB with full card data for reliable replay after server restart
