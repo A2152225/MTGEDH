@@ -86,6 +86,42 @@ export interface ClientToServerEvents {
   dumpCommanderState: (payload: { gameId: GameID }) => void;
   dumpLibrary: (payload: { gameId: GameID }) => void;
   dumpImportedDeckBuffer: (payload: { gameId: GameID }) => void;
+
+  // ===== MTG ONLINE-STYLE AUTOMATION EVENTS =====
+  
+  // Decision responses (targets, modes, X values, etc.)
+  submitDecision: (payload: { gameId: GameID; decisionId: string; selection: any }) => void;
+  
+  // Automation control
+  setAutoPass: (payload: { gameId: GameID; enabled: boolean }) => void;
+  setStop: (payload: { gameId: GameID; phase: string; enabled: boolean }) => void;
+  
+  // Combat declarations
+  declareAttackers: (payload: { gameId: GameID; attackers: Array<{ attackerId: string; defendingPlayer: PlayerID }> }) => void;
+  declareBlockers: (payload: { gameId: GameID; blockers: Array<{ blockerId: string; attackerId: string }> }) => void;
+  
+  // Spell casting with targets/modes
+  castSpell: (payload: { 
+    gameId: GameID; 
+    cardId: string; 
+    targets?: string[]; 
+    modes?: string[]; 
+    xValue?: number;
+    manaPayment?: Array<{ permanentId: string; manaColor: string }>;
+  }) => void;
+  
+  // Activate ability
+  activateAbility: (payload: {
+    gameId: GameID;
+    permanentId: string;
+    abilityIndex: number;
+    targets?: string[];
+    manaPayment?: Array<{ permanentId: string; manaColor: string }>;
+  }) => void;
+  
+  // Mulligan
+  mulliganDecision: (payload: { gameId: GameID; keep: boolean }) => void;
+  mulliganBottomCards: (payload: { gameId: GameID; cardIds: string[] }) => void;
 }
 
 // Events sent from server -> client
@@ -127,6 +163,72 @@ export interface ServerToClientEvents {
   deckSaved: (payload: { gameId: GameID; deckId: string }) => void;
   deckRenamed: (payload: { gameId: GameID; deck: any }) => void;
   deckDeleted: (payload: { gameId: GameID; deckId: string }) => void;
+
+  // ===== MTG ONLINE-STYLE AUTOMATION EVENTS =====
+  
+  // Decision prompts (requires player input)
+  pendingDecision: (payload: {
+    gameId: GameID;
+    decision: {
+      id: string;
+      type: string;
+      playerId: PlayerID;
+      sourceId?: string;
+      sourceName?: string;
+      description: string;
+      options?: Array<{ id: string; label: string; description?: string; imageUrl?: string; disabled?: boolean }>;
+      minSelections?: number;
+      maxSelections?: number;
+      targetTypes?: string[];
+      minX?: number;
+      maxX?: number;
+      mandatory: boolean;
+      timeoutMs?: number;
+    };
+  }) => void;
+  
+  // Decision resolved (for other clients to sync)
+  decisionResolved: (payload: { gameId: GameID; decisionId: string; playerId: PlayerID; selection: any }) => void;
+  
+  // Automation status updates
+  automationStatus: (payload: {
+    gameId: GameID;
+    status: 'running' | 'waiting_for_decision' | 'waiting_for_priority' | 'paused' | 'completed';
+    priorityPlayer?: PlayerID;
+    pendingDecisionCount?: number;
+  }) => void;
+  
+  // Combat state updates
+  combatState: (payload: {
+    gameId: GameID;
+    phase: 'declareAttackers' | 'declareBlockers' | 'combatDamage' | 'endCombat';
+    attackers?: Array<{ permanentId: string; defendingPlayer: PlayerID }>;
+    blockers?: Array<{ permanentId: string; blocking: string[] }>;
+    damageAssignments?: Array<{ sourceId: string; targetId: string; damage: number }>;
+  }) => void;
+  
+  // Game log / action feed
+  gameAction: (payload: {
+    gameId: GameID;
+    action: string;
+    playerId?: PlayerID;
+    details?: any;
+    timestamp: number;
+  }) => void;
+  
+  // Stack updates (for visual display)
+  stackUpdate: (payload: {
+    gameId: GameID;
+    stack: Array<{
+      id: string;
+      type: 'spell' | 'ability';
+      name: string;
+      controller: PlayerID;
+      targets?: string[];
+      modes?: string[];
+      xValue?: number;
+    }>;
+  }) => void;
 
   // generic pushes from server
   // (allow arbitrary other messages depending on server version)
