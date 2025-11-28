@@ -1295,27 +1295,34 @@ export function calculateManaProduction(
     result.colors = ['U'];
   }
   
-  // Three Tree City - "Add X mana of any color, where X is the number of creature types among creatures you control"
-  if (cardName.includes("three tree city") ||
-      (oracleText.includes('creature types') && oracleText.includes('among creatures you control'))) {
-    // Count unique creature types
-    const creatureTypes = new Set<string>();
-    for (const p of battlefield) {
-      if (p && p.controller === playerId && (p.card?.type_line || '').toLowerCase().includes('creature')) {
-        const typeParts = (p.card?.type_line || '').split('—');
-        if (typeParts.length > 1) {
-          const subtypes = typeParts[1].trim().split(/\s+/);
-          for (const subtype of subtypes) {
-            if (subtype.length > 0) creatureTypes.add(subtype.toLowerCase());
-          }
-        }
-      }
+  // Three Tree City - Has two abilities:
+  // 1. {T}: Add {C}
+  // 2. {2}, {T}: Add mana equal to creatures of the chosen type
+  // The chosen creature type is stored on the permanent
+  if (cardName.includes("three tree city")) {
+    // Get the chosen creature type from the permanent
+    const chosenCreatureType = (permanent?.chosenCreatureType || '').toLowerCase();
+    
+    if (chosenCreatureType) {
+      // Count creatures of the chosen type
+      const creatureCount = battlefield.filter((p: any) => {
+        if (!p || p.controller !== playerId) return false;
+        const typeLine = (p.card?.type_line || '').toLowerCase();
+        if (!typeLine.includes('creature')) return false;
+        // Check if the creature has the chosen type
+        return typeLine.includes(chosenCreatureType);
+      }).length;
+      
+      result.isDynamic = true;
+      result.baseAmount = creatureCount;
+      result.dynamicDescription = `Mana for each ${chosenCreatureType} you control (${creatureCount})`;
+      result.colors = ['W', 'U', 'B', 'R', 'G'];
+      if (chosenColor) result.colors = [chosenColor];
+    } else {
+      // No creature type chosen yet, just produces {C}
+      result.baseAmount = 1;
+      result.colors = ['C'];
     }
-    result.isDynamic = true;
-    result.baseAmount = creatureTypes.size;
-    result.dynamicDescription = `Mana for each creature type (${creatureTypes.size} types)`;
-    result.colors = ['W', 'U', 'B', 'R', 'G'];
-    if (chosenColor) result.colors = [chosenColor];
   }
   
   // Wirewood Channeler, Priest of Titania style - "Add {G} for each Elf"
