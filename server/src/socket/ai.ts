@@ -1190,7 +1190,7 @@ export async function handleAIPriority(
         // by looking for any creatures marked as blocking
         const battlefield = game.state?.battlefield || [];
         const alreadyDeclaredBlockers = battlefield.some((perm: any) => 
-          perm.controller === playerId && perm.blocking && perm.blocking.length > 0
+          perm.controller === playerId && Array.isArray(perm.blocking) && perm.blocking.length > 0
         );
         
         if (alreadyDeclaredBlockers) {
