@@ -31,7 +31,7 @@ export function parsePT(raw?: string | number): number | undefined {
 }
 
 /**
- * Calculate the effective P/T for creatures with variable (star/star) power/toughness.
+ * Calculate the effective P/T for creatures with variable (star slash star) power/toughness.
  * This implements the characteristic-defining abilities from card text.
  * 
  * Note: This is only for true variable P/T creatures like Tarmogoyf or Nighthowler.
@@ -83,7 +83,18 @@ export function calculateVariablePT(
     
     // "cards in your hand"
     if (oracleText.includes('cards in your hand')) {
-      // Dynamic - would need zone state
+      // Dynamic - need zone state to calculate
+      if (gameState?.zones) {
+        const controllerId = card.controller;
+        if (controllerId && gameState.zones[controllerId]) {
+          const playerZones = gameState.zones[controllerId];
+          // Try handCount first (most reliable), then fall back to hand array length
+          const handSize = typeof playerZones.handCount === 'number' 
+            ? playerZones.handCount 
+            : (Array.isArray(playerZones.hand) ? playerZones.hand.length : 0);
+          return { power: handSize, toughness: handSize };
+        }
+      }
       return { power: 0, toughness: 0 }; // Default for unknown state
     }
     

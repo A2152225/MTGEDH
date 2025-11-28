@@ -18,11 +18,21 @@ export enum ReplacementEffectType {
   ENTERS_TAPPED = 'enters_tapped',
   ENTERS_WITH_COUNTERS = 'enters_with_counters',
   ENTERS_AS_COPY = 'enters_as_copy',
+  /** 
+   * Conditional ETB replacement (Mox Diamond style)
+   * "If ~ would enter the battlefield, you may [action] instead. If you do/don't..."
+   */
+  ENTERS_CONDITIONAL = 'enters_conditional',
   
   // Damage replacements
   PREVENT_DAMAGE = 'prevent_damage',
   REDIRECT_DAMAGE = 'redirect_damage',
   REDUCE_DAMAGE = 'reduce_damage',
+  /**
+   * Combat damage to mill replacement (Undead Alchemist style)
+   * "If ~ would deal combat damage to a player, instead that player mills..."
+   */
+  COMBAT_DAMAGE_TO_MILL = 'combat_damage_to_mill',
   
   // Zone change replacements
   DIES_TO_EXILE = 'dies_to_exile',
@@ -30,6 +40,16 @@ export enum ReplacementEffectType {
   DIES_WITH_EFFECT = 'dies_with_effect',
   WOULD_DRAW_INSTEAD = 'would_draw_instead',
   WOULD_DISCARD_INSTEAD = 'would_discard_instead',
+  /**
+   * Mill to exile replacement (e.g., Rest in Peace, Leyline of the Void, Undead Alchemist trigger condition)
+   * "If a card would be put into a graveyard from anywhere, exile it instead"
+   */
+  MILL_TO_EXILE = 'mill_to_exile',
+  /**
+   * Graveyard to exile replacement (Rest in Peace, Leyline of the Void)
+   * "If a card would be put into a graveyard from anywhere, exile it instead"
+   */
+  GRAVEYARD_TO_EXILE = 'graveyard_to_exile',
   
   // Life replacements
   LIFE_GAIN_TO_COUNTERS = 'life_gain_to_counters',
@@ -57,6 +77,14 @@ export interface ParsedReplacementEffect {
   readonly replacement: string;
   readonly isSelfReplacement: boolean;
   readonly value?: number | string;
+  /** Whether this requires player choice (e.g., "you may discard a land card") */
+  readonly requiresChoice?: boolean;
+  /** The action required for the replacement (e.g., "discard a land card") */
+  readonly requiredAction?: string;
+  /** Effect when player doesn't choose (e.g., "put it into its owner's graveyard") */
+  readonly elseEffect?: string;
+  /** Creature types this applies to (e.g., "Zombie" for Undead Alchemist) */
+  readonly appliesToTypes?: readonly string[];
 }
 
 /**
@@ -183,9 +211,23 @@ export function parseReplacementEffectsFromText(
     });
   }
   
-  // Counter doubling effects
-  if (text.includes('if') && text.includes('counter') && text.includes('would') && 
-      (text.includes('placed') || text.includes('put'))) {
+  // Hardened Scales-style: "that many plus one" counter modification
+  // Pattern: "If one or more +1/+1 counters would be put on a creature you control, that many plus one +1/+1 counters are put on it instead"
+  const hardenedScalesMatch = text.match(/if (?:one or more )?([+\-\d\/]+) counters? would be (?:put|placed) on .+?,?\s*(?:that many )?plus (?:one|1)/i);
+  if (hardenedScalesMatch) {
+    effects.push({
+      type: ReplacementEffectType.MODIFIED_COUNTERS,
+      sourceId: permanentId,
+      controllerId,
+      affectedEvent: 'place_counter',
+      replacement: 'place that many plus one instead',
+      isSelfReplacement: false,
+      value: '+1', // Add one extra counter
+    });
+  }
+  // Counter doubling effects (Doubling Season style) - only if not already matched by Hardened Scales
+  else if (text.includes('if') && text.includes('counter') && text.includes('would') && 
+      (text.includes('placed') || text.includes('put')) && text.includes('twice')) {
     effects.push({
       type: ReplacementEffectType.EXTRA_COUNTERS,
       sourceId: permanentId,
@@ -193,6 +235,71 @@ export function parseReplacementEffectsFromText(
       affectedEvent: 'place_counter',
       replacement: 'place twice that many instead',
       isSelfReplacement: false,
+    });
+  }
+  
+  // Mox Diamond-style: "If ~ would enter the battlefield, you may [action] instead. If you do, put ~ onto the battlefield. If you don't, put it into its owner's graveyard."
+  const conditionalETBMatch = text.match(/if .+? would enter the battlefield,?\s*you may\s+(.+?)\s+instead\.?\s*if you do,?\s*(.+?)\.?\s*if you don'?t,?\s*(.+?)[.]/i);
+  if (conditionalETBMatch) {
+    effects.push({
+      type: ReplacementEffectType.ENTERS_CONDITIONAL,
+      sourceId: permanentId,
+      controllerId,
+      affectedEvent: 'enters_battlefield',
+      replacement: conditionalETBMatch[2]?.trim() || 'put onto battlefield',
+      isSelfReplacement: true,
+      requiresChoice: true,
+      requiredAction: conditionalETBMatch[1]?.trim(),
+      elseEffect: conditionalETBMatch[3]?.trim(),
+    });
+  }
+  
+  // Undead Alchemist-style: "If a [creature type] you control would deal combat damage to a player, instead that player mills that many cards"
+  const combatDamageToMillMatch = text.match(/if (?:a |an )?(\w+)(?: you control)? would deal combat damage to a player,?\s*instead\s+that player mills?\s+(?:that many|(\d+))\s*cards?/i);
+  if (combatDamageToMillMatch) {
+    // Capitalize the creature type for consistent matching
+    const creatureType = combatDamageToMillMatch[1].charAt(0).toUpperCase() + combatDamageToMillMatch[1].slice(1);
+    effects.push({
+      type: ReplacementEffectType.COMBAT_DAMAGE_TO_MILL,
+      sourceId: permanentId,
+      controllerId,
+      affectedEvent: 'combat_damage_to_player',
+      replacement: 'player mills cards instead',
+      isSelfReplacement: false,
+      appliesToTypes: [creatureType],
+      value: combatDamageToMillMatch[2] || 'damage_amount',
+    });
+  }
+  
+  // Rest in Peace / Leyline of the Void style: "If a card would be put into a graveyard from anywhere, exile it instead"
+  // Also handles: "If a card would be put into an opponent's graveyard from anywhere, exile it instead"
+  // Also handles: "If a card or token would be put into a graveyard from anywhere, exile it instead"
+  const graveyardToExileMatch = text.match(/if (?:a |one or more )?(?:cards?|cards? or tokens?) would be put into (?:a |an |your |an opponent'?s? )?graveyard(?: from anywhere)?,?\s*exile (?:it|that card|them) instead/i);
+  if (graveyardToExileMatch) {
+    effects.push({
+      type: ReplacementEffectType.GRAVEYARD_TO_EXILE,
+      sourceId: permanentId,
+      controllerId,
+      affectedEvent: 'put_into_graveyard',
+      replacement: 'exile instead',
+      isSelfReplacement: false,
+      condition: text.includes("opponent's") ? 'opponent_only' : undefined,
+    });
+  }
+  
+  // Oona, Queen of the Fae style ability detection: "exiles the top X cards of their library"
+  // This is an activated ability that exiles from library, not a replacement effect per se,
+  // but we want to detect the pattern of "exile from library" + "create tokens for each"
+  const exileFromLibraryMatch = text.match(/(?:target (?:opponent|player) )?exiles? the top (\d+|x) cards? of (?:their|his or her|your) library/i);
+  if (exileFromLibraryMatch) {
+    effects.push({
+      type: ReplacementEffectType.MILL_TO_EXILE,
+      sourceId: permanentId,
+      controllerId,
+      affectedEvent: 'mill',
+      replacement: 'exile instead of mill',
+      isSelfReplacement: false,
+      value: exileFromLibraryMatch[1]?.toLowerCase() === 'x' ? 'X' : exileFromLibraryMatch[1],
     });
   }
   
@@ -358,6 +465,110 @@ export function applyReplacementEffect(
       return {
         applied: true,
         modifiedEvent: { ...event, counterCount: counterCount * 2 },
+        log: logs,
+      };
+      
+    case ReplacementEffectType.MODIFIED_COUNTERS:
+      // Hardened Scales-style: add extra counters based on value
+      const baseCounterCount = event.counterCount || 1;
+      let modifiedCount = baseCounterCount;
+      if (effect.value === '+1') {
+        modifiedCount = baseCounterCount + 1;
+        logs.push(`Counter modification: placing ${modifiedCount} counters instead of ${baseCounterCount} (Hardened Scales effect)`);
+      } else if (typeof effect.value === 'number') {
+        modifiedCount = baseCounterCount + effect.value;
+        logs.push(`Counter modification: placing ${modifiedCount} counters instead of ${baseCounterCount}`);
+      }
+      return {
+        applied: true,
+        modifiedEvent: { ...event, counterCount: modifiedCount },
+        log: logs,
+      };
+      
+    case ReplacementEffectType.ENTERS_CONDITIONAL:
+      // Mox Diamond-style: requires a choice (e.g., discard a land)
+      // The caller must determine if the player made the choice
+      if (event.playerMadeChoice === true) {
+        logs.push(`${effect.sourceId} enters the battlefield (player performed ${effect.requiredAction})`);
+        return {
+          applied: true,
+          modifiedEvent: { ...event, enters: true, performedAction: effect.requiredAction },
+          log: logs,
+        };
+      } else if (event.playerMadeChoice === false) {
+        logs.push(`${effect.sourceId} is put into graveyard (player did not ${effect.requiredAction})`);
+        return {
+          applied: true,
+          modifiedEvent: { ...event, enters: false, goesToGraveyard: true },
+          preventedEvent: true,
+          log: logs,
+        };
+      }
+      // Choice not yet made - return pending state
+      logs.push(`${effect.sourceId} awaiting player choice: ${effect.requiredAction}`);
+      return {
+        applied: false,
+        modifiedEvent: { ...event, awaitingChoice: true, requiredAction: effect.requiredAction, elseEffect: effect.elseEffect },
+        log: logs,
+      };
+      
+    case ReplacementEffectType.COMBAT_DAMAGE_TO_MILL:
+      // Undead Alchemist-style: combat damage becomes mill
+      const damageAmount = event.damage || 0;
+      if (damageAmount > 0) {
+        // Check if the creature type matches (if applicable)
+        if (effect.appliesToTypes && effect.appliesToTypes.length > 0) {
+          const creatureTypes = event.attackerTypes || [];
+          const typeMatches = effect.appliesToTypes.some(t => 
+            creatureTypes.some((ct: string) => ct.toLowerCase() === t.toLowerCase())
+          );
+          if (!typeMatches) {
+            return { applied: false, log: logs };
+          }
+        }
+        logs.push(`Combat damage replaced with mill: player mills ${damageAmount} cards instead`);
+        return {
+          applied: true,
+          modifiedEvent: { 
+            ...event, 
+            damage: 0, 
+            millAmount: damageAmount,
+            replacedByMill: true
+          },
+          preventedEvent: true,
+          log: logs,
+        };
+      }
+      return { applied: false, log: logs };
+      
+    case ReplacementEffectType.GRAVEYARD_TO_EXILE:
+      // Rest in Peace / Leyline of the Void style
+      logs.push(`Card would go to graveyard - exiled instead by ${effect.sourceId}`);
+      return {
+        applied: true,
+        modifiedEvent: { 
+          ...event, 
+          destination: 'exile',
+          originalDestination: 'graveyard',
+          replacedByExile: true
+        },
+        log: logs,
+      };
+      
+    case ReplacementEffectType.MILL_TO_EXILE:
+      // Oona-style: cards are exiled from library instead of going to graveyard
+      const millCount = typeof effect.value === 'string' && effect.value === 'X' 
+        ? (event.xValue || 0) 
+        : (typeof effect.value === 'number' ? effect.value : parseInt(effect.value as string) || 0);
+      logs.push(`Milling ${millCount} cards to exile instead of graveyard`);
+      return {
+        applied: true,
+        modifiedEvent: { 
+          ...event, 
+          millCount,
+          destination: 'exile',
+          exiledFromLibrary: true
+        },
         log: logs,
       };
       

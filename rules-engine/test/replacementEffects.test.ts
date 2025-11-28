@@ -61,6 +61,16 @@ describe('Replacement Effects', () => {
       expect(effects.length).toBeGreaterThan(0);
       expect(effects[0].type).toBe(ReplacementEffectType.EXTRA_COUNTERS);
     });
+    
+    it('should parse Hardened Scales counter modification effect', () => {
+      const oracleText = 'If one or more +1/+1 counters would be put on a creature you control, that many plus one +1/+1 counters are put on it instead.';
+      const effects = parseReplacementEffectsFromText(oracleText, 'perm-1', 'player-1', 'Hardened Scales');
+      
+      expect(effects.length).toBeGreaterThan(0);
+      const modifiedEffect = effects.find(e => e.type === ReplacementEffectType.MODIFIED_COUNTERS);
+      expect(modifiedEffect).toBeDefined();
+      expect(modifiedEffect?.value).toBe('+1');
+    });
   });
   
   describe('evaluateETBCondition', () => {
@@ -230,6 +240,40 @@ describe('Replacement Effects', () => {
       expect(result.applied).toBe(true);
       expect(result.modifiedEvent?.counterCount).toBe(4);
     });
+    
+    it('should apply Hardened Scales counter modification effect', () => {
+      const effect = {
+        type: ReplacementEffectType.MODIFIED_COUNTERS,
+        sourceId: 'hardened-scales-1',
+        controllerId: 'player-1',
+        affectedEvent: 'place_counter',
+        replacement: 'place that many plus one instead',
+        isSelfReplacement: false,
+        value: '+1',
+      };
+      
+      const result = applyReplacementEffect(effect, { counterCount: 2 });
+      
+      expect(result.applied).toBe(true);
+      expect(result.modifiedEvent?.counterCount).toBe(3); // 2 + 1 = 3
+    });
+    
+    it('should apply Hardened Scales effect with single counter', () => {
+      const effect = {
+        type: ReplacementEffectType.MODIFIED_COUNTERS,
+        sourceId: 'hardened-scales-1',
+        controllerId: 'player-1',
+        affectedEvent: 'place_counter',
+        replacement: 'place that many plus one instead',
+        isSelfReplacement: false,
+        value: '+1',
+      };
+      
+      const result = applyReplacementEffect(effect, { counterCount: 1 });
+      
+      expect(result.applied).toBe(true);
+      expect(result.modifiedEvent?.counterCount).toBe(2); // 1 + 1 = 2
+    });
   });
   
   describe('sortReplacementEffects', () => {
@@ -257,6 +301,178 @@ describe('Replacement Effects', () => {
       
       expect(sorted[0].isSelfReplacement).toBe(true);
       expect(sorted[0].sourceId).toBe('event-source');
+    });
+  });
+  
+  describe('Mox Diamond-style conditional ETB', () => {
+    it('should parse Mox Diamond replacement effect', () => {
+      const oracleText = 'If Mox Diamond would enter the battlefield, you may discard a land card instead. If you do, put Mox Diamond onto the battlefield. If you don\'t, put it into its owner\'s graveyard.';
+      const effects = parseReplacementEffectsFromText(oracleText, 'mox-diamond-1', 'player-1', 'Mox Diamond');
+      
+      expect(effects.length).toBeGreaterThan(0);
+      const conditionalEffect = effects.find(e => e.type === ReplacementEffectType.ENTERS_CONDITIONAL);
+      expect(conditionalEffect).toBeDefined();
+      expect(conditionalEffect?.requiresChoice).toBe(true);
+      expect(conditionalEffect?.requiredAction).toContain('discard a land card');
+      expect(conditionalEffect?.isSelfReplacement).toBe(true);
+    });
+    
+    it('should apply Mox Diamond effect when player chooses to discard', () => {
+      const effect = {
+        type: ReplacementEffectType.ENTERS_CONDITIONAL,
+        sourceId: 'mox-diamond-1',
+        controllerId: 'player-1',
+        affectedEvent: 'enters_battlefield',
+        replacement: 'put Mox Diamond onto the battlefield',
+        isSelfReplacement: true,
+        requiresChoice: true,
+        requiredAction: 'discard a land card',
+        elseEffect: 'put it into its owner\'s graveyard',
+      };
+      
+      const result = applyReplacementEffect(effect, { permanentId: 'mox-diamond-1', playerMadeChoice: true });
+      
+      expect(result.applied).toBe(true);
+      expect(result.modifiedEvent?.enters).toBe(true);
+    });
+    
+    it('should apply Mox Diamond effect when player declines to discard', () => {
+      const effect = {
+        type: ReplacementEffectType.ENTERS_CONDITIONAL,
+        sourceId: 'mox-diamond-1',
+        controllerId: 'player-1',
+        affectedEvent: 'enters_battlefield',
+        replacement: 'put Mox Diamond onto the battlefield',
+        isSelfReplacement: true,
+        requiresChoice: true,
+        requiredAction: 'discard a land card',
+        elseEffect: 'put it into its owner\'s graveyard',
+      };
+      
+      const result = applyReplacementEffect(effect, { permanentId: 'mox-diamond-1', playerMadeChoice: false });
+      
+      expect(result.applied).toBe(true);
+      expect(result.modifiedEvent?.enters).toBe(false);
+      expect(result.modifiedEvent?.goesToGraveyard).toBe(true);
+      expect(result.preventedEvent).toBe(true);
+    });
+  });
+  
+  describe('Undead Alchemist-style combat damage to mill', () => {
+    it('should parse Undead Alchemist combat damage replacement', () => {
+      const oracleText = 'If a Zombie you control would deal combat damage to a player, instead that player mills that many cards.';
+      const effects = parseReplacementEffectsFromText(oracleText, 'undead-alchemist-1', 'player-1', 'Undead Alchemist');
+      
+      expect(effects.length).toBeGreaterThan(0);
+      const millEffect = effects.find(e => e.type === ReplacementEffectType.COMBAT_DAMAGE_TO_MILL);
+      expect(millEffect).toBeDefined();
+      expect(millEffect?.appliesToTypes).toContain('Zombie');
+    });
+    
+    it('should apply combat damage to mill replacement for matching creature type', () => {
+      const effect = {
+        type: ReplacementEffectType.COMBAT_DAMAGE_TO_MILL,
+        sourceId: 'undead-alchemist-1',
+        controllerId: 'player-1',
+        affectedEvent: 'combat_damage_to_player',
+        replacement: 'player mills cards instead',
+        isSelfReplacement: false,
+        appliesToTypes: ['Zombie'],
+        value: 'damage_amount',
+      };
+      
+      const result = applyReplacementEffect(effect, { damage: 3, attackerTypes: ['Zombie', 'Creature'] });
+      
+      expect(result.applied).toBe(true);
+      expect(result.modifiedEvent?.damage).toBe(0);
+      expect(result.modifiedEvent?.millAmount).toBe(3);
+      expect(result.modifiedEvent?.replacedByMill).toBe(true);
+    });
+    
+    it('should not apply combat damage to mill for non-matching creature type', () => {
+      const effect = {
+        type: ReplacementEffectType.COMBAT_DAMAGE_TO_MILL,
+        sourceId: 'undead-alchemist-1',
+        controllerId: 'player-1',
+        affectedEvent: 'combat_damage_to_player',
+        replacement: 'player mills cards instead',
+        isSelfReplacement: false,
+        appliesToTypes: ['Zombie'],
+        value: 'damage_amount',
+      };
+      
+      const result = applyReplacementEffect(effect, { damage: 3, attackerTypes: ['Human', 'Creature'] });
+      
+      expect(result.applied).toBe(false);
+    });
+  });
+  
+  describe('Graveyard to exile replacement (Rest in Peace style)', () => {
+    it('should parse Rest in Peace graveyard replacement', () => {
+      const oracleText = 'If a card or token would be put into a graveyard from anywhere, exile it instead.';
+      const effects = parseReplacementEffectsFromText(oracleText, 'rest-in-peace-1', 'player-1', 'Rest in Peace');
+      
+      expect(effects.length).toBeGreaterThan(0);
+      const exileEffect = effects.find(e => e.type === ReplacementEffectType.GRAVEYARD_TO_EXILE);
+      expect(exileEffect).toBeDefined();
+    });
+    
+    it('should parse Leyline of the Void opponent-only replacement', () => {
+      const oracleText = "If a card would be put into an opponent's graveyard from anywhere, exile it instead.";
+      const effects = parseReplacementEffectsFromText(oracleText, 'leyline-1', 'player-1', 'Leyline of the Void');
+      
+      expect(effects.length).toBeGreaterThan(0);
+      const exileEffect = effects.find(e => e.type === ReplacementEffectType.GRAVEYARD_TO_EXILE);
+      expect(exileEffect).toBeDefined();
+      expect(exileEffect?.condition).toBe('opponent_only');
+    });
+    
+    it('should apply graveyard to exile replacement', () => {
+      const effect = {
+        type: ReplacementEffectType.GRAVEYARD_TO_EXILE,
+        sourceId: 'rest-in-peace-1',
+        controllerId: 'player-1',
+        affectedEvent: 'put_into_graveyard',
+        replacement: 'exile instead',
+        isSelfReplacement: false,
+      };
+      
+      const result = applyReplacementEffect(effect, { cardId: 'card-1', destination: 'graveyard' });
+      
+      expect(result.applied).toBe(true);
+      expect(result.modifiedEvent?.destination).toBe('exile');
+      expect(result.modifiedEvent?.replacedByExile).toBe(true);
+    });
+  });
+  
+  describe('Oona-style exile from library', () => {
+    it('should parse Oona exile from library pattern', () => {
+      const oracleText = '{X}{U/B}: Choose a color. Target opponent exiles the top X cards of their library. For each card of the chosen color exiled this way, create a 1/1 blue and black Faerie Rogue creature token with flying.';
+      const effects = parseReplacementEffectsFromText(oracleText, 'oona-1', 'player-1', 'Oona, Queen of the Fae');
+      
+      expect(effects.length).toBeGreaterThan(0);
+      const exileEffect = effects.find(e => e.type === ReplacementEffectType.MILL_TO_EXILE);
+      expect(exileEffect).toBeDefined();
+      expect(exileEffect?.value).toBe('X');
+    });
+    
+    it('should apply mill to exile replacement', () => {
+      const effect = {
+        type: ReplacementEffectType.MILL_TO_EXILE,
+        sourceId: 'oona-1',
+        controllerId: 'player-1',
+        affectedEvent: 'mill',
+        replacement: 'exile instead of mill',
+        isSelfReplacement: false,
+        value: 'X',
+      };
+      
+      const result = applyReplacementEffect(effect, { xValue: 5 });
+      
+      expect(result.applied).toBe(true);
+      expect(result.modifiedEvent?.millCount).toBe(5);
+      expect(result.modifiedEvent?.destination).toBe('exile');
+      expect(result.modifiedEvent?.exiledFromLibrary).toBe(true);
     });
   });
 });
