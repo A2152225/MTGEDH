@@ -113,7 +113,7 @@ function handHasNoLandsOrAllLands(hand: any[]): boolean {
  * Check if all human (non-AI, non-spectator) players have mulliganed in the current round.
  * Used for the "group mulligan discount" house rule.
  */
-function checkAllHumanPlayersMultiganed(game: any): boolean {
+function checkAllHumanPlayersMulliganed(game: any): boolean {
   try {
     const players = game.state?.players || [];
     const mulliganState = (game.state as any)?.mulliganState || {};
@@ -134,7 +134,7 @@ function checkAllHumanPlayersMultiganed(game: any): boolean {
     
     return true;
   } catch (err) {
-    console.warn("checkAllHumanPlayersMultiganed failed:", err);
+    console.warn("checkAllHumanPlayersMulliganed failed:", err);
     return false;
   }
 }
@@ -168,7 +168,7 @@ function calculateEffectiveMulliganCount(
   }
   
   // Group mulligan discount: if enabled and all human players mulliganed, reduce by 1
-  if (houseRules.groupMulliganDiscount && checkAllHumanPlayersMultiganed(game)) {
+  if (houseRules.groupMulliganDiscount && checkAllHumanPlayersMulliganed(game)) {
     effectiveCount = Math.max(0, effectiveCount - 1);
     console.log(`[mulligan] Group mulligan discount applied for ${playerId}: effective count now ${effectiveCount}`);
   }
@@ -2309,11 +2309,12 @@ export function registerGameActions(io: Server, socket: Socket) {
       (game.state as any).mulliganState = (game.state as any).mulliganState || {};
       
       if (effectiveMulliganCount > 0) {
-        // London Mulligan: player must put back cards equal to EFFECTIVE number of mulligans
+        // London Mulligan: player must put back cards equal to effective number of mulligans
+        // (after applying house rule discounts like free first mulligan or group mulligan)
         (game.state as any).mulliganState[playerId] = {
           hasKeptHand: false, // Not fully kept yet - need to put cards back
           mulligansTaken,
-          pendingBottomCount: effectiveMulliganCount, // Effective cards to put to bottom
+          pendingBottomCount: effectiveMulliganCount, // Cards to put to bottom after house rule discounts
         };
 
         // Bump sequence
