@@ -980,8 +980,33 @@ export class RulesEngineAdapter {
       }
     }
     
-    // TODO: Apply other state-based actions (creature death, planeswalker loyalty, etc.)
-    // For now, just check player losses
+    // Apply creature death from lethal damage or zero toughness (Rule 704.5f, 704.5g)
+    const creatureDeathResult = this.checkCreatureDeaths(currentState, gameId);
+    if (creatureDeathResult.deaths.length > 0) {
+      currentState = creatureDeathResult.state;
+      logs.push(...creatureDeathResult.logs);
+    }
+    
+    // Apply planeswalker death from zero loyalty (Rule 704.5i)
+    const planeswalkerDeathResult = this.checkPlaneswalkerDeaths(currentState, gameId);
+    if (planeswalkerDeathResult.deaths.length > 0) {
+      currentState = planeswalkerDeathResult.state;
+      logs.push(...planeswalkerDeathResult.logs);
+    }
+    
+    // Check legend rule (Rule 704.5j)
+    const legendResult = this.checkLegendRule(currentState, gameId);
+    if (legendResult.sacrificed.length > 0) {
+      currentState = legendResult.state;
+      logs.push(...legendResult.logs);
+    }
+    
+    // Check for auras attached to illegal permanents (Rule 704.5m)
+    const auraResult = this.checkAuraAttachment(currentState, gameId);
+    if (auraResult.detached.length > 0) {
+      currentState = auraResult.state;
+      logs.push(...auraResult.logs);
+    }
     
     if (logs.length > 0) {
       this.emit({
@@ -1124,6 +1149,293 @@ export class RulesEngineAdapter {
     return {
       next: nextState,
       log: [`${action.playerId} paid ${amount} life`],
+    };
+  }
+  
+  /**
+   * Check for creatures with lethal damage or zero toughness (Rule 704.5f, 704.5g)
+   */
+  private checkCreatureDeaths(
+    state: GameState,
+    gameId: string
+  ): { state: GameState; deaths: string[]; logs: string[] } {
+    const deaths: string[] = [];
+    const logs: string[] = [];
+    let updatedState = state;
+    
+    // Check all battlefields
+    const allPermanents: any[] = [];
+    
+    // Collect from global battlefield
+    if (state.battlefield) {
+      allPermanents.push(...(state.battlefield as any[]));
+    }
+    
+    // Collect from player battlefields
+    for (const player of state.players) {
+      if (player.battlefield) {
+        for (const perm of player.battlefield as any[]) {
+          if (!allPermanents.some(p => p.id === perm.id)) {
+            allPermanents.push(perm);
+          }
+        }
+      }
+    }
+    
+    for (const perm of allPermanents) {
+      const typeLine = (perm.card?.type_line || perm.type_line || '').toLowerCase();
+      if (!typeLine.includes('creature')) continue;
+      
+      // Calculate effective toughness
+      let toughness = parseInt(perm.card?.toughness || perm.toughness || '0', 10);
+      const plusCounters = perm.counters?.['+1/+1'] || 0;
+      const minusCounters = perm.counters?.['-1/-1'] || 0;
+      const damageMarked = perm.counters?.damage || perm.damage || 0;
+      
+      toughness += plusCounters - minusCounters;
+      
+      // Check for zero or less toughness (Rule 704.5f)
+      if (toughness <= 0) {
+        deaths.push(perm.id);
+        logs.push(`${perm.card?.name || 'Creature'} dies (0 or less toughness)`);
+        updatedState = this.moveToGraveyard(updatedState, perm);
+        
+        this.emit({
+          type: RulesEngineEvent.CREATURE_DIED,
+          timestamp: Date.now(),
+          gameId,
+          data: { 
+            permanentId: perm.id, 
+            name: perm.card?.name,
+            reason: 'zero_toughness',
+          },
+        });
+        continue;
+      }
+      
+      // Check for lethal damage (Rule 704.5g)
+      if (damageMarked >= toughness) {
+        deaths.push(perm.id);
+        logs.push(`${perm.card?.name || 'Creature'} dies (lethal damage)`);
+        updatedState = this.moveToGraveyard(updatedState, perm);
+        
+        this.emit({
+          type: RulesEngineEvent.CREATURE_DIED,
+          timestamp: Date.now(),
+          gameId,
+          data: { 
+            permanentId: perm.id, 
+            name: perm.card?.name,
+            reason: 'lethal_damage',
+          },
+        });
+      }
+    }
+    
+    return { state: updatedState, deaths, logs };
+  }
+  
+  /**
+   * Check for planeswalkers with zero loyalty (Rule 704.5i)
+   */
+  private checkPlaneswalkerDeaths(
+    state: GameState,
+    gameId: string
+  ): { state: GameState; deaths: string[]; logs: string[] } {
+    const deaths: string[] = [];
+    const logs: string[] = [];
+    let updatedState = state;
+    
+    const allPermanents: any[] = [];
+    
+    if (state.battlefield) {
+      allPermanents.push(...(state.battlefield as any[]));
+    }
+    
+    for (const player of state.players) {
+      if (player.battlefield) {
+        for (const perm of player.battlefield as any[]) {
+          if (!allPermanents.some(p => p.id === perm.id)) {
+            allPermanents.push(perm);
+          }
+        }
+      }
+    }
+    
+    for (const perm of allPermanents) {
+      const typeLine = (perm.card?.type_line || perm.type_line || '').toLowerCase();
+      if (!typeLine.includes('planeswalker')) continue;
+      
+      const loyalty = perm.counters?.loyalty || perm.loyalty || 0;
+      
+      if (loyalty <= 0) {
+        deaths.push(perm.id);
+        logs.push(`${perm.card?.name || 'Planeswalker'} dies (0 loyalty)`);
+        updatedState = this.moveToGraveyard(updatedState, perm);
+        
+        this.emit({
+          type: RulesEngineEvent.PERMANENT_LEFT_BATTLEFIELD,
+          timestamp: Date.now(),
+          gameId,
+          data: { 
+            permanentId: perm.id, 
+            name: perm.card?.name,
+            reason: 'zero_loyalty',
+          },
+        });
+      }
+    }
+    
+    return { state: updatedState, deaths, logs };
+  }
+  
+  /**
+   * Check legend rule (Rule 704.5j)
+   */
+  private checkLegendRule(
+    state: GameState,
+    gameId: string
+  ): { state: GameState; sacrificed: string[]; logs: string[] } {
+    const sacrificed: string[] = [];
+    const logs: string[] = [];
+    let updatedState = state;
+    
+    // Group legends by controller and name
+    const legendsByControllerAndName = new Map<string, any[]>();
+    
+    for (const player of state.players) {
+      for (const perm of (player.battlefield || []) as any[]) {
+        const typeLine = (perm.card?.type_line || perm.type_line || '').toLowerCase();
+        const superTypes = typeLine.split('—')[0];
+        
+        if (superTypes.includes('legendary')) {
+          const name = perm.card?.name || perm.name;
+          const key = `${player.id}:${name}`;
+          
+          const existing = legendsByControllerAndName.get(key) || [];
+          existing.push(perm);
+          legendsByControllerAndName.set(key, existing);
+        }
+      }
+    }
+    
+    // Check for duplicates
+    for (const [key, legends] of legendsByControllerAndName) {
+      if (legends.length > 1) {
+        // Player must choose one to keep (for now, keep the newest/last one)
+        const toSacrifice = legends.slice(0, -1);
+        
+        for (const perm of toSacrifice) {
+          sacrificed.push(perm.id);
+          logs.push(`${perm.card?.name || 'Legendary'} put into graveyard (legend rule)`);
+          updatedState = this.moveToGraveyard(updatedState, perm);
+          
+          this.emit({
+            type: RulesEngineEvent.PERMANENT_LEFT_BATTLEFIELD,
+            timestamp: Date.now(),
+            gameId,
+            data: { 
+              permanentId: perm.id, 
+              name: perm.card?.name,
+              reason: 'legend_rule',
+            },
+          });
+        }
+      }
+    }
+    
+    return { state: updatedState, sacrificed, logs };
+  }
+  
+  /**
+   * Check for auras attached to illegal permanents (Rule 704.5m)
+   */
+  private checkAuraAttachment(
+    state: GameState,
+    gameId: string
+  ): { state: GameState; detached: string[]; logs: string[] } {
+    const detached: string[] = [];
+    const logs: string[] = [];
+    let updatedState = state;
+    
+    const allPermanents: any[] = [];
+    
+    if (state.battlefield) {
+      allPermanents.push(...(state.battlefield as any[]));
+    }
+    
+    for (const player of state.players) {
+      if (player.battlefield) {
+        for (const perm of player.battlefield as any[]) {
+          if (!allPermanents.some(p => p.id === perm.id)) {
+            allPermanents.push(perm);
+          }
+        }
+      }
+    }
+    
+    for (const perm of allPermanents) {
+      const typeLine = (perm.card?.type_line || perm.type_line || '').toLowerCase();
+      if (!typeLine.includes('aura')) continue;
+      
+      const attachedToId = perm.attachedTo || perm.enchanting;
+      if (!attachedToId) {
+        // Aura not attached to anything - put in graveyard
+        detached.push(perm.id);
+        logs.push(`${perm.card?.name || 'Aura'} put into graveyard (not attached)`);
+        updatedState = this.moveToGraveyard(updatedState, perm);
+        continue;
+      }
+      
+      // Check if the attached permanent still exists
+      const attachedTo = allPermanents.find(p => p.id === attachedToId) ||
+                        state.players.find(p => p.id === attachedToId);
+      
+      if (!attachedTo) {
+        detached.push(perm.id);
+        logs.push(`${perm.card?.name || 'Aura'} put into graveyard (attached permanent no longer exists)`);
+        updatedState = this.moveToGraveyard(updatedState, perm);
+      }
+    }
+    
+    return { state: updatedState, detached, logs };
+  }
+  
+  /**
+   * Move a permanent to its owner's graveyard
+   */
+  private moveToGraveyard(state: GameState, permanent: any): GameState {
+    const ownerId = permanent.controller || permanent.controllerId || permanent.owner;
+    
+    // Remove from battlefield
+    const updatedBattlefield = (state.battlefield || []).filter(
+      (p: any) => p.id !== permanent.id
+    );
+    
+    // Update player battlefields and add to graveyard
+    const updatedPlayers = state.players.map(player => {
+      const updatedPlayerBattlefield = (player.battlefield || []).filter(
+        (p: any) => p.id !== permanent.id
+      );
+      
+      if (player.id === ownerId) {
+        return {
+          ...player,
+          battlefield: updatedPlayerBattlefield,
+          graveyard: [...(player.graveyard || []), permanent.card || permanent],
+        };
+      }
+      
+      return {
+        ...player,
+        battlefield: updatedPlayerBattlefield,
+      };
+    });
+    
+    return {
+      ...state,
+      battlefield: updatedBattlefield,
+      players: updatedPlayers,
     };
   }
 }
