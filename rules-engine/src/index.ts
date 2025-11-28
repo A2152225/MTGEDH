@@ -657,6 +657,26 @@ export {
   type DelayedTriggerRegistry,
 } from './delayedTriggeredAbilities';
 
+// Enhanced Combat Damage Automation
+export {
+  CombatDamagePhase,
+  hasFirstStrikeDamage,
+  hasRegularDamage,
+  calculateLethalDamageForBlocker,
+  assignDamageToBlockers,
+  calculateTrampleToPlayer,
+  processUnblockedAttacker,
+  processBlockerDamageToAttacker,
+  calculateLifelinkGains,
+  determineCreatureDeaths,
+  createCombatDamageTriggers,
+  hasFirstStrikersInCombat,
+  calculateCombatDamage,
+  type DetailedDamageAssignment,
+  type CombatDamageCalculation,
+  type BlockerOrder,
+} from './combatDamageEnhanced';
+
 // =============================================================================
 // LEGACY COMPATIBILITY
 // =============================================================================
