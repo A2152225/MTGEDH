@@ -24,7 +24,8 @@ import {
   getDrawStepTriggers,
   getEndOfCombatTriggers,
   getUntapStepEffects,
-  applyUntapStepEffect
+  applyUntapStepEffect,
+  isPermanentPreventedFromUntapping
 } from "./triggered-abilities.js";
 import { getUpkeepTriggersForPlayer } from "./upkeep-triggers.js";
 
@@ -518,9 +519,6 @@ function untapPermanentsForPlayer(ctx: GameContext, playerId: string) {
     const battlefield = (ctx as any).state?.battlefield;
     if (!Array.isArray(battlefield)) return;
 
-    // Import the function to check static "doesn't untap" effects
-    const { isPermanentPreventedFromUntapping } = require("./triggered-abilities.js");
-
     let untappedCount = 0;
     let stunCountersRemoved = 0;
     let skippedDueToEffects = 0;
@@ -541,8 +539,8 @@ function untapPermanentsForPlayer(ctx: GameContext, playerId: string) {
             continue;
           }
         } catch (e) {
-          // If check fails, allow untapping (fail open)
-          console.warn(`${ts()} [untapPermanentsForPlayer] Failed to check untap prevention:`, e);
+          // If check fails, allow untapping to prevent game state from getting stuck
+          console.warn(`${ts()} [untapPermanentsForPlayer] Failed to check untap prevention for ${permanent.card?.name}:`, e);
         }
 
         // Check for stun counters (Rule 122.1c)

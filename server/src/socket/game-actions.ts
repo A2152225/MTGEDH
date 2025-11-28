@@ -1053,7 +1053,6 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Check for creature type selection requirements (e.g., Cavern of Souls, Unclaimed Territory)
       checkCreatureTypeSelectionForNewPermanents(io, game, gameId);
-      checkCreatureTypeSelectionForNewPermanents(io, game, gameId);
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {

@@ -1270,7 +1270,7 @@ export function detectUntapStepEffects(card: any, permanent: any): UntapStepEffe
 /**
  * Get all untap step effects that apply during a specific player's untap step
  * @param ctx Game context
- * @param untapPlayerOd The player whose untap step it is
+ * @param untapPlayerId The player whose untap step it is
  * @returns Effects that should trigger
  */
 export function getUntapStepEffects(
@@ -1662,6 +1662,441 @@ export function applySpellCastUntapEffect(ctx: GameContext, effect: SpellCastUnt
   }
   
   return untappedCount;
+}
+
+// ============================================================================
+// General Spell-Cast Triggered Abilities
+// (Merrow Reejerey, Deeproot Waters, Beast Whisperer, etc.)
+// ============================================================================
+
+export interface SpellCastTrigger {
+  permanentId: string;
+  cardName: string;
+  controllerId: string;
+  description: string;
+  effect: string;
+  spellCondition: 'any' | 'creature' | 'noncreature' | 'instant_sorcery' | 'tribal_type';
+  tribalType?: string; // For tribal triggers like "Merfolk spell"
+  requiresTarget?: boolean;
+  targetType?: string; // e.g., "permanent" for tap/untap effects
+  createsToken?: boolean;
+  tokenDetails?: {
+    name: string;
+    power: number;
+    toughness: number;
+    types: string;
+    abilities?: string[];
+  };
+  mandatory: boolean;
+}
+
+/**
+ * Detect spell-cast triggered abilities from a card's oracle text
+ * Handles cards like:
+ * - Merrow Reejerey: "Whenever you cast a Merfolk spell, you may tap or untap target permanent"
+ * - Deeproot Waters: "Whenever you cast a Merfolk spell, create a 1/1 blue Merfolk creature token with hexproof"
+ * - Beast Whisperer: "Whenever you cast a creature spell, draw a card"
+ * - Archmage Emeritus: "Magecraft — Whenever you cast or copy an instant or sorcery spell, draw a card"
+ * - Harmonic Prodigy: "If an ability of a Shaman or Wizard you control triggers, that ability triggers an additional time"
+ */
+export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTrigger[] {
+  const triggers: SpellCastTrigger[] = [];
+  const oracleText = (card?.oracle_text || "");
+  const lowerOracle = oracleText.toLowerCase();
+  const cardName = card?.name || "Unknown";
+  const permanentId = permanent?.id || "";
+  const controllerId = permanent?.controller || "";
+  
+  // Pattern: "Whenever you cast a [TYPE] spell, [EFFECT]"
+  const spellCastPatterns = [
+    // Tribal patterns: "Whenever you cast a Merfolk/Goblin/Elf spell"
+    /whenever you cast (?:a |an )?(\w+) spell,?\s*([^.]+)/gi,
+    // Generic creature/noncreature patterns
+    /whenever you cast (?:a |an )?(creature|noncreature|instant|sorcery|instant or sorcery) spell,?\s*([^.]+)/gi,
+  ];
+  
+  for (const pattern of spellCastPatterns) {
+    let match;
+    pattern.lastIndex = 0; // Reset regex
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const spellType = match[1].toLowerCase();
+      const effectText = match[2].trim();
+      
+      // Determine spell condition
+      let spellCondition: SpellCastTrigger['spellCondition'] = 'any';
+      let tribalType: string | undefined;
+      
+      if (spellType === 'creature') {
+        spellCondition = 'creature';
+      } else if (spellType === 'noncreature') {
+        spellCondition = 'noncreature';
+      } else if (spellType === 'instant' || spellType === 'sorcery' || spellType === 'instant or sorcery') {
+        spellCondition = 'instant_sorcery';
+      } else if (!['a', 'an', 'spell'].includes(spellType)) {
+        // Likely a tribal type like "Merfolk", "Goblin", "Elf"
+        spellCondition = 'tribal_type';
+        tribalType = spellType;
+      }
+      
+      // Check for tap/untap effects (Merrow Reejerey pattern)
+      const isTapUntap = lowerOracle.includes('tap or untap') || 
+                         lowerOracle.includes('untap target') ||
+                         lowerOracle.includes('tap target');
+      
+      // Check for token creation (Deeproot Waters pattern)
+      const tokenMatch = effectText.match(/create (?:a |an )?(\d+)\/(\d+)[^.]*token/i);
+      let createsToken = false;
+      let tokenDetails: SpellCastTrigger['tokenDetails'];
+      
+      if (tokenMatch || lowerOracle.includes('create a') && lowerOracle.includes('token')) {
+        createsToken = true;
+        // Try to parse token details
+        const tokenPowerMatch = effectText.match(/(\d+)\/(\d+)/);
+        if (tokenPowerMatch) {
+          tokenDetails = {
+            name: tribalType ? `${tribalType} Token` : 'Token',
+            power: parseInt(tokenPowerMatch[1]),
+            toughness: parseInt(tokenPowerMatch[2]),
+            types: `Creature — ${tribalType || 'Token'}`,
+          };
+        }
+      }
+      
+      // Check if it's a "may" ability
+      const isOptional = effectText.toLowerCase().includes('you may');
+      
+      // Avoid duplicates
+      if (!triggers.some(t => t.effect === effectText && t.spellCondition === spellCondition)) {
+        triggers.push({
+          permanentId,
+          cardName,
+          controllerId,
+          description: `Whenever you cast a ${tribalType || spellType} spell, ${effectText}`,
+          effect: effectText,
+          spellCondition,
+          tribalType,
+          requiresTarget: isTapUntap,
+          targetType: isTapUntap ? 'permanent' : undefined,
+          createsToken,
+          tokenDetails,
+          mandatory: !isOptional,
+        });
+      }
+    }
+  }
+  
+  // Beast Whisperer pattern: "Whenever you cast a creature spell, draw a card"
+  if (lowerOracle.includes('whenever you cast a creature spell') && 
+      lowerOracle.includes('draw a card') &&
+      !triggers.some(t => t.spellCondition === 'creature' && t.effect.includes('draw'))) {
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: "Whenever you cast a creature spell, draw a card",
+      effect: "draw a card",
+      spellCondition: 'creature',
+      mandatory: true,
+    });
+  }
+  
+  // Magecraft pattern (Archmage Emeritus)
+  if (lowerOracle.includes('magecraft') || 
+      (lowerOracle.includes('whenever you cast or copy') && lowerOracle.includes('instant or sorcery'))) {
+    const effectMatch = oracleText.match(/(?:magecraft\s*[—-]\s*)?whenever you cast or copy an instant or sorcery spell,?\s*([^.]+)/i);
+    if (effectMatch && !triggers.some(t => t.effect === effectMatch[1].trim())) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        description: `Magecraft — Whenever you cast or copy an instant or sorcery spell, ${effectMatch[1].trim()}`,
+        effect: effectMatch[1].trim(),
+        spellCondition: 'instant_sorcery',
+        mandatory: true,
+      });
+    }
+  }
+  
+  return triggers;
+}
+
+/**
+ * Get all spell-cast triggers that should fire when a spell is cast
+ */
+export function getSpellCastTriggers(
+  ctx: GameContext,
+  casterId: string,
+  spellCard: any
+): SpellCastTrigger[] {
+  const triggers: SpellCastTrigger[] = [];
+  const battlefield = ctx.state?.battlefield || [];
+  
+  const spellTypeLine = (spellCard?.type_line || '').toLowerCase();
+  const isCreatureSpell = spellTypeLine.includes('creature');
+  const isInstantOrSorcery = spellTypeLine.includes('instant') || spellTypeLine.includes('sorcery');
+  
+  // Extract creature types from the spell (for tribal triggers)
+  const spellCreatureTypes = extractCreatureTypes(spellTypeLine);
+  
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+    if (permanent.controller !== casterId) continue; // Only controller's permanents trigger
+    
+    const permTriggers = detectSpellCastTriggers(permanent.card, permanent);
+    
+    for (const trigger of permTriggers) {
+      let shouldTrigger = false;
+      
+      switch (trigger.spellCondition) {
+        case 'any':
+          shouldTrigger = true;
+          break;
+        case 'creature':
+          shouldTrigger = isCreatureSpell;
+          break;
+        case 'noncreature':
+          shouldTrigger = !isCreatureSpell;
+          break;
+        case 'instant_sorcery':
+          shouldTrigger = isInstantOrSorcery;
+          break;
+        case 'tribal_type':
+          // Check if the spell has the tribal type
+          if (trigger.tribalType) {
+            shouldTrigger = spellCreatureTypes.includes(trigger.tribalType.toLowerCase()) ||
+                           spellTypeLine.includes(trigger.tribalType.toLowerCase());
+          }
+          break;
+      }
+      
+      if (shouldTrigger) {
+        triggers.push(trigger);
+      }
+    }
+  }
+  
+  return triggers;
+}
+
+/**
+ * Extract creature types from a type line
+ */
+function extractCreatureTypes(typeLine: string): string[] {
+  const types: string[] = [];
+  const lowerTypeLine = typeLine.toLowerCase();
+  
+  // Common creature types
+  const knownTypes = [
+    'merfolk', 'goblin', 'elf', 'wizard', 'shaman', 'warrior', 'soldier', 'zombie',
+    'vampire', 'dragon', 'angel', 'demon', 'beast', 'elemental', 'spirit', 'human',
+    'knight', 'cleric', 'rogue', 'druid', 'pirate', 'dinosaur', 'cat', 'bird',
+    'snake', 'spider', 'sliver', 'ally', 'rebel', 'mercenary', 'horror', 'faerie',
+  ];
+  
+  for (const type of knownTypes) {
+    if (lowerTypeLine.includes(type)) {
+      types.push(type);
+    }
+  }
+  
+  return types;
+}
+
+// ============================================================================
+// Tap/Untap Triggered Abilities
+// (Judge of Currents, Emmara Soul of the Accord, Glare of Subdual, etc.)
+// ============================================================================
+
+export interface TapTrigger {
+  permanentId: string;
+  cardName: string;
+  controllerId: string;
+  description: string;
+  effect: string;
+  triggerCondition: 'becomes_tapped' | 'becomes_untapped' | 'taps_for_mana';
+  affectedType: 'any' | 'creature' | 'tribal_type' | 'self';
+  tribalType?: string; // For "Whenever a Merfolk becomes tapped"
+  mandatory: boolean;
+  lifeGain?: number;
+  createsToken?: boolean;
+  tokenDetails?: {
+    name: string;
+    power: number;
+    toughness: number;
+    types: string;
+  };
+}
+
+/**
+ * Detect tap/untap triggered abilities from a card's oracle text
+ * Handles cards like:
+ * - Judge of Currents: "Whenever a Merfolk you control becomes tapped, you may gain 1 life"
+ * - Emmara, Soul of the Accord: "Whenever Emmara, Soul of the Accord becomes tapped, create a 1/1 white Soldier creature token with lifelink"
+ * - Fallowsage: "Whenever Fallowsage becomes tapped, you may draw a card"
+ * - Opposition: Tap creatures to tap opponent's permanents
+ */
+export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
+  const triggers: TapTrigger[] = [];
+  const oracleText = (card?.oracle_text || "");
+  const lowerOracle = oracleText.toLowerCase();
+  const cardName = card?.name || "Unknown";
+  const permanentId = permanent?.id || "";
+  const controllerId = permanent?.controller || "";
+  
+  // "Whenever a [TYPE] you control becomes tapped" pattern
+  const tribalTapMatch = oracleText.match(/whenever (?:a |an )?(\w+) you control becomes tapped,?\s*([^.]+)/i);
+  if (tribalTapMatch) {
+    const tribalType = tribalTapMatch[1].toLowerCase();
+    const effectText = tribalTapMatch[2].trim();
+    const isOptional = effectText.toLowerCase().includes('you may');
+    
+    // Check for life gain
+    const lifeGainMatch = effectText.match(/gain (\d+) life/i);
+    
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever a ${tribalType} you control becomes tapped, ${effectText}`,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'tribal_type',
+      tribalType,
+      mandatory: !isOptional,
+      lifeGain: lifeGainMatch ? parseInt(lifeGainMatch[1]) : undefined,
+    });
+  }
+  
+  // "Whenever ~ becomes tapped" pattern (self-referential like Emmara)
+  const selfTapMatch = oracleText.match(/whenever (?:~|this creature) becomes tapped,?\s*([^.]+)/i);
+  if (selfTapMatch) {
+    const effectText = selfTapMatch[1].trim();
+    const isOptional = effectText.toLowerCase().includes('you may');
+    
+    // Check for token creation
+    const tokenMatch = effectText.match(/create (?:a |an )?(\d+)\/(\d+)/i);
+    let createsToken = false;
+    let tokenDetails: TapTrigger['tokenDetails'];
+    
+    if (tokenMatch || lowerOracle.includes('create') && lowerOracle.includes('token')) {
+      createsToken = true;
+      const powerMatch = effectText.match(/(\d+)\/(\d+)/);
+      if (powerMatch) {
+        tokenDetails = {
+          name: 'Token',
+          power: parseInt(powerMatch[1]),
+          toughness: parseInt(powerMatch[2]),
+          types: 'Creature',
+        };
+      }
+    }
+    
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever ${cardName} becomes tapped, ${effectText}`,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'self',
+      mandatory: !isOptional,
+      createsToken,
+      tokenDetails,
+    });
+  }
+  
+  // "Whenever a creature you control becomes tapped" (generic creature tap)
+  if (lowerOracle.includes('whenever a creature you control becomes tapped') && 
+      !triggers.some(t => t.affectedType === 'creature')) {
+    const effectMatch = oracleText.match(/whenever a creature you control becomes tapped,?\s*([^.]+)/i);
+    if (effectMatch) {
+      const effectText = effectMatch[1].trim();
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        description: `Whenever a creature you control becomes tapped, ${effectText}`,
+        effect: effectText,
+        triggerCondition: 'becomes_tapped',
+        affectedType: 'creature',
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+  
+  // "Whenever you tap a [TYPE] for mana" pattern (like Elvish Archdruid's friends)
+  const tapForManaMatch = oracleText.match(/whenever you tap (?:a |an )?(\w+) for mana,?\s*([^.]+)/i);
+  if (tapForManaMatch) {
+    const tribalType = tapForManaMatch[1].toLowerCase();
+    const effectText = tapForManaMatch[2].trim();
+    
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever you tap a ${tribalType} for mana, ${effectText}`,
+      effect: effectText,
+      triggerCondition: 'taps_for_mana',
+      affectedType: 'tribal_type',
+      tribalType,
+      mandatory: true,
+    });
+  }
+  
+  return triggers;
+}
+
+/**
+ * Get all tap triggers that should fire when a permanent becomes tapped
+ */
+export function getTapTriggers(
+  ctx: GameContext,
+  tappedPermanent: any,
+  tappedByPlayerId: string
+): TapTrigger[] {
+  const triggers: TapTrigger[] = [];
+  const battlefield = ctx.state?.battlefield || [];
+  
+  const tappedTypeLine = (tappedPermanent?.card?.type_line || '').toLowerCase();
+  const tappedCreatureTypes = extractCreatureTypes(tappedTypeLine);
+  const isCreature = tappedTypeLine.includes('creature');
+  
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+    
+    const permTriggers = detectTapTriggers(permanent.card, permanent);
+    
+    for (const trigger of permTriggers) {
+      // Only trigger for the controller's permanents becoming tapped
+      if (permanent.controller !== tappedByPlayerId) continue;
+      
+      let shouldTrigger = false;
+      
+      switch (trigger.affectedType) {
+        case 'any':
+          shouldTrigger = true;
+          break;
+        case 'creature':
+          shouldTrigger = isCreature;
+          break;
+        case 'tribal_type':
+          if (trigger.tribalType) {
+            shouldTrigger = tappedCreatureTypes.includes(trigger.tribalType.toLowerCase());
+          }
+          break;
+        case 'self':
+          // Self-referential triggers only fire when this specific permanent is tapped
+          shouldTrigger = permanent.id === tappedPermanent.id;
+          break;
+      }
+      
+      if (shouldTrigger) {
+        triggers.push(trigger);
+      }
+    }
+  }
+  
+  return triggers;
 }
 
 // ============================================================================
