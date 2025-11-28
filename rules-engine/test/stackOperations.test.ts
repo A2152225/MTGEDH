@@ -13,6 +13,10 @@ import {
   counterStackObject,
   validateTargets,
   resolveStackObject,
+  groupSimultaneousTriggers,
+  applyTriggerOrder,
+  pushSimultaneousTriggersToStack,
+  parseCounterMovementAbility,
   type Stack,
   type StackObject,
 } from '../src/stackOperations';
@@ -375,6 +379,178 @@ describe('Stack Operations', () => {
       
       expect(result.success).toBe(true);
       expect(result.destination).toBeUndefined(); // Abilities cease to exist
+    });
+  });
+  
+  describe('Rule 603.3b: Simultaneous Trigger Ordering', () => {
+    it('should group simultaneous triggers by controller', () => {
+      const triggers: StackObject[] = [
+        {
+          id: 'trigger-1',
+          spellId: 'etb-trigger-1',
+          cardName: 'ETB Trigger 1',
+          controllerId: 'player1',
+          timestamp: 1000,
+          type: 'ability',
+        },
+        {
+          id: 'trigger-2',
+          spellId: 'etb-trigger-2',
+          cardName: 'ETB Trigger 2',
+          controllerId: 'player1',
+          timestamp: 1000,
+          type: 'ability',
+        },
+        {
+          id: 'trigger-3',
+          spellId: 'etb-trigger-3',
+          cardName: 'ETB Trigger 3',
+          controllerId: 'player2',
+          timestamp: 1000,
+          type: 'ability',
+        },
+      ];
+      
+      const result = groupSimultaneousTriggers(triggers);
+      
+      expect(result.groups.length).toBe(2);
+      expect(result.requiresPlayerChoice).toBe(true);
+      
+      const player1Group = result.groups.find(g => g.controllerId === 'player1');
+      expect(player1Group?.triggers.length).toBe(2);
+      expect(player1Group?.requiresOrdering).toBe(true);
+      
+      const player2Group = result.groups.find(g => g.controllerId === 'player2');
+      expect(player2Group?.triggers.length).toBe(1);
+      expect(player2Group?.requiresOrdering).toBe(false);
+    });
+    
+    it('should not require ordering when each player has only one trigger', () => {
+      const triggers: StackObject[] = [
+        {
+          id: 'trigger-1',
+          spellId: 'etb-trigger-1',
+          cardName: 'ETB Trigger 1',
+          controllerId: 'player1',
+          timestamp: 1000,
+          type: 'ability',
+        },
+        {
+          id: 'trigger-2',
+          spellId: 'etb-trigger-2',
+          cardName: 'ETB Trigger 2',
+          controllerId: 'player2',
+          timestamp: 1000,
+          type: 'ability',
+        },
+      ];
+      
+      const result = groupSimultaneousTriggers(triggers);
+      
+      expect(result.requiresPlayerChoice).toBe(false);
+      expect(result.groups.every(g => !g.requiresOrdering)).toBe(true);
+    });
+    
+    it('should apply player chosen trigger order', () => {
+      const triggers: StackObject[] = [
+        {
+          id: 'trigger-A',
+          spellId: 'trigger-A',
+          cardName: 'Trigger A',
+          controllerId: 'player1',
+          timestamp: 1000,
+          type: 'ability',
+        },
+        {
+          id: 'trigger-B',
+          spellId: 'trigger-B',
+          cardName: 'Trigger B',
+          controllerId: 'player1',
+          timestamp: 1000,
+          type: 'ability',
+        },
+        {
+          id: 'trigger-C',
+          spellId: 'trigger-C',
+          cardName: 'Trigger C',
+          controllerId: 'player1',
+          timestamp: 1000,
+          type: 'ability',
+        },
+      ];
+      
+      // Player wants A to resolve first, then B, then C
+      // So on stack: C (bottom), B, A (top)
+      const result = applyTriggerOrder(triggers, ['trigger-A', 'trigger-B', 'trigger-C']);
+      
+      // Stack order should be reversed: C, B, A (A on top, resolves first)
+      expect(result.orderedTriggers[0].id).toBe('trigger-C');
+      expect(result.orderedTriggers[1].id).toBe('trigger-B');
+      expect(result.orderedTriggers[2].id).toBe('trigger-A');
+    });
+    
+    it('should put simultaneous triggers on stack in APNAP order', () => {
+      const stack = createEmptyStack();
+      
+      const triggerGroups = [
+        {
+          controllerId: 'player2', // Non-active player
+          triggers: [{
+            id: 'trigger-NAP',
+            spellId: 'trigger-NAP',
+            cardName: 'NAP Trigger',
+            controllerId: 'player2',
+            timestamp: 1000,
+            type: 'ability' as const,
+          }],
+          requiresOrdering: false,
+        },
+        {
+          controllerId: 'player1', // Active player
+          triggers: [{
+            id: 'trigger-AP',
+            spellId: 'trigger-AP',
+            cardName: 'AP Trigger',
+            controllerId: 'player1',
+            timestamp: 1000,
+            type: 'ability' as const,
+          }],
+          requiresOrdering: false,
+        },
+      ];
+      
+      const turnOrder = ['player1', 'player2']; // player1 is active
+      const result = pushSimultaneousTriggersToStack(stack, triggerGroups, turnOrder);
+      
+      // Active player's triggers go on first (bottom), non-active player's on top
+      // So NAP trigger should be on top (resolves first)
+      expect(result.stack.objects[0].id).toBe('trigger-AP'); // Bottom
+      expect(result.stack.objects[1].id).toBe('trigger-NAP'); // Top
+    });
+  });
+  
+  describe('Counter Movement (Reyhan, Forgotten Ancient)', () => {
+    it('should parse Reyhan counter movement ability', () => {
+      const oracleText = 'Whenever a creature you control dies or is put into the command zone, you may put its counters on target creature.';
+      const result = parseCounterMovementAbility(oracleText);
+      
+      expect(result.canMoveCounters).toBe(true);
+      expect(result.counterType).toBe('all');
+    });
+    
+    it('should parse Forgotten Ancient counter movement ability', () => {
+      const oracleText = 'At the beginning of your upkeep, you may move any number of +1/+1 counters from Forgotten Ancient onto other creatures.';
+      const result = parseCounterMovementAbility(oracleText);
+      
+      expect(result.canMoveCounters).toBe(true);
+      expect(result.counterType).toBe('+1/+1');
+    });
+    
+    it('should return false for cards without counter movement', () => {
+      const oracleText = 'When this creature enters the battlefield, draw a card.';
+      const result = parseCounterMovementAbility(oracleText);
+      
+      expect(result.canMoveCounters).toBe(false);
     });
   });
 });
