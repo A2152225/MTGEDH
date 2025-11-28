@@ -173,6 +173,7 @@ export function reset(ctx: any, preservePlayers = false): void {
       // Using a new random seed as fallback in case no rngSeed event exists
       const fallbackSeed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
       ctx.rng = mulberry32(fallbackSeed);
+      console.log(`[reset] Cleared RNG state, set fallback seed: ${fallbackSeed}`);
     } catch {
       // ignore RNG reset errors
     }
@@ -278,6 +279,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
     switch (e.type) {
       case "rngSeed": {
         ctx.rngSeed = (e as any).seed >>> 0;
+        console.log(`[applyEvent] Applying rngSeed event with seed: ${ctx.rngSeed}`);
         // mulberry32 inline
         ctx.rng = (function (seed: number) {
           let t = seed >>> 0;
@@ -732,8 +734,183 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "keepHand": {
+        // Mark player as having kept their hand
+        // This is important for tracking mulligan state during replay
+        const pid = (e as any).playerId;
+        if (!pid) break;
+        try {
+          const state = ctx.state as any;
+          state.mulliganState = state.mulliganState || {};
+          state.mulliganState[pid] = state.mulliganState[pid] || {};
+          state.mulliganState[pid].hasKeptHand = true;
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(keepHand): failed", err);
+        }
+        break;
+      }
+
+      case "mulliganPutToBottom": {
+        // London mulligan: move selected cards from hand to bottom of library
+        const pid = (e as any).playerId;
+        const cardIds = (e as any).cardIds as string[] || [];
+        if (!pid || cardIds.length === 0) break;
+        try {
+          const zones = ctx.state.zones || {};
+          const z = zones[pid];
+          if (!z || !Array.isArray(z.hand)) break;
+          
+          const hand = z.hand as any[];
+          const lib = ctx.libraries.get(pid) || [];
+          
+          // Move each selected card from hand to bottom of library
+          for (const cardId of cardIds) {
+            const idx = hand.findIndex((c: any) => c.id === cardId);
+            if (idx !== -1) {
+              const [card] = hand.splice(idx, 1);
+              lib.push({ ...card, zone: "library" });
+            }
+          }
+          
+          // Update counts
+          z.handCount = hand.length;
+          z.libraryCount = lib.length;
+          ctx.libraries.set(pid, lib);
+          
+          // Mark hand as kept after putting cards on bottom
+          const state = ctx.state as any;
+          state.mulliganState = state.mulliganState || {};
+          state.mulliganState[pid] = state.mulliganState[pid] || {};
+          state.mulliganState[pid].hasKeptHand = true;
+          
+          ctx.bumpSeq();
+          console.log(`[applyEvent] mulliganPutToBottom: moved ${cardIds.length} cards to bottom for ${pid}`);
+        } catch (err) {
+          console.warn("applyEvent(mulliganPutToBottom): failed", err);
+        }
+        break;
+      }
+
+      case "setLife":
+      case "adjustLife": {
+        // Set or adjust a player's life total
+        const pid = (e as any).playerId;
+        const life = (e as any).life;
+        const delta = (e as any).delta;
+        if (!pid) break;
+        try {
+          if (typeof life === 'number') {
+            // Absolute set
+            if (ctx.life) ctx.life[pid] = life;
+          } else if (typeof delta === 'number') {
+            // Relative adjustment
+            if (ctx.life) ctx.life[pid] = (ctx.life[pid] ?? ctx.state.startingLife ?? 40) + delta;
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn(`applyEvent(${e.type}): failed`, err);
+        }
+        break;
+      }
+
+      case "cleanupDiscard": {
+        // Discard cards during cleanup step
+        const pid = (e as any).playerId;
+        const cardIds = (e as any).cardIds as string[] || [];
+        if (!pid || cardIds.length === 0) break;
+        try {
+          const zones = ctx.state.zones || {};
+          const z = zones[pid];
+          if (!z || !Array.isArray(z.hand)) break;
+          
+          const hand = z.hand as any[];
+          z.graveyard = z.graveyard || [];
+          const graveyard = z.graveyard as any[];
+          
+          // Move each selected card from hand to graveyard
+          for (const cardId of cardIds) {
+            const idx = hand.findIndex((c: any) => c.id === cardId);
+            if (idx !== -1) {
+              const [card] = hand.splice(idx, 1);
+              graveyard.push({ ...card, zone: "graveyard" });
+            }
+          }
+          
+          // Update counts
+          z.handCount = hand.length;
+          z.graveyardCount = graveyard.length;
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(cleanupDiscard): failed", err);
+        }
+        break;
+      }
+
+      case "mill": {
+        // Mill cards from library to graveyard
+        const pid = (e as any).playerId;
+        const count = (e as any).count || 1;
+        if (!pid) break;
+        try {
+          const lib = ctx.libraries.get(pid) || [];
+          const zones = ctx.state.zones || {};
+          const z = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+          zones[pid] = z;
+          z.graveyard = z.graveyard || [];
+          const graveyard = z.graveyard as any[];
+          
+          // Mill top N cards
+          const milled = lib.splice(0, Math.min(count, lib.length));
+          for (const card of milled) {
+            graveyard.push({ ...card, zone: "graveyard" });
+          }
+          
+          // Update counts
+          z.libraryCount = lib.length;
+          z.graveyardCount = graveyard.length;
+          ctx.libraries.set(pid, lib);
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(mill): failed", err);
+        }
+        break;
+      }
+
+      case "tapPermanent":
+      case "untapPermanent": {
+        // Tap or untap a permanent
+        const permId = (e as any).permanentId;
+        const tapped = e.type === "tapPermanent";
+        if (!permId) break;
+        try {
+          const battlefield = ctx.state.battlefield || [];
+          const perm = battlefield.find((p: any) => p.id === permId);
+          if (perm) {
+            (perm as any).tapped = tapped;
+            ctx.bumpSeq();
+          }
+        } catch (err) {
+          console.warn(`applyEvent(${e.type}): failed`, err);
+        }
+        break;
+      }
+
+      case "sacrificePermanent": {
+        // Sacrifice a permanent (move to graveyard)
+        const permId = (e as any).permanentId;
+        if (!permId) break;
+        try {
+          removePermanent(ctx as any, permId);
+        } catch (err) {
+          console.warn("applyEvent(sacrificePermanent): failed", err);
+        }
+        break;
+      }
+
       default: {
-        console.warn("applyEvent: unknown event type", (e as any).type);
+        // Log unknown events but don't fail
+        console.info("applyEvent: unhandled event type (may not affect game state):", (e as any).type);
         break;
       }
     }
