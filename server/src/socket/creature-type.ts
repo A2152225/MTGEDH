@@ -129,6 +129,56 @@ export function requiresCreatureTypeSelection(card: any): { required: boolean; r
     return { required: true, reason: "Choose a creature type for mana ability" };
   }
   
+  // Urza's Incubator - "As Urza's Incubator enters the battlefield, choose a creature type"
+  // Reduces cost of creature spells of chosen type by {2}
+  if (name.includes("urza's incubator")) {
+    return { required: true, reason: "Choose a creature type for Urza's Incubator cost reduction" };
+  }
+  
+  // Herald's Horn - "As Herald's Horn enters the battlefield, choose a creature type"
+  // Reduces cost by {1} and gives card advantage
+  if (name.includes("herald's horn")) {
+    return { required: true, reason: "Choose a creature type for Herald's Horn" };
+  }
+  
+  // Icon of Ancestry - "As Icon of Ancestry enters the battlefield, choose a creature type"
+  // Gives +1/+1 to creatures of that type
+  if (name.includes("icon of ancestry")) {
+    return { required: true, reason: "Choose a creature type for Icon of Ancestry" };
+  }
+  
+  // Metallic Mimic - "As Metallic Mimic enters the battlefield, choose a creature type"
+  if (name.includes("metallic mimic")) {
+    return { required: true, reason: "Choose a creature type for Metallic Mimic" };
+  }
+  
+  // Door of Destinies - "As Door of Destinies enters the battlefield, choose a creature type"
+  if (name.includes("door of destinies")) {
+    return { required: true, reason: "Choose a creature type for Door of Destinies" };
+  }
+  
+  // Coat of Arms (doesn't need selection - affects all creature types)
+  
+  // Vanquisher's Banner - "As Vanquisher's Banner enters the battlefield, choose a creature type"
+  if (name.includes("vanquisher's banner")) {
+    return { required: true, reason: "Choose a creature type for Vanquisher's Banner" };
+  }
+  
+  // Adaptive Automaton - "As Adaptive Automaton enters the battlefield, choose a creature type"
+  if (name.includes("adaptive automaton")) {
+    return { required: true, reason: "Choose a creature type for Adaptive Automaton" };
+  }
+  
+  // Kindred Charge - "Choose a creature type"
+  if (name.includes("kindred charge")) {
+    return { required: true, reason: "Choose a creature type for Kindred Charge" };
+  }
+  
+  // Kindred Summons - "Choose a creature type"
+  if (name.includes("kindred summons")) {
+    return { required: true, reason: "Choose a creature type for Kindred Summons" };
+  }
+  
   // Generic detection: look for the exact phrase "as ~ enters the battlefield, choose a creature type"
   // This is more specific than the previous loose matching
   const entersBattlefieldChoosePattern = /as .+? enters the battlefield,? choose a creature type/i;

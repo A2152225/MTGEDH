@@ -95,17 +95,43 @@ export function shuffleLibrary(ctx: GameContext, playerId: PlayerID) {
 
 /**
  * drawCards
+ * 
+ * Draws cards from the library into the player's hand.
+ * Also tracks first draw of the turn for miracle abilities.
+ * 
+ * @param ctx Game context
+ * @param playerId Player drawing the cards
+ * @param count Number of cards to draw
+ * @returns Array of drawn card references
  */
 export function drawCards(ctx: GameContext, playerId: PlayerID, count: number) {
   const lib = ctx.libraries.get(playerId) || [];
   const zones = ctx.state.zones = ctx.state.zones || {};
   const z = zones[playerId] || (zones[playerId] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 } as any);
   const drawn: KnownCardRef[] = [];
+  
+  // Track draws this turn for miracle abilities (Rule 702.94)
+  (ctx.state as any).cardsDrawnThisTurn = (ctx.state as any).cardsDrawnThisTurn || {};
+  const previousDrawCount = (ctx.state as any).cardsDrawnThisTurn[playerId] || 0;
+  
   for (let i = 0; i < count && lib.length > 0; i++) {
     const c = lib.shift()!;
+    
+    // Check if this is the first card drawn this turn (for miracle)
+    const drawNumber = previousDrawCount + i + 1;
+    if (drawNumber === 1) {
+      // Mark this card as the first card drawn this turn
+      (c as any).isFirstDrawnThisTurn = true;
+      (c as any).drawnAt = Date.now();
+    }
+    
     (z.hand as any[]).push(c);
     drawn.push(c);
   }
+  
+  // Update draw count for this turn
+  (ctx.state as any).cardsDrawnThisTurn[playerId] = previousDrawCount + drawn.length;
+  
   ctx.libraries.set(playerId, lib);
   z.handCount = (z.hand as any[]).length;
   z.libraryCount = lib.length;

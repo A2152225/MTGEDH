@@ -6,6 +6,7 @@ import type { PaymentItem } from "../../../shared/src";
 import { requiresCreatureTypeSelection, requestCreatureTypeSelection } from "./creature-type";
 import { checkAndPromptOpeningHandActions } from "./opening-hand";
 import { emitSacrificeUnlessPayPrompt } from "./triggers";
+import { detectSpellCastTriggers, getSpellCastUntapEffects, applySpellCastUntapEffect, type SpellCastTrigger } from "../state/modules/triggered-abilities";
 
 /** Shock lands and similar "pay life or enter tapped" lands */
 const SHOCK_LANDS = new Set([
@@ -754,6 +755,83 @@ function extractCreatureTypes(typeLine: string): string[] {
 }
 
 /**
+ * Get spell-cast triggers that should fire for a spell being cast
+ * Checks battlefield for permanents with spell-cast triggered abilities
+ */
+function getSpellCastTriggersForCard(game: any, casterId: string, spellCard: any): SpellCastTrigger[] {
+  const triggers: SpellCastTrigger[] = [];
+  const battlefield = game.state?.battlefield || [];
+  
+  const spellTypeLine = (spellCard?.type_line || '').toLowerCase();
+  const isCreatureSpell = spellTypeLine.includes('creature');
+  const isInstantOrSorcery = spellTypeLine.includes('instant') || spellTypeLine.includes('sorcery');
+  const isNoncreatureSpell = !isCreatureSpell;
+  
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+    if (permanent.controller !== casterId) continue; // Only controller's permanents trigger
+    
+    const permTriggers = detectSpellCastTriggers(permanent.card, permanent);
+    
+    for (const trigger of permTriggers) {
+      let shouldTrigger = false;
+      
+      switch (trigger.spellCondition) {
+        case 'any':
+          shouldTrigger = true;
+          break;
+        case 'creature':
+          shouldTrigger = isCreatureSpell;
+          break;
+        case 'noncreature':
+          shouldTrigger = isNoncreatureSpell;
+          break;
+        case 'instant_sorcery':
+          shouldTrigger = isInstantOrSorcery;
+          break;
+        case 'tribal_type':
+          // Check if the spell has the required creature type
+          if (trigger.tribalType) {
+            const spellSubtypes = extractCreatureTypes(spellTypeLine);
+            shouldTrigger = spellSubtypes.includes(trigger.tribalType.toLowerCase()) ||
+                           spellTypeLine.includes(trigger.tribalType.toLowerCase());
+          }
+          break;
+      }
+      
+      if (shouldTrigger) {
+        triggers.push(trigger);
+      }
+    }
+  }
+  
+  return triggers;
+}
+
+/**
+ * Apply spell-cast untap trigger effects (Jeskai Ascendancy, Paradox Engine)
+ */
+function applySpellCastUntapTrigger(game: any, playerId: string): number {
+  const battlefield = game.state?.battlefield || [];
+  let untappedCount = 0;
+  
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.tapped) continue;
+    if (permanent.controller !== playerId) continue;
+    
+    const typeLine = (permanent.card?.type_line || '').toLowerCase();
+    
+    // Untap creatures (Jeskai Ascendancy pattern)
+    if (typeLine.includes('creature')) {
+      permanent.tapped = false;
+      untappedCount++;
+    }
+  }
+  
+  return untappedCount;
+}
+
+/**
  * Apply cost reduction to a parsed mana cost
  */
 function applyCostReduction(
@@ -859,6 +937,79 @@ function creatureHasHaste(permanent: any, battlefield: any[], controller: string
     console.warn('[creatureHasHaste] Error checking haste:', err);
     return false;
   }
+}
+
+/**
+ * Check if a card has the Miracle ability and extract the miracle cost
+ * Rule 702.94 - Miracle allows casting a spell for its miracle cost if it's the first card drawn this turn
+ * 
+ * @param card The card to check
+ * @returns Object with hasMiracle boolean and miracleCost string if applicable
+ */
+function checkMiracle(card: any): { hasMiracle: boolean; miracleCost: string | null } {
+  if (!card) return { hasMiracle: false, miracleCost: null };
+  
+  const oracleText = (card.oracle_text || "").toLowerCase();
+  
+  // Check for miracle keyword
+  if (!oracleText.includes('miracle')) {
+    return { hasMiracle: false, miracleCost: null };
+  }
+  
+  // Extract miracle cost - pattern: "Miracle {cost}" or "miracle—{cost}"
+  const miracleMatch = oracleText.match(/miracle[—–\s]*(\{[^}]+\}(?:\{[^}]+\})*)/i);
+  if (miracleMatch) {
+    return { hasMiracle: true, miracleCost: miracleMatch[1] };
+  }
+  
+  // Alternative pattern with spelled out cost
+  const altMatch = oracleText.match(/miracle\s+(\{[wubrg1-9c]\}(?:\{[wubrg1-9c]\})*)/i);
+  if (altMatch) {
+    return { hasMiracle: true, miracleCost: altMatch[1] };
+  }
+  
+  return { hasMiracle: true, miracleCost: null };
+}
+
+/**
+ * Check drawn cards for miracle ability and emit prompt to player
+ * 
+ * @param io Socket.io server
+ * @param game Game instance
+ * @param gameId Game ID
+ * @param playerId Player who drew the cards
+ * @param drawnCards Array of cards drawn
+ */
+function checkAndPromptMiracle(
+  io: Server, 
+  game: any, 
+  gameId: string, 
+  playerId: string, 
+  drawnCards: any[]
+): void {
+  if (!drawnCards || drawnCards.length === 0) return;
+  
+  // Only the first card drawn can trigger miracle
+  const firstCard = drawnCards[0];
+  if (!firstCard || !firstCard.isFirstDrawnThisTurn) return;
+  
+  const { hasMiracle, miracleCost } = checkMiracle(firstCard);
+  if (!hasMiracle) return;
+  
+  // Emit miracle prompt to the player
+  const cardName = firstCard.name || "Unknown Card";
+  const cardImageUrl = firstCard.image_uris?.small || firstCard.image_uris?.normal;
+  
+  console.log(`[miracle] ${cardName} was drawn as first card this turn - prompting for miracle cost ${miracleCost}`);
+  
+  emitToPlayer(io, playerId, "miraclePrompt", {
+    gameId,
+    cardId: firstCard.id,
+    cardName,
+    imageUrl: cardImageUrl,
+    miracleCost: miracleCost || "Miracle cost",
+    normalCost: firstCard.mana_cost || "",
+  });
 }
 
 export function registerGameActions(io: Server, socket: Socket) {
@@ -1450,6 +1601,72 @@ export function registerGameActions(io: Server, socket: Socket) {
         });
       } catch (e) {
         console.warn('appendEvent(castSpell) failed:', e);
+      }
+      
+      // Check for spell-cast triggers (Jeskai Ascendancy, Beast Whisperer, etc.)
+      try {
+        const spellCastTriggers = getSpellCastTriggersForCard(game, playerId, cardInHand);
+        for (const trigger of spellCastTriggers) {
+          console.log(`[castSpellFromHand] Triggered: ${trigger.cardName} - ${trigger.description}`);
+          
+          // Handle different trigger effects
+          if (trigger.effect.toLowerCase().includes('draw a card') || 
+              trigger.effect.toLowerCase().includes('draw')) {
+            // Draw a card effect (Beast Whisperer, Archmage Emeritus)
+            if (typeof game.drawCards === 'function') {
+              const drawn = game.drawCards(playerId, 1);
+              io.to(gameId).emit("chat", {
+                id: `m_${Date.now()}`,
+                gameId,
+                from: "system",
+                message: `${trigger.cardName}: ${getPlayerName(game, playerId)} draws a card.`,
+                ts: Date.now(),
+              });
+            }
+          }
+          
+          if (trigger.effect.toLowerCase().includes('untap')) {
+            // Untap effect (Jeskai Ascendancy)
+            applySpellCastUntapTrigger(game, playerId);
+          }
+          
+          // Token creation handled separately
+          if (trigger.createsToken && trigger.tokenDetails) {
+            // Create the token (Deeproot Waters, Murmuring Mystic)
+            const tokenId = `token_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            const token = {
+              id: tokenId,
+              controller: playerId,
+              owner: playerId,
+              tapped: false,
+              counters: {},
+              basePower: trigger.tokenDetails.power,
+              baseToughness: trigger.tokenDetails.toughness,
+              summoningSickness: true,
+              isToken: true,
+              card: {
+                id: tokenId,
+                name: trigger.tokenDetails.name,
+                type_line: trigger.tokenDetails.types,
+                power: String(trigger.tokenDetails.power),
+                toughness: String(trigger.tokenDetails.toughness),
+                zone: "battlefield",
+              },
+            };
+            game.state.battlefield = game.state.battlefield || [];
+            game.state.battlefield.push(token as any);
+            
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `${trigger.cardName}: ${getPlayerName(game, playerId)} creates a ${trigger.tokenDetails.power}/${trigger.tokenDetails.toughness} ${trigger.tokenDetails.name}.`,
+              ts: Date.now(),
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('[castSpellFromHand] Failed to process spell-cast triggers:', err);
       }
       
       io.to(gameId).emit("chat", {
@@ -2206,6 +2423,11 @@ export function registerGameActions(io: Server, socket: Socket) {
             console.log(
               `[skipToPhase] Drew ${drawn?.length || totalDraws} card(s) for ${turnPlayer} (skipped from ${currentStep} to ${targetStep})`
             );
+            
+            // Check for miracle on the first drawn card
+            if (Array.isArray(drawn) && drawn.length > 0) {
+              checkAndPromptMiracle(io, game, gameId, turnPlayer, drawn);
+            }
             
             // Persist the draw event
             try {
@@ -3483,6 +3705,197 @@ export function registerGameActions(io: Server, socket: Socket) {
         code: "SET_HOUSE_RULES_ERROR",
         message: err?.message ?? String(err),
       });
+    }
+  });
+
+  // ============================================================================
+  // Miracle Handling (Rule 702.94)
+  // ============================================================================
+
+  /**
+   * Handle miracle cast - player chose to cast a spell for its miracle cost
+   * This is called when a player decides to cast a spell for its miracle cost
+   * after drawing it as the first card this turn.
+   */
+  socket.on("castMiracle", ({ gameId, cardId, payment }: {
+    gameId: string;
+    cardId: string;
+    payment?: PaymentItem[];
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId || socket.data.spectator) return;
+
+      // Find the card in hand
+      const zones = game.state?.zones?.[playerId];
+      if (!zones || !Array.isArray(zones.hand)) {
+        socket.emit("error", {
+          code: "NO_HAND",
+          message: "Hand not found",
+        });
+        return;
+      }
+
+      const hand = zones.hand as any[];
+      const cardInHand = hand.find((c: any) => c?.id === cardId);
+      
+      if (!cardInHand) {
+        socket.emit("error", {
+          code: "CARD_NOT_IN_HAND",
+          message: "Card not found in hand",
+        });
+        return;
+      }
+
+      // Verify this card was the first drawn this turn
+      if (!cardInHand.isFirstDrawnThisTurn) {
+        socket.emit("error", {
+          code: "NOT_FIRST_DRAWN",
+          message: "Miracle can only be cast on the first card drawn this turn",
+        });
+        return;
+      }
+
+      // Verify the card has miracle
+      const { hasMiracle, miracleCost } = checkMiracle(cardInHand);
+      if (!hasMiracle) {
+        socket.emit("error", {
+          code: "NO_MIRACLE",
+          message: "This card does not have miracle",
+        });
+        return;
+      }
+
+      // Process the miracle cost payment and cast
+      // (Similar to castSpellFromHand but with miracle cost)
+      const parsedCost = parseManaCost(miracleCost || '');
+      
+      // Handle mana payment (same as regular casting)
+      if (payment && payment.length > 0) {
+        const globalBattlefield = game.state?.battlefield || [];
+        for (const { permanentId, mana, count } of payment) {
+          const permanent = globalBattlefield.find((p: any) => p?.id === permanentId && p?.controller === playerId);
+          if (!permanent) continue;
+          if ((permanent as any).tapped) continue;
+          
+          (permanent as any).tapped = true;
+          
+          const manaColorMap: Record<string, string> = {
+            'W': 'white', 'U': 'blue', 'B': 'black', 'R': 'red', 'G': 'green', 'C': 'colorless',
+          };
+          
+          // Initialize mana pool
+          game.state.manaPool = game.state.manaPool || {};
+          (game.state.manaPool as any)[playerId] = (game.state.manaPool as any)[playerId] || {
+            white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+          };
+          
+          const manaAmount = count || 1;
+          const poolKey = manaColorMap[mana];
+          if (poolKey && manaAmount > 0) {
+            (game.state.manaPool[playerId] as any)[poolKey] += manaAmount;
+          }
+        }
+      }
+
+      // Consume mana from pool
+      const pool = getOrInitManaPool(game.state, playerId);
+      consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[castMiracle]');
+
+      // Remove from hand and add to stack
+      const idx = hand.findIndex((c: any) => c?.id === cardId);
+      if (idx !== -1) {
+        const [removedCard] = hand.splice(idx, 1);
+        zones.handCount = hand.length;
+        
+        // Clear the first drawn flag
+        delete removedCard.isFirstDrawnThisTurn;
+        delete removedCard.drawnAt;
+        
+        // Add to stack
+        game.state.stack = game.state.stack || [];
+        const stackItem = {
+          id: `stack_${Date.now()}_${cardId}`,
+          controller: playerId,
+          card: { ...removedCard, zone: "stack" },
+          targets: [],
+          castWithMiracle: true,
+        };
+        game.state.stack.push(stackItem as any);
+      }
+
+      // Bump sequence
+      if (typeof game.bumpSeq === 'function') {
+        game.bumpSeq();
+      }
+
+      // Persist the event
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, "castMiracle", {
+          playerId,
+          cardId,
+          cardName: cardInHand.name,
+          miracleCost,
+        });
+      } catch (e) {
+        console.warn("appendEvent(castMiracle) failed:", e);
+      }
+
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `✨ ${getPlayerName(game, playerId)} cast ${cardInHand.name} for its miracle cost!`,
+        ts: Date.now(),
+      });
+
+      broadcastGame(io, game, gameId);
+    } catch (err: any) {
+      console.error(`castMiracle error for game ${gameId}:`, err);
+      socket.emit("error", {
+        code: "CAST_MIRACLE_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
+
+  /**
+   * Handle declining miracle - player chose not to cast the spell for miracle cost
+   * The card remains in hand as a normal card.
+   */
+  socket.on("declineMiracle", ({ gameId, cardId }: {
+    gameId: string;
+    cardId: string;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId || socket.data.spectator) return;
+
+      // Find the card in hand and clear the miracle flag
+      const zones = game.state?.zones?.[playerId];
+      if (!zones || !Array.isArray(zones.hand)) return;
+
+      const hand = zones.hand as any[];
+      const cardInHand = hand.find((c: any) => c?.id === cardId);
+      
+      if (cardInHand) {
+        // Clear the first drawn flag - player declined miracle
+        delete cardInHand.isFirstDrawnThisTurn;
+        delete cardInHand.drawnAt;
+        
+        console.log(`[declineMiracle] ${playerId} declined miracle for ${cardInHand.name}`);
+      }
+
+      // Bump sequence
+      if (typeof game.bumpSeq === 'function') {
+        game.bumpSeq();
+      }
+
+      broadcastGame(io, game, gameId);
+    } catch (err: any) {
+      console.error(`declineMiracle error for game ${gameId}:`, err);
     }
   });
 }
