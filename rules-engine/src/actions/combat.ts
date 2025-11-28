@@ -14,6 +14,13 @@ import type { GameState, CombatInfo, CombatantInfo } from '../../../shared/src';
 import { GameStep as SharedGameStep } from '../../../shared/src';
 import type { EngineResult, ActionContext, BaseAction } from '../core/types';
 import { RulesEngineEvent } from '../core/events';
+import {
+  checkAttackCosts,
+  collectPillowfortEffects,
+  getAttackCostDescription,
+  type AttackCostCheckResult,
+  type AttackCostRequirement,
+} from '../pillowfortEffects';
 
 export interface AttackerDeclaration {
   readonly creatureId: string;
@@ -704,11 +711,12 @@ export function getLegalBlockers(state: GameState, playerId: string, attackerId?
  * - Must not have defender
  * - Must not have summoning sickness (unless has haste)
  * - Must not have "can't attack" effects
+ * - Must be able to pay pillowfort costs (Propaganda, Ghostly Prison, etc.)
  */
 export function validateDeclareAttackers(
   state: GameState,
   action: DeclareAttackersAction
-): { legal: boolean; reason?: string } {
+): { legal: boolean; reason?: string; pillowfortCosts?: AttackCostCheckResult } {
   // Check if it's the declare attackers step
   if (state.step !== SharedGameStep.DECLARE_ATTACKERS) {
     return { legal: false, reason: 'Not in declare attackers step' };
@@ -743,6 +751,38 @@ export function validateDeclareAttackers(
     const validationResult = canPermanentAttack(permanent, action.playerId);
     if (!validationResult.canParticipate) {
       return { legal: false, reason: validationResult.reason || 'Cannot attack with this permanent' };
+    }
+  }
+  
+  // Check pillowfort costs for each defending player
+  // Group attackers by defending player to check costs per defender
+  const attackersByDefender = new Map<string, number>();
+  for (const attacker of action.attackers) {
+    const current = attackersByDefender.get(attacker.defendingPlayerId) || 0;
+    attackersByDefender.set(attacker.defendingPlayerId, current + 1);
+  }
+  
+  // Check if attacker can afford pillowfort costs for each defender
+  for (const [defendingPlayerId, creatureCount] of attackersByDefender) {
+    const costCheck = checkAttackCosts(
+      state,
+      action.playerId,
+      defendingPlayerId,
+      creatureCount
+    );
+    
+    if (!costCheck.canAffordAll && costCheck.requirements.length > 0) {
+      const description = getAttackCostDescription(
+        costCheck.requirements,
+        creatureCount,
+        costCheck.totalManaCost,
+        costCheck.totalLifeCost
+      );
+      return { 
+        legal: false, 
+        reason: `Cannot afford attack costs: ${description}`,
+        pillowfortCosts: costCheck,
+      };
     }
   }
   
