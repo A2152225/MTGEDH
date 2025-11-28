@@ -24,7 +24,9 @@ export async function initDb(): Promise<void> {
       game_id TEXT PRIMARY KEY,
       format TEXT NOT NULL,
       starting_life INTEGER NOT NULL,
-      created_at INTEGER NOT NULL
+      created_at INTEGER NOT NULL,
+      created_by_socket_id TEXT,
+      created_by_player_id TEXT
     );
 
     CREATE TABLE IF NOT EXISTS events (
@@ -40,12 +42,44 @@ export async function initDb(): Promise<void> {
     CREATE INDEX IF NOT EXISTS events_game_idx ON events(game_id, id);
     CREATE INDEX IF NOT EXISTS events_game_seq_idx ON events(game_id, seq);
   `);
+  
+  // Migration: add created_by columns if they don't exist (for existing databases)
+  try {
+    // Check if columns exist by attempting to select them
+    db.prepare('SELECT created_by_socket_id FROM games LIMIT 1').get();
+  } catch {
+    // Column doesn't exist, add it
+    try {
+      db.exec('ALTER TABLE games ADD COLUMN created_by_socket_id TEXT');
+      console.log('[DB] Added created_by_socket_id column');
+    } catch (e) {
+      // Column might already exist from a different migration path
+    }
+  }
+  
+  try {
+    db.prepare('SELECT created_by_player_id FROM games LIMIT 1').get();
+  } catch {
+    try {
+      db.exec('ALTER TABLE games ADD COLUMN created_by_player_id TEXT');
+      console.log('[DB] Added created_by_player_id column');
+    } catch (e) {
+      // Column might already exist
+    }
+  }
 }
 
 /**
  * Ensure a row exists in games; keeps format/starting_life updated.
+ * Optionally tracks who created the game via socketId and playerId.
  */
-export function createGameIfNotExists(gameId: string, format: string, startingLife: number): void {
+export function createGameIfNotExists(
+  gameId: string, 
+  format: string, 
+  startingLife: number,
+  createdBySocketId?: string,
+  createdByPlayerId?: string
+): void {
   ensureDB();
 
   // Defensive guard: invalid or empty gameId should never be persisted.
@@ -58,8 +92,8 @@ export function createGameIfNotExists(gameId: string, format: string, startingLi
   const now = Date.now();
 
   const insertSql = `
-    INSERT OR IGNORE INTO games (game_id, format, starting_life, created_at)
-    VALUES (?, ?, ?, ?)
+    INSERT OR IGNORE INTO games (game_id, format, starting_life, created_at, created_by_socket_id, created_by_player_id)
+    VALUES (?, ?, ?, ?, ?, ?)
   `;
   const updateSql = `UPDATE games SET format = ?, starting_life = ? WHERE game_id = ?`;
 
@@ -68,8 +102,8 @@ export function createGameIfNotExists(gameId: string, format: string, startingLi
     // Log exact SQL and args to diagnose binding issues
     try {
       console.debug("[DB] Running insert:", insertSql.trim().replace(/\s+/g, " "));
-      console.debug("[DB] Params:", { gameId, format, startingLife: startingLife | 0, now });
-      insert.run(gameId, format, startingLife | 0, now);
+      console.debug("[DB] Params:", { gameId, format, startingLife: startingLife | 0, now, createdBySocketId, createdByPlayerId });
+      insert.run(gameId, format, startingLife | 0, now, createdBySocketId || null, createdByPlayerId || null);
     } catch (runErr) {
       console.error("[DB] insert.run failed:", runErr && (runErr as Error).message);
       console.error("[DB] insert statement source:", (insert as any).source ?? insertSql);
@@ -190,12 +224,26 @@ function safeParseJSON(text: string | null): unknown {
 }
 
 /**
- * Return a list of persisted games (basic metadata).
+ * Return a list of persisted games (basic metadata including creator info).
  */
-export function listGames(): { game_id: string; format: string; starting_life: number; created_at: number }[] {
+export function listGames(): { 
+  game_id: string; 
+  format: string; 
+  starting_life: number; 
+  created_at: number;
+  created_by_socket_id: string | null;
+  created_by_player_id: string | null;
+}[] {
   ensureDB();
-  const stmt = db!.prepare(`SELECT game_id, format, starting_life, created_at FROM games ORDER BY created_at DESC`);
-  return stmt.all() as { game_id: string; format: string; starting_life: number; created_at: number }[];
+  const stmt = db!.prepare(`SELECT game_id, format, starting_life, created_at, created_by_socket_id, created_by_player_id FROM games ORDER BY created_at DESC`);
+  return stmt.all() as { 
+    game_id: string; 
+    format: string; 
+    starting_life: number; 
+    created_at: number;
+    created_by_socket_id: string | null;
+    created_by_player_id: string | null;
+  }[];
 }
 
 /**
@@ -266,4 +314,47 @@ export function getEventCount(gameId: string): number {
   const stmt = db!.prepare(`SELECT COUNT(*) as count FROM events WHERE game_id = ?`);
   const result = stmt.get(gameId) as { count: number } | undefined;
   return result?.count || 0;
+}
+
+/**
+ * Get creator info for a game.
+ */
+export function getGameCreator(gameId: string): { 
+  created_by_socket_id: string | null; 
+  created_by_player_id: string | null 
+} | null {
+  ensureDB();
+  const stmt = db!.prepare(`SELECT created_by_socket_id, created_by_player_id FROM games WHERE game_id = ?`);
+  const result = stmt.get(gameId) as { 
+    created_by_socket_id: string | null; 
+    created_by_player_id: string | null 
+  } | undefined;
+  return result || null;
+}
+
+/**
+ * Check if a player is the creator of a game.
+ * Returns true if the playerId matches the game's created_by_player_id.
+ */
+export function isGameCreator(gameId: string, playerId: string): boolean {
+  const creator = getGameCreator(gameId);
+  if (!creator || !creator.created_by_player_id) {
+    return false;
+  }
+  return creator.created_by_player_id === playerId;
+}
+
+/**
+ * Update the creator's player ID for a game.
+ * This is called when the first player joins a game, as the initial socket ID
+ * might not have a player ID yet.
+ */
+export function updateGameCreatorPlayerId(gameId: string, playerId: string): void {
+  ensureDB();
+  try {
+    const stmt = db!.prepare(`UPDATE games SET created_by_player_id = ? WHERE game_id = ? AND created_by_player_id IS NULL`);
+    stmt.run(playerId, gameId);
+  } catch (err) {
+    console.error("[DB] updateGameCreatorPlayerId failed:", (err as Error).message);
+  }
 }

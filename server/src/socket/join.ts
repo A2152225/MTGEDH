@@ -1,7 +1,7 @@
 import type { Server, Socket } from "socket.io";
 import { randomBytes } from "crypto";
 import { ensureGame, broadcastGame, schedulePriorityTimeout } from "./util";
-import { appendEvent } from "../db";
+import { appendEvent, updateGameCreatorPlayerId, getGameCreator } from "../db";
 import { computeDiff } from "../utils/diff";
 import { games } from "./socket";
 
@@ -744,6 +744,18 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
 
             // Persist join event if new
             if (!spectator && added) {
+              // Track game creator: if this is the first human player and no creator is set,
+              // set this player as the creator
+              try {
+                const creatorInfo = getGameCreator(gameId);
+                if (creatorInfo && !creatorInfo.created_by_player_id) {
+                  updateGameCreatorPlayerId(gameId, playerId);
+                  console.info(`[join] Set game creator for ${gameId} to player ${playerId}`);
+                }
+              } catch (e) {
+                console.warn("joinGame: failed to update game creator (non-fatal):", e);
+              }
+              
               try {
                 await appendEvent(
                   gameId,

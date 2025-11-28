@@ -6,14 +6,22 @@ type GameRow = {
   format: string;
   startingLife: number;
   createdAt: number;
+  createdByPlayerId: string | null;
   playersCount: number;
   turn: number | null;
   phase: string | null;
   status: string | null;
 };
 
-export default function GameList(props: { onJoin: (gameId: string) => void; pollMs?: number; onRefresh?: () => void }) {
-  const { onJoin, pollMs = 5000, onRefresh } = props;
+interface GameListProps {
+  onJoin: (gameId: string) => void;
+  pollMs?: number;
+  onRefresh?: () => void;
+  currentPlayerId?: string | null;
+}
+
+export default function GameList(props: GameListProps) {
+  const { onJoin, pollMs = 5000, onRefresh, currentPlayerId } = props;
   const [games, setGames] = useState<GameRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -63,17 +71,37 @@ export default function GameList(props: { onJoin: (gameId: string) => void; poll
   };
 
   const isLocalhost = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.hostname === "");
-  const handleDelete = async (id: string) => {
-    if (!isLocalhost) return;
-    if (!confirm(`Delete game ${id}? This removes persisted events.`)) return;
+  
+  // Check if the current player can delete a specific game
+  const canDelete = (game: GameRow): boolean => {
+    // Localhost can always delete
+    if (isLocalhost) return true;
+    // Game creators can delete their games
+    if (currentPlayerId && game.createdByPlayerId === currentPlayerId) return true;
+    return false;
+  };
+  
+  const handleDelete = async (game: GameRow) => {
+    const isCreator = currentPlayerId && game.createdByPlayerId === currentPlayerId;
+    
+    if (!confirm(`Delete game ${game.id}? This removes persisted events.`)) return;
+    
     try {
-      setDeleting(id);
-      const res = await fetch(`/admin/games/${encodeURIComponent(id)}`, { method: "DELETE" });
-      if (!res.ok) {
-        const txt = await res.text();
-        alert("Delete failed: " + txt);
-      } else {
-        await fetchGames();
+      setDeleting(game.id);
+      
+      if (isLocalhost) {
+        // Admin endpoint for localhost
+        const res = await fetch(`/admin/games/${encodeURIComponent(game.id)}`, { method: "DELETE" });
+        if (!res.ok) {
+          const txt = await res.text();
+          alert("Delete failed: " + txt);
+        } else {
+          await fetchGames();
+        }
+      } else if (isCreator) {
+        // Use socket to delete as the creator
+        socket.emit("deleteGame" as any, { gameId: game.id });
+        // The game will be removed from the list via the gameDeletedAck event listener
       }
     } catch (err) {
       console.error("Delete failed:", err);
@@ -114,8 +142,12 @@ export default function GameList(props: { onJoin: (gameId: string) => void; poll
                 <td style={{ padding: "6px 8px" }}>{g.status ?? "-"}</td>
                 <td style={{ padding: "6px 8px" }}>
                   <button onClick={() => handleJoin(g.id)} style={{ marginRight: 8 }}>Join</button>
-                  {isLocalhost && (
-                    <button disabled={deleting === g.id} onClick={() => handleDelete(g.id)}>
+                  {canDelete(g) && (
+                    <button 
+                      disabled={deleting === g.id} 
+                      onClick={() => handleDelete(g)}
+                      title={currentPlayerId && g.createdByPlayerId === currentPlayerId ? "Delete your game" : "Admin delete"}
+                    >
                       {deleting === g.id ? "Deleting…" : "Delete"}
                     </button>
                   )}

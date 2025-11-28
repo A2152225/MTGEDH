@@ -1831,7 +1831,7 @@ export function App() {
               </div>
 
               <div style={{ marginTop: 8 }}>
-                <GameList onJoin={joinFromList} />
+                <GameList onJoin={joinFromList} currentPlayerId={you} />
               </div>
             </>
           )}
