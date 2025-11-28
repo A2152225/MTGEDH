@@ -652,6 +652,13 @@ function clearManaPool(ctx: GameContext) {
 /**
  * Get the maximum hand size for a player.
  * Default is 7, but effects like "no maximum hand size" can change this.
+ * 
+ * Considers:
+ * 1. Permanent effects (Reliquary Tower, Thought Vessel, Spellbook, Venser's Journal)
+ * 2. Spell effects that persist (Praetor's Counsel - "for the rest of the game")
+ * 3. Player-specific state overrides
+ * 4. Emblems with hand size effects
+ * 
  * @param ctx Game context
  * @param playerId Player ID
  * @returns Maximum hand size for the player (Infinity for no maximum)
@@ -662,26 +669,56 @@ function getMaxHandSize(ctx: GameContext, playerId: string): number {
     const state = (ctx as any).state;
     if (!state) return 7;
     
-    // Check player-specific overrides
+    // Check player-specific overrides (set by spells like Praetor's Counsel)
     // maxHandSize can be: a number, Infinity, or undefined
     const playerMaxHandSize = state.maxHandSize?.[playerId];
     if (playerMaxHandSize === Infinity || playerMaxHandSize === Number.POSITIVE_INFINITY) {
       return Infinity;
     }
-    if (typeof playerMaxHandSize === "number" && playerMaxHandSize > 0) {
-      return playerMaxHandSize;
+    
+    // Check for "no maximum hand size" flags set by resolved spells
+    // This handles Praetor's Counsel and similar effects
+    const noMaxHandSize = state.noMaximumHandSize?.[playerId];
+    if (noMaxHandSize === true) {
+      return Infinity;
+    }
+    
+    // Check player effects array for hand size modifications
+    const playerEffects = state.playerEffects?.[playerId] || [];
+    for (const effect of playerEffects) {
+      if (effect && (effect.type === 'no_maximum_hand_size' || 
+                     effect.effect === 'no_maximum_hand_size')) {
+        return Infinity;
+      }
     }
     
     // Check for battlefield permanents that grant "no maximum hand size"
-    // Examples: Reliquary Tower, Thought Vessel, Spellbook
+    // Examples: Reliquary Tower, Thought Vessel, Spellbook, Venser's Journal
     const battlefield = state.battlefield || [];
     for (const perm of battlefield) {
       if (perm && perm.controller === playerId) {
         const oracle = (perm.card?.oracle_text || "").toLowerCase();
-        if (oracle.includes("you have no maximum hand size")) {
+        if (oracle.includes("you have no maximum hand size") ||
+            oracle.includes("no maximum hand size")) {
           return Infinity;
         }
       }
+    }
+    
+    // Check emblems controlled by the player
+    const emblems = state.emblems || [];
+    for (const emblem of emblems) {
+      if (emblem && emblem.controller === playerId) {
+        const effect = (emblem.effect || emblem.text || "").toLowerCase();
+        if (effect.includes("no maximum hand size")) {
+          return Infinity;
+        }
+      }
+    }
+    
+    // Check for a numeric override
+    if (typeof playerMaxHandSize === "number" && playerMaxHandSize > 0) {
+      return playerMaxHandSize;
     }
     
     // Default maximum hand size

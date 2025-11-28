@@ -1047,26 +1047,73 @@ export function App() {
       return ['W', 'U', 'B', 'R', 'G', 'C'];
     }
     
-    // Count mana symbols in "add {X}{X}" patterns
-    // This handles cards like Sol Ring ({T}: Add {C}{C}) which produce multiple mana
-    const addPattern = /add\s+((?:\{[wubrgc]\})+)/gi;
-    let match;
-    while ((match = addPattern.exec(text)) !== null) {
-      const manaSymbols = match[1];
-      // Count each symbol type
-      const wCount = (manaSymbols.match(/\{w\}/gi) || []).length;
-      const uCount = (manaSymbols.match(/\{u\}/gi) || []).length;
-      const bCount = (manaSymbols.match(/\{b\}/gi) || []).length;
-      const rCount = (manaSymbols.match(/\{r\}/gi) || []).length;
-      const gCount = (manaSymbols.match(/\{g\}/gi) || []).length;
-      const cCount = (manaSymbols.match(/\{c\}/gi) || []).length;
+    // Parse mana production from oracle text - handles multiple patterns:
+    // 1. Consecutive symbols: "Add {C}{C}" (Sol Ring)
+    // 2. Choice patterns: "Add {R}, {G}, or {W}" (Jungle Shrine, tri-lands)
+    // 3. Two-color patterns: "Add {W} or {U}" (dual lands like Adarkar Wastes)
+    // 4. Multiple add abilities: "Add {C}. Add {B} or {G}." (Llanowar Wastes)
+    
+    // Find ALL "Add" statements in the oracle text (handles multiple mana abilities)
+    const addStatementMatches = text.matchAll(/add\s+([^.]+)/gi);
+    const colorSet = new Set<ManaColor>();
+    let hasMultiMana = false;
+    
+    for (const match of addStatementMatches) {
+      const addStatement = match[1];
       
-      for (let i = 0; i < wCount; i++) colors.push('W');
-      for (let i = 0; i < uCount; i++) colors.push('U');
-      for (let i = 0; i < bCount; i++) colors.push('B');
-      for (let i = 0; i < rCount; i++) colors.push('R');
-      for (let i = 0; i < gCount; i++) colors.push('G');
-      for (let i = 0; i < cCount; i++) colors.push('C');
+      // Extract all mana symbols from this add statement
+      const symbolMatches = addStatement.match(/\{[wubrgc]\}/gi) || [];
+      
+      // Count each symbol type for multi-mana sources like Sol Ring
+      const symbolCounts: Record<string, number> = { w: 0, u: 0, b: 0, r: 0, g: 0, c: 0 };
+      for (const sym of symbolMatches) {
+        const color = sym.replace(/[{}]/g, '').toLowerCase();
+        if (color in symbolCounts) {
+          symbolCounts[color]++;
+        }
+      }
+      
+      // Check if this is a "choice" pattern (has "or" or commas between symbols)
+      // or a "multi-mana" pattern (consecutive symbols like {C}{C})
+      // Examples:
+      // - Choice: "{R}, {G}, or {W}" (Jungle Shrine), "{R} or {G}" (Temple of Abandon)
+      // - Multi-mana: "{C}{C}" (Sol Ring), "{G}{G}" (some enchantments)
+      const isChoicePattern = addStatement.includes(' or ') || 
+                              addStatement.includes(',');
+      
+      if (isChoicePattern) {
+        // For choice patterns, add each unique color once
+        if (symbolCounts.w > 0) colorSet.add('W');
+        if (symbolCounts.u > 0) colorSet.add('U');
+        if (symbolCounts.b > 0) colorSet.add('B');
+        if (symbolCounts.r > 0) colorSet.add('R');
+        if (symbolCounts.g > 0) colorSet.add('G');
+        if (symbolCounts.c > 0) colorSet.add('C');
+      } else {
+        // For multi-mana patterns (like Sol Ring {C}{C}), add each occurrence
+        // This means Sol Ring will have ['C', 'C'] to indicate 2 colorless mana
+        for (let i = 0; i < symbolCounts.w; i++) colorSet.add('W');
+        for (let i = 0; i < symbolCounts.u; i++) colorSet.add('U');
+        for (let i = 0; i < symbolCounts.b; i++) colorSet.add('B');
+        for (let i = 0; i < symbolCounts.r; i++) colorSet.add('R');
+        for (let i = 0; i < symbolCounts.g; i++) colorSet.add('G');
+        // For colorless multi-mana, we need to track duplicates
+        if (symbolCounts.c > 1) {
+          hasMultiMana = true;
+          // Add duplicates to colors array (colorSet only stores unique values)
+          for (let i = 0; i < symbolCounts.c; i++) colors.push('C');
+        } else if (symbolCounts.c > 0) {
+          colorSet.add('C');
+        }
+      }
+    }
+    
+    // Add all unique colors from the set (avoiding duplicates for choice patterns)
+    // But skip if we already added multi-mana colorless directly
+    for (const c of colorSet) {
+      if (!(c === 'C' && hasMultiMana)) {
+        colors.push(c);
+      }
     }
     
     // If no mana symbols found in add patterns, check for basic patterns
