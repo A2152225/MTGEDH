@@ -245,10 +245,12 @@ export function groupSimultaneousTriggers(
   
   for (const trigger of triggers) {
     const controllerId = trigger.controllerId;
-    if (!triggersByController.has(controllerId)) {
-      triggersByController.set(controllerId, []);
+    const existingTriggers = triggersByController.get(controllerId);
+    if (existingTriggers) {
+      existingTriggers.push(trigger);
+    } else {
+      triggersByController.set(controllerId, [trigger]);
     }
-    triggersByController.get(controllerId)!.push(trigger);
   }
   
   // Create groups, marking which ones need ordering (more than 1 trigger)

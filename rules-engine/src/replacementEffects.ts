@@ -238,8 +238,16 @@ export function parseReplacementEffectsFromText(
     });
   }
   
-  // Mox Diamond-style: "If ~ would enter the battlefield, you may [action] instead. If you do, put ~ onto the battlefield. If you don't, put it into its owner's graveyard."
-  const conditionalETBMatch = text.match(/if .+? would enter the battlefield,?\s*you may\s+(.+?)\s+instead\.?\s*if you do,?\s*(.+?)\.?\s*if you don'?t,?\s*(.+?)[.]/i);
+  // Mox Diamond-style: "If ~ would enter the battlefield, you may [action] instead. 
+  // If you do, put ~ onto the battlefield. If you don't, put it into its owner's graveyard."
+  // Pattern broken into logical parts for maintainability:
+  // - "if [card] would enter the battlefield"
+  // - "you may [action] instead"
+  // - "if you do, [effect]"
+  // - "if you don't, [else effect]"
+  const conditionalETBMatch = text.match(
+    /if .+? would enter the battlefield,?\s*you may\s+(.+?)\s+instead\.?\s*if you do,?\s*(.+?)\.?\s*if you don'?t,?\s*(.+?)[.]/i
+  );
   if (conditionalETBMatch) {
     effects.push({
       type: ReplacementEffectType.ENTERS_CONDITIONAL,
@@ -254,8 +262,11 @@ export function parseReplacementEffectsFromText(
     });
   }
   
-  // Undead Alchemist-style: "If a [creature type] you control would deal combat damage to a player, instead that player mills that many cards"
-  const combatDamageToMillMatch = text.match(/if (?:a |an )?(\w+)(?: you control)? would deal combat damage to a player,?\s*instead\s+that player mills?\s+(?:that many|(\d+))\s*cards?/i);
+  // Undead Alchemist-style: "If a [creature type] you control would deal combat damage to a player, 
+  // instead that player mills that many cards"
+  const combatDamageToMillMatch = text.match(
+    /if (?:a |an )?(\w+)(?: you control)? would deal combat damage to a player,?\s*instead\s+that player mills?\s+(?:that many|(\d+))\s*cards?/i
+  );
   if (combatDamageToMillMatch) {
     // Capitalize the creature type for consistent matching
     const creatureType = combatDamageToMillMatch[1].charAt(0).toUpperCase() + combatDamageToMillMatch[1].slice(1);
@@ -271,25 +282,37 @@ export function parseReplacementEffectsFromText(
     });
   }
   
-  // Rest in Peace / Leyline of the Void style: "If a card would be put into a graveyard from anywhere, exile it instead"
-  // Also handles: "If a card would be put into an opponent's graveyard from anywhere, exile it instead"
-  // Also handles: "If a card or token would be put into a graveyard from anywhere, exile it instead"
-  const graveyardToExileMatch = text.match(/if (?:a |one or more )?(?:cards?|cards? or tokens?) would be put into (?:a |an |your |an opponent'?s? )?graveyard(?: from anywhere)?,?\s*exile (?:it|that card|them) instead/i);
-  if (graveyardToExileMatch) {
-    effects.push({
-      type: ReplacementEffectType.GRAVEYARD_TO_EXILE,
-      sourceId: permanentId,
-      controllerId,
-      affectedEvent: 'put_into_graveyard',
-      replacement: 'exile instead',
-      isSelfReplacement: false,
-      condition: text.includes("opponent's") ? 'opponent_only' : undefined,
-    });
+  // Rest in Peace / Leyline of the Void style graveyard replacement
+  // Handles multiple patterns:
+  // - "If a card would be put into a graveyard from anywhere, exile it instead" (Rest in Peace)
+  // - "If a card would be put into an opponent's graveyard from anywhere, exile it instead" (Leyline)
+  // - "If a card or token would be put into a graveyard..." (Rest in Peace full text)
+  const graveyardToExilePatterns = [
+    /if a card would be put into a graveyard from anywhere,?\s*exile it instead/i,
+    /if a card would be put into an opponent'?s graveyard from anywhere,?\s*exile it instead/i,
+    /if (?:a |one or more )?(?:cards? or tokens?) would be put into (?:a )?graveyard(?: from anywhere)?,?\s*exile (?:it|that card|them) instead/i,
+  ];
+  
+  for (const pattern of graveyardToExilePatterns) {
+    if (pattern.test(text)) {
+      effects.push({
+        type: ReplacementEffectType.GRAVEYARD_TO_EXILE,
+        sourceId: permanentId,
+        controllerId,
+        affectedEvent: 'put_into_graveyard',
+        replacement: 'exile instead',
+        isSelfReplacement: false,
+        condition: text.includes("opponent's") ? 'opponent_only' : undefined,
+      });
+      break; // Only add once even if multiple patterns match
+    }
   }
   
   // Oona, Queen of the Fae style ability detection: "exiles the top X cards of their library"
-  // This is an activated ability that exiles from library, not a replacement effect per se,
-  // but we want to detect the pattern of "exile from library" + "create tokens for each"
+  // NOTE: This is technically an activated ability effect, not a replacement effect.
+  // We parse it here to enable the game engine to recognize cards that exile from library
+  // (instead of milling to graveyard) so the UI and automation can handle them correctly.
+  // The MILL_TO_EXILE type is used to indicate "this effect exiles cards from library".
   const exileFromLibraryMatch = text.match(/(?:target (?:opponent|player) )?exiles? the top (\d+|x) cards? of (?:their|his or her|your) library/i);
   if (exileFromLibraryMatch) {
     effects.push({
