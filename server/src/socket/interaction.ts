@@ -1538,7 +1538,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
     
     // Check if this is a mana ability (doesn't use the stack)
-    const isManaAbility = oracleText.includes('add {') || oracleText.includes('add one mana');
+    // Mana abilities are abilities that produce mana and don't target
+    const isManaAbility = /add\s*(\{[wubrgc]\}|mana|one mana|two mana|three mana)/i.test(oracleText);
     
     if (!isManaAbility) {
       // Put the ability on the stack

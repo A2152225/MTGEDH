@@ -122,6 +122,38 @@ export interface ClientToServerEvents {
   // Mulligan
   mulliganDecision: (payload: { gameId: GameID; keep: boolean }) => void;
   mulliganBottomCards: (payload: { gameId: GameID; cardIds: string[] }) => void;
+  
+  // ===== JOIN FORCES / TEMPTING OFFER EVENTS =====
+  
+  // Initiate a Join Forces effect (e.g., Minds Aglow, Collective Voyage)
+  initiateJoinForces: (payload: {
+    gameId: GameID;
+    cardName: string;
+    effectDescription: string;
+    cardImageUrl?: string;
+  }) => void;
+  
+  // Submit contribution to a Join Forces effect
+  contributeJoinForces: (payload: {
+    gameId: GameID;
+    joinForcesId: string;
+    amount: number;
+  }) => void;
+  
+  // Initiate a Tempting Offer effect (e.g., Tempt with Discovery)
+  initiateTemptingOffer: (payload: {
+    gameId: GameID;
+    cardName: string;
+    effectDescription: string;
+    cardImageUrl?: string;
+  }) => void;
+  
+  // Respond to a Tempting Offer (accept or decline)
+  respondTemptingOffer: (payload: {
+    gameId: GameID;
+    temptingOfferId: string;
+    accept: boolean;
+  }) => void;
 }
 
 // Events sent from server -> client
@@ -247,6 +279,77 @@ export interface ServerToClientEvents {
     description: string;
     mandatory: boolean;
     value?: number;
+  }) => void;
+  
+  // ===== JOIN FORCES / TEMPTING OFFER EVENTS =====
+  
+  // Join Forces request - prompts all players to contribute mana
+  joinForcesRequest: (payload: {
+    gameId: GameID;
+    id: string;
+    initiator: PlayerID;
+    initiatorName: string;
+    cardName: string;
+    effectDescription: string;
+    cardImageUrl?: string;
+    players: PlayerID[];
+    timeoutMs: number;
+  }) => void;
+  
+  // Join Forces contribution update
+  joinForcesUpdate: (payload: {
+    gameId: GameID;
+    id: string;
+    playerId: PlayerID;
+    playerName: string;
+    contribution: number;
+    responded: PlayerID[];
+    contributions: Record<PlayerID, number>;
+    totalContributions: number;
+  }) => void;
+  
+  // Join Forces completed
+  joinForcesComplete: (payload: {
+    gameId: GameID;
+    id: string;
+    cardName: string;
+    contributions: Record<PlayerID, number>;
+    totalContributions: number;
+    initiator: PlayerID;
+  }) => void;
+  
+  // Tempting Offer request - prompts opponents to accept or decline
+  temptingOfferRequest: (payload: {
+    gameId: GameID;
+    id: string;
+    initiator: PlayerID;
+    initiatorName: string;
+    cardName: string;
+    effectDescription: string;
+    cardImageUrl?: string;
+    opponents: PlayerID[];
+    timeoutMs: number;
+  }) => void;
+  
+  // Tempting Offer response update
+  temptingOfferUpdate: (payload: {
+    gameId: GameID;
+    id: string;
+    playerId: PlayerID;
+    playerName: string;
+    accepted: boolean;
+    responded: PlayerID[];
+    acceptedBy: PlayerID[];
+  }) => void;
+  
+  // Tempting Offer completed
+  temptingOfferComplete: (payload: {
+    gameId: GameID;
+    id: string;
+    cardName: string;
+    acceptedBy: PlayerID[];
+    initiator: PlayerID;
+    initiatorBonusCount: number; // How many times the initiator gets the effect (1 + acceptedBy.length)
   }) => void;
 
   // generic pushes from server
