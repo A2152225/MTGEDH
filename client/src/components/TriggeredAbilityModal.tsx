@@ -6,7 +6,7 @@
  * target selection, or ordering multiple triggers).
  */
 
-import React, { useState } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import type { KnownCardRef } from '../../../shared/src';
 
 export interface TriggerPromptData {
@@ -25,6 +25,7 @@ export interface TriggeredAbilityModalProps {
   triggers: TriggerPromptData[];
   onResolve: (triggerId: string, choice: any) => void;
   onSkip: (triggerId: string) => void;
+  onOrderConfirm?: (orderedTriggerIds: string[]) => void; // New callback for batch ordering
 }
 
 export function TriggeredAbilityModal({
@@ -32,12 +33,31 @@ export function TriggeredAbilityModal({
   triggers,
   onResolve,
   onSkip,
+  onOrderConfirm,
 }: TriggeredAbilityModalProps) {
   const [selectedTargets, setSelectedTargets] = useState<Map<string, string[]>>(new Map());
   const [selectedChoices, setSelectedChoices] = useState<Map<string, string>>(new Map());
+  
+  // For ordering mode: track the order of triggers
+  const [orderedTriggers, setOrderedTriggers] = useState<TriggerPromptData[]>([]);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
-  // Get current trigger (process one at a time)
-  const currentTrigger = triggers[0];
+  // Get only 'order' type triggers
+  const orderTypeTriggers = triggers.filter(t => t.type === 'order');
+  const nonOrderTriggers = triggers.filter(t => t.type !== 'order');
+  
+  // When we have multiple order-type triggers, show the ordering UI
+  const showOrderingMode = orderTypeTriggers.length > 1;
+  
+  // Initialize ordered triggers when the list changes
+  useEffect(() => {
+    if (showOrderingMode) {
+      setOrderedTriggers([...orderTypeTriggers]);
+    }
+  }, [triggers.length, showOrderingMode]);
+
+  // Get current trigger (process one at a time for non-order types)
+  const currentTrigger = showOrderingMode ? null : (nonOrderTriggers[0] || orderTypeTriggers[0]);
 
   const handleMayChoice = (triggerId: string, doit: boolean) => {
     if (doit) {
@@ -90,7 +110,271 @@ export function TriggeredAbilityModal({
     }
   };
 
-  if (!open || !currentTrigger) return null;
+  // Drag and drop handlers for reordering
+  const handleDragStart = useCallback((index: number) => {
+    setDraggedIndex(index);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === index) return;
+    
+    setOrderedTriggers(prev => {
+      const newList = [...prev];
+      const draggedItem = newList[draggedIndex];
+      newList.splice(draggedIndex, 1);
+      newList.splice(index, 0, draggedItem);
+      setDraggedIndex(index);
+      return newList;
+    });
+  }, [draggedIndex]);
+
+  const handleDragEnd = useCallback(() => {
+    setDraggedIndex(null);
+  }, []);
+
+  // Move trigger up in the order
+  const moveTriggerUp = useCallback((index: number) => {
+    if (index === 0) return;
+    setOrderedTriggers(prev => {
+      const newList = [...prev];
+      [newList[index - 1], newList[index]] = [newList[index], newList[index - 1]];
+      return newList;
+    });
+  }, []);
+
+  // Move trigger down in the order
+  const moveTriggerDown = useCallback((index: number) => {
+    if (index >= orderedTriggers.length - 1) return;
+    setOrderedTriggers(prev => {
+      const newList = [...prev];
+      [newList[index], newList[index + 1]] = [newList[index + 1], newList[index]];
+      return newList;
+    });
+  }, [orderedTriggers.length]);
+
+  // Confirm the order - triggers at the top of the list go on the stack first (resolve last)
+  const handleOrderConfirm = useCallback(() => {
+    if (onOrderConfirm) {
+      // Send ordered trigger IDs - first in list goes on stack first (resolves last)
+      onOrderConfirm(orderedTriggers.map(t => t.id));
+    } else {
+      // Fallback: resolve each trigger in order
+      for (const trigger of orderedTriggers) {
+        onResolve(trigger.id, { order: orderedTriggers.indexOf(trigger) });
+      }
+    }
+  }, [orderedTriggers, onOrderConfirm, onResolve]);
+
+  if (!open) return null;
+  
+  // Show ordering UI when we have multiple order-type triggers
+  if (showOrderingMode) {
+    return (
+      <div
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.75)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10002,
+        }}
+      >
+        <div
+          style={{
+            backgroundColor: '#1a1a2e',
+            borderRadius: 12,
+            padding: 24,
+            maxWidth: 600,
+            width: '90%',
+            maxHeight: '85vh',
+            overflow: 'auto',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+            color: '#fff',
+          }}
+        >
+          {/* Header */}
+          <div style={{ marginBottom: 16 }}>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, marginBottom: 8 }}>
+              ⚡ Order Triggered Abilities
+            </h2>
+            <p style={{ margin: 0, fontSize: 13, color: '#aaa' }}>
+              You control {orderedTriggers.length} triggers that happen at the same time.
+              Drag to reorder them, or use the arrows. 
+              <strong style={{ color: '#f59e0b' }}> Top trigger goes on stack first (resolves last).</strong>
+            </p>
+          </div>
+
+          {/* Trigger list with drag handles */}
+          <div style={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            gap: 8, 
+            marginBottom: 20,
+            maxHeight: '50vh',
+            overflowY: 'auto',
+          }}>
+            {orderedTriggers.map((trigger, index) => (
+              <div
+                key={trigger.id}
+                draggable
+                onDragStart={() => handleDragStart(index)}
+                onDragOver={(e) => handleDragOver(e, index)}
+                onDragEnd={handleDragEnd}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: 12,
+                  backgroundColor: draggedIndex === index ? 'rgba(99,102,241,0.3)' : 'rgba(255,255,255,0.05)',
+                  border: '1px solid',
+                  borderColor: draggedIndex === index ? '#6366f1' : 'rgba(255,255,255,0.1)',
+                  borderRadius: 8,
+                  cursor: 'grab',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                {/* Order number */}
+                <div style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: '50%',
+                  backgroundColor: index === 0 ? '#f59e0b' : '#4b5563',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 12,
+                  fontWeight: 'bold',
+                  flexShrink: 0,
+                }}>
+                  {index + 1}
+                </div>
+
+                {/* Card image */}
+                {trigger.imageUrl && (
+                  <img
+                    src={trigger.imageUrl}
+                    alt={trigger.sourceName}
+                    style={{
+                      width: 50,
+                      height: 70,
+                      borderRadius: 4,
+                      objectFit: 'cover',
+                      flexShrink: 0,
+                    }}
+                  />
+                )}
+
+                {/* Trigger info */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>
+                    {trigger.sourceName}
+                  </div>
+                  <div style={{ 
+                    fontSize: 11, 
+                    color: '#aaa',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {trigger.effect}
+                  </div>
+                </div>
+
+                {/* Reorder buttons */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <button
+                    onClick={() => moveTriggerUp(index)}
+                    disabled={index === 0}
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: 4,
+                      border: 'none',
+                      backgroundColor: index === 0 ? '#374151' : '#4b5563',
+                      color: index === 0 ? '#6b7280' : '#fff',
+                      cursor: index === 0 ? 'not-allowed' : 'pointer',
+                      fontSize: 12,
+                    }}
+                    title="Move up (resolve later)"
+                  >
+                    ▲
+                  </button>
+                  <button
+                    onClick={() => moveTriggerDown(index)}
+                    disabled={index === orderedTriggers.length - 1}
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: 4,
+                      border: 'none',
+                      backgroundColor: index === orderedTriggers.length - 1 ? '#374151' : '#4b5563',
+                      color: index === orderedTriggers.length - 1 ? '#6b7280' : '#fff',
+                      cursor: index === orderedTriggers.length - 1 ? 'not-allowed' : 'pointer',
+                      fontSize: 12,
+                    }}
+                    title="Move down (resolve sooner)"
+                  >
+                    ▼
+                  </button>
+                </div>
+
+                {/* Drag handle indicator */}
+                <div style={{ 
+                  color: '#6b7280', 
+                  fontSize: 14,
+                  letterSpacing: 2,
+                  opacity: 0.6,
+                }}>
+                  ⋮⋮
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Resolution order explanation */}
+          <div style={{
+            padding: 12,
+            backgroundColor: 'rgba(245,158,11,0.1)',
+            border: '1px solid rgba(245,158,11,0.3)',
+            borderRadius: 8,
+            marginBottom: 16,
+          }}>
+            <div style={{ fontSize: 12, color: '#fcd34d' }}>
+              <strong>Resolution order:</strong> {orderedTriggers.slice().reverse().map((t, i) => 
+                `${i + 1}. ${t.sourceName}`
+              ).join(' → ')}
+            </div>
+          </div>
+
+          {/* Confirm button */}
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <button
+              onClick={handleOrderConfirm}
+              style={{
+                padding: '14px 40px',
+                borderRadius: 8,
+                border: 'none',
+                backgroundColor: '#10b981',
+                color: '#fff',
+                cursor: 'pointer',
+                fontSize: 15,
+                fontWeight: 600,
+              }}
+            >
+              Confirm Order & Put on Stack
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Regular single-trigger handling
+  if (!currentTrigger) return null;
 
   return (
     <div
@@ -339,11 +623,11 @@ export function TriggeredAbilityModal({
           </div>
         )}
 
-        {/* "Order" type: For ordering multiple simultaneous triggers */}
+        {/* "Order" type: Single trigger - just confirm it */}
         {currentTrigger.type === 'order' && (
           <div>
             <div style={{ fontSize: 13, color: '#aaa', marginBottom: 12 }}>
-              This trigger will go on the stack.
+              This triggered ability will go on the stack.
             </div>
             <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
               <button

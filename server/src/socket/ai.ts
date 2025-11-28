@@ -1496,34 +1496,63 @@ async function handleBounceLandETB(game: any, playerId: PlayerID, bounceLandName
   const battlefield = game.state.battlefield;
   const zones = game.state?.zones?.[playerId];
   
-  // Find all lands controlled by this player (excluding the bounce land just played)
+  // Find all lands controlled by this player, INCLUDING the bounce land itself.
+  // Per MTG rules, the bounce land can return itself to hand.
+  // This is important for turn 1 scenarios where it's the only land you control.
   const controlledLands = battlefield.filter((perm: any) => {
     if (perm.controller !== playerId) return false;
     const typeLine = (perm.card?.type_line || '').toLowerCase();
-    if (!typeLine.includes('land')) return false;
-    // Don't return the bounce land we just played
-    const permName = (perm.card?.name || '').toLowerCase();
-    if (permName === bounceLandName.toLowerCase()) return false;
-    return true;
+    return typeLine.includes('land');
   });
   
   if (controlledLands.length === 0) {
-    // No other lands to return - in this case the bounce land must be sacrificed
-    // This is a rare edge case; for now we'll skip the bounce
-    console.info('[AI] No land to return for bounce land, skipping ETB trigger');
+    // No lands at all - shouldn't happen normally, but handle gracefully
+    console.info('[AI] No lands to return for bounce land');
     return;
   }
+  
+  // Check if the player has landfall permanents on the battlefield
+  // If so, returning lands can be beneficial for replaying them
+  const hasLandfallSynergy = battlefield.some((perm: any) => {
+    if (perm.controller !== playerId) return false;
+    const oracleText = (perm.card?.oracle_text || '').toLowerCase();
+    // Check for landfall keyword or "whenever a land enters"
+    return oracleText.includes('landfall') || 
+           oracleText.includes('whenever a land enters') ||
+           oracleText.includes('whenever you play a land');
+  });
   
   // Score lands to determine which to return (lower score = return first)
   const scoredLands = controlledLands.map((perm: any) => {
     let score = 50; // Base score
     const card = perm.card;
     const typeLine = (card?.type_line || '').toLowerCase();
-    const cardName = (card?.name || '').toLowerCase();
+    const permName = (card?.name || '').toLowerCase();
+    
+    // The bounce land itself - moderate penalty (can return it if no other options)
+    if (permName === bounceLandName.toLowerCase()) {
+      // If it's the only land, we must return it
+      if (controlledLands.length === 1) {
+        score = 0; // Only option
+      } else {
+        // Prefer to return other lands unless landfall is a factor
+        // Bounce lands enter tapped, so returning it means we can replay it (still tapped though)
+        score += hasLandfallSynergy ? 10 : 30;
+        // Apply tapped bonus if applicable (bounce lands are always tapped when they ETB)
+        if (perm.tapped) {
+          score -= 10;
+        }
+      }
+      return { perm, score };
+    }
     
     // Basic lands are least valuable (return first)
     if (typeLine.includes('basic')) {
       score -= 30;
+      // But if we have landfall, returning basics to replay is good!
+      if (hasLandfallSynergy) {
+        score -= 10; // Even more incentive to return basics for landfall
+      }
     }
     
     // Tapped lands are good to return (can replay untapped later potentially)
@@ -1565,7 +1594,7 @@ async function handleBounceLandETB(game: any, playerId: PlayerID, bounceLandName
       zones.handCount = (zones.hand as any[]).length;
     }
     
-    console.info('[AI] Bounce land returned to hand:', landToReturn.card?.name);
+    console.info('[AI] Bounce land returned to hand:', landToReturn.card?.name, hasLandfallSynergy ? '(landfall synergy detected)' : '');
   }
 }
 
