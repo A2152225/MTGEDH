@@ -6,9 +6,10 @@
  */
 
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, getPlayerName } from "./util.js";
+import { ensureGame, broadcastGame, getPlayerName, emitToPlayer } from "./util.js";
 import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
+import { getAttackTriggersForCreatures, type TriggeredAbility } from "../state/modules/triggered-abilities.js";
 
 /**
  * Check if a permanent is currently a creature (Rule 302)
@@ -271,8 +272,10 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         if ((creature as any).summoningSickness) {
           // More robust haste detection using keyword ability patterns
           const oracleText = ((creature as any).card?.oracle_text || "").toLowerCase();
-          const keywords = (creature as any).card?.keywords || [];
-          const grantedAbilities = (creature as any).grantedAbilities || [];
+          const rawKeywords = (creature as any).card?.keywords;
+          const keywords = Array.isArray(rawKeywords) ? rawKeywords : [];
+          const rawGrantedAbilities = (creature as any).grantedAbilities;
+          const grantedAbilities = Array.isArray(rawGrantedAbilities) ? rawGrantedAbilities : [];
           
           // Check for haste in multiple places:
           // 1. Keywords array from Scryfall data
@@ -300,7 +303,8 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         
         // Tap the attacker (unless it has vigilance)
         const oracleText = ((creature as any).card?.oracle_text || "").toLowerCase();
-        const keywords = (creature as any).card?.keywords || [];
+        const rawKeywords = (creature as any).card?.keywords;
+        const keywords = Array.isArray(rawKeywords) ? rawKeywords : [];
         const hasVigilance = 
           keywords.some((k: string) => k.toLowerCase() === 'vigilance') ||
           /\bvigilance\b/i.test(oracleText);
@@ -337,6 +341,79 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         message: `${getPlayerName(game, playerId)} declares ${attackerCount} attacker${attackerCount !== 1 ? "s" : ""}.`,
         ts: Date.now(),
       });
+
+      // Process attack triggers
+      try {
+        const attackingCreatures = battlefield.filter((perm: any) => 
+          attackerIds.includes(perm.id)
+        );
+        
+        // Get the first defender as the default defending player
+        const firstDefender = attackers[0]?.targetPlayerId;
+        
+        if (attackingCreatures.length > 0 && firstDefender) {
+          // Create a minimal context for trigger detection
+          const ctx = {
+            state: game.state,
+            bumpSeq: () => {
+              if (typeof (game as any).bumpSeq === "function") {
+                (game as any).bumpSeq();
+              }
+            }
+          };
+          
+          const triggers = getAttackTriggersForCreatures(
+            ctx as any,
+            attackingCreatures,
+            playerId,
+            firstDefender
+          );
+          
+          // Push triggers to stack and notify clients
+          if (triggers.length > 0) {
+            console.log(`[combat] Found ${triggers.length} attack trigger(s) for game ${gameId}`);
+            
+            for (const trigger of triggers) {
+              // Push trigger onto the stack
+              game.state.stack = game.state.stack || [];
+              const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+              game.state.stack.push({
+                id: triggerId,
+                type: 'triggered_ability',
+                controller: playerId,
+                source: trigger.permanentId,
+                sourceName: trigger.cardName,
+                description: trigger.description,
+                triggerType: trigger.triggerType,
+                value: trigger.value,
+                mandatory: trigger.mandatory,
+              });
+              
+              // Notify players about the trigger
+              io.to(gameId).emit("triggeredAbility", {
+                gameId,
+                triggerId,
+                playerId,
+                sourcePermanentId: trigger.permanentId,
+                sourceName: trigger.cardName,
+                triggerType: trigger.triggerType,
+                description: trigger.description,
+                mandatory: trigger.mandatory,
+              });
+              
+              io.to(gameId).emit("chat", {
+                id: `m_${Date.now()}`,
+                gameId,
+                from: "system",
+                message: `⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`,
+                ts: Date.now(),
+              });
+            }
+          }
+        }
+      } catch (triggerErr) {
+        console.warn("[combat] Error processing attack triggers:", triggerErr);
+      }
 
       // Bump sequence and broadcast
       if (typeof (game as any).bumpSeq === "function") {

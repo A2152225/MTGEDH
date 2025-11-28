@@ -234,12 +234,19 @@ export interface TemporaryEffect {
 /* Stack item */
 export interface StackItem {
   id: string;
-  type: 'spell' | 'ability';
+  type: 'spell' | 'ability' | 'triggered_ability';
   controller: PlayerID;
   card?: CardRef;
   targets?: readonly string[];
   // Target details with type information for visual display
   targetDetails?: readonly TargetInfo[];
+  // For triggered abilities
+  source?: string;              // ID of the permanent that has the triggered ability
+  sourceName?: string;          // Name of the source permanent
+  description?: string;         // Description of the triggered ability effect
+  triggerType?: string;         // Type of trigger (etb, dies, attacks, etc.)
+  mandatory?: boolean;          // Whether the trigger is mandatory
+  value?: number;               // For abilities with numeric values (Annihilator N, etc.)
 }
 
 /* Target information for display purposes */
