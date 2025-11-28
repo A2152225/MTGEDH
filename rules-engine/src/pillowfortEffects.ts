@@ -389,7 +389,8 @@ export function checkAttackCosts(
   }
   
   // Check if player can pay with life instead (for Phyrexian mana effects)
-  const canPayWithLife = lifeCostOption > 0 && (attacker.life || 0) > lifeCostOption;
+  // Players can pay life even if it would reduce them to 0 or below (they'd just lose the game after)
+  const canPayWithLife = lifeCostOption > 0 && (attacker.life || 0) >= lifeCostOption;
   
   return {
     canAffordAll: canPayWithMana || canPayWithLife,

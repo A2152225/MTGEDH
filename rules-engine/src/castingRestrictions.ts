@@ -381,18 +381,17 @@ export function canCastSpell(
         break;
         
       case CastingRestrictionType.SORCERY_SPEED_ONLY:
-        // Player can only cast at sorcery speed - check timing
-        if (isInstant) {
-          // Need to check if it's a valid sorcery-speed moment
-          const isMainPhase = state.phase === 'precombat_main' || state.phase === 'postcombat_main' ||
-                              state.phase === 'PRECOMBAT_MAIN' || state.phase === 'POSTCOMBAT_MAIN';
-          const activePlayerIndex = state.activePlayerIndex || 0;
-          const isOwnTurn = state.players[activePlayerIndex]?.id === playerId;
-          const stackEmpty = !state.stack || state.stack.length === 0;
-          
-          if (!isMainPhase || !isOwnTurn || !stackEmpty) {
-            blocked = true;
-          }
+        // Player can only cast at sorcery speed - ALL spells need valid sorcery timing
+        // This affects both instants AND any spell being cast at non-sorcery timing
+        const isMainPhase = state.phase === 'precombat_main' || state.phase === 'postcombat_main' ||
+                            state.phase === 'PRECOMBAT_MAIN' || state.phase === 'POSTCOMBAT_MAIN';
+        const activePlayerIndex = state.activePlayerIndex || 0;
+        const isOwnTurn = state.players[activePlayerIndex]?.id === playerId;
+        const stackEmpty = !state.stack || state.stack.length === 0;
+        
+        // Block if not at valid sorcery timing (regardless of spell type)
+        if (!isMainPhase || !isOwnTurn || !stackEmpty) {
+          blocked = true;
         }
         break;
         

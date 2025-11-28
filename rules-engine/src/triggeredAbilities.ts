@@ -322,14 +322,33 @@ export interface TriggerEventData {
  * - "if an opponent controls a creature" - opponent check
  * - "if your life total is X or less" - life total check
  * - "if a creature you control has power X or greater" - power check
+ * 
+ * @returns true if condition is met, false otherwise
+ * Note: Returns true when no condition exists (unconditional trigger)
+ * Returns false when eventData is missing but condition requires it (safety default)
  */
 export function evaluateTriggerCondition(
   condition: string,
   controllerId: string,
   eventData?: TriggerEventData
 ): boolean {
-  if (!condition || !eventData) {
-    return true; // No condition to check or no data - allow trigger
+  // No condition means unconditional trigger
+  if (!condition) {
+    return true;
+  }
+  
+  // If we have a condition but no event data, we can't evaluate - be conservative
+  if (!eventData) {
+    // For simple controller checks, we can still evaluate without full eventData
+    const conditionLower = condition.toLowerCase().trim();
+    if (conditionLower === 'you' || conditionLower === 'your' || 
+        conditionLower === 'opponent' || conditionLower === 'an opponent' ||
+        conditionLower === 'each') {
+      // These need eventData to evaluate properly
+      return false;
+    }
+    // For complex conditions without data, default to false (safe)
+    return false;
   }
   
   const conditionLower = condition.toLowerCase().trim();
@@ -382,8 +401,9 @@ export function evaluateTriggerCondition(
     return eventData.isOpponentsTurn === true;
   }
   
-  // Default: allow the trigger (unknown condition patterns)
-  return true;
+  // Unknown condition pattern - be conservative and don't trigger
+  // This prevents false positives for unrecognized conditions
+  return false;
 }
 
 /**
