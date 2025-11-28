@@ -412,9 +412,6 @@ describe('Undo and Replay', () => {
       
       const humanHand1 = (game.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
       const aiHand1 = (game.state.zones?.[p2]?.hand ?? []).map((c: any) => c.name);
-      
-      console.log('Before undo - Human hand:', humanHand1);
-      console.log('Before undo - AI hand:', aiHand1);
 
       // Simulate undo: reset and replay all but the last event
       game.reset!(true);
@@ -423,9 +420,6 @@ describe('Undo and Replay', () => {
       
       const humanHand2 = (game.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
       const aiHand2 = (game.state.zones?.[p2]?.hand ?? []).map((c: any) => c.name);
-      
-      console.log('After undo - Human hand:', humanHand2);
-      console.log('After undo - AI hand:', aiHand2);
 
       // Human hand should have one less card (the undone draw)
       expect(humanHand2.length).toBe(humanHand1.length - 1);
@@ -481,9 +475,6 @@ describe('Undo and Replay', () => {
       game.reset!(true);
       game.replay!(setupEvents);
       const hand7 = (game.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
-      
-      console.log('Initial hand (7):', initialHand);
-      console.log('After undo to 7:', hand7);
       
       // The hand at 7 cards should match the initial hand
       expect(hand7).toEqual(initialHand);

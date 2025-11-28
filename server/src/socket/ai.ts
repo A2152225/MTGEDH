@@ -27,6 +27,9 @@ const AI_REACTION_DELAY_MS = 300;
 /** Maximum cards to retrieve when searching the entire library for commander selection */
 const MAX_LIBRARY_SEARCH_LIMIT = 1000;
 
+/** Initial hand size for commander format (7 cards) */
+const INITIAL_HAND_SIZE = 7;
+
 /** MTG color identity symbols */
 const COLOR_IDENTITY_MAP: Record<string, string> = {
   'W': 'white',
@@ -333,9 +336,9 @@ export async function autoSelectAICommander(
           console.info('[AI] Library shuffled');
         }
         
-        // Draw 7 cards
+        // Draw initial hand
         if (typeof (game as any).drawCards === 'function') {
-          const drawn = (game as any).drawCards(playerId, 7);
+          const drawn = (game as any).drawCards(playerId, INITIAL_HAND_SIZE);
           console.info('[AI] Drew', drawn?.length || 0, 'cards');
         }
       }
@@ -354,8 +357,8 @@ export async function autoSelectAICommander(
         // This ensures undo/replay produces the same hand contents
         if (doingOpeningDraw || didManualDraw) {
           await appendEvent(gameId, (game as any).seq || 0, 'shuffleLibrary', { playerId });
-          await appendEvent(gameId, (game as any).seq || 0, 'drawCards', { playerId, count: 7 });
-          console.info('[AI] Persisted opening draw events (shuffle + draw 7) for player', playerId);
+          await appendEvent(gameId, (game as any).seq || 0, 'drawCards', { playerId, count: INITIAL_HAND_SIZE });
+          console.info('[AI] Persisted opening draw events (shuffle + draw) for player', playerId);
         }
       } catch (e) {
         console.warn('[AI] Failed to persist setCommander event:', e);
