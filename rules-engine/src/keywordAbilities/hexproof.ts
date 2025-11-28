@@ -109,7 +109,8 @@ export function hasRedundantHexproof(abilities: readonly HexproofAbility[]): boo
     qualityMap.set(ability.quality, count + 1);
   }
   // If any quality appears more than once, it's redundant
-  for (const count of qualityMap.values()) {
+  const values = Array.from(qualityMap.values());
+  for (const count of values) {
     if (count > 1) {
       return true;
     }

@@ -763,7 +763,8 @@ export function validateDeclareAttackers(
   }
   
   // Check if attacker can afford pillowfort costs for each defender
-  for (const [defendingPlayerId, creatureCount] of attackersByDefender) {
+  const defenderEntries = Array.from(attackersByDefender.entries());
+  for (const [defendingPlayerId, creatureCount] of defenderEntries) {
     const costCheck = checkAttackCosts(
       state,
       action.playerId,
@@ -1143,7 +1144,8 @@ export function executeCombatDamage(
   }
   
   // Apply all lifelink gains (Rule 702.15b)
-  for (const [playerId, lifeGained] of lifelinkGain) {
+  const lifelinkEntries = Array.from(lifelinkGain.entries());
+  for (const [playerId, lifeGained] of lifelinkEntries) {
     if (lifeGained > 0) {
       const player = currentState.players.find(p => p.id === playerId);
       if (player) {

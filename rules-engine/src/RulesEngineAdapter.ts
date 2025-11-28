@@ -1323,7 +1323,8 @@ export class RulesEngineAdapter {
     }
     
     // Check for duplicates
-    for (const [key, legends] of legendsByControllerAndName) {
+    const entries = Array.from(legendsByControllerAndName.entries());
+    for (const [key, legends] of entries) {
       if (legends.length > 1) {
         // Player must choose one to keep (for now, keep the newest/last one)
         const toSacrifice = legends.slice(0, -1);

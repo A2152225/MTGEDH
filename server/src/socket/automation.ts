@@ -536,10 +536,12 @@ async function processBlockers(
       const attacker = battlefield.find((p: any) => p.id === attackerId);
       
       if (blocker) {
-        (blocker as any).blocking = [(blocker as any).blocking || [], attackerId].flat();
+        const existingBlocking = (blocker as any).blocking || [];
+        (blocker as any).blocking = [...existingBlocking, attackerId];
       }
       if (attacker) {
-        (attacker as any).blockedBy = [(attacker as any).blockedBy || [], blockerId].flat();
+        const existingBlockedBy = (attacker as any).blockedBy || [];
+        (attacker as any).blockedBy = [...existingBlockedBy, blockerId];
       }
     }
     

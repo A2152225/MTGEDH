@@ -433,7 +433,8 @@ export class GameSimulator {
     }
     
     // Convert win counts to percentages
-    for (const [playerId, wins] of winRates.entries()) {
+    for (const entry of Array.from(winRates.entries())) {
+      const [playerId, wins] = entry;
       winRates.set(playerId, (wins / config.iterations) * 100);
     }
     

@@ -90,12 +90,12 @@ export function getCombinedCharacteristics(splitCard: SplitCard): CombinedCharac
   const combinedManaCost = combineManaCosts(leftHalf.manaCost, rightHalf.manaCost);
   
   // Combine types
-  const types = [...new Set([...leftHalf.types, ...rightHalf.types])];
-  const subtypes = [...new Set([...leftHalf.subtypes, ...rightHalf.subtypes])];
-  const supertypes = [...new Set([...leftHalf.supertypes, ...rightHalf.supertypes])];
+  const types = Array.from(new Set([...leftHalf.types, ...rightHalf.types]));
+  const subtypes = Array.from(new Set([...leftHalf.subtypes, ...rightHalf.subtypes]));
+  const supertypes = Array.from(new Set([...leftHalf.supertypes, ...rightHalf.supertypes]));
   
   // Combine colors
-  const colors = [...new Set([...leftHalf.colors, ...rightHalf.colors])];
+  const colors = Array.from(new Set([...leftHalf.colors, ...rightHalf.colors]));
   
   // Calculate mana value from combined cost
   const manaValue = calculateManaValue(combinedManaCost);

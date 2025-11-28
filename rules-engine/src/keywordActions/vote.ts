@@ -95,7 +95,8 @@ export function tallyVotes(votes: readonly VoteResult[]): VoteOutcome {
   let maxVotes = 0;
   let isTie = false;
   
-  for (const [choice, count] of voteCounts) {
+  const voteEntries = Array.from(voteCounts.entries());
+  for (const [choice, count] of voteEntries) {
     if (count > maxVotes) {
       maxVotes = count;
       winner = choice;
