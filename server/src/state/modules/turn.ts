@@ -371,19 +371,23 @@ function dealCombatDamage(ctx: GameContext): {
           const blockerCard = blocker.card || {};
           const blockerToughness = parseInt(String(blocker.baseToughness ?? blockerCard.toughness ?? '0'), 10) || 0;
           const blockerDamage = blocker.markedDamage || 0;
-          const remainingToughness = blockerToughness - blockerDamage;
+          const remainingToughness = Math.max(0, blockerToughness - blockerDamage);
           
           // Calculate damage to assign to this blocker
-          // With deathtouch, only 1 damage is needed; otherwise, assign lethal (remaining toughness)
-          let damageToBlocker = keywords.deathtouch ? Math.min(1, remainingDamage) : Math.min(remainingToughness, remainingDamage);
-          
-          // Actually, MTG rules say attacker must assign at least lethal damage to first blocker before moving on
-          // For simplicity, we assign lethal damage (or all remaining) to each blocker in order
-          damageToBlocker = Math.min(remainingToughness > 0 ? remainingToughness : 1, remainingDamage);
-          if (keywords.deathtouch && damageToBlocker > 0) {
-            // With deathtouch, 1 damage is lethal, but we still track real damage
-            damageToBlocker = Math.min(remainingDamage, blockerToughness);
+          // MTG Rule 510.1c: When assigning damage, attacker must assign at least lethal damage
+          // to each blocker in order before moving to the next (unless attacker has deathtouch,
+          // in which case 1 damage counts as lethal for assignment purposes)
+          let lethalDamage: number;
+          if (keywords.deathtouch) {
+            // With deathtouch, 1 damage is considered lethal for damage assignment
+            lethalDamage = remainingToughness > 0 ? 1 : 0;
+          } else {
+            // Without deathtouch, need to assign enough to kill (remaining toughness)
+            lethalDamage = remainingToughness;
           }
+          
+          // Assign lethal damage (or all remaining damage if less than lethal)
+          const damageToBlocker = Math.min(lethalDamage > 0 ? lethalDamage : 1, remainingDamage);
           
           if (damageToBlocker > 0) {
             // Mark damage on blocker
