@@ -394,6 +394,71 @@ function clearSummoningSicknessForPlayer(ctx: GameContext, playerId: string) {
 }
 
 /**
+ * Known cards with activated abilities that end the turn.
+ * This whitelist is more reliable than pattern matching oracle text.
+ * Cards on this list have "{cost}: End the turn" style abilities that can be
+ * activated during cleanup step.
+ */
+const SUNDIAL_EFFECT_CARDS = new Set([
+  "sundial of the infinite",
+  "obeka, brute chronologist",
+  "obeka, splitter of seconds",
+]);
+
+/**
+ * Check if a permanent has an activated "end the turn" ability.
+ * Uses a whitelist of known cards plus pattern matching for edge cases.
+ * 
+ * Pattern matching rules:
+ * - Must have "end the turn" in oracle text
+ * - Must have activation cost indicator (colon ':')
+ * - Must NOT be a triggered ability ("at the beginning", "when", "whenever")
+ * - Must NOT be a spell effect only (needs to be an activated ability on a permanent)
+ */
+function hasEndTurnActivatedAbility(cardName: string, oracleText: string): boolean {
+  const nameLower = cardName.toLowerCase();
+  const oracleLower = oracleText.toLowerCase();
+  
+  // Check whitelist first for known cards
+  if (SUNDIAL_EFFECT_CARDS.has(nameLower)) {
+    return true;
+  }
+  
+  // Pattern match for other potential cards with activated "end the turn" abilities
+  if (!oracleLower.includes("end the turn")) {
+    return false;
+  }
+  
+  // Must have activation cost indicator (like ":" or "{T}:")
+  if (!oracleLower.includes(":")) {
+    return false;
+  }
+  
+  // Exclude triggered abilities (these aren't activated abilities)
+  if (oracleLower.includes("at the beginning") || 
+      oracleLower.includes("when ") || 
+      oracleLower.includes("whenever ")) {
+    // Check if "end the turn" appears in the triggered ability part
+    // by looking for cost indicator before "end the turn"
+    const endTurnIndex = oracleLower.indexOf("end the turn");
+    const colonIndex = oracleLower.lastIndexOf(":", endTurnIndex);
+    const triggerIndex = Math.max(
+      oracleLower.lastIndexOf("at the beginning", endTurnIndex),
+      oracleLower.lastIndexOf("when ", endTurnIndex),
+      oracleLower.lastIndexOf("whenever ", endTurnIndex)
+    );
+    
+    // If the trigger keyword is after the last colon before "end the turn",
+    // this is likely a triggered ability, not activated
+    if (triggerIndex > colonIndex) {
+      return false;
+    }
+  }
+  
+  return true;
+}
+
+/**
  * Check if any player has a "Sundial-like" effect available.
  * Sundial of the Infinite and similar cards can end the turn during cleanup,
  * which means players should be given priority during cleanup if they control
@@ -404,58 +469,21 @@ function clearSummoningSicknessForPlayer(ctx: GameContext, playerId: string) {
  * has an ability that could affect the game during cleanup (like Sundial),
  * we should give them an opportunity to act.
  * 
- * Cards that have "end the turn" effects include:
- * - Sundial of the Infinite
- * - Obeka, Brute Chronologist
- * - Discontinuity
- * - Day's Undoing (though it ends turn on resolution)
+ * This function iterates the battlefield once and checks all permanents.
  */
-function playerHasSundialEffect(ctx: GameContext, playerId: string): boolean {
+function anyPlayerHasSundialEffect(ctx: GameContext): boolean {
   try {
     const battlefield = (ctx as any).state?.battlefield;
     if (!Array.isArray(battlefield)) return false;
     
-    // Check battlefield for permanents with "end the turn" activated abilities
+    // Single pass through the battlefield
     for (const permanent of battlefield) {
-      if (!permanent || permanent.controller !== playerId) continue;
+      if (!permanent || !permanent.card) continue;
       
-      const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
-      const cardName = (permanent.card?.name || "").toLowerCase();
+      const cardName = permanent.card.name || "";
+      const oracleText = permanent.card.oracle_text || "";
       
-      // Check for Sundial of the Infinite specifically
-      if (cardName.includes("sundial")) {
-        return true;
-      }
-      
-      // Check for "end the turn" in oracle text (activated ability pattern)
-      // This catches cards like Obeka that have ": End the turn"
-      if (oracleText.includes("end the turn") && 
-          (oracleText.includes(":") || oracleText.includes("tap"))) {
-        return true;
-      }
-    }
-    
-    // Could also check command zone for commanders with "end the turn" abilities
-    // that could be cast, but for now we focus on battlefield permanents
-    
-    return false;
-  } catch (err) {
-    console.warn(`${ts()} [playerHasSundialEffect] Error checking for Sundial effects:`, err);
-    return false;
-  }
-}
-
-/**
- * Check if any player in the game has a Sundial-like effect available.
- */
-function anyPlayerHasSundialEffect(ctx: GameContext): boolean {
-  try {
-    const players = Array.isArray((ctx as any).state?.players) 
-      ? (ctx as any).state.players.map((p: any) => p.id) 
-      : [];
-    
-    for (const playerId of players) {
-      if (playerHasSundialEffect(ctx, playerId)) {
+      if (hasEndTurnActivatedAbility(cardName, oracleText)) {
         return true;
       }
     }

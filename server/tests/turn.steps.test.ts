@@ -97,9 +97,11 @@ describe('Turn step engine basics', () => {
     expect(g.state.turnPlayer).toBe(p2);
 
     // Add Sundial of the Infinite to player 2's battlefield
-    g.state.battlefield.push({
+    // This creates a minimal battlefield permanent for testing purposes
+    const sundialPermanent = {
       id: 'sundial_1',
       controller: p2,
+      owner: p2,
       card: {
         id: 'sundial_card',
         name: 'Sundial of the Infinite',
@@ -108,7 +110,10 @@ describe('Turn step engine basics', () => {
         mana_cost: '{2}',
       },
       tapped: false,
-    } as any);
+    };
+    // Use array push with type assertion since we're in a test context
+    // with a minimal game state that may not have full type coverage
+    (g.state.battlefield as typeof g.state.battlefield).push(sundialPermanent as typeof g.state.battlefield[0]);
 
     // Advance to END step
     g.applyEvent({ type: 'nextStep' }); // UPKEEP
