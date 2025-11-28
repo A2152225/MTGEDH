@@ -221,13 +221,32 @@ export interface ServerToClientEvents {
     gameId: GameID;
     stack: Array<{
       id: string;
-      type: 'spell' | 'ability';
+      type: 'spell' | 'ability' | 'triggered_ability';
       name: string;
       controller: PlayerID;
       targets?: string[];
       modes?: string[];
       xValue?: number;
+      // For triggered abilities
+      source?: string;
+      sourceName?: string;
+      description?: string;
+      triggerType?: string;
+      mandatory?: boolean;
     }>;
+  }) => void;
+  
+  // Triggered ability notification
+  triggeredAbility: (payload: {
+    gameId: GameID;
+    triggerId: string;
+    playerId: PlayerID;
+    sourcePermanentId: string;
+    sourceName: string;
+    triggerType: string;
+    description: string;
+    mandatory: boolean;
+    value?: number;
   }) => void;
 
   // generic pushes from server

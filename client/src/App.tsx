@@ -780,7 +780,7 @@ export function App() {
   const isTable = layout === "table";
   const canPass = !!safeView && !!you && safeView.priority === you;
   const isYouPlayer =
-    !!safeView && !!you && safeView.players.some((p) => p.id === you);
+    !!safeView && !!you && Array.isArray(safeView.players) && safeView.players.some((p) => p.id === you);
 
   // Pre-game and mulligan state
   const isPreGame = useMemo(() => {
@@ -1137,8 +1137,10 @@ export function App() {
     
     const oracleText = (card.oracle_text || '').toLowerCase();
     // Keywords array from Scryfall data (not in TypeScript interface but present at runtime)
-    const keywords = ((card as any).keywords as string[]) || [];
-    const grantedAbilities = ((perm as any).grantedAbilities as string[]) || [];
+    const rawKeywords = (card as any).keywords;
+    const keywords = Array.isArray(rawKeywords) ? rawKeywords : [];
+    const rawGrantedAbilities = (perm as any).grantedAbilities;
+    const grantedAbilities = Array.isArray(rawGrantedAbilities) ? rawGrantedAbilities : [];
     
     // Check for haste in multiple places:
     // 1. Keywords array from Scryfall data
@@ -1573,8 +1575,10 @@ export function App() {
     
     const oracleText = (card.oracle_text || '').toLowerCase();
     // Keywords array from Scryfall data (not in TypeScript interface but present at runtime)
-    const keywords = ((card as any).keywords as string[]) || [];
-    const grantedAbilities = ((perm as any).grantedAbilities as string[]) || [];
+    const rawKeywords = (card as any).keywords;
+    const keywords = Array.isArray(rawKeywords) ? rawKeywords : [];
+    const rawGrantedAbilities = (perm as any).grantedAbilities;
+    const grantedAbilities = Array.isArray(rawGrantedAbilities) ? rawGrantedAbilities : [];
     
     // Check for defender - creatures with defender can't attack (unless granted by effects)
     const hasDefender = 
@@ -2094,7 +2098,7 @@ export function App() {
         >
           {safeView ? (
             <TableLayout
-              players={safeView.players}
+              players={safeView.players || []}
               permanentsByPlayer={
                 new Map(
                   (safeView.players || []).map((p: any) => [

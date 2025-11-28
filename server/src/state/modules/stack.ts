@@ -3,6 +3,7 @@ import type { GameContext } from "../context.js";
 import { uid, parsePT } from "../utils.js";
 import { recalculatePlayerEffects } from "./game-state-effects.js";
 import { categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
+import { getETBTriggersForPermanent, type TriggeredAbility } from "./triggered-abilities.js";
 
 /**
  * Stack / resolution helpers (extracted).
@@ -169,8 +170,9 @@ export function resolveTopOfStack(ctx: GameContext) {
     const hasSummoningSickness = isCreature && !hasHaste;
     
     state.battlefield = state.battlefield || [];
-    state.battlefield.push({
-      id: uid("perm"),
+    const newPermId = uid("perm");
+    const newPermanent = {
+      id: newPermId,
       controller,
       owner: controller,
       tapped: false,
@@ -179,7 +181,8 @@ export function resolveTopOfStack(ctx: GameContext) {
       baseToughness: baseT,
       summoningSickness: hasSummoningSickness,
       card: { ...card, zone: "battlefield" },
-    } as any);
+    } as any;
+    state.battlefield.push(newPermanent);
     
     // Build a readable status message for logging
     let statusNote = '';
@@ -189,6 +192,49 @@ export function resolveTopOfStack(ctx: GameContext) {
       statusNote = ' (haste)';
     }
     console.log(`[resolveTopOfStack] Permanent ${card.name || 'unnamed'} entered battlefield under ${controller}${statusNote}`);
+    
+    // Check for ETB triggers on this permanent and other permanents
+    try {
+      const etbTriggers = getETBTriggersForPermanent(card, newPermanent);
+      
+      // Also check other permanents for "whenever a creature/permanent enters" triggers
+      for (const perm of state.battlefield) {
+        if (perm.id === newPermId) continue; // Skip the entering permanent
+        const otherTriggers = getETBTriggersForPermanent(perm.card, perm);
+        for (const trigger of otherTriggers) {
+          // Only add triggers that fire on other permanents entering
+          if (trigger.triggerType === 'creature_etb' && isCreature) {
+            etbTriggers.push({ ...trigger, permanentId: perm.id });
+          } else if (trigger.triggerType === 'another_permanent_etb') {
+            etbTriggers.push({ ...trigger, permanentId: perm.id });
+          }
+        }
+      }
+      
+      if (etbTriggers.length > 0) {
+        console.log(`[resolveTopOfStack] Found ${etbTriggers.length} ETB trigger(s) for ${card.name || 'permanent'}`);
+        
+        for (const trigger of etbTriggers) {
+          // Push trigger onto the stack
+          state.stack = state.stack || [];
+          const triggerId = uid("trigger");
+          state.stack.push({
+            id: triggerId,
+            type: 'triggered_ability',
+            controller,
+            source: trigger.permanentId,
+            sourceName: trigger.cardName,
+            description: trigger.description,
+            triggerType: trigger.triggerType,
+            mandatory: trigger.mandatory,
+          } as any);
+          
+          console.log(`[resolveTopOfStack] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
+        }
+      }
+    } catch (err) {
+      console.warn('[resolveTopOfStack] Failed to detect ETB triggers:', err);
+    }
     
     // Recalculate player effects when permanents ETB (for Exploration, Font of Mythos, etc.)
     try {

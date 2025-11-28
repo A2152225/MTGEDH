@@ -1445,6 +1445,34 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       (permanent as any).counters.loyalty = newLoyalty;
       (permanent as any).loyaltyActivatedThisTurn = true;
       
+      // Put the loyalty ability on the stack
+      const stackItem = {
+        id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        type: 'ability' as const,
+        controller: pid,
+        source: permanentId,
+        sourceName: cardName,
+        description: ability.text,
+      } as any;
+      
+      game.state.stack = game.state.stack || [];
+      game.state.stack.push(stackItem);
+      
+      // Emit stack update
+      io.to(gameId).emit("stackUpdate", {
+        gameId,
+        stack: (game.state.stack || []).map((s: any) => ({
+          id: s.id,
+          type: s.type,
+          name: s.sourceName || s.card?.name || 'Ability',
+          controller: s.controller,
+          targets: s.targets,
+          source: s.source,
+          sourceName: s.sourceName,
+          description: s.description,
+        })),
+      });
+      
       if (typeof game.bumpSeq === "function") {
         game.bumpSeq();
       }
@@ -1462,7 +1490,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `${getPlayerName(game, pid)} activated ${cardName}'s [${costSign}${loyaltyCost}] ability. (Loyalty: ${currentLoyalty} → ${newLoyalty})`,
+        message: `⚡ ${getPlayerName(game, pid)} activated ${cardName}'s [${costSign}${loyaltyCost}] ability. (Loyalty: ${currentLoyalty} → ${newLoyalty})`,
         ts: Date.now(),
       });
       
@@ -1470,20 +1498,105 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
-    // Handle other activated abilities (planeswalker abilities, etc.)
-    // For now, log and emit a generic message
-    console.log(`[activateBattlefieldAbility] Unknown ability ${abilityId} on ${cardName}`);
+    // Handle other activated abilities - put them on the stack
+    console.log(`[activateBattlefieldAbility] Processing ability ${abilityId} on ${cardName}`);
+    
+    // Parse the ability from oracle text if possible
+    const abilityParts = abilityId.split('_');
+    const abilityIndex = abilityParts.length > 1 ? parseInt(abilityParts[1], 10) : 0;
+    
+    // Extract ability text by parsing oracle text for activated abilities
+    let abilityText = "";
+    let requiresTap = false;
+    let manaCost = "";
+    
+    // Parse activated abilities: look for "cost: effect" patterns
+    const abilityPattern = /([^:]+):\s*([^.]+\.?)/gi;
+    const abilities: { cost: string; effect: string }[] = [];
+    let match;
+    while ((match = abilityPattern.exec(oracleText)) !== null) {
+      const cost = match[1].trim();
+      const effect = match[2].trim();
+      // Filter out keyword abilities and keep only activated abilities
+      if (cost.includes('{') || cost.toLowerCase().includes('tap') || cost.toLowerCase().includes('sacrifice')) {
+        abilities.push({ cost, effect });
+      }
+    }
+    
+    if (abilityIndex < abilities.length) {
+      const ability = abilities[abilityIndex];
+      abilityText = ability.effect;
+      requiresTap = ability.cost.toLowerCase().includes('{t}') || ability.cost.toLowerCase().includes('tap');
+      manaCost = ability.cost;
+    } else {
+      abilityText = `Activated ability on ${cardName}`;
+    }
+    
+    // Tap the permanent if required
+    if (requiresTap && !(permanent as any).tapped) {
+      (permanent as any).tapped = true;
+    }
+    
+    // Check if this is a mana ability (doesn't use the stack)
+    const isManaAbility = oracleText.includes('add {') || oracleText.includes('add one mana');
+    
+    if (!isManaAbility) {
+      // Put the ability on the stack
+      const stackItem = {
+        id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        type: 'ability' as const,
+        controller: pid,
+        source: permanentId,
+        sourceName: cardName,
+        description: abilityText,
+      } as any;
+      
+      game.state.stack = game.state.stack || [];
+      game.state.stack.push(stackItem);
+      
+      // Emit stack update
+      io.to(gameId).emit("stackUpdate", {
+        gameId,
+        stack: (game.state.stack || []).map((s: any) => ({
+          id: s.id,
+          type: s.type,
+          name: s.sourceName || s.card?.name || 'Ability',
+          controller: s.controller,
+          targets: s.targets,
+          source: s.source,
+          sourceName: s.sourceName,
+          description: s.description,
+        })),
+      });
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `⚡ ${getPlayerName(game, pid)} activated ${cardName}'s ability: ${abilityText}`,
+        ts: Date.now(),
+      });
+    } else {
+      // Mana ability - handle immediately without stack
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} activated ${cardName} for mana.`,
+        ts: Date.now(),
+      });
+    }
     
     if (typeof game.bumpSeq === "function") {
       game.bumpSeq();
     }
     
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: `${getPlayerName(game, pid)} activated an ability on ${cardName}.`,
-      ts: Date.now(),
+    appendEvent(gameId, (game as any).seq ?? 0, "activateBattlefieldAbility", { 
+      playerId: pid, 
+      permanentId, 
+      abilityId,
+      cardName,
+      abilityText,
     });
     
     broadcastGame(io, game, gameId);
