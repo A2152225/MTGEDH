@@ -1047,26 +1047,51 @@ export function App() {
       return ['W', 'U', 'B', 'R', 'G', 'C'];
     }
     
-    // Count mana symbols in "add {X}{X}" patterns
-    // This handles cards like Sol Ring ({T}: Add {C}{C}) which produce multiple mana
-    const addPattern = /add\s+((?:\{[wubrgc]\})+)/gi;
-    let match;
-    while ((match = addPattern.exec(text)) !== null) {
-      const manaSymbols = match[1];
-      // Count each symbol type
-      const wCount = (manaSymbols.match(/\{w\}/gi) || []).length;
-      const uCount = (manaSymbols.match(/\{u\}/gi) || []).length;
-      const bCount = (manaSymbols.match(/\{b\}/gi) || []).length;
-      const rCount = (manaSymbols.match(/\{r\}/gi) || []).length;
-      const gCount = (manaSymbols.match(/\{g\}/gi) || []).length;
-      const cCount = (manaSymbols.match(/\{c\}/gi) || []).length;
+    // Parse mana production from oracle text - handles multiple patterns:
+    // 1. Consecutive symbols: "Add {C}{C}" (Sol Ring)
+    // 2. Choice patterns: "Add {R}, {G}, or {W}" (Jungle Shrine, tri-lands)
+    // 3. Two-color patterns: "Add {W} or {U}" (dual lands like Adarkar Wastes)
+    
+    // First, try to match the "Add" statement and extract all mana symbols from it
+    // This handles both "Add {R}, {G}, or {W}." and "Add {C}{C}." patterns
+    const addStatementMatch = text.match(/add\s+([^.]+)/i);
+    if (addStatementMatch) {
+      const addStatement = addStatementMatch[1];
       
-      for (let i = 0; i < wCount; i++) colors.push('W');
-      for (let i = 0; i < uCount; i++) colors.push('U');
-      for (let i = 0; i < bCount; i++) colors.push('B');
-      for (let i = 0; i < rCount; i++) colors.push('R');
-      for (let i = 0; i < gCount; i++) colors.push('G');
-      for (let i = 0; i < cCount; i++) colors.push('C');
+      // Extract all mana symbols from the add statement
+      const symbolMatches = addStatement.match(/\{[wubrgc]\}/gi) || [];
+      
+      // Count each symbol type for multi-mana sources like Sol Ring
+      const symbolCounts: Record<string, number> = { w: 0, u: 0, b: 0, r: 0, g: 0, c: 0 };
+      for (const sym of symbolMatches) {
+        const color = sym.replace(/[{}]/g, '').toLowerCase();
+        if (color in symbolCounts) {
+          symbolCounts[color]++;
+        }
+      }
+      
+      // Check if this is a "choice" pattern (has "or" or ", " between symbols)
+      // or a "multi-mana" pattern (consecutive symbols like {C}{C})
+      const isChoicePattern = addStatement.includes(' or ') || 
+                              /\{[wubrgc]\}\s*,\s*\{[wubrgc]\}/i.test(addStatement);
+      
+      if (isChoicePattern) {
+        // For choice patterns, add each unique color once
+        if (symbolCounts.w > 0) colors.push('W');
+        if (symbolCounts.u > 0) colors.push('U');
+        if (symbolCounts.b > 0) colors.push('B');
+        if (symbolCounts.r > 0) colors.push('R');
+        if (symbolCounts.g > 0) colors.push('G');
+        if (symbolCounts.c > 0) colors.push('C');
+      } else {
+        // For multi-mana patterns (like Sol Ring), add duplicates
+        for (let i = 0; i < symbolCounts.w; i++) colors.push('W');
+        for (let i = 0; i < symbolCounts.u; i++) colors.push('U');
+        for (let i = 0; i < symbolCounts.b; i++) colors.push('B');
+        for (let i = 0; i < symbolCounts.r; i++) colors.push('R');
+        for (let i = 0; i < symbolCounts.g; i++) colors.push('G');
+        for (let i = 0; i < symbolCounts.c; i++) colors.push('C');
+      }
     }
     
     // If no mana symbols found in add patterns, check for basic patterns
