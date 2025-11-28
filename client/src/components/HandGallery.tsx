@@ -281,11 +281,13 @@ export function HandGallery(props: HandGalleryProps) {
                   gap: 4,
                 }}
                 title={`Cost reduced by ${costReductions[kc.id].sources.join(', ')}`}
+                role="status"
+                aria-label={`Mana cost reduced from ${costReductions[kc.id].originalCost} to ${costReductions[kc.id].reducedCost} by ${costReductions[kc.id].sources.join(', ')}`}
               >
-                <span style={{ textDecoration: 'line-through', opacity: 0.7 }}>
+                <span style={{ textDecoration: 'line-through', opacity: 0.7 }} aria-hidden="true">
                   {costReductions[kc.id].originalCost}
                 </span>
-                <span>→</span>
+                <span aria-hidden="true">→</span>
                 <span>{costReductions[kc.id].reducedCost}</span>
               </div>
             )}

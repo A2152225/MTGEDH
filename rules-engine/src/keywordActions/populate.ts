@@ -139,7 +139,7 @@ export function executePopulate(
     owner: playerId,
     tapped: false,
     summoningSickness: true, // Creature tokens have summoning sickness
-    counters: {}, // Counters are not copied (Rule 707.2)
+    counters: {}, // Counters are not copied when populating (Rule 701.36)
     attachedTo: undefined,
     attachments: [],
     modifiers: [],

@@ -1414,11 +1414,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       if (lowerCardName === 'forbidden orchard') {
         // Get opponents from game.state.players
         const players = game.state?.players || [];
-        const opponents = players.filter((p: any) => p?.id !== pid && p?.id);
+        const opponents = players.filter((p: any) => p?.id != null && p.id !== pid);
         
         if (opponents.length > 0) {
-          // For simplicity, give token to first opponent (in a real game, controller chooses)
-          // TODO: Implement target opponent selection
+          // TODO: In a real implementation, controller should choose the target opponent
+          // For now, give token to first opponent
           const targetOpponent = opponents[0];
           const opponentId = targetOpponent.id;
           

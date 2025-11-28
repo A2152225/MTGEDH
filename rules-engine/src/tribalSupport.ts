@@ -418,7 +418,6 @@ export const BANNERET_CARDS: Record<string, { types: string[]; reduction: number
   'goblin warchief': { types: ['Goblin'], reduction: 1 },
   'dragonspeaker shaman': { types: ['Dragon'], reduction: 2 },
   'dragonlord\'s servant': { types: ['Dragon'], reduction: 1 },
-  'herald of secret streams': { types: ['Merfolk'], reduction: 0 }, // Doesn't reduce cost, included for completeness
   'undead warchief': { types: ['Zombie'], reduction: 1 },
   'semblance anvil': { types: ['imprinted'], reduction: 2 }, // Type depends on imprinted card
   'cloud key': { types: ['chosen'], reduction: 1 }, // Player chooses card type
