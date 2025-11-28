@@ -582,6 +582,22 @@ export {
   type CurseCardName,
 } from './curses';
 
+// Casting Restrictions (Silence, Rule of Law, Grand Abolisher, etc.)
+export {
+  CastingRestrictionType,
+  RestrictionDuration,
+  detectCastingRestrictions,
+  collectCastingRestrictions,
+  canCastSpell,
+  applySilenceEffect,
+  clearEndOfTurnRestrictions,
+  canActivateAbilities,
+  COMMON_RESTRICTION_CARDS,
+  type CastingRestriction,
+  type CastingCheckResult,
+  type RestrictionCardName,
+} from './castingRestrictions';
+
 // =============================================================================
 // LEGACY COMPATIBILITY
 // =============================================================================
