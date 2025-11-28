@@ -5,7 +5,7 @@
  * Orchestrates turn-based actions, triggers, and state-based actions.
  */
 
-import type { GameState } from '../../../shared/src';
+import type { GameState, BattlefieldPermanent, StackItem } from '../../../shared/src';
 import type { EngineResult, ActionContext } from '../core/types';
 import { RulesEngineEvent } from '../core/events';
 import { GamePhase, GameStep, getNextGameStep } from './gamePhases';
@@ -241,16 +241,27 @@ function resolveTopOfStack(
     stack: newStack,
   };
   
+  // Helper to get card properties from stack item
+  const getCardName = (item: StackItem): string => {
+    const card = item.card as any;
+    return card?.name || (item as any).cardName || (item as any).name || 'Unknown';
+  };
+  
+  const getTypeLine = (item: StackItem): string => {
+    const card = item.card as any;
+    return card?.type_line || (item as any).type_line || '';
+  };
+  
   // Resolve based on object type
   if (topObject.type === 'spell') {
-    logs.push(`Resolving spell: ${topObject.cardName || topObject.name || 'Unknown spell'}`);
+    logs.push(`Resolving spell: ${getCardName(topObject)}`);
     
     // Check if all targets are still legal
     const targets = topObject.targets || [];
     let allTargetsLegal = true;
     
     for (const target of targets) {
-      const targetId = typeof target === 'string' ? target : target.id;
+      const targetId = typeof target === 'string' ? target : (target as any).id;
       // Check if target still exists on battlefield
       const targetExists = (updatedState.battlefield || []).some(
         (p: any) => p.id === targetId
@@ -264,10 +275,10 @@ function resolveTopOfStack(
     
     if (!allTargetsLegal && targets.length > 0) {
       // Spell is countered by game rules (Rule 608.2b)
-      logs.push(`${topObject.cardName || 'Spell'} countered - no legal targets`);
+      logs.push(`${getCardName(topObject)} countered - no legal targets`);
       
-      // Move to graveyard
-      const ownerId = topObject.controller || topObject.controllerId;
+      // Move to graveyard - controller is always defined on StackItem
+      const ownerId = topObject.controller;
       updatedState = moveToGraveyard(updatedState, topObject, ownerId);
       
       context.emit({
@@ -278,23 +289,23 @@ function resolveTopOfStack(
       });
     } else {
       // Spell resolves successfully
-      logs.push(`${topObject.cardName || 'Spell'} resolves`);
+      logs.push(`${getCardName(topObject)} resolves`);
       
       // Handle spell effects based on type
-      const typeLine = (topObject.type_line || '').toLowerCase();
-      const controllerId = topObject.controller || topObject.controllerId;
+      const typeLine = getTypeLine(topObject).toLowerCase();
+      const controllerId = topObject.controller;
       
       if (typeLine.includes('creature') || typeLine.includes('artifact') || 
           typeLine.includes('enchantment') || typeLine.includes('planeswalker')) {
         // Permanent spell - enters the battlefield
         updatedState = enterBattlefield(updatedState, topObject, controllerId);
-        logs.push(`${topObject.cardName || 'Permanent'} enters the battlefield`);
+        logs.push(`${getCardName(topObject)} enters the battlefield`);
         
         context.emit({
-          type: RulesEngineEvent.PERMANENT_ENTERED_BATTLEFIELD,
+          type: RulesEngineEvent.SPELL_RESOLVED, // Use existing event type
           timestamp: Date.now(),
           gameId,
-          data: { permanent: topObject, controller: controllerId },
+          data: { spell: topObject, enteredBattlefield: true, controller: controllerId },
         });
       } else {
         // Instant/sorcery - goes to graveyard after resolution
@@ -309,7 +320,11 @@ function resolveTopOfStack(
       }
     }
   } else if (topObject.type === 'ability') {
-    logs.push(`Resolving ability: ${topObject.abilityText || topObject.name || 'triggered/activated ability'}`);
+    // Get ability text from card if available
+    const card = topObject.card as any;
+    const abilityText = (card?.oracle_text || (topObject as any).abilityText || 
+                         (topObject as any).name || 'triggered/activated ability');
+    logs.push(`Resolving ability: ${abilityText}`);
     
     // Abilities just cease to exist after resolving
     context.emit({
@@ -352,10 +367,12 @@ function moveToGraveyard(state: GameState, card: any, ownerId: string): GameStat
  * Put a permanent onto the battlefield
  */
 function enterBattlefield(state: GameState, permanent: any, controllerId: string): GameState {
-  const permanentOnBattlefield = {
+  const card = permanent.card || permanent;
+  const permanentOnBattlefield: BattlefieldPermanent = {
     id: permanent.id || `perm-${Date.now()}`,
-    card: permanent.card || permanent,
+    card: card,
     controller: controllerId,
+    owner: controllerId, // Owner is typically the controller when entering from stack
     tapped: false,
     summoningSickness: true,
     counters: {},

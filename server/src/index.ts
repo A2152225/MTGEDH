@@ -13,6 +13,7 @@ import {
   deleteGame as dbDeleteGame,
 } from "./db";
 import { listDecks, saveDeck } from "./db/decks";
+import { addSuggestion, loadSuggestions } from "./db/houseRuleSuggestions";
 import { parseDecklist } from "./services/scryfall";
 import type {
   ClientToServerEvents,
@@ -138,6 +139,56 @@ app.post("/api/decks", (req, res) => {
   } catch (err) {
     console.error("POST /api/decks failed:", err);
     res.status(500).json({ error: "Failed to save deck" });
+  }
+});
+
+// API: submit a house rule suggestion
+app.post("/api/house-rule-suggestions", (req, res) => {
+  try {
+    const { suggestion } = req.body;
+    
+    if (!suggestion || typeof suggestion !== 'string' || !suggestion.trim()) {
+      res.status(400).json({ error: "Suggestion text is required" });
+      return;
+    }
+    
+    // Limit suggestion length to prevent abuse
+    if (suggestion.length > 2000) {
+      res.status(400).json({ error: "Suggestion too long (max 2000 characters)" });
+      return;
+    }
+    
+    const saved = addSuggestion(suggestion.trim());
+    
+    console.info("[API] House rule suggestion submitted:", saved.id);
+    
+    res.json({ success: true, suggestionId: saved.id });
+  } catch (err) {
+    console.error("POST /api/house-rule-suggestions failed:", err);
+    res.status(500).json({ error: "Failed to save suggestion" });
+  }
+});
+
+// API: list house rule suggestions (admin only - localhost)
+app.get("/api/house-rule-suggestions", (req, res) => {
+  try {
+    // Determine requester IP (works for direct connections)
+    const remote = (req.ip || req.socket.remoteAddress || "").toString();
+    const allowed =
+      remote === "127.0.0.1" ||
+      remote === "::1" ||
+      remote === "localhost" ||
+      remote === "127.0.0.1:3001";
+    if (!allowed) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    
+    const suggestions = loadSuggestions();
+    res.json({ suggestions });
+  } catch (err) {
+    console.error("GET /api/house-rule-suggestions failed:", err);
+    res.status(500).json({ error: "Failed to list suggestions" });
   }
 });
 

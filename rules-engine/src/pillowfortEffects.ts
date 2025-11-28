@@ -255,7 +255,8 @@ export function calculateTotalAttackCost(
   state: GameState,
   defendingPlayerId: string
 ): { manaCost: ManaCost; lifeCostOption: number } {
-  let totalManaCost: ManaCost = {};
+  // Use a plain object for accumulation, then cast to ManaCost at the end
+  const totalManaCost: Record<string, number> = {};
   let totalLifeCost = 0;
   
   const defender = state.players.find(p => p.id === defendingPlayerId);
@@ -294,8 +295,7 @@ export function calculateTotalAttackCost(
     if (req.manaCost) {
       for (const [color, amount] of Object.entries(req.manaCost)) {
         if (typeof amount === 'number') {
-          totalManaCost[color as keyof ManaCost] = 
-            (totalManaCost[color as keyof ManaCost] || 0) + (amount * multiplier);
+          totalManaCost[color] = (totalManaCost[color] || 0) + (amount * multiplier);
         }
       }
     }
@@ -307,7 +307,7 @@ export function calculateTotalAttackCost(
   }
   
   return {
-    manaCost: totalManaCost,
+    manaCost: totalManaCost as ManaCost,
     lifeCostOption: totalLifeCost,
   };
 }
@@ -362,14 +362,15 @@ export function checkAttackCosts(
   // Calculate if mana can cover the cost
   let canPayWithMana = true;
   let genericNeeded = manaCost.generic || 0;
-  const missingMana: ManaCost = {};
+  // Use a plain Record for accumulation
+  const missingManaMut: Record<string, number> = {};
   
   // Check colored mana requirements
   for (const color of ['white', 'blue', 'black', 'red', 'green', 'colorless'] as const) {
     const needed = manaCost[color] || 0;
     const available = manaPool[color] || 0;
     if (needed > available) {
-      missingMana[color] = needed - available;
+      missingManaMut[color] = needed - available;
       canPayWithMana = false;
     }
   }
@@ -384,9 +385,12 @@ export function checkAttackCosts(
   const remainingAfterColored = totalAvailable - coloredSpent;
   
   if (genericNeeded > remainingAfterColored) {
-    missingMana.generic = genericNeeded - remainingAfterColored;
+    missingManaMut['generic'] = genericNeeded - remainingAfterColored;
     canPayWithMana = false;
   }
+  
+  // Cast to readonly ManaCost for return
+  const missingMana = missingManaMut as ManaCost;
   
   // Check if player can pay with life instead (for Phyrexian mana effects)
   // Players can pay life even if it would reduce them to 0 or below (they'd just lose the game after)

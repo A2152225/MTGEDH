@@ -54,6 +54,8 @@ export enum RulesEngineEvent {
   CARD_DRAWN = 'cardDrawn',
   CARD_DISCARDED = 'cardDiscarded',
   PERMANENT_DESTROYED = 'permanentDestroyed',
+  PERMANENT_LEFT_BATTLEFIELD = 'permanentLeftBattlefield',
+  CREATURE_DIED = 'creatureDied',
   CARD_EXILED = 'cardExiled',
   PERMANENT_TAPPED = 'permanentTapped',
   PERMANENT_UNTAPPED = 'permanentUntapped',

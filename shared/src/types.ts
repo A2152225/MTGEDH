@@ -284,6 +284,56 @@ export enum GameStep {
   CLEANUP = 'CLEANUP'
 }
 
+/**
+ * House rules configuration for optional game variants.
+ * Multiple rules can be enabled simultaneously (default: all off).
+ * 
+ * These are selectable during the pregame phase and affect gameplay mechanics.
+ */
+export interface HouseRules {
+  /**
+   * First mulligan in multiplayer is free (doesn't count toward cards to bottom).
+   * This is the official Commander rule per Rule 103.5a but can be toggled.
+   */
+  freeFirstMulligan?: boolean;
+
+  /**
+   * Free mulligan if opening hand has no lands or all lands.
+   * Common house rule to reduce non-games from mana issues.
+   */
+  freeMulliganNoLandsOrAllLands?: boolean;
+
+  /**
+   * Any damage dealt by a commander counts as commander damage,
+   * not just combat damage. Affects the 21 commander damage loss condition.
+   */
+  anyCommanderDamageCountsAsCommanderDamage?: boolean;
+
+  /**
+   * If all human players mulligan in a round, decrease the mulligan count
+   * by 1 for each player (effectively a "group mulligan").
+   */
+  groupMulliganDiscount?: boolean;
+
+  /**
+   * Enable Archenemy variant cards in the match.
+   * If enabled, requires a scheme deck to be imported/selected.
+   */
+  enableArchenemy?: boolean;
+
+  /**
+   * Enable Planechase variant cards in the match.
+   * If enabled, requires a planar deck to be imported/selected.
+   */
+  enablePlanechase?: boolean;
+
+  /**
+   * Custom house rule suggestions submitted by players.
+   * These are stored for review and potential future implementation.
+   */
+  customRuleSuggestions?: string[];
+}
+
 /* Game state authoritative snapshot */
 export interface GameState {
   id: GameID;
@@ -340,6 +390,8 @@ export interface GameState {
   // Rules engine compatibility
   winner?: PlayerID | null;
   priorityPlayerIndex?: number;
+  // House rules configuration (optional game variants)
+  houseRules?: HouseRules;
 }
 
 /* Player protection state for effects like Teferi's Protection */
