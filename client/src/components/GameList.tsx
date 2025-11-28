@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
+import { socket } from "../socket";
 
 type GameRow = {
   id: string;
@@ -17,7 +18,7 @@ export default function GameList(props: { onJoin: (gameId: string) => void; poll
   const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
 
-  const fetchGames = async () => {
+  const fetchGames = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch("/api/games");
@@ -30,13 +31,31 @@ export default function GameList(props: { onJoin: (gameId: string) => void; poll
       setLoading(false);
       if (onRefresh) onRefresh();
     }
-  };
+  }, [onRefresh]);
 
   useEffect(() => {
     fetchGames();
     const t = setInterval(fetchGames, pollMs);
     return () => clearInterval(t);
-  }, [pollMs]);
+  }, [pollMs, fetchGames]);
+
+  // Listen for real-time game deletion events to update immediately
+  useEffect(() => {
+    const handleGameDeleted = (payload: { gameId: string }) => {
+      console.log("[GameList] Game deleted event received:", payload.gameId);
+      // Remove the deleted game from the list immediately
+      setGames(prev => prev.filter(g => g.id !== payload.gameId));
+    };
+
+    // Listen for both events: gameDeleted (broadcast to others) and gameDeletedAck (sent to requester)
+    socket.on("gameDeleted" as any, handleGameDeleted);
+    socket.on("gameDeletedAck" as any, handleGameDeleted);
+
+    return () => {
+      socket.off("gameDeleted" as any, handleGameDeleted);
+      socket.off("gameDeletedAck" as any, handleGameDeleted);
+    };
+  }, []);
 
   const handleJoin = (id: string) => {
     console.debug("[GAME_LIST] join", id);

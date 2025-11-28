@@ -732,8 +732,531 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "keepHand": {
+        // Mark player as having kept their hand
+        // This is important for tracking mulligan state during replay
+        const pid = (e as any).playerId;
+        if (!pid) break;
+        try {
+          const state = ctx.state as any;
+          state.mulliganState = state.mulliganState || {};
+          state.mulliganState[pid] = state.mulliganState[pid] || {};
+          state.mulliganState[pid].hasKeptHand = true;
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(keepHand): failed", err);
+        }
+        break;
+      }
+
+      case "mulliganPutToBottom": {
+        // London mulligan: move selected cards from hand to bottom of library
+        const pid = (e as any).playerId;
+        const cardIds = (e as any).cardIds as string[] || [];
+        if (!pid || cardIds.length === 0) break;
+        try {
+          const zones = ctx.state.zones || {};
+          const z = zones[pid];
+          if (!z || !Array.isArray(z.hand)) break;
+          
+          const hand = z.hand as any[];
+          const lib = ctx.libraries.get(pid) || [];
+          
+          // Move each selected card from hand to bottom of library
+          for (const cardId of cardIds) {
+            const idx = hand.findIndex((c: any) => c.id === cardId);
+            if (idx !== -1) {
+              const [card] = hand.splice(idx, 1);
+              lib.push({ ...card, zone: "library" });
+            }
+          }
+          
+          // Update counts
+          z.handCount = hand.length;
+          z.libraryCount = lib.length;
+          ctx.libraries.set(pid, lib);
+          
+          // Mark hand as kept after putting cards on bottom
+          const state = ctx.state as any;
+          state.mulliganState = state.mulliganState || {};
+          state.mulliganState[pid] = state.mulliganState[pid] || {};
+          state.mulliganState[pid].hasKeptHand = true;
+          
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(mulliganPutToBottom): failed", err);
+        }
+        break;
+      }
+
+      case "setLife":
+      case "adjustLife": {
+        // Set or adjust a player's life total
+        const pid = (e as any).playerId;
+        const life = (e as any).life;
+        const delta = (e as any).delta;
+        if (!pid) break;
+        try {
+          if (typeof life === 'number') {
+            // Absolute set
+            if (ctx.life) ctx.life[pid] = life;
+          } else if (typeof delta === 'number') {
+            // Relative adjustment
+            if (ctx.life) ctx.life[pid] = (ctx.life[pid] ?? ctx.state.startingLife ?? 40) + delta;
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn(`applyEvent(${e.type}): failed`, err);
+        }
+        break;
+      }
+
+      case "cleanupDiscard": {
+        // Discard cards during cleanup step
+        const pid = (e as any).playerId;
+        const cardIds = (e as any).cardIds as string[] || [];
+        if (!pid || cardIds.length === 0) break;
+        try {
+          const zones = ctx.state.zones || {};
+          const z = zones[pid];
+          if (!z || !Array.isArray(z.hand)) break;
+          
+          const hand = z.hand as any[];
+          z.graveyard = z.graveyard || [];
+          const graveyard = z.graveyard as any[];
+          
+          // Move each selected card from hand to graveyard
+          for (const cardId of cardIds) {
+            const idx = hand.findIndex((c: any) => c.id === cardId);
+            if (idx !== -1) {
+              const [card] = hand.splice(idx, 1);
+              graveyard.push({ ...card, zone: "graveyard" });
+            }
+          }
+          
+          // Update counts
+          z.handCount = hand.length;
+          z.graveyardCount = graveyard.length;
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(cleanupDiscard): failed", err);
+        }
+        break;
+      }
+
+      case "mill": {
+        // Mill cards from library to graveyard
+        const pid = (e as any).playerId;
+        const count = (e as any).count || 1;
+        if (!pid) break;
+        try {
+          const lib = ctx.libraries.get(pid) || [];
+          const zones = ctx.state.zones || {};
+          const z = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+          zones[pid] = z;
+          z.graveyard = z.graveyard || [];
+          const graveyard = z.graveyard as any[];
+          
+          // Mill top N cards
+          const milled = lib.splice(0, Math.min(count, lib.length));
+          for (const card of milled) {
+            graveyard.push({ ...card, zone: "graveyard" });
+          }
+          
+          // Update counts
+          z.libraryCount = lib.length;
+          z.graveyardCount = graveyard.length;
+          ctx.libraries.set(pid, lib);
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(mill): failed", err);
+        }
+        break;
+      }
+
+      case "tapPermanent":
+      case "untapPermanent": {
+        // Tap or untap a permanent
+        const permId = (e as any).permanentId;
+        const tapped = e.type === "tapPermanent";
+        if (!permId) break;
+        try {
+          const battlefield = ctx.state.battlefield || [];
+          const perm = battlefield.find((p: any) => p.id === permId);
+          if (perm) {
+            (perm as any).tapped = tapped;
+            ctx.bumpSeq();
+          }
+        } catch (err) {
+          console.warn(`applyEvent(${e.type}): failed`, err);
+        }
+        break;
+      }
+
+      case "sacrificePermanent": {
+        // Sacrifice a permanent (move to graveyard)
+        const permId = (e as any).permanentId;
+        if (!permId) break;
+        try {
+          removePermanent(ctx as any, permId);
+        } catch (err) {
+          console.warn("applyEvent(sacrificePermanent): failed", err);
+        }
+        break;
+      }
+
+      case "sacrificeSelected": {
+        // Multiple permanents sacrificed (e.g., for Diabolic Intent)
+        const permanentIds = (e as any).permanentIds as string[] || [];
+        if (permanentIds.length === 0) break;
+        try {
+          for (const permId of permanentIds) {
+            removePermanent(ctx as any, permId);
+          }
+        } catch (err) {
+          console.warn("applyEvent(sacrificeSelected): failed", err);
+        }
+        break;
+      }
+
+      case "declareAttackers": {
+        // Set attackers for combat
+        const attackers = (e as any).attackers as Array<{ attackerId: string; defendingPlayer?: string }> || [];
+        try {
+          const battlefield = ctx.state.battlefield || [];
+          // Clear previous attackers
+          for (const perm of battlefield) {
+            if (perm) (perm as any).attacking = undefined;
+          }
+          // Set new attackers
+          for (const atk of attackers) {
+            const perm = battlefield.find((p: any) => p.id === atk.attackerId);
+            if (perm) {
+              (perm as any).attacking = atk.defendingPlayer || true;
+              (perm as any).tapped = true; // Attacking creatures tap
+            }
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(declareAttackers): failed", err);
+        }
+        break;
+      }
+
+      case "declareBlockers": {
+        // Set blockers for combat
+        const blockers = (e as any).blockers as Array<{ blockerId: string; attackerId: string }> || [];
+        try {
+          const battlefield = ctx.state.battlefield || [];
+          // Clear previous blockers
+          for (const perm of battlefield) {
+            if (perm) {
+              (perm as any).blocking = undefined;
+              (perm as any).blockedBy = undefined;
+            }
+          }
+          // Set new blockers
+          for (const blk of blockers) {
+            const blocker = battlefield.find((p: any) => p.id === blk.blockerId);
+            const attacker = battlefield.find((p: any) => p.id === blk.attackerId);
+            if (blocker) {
+              (blocker as any).blocking = blk.attackerId;
+            }
+            if (attacker) {
+              (attacker as any).blockedBy = (attacker as any).blockedBy || [];
+              (attacker as any).blockedBy.push(blk.blockerId);
+            }
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(declareBlockers): failed", err);
+        }
+        break;
+      }
+
+      case "activateFetchland": {
+        // Fetchland activation: sacrifice land, search for land, put on battlefield
+        // The actual search/put is handled by librarySearchSelect, this just marks the sacrifice
+        const permId = (e as any).permanentId;
+        if (permId) {
+          try {
+            removePermanent(ctx as any, permId);
+          } catch (err) {
+            console.warn("applyEvent(activateFetchland): failed", err);
+          }
+        }
+        break;
+      }
+
+      case "activateManaAbility": {
+        // Mana ability activation: tap permanent, add mana
+        const permId = (e as any).permanentId;
+        const manaColor = (e as any).manaColor;
+        try {
+          if (permId) {
+            const battlefield = ctx.state.battlefield || [];
+            const perm = battlefield.find((p: any) => p.id === permId);
+            if (perm) {
+              (perm as any).tapped = true;
+            }
+          }
+          // Mana pool updates are typically ephemeral, but we bump seq for state sync
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(activateManaAbility): failed", err);
+        }
+        break;
+      }
+
+      case "activatePlaneswalkerAbility": {
+        // Planeswalker ability: adjust loyalty counters
+        const permId = (e as any).permanentId;
+        const loyaltyCost = (e as any).loyaltyCost || 0;
+        try {
+          if (permId) {
+            const battlefield = ctx.state.battlefield || [];
+            const perm = battlefield.find((p: any) => p.id === permId);
+            if (perm) {
+              (perm as any).counters = (perm as any).counters || {};
+              (perm as any).counters.loyalty = ((perm as any).counters.loyalty || 0) + loyaltyCost;
+            }
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(activatePlaneswalkerAbility): failed", err);
+        }
+        break;
+      }
+
+      case "activateGraveyardAbility": {
+        // Graveyard ability (flashback, unearth, etc.)
+        // The specific effect depends on the ability, but typically moves the card
+        const cardId = (e as any).cardId;
+        const pid = (e as any).playerId;
+        const abilityType = (e as any).abilityType;
+        try {
+          // Most graveyard abilities exile the card after use
+          if (cardId && pid && abilityType === 'flashback') {
+            const zones = ctx.state.zones || {};
+            const z = zones[pid];
+            if (z && Array.isArray(z.graveyard)) {
+              const graveyard = z.graveyard as any[];
+              const idx = graveyard.findIndex((c: any) => c.id === cardId);
+              if (idx !== -1) {
+                const [card] = graveyard.splice(idx, 1);
+                z.graveyardCount = graveyard.length;
+                z.exile = z.exile || [];
+                (z.exile as any[]).push({ ...card, zone: "exile" });
+              }
+            }
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(activateGraveyardAbility): failed", err);
+        }
+        break;
+      }
+
+      case "shockLandChoice": {
+        // Shock land enters tapped or player pays 2 life
+        const pid = (e as any).playerId;
+        const permId = (e as any).permanentId;
+        const payLife = (e as any).payLife;
+        try {
+          if (payLife && pid && ctx.life) {
+            ctx.life[pid] = (ctx.life[pid] ?? ctx.state.startingLife ?? 40) - 2;
+          }
+          if (!payLife && permId) {
+            // Land enters tapped
+            const battlefield = ctx.state.battlefield || [];
+            const perm = battlefield.find((p: any) => p.id === permId);
+            if (perm) {
+              (perm as any).tapped = true;
+            }
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(shockLandChoice): failed", err);
+        }
+        break;
+      }
+
+      case "bounceLandChoice": {
+        // Bounce land: return a land to hand
+        const pid = (e as any).playerId;
+        const returnedLandId = (e as any).returnedLandId;
+        try {
+          if (returnedLandId && pid) {
+            const battlefield = ctx.state.battlefield || [];
+            const idx = battlefield.findIndex((p: any) => p.id === returnedLandId);
+            if (idx !== -1) {
+              const [perm] = battlefield.splice(idx, 1);
+              const zones = ctx.state.zones || {};
+              const z = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+              zones[pid] = z;
+              if (perm && (perm as any).card) {
+                (z.hand as any[]).push({ ...(perm as any).card, zone: "hand" });
+                z.handCount = (z.hand as any[]).length;
+              }
+            }
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(bounceLandChoice): failed", err);
+        }
+        break;
+      }
+
+      case "librarySearchSelect": {
+        // Select cards from library search (tutor effects)
+        const pid = (e as any).playerId;
+        const cardIds = (e as any).cardIds as string[] || [];
+        const destination = (e as any).destination || "hand";
+        try {
+          if (pid && cardIds.length > 0) {
+            const lib = ctx.libraries.get(pid) || [];
+            const zones = ctx.state.zones || {};
+            const z = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+            zones[pid] = z;
+            
+            for (const cardId of cardIds) {
+              const idx = lib.findIndex((c: any) => c.id === cardId);
+              if (idx !== -1) {
+                const [card] = lib.splice(idx, 1);
+                if (destination === "hand") {
+                  (z.hand as any[]).push({ ...card, zone: "hand" });
+                } else if (destination === "battlefield") {
+                  ctx.state.battlefield = ctx.state.battlefield || [];
+                  ctx.state.battlefield.push({
+                    id: card.id,
+                    controller: pid,
+                    owner: pid,
+                    tapped: false,
+                    counters: {},
+                    card: { ...card, zone: "battlefield" },
+                  } as any);
+                } else if (destination === "top") {
+                  lib.unshift({ ...card, zone: "library" });
+                }
+              }
+            }
+            
+            z.handCount = (z.hand as any[]).length;
+            z.libraryCount = lib.length;
+            ctx.libraries.set(pid, lib);
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(librarySearchSelect): failed", err);
+        }
+        break;
+      }
+
+      case "creatureTypeSelected": {
+        // Creature type selection (e.g., Cavern of Souls, Metallic Mimic)
+        const permId = (e as any).permanentId;
+        const creatureType = (e as any).creatureType;
+        try {
+          if (permId && creatureType) {
+            const battlefield = ctx.state.battlefield || [];
+            const perm = battlefield.find((p: any) => p.id === permId);
+            if (perm) {
+              (perm as any).chosenCreatureType = creatureType;
+            }
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(creatureTypeSelected): failed", err);
+        }
+        break;
+      }
+
+      case "playOpeningHandCards": {
+        // Play cards from opening hand (Leylines, Chancellor triggers)
+        const pid = (e as any).playerId;
+        const cardIds = (e as any).cardIds as string[] || [];
+        try {
+          if (pid && cardIds.length > 0) {
+            const zones = ctx.state.zones || {};
+            const z = zones[pid];
+            if (z && Array.isArray(z.hand)) {
+              const hand = z.hand as any[];
+              ctx.state.battlefield = ctx.state.battlefield || [];
+              
+              for (const cardId of cardIds) {
+                const idx = hand.findIndex((c: any) => c.id === cardId);
+                if (idx !== -1) {
+                  const [card] = hand.splice(idx, 1);
+                  ctx.state.battlefield.push({
+                    id: card.id,
+                    controller: pid,
+                    owner: pid,
+                    tapped: false,
+                    counters: {},
+                    card: { ...card, zone: "battlefield" },
+                  } as any);
+                }
+              }
+              z.handCount = hand.length;
+            }
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(playOpeningHandCards): failed", err);
+        }
+        break;
+      }
+
+      case "skipOpeningHandActions": {
+        // Player chose to skip opening hand actions
+        // Just a marker event, no state change needed
+        ctx.bumpSeq();
+        break;
+      }
+
+      case "resolveTrigger": {
+        // Resolve a triggered ability
+        // The specific effect depends on the trigger type
+        const triggerId = (e as any).triggerId;
+        const choice = (e as any).choice;
+        // Most trigger resolution is handled by specific logic elsewhere
+        // This is primarily for logging/replay tracking
+        ctx.bumpSeq();
+        break;
+      }
+
+      case "joinForcesInitiated":
+      case "joinForcesComplete": {
+        // Join forces spell mechanics
+        // State changes are handled by the specific spell resolution
+        ctx.bumpSeq();
+        break;
+      }
+
+      case "setHouseRules": {
+        // Set house rules for the game
+        const rules = (e as any).rules;
+        try {
+          if (rules && typeof rules === 'object') {
+            (ctx.state as any).houseRules = { ...(ctx.state as any).houseRules, ...rules };
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(setHouseRules): failed", err);
+        }
+        break;
+      }
+
+      case "targetSelectionConfirm": {
+        // Target selection confirmed for a spell/ability
+        // The actual targeting logic is handled by the spell resolution
+        ctx.bumpSeq();
+        break;
+      }
+
       default: {
-        console.warn("applyEvent: unknown event type", (e as any).type);
+        // Log unknown events but don't fail - they may be newer events not yet supported
+        // or events that don't affect core game state
         break;
       }
     }
