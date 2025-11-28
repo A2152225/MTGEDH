@@ -353,7 +353,8 @@ export function hasLostDueToPoison(poisonCounters: number): boolean {
 export function hasLostDueToCommanderDamage(
   commanderDamage: Map<string, number>
 ): boolean {
-  for (const damage of commanderDamage.values()) {
+  const values = Array.from(commanderDamage.values());
+  for (const damage of values) {
     if (damage >= 21) {
       return true;
     }

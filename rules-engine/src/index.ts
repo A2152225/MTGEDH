@@ -695,3 +695,47 @@ export function passPriority(state: Readonly<GameState>, by: PlayerID): EngineRe
     }
   };
 }
+
+// =============================================================================
+// MTG ONLINE-STYLE AUTOMATION
+// Full game automation with player decision tracking
+// =============================================================================
+
+// Automation Service - handles automatic gameplay
+export {
+  DecisionType,
+  runAutomation,
+  calculateCombatDamage as autoCalculateCombatDamage,
+  applyCombatDamage as autoApplyCombatDamage,
+  autoTapForMana,
+  hasAvailableActions,
+  requiresDecisionToResolve,
+  processTriggeredAbilities,
+  type PendingDecision,
+  type DecisionOption,
+  type SelectionFilter,
+  type DecisionResult,
+  type AutomationContext,
+  type AutomationResult,
+  type CombatDamageAssignment as AutoCombatDamageAssignment,
+} from './AutomationService';
+
+// Decision Manager - tracks and validates player decisions
+export {
+  DecisionManager,
+  decisionManager,
+  type DecisionResponse,
+  type ValidationResult,
+  type DecisionState,
+} from './DecisionManager';
+
+// Game Automation Controller - orchestrates automated gameplay
+export {
+  GameAutomationController,
+  gameAutomationController,
+  GameAutomationStatus,
+  defaultAutomationConfig,
+  type AutomationConfig,
+  type AutomationStepResult,
+  type GameEvent as AutomationGameEvent,
+} from './GameAutomationController';

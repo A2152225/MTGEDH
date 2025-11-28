@@ -48,7 +48,8 @@ export function createProliferateTarget(
 ): ProliferateTarget {
   // Each existing counter type gets +1
   const countersToAdd = new Map<string, number>();
-  for (const [counterType, count] of existingCounters) {
+  const entries = Array.from(existingCounters.entries());
+  for (const [counterType, count] of entries) {
     if (count > 0) {
       countersToAdd.set(counterType, 1); // Add 1 of each type
     }
@@ -108,7 +109,8 @@ export function canBeProliferateTarget(
   counters: ReadonlyMap<string, number>
 ): boolean {
   // Must have at least one counter
-  for (const count of counters.values()) {
+  const values = Array.from(counters.values());
+  for (const count of values) {
     if (count > 0) return true;
   }
   return false;
@@ -121,8 +123,8 @@ export function calculateProliferateCounters(
   existingCounters: ReadonlyMap<string, number>
 ): ReadonlyMap<string, number> {
   const result = new Map<string, number>();
-  
-  for (const [type, count] of existingCounters) {
+  const entries = Array.from(existingCounters.entries());
+  for (const [type, count] of entries) {
     if (count > 0) {
       result.set(type, 1); // Add 1 of each existing counter type
     }

@@ -310,7 +310,8 @@ export function checkLegendRule(
   
   // Find duplicates
   const duplicates: string[] = [];
-  for (const [, ids] of byControllerAndName) {
+  const mapEntries = Array.from(byControllerAndName.entries());
+  for (const [, ids] of mapEntries) {
     if (ids.length > 1) {
       // All but one (chosen by player) will be put in graveyard
       duplicates.push(...ids);
@@ -462,7 +463,8 @@ export function checkCommanderDamage(
   playerId: string,
   commanderDamage: Map<string, number>
 ): StateBasedAction | null {
-  for (const [commanderId, damage] of commanderDamage) {
+  const entries = Array.from(commanderDamage.entries());
+  for (const [commanderId, damage] of entries) {
     if (damage >= 21) {
       return {
         type: StateBasedActionType.COMMANDER_DAMAGE,
