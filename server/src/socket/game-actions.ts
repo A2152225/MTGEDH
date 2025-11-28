@@ -908,10 +908,11 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Check if this is a shock land and prompt the player
       if (isShockLand(cardName)) {
-        // Find the permanent that was just played (should be on battlefield now)
+        // Find the permanent that was just played by its unique card ID (not by name)
+        // This ensures we find the correct permanent when multiple copies of the same card exist
         const battlefield = game.state?.battlefield || [];
         const permanent = battlefield.find((p: any) => 
-          p.card?.name?.toLowerCase() === cardName.toLowerCase() && 
+          p.card?.id === cardId && 
           p.controller === playerId
         );
         
@@ -933,10 +934,11 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Check if this is a bounce land and prompt the player to return a land
       if (isBounceLand(cardName)) {
-        // Find the permanent that was just played (should be on battlefield now)
+        // Find the permanent that was just played by its unique card ID (not by name)
+        // This ensures we find the correct permanent when multiple copies of the same card exist
         const battlefield = game.state?.battlefield || [];
         const bounceLandPerm = battlefield.find((p: any) => 
-          p.card?.name?.toLowerCase() === cardName.toLowerCase() && 
+          p.card?.id === cardId && 
           p.controller === playerId
         );
         
@@ -977,10 +979,11 @@ export function registerGameActions(io: Server, socket: Socket) {
         const etbPattern = detectETBTappedPattern(oracleText);
         
         if (etbPattern === 'always') {
-          // Find the permanent that was just played and mark it tapped
+          // Find the permanent that was just played by its unique card ID (not by name)
+          // This ensures we find the correct permanent when multiple copies of the same card exist
           const battlefield = game.state?.battlefield || [];
           const permanent = battlefield.find((p: any) => 
-            p.card?.name?.toLowerCase() === cardName.toLowerCase() && 
+            p.card?.id === cardId && 
             p.controller === playerId &&
             !p.tapped // Only tap if not already tapped
           );

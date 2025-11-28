@@ -1360,9 +1360,11 @@ async function executeAIPlayLand(
       // If land should enter tapped, find and tap it
       if (entersTapped) {
         const battlefield = game.state?.battlefield || [];
+        // Find by unique cardId only - name-based fallback removed to prevent issues
+        // with multiple copies of the same card (e.g., basic lands, tokens)
         const newPerm = battlefield.find((p: any) => 
           p.controller === playerId && 
-          (p.card?.id === cardId || p.card?.name === cardToPlay?.name)
+          p.card?.id === cardId
         );
         if (newPerm) {
           newPerm.tapped = true;

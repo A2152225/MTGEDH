@@ -43,6 +43,7 @@ export interface TriggeredAbility {
     | 'attacks'
     | 'creature_attacks'
     | 'etb'
+    | 'etb_sacrifice_unless_pay' // Transguild Promenade, Gateway Plaza, Rupture Spire
     | 'creature_etb'
     | 'permanent_etb'     // Altar of the Brood style - whenever ANY permanent enters
     | 'another_permanent_etb' // Whenever ANOTHER permanent enters under your control
@@ -51,14 +52,18 @@ export interface TriggeredAbility {
     | 'annihilator'
     | 'melee'
     | 'myriad'
-    | 'exalted';
+    | 'exalted'
+    | 'upkeep_create_copy'  // Progenitor Mimic style - create token copy at upkeep
+    | 'end_step_resource';  // Kynaios & Tiro style - draw/land resource at end step
   description: string;
   effect?: string;
   value?: number; // For Annihilator N, etc.
   millAmount?: number; // For mill triggers like Altar of the Brood
+  manaCost?: string; // For "sacrifice unless you pay" triggers
   mandatory: boolean;
   requiresTarget?: boolean;
   targetType?: string;
+  requiresChoice?: boolean; // For triggers where player must choose
 }
 
 /**
@@ -400,15 +405,32 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   
   // "When ~ enters the battlefield"
   const etbMatch = oracleText.match(/when\s+(?:~|this creature|this permanent)\s+enters the battlefield,?\s*([^.]+)/i);
-  if (etbMatch && !triggers.some(t => t.triggerType === 'etb')) {
-    triggers.push({
-      permanentId,
-      cardName,
-      triggerType: 'etb',
-      description: etbMatch[1].trim(),
-      effect: etbMatch[1].trim(),
-      mandatory: true,
-    });
+  if (etbMatch && !triggers.some(t => t.triggerType === 'etb' || t.triggerType === 'etb_sacrifice_unless_pay')) {
+    const effectText = etbMatch[1].trim();
+    
+    // Check for "sacrifice ~ unless you pay" pattern (Transguild Promenade, Gateway Plaza, Rupture Spire)
+    const sacrificeUnlessPayMatch = effectText.match(/sacrifice\s+(?:~|it|this\s+\w+)\s+unless\s+you\s+pay\s+(\{[^}]+\})/i);
+    if (sacrificeUnlessPayMatch) {
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'etb_sacrifice_unless_pay',
+        description: effectText,
+        effect: effectText,
+        manaCost: sacrificeUnlessPayMatch[1],
+        mandatory: true,
+        requiresChoice: true,
+      });
+    } else {
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'etb',
+        description: effectText,
+        effect: effectText,
+        mandatory: true,
+      });
+    }
   }
   
   // "Whenever a creature enters the battlefield under your control"
