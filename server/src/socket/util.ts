@@ -1092,7 +1092,7 @@ export function getTotalManaPool(
  */
 export function calculateTotalAvailableMana(
   existingPool: Record<string, number>,
-  newPayment: Array<{ mana: string }> | undefined
+  newPayment: Array<{ mana: string; count?: number }> | undefined
 ): Record<string, number> {
   // Start with a copy of the existing pool
   const total: Record<string, number> = {
@@ -1104,12 +1104,14 @@ export function calculateTotalAvailableMana(
     colorless: existingPool.colorless || 0,
   };
   
-  // Add new payment
+  // Add new payment - use count field for multi-mana sources like Sol Ring
   if (newPayment && newPayment.length > 0) {
     for (const p of newPayment) {
       const colorKey = MANA_COLOR_NAMES[p.mana];
       if (colorKey) {
-        total[colorKey] = (total[colorKey] || 0) + 1;
+        // Use count if provided (e.g., Sol Ring produces 2), default to 1
+        const manaAmount = p.count ?? 1;
+        total[colorKey] = (total[colorKey] || 0) + manaAmount;
       }
     }
   }
@@ -1333,6 +1335,135 @@ export function calculateManaProduction(
     } else {
       result.colors = ['G'];
     }
+  }
+  
+  // Everflowing Chalice - "Add {C} for each charge counter on Everflowing Chalice"
+  if (cardName.includes('everflowing chalice') ||
+      (oracleText.includes('for each charge counter') && oracleText.includes('add'))) {
+    const chargeCounters = permanent?.counters?.charge || 0;
+    result.isDynamic = true;
+    result.baseAmount = chargeCounters;
+    result.dynamicDescription = `{C} for each charge counter (${chargeCounters})`;
+    result.colors = ['C'];
+  }
+  
+  // Astral Cornucopia - "Add one mana of any color for each charge counter"
+  if (cardName.includes('astral cornucopia') ||
+      (oracleText.includes('for each charge counter') && oracleText.includes('any color'))) {
+    const chargeCounters = permanent?.counters?.charge || 0;
+    result.isDynamic = true;
+    result.baseAmount = chargeCounters;
+    result.dynamicDescription = `Mana for each charge counter (${chargeCounters})`;
+    result.colors = ['W', 'U', 'B', 'R', 'G'];
+    if (chosenColor) result.colors = [chosenColor];
+  }
+  
+  // Gemstone Array - Based on charge counters (can remove to add mana)
+  if (cardName.includes('gemstone array')) {
+    const chargeCounters = permanent?.counters?.charge || 0;
+    if (chargeCounters > 0) {
+      result.isDynamic = true;
+      result.baseAmount = 1; // Removes one counter for one mana
+      result.dynamicDescription = `Remove charge counter for mana (${chargeCounters} available)`;
+      result.colors = ['W', 'U', 'B', 'R', 'G'];
+      if (chosenColor) result.colors = [chosenColor];
+    }
+  }
+  
+  // Empowered Autogenerator - "Add X mana of any one color, where X is the number of charge counters"
+  if (cardName.includes('empowered autogenerator')) {
+    const chargeCounters = permanent?.counters?.charge || 0;
+    result.isDynamic = true;
+    result.baseAmount = chargeCounters;
+    result.dynamicDescription = `Mana equal to charge counters (${chargeCounters})`;
+    result.colors = ['W', 'U', 'B', 'R', 'G'];
+    if (chosenColor) result.colors = [chosenColor];
+  }
+  
+  // Nykthos, Shrine to Nyx - "Add X mana of any one color, where X is your devotion to that color"
+  // Devotion = count of mana symbols of that color in mana costs of permanents you control
+  if (cardName.includes('nykthos') || 
+      (oracleText.includes('devotion') && oracleText.includes('add'))) {
+    // Calculate devotion for the chosen color
+    const devotionColor = chosenColor || 'W'; // Default to white if no color chosen
+    let devotion = 0;
+    
+    for (const perm of battlefield) {
+      if (perm && perm.controller === playerId) {
+        const manaCost = (perm.card?.mana_cost || '').toUpperCase();
+        // Count occurrences of the color symbol
+        const colorSymbol = `{${devotionColor}}`;
+        const matches = manaCost.match(new RegExp(`\\{${devotionColor}\\}`, 'gi')) || [];
+        devotion += matches.length;
+        
+        // Also count hybrid mana that includes this color (e.g., {W/U} counts for both W and U)
+        const hybridMatches = manaCost.match(/\{[WUBRG]\/[WUBRG]\}/gi) || [];
+        for (const hybrid of hybridMatches) {
+          if (hybrid.toUpperCase().includes(devotionColor)) {
+            devotion += 1;
+          }
+        }
+      }
+    }
+    
+    result.isDynamic = true;
+    result.baseAmount = devotion;
+    result.dynamicDescription = `{${devotionColor}} for devotion (${devotion})`;
+    result.colors = ['W', 'U', 'B', 'R', 'G'];
+    if (chosenColor) result.colors = [chosenColor];
+  }
+  
+  // Cabal Coffers - "Add {B} for each Swamp you control"
+  if (cardName.includes('cabal coffers') ||
+      (oracleText.includes('add {b}') && oracleText.includes('for each swamp'))) {
+    const swampCount = battlefield.filter((p: any) =>
+      p && p.controller === playerId &&
+      (p.card?.type_line || '').toLowerCase().includes('swamp')
+    ).length;
+    result.isDynamic = true;
+    result.baseAmount = swampCount;
+    result.dynamicDescription = `{B} for each Swamp you control (${swampCount})`;
+    result.colors = ['B'];
+  }
+  
+  // Cabal Stronghold - Similar to Cabal Coffers but only basic Swamps
+  if (cardName.includes('cabal stronghold')) {
+    const basicSwampCount = battlefield.filter((p: any) =>
+      p && p.controller === playerId &&
+      (p.card?.type_line || '').toLowerCase().includes('basic') &&
+      (p.card?.type_line || '').toLowerCase().includes('swamp')
+    ).length;
+    result.isDynamic = true;
+    result.baseAmount = basicSwampCount;
+    result.dynamicDescription = `{B} for each basic Swamp (${basicSwampCount})`;
+    result.colors = ['B'];
+  }
+  
+  // Nyx Lotus - "Add X mana of any one color, where X is your devotion to that color"
+  if (cardName.includes('nyx lotus')) {
+    const devotionColor = chosenColor || 'W';
+    let devotion = 0;
+    
+    for (const perm of battlefield) {
+      if (perm && perm.controller === playerId) {
+        const manaCost = (perm.card?.mana_cost || '').toUpperCase();
+        const matches = manaCost.match(new RegExp(`\\{${devotionColor}\\}`, 'gi')) || [];
+        devotion += matches.length;
+        
+        const hybridMatches = manaCost.match(/\{[WUBRG]\/[WUBRG]\}/gi) || [];
+        for (const hybrid of hybridMatches) {
+          if (hybrid.toUpperCase().includes(devotionColor)) {
+            devotion += 1;
+          }
+        }
+      }
+    }
+    
+    result.isDynamic = true;
+    result.baseAmount = devotion;
+    result.dynamicDescription = `{${devotionColor}} for devotion (${devotion})`;
+    result.colors = ['W', 'U', 'B', 'R', 'G'];
+    if (chosenColor) result.colors = [chosenColor];
   }
   
   // ===== STEP 3: Check for aura enchantments on this permanent (Wild Growth, etc.) =====
