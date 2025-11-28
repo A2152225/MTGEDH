@@ -9,6 +9,7 @@
 
 import type { ManaPool, ManaCost } from './types/mana';
 import type { Cost } from './types/costs';
+import { CostType } from './types/costs';
 import type { StackObject } from './spellCasting';
 import { payManaCost } from './spellCasting';
 
@@ -349,8 +350,10 @@ export function parseActivatedAbilitiesFromText(
     const additionalCosts: Cost[] = parsedCosts
       .filter(c => c.type !== 'mana')
       .map(c => ({
-        type: c.type,
+        type: c.type as CostType,
         description: c.description,
+        isOptional: false,
+        isMandatory: true,
       }));
     
     abilities.push({
@@ -461,15 +464,14 @@ function parseCostComponents(costText: string): ParsedCostComponent[] {
  * Parse mana cost from text containing mana symbols
  */
 function parseManaCostFromText(text: string): ManaCost {
-  const cost: ManaCost = {
-    generic: 0,
-    white: 0,
-    blue: 0,
-    black: 0,
-    red: 0,
-    green: 0,
-    colorless: 0,
-  };
+  // Use mutable object for building, then return as ManaCost
+  let generic = 0;
+  let white = 0;
+  let blue = 0;
+  let black = 0;
+  let red = 0;
+  let green = 0;
+  let colorless = 0;
   
   // Match mana symbols like {1}, {W}, {U}, {B}, {R}, {G}, {C}
   const manaPattern = /\{([0-9]+|[wubrgc])\}/gi;
@@ -479,20 +481,20 @@ function parseManaCostFromText(text: string): ManaCost {
     const symbol = match[1].toUpperCase();
     
     if (/^\d+$/.test(symbol)) {
-      cost.generic = (cost.generic || 0) + parseInt(symbol);
+      generic += parseInt(symbol);
     } else {
       switch (symbol) {
-        case 'W': cost.white = (cost.white || 0) + 1; break;
-        case 'U': cost.blue = (cost.blue || 0) + 1; break;
-        case 'B': cost.black = (cost.black || 0) + 1; break;
-        case 'R': cost.red = (cost.red || 0) + 1; break;
-        case 'G': cost.green = (cost.green || 0) + 1; break;
-        case 'C': cost.colorless = (cost.colorless || 0) + 1; break;
+        case 'W': white += 1; break;
+        case 'U': blue += 1; break;
+        case 'B': black += 1; break;
+        case 'R': red += 1; break;
+        case 'G': green += 1; break;
+        case 'C': colorless += 1; break;
       }
     }
   }
   
-  return cost;
+  return { generic, white, blue, black, red, green, colorless };
 }
 
 /**

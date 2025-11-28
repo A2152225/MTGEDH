@@ -79,14 +79,19 @@ export function LibrarySearchModal({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [destination, setDestination] = useState(moveTo);
   
-  // Filter and search cards
+  // Get cards that match the type/attribute filter (before text search)
+  // This represents all valid targets for the tutor
+  const validTargetCards = useMemo(() => {
+    if (!filter) return cards;
+    return cards.filter(card => matchesFilter(card, filter));
+  }, [cards, filter]);
+  
+  // Check if there are any valid targets at all
+  const hasValidTargets = validTargetCards.length > 0;
+  
+  // Filter and search cards (apply text search on top of filter)
   const filteredCards = useMemo(() => {
-    let result = cards;
-    
-    // Apply type/attribute filter first
-    if (filter) {
-      result = result.filter(card => matchesFilter(card, filter));
-    }
+    let result = validTargetCards;
     
     // Apply text search
     if (searchQuery.trim()) {
@@ -100,7 +105,7 @@ export function LibrarySearchModal({
     
     // Sort by name
     return result.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  }, [cards, filter, searchQuery]);
+  }, [validTargetCards, searchQuery]);
   
   const toggleSelect = useCallback((cardId: string) => {
     setSelectedIds(prev => {
@@ -118,10 +123,94 @@ export function LibrarySearchModal({
     onConfirm(Array.from(selectedIds), destination);
   };
   
+  // Handle backdrop click - only allow closing if no valid targets
+  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Only handle clicks directly on the backdrop, not on children
+    if (e.target !== e.currentTarget) return;
+    
+    // If there are valid targets, don't allow closing by clicking outside
+    if (hasValidTargets) {
+      return;
+    }
+    
+    // No valid targets - allow closing
+    onCancel();
+  };
+  
   if (!open) return null;
+  
+  // If no valid targets exist, show a special "no targets" state
+  if (!hasValidTargets) {
+    return (
+      <div
+        onClick={handleBackdropClick}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.75)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10001,
+        }}
+      >
+        <div
+          style={{
+            backgroundColor: '#1a1a2e',
+            borderRadius: 12,
+            padding: 32,
+            maxWidth: 500,
+            width: '90%',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+            color: '#fff',
+            textAlign: 'center',
+          }}
+        >
+          <div style={{ fontSize: 48, marginBottom: 16 }}>🔍</div>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>{title}</h2>
+          <div style={{ marginTop: 12, fontSize: 14, color: '#f87171' }}>
+            No valid targets found in library.
+          </div>
+          {filter && (
+            <div style={{ marginTop: 8, fontSize: 12, color: '#888' }}>
+              {filter.types && filter.types.length > 0 && (
+                <div>Required type: {filter.types.join(' or ')}</div>
+              )}
+              {filter.subtypes && filter.subtypes.length > 0 && (
+                <div>Required subtype: {filter.subtypes.join(' or ')}</div>
+              )}
+              {filter.maxCmc !== undefined && (
+                <div>Maximum mana value: {filter.maxCmc}</div>
+              )}
+            </div>
+          )}
+          <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
+            {shuffleAfter && 'Library will be shuffled.'}
+          </div>
+          <button
+            onClick={onCancel}
+            style={{
+              marginTop: 20,
+              padding: '10px 24px',
+              borderRadius: 6,
+              border: 'none',
+              backgroundColor: '#3b82f6',
+              color: '#fff',
+              cursor: 'pointer',
+              fontSize: 14,
+              fontWeight: 500,
+            }}
+          >
+            OK
+          </button>
+        </div>
+      </div>
+    );
+  }
   
   return (
     <div
+      onClick={handleBackdropClick}
       style={{
         position: 'fixed',
         inset: 0,
@@ -133,6 +222,7 @@ export function LibrarySearchModal({
       }}
     >
       <div
+        onClick={(e) => e.stopPropagation()}
         style={{
           backgroundColor: '#1a1a2e',
           borderRadius: 12,
@@ -154,9 +244,12 @@ export function LibrarySearchModal({
             <div style={{ marginTop: 6, fontSize: 13, color: '#888' }}>{description}</div>
           )}
           <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
-            {filteredCards.length} cards available
+            {validTargetCards.length} valid targets available
             {maxSelections > 1 ? ` • Select up to ${maxSelections}` : ' • Select 1 card'}
             {selectedIds.size > 0 && ` • ${selectedIds.size} selected`}
+          </div>
+          <div style={{ marginTop: 4, fontSize: 11, color: '#f59e0b' }}>
+            ⚠️ You must select a card or fail to find (cannot close by clicking outside)
           </div>
         </div>
         
@@ -193,7 +286,7 @@ export function LibrarySearchModal({
         >
           {filteredCards.length === 0 ? (
             <div style={{ padding: 40, textAlign: 'center', color: '#666' }}>
-              No cards match your search.
+              No cards match your search. Try a different search term.
             </div>
           ) : (
             <div
@@ -346,6 +439,7 @@ export function LibrarySearchModal({
         <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
           <button
             onClick={onCancel}
+            title="Fail to find - choose not to select a card"
             style={{
               padding: '10px 20px',
               borderRadius: 6,
@@ -356,7 +450,7 @@ export function LibrarySearchModal({
               fontSize: 14,
             }}
           >
-            Cancel
+            Fail to Find
           </button>
           <button
             onClick={handleConfirm}

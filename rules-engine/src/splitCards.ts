@@ -124,10 +124,31 @@ function combineManaCosts(cost1: string, cost2: string): string {
  * Calculates mana value from a mana cost string.
  */
 function calculateManaValue(manaCost: string): number {
-  // Simplified - would need proper implementation
   let value = 0;
-  // Count each mana symbol
-  // This is a placeholder
+  const symbolPattern = /\{([^}]+)\}/g;
+  let match;
+  
+  while ((match = symbolPattern.exec(manaCost)) !== null) {
+    const symbol = match[1].toUpperCase();
+    
+    if (/^\d+$/.test(symbol)) {
+      value += parseInt(symbol, 10);
+    } else if (symbol === 'X') {
+      // X is 0 when calculating mana value outside stack
+      value += 0;
+    } else if (/^[WUBRG]$/.test(symbol) || symbol === 'C') {
+      value += 1;
+    } else if (symbol.includes('/')) {
+      // Hybrid mana - take the higher value
+      const parts = symbol.split('/');
+      if (/^\d+$/.test(parts[0])) {
+        value += parseInt(parts[0], 10);
+      } else {
+        value += 1;
+      }
+    }
+  }
+  
   return value;
 }
 
