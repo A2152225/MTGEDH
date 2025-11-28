@@ -1536,7 +1536,12 @@ async function handleBounceLandETB(game: any, playerId: PlayerID, bounceLandName
         score = 0; // Only option
       } else {
         // Prefer to return other lands unless landfall is a factor
+        // Bounce lands enter tapped, so returning it means we can replay it (still tapped though)
         score += hasLandfallSynergy ? 10 : 30;
+        // Apply tapped bonus if applicable (bounce lands are always tapped when they ETB)
+        if (perm.tapped) {
+          score -= 10;
+        }
       }
       return { perm, score };
     }

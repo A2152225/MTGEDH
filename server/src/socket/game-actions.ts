@@ -1166,20 +1166,20 @@ export function registerGameActions(io: Server, socket: Socket) {
           // Find all lands the player controls, INCLUDING the bounce land itself.
           // Per MTG rules, the bounce land can return itself to hand.
           // This is important for turn 1 scenarios where it's the only land you control.
-          const landsToReturn = battlefield.filter((p: any) => {
+          const availableLands = battlefield.filter((p: any) => {
             if (p.controller !== playerId) return false;
             const typeLine = (p.card?.type_line || '').toLowerCase();
             return typeLine.includes('land');
           });
           
-          if (landsToReturn.length > 0) {
+          if (availableLands.length > 0) {
             // Emit bounce land prompt to the player
             emitToPlayer(io, playerId as string, "bounceLandPrompt", {
               gameId,
               bounceLandId: bounceLandPerm.id,
               bounceLandName: cardName,
               imageUrl: cardImageUrl,
-              landsToChoose: landsToReturn.map((p: any) => ({
+              landsToChoose: availableLands.map((p: any) => ({
                 permanentId: p.id,
                 cardName: p.card?.name || "Land",
                 imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
