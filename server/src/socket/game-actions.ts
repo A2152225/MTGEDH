@@ -7,6 +7,7 @@ import { requiresCreatureTypeSelection, requestCreatureTypeSelection } from "./c
 import { checkAndPromptOpeningHandActions } from "./opening-hand";
 import { emitSacrificeUnlessPayPrompt } from "./triggers";
 import { detectSpellCastTriggers, getSpellCastUntapEffects, applySpellCastUntapEffect, type SpellCastTrigger } from "../state/modules/triggered-abilities";
+import { categorizeSpell, evaluateTargeting } from "../rules-engine/targeting";
 
 /** Shock lands and similar "pay life or enter tapped" lands */
 const SHOCK_LANDS = new Set([
@@ -1338,6 +1339,81 @@ export function registerGameActions(io: Server, socket: Socket) {
             message: "This spell can only be cast when the stack is empty (it doesn't have flash).",
           });
           return;
+        }
+      }
+
+      // Check if this spell requires targets (oracleText is already defined above)
+      const spellSpec = categorizeSpell(cardInHand.name || '', oracleText);
+      
+      if (spellSpec && spellSpec.minTargets > 0) {
+        // This spell requires targets
+        if (!targets || targets.length < spellSpec.minTargets) {
+          // Need to request targets from the player
+          // Use evaluateTargeting to find valid targets
+          const validTargets = evaluateTargeting(game.state as any, playerId, spellSpec);
+          
+          if (validTargets.length === 0) {
+            socket.emit("error", {
+              code: "NO_VALID_TARGETS",
+              message: `No valid targets for ${cardInHand.name}`,
+            });
+            return;
+          }
+          
+          // Build target list with readable info for the client
+          const targetOptions = validTargets.map((t: any) => {
+            if (t.kind === 'permanent') {
+              const perm = (game.state.battlefield || []).find((p: any) => p.id === t.id);
+              return {
+                id: t.id,
+                kind: t.kind,
+                name: perm?.card?.name || 'Unknown',
+                imageUrl: perm?.card?.image_uris?.small || perm?.card?.image_uris?.normal,
+                controller: perm?.controller,
+                isOpponent: perm?.controller !== playerId,
+              };
+            } else {
+              const player = (game.state.players || []).find((p: any) => p.id === t.id);
+              return {
+                id: t.id,
+                kind: t.kind,
+                name: player?.name || t.id,
+                isOpponent: t.id !== playerId,
+              };
+            }
+          });
+          
+          // Emit target selection request
+          socket.emit("targetSelectionRequest", {
+            gameId,
+            cardId,
+            cardName: cardInHand.name,
+            source: cardInHand.name,
+            title: `Choose target${spellSpec.maxTargets > 1 ? 's' : ''} for ${cardInHand.name}`,
+            description: oracleText,
+            targets: targetOptions,
+            minTargets: spellSpec.minTargets,
+            maxTargets: spellSpec.maxTargets,
+            effectId: `cast_${cardId}_${Date.now()}`,
+          });
+          
+          console.log(`[castSpellFromHand] Requesting ${spellSpec.minTargets}-${spellSpec.maxTargets} target(s) for ${cardInHand.name}`);
+          return; // Wait for target selection
+        }
+        
+        // Validate provided targets
+        const validTargets = evaluateTargeting(game.state as any, playerId, spellSpec);
+        const validTargetIds = new Set(validTargets.map((t: any) => t.id));
+        
+        for (const target of targets) {
+          const targetId = typeof target === 'string' ? target : target.id;
+          if (!validTargetIds.has(targetId)) {
+            socket.emit("error", {
+              code: "INVALID_TARGET",
+              message: `Invalid target for ${cardInHand.name}`,
+            });
+            return;
+          }
         }
       }
 
