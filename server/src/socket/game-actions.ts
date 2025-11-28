@@ -1443,8 +1443,42 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Get existing mana pool (floating mana from previous spells)
       const existingPool = getOrInitManaPool(game.state, playerId);
       
-      // Calculate total available mana (existing pool + new payment)
-      const totalAvailable = calculateTotalAvailableMana(existingPool, payment);
+      // Calculate total available mana using calculateManaProduction to account for 
+      // mana-increasing effects (Wild Growth, Mana Reflection, Caged Sun, etc.)
+      const globalBattlefield = game.state?.battlefield || [];
+      const totalAvailable: Record<string, number> = {
+        white: existingPool.white || 0,
+        blue: existingPool.blue || 0,
+        black: existingPool.black || 0,
+        red: existingPool.red || 0,
+        green: existingPool.green || 0,
+        colorless: existingPool.colorless || 0,
+      };
+      
+      // Add mana from payment sources, using calculateManaProduction for accurate amounts
+      if (payment && payment.length > 0) {
+        for (const { permanentId, mana, count } of payment) {
+          const permanent = globalBattlefield.find((p: any) => p?.id === permanentId && p?.controller === playerId);
+          if (permanent && !(permanent as any).tapped) {
+            // Calculate actual mana production with effects
+            let manaAmount: number;
+            if (count !== undefined && count !== null) {
+              // Client provided explicit count, but we should still check for effects
+              const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana);
+              // Use the larger of client count or calculated production (effects may increase)
+              manaAmount = Math.max(count, manaInfo.totalAmount);
+            } else {
+              const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana);
+              manaAmount = manaInfo.totalAmount;
+            }
+            
+            const colorKey = MANA_COLOR_NAMES[mana];
+            if (colorKey && manaAmount > 0) {
+              totalAvailable[colorKey] = (totalAvailable[colorKey] || 0) + manaAmount;
+            }
+          }
+        }
+      }
       
       // Log floating mana if any
       const floatingMana = Object.entries(existingPool).filter(([_, v]) => v > 0).map(([k, v]) => `${v} ${k}`).join(', ');
@@ -1575,6 +1609,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Get RulesBridge for validation (optional - if not available, proceed with legacy logic)
       const bridge = (GameManager as any).getRulesBridge?.(gameId);
+      let bridgeExecutedSuccessfully = false;
       
       if (bridge) {
         try {
@@ -1615,19 +1650,40 @@ export function registerGameActions(io: Server, socket: Socket) {
             });
             return;
           }
+          
+          // Bridge executed successfully - skip applyEvent to avoid double execution
+          bridgeExecutedSuccessfully = true;
+          console.log(`[castSpellFromHand] Player ${playerId} cast ${cardInHand.name} (${cardId}) via RulesBridge`);
         } catch (bridgeErr) {
           console.warn('Rules engine validation failed, falling back to legacy:', bridgeErr);
           // Continue with legacy logic below
         }
       }
       
-      // Use applyEvent to properly route through state management system
+      // Use applyEvent to properly route through state management system (if bridge didn't already handle it)
       // This ensures ctx.state.zones is updated (which viewFor uses)
-      try {
-        if (typeof game.applyEvent === 'function') {
-          game.applyEvent({ type: "castSpell", playerId, cardId, targets: targets || [] });
-          console.log(`[castSpellFromHand] Player ${playerId} cast ${cardInHand.name} (${cardId}) via applyEvent`);
-        } else {
+      if (!bridgeExecutedSuccessfully) {
+        try {
+          // Check stack length before attempting to cast
+          const stackLengthBefore = game.state.stack?.length || 0;
+          
+          if (typeof game.applyEvent === 'function') {
+            game.applyEvent({ type: "castSpell", playerId, cardId, targets: targets || [] });
+            
+            // Verify the spell was actually added to the stack
+            const stackLengthAfter = game.state.stack?.length || 0;
+            if (stackLengthAfter <= stackLengthBefore) {
+              // The spell wasn't added to the stack - something went wrong
+              console.error(`[castSpellFromHand] applyEvent did not add spell to stack. Stack: ${stackLengthBefore} -> ${stackLengthAfter}`);
+              socket.emit("error", {
+                code: "CAST_FAILED",
+                message: `Failed to cast ${cardInHand.name}. The card may have been removed or an internal error occurred.`,
+              });
+              return;
+            }
+            
+            console.log(`[castSpellFromHand] Player ${playerId} cast ${cardInHand.name} (${cardId}) via applyEvent`);
+          } else {
           // Fallback for legacy game instances without applyEvent
           // Remove from hand
           const handCards = zones.hand as any[];
@@ -1695,6 +1751,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           message: String(e),
         });
         return;
+      }
       }
       
       // Persist the event to DB with full card data for reliable replay after server restart
