@@ -97,11 +97,13 @@ function nextPlayerInOrder(ctx: GameContext, fromId?: PlayerID) {
 
 /**
  * Pass priority: called when a player passes priority.
- * Returns { changed: boolean, resolvedNow?: boolean }
+ * Returns { changed: boolean, resolvedNow?: boolean, advanceStep?: boolean }
  *
  * This implementation is a defensive, simple rotation:
  * - If ctx.state.priority is not set, set to first active player and return changed=true.
  * - Otherwise move to next active player. If nothing changes, return changed=false.
+ * - If all players pass priority with empty stack, returns advanceStep=true.
+ * - If all players pass priority with non-empty stack, returns resolvedNow=true.
  *
  * Note: This is a simplified behavior suitable for replay and initial server runs.
  * More advanced rule handling (stack resolution, automatic passes) belongs in rules engine.
@@ -118,35 +120,47 @@ export function passPriority(ctx: GameContext, playerId?: PlayerID) {
 
     const active = players.filter((id: string) => !inactiveSet.has(id));
     if (!active.length) {
-      return { changed: false, resolvedNow: false };
+      return { changed: false, resolvedNow: false, advanceStep: false };
     }
 
     // If no priority set, give to first active
     if (!state.priority) {
       state.priority = active[0];
+      // Reset priority pass tracking
+      state.priorityPassedBy = new Set<string>();
       ctx.bumpSeq();
-      return { changed: true, resolvedNow: false };
+      return { changed: true, resolvedNow: false, advanceStep: false };
     }
 
     // If playerId provided but doesn't match current priority, ignore (no change)
     if (playerId && state.priority !== playerId) {
       // allow a replayed passPriority by other actor to still advance if desired:
       // treat as no-op to be conservative
-      return { changed: false, resolvedNow: false };
+      return { changed: false, resolvedNow: false, advanceStep: false };
     }
+
+    // Track that this player passed priority
+    // Initialize priorityPassedBy set if it doesn't exist
+    if (!state.priorityPassedBy || !(state.priorityPassedBy instanceof Set)) {
+      state.priorityPassedBy = new Set<string>();
+    }
+    state.priorityPassedBy.add(playerId || state.priority);
 
     // Check if there's something on the stack
     const stackLen = Array.isArray(state.stack) ? state.stack.length : 0;
 
-    // For single-player games, passing priority should resolve the stack immediately
+    // For single-player games, passing priority should resolve/advance immediately
     if (active.length === 1) {
       if (stackLen > 0) {
         // Single player passed priority with stack items - resolve immediately
+        state.priorityPassedBy = new Set<string>(); // Reset tracking
         ctx.bumpSeq();
-        return { changed: true, resolvedNow: true };
+        return { changed: true, resolvedNow: true, advanceStep: false };
       }
-      // Single player, empty stack - nothing to do
-      return { changed: false, resolvedNow: false };
+      // Single player, empty stack - advance to next step
+      state.priorityPassedBy = new Set<string>(); // Reset tracking
+      ctx.bumpSeq();
+      return { changed: true, resolvedNow: false, advanceStep: true };
     }
 
     // Multi-player: find index of current priority in active array
@@ -160,26 +174,38 @@ export function passPriority(ctx: GameContext, playerId?: PlayerID) {
 
     const nextId = active[nextIndex];
 
-    // If we've cycled back to the turn player with a non-empty stack, resolve
-    if (nextId === state.turnPlayer && stackLen > 0) {
-      // All players have passed - resolve the top of the stack
-      state.priority = nextId;
-      ctx.bumpSeq();
-      return { changed: true, resolvedNow: true };
+    // Check if all active players have passed priority
+    const allPassed = active.every(id => state.priorityPassedBy.has(id));
+
+    if (allPassed) {
+      // All players have passed priority
+      state.priorityPassedBy = new Set<string>(); // Reset tracking for next round
+
+      if (stackLen > 0) {
+        // Resolve the top of the stack
+        state.priority = state.turnPlayer; // Give priority back to turn player after resolution
+        ctx.bumpSeq();
+        return { changed: true, resolvedNow: true, advanceStep: false };
+      } else {
+        // Empty stack - advance to next step
+        state.priority = state.turnPlayer; // Give priority back to turn player
+        ctx.bumpSeq();
+        return { changed: true, resolvedNow: false, advanceStep: true };
+      }
     }
 
     // If priority stays the same (shouldn't happen with >1 active), no change
     if (nextId === state.priority) {
-      return { changed: false, resolvedNow: false };
+      return { changed: false, resolvedNow: false, advanceStep: false };
     }
 
     state.priority = nextId;
     ctx.bumpSeq();
 
-    return { changed: true, resolvedNow: false };
+    return { changed: true, resolvedNow: false, advanceStep: false };
   } catch (err) {
     console.warn(`${ts()} passPriority stub failed:`, err);
-    return { changed: false, resolvedNow: false };
+    return { changed: false, resolvedNow: false, advanceStep: false };
   }
 }
 

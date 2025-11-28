@@ -18,23 +18,46 @@ function advancePriorityClockwise(ctx: GameContext, from: PlayerID): PlayerID {
   return active[nextIdx].id as PlayerID;
 }
 
-export function passPriority(ctx: GameContext, playerId: PlayerID): { changed: boolean; resolvedNow: boolean } {
+export function passPriority(ctx: GameContext, playerId: PlayerID): { changed: boolean; resolvedNow: boolean; advanceStep: boolean } {
   const { state, passesInRow, bumpSeq } = ctx;
-  if (state.priority !== playerId) return { changed: false, resolvedNow: false };
+  if (state.priority !== playerId) return { changed: false, resolvedNow: false, advanceStep: false };
   const active = activePlayersClockwise(ctx);
   const n = active.length;
-  if (n === 0) return { changed: false, resolvedNow: false };
+  if (n === 0) return { changed: false, resolvedNow: false, advanceStep: false };
+  
+  // Track that this player passed priority
+  const stateAny = state as any;
+  if (!stateAny.priorityPassedBy || !(stateAny.priorityPassedBy instanceof Set)) {
+    stateAny.priorityPassedBy = new Set<string>();
+  }
+  stateAny.priorityPassedBy.add(playerId);
+  
   state.priority = advancePriorityClockwise(ctx, playerId);
   bumpSeq();
+  
   let resolvedNow = false;
+  let advanceStep = false;
+  
+  // Check if all active players have passed priority
+  const allPassed = active.every(p => stateAny.priorityPassedBy.has(p.id));
+  
   if (state.stack.length > 0) {
     passesInRow.value++;
-    if (passesInRow.value >= n) {
+    if (passesInRow.value >= n || allPassed) {
       resolvedNow = true;
       passesInRow.value = 0;
+      stateAny.priorityPassedBy = new Set<string>(); // Reset tracking
     }
-  } else passesInRow.value = 0;
-  return { changed: true, resolvedNow };
+  } else {
+    passesInRow.value = 0;
+    // If all players passed with empty stack, advance step
+    if (allPassed) {
+      advanceStep = true;
+      stateAny.priorityPassedBy = new Set<string>(); // Reset tracking
+    }
+  }
+  
+  return { changed: true, resolvedNow, advanceStep };
 }
 
 export function setTurnDirection(ctx: GameContext, dir: 1 | -1) {

@@ -78,7 +78,7 @@ export interface InMemoryGame {
   playLand: (playerId: PlayerID, card: any) => void;
   
   // Priority and turn control
-  passPriority?: (playerId: PlayerID) => { changed: boolean; resolvedNow?: boolean };
+  passPriority?: (playerId: PlayerID) => { changed: boolean; resolvedNow?: boolean; advanceStep?: boolean };
   setTurnDirection?: (dir: 1 | -1) => void;
   nextTurn?: () => void;
   nextStep?: () => void;

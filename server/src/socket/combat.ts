@@ -433,6 +433,12 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       });
 
       console.log(`[combat] Player ${playerId} declared ${attackerCount} attackers in game ${gameId}`);
+
+      // NOTE: Do NOT auto-advance the step here!
+      // Per MTG rules, after attackers are declared, all players get priority
+      // to cast instants and activate abilities before moving to declare blockers.
+      // The step will advance when all players pass priority in succession.
+      // The client should emit "passPriority" or "nextStep" when ready to proceed.
       
     } catch (err: any) {
       console.error(`[combat] declareAttackers error for game ${gameId}:`, err);
@@ -588,6 +594,12 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       });
 
       console.log(`[combat] Player ${playerId} declared ${blockerCount} blockers in game ${gameId}`);
+
+      // NOTE: Do NOT auto-advance the step here!
+      // Per MTG rules, after blockers are declared, all players get priority
+      // to cast instants and activate abilities before combat damage.
+      // The step will advance when all players pass priority in succession.
+      // The client should emit "passPriority" or "nextStep" when ready to proceed.
       
     } catch (err: any) {
       console.error(`[combat] declareBlockers error for game ${gameId}:`, err);
