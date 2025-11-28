@@ -262,9 +262,83 @@ export class RulesEngineAdapter {
     }
     
     // Check timing restrictions (main phase, stack empty for sorceries, etc.)
-    // TODO: Implement full timing validation based on card types
+    const cardTypes = this.getCardTypes(action.card || action.spell);
+    const timingContext = this.buildTimingContext(state, action.playerId);
+    const timingResult = validateSpellTiming(cardTypes, timingContext);
+    
+    if (!timingResult.valid) {
+      return {
+        legal: false,
+        reason: timingResult.reason || 'Invalid timing',
+      };
+    }
     
     return { legal: true };
+  }
+  
+  /**
+   * Extract card types from a card object
+   */
+  private getCardTypes(card: any): string[] {
+    if (!card) return [];
+    
+    const typeLine = card.type_line || card.typeLine || '';
+    const types: string[] = [];
+    
+    // Parse type line (e.g., "Creature — Human Wizard" or "Instant")
+    const mainTypes = typeLine.split('—')[0].toLowerCase();
+    
+    if (mainTypes.includes('creature')) types.push('creature');
+    if (mainTypes.includes('instant')) types.push('instant');
+    if (mainTypes.includes('sorcery')) types.push('sorcery');
+    if (mainTypes.includes('artifact')) types.push('artifact');
+    if (mainTypes.includes('enchantment')) types.push('enchantment');
+    if (mainTypes.includes('planeswalker')) types.push('planeswalker');
+    if (mainTypes.includes('land')) types.push('land');
+    if (mainTypes.includes('battle')) types.push('battle');
+    
+    // Check for flash keyword
+    const oracleText = (card.oracle_text || '').toLowerCase();
+    if (oracleText.includes('flash')) {
+      types.push('flash');
+    }
+    
+    return types;
+  }
+  
+  /**
+   * Build timing context for spell validation
+   */
+  private buildTimingContext(state: GameState, playerId: string): {
+    isMainPhase: boolean;
+    isOwnTurn: boolean;
+    stackEmpty: boolean;
+    hasPriority: boolean;
+  } {
+    // Get phase info
+    const phase = state.phase;
+    const isMainPhase = phase === 'precombat_main' || phase === 'postcombat_main' ||
+                        phase === 'PRECOMBAT_MAIN' || phase === 'POSTCOMBAT_MAIN';
+    
+    // Check if it's the player's turn
+    const activePlayerIndex = state.activePlayerIndex || 0;
+    const activePlayer = state.players[activePlayerIndex];
+    const isOwnTurn = activePlayer?.id === playerId;
+    
+    // Check stack
+    const stackEmpty = !state.stack || state.stack.length === 0;
+    
+    // Check priority
+    const priorityIndex = state.priorityPlayerIndex ?? activePlayerIndex;
+    const priorityPlayer = state.players[priorityIndex];
+    const hasPriority = priorityPlayer?.id === playerId;
+    
+    return {
+      isMainPhase,
+      isOwnTurn,
+      stackEmpty,
+      hasPriority,
+    };
   }
   
   /**

@@ -77,7 +77,7 @@ export interface CurseCheckResult {
   readonly hasDamageMultiplier: boolean;
   readonly hasSpellRestriction: boolean;
   readonly damageMultiplier: number;
-  readonly spellsPerTurn: number;
+  readonly spellsPerTurn: number | null; // null = no restriction, number = max spells per turn
 }
 
 /**
@@ -312,7 +312,7 @@ export function checkCurses(
   
   // Calculate aggregated effects
   let damageMultiplier = 1;
-  let spellsPerTurn = Infinity; // No restriction by default
+  let spellsPerTurn: number | null = null; // null = no restriction
   let hasDamageMultiplier = false;
   let hasSpellRestriction = false;
   
@@ -323,7 +323,10 @@ export function checkCurses(
     }
     
     if (curse.effectType === CurseEffectType.SPELL_RESTRICTION && curse.spellLimit !== undefined) {
-      spellsPerTurn = Math.min(spellsPerTurn, curse.spellLimit);
+      // Take the most restrictive limit
+      if (spellsPerTurn === null || curse.spellLimit < spellsPerTurn) {
+        spellsPerTurn = curse.spellLimit;
+      }
       hasSpellRestriction = true;
     }
   }
@@ -334,7 +337,7 @@ export function checkCurses(
     hasDamageMultiplier,
     hasSpellRestriction,
     damageMultiplier,
-    spellsPerTurn: spellsPerTurn === Infinity ? -1 : spellsPerTurn, // -1 = no limit
+    spellsPerTurn, // null = no limit, number = max spells per turn
   };
 }
 
@@ -380,7 +383,7 @@ export function canCastSpellWithCurses(
 ): { canCast: boolean; reason?: string; limitingCurse?: CurseEffect } {
   const curseCheck = checkCurses(state, playerId);
   
-  if (!curseCheck.hasSpellRestriction) {
+  if (!curseCheck.hasSpellRestriction || curseCheck.spellsPerTurn === null) {
     return { canCast: true };
   }
   

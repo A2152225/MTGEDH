@@ -255,7 +255,11 @@ export function putTriggersOnStack(
  * 2. Condition evaluation (e.g., "if you control a creature")
  * 3. Controller/filter matching (e.g., "you" vs "opponent" triggers)
  * 
- * Event data should include relevant context for condition evaluation.
+ * @param ability - The triggered ability to check
+ * @param event - The event that occurred
+ * @param eventData - Context data for condition evaluation including battlefield state,
+ *                    source/target information, life totals, etc. See TriggerEventData interface.
+ * @returns true if the event would trigger the ability
  */
 export function checkTrigger(
   ability: TriggeredAbility,

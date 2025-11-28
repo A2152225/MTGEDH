@@ -170,12 +170,21 @@ export function passPriority(
       return advanceGame(gameId, context);
     } else {
       // Resolve top of stack
-      // TODO: Implement full stack resolution with resolveStackTop
-      // For now, reset priority passes and continue
-      // Stack resolution will be handled by existing resolveStack action
+      const resolvedState = resolveTopOfStack(gameId, state, context);
+      
+      // Reset priority to active player after resolution
+      const activePlayerIndex = state.activePlayerIndex || 0;
+      const finalState: GameState = {
+        ...resolvedState.next,
+        priorityPlayerIndex: activePlayerIndex,
+        priorityPasses: 0,
+      } as any;
+      
+      context.setState(gameId, finalState);
+      
       return {
-        next: { ...state, priorityPasses: 0 } as any,
-        log: ['All players passed, ready to resolve stack'],
+        next: finalState,
+        log: [...(resolvedState.log || []), 'Priority reset to active player'],
       };
     }
   }
@@ -201,5 +210,175 @@ export function passPriority(
   return {
     next: updatedState,
     log: [`${playerId} passes priority`],
+  };
+}
+
+/**
+ * Resolve the top object on the stack
+ * Rule 608: Resolving Spells and Abilities
+ */
+function resolveTopOfStack(
+  gameId: string,
+  state: GameState,
+  context: ActionContext
+): EngineResult<GameState> {
+  const stack = state.stack || [];
+  
+  if (stack.length === 0) {
+    return {
+      next: state,
+      log: ['Stack is empty, nothing to resolve'],
+    };
+  }
+  
+  // Pop the top object from the stack (LIFO)
+  const topObject = stack[stack.length - 1];
+  const newStack = stack.slice(0, -1);
+  
+  const logs: string[] = [];
+  let updatedState: GameState = {
+    ...state,
+    stack: newStack,
+  };
+  
+  // Resolve based on object type
+  if (topObject.type === 'spell') {
+    logs.push(`Resolving spell: ${topObject.cardName || topObject.name || 'Unknown spell'}`);
+    
+    // Check if all targets are still legal
+    const targets = topObject.targets || [];
+    let allTargetsLegal = true;
+    
+    for (const target of targets) {
+      const targetId = typeof target === 'string' ? target : target.id;
+      // Check if target still exists on battlefield
+      const targetExists = (updatedState.battlefield || []).some(
+        (p: any) => p.id === targetId
+      ) || updatedState.players.some(p => p.id === targetId);
+      
+      if (!targetExists) {
+        allTargetsLegal = false;
+        break;
+      }
+    }
+    
+    if (!allTargetsLegal && targets.length > 0) {
+      // Spell is countered by game rules (Rule 608.2b)
+      logs.push(`${topObject.cardName || 'Spell'} countered - no legal targets`);
+      
+      // Move to graveyard
+      const ownerId = topObject.controller || topObject.controllerId;
+      updatedState = moveToGraveyard(updatedState, topObject, ownerId);
+      
+      context.emit({
+        type: RulesEngineEvent.SPELL_COUNTERED,
+        timestamp: Date.now(),
+        gameId,
+        data: { spell: topObject, reason: 'no legal targets' },
+      });
+    } else {
+      // Spell resolves successfully
+      logs.push(`${topObject.cardName || 'Spell'} resolves`);
+      
+      // Handle spell effects based on type
+      const typeLine = (topObject.type_line || '').toLowerCase();
+      const controllerId = topObject.controller || topObject.controllerId;
+      
+      if (typeLine.includes('creature') || typeLine.includes('artifact') || 
+          typeLine.includes('enchantment') || typeLine.includes('planeswalker')) {
+        // Permanent spell - enters the battlefield
+        updatedState = enterBattlefield(updatedState, topObject, controllerId);
+        logs.push(`${topObject.cardName || 'Permanent'} enters the battlefield`);
+        
+        context.emit({
+          type: RulesEngineEvent.PERMANENT_ENTERED_BATTLEFIELD,
+          timestamp: Date.now(),
+          gameId,
+          data: { permanent: topObject, controller: controllerId },
+        });
+      } else {
+        // Instant/sorcery - goes to graveyard after resolution
+        updatedState = moveToGraveyard(updatedState, topObject, controllerId);
+        
+        context.emit({
+          type: RulesEngineEvent.SPELL_RESOLVED,
+          timestamp: Date.now(),
+          gameId,
+          data: { spell: topObject },
+        });
+      }
+    }
+  } else if (topObject.type === 'ability') {
+    logs.push(`Resolving ability: ${topObject.abilityText || topObject.name || 'triggered/activated ability'}`);
+    
+    // Abilities just cease to exist after resolving
+    context.emit({
+      type: RulesEngineEvent.ABILITY_RESOLVED,
+      timestamp: Date.now(),
+      gameId,
+      data: { ability: topObject },
+    });
+  }
+  
+  context.setState(gameId, updatedState);
+  
+  return {
+    next: updatedState,
+    log: logs,
+  };
+}
+
+/**
+ * Move a card to its owner's graveyard
+ */
+function moveToGraveyard(state: GameState, card: any, ownerId: string): GameState {
+  const updatedPlayers = state.players.map(player => {
+    if (player.id === ownerId) {
+      return {
+        ...player,
+        graveyard: [...(player.graveyard || []), card],
+      };
+    }
+    return player;
+  });
+  
+  return {
+    ...state,
+    players: updatedPlayers,
+  };
+}
+
+/**
+ * Put a permanent onto the battlefield
+ */
+function enterBattlefield(state: GameState, permanent: any, controllerId: string): GameState {
+  const permanentOnBattlefield = {
+    id: permanent.id || `perm-${Date.now()}`,
+    card: permanent.card || permanent,
+    controller: controllerId,
+    controllerId,
+    tapped: false,
+    summoningSickness: true,
+    counters: {},
+    attachments: [],
+  };
+  
+  // Add to both global battlefield and player's battlefield
+  const updatedBattlefield = [...(state.battlefield || []), permanentOnBattlefield];
+  
+  const updatedPlayers = state.players.map(player => {
+    if (player.id === controllerId) {
+      return {
+        ...player,
+        battlefield: [...(player.battlefield || []), permanentOnBattlefield],
+      };
+    }
+    return player;
+  });
+  
+  return {
+    ...state,
+    battlefield: updatedBattlefield,
+    players: updatedPlayers,
   };
 }

@@ -525,6 +525,23 @@ export class AIEngine {
     };
   }
   
+  // AI Spell Evaluation Constants
+  private static readonly COUNTER_SPELL_EMPTY_STACK_PENALTY = -5;
+  private static readonly COUNTER_SPELL_HAS_TARGET_BONUS = 6;
+  private static readonly REMOVAL_SPELL_BONUS = 5;
+  private static readonly CARD_DRAW_VALUE_PER_CARD = 3;
+  private static readonly FLYING_BONUS = 3;
+  private static readonly HASTE_BONUS = 2;
+  private static readonly TRAMPLE_BONUS = 2;
+  private static readonly DEATHTOUCH_BONUS = 3;
+  private static readonly LIFELINK_BONUS = 2;
+  private static readonly VIGILANCE_BONUS = 1;
+  private static readonly MANA_ARTIFACT_EARLY_GAME_BONUS = 8;
+  private static readonly HIGH_CMC_EARLY_PENALTY = -3;
+  private static readonly BUFF_SPELL_NO_CREATURES_PENALTY = -5;
+  private static readonly BUFF_SPELL_WITH_CREATURES_BONUS = 3;
+  private static readonly AURA_NO_TARGET_PENALTY = -10;
+  
   /**
    * Evaluate the value of casting a spell in the current game state
    */
@@ -541,31 +558,31 @@ export class AIEngine {
       value += (power + toughness) * 2;
       
       // Keywords increase value
-      if (oracleText.includes('flying')) value += 3;
-      if (oracleText.includes('haste')) value += 2;
-      if (oracleText.includes('trample')) value += 2;
-      if (oracleText.includes('deathtouch')) value += 3;
-      if (oracleText.includes('lifelink')) value += 2;
-      if (oracleText.includes('vigilance')) value += 1;
+      if (oracleText.includes('flying')) value += AIEngine.FLYING_BONUS;
+      if (oracleText.includes('haste')) value += AIEngine.HASTE_BONUS;
+      if (oracleText.includes('trample')) value += AIEngine.TRAMPLE_BONUS;
+      if (oracleText.includes('deathtouch')) value += AIEngine.DEATHTOUCH_BONUS;
+      if (oracleText.includes('lifelink')) value += AIEngine.LIFELINK_BONUS;
+      if (oracleText.includes('vigilance')) value += AIEngine.VIGILANCE_BONUS;
     }
     
     if (typeLine.includes('instant') || typeLine.includes('sorcery')) {
       // Removal spells are valuable
       if (oracleText.includes('destroy target') || oracleText.includes('exile target')) {
-        value += 5;
+        value += AIEngine.REMOVAL_SPELL_BONUS;
       }
       // Card draw is valuable
       if (oracleText.includes('draw')) {
         const drawMatch = oracleText.match(/draw (\d+)/);
-        value += drawMatch ? parseInt(drawMatch[1], 10) * 3 : 3;
+        value += drawMatch ? parseInt(drawMatch[1], 10) * AIEngine.CARD_DRAW_VALUE_PER_CARD : AIEngine.CARD_DRAW_VALUE_PER_CARD;
       }
       // Counter spells require timing awareness
       if (oracleText.includes('counter target')) {
         // Only valuable if there's something to counter
         if ((gameState.stack || []).length > 0) {
-          value += 6;
+          value += AIEngine.COUNTER_SPELL_HAS_TARGET_BONUS;
         } else {
-          value -= 5; // Don't cast counters with empty stack
+          value += AIEngine.COUNTER_SPELL_EMPTY_STACK_PENALTY; // Don't cast counters with empty stack
         }
       }
     }
@@ -575,7 +592,7 @@ export class AIEngine {
       // Mana artifacts are more valuable early
       if (oracleText.includes('add') && oracleText.includes('mana')) {
         const turn = gameState.turn || 1;
-        value += Math.max(0, 8 - turn); // More valuable early game
+        value += Math.max(0, AIEngine.MANA_ARTIFACT_EARLY_GAME_BONUS - turn); // More valuable early game
       }
     }
     
@@ -589,7 +606,7 @@ export class AIEngine {
           p.card?.type_line?.toLowerCase().includes('creature')
         );
         if (!hasCreatures) {
-          value -= 10; // No targets for aura
+          value += AIEngine.AURA_NO_TARGET_PENALTY; // No targets for aura
         }
       }
     }
@@ -597,7 +614,7 @@ export class AIEngine {
     // Penalize high-cost spells early game
     const turn = gameState.turn || 1;
     if (cmc > turn + 2) {
-      value -= 3; // Probably shouldn't cast this yet
+      value += AIEngine.HIGH_CMC_EARLY_PENALTY; // Probably shouldn't cast this yet
     }
     
     // Board state awareness
@@ -608,7 +625,7 @@ export class AIEngine {
     
     // Buff spells more valuable with creatures
     if (oracleText.includes('+1/+1') || oracleText.includes('+2/+2')) {
-      value += creatureCount > 0 ? 3 : -5;
+      value += creatureCount > 0 ? AIEngine.BUFF_SPELL_WITH_CREATURES_BONUS : AIEngine.BUFF_SPELL_NO_CREATURES_PENALTY;
     }
     
     return value;

@@ -447,9 +447,15 @@ export function getAttackCostDescription(
 /**
  * Check if a permanent creates a pillowfort effect
  * Used for AI evaluation of card value
+ * 
+ * @param permanent - The permanent to check for pillowfort effects
+ * @returns true if the permanent has a pillowfort effect
  */
 export function isPillowfortCard(permanent: BattlefieldPermanent | any): boolean {
-  return detectPillowfortEffect(permanent, '') !== null;
+  // Use the permanent's controller if available, otherwise use a placeholder
+  // The detection doesn't actually depend on controllerId for pattern matching
+  const controllerId = permanent.controller || permanent.controllerId || '';
+  return detectPillowfortEffect(permanent, controllerId) !== null;
 }
 
 /**
