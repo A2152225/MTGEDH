@@ -33,6 +33,27 @@ interface CreateGameModalProps {
 }
 
 /**
+ * House rules configuration for optional game variants.
+ * Multiple rules can be enabled simultaneously (default: all off).
+ */
+export interface HouseRulesConfig {
+  /** First mulligan in multiplayer is free (official Commander rule) */
+  freeFirstMulligan: boolean;
+  /** Free mulligan if opening hand has no lands or all lands */
+  freeMulliganNoLandsOrAllLands: boolean;
+  /** Any commander damage counts (not just combat damage) */
+  anyCommanderDamageCountsAsCommanderDamage: boolean;
+  /** If all human players mulligan, decrease mulligan count by 1 for each */
+  groupMulliganDiscount: boolean;
+  /** Enable Archenemy variant (NYI) */
+  enableArchenemy: boolean;
+  /** Enable Planechase variant (NYI) */
+  enablePlanechase: boolean;
+  /** Custom rule suggestion text for review */
+  customRuleSuggestion: string;
+}
+
+/**
  * Configuration for creating a new game
  */
 export interface GameCreationConfig {
@@ -48,6 +69,8 @@ export interface GameCreationConfig {
   // New: AI deck text for import
   aiDeckText?: string;
   aiDeckName?: string;
+  // House rules configuration
+  houseRules?: Partial<HouseRulesConfig>;
 }
 
 /**
@@ -116,6 +139,18 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
   const [aiDeckFilter, setAiDeckFilter] = useState('');
   const [savingDeck, setSavingDeck] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+
+  // House rules state (all default to off)
+  const [showHouseRules, setShowHouseRules] = useState(false);
+  const [freeFirstMulligan, setFreeFirstMulligan] = useState(false);
+  const [freeMulliganNoLandsOrAllLands, setFreeMulliganNoLandsOrAllLands] = useState(false);
+  const [anyCommanderDamageCountsAsCommanderDamage, setAnyCommanderDamageCountsAsCommanderDamage] = useState(false);
+  const [groupMulliganDiscount, setGroupMulliganDiscount] = useState(false);
+  const [enableArchenemy, setEnableArchenemy] = useState(false);
+  const [enablePlanechase, setEnablePlanechase] = useState(false);
+  const [customRuleSuggestion, setCustomRuleSuggestion] = useState('');
+  const [submittingCustomRule, setSubmittingCustomRule] = useState(false);
+  const [customRuleMessage, setCustomRuleMessage] = useState<string | null>(null);
 
   // Update starting life when format changes
   useEffect(() => {
@@ -189,6 +224,38 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
     }
   };
 
+  /**
+   * Submit a custom house rule suggestion to the server for review
+   */
+  const handleSubmitCustomRule = async () => {
+    if (!customRuleSuggestion.trim()) return;
+    
+    setSubmittingCustomRule(true);
+    setCustomRuleMessage(null);
+    
+    try {
+      const response = await fetch('/api/house-rule-suggestions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          suggestion: customRuleSuggestion.trim(),
+          submittedAt: new Date().toISOString(),
+        }),
+      });
+      
+      if (response.ok) {
+        setCustomRuleMessage('✓ Suggestion submitted for review. Thank you!');
+        setCustomRuleSuggestion('');
+      } else {
+        setCustomRuleMessage('✗ Failed to submit suggestion');
+      }
+    } catch (e) {
+      setCustomRuleMessage('✗ Failed to submit suggestion');
+    } finally {
+      setSubmittingCustomRule(false);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -202,6 +269,15 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
     } catch {
       // Ignore storage errors
     }
+
+    // Build house rules config (only include enabled rules)
+    const houseRules: Partial<HouseRulesConfig> = {};
+    if (freeFirstMulligan) houseRules.freeFirstMulligan = true;
+    if (freeMulliganNoLandsOrAllLands) houseRules.freeMulliganNoLandsOrAllLands = true;
+    if (anyCommanderDamageCountsAsCommanderDamage) houseRules.anyCommanderDamageCountsAsCommanderDamage = true;
+    if (groupMulliganDiscount) houseRules.groupMulliganDiscount = true;
+    if (enableArchenemy) houseRules.enableArchenemy = true;
+    if (enablePlanechase) houseRules.enablePlanechase = true;
     
     const config: GameCreationConfig = {
       gameId: sanitizedGameId,
@@ -214,6 +290,8 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
       aiDeckId: includeAI && aiDeckMode === 'select' && aiDeckId ? aiDeckId : undefined,
       aiDeckText: includeAI && aiDeckMode === 'import' && aiDeckText.trim() ? aiDeckText.trim() : undefined,
       aiDeckName: includeAI && aiDeckMode === 'import' && aiDeckName.trim() ? aiDeckName.trim() : undefined,
+      // Include house rules only if any are enabled
+      houseRules: Object.keys(houseRules).length > 0 ? houseRules : undefined,
     };
 
     onCreateGame(config);
@@ -619,6 +697,202 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
                       )}
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* House Rules Section */}
+          <div
+            style={{
+              marginBottom: 16,
+              padding: 16,
+              backgroundColor: showHouseRules ? '#fef3c7' : '#f9f9f9',
+              borderRadius: 6,
+              border: showHouseRules ? '1px solid #f59e0b' : '1px solid #eee',
+            }}
+          >
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                cursor: 'pointer',
+                fontWeight: 500,
+                fontSize: 14,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={showHouseRules}
+                onChange={(e) => setShowHouseRules(e.target.checked)}
+                style={{ width: 18, height: 18 }}
+              />
+              <span>🏠 House Rules (Optional)</span>
+            </label>
+            <div style={{ marginTop: 4, fontSize: 12, color: '#666' }}>
+              Enable optional game variants (all default to off)
+            </div>
+
+            {showHouseRules && (
+              <div style={{ marginTop: 16 }}>
+                {/* Mulligan Rules */}
+                <div style={{ marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #e5e7eb' }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: '#444', marginBottom: 8 }}>
+                    Mulligan Rules
+                  </div>
+                  
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', marginBottom: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={freeFirstMulligan}
+                      onChange={(e) => setFreeFirstMulligan(e.target.checked)}
+                      style={{ width: 16, height: 16, marginTop: 2 }}
+                    />
+                    <div>
+                      <div style={{ fontSize: 13 }}>Free First Mulligan</div>
+                      <div style={{ fontSize: 11, color: '#666' }}>
+                        First mulligan in multiplayer is free (official Commander rule 103.5a)
+                      </div>
+                    </div>
+                  </label>
+                  
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', marginBottom: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={freeMulliganNoLandsOrAllLands}
+                      onChange={(e) => setFreeMulliganNoLandsOrAllLands(e.target.checked)}
+                      style={{ width: 16, height: 16, marginTop: 2 }}
+                    />
+                    <div>
+                      <div style={{ fontSize: 13 }}>Free Mulligan: No Lands / All Lands</div>
+                      <div style={{ fontSize: 11, color: '#666' }}>
+                        Free mulligan if opening hand has no lands or all lands
+                      </div>
+                    </div>
+                  </label>
+                  
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={groupMulliganDiscount}
+                      onChange={(e) => setGroupMulliganDiscount(e.target.checked)}
+                      style={{ width: 16, height: 16, marginTop: 2 }}
+                    />
+                    <div>
+                      <div style={{ fontSize: 13 }}>Group Mulligan Discount</div>
+                      <div style={{ fontSize: 11, color: '#666' }}>
+                        If all human players mulligan, decrease mulligan count by 1 for each
+                      </div>
+                    </div>
+                  </label>
+                </div>
+                
+                {/* Commander Damage Rule */}
+                <div style={{ marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #e5e7eb' }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: '#444', marginBottom: 8 }}>
+                    Commander Damage
+                  </div>
+                  
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={anyCommanderDamageCountsAsCommanderDamage}
+                      onChange={(e) => setAnyCommanderDamageCountsAsCommanderDamage(e.target.checked)}
+                      style={{ width: 16, height: 16, marginTop: 2 }}
+                    />
+                    <div>
+                      <div style={{ fontSize: 13 }}>Any Commander Damage Counts</div>
+                      <div style={{ fontSize: 11, color: '#666' }}>
+                        All damage from commanders counts as commander damage (not just combat)
+                      </div>
+                    </div>
+                  </label>
+                </div>
+                
+                {/* Variant Formats (NYI) */}
+                <div style={{ marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #e5e7eb' }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: '#444', marginBottom: 8 }}>
+                    Variant Formats <span style={{ fontSize: 10, color: '#f59e0b' }}>(Not Yet Implemented)</span>
+                  </div>
+                  
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', marginBottom: 8, opacity: 0.6 }}>
+                    <input
+                      type="checkbox"
+                      checked={enableArchenemy}
+                      onChange={(e) => setEnableArchenemy(e.target.checked)}
+                      style={{ width: 16, height: 16, marginTop: 2 }}
+                    />
+                    <div>
+                      <div style={{ fontSize: 13 }}>Enable Archenemy</div>
+                      <div style={{ fontSize: 11, color: '#666' }}>
+                        Add scheme cards to the match (requires scheme deck)
+                      </div>
+                    </div>
+                  </label>
+                  
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', opacity: 0.6 }}>
+                    <input
+                      type="checkbox"
+                      checked={enablePlanechase}
+                      onChange={(e) => setEnablePlanechase(e.target.checked)}
+                      style={{ width: 16, height: 16, marginTop: 2 }}
+                    />
+                    <div>
+                      <div style={{ fontSize: 13 }}>Enable Planechase</div>
+                      <div style={{ fontSize: 11, color: '#666' }}>
+                        Add planar cards to the match (requires planar deck)
+                      </div>
+                    </div>
+                  </label>
+                </div>
+                
+                {/* Custom Rule Suggestion */}
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: '#444', marginBottom: 8 }}>
+                    Suggest a House Rule
+                  </div>
+                  <div style={{ fontSize: 11, color: '#666', marginBottom: 8 }}>
+                    Have an idea for a house rule? Submit it for review and potential future implementation.
+                  </div>
+                  <textarea
+                    value={customRuleSuggestion}
+                    onChange={(e) => setCustomRuleSuggestion(e.target.value)}
+                    placeholder="Describe your house rule idea..."
+                    style={{
+                      width: '100%',
+                      height: 60,
+                      padding: '8px 12px',
+                      borderRadius: 4,
+                      border: '1px solid #ddd',
+                      fontSize: 12,
+                      boxSizing: 'border-box',
+                      resize: 'vertical',
+                    }}
+                  />
+                  <div style={{ display: 'flex', gap: 8, marginTop: 6, alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      onClick={handleSubmitCustomRule}
+                      disabled={!customRuleSuggestion.trim() || submittingCustomRule}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: 4,
+                        border: 'none',
+                        backgroundColor: (!customRuleSuggestion.trim() || submittingCustomRule) ? '#ccc' : '#f59e0b',
+                        color: '#fff',
+                        cursor: (!customRuleSuggestion.trim() || submittingCustomRule) ? 'not-allowed' : 'pointer',
+                        fontSize: 12,
+                      }}
+                    >
+                      {submittingCustomRule ? 'Submitting...' : 'Submit Suggestion'}
+                    </button>
+                    {customRuleMessage && (
+                      <span style={{ fontSize: 12, color: customRuleMessage.startsWith('✓') ? '#10b981' : '#ef4444' }}>
+                        {customRuleMessage}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
