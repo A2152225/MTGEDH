@@ -90,6 +90,82 @@ function detectETBTappedPattern(oracleText: string): 'always' | 'conditional' | 
 }
 
 /**
+ * Get the maximum hand size for a player, considering:
+ * 1. Permanent effects that grant "no maximum hand size" (Reliquary Tower, Thought Vessel, Spellbook)
+ * 2. Spell effects that give "no maximum hand size for the rest of the game" (Praetor's Counsel)
+ * 3. Emblem effects that modify hand size
+ * 4. Other player-specific overrides
+ * 
+ * @param gameState The game state
+ * @param playerId The player ID
+ * @returns Maximum hand size (Infinity for no maximum, 7 by default)
+ */
+function getMaxHandSizeForPlayer(gameState: any, playerId: string): number {
+  try {
+    if (!gameState) return 7;
+    
+    // Check player-specific overrides first (set by spells like Praetor's Counsel)
+    // Praetor's Counsel: "You have no maximum hand size for the rest of the game."
+    const playerMaxHandSize = gameState.maxHandSize?.[playerId];
+    if (playerMaxHandSize === Infinity || playerMaxHandSize === Number.POSITIVE_INFINITY) {
+      return Infinity;
+    }
+    
+    // Check for "no maximum hand size" flags set by resolved spells
+    // This handles Praetor's Counsel and similar effects
+    const noMaxHandSize = gameState.noMaximumHandSize?.[playerId];
+    if (noMaxHandSize === true) {
+      return Infinity;
+    }
+    
+    // Check player effects array for hand size modifications
+    const playerEffects = gameState.playerEffects?.[playerId] || [];
+    for (const effect of playerEffects) {
+      if (effect && (effect.type === 'no_maximum_hand_size' || 
+                     effect.effect === 'no_maximum_hand_size')) {
+        return Infinity;
+      }
+    }
+    
+    // Check for battlefield permanents that grant "no maximum hand size"
+    // Examples: Reliquary Tower, Thought Vessel, Spellbook, Venser's Journal, Library of Leng
+    const battlefield = gameState.battlefield || [];
+    for (const perm of battlefield) {
+      if (perm && perm.controller === playerId) {
+        const oracle = (perm.card?.oracle_text || "").toLowerCase();
+        // Check for "no maximum hand size" text
+        if (oracle.includes("you have no maximum hand size") || 
+            oracle.includes("no maximum hand size")) {
+          return Infinity;
+        }
+      }
+    }
+    
+    // Check emblems controlled by the player
+    const emblems = gameState.emblems || [];
+    for (const emblem of emblems) {
+      if (emblem && emblem.controller === playerId) {
+        const effect = (emblem.effect || emblem.text || "").toLowerCase();
+        if (effect.includes("no maximum hand size")) {
+          return Infinity;
+        }
+      }
+    }
+    
+    // Check for a numeric override (e.g., effects that set a specific hand size)
+    if (typeof playerMaxHandSize === "number" && playerMaxHandSize > 0) {
+      return playerMaxHandSize;
+    }
+    
+    // Default maximum hand size
+    return 7;
+  } catch (err) {
+    console.warn("[getMaxHandSizeForPlayer] Error:", err);
+    return 7;
+  }
+}
+
+/**
  * Check if a hand qualifies for a free mulligan under "no lands or all lands" house rule.
  * Returns true if the hand has 0 lands or all cards are lands.
  */
@@ -2040,18 +2116,26 @@ export function registerGameActions(io: Server, socket: Socket) {
         try {
           const zones = game.state?.zones?.[turnPlayer];
           const hand = Array.isArray(zones?.hand) ? zones.hand : [];
-          const maxHandSize = (game.state as any)?.maxHandSize?.[turnPlayer] ?? 7;
-          const discardCount = Math.max(0, hand.length - maxHandSize);
+          // Use getMaxHandSizeForPlayer to properly check for "no maximum hand size" effects
+          // like Reliquary Tower, Thought Vessel, Spellbook, etc.
+          const maxHandSize = getMaxHandSizeForPlayer(game.state, turnPlayer);
+          
+          // If max hand size is Infinity, no discard needed
+          if (maxHandSize === Infinity) {
+            console.log(`[skipToPhase] Player ${turnPlayer} has no maximum hand size effect`);
+          } else {
+            const discardCount = Math.max(0, hand.length - maxHandSize);
 
-          if (discardCount > 0) {
-            // Player needs to choose cards to discard - set pending state
-            (game.state as any).pendingDiscardSelection = (game.state as any).pendingDiscardSelection || {};
-            (game.state as any).pendingDiscardSelection[turnPlayer] = {
-              count: discardCount,
-              maxHandSize: maxHandSize,
-            };
-            needsDiscardSelection = true;
-            console.log(`[skipToPhase] Player ${turnPlayer} needs to discard ${discardCount} cards during cleanup`);
+            if (discardCount > 0) {
+              // Player needs to choose cards to discard - set pending state
+              (game.state as any).pendingDiscardSelection = (game.state as any).pendingDiscardSelection || {};
+              (game.state as any).pendingDiscardSelection[turnPlayer] = {
+                count: discardCount,
+                maxHandSize: maxHandSize,
+              };
+              needsDiscardSelection = true;
+              console.log(`[skipToPhase] Player ${turnPlayer} needs to discard ${discardCount} cards during cleanup`);
+            }
           }
         } catch (err) {
           console.warn(`[skipToPhase] Failed to check discard during cleanup:`, err);

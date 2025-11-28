@@ -1051,14 +1051,17 @@ export function App() {
     // 1. Consecutive symbols: "Add {C}{C}" (Sol Ring)
     // 2. Choice patterns: "Add {R}, {G}, or {W}" (Jungle Shrine, tri-lands)
     // 3. Two-color patterns: "Add {W} or {U}" (dual lands like Adarkar Wastes)
+    // 4. Multiple add abilities: "Add {C}. Add {B} or {G}." (Llanowar Wastes)
     
-    // First, try to match the "Add" statement and extract all mana symbols from it
-    // This handles both "Add {R}, {G}, or {W}." and "Add {C}{C}." patterns
-    const addStatementMatch = text.match(/add\s+([^.]+)/i);
-    if (addStatementMatch) {
-      const addStatement = addStatementMatch[1];
+    // Find ALL "Add" statements in the oracle text (handles multiple mana abilities)
+    const addStatementMatches = text.matchAll(/add\s+([^.]+)/gi);
+    const colorSet = new Set<ManaColor>();
+    let hasMultiMana = false;
+    
+    for (const match of addStatementMatches) {
+      const addStatement = match[1];
       
-      // Extract all mana symbols from the add statement
+      // Extract all mana symbols from this add statement
       const symbolMatches = addStatement.match(/\{[wubrgc]\}/gi) || [];
       
       // Count each symbol type for multi-mana sources like Sol Ring
@@ -1077,21 +1080,36 @@ export function App() {
       
       if (isChoicePattern) {
         // For choice patterns, add each unique color once
-        if (symbolCounts.w > 0) colors.push('W');
-        if (symbolCounts.u > 0) colors.push('U');
-        if (symbolCounts.b > 0) colors.push('B');
-        if (symbolCounts.r > 0) colors.push('R');
-        if (symbolCounts.g > 0) colors.push('G');
-        if (symbolCounts.c > 0) colors.push('C');
+        if (symbolCounts.w > 0) colorSet.add('W');
+        if (symbolCounts.u > 0) colorSet.add('U');
+        if (symbolCounts.b > 0) colorSet.add('B');
+        if (symbolCounts.r > 0) colorSet.add('R');
+        if (symbolCounts.g > 0) colorSet.add('G');
+        if (symbolCounts.c > 0) colorSet.add('C');
       } else {
-        // For multi-mana patterns (like Sol Ring), add duplicates
-        for (let i = 0; i < symbolCounts.w; i++) colors.push('W');
-        for (let i = 0; i < symbolCounts.u; i++) colors.push('U');
-        for (let i = 0; i < symbolCounts.b; i++) colors.push('B');
-        for (let i = 0; i < symbolCounts.r; i++) colors.push('R');
-        for (let i = 0; i < symbolCounts.g; i++) colors.push('G');
-        for (let i = 0; i < symbolCounts.c; i++) colors.push('C');
+        // For multi-mana patterns (like Sol Ring), track duplicates
+        if (symbolCounts.w > 0) { colorSet.add('W'); if (symbolCounts.w > 1) hasMultiMana = true; }
+        if (symbolCounts.u > 0) { colorSet.add('U'); if (symbolCounts.u > 1) hasMultiMana = true; }
+        if (symbolCounts.b > 0) { colorSet.add('B'); if (symbolCounts.b > 1) hasMultiMana = true; }
+        if (symbolCounts.r > 0) { colorSet.add('R'); if (symbolCounts.r > 1) hasMultiMana = true; }
+        if (symbolCounts.g > 0) { colorSet.add('G'); if (symbolCounts.g > 1) hasMultiMana = true; }
+        if (symbolCounts.c > 0) { colorSet.add('C'); if (symbolCounts.c > 1) hasMultiMana = true; }
+        
+        // For multi-mana sources like Sol Ring ({C}{C}), add duplicates
+        if (!isChoicePattern) {
+          for (let i = 1; i < symbolCounts.w; i++) colors.push('W');
+          for (let i = 1; i < symbolCounts.u; i++) colors.push('U');
+          for (let i = 1; i < symbolCounts.b; i++) colors.push('B');
+          for (let i = 1; i < symbolCounts.r; i++) colors.push('R');
+          for (let i = 1; i < symbolCounts.g; i++) colors.push('G');
+          for (let i = 1; i < symbolCounts.c; i++) colors.push('C');
+        }
       }
+    }
+    
+    // Add all unique colors first
+    for (const c of colorSet) {
+      colors.push(c);
     }
     
     // If no mana symbols found in add patterns, check for basic patterns
