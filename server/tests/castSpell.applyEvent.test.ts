@@ -16,7 +16,7 @@ describe('castSpell via applyEvent', () => {
         id: 'enchant_1', 
         name: 'Ghostly Prison', 
         type_line: 'Enchantment',
-        oracle_text: 'Creatures can\'t attack you unless their controller pays {2} for each creature they control that\'s attacking you.',
+        oracle_text: "Creatures can't attack you unless their controller pays {2} for each creature they control that's attacking you.",
         mana_cost: '{2}{W}',
         image_uris: undefined
       },

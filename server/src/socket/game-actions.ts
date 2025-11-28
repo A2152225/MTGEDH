@@ -1609,7 +1609,6 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Get RulesBridge for validation (optional - if not available, proceed with legacy logic)
       const bridge = (GameManager as any).getRulesBridge?.(gameId);
-      
       if (bridge) {
         try {
           // Validate through rules engine
