@@ -1073,10 +1073,13 @@ export function App() {
         }
       }
       
-      // Check if this is a "choice" pattern (has "or" or ", " between symbols)
+      // Check if this is a "choice" pattern (has "or" or commas between symbols)
       // or a "multi-mana" pattern (consecutive symbols like {C}{C})
+      // Examples:
+      // - Choice: "{R}, {G}, or {W}" (Jungle Shrine), "{R} or {G}" (Temple of Abandon)
+      // - Multi-mana: "{C}{C}" (Sol Ring), "{G}{G}" (some enchantments)
       const isChoicePattern = addStatement.includes(' or ') || 
-                              /\{[wubrgc]\}\s*,\s*\{[wubrgc]\}/i.test(addStatement);
+                              addStatement.includes(',');
       
       if (isChoicePattern) {
         // For choice patterns, add each unique color once
@@ -1087,29 +1090,30 @@ export function App() {
         if (symbolCounts.g > 0) colorSet.add('G');
         if (symbolCounts.c > 0) colorSet.add('C');
       } else {
-        // For multi-mana patterns (like Sol Ring), track duplicates
-        if (symbolCounts.w > 0) { colorSet.add('W'); if (symbolCounts.w > 1) hasMultiMana = true; }
-        if (symbolCounts.u > 0) { colorSet.add('U'); if (symbolCounts.u > 1) hasMultiMana = true; }
-        if (symbolCounts.b > 0) { colorSet.add('B'); if (symbolCounts.b > 1) hasMultiMana = true; }
-        if (symbolCounts.r > 0) { colorSet.add('R'); if (symbolCounts.r > 1) hasMultiMana = true; }
-        if (symbolCounts.g > 0) { colorSet.add('G'); if (symbolCounts.g > 1) hasMultiMana = true; }
-        if (symbolCounts.c > 0) { colorSet.add('C'); if (symbolCounts.c > 1) hasMultiMana = true; }
-        
-        // For multi-mana sources like Sol Ring ({C}{C}), add duplicates
-        if (!isChoicePattern) {
-          for (let i = 1; i < symbolCounts.w; i++) colors.push('W');
-          for (let i = 1; i < symbolCounts.u; i++) colors.push('U');
-          for (let i = 1; i < symbolCounts.b; i++) colors.push('B');
-          for (let i = 1; i < symbolCounts.r; i++) colors.push('R');
-          for (let i = 1; i < symbolCounts.g; i++) colors.push('G');
-          for (let i = 1; i < symbolCounts.c; i++) colors.push('C');
+        // For multi-mana patterns (like Sol Ring {C}{C}), add each occurrence
+        // This means Sol Ring will have ['C', 'C'] to indicate 2 colorless mana
+        for (let i = 0; i < symbolCounts.w; i++) colorSet.add('W');
+        for (let i = 0; i < symbolCounts.u; i++) colorSet.add('U');
+        for (let i = 0; i < symbolCounts.b; i++) colorSet.add('B');
+        for (let i = 0; i < symbolCounts.r; i++) colorSet.add('R');
+        for (let i = 0; i < symbolCounts.g; i++) colorSet.add('G');
+        // For colorless multi-mana, we need to track duplicates
+        if (symbolCounts.c > 1) {
+          hasMultiMana = true;
+          // Add duplicates to colors array (colorSet only stores unique values)
+          for (let i = 0; i < symbolCounts.c; i++) colors.push('C');
+        } else if (symbolCounts.c > 0) {
+          colorSet.add('C');
         }
       }
     }
     
-    // Add all unique colors first
+    // Add all unique colors from the set (avoiding duplicates for choice patterns)
+    // But skip if we already added multi-mana colorless directly
     for (const c of colorSet) {
-      colors.push(c);
+      if (!(c === 'C' && hasMultiMana)) {
+        colors.push(c);
+      }
     }
     
     // If no mana symbols found in add patterns, check for basic patterns
