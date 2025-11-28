@@ -317,8 +317,11 @@ export class RulesEngineAdapter {
   } {
     // Get phase info
     const phase = state.phase;
-    const isMainPhase = phase === 'precombat_main' || phase === 'postcombat_main' ||
-                        phase === 'PRECOMBAT_MAIN' || phase === 'POSTCOMBAT_MAIN';
+    // Support both enum values and string variants for phase comparison
+    const phaseStr = String(phase || '').toLowerCase();
+    const isMainPhase = phaseStr === 'precombatmain' || phaseStr === 'postcombatmain' ||
+                        phaseStr === 'precombat_main' || phaseStr === 'postcombat_main' ||
+                        phaseStr === 'first_main' || phaseStr === 'main1' || phaseStr === 'main2';
     
     // Check if it's the player's turn
     const activePlayerIndex = state.activePlayerIndex || 0;

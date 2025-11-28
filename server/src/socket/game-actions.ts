@@ -90,6 +90,111 @@ function detectETBTappedPattern(oracleText: string): 'always' | 'conditional' | 
 }
 
 /**
+ * Check if a hand qualifies for a free mulligan under "no lands or all lands" house rule.
+ * Returns true if the hand has 0 lands or all cards are lands.
+ */
+function handHasNoLandsOrAllLands(hand: any[]): boolean {
+  if (!Array.isArray(hand) || hand.length === 0) return false;
+  
+  let landCount = 0;
+  for (const card of hand) {
+    if (!card) continue;
+    const typeLine = (card.type_line || '').toLowerCase();
+    if (/\bland\b/.test(typeLine)) {
+      landCount++;
+    }
+  }
+  
+  // No lands or all lands
+  return landCount === 0 || landCount === hand.length;
+}
+
+/**
+ * Check if all human (non-AI, non-spectator) players have mulliganed in the current round.
+ * Used for the "group mulligan discount" house rule.
+ */
+function checkAllHumanPlayersMulliganed(game: any): boolean {
+  try {
+    const players = game.state?.players || [];
+    const mulliganState = (game.state as any)?.mulliganState || {};
+    
+    const humanPlayers = players.filter((p: any) => 
+      p && !p.spectator && !p.isAI && p.id && !p.id.startsWith('ai_')
+    );
+    
+    if (humanPlayers.length === 0) return false;
+    
+    // Check if all human players have mulliganed at least once
+    for (const player of humanPlayers) {
+      const playerMulliganState = mulliganState[player.id];
+      if (!playerMulliganState || (playerMulliganState.mulligansTaken || 0) === 0) {
+        return false;
+      }
+    }
+    
+    return true;
+  } catch (err) {
+    console.warn("checkAllHumanPlayersMulliganed failed:", err);
+    return false;
+  }
+}
+
+/**
+ * Calculate the effective mulligan count for a player based on house rules.
+ * This determines how many cards they need to put back when keeping their hand.
+ * 
+ * @param actualMulligans - The actual number of mulligans taken
+ * @param game - The game state
+ * @param playerId - The player ID
+ * @returns The effective mulligan count (cards to put back)
+ */
+function calculateEffectiveMulliganCount(
+  actualMulligans: number, 
+  game: any, 
+  playerId: string
+): number {
+  if (actualMulligans === 0) return 0;
+  
+  const houseRules = game.state?.houseRules || {};
+  const players = game.state?.players || [];
+  const isMultiplayer = players.filter((p: any) => p && !p.spectator).length > 2;
+  
+  let effectiveCount = actualMulligans;
+  
+  // Free first mulligan in multiplayer (Commander rule 103.5a)
+  if (houseRules.freeFirstMulligan && isMultiplayer && actualMulligans >= 1) {
+    effectiveCount = Math.max(0, actualMulligans - 1);
+    console.log(`[mulligan] Free first mulligan applied for ${playerId}: ${actualMulligans} -> ${effectiveCount}`);
+  }
+  
+  // Group mulligan discount: if enabled and all human players mulliganed, reduce by 1
+  if (houseRules.groupMulliganDiscount && checkAllHumanPlayersMulliganed(game)) {
+    effectiveCount = Math.max(0, effectiveCount - 1);
+    console.log(`[mulligan] Group mulligan discount applied for ${playerId}: effective count now ${effectiveCount}`);
+  }
+  
+  return effectiveCount;
+}
+
+/**
+ * Check if a mulligan should be free due to "no lands or all lands" house rule.
+ * This is checked before taking the mulligan.
+ */
+function shouldMulliganBeFree(game: any, playerId: string): boolean {
+  const houseRules = game.state?.houseRules || {};
+  
+  if (!houseRules.freeMulliganNoLandsOrAllLands) {
+    return false;
+  }
+  
+  // Get the player's current hand
+  const zones = game.state?.zones?.[playerId];
+  const hand = Array.isArray(zones?.hand) ? zones.hand : [];
+  
+  return handHasNoLandsOrAllLands(hand);
+}
+
+/**
  * Check if all non-spectator players have kept their hands during pre-game.
  * Returns { allKept: boolean, waitingPlayers: string[] }
  */
@@ -2194,17 +2299,22 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Get current mulligan count
       const mulligansTaken = mulliganState?.mulligansTaken || 0;
+      
+      // Calculate effective mulligan count based on house rules
+      // This accounts for free first mulligan in multiplayer, group mulligan discount, etc.
+      const effectiveMulliganCount = calculateEffectiveMulliganCount(mulligansTaken, game, playerId);
 
       // Track mulligan state - mark as pending bottom selection if mulligans were taken
       game.state = (game.state || {}) as any;
       (game.state as any).mulliganState = (game.state as any).mulliganState || {};
       
-      if (mulligansTaken > 0) {
-        // London Mulligan: player must put back cards equal to number of mulligans taken
+      if (effectiveMulliganCount > 0) {
+        // London Mulligan: player must put back cards equal to effective number of mulligans
+        // (after applying house rule discounts like free first mulligan or group mulligan)
         (game.state as any).mulliganState[playerId] = {
           hasKeptHand: false, // Not fully kept yet - need to put cards back
           mulligansTaken,
-          pendingBottomCount: mulligansTaken, // Number of cards to put to bottom
+          pendingBottomCount: effectiveMulliganCount, // Cards to put to bottom after house rule discounts
         };
 
         // Bump sequence
@@ -2215,23 +2325,30 @@ export function registerGameActions(io: Server, socket: Socket) {
         // Emit the bottom selection prompt to the player
         emitToPlayer(io, playerId as string, "mulliganBottomPrompt", {
           gameId,
-          cardsToBottom: mulligansTaken,
+          cardsToBottom: effectiveMulliganCount,
         });
+
+        // Build message with house rule info
+        let message = `${getPlayerName(game, playerId)} is choosing ${effectiveMulliganCount} card${effectiveMulliganCount > 1 ? 's' : ''} to put on the bottom of their library`;
+        if (effectiveMulliganCount < mulligansTaken) {
+          message += ` (${mulligansTaken - effectiveMulliganCount} free mulligan${mulligansTaken - effectiveMulliganCount > 1 ? 's' : ''})`;
+        }
+        message += '.';
 
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
           gameId,
           from: "system",
-          message: `${getPlayerName(game, playerId)} is choosing ${mulligansTaken} card${mulligansTaken > 1 ? 's' : ''} to put on the bottom of their library.`,
+          message,
           ts: Date.now(),
         });
 
         broadcastGame(io, game, gameId);
       } else {
-        // No mulligans taken - just keep the hand immediately
+        // No cards to put back (either no mulligans or all were free)
         (game.state as any).mulliganState[playerId] = {
           hasKeptHand: true,
-          mulligansTaken: 0,
+          mulligansTaken,
         };
 
         // Bump sequence
@@ -2246,11 +2363,17 @@ export function registerGameActions(io: Server, socket: Socket) {
           console.warn("appendEvent(keepHand) failed:", e);
         }
 
+        let message = `${getPlayerName(game, playerId)} keeps their hand`;
+        if (mulligansTaken > 0 && effectiveMulliganCount === 0) {
+          message += ` (${mulligansTaken} free mulligan${mulligansTaken > 1 ? 's' : ''})`;
+        }
+        message += '.';
+
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
           gameId,
           from: "system",
-          message: `${getPlayerName(game, playerId)} keeps their hand.`,
+          message,
           ts: Date.now(),
         });
 
@@ -2434,12 +2557,21 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
+      // Check if this mulligan is free due to "no lands or all lands" house rule
+      const isFreeNoLandsAllLands = shouldMulliganBeFree(game, playerId);
+      
       // Track mulligan state
       game.state = (game.state || {}) as any;
       (game.state as any).mulliganState = (game.state as any).mulliganState || {};
+      
+      // If this mulligan is free due to no lands/all lands, don't increment the count
+      const newMulliganCount = isFreeNoLandsAllLands ? currentMulligans : currentMulligans + 1;
+      
       (game.state as any).mulliganState[playerId] = {
         hasKeptHand: false,
-        mulligansTaken: currentMulligans + 1,
+        mulligansTaken: newMulliganCount,
+        // Track if the last mulligan was free (for display purposes)
+        lastMulliganWasFree: isFreeNoLandsAllLands,
       };
 
       // Shuffle hand back into library and draw new hand
@@ -2478,17 +2610,27 @@ export function registerGameActions(io: Server, socket: Socket) {
       try {
         appendEvent(gameId, (game as any).seq ?? 0, "mulligan", { 
           playerId, 
-          mulliganNumber: currentMulligans + 1 
+          mulliganNumber: newMulliganCount,
+          wasFree: isFreeNoLandsAllLands,
         });
       } catch (e) {
         console.warn("appendEvent(mulligan) failed:", e);
       }
 
+      // Build the mulligan message
+      let mulliganMessage = `${getPlayerName(game, playerId)} mulligans`;
+      if (isFreeNoLandsAllLands) {
+        mulliganMessage += ` (FREE - no lands/all lands hand)`;
+      } else {
+        mulliganMessage += ` (mulligan #${newMulliganCount})`;
+      }
+      mulliganMessage += '.';
+
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `${getPlayerName(game, playerId)} mulligans (mulligan #${currentMulligans + 1}).`,
+        message: mulliganMessage,
         ts: Date.now(),
       });
 
@@ -2892,6 +3034,95 @@ export function registerGameActions(io: Server, socket: Socket) {
       console.error(`mill error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "MILL_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
+
+  // ============================================================================
+  // House Rules Configuration (Pre-Game)
+  // ============================================================================
+
+  /**
+   * Set house rules for a game during pre-game phase.
+   * House rules can only be set before the game starts.
+   */
+  socket.on("setHouseRules", ({ gameId, houseRules }: { 
+    gameId: string; 
+    houseRules: {
+      freeFirstMulligan?: boolean;
+      freeMulliganNoLandsOrAllLands?: boolean;
+      anyCommanderDamageCountsAsCommanderDamage?: boolean;
+      groupMulliganDiscount?: boolean;
+      enableArchenemy?: boolean;
+      enablePlanechase?: boolean;
+    };
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId || socket.data.spectator) return;
+
+      // Check if we're in PRE_GAME phase
+      const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
+      if (phaseStr !== "" && phaseStr !== "PRE_GAME") {
+        socket.emit("error", {
+          code: "NOT_PREGAME",
+          message: "House rules can only be set during pre-game",
+        });
+        return;
+      }
+
+      // Set house rules on the game state
+      game.state = (game.state || {}) as any;
+      (game.state as any).houseRules = {
+        ...(game.state as any).houseRules,
+        ...houseRules,
+      };
+
+      // Bump sequence
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+
+      // Persist the event
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, "setHouseRules", { 
+          playerId, 
+          houseRules,
+        });
+      } catch (e) {
+        console.warn("appendEvent(setHouseRules) failed:", e);
+      }
+
+      // Build a description of enabled rules
+      const enabledRules: string[] = [];
+      if (houseRules.freeFirstMulligan) enabledRules.push("Free First Mulligan");
+      if (houseRules.freeMulliganNoLandsOrAllLands) enabledRules.push("Free Mulligan (No Lands/All Lands)");
+      if (houseRules.anyCommanderDamageCountsAsCommanderDamage) enabledRules.push("Any Commander Damage Counts");
+      if (houseRules.groupMulliganDiscount) enabledRules.push("Group Mulligan Discount");
+      if (houseRules.enableArchenemy) enabledRules.push("Archenemy (NYI)");
+      if (houseRules.enablePlanechase) enabledRules.push("Planechase (NYI)");
+
+      const rulesMessage = enabledRules.length > 0
+        ? `House rules enabled: ${enabledRules.join(", ")}`
+        : "All house rules disabled.";
+
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `🏠 ${getPlayerName(game, playerId)} updated house rules. ${rulesMessage}`,
+        ts: Date.now(),
+      });
+
+      console.log(`[setHouseRules] ${playerId} set house rules for game ${gameId}:`, houseRules);
+
+      broadcastGame(io, game, gameId);
+    } catch (err: any) {
+      console.error(`setHouseRules error for game ${gameId}:`, err);
+      socket.emit("error", {
+        code: "SET_HOUSE_RULES_ERROR",
         message: err?.message ?? String(err),
       });
     }

@@ -404,6 +404,16 @@ export function App() {
         playerName: config.playerName,
         spectator: false,
       });
+      
+      // If house rules are configured, send them after joining
+      if (config.houseRules && Object.keys(config.houseRules).length > 0) {
+        setTimeout(() => {
+          socket.emit('setHouseRules' as any, {
+            gameId: config.gameId,
+            houseRules: config.houseRules,
+          });
+        }, 200);
+      }
     }, 100);
   };
 

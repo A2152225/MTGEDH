@@ -383,8 +383,11 @@ export function canCastSpell(
       case CastingRestrictionType.SORCERY_SPEED_ONLY:
         // Player can only cast at sorcery speed - ALL spells need valid sorcery timing
         // This affects both instants AND any spell being cast at non-sorcery timing
-        const isMainPhase = state.phase === 'precombat_main' || state.phase === 'postcombat_main' ||
-                            state.phase === 'PRECOMBAT_MAIN' || state.phase === 'POSTCOMBAT_MAIN';
+        // Support both enum values and string variants for phase comparison
+        const phaseStr = String(state.phase || '').toLowerCase();
+        const isMainPhase = phaseStr === 'precombatmain' || phaseStr === 'postcombatmain' ||
+                            phaseStr === 'precombat_main' || phaseStr === 'postcombat_main' ||
+                            phaseStr === 'first_main' || phaseStr === 'main1' || phaseStr === 'main2';
         const activePlayerIndex = state.activePlayerIndex || 0;
         const isOwnTurn = state.players[activePlayerIndex]?.id === playerId;
         const stackEmpty = !state.stack || state.stack.length === 0;
