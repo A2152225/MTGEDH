@@ -1900,6 +1900,8 @@ export function registerGameActions(io: Server, socket: Socket) {
   });
 
   // Next step handler
+  // Per MTG rules, "next step" should pass priority. The step only advances
+  // when ALL players pass priority in succession with an empty stack.
   socket.on("nextStep", async ({ gameId }: { gameId: string }) => {
     try {
       const game = ensureGame(gameId);
@@ -1951,6 +1953,38 @@ export function registerGameActions(io: Server, socket: Socket) {
           );
           return;
         }
+        
+        // During pre-game, directly advance to start the game
+        // (no priority passing needed during pre-game setup)
+        try {
+          if (typeof (game as any).nextStep === "function") {
+            await (game as any).nextStep();
+            console.log(
+              `[nextStep] Pre-game: advanced step for game ${gameId}`
+            );
+          }
+        } catch (e) {
+          console.error("nextStep: game.nextStep invocation failed:", e);
+          socket.emit("error", {
+            code: "NEXT_STEP_IMPL_ERROR",
+            message: String(e),
+          });
+          return;
+        }
+        
+        try {
+          appendEvent(
+            gameId,
+            (game as any).seq || 0,
+            "nextStep",
+            { by: playerId, pregame: true }
+          );
+        } catch (e) {
+          console.warn("appendEvent(nextStep) failed", e);
+        }
+        
+        broadcastGame(io, game, gameId);
+        return;
       }
 
       const playersArr: any[] =
@@ -1958,110 +1992,101 @@ export function registerGameActions(io: Server, socket: Socket) {
           ? game.state.players
           : [];
 
-      if (game.state.turnPlayer) {
-        if (game.state.turnPlayer !== playerId) {
+      // For single-player games, directly advance
+      if (playersArr.length <= 1) {
+        if (!game.state.turnPlayer) {
+          game.state.turnPlayer = playerId;
+        }
+        
+        // Check for empty stack
+        if (game.state.stack && game.state.stack.length > 0) {
           socket.emit("error", {
             code: "NEXT_STEP",
-            message: "Only the active player can advance the step.",
+            message: "Cannot advance step while the stack is not empty.",
           });
-          console.info(
-            `[nextStep] rejected - not active player (player=${playerId} turnPlayer=${game.state.turnPlayer})`
-          );
           return;
         }
-      } else {
-        if (playersArr.length <= 1) {
-          try {
-            game.state.turnPlayer = playerId;
-            appendGameEvent(game, gameId, "autoAssignTurn", { playerId });
-            console.info(
-              `[nextStep] auto-assigned turnPlayer to single player ${playerId}`
+        
+        try {
+          if (typeof (game as any).nextStep === "function") {
+            await (game as any).nextStep();
+            console.log(
+              `[nextStep] Single-player: advanced step for game ${gameId}`
             );
-          } catch (e) {
-            console.warn("nextStep: auto-assign failed", e);
           }
-        } else {
-          if (!pregame) {
-            socket.emit("error", {
-              code: "NEXT_STEP",
-              message: "No active player set; cannot advance step.",
-            });
-            console.info(
-              `[nextStep] rejected - no turnPlayer and not pregame (phase=${phaseStr})`
-            );
-            return;
-          } else {
-            if (!game.state.turnPlayer) {
-              socket.emit("error", {
-                code: "NEXT_STEP_NO_CLAIM",
-                message:
-                  "No active player set. Use 'Claim Turn' to set first player.",
-              });
-              console.info(
-                `[nextStep] rejected - no turnPlayer; ask user to claim (player=${playerId})`
-              );
-              return;
-            }
-          }
+        } catch (e) {
+          console.error("nextStep: game.nextStep invocation failed:", e);
+          return;
         }
+        
+        try {
+          appendEvent(gameId, (game as any).seq || 0, "nextStep", { by: playerId });
+        } catch (e) {
+          console.warn("appendEvent(nextStep) failed", e);
+        }
+        
+        broadcastGame(io, game, gameId);
+        return;
       }
 
-      if (game.state.stack && game.state.stack.length > 0) {
+      // Multi-player: "Next Step" should pass priority
+      // The step will advance when all players pass in succession
+      
+      // Check if player has priority
+      if (game.state.priority !== playerId) {
         socket.emit("error", {
-          code: "NEXT_STEP",
-          message: "Cannot advance step while the stack is not empty.",
+          code: "NOT_YOUR_PRIORITY",
+          message: "You don't have priority. Wait for your turn to pass.",
         });
         console.info(
-          `[nextStep] rejected - stack not empty (len=${game.state.stack.length})`
+          `[nextStep] rejected - not player's priority (player=${playerId} priority=${game.state.priority})`
         );
         return;
       }
 
-      // Invoke underlying implementation
-      try {
-        if (typeof (game as any).nextStep === "function") {
-          await (game as any).nextStep();
-          console.log(
-            `[nextStep] Successfully advanced step for game ${gameId}`
-          );
-        } else {
-          console.error(
-            `[nextStep] CRITICAL: game.nextStep not available on game ${gameId} - this should not happen with full engine`
-          );
-          socket.emit("error", {
-            code: "NEXT_STEP_IMPL_MISSING",
-            message:
-              "Server error: game engine not properly initialized. Please contact support.",
-          });
-          return;
+      // Pass priority (this handles step advancement when all pass)
+      const { changed, resolvedNow, advanceStep } = game.passPriority(playerId);
+      if (!changed) return;
+
+      appendGameEvent(game, gameId, "passPriority", { by: playerId, viaNextStep: true });
+
+      if (resolvedNow) {
+        // Capture the top spell before it resolves
+        const stackBefore = game.state?.stack || [];
+        const topItem = stackBefore.length > 0 ? stackBefore[stackBefore.length - 1] : null;
+        
+        if (typeof (game as any).resolveTopOfStack === 'function') {
+          (game as any).resolveTopOfStack();
+          console.log(`[nextStep] Stack resolved for game ${gameId}`);
+          
+          checkCreatureTypeSelectionForNewPermanents(io, game, gameId);
         }
-      } catch (e) {
-        console.error("nextStep: game.nextStep invocation failed:", e);
-        socket.emit("error", {
-          code: "NEXT_STEP_IMPL_ERROR",
-          message: String(e),
-        });
-        return;
-      }
-
-      // Persist event without re-applying it in-memory (avoid double-advance)
-      try {
-        appendEvent(
+        appendGameEvent(game, gameId, "resolveTopOfStack");
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
           gameId,
-          (game as any).seq || 0,
-          "nextStep",
-          { by: playerId }
-        );
-      } catch (e) {
-        console.warn("appendEvent(nextStep) failed", e);
+          from: "system",
+          message: "Top of stack resolved.",
+          ts: Date.now(),
+        });
       }
 
-      // Optional: bump seq if needed
-      if (typeof (game as any).bumpSeq === "function") {
-        try {
-          (game as any).bumpSeq();
-        } catch {
-          /* ignore */
+      // If all players passed priority with empty stack, advance to next step
+      if (advanceStep) {
+        if (typeof (game as any).nextStep === 'function') {
+          (game as any).nextStep();
+          console.log(`[nextStep] All players passed priority - advanced to next step for game ${gameId}`);
+          
+          appendGameEvent(game, gameId, "nextStep", { reason: 'allPlayersPassed' });
+          
+          const newStep = (game.state as any)?.step || 'unknown';
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `Step advanced to ${newStep}.`,
+            ts: Date.now(),
+          });
         }
       }
 
