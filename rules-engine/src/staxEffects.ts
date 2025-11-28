@@ -513,9 +513,10 @@ export function parseStaxFromText(
   const text = oracleText.toLowerCase();
   
   // "Each player can't cast more than one spell each turn"
-  const spellLimitMatch = text.match(/(?:each )?player(?:s)? can(?:'t| not) cast more than (\w+) spell/i);
+  const spellLimitMatch = text.match(/(?:each )?player(?:s)? can(?:'t| not) cast more than (\w+|\d+) spell/i);
   if (spellLimitMatch) {
-    const limit = wordToNumber(spellLimitMatch[1]) || 1;
+    const limitWord = spellLimitMatch[1];
+    const limit = /^\d+$/.test(limitWord) ? parseInt(limitWord, 10) : (wordToNumber(limitWord) || 1);
     restrictions.push({
       id: `${sourceId}-spell-limit`,
       sourceId,
@@ -530,7 +531,7 @@ export function parseStaxFromText(
   
   // "Creatures can't attack you unless..."
   if (text.includes("creatures can't attack you") || text.includes("can't attack you unless")) {
-    const unlessMatch = text.match(/can't attack you unless[^.]+/i);
+    const unlessMatch = text.match(/can't attack you unless\s+([^.]+)/i);
     restrictions.push({
       id: `${sourceId}-cant-attack`,
       sourceId,
@@ -538,7 +539,7 @@ export function parseStaxFromText(
       controllerId,
       type: StaxRestrictionType.CANT_ATTACK_UNLESS,
       filter: { affectsOpponents: true },
-      unlessCondition: unlessMatch ? unlessMatch[0].replace("can't attack you unless ", '') : undefined,
+      unlessCondition: unlessMatch ? unlessMatch[1].trim() : undefined,
       isActive: true,
     });
   }

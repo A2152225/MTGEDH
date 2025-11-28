@@ -6,6 +6,17 @@
  * This module provides support for mode selection, validation, and resolution.
  */
 
+// Counter for generating unique IDs
+let modalIdCounter = 0;
+
+/**
+ * Generates a unique modal configuration ID
+ */
+function generateModalId(sourceId: string): string {
+  modalIdCounter++;
+  return `modal-${sourceId}-${modalIdCounter}-${Date.now()}`;
+}
+
 /**
  * A single mode option for a modal spell or ability
  */
@@ -72,7 +83,7 @@ export function createModalConfiguration(
   } = {}
 ): ModalConfiguration {
   return {
-    id: `modal-${sourceId}-${Date.now()}`,
+    id: generateModalId(sourceId),
     sourceId,
     modes,
     minModes,
@@ -336,12 +347,12 @@ export function parseModalFromText(
 ): ModalConfiguration | undefined {
   const text = oracleText.toLowerCase();
   
-  // Check for modal indicators
-  const chooseOneMatch = text.match(/choose one\s*[—-]/i);
-  const chooseTwoMatch = text.match(/choose two\s*[—-]/i);
-  const chooseThreeMatch = text.match(/choose three\s*[—-]/i);
-  const chooseOneOrMoreMatch = text.match(/choose one or more\s*[—-]/i);
-  const chooseAnyNumberMatch = text.match(/choose any number\s*[—-]/i);
+  // Check for modal indicators (using character class with em dash and hyphen at end)
+  const chooseOneMatch = text.match(/choose one\s*[—\-]/i);
+  const chooseTwoMatch = text.match(/choose two\s*[—\-]/i);
+  const chooseThreeMatch = text.match(/choose three\s*[—\-]/i);
+  const chooseOneOrMoreMatch = text.match(/choose one or more\s*[—\-]/i);
+  const chooseAnyNumberMatch = text.match(/choose any number\s*[—\-]/i);
   const chooseTwoYouMayMatch = text.match(/choose two\.\s*you may choose the same mode more than once/i);
   
   if (!chooseOneMatch && !chooseTwoMatch && !chooseThreeMatch && 
