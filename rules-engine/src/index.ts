@@ -424,6 +424,17 @@ export {
   getUndoDescription,
   canRequestUndo,
   getUndoApprovalStatus,
+  // Pillowfort effects (Propaganda, Ghostly Prison, Norn's Annex, etc.)
+  detectPillowfortEffect,
+  collectPillowfortEffects,
+  calculateTotalAttackCost,
+  checkAttackCosts,
+  getAttackCostDescription,
+  isPillowfortCard,
+  COMMON_PILLOWFORT_CARDS,
+  AttackCostType,
+  type AttackCostRequirement,
+  type AttackCostCheckResult,
 } from './actions';
 
 // Core types
@@ -536,6 +547,40 @@ export {
   calculateEffectiveToughness,
   createDamageEvent,
 } from './damageProcessing';
+
+// Player Protection (hexproof, shroud for players)
+export {
+  PlayerProtectionType,
+  detectPlayerProtection,
+  collectPlayerProtection,
+  canTargetPlayer,
+  canAttackPlayer,
+  canPlayerLifeChange,
+  playerHasHexproof,
+  playerHasShroud,
+  COMMON_PLAYER_PROTECTION_CARDS,
+  type PlayerProtectionEffect,
+  type PlayerTargetingResult,
+  type PlayerProtectionCardName,
+} from './playerProtection';
+
+// Curses (Aura enchantments attached to players)
+export {
+  CurseEffectType,
+  isCurse,
+  detectCurseEffect,
+  collectPlayerCurses,
+  checkCurses,
+  applyDamageMultipliers,
+  canCastSpellWithCurses,
+  getCurseUpkeepTriggers,
+  getCurseAttackTriggers,
+  countCursesOnPlayer,
+  COMMON_CURSE_CARDS,
+  type CurseEffect,
+  type CurseCheckResult,
+  type CurseCardName,
+} from './curses';
 
 // =============================================================================
 // LEGACY COMPATIBILITY

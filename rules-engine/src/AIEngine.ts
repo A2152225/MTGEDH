@@ -458,16 +458,160 @@ export class AIEngine {
   
   /**
    * Basic spell casting decision
+   * Evaluates castable spells based on mana efficiency, board state, and timing
    */
   private makeBasicCastDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    // TODO: Implement spell casting decision logic
+    const { gameState, playerId, options } = context;
+    const player = gameState.players.find(p => p.id === playerId);
+    
+    if (!player || !player.hand || player.hand.length === 0) {
+      return {
+        type: AIDecisionType.CAST_SPELL,
+        playerId,
+        action: { spell: null },
+        reasoning: 'No cards in hand',
+        confidence: 0,
+      };
+    }
+    
+    // Get available mana
+    const manaPool = player.manaPool || { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+    const totalMana = manaPool.white + manaPool.blue + manaPool.black + 
+                      manaPool.red + manaPool.green + manaPool.colorless;
+    
+    // Filter castable spells based on options or all hand cards
+    const castableCards = (options || player.hand).filter((card: any) => {
+      const cmc = card.cmc || card.mana_value || 0;
+      return cmc <= totalMana;
+    });
+    
+    if (castableCards.length === 0) {
+      return {
+        type: AIDecisionType.CAST_SPELL,
+        playerId,
+        action: { spell: null },
+        reasoning: 'No castable spells with available mana',
+        confidence: 0.8,
+      };
+    }
+    
+    // Evaluate and rank spells by value
+    const evaluatedSpells = castableCards.map((card: any) => ({
+      card,
+      value: this.evaluateSpellValue(card, gameState, playerId),
+    }));
+    
+    // Sort by value (descending) and pick the best
+    evaluatedSpells.sort((a: any, b: any) => b.value - a.value);
+    const bestSpell = evaluatedSpells[0];
+    
+    // Only cast if value is positive (worth casting)
+    if (bestSpell.value > 0) {
+      return {
+        type: AIDecisionType.CAST_SPELL,
+        playerId,
+        action: { spell: bestSpell.card, targets: [] },
+        reasoning: `Casting ${bestSpell.card.name || 'spell'} (value: ${bestSpell.value})`,
+        confidence: Math.min(0.9, 0.5 + bestSpell.value / 20),
+      };
+    }
+    
     return {
       type: AIDecisionType.CAST_SPELL,
-      playerId: context.playerId,
+      playerId,
       action: { spell: null },
-      reasoning: 'No spell to cast',
-      confidence: 0,
+      reasoning: 'No valuable spells to cast',
+      confidence: 0.6,
     };
+  }
+  
+  /**
+   * Evaluate the value of casting a spell in the current game state
+   */
+  private evaluateSpellValue(card: any, gameState: GameState, playerId: PlayerID): number {
+    let value = 0;
+    const typeLine = (card.type_line || '').toLowerCase();
+    const oracleText = (card.oracle_text || '').toLowerCase();
+    const cmc = card.cmc || card.mana_value || 0;
+    
+    // Base value from card characteristics
+    if (typeLine.includes('creature')) {
+      const power = parseInt(card.power || '0', 10);
+      const toughness = parseInt(card.toughness || '0', 10);
+      value += (power + toughness) * 2;
+      
+      // Keywords increase value
+      if (oracleText.includes('flying')) value += 3;
+      if (oracleText.includes('haste')) value += 2;
+      if (oracleText.includes('trample')) value += 2;
+      if (oracleText.includes('deathtouch')) value += 3;
+      if (oracleText.includes('lifelink')) value += 2;
+      if (oracleText.includes('vigilance')) value += 1;
+    }
+    
+    if (typeLine.includes('instant') || typeLine.includes('sorcery')) {
+      // Removal spells are valuable
+      if (oracleText.includes('destroy target') || oracleText.includes('exile target')) {
+        value += 5;
+      }
+      // Card draw is valuable
+      if (oracleText.includes('draw')) {
+        const drawMatch = oracleText.match(/draw (\d+)/);
+        value += drawMatch ? parseInt(drawMatch[1], 10) * 3 : 3;
+      }
+      // Counter spells require timing awareness
+      if (oracleText.includes('counter target')) {
+        // Only valuable if there's something to counter
+        if ((gameState.stack || []).length > 0) {
+          value += 6;
+        } else {
+          value -= 5; // Don't cast counters with empty stack
+        }
+      }
+    }
+    
+    if (typeLine.includes('artifact')) {
+      value += 3;
+      // Mana artifacts are more valuable early
+      if (oracleText.includes('add') && oracleText.includes('mana')) {
+        const turn = gameState.turn || 1;
+        value += Math.max(0, 8 - turn); // More valuable early game
+      }
+    }
+    
+    if (typeLine.includes('enchantment')) {
+      value += 3;
+      // Auras need targets
+      if (typeLine.includes('aura')) {
+        // Check if we have valid targets
+        const player = gameState.players.find(p => p.id === playerId);
+        const hasCreatures = (player?.battlefield || []).some((p: any) => 
+          p.card?.type_line?.toLowerCase().includes('creature')
+        );
+        if (!hasCreatures) {
+          value -= 10; // No targets for aura
+        }
+      }
+    }
+    
+    // Penalize high-cost spells early game
+    const turn = gameState.turn || 1;
+    if (cmc > turn + 2) {
+      value -= 3; // Probably shouldn't cast this yet
+    }
+    
+    // Board state awareness
+    const player = gameState.players.find(p => p.id === playerId);
+    const creatureCount = (player?.battlefield || []).filter((p: any) =>
+      p.card?.type_line?.toLowerCase().includes('creature')
+    ).length;
+    
+    // Buff spells more valuable with creatures
+    if (oracleText.includes('+1/+1') || oracleText.includes('+2/+2')) {
+      value += creatureCount > 0 ? 3 : -5;
+    }
+    
+    return value;
   }
   
   /**
@@ -533,20 +677,267 @@ export class AIEngine {
   
   /**
    * Control strategy decisions
+   * Focuses on counter spells, removal, and card advantage.
+   * Attacks only when in a dominant position.
    */
   private makeControlDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    // Control AI focuses on counter spells and removal
-    // TODO: Implement control-specific logic
-    return this.makeBasicDecision(context, config);
+    const { gameState, playerId, decisionType, options } = context;
+    
+    switch (decisionType) {
+      case AIDecisionType.DECLARE_ATTACKERS: {
+        // Control AI only attacks when in a dominant position
+        const player = gameState.players.find(p => p.id === playerId);
+        const opponents = gameState.players.filter(p => p.id !== playerId);
+        
+        // Check if we have board dominance
+        const myCreatureCount = (player?.battlefield || []).filter((p: any) =>
+          p.card?.type_line?.toLowerCase().includes('creature')
+        ).length;
+        
+        const opponentCreatureCount = opponents.reduce((sum, opp) => 
+          sum + ((opp.battlefield || []).filter((p: any) =>
+            p.card?.type_line?.toLowerCase().includes('creature')
+          ).length), 0);
+        
+        // Attack only if we have significant board advantage
+        if (myCreatureCount > opponentCreatureCount + 2) {
+          const legalAttackerIds = getLegalAttackers(gameState, playerId);
+          // Attack with creatures that won't die in combat
+          const safeAttackers = legalAttackerIds.filter(id => {
+            const perm = player?.battlefield?.find((p: any) => p.id === id);
+            const toughness = parseInt(perm?.card?.toughness || '0', 10);
+            return toughness >= 3; // Only attack with tough creatures
+          });
+          
+          return {
+            type: AIDecisionType.DECLARE_ATTACKERS,
+            playerId,
+            action: { attackers: safeAttackers },
+            reasoning: `Control: safe attacks with ${safeAttackers.length} protected creatures`,
+            confidence: 0.7,
+          };
+        }
+        
+        return {
+          type: AIDecisionType.DECLARE_ATTACKERS,
+          playerId,
+          action: { attackers: [] },
+          reasoning: 'Control: holding back, waiting for board control',
+          confidence: 0.8,
+        };
+      }
+      
+      case AIDecisionType.CAST_SPELL: {
+        const player = gameState.players.find(p => p.id === playerId);
+        const hand = player?.hand || [];
+        
+        // Prioritize holding up mana for counterspells
+        const hasCounterInHand = hand.some((card: any) => 
+          (card.oracle_text || '').toLowerCase().includes('counter target')
+        );
+        
+        // Check if opponent has untapped mana (might cast something)
+        const opponentHasMana = gameState.players.some(p => {
+          if (p.id === playerId) return false;
+          const pool = p.manaPool || { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+          return pool.white + pool.blue + pool.black + pool.red + pool.green + pool.colorless > 0;
+        });
+        
+        // If we have a counter and opponent might cast, hold mana
+        if (hasCounterInHand && opponentHasMana && (gameState.stack || []).length === 0) {
+          return {
+            type: AIDecisionType.CAST_SPELL,
+            playerId,
+            action: { spell: null },
+            reasoning: 'Control: holding counter spell mana',
+            confidence: 0.8,
+          };
+        }
+        
+        // Otherwise, prioritize removal and card draw
+        const prioritizedSpells = hand
+          .filter((card: any) => {
+            const text = (card.oracle_text || '').toLowerCase();
+            return text.includes('destroy target') || 
+                   text.includes('exile target') ||
+                   text.includes('draw') ||
+                   text.includes('counter target');
+          })
+          .sort((a: any, b: any) => {
+            const aText = (a.oracle_text || '').toLowerCase();
+            const bText = (b.oracle_text || '').toLowerCase();
+            // Prioritize removal > draw > counter (when stack empty)
+            let aScore = 0, bScore = 0;
+            if (aText.includes('destroy') || aText.includes('exile')) aScore += 10;
+            if (bText.includes('destroy') || bText.includes('exile')) bScore += 10;
+            if (aText.includes('draw')) aScore += 5;
+            if (bText.includes('draw')) bScore += 5;
+            return bScore - aScore;
+          });
+        
+        if (prioritizedSpells.length > 0) {
+          return {
+            type: AIDecisionType.CAST_SPELL,
+            playerId,
+            action: { spell: prioritizedSpells[0] },
+            reasoning: `Control: casting high-value spell ${prioritizedSpells[0].name}`,
+            confidence: 0.7,
+          };
+        }
+        
+        return this.makeBasicCastDecision(context, config);
+      }
+      
+      default:
+        return this.makeBasicDecision(context, config);
+    }
   }
   
   /**
    * Combo strategy decisions
+   * Focuses on finding and protecting combo pieces, ramping mana, and drawing cards.
    */
   private makeComboDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    // Combo AI looks for combo pieces and tries to assemble them
-    // TODO: Implement combo-specific logic
-    return this.makeBasicDecision(context, config);
+    const { gameState, playerId, decisionType, options } = context;
+    
+    switch (decisionType) {
+      case AIDecisionType.DECLARE_ATTACKERS: {
+        // Combo AI rarely attacks - preserve creatures for combos
+        const player = gameState.players.find(p => p.id === playerId);
+        const life = player?.life || 0;
+        
+        // Only attack if life is safe and we have extra creatures
+        if (life > 20) {
+          const legalAttackerIds = getLegalAttackers(gameState, playerId);
+          // Only attack with "extra" creatures (not combo pieces)
+          // Combo pieces typically have valuable abilities in their text
+          const nonComboPieces = legalAttackerIds.filter(id => {
+            const perm = player?.battlefield?.find((p: any) => p.id === id);
+            const text = (perm?.card?.oracle_text || '').toLowerCase();
+            // Keep cards with activated abilities or important triggers
+            return !text.includes(':') && !text.includes('whenever') && !text.includes('when');
+          });
+          
+          return {
+            type: AIDecisionType.DECLARE_ATTACKERS,
+            playerId,
+            action: { attackers: nonComboPieces },
+            reasoning: `Combo: attacking only with non-essential creatures (${nonComboPieces.length})`,
+            confidence: 0.6,
+          };
+        }
+        
+        return {
+          type: AIDecisionType.DECLARE_ATTACKERS,
+          playerId,
+          action: { attackers: [] },
+          reasoning: 'Combo: preserving all creatures for potential combos',
+          confidence: 0.9,
+        };
+      }
+      
+      case AIDecisionType.CAST_SPELL: {
+        const player = gameState.players.find(p => p.id === playerId);
+        const hand = player?.hand || [];
+        
+        // Prioritize: tutors > card draw > mana ramp > combo pieces
+        const prioritizedSpells = hand.sort((a: any, b: any) => {
+          const aText = (a.oracle_text || '').toLowerCase();
+          const bText = (b.oracle_text || '').toLowerCase();
+          
+          let aScore = 0, bScore = 0;
+          
+          // Tutors (search library) are highest priority
+          if (aText.includes('search your library')) aScore += 20;
+          if (bText.includes('search your library')) bScore += 20;
+          
+          // Card draw
+          if (aText.includes('draw')) {
+            const match = aText.match(/draw (\d+)/);
+            aScore += match ? parseInt(match[1], 10) * 4 : 4;
+          }
+          if (bText.includes('draw')) {
+            const match = bText.match(/draw (\d+)/);
+            bScore += match ? parseInt(match[1], 10) * 4 : 4;
+          }
+          
+          // Mana ramp
+          if (aText.includes('add') && aText.includes('mana')) aScore += 8;
+          if (bText.includes('add') && bText.includes('mana')) bScore += 8;
+          
+          // Cards with combo potential (untap effects, infinite loops)
+          if (aText.includes('untap') || aText.includes('copy')) aScore += 6;
+          if (bText.includes('untap') || bText.includes('copy')) bScore += 6;
+          
+          return bScore - aScore;
+        });
+        
+        // Cast the highest priority spell we can afford
+        const manaPool = player?.manaPool || { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+        const totalMana = manaPool.white + manaPool.blue + manaPool.black + 
+                          manaPool.red + manaPool.green + manaPool.colorless;
+        
+        const castable = prioritizedSpells.filter((card: any) => 
+          (card.cmc || card.mana_value || 0) <= totalMana
+        );
+        
+        if (castable.length > 0) {
+          return {
+            type: AIDecisionType.CAST_SPELL,
+            playerId,
+            action: { spell: castable[0] },
+            reasoning: `Combo: advancing game plan with ${castable[0].name}`,
+            confidence: 0.8,
+          };
+        }
+        
+        return {
+          type: AIDecisionType.CAST_SPELL,
+          playerId,
+          action: { spell: null },
+          reasoning: 'Combo: saving resources for combo turn',
+          confidence: 0.6,
+        };
+      }
+      
+      case AIDecisionType.SACRIFICE: {
+        // Combo AI tries to avoid sacrificing combo pieces
+        const player = gameState.players.find(p => p.id === playerId);
+        const battlefield = player?.battlefield || [];
+        
+        // Sort by combo value (sacrifice least valuable first)
+        const sorted = [...battlefield].sort((a: any, b: any) => {
+          const aText = (a.card?.oracle_text || '').toLowerCase();
+          const bText = (b.card?.oracle_text || '').toLowerCase();
+          
+          let aValue = 0, bValue = 0;
+          
+          // Combo pieces have activated abilities or important triggers
+          if (aText.includes(':')) aValue += 10;
+          if (bText.includes(':')) bValue += 10;
+          if (aText.includes('whenever') || aText.includes('when')) aValue += 5;
+          if (bText.includes('whenever') || bText.includes('when')) bValue += 5;
+          if (aText.includes('untap')) aValue += 8;
+          if (bText.includes('untap')) bValue += 8;
+          
+          return aValue - bValue; // Sacrifice lowest value first
+        });
+        
+        const sacrificeCount = context.constraints?.count || 1;
+        const sacrificed = sorted.slice(0, sacrificeCount).map((p: any) => p.id);
+        
+        return {
+          type: AIDecisionType.SACRIFICE,
+          playerId,
+          action: { sacrificed },
+          reasoning: `Combo: sacrificing ${sacrificed.length} non-essential permanent(s)`,
+          confidence: 0.7,
+        };
+      }
+      
+      default:
+        return this.makeBasicDecision(context, config);
+    }
   }
   
   // ============================================================================

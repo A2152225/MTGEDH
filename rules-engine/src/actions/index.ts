@@ -136,3 +136,18 @@ export {
   canRequestUndo,
   getUndoApprovalStatus,
 } from './undo';
+
+// Pillowfort effects (Propaganda, Ghostly Prison, Norn's Annex, etc.)
+export {
+  detectPillowfortEffect,
+  collectPillowfortEffects,
+  calculateTotalAttackCost,
+  checkAttackCosts,
+  getAttackCostDescription,
+  isPillowfortCard,
+  COMMON_PILLOWFORT_CARDS,
+  AttackCostType,
+  type AttackCostRequirement,
+  type AttackCostCheckResult,
+  type PillowfortCardName,
+} from '../pillowfortEffects';
