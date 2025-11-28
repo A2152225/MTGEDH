@@ -2031,6 +2031,61 @@ export function registerGameActions(io: Server, socket: Socket) {
         console.warn(`[skipToPhase] Failed to clear combat state:`, err);
       }
 
+      // Handle CLEANUP phase specially - need to check for discard and auto-advance to next turn
+      const isCleanupPhase = targetStepUpper === "CLEANUP";
+      let needsDiscardSelection = false;
+
+      if (isCleanupPhase && turnPlayer) {
+        // Rule 514.1: Check if the active player needs to discard to maximum hand size
+        try {
+          const zones = game.state?.zones?.[turnPlayer];
+          const hand = Array.isArray(zones?.hand) ? zones.hand : [];
+          const maxHandSize = (game.state as any)?.maxHandSize?.[turnPlayer] ?? 7;
+          const discardCount = Math.max(0, hand.length - maxHandSize);
+
+          if (discardCount > 0) {
+            // Player needs to choose cards to discard - set pending state
+            (game.state as any).pendingDiscardSelection = (game.state as any).pendingDiscardSelection || {};
+            (game.state as any).pendingDiscardSelection[turnPlayer] = {
+              count: discardCount,
+              maxHandSize: maxHandSize,
+            };
+            needsDiscardSelection = true;
+            console.log(`[skipToPhase] Player ${turnPlayer} needs to discard ${discardCount} cards during cleanup`);
+          }
+        } catch (err) {
+          console.warn(`[skipToPhase] Failed to check discard during cleanup:`, err);
+        }
+
+        // If no discard needed, clear damage from permanents and end temporary effects
+        if (!needsDiscardSelection) {
+          try {
+            // Rule 514.2: Clear damage from all permanents
+            const battlefield = (game.state as any)?.battlefield;
+            if (Array.isArray(battlefield)) {
+              for (const permanent of battlefield) {
+                if (permanent && typeof permanent.damage === 'number' && permanent.damage > 0) {
+                  permanent.damage = 0;
+                }
+              }
+            }
+            console.log(`[skipToPhase] Cleared damage from permanents during cleanup`);
+          } catch (err) {
+            console.warn(`[skipToPhase] Failed to clear damage during cleanup:`, err);
+          }
+
+          // Auto-advance to next turn since no discard is needed
+          try {
+            if (typeof (game as any).nextTurn === "function") {
+              (game as any).nextTurn();
+              console.log(`[skipToPhase] Cleanup complete, advanced to next turn for game ${gameId}`);
+            }
+          } catch (err) {
+            console.warn(`[skipToPhase] Failed to advance to next turn after cleanup:`, err);
+          }
+        }
+      }
+
       // Bump sequence
       if (typeof (game as any).bumpSeq === "function") {
         (game as any).bumpSeq();
@@ -2052,11 +2107,18 @@ export function registerGameActions(io: Server, socket: Socket) {
         `[skipToPhase] Skipped to phase=${targetPhase}, step=${targetStep} for game ${gameId}`
       );
 
+      // Different message based on whether we're going to cleanup or regular phase
+      const chatMessage = isCleanupPhase 
+        ? (needsDiscardSelection 
+            ? `${getPlayerName(game, playerId)} moved to cleanup. Discard to hand size.`
+            : `${getPlayerName(game, playerId)} ended their turn.`)
+        : `${getPlayerName(game, playerId)} skipped to ${targetPhase} phase.`;
+
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `${getPlayerName(game, playerId)} skipped to ${targetPhase} phase (no combat).`,
+        message: chatMessage,
         ts: Date.now(),
       });
 
