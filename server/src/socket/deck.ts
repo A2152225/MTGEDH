@@ -1,4 +1,5 @@
 import type { Server, Socket } from "socket.io";
+import * as crypto from "node:crypto";
 import {
   parseDecklist,
   fetchCardsByExactNamesBatch,
@@ -47,7 +48,7 @@ function generateUniqueCardInstanceId(scryfallId: string): string {
   const counter = (++cardInstanceCounter).toString(36);
   const timestamp = Date.now().toString(36);
   // Use crypto for better randomness
-  const randomBytes = require('crypto').randomBytes(4).toString('hex');
+  const randomBytes = crypto.randomBytes(4).toString('hex');
   return `${scryfallId}_${timestamp}_${counter}_${randomBytes}`;
 }
 
