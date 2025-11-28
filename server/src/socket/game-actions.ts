@@ -6,7 +6,7 @@ import type { PaymentItem } from "../../../shared/src";
 import { requiresCreatureTypeSelection, requestCreatureTypeSelection } from "./creature-type";
 import { checkAndPromptOpeningHandActions } from "./opening-hand";
 import { emitSacrificeUnlessPayPrompt } from "./triggers";
-import { detectSpellCastTriggers, getSpellCastUntapEffects, applySpellCastUntapEffect, type SpellCastTrigger } from "../state/modules/triggered-abilities";
+import { detectSpellCastTriggers, type SpellCastTrigger } from "../state/modules/triggered-abilities";
 import { categorizeSpell, evaluateTargeting } from "../rules-engine/targeting";
 
 /** Shock lands and similar "pay life or enter tapped" lands */
@@ -958,13 +958,15 @@ function checkMiracle(card: any): { hasMiracle: boolean; miracleCost: string | n
   }
   
   // Extract miracle cost - pattern: "Miracle {cost}" or "miracle—{cost}"
+  // Handles regular mana symbols, X costs, hybrid mana like {w/u}, and Phyrexian mana like {w/p}
   const miracleMatch = oracleText.match(/miracle[—–\s]*(\{[^}]+\}(?:\{[^}]+\})*)/i);
   if (miracleMatch) {
     return { hasMiracle: true, miracleCost: miracleMatch[1] };
   }
   
-  // Alternative pattern with spelled out cost
-  const altMatch = oracleText.match(/miracle\s+(\{[wubrg1-9c]\}(?:\{[wubrg1-9c]\})*)/i);
+  // Alternative pattern - broader mana symbol matching
+  // Includes: numbers (1-20), WUBRGC colors, X costs, hybrid (w/u), Phyrexian (w/p)
+  const altMatch = oracleText.match(/miracle\s+(\{(?:[wubrgcx]|[0-9]+|[wubrg]\/[wubrgp])\}(?:\{(?:[wubrgcx]|[0-9]+|[wubrg]\/[wubrgp])\})*)/i);
   if (altMatch) {
     return { hasMiracle: true, miracleCost: altMatch[1] };
   }
@@ -1686,8 +1688,10 @@ export function registerGameActions(io: Server, socket: Socket) {
           console.log(`[castSpellFromHand] Triggered: ${trigger.cardName} - ${trigger.description}`);
           
           // Handle different trigger effects
-          if (trigger.effect.toLowerCase().includes('draw a card') || 
-              trigger.effect.toLowerCase().includes('draw')) {
+          const effectLower = trigger.effect.toLowerCase();
+          if (effectLower.includes('draw a card') || 
+              effectLower.includes('draw cards') ||
+              effectLower.includes('draws a card')) {
             // Draw a card effect (Beast Whisperer, Archmage Emeritus)
             if (typeof game.drawCards === 'function') {
               const drawn = game.drawCards(playerId, 1);
@@ -1701,7 +1705,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             }
           }
           
-          if (trigger.effect.toLowerCase().includes('untap')) {
+          if (effectLower.includes('untap')) {
             // Untap effect (Jeskai Ascendancy)
             applySpellCastUntapTrigger(game, playerId);
           }
