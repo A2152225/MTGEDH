@@ -1408,6 +1408,54 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         });
       }
       
+      // ===== FORBIDDEN ORCHARD TRIGGER =====
+      // "When you tap Forbidden Orchard for mana, target opponent creates a 1/1 colorless Spirit creature token."
+      const lowerCardName = cardName.toLowerCase();
+      if (lowerCardName === 'forbidden orchard') {
+        // Get opponents from game.state.players
+        const players = game.state?.players || [];
+        const opponents = players.filter((p: any) => p?.id != null && p.id !== pid);
+        
+        if (opponents.length > 0) {
+          // TODO: In a real implementation, controller should choose the target opponent
+          // For now, give token to first opponent
+          const targetOpponent = opponents[0];
+          const opponentId = targetOpponent.id;
+          
+          // Create 1/1 colorless Spirit token for opponent
+          const tokenId = `token_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          game.state.battlefield = game.state.battlefield || [];
+          game.state.battlefield.push({
+            id: tokenId,
+            controller: opponentId,
+            owner: opponentId,
+            tapped: false,
+            summoningSickness: true,
+            counters: {},
+            card: {
+              id: tokenId,
+              name: 'Spirit',
+              type_line: 'Token Creature — Spirit',
+              oracle_text: '',
+              mana_cost: '',
+              cmc: 0,
+              colors: [],
+            },
+            basePower: 1,
+            baseToughness: 1,
+            isToken: true,
+          });
+          
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `Forbidden Orchard: ${getPlayerName(game, opponentId)} creates a 1/1 colorless Spirit token.`,
+            ts: Date.now(),
+          });
+        }
+      }
+      
       if (typeof game.bumpSeq === "function") {
         game.bumpSeq();
       }

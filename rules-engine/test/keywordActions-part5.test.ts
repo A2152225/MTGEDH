@@ -20,6 +20,8 @@ import {
   canPopulate,
   completePopulate,
   createPopulateResult,
+  getPopulateTargets,
+  executePopulate,
   
   // Rule 701.37: Monstrosity
   monstrosity,
@@ -131,6 +133,52 @@ describe('Rule 701: Keyword Actions - Part 5', () => {
       expect(result.populated).toBe(true);
       expect(result.originalTokenId).toBe('token1');
       expect(result.newTokenId).toBe('token2');
+    });
+
+    it('should get populate targets from battlefield', () => {
+      const battlefield = [
+        { id: 'token1', controller: 'player1', isToken: true, card: { type_line: 'Creature' } },
+        { id: 'perm1', controller: 'player1', isToken: false, card: { type_line: 'Creature' } },
+        { id: 'token2', controller: 'player2', isToken: true, card: { type_line: 'Creature' } },
+        { id: 'token3', controller: 'player1', isToken: true, card: { type_line: 'Artifact' } },
+      ] as any;
+
+      const targets = getPopulateTargets(battlefield, 'player1');
+      expect(targets).toHaveLength(1);
+      expect(targets[0].id).toBe('token1');
+    });
+
+    it('should execute populate and create a copy token', () => {
+      const originalToken = {
+        id: 'token1',
+        controller: 'player1',
+        isToken: true,
+        basePower: 3,
+        baseToughness: 3,
+        card: {
+          name: 'Beast',
+          type_line: 'Token Creature — Beast',
+          oracle_text: '',
+          colors: ['G'],
+        },
+      } as any;
+      
+      const battlefield = [originalToken];
+      const result = executePopulate(battlefield, 'player1', 'token1');
+      
+      expect(result.populated).toBe(true);
+      expect(result.originalTokenId).toBe('token1');
+      expect(result.newTokenId).not.toBe('token1');
+      expect(result.newToken).toBeDefined();
+      expect(result.newToken!.basePower).toBe(3);
+      expect(result.newToken!.baseToughness).toBe(3);
+      expect(result.newToken!.isToken).toBe(true);
+    });
+
+    it('should fail populate when token not found', () => {
+      const result = executePopulate([], 'player1', 'nonexistent');
+      expect(result.populated).toBe(false);
+      expect(result.newToken).toBeUndefined();
     });
   });
   

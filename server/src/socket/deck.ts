@@ -10,6 +10,7 @@ import {
   shouldSkipDeckLine,
   fetchDeckFromMoxfield,
   isMoxfieldUrl,
+  parsedDecklistToExpandedString,
 } from "../services/scryfall";
 import { ensureGame, broadcastGame } from "./util";
 import { appendEvent } from "../db";
@@ -1033,8 +1034,8 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
 
         try {
           const moxfieldDeck = await fetchDeckFromMoxfield(list.trim());
-          // Convert Moxfield deck to decklist text format
-          effectiveList = moxfieldDeck.cards.map(c => `${c.count} ${c.name}`).join('\n');
+          // Convert Moxfield deck to decklist text format, expanding cards with count > 1 into separate lines
+          effectiveList = parsedDecklistToExpandedString(moxfieldDeck.cards);
           effectiveDeckName = deckName || moxfieldDeck.name;
           
           // Calculate total card count (not just unique cards)

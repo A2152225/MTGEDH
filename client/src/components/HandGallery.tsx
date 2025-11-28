@@ -2,6 +2,17 @@ import React, { useState, useRef } from 'react';
 import type { CardRef, KnownCardRef } from '../../../shared/src';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 
+/**
+ * Cost reduction info for a card
+ */
+export interface CardCostReduction {
+  originalCost: string;
+  reducedCost: string;
+  genericReduction: number;
+  colorReduction: Record<string, number>;
+  sources: string[];
+}
+
 export interface HandGalleryProps {
   cards: CardRef[];
   handCount?: number;               // total count (for hidden hands)
@@ -19,6 +30,8 @@ export interface HandGalleryProps {
   enableReorder?: boolean;
   onReorder?: (order: string[]) => void;  // changed to card IDs instead of indices
   hidden?: boolean;                 // if true, render facedown placeholders (no leak)
+  // NEW: cost reduction info for displaying modified costs
+  costReductions?: Record<string, CardCostReduction>;
 }
 
 function isLand(tl?: string): boolean {
@@ -57,7 +70,8 @@ export function HandGallery(props: HandGalleryProps) {
     rowGapPx = 10,
     enableReorder = false,
     onReorder,
-    hidden = false
+    hidden = false,
+    costReductions = {},
   } = props;
 
   const [dragIdx, setDragIdx] = useState<number | null>(null);
@@ -247,6 +261,35 @@ export function HandGallery(props: HandGalleryProps) {
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 color: '#eee', fontSize: 12, padding: 8
               }}>{name}</div>
+            )}
+
+            {/* Cost reduction badge - show modified cost when Banneret effects apply */}
+            {kc && !isLand(tl) && costReductions[kc.id] && (
+              <div 
+                style={{
+                  position: 'absolute', 
+                  bottom: 4, 
+                  left: 4,
+                  background: 'rgba(34, 197, 94, 0.9)', 
+                  color: '#fff',
+                  fontSize: 10, 
+                  padding: '2px 6px', 
+                  borderRadius: 4,
+                  fontWeight: 'bold',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+                title={`Cost reduced by ${costReductions[kc.id].sources.join(', ')}`}
+                role="status"
+                aria-label={`Mana cost reduced from ${costReductions[kc.id].originalCost} to ${costReductions[kc.id].reducedCost} by ${costReductions[kc.id].sources.join(', ')}`}
+              >
+                <span style={{ textDecoration: 'line-through', opacity: 0.7 }} aria-hidden="true">
+                  {costReductions[kc.id].originalCost}
+                </span>
+                <span aria-hidden="true">→</span>
+                <span>{costReductions[kc.id].reducedCost}</span>
+              </div>
             )}
 
             {/* Action badges (show Land ✕ only on actual lands; Cast ✕ only if spell cannot be cast) */}

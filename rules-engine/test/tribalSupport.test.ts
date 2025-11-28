@@ -13,6 +13,10 @@ import {
   detectTribalEffectInText,
   TribalTriggerType,
   COMMON_TRIBAL_EFFECTS,
+  detectBanneretReduction,
+  createBanneretReduction,
+  calculateBanneretReduction,
+  getApplicableBanneretReductions,
 } from '../src/tribalSupport';
 import type { BattlefieldPermanent, KnownCardRef } from '../../shared/src';
 import { CREATURE_TYPES } from '../../shared/src/creatureTypes';
@@ -310,6 +314,107 @@ describe('Tribal Support', () => {
     it('should have Coat of Arms', () => {
       expect(COMMON_TRIBAL_EFFECTS['Coat of Arms']).toBeDefined();
       expect(COMMON_TRIBAL_EFFECTS['Coat of Arms'].creatureType).toBe('all');
+    });
+  });
+
+  describe('Banneret Cost Reductions', () => {
+    it('should detect Banneret reduction from oracle text', () => {
+      // Known Banneret by name
+      const stonybrook = detectBanneretReduction('', 'Stonybrook Banneret');
+      expect(stonybrook).not.toBeNull();
+      expect(stonybrook?.types).toContain('Merfolk');
+      expect(stonybrook?.types).toContain('Wizard');
+      expect(stonybrook?.reduction).toBe(1);
+    });
+
+    it('should apply reduction once for multi-type creatures', () => {
+      // A Merfolk Wizard should only get {1} reduction from ONE Stonybrook Banneret
+      // (even though it matches both types)
+      const reduction = createBanneretReduction(
+        'banneret-1',
+        'Stonybrook Banneret',
+        'player1',
+        ['Merfolk', 'Wizard'],
+        1
+      );
+      
+      const totalReduction = calculateBanneretReduction([reduction]);
+      expect(totalReduction).toBe(1); // Only 1, not 2
+    });
+
+    it('should stack reductions from multiple Bannerets', () => {
+      // 2x Stonybrook Banneret should give {2} reduction
+      const reduction1 = createBanneretReduction(
+        'banneret-1',
+        'Stonybrook Banneret',
+        'player1',
+        ['Merfolk', 'Wizard'],
+        1
+      );
+      const reduction2 = createBanneretReduction(
+        'banneret-2',
+        'Stonybrook Banneret',
+        'player1',
+        ['Merfolk', 'Wizard'],
+        1
+      );
+      
+      const totalReduction = calculateBanneretReduction([reduction1, reduction2]);
+      expect(totalReduction).toBe(2); // 1 + 1 = 2
+    });
+
+    it('should get applicable reductions for a multi-type creature', () => {
+      // Battlefield with Stonybrook Banneret
+      const battlefield = [
+        createMockPermanent(
+          'banneret-1',
+          'player1',
+          'Creature — Merfolk Wizard',
+          'Islandwalk\nMerfolk spells and Wizard spells you cast cost {1} less to cast.',
+          'Stonybrook Banneret'
+        ),
+      ];
+      
+      // Spell is a Merfolk Wizard (like Silvergill Adept)
+      const spellCard = {
+        id: 'spell-1',
+        name: 'Silvergill Adept',
+        type_line: 'Creature — Merfolk Wizard',
+        mana_cost: '{1}{U}',
+      } as KnownCardRef;
+      
+      const reductions = getApplicableBanneretReductions(battlefield, 'player1', spellCard);
+      
+      // Should get exactly 1 reduction (not 2 just because it's both Merfolk AND Wizard)
+      expect(reductions).toHaveLength(1);
+      expect(reductions[0].reduction).toBe(1);
+    });
+
+    it('should not double-count for creatures matching multiple types on same Banneret', () => {
+      // Battlefield with one Stonybrook Banneret
+      const battlefield = [
+        createMockPermanent(
+          'banneret-1',
+          'player1',
+          'Creature — Merfolk Wizard',
+          'Islandwalk\nMerfolk spells and Wizard spells you cast cost {1} less to cast.',
+          'Stonybrook Banneret'
+        ),
+      ];
+      
+      // Merfolk Wizard creature - matches BOTH types the Banneret reduces
+      const merfolkWizard = {
+        id: 'spell-1',
+        name: 'Merfolk Wizard',
+        type_line: 'Creature — Merfolk Wizard',
+        mana_cost: '{2}{U}{U}',
+      } as KnownCardRef;
+      
+      const reductions = getApplicableBanneretReductions(battlefield, 'player1', merfolkWizard);
+      const totalReduction = calculateBanneretReduction(reductions);
+      
+      // Total should be 1, not 2 (shouldn't double-count)
+      expect(totalReduction).toBe(1);
     });
   });
 });
