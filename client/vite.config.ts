@@ -21,5 +21,20 @@ export default defineConfig({
       // allow importing shared workspace
       allow: [resolve(__dirname, '..')]
     }
-  }
+  },
+  build: {
+    // Increase chunk size warning limit to 600KB
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        // Manual chunk splitting to improve bundle size
+        manualChunks: {
+          // Split React into its own chunk
+          'react-vendor': ['react', 'react-dom'],
+          // Split socket.io client
+          'socket-vendor': ['socket.io-client'],
+        },
+      },
+    },
+  },
 });
