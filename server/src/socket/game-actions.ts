@@ -1890,6 +1890,9 @@ export function registerGameActions(io: Server, socket: Socket) {
 
   // Skip to a specific phase (used when player wants to skip combat entirely)
   // This allows jumping from pre-combat to post-combat without going through combat steps
+  // IMPORTANT: This also handles turn-based actions when skipping phases:
+  // - Untapping when skipping from UNTAP
+  // - Drawing a card when skipping from before DRAW to MAIN1 or later
   socket.on("skipToPhase", async ({ gameId, targetPhase, targetStep }: { 
     gameId: string; 
     targetPhase: string;
@@ -1900,14 +1903,15 @@ export function registerGameActions(io: Server, socket: Socket) {
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
+      const currentPhase = String(game.state?.phase || "").toLowerCase();
+      const currentStep = String(game.state?.step || "").toUpperCase();
+
       // Debug logging
       try {
         console.info(
           `[skipToPhase] request from player=${playerId} game=${gameId} turnPlayer=${
             game.state?.turnPlayer
-          } currentPhase=${String(game.state?.phase)} currentStep=${String(
-            game.state?.step
-          )} targetPhase=${targetPhase} targetStep=${targetStep}`
+          } currentPhase=${currentPhase} currentStep=${currentStep} targetPhase=${targetPhase} targetStep=${targetStep}`
         );
       } catch {
         /* ignore */
@@ -1934,6 +1938,78 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Update phase and step directly
       (game.state as any).phase = targetPhase;
       (game.state as any).step = targetStep;
+
+      // Determine if we need to execute turn-based actions when skipping phases
+      // This ensures that skipping from early phases to main phases still triggers
+      // the appropriate untap and draw actions
+      const turnPlayer = game.state.turnPlayer;
+      const targetStepUpper = targetStep.toUpperCase();
+      const targetPhaseLower = targetPhase.toLowerCase();
+      
+      // Check if we're in the beginning phase and skipping to a main phase
+      const wasBeginningPhase = currentPhase === "beginning" || currentPhase === "pre_game" || currentPhase === "";
+      const isTargetMainPhase = targetPhaseLower.includes("main") || targetStepUpper === "MAIN1" || targetStepUpper === "MAIN2";
+      
+      // Determine what actions need to be executed based on what we're skipping over
+      const needsUntap = wasBeginningPhase && 
+        (currentStep === "" || currentStep === "UNTAP") && 
+        (targetStepUpper !== "UNTAP");
+      
+      const needsDraw = wasBeginningPhase && 
+        (currentStep === "" || currentStep === "UNTAP" || currentStep === "UPKEEP") && 
+        (isTargetMainPhase || targetStepUpper === "BEGIN_COMBAT" || targetStepUpper === "DECLARE_ATTACKERS");
+
+      // Execute untap if needed
+      if (needsUntap && turnPlayer) {
+        try {
+          // Untap all permanents controlled by the turn player
+          const battlefield = (game.state as any)?.battlefield || [];
+          let untappedCount = 0;
+          for (const permanent of battlefield) {
+            if (permanent && permanent.controller === turnPlayer && permanent.tapped) {
+              // Check for "doesn't untap" effects
+              if (!permanent.doesntUntap) {
+                permanent.tapped = false;
+                untappedCount++;
+              }
+            }
+          }
+          if (untappedCount > 0) {
+            console.log(`[skipToPhase] Untapped ${untappedCount} permanent(s) for ${turnPlayer}`);
+          }
+        } catch (err) {
+          console.warn(`[skipToPhase] Failed to untap permanents:`, err);
+        }
+      }
+
+      // Execute draw if needed
+      if (needsDraw && turnPlayer) {
+        try {
+          if (typeof (game as any).drawCards === "function") {
+            // Calculate total cards to draw: 1 (base) + any additional draws from effects
+            const additionalDraws = (game as any).additionalDrawsPerTurn?.[turnPlayer] || 0;
+            const totalDraws = 1 + additionalDraws;
+            
+            const drawn = (game as any).drawCards(turnPlayer, totalDraws);
+            console.log(
+              `[skipToPhase] Drew ${drawn?.length || totalDraws} card(s) for ${turnPlayer} (skipped from ${currentStep} to ${targetStep})`
+            );
+            
+            // Persist the draw event
+            try {
+              appendEvent(gameId, (game as any).seq || 0, "drawCards", { 
+                playerId: turnPlayer, 
+                count: totalDraws,
+                reason: "skipToPhase"
+              });
+            } catch (e) {
+              console.warn("appendEvent(drawCards) failed:", e);
+            }
+          }
+        } catch (err) {
+          console.warn(`[skipToPhase] Failed to draw card:`, err);
+        }
+      }
 
       // Clear any combat state since we're skipping combat
       try {
