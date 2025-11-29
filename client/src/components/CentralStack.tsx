@@ -1,10 +1,11 @@
 import React, { useState, useCallback, useRef } from 'react';
-import type { StackItem, KnownCardRef, PlayerID, BattlefieldPermanent } from '../../../shared/src';
+import type { StackItem, KnownCardRef, PlayerID, BattlefieldPermanent, PlayerRef } from '../../../shared/src';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 
 interface Props {
   stack: StackItem[];
   battlefield?: BattlefieldPermanent[];
+  players?: PlayerRef[]; // For looking up player names from IDs
   you?: PlayerID;
   priorityPlayer?: PlayerID;
   onPass?: () => void;
@@ -16,6 +17,7 @@ interface Props {
 export function CentralStack({ 
   stack, 
   battlefield, 
+  players,
   you, 
   priorityPlayer, 
   onPass,
@@ -32,6 +34,14 @@ export function CentralStack({
   if (stack.length === 0) {
     return null;
   }
+  
+  // Helper to look up player name from ID
+  const getPlayerName = (playerId: string | undefined): string => {
+    if (!playerId) return '';
+    if (!players) return playerId;
+    const player = players.find(p => p.id === playerId);
+    return player?.name || playerId;
+  };
   
   // Helper to find a permanent's card data by ID for hover preview
   const findTargetCard = (targetId: string): KnownCardRef | undefined => {
