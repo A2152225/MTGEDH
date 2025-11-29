@@ -677,6 +677,22 @@ export {
   type BlockerOrder,
 } from './combatDamageEnhanced';
 
+// Combat Control (Master Warcraft, Odric, Master Tactician)
+export {
+  detectCombatControlEffect,
+  canCreatureBeControlledToAttack,
+  canCreatureBeControlledToBlock,
+  getControllableAttackers,
+  getControllableBlockers,
+  validateCombatControlAttackers,
+  validateCombatControlBlockers,
+  applyCombatControlEffect,
+  clearCombatControlEffect,
+  type CombatControlValidation,
+  type CombatControlDeclaration,
+  type CombatCreatureInfo,
+} from './combatControl';
+
 // =============================================================================
 // LEGACY COMPATIBILITY
 // =============================================================================

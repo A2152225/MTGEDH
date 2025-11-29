@@ -437,6 +437,49 @@ export interface CombatInfo {
   phase: 'declareAttackers' | 'declareBlockers' | 'combatDamage' | 'endCombat';
   attackers: readonly CombatantInfo[];
   blockers: readonly CombatantInfo[];
+  /**
+   * Combat control effects (Master Warcraft, Odric, Master Tactician)
+   * When set, this player chooses which creatures attack/block instead of their controllers
+   */
+  combatControl?: CombatControlEffect;
+}
+
+/**
+ * Combat control effect for cards like Master Warcraft and Odric, Master Tactician
+ * These effects allow a player to choose which creatures attack and/or block during combat.
+ * 
+ * Rules Reference:
+ * - Master Warcraft: "Cast this spell only before attackers are declared. 
+ *   You choose which creatures attack this turn. You choose which creatures block this turn 
+ *   and how those creatures block."
+ * - Odric, Master Tactician: "Whenever Odric, Master Tactician and at least three other 
+ *   creatures attack, you choose which creatures block this combat and how those creatures block."
+ */
+export interface CombatControlEffect {
+  /** Player who controls the combat decisions */
+  controllerId: PlayerID;
+  /** Source permanent/spell that granted this effect */
+  sourceId: string;
+  /** Name of the source for display purposes */
+  sourceName: string;
+  /** Whether this effect controls attacker declarations */
+  controlsAttackers: boolean;
+  /** Whether this effect controls blocker declarations */
+  controlsBlockers: boolean;
+  /** 
+   * For mandatory attackers: IDs of creatures that MUST attack 
+   * (empty means controller can choose freely)
+   */
+  mandatoryAttackers?: readonly string[];
+  /**
+   * For mandatory blockers: map of attacker ID -> blocker IDs that MUST block it
+   * (empty means controller can choose freely)
+   */
+  mandatoryBlockers?: Readonly<Record<string, readonly string[]>>;
+  /** Creatures that are prevented from attacking (if controlled by another player) */
+  preventedAttackers?: readonly string[];
+  /** Creatures that are prevented from blocking (if controlled by another player) */
+  preventedBlockers?: readonly string[];
 }
 
 /* Combatant info for UI display */

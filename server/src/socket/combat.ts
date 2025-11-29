@@ -689,4 +689,525 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       console.error(`[combat] skipDeclareBlockers error:`, err);
     }
   });
+
+  /**
+   * Apply combat control effect (Master Warcraft, Odric, Master Tactician)
+   * Sets up the game state so that a player controls combat decisions
+   * 
+   * Payload:
+   * - gameId: string
+   * - sourceId: string - The permanent/spell that grants combat control
+   * - sourceName: string - Name of the source for display
+   * - controlsAttackers: boolean - Whether this effect controls attacker declarations
+   * - controlsBlockers: boolean - Whether this effect controls blocker declarations
+   */
+  socket.on("applyCombatControl", async ({
+    gameId,
+    sourceId,
+    sourceName,
+    controlsAttackers,
+    controlsBlockers,
+  }: {
+    gameId: string;
+    sourceId: string;
+    sourceName: string;
+    controlsAttackers: boolean;
+    controlsBlockers: boolean;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId as PlayerID | undefined;
+      
+      if (!game || !playerId) {
+        socket.emit("error", {
+          code: "COMBAT_CONTROL_ERROR",
+          message: "Game not found or player not identified",
+        });
+        return;
+      }
+
+      // Initialize combat state if not present
+      if (!game.state.combat) {
+        game.state.combat = {
+          phase: 'declareAttackers',
+          attackers: [],
+          blockers: [],
+        };
+      }
+
+      // Set combat control effect
+      (game.state.combat as any).combatControl = {
+        controllerId: playerId,
+        sourceId,
+        sourceName,
+        controlsAttackers,
+        controlsBlockers,
+      };
+
+      // Broadcast chat message
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `🎯 ${sourceName}: ${getPlayerName(game, playerId)} controls ${
+          controlsAttackers && controlsBlockers ? "attackers and blockers" :
+          controlsAttackers ? "attackers" : "blockers"
+        } this combat.`,
+        ts: Date.now(),
+      });
+
+      if (typeof (game as any).bumpSeq === "function") {
+        (game as any).bumpSeq();
+      }
+
+      broadcastGame(io, game, gameId);
+
+      // Notify the controlling player that they need to make combat decisions
+      emitToPlayer(io, playerId, "combatControlActive", {
+        gameId,
+        combatControl: (game.state.combat as any).combatControl,
+        mode: controlsAttackers ? 'attackers' : 'blockers',
+      });
+
+      console.log(`[combat] Player ${playerId} gained combat control via ${sourceName} in game ${gameId}`);
+      
+    } catch (err: any) {
+      console.error(`[combat] applyCombatControl error for game ${gameId}:`, err);
+      socket.emit("error", {
+        code: "COMBAT_CONTROL_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
+
+  /**
+   * Declare attackers under combat control
+   * Used when a player controls combat via Master Warcraft or similar effects
+   * 
+   * Payload:
+   * - gameId: string
+   * - attackers: Array<{ creatureId: string; targetPlayerId: string }>
+   */
+  socket.on("declareControlledAttackers", async ({
+    gameId,
+    attackers,
+  }: {
+    gameId: string;
+    attackers: Array<{
+      creatureId: string;
+      targetPlayerId: string;
+    }>;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId as PlayerID | undefined;
+      
+      if (!game || !playerId) {
+        socket.emit("error", {
+          code: "CONTROLLED_ATTACKERS_ERROR",
+          message: "Game not found or player not identified",
+        });
+        return;
+      }
+
+      // Verify player has combat control
+      const combatControl = (game.state.combat as any)?.combatControl;
+      if (!combatControl || combatControl.controllerId !== playerId) {
+        socket.emit("error", {
+          code: "NO_COMBAT_CONTROL",
+          message: "You don't have combat control",
+        });
+        return;
+      }
+
+      if (!combatControl.controlsAttackers) {
+        socket.emit("error", {
+          code: "NO_ATTACKER_CONTROL",
+          message: "You don't control attacker declarations",
+        });
+        return;
+      }
+
+      const battlefield = game.state?.battlefield || [];
+      const attackerIds: string[] = [];
+      
+      // Validate and set up each attacker
+      for (const attacker of attackers) {
+        const creature = battlefield.find((perm: any) => 
+          perm.id === attacker.creatureId
+        );
+        
+        if (!creature) {
+          socket.emit("error", {
+            code: "INVALID_ATTACKER",
+            message: `Creature ${attacker.creatureId} not found`,
+          });
+          return;
+        }
+
+        // Check if permanent is a creature
+        if (!isCurrentlyCreature(creature)) {
+          socket.emit("error", {
+            code: "NOT_A_CREATURE",
+            message: `${(creature as any).card?.name || "This permanent"} is not a creature`,
+          });
+          return;
+        }
+
+        // Check if creature can attack (not tapped, no summoning sickness unless haste)
+        if ((creature as any).tapped) {
+          socket.emit("error", {
+            code: "CREATURE_TAPPED",
+            message: `${(creature as any).card?.name || "Creature"} is tapped and cannot attack`,
+          });
+          return;
+        }
+
+        // Check defender keyword
+        const oracleText = ((creature as any).card?.oracle_text || "").toLowerCase();
+        if (oracleText.includes("defender")) {
+          socket.emit("error", {
+            code: "HAS_DEFENDER",
+            message: `${(creature as any).card?.name || "Creature"} has defender and cannot attack`,
+          });
+          return;
+        }
+
+        // Check summoning sickness
+        if ((creature as any).summoningSickness) {
+          const hasHaste = oracleText.includes("haste");
+          if (!hasHaste) {
+            socket.emit("error", {
+              code: "SUMMONING_SICKNESS",
+              message: `${(creature as any).card?.name || "Creature"} has summoning sickness`,
+            });
+            return;
+          }
+        }
+
+        attackerIds.push(attacker.creatureId);
+        
+        // Mark creature as attacking
+        (creature as any).attacking = attacker.targetPlayerId;
+        
+        // Tap the attacker (unless it has vigilance)
+        const rawKeywords = (creature as any).card?.keywords;
+        const keywords = Array.isArray(rawKeywords) ? rawKeywords : [];
+        const hasVigilance = 
+          keywords.some((k: string) => k.toLowerCase() === 'vigilance') ||
+          /\bvigilance\b/i.test(oracleText);
+        if (!hasVigilance) {
+          (creature as any).tapped = true;
+        }
+      }
+
+      // Update combat state
+      game.state.combat = {
+        ...game.state.combat!,
+        phase: 'declareAttackers',
+        attackers: attackers.map(a => ({
+          permanentId: a.creatureId,
+          defending: a.targetPlayerId,
+          blockedBy: [],
+        })),
+      };
+
+      // Persist the event
+      try {
+        await appendEvent(gameId, (game as any).seq || 0, "declareControlledAttackers", {
+          playerId,
+          attackers,
+          combatControl: combatControl.sourceName,
+        });
+      } catch (e) {
+        console.warn("[combat] Failed to persist declareControlledAttackers event:", e);
+      }
+
+      // Broadcast chat message
+      const creatureControllers = new Set(
+        attackers.map(a => {
+          const creature = battlefield.find((p: any) => p.id === a.creatureId);
+          return (creature as any)?.controller;
+        }).filter(Boolean)
+      );
+      
+      const controllerNames = Array.from(creatureControllers).map(c => getPlayerName(game, c as string));
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `🎯 ${combatControl.sourceName}: ${getPlayerName(game, playerId)} declares ${attackers.length} attacker${attackers.length !== 1 ? "s" : ""} (controlled: ${controllerNames.join(", ")}).`,
+        ts: Date.now(),
+      });
+
+      if (typeof (game as any).bumpSeq === "function") {
+        (game as any).bumpSeq();
+      }
+
+      broadcastGame(io, game, gameId);
+      
+      // Emit combat state update
+      io.to(gameId).emit("combatStateUpdated", {
+        gameId,
+        phase: "declareAttackers",
+        attackers: attackers.map(a => ({
+          permanentId: a.creatureId,
+          defending: a.targetPlayerId,
+        })),
+        combatControl,
+      });
+
+      console.log(`[combat] Player ${playerId} declared ${attackers.length} controlled attackers in game ${gameId}`);
+      
+    } catch (err: any) {
+      console.error(`[combat] declareControlledAttackers error for game ${gameId}:`, err);
+      socket.emit("error", {
+        code: "CONTROLLED_ATTACKERS_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
+
+  /**
+   * Declare blockers under combat control
+   * Used when a player controls combat via Odric or similar effects
+   * 
+   * Payload:
+   * - gameId: string
+   * - blockers: Array<{ blockerId: string; attackerId: string }>
+   */
+  socket.on("declareControlledBlockers", async ({
+    gameId,
+    blockers,
+  }: {
+    gameId: string;
+    blockers: Array<{
+      blockerId: string;
+      attackerId: string;
+    }>;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId as PlayerID | undefined;
+      
+      if (!game || !playerId) {
+        socket.emit("error", {
+          code: "CONTROLLED_BLOCKERS_ERROR",
+          message: "Game not found or player not identified",
+        });
+        return;
+      }
+
+      // Verify player has combat control
+      const combatControl = (game.state.combat as any)?.combatControl;
+      if (!combatControl || combatControl.controllerId !== playerId) {
+        socket.emit("error", {
+          code: "NO_COMBAT_CONTROL",
+          message: "You don't have combat control",
+        });
+        return;
+      }
+
+      if (!combatControl.controlsBlockers) {
+        socket.emit("error", {
+          code: "NO_BLOCKER_CONTROL",
+          message: "You don't control blocker declarations",
+        });
+        return;
+      }
+
+      const battlefield = game.state?.battlefield || [];
+      
+      // Validate each blocker
+      for (const blocker of blockers) {
+        const blockerCreature = battlefield.find((perm: any) => 
+          perm.id === blocker.blockerId
+        );
+        
+        if (!blockerCreature) {
+          socket.emit("error", {
+            code: "INVALID_BLOCKER",
+            message: `Creature ${blocker.blockerId} not found`,
+          });
+          return;
+        }
+
+        // Check if permanent is a creature
+        if (!isCurrentlyCreature(blockerCreature)) {
+          socket.emit("error", {
+            code: "NOT_A_CREATURE",
+            message: `${(blockerCreature as any).card?.name || "This permanent"} is not a creature`,
+          });
+          return;
+        }
+
+        // Check if blocker is tapped
+        if ((blockerCreature as any).tapped) {
+          socket.emit("error", {
+            code: "BLOCKER_TAPPED",
+            message: `${(blockerCreature as any).card?.name || "Creature"} is tapped and cannot block`,
+          });
+          return;
+        }
+
+        // Find the attacker being blocked
+        const attackerCreature = battlefield.find((perm: any) => 
+          perm.id === blocker.attackerId && 
+          (perm as any).attacking
+        );
+        
+        if (!attackerCreature) {
+          socket.emit("error", {
+            code: "INVALID_ATTACKER",
+            message: `Attacker ${blocker.attackerId} not found or is not attacking`,
+          });
+          return;
+        }
+
+        // Check evasion abilities (flying, shadow, horsemanship)
+        const attackerText = ((attackerCreature as any).card?.oracle_text || "").toLowerCase();
+        const blockerText = ((blockerCreature as any).card?.oracle_text || "").toLowerCase();
+        
+        // Flying
+        if (attackerText.includes("flying") || 
+            ((attackerCreature as any).card?.keywords || []).some((k: string) => k.toLowerCase() === 'flying')) {
+          const hasFlying = blockerText.includes("flying") || 
+            ((blockerCreature as any).card?.keywords || []).some((k: string) => k.toLowerCase() === 'flying');
+          const hasReach = blockerText.includes("reach") ||
+            ((blockerCreature as any).card?.keywords || []).some((k: string) => k.toLowerCase() === 'reach');
+          if (!hasFlying && !hasReach) {
+            socket.emit("error", {
+              code: "CANT_BLOCK_FLYING",
+              message: `${(blockerCreature as any).card?.name} can't block ${(attackerCreature as any).card?.name} (flying)`,
+            });
+            return;
+          }
+        }
+        
+        // Shadow
+        if (attackerText.includes("shadow")) {
+          if (!blockerText.includes("shadow")) {
+            socket.emit("error", {
+              code: "CANT_BLOCK_SHADOW",
+              message: `${(blockerCreature as any).card?.name} can't block ${(attackerCreature as any).card?.name} (shadow)`,
+            });
+            return;
+          }
+        }
+        
+        // Horsemanship
+        if (attackerText.includes("horsemanship")) {
+          if (!blockerText.includes("horsemanship")) {
+            socket.emit("error", {
+              code: "CANT_BLOCK_HORSEMANSHIP",
+              message: `${(blockerCreature as any).card?.name} can't block ${(attackerCreature as any).card?.name} (horsemanship)`,
+            });
+            return;
+          }
+        }
+
+        // Mark the blocker as blocking
+        (blockerCreature as any).blocking = (blockerCreature as any).blocking || [];
+        (blockerCreature as any).blocking.push(blocker.attackerId);
+
+        // Mark the attacker as being blocked
+        (attackerCreature as any).blockedBy = (attackerCreature as any).blockedBy || [];
+        (attackerCreature as any).blockedBy.push(blocker.blockerId);
+      }
+
+      // Update combat state
+      const existingAttackers = game.state.combat?.attackers || [];
+      const updatedAttackers = existingAttackers.map((a: any) => {
+        const blockersForAttacker = blockers.filter(b => b.attackerId === a.permanentId);
+        return {
+          ...a,
+          blockedBy: blockersForAttacker.map(b => b.blockerId),
+        };
+      });
+
+      game.state.combat = {
+        ...game.state.combat!,
+        phase: 'declareBlockers',
+        attackers: updatedAttackers,
+        blockers: blockers.map(b => ({
+          permanentId: b.blockerId,
+          blocking: [b.attackerId],
+        })),
+      };
+
+      // Persist the event
+      try {
+        await appendEvent(gameId, (game as any).seq || 0, "declareControlledBlockers", {
+          playerId,
+          blockers,
+          combatControl: combatControl.sourceName,
+        });
+      } catch (e) {
+        console.warn("[combat] Failed to persist declareControlledBlockers event:", e);
+      }
+
+      // Broadcast chat message
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `🎯 ${combatControl.sourceName}: ${getPlayerName(game, playerId)} declares ${blockers.length} blocker${blockers.length !== 1 ? "s" : ""}.`,
+        ts: Date.now(),
+      });
+
+      if (typeof (game as any).bumpSeq === "function") {
+        (game as any).bumpSeq();
+      }
+
+      broadcastGame(io, game, gameId);
+      
+      // Emit combat state update
+      io.to(gameId).emit("combatStateUpdated", {
+        gameId,
+        phase: "declareBlockers",
+        blockers: blockers.map(b => ({
+          blockerId: b.blockerId,
+          attackerId: b.attackerId,
+        })),
+        combatControl,
+      });
+
+      console.log(`[combat] Player ${playerId} declared ${blockers.length} controlled blockers in game ${gameId}`);
+      
+    } catch (err: any) {
+      console.error(`[combat] declareControlledBlockers error for game ${gameId}:`, err);
+      socket.emit("error", {
+        code: "CONTROLLED_BLOCKERS_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
+
+  /**
+   * Clear combat control effect
+   * Called when combat ends or the control effect expires
+   */
+  socket.on("clearCombatControl", async ({ gameId }: { gameId: string }) => {
+    try {
+      const game = ensureGame(gameId);
+      
+      if (!game) {
+        return;
+      }
+
+      if (game.state.combat && (game.state.combat as any).combatControl) {
+        delete (game.state.combat as any).combatControl;
+      }
+
+      if (typeof (game as any).bumpSeq === "function") {
+        (game as any).bumpSeq();
+      }
+
+      broadcastGame(io, game, gameId);
+      
+    } catch (err: any) {
+      console.error(`[combat] clearCombatControl error:`, err);
+    }
+  });
 }
