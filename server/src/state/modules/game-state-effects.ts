@@ -604,11 +604,17 @@ export function hasCantLoseEffect(ctx: GameContext, playerId: string): { cantLos
   const permanents = getActivePermanents(ctx);
   
   for (const perm of permanents) {
-    const cardName = (perm.card?.name || "").toLowerCase();
+    const cardName = (perm.card?.name || "").toLowerCase().trim();
     const oracleText = (perm.card?.oracle_text || "").toLowerCase();
     
     for (const [knownName, effect] of Object.entries(CANT_LOSE_CARDS)) {
-      if (cardName.includes(knownName)) {
+      // Use exact match or match at word boundary to avoid false positives
+      // e.g., "platinum angel" should match "Platinum Angel" but not "Platinum Angel Token Creator"
+      const nameMatches = cardName === knownName || 
+                          cardName.startsWith(knownName + " ") ||
+                          cardName.startsWith(knownName + ",");
+      
+      if (nameMatches) {
         const isController = perm.controller === playerId;
         
         // Check if this effect applies to this player

@@ -108,21 +108,19 @@ export function shuffleLibrary(ctx: GameContext, playerId: PlayerID) {
  * @param count Number of cards to draw
  * @returns Object with drawn cards and any win/loss result
  */
-export function drawCards(ctx: GameContext, playerId: PlayerID, count: number): KnownCardRef[] & { 
-  emptyLibraryAttempt?: boolean;
-  playerWins?: boolean;
-  playerLoses?: boolean;
+export interface DrawResult {
+  cards: KnownCardRef[];
+  emptyLibraryAttempt: boolean;
+  playerWins: boolean;
+  playerLoses: boolean;
   reason?: string;
-} {
+}
+
+export function drawCards(ctx: GameContext, playerId: PlayerID, count: number): KnownCardRef[] {
   const lib = ctx.libraries.get(playerId) || [];
   const zones = ctx.state.zones = ctx.state.zones || {};
   const z = zones[playerId] || (zones[playerId] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 } as any);
-  const drawn: KnownCardRef[] & { 
-    emptyLibraryAttempt?: boolean;
-    playerWins?: boolean;
-    playerLoses?: boolean;
-    reason?: string;
-  } = [] as any;
+  const drawn: KnownCardRef[] = [];
   
   // Track draws this turn for miracle abilities (Rule 702.94)
   (ctx.state as any).cardsDrawnThisTurn = (ctx.state as any).cardsDrawnThisTurn || {};
@@ -167,14 +165,10 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number): 
   
   // Handle empty library draw (Rule 704.5b)
   if (attemptedEmptyDraw) {
-    drawn.emptyLibraryAttempt = true;
-    
     // Check for win/lose replacement effects
     const result = checkEmptyLibraryDraw(ctx, playerId);
     
     if (result.wins) {
-      drawn.playerWins = true;
-      drawn.reason = result.reason;
       console.log(`[drawCards] Player ${playerId} WINS: ${result.reason}`);
       
       // Mark the game as won
@@ -182,8 +176,6 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number): 
       (ctx.state as any).winner = playerId;
       (ctx.state as any).winReason = result.reason;
     } else if (result.loses) {
-      drawn.playerLoses = true;
-      drawn.reason = result.reason;
       console.log(`[drawCards] Player ${playerId} LOSES: ${result.reason}`);
       
       // Track that this player attempted to draw from empty library
@@ -192,7 +184,6 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number): 
       (ctx.state as any).attemptedEmptyLibraryDraw[playerId] = true;
     } else {
       // Can't lose the game (Platinum Angel, etc.)
-      drawn.reason = result.reason;
       console.log(`[drawCards] Player ${playerId} attempted empty library draw but can't lose: ${result.reason}`);
     }
   }
