@@ -50,7 +50,8 @@ function derivedToughness(perm: BattlefieldPermanent): number | undefined {
   const net = plus - minus;
   const totalToughness = perm.baseToughness + net;
   // Damage reduces effective toughness for SBA purposes
-  const damage = (perm as any).damage ?? 0;
+  // Check both 'damage' and 'markedDamage' for combat damage tracking
+  const damage = (perm as any).damage ?? (perm as any).markedDamage ?? 0;
   return totalToughness - damage;
 }
 

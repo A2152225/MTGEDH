@@ -156,12 +156,16 @@ function hasHexproofOrShroud(p: BattlefieldPermanent, s: Readonly<GameState>): b
     }
     
     // "Permanents you control have hexproof" (grants to all including source)
-    if (/(?<!other )permanents you control have hexproof/.test(sourceOracle)) {
+    // Check that this doesn't say "other permanents" which was already handled above
+    if (!sourceOracle.includes('other permanents') && 
+        /permanents you control have hexproof/.test(sourceOracle)) {
       return true;
     }
     
     // "Creatures you control have hexproof" (without "other")
-    if (/(?<!other )creatures you control have hexproof/.test(sourceOracle) && isCreaturePerm) {
+    // Check that this doesn't say "other creatures" which was already handled above
+    if (!sourceOracle.includes('other creatures') && 
+        /creatures you control have hexproof/.test(sourceOracle) && isCreaturePerm) {
       return true;
     }
     

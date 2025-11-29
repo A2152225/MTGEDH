@@ -137,9 +137,24 @@ export function runSBA(ctx: GameContext) {
     if (!same) { perm.counters = Object.keys(after).length ? { ...after } : undefined; changed = true; }
   }
   if (res.destroys.length) {
+    const zones = state.zones = state.zones || {};
     for (const id of res.destroys) {
       const idx = state.battlefield.findIndex(b => b.id === id);
-      if (idx >= 0) { state.battlefield.splice(idx,1); changed = true; }
+      if (idx >= 0) { 
+        const destroyed = state.battlefield.splice(idx, 1)[0];
+        // Move to owner's graveyard (SBA - creatures die)
+        const owner = (destroyed as any).owner || (destroyed as any).controller;
+        if (owner) {
+          const ownerZone = zones[owner] = zones[owner] || { hand: [], graveyard: [], handCount: 0, graveyardCount: 0, libraryCount: 0 };
+          (ownerZone as any).graveyard = (ownerZone as any).graveyard || [];
+          const card = (destroyed as any).card;
+          if (card) {
+            (ownerZone as any).graveyard.push({ ...card, zone: "graveyard" });
+            (ownerZone as any).graveyardCount = (ownerZone as any).graveyard.length;
+          }
+        }
+        changed = true; 
+      }
     }
   }
   if (changed) bumpSeq();

@@ -2116,13 +2116,25 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const creatureName = (creatureCard as any).name || "Unknown Creature";
     
     // Get the creature's toughness for token creation
-    const toughnessStr = (creature as any).baseToughness ?? (creatureCard as any).toughness ?? "0";
-    let toughness = parseInt(String(toughnessStr).replace(/\D.*$/, ''), 10) || 0;
+    // Handle variable toughness values like '*' or 'X' by treating them as 0
+    const toughnessStr = String((creature as any).baseToughness ?? (creatureCard as any).toughness ?? "0");
+    let toughness: number;
+    if (toughnessStr === '*' || toughnessStr.toLowerCase() === 'x') {
+      // Variable toughness - use any counters or modifiers to determine value
+      const plusCounters = ((creature as any).counters?.['+1/+1']) || 0;
+      const minusCounters = ((creature as any).counters?.['-1/-1']) || 0;
+      toughness = plusCounters - minusCounters;
+    } else {
+      toughness = parseInt(toughnessStr.replace(/\D.*$/, ''), 10) || 0;
+    }
     
     // Apply any toughness modifiers
     if ((creature as any).tempToughnessMod) {
       toughness += (creature as any).tempToughnessMod;
     }
+    
+    // Ensure toughness is at least 0 for token creation
+    toughness = Math.max(0, toughness);
     
     // Get the caster of Entrapment Maneuver (who gets the tokens)
     const caster = pending.caster as string;
