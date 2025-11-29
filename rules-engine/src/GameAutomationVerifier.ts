@@ -1024,38 +1024,41 @@ export function runFullAutomationVerification(): VerificationReport {
 
   const recommendations: string[] = [];
 
-  // Generate recommendations based on findings
-  const criticalPending = allChecks.filter(
-    c => c.priority === 'critical' && 
-    (c.status === AutomationStatus.PENDING || c.status === AutomationStatus.NEEDS_FIX)
-  );
+  // Generate recommendations based on findings - use a single pass
+  let criticalPendingCount = 0;
+  const criticalPendingItems: AutomationCheckResult[] = [];
   
-  if (criticalPending.length > 0) {
+  for (const check of allChecks) {
+    if (check.priority === 'critical' && 
+        (check.status === AutomationStatus.PENDING || check.status === AutomationStatus.NEEDS_FIX)) {
+      criticalPendingCount++;
+      criticalPendingItems.push(check);
+    }
+  }
+  
+  if (criticalPendingCount > 0) {
     recommendations.push(
-      `CRITICAL: ${criticalPending.length} critical automation features need implementation or fixing`
+      `CRITICAL: ${criticalPendingCount} critical automation features need implementation or fixing`
     );
-    for (const check of criticalPending) {
+    for (const check of criticalPendingItems) {
       recommendations.push(`  - ${check.feature}: ${check.description}`);
     }
   }
 
-  const partialItems = allChecks.filter(c => c.status === AutomationStatus.PARTIAL);
-  if (partialItems.length > 0) {
+  // Use pre-computed status counts instead of filtering again
+  if (statusCounts.partial > 0) {
     recommendations.push(
-      `ENHANCEMENT: ${partialItems.length} features have partial automation that could be enhanced`
+      `ENHANCEMENT: ${statusCounts.partial} features have partial automation that could be enhanced`
     );
   }
 
-  const manualItems = allChecks.filter(c => c.status === AutomationStatus.MANUAL_REQUIRED);
   recommendations.push(
-    `INFO: ${manualItems.length} features correctly require manual player input (by design)`
+    `INFO: ${statusCounts.manualRequired} features correctly require manual player input (by design)`
   );
 
-  // Calculate automation percentage
-  const automatable = allChecks.filter(c => c.status !== AutomationStatus.MANUAL_REQUIRED).length;
-  const automated = allChecks.filter(
-    c => c.status === AutomationStatus.IMPLEMENTED || c.status === AutomationStatus.PARTIAL
-  ).length;
+  // Calculate automation percentage using pre-computed counts
+  const automatable = allChecks.length - statusCounts.manualRequired;
+  const automated = statusCounts.implemented + statusCounts.partial;
   const percentage = Math.round((automated / automatable) * 100);
   
   recommendations.push(
@@ -1077,15 +1080,16 @@ export function runFullAutomationVerification(): VerificationReport {
 
 /**
  * Get a summary of automation status by category
+ * @param report Optional pre-computed verification report to avoid redundant computation
  */
-export function getAutomationSummaryByCategory(): Map<string, {
+export function getAutomationSummaryByCategory(report?: VerificationReport): Map<string, {
   total: number;
   implemented: number;
   partial: number;
   pending: number;
   manualRequired: number;
 }> {
-  const report = runFullAutomationVerification();
+  const actualReport = report || runFullAutomationVerification();
   const summary = new Map<string, {
     total: number;
     implemented: number;
@@ -1094,7 +1098,7 @@ export function getAutomationSummaryByCategory(): Map<string, {
     manualRequired: number;
   }>();
 
-  for (const check of report.checks) {
+  for (const check of actualReport.checks) {
     const current = summary.get(check.category) || {
       total: 0,
       implemented: 0,

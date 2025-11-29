@@ -114,8 +114,8 @@ function printReport(report: VerificationReport): void {
   console.log('');
 
   if (!showSummaryOnly) {
-    // Category breakdown
-    const summary = getAutomationSummaryByCategory();
+    // Category breakdown - pass the report to avoid recomputation
+    const summary = getAutomationSummaryByCategory(report);
     
     console.log('CATEGORY BREAKDOWN');
     console.log('-'.repeat(80));
