@@ -507,10 +507,22 @@ export function resolveTopOfStack(ctx: GameContext) {
           // Push trigger onto the stack
           state.stack = state.stack || [];
           const triggerId = uid("trigger");
+          
+          // Determine the controller of the triggered ability
+          // For ETB triggers from other permanents (like Soul Warden), the controller
+          // is the controller of the permanent with the trigger, NOT the entering creature
+          let triggerController = controller;
+          if (trigger.permanentId && trigger.permanentId !== newPermId) {
+            const triggerSource = state.battlefield?.find((p: any) => p.id === trigger.permanentId);
+            if (triggerSource?.controller) {
+              triggerController = triggerSource.controller;
+            }
+          }
+          
           state.stack.push({
             id: triggerId,
             type: 'triggered_ability',
-            controller,
+            controller: triggerController,
             source: trigger.permanentId,
             sourceName: trigger.cardName,
             description: trigger.description,
@@ -518,7 +530,7 @@ export function resolveTopOfStack(ctx: GameContext) {
             mandatory: trigger.mandatory,
           } as any);
           
-          console.log(`[resolveTopOfStack] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
+          console.log(`[resolveTopOfStack] ⚡ ${trigger.cardName}'s triggered ability (controlled by ${triggerController}): ${trigger.description}`);
         }
       }
     } catch (err) {
