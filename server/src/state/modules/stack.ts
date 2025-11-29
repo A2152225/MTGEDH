@@ -230,7 +230,10 @@ export function resolveTopOfStack(ctx: GameContext) {
         type: 'fetch-land',
         searchFor: searchParams.searchDescription || 'a land card',
         destination: 'battlefield',
-        tapped: false, // Fetch lands put lands onto battlefield untapped (unless card specifies otherwise)
+        // Standard fetch lands (Polluted Delta, Flooded Strand, etc.) put lands onto battlefield untapped.
+        // Only lands like Terramorphic Expanse or Evolving Wilds specify "enters the battlefield tapped".
+        // The search prompt handler can override this based on the specific card's oracle text.
+        tapped: false,
         optional: false,
         source: sourceName,
         shuffleAfter: true,
