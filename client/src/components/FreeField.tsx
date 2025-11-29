@@ -682,7 +682,7 @@ export function FreeField(props: {
               </div>
             )}
 
-            {/* Activated Ability Buttons - shown on hover */}
+            {/* Activated Ability Buttons - always visible for better discoverability */}
             {showActivatedAbilityButtons && raw.controller === playerId && (
               <ActivatedAbilityButtons
                 perm={raw}
@@ -693,8 +693,8 @@ export function FreeField(props: {
                 stackEmpty={stackEmpty}
                 hasThousandYearElixirEffect={hasThousandYearElixirEffect}
                 onActivateAbility={onActivateAbility}
-                showOnHover={true}
-                maxVisible={3}
+                showOnHover={false}
+                maxVisible={5}
                 position="left"
               />
             )}

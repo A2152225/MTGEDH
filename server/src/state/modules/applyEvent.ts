@@ -622,6 +622,31 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   }
                   break;
                 }
+                case 'CounterSpell': {
+                  // Counter a spell on the stack
+                  const stackIdx = ctx.state.stack.findIndex((s: any) => s.id === eff.stackItemId);
+                  if (stackIdx >= 0) {
+                    const countered = ctx.state.stack.splice(stackIdx, 1)[0];
+                    // Move the countered spell to its controller's graveyard
+                    const controller = (countered as any).controller as PlayerID;
+                    const zones = ctx.state.zones = ctx.state.zones || {};
+                    zones[controller] = zones[controller] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+                    const gy = (zones[controller] as any).graveyard = (zones[controller] as any).graveyard || [];
+                    if ((countered as any).card) {
+                      gy.push({ ...(countered as any).card, zone: 'graveyard' });
+                      (zones[controller] as any).graveyardCount = gy.length;
+                    }
+                  }
+                  break;
+                }
+                case 'CounterAbility': {
+                  // Counter an ability on the stack (just remove it)
+                  const stackIdx = ctx.state.stack.findIndex((s: any) => s.id === eff.stackItemId);
+                  if (stackIdx >= 0) {
+                    ctx.state.stack.splice(stackIdx, 1);
+                  }
+                  break;
+                }
               }
             }
             // Run state-based actions after applying effects

@@ -375,6 +375,27 @@ export function resolveTopOfStack(ctx: GameContext) {
       console.log(`[resolveTopOfStack] Extra turn granted to ${extraTurnPlayer} by ${card.name}`);
     }
     
+    // Handle "each player draws" spells (Vision Skeins, Prosperity, Howling Mine effects, etc.)
+    const eachPlayerDrawsMatch = oracleTextLower.match(/each player draws?\s+(\d+|a|two|three|four|five)\s+cards?/i);
+    if (eachPlayerDrawsMatch) {
+      const drawCountStr = eachPlayerDrawsMatch[1].toLowerCase();
+      const wordToNumber: Record<string, number> = { 'a': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5 };
+      const drawCount = wordToNumber[drawCountStr] || parseInt(drawCountStr, 10) || 1;
+      
+      // Draw cards for each player
+      const players = (state as any).players || [];
+      for (const player of players) {
+        if (player && player.id && typeof (ctx as any).drawCards === 'function') {
+          try {
+            (ctx as any).drawCards(player.id, drawCount);
+            console.log(`[resolveTopOfStack] ${card.name}: ${player.name || player.id} drew ${drawCount} card(s)`);
+          } catch (err) {
+            console.warn(`[resolveTopOfStack] Failed to draw cards for ${player.id}:`, err);
+          }
+        }
+      }
+    }
+    
     // Handle tutor spells (Demonic Tutor, Vampiric Tutor, Diabolic Tutor, etc.)
     // These need to trigger a library search prompt for the player
     const tutorInfo = detectTutorSpell(oracleText);
@@ -509,6 +530,40 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
       if (player) {
         (player as any).life = ((player as any).life || 40) - effect.amount;
         console.log(`[resolveSpell] ${spellName} dealt ${effect.amount} damage to player ${effect.playerId}`);
+      }
+      break;
+    }
+    case 'CounterSpell': {
+      // Counter a spell on the stack and move it to its controller's graveyard
+      const stack = state.stack || [];
+      const stackIdx = stack.findIndex((s: any) => s.id === effect.stackItemId);
+      if (stackIdx >= 0) {
+        const countered = stack.splice(stackIdx, 1)[0];
+        const controller = (countered as any).controller;
+        const counteredCardName = (countered as any).card?.name || 'spell';
+        
+        // Move the countered spell's card to the controller's graveyard
+        if ((countered as any).card && controller) {
+          const zones = ctx.state.zones = ctx.state.zones || {};
+          zones[controller] = zones[controller] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+          const gy = (zones[controller] as any).graveyard = (zones[controller] as any).graveyard || [];
+          gy.push({ ...(countered as any).card, zone: 'graveyard' });
+          (zones[controller] as any).graveyardCount = gy.length;
+        }
+        
+        console.log(`[resolveSpell] ${spellName} countered ${counteredCardName}`);
+      }
+      break;
+    }
+    case 'CounterAbility': {
+      // Counter an ability on the stack (activated or triggered)
+      const stack = state.stack || [];
+      const stackIdx = stack.findIndex((s: any) => s.id === effect.stackItemId);
+      if (stackIdx >= 0) {
+        const countered = stack.splice(stackIdx, 1)[0];
+        const abilityDesc = (countered as any).description || (countered as any).ability?.text || 'ability';
+        console.log(`[resolveSpell] ${spellName} countered ${abilityDesc}`);
+        // Abilities don't go anywhere when countered - they just cease to exist
       }
       break;
     }

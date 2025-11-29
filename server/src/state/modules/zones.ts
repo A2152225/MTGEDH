@@ -97,7 +97,7 @@ export function shuffleLibrary(ctx: GameContext, playerId: PlayerID) {
  * drawCards
  * 
  * Draws cards from the library into the player's hand.
- * Also tracks first draw of the turn for miracle abilities.
+ * Also tracks first draw of the turn for miracle abilities and triggers draw effects.
  * 
  * @param ctx Game context
  * @param playerId Player drawing the cards
@@ -135,8 +135,51 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number) {
   ctx.libraries.set(playerId, lib);
   z.handCount = (z.hand as any[]).length;
   z.libraryCount = lib.length;
+  
+  // Process draw triggers (Psychosis Crawler, etc.)
+  if (drawn.length > 0) {
+    processDrawTriggers(ctx, playerId, drawn.length);
+  }
+  
   ctx.bumpSeq();
   return drawn;
+}
+
+/**
+ * Process draw triggers - called when a player draws cards
+ * Handles:
+ * - Psychosis Crawler: "Whenever you draw a card, each opponent loses 1 life"
+ * - Niv-Mizzet: "Whenever you draw a card, deal 1 damage to any target"
+ */
+function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID, cardsDrawn: number) {
+  const battlefield = ctx.state.battlefield || [];
+  const players = (ctx.state as any).players || [];
+  
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    
+    const permName = (perm.card.name || '').toLowerCase();
+    const oracleText = (perm.card.oracle_text || '').toLowerCase();
+    
+    // Psychosis Crawler: "Whenever you draw a card, each opponent loses 1 life"
+    if ((permName.includes('psychosis crawler') || 
+         (oracleText.includes('whenever you draw a card') && oracleText.includes('each opponent loses'))) &&
+        perm.controller === drawingPlayerId) {
+      for (const player of players) {
+        if (player.id !== drawingPlayerId && (ctx as any).life) {
+          (ctx as any).life[player.id] = ((ctx as any).life[player.id] ?? 40) - cardsDrawn;
+          console.log(`[drawTrigger] Psychosis Crawler: ${player.name || player.id} lost ${cardsDrawn} life`);
+        }
+      }
+    }
+    
+    // Niv-Mizzet: triggers for damage (would need stack implementation for targeting)
+    if (permName.includes('niv-mizzet') && 
+        oracleText.includes('whenever you draw') && 
+        perm.controller === drawingPlayerId) {
+      console.log(`[drawTrigger] Niv-Mizzet: ${cardsDrawn} damage trigger(s)`);
+    }
+  }
 }
 
 /**

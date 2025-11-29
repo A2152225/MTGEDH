@@ -262,10 +262,10 @@ export function TableLayout(props: {
   // Layout constants - sized for comfortable 7-card display in hand
   // Extended play areas by ~15% for better card visibility
   const CARD_ASPECT_RATIO = 0.72; // Standard MTG card width/height ratio (2.5" x 3.5")
-  const TILE_W = 115; // Card width in px
+  const TILE_W = 135; // Card width in px (increased from 115 for better visibility)
   const tileH = Math.round(TILE_W / CARD_ASPECT_RATIO);
-  const ZONES_W = 165; // Zones panel width in px
-  const GRID_GAP = 10; // Gap between cards in px
+  const ZONES_W = 175; // Zones panel width in px (slightly increased)
+  const GRID_GAP = 12; // Gap between cards in px (slightly increased)
   
   // Padding and sizing constants (in pixels) for extended play area layout
   const HAND_EXTRA_PADDING = 80; // Extra horizontal padding to ensure 7 cards fit
