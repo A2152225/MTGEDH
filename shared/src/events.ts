@@ -216,11 +216,11 @@ export interface ClientToServerEvents {
   // Remove a permanent from battlefield
   removePermanent: (payload: { gameId: GameID; permanentId: string; destination?: string }) => void;
   
-  // Update counters on a permanent
-  updateCounters: (payload: { gameId: GameID; permanentId: string; counterType: string; delta: number }) => void;
+  // Update counters on a permanent (supports both single counter and deltas object)
+  updateCounters: (payload: { gameId: GameID; permanentId: string; counterType?: string; delta?: number; deltas?: Record<string, number> }) => void;
   
   // Update multiple counters at once
-  updateCountersBulk: (payload: { gameId: GameID; permanentId: string; counters: Record<string, number> }) => void;
+  updateCountersBulk: (payload: { gameId: GameID; permanentId: string; counters?: Record<string, number>; updates?: Record<string, number> }) => void;
 
   // ===== TRIGGER HANDLING EVENTS =====
   
@@ -324,14 +324,6 @@ export interface ClientToServerEvents {
   
   // Confirm surveil result
   confirmSurveil: (payload: { gameId: GameID; topCardIds: string[]; graveyardCardIds: string[] }) => void;
-
-  // ===== COUNTER UPDATES =====
-  
-  // Update counters with deltas object
-  updateCounters: (payload: { gameId: GameID; permanentId: string; counterType?: string; delta?: number; deltas?: Record<string, number> }) => void;
-  
-  // Bulk counter update
-  updateCountersBulk: (payload: { gameId: GameID; permanentId: string; counters?: Record<string, number>; updates?: Record<string, number> }) => void;
 
   // ===== TRIGGER ORDERING =====
   

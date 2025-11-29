@@ -2705,14 +2705,17 @@ export function App() {
                   delta,
                 })
               }
-              onBulkCounter={(ids, deltas) =>
-                safeView &&
-                socket.emit("updateCountersBulk", {
-                  gameId: safeView.id,
-                  permanentId: ids[0] || "",
-                  counters: deltas,
-                })
-              }
+              onBulkCounter={(ids, deltas) => {
+                if (!safeView) return;
+                // Apply counter updates to all selected permanents
+                for (const id of ids) {
+                  socket.emit("updateCountersBulk", {
+                    gameId: safeView.id,
+                    permanentId: id,
+                    counters: deltas,
+                  });
+                }
+              }}
               onPlayLandFromHand={(cardId) =>
                 safeView &&
                 socket.emit("playLand", { gameId: safeView.id, cardId })

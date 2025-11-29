@@ -760,7 +760,9 @@ export function useGameSocket(): UseGameSocketState {
   // Leave the current game and clear session data
   const leaveGame = useCallback(() => {
     const gameId = safeView?.id || lastJoinRef.current?.gameId;
-    const playerName = lastJoinRef.current?.name || nameInput;
+    // Use the name from lastJoinRef (the name we actually joined with) if available
+    // This ensures we clear the correct seatToken
+    const playerName = lastJoinRef.current?.name;
     
     if (gameId) {
       // Emit leave event to server
@@ -769,9 +771,12 @@ export function useGameSocket(): UseGameSocketState {
       console.debug("[LEAVE_EMIT] leaving game", gameId);
       
       // Clear the seatToken for this game/name combination
-      try {
-        sessionStorage.removeItem(seatTokenKey(gameId, playerName));
-      } catch { /* ignore */ }
+      // Only clear if we have a valid playerName from the join
+      if (playerName) {
+        try {
+          sessionStorage.removeItem(seatTokenKey(gameId, playerName));
+        } catch { /* ignore */ }
+      }
     }
     
     // Clear lastJoinRef so we don't auto-rejoin on reconnect
@@ -796,7 +801,7 @@ export function useGameSocket(): UseGameSocketState {
     
     // eslint-disable-next-line no-console
     console.debug("[LEAVE_EMIT] cleared session data for game", gameId);
-  }, [safeView, nameInput]);
+  }, [safeView]);
 
   const requestImportDeck = useCallback(
     (list: string, deckName?: string) => {
