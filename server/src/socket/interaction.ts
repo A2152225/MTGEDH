@@ -1914,6 +1914,24 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       targetIds: selectedTargetIds,
     };
     
+    // Check if this is a spell cast that was waiting for targets
+    // effectId format is "cast_${cardId}_${timestamp}"
+    if (effectId && effectId.startsWith('cast_')) {
+      const parts = effectId.split('_');
+      if (parts.length >= 2) {
+        // cardId can contain underscores, so we join all parts except first and last
+        const cardId = parts.slice(1, -1).join('_');
+        
+        console.log(`[targetSelectionConfirm] Spell cast with targets: cardId=${cardId}, targets=${selectedTargetIds.join(',')}`);
+        
+        // Now cast the spell with the selected targets
+        if (typeof game.applyEvent === 'function') {
+          game.applyEvent({ type: "castSpell", playerId: pid, cardId, targets: selectedTargetIds });
+          console.log(`[targetSelectionConfirm] Spell ${cardId} cast with targets via applyEvent`);
+        }
+      }
+    }
+    
     if (typeof game.bumpSeq === "function") {
       game.bumpSeq();
     }

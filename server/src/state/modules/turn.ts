@@ -275,6 +275,58 @@ function clearCombatState(ctx: GameContext) {
 }
 
 /**
+ * Sync life totals between state.life dictionary and player objects in state.players.
+ * Also checks for state-based actions (player defeat due to 0 or less life).
+ * 
+ * Returns list of player IDs that have been defeated (life <= 0).
+ */
+function syncLifeAndCheckDefeat(ctx: GameContext): string[] {
+  const defeatedPlayers: string[] = [];
+  
+  try {
+    const state = (ctx as any).state;
+    if (!state) return defeatedPlayers;
+    
+    const players = state.players || [];
+    const life = state.life = state.life || {};
+    const startingLife = state.startingLife || 40;
+    
+    // state.life is the authoritative source for life totals
+    // Player objects in state.players are synchronized from state.life
+    for (const player of players) {
+      if (!player || !player.id) continue;
+      
+      // Initialize life in state.life if not present
+      if (life[player.id] === undefined) {
+        life[player.id] = player.life ?? startingLife;
+      }
+      
+      // Always sync player.life FROM state.life (single source of truth)
+      player.life = life[player.id];
+      
+      // Check for player defeat (Rule 704.5a: Life <= 0)
+      if (player.life <= 0 && !player.hasLost) {
+        player.hasLost = true;
+        player.lossReason = "Life total is 0 or less";
+        defeatedPlayers.push(player.id);
+        console.log(`${ts()} [syncLifeAndCheckDefeat] Player ${player.id} has lost the game (life: ${player.life})`);
+        
+        // Mark player as inactive
+        if (!((ctx as any).inactive instanceof Set)) {
+          (ctx as any).inactive = new Set<string>();
+        }
+        (ctx as any).inactive.add(player.id);
+      }
+    }
+    
+  } catch (err) {
+    console.warn(`${ts()} syncLifeAndCheckDefeat failed:`, err);
+  }
+  
+  return defeatedPlayers;
+}
+
+/**
  * Deal combat damage during the DAMAGE step.
  * Rule 510: Combat damage is assigned and dealt simultaneously.
  * 
@@ -485,6 +537,14 @@ function dealCombatDamage(ctx: GameContext): {
     
     // Update life state
     (ctx as any).state.life = life;
+    
+    // Sync life to player objects and check for player defeat (SBA Rule 704.5a)
+    const defeatedPlayers = syncLifeAndCheckDefeat(ctx);
+    if (defeatedPlayers.length > 0) {
+      console.log(`${ts()} [dealCombatDamage] Players defeated due to combat damage: ${defeatedPlayers.join(', ')}`);
+      // Store defeated players for the socket layer to broadcast
+      (ctx as any).state.lastCombatDefeat = defeatedPlayers;
+    }
     
     // Move dead creatures to graveyard (state-based actions)
     // This should be handled separately by SBA processing, but we mark them here
@@ -850,10 +910,22 @@ function untapPermanentsForPlayer(ctx: GameContext, playerId: string) {
 export function nextTurn(ctx: GameContext) {
   try {
     (ctx as any).state = (ctx as any).state || {};
-    const players = Array.isArray((ctx as any).state.players)
+    const allPlayers = Array.isArray((ctx as any).state.players)
       ? (ctx as any).state.players.map((p: any) => p.id)
       : [];
-    if (!players.length) return;
+    if (!allPlayers.length) return;
+    
+    // Get inactive set to filter out defeated players
+    const inactiveSet: Set<string> = 
+      (ctx as any).inactive instanceof Set ? (ctx as any).inactive : new Set<string>();
+    
+    // Filter to only active (non-defeated) players
+    const players = allPlayers.filter((id: string) => !inactiveSet.has(id));
+    if (!players.length) {
+      console.log(`${ts()} [nextTurn] No active players remaining, game should end`);
+      return;
+    }
+    
     const current = (ctx as any).state.turnPlayer;
     
     // Increment turn number
@@ -869,11 +941,23 @@ export function nextTurn(ctx: GameContext) {
       // Take the first extra turn from the stack
       const extraTurn = extraTurns.shift();
       next = extraTurn.playerId;
+      // Skip extra turn if player is inactive
+      if (inactiveSet.has(next)) {
+        console.log(`${ts()} [nextTurn] Skipping extra turn for inactive player ${next}`);
+        // Recursive call to get next turn
+        nextTurn(ctx);
+        return;
+      }
       console.log(`${ts()} [nextTurn] Taking extra turn for ${next} (turn ${turnNumber})`);
     } else {
-      // Normal turn progression
-      const idx = players.indexOf(current);
-      next = idx === -1 ? players[0] : players[(idx + 1) % players.length];
+      // Normal turn progression - find next active player
+      const currentIdx = players.indexOf(current);
+      // If current player is inactive or not found, start from first active player
+      if (currentIdx === -1) {
+        next = players[0];
+      } else {
+        next = players[(currentIdx + 1) % players.length];
+      }
     }
     
     (ctx as any).state.turnPlayer = next;

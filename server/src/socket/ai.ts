@@ -404,6 +404,22 @@ export async function handleAIGameFlow(
     return;
   }
   
+  // Check if this AI player has lost the game
+  const players = game.state.players || [];
+  const aiPlayer = players.find((p: any) => p.id === playerId);
+  if (aiPlayer?.hasLost) {
+    console.info('[AI] handleAIGameFlow: AI player has lost the game, skipping:', { gameId, playerId });
+    return;
+  }
+  
+  // Check if this AI player is in the inactive set
+  const ctx = (game as any).ctx || game;
+  const inactiveSet = ctx.inactive instanceof Set ? ctx.inactive : new Set();
+  if (inactiveSet.has(playerId)) {
+    console.info('[AI] handleAIGameFlow: AI player is inactive, skipping:', { gameId, playerId });
+    return;
+  }
+  
   const phaseStr = String(game.state.phase || '').toUpperCase();
   const stepStr = String((game.state as any).step || '').toUpperCase();
   const commanderInfo = game.state.commandZone?.[playerId];
@@ -1061,6 +1077,22 @@ export async function handleAIPriority(
   const game = ensureGame(gameId);
   if (!game || !game.state) {
     console.warn('[AI] handleAIPriority: game not found', { gameId, playerId });
+    return;
+  }
+  
+  // Check if this AI player has lost the game
+  const players = game.state.players || [];
+  const aiPlayer = players.find((p: any) => p.id === playerId);
+  if (aiPlayer?.hasLost) {
+    console.info('[AI] AI player has lost the game, skipping priority handling:', { gameId, playerId });
+    return;
+  }
+  
+  // Check if this AI player is in the inactive set
+  const ctx = (game as any).ctx || game;
+  const inactiveSet = ctx.inactive instanceof Set ? ctx.inactive : new Set();
+  if (inactiveSet.has(playerId)) {
+    console.info('[AI] AI player is inactive, skipping priority handling:', { gameId, playerId });
     return;
   }
   
@@ -2095,6 +2127,10 @@ async function executePassPriority(
         console.log(`[AI] Stack resolved for game ${gameId}`);
       }
       
+      // Check for pending library search (from tutor spells)
+      // For AI players, we auto-select the best card; for human players, emit the request
+      await handlePendingLibrarySearchAfterResolution(io, game, gameId);
+      
       // Persist the resolution event
       try {
         await appendEvent(gameId, (game as any).seq || 0, 'resolveTopOfStack', { playerId });
@@ -2585,5 +2621,169 @@ export function cleanupGameAI(gameId: string): void {
     }
     aiPlayers.delete(gameId);
     console.info('[AI] Cleaned up AI players for game:', gameId);
+  }
+}
+
+/**
+ * Handle pending library search effects after stack resolution.
+ * For AI players, auto-selects the best card; for human players, emits the request.
+ */
+async function handlePendingLibrarySearchAfterResolution(
+  io: Server,
+  game: any,
+  gameId: string
+): Promise<void> {
+  try {
+    const pending = game.state?.pendingLibrarySearch;
+    if (!pending || typeof pending !== 'object') return;
+    
+    for (const [playerId, searchInfo] of Object.entries(pending)) {
+      if (!searchInfo) continue;
+      
+      const info = searchInfo as any;
+      
+      // Get the player's library for searching
+      let library: any[] = [];
+      if (typeof game.searchLibrary === 'function') {
+        library = game.searchLibrary(playerId, '', 1000);
+      } else {
+        library = (game.libraries?.get(playerId)) || [];
+      }
+      
+      if (isAIPlayer(gameId, playerId)) {
+        // AI player: auto-select the best card based on criteria
+        console.log(`[AI] Auto-selecting card from library for tutor: ${info.source || 'tutor'}`);
+        
+        // Filter library based on search criteria
+        let validCards = library;
+        const searchFor = (info.searchFor || '').toLowerCase();
+        
+        if (searchFor.includes('creature')) {
+          validCards = library.filter((c: any) => c.type_line?.toLowerCase().includes('creature'));
+        } else if (searchFor.includes('instant')) {
+          validCards = library.filter((c: any) => c.type_line?.toLowerCase().includes('instant'));
+        } else if (searchFor.includes('sorcery')) {
+          validCards = library.filter((c: any) => c.type_line?.toLowerCase().includes('sorcery'));
+        } else if (searchFor.includes('land')) {
+          validCards = library.filter((c: any) => c.type_line?.toLowerCase().includes('land'));
+          if (searchFor.includes('basic')) {
+            validCards = validCards.filter((c: any) => c.type_line?.toLowerCase().includes('basic'));
+          }
+        }
+        
+        if (validCards.length > 0) {
+          // AI card selection heuristic:
+          // 1. For lands (e.g., fetch lands): prefer cards that produce multiple colors
+          // 2. For creatures: consider power/toughness and keywords
+          // 3. For other cards: use CMC as proxy for card quality
+          let selectedCard = validCards[0];
+          
+          const isLandSearch = searchFor.includes('land');
+          
+          if (isLandSearch) {
+            // For land searches, prefer duals and lands that produce more colors
+            validCards.sort((a: any, b: any) => {
+              const aText = (a.oracle_text || '').toLowerCase();
+              const bText = (b.oracle_text || '').toLowerCase();
+              
+              // Count number of mana symbols in oracle text
+              const aManaTypes = (aText.match(/add \{[wubrgc]\}/gi) || []).length;
+              const bManaTypes = (bText.match(/add \{[wubrgc]\}/gi) || []).length;
+              
+              // Prefer multi-color producing lands
+              if (aManaTypes !== bManaTypes) return bManaTypes - aManaTypes;
+              
+              // Prefer lands that don't enter tapped
+              const aEntersTapped = aText.includes('enters the battlefield tapped');
+              const bEntersTapped = bText.includes('enters the battlefield tapped');
+              if (aEntersTapped !== bEntersTapped) return aEntersTapped ? 1 : -1;
+              
+              return 0;
+            });
+          } else {
+            // For non-lands, prefer cards with higher CMC (generally more impactful)
+            // but also consider power/toughness for creatures
+            validCards.sort((a: any, b: any) => {
+              const aCmc = a.cmc || 0;
+              const bCmc = b.cmc || 0;
+              
+              // For creatures, factor in power+toughness
+              const aTypeLine = (a.type_line || '').toLowerCase();
+              const bTypeLine = (b.type_line || '').toLowerCase();
+              
+              if (aTypeLine.includes('creature') && bTypeLine.includes('creature')) {
+                const aPower = parseInt(a.power || '0', 10);
+                const aToughness = parseInt(a.toughness || '0', 10);
+                const bPower = parseInt(b.power || '0', 10);
+                const bToughness = parseInt(b.toughness || '0', 10);
+                
+                const aStats = aPower + aToughness + aCmc;
+                const bStats = bPower + bToughness + bCmc;
+                return bStats - aStats;
+              }
+              
+              return bCmc - aCmc;
+            });
+          }
+          
+          selectedCard = validCards[0];
+          
+          // Apply the search effect
+          if (typeof game.selectFromLibrary === 'function' && selectedCard?.id) {
+            game.selectFromLibrary(playerId, [selectedCard.id]);
+            
+            // Handle destination
+            if (info.destination === 'hand') {
+              // Already handled by selectFromLibrary for default case
+            } else if (info.destination === 'top') {
+              // Put on top of library - need special handling
+              // This is handled in selectFromLibrary with moveTo param
+            }
+            
+            // Shuffle library after search
+            if (info.shuffleAfter && typeof game.shuffleLibrary === 'function') {
+              game.shuffleLibrary(playerId);
+            }
+            
+            console.log(`[AI] Selected ${selectedCard.name || selectedCard.id} from library (${info.source || 'tutor'})`);
+          }
+        } else {
+          console.log(`[AI] No valid cards found in library for ${info.source || 'tutor'}`);
+        }
+      } else {
+        // Human player: emit library search request
+        const socketsByPlayer: Map<string, any> = game.participantSockets || new Map();
+        const socket = socketsByPlayer.get(playerId);
+        
+        const searchRequest = {
+          gameId,
+          playerId,
+          cards: library,
+          title: info.source || 'Search',
+          description: info.searchFor ? `Search for: ${info.searchFor}` : 'Search your library',
+          filter: {},
+          maxSelections: 1,
+          moveTo: info.destination || 'hand',
+          shuffleAfter: info.shuffleAfter ?? true,
+          optional: info.optional || false,
+          tapped: info.tapped || false,
+        };
+        
+        if (socket) {
+          socket.emit("librarySearchRequest", searchRequest);
+        } else {
+          // Broadcast to the room
+          io.to(gameId).emit("librarySearchRequest", searchRequest);
+        }
+        
+        console.log(`[handlePendingLibrarySearch] Sent librarySearchRequest to ${playerId} for ${info.source || 'tutor'}`);
+      }
+    }
+    
+    // Clear the pending search
+    game.state.pendingLibrarySearch = {};
+    
+  } catch (err) {
+    console.warn('[handlePendingLibrarySearchAfterResolution] Error:', err);
   }
 }

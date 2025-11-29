@@ -22,6 +22,68 @@ import { addExtraTurn } from "./turn.js";
  */
 
 /**
+ * Check if a spell is a tutor (search library effect) and return search details.
+ * This handles cards like Demonic Tutor, Vampiric Tutor, Diabolic Tutor, etc.
+ */
+function detectTutorSpell(oracleText: string): { 
+  isTutor: boolean; 
+  searchCriteria?: string; 
+  destination?: 'hand' | 'top' | 'battlefield' | 'graveyard';
+  optional?: boolean;
+} {
+  if (!oracleText) return { isTutor: false };
+  
+  const text = oracleText.toLowerCase();
+  
+  // Must have "search your library" pattern
+  if (!text.includes('search your library')) {
+    return { isTutor: false };
+  }
+  
+  let searchCriteria = '';
+  let destination: 'hand' | 'top' | 'battlefield' | 'graveyard' = 'hand';
+  let optional = false;
+  
+  // Detect what type of card to search for
+  const forMatch = text.match(/search your library for (?:a|an|up to \w+) ([^,.]+)/i);
+  if (forMatch) {
+    searchCriteria = forMatch[1].trim();
+  }
+  
+  // Check for optional search (contains "may")
+  if (text.includes('you may search')) {
+    optional = true;
+  }
+  
+  // Detect destination - order matters! More specific patterns first
+  
+  // Top of library patterns (Vampiric Tutor, Mystical Tutor, Worldly Tutor, Enlightened Tutor)
+  if (text.includes('put it on top of your library') || 
+      text.includes('put that card on top of your library') ||
+      text.includes('put it on top') ||
+      text.includes('put that card on top')) {
+    destination = 'top';
+  }
+  // Battlefield patterns (Green Sun's Zenith, Chord of Calling, Natural Order)
+  else if (text.includes('put it onto the battlefield') || 
+           text.includes('put that card onto the battlefield') ||
+           text.includes('put onto the battlefield') ||
+           text.includes('enters the battlefield')) {
+    destination = 'battlefield';
+  }
+  // Graveyard patterns (Entomb, Buried Alive)
+  else if (text.includes('put it into your graveyard') || 
+           text.includes('put that card into your graveyard') ||
+           text.includes('put into your graveyard')) {
+    destination = 'graveyard';
+  }
+  // Hand patterns (Demonic Tutor, Diabolic Tutor, Grim Tutor)
+  // Default is hand
+  
+  return { isTutor: true, searchCriteria, destination, optional };
+}
+
+/**
  * Extract creature types from a type line
  */
 function extractCreatureTypes(typeLine: string): string[] {
@@ -311,6 +373,24 @@ export function resolveTopOfStack(ctx: GameContext) {
       
       addExtraTurn(ctx, extraTurnPlayer, card.name || 'Extra turn spell');
       console.log(`[resolveTopOfStack] Extra turn granted to ${extraTurnPlayer} by ${card.name}`);
+    }
+    
+    // Handle tutor spells (Demonic Tutor, Vampiric Tutor, Diabolic Tutor, etc.)
+    // These need to trigger a library search prompt for the player
+    const tutorInfo = detectTutorSpell(oracleText);
+    if (tutorInfo.isTutor) {
+      // Set up pending library search - the socket layer will send the search prompt
+      (state as any).pendingLibrarySearch = (state as any).pendingLibrarySearch || {};
+      (state as any).pendingLibrarySearch[controller] = {
+        type: 'tutor',
+        searchFor: tutorInfo.searchCriteria || 'card',
+        destination: tutorInfo.destination || 'hand',
+        tapped: tutorInfo.destination === 'battlefield', // Cards put onto battlefield from tutors are usually tapped
+        optional: tutorInfo.optional || false,
+        source: card.name || 'Tutor',
+        shuffleAfter: true,
+      };
+      console.log(`[resolveTopOfStack] Tutor spell ${card.name}: ${controller} may search for ${tutorInfo.searchCriteria || 'a card'} (destination: ${tutorInfo.destination})`);
     }
     
     // Handle Path to Exile - exile target creature, controller may search for basic land

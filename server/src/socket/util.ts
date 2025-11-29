@@ -681,12 +681,124 @@ function doAutoPass(
       } catch (err) {
         console.warn("doAutoPass: failed to emit chat", err);
       }
+      
+      // Check for pending library search (from tutor spells)
+      handlePendingLibrarySearch(io, game, gameId);
     }
 
     broadcastGame(io, game, gameId);
   } catch (err) {
     console.warn("doAutoPass: unexpected error", err);
   }
+}
+
+/**
+ * Handle pending library search effects (from tutor spells like Demonic Tutor, Vampiric Tutor, etc.)
+ * This checks the game state for pendingLibrarySearch and emits librarySearchRequest to the appropriate player.
+ */
+function handlePendingLibrarySearch(io: Server, game: any, gameId: string): void {
+  try {
+    const pending = game.state?.pendingLibrarySearch;
+    if (!pending || typeof pending !== 'object') return;
+    
+    // Get the socket map for this game
+    const socketsByPlayer: Map<string, any> = (game as any).participantSockets || new Map();
+    
+    // Maximum number of cards to search when looking through library
+    const MAX_LIBRARY_SEARCH_RESULTS = 1000;
+    
+    for (const [playerId, searchInfo] of Object.entries(pending)) {
+      if (!searchInfo) continue;
+      
+      const info = searchInfo as any;
+      
+      // Get the player's library for searching
+      let library: any[] = [];
+      if (typeof game.searchLibrary === 'function') {
+        library = game.searchLibrary(playerId, '', MAX_LIBRARY_SEARCH_RESULTS);
+      } else {
+        library = ((game as any).libraries?.get(playerId)) || [];
+      }
+      
+      // Build filter for search criteria
+      const filter = parseSearchFilter(info.searchFor || 'card');
+      
+      // Get the socket for this player and emit search request
+      const socket = socketsByPlayer.get(playerId);
+      if (socket) {
+        socket.emit("librarySearchRequest", {
+          gameId,
+          cards: library,
+          title: info.source || 'Search',
+          description: info.searchFor ? `Search for: ${info.searchFor}` : 'Search your library',
+          filter,
+          maxSelections: 1,
+          moveTo: info.destination || 'hand',
+          shuffleAfter: info.shuffleAfter ?? true,
+          optional: info.optional || false,
+          tapped: info.tapped || false,
+        });
+        
+        console.log(`[handlePendingLibrarySearch] Sent librarySearchRequest to ${playerId} for ${info.source || 'tutor'}`);
+      } else {
+        // No specific socket - broadcast to the room and let the client filter
+        io.to(gameId).emit("librarySearchRequest", {
+          gameId,
+          playerId,
+          cards: library,
+          title: info.source || 'Search',
+          description: info.searchFor ? `Search for: ${info.searchFor}` : 'Search your library',
+          filter,
+          maxSelections: 1,
+          moveTo: info.destination || 'hand',
+          shuffleAfter: info.shuffleAfter ?? true,
+          optional: info.optional || false,
+          tapped: info.tapped || false,
+        });
+        
+        console.log(`[handlePendingLibrarySearch] Broadcast librarySearchRequest for ${playerId} for ${info.source || 'tutor'}`);
+      }
+    }
+    
+    // Clear the pending search after emitting requests
+    game.state.pendingLibrarySearch = {};
+    
+  } catch (err) {
+    console.warn('[handlePendingLibrarySearch] Error:', err);
+  }
+}
+
+/**
+ * Parse search criteria string into a filter object for library search.
+ * E.g., "basic land card" -> { types: ['Land'], subtypes: ['Plains', 'Island', ...] }
+ */
+function parseSearchFilter(criteria: string): Record<string, any> {
+  if (!criteria) return {};
+  
+  const filter: Record<string, any> = {};
+  const text = criteria.toLowerCase();
+  
+  // Common card type patterns
+  if (text.includes('creature')) filter.creature = true;
+  if (text.includes('instant')) filter.instant = true;
+  if (text.includes('sorcery')) filter.sorcery = true;
+  if (text.includes('artifact')) filter.artifact = true;
+  if (text.includes('enchantment')) filter.enchantment = true;
+  if (text.includes('planeswalker')) filter.planeswalker = true;
+  if (text.includes('land')) filter.land = true;
+  
+  // Basic land restriction
+  if (text.includes('basic land') || text.includes('basic')) {
+    filter.basicLand = true;
+  }
+  
+  // CMC restrictions
+  const cmcMatch = text.match(/mana value (\d+) or less/);
+  if (cmcMatch) {
+    filter.maxCMC = parseInt(cmcMatch[1], 10);
+  }
+  
+  return filter;
 }
 
 /**
