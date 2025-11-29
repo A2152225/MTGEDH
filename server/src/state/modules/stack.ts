@@ -376,10 +376,13 @@ export function resolveTopOfStack(ctx: GameContext) {
     }
     
     // Handle "each player draws" spells (Vision Skeins, Prosperity, Howling Mine effects, etc.)
-    const eachPlayerDrawsMatch = oracleTextLower.match(/each player draws?\s+(\d+|a|two|three|four|five)\s+cards?/i);
+    const eachPlayerDrawsMatch = oracleTextLower.match(/each player draws?\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?/i);
     if (eachPlayerDrawsMatch) {
       const drawCountStr = eachPlayerDrawsMatch[1].toLowerCase();
-      const wordToNumber: Record<string, number> = { 'a': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5 };
+      const wordToNumber: Record<string, number> = { 
+        'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+        'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10
+      };
       const drawCount = wordToNumber[drawCountStr] || parseInt(drawCountStr, 10) || 1;
       
       // Draw cards for each player
