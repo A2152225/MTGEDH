@@ -48,6 +48,8 @@ import {
   saveAppearanceSettings,
 } from "./utils/appearanceSettings";
 import { IgnoredTriggersPanel } from "./components/IgnoredTriggersPanel";
+import { PriorityModal } from "./components/PriorityModal";
+import { AutoPassSettingsPanel } from "./components/AutoPassSettingsPanel";
 
 /** Map engine/internal phase enum to human-friendly name */
 function prettyPhase(phase?: string | null): string {
@@ -353,6 +355,8 @@ export function App() {
   const hasPromptedDeckImport = React.useRef(false);
   // Track if we've already auto-skipped attackers for this combat step
   const hasAutoSkippedAttackers = React.useRef<string | null>(null);
+  // Track if we've already shown the attackers modal for this combat step (prevents re-opening after selection)
+  const hasShownAttackersModal = React.useRef<string | null>(null);
   // External control for deck manager visibility in TableLayout
   const [tableDeckMgrOpen, setTableDeckMgrOpen] = useState(false);
   
@@ -371,6 +375,45 @@ export function App() {
   const [temptingOfferRequest, setTemptingOfferRequest] = useState<TemptingOfferRequest | null>(null);
   const [temptingOfferResponded, setTemptingOfferResponded] = useState<string[]>([]);
   const [temptingOfferAcceptedBy, setTemptingOfferAcceptedBy] = useState<string[]>([]);
+
+  // Priority Modal state - shows when player receives priority on step changes
+  const [priorityModalOpen, setPriorityModalOpen] = useState(false);
+  const lastPriorityStep = React.useRef<string | null>(null);
+  
+  // Auto-pass steps - which steps to automatically pass priority on
+  const [autoPassSteps, setAutoPassSteps] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem('mtgedh:autoPassSteps');
+      if (stored) {
+        return new Set(JSON.parse(stored));
+      }
+    } catch { /* ignore */ }
+    return new Set();
+  });
+  
+  // Toggle auto-pass for a specific step
+  const handleToggleAutoPass = React.useCallback((step: string, enabled: boolean) => {
+    setAutoPassSteps(prev => {
+      const next = new Set(prev);
+      if (enabled) {
+        next.add(step);
+      } else {
+        next.delete(step);
+      }
+      try {
+        localStorage.setItem('mtgedh:autoPassSteps', JSON.stringify([...next]));
+      } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+  
+  // Clear all auto-pass settings
+  const handleClearAllAutoPass = React.useCallback(() => {
+    setAutoPassSteps(new Set());
+    try {
+      localStorage.removeItem('mtgedh:autoPassSteps');
+    } catch { /* ignore */ }
+  }, []);
 
   // Auto-advance phases/steps setting
   // When enabled, automatically passes priority during untap, draw, and cleanup phases
@@ -478,6 +521,11 @@ export function App() {
     // Only show attacker modal on your turn during declare attackers step
     if (step === "declareattackers" || step === "declare_attackers") {
       if (isYourTurn) {
+        // Don't show the modal if we've already shown it for this step
+        if (hasShownAttackersModal.current === turnId) {
+          return;
+        }
+        
         // Check if there are any valid creatures that can attack
         const validAttackers = (safeView.battlefield || []).filter((p: BattlefieldPermanent) => {
           if (p.controller !== you) return false;
@@ -500,6 +548,7 @@ export function App() {
         } else {
           setCombatMode('attackers');
           setCombatModalOpen(true);
+          hasShownAttackersModal.current = turnId; // Mark that we've shown the modal
         }
       }
     }
@@ -520,8 +569,55 @@ export function App() {
       if (hasAutoSkippedAttackers.current) {
         hasAutoSkippedAttackers.current = null;
       }
+      // Reset shown attackers modal tracker when we leave combat steps
+      if (hasShownAttackersModal.current) {
+        hasShownAttackersModal.current = null;
+      }
     }
   }, [safeView, you]);
+
+  // Priority modal logic - show when you gain priority on step changes
+  React.useEffect(() => {
+    if (!safeView || !you) return;
+    
+    const step = String((safeView as any).step || "").toLowerCase();
+    const priority = (safeView as any).priority;
+    const youHavePriority = priority === you;
+    const stackLength = (safeView as any).stack?.length || 0;
+    
+    // Only show priority modal when:
+    // 1. You have priority
+    // 2. The stack is empty (not responding to something)
+    // 3. The step changed since last time we showed the modal
+    // 4. We're not in a combat modal already
+    // 5. Auto-pass is not enabled for this step
+    
+    const stepKey = step.replace('_', '').toLowerCase();
+    const shouldAutoPass = autoPassSteps.has(stepKey) || autoPassSteps.has(step);
+    
+    if (youHavePriority && stackLength === 0 && !combatModalOpen) {
+      // Check if this is a new step
+      if (lastPriorityStep.current !== step) {
+        lastPriorityStep.current = step;
+        
+        if (shouldAutoPass) {
+          // Auto-pass priority
+          socket.emit("passPriority", { gameId: safeView.id, by: you });
+          setPriorityModalOpen(false);
+        } else {
+          // Show priority modal for this step
+          // Don't show for main phases (main1, main2, main, postcombat_main) - those are obvious
+          const isMainPhase = step.includes('main') || step === 'main1' || step === 'main2';
+          if (!isMainPhase) {
+            setPriorityModalOpen(true);
+          }
+        }
+      }
+    } else {
+      // Close priority modal if we don't have priority or stack is not empty
+      setPriorityModalOpen(false);
+    }
+  }, [safeView, you, combatModalOpen, autoPassSteps]);
 
   // Shock land prompt listener
   React.useEffect(() => {
@@ -3282,6 +3378,42 @@ export function App() {
         onStopIgnoring={handleStopIgnoringSource}
         you={you || undefined}
       />
+
+      {/* Priority Modal - Shows when you gain priority on step changes */}
+      <PriorityModal
+        open={priorityModalOpen}
+        step={(safeView as any)?.step || ''}
+        phase={(safeView as any)?.phase || ''}
+        onTake={() => {
+          setPriorityModalOpen(false);
+          // Player wants to take action - just close the modal, they can cast from hand/activate abilities
+        }}
+        onPass={() => {
+          setPriorityModalOpen(false);
+          if (safeView) {
+            socket.emit("passPriority", { gameId: safeView.id });
+          }
+        }}
+        autoPassSteps={autoPassSteps}
+        onToggleAutoPass={handleToggleAutoPass}
+      />
+
+      {/* Auto-Pass Settings Panel - Always visible when in game, positioned in bottom-right */}
+      {safeView && you && (
+        <div style={{
+          position: 'fixed',
+          bottom: 16,
+          right: 16,
+          zIndex: 50,
+          maxWidth: 280,
+        }}>
+          <AutoPassSettingsPanel
+            autoPassSteps={autoPassSteps}
+            onToggleAutoPass={handleToggleAutoPass}
+            onClearAll={handleClearAllAutoPass}
+          />
+        </div>
+      )}
     </div>
   );
 }
