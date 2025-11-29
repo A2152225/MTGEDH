@@ -176,6 +176,42 @@ function isCurrentlyCreature(permanent: any): boolean {
 }
 
 /**
+ * Combat control effect type for type-safe access
+ */
+interface CombatControlEffect {
+  controllerId: PlayerID;
+  sourceId: string;
+  sourceName: string;
+  controlsAttackers: boolean;
+  controlsBlockers: boolean;
+  mandatoryAttackers?: readonly string[];
+  mandatoryBlockers?: Readonly<Record<string, readonly string[]>>;
+  preventedAttackers?: readonly string[];
+  preventedBlockers?: readonly string[];
+}
+
+/**
+ * Helper to get combat control effect from game state (type-safe)
+ */
+function getCombatControl(game: any): CombatControlEffect | undefined {
+  return game?.state?.combat?.combatControl as CombatControlEffect | undefined;
+}
+
+/**
+ * Helper to set combat control effect on game state
+ */
+function setCombatControl(game: any, combatControl: CombatControlEffect): void {
+  if (!game.state.combat) {
+    game.state.combat = {
+      phase: 'declareAttackers',
+      attackers: [],
+      blockers: [],
+    };
+  }
+  game.state.combat.combatControl = combatControl;
+}
+
+/**
  * Register combat phase socket handlers
  */
 export function registerCombatHandlers(io: Server, socket: Socket): void {
@@ -726,23 +762,14 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         return;
       }
 
-      // Initialize combat state if not present
-      if (!game.state.combat) {
-        game.state.combat = {
-          phase: 'declareAttackers',
-          attackers: [],
-          blockers: [],
-        };
-      }
-
-      // Set combat control effect
-      (game.state.combat as any).combatControl = {
+      // Set combat control effect using helper
+      setCombatControl(game, {
         controllerId: playerId,
         sourceId,
         sourceName,
         controlsAttackers,
         controlsBlockers,
-      };
+      });
 
       // Broadcast chat message
       io.to(gameId).emit("chat", {
@@ -763,9 +790,10 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       broadcastGame(io, game, gameId);
 
       // Notify the controlling player that they need to make combat decisions
+      const combatControl = getCombatControl(game);
       emitToPlayer(io, playerId, "combatControlActive", {
         gameId,
-        combatControl: (game.state.combat as any).combatControl,
+        combatControl,
         mode: controlsAttackers ? 'attackers' : 'blockers',
       });
 
@@ -811,7 +839,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       }
 
       // Verify player has combat control
-      const combatControl = (game.state.combat as any)?.combatControl;
+      const combatControl = getCombatControl(game);
       if (!combatControl || combatControl.controllerId !== playerId) {
         socket.emit("error", {
           code: "NO_COMBAT_CONTROL",
@@ -1000,7 +1028,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       }
 
       // Verify player has combat control
-      const combatControl = (game.state.combat as any)?.combatControl;
+      const combatControl = getCombatControl(game);
       if (!combatControl || combatControl.controllerId !== playerId) {
         socket.emit("error", {
           code: "NO_COMBAT_CONTROL",
@@ -1196,7 +1224,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         return;
       }
 
-      if (game.state.combat && (game.state.combat as any).combatControl) {
+      if (game.state.combat && getCombatControl(game)) {
         delete (game.state.combat as any).combatControl;
       }
 
