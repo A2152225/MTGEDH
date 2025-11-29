@@ -48,6 +48,11 @@ export enum StaticEffectType {
   HEXPROOF = 'hexproof',
   SHROUD = 'shroud',
   PROTECTION = 'protection',
+  
+  // Targeting modifications (Glaring Spotlight, Arcane Lighthouse, etc.)
+  IGNORE_HEXPROOF = 'ignore_hexproof',   // Can target as though they didn't have hexproof
+  IGNORE_SHROUD = 'ignore_shroud',       // Can target as though they didn't have shroud
+  UNBLOCKABLE = 'unblockable',           // Can't be blocked
 }
 
 /**
@@ -60,6 +65,8 @@ export interface StaticEffectFilter {
   colors?: string[];         // Colors like 'white', 'blue'
   other?: boolean;           // "Other" creatures (excludes source)
   name?: string;             // Specific card name
+  hasAbility?: string;       // Filter for creatures that have a specific ability (for Kwende-style effects)
+  preventGaining?: boolean;  // Flag to indicate this effect prevents gaining the ability
 }
 
 /**
@@ -208,6 +215,123 @@ export function parseStaticAbilities(
     });
   }
   
+  // Check for conditional ability grants: "Creatures you control with [ability] have [ability]"
+  // Example: Kwende, Pride of Femeref - "Creatures you control with first strike have double strike"
+  const conditionalAbilityMatch = oracleText.match(/creatures?\s+(?:you\s+control\s+)?with\s+(first strike|flying|trample|lifelink|deathtouch|vigilance|haste|hexproof|indestructible|menace|reach)\s+have\s+(double strike|flying|trample|lifelink|deathtouch|vigilance|haste|hexproof|indestructible|menace|reach)/i);
+  if (conditionalAbilityMatch) {
+    abilities.push({
+      id: `${permanentId}-conditional-grant-${conditionalAbilityMatch[2]}`,
+      sourceId: permanentId,
+      sourceName: name,
+      controllerId,
+      effectType: StaticEffectType.GRANT_ABILITY,
+      filter: {
+        cardTypes: ['creature'],
+        controller: oracleText.includes('you control') ? 'you' : 'any',
+        hasAbility: conditionalAbilityMatch[1].toLowerCase(), // Custom filter for "with [ability]"
+      },
+      value: conditionalAbilityMatch[2].toLowerCase(),
+      layer: 6,
+    });
+  }
+  
+  // Check for ability removal from opponents: "Creatures your opponents control lose [ability]"
+  // Example: Archetype of Courage - "Creatures your opponents control lose first strike and can't have or gain first strike"
+  const abilityRemovalMatch = oracleText.match(/creatures?\s+your\s+opponents?\s+control\s+lose\s+(first strike|flying|trample|lifelink|deathtouch|vigilance|haste|double strike|hexproof|indestructible|menace|reach)/i);
+  if (abilityRemovalMatch) {
+    abilities.push({
+      id: `${permanentId}-remove-${abilityRemovalMatch[1]}`,
+      sourceId: permanentId,
+      sourceName: name,
+      controllerId,
+      effectType: StaticEffectType.REMOVE_ABILITY,
+      filter: {
+        cardTypes: ['creature'],
+        controller: 'opponents',
+      },
+      value: abilityRemovalMatch[1].toLowerCase(),
+      layer: 6, // Layer 6: ability-removing effects
+    });
+  }
+  
+  // Check for "can't have or gain" prevention
+  // Example: Archetype of Courage - "can't have or gain first strike"
+  const cantGainMatch = oracleText.match(/(?:creatures?\s+your\s+opponents?\s+control\s+)?can't\s+have\s+or\s+gain\s+(first strike|flying|trample|lifelink|deathtouch|vigilance|haste|double strike|hexproof|indestructible|menace|reach)/i);
+  if (cantGainMatch) {
+    abilities.push({
+      id: `${permanentId}-prevent-${cantGainMatch[1]}`,
+      sourceId: permanentId,
+      sourceName: name,
+      controllerId,
+      effectType: StaticEffectType.REMOVE_ABILITY, // Also prevents gaining
+      filter: {
+        cardTypes: ['creature'],
+        controller: 'opponents',
+        preventGaining: true, // Custom flag to prevent gaining the ability
+      },
+      value: cantGainMatch[1].toLowerCase(),
+      layer: 6,
+    });
+  }
+  
+  // Check for "ignore hexproof" effects (Glaring Spotlight, Arcane Lighthouse, Detection Tower)
+  // Pattern: "Creatures your opponents control with hexproof can be the targets of spells and abilities you control as though they didn't have hexproof"
+  const ignoreHexproofMatch = oracleText.match(/creatures?\s+(?:your\s+)?opponents?\s+control\s+with\s+hexproof\s+can\s+be\s+the\s+targets?\s+of\s+spells?\s+and\s+abilities?\s+you\s+control\s+as\s+though\s+they\s+didn't\s+have\s+hexproof/i);
+  if (ignoreHexproofMatch) {
+    abilities.push({
+      id: `${permanentId}-ignore-hexproof`,
+      sourceId: permanentId,
+      sourceName: name,
+      controllerId,
+      effectType: StaticEffectType.IGNORE_HEXPROOF,
+      filter: {
+        cardTypes: ['creature'],
+        controller: 'opponents',
+        hasAbility: 'hexproof',
+      },
+      value: 'hexproof',
+      layer: 6,
+    });
+  }
+  
+  // Also check for Arcane Lighthouse / Detection Tower style: "Creatures your opponents control lose hexproof"
+  // These remove hexproof entirely when activated
+  const loseHexproofMatch = oracleText.match(/creatures?\s+your\s+opponents?\s+control\s+lose\s+hexproof/i);
+  if (loseHexproofMatch) {
+    abilities.push({
+      id: `${permanentId}-remove-hexproof`,
+      sourceId: permanentId,
+      sourceName: name,
+      controllerId,
+      effectType: StaticEffectType.REMOVE_ABILITY,
+      filter: {
+        cardTypes: ['creature'],
+        controller: 'opponents',
+      },
+      value: 'hexproof',
+      layer: 6,
+    });
+  }
+  
+  // Check for "can't be blocked" grants
+  // Pattern: "Creatures you control ... can't be blocked"
+  const cantBeBlockedMatch = oracleText.match(/creatures?\s+you\s+control\s+(?:gain\s+)?(?:have\s+)?(?:and\s+)?can't\s+be\s+blocked/i);
+  if (cantBeBlockedMatch) {
+    abilities.push({
+      id: `${permanentId}-unblockable`,
+      sourceId: permanentId,
+      sourceName: name,
+      controllerId,
+      effectType: StaticEffectType.UNBLOCKABLE,
+      filter: {
+        cardTypes: ['creature'],
+        controller: 'you',
+      },
+      value: 'unblockable',
+      layer: 6,
+    });
+  }
+  
   return abilities;
 }
 
@@ -266,6 +390,29 @@ export function matchesFilter(
     return false;
   }
   
+  // Check for hasAbility filter (for Kwende-style "creatures with [ability] have [ability]")
+  if (filter.hasAbility) {
+    const oracleText = (card.oracle_text || '').toLowerCase();
+    const keywords = (card as any).keywords || [];
+    const grantedAbilities = (permanent as any).grantedAbilities || [];
+    
+    const abilityToCheck = filter.hasAbility.toLowerCase();
+    
+    // Check if the creature has the required ability:
+    // 1. In keywords array from Scryfall
+    // 2. In oracle text
+    // 3. In granted abilities from other effects
+    const hasAbilityInKeywords = keywords.some((k: string) => k.toLowerCase() === abilityToCheck);
+    const hasAbilityInOracle = oracleText.includes(abilityToCheck);
+    const hasAbilityGranted = grantedAbilities.some((a: string) => 
+      typeof a === 'string' && a.toLowerCase().includes(abilityToCheck)
+    );
+    
+    if (!hasAbilityInKeywords && !hasAbilityInOracle && !hasAbilityGranted) {
+      return false;
+    }
+  }
+  
   return true;
 }
 
@@ -277,10 +424,10 @@ export function calculateEffectivePT(
   permanent: BattlefieldPermanent,
   battlefield: BattlefieldPermanent[],
   staticAbilities: StaticAbility[]
-): { power: number; toughness: number; grantedAbilities: string[] } {
+): { power: number; toughness: number; grantedAbilities: string[]; removedAbilities: string[] } {
   const card = permanent.card as KnownCardRef;
   if (!card) {
-    return { power: 0, toughness: 0, grantedAbilities: [] };
+    return { power: 0, toughness: 0, grantedAbilities: [], removedAbilities: [] };
   }
   
   // Start with base P/T
@@ -293,13 +440,27 @@ export function calculateEffectivePT(
   power += plusCounters - minusCounters;
   toughness += plusCounters - minusCounters;
   
-  // Collect granted abilities
+  // Collect granted and removed abilities
   const grantedAbilities: string[] = [];
+  const removedAbilities: string[] = [];
   
   // Sort abilities by layer (Rule 613)
   const sortedAbilities = [...staticAbilities].sort((a, b) => a.layer - b.layer);
   
-  // Apply static ability effects
+  // First pass: collect removed abilities (they take priority in preventing gains)
+  for (const ability of sortedAbilities) {
+    if (!matchesFilter(permanent, ability.filter, ability.sourceId, ability.controllerId)) {
+      continue;
+    }
+    
+    if (ability.effectType === StaticEffectType.REMOVE_ABILITY) {
+      if (typeof ability.value === 'string' && !removedAbilities.includes(ability.value)) {
+        removedAbilities.push(ability.value);
+      }
+    }
+  }
+  
+  // Second pass: apply other static ability effects
   for (const ability of sortedAbilities) {
     if (!matchesFilter(permanent, ability.filter, ability.sourceId, ability.controllerId)) {
       continue;
@@ -320,14 +481,18 @@ export function calculateEffectivePT(
         break;
         
       case StaticEffectType.GRANT_ABILITY:
-        if (typeof ability.value === 'string' && !grantedAbilities.includes(ability.value)) {
-          grantedAbilities.push(ability.value);
+        if (typeof ability.value === 'string') {
+          // Don't grant if the ability is being removed by another effect
+          // (e.g., Archetype of Courage removes first strike from opponents)
+          if (!removedAbilities.includes(ability.value) && !grantedAbilities.includes(ability.value)) {
+            grantedAbilities.push(ability.value);
+          }
         }
         break;
     }
   }
   
-  return { power, toughness, grantedAbilities };
+  return { power, toughness, grantedAbilities, removedAbilities };
 }
 
 /**

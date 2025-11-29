@@ -812,7 +812,7 @@ export function checkLibrarySearchRestrictions(
  * Handle pending library search effects (from tutor spells like Demonic Tutor, Vampiric Tutor, etc.)
  * This checks the game state for pendingLibrarySearch and emits librarySearchRequest to the appropriate player.
  */
-function handlePendingLibrarySearch(io: Server, game: any, gameId: string): void {
+export function handlePendingLibrarySearch(io: Server, game: any, gameId: string): void {
   try {
     const pending = game.state?.pendingLibrarySearch;
     if (!pending || typeof pending !== 'object') return;

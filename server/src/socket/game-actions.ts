@@ -1,5 +1,5 @@
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, handlePendingLibrarySearch } from "./util";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem } from "../../../shared/src";
@@ -2040,6 +2040,9 @@ export function registerGameActions(io: Server, socket: Socket) {
           message: "Top of stack resolved.",
           ts: Date.now(),
         });
+        
+        // Check for pending library search from resolved triggered abilities (e.g., Knight of the White Orchid)
+        handlePendingLibrarySearch(io, game, gameId);
       }
 
       // If all players passed priority with empty stack, advance to next step

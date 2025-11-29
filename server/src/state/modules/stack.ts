@@ -373,6 +373,137 @@ function executeTriggerEffect(
     return;
   }
   
+  // Pattern: "Search your library for a [card type]" (Knight of the White Orchid, Rampant Growth triggers, etc.)
+  const searchLibraryMatch = desc.match(/(?:you may )?search your library for (?:a|an) ([^,\.]+)/i);
+  if (searchLibraryMatch) {
+    const searchFor = searchLibraryMatch[1].trim();
+    const isOptional = desc.includes('you may search');
+    
+    // Determine destination
+    let destination = 'hand';
+    let entersTapped = false;
+    if (desc.includes('put it onto the battlefield') || desc.includes('put that card onto the battlefield')) {
+      destination = 'battlefield';
+      // Check if it enters tapped
+      if (desc.includes('tapped')) {
+        entersTapped = true;
+      }
+    } else if (desc.includes('put it on top of your library') || desc.includes('put that card on top')) {
+      destination = 'top';
+    }
+    
+    // Build filter based on what we're searching for
+    const filter: { types?: string[]; subtypes?: string[]; name?: string } = {};
+    const subtypes: string[] = [];
+    
+    // Check for basic land types
+    if (searchFor.includes('plains')) subtypes.push('Plains');
+    if (searchFor.includes('island')) subtypes.push('Island');
+    if (searchFor.includes('swamp')) subtypes.push('Swamp');
+    if (searchFor.includes('mountain')) subtypes.push('Mountain');
+    if (searchFor.includes('forest')) subtypes.push('Forest');
+    
+    // Check for card types
+    const types: string[] = [];
+    if (searchFor.includes('land')) types.push('land');
+    if (searchFor.includes('creature')) types.push('creature');
+    if (searchFor.includes('artifact')) types.push('artifact');
+    if (searchFor.includes('enchantment')) types.push('enchantment');
+    if (searchFor.includes('planeswalker')) types.push('planeswalker');
+    
+    if (types.length > 0) filter.types = types;
+    if (subtypes.length > 0) filter.subtypes = subtypes;
+    
+    // Set up pending library search
+    state.pendingLibrarySearch = state.pendingLibrarySearch || {};
+    state.pendingLibrarySearch[controller] = {
+      type: 'etb-trigger',
+      searchFor: searchFor,
+      destination,
+      tapped: entersTapped,
+      optional: isOptional,
+      source: sourceName,
+      shuffleAfter: desc.includes('shuffle'),
+      filter,
+    };
+    
+    console.log(`[executeTriggerEffect] ${sourceName} trigger: ${controller} may search for ${searchFor} (destination: ${destination})`);
+    return;
+  }
+  
+  // Pattern: "Create a X/Y [creature type] creature token" (Precinct Captain, Brimaz, etc.)
+  const createTokenMatch = desc.match(/create (?:a|an|(\d+)) (\d+)\/(\d+) ([^\.]+?)(?:\s+creature)?\s+tokens?/i);
+  if (createTokenMatch) {
+    const tokenCount = createTokenMatch[1] ? parseInt(createTokenMatch[1], 10) : 1;
+    const power = parseInt(createTokenMatch[2], 10);
+    const toughness = parseInt(createTokenMatch[3], 10);
+    const tokenDescription = createTokenMatch[4].trim();
+    
+    // Extract color and creature type from description
+    // e.g., "white Soldier" -> color: white, type: Soldier
+    const parts = tokenDescription.split(/\s+/);
+    const colors: string[] = [];
+    const creatureTypes: string[] = [];
+    
+    const colorMap: Record<string, string> = {
+      'white': 'W', 'blue': 'U', 'black': 'B', 'red': 'R', 'green': 'G'
+    };
+    
+    for (const part of parts) {
+      const lowerPart = part.toLowerCase();
+      if (colorMap[lowerPart]) {
+        colors.push(colorMap[lowerPart]);
+      } else if (lowerPart !== 'creature' && lowerPart !== 'token' && lowerPart !== 'and') {
+        creatureTypes.push(part.charAt(0).toUpperCase() + part.slice(1).toLowerCase());
+      }
+    }
+    
+    // Check for abilities in the description
+    const abilities: string[] = [];
+    if (desc.includes('vigilance')) abilities.push('Vigilance');
+    if (desc.includes('haste')) abilities.push('Haste');
+    if (desc.includes('lifelink')) abilities.push('Lifelink');
+    if (desc.includes('deathtouch')) abilities.push('Deathtouch');
+    if (desc.includes('flying')) abilities.push('Flying');
+    if (desc.includes('first strike')) abilities.push('First strike');
+    if (desc.includes('trample')) abilities.push('Trample');
+    
+    // Create the tokens
+    state.battlefield = state.battlefield || [];
+    for (let i = 0; i < tokenCount; i++) {
+      const tokenId = uid("token");
+      const tokenName = creatureTypes.length > 0 ? creatureTypes.join(' ') : 'Token';
+      const typeLine = `Token Creature — ${creatureTypes.join(' ')}`;
+      
+      const token = {
+        id: tokenId,
+        controller,
+        owner: controller,
+        tapped: false,
+        counters: {},
+        basePower: power,
+        baseToughness: toughness,
+        summoningSickness: !abilities.includes('Haste'),
+        isToken: true,
+        card: {
+          id: tokenId,
+          name: tokenName,
+          type_line: typeLine,
+          power: String(power),
+          toughness: String(toughness),
+          colors,
+          oracle_text: abilities.join(', '),
+          keywords: abilities,
+          zone: 'battlefield',
+        },
+      } as any;
+      
+      state.battlefield.push(token);
+      console.log(`[executeTriggerEffect] Created ${power}/${toughness} ${tokenName} token for ${controller}`);
+    }
+    return;
+  }
+  
   // Log unhandled triggers for future implementation
   console.log(`[executeTriggerEffect] Unhandled trigger effect: "${description}" from ${sourceName}`);
 }
