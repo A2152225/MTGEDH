@@ -31,6 +31,9 @@ import { UndoRequestModal, type UndoRequestData } from "./components/UndoRequest
 import { SplitCardChoiceModal, type CardFaceOption } from "./components/SplitCardChoiceModal";
 import { CreatureTypeSelectModal } from "./components/CreatureTypeSelectModal";
 import { AppearanceSettingsModal } from "./components/AppearanceSettingsModal";
+import { GraveyardViewModal } from "./components/GraveyardViewModal";
+import { JoinForcesModal, type JoinForcesRequest } from "./components/JoinForcesModal";
+import { TemptingOfferModal, type TemptingOfferRequest } from "./components/TemptingOfferModal";
 import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
 import { useGameSocket } from "./hooks/useGameSocket";
@@ -343,6 +346,22 @@ export function App() {
   const hasAutoSkippedAttackers = React.useRef<string | null>(null);
   // External control for deck manager visibility in TableLayout
   const [tableDeckMgrOpen, setTableDeckMgrOpen] = useState(false);
+  
+  // Graveyard View Modal state
+  const [graveyardModalOpen, setGraveyardModalOpen] = useState(false);
+  const [graveyardModalPlayerId, setGraveyardModalPlayerId] = useState<string | null>(null);
+  
+  // Join Forces Modal state (Collective Voyage, Minds Aglow, etc.)
+  const [joinForcesModalOpen, setJoinForcesModalOpen] = useState(false);
+  const [joinForcesRequest, setJoinForcesRequest] = useState<JoinForcesRequest | null>(null);
+  const [joinForcesContributions, setJoinForcesContributions] = useState<Record<string, number>>({});
+  const [joinForcesResponded, setJoinForcesResponded] = useState<string[]>([]);
+  
+  // Tempting Offer Modal state (Tempt with Reflections, Tempt with Discovery, etc.)
+  const [temptingOfferModalOpen, setTemptingOfferModalOpen] = useState(false);
+  const [temptingOfferRequest, setTemptingOfferRequest] = useState<TemptingOfferRequest | null>(null);
+  const [temptingOfferResponded, setTemptingOfferResponded] = useState<string[]>([]);
+  const [temptingOfferAcceptedBy, setTemptingOfferAcceptedBy] = useState<string[]>([]);
 
   // Auto-advance phases/steps setting
   // When enabled, automatically passes priority during untap, draw, and cleanup phases
@@ -805,6 +824,94 @@ export function App() {
     // Request undo count on game state change
     socket.emit("getUndoCount", { gameId: safeView.id });
   }, [safeView?.id, safeView?.turn, safeView?.step, safeView?.priority]);
+
+  // Join Forces socket event handlers
+  React.useEffect(() => {
+    const handleJoinForcesRequest = (payload: JoinForcesRequest) => {
+      if (payload.gameId === safeView?.id) {
+        setJoinForcesRequest(payload);
+        setJoinForcesContributions({});
+        setJoinForcesResponded([]);
+        setJoinForcesModalOpen(true);
+      }
+    };
+    
+    const handleJoinForcesUpdate = (payload: {
+      id: string;
+      playerId: string;
+      contribution: number;
+      responded: string[];
+      contributions: Record<string, number>;
+    }) => {
+      if (joinForcesRequest?.id === payload.id) {
+        setJoinForcesResponded(payload.responded);
+        setJoinForcesContributions(payload.contributions);
+      }
+    };
+    
+    const handleJoinForcesComplete = (payload: { id: string }) => {
+      if (joinForcesRequest?.id === payload.id) {
+        setJoinForcesModalOpen(false);
+        setJoinForcesRequest(null);
+        setJoinForcesContributions({});
+        setJoinForcesResponded([]);
+      }
+    };
+    
+    socket.on("joinForcesRequest", handleJoinForcesRequest);
+    socket.on("joinForcesUpdate", handleJoinForcesUpdate);
+    socket.on("joinForcesComplete", handleJoinForcesComplete);
+    
+    return () => {
+      socket.off("joinForcesRequest", handleJoinForcesRequest);
+      socket.off("joinForcesUpdate", handleJoinForcesUpdate);
+      socket.off("joinForcesComplete", handleJoinForcesComplete);
+    };
+  }, [safeView?.id, joinForcesRequest?.id]);
+
+  // Tempting Offer socket event handlers
+  React.useEffect(() => {
+    const handleTemptingOfferRequest = (payload: TemptingOfferRequest) => {
+      if (payload.gameId === safeView?.id) {
+        setTemptingOfferRequest(payload);
+        setTemptingOfferResponded([]);
+        setTemptingOfferAcceptedBy([]);
+        setTemptingOfferModalOpen(true);
+      }
+    };
+    
+    const handleTemptingOfferUpdate = (payload: {
+      id: string;
+      playerId: string;
+      accepted: boolean;
+      responded: string[];
+      acceptedBy: string[];
+    }) => {
+      if (temptingOfferRequest?.id === payload.id) {
+        setTemptingOfferResponded(payload.responded);
+        setTemptingOfferAcceptedBy(payload.acceptedBy);
+      }
+    };
+    
+    const handleTemptingOfferComplete = (payload: { id: string }) => {
+      if (temptingOfferRequest?.id === payload.id) {
+        setTemptingOfferModalOpen(false);
+        setTemptingOfferRequest(null);
+        setTemptingOfferResponded([]);
+        setTemptingOfferAcceptedBy([]);
+      }
+    };
+    
+    socket.on("temptingOfferRequest", handleTemptingOfferRequest);
+    socket.on("temptingOfferUpdate", handleTemptingOfferUpdate);
+    socket.on("temptingOfferComplete", handleTemptingOfferComplete);
+    
+    return () => {
+      socket.off("temptingOfferRequest", handleTemptingOfferRequest);
+      socket.off("temptingOfferUpdate", handleTemptingOfferUpdate);
+      socket.off("temptingOfferComplete", handleTemptingOfferComplete);
+    };
+  }, [safeView?.id, temptingOfferRequest?.id]);
 
   const isTable = layout === "table";
   const canPass = !!safeView && !!you && safeView.priority === you;
@@ -1671,6 +1778,47 @@ export function App() {
     setSplitCardData(null);
   };
 
+  // Join Forces contribution handler
+  const handleJoinForcesContribute = (amount: number) => {
+    if (!safeView || !joinForcesRequest) return;
+    socket.emit("contributeJoinForces", {
+      gameId: safeView.id,
+      joinForcesId: joinForcesRequest.id,
+      amount,
+    });
+  };
+
+  // Tempting Offer response handler
+  const handleTemptingOfferRespond = (accept: boolean) => {
+    if (!safeView || !temptingOfferRequest) return;
+    socket.emit("respondTemptingOffer", {
+      gameId: safeView.id,
+      temptingOfferId: temptingOfferRequest.id,
+      accept,
+    });
+  };
+
+  // Graveyard view handler
+  const handleViewGraveyard = (playerId: string) => {
+    setGraveyardModalPlayerId(playerId);
+    setGraveyardModalOpen(true);
+  };
+
+  // Graveyard ability activation handler
+  const handleGraveyardAbility = (cardId: string, abilityId: string, card: KnownCardRef) => {
+    if (!safeView) return;
+    
+    // Emit the graveyard ability activation to the server
+    socket.emit("activateGraveyardAbility", {
+      gameId: safeView.id,
+      cardId,
+      abilityId,
+      cardName: card.name,
+    });
+    
+    setGraveyardModalOpen(false);
+  };
+
   /**
    * Check if a creature can attack (considering summoning sickness).
    * Rule 302.6: A creature can't attack unless it's been continuously controlled 
@@ -2329,6 +2477,7 @@ export function App() {
               tableCloth={{ imageUrl: "" }}
               worldSize={12000}
               appearanceSettings={appearanceSettings}
+              onViewGraveyard={handleViewGraveyard}
               onUpdatePermPos={(id, x, y, z) =>
                 safeView &&
                 socket.emit("updatePermanentPos", {
@@ -2977,6 +3126,74 @@ export function App() {
           // Sacrifice is mandatory - inform the user they must select
           alert("You must sacrifice a creature to this triggered ability.");
         }}
+      />
+
+      {/* Graveyard View Modal */}
+      <GraveyardViewModal
+        open={graveyardModalOpen}
+        cards={useMemo(() => {
+          if (!safeView || !graveyardModalPlayerId) return [];
+          const zones = safeView.zones?.[graveyardModalPlayerId];
+          const graveyard = zones?.graveyard || [];
+          return graveyard.filter((c: any) => c && c.name) as KnownCardRef[];
+        }, [safeView, graveyardModalPlayerId])}
+        playerId={graveyardModalPlayerId || ''}
+        canActivate={you === graveyardModalPlayerId}
+        onClose={() => {
+          setGraveyardModalOpen(false);
+          setGraveyardModalPlayerId(null);
+        }}
+        onActivateAbility={handleGraveyardAbility}
+      />
+
+      {/* Join Forces Modal (Collective Voyage, Minds Aglow, etc.) */}
+      <JoinForcesModal
+        open={joinForcesModalOpen}
+        request={joinForcesRequest}
+        currentPlayerId={you || ''}
+        playerNames={useMemo(() => {
+          const names: Record<string, string> = {};
+          if (safeView?.players) {
+            for (const p of safeView.players) {
+              names[p.id] = p.name || p.id;
+            }
+          }
+          return names;
+        }, [safeView?.players])}
+        responded={joinForcesResponded}
+        contributions={joinForcesContributions}
+        availableMana={useMemo(() => {
+          if (!safeView || !you) return 0;
+          // Count untapped lands as available mana
+          const battlefield = safeView.battlefield || [];
+          return battlefield.filter((p: any) => 
+            p.controller === you && 
+            !p.tapped &&
+            (p.card?.type_line || '').toLowerCase().includes('land')
+          ).length;
+        }, [safeView, you])}
+        onContribute={handleJoinForcesContribute}
+        onClose={() => setJoinForcesModalOpen(false)}
+      />
+
+      {/* Tempting Offer Modal (Tempt with Reflections, Tempt with Discovery, etc.) */}
+      <TemptingOfferModal
+        open={temptingOfferModalOpen}
+        request={temptingOfferRequest}
+        currentPlayerId={you || ''}
+        playerNames={useMemo(() => {
+          const names: Record<string, string> = {};
+          if (safeView?.players) {
+            for (const p of safeView.players) {
+              names[p.id] = p.name || p.id;
+            }
+          }
+          return names;
+        }, [safeView?.players])}
+        responded={temptingOfferResponded}
+        acceptedBy={temptingOfferAcceptedBy}
+        onRespond={handleTemptingOfferRespond}
+        onClose={() => setTemptingOfferModalOpen(false)}
       />
 
       {/* Deck Validation Status */}

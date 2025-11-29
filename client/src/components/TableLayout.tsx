@@ -205,6 +205,9 @@ export function TableLayout(props: {
   hasThousandYearElixirEffect?: boolean;
   // Appearance customization
   appearanceSettings?: AppearanceSettings;
+  // Graveyard view handler
+  onViewGraveyard?: (playerId: PlayerID) => void;
+  onViewExile?: (playerId: PlayerID) => void;
 }) {
   const {
     players, permanentsByPlayer, imagePref, isYouPlayer,
@@ -225,6 +228,7 @@ export function TableLayout(props: {
     priority, phase, step, turnPlayer,
     hasThousandYearElixirEffect = false,
     appearanceSettings,
+    onViewGraveyard, onViewExile,
   } = props;
 
   // Snapshot debug
@@ -1337,6 +1341,8 @@ export function TableLayout(props: {
                                 });
                               }
                             }}
+                            onViewGraveyard={onViewGraveyard ? () => onViewGraveyard(pid) : undefined}
+                            onViewExile={onViewExile ? () => onViewExile(pid) : undefined}
                           />
                         )}
                       </div>

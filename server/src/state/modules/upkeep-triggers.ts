@@ -53,6 +53,9 @@ const KNOWN_UPKEEP_CARDS: Record<string, { effect: string; mandatory: boolean; r
   "greed": { effect: "You may pay {B} and 2 life to draw a card", mandatory: false, requiresChoice: true },
   "necropotence": { effect: "Skip draw step (passive)", mandatory: true },
   "sylvan library": { effect: "Draw 2 extra cards, then put 2 back or pay 4 life each", mandatory: true, requiresChoice: true },
+  "venser's journal": { effect: "Gain life equal to cards in hand", mandatory: true },
+  "ivory tower": { effect: "Gain 1 life for each card in hand above 4", mandatory: true },
+  "well of lost dreams": { effect: "Whenever you gain life, you may pay {X} to draw X cards", mandatory: false, requiresChoice: true },
   
   // Resource generation
   "smothering tithe": { effect: "When opponent draws, they pay {2} or you create Treasure", mandatory: true },

@@ -7,6 +7,7 @@
 import type { PlayerID, KnownCardRef } from "../../../../shared/src/types.js";
 import type { GameContext } from "../context.js";
 import { uid } from "../utils.js";
+import { checkEmptyLibraryDraw, hasDrawWinReplacement, hasCantLoseEffect } from "./game-state-effects.js";
 
 /* ===== core zone operations ===== */
 
@@ -98,13 +99,24 @@ export function shuffleLibrary(ctx: GameContext, playerId: PlayerID) {
  * 
  * Draws cards from the library into the player's hand.
  * Also tracks first draw of the turn for miracle abilities and triggers draw effects.
+ * Handles empty library draw according to Rule 704.5b:
+ * - If a player attempts to draw from an empty library, they lose the game
+ * - Unless they have Laboratory Maniac/Jace (win instead) or Platinum Angel (can't lose)
  * 
  * @param ctx Game context
  * @param playerId Player drawing the cards
  * @param count Number of cards to draw
- * @returns Array of drawn card references
+ * @returns Object with drawn cards and any win/loss result
  */
-export function drawCards(ctx: GameContext, playerId: PlayerID, count: number) {
+export interface DrawResult {
+  cards: KnownCardRef[];
+  emptyLibraryAttempt: boolean;
+  playerWins: boolean;
+  playerLoses: boolean;
+  reason?: string;
+}
+
+export function drawCards(ctx: GameContext, playerId: PlayerID, count: number): KnownCardRef[] {
   const lib = ctx.libraries.get(playerId) || [];
   const zones = ctx.state.zones = ctx.state.zones || {};
   const z = zones[playerId] || (zones[playerId] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 } as any);
@@ -114,19 +126,29 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number) {
   (ctx.state as any).cardsDrawnThisTurn = (ctx.state as any).cardsDrawnThisTurn || {};
   const previousDrawCount = (ctx.state as any).cardsDrawnThisTurn[playerId] || 0;
   
-  for (let i = 0; i < count && lib.length > 0; i++) {
-    const c = lib.shift()!;
-    
-    // Check if this is the first card drawn this turn (for miracle)
-    const drawNumber = previousDrawCount + i + 1;
-    if (drawNumber === 1) {
-      // Mark this card as the first card drawn this turn
-      (c as any).isFirstDrawnThisTurn = true;
-      (c as any).drawnAt = Date.now();
+  // Track if player attempted to draw from empty library
+  let attemptedEmptyDraw = false;
+  
+  for (let i = 0; i < count; i++) {
+    if (lib.length > 0) {
+      const c = lib.shift()!;
+      
+      // Check if this is the first card drawn this turn (for miracle)
+      const drawNumber = previousDrawCount + i + 1;
+      if (drawNumber === 1) {
+        // Mark this card as the first card drawn this turn
+        (c as any).isFirstDrawnThisTurn = true;
+        (c as any).drawnAt = Date.now();
+      }
+      
+      (z.hand as any[]).push(c);
+      drawn.push(c);
+    } else {
+      // Attempted to draw from empty library (Rule 704.5b)
+      attemptedEmptyDraw = true;
+      console.log(`[drawCards] Player ${playerId} attempted to draw from empty library`);
+      break; // Stop trying to draw more cards
     }
-    
-    (z.hand as any[]).push(c);
-    drawn.push(c);
   }
   
   // Update draw count for this turn
@@ -139,6 +161,31 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number) {
   // Process draw triggers (Psychosis Crawler, etc.)
   if (drawn.length > 0) {
     processDrawTriggers(ctx, playerId, drawn.length);
+  }
+  
+  // Handle empty library draw (Rule 704.5b)
+  if (attemptedEmptyDraw) {
+    // Check for win/lose replacement effects
+    const result = checkEmptyLibraryDraw(ctx, playerId);
+    
+    if (result.wins) {
+      console.log(`[drawCards] Player ${playerId} WINS: ${result.reason}`);
+      
+      // Mark the game as won
+      (ctx.state as any).gameOver = true;
+      (ctx.state as any).winner = playerId;
+      (ctx.state as any).winReason = result.reason;
+    } else if (result.loses) {
+      console.log(`[drawCards] Player ${playerId} LOSES: ${result.reason}`);
+      
+      // Track that this player attempted to draw from empty library
+      // State-based actions will check this
+      (ctx.state as any).attemptedEmptyLibraryDraw = (ctx.state as any).attemptedEmptyLibraryDraw || {};
+      (ctx.state as any).attemptedEmptyLibraryDraw[playerId] = true;
+    } else {
+      // Can't lose the game (Platinum Angel, etc.)
+      console.log(`[drawCards] Player ${playerId} attempted empty library draw but can't lose: ${result.reason}`);
+    }
   }
   
   ctx.bumpSeq();

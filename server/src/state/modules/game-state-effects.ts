@@ -62,6 +62,67 @@ export interface LifeModifier {
 }
 
 /**
+ * Interface for "can't lose the game" effects (Platinum Angel, Angel's Grace, etc.)
+ */
+export interface CantLoseEffect {
+  permanentId: string;
+  cardName: string;
+  affectsController: boolean;
+  affectsOpponents: boolean;
+  opponentsCantWin?: boolean; // Platinum Angel also prevents opponents from winning
+  expiresAtCleanup?: boolean;
+}
+
+/**
+ * Known "can't lose the game" cards
+ */
+const CANT_LOSE_CARDS: Record<string, Omit<CantLoseEffect, 'permanentId' | 'cardName'>> = {
+  "platinum angel": {
+    affectsController: true,
+    affectsOpponents: false,
+    opponentsCantWin: true, // "You can't lose the game and your opponents can't win the game"
+  },
+  "angel's grace": {
+    affectsController: true,
+    affectsOpponents: false,
+    expiresAtCleanup: true, // Split second, but "until end of turn"
+  },
+  "lich's mastery": {
+    affectsController: true,
+    affectsOpponents: false,
+    // Note: Has other effects like losing if it leaves battlefield
+  },
+  "gideon of the trials": {
+    // Emblem: "As long as you control a Gideon planeswalker, you can't lose the game and your opponents can't win the game"
+    affectsController: true,
+    affectsOpponents: false,
+    opponentsCantWin: true,
+  },
+  "abyssal persecutor": {
+    // "You can't win the game and your opponents can't lose the game"
+    // This is the opposite - prevents controller from winning and opponents from losing
+    affectsController: false,
+    affectsOpponents: true, // Opponents can't lose
+  },
+  "transcendence": {
+    // "You don't lose the game for having 0 or less life"
+    affectsController: true,
+    affectsOpponents: false,
+  },
+  "phyrexian unlife": {
+    // "You don't lose the game for having 0 or less life"
+    affectsController: true,
+    affectsOpponents: false,
+  },
+  "worship": {
+    // "If you control a creature, damage that would reduce your life total to less than 1 reduces it to 1 instead"
+    // Not exactly "can't lose" but prevents death from damage when you have creatures
+    affectsController: true,
+    affectsOpponents: false,
+  },
+};
+
+/**
  * Check if a permanent is phased out (and should be ignored)
  */
 export function isPhasedOut(permanent: any): boolean {
@@ -537,13 +598,70 @@ export function checkLoseConditions(
 }
 
 /**
+ * Check if a player has "can't lose the game" effect active
+ */
+export function hasCantLoseEffect(ctx: GameContext, playerId: string): { cantLose: boolean; reason?: string } {
+  const permanents = getActivePermanents(ctx);
+  
+  for (const perm of permanents) {
+    const cardName = (perm.card?.name || "").toLowerCase().trim();
+    const oracleText = (perm.card?.oracle_text || "").toLowerCase();
+    
+    for (const [knownName, effect] of Object.entries(CANT_LOSE_CARDS)) {
+      // Use exact match or match at word boundary to avoid false positives
+      // e.g., "platinum angel" should match "Platinum Angel" but not "Platinum Angel Token Creator"
+      const nameMatches = cardName === knownName || 
+                          cardName.startsWith(knownName + " ") ||
+                          cardName.startsWith(knownName + ",");
+      
+      if (nameMatches) {
+        const isController = perm.controller === playerId;
+        
+        // Check if this effect applies to this player
+        if (effect.affectsController && isController) {
+          return { cantLose: true, reason: perm.card?.name || knownName };
+        }
+        if (effect.affectsOpponents && !isController) {
+          return { cantLose: true, reason: `${perm.card?.name || knownName} (controlled by opponent)` };
+        }
+      }
+    }
+    
+    // Generic detection for "can't lose the game" text
+    if (oracleText.includes("you can't lose the game") || 
+        oracleText.includes("you don't lose the game")) {
+      if (perm.controller === playerId) {
+        return { cantLose: true, reason: perm.card?.name || "Unknown permanent" };
+      }
+    }
+  }
+  
+  // Check for Angel's Grace effect (stored in state as temporary effect)
+  const angelsGrace = (ctx.state as any)?.angelsGraceEffect?.[playerId];
+  if (angelsGrace && angelsGrace.active) {
+    return { cantLose: true, reason: "Angel's Grace" };
+  }
+  
+  return { cantLose: false };
+}
+
+/**
  * Check if drawing from empty library should cause a loss or win
+ * Considers:
+ * - Laboratory Maniac / Jace, Wielder of Mysteries (win instead)
+ * - Platinum Angel / Angel's Grace (can't lose)
  */
 export function checkEmptyLibraryDraw(
   ctx: GameContext, 
   playerId: string
 ): { loses: boolean; wins: boolean; reason?: string } {
-  // Check for Lab Man / Jace effect
+  // First check for "can't lose the game" effects
+  const cantLoseCheck = hasCantLoseEffect(ctx, playerId);
+  if (cantLoseCheck.cantLose) {
+    return { loses: false, wins: false, reason: `Can't lose: ${cantLoseCheck.reason}` };
+  }
+  
+  // Check for Lab Man / Jace effect (win instead of losing)
   if (hasDrawWinReplacement(ctx, playerId)) {
     return { loses: false, wins: true, reason: "Laboratory Maniac/Jace effect" };
   }

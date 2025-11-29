@@ -42,7 +42,7 @@ export function ZonesPiles(props: {
   // Which commanders are currently in the command zone (not on stack/battlefield)
   const inCommandZone = (isCommanderFormat ? (commander as any)?.inCommandZone : undefined) as string[] | undefined;
 
-  function renderPile(label: string, count: number, topCard?: KnownCardRef, hideTopCard?: boolean, onClick?: () => void) {
+  function renderPile(label: string, count: number, topCard?: KnownCardRef, hideTopCard?: boolean, onClick?: () => void, onDoubleClick?: () => void) {
     const name = topCard?.name || "";
     // prefer art_crop -> normal -> small
     const img = topCard?.image_uris?.art_crop || topCard?.image_uris?.normal || topCard?.image_uris?.small || null;
@@ -51,7 +51,7 @@ export function ZonesPiles(props: {
     const showCardPreviewOnHover = !hideTopCard && topCard;
     const displayImage = !hideTopCard && img;
     const displayName = !hideTopCard && name;
-    const isClickable = !!onClick && count > 0;
+    const isClickable = (!!onClick || !!onDoubleClick) && count > 0;
     
     const body = (
       <div
@@ -74,6 +74,7 @@ export function ZonesPiles(props: {
           transition: "border-color 0.15s",
         }}
         onClick={onClick}
+        onDoubleClick={onDoubleClick}
       >
         {displayImage && img ? (
           <img
@@ -95,8 +96,9 @@ export function ZonesPiles(props: {
               padding: "2px 4px",
               borderRadius: 3,
             }}
+            aria-label={onDoubleClick ? 'Double-click to view' : 'Click to view'}
           >
-            Click
+            {onDoubleClick ? 'Dbl-Click' : 'Click'}
           </div>
         )}
       </div>
@@ -105,7 +107,7 @@ export function ZonesPiles(props: {
     return (
       <div
         key={label}
-        title={isClickable ? `Click to view ${label}` : (topCard && !hideTopCard ? topCard.name : `${label} (${count})`)}
+        title={isClickable ? `${onDoubleClick ? 'Double-click' : 'Click'} to view ${label}` : (topCard && !hideTopCard ? topCard.name : `${label} (${count})`)}
         style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 92 }}
         onMouseEnter={(e) => {
           if (showCardPreviewOnHover) showCardPreview(e.currentTarget as HTMLElement, topCard, { prefer: "above", anchorPadding: 0 });
@@ -226,8 +228,9 @@ export function ZonesPiles(props: {
       {/* Command zone now rendered before Library for expected layout */}
       {isCommanderFormat && commander ? <CommandSlots /> : null}
       {renderPile("Library", (zones.libraryCount ?? libArr.length ?? 0), libraryTop, true /* hideTopCard */)}
-      {renderPile("Graveyard", (zones.graveyardCount ?? grArr.length ?? 0), graveTop, false, onViewGraveyard)}
-      {renderPile("Exile", ((zones as any).exile?.length ?? exArr.length ?? 0), exileTop, false, onViewExile)}
+      {/* Graveyard supports both click and double-click - double-click opens the full graveyard modal */}
+      {renderPile("Graveyard", (zones.graveyardCount ?? grArr.length ?? 0), graveTop, false, undefined, onViewGraveyard)}
+      {renderPile("Exile", ((zones as any).exile?.length ?? exArr.length ?? 0), exileTop, false, undefined, onViewExile)}
     </div>
   );
 }
