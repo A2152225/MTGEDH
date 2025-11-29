@@ -92,6 +92,14 @@ export interface ClientToServerEvents {
   // Decision responses (targets, modes, X values, etc.)
   submitDecision: (payload: { gameId: GameID; decisionId: string; selection: any }) => void;
   
+  // Choice event response (new unified system)
+  respondToChoice: (payload: {
+    gameId: GameID;
+    eventId: string;
+    selections: string[] | number | boolean;
+    cancelled: boolean;
+  }) => void;
+  
   // Automation control
   setAutoPass: (payload: { gameId: GameID; enabled: boolean }) => void;
   setStop: (payload: { gameId: GameID; phase: string; enabled: boolean }) => void;
@@ -99,6 +107,20 @@ export interface ClientToServerEvents {
   // Combat declarations
   declareAttackers: (payload: { gameId: GameID; attackers: Array<{ attackerId: string; defendingPlayer: PlayerID }> }) => void;
   declareBlockers: (payload: { gameId: GameID; blockers: Array<{ blockerId: string; attackerId: string }> }) => void;
+  
+  // Combat damage assignment (for complex blocking scenarios)
+  assignCombatDamage: (payload: {
+    gameId: GameID;
+    attackerId: string;
+    damageAssignments: Array<{ targetId: string; damage: number }>;
+  }) => void;
+  
+  // Blocker ordering (for multiple blockers)
+  orderBlockers: (payload: {
+    gameId: GameID;
+    attackerId: string;
+    blockerOrder: string[]; // Ordered list of blocker IDs
+  }) => void;
   
   // Spell casting with targets/modes
   castSpell: (payload: { 
@@ -122,6 +144,18 @@ export interface ClientToServerEvents {
   // Mulligan
   mulliganDecision: (payload: { gameId: GameID; keep: boolean }) => void;
   mulliganBottomCards: (payload: { gameId: GameID; cardIds: string[] }) => void;
+  
+  // Cleanup step discard selection
+  discardToHandSize: (payload: { gameId: GameID; cardIds: string[] }) => void;
+  
+  // Trigger ordering
+  orderTriggers: (payload: { gameId: GameID; triggerOrder: string[] }) => void;
+  
+  // Replacement effect choice
+  chooseReplacementEffect: (payload: { gameId: GameID; effectId: string }) => void;
+  
+  // Commander zone choice
+  commanderZoneChoice: (payload: { gameId: GameID; commanderId: string; moveToCommandZone: boolean }) => void;
   
   // ===== JOIN FORCES / TEMPTING OFFER EVENTS =====
   
@@ -350,6 +384,103 @@ export interface ServerToClientEvents {
     acceptedBy: PlayerID[];
     initiator: PlayerID;
     initiatorBonusCount: number; // How many times the initiator gets the effect (1 + acceptedBy.length)
+  }) => void;
+
+  // ===== CHOICE EVENTS (Enhanced Decision System) =====
+  
+  // Generic choice event for all player decisions
+  choiceEvent: (payload: {
+    gameId: GameID;
+    event: {
+      id: string;
+      type: string; // ChoiceEventType from rules-engine
+      playerId: PlayerID;
+      sourceId?: string;
+      sourceName?: string;
+      sourceImage?: string;
+      description: string;
+      mandatory: boolean;
+      timestamp: number;
+      timeoutMs?: number;
+      // Type-specific fields
+      options?: Array<{ id: string; label: string; description?: string; imageUrl?: string; disabled?: boolean }>;
+      minSelections?: number;
+      maxSelections?: number;
+      // For targets
+      validTargets?: Array<{ id: string; label: string; imageUrl?: string }>;
+      targetTypes?: string[];
+      // For X value
+      minX?: number;
+      maxX?: number;
+      // For discard
+      discardCount?: number;
+      currentHandSize?: number;
+      maxHandSize?: number;
+      // For combat damage
+      attackerPower?: number;
+      hasTrample?: boolean;
+      blockers?: Array<{ id: string; name: string; toughness: number; existingDamage: number; lethalDamage: number }>;
+      // For zone movement notifications
+      zone?: string;
+      reason?: string;
+      // For win effects
+      winningPlayerId?: PlayerID;
+      winReason?: string;
+    };
+  }) => void;
+  
+  // Choice response acknowledgment
+  choiceResponse: (payload: {
+    gameId: GameID;
+    eventId: string;
+    playerId: PlayerID;
+    selection: any;
+    success: boolean;
+    error?: string;
+  }) => void;
+  
+  // Copy ceases to exist notification (Rule 704.5e)
+  copyCeasesToExist: (payload: {
+    gameId: GameID;
+    copyId: string;
+    copyName: string;
+    copyType: 'spell' | 'card';
+    zone: string;
+    originalName?: string;
+    controllerId: PlayerID;
+  }) => void;
+  
+  // Token ceases to exist notification (Rule 704.5d)
+  tokenCeasesToExist: (payload: {
+    gameId: GameID;
+    tokenIds: string[];
+    tokenNames: string[];
+    zone: string;
+    controllerId: PlayerID;
+  }) => void;
+  
+  // Win effect notification (Rule 104.2b)
+  winEffectTriggered: (payload: {
+    gameId: GameID;
+    winningPlayerId: PlayerID;
+    winReason: string;
+    sourceId: string;
+    sourceName: string;
+    blockedBy?: string; // If win was prevented by Platinum Angel, etc.
+  }) => void;
+  
+  // Replacement effect choice required
+  replacementEffectChoice: (payload: {
+    gameId: GameID;
+    choosingPlayerId: PlayerID;
+    affectedPlayerId: PlayerID;
+    affectedEvent: string;
+    effects: Array<{
+      id: string;
+      sourceId: string;
+      sourceName: string;
+      description: string;
+    }>;
   }) => void;
 
   // generic pushes from server
