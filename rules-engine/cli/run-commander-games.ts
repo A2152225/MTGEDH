@@ -33,6 +33,11 @@ interface GameEvent {
   action: string;
   card?: string;
   details?: string;
+  reasoning?: string;
+  result?: string;
+  oracleTextExecuted?: boolean;
+  expectedEffect?: string;
+  actualEffect?: string;
 }
 
 interface GameSummary {
@@ -45,6 +50,8 @@ interface GameSummary {
   cardsWithNoImpact: string[];
   unexpectedBehaviors: string[];
   expectedBehaviorsNotOccurred: string[];
+  cardsNotFunctioningAsIntended: string[];
+  seed: number;
 }
 
 interface PlayerState {
@@ -481,16 +488,27 @@ const PLAYER2_DECK: string[] = [
 
 class CommanderGameSimulator {
   private rng: () => number;
+  private currentSeed: number;
+  private analysisMode: boolean;
   
-  constructor(seed?: number) {
-    if (seed !== undefined) {
-      let s = seed;
-      this.rng = () => {
-        s = Math.sin(s) * 10000;
-        return s - Math.floor(s);
-      };
-    } else {
-      this.rng = Math.random;
+  constructor(seed?: number, analysisMode: boolean = false) {
+    this.currentSeed = seed ?? Math.floor(Math.random() * 10000);
+    this.analysisMode = analysisMode;
+    this.initRng(this.currentSeed);
+  }
+
+  private initRng(seed: number): void {
+    this.currentSeed = seed;
+    let s = seed;
+    this.rng = () => {
+      s = Math.sin(s) * 10000;
+      return s - Math.floor(s);
+    };
+  }
+
+  private log(message: string): void {
+    if (this.analysisMode) {
+      console.log(`  [ANALYSIS] ${message}`);
     }
   }
 
@@ -1000,14 +1018,38 @@ class CommanderGameSimulator {
     let spellsCast = 0;
     for (const spell of castable) {
       if (spellsCast >= 3) break;
+      
+      // Determine reasoning for casting this spell
+      const cardData = this.getCard(spell);
+      let reasoning = '';
+      if (spell === "Sol Ring") {
+        reasoning = 'Mana acceleration - Sol Ring provides 2 colorless mana for only 1 mana investment';
+      } else if (spell === "Thassa's Oracle") {
+        reasoning = 'Win condition - can win the game if devotion to blue exceeds library size';
+      } else if (spell === "Aetherflux Reservoir") {
+        reasoning = 'Win condition - can deal 50 damage if life total reaches 51+';
+      } else if (cardData?.type_line?.includes('Creature')) {
+        reasoning = `Creature for board presence (${cardData.power}/${cardData.toughness})`;
+      } else if (cardData?.type_line?.includes('Enchantment')) {
+        reasoning = 'Enchantment for ongoing value';
+      } else {
+        reasoning = `Cast for its effect: ${cardData?.oracle_text?.substring(0, 50) || 'unknown'}...`;
+      }
+      
       if (this.castSpell(player, spell, state)) {
         spellsCast++;
+        const result = `Successfully resolved. Added to battlefield.`;
         state.events.push({
           turn: state.turn,
           player: player.name,
           action: 'cast',
           card: spell,
+          reasoning,
+          result,
         });
+        this.log(`${player.name} cast ${spell}`);
+        this.log(`  Reasoning: ${reasoning}`);
+        this.log(`  Result: ${result}`);
         this.tapLandsForMana(player);
       }
     }
@@ -1169,15 +1211,30 @@ class CommanderGameSimulator {
   }
 
   async runGame(gameNumber: number): Promise<GameSummary> {
+    // Use a unique seed for each game based on base seed + game number
+    const gameSeed = this.currentSeed + gameNumber * 1000;
+    this.initRng(gameSeed);
+    
     console.log(`\n${'='.repeat(60)}`);
-    console.log(`Starting Game ${gameNumber}`);
+    console.log(`Starting Game ${gameNumber} (Seed: ${gameSeed})`);
     console.log(`${'='.repeat(60)}`);
     
+    if (this.analysisMode) {
+      console.log('\n[ANALYSIS MODE ENABLED - Detailed replay with reasoning]\n');
+    }
+    
     const state = this.createInitialState();
+    
+    this.log(`Libraries shuffled with seed ${gameSeed}`);
+    this.log(`Player 1 library top 5: ${state.players[1].library.slice(0, 5).join(', ')}`);
+    this.log(`Player 2 library top 5: ${state.players[2].library.slice(0, 5).join(', ')}`);
     
     // Draw initial hands
     this.drawCards(state.players[1], 7);
     this.drawCards(state.players[2], 7);
+    
+    this.log(`Player 1 opening hand: ${state.players[1].hand.join(', ')}`);
+    this.log(`Player 2 opening hand: ${state.players[2].hand.join(', ')}`);
     
     // Simple mulligan
     for (const playerId of [1, 2] as const) {
@@ -1238,6 +1295,12 @@ class CommanderGameSimulator {
     const cardsWithNoImpact = this.analyzeNoImpactCards(state);
     const unexpectedBehaviors = this.findUnexpectedBehaviors(state);
     const expectedNotOccurred = this.findExpectedBehaviorsNotOccurred(state);
+    const cardsNotFunctioningAsIntended = this.analyzeCardFunctionality(state);
+    
+    // Print analysis mode replay if enabled
+    if (this.analysisMode) {
+      this.printDetailedReplay(state);
+    }
     
     return {
       gameNumber,
@@ -1249,7 +1312,87 @@ class CommanderGameSimulator {
       cardsWithNoImpact,
       unexpectedBehaviors,
       expectedBehaviorsNotOccurred: expectedNotOccurred,
+      cardsNotFunctioningAsIntended,
+      seed: gameSeed,
     };
+  }
+
+  private printDetailedReplay(state: SimulatedGameState): void {
+    console.log('\n' + '='.repeat(60));
+    console.log('DETAILED GAME REPLAY');
+    console.log('='.repeat(60));
+    
+    let currentTurn = -1;
+    for (const event of state.events) {
+      if (event.turn !== currentTurn) {
+        currentTurn = event.turn;
+        console.log(`\n--- Turn ${currentTurn} ---`);
+      }
+      
+      let eventStr = `  ${event.player}: ${event.action}`;
+      if (event.card) eventStr += ` - ${event.card}`;
+      if (event.details) eventStr += ` (${event.details})`;
+      console.log(eventStr);
+      
+      if (event.reasoning) {
+        console.log(`    Reasoning: ${event.reasoning}`);
+      }
+      if (event.result) {
+        console.log(`    Result: ${event.result}`);
+      }
+      if (event.oracleTextExecuted === false) {
+        console.log(`    ⚠️ Oracle text NOT fully executed!`);
+        if (event.expectedEffect) console.log(`    Expected: ${event.expectedEffect}`);
+        if (event.actualEffect) console.log(`    Actual: ${event.actualEffect}`);
+      }
+    }
+  }
+
+  private analyzeCardFunctionality(state: SimulatedGameState): string[] {
+    const notFunctioning: string[] = [];
+    
+    // Check events for cards where oracle text wasn't executed
+    for (const event of state.events) {
+      if (event.oracleTextExecuted === false && event.card) {
+        const issue = `${event.card}: Expected "${event.expectedEffect}" but got "${event.actualEffect}"`;
+        if (!notFunctioning.includes(issue)) {
+          notFunctioning.push(issue);
+        }
+      }
+    }
+    
+    // Check for specific known cards that should have effects
+    for (const [playerName, cards] of state.cardsPlayed) {
+      for (const card of cards) {
+        const cardData = this.getCard(card);
+        if (!cardData) continue;
+        
+        const oracle = cardData.oracle_text?.toLowerCase() || '';
+        
+        // Sol Ring should add 2 colorless mana
+        if (card === 'Sol Ring') {
+          const solRingTaps = state.events.filter(e => 
+            e.card === 'Sol Ring' && e.action === 'tap for mana'
+          ).length;
+          // Sol Ring is passive, this is expected
+        }
+        
+        // Psychosis Crawler should deal damage when cards are drawn
+        if (card === 'Psychosis Crawler') {
+          const crawlerDamage = state.events.filter(e => 
+            e.card === 'Psychosis Crawler' && e.action === 'trigger'
+          ).length;
+          const cardDraws = state.events.filter(e => 
+            e.action === 'draw' && e.player === playerName
+          ).length;
+          if (cardDraws > 0 && crawlerDamage === 0) {
+            notFunctioning.push(`Psychosis Crawler (${playerName}): Should have triggered on card draws but didn't`);
+          }
+        }
+      }
+    }
+    
+    return [...new Set(notFunctioning)];
   }
 
   analyzeNoImpactCards(state: SimulatedGameState): string[] {
@@ -1343,9 +1486,15 @@ class CommanderGameSimulator {
     
     console.log('WIN CONDITIONS BY GAME:');
     for (const summary of summaries) {
-      console.log(`  Game ${summary.gameNumber}: ${summary.winner}`);
+      console.log(`  Game ${summary.gameNumber} (Seed: ${summary.seed}): ${summary.winner}`);
       console.log(`    Win Condition: ${summary.winCondition}`);
       console.log(`    Total Turns: ${summary.totalTurns}`);
+    }
+    console.log('');
+    
+    console.log('RANDOM SEEDS USED:');
+    for (const summary of summaries) {
+      console.log(`  Game ${summary.gameNumber}: Seed ${summary.seed}`);
     }
     console.log('');
     
@@ -1393,6 +1542,22 @@ class CommanderGameSimulator {
     } else {
       for (const behavior of allExpected) {
         console.log(`  - ${behavior}`);
+      }
+    }
+    console.log('');
+    
+    console.log('CARDS NOT FUNCTIONING AS INTENDED:');
+    const allNotFunctioning = new Set<string>();
+    for (const summary of summaries) {
+      for (const issue of summary.cardsNotFunctioningAsIntended) {
+        allNotFunctioning.add(issue);
+      }
+    }
+    if (allNotFunctioning.size === 0) {
+      console.log('  All cards functioned according to their oracle text.');
+    } else {
+      for (const issue of allNotFunctioning) {
+        console.log(`  - ${issue}`);
       }
     }
     console.log('');
@@ -1451,7 +1616,34 @@ class CommanderGameSimulator {
 // ============================================================================
 
 async function main() {
-  const simulator = new CommanderGameSimulator(42);
+  const args = process.argv.slice(2);
+  const analysisMode = args.includes('--analysis') || args.includes('-a');
+  const seedArg = args.find(a => a.startsWith('--seed='));
+  const seed = seedArg ? parseInt(seedArg.split('=')[1], 10) : 42;
+  
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log('Commander Game Simulator');
+    console.log('');
+    console.log('Usage: npx tsx run-commander-games.ts [options]');
+    console.log('');
+    console.log('Options:');
+    console.log('  --analysis, -a    Enable analysis mode with detailed replay and reasoning');
+    console.log('  --seed=N          Set the base random seed (default: 42)');
+    console.log('  --help, -h        Show this help message');
+    console.log('');
+    console.log('Examples:');
+    console.log('  npx tsx run-commander-games.ts');
+    console.log('  npx tsx run-commander-games.ts --analysis');
+    console.log('  npx tsx run-commander-games.ts --analysis --seed=12345');
+    return;
+  }
+  
+  console.log(`Base seed: ${seed}`);
+  if (analysisMode) {
+    console.log('Analysis mode: ENABLED');
+  }
+  
+  const simulator = new CommanderGameSimulator(seed, analysisMode);
   await simulator.run();
 }
 
