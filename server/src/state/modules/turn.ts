@@ -1549,11 +1549,34 @@ export function nextStep(ctx: GameContext) {
           }
         }
       } else {
-        // After endCombat, go to postcombatMain
-        nextPhase = "postcombatMain";
-        nextStep = "MAIN2";
-        // Clear combat state when leaving combat phase (Rule 506.4)
-        clearCombatState(ctx);
+        // After endCombat, check for extra combat phases before going to postcombatMain
+        if (hasExtraCombat(ctx)) {
+          // There's an extra combat phase pending
+          const extraCombat = consumeExtraCombat(ctx);
+          console.log(`${ts()} [nextStep] Starting extra combat phase from ${extraCombat?.source || 'Unknown'}`);
+          
+          // Go back to beginning of combat
+          nextPhase = "combat";
+          nextStep = "BEGIN_COMBAT";
+          
+          // Clear attacking/blocking state for new combat
+          const battlefield = (ctx as any).state?.battlefield || [];
+          for (const perm of battlefield) {
+            if (perm) {
+              perm.attacking = null;
+              perm.blockedBy = null;
+              perm.blocking = null;
+            }
+          }
+        } else {
+          // No extra combat, go to postcombatMain
+          nextPhase = "postcombatMain";
+          nextStep = "MAIN2";
+          // Clear combat state when leaving combat phase (Rule 506.4)
+          clearCombatState(ctx);
+          // Reset combat number for next turn
+          (ctx as any).state.combatNumber = 0;
+        }
       }
     } else if (currentPhase === "postcombatMain" || currentPhase === "main2") {
       nextPhase = "ending";
@@ -1821,6 +1844,79 @@ export function getExtraTurns(ctx: GameContext): Array<{ playerId: string; sourc
     }));
   } catch (err) {
     return [];
+  }
+}
+
+/**
+ * Add an extra combat phase to the current turn
+ * Used by cards like Aurelia, Combat Celebrant, Hellkite Charger, etc.
+ * 
+ * @param ctx - Game context
+ * @param source - Optional source description (e.g., "Aurelia, the Warleader")
+ * @param untapAttackers - Whether to untap attacking creatures (Aurelia does this)
+ */
+export function addExtraCombat(ctx: GameContext, source?: string, untapAttackers?: boolean): void {
+  try {
+    const state = (ctx as any).state;
+    if (!state) return;
+    
+    // Initialize extra combats array if needed
+    state.extraCombats = state.extraCombats || [];
+    
+    // Track which combat phase we're on for this turn
+    state.combatNumber = (state.combatNumber || 1);
+    
+    // Add the extra combat phase
+    state.extraCombats.push({
+      source: source || 'Unknown',
+      untapAttackers: untapAttackers || false,
+      createdAt: Date.now(),
+    });
+    
+    console.log(`${ts()} [addExtraCombat] Extra combat added from "${source || 'Unknown'}" (untap: ${untapAttackers})`);
+    ctx.bumpSeq();
+  } catch (err) {
+    console.warn(`${ts()} addExtraCombat failed:`, err);
+  }
+}
+
+/**
+ * Check if there are pending extra combat phases
+ */
+export function hasExtraCombat(ctx: GameContext): boolean {
+  const state = (ctx as any).state;
+  return (state?.extraCombats?.length || 0) > 0;
+}
+
+/**
+ * Consume an extra combat phase and return its details
+ */
+export function consumeExtraCombat(ctx: GameContext): { source?: string; untapAttackers?: boolean } | null {
+  try {
+    const state = (ctx as any).state;
+    if (!state?.extraCombats?.length) return null;
+    
+    const extraCombat = state.extraCombats.shift();
+    state.combatNumber = (state.combatNumber || 1) + 1;
+    
+    console.log(`${ts()} [consumeExtraCombat] Starting extra combat from "${extraCombat.source}" (combat #${state.combatNumber})`);
+    
+    // If untapAttackers is true, untap all creatures that attacked
+    if (extraCombat.untapAttackers) {
+      const battlefield = state.battlefield || [];
+      for (const perm of battlefield) {
+        if (perm && perm.attacking) {
+          perm.tapped = false;
+          console.log(`${ts()} [consumeExtraCombat] Untapped ${perm.card?.name || perm.id} for extra combat`);
+        }
+      }
+    }
+    
+    ctx.bumpSeq();
+    return extraCombat;
+  } catch (err) {
+    console.warn(`${ts()} consumeExtraCombat failed:`, err);
+    return null;
   }
 }
 

@@ -516,7 +516,9 @@ export function App() {
     const step = String((safeView as any).step || "").toLowerCase();
     const isYourTurn = safeView.turnPlayer === you;
     const stackLength = (safeView as any).stack?.length || 0;
-    const turnId = `${safeView.turn}-${step}`; // Unique ID for this combat step
+    // Include combatNumber to handle multiple combat phases per turn (Aurelia, Combat Celebrant, etc.)
+    const combatNumber = (safeView as any).combatNumber || 1;
+    const turnId = `${safeView.turn}-${combatNumber}-${step}`; // Unique ID for this combat step
     
     // Only show attacker modal on your turn during declare attackers step
     if (step === "declareattackers" || step === "declare_attackers") {

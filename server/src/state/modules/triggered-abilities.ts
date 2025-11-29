@@ -54,7 +54,9 @@ export interface TriggeredAbility {
     | 'myriad'
     | 'exalted'
     | 'upkeep_create_copy'  // Progenitor Mimic style - create token copy at upkeep
-    | 'end_step_resource';  // Kynaios & Tiro style - draw/land resource at end step
+    | 'end_step_resource'   // Kynaios & Tiro style - draw/land resource at end step
+    | 'cast_creature_type'  // Merrow Reejerey style - trigger when casting a spell of a type
+    | 'tap_untap_target';   // Tap or untap target permanent
   description: string;
   effect?: string;
   value?: number; // For Annihilator N, etc.
@@ -64,6 +66,7 @@ export interface TriggeredAbility {
   requiresTarget?: boolean;
   targetType?: string;
   requiresChoice?: boolean; // For triggers where player must choose
+  creatureType?: string; // For "whenever you cast a [type] spell" triggers
 }
 
 /**
@@ -108,6 +111,297 @@ const KNOWN_ATTACK_TRIGGERS: Record<string, { effect: string; value?: number; pu
   "quicksilver amulet": { effect: "Put creature from hand onto battlefield" },
   "descendants' path": { effect: "Reveal top card, put creature onto battlefield if shares type" },
   "belbe's portal": { effect: "Put creature of chosen type from hand" },
+};
+
+/**
+ * Known cards with "untap lands" or "untap permanents" triggers
+ * These trigger on attack or combat damage
+ */
+const KNOWN_UNTAP_TRIGGERS: Record<string, { 
+  effect: string; 
+  triggerOn: 'attack' | 'combat_damage' | 'damage_to_player';
+  untapType: 'lands' | 'all' | 'creatures';
+  controller: 'you' | 'opponent';
+}> = {
+  // Attack triggers - untap when creature attacks
+  "bear umbra": { 
+    effect: "Untap all lands you control", 
+    triggerOn: 'attack',
+    untapType: 'lands',
+    controller: 'you',
+  },
+  "nature's will": { 
+    effect: "Untap all lands you control, tap all lands defending player controls", 
+    triggerOn: 'combat_damage',
+    untapType: 'lands',
+    controller: 'you',
+  },
+  "sword of feast and famine": { 
+    effect: "Untap all lands you control, target player discards a card", 
+    triggerOn: 'combat_damage',
+    untapType: 'lands',
+    controller: 'you',
+  },
+  "aggravated assault": { 
+    effect: "Pay {3}{R}{R} for additional combat phase, untap all creatures", 
+    triggerOn: 'attack', // Actually an activated ability, but included for reference
+    untapType: 'creatures',
+    controller: 'you',
+  },
+  "savage ventmaw": { 
+    effect: "Add {R}{R}{R}{G}{G}{G} when attacking", 
+    triggerOn: 'attack',
+    untapType: 'lands', // Not exactly untap, but mana production
+    controller: 'you',
+  },
+  "druids' repository": { 
+    effect: "Put a charge counter when a creature attacks, remove to add mana", 
+    triggerOn: 'attack',
+    untapType: 'lands',
+    controller: 'you',
+  },
+  "sword of hearth and home": { 
+    effect: "Search for a basic land, put onto battlefield", 
+    triggerOn: 'combat_damage',
+    untapType: 'lands',
+    controller: 'you',
+  },
+  "neheb, dreadhorde champion": { 
+    effect: "Discard and draw, add {R} for each discarded", 
+    triggerOn: 'combat_damage',
+    untapType: 'lands',
+    controller: 'you',
+  },
+};
+
+/**
+ * Known cards with "whenever you cast a [type] spell" triggers
+ * Merrow Reejerey, Goblin Warchief, etc.
+ */
+const KNOWN_CAST_TYPE_TRIGGERS: Record<string, {
+  effect: string;
+  creatureType: string;
+  tapOrUntap: 'tap' | 'untap' | 'choice';
+  targetType: 'permanent' | 'creature' | 'land' | 'artifact';
+}> = {
+  "merrow reejerey": {
+    effect: "Tap or untap target permanent",
+    creatureType: "Merfolk",
+    tapOrUntap: 'choice',
+    targetType: 'permanent',
+  },
+  "lullmage mentor": {
+    effect: "Tap 7 untapped Merfolk, counter target spell",
+    creatureType: "Merfolk",
+    tapOrUntap: 'tap',
+    targetType: 'creature',
+  },
+  "goblin warchief": {
+    effect: "Goblin spells cost {1} less, Goblins have haste",
+    creatureType: "Goblin",
+    tapOrUntap: 'untap',
+    targetType: 'creature',
+  },
+  "elvish archdruid": {
+    effect: "Add {G} for each Elf you control",
+    creatureType: "Elf",
+    tapOrUntap: 'untap',
+    targetType: 'creature',
+  },
+  "bloodline pretender": {
+    effect: "Put a +1/+1 counter when you cast a creature of chosen type",
+    creatureType: "chosen",
+    tapOrUntap: 'untap',
+    targetType: 'creature',
+  },
+};
+
+/**
+ * Known cards with activated tap/untap abilities
+ * Dawnglare Invoker, Opposition, etc.
+ */
+const KNOWN_TAP_UNTAP_ABILITIES: Record<string, {
+  effect: string;
+  cost: string;
+  targetType: 'permanent' | 'creature' | 'land' | 'all_creatures';
+  targetController?: 'any' | 'opponent' | 'you';
+  tapOrUntap: 'tap' | 'untap';
+}> = {
+  "dawnglare invoker": {
+    effect: "Tap all creatures target player controls",
+    cost: "{8}",
+    targetType: 'all_creatures',
+    targetController: 'any',
+    tapOrUntap: 'tap',
+  },
+  "opposition": {
+    effect: "Tap target artifact, creature, or land",
+    cost: "Tap an untapped creature you control",
+    targetType: 'permanent',
+    targetController: 'any',
+    tapOrUntap: 'tap',
+  },
+  "citanul hierophants": {
+    effect: "Creatures you control have 'T: Add {G}'",
+    cost: "{T}",
+    targetType: 'creature',
+    targetController: 'you',
+    tapOrUntap: 'tap',
+  },
+  "cryptic command": {
+    effect: "Tap all creatures your opponents control",
+    cost: "{1}{U}{U}{U}",
+    targetType: 'all_creatures',
+    targetController: 'opponent',
+    tapOrUntap: 'tap',
+  },
+  "sleep": {
+    effect: "Tap all creatures target player controls, they don't untap",
+    cost: "{2}{U}{U}",
+    targetType: 'all_creatures',
+    targetController: 'any',
+    tapOrUntap: 'tap',
+  },
+  "icy manipulator": {
+    effect: "Tap target artifact, creature, or land",
+    cost: "{1}, {T}",
+    targetType: 'permanent',
+    targetController: 'any',
+    tapOrUntap: 'tap',
+  },
+  "puppet strings": {
+    effect: "Tap or untap target creature",
+    cost: "{2}, {T}",
+    targetType: 'creature',
+    targetController: 'any',
+    tapOrUntap: 'tap', // Can be either
+  },
+  "aphetto alchemist": {
+    effect: "Untap target artifact or creature",
+    cost: "{T}",
+    targetType: 'permanent',
+    targetController: 'any',
+    tapOrUntap: 'untap',
+  },
+  "kiora's follower": {
+    effect: "Untap target permanent",
+    cost: "{T}",
+    targetType: 'permanent',
+    targetController: 'any',
+    tapOrUntap: 'untap',
+  },
+  "vizier of tumbling sands": {
+    effect: "Untap target permanent",
+    cost: "{T}",
+    targetType: 'permanent',
+    targetController: 'any',
+    tapOrUntap: 'untap',
+  },
+  "seeker of skybreak": {
+    effect: "Untap target creature",
+    cost: "{T}",
+    targetType: 'creature',
+    targetController: 'any',
+    tapOrUntap: 'untap',
+  },
+  "fatestitcher": {
+    effect: "Tap or untap target permanent",
+    cost: "{T}",
+    targetType: 'permanent',
+    targetController: 'any',
+    tapOrUntap: 'tap', // Can be either
+  },
+  "myr galvanizer": {
+    effect: "Untap each other Myr you control",
+    cost: "{1}, {T}",
+    targetType: 'creature',
+    targetController: 'you',
+    tapOrUntap: 'untap',
+  },
+  "intruder alarm": {
+    effect: "Untap all creatures when a creature enters",
+    cost: "Trigger",
+    targetType: 'all_creatures',
+    targetController: 'any',
+    tapOrUntap: 'untap',
+  },
+  "awakening": {
+    effect: "Untap all creatures and lands during each player's upkeep",
+    cost: "Trigger",
+    targetType: 'permanent',
+    targetController: 'any',
+    tapOrUntap: 'untap',
+  },
+  "seedborn muse": {
+    effect: "Untap all permanents you control during each other player's untap step",
+    cost: "Trigger",
+    targetType: 'permanent',
+    targetController: 'you',
+    tapOrUntap: 'untap',
+  },
+  "prophet of kruphix": {
+    effect: "Untap all creatures and lands you control during each other player's untap step",
+    cost: "Trigger",
+    targetType: 'permanent',
+    targetController: 'you',
+    tapOrUntap: 'untap',
+  },
+  "murkfiend liege": {
+    effect: "Untap all green and/or blue creatures you control during each other player's untap step",
+    cost: "Trigger",
+    targetType: 'creature',
+    targetController: 'you',
+    tapOrUntap: 'untap',
+  },
+  "quest for renewal": {
+    effect: "Untap all creatures you control during each other player's untap step",
+    cost: "Trigger (4+ counters)",
+    targetType: 'creature',
+    targetController: 'you',
+    tapOrUntap: 'untap',
+  },
+  "pemmin's aura": {
+    effect: "Untap enchanted creature",
+    cost: "{U}",
+    targetType: 'creature',
+    targetController: 'you',
+    tapOrUntap: 'untap',
+  },
+  "freed from the real": {
+    effect: "Untap enchanted creature",
+    cost: "{U}",
+    targetType: 'creature',
+    targetController: 'you',
+    tapOrUntap: 'untap',
+  },
+  "umbral mantle": {
+    effect: "Untap equipped creature, +2/+2",
+    cost: "{3}",
+    targetType: 'creature',
+    targetController: 'you',
+    tapOrUntap: 'untap',
+  },
+  "sword of the paruns": {
+    effect: "Untap equipped creature",
+    cost: "{3}",
+    targetType: 'creature',
+    targetController: 'you',
+    tapOrUntap: 'untap',
+  },
+  "staff of domination": {
+    effect: "Untap target creature",
+    cost: "{3}, {T}",
+    targetType: 'creature',
+    targetController: 'any',
+    tapOrUntap: 'untap',
+  },
+  "thousand-year elixir": {
+    effect: "Untap target creature",
+    cost: "{1}, {T}",
+    targetType: 'creature',
+    targetController: 'you',
+    tapOrUntap: 'untap',
+  },
 };
 
 /**
@@ -649,6 +943,208 @@ export function hasEvasionAbility(card: any): { flying: boolean; menace: boolean
     intimidate: checkKeyword("Intimidate"),
     skulk: checkKeyword("Skulk"),
   };
+}
+
+/**
+ * Detect untap triggers from permanents on the battlefield
+ * Used for Bear Umbra, Nature's Will, Sword of Feast and Famine, etc.
+ */
+export interface UntapTrigger {
+  permanentId: string;
+  cardName: string;
+  controllerId: string;
+  triggerOn: 'attack' | 'combat_damage' | 'damage_to_player';
+  untapType: 'lands' | 'all' | 'creatures';
+  effect: string;
+}
+
+export function detectUntapTriggers(card: any, permanent: any): UntapTrigger[] {
+  const triggers: UntapTrigger[] = [];
+  const oracleText = (card?.oracle_text || "").toLowerCase();
+  const cardName = card?.name || "Unknown";
+  const lowerName = cardName.toLowerCase();
+  const permanentId = permanent?.id || "";
+  const controllerId = permanent?.controller || "";
+  
+  // Check known untap trigger cards
+  for (const [knownName, info] of Object.entries(KNOWN_UNTAP_TRIGGERS)) {
+    if (lowerName.includes(knownName)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerOn: info.triggerOn,
+        untapType: info.untapType,
+        effect: info.effect,
+      });
+    }
+  }
+  
+  // Generic detection: "Whenever enchanted creature attacks, untap all lands you control"
+  const attackUntapLandsMatch = oracleText.match(/whenever (?:enchanted creature|equipped creature|~) attacks,?\s*(?:[^.]*)?untap all lands you control/i);
+  if (attackUntapLandsMatch && !triggers.some(t => t.triggerOn === 'attack' && t.untapType === 'lands')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerOn: 'attack',
+      untapType: 'lands',
+      effect: 'Untap all lands you control',
+    });
+  }
+  
+  // Generic detection: "Whenever ~ deals combat damage to a player, untap all lands you control"
+  const combatDamageUntapMatch = oracleText.match(/whenever (?:~|enchanted creature|equipped creature) deals combat damage to (?:a player|an opponent),?\s*(?:[^.]*)?untap all lands you control/i);
+  if (combatDamageUntapMatch && !triggers.some(t => t.triggerOn === 'combat_damage' && t.untapType === 'lands')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerOn: 'combat_damage',
+      untapType: 'lands',
+      effect: 'Untap all lands you control',
+    });
+  }
+  
+  return triggers;
+}
+
+/**
+ * Get all untap triggers that should fire when a creature attacks
+ */
+export function getAttackUntapTriggers(
+  ctx: GameContext,
+  attackingCreature: any,
+  attackingController: string
+): UntapTrigger[] {
+  const triggers: UntapTrigger[] = [];
+  const battlefield = ctx.state?.battlefield || [];
+  
+  // Check the attacking creature itself
+  const selfTriggers = detectUntapTriggers(attackingCreature.card, attackingCreature);
+  for (const trigger of selfTriggers) {
+    if (trigger.triggerOn === 'attack') {
+      triggers.push(trigger);
+    }
+  }
+  
+  // Check auras/equipment attached to the attacking creature
+  for (const permanent of battlefield) {
+    if (!permanent || permanent.controller !== attackingController) continue;
+    
+    const typeLine = (permanent.card?.type_line || '').toLowerCase();
+    const isAura = typeLine.includes('aura');
+    const isEquipment = typeLine.includes('equipment');
+    
+    if (isAura || isEquipment) {
+      // Check if this is attached to the attacking creature
+      const attachedTo = permanent.attachedTo;
+      if (attachedTo === attackingCreature.id) {
+        const attachmentTriggers = detectUntapTriggers(permanent.card, permanent);
+        for (const trigger of attachmentTriggers) {
+          if (trigger.triggerOn === 'attack') {
+            triggers.push(trigger);
+          }
+        }
+      }
+    }
+  }
+  
+  return triggers;
+}
+
+/**
+ * Get all untap triggers that should fire when a creature deals combat damage to a player
+ */
+export function getCombatDamageUntapTriggers(
+  ctx: GameContext,
+  attackingCreature: any,
+  attackingController: string
+): UntapTrigger[] {
+  const triggers: UntapTrigger[] = [];
+  const battlefield = ctx.state?.battlefield || [];
+  
+  // Check the attacking creature itself
+  const selfTriggers = detectUntapTriggers(attackingCreature.card, attackingCreature);
+  for (const trigger of selfTriggers) {
+    if (trigger.triggerOn === 'combat_damage' || trigger.triggerOn === 'damage_to_player') {
+      triggers.push(trigger);
+    }
+  }
+  
+  // Check auras/equipment attached to the attacking creature
+  for (const permanent of battlefield) {
+    if (!permanent || permanent.controller !== attackingController) continue;
+    
+    const typeLine = (permanent.card?.type_line || '').toLowerCase();
+    const isAura = typeLine.includes('aura');
+    const isEquipment = typeLine.includes('equipment');
+    
+    if (isAura || isEquipment) {
+      const attachedTo = permanent.attachedTo;
+      if (attachedTo === attackingCreature.id) {
+        const attachmentTriggers = detectUntapTriggers(permanent.card, permanent);
+        for (const trigger of attachmentTriggers) {
+          if (trigger.triggerOn === 'combat_damage' || trigger.triggerOn === 'damage_to_player') {
+            triggers.push(trigger);
+          }
+        }
+      }
+    }
+  }
+  
+  return triggers;
+}
+
+/**
+ * Execute an untap trigger effect
+ */
+export function executeUntapTrigger(
+  ctx: GameContext,
+  trigger: UntapTrigger
+): void {
+  const battlefield = ctx.state?.battlefield || [];
+  
+  console.log(`[executeUntapTrigger] ${trigger.cardName}: ${trigger.effect}`);
+  
+  switch (trigger.untapType) {
+    case 'lands':
+      // Untap all lands the controller owns
+      for (const permanent of battlefield) {
+        if (!permanent || permanent.controller !== trigger.controllerId) continue;
+        const typeLine = (permanent.card?.type_line || '').toLowerCase();
+        if (typeLine.includes('land') && permanent.tapped) {
+          permanent.tapped = false;
+          console.log(`[executeUntapTrigger] Untapped ${permanent.card?.name || permanent.id}`);
+        }
+      }
+      break;
+      
+    case 'creatures':
+      // Untap all creatures the controller owns
+      for (const permanent of battlefield) {
+        if (!permanent || permanent.controller !== trigger.controllerId) continue;
+        const typeLine = (permanent.card?.type_line || '').toLowerCase();
+        if (typeLine.includes('creature') && permanent.tapped) {
+          permanent.tapped = false;
+          console.log(`[executeUntapTrigger] Untapped ${permanent.card?.name || permanent.id}`);
+        }
+      }
+      break;
+      
+    case 'all':
+      // Untap all permanents the controller owns
+      for (const permanent of battlefield) {
+        if (!permanent || permanent.controller !== trigger.controllerId) continue;
+        if (permanent.tapped) {
+          permanent.tapped = false;
+          console.log(`[executeUntapTrigger] Untapped ${permanent.card?.name || permanent.id}`);
+        }
+      }
+      break;
+  }
+  
+  ctx.bumpSeq();
 }
 
 /**
