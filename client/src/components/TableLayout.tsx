@@ -158,6 +158,9 @@ export function TableLayout(props: {
   zones?: Record<PlayerID, PlayerZones>;
   commandZone?: Record<PlayerID, CommanderInfo | undefined>;
   format?: string;
+  life?: Record<PlayerID, number>; // Life totals for each player
+  poisonCounters?: Record<PlayerID, number>; // Poison counters for each player
+  experienceCounters?: Record<PlayerID, number>; // Experience counters for each player
   showYourHandBelow?: boolean;
   onReorderHand?: (order: string[]) => void;
   onShuffleHand?: () => void;
@@ -216,7 +219,7 @@ export function TableLayout(props: {
   const {
     players, permanentsByPlayer, imagePref, isYouPlayer,
     splitLands = true, enableReorderForYou = false,
-    you, zones, commandZone, format, showYourHandBelow = true,
+    you, zones, commandZone, format, life, poisonCounters, experienceCounters, showYourHandBelow = true,
     onRemove, onCounter, onBulkCounter,
     highlightPermTargets, selectedPermTargets, onPermanentClick,
     highlightPlayerTargets, selectedPlayerTargets, onPlayerClick,
@@ -741,15 +744,13 @@ export function TableLayout(props: {
                 const yourHand: HandCard[] = isYouThis ? playerHandCards : [];
 
                 const lifeVal =
-                  (props as any).life?.[pb.player.id] ??
-                  (props as any).state?.startingLife ??
+                  life?.[pb.player.id] ??
                   40;
-                const poisonVal = (props as any).poisonCounters?.[pb.player.id] ?? 0;
-                const xpVal =
-                  (props as any).experienceCounters?.[pb.player.id] ?? 0;
+                const poisonVal = poisonCounters?.[pb.player.id] ?? 0;
+                const xpVal = experienceCounters?.[pb.player.id] ?? 0;
                 const energyVal =
-                  (props as any).energyCounters?.[pb.player.id] ??
-                  (props as any).energy?.[pb.player.id] ??
+                  energyCounters?.[pb.player.id] ??
+                  energy?.[pb.player.id] ??
                   0;
 
                 return (

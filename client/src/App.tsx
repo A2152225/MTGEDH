@@ -2409,6 +2409,10 @@ export function App() {
               zones={safeView.zones}
               commandZone={safeView.commandZone as any}
               format={String(safeView.format || "")}
+              life={safeView.life}
+              poisonCounters={(safeView as any).poisonCounters}
+              experienceCounters={(safeView as any).experienceCounters}
+              energyCounters={(safeView as any).energyCounters}
               showYourHandBelow
               onReorderHand={(order) =>
                 safeView &&

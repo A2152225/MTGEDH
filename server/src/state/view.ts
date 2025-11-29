@@ -102,6 +102,9 @@ export function viewFor(ctx: GameContext, viewer?: PlayerID, spectator = false):
   if ((ctx as any).experience) {
     out.experienceCounters = { ...(ctx as any).experience };
   }
+  if ((ctx as any).energy) {
+    out.energyCounters = { ...(ctx as any).energy };
+  }
 
   if (!Array.isArray(out.players) || out.players.length === 0) {
     const participants = (ctx as any).participantsList || [];
