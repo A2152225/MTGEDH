@@ -79,14 +79,16 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
 
       if (payLife) {
         // Pay 2 life to enter untapped
-        const currentLife = (game.state as any).life?.[playerId] || 
-                           (game as any).life?.[playerId] || 40;
+        // Ensure life object exists before accessing
+        if (!(game.state as any).life) {
+          (game.state as any).life = {};
+        }
+        const currentLife = (game.state as any).life[playerId] ?? 
+                           (game as any).life?.[playerId] ?? 40;
         const newLife = currentLife - 2;
         
         // Update life total in all locations
-        if ((game.state as any).life) {
-          (game.state as any).life[playerId] = newLife;
-        }
+        (game.state as any).life[playerId] = newLife;
         if ((game as any).life) {
           (game as any).life[playerId] = newLife;
         }

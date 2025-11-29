@@ -1209,25 +1209,41 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Check if it's a true fetch (pay 1 life)
       const isTrueFetch = oracleText.includes("pay 1 life");
       
-      // Pay life cost if required
+      // Pay life cost if required (costs are paid immediately when activating)
       if (isTrueFetch) {
-        const life = (game.state as any)?.life?.[pid];
-        if (typeof life === "number") {
-          (game.state as any).life[pid] = life - 1;
-          io.to(gameId).emit("chat", {
-            id: `m_${Date.now()}`,
-            gameId,
-            from: "system",
-            message: `${getPlayerName(game, pid)} paid 1 life (${life} → ${life - 1}).`,
-            ts: Date.now(),
-          });
+        // Ensure life object exists
+        if (!(game.state as any).life) {
+          (game.state as any).life = {};
         }
+        const life = (game.state as any).life[pid] ?? (game as any).life?.[pid] ?? 40;
+        const newLife = life - 1;
+        
+        // Update life in all locations
+        (game.state as any).life[pid] = newLife;
+        if ((game as any).life) {
+          (game as any).life[pid] = newLife;
+        }
+        
+        // Also update player object for UI sync
+        const players = game.state?.players || [];
+        const player = players.find((p: any) => p.id === pid);
+        if (player) {
+          (player as any).life = newLife;
+        }
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, pid)} paid 1 life (${life} → ${newLife}).`,
+          ts: Date.now(),
+        });
       }
       
-      // Tap the permanent (part of cost)
+      // Tap the permanent (part of cost - paid immediately)
       (permanent as any).tapped = true;
       
-      // Remove from battlefield (sacrifice)
+      // Remove from battlefield (sacrifice - part of cost, paid immediately)
       battlefield.splice(permIndex, 1);
       
       // Move to graveyard
@@ -1241,7 +1257,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Parse what land types this fetch can find
       const filter = parseSearchCriteria(oracleText);
       
-      // Build description for the search prompt
+      // Build description for the ability
       let searchDescription = "Search your library for a land card";
       if (filter.subtypes && filter.subtypes.length > 0) {
         const landTypes = filter.subtypes.filter(s => !s.includes("basic")).map(s => s.charAt(0).toUpperCase() + s.slice(1));
@@ -1253,82 +1269,44 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         }
       }
       
+      // Put the fetch land ability on the stack (per MTG rules, activated abilities use the stack)
+      game.state.stack = game.state.stack || [];
+      const abilityStackId = `ability_fetch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      game.state.stack.push({
+        id: abilityStackId,
+        type: 'ability',
+        controller: pid,
+        source: permanentId,
+        sourceName: cardName,
+        description: `${searchDescription}, put it onto the battlefield, then shuffle`,
+        abilityType: 'fetch-land',
+        // Store search parameters for when the ability resolves
+        searchParams: {
+          filter,
+          searchDescription,
+          isTrueFetch,
+          cardImageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+        },
+      } as any);
+      
       if (typeof game.bumpSeq === "function") {
         game.bumpSeq();
       }
       
-      appendEvent(gameId, (game as any).seq ?? 0, "activateFetchland", { playerId: pid, permanentId, abilityId, cardName });
+      appendEvent(gameId, (game as any).seq ?? 0, "activateFetchland", { 
+        playerId: pid, 
+        permanentId, 
+        abilityId, 
+        cardName,
+        stackId: abilityStackId,
+      });
       
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `${getPlayerName(game, pid)} activated ${cardName}${isTrueFetch ? " (paid 1 life)" : ""} and sacrificed it.`,
+        message: `${getPlayerName(game, pid)} activated ${cardName}${isTrueFetch ? " (paid 1 life)" : ""}, sacrificed it. Ability on the stack.`,
         ts: Date.now(),
-      });
-      
-      // Get full library for search
-      const fullLibrary = game.searchLibrary ? game.searchLibrary(pid, "", 1000) : [];
-      
-      // Check for search restrictions (Aven Mindcensor, Stranglehold, etc.)
-      const searchCheck = checkLibrarySearchRestrictions(game, pid);
-      
-      // If search is prevented, the land was already sacrificed - still shuffle but fail search
-      if (!searchCheck.canSearch) {
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, pid)}'s search was prevented by ${searchCheck.reason}. Library shuffled.`,
-          ts: Date.now(),
-        });
-        
-        // Still shuffle the library
-        if (typeof game.shuffleLibrary === "function") {
-          game.shuffleLibrary(pid);
-        }
-        
-        broadcastGame(io, game, gameId);
-        return;
-      }
-      
-      // Apply Aven Mindcensor effect if present
-      const searchableCards = getSearchableLibraryCards(fullLibrary, searchCheck.limitToTop);
-      
-      // If there are trigger effects (Ob Nixilis), notify
-      if (searchCheck.triggerEffects.length > 0) {
-        for (const trigger of searchCheck.triggerEffects) {
-          io.to(gameId).emit("chat", {
-            id: `m_${Date.now()}`,
-            gameId,
-            from: "system",
-            message: `${trigger.cardName} triggers: ${trigger.effect}`,
-            ts: Date.now(),
-          });
-        }
-      }
-      
-      // Build description with restriction info
-      let finalDescription = searchDescription;
-      if (searchCheck.limitToTop) {
-        finalDescription = `${searchDescription} (Aven Mindcensor: top ${searchCheck.limitToTop} cards only)`;
-      }
-      
-      // Send library search request to the player
-      socket.emit("librarySearchRequest", {
-        gameId,
-        cards: searchableCards,
-        title: `${cardName}`,
-        description: finalDescription,
-        filter,
-        maxSelections: 1,
-        moveTo: "battlefield",
-        shuffleAfter: true,
-        searchRestrictions: {
-          limitedToTop: searchCheck.limitToTop,
-          paymentRequired: searchCheck.paymentRequired,
-          triggerEffects: searchCheck.triggerEffects,
-        },
       });
       
       broadcastGame(io, game, gameId);

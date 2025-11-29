@@ -214,6 +214,55 @@ export function resolveTopOfStack(ctx: GameContext) {
   const controller = item.controller as PlayerID;
   const targets = (item as any).targets || [];
   
+  // Handle activated abilities (like fetch lands)
+  if ((item as any).type === 'ability') {
+    const abilityType = (item as any).abilityType;
+    const sourceName = (item as any).sourceName || 'Unknown';
+    
+    // Handle fetch land ability resolution
+    if (abilityType === 'fetch-land') {
+      console.log(`[resolveTopOfStack] Resolving fetch land ability from ${sourceName} for ${controller}`);
+      
+      // Set up pending library search - the socket layer will send the search prompt
+      const searchParams = (item as any).searchParams || {};
+      (state as any).pendingLibrarySearch = (state as any).pendingLibrarySearch || {};
+      (state as any).pendingLibrarySearch[controller] = {
+        type: 'fetch-land',
+        searchFor: searchParams.searchDescription || 'a land card',
+        destination: 'battlefield',
+        // Standard fetch lands (Polluted Delta, Flooded Strand, etc.) put lands onto battlefield untapped.
+        // Only lands like Terramorphic Expanse or Evolving Wilds specify "enters the battlefield tapped".
+        // The search prompt handler can override this based on the specific card's oracle text.
+        tapped: false,
+        optional: false,
+        source: sourceName,
+        shuffleAfter: true,
+        filter: searchParams.filter || { types: ['land'] },
+        cardImageUrl: searchParams.cardImageUrl,
+      };
+      
+      console.log(`[resolveTopOfStack] Fetch land ${sourceName}: ${controller} may search for ${searchParams.searchDescription || 'a land card'}`);
+      bumpSeq();
+      return;
+    }
+    
+    // Handle other ability types (could be added here in the future)
+    console.log(`[resolveTopOfStack] Resolved ability from ${sourceName} for ${controller}`);
+    bumpSeq();
+    return;
+  }
+  
+  // Handle triggered abilities
+  if ((item as any).type === 'triggered_ability') {
+    const sourceName = (item as any).sourceName || 'Unknown';
+    const description = (item as any).description || '';
+    console.log(`[resolveTopOfStack] Triggered ability from ${sourceName} resolved: ${description}`);
+    // Most triggered abilities don't need special handling here - they're processed when added to stack
+    // Some complex triggers may need handling in the future
+    bumpSeq();
+    return;
+  }
+  
   if (card && isPermanentTypeLine(card.type_line)) {
     // Permanent spell resolves - move to battlefield
     const tl = (card.type_line || "").toLowerCase();
