@@ -404,6 +404,22 @@ export async function handleAIGameFlow(
     return;
   }
   
+  // Check if this AI player has lost the game
+  const players = game.state.players || [];
+  const aiPlayer = players.find((p: any) => p.id === playerId);
+  if (aiPlayer?.hasLost) {
+    console.info('[AI] handleAIGameFlow: AI player has lost the game, skipping:', { gameId, playerId });
+    return;
+  }
+  
+  // Check if this AI player is in the inactive set
+  const ctx = (game as any).ctx || game;
+  const inactiveSet = ctx.inactive instanceof Set ? ctx.inactive : new Set();
+  if (inactiveSet.has(playerId)) {
+    console.info('[AI] handleAIGameFlow: AI player is inactive, skipping:', { gameId, playerId });
+    return;
+  }
+  
   const phaseStr = String(game.state.phase || '').toUpperCase();
   const stepStr = String((game.state as any).step || '').toUpperCase();
   const commanderInfo = game.state.commandZone?.[playerId];
@@ -1061,6 +1077,22 @@ export async function handleAIPriority(
   const game = ensureGame(gameId);
   if (!game || !game.state) {
     console.warn('[AI] handleAIPriority: game not found', { gameId, playerId });
+    return;
+  }
+  
+  // Check if this AI player has lost the game
+  const players = game.state.players || [];
+  const aiPlayer = players.find((p: any) => p.id === playerId);
+  if (aiPlayer?.hasLost) {
+    console.info('[AI] AI player has lost the game, skipping priority handling:', { gameId, playerId });
+    return;
+  }
+  
+  // Check if this AI player is in the inactive set
+  const ctx = (game as any).ctx || game;
+  const inactiveSet = ctx.inactive instanceof Set ? ctx.inactive : new Set();
+  if (inactiveSet.has(playerId)) {
+    console.info('[AI] AI player is inactive, skipping priority handling:', { gameId, playerId });
     return;
   }
   
