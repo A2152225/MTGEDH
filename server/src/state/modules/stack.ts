@@ -45,7 +45,7 @@ function detectTutorSpell(oracleText: string): {
   let optional = false;
   
   // Detect what type of card to search for
-  const forMatch = text.match(/search your library for (?:a|an|up to \w+) ([^,\.]+)/i);
+  const forMatch = text.match(/search your library for (?:a|an|up to \w+) ([^,.]+)/i);
   if (forMatch) {
     searchCriteria = forMatch[1].trim();
   }

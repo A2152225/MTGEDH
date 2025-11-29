@@ -288,24 +288,21 @@ function syncLifeAndCheckDefeat(ctx: GameContext): string[] {
     if (!state) return defeatedPlayers;
     
     const players = state.players || [];
-    const life = state.life || {};
+    const life = state.life = state.life || {};
     const startingLife = state.startingLife || 40;
     
-    // Sync life from state.life to player objects
+    // state.life is the authoritative source for life totals
+    // Player objects in state.players are synchronized from state.life
     for (const player of players) {
       if (!player || !player.id) continue;
       
-      // If life exists in state.life, use that as authoritative
-      if (life[player.id] !== undefined) {
-        player.life = life[player.id];
-      } else if (player.life === undefined) {
-        // Initialize life if not set
-        player.life = startingLife;
-        life[player.id] = startingLife;
-      } else {
-        // Sync from player object to state.life
-        life[player.id] = player.life;
+      // Initialize life in state.life if not present
+      if (life[player.id] === undefined) {
+        life[player.id] = player.life ?? startingLife;
       }
+      
+      // Always sync player.life FROM state.life (single source of truth)
+      player.life = life[player.id];
       
       // Check for player defeat (Rule 704.5a: Life <= 0)
       if (player.life <= 0 && !player.hasLost) {
@@ -321,9 +318,6 @@ function syncLifeAndCheckDefeat(ctx: GameContext): string[] {
         (ctx as any).inactive.add(player.id);
       }
     }
-    
-    // Update state.life
-    state.life = life;
     
   } catch (err) {
     console.warn(`${ts()} syncLifeAndCheckDefeat failed:`, err);

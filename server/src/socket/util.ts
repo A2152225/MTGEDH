@@ -704,6 +704,9 @@ function handlePendingLibrarySearch(io: Server, game: any, gameId: string): void
     // Get the socket map for this game
     const socketsByPlayer: Map<string, any> = (game as any).participantSockets || new Map();
     
+    // Maximum number of cards to search when looking through library
+    const MAX_LIBRARY_SEARCH_RESULTS = 1000;
+    
     for (const [playerId, searchInfo] of Object.entries(pending)) {
       if (!searchInfo) continue;
       
@@ -712,7 +715,7 @@ function handlePendingLibrarySearch(io: Server, game: any, gameId: string): void
       // Get the player's library for searching
       let library: any[] = [];
       if (typeof game.searchLibrary === 'function') {
-        library = game.searchLibrary(playerId, '', 1000);
+        library = game.searchLibrary(playerId, '', MAX_LIBRARY_SEARCH_RESULTS);
       } else {
         library = ((game as any).libraries?.get(playerId)) || [];
       }

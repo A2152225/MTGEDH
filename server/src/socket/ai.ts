@@ -2672,9 +2672,61 @@ async function handlePendingLibrarySearchAfterResolution(
         }
         
         if (validCards.length > 0) {
-          // Select the highest CMC card as a simple heuristic
-          validCards.sort((a: any, b: any) => (b.cmc || 0) - (a.cmc || 0));
-          const selectedCard = validCards[0];
+          // AI card selection heuristic:
+          // 1. For lands (e.g., fetch lands): prefer cards that produce multiple colors
+          // 2. For creatures: consider power/toughness and keywords
+          // 3. For other cards: use CMC as proxy for card quality
+          let selectedCard = validCards[0];
+          
+          const isLandSearch = searchFor.includes('land');
+          
+          if (isLandSearch) {
+            // For land searches, prefer duals and lands that produce more colors
+            validCards.sort((a: any, b: any) => {
+              const aText = (a.oracle_text || '').toLowerCase();
+              const bText = (b.oracle_text || '').toLowerCase();
+              
+              // Count number of mana symbols in oracle text
+              const aManaTypes = (aText.match(/add \{[wubrgc]\}/gi) || []).length;
+              const bManaTypes = (bText.match(/add \{[wubrgc]\}/gi) || []).length;
+              
+              // Prefer multi-color producing lands
+              if (aManaTypes !== bManaTypes) return bManaTypes - aManaTypes;
+              
+              // Prefer lands that don't enter tapped
+              const aEntersTapped = aText.includes('enters the battlefield tapped');
+              const bEntersTapped = bText.includes('enters the battlefield tapped');
+              if (aEntersTapped !== bEntersTapped) return aEntersTapped ? 1 : -1;
+              
+              return 0;
+            });
+          } else {
+            // For non-lands, prefer cards with higher CMC (generally more impactful)
+            // but also consider power/toughness for creatures
+            validCards.sort((a: any, b: any) => {
+              const aCmc = a.cmc || 0;
+              const bCmc = b.cmc || 0;
+              
+              // For creatures, factor in power+toughness
+              const aTypeLine = (a.type_line || '').toLowerCase();
+              const bTypeLine = (b.type_line || '').toLowerCase();
+              
+              if (aTypeLine.includes('creature') && bTypeLine.includes('creature')) {
+                const aPower = parseInt(a.power || '0', 10);
+                const aToughness = parseInt(a.toughness || '0', 10);
+                const bPower = parseInt(b.power || '0', 10);
+                const bToughness = parseInt(b.toughness || '0', 10);
+                
+                const aStats = aPower + aToughness + aCmc;
+                const bStats = bPower + bToughness + bCmc;
+                return bStats - aStats;
+              }
+              
+              return bCmc - aCmc;
+            });
+          }
+          
+          selectedCard = validCards[0];
           
           // Apply the search effect
           if (typeof game.selectFromLibrary === 'function' && selectedCard?.id) {
