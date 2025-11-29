@@ -592,8 +592,9 @@ export function App() {
     // 4. We're not in a combat modal already
     // 5. Auto-pass is not enabled for this step
     
-    const stepKey = step.replace('_', '').toLowerCase();
-    const shouldAutoPass = autoPassSteps.has(stepKey) || autoPassSteps.has(step);
+    // Normalize step key - remove underscores and convert to lowercase for consistent comparison
+    const stepKey = step.replace(/_/g, '').toLowerCase();
+    const shouldAutoPass = autoPassSteps.has(stepKey) || autoPassSteps.has(step.toLowerCase());
     
     if (youHavePriority && stackLength === 0 && !combatModalOpen) {
       // Check if this is a new step

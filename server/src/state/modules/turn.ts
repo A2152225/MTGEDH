@@ -393,6 +393,12 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
     for (const attacker of attackers) {
       console.log(`${ts()} [COMBAT_DAMAGE] Processing attacker: ${attacker.card?.name || attacker.id}`);
       
+      // Skip creatures that were already killed (e.g., by deathtouch in first strike phase)
+      if (attacker.markedForDestruction) {
+        console.log(`${ts()} [COMBAT_DAMAGE] Skipping attacker ${attacker.card?.name || attacker.id} - marked for destruction`);
+        continue;
+      }
+      
       // Get attacker's power and keywords
       const card = attacker.card || {};
       let keywords;
@@ -490,17 +496,28 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           // MTG Rule 510.1c: When assigning damage, attacker must assign at least lethal damage
           // to each blocker in order before moving to the next (unless attacker has deathtouch,
           // in which case 1 damage counts as lethal for assignment purposes)
+          // 
+          // DEATHTOUCH + TRAMPLE INTERACTION (Rule 702.2b + 702.19c):
+          // When a creature has both deathtouch and trample, it only needs to assign 1 damage
+          // to each blocker (since that's lethal with deathtouch), and all excess tramples through.
           let lethalDamage: number;
           if (keywords.deathtouch) {
             // With deathtouch, 1 damage is considered lethal for damage assignment
+            // If blocker already has lethal damage marked, no need to assign more
             lethalDamage = remainingToughness > 0 ? 1 : 0;
           } else {
             // Without deathtouch, need to assign enough to kill (remaining toughness)
             lethalDamage = remainingToughness;
           }
           
+          // If blocker already has lethal damage, skip assigning more (relevant for trample)
+          if (lethalDamage <= 0) {
+            console.log(`${ts()} [dealCombatDamage] Blocker ${blockerCard.name || blockerId} already has lethal damage, skipping`);
+            continue;
+          }
+          
           // Assign lethal damage (or all remaining damage if less than lethal)
-          const damageToBlocker = Math.min(lethalDamage > 0 ? lethalDamage : 1, remainingDamage);
+          const damageToBlocker = Math.min(lethalDamage, remainingDamage);
           
           if (damageToBlocker > 0) {
             // Mark damage on blocker
@@ -563,6 +580,12 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           const blocker = battlefield.find((p: any) => p?.id === blockerId);
           if (!blocker) {
             console.log(`${ts()} [COMBAT_DAMAGE] Blocker ${blockerId} not found on battlefield, skipping`);
+            continue;
+          }
+          
+          // Skip blockers that were already killed (e.g., by deathtouch in first strike phase)
+          if (blocker.markedForDestruction) {
+            console.log(`${ts()} [COMBAT_DAMAGE] Skipping blocker ${blockerId} - marked for destruction`);
             continue;
           }
           
