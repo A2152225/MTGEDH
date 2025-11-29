@@ -103,30 +103,31 @@ export interface CombatState {
  */
 export function parseCreatureKeywords(card: any, permanent?: any): CreatureKeywords {
   try {
+    const cardName = card?.name || 'Unknown';
     const oracleText = (card?.oracle_text || "").toLowerCase();
     // Defensive handling: ensure keywords is an array of strings
     const rawKeywords = card?.keywords;
     
-    // Debug logging for troubleshooting multi-keyword crashes
-    // Log the raw value to help diagnose issues
-    console.log(`[parseCreatureKeywords] ${card?.name}: rawKeywords type=${typeof rawKeywords}, isArray=${Array.isArray(rawKeywords)}, value=`, 
-      rawKeywords ? JSON.stringify(rawKeywords) : 'undefined');
+    // Always log keyword parsing for combat debugging
+    console.log(`[KEYWORDS] ========== Parsing keywords for: ${cardName} ==========`);
+    console.log(`[KEYWORDS] Raw keywords: type=${typeof rawKeywords}, isArray=${Array.isArray(rawKeywords)}`);
+    console.log(`[KEYWORDS] Raw value: ${rawKeywords ? JSON.stringify(rawKeywords) : 'undefined'}`);
     
     if (rawKeywords && !Array.isArray(rawKeywords)) {
-      console.warn(`[parseCreatureKeywords] keywords is not an array for ${card?.name}: type=${typeof rawKeywords}, value=`, rawKeywords);
+      console.warn(`[KEYWORDS] WARNING: keywords is not an array for ${cardName}: type=${typeof rawKeywords}`);
     }
     
     const keywords = Array.isArray(rawKeywords) 
       ? rawKeywords.filter((k: any) => typeof k === 'string').map((k: string) => k.toLowerCase())
       : [];
     
-    // Debug: log when there are 2+ keywords (to trace the crash issue)
-    if (keywords.length >= 2) {
-      console.log(`[parseCreatureKeywords] Card ${card?.name} has ${keywords.length} keywords: [${keywords.join(', ')}]`);
-    }
+    console.log(`[KEYWORDS] Normalized keywords array: [${keywords.join(', ')}]`);
     
-    const hasKeyword = (kw: string) => 
-      keywords.includes(kw.toLowerCase()) || oracleText.includes(kw.toLowerCase());
+    const hasKeyword = (kw: string) => {
+      const inKeywords = keywords.includes(kw.toLowerCase());
+      const inOracle = oracleText.includes(kw.toLowerCase());
+      return inKeywords || inOracle;
+    };
     
     const result = {
       flying: hasKeyword("flying"),
@@ -154,18 +155,18 @@ export function parseCreatureKeywords(card: any, permanent?: any): CreatureKeywo
       cantBlock: oracleText.includes("can't block"),
     };
     
-    // Log the parsed result for multi-keyword cards
-    if (keywords.length >= 2) {
-      const activeKeywords = Object.entries(result).filter(([_, v]) => v === true).map(([k]) => k);
-      console.log(`[parseCreatureKeywords] ${card?.name} parsed result: [${activeKeywords.join(', ')}]`);
-    }
+    // Always log the parsed result with active keywords
+    const activeKeywords = Object.entries(result).filter(([_, v]) => v === true).map(([k]) => k);
+    console.log(`[KEYWORDS] ${cardName} ACTIVE ABILITIES: [${activeKeywords.length > 0 ? activeKeywords.join(', ') : 'none'}]`);
+    console.log(`[KEYWORDS] First Strike: ${result.firstStrike}, Double Strike: ${result.doubleStrike}`);
+    console.log(`[KEYWORDS] ========== End parsing for: ${cardName} ==========`);
     
     return result;
   } catch (err) {
-    console.error(`[parseCreatureKeywords] CRASH parsing ${card?.name}:`, err);
-    console.error(`[parseCreatureKeywords] rawKeywords was:`, card?.keywords);
-    console.error(`[parseCreatureKeywords] Card data:`, JSON.stringify(card, null, 2).slice(0, 1000));
-    console.error(`[parseCreatureKeywords] Permanent data:`, permanent ? JSON.stringify(permanent, null, 2).slice(0, 500) : 'undefined');
+    console.error(`[KEYWORDS] CRASH parsing ${card?.name}:`, err);
+    console.error(`[KEYWORDS] rawKeywords was:`, card?.keywords);
+    console.error(`[KEYWORDS] Card data:`, JSON.stringify(card, null, 2).slice(0, 1000));
+    console.error(`[KEYWORDS] Permanent data:`, permanent ? JSON.stringify(permanent, null, 2).slice(0, 500) : 'undefined');
     throw err; // Re-throw to let caller handle
   }
 }

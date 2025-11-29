@@ -167,6 +167,18 @@ export function registerAutomationHandlers(
         return;
       }
       
+      // Log current game state for debugging
+      const game = games.get(gameId);
+      if (game) {
+        const bf = game.state?.battlefield || [];
+        const zones = game.state?.zones || {};
+        console.log(`[Automation] After processBlockers - battlefield has ${bf.length} permanents`);
+        for (const [pid, z] of Object.entries(zones)) {
+          const zone = z as any;
+          console.log(`[Automation] Player ${pid} zones: hand=${zone.hand?.length || 0}, library=${zone.libraryCount || 0}`);
+        }
+      }
+      
       // Broadcast combat state
       io.to(gameId).emit("combatState", {
         gameId,
@@ -179,6 +191,15 @@ export function registerAutomationHandlers(
       
       // Continue automation
       const automationResult = await runAutomationStep(gameId, io);
+      
+      // Log what we're about to broadcast
+      if (automationResult.state) {
+        const bf = automationResult.state?.battlefield || [];
+        console.log(`[Automation] About to broadcast state - battlefield has ${bf.length} permanents`);
+      } else {
+        console.log(`[Automation] WARNING: automationResult.state is null/undefined!`);
+      }
+      
       if (automationResult.stateChanged) {
         io.to(gameId).emit("state", { view: automationResult.state });
       }
