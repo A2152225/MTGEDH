@@ -1010,38 +1010,7 @@ export function TableLayout(props: {
                           showActivatedAbilityButtons={isYouThis}
                         />
 
-                        {lands.length > 0 && (
-                          <div style={{ marginTop: 12 }} data-no-zoom>
-                            <div
-                              style={{
-                                fontSize: 12,
-                                opacity: 0.7,
-                                marginBottom: 6
-                              }}
-                            >
-                              Lands
-                            </div>
-                            <LandRow
-                              lands={lands}
-                              imagePref={imagePref}
-                              tileWidth={TILE_W}
-                              overlapRatio={0.33}
-                              highlightTargets={highlightPermTargets}
-                              selectedTargets={selectedPermTargets}
-                              onCardClick={onPermanentClick}
-                              onRemove={isYouPlayer ? onRemove : undefined}
-                              onCounter={isYouPlayer ? onCounter : undefined}
-                              onTap={isYouThis && gameId ? (id) => socket.emit('tapPermanent', { gameId, permanentId: id }) : undefined}
-                              onUntap={isYouThis && gameId ? (id) => socket.emit('untapPermanent', { gameId, permanentId: id }) : undefined}
-                              onActivateAbility={isYouThis && gameId ? (permanentId, abilityId) => socket.emit('activateBattlefieldAbility', { gameId, permanentId, abilityId }) : undefined}
-                              onSacrifice={isYouThis && gameId ? (id) => socket.emit('sacrificePermanent', { gameId, permanentId: id }) : undefined}
-                              canActivate={isYouThis}
-                              playerId={isYouThis ? you : undefined}
-                            />
-                          </div>
-                        )}
-
-                        {/* Mana Sources Row (mana rocks, dorks) - positioned near lands for easy access */}
+                        {/* Mana Sources Row (mana rocks, dorks) - positioned above lands */}
                         {manaSources.length > 0 && (
                           <div style={{ marginTop: 8 }} data-no-zoom>
                             <div
@@ -1062,6 +1031,38 @@ export function TableLayout(props: {
                               imagePref={imagePref}
                               tileWidth={Math.round(TILE_W * 0.85)}
                               overlapRatio={0.4}
+                              highlightTargets={highlightPermTargets}
+                              selectedTargets={selectedPermTargets}
+                              onCardClick={onPermanentClick}
+                              onRemove={isYouPlayer ? onRemove : undefined}
+                              onCounter={isYouPlayer ? onCounter : undefined}
+                              onTap={isYouThis && gameId ? (id) => socket.emit('tapPermanent', { gameId, permanentId: id }) : undefined}
+                              onUntap={isYouThis && gameId ? (id) => socket.emit('untapPermanent', { gameId, permanentId: id }) : undefined}
+                              onActivateAbility={isYouThis && gameId ? (permanentId, abilityId) => socket.emit('activateBattlefieldAbility', { gameId, permanentId, abilityId }) : undefined}
+                              onSacrifice={isYouThis && gameId ? (id) => socket.emit('sacrificePermanent', { gameId, permanentId: id }) : undefined}
+                              canActivate={isYouThis}
+                              playerId={isYouThis ? you : undefined}
+                            />
+                          </div>
+                        )}
+
+                        {/* Lands Row - positioned at bottom, just above hand */}
+                        {lands.length > 0 && (
+                          <div style={{ marginTop: 12 }} data-no-zoom>
+                            <div
+                              style={{
+                                fontSize: 12,
+                                opacity: 0.7,
+                                marginBottom: 6
+                              }}
+                            >
+                              Lands
+                            </div>
+                            <LandRow
+                              lands={lands}
+                              imagePref={imagePref}
+                              tileWidth={TILE_W}
+                              overlapRatio={0.33}
                               highlightTargets={highlightPermTargets}
                               selectedTargets={selectedPermTargets}
                               onCardClick={onPermanentClick}

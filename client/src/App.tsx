@@ -1880,6 +1880,23 @@ export function App() {
     });
   }, [safeView, you]);
 
+  // Get creatures that can block - different rules than attacking
+  // Creatures with summoning sickness CAN block
+  // Creatures with defender CAN block  
+  // Only tapped creatures cannot block
+  const myBlockerCreatures = useMemo(() => {
+    if (!safeView || !you) return [];
+    return (safeView.battlefield || []).filter((p: BattlefieldPermanent) => {
+      if (p.controller !== you) return false;
+      const typeLine = (p.card as KnownCardRef)?.type_line?.toLowerCase() || '';
+      if (!typeLine.includes('creature')) return false;
+      // Tapped creatures cannot block
+      if (p.tapped) return false;
+      // All untapped creatures can block (even with summoning sickness or defender)
+      return true;
+    });
+  }, [safeView, you]);
+
   const attackingCreatures = useMemo(() => {
     if (!safeView) return [];
     return (safeView.battlefield || []).filter((p: any) => 
@@ -2916,7 +2933,7 @@ export function App() {
       <CombatSelectionModal
         open={combatModalOpen}
         mode={combatMode}
-        availableCreatures={myCreatures}
+        availableCreatures={combatMode === 'blockers' ? myBlockerCreatures : myCreatures}
         attackingCreatures={attackingCreatures}
         defenders={defenders}
         onConfirm={(selections) => {
