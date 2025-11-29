@@ -26,6 +26,7 @@ export interface TriggeredAbilityModalProps {
   onResolve: (triggerId: string, choice: any) => void;
   onSkip: (triggerId: string) => void;
   onOrderConfirm?: (orderedTriggerIds: string[]) => void; // New callback for batch ordering
+  onIgnoreSource?: (triggerId: string, sourceId: string, sourceName: string) => void; // Auto-resolve future triggers from this source
 }
 
 export function TriggeredAbilityModal({
@@ -34,6 +35,7 @@ export function TriggeredAbilityModal({
   onResolve,
   onSkip,
   onOrderConfirm,
+  onIgnoreSource,
 }: TriggeredAbilityModalProps) {
   const [selectedTargets, setSelectedTargets] = useState<Map<string, string[]>>(new Map());
   const [selectedChoices, setSelectedChoices] = useState<Map<string, string>>(new Map());
@@ -454,40 +456,61 @@ export function TriggeredAbilityModal({
           <div
             style={{
               display: 'flex',
+              flexDirection: 'column',
               gap: 12,
-              justifyContent: 'center',
+              alignItems: 'center',
               marginTop: 16,
             }}
           >
-            <button
-              onClick={() => handleMayChoice(currentTrigger.id, true)}
-              style={{
-                padding: '12px 28px',
-                borderRadius: 8,
-                border: 'none',
-                backgroundColor: '#10b981',
-                color: '#fff',
-                cursor: 'pointer',
-                fontSize: 14,
-                fontWeight: 600,
-              }}
-            >
-              Yes, do this
-            </button>
-            <button
-              onClick={() => handleMayChoice(currentTrigger.id, false)}
-              style={{
-                padding: '12px 28px',
-                borderRadius: 8,
-                border: '1px solid #4a4a6a',
-                backgroundColor: 'transparent',
-                color: '#fff',
-                cursor: 'pointer',
-                fontSize: 14,
-              }}
-            >
-              No, skip
-            </button>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button
+                onClick={() => handleMayChoice(currentTrigger.id, true)}
+                style={{
+                  padding: '12px 28px',
+                  borderRadius: 8,
+                  border: 'none',
+                  backgroundColor: '#10b981',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  fontSize: 14,
+                  fontWeight: 600,
+                }}
+              >
+                Yes, do this
+              </button>
+              <button
+                onClick={() => handleMayChoice(currentTrigger.id, false)}
+                style={{
+                  padding: '12px 28px',
+                  borderRadius: 8,
+                  border: '1px solid #4a4a6a',
+                  backgroundColor: 'transparent',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  fontSize: 14,
+                }}
+              >
+                No, skip
+              </button>
+            </div>
+            {/* Auto-resolve option */}
+            {onIgnoreSource && (
+              <button
+                onClick={() => onIgnoreSource(currentTrigger.id, currentTrigger.sourceId, currentTrigger.sourceName)}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: 6,
+                  border: '1px solid #6366f1',
+                  backgroundColor: 'rgba(99,102,241,0.1)',
+                  color: '#a5b4fc',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                }}
+                title="Automatically resolve all future triggers from this source"
+              >
+                🔄 Always yes for {currentTrigger.sourceName}
+              </button>
+            )}
           </div>
         )}
 

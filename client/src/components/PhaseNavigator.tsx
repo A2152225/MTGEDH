@@ -70,8 +70,18 @@ export function PhaseNavigator({
   onAdvancingChange,
   onSkipToPhase,
 }: PhaseNavigatorProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  // Default to expanded, but use cached preference if available
+  const [isExpanded, setIsExpanded] = useState(() => {
+    const cached = localStorage.getItem('phaseNavigatorExpanded');
+    // Default to true (expanded) if no cached value
+    return cached === null ? true : cached === 'true';
+  });
   const [isAdvancing, setIsAdvancing] = useState(false); // Track if we're in the middle of advancing phases
+  
+  // Cache the expanded state when it changes
+  useEffect(() => {
+    localStorage.setItem('phaseNavigatorExpanded', String(isExpanded));
+  }, [isExpanded]);
   
   // Notify parent when advancing state changes
   useEffect(() => {

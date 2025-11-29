@@ -661,28 +661,36 @@ export function TableLayout(props: {
   const OPP_THUMB_H = 57;  // was 38
 
   return (
-    <div
-      ref={containerRef}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        // TODO: custom game-actions context menu can be triggered here
-      }}
-      style={{
-        width: '100%',
-        height: '72vh',
-        overflow: 'hidden',
-        ...tableContainerBg,
-        border: '1px solid #222',
-        borderRadius: 12,
-        userSelect: 'none',
-        cursor: enablePanZoom ? (dragRef.current ? 'grabbing' : (panKey ? 'grab' : 'default')) : 'default',
-        overscrollBehavior: 'none',
-        position: 'relative'
-      }}
-    >
+    <>
+      {/* Keyframes for pulse animation */}
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.85; transform: scale(1.03); }
+        }
+      `}</style>
+      <div
+        ref={containerRef}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          // TODO: custom game-actions context menu can be triggered here
+        }}
+        style={{
+          width: '100%',
+          height: '72vh',
+          overflow: 'hidden',
+          ...tableContainerBg,
+          border: '1px solid #222',
+          borderRadius: 12,
+          userSelect: 'none',
+          cursor: enablePanZoom ? (dragRef.current ? 'grabbing' : (panKey ? 'grab' : 'default')) : 'default',
+          overscrollBehavior: 'none',
+          position: 'relative'
+        }}
+      >
       <div style={{ position: 'absolute', inset: 0, transform: cameraTransform, transformOrigin: '0 0', willChange: 'transform' }}>
 
         <div style={{ position: 'absolute', left: '50%', top: '50%', transformStyle: 'preserve-3d' }}>
@@ -873,18 +881,32 @@ export function TableLayout(props: {
                                 type="button"
                                 onClick={() => setDeckMgrOpen(true)}
                                 style={{ 
-                                  fontSize: 11, 
-                                  padding: '3px 10px',
-                                  borderRadius: 4,
-                                  background: 'rgba(59, 130, 246, 0.2)',
-                                  border: '1px solid rgba(59, 130, 246, 0.4)',
-                                  color: '#93c5fd',
-                                  cursor: 'pointer'
+                                  fontSize: 12, 
+                                  fontWeight: 600,
+                                  padding: '6px 14px',
+                                  borderRadius: 6,
+                                  background: (zObj?.libraryCount || 0) === 0 
+                                    ? 'linear-gradient(135deg, #7c3aed 0%, #2563eb 100%)' 
+                                    : 'rgba(59, 130, 246, 0.2)',
+                                  border: (zObj?.libraryCount || 0) === 0 
+                                    ? '2px solid #a78bfa'
+                                    : '1px solid rgba(59, 130, 246, 0.4)',
+                                  color: '#fff',
+                                  cursor: 'pointer',
+                                  boxShadow: (zObj?.libraryCount || 0) === 0 
+                                    ? '0 0 20px rgba(124, 58, 237, 0.5), 0 4px 12px rgba(37, 99, 235, 0.4)' 
+                                    : 'none',
+                                  animation: (zObj?.libraryCount || 0) === 0 
+                                    ? 'pulse 2s ease-in-out infinite' 
+                                    : 'none',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 6,
                                 }}
                                 title={gameId ? "Manage / Import Deck" : "Waiting for game to be ready"}
                                 disabled={!gameId}
                               >
-                                Decks
+                                📚 {(zObj?.libraryCount || 0) === 0 ? 'Import Deck' : 'Decks'}
                               </button>
                             )}
                             {/* 
@@ -1627,6 +1649,7 @@ export function TableLayout(props: {
         </div>
       )}
     </div>
+    </>
   );
 }
 

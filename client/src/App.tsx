@@ -2379,70 +2379,6 @@ export function App() {
           </div>
         )}
 
-        {/* DECK IMPORT PROMPT - Shows when player joins without a deck */}
-        {showDeckImportPrompt && isPreGame && (
-          <div
-            style={{
-              background: "linear-gradient(135deg, #1e40af 0%, #7c3aed 100%)",
-              padding: 16,
-              borderRadius: 8,
-              marginBottom: 8,
-              border: "1px solid #60a5fa",
-              boxShadow: "0 4px 12px rgba(37, 99, 235, 0.3)",
-              display: "flex",
-              alignItems: "center",
-              gap: 16,
-            }}
-          >
-            <div style={{ fontSize: 32 }}>📚</div>
-            <div style={{ flex: 1, color: "#fff" }}>
-              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>
-                Welcome to the game!
-              </div>
-              <div style={{ fontSize: 13, opacity: 0.9 }}>
-                Import a deck to get started. You can paste a decklist or load a saved deck.
-              </div>
-            </div>
-            <button
-              onClick={() => {
-                setShowDeckImportPrompt(false);
-                // Note: The deck manager is inside TableLayout - we can signal to open it
-                // by scrolling down or via a ref/callback
-              }}
-              style={{
-                background: "rgba(255,255,255,0.2)",
-                border: "1px solid rgba(255,255,255,0.3)",
-                borderRadius: 6,
-                padding: "8px 16px",
-                color: "#fff",
-                fontSize: 13,
-                cursor: "pointer",
-              }}
-            >
-              Dismiss
-            </button>
-            <button
-              onClick={() => {
-                setShowDeckImportPrompt(false);
-                // Open the deck manager via state callback
-                setTableDeckMgrOpen(true);
-              }}
-              style={{
-                background: "#fff",
-                border: "none",
-                borderRadius: 6,
-                padding: "8px 16px",
-                color: "#1e40af",
-                fontWeight: 600,
-                fontSize: 13,
-                cursor: "pointer",
-              }}
-            >
-              Import Deck →
-            </button>
-          </div>
-        )}
-
         {/* TABLE / PLAYING FIELD (chat handled as overlay inside TableLayout) */}
         <div
           style={{
@@ -3065,6 +3001,7 @@ export function App() {
         onResolve={handleResolveTrigger}
         onSkip={handleSkipTrigger}
         onOrderConfirm={handleOrderTriggersConfirm}
+        onIgnoreSource={handleIgnoreTriggerSource}
       />
 
       {/* Mulligan Bottom Selection Modal (London Mulligan) */}
