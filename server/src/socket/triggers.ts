@@ -83,12 +83,20 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
                            (game as any).life?.[playerId] || 40;
         const newLife = currentLife - 2;
         
-        // Update life total
+        // Update life total in all locations
         if ((game.state as any).life) {
           (game.state as any).life[playerId] = newLife;
         }
         if ((game as any).life) {
           (game as any).life[playerId] = newLife;
+        }
+        
+        // Also update the player object in game.state.players
+        // This is critical for the UI to display the updated life total
+        const players = game.state?.players || [];
+        const player = players.find((p: any) => p.id === playerId);
+        if (player) {
+          (player as any).life = newLife;
         }
         
         // Ensure permanent is untapped

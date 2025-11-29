@@ -67,14 +67,46 @@ export function removePermanent(ctx: GameContext, permanentId: string) {
 }
 
 export function movePermanentToExile(ctx: GameContext, permanentId: string) {
-  const { state, bumpSeq } = ctx;
+  const { state, bumpSeq, commandZone } = ctx;
   const zones = state.zones = state.zones || {};
   const idx = state.battlefield.findIndex(p => p.id === permanentId);
   if (idx < 0) return;
   const perm = state.battlefield.splice(idx,1)[0];
-  const owner = perm.owner;
-  const z = zones[owner] || (zones[owner] = { hand:[], handCount:0, libraryCount:0, graveyard:[], graveyardCount:0, exile:[] } as any);
+  const owner = perm.owner as PlayerID;
   const card = perm.card as any;
+  
+  // Commander Replacement Effect (Rule 903.9a):
+  // If a commander would be put into exile from anywhere, its owner may put it into
+  // the command zone instead.
+  const commanderInfo = commandZone?.[owner];
+  const commanderIds = commanderInfo?.commanderIds || [];
+  const isCommander = commanderIds.includes(card.id);
+  
+  if (isCommander) {
+    // Add to pending commander zone choices for the owner to decide
+    // The player will be prompted to choose whether to move to command zone or exile
+    (state as any).pendingCommanderZoneChoice = (state as any).pendingCommanderZoneChoice || {};
+    (state as any).pendingCommanderZoneChoice[owner] = (state as any).pendingCommanderZoneChoice[owner] || [];
+    (state as any).pendingCommanderZoneChoice[owner].push({
+      commanderId: card.id,
+      commanderName: card.name,
+      destinationZone: 'exile',
+      card: {
+        id: card.id,
+        name: card.name,
+        type_line: card.type_line,
+        oracle_text: card.oracle_text,
+        image_uris: card.image_uris,
+        mana_cost: card.mana_cost,
+        power: card.power,
+        toughness: card.toughness,
+      },
+    });
+    console.log(`[movePermanentToExile] Commander ${card.name} would go to exile - owner can choose command zone instead`);
+  }
+  
+  // Move to exile zone (can be undone if player chooses command zone)
+  const z = zones[owner] || (zones[owner] = { hand:[], handCount:0, libraryCount:0, graveyard:[], graveyardCount:0, exile:[] } as any);
   const kc = {
     id: card.id,
     name: card.name,
