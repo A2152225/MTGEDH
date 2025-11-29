@@ -31,6 +31,10 @@ export function AutoPassSettingsPanel({ autoPassSteps, onToggleAutoPass, onClear
   const hasAutoEnabledRef = useRef(false);
   
   // Auto-enable all auto-pass for single player mode (only once)
+  // Note: autoPassSteps is intentionally NOT in the dependency array because:
+  // 1. We use hasAutoEnabledRef to ensure this only runs once per single player session
+  // 2. Adding it would cause unnecessary re-runs when user manually toggles steps
+  // 3. The ref pattern prevents the stale closure issue
   useEffect(() => {
     // Only auto-enable once when entering single player mode
     if (isSinglePlayer && !hasAutoEnabledRef.current) {

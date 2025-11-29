@@ -30,7 +30,11 @@ const UNDO_TIMEOUT_MS = 60000;
 // Event types that represent step changes
 const STEP_CHANGE_EVENTS = ['nextStep', 'skipToPhase'];
 
-// Event types that represent phase changes (subset of step changes that cross phase boundaries)
+// Event types that represent phase changes
+// Note: Currently same as STEP_CHANGE_EVENTS because the game doesn't distinguish 
+// between step and phase transitions in the event log. Both 'nextStep' events can 
+// represent moving to a new step within a phase OR moving to a new phase entirely.
+// The calculateUndoToPhase function handles this by looking for multiple step changes.
 const PHASE_CHANGE_EVENTS = ['nextStep', 'skipToPhase'];
 
 // Event types that represent turn changes
