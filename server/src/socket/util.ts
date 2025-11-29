@@ -684,6 +684,9 @@ function doAutoPass(
       
       // Check for pending library search (from tutor spells)
       handlePendingLibrarySearch(io, game, gameId);
+      
+      // Check for pending Entrapment Maneuver
+      handlePendingEntrapmentManeuver(io, game, gameId);
     }
 
     broadcastGame(io, game, gameId);
@@ -883,48 +886,43 @@ function handlePendingLibrarySearch(io: Server, game: any, gameId: string): void
       
       // Get the socket for this player and emit search request
       const socket = socketsByPlayer.get(playerId);
+      
+      // Build the base request object
+      const baseRequest = {
+        gameId,
+        cards: searchableCards,
+        title: info.source || 'Search',
+        description,
+        filter,
+        maxSelections: info.maxSelections || 1,
+        moveTo: info.splitDestination ? 'split' : (info.destination || 'hand'),
+        shuffleAfter: info.shuffleAfter ?? true,
+        optional: info.optional || false,
+        tapped: info.tapped || false,
+        // For split-destination effects (Kodama's Reach, Cultivate)
+        splitDestination: info.splitDestination || false,
+        toBattlefield: info.toBattlefield,
+        toHand: info.toHand,
+        entersTapped: info.entersTapped,
+        searchRestrictions: {
+          limitedToTop: searchCheck.limitToTop,
+          paymentRequired: searchCheck.paymentRequired,
+          triggerEffects: searchCheck.triggerEffects,
+        },
+      };
+      
       if (socket) {
-        socket.emit("librarySearchRequest", {
-          gameId,
-          cards: searchableCards,
-          title: info.source || 'Search',
-          description,
-          filter,
-          maxSelections: 1,
-          moveTo: info.destination || 'hand',
-          shuffleAfter: info.shuffleAfter ?? true,
-          optional: info.optional || false,
-          tapped: info.tapped || false,
-          searchRestrictions: {
-            limitedToTop: searchCheck.limitToTop,
-            paymentRequired: searchCheck.paymentRequired,
-            triggerEffects: searchCheck.triggerEffects,
-          },
-        });
+        socket.emit("librarySearchRequest", baseRequest);
         
-        console.log(`[handlePendingLibrarySearch] Sent librarySearchRequest to ${playerId} for ${info.source || 'tutor'}`);
+        console.log(`[handlePendingLibrarySearch] Sent librarySearchRequest to ${playerId} for ${info.source || 'tutor'}${info.splitDestination ? ' (split destination)' : ''}`);
       } else {
         // No specific socket - broadcast to the room and let the client filter
         io.to(gameId).emit("librarySearchRequest", {
-          gameId,
+          ...baseRequest,
           playerId,
-          cards: searchableCards,
-          title: info.source || 'Search',
-          description,
-          filter,
-          maxSelections: 1,
-          moveTo: info.destination || 'hand',
-          shuffleAfter: info.shuffleAfter ?? true,
-          optional: info.optional || false,
-          tapped: info.tapped || false,
-          searchRestrictions: {
-            limitedToTop: searchCheck.limitToTop,
-            paymentRequired: searchCheck.paymentRequired,
-            triggerEffects: searchCheck.triggerEffects,
-          },
         });
         
-        console.log(`[handlePendingLibrarySearch] Broadcast librarySearchRequest for ${playerId} for ${info.source || 'tutor'}`);
+        console.log(`[handlePendingLibrarySearch] Broadcast librarySearchRequest for ${playerId} for ${info.source || 'tutor'}${info.splitDestination ? ' (split destination)' : ''}`);
       }
     }
     
@@ -933,6 +931,62 @@ function handlePendingLibrarySearch(io: Server, game: any, gameId: string): void
     
   } catch (err) {
     console.warn('[handlePendingLibrarySearch] Error:', err);
+  }
+}
+
+/**
+ * Handle pending Entrapment Maneuver effects (target player sacrifices an attacking creature,
+ * then caster creates tokens equal to toughness)
+ */
+function handlePendingEntrapmentManeuver(io: Server, game: any, gameId: string): void {
+  try {
+    const pending = game.state?.pendingEntrapmentManeuver;
+    if (!pending || typeof pending !== 'object') return;
+    
+    // Get the socket map for this game
+    const socketsByPlayer: Map<string, any> = (game as any).participantSockets || new Map();
+    
+    for (const [playerId, maneuverInfo] of Object.entries(pending)) {
+      if (!maneuverInfo) continue;
+      
+      const info = maneuverInfo as any;
+      
+      // Emit sacrifice selection request to the player who must sacrifice
+      const socket = socketsByPlayer.get(playerId);
+      
+      const sacrificeRequest = {
+        gameId,
+        playerId,
+        source: info.source || 'Entrapment Maneuver',
+        caster: info.caster,
+        creatures: info.attackingCreatures || [],
+        reason: "Choose an attacking creature to sacrifice",
+        type: "entrapment_maneuver",
+      };
+      
+      if (socket) {
+        socket.emit("entrapmentManeuverSacrificeRequest", sacrificeRequest);
+        console.log(`[handlePendingEntrapmentManeuver] Sent sacrifice request to ${playerId}`);
+      } else {
+        // Broadcast to the room and let client filter
+        io.to(gameId).emit("entrapmentManeuverSacrificeRequest", sacrificeRequest);
+        console.log(`[handlePendingEntrapmentManeuver] Broadcast sacrifice request for ${playerId}`);
+      }
+      
+      // Emit chat message
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, playerId)} must sacrifice an attacking creature (${info.source}).`,
+        ts: Date.now(),
+      });
+    }
+    
+    // Don't clear pending yet - it will be cleared when player makes their choice
+    
+  } catch (err) {
+    console.warn('[handlePendingEntrapmentManeuver] Error:', err);
   }
 }
 

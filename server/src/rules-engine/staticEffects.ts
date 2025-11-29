@@ -5,18 +5,20 @@ import type { GameState, BattlefieldPermanent, PlayerID } from '../../../shared/
  * Supports additive constant buffs and keyword grants from simple oracle text templates:
  * Patterns (case-insensitive):
  *  - "creatures you control get +X/+Y"
+ *  - "other creatures you control get +X/+Y"
  *  - "all creatures get +X/+Y"
  *  - "<color> creatures get +X/+Y" (color words: white, blue, black, red, green)
  *  - "creatures you control get +X/+Y and have <abilities...>"
  *  - "you have hexproof" / "you have shroud"
  *  - "creatures you control have <abilities...>"
+ *  - "other creatures you control have <abilities...>"
+ *  - "you and other creatures you control have <abilities...>" (Shalai, Voice of Plenty)
  *  - Combined examples: Eldrazi Monument, Crusade, Glorious Anthem, Leyline of Sanctity, Witchbane Orb.
  *
  * Abilities recognized: flying, indestructible, vigilance, trample, hexproof, shroud.
  *
  * Limitations:
  *  - Ignores layer ordering, timestamp precedence, dependency resolution.
- *  - Does not handle "other" vs self partial exclusions.
  *  - Does not handle "+X/+0 until end of turn" (temporary effects).
  */
 
@@ -144,15 +146,75 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
       }
     }
 
-    // Creatures you control have <abilities>
-    const ctrlHaveMatch = oracle.match(/creatures you control have ([^.]+)/);
-    if (ctrlHaveMatch) {
-      const abilities = parseAbilities(ctrlHaveMatch[1]);
+    // "Other creatures you control have <abilities>" (e.g., Shalai for OTHER creatures)
+    // Must check before "creatures you control have" to handle "other" correctly
+    const otherCtrlHaveMatch = oracle.match(/other creatures you control have ([^.]+)/);
+    if (otherCtrlHaveMatch) {
+      const abilities = parseAbilities(otherCtrlHaveMatch[1]);
       if (abilities.length) {
         for (const perm of state.battlefield) {
-          if (perm.controller === controller && isCreature(perm)) {
+          // "other" means exclude the source permanent itself
+          if (perm.controller === controller && isCreature(perm) && perm.id !== source.id) {
             const agg = perPermanent.get(perm.id)!;
             for (const a of abilities) agg.abilities.add(a);
+          }
+        }
+      }
+    }
+    
+    // "You and other creatures you control have <abilities>" (Shalai, Voice of Plenty pattern)
+    // This gives the player hexproof AND other creatures hexproof, but NOT the source creature
+    const youAndOtherMatch = oracle.match(/you and other creatures you control have ([^.]+)/);
+    if (youAndOtherMatch) {
+      const abilities = parseAbilities(youAndOtherMatch[1]);
+      if (abilities.length) {
+        // Grant abilities to OTHER creatures (not the source)
+        for (const perm of state.battlefield) {
+          if (perm.controller === controller && isCreature(perm) && perm.id !== source.id) {
+            const agg = perPermanent.get(perm.id)!;
+            for (const a of abilities) agg.abilities.add(a);
+          }
+        }
+        // Grant player hexproof/shroud if those abilities are in the list
+        if (abilities.includes('hexproof')) playerHexproof.add(controller);
+        if (abilities.includes('shroud')) playerShroud.add(controller);
+      }
+    }
+    
+    // "You and permanents you control have <abilities>" (broader pattern)
+    const youAndPermsMatch = oracle.match(/you and permanents you control have ([^.]+)/);
+    if (youAndPermsMatch) {
+      const abilities = parseAbilities(youAndPermsMatch[1]);
+      if (abilities.length) {
+        // Grant abilities to ALL permanents (not just creatures), excluding self if "other" was in text
+        const excludeSelf = oracle.includes('other permanents');
+        for (const perm of state.battlefield) {
+          if (perm.controller === controller && (!excludeSelf || perm.id !== source.id)) {
+            // Only add to perPermanent if it's a creature (since perPermanent only tracks creatures)
+            if (isCreature(perm)) {
+              const agg = perPermanent.get(perm.id)!;
+              for (const a of abilities) agg.abilities.add(a);
+            }
+          }
+        }
+        // Grant player hexproof/shroud if those abilities are in the list
+        if (abilities.includes('hexproof')) playerHexproof.add(controller);
+        if (abilities.includes('shroud')) playerShroud.add(controller);
+      }
+    }
+
+    // Creatures you control have <abilities> (but NOT if it matches "other creatures" already handled above)
+    // Only match if the text doesn't say "other creatures"
+    if (!otherCtrlHaveMatch && !youAndOtherMatch) {
+      const ctrlHaveMatch = oracle.match(/creatures you control have ([^.]+)/);
+      if (ctrlHaveMatch) {
+        const abilities = parseAbilities(ctrlHaveMatch[1]);
+        if (abilities.length) {
+          for (const perm of state.battlefield) {
+            if (perm.controller === controller && isCreature(perm)) {
+              const agg = perPermanent.get(perm.id)!;
+              for (const a of abilities) agg.abilities.add(a);
+            }
           }
         }
       }

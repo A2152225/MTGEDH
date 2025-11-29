@@ -212,6 +212,24 @@ function parseAbilityCost(oracleText: string): {
 }
 
 /**
+ * Tutor effect detection result
+ */
+interface TutorInfo {
+  isTutor: boolean;
+  searchCriteria?: string;
+  destination?: string;
+  maxSelections?: number;
+  /** For split-destination effects like Kodama's Reach/Cultivate */
+  splitDestination?: boolean;
+  /** Number of cards to put on battlefield for split effects */
+  toBattlefield?: number;
+  /** Number of cards to put in hand for split effects */
+  toHand?: number;
+  /** Whether cards enter battlefield tapped */
+  entersTapped?: boolean;
+}
+
+/**
  * Check if a spell's oracle text indicates it's a tutor (search library) effect
  * and parse the intended destination for the searched card.
  * 
@@ -221,8 +239,11 @@ function parseAbilityCost(oracleText: string): {
  * - "put it on top of your library" -> top (Vampiric Tutor, Mystical Tutor, Worldly Tutor)
  * - "put it into your graveyard" -> graveyard (Entomb, Buried Alive)
  * - "reveal it" (then hand) -> hand (most white/blue tutors)
+ * 
+ * Special patterns:
+ * - Kodama's Reach/Cultivate: "put one onto the battlefield tapped and the other into your hand"
  */
-function detectTutorEffect(oracleText: string): { isTutor: boolean; searchCriteria?: string; destination?: string } {
+function detectTutorEffect(oracleText: string): TutorInfo {
   if (!oracleText) return { isTutor: false };
   
   const text = oracleText.toLowerCase();
@@ -231,11 +252,52 @@ function detectTutorEffect(oracleText: string): { isTutor: boolean; searchCriter
   if (text.includes('search your library')) {
     let searchCriteria = '';
     let destination = 'hand'; // Default destination
+    let maxSelections = 1;
     
     // Detect what type of card to search for
-    const forMatch = text.match(/search your library for (?:a|an|up to \w+) ([^,\.]+)/i);
+    const forMatch = text.match(/search your library for (?:a|an|up to (\w+)) ([^,\.]+)/i);
     if (forMatch) {
-      searchCriteria = forMatch[1].trim();
+      // Check for "up to N" pattern
+      if (forMatch[1]) {
+        const num = forMatch[1].toLowerCase();
+        if (num === 'two') maxSelections = 2;
+        else if (num === 'three') maxSelections = 3;
+        else if (num === 'four') maxSelections = 4;
+        else {
+          const parsed = parseInt(num, 10);
+          if (!isNaN(parsed)) maxSelections = parsed;
+        }
+      }
+      searchCriteria = forMatch[2].trim();
+    }
+    
+    // SPECIAL CASE: Kodama's Reach / Cultivate pattern
+    // "put one onto the battlefield tapped and the other into your hand"
+    if (text.includes('put one onto the battlefield') && text.includes('the other into your hand')) {
+      const entersTapped = text.includes('battlefield tapped');
+      return {
+        isTutor: true,
+        searchCriteria,
+        destination: 'split', // Special destination type
+        maxSelections: 2,
+        splitDestination: true,
+        toBattlefield: 1,
+        toHand: 1,
+        entersTapped,
+      };
+    }
+    
+    // SPECIAL CASE: Three Visits / Nature's Lore pattern  
+    // "put that card onto the battlefield tapped"
+    if (text.includes('forest card') && text.includes('put that card onto the battlefield')) {
+      const entersTapped = text.includes('battlefield tapped');
+      return {
+        isTutor: true,
+        searchCriteria: 'forest card',
+        destination: 'battlefield',
+        maxSelections: 1,
+        entersTapped,
+      };
     }
     
     // Detect destination - order matters! More specific patterns first
@@ -269,7 +331,7 @@ function detectTutorEffect(oracleText: string): { isTutor: boolean; searchCriter
       destination = 'hand';
     }
     
-    return { isTutor: true, searchCriteria, destination };
+    return { isTutor: true, searchCriteria, destination, maxSelections };
   }
   
   return { isTutor: false };
@@ -686,16 +748,34 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const filter = parseSearchCriteria(tutorInfo.searchCriteria || "");
         const library = game.searchLibrary ? game.searchLibrary(pid, "", 1000) : [];
         
-        socket.emit("librarySearchRequest", {
-          gameId,
-          cards: library,
-          title: `${cardName}`,
-          description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : "Search your library",
-          filter,
-          maxSelections: 1,
-          moveTo: tutorInfo.destination || "hand",
-          shuffleAfter: true,
-        });
+        // Handle split-destination effects (Kodama's Reach, Cultivate)
+        if (tutorInfo.splitDestination) {
+          socket.emit("librarySearchRequest", {
+            gameId,
+            cards: library,
+            title: `${cardName}`,
+            description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : "Search your library",
+            filter,
+            maxSelections: tutorInfo.maxSelections || 2,
+            moveTo: "split",
+            splitDestination: true,
+            toBattlefield: tutorInfo.toBattlefield || 1,
+            toHand: tutorInfo.toHand || 1,
+            entersTapped: tutorInfo.entersTapped,
+            shuffleAfter: true,
+          });
+        } else {
+          socket.emit("librarySearchRequest", {
+            gameId,
+            cards: library,
+            title: `${cardName}`,
+            description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : "Search your library",
+            filter,
+            maxSelections: tutorInfo.maxSelections || 1,
+            moveTo: tutorInfo.destination || "hand",
+            shuffleAfter: true,
+          });
+        }
         
         broadcastGame(io, game, gameId);
         return;
@@ -875,16 +955,34 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const filter = parseSearchCriteria(tutorInfo.searchCriteria || "");
         const library = game.searchLibrary ? game.searchLibrary(pid, "", 1000) : [];
         
-        socket.emit("librarySearchRequest", {
-          gameId,
-          cards: library,
-          title: `${cardName}`,
-          description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : "Search your library",
-          filter,
-          maxSelections: 1,
-          moveTo: tutorInfo.destination || "hand",
-          shuffleAfter: true,
-        });
+        // Handle split-destination effects (Kodama's Reach, Cultivate)
+        if (tutorInfo.splitDestination) {
+          socket.emit("librarySearchRequest", {
+            gameId,
+            cards: library,
+            title: `${cardName}`,
+            description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : "Search your library",
+            filter,
+            maxSelections: tutorInfo.maxSelections || 2,
+            moveTo: "split",
+            splitDestination: true,
+            toBattlefield: tutorInfo.toBattlefield || 1,
+            toHand: tutorInfo.toHand || 1,
+            entersTapped: tutorInfo.entersTapped,
+            shuffleAfter: true,
+          });
+        } else {
+          socket.emit("librarySearchRequest", {
+            gameId,
+            cards: library,
+            title: `${cardName}`,
+            description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : "Search your library",
+            filter,
+            maxSelections: tutorInfo.maxSelections || 1,
+            moveTo: tutorInfo.destination || "hand",
+            shuffleAfter: true,
+          });
+        }
         
         broadcastGame(io, game, gameId);
         return;
@@ -1842,6 +1940,284 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       message: `${getPlayerName(game, pid)} searched ${ownerName} library and put ${movedCardNames.join(", ")} to ${destName}.`,
       ts: Date.now(),
     });
+    
+    broadcastGame(io, game, gameId);
+  });
+
+  /**
+   * Split-destination library search selection (for Kodama's Reach, Cultivate, etc.)
+   * 
+   * Player selects cards from library, then assigns each to either battlefield or hand.
+   */
+  socket.on("librarySearchSplitSelect", ({ gameId, battlefieldCardIds, handCardIds, entersTapped }: { 
+    gameId: string; 
+    battlefieldCardIds: string[];
+    handCardIds: string[];
+    entersTapped?: boolean;
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    
+    const zones = game.state?.zones?.[pid];
+    if (!zones) {
+      socket.emit("error", {
+        code: "ZONES_NOT_FOUND",
+        message: "Player zones not found",
+      });
+      return;
+    }
+    
+    const movedToBattlefield: string[] = [];
+    const movedToHand: string[] = [];
+    
+    // Get current library for card data lookup (BEFORE modifying)
+    const libraryData = typeof game.searchLibrary === 'function' 
+      ? game.searchLibrary(pid, "", 1000) 
+      : [];
+    
+    // Create a map of card data by ID for full card info
+    const cardDataById = new Map<string, any>();
+    for (const card of libraryData) {
+      cardDataById.set(card.id, card);
+    }
+    
+    // Combine all card IDs for removal from library
+    const allSelectedIds = [...battlefieldCardIds, ...handCardIds];
+    
+    if (typeof game.selectFromLibrary === 'function') {
+      // First, put cards that go to hand
+      if (handCardIds.length > 0) {
+        const movedHand = game.selectFromLibrary(pid, handCardIds, 'hand' as any);
+        for (const card of movedHand) {
+          movedToHand.push((card as any).name || "Unknown");
+        }
+      }
+      
+      // Then, put cards on battlefield (need special handling for tapped state)
+      if (battlefieldCardIds.length > 0) {
+        // Get full card data before removal
+        const battlefieldCards = battlefieldCardIds.map(id => cardDataById.get(id)).filter(Boolean);
+        
+        // Remove from library by moving to a temp location
+        game.selectFromLibrary(pid, battlefieldCardIds, 'battlefield' as any);
+        
+        game.state.battlefield = game.state.battlefield || [];
+        
+        for (const fullCard of battlefieldCards) {
+          movedToBattlefield.push((fullCard as any).name || "Unknown");
+          
+          const permanentId = generateId("perm");
+          
+          // For Kodama's Reach/Cultivate, the land enters tapped
+          const shouldEnterTapped = entersTapped ?? true;
+          
+          game.state.battlefield.push({
+            id: permanentId,
+            card: { ...fullCard, zone: 'battlefield' },
+            controller: pid,
+            owner: pid,
+            tapped: shouldEnterTapped,
+            counters: {},
+          } as any);
+        }
+      }
+    } else {
+      console.error('[librarySearchSplitSelect] game.selectFromLibrary not available');
+      socket.emit("error", {
+        code: "INTERNAL_ERROR",
+        message: "Library selection not available",
+      });
+      return;
+    }
+    
+    // Shuffle library after search
+    if (typeof game.shuffleLibrary === "function") {
+      game.shuffleLibrary(pid);
+    }
+    
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+    
+    appendEvent(gameId, (game as any).seq ?? 0, "librarySearchSplitSelect", {
+      playerId: pid,
+      battlefieldCardIds,
+      handCardIds,
+      entersTapped,
+    });
+    
+    // Build chat message
+    const messages: string[] = [];
+    if (movedToBattlefield.length > 0) {
+      messages.push(`${movedToBattlefield.join(", ")} to the battlefield${entersTapped ? ' tapped' : ''}`);
+    }
+    if (movedToHand.length > 0) {
+      messages.push(`${movedToHand.join(", ")} to their hand`);
+    }
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} searched their library and put ${messages.join(" and ")}.`,
+      ts: Date.now(),
+    });
+    
+    broadcastGame(io, game, gameId);
+  });
+
+  /**
+   * Entrapment Maneuver sacrifice selection
+   * When target player chooses which attacking creature to sacrifice
+   */
+  socket.on("entrapmentManeuverSelect", ({ gameId, creatureId }: {
+    gameId: string;
+    creatureId: string;
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    
+    // Check if there's a pending Entrapment Maneuver for this player
+    const pending = (game.state as any)?.pendingEntrapmentManeuver?.[pid];
+    if (!pending) {
+      socket.emit("error", {
+        code: "NO_PENDING_MANEUVER",
+        message: "No Entrapment Maneuver pending for you",
+      });
+      return;
+    }
+    
+    // Find the creature on battlefield
+    const battlefield = game.state?.battlefield || [];
+    const creature = battlefield.find((p: any) => p?.id === creatureId && p?.controller === pid);
+    
+    if (!creature) {
+      socket.emit("error", {
+        code: "CREATURE_NOT_FOUND",
+        message: "Creature not found or not controlled by you",
+      });
+      return;
+    }
+    
+    // Verify the creature is attacking
+    if (!creature.attacking) {
+      socket.emit("error", {
+        code: "NOT_ATTACKING",
+        message: "That creature is not attacking",
+      });
+      return;
+    }
+    
+    const creatureCard = (creature as any).card || {};
+    const creatureName = (creatureCard as any).name || "Unknown Creature";
+    
+    // Get the creature's toughness for token creation
+    // Handle variable toughness values like '*' or 'X' by treating them as 0
+    const toughnessStr = String((creature as any).baseToughness ?? (creatureCard as any).toughness ?? "0");
+    let toughness: number;
+    if (toughnessStr === '*' || toughnessStr.toLowerCase() === 'x') {
+      // Variable toughness - use any counters or modifiers to determine value
+      const plusCounters = ((creature as any).counters?.['+1/+1']) || 0;
+      const minusCounters = ((creature as any).counters?.['-1/-1']) || 0;
+      toughness = plusCounters - minusCounters;
+    } else {
+      toughness = parseInt(toughnessStr.replace(/\D.*$/, ''), 10) || 0;
+    }
+    
+    // Apply any toughness modifiers
+    if ((creature as any).tempToughnessMod) {
+      toughness += (creature as any).tempToughnessMod;
+    }
+    
+    // Ensure toughness is at least 0 for token creation
+    toughness = Math.max(0, toughness);
+    
+    // Get the caster of Entrapment Maneuver (who gets the tokens)
+    const caster = pending.caster as string;
+    
+    // Sacrifice the creature (move to graveyard)
+    const idx = battlefield.findIndex((p: any) => p.id === creatureId);
+    if (idx >= 0) {
+      battlefield.splice(idx, 1);
+      
+      // Move to owner's graveyard
+      const owner = creature.owner || creature.controller;
+      const zones = (game.state as any).zones = (game.state as any).zones || {};
+      const ownerZone = zones[owner] = zones[owner] || { hand: [], graveyard: [], handCount: 0, graveyardCount: 0 };
+      ownerZone.graveyard = ownerZone.graveyard || [];
+      ownerZone.graveyard.push({ ...creatureCard, zone: "graveyard" });
+      ownerZone.graveyardCount = ownerZone.graveyard.length;
+    }
+    
+    // Create Soldier tokens for the caster equal to the sacrificed creature's toughness
+    if (toughness > 0) {
+      game.state.battlefield = game.state.battlefield || [];
+      
+      for (let i = 0; i < toughness; i++) {
+        const tokenId = generateId("tok");
+        game.state.battlefield.push({
+          id: tokenId,
+          controller: caster,
+          owner: caster,
+          tapped: false,
+          counters: {},
+          isToken: true,
+          basePower: 1,
+          baseToughness: 1,
+          card: {
+            id: tokenId,
+            name: "Soldier",
+            type_line: "Token Creature — Soldier",
+            power: "1",
+            toughness: "1",
+            zone: "battlefield",
+          },
+        } as any);
+      }
+      
+      console.log(`[entrapmentManeuverSelect] Created ${toughness} Soldier token(s) for ${caster}`);
+    }
+    
+    // Clear the pending Entrapment Maneuver
+    delete (game.state as any).pendingEntrapmentManeuver[pid];
+    if (Object.keys((game.state as any).pendingEntrapmentManeuver).length === 0) {
+      delete (game.state as any).pendingEntrapmentManeuver;
+    }
+    
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+    
+    appendEvent(gameId, (game as any).seq ?? 0, "entrapmentManeuverSelect", {
+      playerId: pid,
+      caster,
+      sacrificedCreatureId: creatureId,
+      sacrificedCreatureName: creatureName,
+      tokensCreated: toughness,
+    });
+    
+    // Emit chat messages
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} sacrificed ${creatureName} (toughness ${toughness}).`,
+      ts: Date.now(),
+    });
+    
+    if (toughness > 0) {
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}_tokens`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, caster)} created ${toughness} 1/1 white Soldier creature token${toughness !== 1 ? 's' : ''}.`,
+        ts: Date.now(),
+      });
+    }
     
     broadcastGame(io, game, gameId);
   });

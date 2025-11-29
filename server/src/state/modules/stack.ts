@@ -28,8 +28,17 @@ import { addExtraTurn } from "./turn.js";
 function detectTutorSpell(oracleText: string): { 
   isTutor: boolean; 
   searchCriteria?: string; 
-  destination?: 'hand' | 'top' | 'battlefield' | 'graveyard';
+  destination?: 'hand' | 'top' | 'battlefield' | 'graveyard' | 'split';
   optional?: boolean;
+  maxSelections?: number;
+  /** For split-destination effects like Kodama's Reach/Cultivate */
+  splitDestination?: boolean;
+  /** Number of cards to put on battlefield for split effects */
+  toBattlefield?: number;
+  /** Number of cards to put in hand for split effects */
+  toHand?: number;
+  /** Whether cards enter battlefield tapped */
+  entersTapped?: boolean;
 } {
   if (!oracleText) return { isTutor: false };
   
@@ -41,18 +50,47 @@ function detectTutorSpell(oracleText: string): {
   }
   
   let searchCriteria = '';
-  let destination: 'hand' | 'top' | 'battlefield' | 'graveyard' = 'hand';
+  let destination: 'hand' | 'top' | 'battlefield' | 'graveyard' | 'split' = 'hand';
   let optional = false;
+  let maxSelections = 1;
   
-  // Detect what type of card to search for
-  const forMatch = text.match(/search your library for (?:a|an|up to \w+) ([^,.]+)/i);
+  // Detect what type of card to search for and how many
+  const forMatch = text.match(/search your library for (?:a|an|up to (\w+)) ([^,.]+)/i);
   if (forMatch) {
-    searchCriteria = forMatch[1].trim();
+    // Check for "up to N" pattern
+    if (forMatch[1]) {
+      const num = forMatch[1].toLowerCase();
+      if (num === 'two') maxSelections = 2;
+      else if (num === 'three') maxSelections = 3;
+      else if (num === 'four') maxSelections = 4;
+      else {
+        const parsed = parseInt(num, 10);
+        if (!isNaN(parsed)) maxSelections = parsed;
+      }
+    }
+    searchCriteria = forMatch[2].trim();
   }
   
   // Check for optional search (contains "may")
   if (text.includes('you may search')) {
     optional = true;
+  }
+  
+  // SPECIAL CASE: Kodama's Reach / Cultivate pattern
+  // "put one onto the battlefield tapped and the other into your hand"
+  if (text.includes('put one onto the battlefield') && text.includes('the other into your hand')) {
+    const entersTapped = text.includes('battlefield tapped');
+    return {
+      isTutor: true,
+      searchCriteria,
+      destination: 'split',
+      optional,
+      maxSelections: 2,
+      splitDestination: true,
+      toBattlefield: 1,
+      toHand: 1,
+      entersTapped,
+    };
   }
   
   // Detect destination - order matters! More specific patterns first
@@ -80,7 +118,7 @@ function detectTutorSpell(oracleText: string): {
   // Hand patterns (Demonic Tutor, Diabolic Tutor, Grim Tutor)
   // Default is hand
   
-  return { isTutor: true, searchCriteria, destination, optional };
+  return { isTutor: true, searchCriteria, destination, optional, maxSelections };
 }
 
 /**
@@ -448,7 +486,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
     }
     
-    // Handle tutor spells (Demonic Tutor, Vampiric Tutor, Diabolic Tutor, etc.)
+    // Handle tutor spells (Demonic Tutor, Vampiric Tutor, Diabolic Tutor, Kodama's Reach, Cultivate, etc.)
     // These need to trigger a library search prompt for the player
     const tutorInfo = detectTutorSpell(oracleText);
     if (tutorInfo.isTutor) {
@@ -458,12 +496,18 @@ export function resolveTopOfStack(ctx: GameContext) {
         type: 'tutor',
         searchFor: tutorInfo.searchCriteria || 'card',
         destination: tutorInfo.destination || 'hand',
-        tapped: tutorInfo.destination === 'battlefield', // Cards put onto battlefield from tutors are usually tapped
+        tapped: tutorInfo.entersTapped ?? (tutorInfo.destination === 'battlefield'), // Cards put onto battlefield from tutors are usually tapped
         optional: tutorInfo.optional || false,
         source: card.name || 'Tutor',
         shuffleAfter: true,
+        maxSelections: tutorInfo.maxSelections || 1,
+        // For split-destination effects (Kodama's Reach, Cultivate)
+        splitDestination: tutorInfo.splitDestination || false,
+        toBattlefield: tutorInfo.toBattlefield,
+        toHand: tutorInfo.toHand,
+        entersTapped: tutorInfo.entersTapped,
       };
-      console.log(`[resolveTopOfStack] Tutor spell ${card.name}: ${controller} may search for ${tutorInfo.searchCriteria || 'a card'} (destination: ${tutorInfo.destination})`);
+      console.log(`[resolveTopOfStack] Tutor spell ${card.name}: ${controller} may search for ${tutorInfo.searchCriteria || 'a card'} (destination: ${tutorInfo.destination}, split: ${tutorInfo.splitDestination || false})`);
     }
     
     // Handle Path to Exile - exile target creature, controller may search for basic land
@@ -489,6 +533,48 @@ export function resolveTopOfStack(ctx: GameContext) {
           };
           console.log(`[resolveTopOfStack] Path to Exile: ${creatureController} may search for a basic land`);
         }
+      }
+    }
+    
+    // Handle Entrapment Maneuver - "Target player sacrifices an attacking creature. 
+    // You create X 1/1 white Soldier creature tokens, where X is that creature's toughness."
+    const isEntrapmentManeuver = card.name?.toLowerCase().includes('entrapment maneuver') ||
+      (oracleTextLower.includes('sacrifices an attacking creature') && 
+       oracleTextLower.includes('create') && 
+       oracleTextLower.includes('soldier') &&
+       oracleTextLower.includes('toughness'));
+    
+    if (isEntrapmentManeuver && targets.length > 0) {
+      // Find the target player (they must sacrifice an attacking creature)
+      const targetPlayerId = targets[0]?.id || targets[0];
+      
+      // Get all attacking creatures controlled by the target player
+      const battlefield = state.battlefield || [];
+      const attackingCreatures = battlefield.filter((p: any) => 
+        p?.controller === targetPlayerId && 
+        (p?.card?.type_line || "").toLowerCase().includes("creature") &&
+        p?.attacking // Only creatures that are currently attacking
+      );
+      
+      if (attackingCreatures.length > 0) {
+        // Set up pending sacrifice selection for Entrapment Maneuver
+        // The target player chooses which attacking creature to sacrifice
+        (state as any).pendingEntrapmentManeuver = (state as any).pendingEntrapmentManeuver || {};
+        (state as any).pendingEntrapmentManeuver[targetPlayerId] = {
+          source: card.name || 'Entrapment Maneuver',
+          caster: controller,
+          attackingCreatures: attackingCreatures.map((c: any) => ({
+            id: c.id,
+            name: c.card?.name || "Unknown",
+            power: c.card?.power || c.basePower || "0",
+            toughness: c.card?.toughness || c.baseToughness || "0",
+            imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
+            typeLine: c.card?.type_line,
+          })),
+        };
+        console.log(`[resolveTopOfStack] Entrapment Maneuver: ${targetPlayerId} must sacrifice one of ${attackingCreatures.length} attacking creature(s)`);
+      } else {
+        console.log(`[resolveTopOfStack] Entrapment Maneuver: ${targetPlayerId} has no attacking creatures to sacrifice`);
       }
     }
     

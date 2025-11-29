@@ -29,6 +29,7 @@ import {
 } from "./triggered-abilities.js";
 import { getUpkeepTriggersForPlayer } from "./upkeep-triggers.js";
 import { parseCreatureKeywords } from "./combat-mechanics.js";
+import { runSBA } from "./counters_tokens.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -364,8 +365,12 @@ function dealCombatDamage(ctx: GameContext): {
       return result;
     }
     
-    // Get life totals object
-    const life = (ctx as any).state?.life || {};
+    // Get life totals object - ensure we're using the same object that ctx.life references
+    // Initialize if needed to avoid creating a new unlinked object
+    if (!(ctx as any).state.life) {
+      (ctx as any).state.life = {};
+    }
+    const life = (ctx as any).state.life;
     const startingLife = (ctx as any).state?.startingLife || 40;
     
     for (const attacker of attackers) {
@@ -556,6 +561,14 @@ function dealCombatDamage(ctx: GameContext): {
     }
     
     console.log(`${ts()} [dealCombatDamage] Combat damage complete. Damage to players: ${JSON.stringify(result.damageToPlayers)}, Life gained: ${JSON.stringify(result.lifeGainForPlayers)}, Creatures destroyed: ${result.creaturesDestroyed.length}`);
+    
+    // Run state-based actions to destroy creatures that have lethal damage
+    // This will move creatures with 0 or less toughness (after damage) to the graveyard
+    try {
+      runSBA(ctx);
+    } catch (sbaErr) {
+      console.warn(`${ts()} [dealCombatDamage] SBA failed:`, sbaErr);
+    }
     
   } catch (err) {
     console.warn(`${ts()} dealCombatDamage failed:`, err);
