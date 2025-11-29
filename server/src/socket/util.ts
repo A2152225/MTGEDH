@@ -883,48 +883,43 @@ function handlePendingLibrarySearch(io: Server, game: any, gameId: string): void
       
       // Get the socket for this player and emit search request
       const socket = socketsByPlayer.get(playerId);
+      
+      // Build the base request object
+      const baseRequest = {
+        gameId,
+        cards: searchableCards,
+        title: info.source || 'Search',
+        description,
+        filter,
+        maxSelections: info.maxSelections || 1,
+        moveTo: info.splitDestination ? 'split' : (info.destination || 'hand'),
+        shuffleAfter: info.shuffleAfter ?? true,
+        optional: info.optional || false,
+        tapped: info.tapped || false,
+        // For split-destination effects (Kodama's Reach, Cultivate)
+        splitDestination: info.splitDestination || false,
+        toBattlefield: info.toBattlefield,
+        toHand: info.toHand,
+        entersTapped: info.entersTapped,
+        searchRestrictions: {
+          limitedToTop: searchCheck.limitToTop,
+          paymentRequired: searchCheck.paymentRequired,
+          triggerEffects: searchCheck.triggerEffects,
+        },
+      };
+      
       if (socket) {
-        socket.emit("librarySearchRequest", {
-          gameId,
-          cards: searchableCards,
-          title: info.source || 'Search',
-          description,
-          filter,
-          maxSelections: 1,
-          moveTo: info.destination || 'hand',
-          shuffleAfter: info.shuffleAfter ?? true,
-          optional: info.optional || false,
-          tapped: info.tapped || false,
-          searchRestrictions: {
-            limitedToTop: searchCheck.limitToTop,
-            paymentRequired: searchCheck.paymentRequired,
-            triggerEffects: searchCheck.triggerEffects,
-          },
-        });
+        socket.emit("librarySearchRequest", baseRequest);
         
-        console.log(`[handlePendingLibrarySearch] Sent librarySearchRequest to ${playerId} for ${info.source || 'tutor'}`);
+        console.log(`[handlePendingLibrarySearch] Sent librarySearchRequest to ${playerId} for ${info.source || 'tutor'}${info.splitDestination ? ' (split destination)' : ''}`);
       } else {
         // No specific socket - broadcast to the room and let the client filter
         io.to(gameId).emit("librarySearchRequest", {
-          gameId,
+          ...baseRequest,
           playerId,
-          cards: searchableCards,
-          title: info.source || 'Search',
-          description,
-          filter,
-          maxSelections: 1,
-          moveTo: info.destination || 'hand',
-          shuffleAfter: info.shuffleAfter ?? true,
-          optional: info.optional || false,
-          tapped: info.tapped || false,
-          searchRestrictions: {
-            limitedToTop: searchCheck.limitToTop,
-            paymentRequired: searchCheck.paymentRequired,
-            triggerEffects: searchCheck.triggerEffects,
-          },
         });
         
-        console.log(`[handlePendingLibrarySearch] Broadcast librarySearchRequest for ${playerId} for ${info.source || 'tutor'}`);
+        console.log(`[handlePendingLibrarySearch] Broadcast librarySearchRequest for ${playerId} for ${info.source || 'tutor'}${info.splitDestination ? ' (split destination)' : ''}`);
       }
     }
     

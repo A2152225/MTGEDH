@@ -116,13 +116,67 @@ function isPlaneswalker(p: BattlefieldPermanent) {
   return (((p.card as any)?.type_line) || '').toLowerCase().includes('planeswalker');
 }
 
-function hasHexproofOrShroud(p: BattlefieldPermanent, s: Readonly<GameState>) {
+function hasHexproofOrShroud(p: BattlefieldPermanent, s: Readonly<GameState>): boolean {
   const self = (((p.card as any)?.oracle_text) || '').toLowerCase();
+  // Check if permanent itself has hexproof/shroud
   if (self.includes('hexproof') || self.includes('shroud')) return true;
-  return s.battlefield.some(a =>
+  
+  // Check if any attached aura grants hexproof/shroud
+  const hasFromAura = s.battlefield.some(a =>
     a.attachedTo === p.id &&
     ((((a.card as any)?.oracle_text) || '').toLowerCase().match(/hexproof|shroud/))
   );
+  if (hasFromAura) return true;
+  
+  // Check if any other permanent on the battlefield grants hexproof/shroud to this creature
+  // This handles cards like Shalai, Voice of Plenty ("You and other creatures you control have hexproof")
+  // and Privileged Position ("Other permanents you control have hexproof")
+  const typeLine = (((p.card as any)?.type_line) || '').toLowerCase();
+  const isCreaturePerm = typeLine.includes('creature');
+  
+  for (const source of s.battlefield) {
+    if (source.id === p.id) continue; // Skip self
+    if (source.controller !== p.controller) continue; // Only check permanents controlled by same player
+    
+    const sourceOracle = (((source.card as any)?.oracle_text) || '').toLowerCase();
+    
+    // "Other creatures you control have hexproof" (e.g., Shalai)
+    if (/other creatures you control have hexproof/.test(sourceOracle) && isCreaturePerm) {
+      return true;
+    }
+    
+    // "You and other creatures you control have hexproof" (also Shalai pattern)
+    if (/you and other creatures you control have hexproof/.test(sourceOracle) && isCreaturePerm) {
+      return true;
+    }
+    
+    // "Other permanents you control have hexproof" (e.g., Privileged Position)
+    if (/other permanents you control have hexproof/.test(sourceOracle)) {
+      return true;
+    }
+    
+    // "Permanents you control have hexproof" (grants to all including source)
+    if (/(?<!other )permanents you control have hexproof/.test(sourceOracle)) {
+      return true;
+    }
+    
+    // "Creatures you control have hexproof" (without "other")
+    if (/(?<!other )creatures you control have hexproof/.test(sourceOracle) && isCreaturePerm) {
+      return true;
+    }
+    
+    // "Other creatures you control have shroud"
+    if (/other creatures you control have shroud/.test(sourceOracle) && isCreaturePerm) {
+      return true;
+    }
+    
+    // "Other permanents you control have shroud"
+    if (/other permanents you control have shroud/.test(sourceOracle)) {
+      return true;
+    }
+  }
+  
+  return false;
 }
 
 export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, spec: SpellSpec): TargetRef[] {

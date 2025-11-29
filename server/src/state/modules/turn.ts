@@ -364,8 +364,12 @@ function dealCombatDamage(ctx: GameContext): {
       return result;
     }
     
-    // Get life totals object
-    const life = (ctx as any).state?.life || {};
+    // Get life totals object - ensure we're using the same object that ctx.life references
+    // Initialize if needed to avoid creating a new unlinked object
+    if (!(ctx as any).state.life) {
+      (ctx as any).state.life = {};
+    }
+    const life = (ctx as any).state.life;
     const startingLife = (ctx as any).state?.startingLife || 40;
     
     for (const attacker of attackers) {

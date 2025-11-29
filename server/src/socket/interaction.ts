@@ -212,6 +212,24 @@ function parseAbilityCost(oracleText: string): {
 }
 
 /**
+ * Tutor effect detection result
+ */
+interface TutorInfo {
+  isTutor: boolean;
+  searchCriteria?: string;
+  destination?: string;
+  maxSelections?: number;
+  /** For split-destination effects like Kodama's Reach/Cultivate */
+  splitDestination?: boolean;
+  /** Number of cards to put on battlefield for split effects */
+  toBattlefield?: number;
+  /** Number of cards to put in hand for split effects */
+  toHand?: number;
+  /** Whether cards enter battlefield tapped */
+  entersTapped?: boolean;
+}
+
+/**
  * Check if a spell's oracle text indicates it's a tutor (search library) effect
  * and parse the intended destination for the searched card.
  * 
@@ -221,8 +239,11 @@ function parseAbilityCost(oracleText: string): {
  * - "put it on top of your library" -> top (Vampiric Tutor, Mystical Tutor, Worldly Tutor)
  * - "put it into your graveyard" -> graveyard (Entomb, Buried Alive)
  * - "reveal it" (then hand) -> hand (most white/blue tutors)
+ * 
+ * Special patterns:
+ * - Kodama's Reach/Cultivate: "put one onto the battlefield tapped and the other into your hand"
  */
-function detectTutorEffect(oracleText: string): { isTutor: boolean; searchCriteria?: string; destination?: string } {
+function detectTutorEffect(oracleText: string): TutorInfo {
   if (!oracleText) return { isTutor: false };
   
   const text = oracleText.toLowerCase();
@@ -231,11 +252,52 @@ function detectTutorEffect(oracleText: string): { isTutor: boolean; searchCriter
   if (text.includes('search your library')) {
     let searchCriteria = '';
     let destination = 'hand'; // Default destination
+    let maxSelections = 1;
     
     // Detect what type of card to search for
-    const forMatch = text.match(/search your library for (?:a|an|up to \w+) ([^,\.]+)/i);
+    const forMatch = text.match(/search your library for (?:a|an|up to (\w+)) ([^,\.]+)/i);
     if (forMatch) {
-      searchCriteria = forMatch[1].trim();
+      // Check for "up to N" pattern
+      if (forMatch[1]) {
+        const num = forMatch[1].toLowerCase();
+        if (num === 'two') maxSelections = 2;
+        else if (num === 'three') maxSelections = 3;
+        else if (num === 'four') maxSelections = 4;
+        else {
+          const parsed = parseInt(num, 10);
+          if (!isNaN(parsed)) maxSelections = parsed;
+        }
+      }
+      searchCriteria = forMatch[2].trim();
+    }
+    
+    // SPECIAL CASE: Kodama's Reach / Cultivate pattern
+    // "put one onto the battlefield tapped and the other into your hand"
+    if (text.includes('put one onto the battlefield') && text.includes('the other into your hand')) {
+      const entersTapped = text.includes('battlefield tapped');
+      return {
+        isTutor: true,
+        searchCriteria,
+        destination: 'split', // Special destination type
+        maxSelections: 2,
+        splitDestination: true,
+        toBattlefield: 1,
+        toHand: 1,
+        entersTapped,
+      };
+    }
+    
+    // SPECIAL CASE: Three Visits / Nature's Lore pattern  
+    // "put that card onto the battlefield tapped"
+    if (text.includes('forest card') && text.includes('put that card onto the battlefield')) {
+      const entersTapped = text.includes('battlefield tapped');
+      return {
+        isTutor: true,
+        searchCriteria: 'forest card',
+        destination: 'battlefield',
+        maxSelections: 1,
+        entersTapped,
+      };
     }
     
     // Detect destination - order matters! More specific patterns first
@@ -269,7 +331,7 @@ function detectTutorEffect(oracleText: string): { isTutor: boolean; searchCriter
       destination = 'hand';
     }
     
-    return { isTutor: true, searchCriteria, destination };
+    return { isTutor: true, searchCriteria, destination, maxSelections };
   }
   
   return { isTutor: false };
@@ -686,16 +748,34 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const filter = parseSearchCriteria(tutorInfo.searchCriteria || "");
         const library = game.searchLibrary ? game.searchLibrary(pid, "", 1000) : [];
         
-        socket.emit("librarySearchRequest", {
-          gameId,
-          cards: library,
-          title: `${cardName}`,
-          description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : "Search your library",
-          filter,
-          maxSelections: 1,
-          moveTo: tutorInfo.destination || "hand",
-          shuffleAfter: true,
-        });
+        // Handle split-destination effects (Kodama's Reach, Cultivate)
+        if (tutorInfo.splitDestination) {
+          socket.emit("librarySearchRequest", {
+            gameId,
+            cards: library,
+            title: `${cardName}`,
+            description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : "Search your library",
+            filter,
+            maxSelections: tutorInfo.maxSelections || 2,
+            moveTo: "split",
+            splitDestination: true,
+            toBattlefield: tutorInfo.toBattlefield || 1,
+            toHand: tutorInfo.toHand || 1,
+            entersTapped: tutorInfo.entersTapped,
+            shuffleAfter: true,
+          });
+        } else {
+          socket.emit("librarySearchRequest", {
+            gameId,
+            cards: library,
+            title: `${cardName}`,
+            description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : "Search your library",
+            filter,
+            maxSelections: tutorInfo.maxSelections || 1,
+            moveTo: tutorInfo.destination || "hand",
+            shuffleAfter: true,
+          });
+        }
         
         broadcastGame(io, game, gameId);
         return;
@@ -875,16 +955,34 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const filter = parseSearchCriteria(tutorInfo.searchCriteria || "");
         const library = game.searchLibrary ? game.searchLibrary(pid, "", 1000) : [];
         
-        socket.emit("librarySearchRequest", {
-          gameId,
-          cards: library,
-          title: `${cardName}`,
-          description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : "Search your library",
-          filter,
-          maxSelections: 1,
-          moveTo: tutorInfo.destination || "hand",
-          shuffleAfter: true,
-        });
+        // Handle split-destination effects (Kodama's Reach, Cultivate)
+        if (tutorInfo.splitDestination) {
+          socket.emit("librarySearchRequest", {
+            gameId,
+            cards: library,
+            title: `${cardName}`,
+            description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : "Search your library",
+            filter,
+            maxSelections: tutorInfo.maxSelections || 2,
+            moveTo: "split",
+            splitDestination: true,
+            toBattlefield: tutorInfo.toBattlefield || 1,
+            toHand: tutorInfo.toHand || 1,
+            entersTapped: tutorInfo.entersTapped,
+            shuffleAfter: true,
+          });
+        } else {
+          socket.emit("librarySearchRequest", {
+            gameId,
+            cards: library,
+            title: `${cardName}`,
+            description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : "Search your library",
+            filter,
+            maxSelections: tutorInfo.maxSelections || 1,
+            moveTo: tutorInfo.destination || "hand",
+            shuffleAfter: true,
+          });
+        }
         
         broadcastGame(io, game, gameId);
         return;
@@ -1840,6 +1938,130 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       gameId,
       from: "system",
       message: `${getPlayerName(game, pid)} searched ${ownerName} library and put ${movedCardNames.join(", ")} to ${destName}.`,
+      ts: Date.now(),
+    });
+    
+    broadcastGame(io, game, gameId);
+  });
+
+  /**
+   * Split-destination library search selection (for Kodama's Reach, Cultivate, etc.)
+   * 
+   * Player selects cards from library, then assigns each to either battlefield or hand.
+   */
+  socket.on("librarySearchSplitSelect", ({ gameId, battlefieldCardIds, handCardIds, entersTapped }: { 
+    gameId: string; 
+    battlefieldCardIds: string[];
+    handCardIds: string[];
+    entersTapped?: boolean;
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    
+    const zones = game.state?.zones?.[pid];
+    if (!zones) {
+      socket.emit("error", {
+        code: "ZONES_NOT_FOUND",
+        message: "Player zones not found",
+      });
+      return;
+    }
+    
+    const movedToBattlefield: string[] = [];
+    const movedToHand: string[] = [];
+    
+    // Get current library for card data lookup (BEFORE modifying)
+    const libraryData = typeof game.searchLibrary === 'function' 
+      ? game.searchLibrary(pid, "", 1000) 
+      : [];
+    
+    // Create a map of card data by ID for full card info
+    const cardDataById = new Map<string, any>();
+    for (const card of libraryData) {
+      cardDataById.set(card.id, card);
+    }
+    
+    // Combine all card IDs for removal from library
+    const allSelectedIds = [...battlefieldCardIds, ...handCardIds];
+    
+    if (typeof game.selectFromLibrary === 'function') {
+      // First, put cards that go to hand
+      if (handCardIds.length > 0) {
+        const movedHand = game.selectFromLibrary(pid, handCardIds, 'hand' as any);
+        for (const card of movedHand) {
+          movedToHand.push((card as any).name || "Unknown");
+        }
+      }
+      
+      // Then, put cards on battlefield (need special handling for tapped state)
+      if (battlefieldCardIds.length > 0) {
+        // Get full card data before removal
+        const battlefieldCards = battlefieldCardIds.map(id => cardDataById.get(id)).filter(Boolean);
+        
+        // Remove from library by moving to a temp location
+        game.selectFromLibrary(pid, battlefieldCardIds, 'battlefield' as any);
+        
+        game.state.battlefield = game.state.battlefield || [];
+        
+        for (const fullCard of battlefieldCards) {
+          movedToBattlefield.push((fullCard as any).name || "Unknown");
+          
+          const permanentId = generateId("perm");
+          
+          // For Kodama's Reach/Cultivate, the land enters tapped
+          const shouldEnterTapped = entersTapped ?? true;
+          
+          game.state.battlefield.push({
+            id: permanentId,
+            card: { ...fullCard, zone: 'battlefield' },
+            controller: pid,
+            owner: pid,
+            tapped: shouldEnterTapped,
+            counters: {},
+          } as any);
+        }
+      }
+    } else {
+      console.error('[librarySearchSplitSelect] game.selectFromLibrary not available');
+      socket.emit("error", {
+        code: "INTERNAL_ERROR",
+        message: "Library selection not available",
+      });
+      return;
+    }
+    
+    // Shuffle library after search
+    if (typeof game.shuffleLibrary === "function") {
+      game.shuffleLibrary(pid);
+    }
+    
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+    
+    appendEvent(gameId, (game as any).seq ?? 0, "librarySearchSplitSelect", {
+      playerId: pid,
+      battlefieldCardIds,
+      handCardIds,
+      entersTapped,
+    });
+    
+    // Build chat message
+    const messages: string[] = [];
+    if (movedToBattlefield.length > 0) {
+      messages.push(`${movedToBattlefield.join(", ")} to the battlefield${entersTapped ? ' tapped' : ''}`);
+    }
+    if (movedToHand.length > 0) {
+      messages.push(`${movedToHand.join(", ")} to their hand`);
+    }
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} searched their library and put ${messages.join(" and ")}.`,
       ts: Date.now(),
     });
     
