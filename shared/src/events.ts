@@ -148,8 +148,8 @@ export interface ClientToServerEvents {
   // Cleanup step discard selection
   discardToHandSize: (payload: { gameId: GameID; cardIds: string[] }) => void;
   
-  // Trigger ordering
-  orderTriggers: (payload: { gameId: GameID; triggerOrder: string[] }) => void;
+  // Trigger ordering (accepts either triggerOrder or orderedTriggerIds for backwards compatibility)
+  orderTriggers: (payload: { gameId: GameID; triggerOrder?: string[]; orderedTriggerIds?: string[] }) => void;
   
   // Replacement effect choice
   chooseReplacementEffect: (payload: { gameId: GameID; effectId: string }) => void;
@@ -324,11 +324,6 @@ export interface ClientToServerEvents {
   
   // Confirm surveil result
   confirmSurveil: (payload: { gameId: GameID; topCardIds: string[]; graveyardCardIds: string[] }) => void;
-
-  // ===== TRIGGER ORDERING =====
-  
-  // Order multiple triggers
-  orderTriggers: (payload: { gameId: GameID; triggerOrder?: string[]; orderedTriggerIds?: string[] }) => void;
 
   // ===== MULLIGAN EVENTS =====
   

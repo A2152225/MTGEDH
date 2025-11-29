@@ -57,6 +57,74 @@ function makeCandidateList(arr: any[] | undefined) {
 }
 
 /**
+ * Interface for extracted Scryfall card data used in debug output
+ */
+interface DebugCardData {
+  id?: string;
+  name?: string;
+  type_line?: string;
+  oracle_text?: string;
+  mana_cost?: string;
+  power?: string;
+  toughness?: string;
+  image_uris?: Record<string, string>;
+  card_faces?: unknown[];
+  layout?: string;
+  cmc?: number;
+  colors?: string[];
+  color_identity?: string[];
+  keywords?: string[];
+  rarity?: string;
+  set?: string;
+  set_name?: string;
+  legalities?: Record<string, string>;
+  edhrec_rank?: number;
+  produced_mana?: string[];
+}
+
+/**
+ * Extract Scryfall card data from a card object for debug output.
+ * Safely handles missing or malformed data.
+ */
+function extractScryfallData(card: unknown, includeExtended = false): DebugCardData {
+  if (!card || typeof card !== 'object') {
+    return {};
+  }
+  const c = card as Record<string, unknown>;
+  
+  const baseData: DebugCardData = {
+    id: typeof c.id === 'string' ? c.id : undefined,
+    name: typeof c.name === 'string' ? c.name : undefined,
+    type_line: typeof c.type_line === 'string' ? c.type_line : undefined,
+    oracle_text: typeof c.oracle_text === 'string' ? c.oracle_text : undefined,
+    mana_cost: typeof c.mana_cost === 'string' ? c.mana_cost : undefined,
+    power: typeof c.power === 'string' ? c.power : undefined,
+    toughness: typeof c.toughness === 'string' ? c.toughness : undefined,
+    image_uris: c.image_uris && typeof c.image_uris === 'object' 
+      ? c.image_uris as Record<string, string> : undefined,
+    card_faces: Array.isArray(c.card_faces) ? c.card_faces : undefined,
+    layout: typeof c.layout === 'string' ? c.layout : undefined,
+    cmc: typeof c.cmc === 'number' ? c.cmc : undefined,
+    colors: Array.isArray(c.colors) ? c.colors as string[] : undefined,
+    color_identity: Array.isArray(c.color_identity) ? c.color_identity as string[] : undefined,
+    keywords: Array.isArray(c.keywords) ? c.keywords as string[] : undefined,
+    rarity: typeof c.rarity === 'string' ? c.rarity : undefined,
+    set: typeof c.set === 'string' ? c.set : undefined,
+    set_name: typeof c.set_name === 'string' ? c.set_name : undefined,
+  };
+  
+  // Add extended data for import buffer dumps
+  if (includeExtended) {
+    baseData.legalities = c.legalities && typeof c.legalities === 'object' 
+      ? c.legalities as Record<string, string> : undefined;
+    baseData.edhrec_rank = typeof c.edhrec_rank === 'number' ? c.edhrec_rank : undefined;
+    baseData.produced_mana = Array.isArray(c.produced_mana) ? c.produced_mana as string[] : undefined;
+  }
+  
+  return baseData;
+}
+
+/**
  * Emit importedDeckCandidates to all currently-connected sockets that belong to `pid` (non-spectators).
  */
 export function emitImportedDeckCandidatesToPlayer(
@@ -733,6 +801,205 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
     }
   });
 
-  // dumpLibrary, dumpImportedDeckBuffer, getImportedDeckCandidates, dumpCommanderState
-  // remain as in your current file (not shown here for brevity).
+  // Debug handler: dumpLibrary - emits player's library with Scryfall data
+  socket.on("dumpLibrary", ({ gameId }: { gameId: string }) => {
+    try {
+      const pid = socket.data.playerId as PlayerID | undefined;
+      if (!gameId || typeof gameId !== "string") {
+        socket.emit("debugLibraryDump", { error: "Missing gameId" });
+        return;
+      }
+      
+      const game = ensureGame(gameId);
+      if (!game) {
+        socket.emit("debugLibraryDump", { error: "Game not found" });
+        return;
+      }
+      
+      // Get library from various possible locations
+      let library: unknown[] = [];
+      
+      // Try ctx.libraries or game.libraries (Map structure)
+      const librariesMap = (game as { libraries?: Map<PlayerID, unknown[]> }).libraries;
+      if (librariesMap && typeof librariesMap.get === "function" && pid) {
+        library = librariesMap.get(pid) || [];
+      }
+      
+      // Fall back to state.zones[pid].library
+      if (library.length === 0 && pid && game.state?.zones?.[pid]) {
+        const zoneData = game.state.zones[pid] as { library?: unknown[] };
+        library = zoneData.library || [];
+      }
+      
+      // Extract Scryfall data from library cards using shared utility
+      const libraryWithScryfall = library.map((card, index) => ({
+        position: index,
+        ...extractScryfallData(card),
+      }));
+      
+      console.info("[debug] dumpLibrary", {
+        gameId,
+        playerId: pid,
+        libraryCount: libraryWithScryfall.length,
+      });
+      
+      socket.emit("debugLibraryDump", {
+        gameId,
+        playerId: pid,
+        libraryCount: libraryWithScryfall.length,
+        cards: libraryWithScryfall,
+      });
+    } catch (err) {
+      console.error("dumpLibrary handler failed:", err);
+      socket.emit("debugLibraryDump", { error: String(err) });
+    }
+  });
+  
+  // Debug handler: dumpImportedDeckBuffer - emits full imported deck with Scryfall data
+  socket.on("dumpImportedDeckBuffer", ({ gameId }: { gameId: string }) => {
+    try {
+      const pid = socket.data.playerId as PlayerID | undefined;
+      if (!gameId || typeof gameId !== "string") {
+        socket.emit("debugImportedDeckBuffer", { error: "Missing gameId" });
+        return;
+      }
+      
+      const game = ensureGame(gameId);
+      if (!game) {
+        socket.emit("debugImportedDeckBuffer", { error: "Game not found" });
+        return;
+      }
+      
+      // Get the imported deck buffer
+      const gameWithBuffer = game as { _lastImportedDecks?: Map<PlayerID, unknown[]> };
+      const buf = gameWithBuffer._lastImportedDecks;
+      let importedCards: unknown[] = [];
+      
+      if (buf && typeof buf.get === "function" && pid) {
+        importedCards = buf.get(pid) || [];
+      }
+      
+      // If no import buffer, fall back to library
+      if (importedCards.length === 0) {
+        const librariesMap = (game as { libraries?: Map<PlayerID, unknown[]> }).libraries;
+        if (librariesMap && typeof librariesMap.get === "function" && pid) {
+          importedCards = librariesMap.get(pid) || [];
+        }
+      }
+      
+      // Extract full Scryfall data for each card using shared utility (with extended data)
+      const cardsWithScryfall = importedCards.map((card) => extractScryfallData(card, true));
+      
+      console.info("[debug] dumpImportedDeckBuffer", {
+        gameId,
+        playerId: pid,
+        cardCount: cardsWithScryfall.length,
+      });
+      
+      socket.emit("debugImportedDeckBuffer", {
+        gameId,
+        playerId: pid,
+        cardCount: cardsWithScryfall.length,
+        cards: cardsWithScryfall,
+      });
+    } catch (err) {
+      console.error("dumpImportedDeckBuffer handler failed:", err);
+      socket.emit("debugImportedDeckBuffer", { error: String(err) });
+    }
+  });
+  
+  // Debug handler: dumpCommanderState - emits commander zone state with Scryfall data
+  socket.on("dumpCommanderState", ({ gameId }: { gameId: string }) => {
+    try {
+      const pid = socket.data.playerId as PlayerID | undefined;
+      if (!gameId || typeof gameId !== "string") {
+        socket.emit("debugCommanderState", { error: "Missing gameId" });
+        return;
+      }
+      
+      const game = ensureGame(gameId);
+      if (!game) {
+        socket.emit("debugCommanderState", { error: "Game not found" });
+        return;
+      }
+      
+      // Define interface for commander state output
+      interface CommanderStateOutput {
+        playerName: string;
+        commanderIds: readonly string[];
+        commanderNames: readonly string[];
+        inCommandZone: readonly string[];
+        tax: number;
+        taxById: Record<string, number>;
+        commanderCards: DebugCardData[];
+      }
+      
+      // Get all players' commander states for debugging
+      const allCommanderStates: Record<string, CommanderStateOutput> = {};
+      const players = game.state?.players || [];
+      
+      for (const player of players) {
+        const playerRecord = player as { id?: string; name?: string };
+        const playerId = playerRecord.id;
+        if (!playerId) continue;
+        
+        const commandZone = game.state?.commandZone?.[playerId];
+        
+        if (commandZone) {
+          // Extract full Scryfall data for commander cards using shared utility
+          const commanderCards = (commandZone.commanderCards || []).map(
+            (card: unknown) => extractScryfallData(card)
+          );
+          
+          const zoneRecord = commandZone as {
+            commanderNames?: readonly string[];
+            inCommandZone?: readonly string[];
+            taxById?: Record<string, number>;
+          };
+          
+          allCommanderStates[playerId] = {
+            playerName: playerRecord.name || playerId,
+            commanderIds: commandZone.commanderIds || [],
+            commanderNames: zoneRecord.commanderNames || [],
+            inCommandZone: zoneRecord.inCommandZone || [],
+            tax: commandZone.tax || 0,
+            taxById: zoneRecord.taxById || {},
+            commanderCards,
+          };
+        }
+      }
+      
+      // Get additional debug info
+      const gameWithPending = game as { pendingInitialDraw?: Set<string> | string[] };
+      const pendingInitialDraw = gameWithPending.pendingInitialDraw;
+      const pendingList: string[] = pendingInitialDraw 
+        ? (pendingInitialDraw instanceof Set 
+            ? Array.from(pendingInitialDraw.values()) 
+            : Array.isArray(pendingInitialDraw) 
+              ? pendingInitialDraw 
+              : [])
+        : [];
+      
+      console.info("[debug] dumpCommanderState", {
+        gameId,
+        playerId: pid,
+        playerCount: Object.keys(allCommanderStates).length,
+      });
+      
+      socket.emit("debugCommanderState", {
+        gameId,
+        requestingPlayer: pid,
+        phase: game.state?.phase,
+        turn: game.state?.turn,
+        priority: game.state?.priority,
+        turnPlayer: game.state?.turnPlayer,
+        format: game.state?.format,
+        pendingInitialDraw: pendingList,
+        commanderStates: allCommanderStates,
+      });
+    } catch (err) {
+      console.error("dumpCommanderState handler failed:", err);
+      socket.emit("debugCommanderState", { error: String(err) });
+    }
+  });
 }
