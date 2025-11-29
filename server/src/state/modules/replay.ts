@@ -41,7 +41,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
     case "rngSeed":
       ctx.rngSeed = (e as any).seed >>> 0;
       ctx.rng = (function(seed: number) {
-        let t = seed;
+        let t = seed >>> 0;
         return () => {
           t = (t + 0x6D2B79F5) >>> 0;
           let r = t;

@@ -331,6 +331,13 @@ export function App() {
   const [undoCount, setUndoCount] = useState<number>(1); // Number of actions to undo
   const [availableUndoCount, setAvailableUndoCount] = useState<number>(0); // Available events to undo
   
+  // Smart undo counts (step, phase, turn)
+  const [smartUndoCounts, setSmartUndoCounts] = useState<{
+    stepCount: number;
+    phaseCount: number;
+    turnCount: number;
+  }>({ stepCount: 0, phaseCount: 0, turnCount: 0 });
+  
   // Split/Adventure card choice modal state
   const [splitCardModalOpen, setSplitCardModalOpen] = useState(false);
   const [splitCardData, setSplitCardData] = useState<{
@@ -948,10 +955,27 @@ export function App() {
       }
     };
 
+    const handleSmartUndoCountsUpdate = (payload: { 
+      gameId: string; 
+      stepCount: number; 
+      phaseCount: number; 
+      turnCount: number;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        setSmartUndoCounts({
+          stepCount: payload.stepCount,
+          phaseCount: payload.phaseCount,
+          turnCount: payload.turnCount,
+        });
+      }
+    };
+
     socket.on("undoCountUpdate", handleUndoCountUpdate);
+    socket.on("smartUndoCountsUpdate", handleSmartUndoCountsUpdate);
 
     return () => {
       socket.off("undoCountUpdate", handleUndoCountUpdate);
+      socket.off("smartUndoCountsUpdate", handleSmartUndoCountsUpdate);
     };
   }, [safeView?.id]);
 
@@ -959,8 +983,9 @@ export function App() {
   React.useEffect(() => {
     if (!safeView?.id) return;
     
-    // Request undo count on game state change
+    // Request undo count and smart undo counts on game state change
     socket.emit("getUndoCount", { gameId: safeView.id });
+    socket.emit("getSmartUndoCounts", { gameId: safeView.id });
   }, [safeView?.id, safeView?.turn, safeView?.step, safeView?.priority]);
 
   // Join Forces socket event handlers
@@ -2426,20 +2451,110 @@ export function App() {
               {autoAdvancePhases ? '⚡ Auto' : '⚡ Manual'}
             </button>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 8 }}>
+              {/* Smart Undo Buttons */}
+              <button
+                onClick={() => handleRequestUndo(smartUndoCounts.stepCount)}
+                disabled={!isYouPlayer || smartUndoCounts.stepCount === 0}
+                style={{
+                  background: smartUndoCounts.stepCount > 0 ? '#6366f1' : '#4b5563',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 4,
+                  padding: '4px 8px',
+                  cursor: isYouPlayer && smartUndoCounts.stepCount > 0 ? 'pointer' : 'not-allowed',
+                  opacity: smartUndoCounts.stepCount > 0 ? 1 : 0.5,
+                  fontSize: 11,
+                }}
+                title={smartUndoCounts.stepCount > 0 
+                  ? `Undo to previous step (${smartUndoCounts.stepCount} action${smartUndoCounts.stepCount > 1 ? 's' : ''})`
+                  : 'No step to undo to'
+                }
+              >
+                ⏪ Step
+              </button>
+              <button
+                onClick={() => handleRequestUndo(smartUndoCounts.phaseCount)}
+                disabled={!isYouPlayer || smartUndoCounts.phaseCount === 0}
+                style={{
+                  background: smartUndoCounts.phaseCount > 0 ? '#8b5cf6' : '#4b5563',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 4,
+                  padding: '4px 8px',
+                  cursor: isYouPlayer && smartUndoCounts.phaseCount > 0 ? 'pointer' : 'not-allowed',
+                  opacity: smartUndoCounts.phaseCount > 0 ? 1 : 0.5,
+                  fontSize: 11,
+                }}
+                title={smartUndoCounts.phaseCount > 0 
+                  ? `Undo to previous phase (${smartUndoCounts.phaseCount} action${smartUndoCounts.phaseCount > 1 ? 's' : ''})`
+                  : 'No phase to undo to'
+                }
+              >
+                ⏪ Phase
+              </button>
+              <button
+                onClick={() => handleRequestUndo(smartUndoCounts.turnCount)}
+                disabled={!isYouPlayer || smartUndoCounts.turnCount === 0}
+                style={{
+                  background: smartUndoCounts.turnCount > 0 ? '#a855f7' : '#4b5563',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 4,
+                  padding: '4px 8px',
+                  cursor: isYouPlayer && smartUndoCounts.turnCount > 0 ? 'pointer' : 'not-allowed',
+                  opacity: smartUndoCounts.turnCount > 0 ? 1 : 0.5,
+                  fontSize: 11,
+                }}
+                title={smartUndoCounts.turnCount > 0 
+                  ? `Undo to previous turn (${smartUndoCounts.turnCount} action${smartUndoCounts.turnCount > 1 ? 's' : ''})`
+                  : 'No turn to undo to'
+                }
+              >
+                ⏪ Turn
+              </button>
+              {/* Divider */}
+              <span style={{ color: '#4b5563', fontSize: 10 }}>|</span>
+              {/* Quick undo buttons for small actions (1-4) - useful for wrong card picks */}
+              {[1, 2, 3, 4].map(n => (
+                <button
+                  key={n}
+                  onClick={() => handleRequestUndo(n)}
+                  disabled={!isYouPlayer || availableUndoCount < n}
+                  style={{
+                    background: availableUndoCount >= n ? '#4b5563' : '#374151',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 4,
+                    padding: '4px 6px',
+                    cursor: isYouPlayer && availableUndoCount >= n ? 'pointer' : 'not-allowed',
+                    opacity: availableUndoCount >= n ? 1 : 0.4,
+                    fontSize: 10,
+                    minWidth: 24,
+                  }}
+                  title={availableUndoCount >= n 
+                    ? `Undo ${n} action${n > 1 ? 's' : ''} (e.g., wrong card pick)`
+                    : `Not enough actions to undo ${n}`
+                  }
+                >
+                  {n}
+                </button>
+              ))}
+              {/* Custom undo for larger counts */}
               <select
                 value={undoCount}
                 onChange={(e) => setUndoCount(Number(e.target.value))}
                 disabled={!isYouPlayer || availableUndoCount === 0}
                 style={{
-                  padding: '4px 6px',
+                  padding: '2px 2px',
                   borderRadius: 4,
                   border: '1px solid #4b5563',
                   background: '#374151',
                   color: '#fff',
-                  fontSize: 12,
+                  fontSize: 9,
                   cursor: isYouPlayer && availableUndoCount > 0 ? 'pointer' : 'not-allowed',
+                  width: 40,
                 }}
-                title={availableUndoCount > 0 ? `Number of actions to undo (${availableUndoCount} available)` : 'No actions to undo'}
+                title={availableUndoCount > 0 ? `Custom: select N actions to undo (${availableUndoCount} total)` : 'No actions to undo'}
               >
                 {availableUndoCount > 0 
                   ? Array.from({ length: Math.min(availableUndoCount, 50) }, (_, i) => i + 1).map(n => (
@@ -2453,14 +2568,20 @@ export function App() {
                 disabled={!isYouPlayer || availableUndoCount === 0}
                 style={{
                   background: availableUndoCount > 0 ? '#6b7280' : '#4b5563',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 4,
+                  padding: '3px 5px',
+                  cursor: isYouPlayer && availableUndoCount > 0 ? 'pointer' : 'not-allowed',
                   opacity: availableUndoCount > 0 ? 1 : 0.5,
+                  fontSize: 9,
                 }}
                 title={availableUndoCount > 0 
-                  ? `Request to undo ${undoCount} action${undoCount > 1 ? 's' : ''} (requires all players to approve)`
+                  ? `Undo ${undoCount} action${undoCount > 1 ? 's' : ''}`
                   : 'No actions to undo'
                 }
               >
-                ⏪ Undo ({availableUndoCount})
+                ⏪
               </button>
             </div>
           </div>
