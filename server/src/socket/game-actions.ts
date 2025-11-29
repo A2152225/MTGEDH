@@ -1375,6 +1375,18 @@ export function registerGameActions(io: Server, socket: Socket) {
                 controller: perm?.controller,
                 isOpponent: perm?.controller !== playerId,
               };
+            } else if (t.kind === 'stack') {
+              // Stack target (for counterspells)
+              const stackItem = (game.state.stack || []).find((s: any) => s.id === t.id);
+              return {
+                id: t.id,
+                kind: t.kind,
+                name: stackItem?.card?.name || 'Unknown Spell',
+                imageUrl: stackItem?.card?.image_uris?.small || stackItem?.card?.image_uris?.normal,
+                controller: stackItem?.controller,
+                isOpponent: stackItem?.controller !== playerId,
+                typeLine: stackItem?.card?.type_line,
+              };
             } else {
               const player = (game.state.players || []).find((p: any) => p.id === t.id);
               return {

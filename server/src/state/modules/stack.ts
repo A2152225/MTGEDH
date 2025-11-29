@@ -283,8 +283,18 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
     }
     
-    // Handle extra turn spells (Time Warp, Time Walk, Temporal Mastery, etc.)
+    // Handle token creation spells (where the caster creates tokens)
+    // Patterns: "create X 1/1 tokens", "create two 1/1 tokens", etc.
     const oracleTextLower = oracleText.toLowerCase();
+    const tokenCreationResult = parseTokenCreation(card.name, oracleTextLower, controller, state);
+    if (tokenCreationResult) {
+      for (let i = 0; i < tokenCreationResult.count; i++) {
+        createTokenFromSpec(ctx, controller, tokenCreationResult);
+      }
+      console.log(`[resolveTopOfStack] ${card.name} created ${tokenCreationResult.count} ${tokenCreationResult.name} token(s) for ${controller}`);
+    }
+    
+    // Handle extra turn spells (Time Warp, Time Walk, Temporal Mastery, etc.)
     if (isExtraTurnSpell(card.name, oracleTextLower)) {
       // Determine who gets the extra turn
       // Most extra turn spells give the caster an extra turn
@@ -327,6 +337,21 @@ export function resolveTopOfStack(ctx: GameContext) {
           console.log(`[resolveTopOfStack] Path to Exile: ${creatureController} may search for a basic land`);
         }
       }
+    }
+    
+    // Handle Join Forces spells (Mind's Aglow, Collective Voyage, etc.)
+    // These require all players to have the option to contribute mana
+    if (isJoinForcesSpell(card.name, oracleTextLower)) {
+      // Set up pending join forces - this signals to the socket layer to initiate the contribution phase
+      (state as any).pendingJoinForces = (state as any).pendingJoinForces || [];
+      (state as any).pendingJoinForces.push({
+        id: uid("jf"),
+        controller,
+        cardName: card.name || 'Join Forces Spell',
+        effectDescription: oracleText,
+        imageUrl: card.image_uris?.normal || card.image_uris?.small,
+      });
+      console.log(`[resolveTopOfStack] Join Forces spell ${card.name} waiting for player contributions`);
     }
     
     // Move spell to graveyard after resolution
@@ -469,6 +494,39 @@ function isExtraTurnSpell(cardName: string, oracleTextLower: string): boolean {
 }
 
 /**
+ * Check if a spell is a Join Forces spell
+ * Handles cards like: Mind's Aglow, Collective Voyage, Collective Blessing, etc.
+ * Join Forces spells have "Join forces — Starting with you, each player may pay any amount of mana"
+ */
+function isJoinForcesSpell(cardName: string, oracleTextLower: string): boolean {
+  const nameLower = (cardName || '').toLowerCase();
+  
+  // Known Join Forces spell names
+  const joinForcesSpells = new Set([
+    "minds aglow",
+    "mind's aglow",
+    "collective voyage",
+    "collective blessing",
+    "alliance of arms",
+    "mana-charged dragon",
+  ]);
+  
+  if (joinForcesSpells.has(nameLower)) {
+    return true;
+  }
+  
+  // Generic detection via oracle text
+  // "Join forces" is the keyword ability
+  if (oracleTextLower.includes('join forces') ||
+      (oracleTextLower.includes('starting with you') && 
+       oracleTextLower.includes('each player may pay'))) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
  * Create a token creature (helper for Beast Within and similar)
  */
 function createBeastToken(ctx: GameContext, controller: PlayerID, name: string, power: number, toughness: number): void {
@@ -497,6 +555,190 @@ function createBeastToken(ctx: GameContext, controller: PlayerID, name: string, 
   } as any);
   
   console.log(`[resolveSpell] Created ${power}/${toughness} ${name} token for ${controller}`);
+}
+
+/**
+ * Token creation specification parsed from oracle text
+ */
+interface TokenSpec {
+  count: number;
+  power: number;
+  toughness: number;
+  name: string;
+  typeLine: string;
+  colors?: string[];
+}
+
+/**
+ * Parse token creation from spell oracle text
+ * Handles patterns like:
+ * - "Create two 1/1 blue Merfolk Wizard creature tokens"
+ * - "Create X 2/2 green Wolf creature tokens"
+ * - "Create a 3/3 green Beast creature token"
+ * 
+ * For cards like Summon the School that have conditions (e.g., "equal to the number of Merfolk you control"),
+ * we count the relevant permanents on the battlefield.
+ */
+function parseTokenCreation(cardName: string, oracleTextLower: string, controller: PlayerID, state: any): TokenSpec | null {
+  // Skip if this doesn't create tokens for the caster
+  if (!oracleTextLower.includes('create') || !oracleTextLower.includes('token')) {
+    return null;
+  }
+  
+  // Skip "its controller creates" patterns (handled separately for spells like Beast Within)
+  if (oracleTextLower.includes('its controller creates')) {
+    return null;
+  }
+  
+  const nameLower = (cardName || '').toLowerCase();
+  
+  // Special handling for known cards
+  // Summon the School: "Create two 1/1 blue Merfolk Wizard creature tokens."
+  // (The tap four Merfolk ability is a separate activated ability to return it from graveyard)
+  if (nameLower.includes('summon the school')) {
+    // Base count is 2 tokens
+    let count = 2;
+    
+    // Check for token doublers like Anointed Procession, Doubling Season, Parallel Lives
+    const battlefield = state.battlefield || [];
+    for (const perm of battlefield) {
+      if (perm.controller !== controller) continue;
+      const permName = (perm.card?.name || '').toLowerCase();
+      const permOracle = (perm.card?.oracle_text || '').toLowerCase();
+      
+      // Anointed Procession: "If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead."
+      // Parallel Lives: "If an effect would create one or more creature tokens under your control, it creates twice that many of those tokens instead."
+      // Doubling Season: "If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead."
+      if (permName.includes('anointed procession') ||
+          permName.includes('parallel lives') ||
+          permName.includes('doubling season') ||
+          permName.includes('mondrak, glory dominus') ||
+          permName.includes('primal vigor') ||
+          (permOracle.includes('twice that many') && permOracle.includes('token'))) {
+        count *= 2;
+      }
+    }
+    
+    return {
+      count,
+      power: 1,
+      toughness: 1,
+      name: 'Merfolk Wizard',
+      typeLine: 'Token Creature — Merfolk Wizard',
+      colors: ['blue'],
+    };
+  }
+  
+  // Generic token creation parsing
+  // Pattern: "create (a|one|two|three|four|five|X|number) P/T [color] [type] creature token(s)"
+  const tokenPatterns = [
+    // "create two 1/1 blue Merfolk Wizard creature tokens"
+    /create\s+(a|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+(\d+)\/(\d+)\s+(\w+(?:\s+\w+)*)\s+creature\s+tokens?/i,
+    // "create a 3/3 green Beast creature token"
+    /create\s+(a|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+(\d+)\/(\d+)\s+(\w+)\s+(\w+)\s+creature\s+tokens?/i,
+  ];
+  
+  for (const pattern of tokenPatterns) {
+    const match = oracleTextLower.match(pattern);
+    if (match) {
+      const countWord = match[1].toLowerCase();
+      let count = 1;
+      
+      // Parse count word
+      const wordToNumber: Record<string, number> = {
+        'a': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+        'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+      };
+      
+      if (wordToNumber[countWord]) {
+        count = wordToNumber[countWord];
+      } else if (/^\d+$/.test(countWord)) {
+        count = parseInt(countWord, 10);
+      } else if (countWord === 'x') {
+        // X is typically determined by something else; default to 1 for now
+        count = 1;
+      }
+      
+      // Check for token doublers
+      const battlefield = state.battlefield || [];
+      for (const perm of battlefield) {
+        if (perm.controller !== controller) continue;
+        const permName = (perm.card?.name || '').toLowerCase();
+        const permOracle = (perm.card?.oracle_text || '').toLowerCase();
+        
+        if (permName.includes('anointed procession') ||
+            permName.includes('parallel lives') ||
+            permName.includes('doubling season') ||
+            permName.includes('mondrak, glory dominus') ||
+            permName.includes('primal vigor') ||
+            (permOracle.includes('twice that many') && permOracle.includes('token'))) {
+          count *= 2;
+        }
+      }
+      
+      const power = parseInt(match[2], 10);
+      const toughness = parseInt(match[3], 10);
+      const typeInfo = match[4]; // Could be "blue Merfolk Wizard" or just "Beast"
+      
+      // Extract color and creature type from typeInfo
+      const colors = ['white', 'blue', 'black', 'red', 'green'];
+      const foundColors: string[] = [];
+      let creatureType = typeInfo;
+      
+      for (const color of colors) {
+        if (typeInfo.toLowerCase().includes(color)) {
+          foundColors.push(color);
+          creatureType = creatureType.replace(new RegExp(color, 'gi'), '').trim();
+        }
+      }
+      
+      // Also check for colorless
+      if (typeInfo.toLowerCase().includes('colorless')) {
+        creatureType = creatureType.replace(/colorless/gi, '').trim();
+      }
+      
+      return {
+        count,
+        power,
+        toughness,
+        name: creatureType || 'Token',
+        typeLine: `Token Creature — ${creatureType || 'Token'}`,
+        colors: foundColors.length > 0 ? foundColors : undefined,
+      };
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Create a token from a TokenSpec
+ */
+function createTokenFromSpec(ctx: GameContext, controller: PlayerID, spec: TokenSpec): void {
+  const { state, bumpSeq } = ctx;
+  
+  state.battlefield = state.battlefield || [];
+  const tokenId = uid("token");
+  state.battlefield.push({
+    id: tokenId,
+    controller,
+    owner: controller,
+    tapped: false,
+    counters: {},
+    basePower: spec.power,
+    baseToughness: spec.toughness,
+    summoningSickness: true,
+    isToken: true,
+    card: {
+      id: tokenId,
+      name: spec.name,
+      type_line: spec.typeLine,
+      power: String(spec.power),
+      toughness: String(spec.toughness),
+      zone: "battlefield",
+      colors: spec.colors,
+    },
+  } as any);
 }
 
 /* Place a land onto the battlefield for a player (simplified) */
