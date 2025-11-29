@@ -583,13 +583,14 @@ export function App() {
     if (!safeView || !you) return;
     
     const step = String((safeView as any).step || "").toLowerCase();
-    const phase = String((safeView as any).phase || "").toLowerCase();
+    const phaseStr = String((safeView as any).phase || "").toUpperCase();
     const priority = (safeView as any).priority;
     const youHavePriority = priority === you;
     const stackLength = (safeView as any).stack?.length || 0;
     
     // Don't show priority modal during pre-game phase
-    const isPreGamePhase = phase === 'pre_game' || phase === 'pregame' || phase === '';
+    // Note: Using same logic as isPreGame memo (uppercase comparison)
+    const isPreGamePhase = phaseStr === "" || phaseStr === "PRE_GAME";
     if (isPreGamePhase) {
       setPriorityModalOpen(false);
       return;

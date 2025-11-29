@@ -28,10 +28,13 @@ export function AutoPassSettingsPanel({ autoPassSteps, onToggleAutoPass, onClear
   const [isDragging, setIsDragging] = useState(false);
   const dragRef = useRef<{ startX: number; startY: number; initialX: number; initialY: number } | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const hasAutoEnabledRef = useRef(false);
   
-  // Auto-enable all auto-pass for single player mode
+  // Auto-enable all auto-pass for single player mode (only once)
   useEffect(() => {
-    if (isSinglePlayer && autoPassSteps.size < CONFIGURABLE_STEPS.length) {
+    // Only auto-enable once when entering single player mode
+    if (isSinglePlayer && !hasAutoEnabledRef.current) {
+      hasAutoEnabledRef.current = true;
       // Enable all auto-pass settings for single player mode
       for (const { key } of CONFIGURABLE_STEPS) {
         if (!autoPassSteps.has(key)) {
@@ -39,11 +42,16 @@ export function AutoPassSettingsPanel({ autoPassSteps, onToggleAutoPass, onClear
         }
       }
     }
-  }, [isSinglePlayer, autoPassSteps.size, onToggleAutoPass]);
+    // Reset the flag when leaving single player mode
+    if (!isSinglePlayer) {
+      hasAutoEnabledRef.current = false;
+    }
+  }, [isSinglePlayer, onToggleAutoPass]);
   
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     // Only start drag from the header area
-    if (!(e.target as HTMLElement).closest('.drag-handle')) return;
+    const target = e.target;
+    if (!(target instanceof HTMLElement) || !target.closest('.drag-handle')) return;
     
     setIsDragging(true);
     dragRef.current = {
