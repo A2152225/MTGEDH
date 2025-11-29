@@ -1619,6 +1619,7 @@ export function TableLayout(props: {
           <CentralStack
             stack={stackItems}
             battlefield={chatView?.battlefield}
+            players={chatView?.players}
             you={you}
             priorityPlayer={chatView?.priority}
             onPass={() => {

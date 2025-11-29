@@ -276,7 +276,7 @@ export function CentralStack({
                   color:'#9ca3af',
                   marginTop:2
                 }}>
-                  {it.controller ? `by ${it.controller}` : ''}
+                  {it.controller ? `by ${getPlayerName(it.controller)}` : ''}
                   {isTopOfStack && ' • Resolving next'}
                 </div>
                 {/* Display targets if any */}
