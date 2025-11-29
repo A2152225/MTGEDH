@@ -14,11 +14,13 @@ interface Props {
 const CONFIGURABLE_STEPS = [
   { key: 'upkeep', label: 'Upkeep Step' },
   { key: 'draw', label: 'Draw Step' },
+  { key: 'main1', label: 'Main Phase 1 (end)' },
   { key: 'begincombat', label: 'Beginning of Combat' },
   { key: 'declareattackers', label: 'Declare Attackers (after)' },
   { key: 'declareblockers', label: 'Declare Blockers (after)' },
   { key: 'damage', label: 'Combat Damage' },
   { key: 'endcombat', label: 'End of Combat' },
+  { key: 'main2', label: 'Main Phase 2 (end)' },
   { key: 'end', label: 'End Step' },
 ];
 
