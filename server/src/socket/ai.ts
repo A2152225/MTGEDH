@@ -1100,16 +1100,27 @@ export async function handleAIPriority(
   const step = String((game.state as any).step || '').toLowerCase();
   const isAITurn = game.state.turnPlayer === playerId;
   const stackEmpty = !game.state.stack || game.state.stack.length === 0;
+  const hasPriority = game.state.priority === playerId;
   
-  console.info('[AI] AI player has priority:', { 
+  console.info('[AI] AI player checking priority:', { 
     gameId, 
     playerId, 
     phase, 
     step, 
     isAITurn, 
     stackEmpty,
-    priority: game.state.priority 
+    priority: game.state.priority,
+    hasPriority
   });
+  
+  // Critical check: AI should NOT act if it doesn't have priority
+  // This prevents the AI from getting into an infinite loop of passing priority
+  if (!hasPriority) {
+    console.info('[AI] AI does not have priority, skipping action');
+    return;
+  }
+  
+  console.info('[AI] AI has priority, proceeding with action');
   
   try {
     // If it's not the AI's turn, handle special cases where non-turn player needs to act

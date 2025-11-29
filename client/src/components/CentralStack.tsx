@@ -159,9 +159,12 @@ export function CentralStack({ stack, battlefield, you, priorityPlayer, onPass }
       }}>
         {stack.slice().reverse().map((it, idx) => {
           const kc = it.card as KnownCardRef | undefined;
-          const name = kc?.name || it.id;
+          // For triggered abilities, use sourceName; for spells, use card.name; fallback to ID
+          const name = kc?.name || (it as any).sourceName || it.id;
           const imageUrl = kc?.image_uris?.small || kc?.image_uris?.normal || null;
           const isTopOfStack = idx === 0;
+          // For triggered abilities, show the description
+          const description = (it as any).description || null;
           
           return (
             <div
@@ -228,6 +231,20 @@ export function CentralStack({ stack, battlefield, you, priorityPlayer, onPass }
                 }}>
                   {name}
                 </div>
+                {/* For triggered abilities, show description */}
+                {description && (
+                  <div style={{ 
+                    fontSize:11, 
+                    color:'#a78bfa',
+                    marginTop:2,
+                    fontStyle:'italic',
+                    whiteSpace:'nowrap',
+                    overflow:'hidden',
+                    textOverflow:'ellipsis'
+                  }}>
+                    {description}
+                  </div>
+                )}
                 <div style={{ 
                   fontSize:11, 
                   color:'#9ca3af',
