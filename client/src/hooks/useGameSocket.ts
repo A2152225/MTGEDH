@@ -70,6 +70,7 @@ export interface UseGameSocketState {
   // actions
   handleJoin: () => void;
   joinFromList: (gameId: string) => void;
+  leaveGame: () => void;
   requestImportDeck: (list: string, deckName?: string) => void;
   requestUseSavedDeck: (deckId: string) => void;
   handleLocalImportConfirmChange: (open: boolean) => void;
@@ -756,6 +757,47 @@ export function useGameSocket(): UseGameSocketState {
     [nameInput, joinAsSpectator]
   );
 
+  // Leave the current game and clear session data
+  const leaveGame = useCallback(() => {
+    const gameId = safeView?.id || lastJoinRef.current?.gameId;
+    const playerName = lastJoinRef.current?.name || nameInput;
+    
+    if (gameId) {
+      // Emit leave event to server
+      socket.emit("leaveGame", { gameId });
+      // eslint-disable-next-line no-console
+      console.debug("[LEAVE_EMIT] leaving game", gameId);
+      
+      // Clear the seatToken for this game/name combination
+      try {
+        sessionStorage.removeItem(seatTokenKey(gameId, playerName));
+      } catch { /* ignore */ }
+    }
+    
+    // Clear lastJoinRef so we don't auto-rejoin on reconnect
+    lastJoinRef.current = null;
+    
+    // Clear lastJoin from sessionStorage
+    try {
+      sessionStorage.removeItem(lastJoinKey());
+    } catch { /* ignore */ }
+    
+    // Reset local state
+    setView(null);
+    setYou(null);
+    setChat([]);
+    setMissingImport(null);
+    setImportedCandidates([]);
+    setCmdModalOpen(false);
+    setCmdSuggestedGameId(null);
+    setCmdSuggestedNames([]);
+    setConfirmOpen(false);
+    setConfirmPayload(null);
+    
+    // eslint-disable-next-line no-console
+    console.debug("[LEAVE_EMIT] cleared session data for game", gameId);
+  }, [safeView, nameInput]);
+
   const requestImportDeck = useCallback(
     (list: string, deckName?: string) => {
       if (!safeView) return;
@@ -943,6 +985,7 @@ export function useGameSocket(): UseGameSocketState {
     // actions
     handleJoin,
     joinFromList,
+    leaveGame,
     requestImportDeck,
     requestUseSavedDeck,
     handleLocalImportConfirmChange,

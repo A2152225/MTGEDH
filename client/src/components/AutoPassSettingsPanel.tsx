@@ -4,6 +4,7 @@ interface Props {
   autoPassSteps: Set<string>;
   onToggleAutoPass: (step: string, enabled: boolean) => void;
   onClearAll: () => void;
+  onSelectAll: () => void;
   isSinglePlayer?: boolean;
 }
 
@@ -21,8 +22,9 @@ const CONFIGURABLE_STEPS = [
   { key: 'end', label: 'End Step' },
 ];
 
-export function AutoPassSettingsPanel({ autoPassSteps, onToggleAutoPass, onClearAll, isSinglePlayer }: Props) {
+export function AutoPassSettingsPanel({ autoPassSteps, onToggleAutoPass, onClearAll, onSelectAll, isSinglePlayer }: Props) {
   const hasAnyAutoPass = autoPassSteps.size > 0;
+  const hasAllAutoPass = autoPassSteps.size >= CONFIGURABLE_STEPS.length;
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -146,6 +148,22 @@ export function AutoPassSettingsPanel({ autoPassSteps, onToggleAutoPass, onClear
           </span>
         </button>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          {!hasAllAutoPass && !isCollapsed && (
+            <button
+              onClick={onSelectAll}
+              style={{
+                padding: '3px 6px',
+                background: '#10b981',
+                border: 'none',
+                borderRadius: 4,
+                color: 'white',
+                cursor: 'pointer',
+                fontSize: 9,
+              }}
+            >
+              Select All
+            </button>
+          )}
           {hasAnyAutoPass && !isCollapsed && (
             <button
               onClick={onClearAll}
@@ -159,7 +177,7 @@ export function AutoPassSettingsPanel({ autoPassSteps, onToggleAutoPass, onClear
                 fontSize: 9,
               }}
             >
-              Clear All
+              Clear
             </button>
           )}
           <span style={{ fontSize: 9, color: '#666' }}>⋮⋮</span>

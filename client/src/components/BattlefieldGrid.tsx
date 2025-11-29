@@ -6,8 +6,9 @@ import { getKeywordInfo } from '../utils/keywordGlossary';
 export type ImagePref = 'small' | 'normal' | 'art_crop';
 type LayoutMode = 'grid' | 'row';
 
-function parsePT(raw?: string): number | undefined {
-  if (!raw) return undefined;
+function parsePT(raw?: string | number): number | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw === 'number') return raw;
   if (/^\d+$/.test(raw)) return parseInt(raw, 10);
   return undefined;
 }

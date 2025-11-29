@@ -22,8 +22,10 @@ interface CreatureInfo {
 
 function extractCreatureInfo(perm: BattlefieldPermanent): CreatureInfo {
   const card = perm.card as KnownCardRef | undefined;
-  const basePower = perm.basePower ?? parseInt(card?.power || '0', 10) || 0;
-  const baseToughness = perm.baseToughness ?? parseInt(card?.toughness || '0', 10) || 0;
+  const powerStr = typeof card?.power === 'number' ? String(card.power) : (card?.power || '0');
+  const toughnessStr = typeof card?.toughness === 'number' ? String(card.toughness) : (card?.toughness || '0');
+  const basePower = perm.basePower ?? (parseInt(powerStr, 10) || 0);
+  const baseToughness = perm.baseToughness ?? (parseInt(toughnessStr, 10) || 0);
   const plusCounters = perm.counters?.['+1/+1'] || 0;
   const minusCounters = perm.counters?.['-1/-1'] || 0;
   
