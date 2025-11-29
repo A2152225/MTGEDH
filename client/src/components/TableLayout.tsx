@@ -208,6 +208,10 @@ export function TableLayout(props: {
   // Graveyard view handler
   onViewGraveyard?: (playerId: PlayerID) => void;
   onViewExile?: (playerId: PlayerID) => void;
+  // Ignored trigger sources for auto-resolve shortcut
+  ignoredTriggerSources?: Map<string, { sourceName: string; count: number; effect: string; imageUrl?: string }>;
+  onIgnoreTriggerSource?: (sourceId: string, sourceName: string, effect: string, imageUrl?: string) => void;
+  onStopIgnoringSource?: (sourceKey: string) => void;
 }) {
   const {
     players, permanentsByPlayer, imagePref, isYouPlayer,
@@ -229,6 +233,7 @@ export function TableLayout(props: {
     hasThousandYearElixirEffect = false,
     appearanceSettings,
     onViewGraveyard, onViewExile,
+    ignoredTriggerSources, onIgnoreTriggerSource, onStopIgnoringSource,
   } = props;
 
   // Snapshot debug
@@ -656,28 +661,36 @@ export function TableLayout(props: {
   const OPP_THUMB_H = 57;  // was 38
 
   return (
-    <div
-      ref={containerRef}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        // TODO: custom game-actions context menu can be triggered here
-      }}
-      style={{
-        width: '100%',
-        height: '72vh',
-        overflow: 'hidden',
-        ...tableContainerBg,
-        border: '1px solid #222',
-        borderRadius: 12,
-        userSelect: 'none',
-        cursor: enablePanZoom ? (dragRef.current ? 'grabbing' : (panKey ? 'grab' : 'default')) : 'default',
-        overscrollBehavior: 'none',
-        position: 'relative'
-      }}
-    >
+    <>
+      {/* Keyframes for pulse animation */}
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.85; transform: scale(1.03); }
+        }
+      `}</style>
+      <div
+        ref={containerRef}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          // TODO: custom game-actions context menu can be triggered here
+        }}
+        style={{
+          width: '100%',
+          height: '72vh',
+          overflow: 'hidden',
+          ...tableContainerBg,
+          border: '1px solid #222',
+          borderRadius: 12,
+          userSelect: 'none',
+          cursor: enablePanZoom ? (dragRef.current ? 'grabbing' : (panKey ? 'grab' : 'default')) : 'default',
+          overscrollBehavior: 'none',
+          position: 'relative'
+        }}
+      >
       <div style={{ position: 'absolute', inset: 0, transform: cameraTransform, transformOrigin: '0 0', willChange: 'transform' }}>
 
         <div style={{ position: 'absolute', left: '50%', top: '50%', transformStyle: 'preserve-3d' }}>
@@ -868,18 +881,32 @@ export function TableLayout(props: {
                                 type="button"
                                 onClick={() => setDeckMgrOpen(true)}
                                 style={{ 
-                                  fontSize: 11, 
-                                  padding: '3px 10px',
-                                  borderRadius: 4,
-                                  background: 'rgba(59, 130, 246, 0.2)',
-                                  border: '1px solid rgba(59, 130, 246, 0.4)',
-                                  color: '#93c5fd',
-                                  cursor: 'pointer'
+                                  fontSize: 12, 
+                                  fontWeight: 600,
+                                  padding: '6px 14px',
+                                  borderRadius: 6,
+                                  background: (zObj?.libraryCount || 0) === 0 
+                                    ? 'linear-gradient(135deg, #7c3aed 0%, #2563eb 100%)' 
+                                    : 'rgba(59, 130, 246, 0.2)',
+                                  border: (zObj?.libraryCount || 0) === 0 
+                                    ? '2px solid #a78bfa'
+                                    : '1px solid rgba(59, 130, 246, 0.4)',
+                                  color: '#fff',
+                                  cursor: 'pointer',
+                                  boxShadow: (zObj?.libraryCount || 0) === 0 
+                                    ? '0 0 20px rgba(124, 58, 237, 0.5), 0 4px 12px rgba(37, 99, 235, 0.4)' 
+                                    : 'none',
+                                  animation: (zObj?.libraryCount || 0) === 0 
+                                    ? 'pulse 2s ease-in-out infinite' 
+                                    : 'none',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 6,
                                 }}
                                 title={gameId ? "Manage / Import Deck" : "Waiting for game to be ready"}
                                 disabled={!gameId}
                               >
-                                Decks
+                                📚 {(zObj?.libraryCount || 0) === 0 ? 'Import Deck' : 'Decks'}
                               </button>
                             )}
                             {/* 
@@ -1010,38 +1037,7 @@ export function TableLayout(props: {
                           showActivatedAbilityButtons={isYouThis}
                         />
 
-                        {lands.length > 0 && (
-                          <div style={{ marginTop: 12 }} data-no-zoom>
-                            <div
-                              style={{
-                                fontSize: 12,
-                                opacity: 0.7,
-                                marginBottom: 6
-                              }}
-                            >
-                              Lands
-                            </div>
-                            <LandRow
-                              lands={lands}
-                              imagePref={imagePref}
-                              tileWidth={TILE_W}
-                              overlapRatio={0.33}
-                              highlightTargets={highlightPermTargets}
-                              selectedTargets={selectedPermTargets}
-                              onCardClick={onPermanentClick}
-                              onRemove={isYouPlayer ? onRemove : undefined}
-                              onCounter={isYouPlayer ? onCounter : undefined}
-                              onTap={isYouThis && gameId ? (id) => socket.emit('tapPermanent', { gameId, permanentId: id }) : undefined}
-                              onUntap={isYouThis && gameId ? (id) => socket.emit('untapPermanent', { gameId, permanentId: id }) : undefined}
-                              onActivateAbility={isYouThis && gameId ? (permanentId, abilityId) => socket.emit('activateBattlefieldAbility', { gameId, permanentId, abilityId }) : undefined}
-                              onSacrifice={isYouThis && gameId ? (id) => socket.emit('sacrificePermanent', { gameId, permanentId: id }) : undefined}
-                              canActivate={isYouThis}
-                              playerId={isYouThis ? you : undefined}
-                            />
-                          </div>
-                        )}
-
-                        {/* Mana Sources Row (mana rocks, dorks) - positioned near lands for easy access */}
+                        {/* Mana Sources Row (mana rocks, dorks) - positioned above lands */}
                         {manaSources.length > 0 && (
                           <div style={{ marginTop: 8 }} data-no-zoom>
                             <div
@@ -1062,6 +1058,38 @@ export function TableLayout(props: {
                               imagePref={imagePref}
                               tileWidth={Math.round(TILE_W * 0.85)}
                               overlapRatio={0.4}
+                              highlightTargets={highlightPermTargets}
+                              selectedTargets={selectedPermTargets}
+                              onCardClick={onPermanentClick}
+                              onRemove={isYouPlayer ? onRemove : undefined}
+                              onCounter={isYouPlayer ? onCounter : undefined}
+                              onTap={isYouThis && gameId ? (id) => socket.emit('tapPermanent', { gameId, permanentId: id }) : undefined}
+                              onUntap={isYouThis && gameId ? (id) => socket.emit('untapPermanent', { gameId, permanentId: id }) : undefined}
+                              onActivateAbility={isYouThis && gameId ? (permanentId, abilityId) => socket.emit('activateBattlefieldAbility', { gameId, permanentId, abilityId }) : undefined}
+                              onSacrifice={isYouThis && gameId ? (id) => socket.emit('sacrificePermanent', { gameId, permanentId: id }) : undefined}
+                              canActivate={isYouThis}
+                              playerId={isYouThis ? you : undefined}
+                            />
+                          </div>
+                        )}
+
+                        {/* Lands Row - positioned at bottom, just above hand */}
+                        {lands.length > 0 && (
+                          <div style={{ marginTop: 12 }} data-no-zoom>
+                            <div
+                              style={{
+                                fontSize: 12,
+                                opacity: 0.7,
+                                marginBottom: 6
+                              }}
+                            >
+                              Lands
+                            </div>
+                            <LandRow
+                              lands={lands}
+                              imagePref={imagePref}
+                              tileWidth={TILE_W}
+                              overlapRatio={0.33}
                               highlightTargets={highlightPermTargets}
                               selectedTargets={selectedPermTargets}
                               onCardClick={onPermanentClick}
@@ -1591,11 +1619,15 @@ export function TableLayout(props: {
           <CentralStack
             stack={stackItems}
             battlefield={chatView?.battlefield}
+            players={chatView?.players}
             you={you}
             priorityPlayer={chatView?.priority}
             onPass={() => {
               if (gameId && you) socket.emit('passPriority', { gameId, by: you });
             }}
+            ignoredSources={ignoredTriggerSources}
+            onIgnoreTriggerSource={onIgnoreTriggerSource}
+            onStopIgnoring={onStopIgnoringSource}
           />
         </div>
       )}
@@ -1618,6 +1650,7 @@ export function TableLayout(props: {
         </div>
       )}
     </div>
+    </>
   );
 }
 

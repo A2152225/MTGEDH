@@ -376,7 +376,21 @@ function dealCombatDamage(ctx: GameContext): {
     for (const attacker of attackers) {
       // Get attacker's power and keywords
       const card = attacker.card || {};
-      const keywords = parseCreatureKeywords(card, attacker);
+      let keywords;
+      try {
+        keywords = parseCreatureKeywords(card, attacker);
+      } catch (err) {
+        console.error(`${ts()} [dealCombatDamage] CRASH parsing keywords for ${card.name || attacker.id}:`, err);
+        // Fallback to empty keywords to prevent crash
+        keywords = {
+          flying: false, reach: false, shadow: false, horsemanship: false,
+          fear: false, intimidate: false, menace: false, skulk: false,
+          unblockable: false, firstStrike: false, doubleStrike: false,
+          lifelink: false, deathtouch: false, trample: false, vigilance: false,
+          indestructible: false, hexproof: false, shroud: false, haste: false,
+          defender: false, cantAttack: false, cantBlock: false,
+        };
+      }
       const attackerPower = parseInt(String(attacker.basePower ?? card.power ?? '0'), 10) || 0;
       const attackerController = attacker.controller;
       const defendingTarget = attacker.attacking; // Player ID or planeswalker ID
@@ -505,7 +519,20 @@ function dealCombatDamage(ctx: GameContext): {
           if (!blocker) continue;
           
           const blockerCard = blocker.card || {};
-          const blockerKeywords = parseCreatureKeywords(blockerCard, blocker);
+          let blockerKeywords;
+          try {
+            blockerKeywords = parseCreatureKeywords(blockerCard, blocker);
+          } catch (err) {
+            console.error(`${ts()} [dealCombatDamage] CRASH parsing keywords for blocker ${blockerCard.name || blockerId}:`, err);
+            blockerKeywords = {
+              flying: false, reach: false, shadow: false, horsemanship: false,
+              fear: false, intimidate: false, menace: false, skulk: false,
+              unblockable: false, firstStrike: false, doubleStrike: false,
+              lifelink: false, deathtouch: false, trample: false, vigilance: false,
+              indestructible: false, hexproof: false, shroud: false, haste: false,
+              defender: false, cantAttack: false, cantBlock: false,
+            };
+          }
           const blockerPower = parseInt(String(blocker.basePower ?? blockerCard.power ?? '0'), 10) || 0;
           
           if (blockerPower > 0) {

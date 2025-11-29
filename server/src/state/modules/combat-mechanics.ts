@@ -102,37 +102,72 @@ export interface CombatState {
  * Parse creature keywords from card data
  */
 export function parseCreatureKeywords(card: any, permanent?: any): CreatureKeywords {
-  const oracleText = (card?.oracle_text || "").toLowerCase();
-  const keywords = (card?.keywords || []).map((k: string) => k.toLowerCase());
-  
-  const hasKeyword = (kw: string) => 
-    keywords.includes(kw.toLowerCase()) || oracleText.includes(kw.toLowerCase());
-  
-  return {
-    flying: hasKeyword("flying"),
-    reach: hasKeyword("reach"),
-    shadow: hasKeyword("shadow"),
-    horsemanship: hasKeyword("horsemanship"),
-    fear: hasKeyword("fear"),
-    intimidate: hasKeyword("intimidate"),
-    menace: hasKeyword("menace"),
-    skulk: hasKeyword("skulk"),
-    unblockable: oracleText.includes("can't be blocked") || 
-                  oracleText.includes("is unblockable"),
-    firstStrike: hasKeyword("first strike") && !hasKeyword("double strike"),
-    doubleStrike: hasKeyword("double strike"),
-    lifelink: hasKeyword("lifelink"),
-    deathtouch: hasKeyword("deathtouch"),
-    trample: hasKeyword("trample"),
-    vigilance: hasKeyword("vigilance"),
-    indestructible: hasKeyword("indestructible"),
-    hexproof: hasKeyword("hexproof"),
-    shroud: hasKeyword("shroud"),
-    haste: hasKeyword("haste"),
-    defender: hasKeyword("defender"),
-    cantAttack: oracleText.includes("can't attack") || hasKeyword("defender"),
-    cantBlock: oracleText.includes("can't block"),
-  };
+  try {
+    const oracleText = (card?.oracle_text || "").toLowerCase();
+    // Defensive handling: ensure keywords is an array of strings
+    const rawKeywords = card?.keywords;
+    
+    // Debug logging for troubleshooting multi-keyword crashes
+    // Log the raw value to help diagnose issues
+    console.log(`[parseCreatureKeywords] ${card?.name}: rawKeywords type=${typeof rawKeywords}, isArray=${Array.isArray(rawKeywords)}, value=`, 
+      rawKeywords ? JSON.stringify(rawKeywords) : 'undefined');
+    
+    if (rawKeywords && !Array.isArray(rawKeywords)) {
+      console.warn(`[parseCreatureKeywords] keywords is not an array for ${card?.name}: type=${typeof rawKeywords}, value=`, rawKeywords);
+    }
+    
+    const keywords = Array.isArray(rawKeywords) 
+      ? rawKeywords.filter((k: any) => typeof k === 'string').map((k: string) => k.toLowerCase())
+      : [];
+    
+    // Debug: log when there are 2+ keywords (to trace the crash issue)
+    if (keywords.length >= 2) {
+      console.log(`[parseCreatureKeywords] Card ${card?.name} has ${keywords.length} keywords: [${keywords.join(', ')}]`);
+    }
+    
+    const hasKeyword = (kw: string) => 
+      keywords.includes(kw.toLowerCase()) || oracleText.includes(kw.toLowerCase());
+    
+    const result = {
+      flying: hasKeyword("flying"),
+      reach: hasKeyword("reach"),
+      shadow: hasKeyword("shadow"),
+      horsemanship: hasKeyword("horsemanship"),
+      fear: hasKeyword("fear"),
+      intimidate: hasKeyword("intimidate"),
+      menace: hasKeyword("menace"),
+      skulk: hasKeyword("skulk"),
+      unblockable: oracleText.includes("can't be blocked") || 
+                    oracleText.includes("is unblockable"),
+      firstStrike: hasKeyword("first strike") && !hasKeyword("double strike"),
+      doubleStrike: hasKeyword("double strike"),
+      lifelink: hasKeyword("lifelink"),
+      deathtouch: hasKeyword("deathtouch"),
+      trample: hasKeyword("trample"),
+      vigilance: hasKeyword("vigilance"),
+      indestructible: hasKeyword("indestructible"),
+      hexproof: hasKeyword("hexproof"),
+      shroud: hasKeyword("shroud"),
+      haste: hasKeyword("haste"),
+      defender: hasKeyword("defender"),
+      cantAttack: oracleText.includes("can't attack") || hasKeyword("defender"),
+      cantBlock: oracleText.includes("can't block"),
+    };
+    
+    // Log the parsed result for multi-keyword cards
+    if (keywords.length >= 2) {
+      const activeKeywords = Object.entries(result).filter(([_, v]) => v === true).map(([k]) => k);
+      console.log(`[parseCreatureKeywords] ${card?.name} parsed result: [${activeKeywords.join(', ')}]`);
+    }
+    
+    return result;
+  } catch (err) {
+    console.error(`[parseCreatureKeywords] CRASH parsing ${card?.name}:`, err);
+    console.error(`[parseCreatureKeywords] rawKeywords was:`, card?.keywords);
+    console.error(`[parseCreatureKeywords] Card data:`, JSON.stringify(card, null, 2).slice(0, 1000));
+    console.error(`[parseCreatureKeywords] Permanent data:`, permanent ? JSON.stringify(permanent, null, 2).slice(0, 500) : 'undefined');
+    throw err; // Re-throw to let caller handle
+  }
 }
 
 /**

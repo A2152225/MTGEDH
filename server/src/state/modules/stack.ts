@@ -242,6 +242,141 @@ function isPermanentTypeLine(typeLine?: string): boolean {
   return /\b(creature|artifact|enchantment|planeswalker|battle)\b/.test(tl);
 }
 
+/**
+ * Execute a triggered ability effect based on its description.
+ * Handles common trigger effects like life gain/loss, counters, draw, etc.
+ */
+function executeTriggerEffect(
+  ctx: GameContext,
+  controller: PlayerID,
+  sourceName: string,
+  description: string,
+  triggerItem: any
+): void {
+  const state = (ctx as any).state;
+  if (!state) return;
+  
+  const desc = description.toLowerCase();
+  const startingLife = state.startingLife || 40;
+  
+  // Ensure life dictionary exists
+  if (!state.life) {
+    state.life = {};
+  }
+  
+  // Get all players for "each opponent" effects
+  const players = state.players || [];
+  const opponents = players.filter((p: any) => p.id !== controller && !p.hasLost);
+  
+  // Helper to modify life and sync to player object
+  const modifyLife = (playerId: string, delta: number) => {
+    const currentLife = state.life[playerId] ?? startingLife;
+    state.life[playerId] = currentLife + delta;
+    
+    // Sync to player object
+    const player = players.find((p: any) => p.id === playerId);
+    if (player) {
+      player.life = state.life[playerId];
+    }
+    
+    const action = delta > 0 ? 'gained' : 'lost';
+    const amount = Math.abs(delta);
+    console.log(`[executeTriggerEffect] ${playerId} ${action} ${amount} life (${currentLife} -> ${state.life[playerId]})`);
+  };
+  
+  // Pattern: "You gain X life"
+  const gainLifeMatch = desc.match(/you gain (\d+) life/i);
+  if (gainLifeMatch) {
+    const amount = parseInt(gainLifeMatch[1], 10);
+    modifyLife(controller, amount);
+    return;
+  }
+  
+  // Pattern: "You may gain X life" (for optional triggers that were accepted)
+  const mayGainLifeMatch = desc.match(/you may gain (\d+) life/i);
+  if (mayGainLifeMatch) {
+    const amount = parseInt(mayGainLifeMatch[1], 10);
+    modifyLife(controller, amount);
+    return;
+  }
+  
+  // Pattern: "Each opponent loses X life"
+  const opponentsLoseMatch = desc.match(/each opponent loses (\d+) life/i);
+  if (opponentsLoseMatch) {
+    const amount = parseInt(opponentsLoseMatch[1], 10);
+    for (const opp of opponents) {
+      modifyLife(opp.id, -amount);
+    }
+    // Check for "you gain X life" in same trigger (like Zulaport Cutthroat)
+    const alsoGainMatch = desc.match(/you gain (\d+) life/i);
+    if (alsoGainMatch) {
+      const gainAmount = parseInt(alsoGainMatch[1], 10);
+      modifyLife(controller, gainAmount);
+    }
+    return;
+  }
+  
+  // Pattern: "Target player loses X life, you gain X life" (Blood Artist)
+  const targetLosesYouGainMatch = desc.match(/target player loses (\d+) life.*you gain (\d+) life/i);
+  if (targetLosesYouGainMatch) {
+    const loseAmount = parseInt(targetLosesYouGainMatch[1], 10);
+    const gainAmount = parseInt(targetLosesYouGainMatch[2], 10);
+    
+    // If we have a target, use it; otherwise target a random opponent
+    const targets = triggerItem.targets || [];
+    const targetPlayer = targets[0] || (opponents[0]?.id);
+    
+    if (targetPlayer) {
+      modifyLife(targetPlayer, -loseAmount);
+    }
+    modifyLife(controller, gainAmount);
+    return;
+  }
+  
+  // Pattern: "Creature's controller loses X life" (Blood Seeker)
+  const creatureControllerLosesMatch = desc.match(/creature's controller loses (\d+) life/i);
+  if (creatureControllerLosesMatch) {
+    const amount = parseInt(creatureControllerLosesMatch[1], 10);
+    // The triggering creature's controller - stored in triggerItem for ETB triggers
+    const triggeringController = (triggerItem as any).triggeringController;
+    if (triggeringController && triggeringController !== controller) {
+      modifyLife(triggeringController, -amount);
+    }
+    return;
+  }
+  
+  // Pattern: "+1/+1 counter on each creature you control" (Cathar's Crusade)
+  if (desc.includes('+1/+1 counter') && desc.includes('each creature you control')) {
+    const battlefield = state.battlefield || [];
+    for (const perm of battlefield) {
+      if (!perm) continue;
+      if (perm.controller !== controller) continue;
+      const typeLine = (perm.card?.type_line || '').toLowerCase();
+      if (!typeLine.includes('creature')) continue;
+      
+      // Add +1/+1 counter
+      perm.counters = perm.counters || {};
+      perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + 1;
+      console.log(`[executeTriggerEffect] Added +1/+1 counter to ${perm.card?.name || perm.id}`);
+    }
+    return;
+  }
+  
+  // Pattern: "Draw a card" or "Draw X cards"
+  const drawMatch = desc.match(/draw (?:a card|(\d+) cards?)/i);
+  if (drawMatch) {
+    const count = drawMatch[1] ? parseInt(drawMatch[1], 10) : 1;
+    // Set up pending draw - actual draw happens through zone management
+    state.pendingDraws = state.pendingDraws || {};
+    state.pendingDraws[controller] = (state.pendingDraws[controller] || 0) + count;
+    console.log(`[executeTriggerEffect] ${controller} will draw ${count} card(s)`);
+    return;
+  }
+  
+  // Log unhandled triggers for future implementation
+  console.log(`[executeTriggerEffect] Unhandled trigger effect: "${description}" from ${sourceName}`);
+}
+
 /* Resolve the top item - moves permanent spells to battlefield */
 export function resolveTopOfStack(ctx: GameContext) {
   const item = popStackItem(ctx);
@@ -294,9 +429,13 @@ export function resolveTopOfStack(ctx: GameContext) {
   if ((item as any).type === 'triggered_ability') {
     const sourceName = (item as any).sourceName || 'Unknown';
     const description = (item as any).description || '';
+    const triggerController = (item as any).controller || controller;
+    
     console.log(`[resolveTopOfStack] Triggered ability from ${sourceName} resolved: ${description}`);
-    // Most triggered abilities don't need special handling here - they're processed when added to stack
-    // Some complex triggers may need handling in the future
+    
+    // Execute the triggered ability effect based on description
+    executeTriggerEffect(ctx, triggerController, sourceName, description, item);
+    
     bumpSeq();
     return;
   }

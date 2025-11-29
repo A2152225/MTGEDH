@@ -252,6 +252,14 @@ export function App() {
   // Triggered ability modal state
   const [triggerModalOpen, setTriggerModalOpen] = useState(false);
   const [pendingTriggers, setPendingTriggers] = useState<TriggerPromptData[]>([]);
+  // Track sources that the player wants to auto-resolve (shortcut)
+  // Map from sourceKey to { sourceName, count, effect }
+  const [ignoredTriggerSources, setIgnoredTriggerSources] = useState<Map<string, { 
+    sourceName: string; 
+    count: number; 
+    effect: string;
+    imageUrl?: string;
+  }>>(new Map());
   
   // Mulligan bottom selection modal state (London Mulligan)
   const [mulliganBottomModalOpen, setMulliganBottomModalOpen] = useState(false);
@@ -589,6 +597,27 @@ export function App() {
   React.useEffect(() => {
     const handler = (payload: any) => {
       if (payload.gameId === safeView?.id && payload.trigger) {
+        const trigger = payload.trigger;
+        // Check if this source is in the ignored list (auto-resolve shortcut)
+        const sourceKey = trigger.sourceId || trigger.sourceName;
+        if (sourceKey && ignoredTriggerSources.has(sourceKey)) {
+          // Increment the count for this ignored source
+          setIgnoredTriggerSources(prev => {
+            const next = new Map(prev);
+            const existing = next.get(sourceKey);
+            if (existing) {
+              next.set(sourceKey, { ...existing, count: existing.count + 1 });
+            }
+            return next;
+          });
+          // Auto-resolve this trigger without showing modal
+          socket.emit("resolveTrigger", {
+            gameId: safeView.id,
+            triggerId: trigger.id,
+            choice: { accepted: true, autoResolved: true },
+          });
+          return;
+        }
         setPendingTriggers(prev => [...prev, payload.trigger]);
         setTriggerModalOpen(true);
       }
@@ -597,7 +626,7 @@ export function App() {
     return () => {
       socket.off("triggerPrompt", handler);
     };
-  }, [safeView?.id]);
+  }, [safeView?.id, ignoredTriggerSources]);
 
   // Deck validation result listener
   React.useEffect(() => {
@@ -1613,6 +1642,56 @@ export function App() {
     }
   };
 
+  // Handle "ignore this source" from modal - auto-resolve all future triggers from this source
+  const handleIgnoreTriggerSource = (triggerId: string, sourceId: string, sourceName: string) => {
+    if (!safeView) return;
+    
+    // Find the trigger to get its effect and image
+    const trigger = pendingTriggers.find(t => t.id === triggerId);
+    const effect = trigger?.effect || '';
+    const imageUrl = trigger?.imageUrl;
+    
+    // Add source to ignored map (use sourceId if available, fallback to sourceName)
+    const sourceKey = sourceId || sourceName;
+    setIgnoredTriggerSources(prev => {
+      const next = new Map(prev);
+      next.set(sourceKey, { sourceName, count: 1, effect, imageUrl });
+      return next;
+    });
+    
+    // Resolve this trigger
+    socket.emit("resolveTrigger", {
+      gameId: safeView.id,
+      triggerId,
+      choice: { accepted: true, autoResolved: true },
+    });
+    
+    // Remove this trigger from pending
+    setPendingTriggers(prev => prev.filter(t => t.id !== triggerId));
+    if (pendingTriggers.length <= 1) {
+      setTriggerModalOpen(false);
+    }
+  };
+
+  // Handle "ignore this source" from stack UI - for triggers already on stack
+  const handleIgnoreTriggerSourceFromStack = (sourceId: string, sourceName: string, effect: string, imageUrl?: string) => {
+    const sourceKey = sourceId || sourceName;
+    setIgnoredTriggerSources(prev => {
+      const next = new Map(prev);
+      next.set(sourceKey, { sourceName, count: 0, effect, imageUrl });
+      return next;
+    });
+  };
+
+  // Stop ignoring a trigger source
+  const handleStopIgnoringSource = (sourceKey: string) => {
+    setIgnoredTriggerSources(prev => {
+      const next = new Map(prev);
+      next.delete(sourceKey);
+      return next;
+    });
+  };
+
   // Handle ordering of multiple simultaneous triggers
   const handleOrderTriggersConfirm = (orderedTriggerIds: string[]) => {
     if (!safeView) return;
@@ -1877,6 +1956,23 @@ export function App() {
       
       // Filter out creatures that cannot attack (summoning sickness without haste, or defender)
       return canCreatureAttack(p);
+    });
+  }, [safeView, you]);
+
+  // Get creatures that can block - different rules than attacking
+  // Creatures with summoning sickness CAN block
+  // Creatures with defender CAN block  
+  // Only tapped creatures cannot block
+  const myBlockerCreatures = useMemo(() => {
+    if (!safeView || !you) return [];
+    return (safeView.battlefield || []).filter((p: BattlefieldPermanent) => {
+      if (p.controller !== you) return false;
+      const typeLine = (p.card as KnownCardRef)?.type_line?.toLowerCase() || '';
+      if (!typeLine.includes('creature')) return false;
+      // Tapped creatures cannot block
+      if (p.tapped) return false;
+      // All untapped creatures can block (even with summoning sickness or defender)
+      return true;
     });
   }, [safeView, you]);
 
@@ -2283,70 +2379,6 @@ export function App() {
           </div>
         )}
 
-        {/* DECK IMPORT PROMPT - Shows when player joins without a deck */}
-        {showDeckImportPrompt && isPreGame && (
-          <div
-            style={{
-              background: "linear-gradient(135deg, #1e40af 0%, #7c3aed 100%)",
-              padding: 16,
-              borderRadius: 8,
-              marginBottom: 8,
-              border: "1px solid #60a5fa",
-              boxShadow: "0 4px 12px rgba(37, 99, 235, 0.3)",
-              display: "flex",
-              alignItems: "center",
-              gap: 16,
-            }}
-          >
-            <div style={{ fontSize: 32 }}>📚</div>
-            <div style={{ flex: 1, color: "#fff" }}>
-              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>
-                Welcome to the game!
-              </div>
-              <div style={{ fontSize: 13, opacity: 0.9 }}>
-                Import a deck to get started. You can paste a decklist or load a saved deck.
-              </div>
-            </div>
-            <button
-              onClick={() => {
-                setShowDeckImportPrompt(false);
-                // Note: The deck manager is inside TableLayout - we can signal to open it
-                // by scrolling down or via a ref/callback
-              }}
-              style={{
-                background: "rgba(255,255,255,0.2)",
-                border: "1px solid rgba(255,255,255,0.3)",
-                borderRadius: 6,
-                padding: "8px 16px",
-                color: "#fff",
-                fontSize: 13,
-                cursor: "pointer",
-              }}
-            >
-              Dismiss
-            </button>
-            <button
-              onClick={() => {
-                setShowDeckImportPrompt(false);
-                // Open the deck manager via state callback
-                setTableDeckMgrOpen(true);
-              }}
-              style={{
-                background: "#fff",
-                border: "none",
-                borderRadius: 6,
-                padding: "8px 16px",
-                color: "#1e40af",
-                fontWeight: 600,
-                fontSize: 13,
-                cursor: "pointer",
-              }}
-            >
-              Import Deck →
-            </button>
-          </div>
-        )}
-
         {/* TABLE / PLAYING FIELD (chat handled as overlay inside TableLayout) */}
         <div
           style={{
@@ -2504,6 +2536,9 @@ export function App() {
               phase={String(safeView.phase || '')}
               step={String(safeView.step || '')}
               turnPlayer={safeView.turnPlayer}
+              ignoredTriggerSources={ignoredTriggerSources}
+              onIgnoreTriggerSource={handleIgnoreTriggerSourceFromStack}
+              onStopIgnoringSource={handleStopIgnoringSource}
             />
           ) : (
             <div style={{ padding: 20, color: "#666" }}>
@@ -2916,7 +2951,7 @@ export function App() {
       <CombatSelectionModal
         open={combatModalOpen}
         mode={combatMode}
-        availableCreatures={myCreatures}
+        availableCreatures={combatMode === 'blockers' ? myBlockerCreatures : myCreatures}
         attackingCreatures={attackingCreatures}
         defenders={defenders}
         onConfirm={(selections) => {
@@ -2966,6 +3001,7 @@ export function App() {
         onResolve={handleResolveTrigger}
         onSkip={handleSkipTrigger}
         onOrderConfirm={handleOrderTriggersConfirm}
+        onIgnoreSource={handleIgnoreTriggerSource}
       />
 
       {/* Mulligan Bottom Selection Modal (London Mulligan) */}

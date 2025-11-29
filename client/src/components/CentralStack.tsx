@@ -1,16 +1,30 @@
 import React, { useState, useCallback, useRef } from 'react';
-import type { StackItem, KnownCardRef, PlayerID, BattlefieldPermanent } from '../../../shared/src';
+import type { StackItem, KnownCardRef, PlayerID, BattlefieldPermanent, PlayerRef } from '../../../shared/src';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 
 interface Props {
   stack: StackItem[];
   battlefield?: BattlefieldPermanent[];
+  players?: PlayerRef[]; // For looking up player names from IDs
   you?: PlayerID;
   priorityPlayer?: PlayerID;
   onPass?: () => void;
+  onIgnoreTriggerSource?: (sourceId: string, sourceName: string, effect: string, imageUrl?: string) => void;
+  ignoredSources?: Map<string, { sourceName: string; count: number; effect: string; imageUrl?: string }>;
+  onStopIgnoring?: (sourceKey: string) => void;
 }
 
-export function CentralStack({ stack, battlefield, you, priorityPlayer, onPass }: Props) {
+export function CentralStack({ 
+  stack, 
+  battlefield, 
+  players,
+  you, 
+  priorityPlayer, 
+  onPass,
+  onIgnoreTriggerSource,
+  ignoredSources,
+  onStopIgnoring,
+}: Props) {
   // Position state for dragging
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -20,6 +34,14 @@ export function CentralStack({ stack, battlefield, you, priorityPlayer, onPass }
   if (stack.length === 0) {
     return null;
   }
+  
+  // Helper to look up player name from ID
+  const getPlayerName = (playerId: string | undefined): string => {
+    if (!playerId) return '';
+    if (!players) return playerId;
+    const player = players.find(p => p.id === playerId);
+    return player?.name || playerId;
+  };
   
   // Helper to find a permanent's card data by ID for hover preview
   const findTargetCard = (targetId: string): KnownCardRef | undefined => {
@@ -165,6 +187,10 @@ export function CentralStack({ stack, battlefield, you, priorityPlayer, onPass }
           const isTopOfStack = idx === 0;
           // For triggered abilities, show the description
           const description = (it as any).description || null;
+          // Check if this is a triggered ability that can be auto-resolved
+          const isTriggeredAbility = (it as any).type === 'triggered_ability';
+          const sourceId = (it as any).source || (it as any).sourceId;
+          const sourceName = (it as any).sourceName || name;
           
           return (
             <div
@@ -250,7 +276,7 @@ export function CentralStack({ stack, battlefield, you, priorityPlayer, onPass }
                   color:'#9ca3af',
                   marginTop:2
                 }}>
-                  {it.controller ? `by ${it.controller}` : ''}
+                  {it.controller ? `by ${getPlayerName(it.controller)}` : ''}
                   {isTopOfStack && ' • Resolving next'}
                 </div>
                 {/* Display targets if any */}
@@ -332,10 +358,115 @@ export function CentralStack({ stack, battlefield, you, priorityPlayer, onPass }
                   </div>
                 ) : null}
               </div>
+              
+              {/* Auto-resolve button for triggered abilities */}
+              {isTriggeredAbility && onIgnoreTriggerSource && it.controller === you && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onIgnoreTriggerSource(sourceId, sourceName, description || '', imageUrl || undefined);
+                  }}
+                  title="Auto-resolve all future triggers from this source"
+                  style={{
+                    padding: '4px 8px',
+                    fontSize: 10,
+                    borderRadius: 4,
+                    border: '1px solid #6366f1',
+                    background: 'rgba(99,102,241,0.2)',
+                    color: '#a5b4fc',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                  }}
+                >
+                  🔄 Auto
+                </button>
+              )}
             </div>
           );
         })}
       </div>
+
+      {/* Ignored sources panel */}
+      {ignoredSources && ignoredSources.size > 0 && (
+        <div style={{
+          marginTop: 12,
+          padding: '8px 10px',
+          background: 'rgba(99,102,241,0.1)',
+          border: '1px solid rgba(99,102,241,0.3)',
+          borderRadius: 6,
+        }}>
+          <div style={{ 
+            fontSize: 11, 
+            color: '#a5b4fc', 
+            marginBottom: 6,
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+          }}>
+            🔄 Auto-resolving
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {Array.from(ignoredSources.entries()).map(([key, data]) => (
+              <div 
+                key={key}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                  padding: '4px 6px',
+                  background: 'rgba(0,0,0,0.3)',
+                  borderRadius: 4,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
+                  {data.imageUrl && (
+                    <img 
+                      src={data.imageUrl} 
+                      alt={data.sourceName}
+                      style={{ width: 24, height: 34, borderRadius: 2, objectFit: 'cover' }}
+                    />
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ 
+                      fontSize: 11, 
+                      color: '#e5e7eb',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}>
+                      {data.sourceName}
+                    </div>
+                    <div style={{ fontSize: 10, color: '#9ca3af' }}>
+                      {data.count}× resolved
+                    </div>
+                  </div>
+                </div>
+                {onStopIgnoring && (
+                  <button
+                    onClick={() => onStopIgnoring(key)}
+                    title="Stop auto-resolving this source"
+                    style={{
+                      padding: '2px 6px',
+                      fontSize: 10,
+                      borderRadius: 3,
+                      border: '1px solid #ef4444',
+                      background: 'rgba(239,68,68,0.2)',
+                      color: '#fca5a5',
+                      cursor: 'pointer',
+                      flexShrink: 0,
+                    }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Priority indicator */}
       {priorityPlayer===you && (

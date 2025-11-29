@@ -34,18 +34,44 @@ export interface BlockerSelection {
  * Get creature info from a permanent
  */
 function getCreatureInfo(perm: BattlefieldPermanent): { name: string; pt: string; imageUrl?: string } {
-  const card = perm.card as KnownCardRef | undefined;
-  const name = card?.name || perm.id;
+  // Defensive check for undefined/null permanent
+  if (!perm) {
+    return { name: 'Unknown', pt: '?/?', imageUrl: undefined };
+  }
   
-  // Calculate effective P/T
-  const baseP = perm.basePower ?? (card?.power ? parseInt(String(card.power), 10) : undefined);
-  const baseT = perm.baseToughness ?? (card?.toughness ? parseInt(String(card.toughness), 10) : undefined);
+  const card = perm.card as KnownCardRef | undefined;
+  const name = card?.name || perm.id || 'Unknown';
+  
+  // Calculate effective P/T with defensive parsing
+  let baseP: number | undefined;
+  let baseT: number | undefined;
+  
+  try {
+    if (perm.basePower !== undefined && perm.basePower !== null) {
+      baseP = typeof perm.basePower === 'number' ? perm.basePower : parseInt(String(perm.basePower), 10);
+      if (isNaN(baseP)) baseP = undefined;
+    } else if (card?.power) {
+      baseP = parseInt(String(card.power), 10);
+      if (isNaN(baseP)) baseP = undefined;
+    }
+    
+    if (perm.baseToughness !== undefined && perm.baseToughness !== null) {
+      baseT = typeof perm.baseToughness === 'number' ? perm.baseToughness : parseInt(String(perm.baseToughness), 10);
+      if (isNaN(baseT)) baseT = undefined;
+    } else if (card?.toughness) {
+      baseT = parseInt(String(card.toughness), 10);
+      if (isNaN(baseT)) baseT = undefined;
+    }
+  } catch {
+    // Ignore parsing errors
+  }
+  
   const plusCounters = perm.counters?.['+1/+1'] ?? 0;
   const minusCounters = perm.counters?.['-1/-1'] ?? 0;
   const delta = plusCounters - minusCounters;
   
-  const p = typeof baseP === 'number' ? baseP + delta : '?';
-  const t = typeof baseT === 'number' ? baseT + delta : '?';
+  const p = typeof baseP === 'number' && !isNaN(baseP) ? baseP + delta : '?';
+  const t = typeof baseT === 'number' && !isNaN(baseT) ? baseT + delta : '?';
   const pt = `${p}/${t}`;
   
   const imageUrl = card?.image_uris?.small || card?.image_uris?.normal;

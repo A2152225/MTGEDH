@@ -474,10 +474,14 @@ export function getETBTriggersForPermanent(card: any, permanent: any): Triggered
  */
 export function hasEvasionAbility(card: any): { flying: boolean; menace: boolean; trample: boolean; unblockable: boolean; shadow: boolean; horsemanship: boolean; fear: boolean; intimidate: boolean; skulk: boolean } {
   const oracleText = (card?.oracle_text || "").toLowerCase();
-  const keywords = card?.keywords || [];
+  const rawKeywords = card?.keywords;
+  // Defensive: ensure keywords is an array
+  const keywords = Array.isArray(rawKeywords) 
+    ? rawKeywords.filter((k: any) => typeof k === 'string')
+    : [];
   
   const checkKeyword = (kw: string) => 
-    keywords.includes(kw) || keywords.map((k: string) => k.toLowerCase()).includes(kw.toLowerCase()) || oracleText.includes(kw.toLowerCase());
+    keywords.some((k: string) => k.toLowerCase() === kw.toLowerCase()) || oracleText.includes(kw.toLowerCase());
   
   return {
     flying: checkKeyword("Flying"),
