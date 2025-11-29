@@ -87,7 +87,7 @@ const KNOWN_DEATH_TRIGGERS: Record<string, { effect: string; triggerOn: 'own' | 
   "dark prophecy": { effect: "Draw a card, lose 1 life when creature dies", triggerOn: 'controlled' },
 };
 
-const KNOWN_ATTACK_TRIGGERS: Record<string, { effect: string; value?: number }> = {
+const KNOWN_ATTACK_TRIGGERS: Record<string, { effect: string; value?: number; putFromHand?: boolean; tappedAndAttacking?: boolean }> = {
   "hellkite charger": { effect: "Pay {5}{R}{R} for additional combat phase" },
   "combat celebrant": { effect: "Exert for additional combat phase" },
   "aurelia, the warleader": { effect: "Additional combat phase (first attack each turn)" },
@@ -96,6 +96,18 @@ const KNOWN_ATTACK_TRIGGERS: Record<string, { effect: string; value?: number }> 
   "marisi, breaker of the coil": { effect: "Goad all creatures that player controls" },
   "grand warlord radha": { effect: "Add mana for each attacking creature" },
   "neheb, the eternal": { effect: "Add {R} for each life opponent lost (postcombat)" },
+  // Creatures that put cards from hand onto battlefield tapped and attacking
+  "kaalia of the vast": { effect: "Put an Angel, Demon, or Dragon from hand onto battlefield tapped and attacking", putFromHand: true, tappedAndAttacking: true },
+  "kaalia, zenith seeker": { effect: "Look at top 6 cards, reveal Angel/Demon/Dragon to hand" },
+  "isshin, two heavens as one": { effect: "Attack triggers happen twice" },
+  "winota, joiner of forces": { effect: "Look for a Human, put onto battlefield tapped and attacking", putFromHand: false, tappedAndAttacking: true },
+  "ilharg, the raze-boar": { effect: "Put a creature from hand onto battlefield tapped and attacking", putFromHand: true, tappedAndAttacking: true },
+  "sneak attack": { effect: "Put creature from hand, sacrifice at end step", putFromHand: true },
+  "champion of rhonas": { effect: "Exert to put creature from hand", putFromHand: true },
+  "elvish piper": { effect: "Put creature from hand onto battlefield" }, // Not attack trigger but related
+  "quicksilver amulet": { effect: "Put creature from hand onto battlefield" },
+  "descendants' path": { effect: "Reveal top card, put creature onto battlefield if shares type" },
+  "belbe's portal": { effect: "Put creature of chosen type from hand" },
 };
 
 /**
@@ -160,6 +172,149 @@ const KNOWN_ETB_TRIGGERS: Record<string, {
     triggerOn: 'creature',
   },
 };
+
+/**
+ * Known cards with combat damage triggers (deals combat damage to a player)
+ */
+const KNOWN_COMBAT_DAMAGE_TRIGGERS: Record<string, { 
+  effect: string;
+  tokenType?: string;
+  tokenCount?: number;
+  toOpponent?: boolean; // Only triggers on damage to opponents
+}> = {
+  "precinct captain": { 
+    effect: "Create a 1/1 white Soldier creature token",
+    tokenType: "Soldier",
+    tokenCount: 1,
+  },
+  "brimaz, king of oreskos": { 
+    effect: "Create a 1/1 white Cat Soldier creature token with vigilance",
+    tokenType: "Cat Soldier",
+    tokenCount: 1,
+  },
+  "ophiomancer": { 
+    effect: "Create a 1/1 black Snake creature token with deathtouch",
+    tokenType: "Snake",
+    tokenCount: 1,
+  },
+  "edric, spymaster of trest": { 
+    effect: "That creature's controller draws a card",
+    toOpponent: true,
+  },
+  "toski, bearer of secrets": { 
+    effect: "Draw a card",
+  },
+  "ohran frostfang": { 
+    effect: "Draw a card",
+  },
+  "coastal piracy": { 
+    effect: "Draw a card",
+  },
+  "bident of thassa": { 
+    effect: "Draw a card",
+  },
+  "reconnaissance mission": { 
+    effect: "Draw a card",
+  },
+  "curiosity": { 
+    effect: "Draw a card (enchanted creature)",
+  },
+  "sword of fire and ice": { 
+    effect: "Draw a card and deal 2 damage to any target",
+  },
+  "sword of feast and famine": { 
+    effect: "Target player discards a card, untap all lands you control",
+  },
+  "sword of light and shadow": { 
+    effect: "Gain 3 life, return creature card from graveyard to hand",
+  },
+  "sword of war and peace": { 
+    effect: "Deal damage equal to cards in opponent's hand, gain life equal to cards in your hand",
+  },
+  "sword of body and mind": { 
+    effect: "Create a 2/2 Wolf token, target player mills 10",
+  },
+  "sword of truth and justice": { 
+    effect: "Put a +1/+1 counter on a creature, proliferate",
+  },
+  "sword of sinew and steel": { 
+    effect: "Destroy target planeswalker and artifact",
+  },
+  "sword of hearth and home": { 
+    effect: "Exile then return target creature, search for a basic land",
+  },
+  "infiltration lens": { 
+    effect: "Draw two cards (when blocked)",
+  },
+};
+
+/**
+ * Detect combat damage triggers from a permanent's abilities
+ */
+export function detectCombatDamageTriggers(card: any, permanent: any): TriggeredAbility[] {
+  const triggers: TriggeredAbility[] = [];
+  const oracleText = (card?.oracle_text || "");
+  const lowerOracle = oracleText.toLowerCase();
+  const cardName = card?.name || "Unknown";
+  const lowerName = cardName.toLowerCase();
+  const permanentId = permanent?.id || "";
+  
+  // Check known cards
+  for (const [knownName, info] of Object.entries(KNOWN_COMBAT_DAMAGE_TRIGGERS)) {
+    if (lowerName.includes(knownName)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'deals_combat_damage',
+        description: info.effect,
+        effect: info.effect,
+        mandatory: true,
+      });
+    }
+  }
+  
+  // Generic "whenever ~ deals combat damage to a player" detection
+  const combatDamagePlayerMatch = oracleText.match(/whenever\s+(?:~|this creature)\s+deals\s+combat\s+damage\s+to\s+(?:a\s+)?(?:player|an?\s+opponent),?\s*([^.]+)/i);
+  if (combatDamagePlayerMatch && !triggers.some(t => t.triggerType === 'deals_combat_damage')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'deals_combat_damage',
+      description: combatDamagePlayerMatch[1].trim(),
+      effect: combatDamagePlayerMatch[1].trim(),
+      mandatory: true,
+    });
+  }
+  
+  // "Whenever ~ deals damage to a player" (includes combat and non-combat)
+  const damagePlayerMatch = oracleText.match(/whenever\s+(?:~|this creature)\s+deals\s+damage\s+to\s+(?:a\s+)?(?:player|an?\s+opponent),?\s*([^.]+)/i);
+  if (damagePlayerMatch && !triggers.some(t => t.triggerType === 'deals_combat_damage' || t.triggerType === 'deals_damage')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'deals_damage',
+      description: damagePlayerMatch[1].trim(),
+      effect: damagePlayerMatch[1].trim(),
+      mandatory: true,
+    });
+  }
+  
+  return triggers;
+}
+
+/**
+ * Get combat damage triggers for creatures that dealt damage
+ */
+export function getCombatDamageTriggersForCreature(
+  ctx: GameContext,
+  attackingPermanent: any,
+  damageDealt: number,
+  damagedPlayerId: string
+): TriggeredAbility[] {
+  if (damageDealt <= 0) return [];
+  
+  return detectCombatDamageTriggers(attackingPermanent.card, attackingPermanent);
+}
 
 /**
  * Detect death triggers from a permanent's abilities

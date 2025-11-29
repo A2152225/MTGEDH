@@ -80,10 +80,10 @@ export function ZonesPiles(props: {
           <img
             src={img}
             alt={name}
-            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", opacity: 0.78 }}
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", opacity: 0.78, pointerEvents: "none" }}
           />
         ) : null}
-        <span style={{ position: "relative", zIndex: 1 }}>{displayName || label}</span>
+        <span style={{ position: "relative", zIndex: 1, pointerEvents: "none" }}>{displayName || label}</span>
         {isClickable && (
           <div
             style={{
@@ -95,6 +95,7 @@ export function ZonesPiles(props: {
               fontSize: 9,
               padding: "2px 4px",
               borderRadius: 3,
+              pointerEvents: "none",
             }}
             aria-label={onDoubleClick ? 'Double-click to view' : 'Click to view'}
           >

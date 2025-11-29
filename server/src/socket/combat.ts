@@ -574,6 +574,115 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
           return;
         }
 
+        // Check evasion abilities (flying, shadow, horsemanship, fear, intimidate, skulk)
+        const attackerText = ((attackerCreature as any).card?.oracle_text || "").toLowerCase();
+        const blockerText = ((blockerCreature as any).card?.oracle_text || "").toLowerCase();
+        const attackerKeywords = (attackerCreature as any).card?.keywords || [];
+        const blockerKeywords = (blockerCreature as any).card?.keywords || [];
+        
+        // Flying: can only be blocked by flying or reach
+        const attackerHasFlying = attackerText.includes("flying") || 
+          attackerKeywords.some((k: string) => k.toLowerCase() === 'flying');
+        if (attackerHasFlying) {
+          const blockerHasFlying = blockerText.includes("flying") || 
+            blockerKeywords.some((k: string) => k.toLowerCase() === 'flying');
+          const blockerHasReach = blockerText.includes("reach") ||
+            blockerKeywords.some((k: string) => k.toLowerCase() === 'reach');
+          if (!blockerHasFlying && !blockerHasReach) {
+            socket.emit("error", {
+              code: "CANT_BLOCK_FLYING",
+              message: `${(blockerCreature as any).card?.name} can't block ${(attackerCreature as any).card?.name} (flying)`,
+            });
+            return;
+          }
+        }
+        
+        // Shadow: can only be blocked by shadow, and shadow creatures can only block shadow
+        const attackerHasShadow = attackerText.includes("shadow") || 
+          attackerKeywords.some((k: string) => k.toLowerCase() === 'shadow');
+        const blockerHasShadow = blockerText.includes("shadow") || 
+          blockerKeywords.some((k: string) => k.toLowerCase() === 'shadow');
+        if (attackerHasShadow && !blockerHasShadow) {
+          socket.emit("error", {
+            code: "CANT_BLOCK_SHADOW",
+            message: `${(blockerCreature as any).card?.name} can't block ${(attackerCreature as any).card?.name} (shadow)`,
+          });
+          return;
+        }
+        // Shadow creatures can only block shadow creatures (Rule 702.28a)
+        if (blockerHasShadow && !attackerHasShadow) {
+          socket.emit("error", {
+            code: "SHADOW_CANT_BLOCK_NON_SHADOW",
+            message: `${(blockerCreature as any).card?.name} has shadow and can only block creatures with shadow`,
+          });
+          return;
+        }
+        
+        // Horsemanship: can only be blocked by horsemanship
+        const attackerHasHorsemanship = attackerText.includes("horsemanship") || 
+          attackerKeywords.some((k: string) => k.toLowerCase() === 'horsemanship');
+        if (attackerHasHorsemanship) {
+          const blockerHasHorsemanship = blockerText.includes("horsemanship") || 
+            blockerKeywords.some((k: string) => k.toLowerCase() === 'horsemanship');
+          if (!blockerHasHorsemanship) {
+            socket.emit("error", {
+              code: "CANT_BLOCK_HORSEMANSHIP",
+              message: `${(blockerCreature as any).card?.name} can't block ${(attackerCreature as any).card?.name} (horsemanship)`,
+            });
+            return;
+          }
+        }
+        
+        // Fear: can only be blocked by artifact creatures or black creatures
+        const attackerHasFear = attackerText.includes("fear") || 
+          attackerKeywords.some((k: string) => k.toLowerCase() === 'fear');
+        if (attackerHasFear) {
+          const blockerCard = (blockerCreature as any).card;
+          const isArtifact = blockerCard?.type_line?.toLowerCase().includes('artifact');
+          const isBlack = blockerCard?.colors?.includes('B');
+          if (!isArtifact && !isBlack) {
+            socket.emit("error", {
+              code: "CANT_BLOCK_FEAR",
+              message: `${blockerCard?.name} can't block ${(attackerCreature as any).card?.name} (fear)`,
+            });
+            return;
+          }
+        }
+        
+        // Intimidate: can only be blocked by artifact creatures or creatures that share a color
+        const attackerHasIntimidate = attackerText.includes("intimidate") || 
+          attackerKeywords.some((k: string) => k.toLowerCase() === 'intimidate');
+        if (attackerHasIntimidate) {
+          const blockerCard = (blockerCreature as any).card;
+          const attackerCard = (attackerCreature as any).card;
+          const isArtifact = blockerCard?.type_line?.toLowerCase().includes('artifact');
+          const sharesColor = (attackerCard?.colors || []).some((c: string) => 
+            (blockerCard?.colors || []).includes(c)
+          );
+          if (!isArtifact && !sharesColor) {
+            socket.emit("error", {
+              code: "CANT_BLOCK_INTIMIDATE",
+              message: `${blockerCard?.name} can't block ${attackerCard?.name} (intimidate)`,
+            });
+            return;
+          }
+        }
+        
+        // Skulk: can't be blocked by creatures with greater power
+        const attackerHasSkulk = attackerText.includes("skulk") || 
+          attackerKeywords.some((k: string) => k.toLowerCase() === 'skulk');
+        if (attackerHasSkulk) {
+          const blockerPower = parseInt(String((blockerCreature as any).basePower ?? (blockerCreature as any).card?.power ?? '0'), 10) || 0;
+          const attackerPower = parseInt(String((attackerCreature as any).basePower ?? (attackerCreature as any).card?.power ?? '0'), 10) || 0;
+          if (blockerPower > attackerPower) {
+            socket.emit("error", {
+              code: "CANT_BLOCK_SKULK",
+              message: `${(blockerCreature as any).card?.name} (power ${blockerPower}) can't block ${(attackerCreature as any).card?.name} (skulk, power ${attackerPower})`,
+            });
+            return;
+          }
+        }
+
         // Mark the blocker as blocking
         (blockerCreature as any).blocking = (blockerCreature as any).blocking || [];
         (blockerCreature as any).blocking.push(blocker.attackerId);
