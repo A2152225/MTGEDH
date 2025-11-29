@@ -727,6 +727,41 @@ function calculateCostReduction(
       // (This is handled differently - through tapping creatures as payment)
     }
     
+    // ============================================
+    // CARD'S OWN COST REDUCTION (Blasphemous Act, Myr Enforcer, etc.)
+    // ============================================
+    
+    // "This spell costs {X} less to cast for each creature on the battlefield"
+    // Handles: Blasphemous Act, Myr Enforcer, Goblin Offensive, etc.
+    const creatureReductionMatch = cardOracleText.match(/this spell costs \{?(\d+)\}? less to cast for each creature/i);
+    if (creatureReductionMatch) {
+      const reductionPerCreature = parseInt(creatureReductionMatch[1], 10);
+      const creatureCount = battlefield.filter((p: any) => 
+        p && (p.card?.type_line || "").toLowerCase().includes("creature")
+      ).length;
+      const totalReduction = reductionPerCreature * creatureCount;
+      if (totalReduction > 0) {
+        reduction.generic += totalReduction;
+        reduction.messages.push(`${cardName}: -{${totalReduction}} (${creatureCount} creatures × {${reductionPerCreature}})`);
+      }
+    }
+    
+    // "This spell costs {X} less to cast for each artifact you control"
+    // Handles: Metalwork Colossus, Frogmite, Myr Enforcer (affinity variant), etc.
+    const artifactReductionMatch = cardOracleText.match(/this spell costs \{?(\d+)\}? less to cast for each artifact/i);
+    if (artifactReductionMatch) {
+      const reductionPerArtifact = parseInt(artifactReductionMatch[1], 10);
+      const artifactCount = battlefield.filter((p: any) => 
+        p && p.controller === playerId && 
+        (p.card?.type_line || "").toLowerCase().includes("artifact")
+      ).length;
+      const totalReduction = reductionPerArtifact * artifactCount;
+      if (totalReduction > 0) {
+        reduction.generic += totalReduction;
+        reduction.messages.push(`${cardName}: -{${totalReduction}} (${artifactCount} artifacts × {${reductionPerArtifact}})`);
+      }
+    }
+    
     // Log total reduction
     if (reduction.messages.length > 0) {
       console.log(`[costReduction] ${cardName}: ${reduction.messages.join(", ")}`);

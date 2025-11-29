@@ -190,6 +190,8 @@ export type EngineEffect =
   | { kind: 'MoveToExile'; id: string }
   | { kind: 'DamagePermanent'; id: string; amount: number }
   | { kind: 'DamagePlayer'; playerId: PlayerID; amount: number }
+  | { kind: 'CounterSpell'; stackItemId: string }
+  | { kind: 'CounterAbility'; stackItemId: string }
   | { kind: 'Broadcast'; message: string };
 
 export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], state: Readonly<GameState>): readonly EngineEffect[] {
@@ -229,6 +231,24 @@ export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], stat
       for (const t of chosen) {
         if (t.kind === 'player') eff.push({ kind: 'DamagePlayer', playerId: t.id as PlayerID, amount: amt });
         else if (t.kind === 'permanent') eff.push({ kind: 'DamagePermanent', id: t.id, amount: amt });
+      }
+      break;
+    }
+    case 'COUNTER_TARGET_SPELL': {
+      // Counter target spell - chosen targets should have kind 'stack'
+      for (const t of chosen) {
+        if (t.kind === 'stack') {
+          eff.push({ kind: 'CounterSpell', stackItemId: t.id });
+        }
+      }
+      break;
+    }
+    case 'COUNTER_TARGET_ABILITY': {
+      // Counter target activated or triggered ability
+      for (const t of chosen) {
+        if (t.kind === 'stack') {
+          eff.push({ kind: 'CounterAbility', stackItemId: t.id });
+        }
       }
       break;
     }

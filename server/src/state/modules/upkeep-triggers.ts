@@ -44,7 +44,7 @@ export interface UpkeepTrigger {
 /**
  * Common upkeep trigger patterns and their effects
  */
-const KNOWN_UPKEEP_CARDS: Record<string, { effect: string; mandatory: boolean; requiresChoice?: boolean }> = {
+const KNOWN_UPKEEP_CARDS: Record<string, { effect: string; mandatory: boolean; requiresChoice?: boolean; requiresSacrifice?: boolean }> = {
   // Draw/Life effects
   "phyrexian arena": { effect: "Draw a card, lose 1 life", mandatory: true },
   "dark confidant": { effect: "Reveal top card, put in hand, lose life equal to its mana value", mandatory: true },
@@ -89,10 +89,16 @@ const KNOWN_UPKEEP_CARDS: Record<string, { effect: string; mandatory: boolean; r
   "stasis": { effect: "Players skip untap step", mandatory: true },
   "tangle wire": { effect: "Remove fade counter, tap that many permanents", mandatory: true },
   
+  // Sacrifice triggers
+  "eldrazi monument": { effect: "Sacrifice a creature or sacrifice Eldrazi Monument", mandatory: true, requiresChoice: true, requiresSacrifice: true },
+  "sheoldred, whispering one": { effect: "Return creature from your graveyard; each opponent sacrifices a creature", mandatory: true, requiresSacrifice: true },
+  "smokestack": { effect: "Each player sacrifices permanents equal to soot counters", mandatory: true, requiresSacrifice: true },
+  "pox": { effect: "Sacrifice 1/3 of creatures, lands; lose 1/3 life", mandatory: true, requiresSacrifice: true },
+  
   // Other common ones
   "luminarch ascension": { effect: "If no damage taken, add quest counter", mandatory: true },
   "court of": { effect: "Become monarch if not, trigger court effect", mandatory: true },
-  "the gitrog monster": { effect: "Sacrifice a land", mandatory: true },
+  "the gitrog monster": { effect: "Sacrifice a land", mandatory: true, requiresSacrifice: true },
 };
 
 /**

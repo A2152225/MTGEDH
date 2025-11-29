@@ -9,8 +9,9 @@
  * - View card details
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import type { BattlefieldPermanent, KnownCardRef } from '../../../shared/src';
+import { parseActivatedAbilities as parseAbilitiesFull, type ParsedActivatedAbility } from '../utils/activatedAbilityParser';
 
 export interface ActivatedAbilityOption {
   id: string;
@@ -20,6 +21,7 @@ export interface ActivatedAbilityOption {
   requiresTap?: boolean;
   requiresSacrifice?: boolean;
   isManaAbility?: boolean;
+  isLoyaltyAbility?: boolean;
 }
 
 export interface CardContextMenuProps {
@@ -38,177 +40,28 @@ export interface CardContextMenuProps {
 }
 
 /**
- * Parse abilities from card oracle text
+ * Convert ParsedActivatedAbility to ActivatedAbilityOption for the context menu
+ */
+function convertToMenuOption(ability: ParsedActivatedAbility): ActivatedAbilityOption {
+  return {
+    id: ability.id,
+    label: ability.label,
+    description: ability.description,
+    cost: ability.cost,
+    requiresTap: ability.requiresTap,
+    requiresSacrifice: ability.requiresSacrifice,
+    isManaAbility: ability.isManaAbility,
+    isLoyaltyAbility: ability.isLoyaltyAbility,
+  };
+}
+
+/**
+ * Parse abilities from card oracle text using the comprehensive parser
  */
 function parseActivatedAbilities(card: KnownCardRef): ActivatedAbilityOption[] {
-  const abilities: ActivatedAbilityOption[] = [];
-  const oracleText = card.oracle_text || '';
-  const typeLine = (card.type_line || '').toLowerCase();
-  const name = card.name || '';
-  
-  // Basic land mana abilities
-  if (typeLine.includes('plains')) {
-    abilities.push({
-      id: 'tap-mana-w',
-      label: 'Tap for {W}',
-      description: 'Add one white mana',
-      cost: '{T}',
-      requiresTap: true,
-      isManaAbility: true,
-    });
-  }
-  if (typeLine.includes('island')) {
-    abilities.push({
-      id: 'tap-mana-u',
-      label: 'Tap for {U}',
-      description: 'Add one blue mana',
-      cost: '{T}',
-      requiresTap: true,
-      isManaAbility: true,
-    });
-  }
-  if (typeLine.includes('swamp')) {
-    abilities.push({
-      id: 'tap-mana-b',
-      label: 'Tap for {B}',
-      description: 'Add one black mana',
-      cost: '{T}',
-      requiresTap: true,
-      isManaAbility: true,
-    });
-  }
-  if (typeLine.includes('mountain')) {
-    abilities.push({
-      id: 'tap-mana-r',
-      label: 'Tap for {R}',
-      description: 'Add one red mana',
-      cost: '{T}',
-      requiresTap: true,
-      isManaAbility: true,
-    });
-  }
-  if (typeLine.includes('forest')) {
-    abilities.push({
-      id: 'tap-mana-g',
-      label: 'Tap for {G}',
-      description: 'Add one green mana',
-      cost: '{T}',
-      requiresTap: true,
-      isManaAbility: true,
-    });
-  }
-  
-  // Detect fetch land abilities
-  const lowerOracle = oracleText.toLowerCase();
-  if (lowerOracle.includes('sacrifice') && lowerOracle.includes('search')) {
-    // Common fetch land patterns
-    const isTrueFetch = lowerOracle.includes('pay 1 life');
-    
-    // Determine what land types it can fetch
-    let fetchDescription = 'Search your library for a land';
-    
-    // Try to extract the land type from the oracle text
-    // Match patterns like "search your library for a Forest or Plains card"
-    // or "search your library for a basic land card"
-    const landTypeMatch = oracleText.match(/search your library for (?:a|an) ((?:basic )?(?:(?:Forest|Plains|Island|Mountain|Swamp)(?: or (?:Forest|Plains|Island|Mountain|Swamp))*|land)) card/i);
-    if (landTypeMatch) {
-      fetchDescription = `Search for: ${landTypeMatch[1]}`;
-    }
-    
-    abilities.push({
-      id: 'fetch-land',
-      label: isTrueFetch ? 'Fetch Land (pay 1 life)' : 'Fetch Land',
-      description: fetchDescription,
-      cost: isTrueFetch ? '{T}, Pay 1 life, Sacrifice' : '{T}, Sacrifice',
-      requiresTap: true,
-      requiresSacrifice: true,
-    });
-  }
-  
-  // Detect mana abilities from oracle text
-  if (!typeLine.includes('land') || !abilities.some(a => a.isManaAbility)) {
-    // Look for "{T}: Add" patterns for mana abilities
-    const manaMatch = oracleText.match(/\{T\}:\s*Add\s+(\{[^}]+\}(?:\s*or\s*\{[^}]+\})*)/i);
-    if (manaMatch) {
-      abilities.push({
-        id: 'tap-mana',
-        label: `Tap for mana`,
-        description: `Add ${manaMatch[1]}`,
-        cost: '{T}',
-        requiresTap: true,
-        isManaAbility: true,
-      });
-    }
-    
-    // Any color mana - check for common patterns (case-insensitive since lowerOracle is already lowercase)
-    if (lowerOracle.includes('add one mana of any color') || 
-        lowerOracle.includes('mana of any color') ||
-        lowerOracle.includes('add {w}{u}{b}{r}{g}') || 
-        lowerOracle.includes('any type of mana')) {
-      abilities.push({
-        id: 'tap-mana-any',
-        label: 'Tap for any color',
-        description: 'Add one mana of any color',
-        cost: '{T}',
-        requiresTap: true,
-        isManaAbility: true,
-      });
-    }
-  }
-  
-  // Parse planeswalker abilities
-  if (typeLine.includes('planeswalker')) {
-    // Match planeswalker ability patterns: [+N], [-N], or [0]
-    const pwAbilityPattern = /\[([+−\-]?\d+)\]:\s*([^[\]]+?)(?=\n|\[|$)/gi;
-    let pwMatch;
-    let pwIndex = 0;
-    while ((pwMatch = pwAbilityPattern.exec(oracleText)) !== null) {
-      const loyaltyCost = pwMatch[1].replace('−', '-'); // Normalize minus sign
-      const abilityText = pwMatch[2].trim();
-      const shortText = abilityText.length > 60 ? abilityText.slice(0, 57) + '...' : abilityText;
-      
-      abilities.push({
-        id: `pw-ability-${pwIndex}`,
-        label: `[${loyaltyCost}] Ability`,
-        description: shortText,
-        cost: `[${loyaltyCost}] loyalty`,
-        requiresTap: false,
-      });
-      pwIndex++;
-    }
-  }
-  
-  // Parse graveyard abilities (abilities that can be activated from graveyard)
-  // Look for patterns like "from your graveyard" or "Flashback" or "Unearth"
-  if (lowerOracle.includes('flashback') || 
-      lowerOracle.includes('unearth') ||
-      lowerOracle.includes('from your graveyard')) {
-    // Check for flashback cost
-    const flashbackMatch = oracleText.match(/flashback[^(]*\(([^)]*)\)/i);
-    if (flashbackMatch) {
-      abilities.push({
-        id: 'flashback',
-        label: 'Flashback',
-        description: `Cast from graveyard: ${flashbackMatch[1]}`,
-        cost: flashbackMatch[1],
-        requiresTap: false,
-      });
-    }
-    
-    // Check for unearth cost
-    const unearthMatch = oracleText.match(/unearth\s*(\{[^}]+\})/i);
-    if (unearthMatch) {
-      abilities.push({
-        id: 'unearth',
-        label: 'Unearth',
-        description: `Return from graveyard: ${unearthMatch[1]}`,
-        cost: unearthMatch[1],
-        requiresTap: false,
-      });
-    }
-  }
-  
-  return abilities;
+  // Use the full ability parser for comprehensive coverage
+  const parsed = parseAbilitiesFull(card);
+  return parsed.map(convertToMenuOption);
 }
 
 export function CardContextMenu({
