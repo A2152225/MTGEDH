@@ -12,6 +12,13 @@
 import type { ManaPool } from '../../shared/src';
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+/** Spacing between seeds for each game to ensure different shuffles */
+const SEED_SPACING = 1000;
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -1033,12 +1040,18 @@ class CommanderGameSimulator {
       } else if (cardData?.type_line?.includes('Enchantment')) {
         reasoning = 'Enchantment for ongoing value';
       } else {
-        reasoning = `Cast for its effect: ${cardData?.oracle_text?.substring(0, 50) || 'unknown'}...`;
+        const ORACLE_TEXT_PREVIEW_LENGTH = 50;
+        reasoning = `Cast for its effect: ${cardData?.oracle_text?.substring(0, ORACLE_TEXT_PREVIEW_LENGTH) || 'unknown'}...`;
       }
       
       if (this.castSpell(player, spell, state)) {
         spellsCast++;
-        const result = `Successfully resolved. Added to battlefield.`;
+        const typeLine = cardData?.type_line?.toLowerCase() || '';
+        const isPermanent = typeLine.includes('creature') || typeLine.includes('artifact') || 
+                           typeLine.includes('enchantment') || typeLine.includes('planeswalker');
+        const result = isPermanent 
+          ? 'Successfully resolved. Added to battlefield.'
+          : 'Successfully resolved. Effect applied, card moved to graveyard.';
         state.events.push({
           turn: state.turn,
           player: player.name,
@@ -1211,8 +1224,8 @@ class CommanderGameSimulator {
   }
 
   async runGame(gameNumber: number): Promise<GameSummary> {
-    // Use a unique seed for each game based on base seed + game number
-    const gameSeed = this.currentSeed + gameNumber * 1000;
+    // Use a unique seed for each game based on base seed + game number * SEED_SPACING
+    const gameSeed = this.currentSeed + gameNumber * SEED_SPACING;
     this.initRng(gameSeed);
     
     console.log(`\n${'='.repeat(60)}`);
@@ -1367,26 +1380,17 @@ class CommanderGameSimulator {
         const cardData = this.getCard(card);
         if (!cardData) continue;
         
-        const oracle = cardData.oracle_text?.toLowerCase() || '';
-        
-        // Sol Ring should add 2 colorless mana
-        if (card === 'Sol Ring') {
-          const solRingTaps = state.events.filter(e => 
-            e.card === 'Sol Ring' && e.action === 'tap for mana'
-          ).length;
-          // Sol Ring is passive, this is expected
-        }
-        
-        // Psychosis Crawler should deal damage when cards are drawn
+        // Psychosis Crawler should deal damage when its controller draws cards
         if (card === 'Psychosis Crawler') {
           const crawlerDamage = state.events.filter(e => 
             e.card === 'Psychosis Crawler' && e.action === 'trigger'
           ).length;
-          const cardDraws = state.events.filter(e => 
-            e.action === 'draw' && e.player === playerName
+          // Only count draws by the Psychosis Crawler's controller (the player who played it)
+          const controllerDraws = state.events.filter(e => 
+            e.action === 'draw' && e.player.includes(playerName.includes('1') ? '1' : '2')
           ).length;
-          if (cardDraws > 0 && crawlerDamage === 0) {
-            notFunctioning.push(`Psychosis Crawler (${playerName}): Should have triggered on card draws but didn't`);
+          if (controllerDraws > 0 && crawlerDamage === 0) {
+            notFunctioning.push(`Psychosis Crawler (${playerName}): Should have triggered on controller's card draws but didn't`);
           }
         }
       }
