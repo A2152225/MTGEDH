@@ -536,6 +536,48 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
     }
     
+    // Handle Entrapment Maneuver - "Target player sacrifices an attacking creature. 
+    // You create X 1/1 white Soldier creature tokens, where X is that creature's toughness."
+    const isEntrapmentManeuver = card.name?.toLowerCase().includes('entrapment maneuver') ||
+      (oracleTextLower.includes('sacrifices an attacking creature') && 
+       oracleTextLower.includes('create') && 
+       oracleTextLower.includes('soldier') &&
+       oracleTextLower.includes('toughness'));
+    
+    if (isEntrapmentManeuver && targets.length > 0) {
+      // Find the target player (they must sacrifice an attacking creature)
+      const targetPlayerId = targets[0]?.id || targets[0];
+      
+      // Get all attacking creatures controlled by the target player
+      const battlefield = state.battlefield || [];
+      const attackingCreatures = battlefield.filter((p: any) => 
+        p?.controller === targetPlayerId && 
+        (p?.card?.type_line || "").toLowerCase().includes("creature") &&
+        p?.attacking // Only creatures that are currently attacking
+      );
+      
+      if (attackingCreatures.length > 0) {
+        // Set up pending sacrifice selection for Entrapment Maneuver
+        // The target player chooses which attacking creature to sacrifice
+        (state as any).pendingEntrapmentManeuver = (state as any).pendingEntrapmentManeuver || {};
+        (state as any).pendingEntrapmentManeuver[targetPlayerId] = {
+          source: card.name || 'Entrapment Maneuver',
+          caster: controller,
+          attackingCreatures: attackingCreatures.map((c: any) => ({
+            id: c.id,
+            name: c.card?.name || "Unknown",
+            power: c.card?.power || c.basePower || "0",
+            toughness: c.card?.toughness || c.baseToughness || "0",
+            imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
+            typeLine: c.card?.type_line,
+          })),
+        };
+        console.log(`[resolveTopOfStack] Entrapment Maneuver: ${targetPlayerId} must sacrifice one of ${attackingCreatures.length} attacking creature(s)`);
+      } else {
+        console.log(`[resolveTopOfStack] Entrapment Maneuver: ${targetPlayerId} has no attacking creatures to sacrifice`);
+      }
+    }
+    
     // Handle Join Forces spells (Mind's Aglow, Collective Voyage, etc.)
     // These require all players to have the option to contribute mana
     if (isJoinForcesSpell(card.name, oracleTextLower)) {

@@ -2068,6 +2068,148 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     broadcastGame(io, game, gameId);
   });
 
+  /**
+   * Entrapment Maneuver sacrifice selection
+   * When target player chooses which attacking creature to sacrifice
+   */
+  socket.on("entrapmentManeuverSelect", ({ gameId, creatureId }: {
+    gameId: string;
+    creatureId: string;
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    
+    // Check if there's a pending Entrapment Maneuver for this player
+    const pending = (game.state as any)?.pendingEntrapmentManeuver?.[pid];
+    if (!pending) {
+      socket.emit("error", {
+        code: "NO_PENDING_MANEUVER",
+        message: "No Entrapment Maneuver pending for you",
+      });
+      return;
+    }
+    
+    // Find the creature on battlefield
+    const battlefield = game.state?.battlefield || [];
+    const creature = battlefield.find((p: any) => p?.id === creatureId && p?.controller === pid);
+    
+    if (!creature) {
+      socket.emit("error", {
+        code: "CREATURE_NOT_FOUND",
+        message: "Creature not found or not controlled by you",
+      });
+      return;
+    }
+    
+    // Verify the creature is attacking
+    if (!creature.attacking) {
+      socket.emit("error", {
+        code: "NOT_ATTACKING",
+        message: "That creature is not attacking",
+      });
+      return;
+    }
+    
+    const creatureCard = (creature as any).card || {};
+    const creatureName = (creatureCard as any).name || "Unknown Creature";
+    
+    // Get the creature's toughness for token creation
+    const toughnessStr = (creature as any).baseToughness ?? (creatureCard as any).toughness ?? "0";
+    let toughness = parseInt(String(toughnessStr).replace(/\D.*$/, ''), 10) || 0;
+    
+    // Apply any toughness modifiers
+    if ((creature as any).tempToughnessMod) {
+      toughness += (creature as any).tempToughnessMod;
+    }
+    
+    // Get the caster of Entrapment Maneuver (who gets the tokens)
+    const caster = pending.caster as string;
+    
+    // Sacrifice the creature (move to graveyard)
+    const idx = battlefield.findIndex((p: any) => p.id === creatureId);
+    if (idx >= 0) {
+      battlefield.splice(idx, 1);
+      
+      // Move to owner's graveyard
+      const owner = creature.owner || creature.controller;
+      const zones = (game.state as any).zones = (game.state as any).zones || {};
+      const ownerZone = zones[owner] = zones[owner] || { hand: [], graveyard: [], handCount: 0, graveyardCount: 0 };
+      ownerZone.graveyard = ownerZone.graveyard || [];
+      ownerZone.graveyard.push({ ...creatureCard, zone: "graveyard" });
+      ownerZone.graveyardCount = ownerZone.graveyard.length;
+    }
+    
+    // Create Soldier tokens for the caster equal to the sacrificed creature's toughness
+    if (toughness > 0) {
+      game.state.battlefield = game.state.battlefield || [];
+      
+      for (let i = 0; i < toughness; i++) {
+        const tokenId = generateId("tok");
+        game.state.battlefield.push({
+          id: tokenId,
+          controller: caster,
+          owner: caster,
+          tapped: false,
+          counters: {},
+          isToken: true,
+          basePower: 1,
+          baseToughness: 1,
+          card: {
+            id: tokenId,
+            name: "Soldier",
+            type_line: "Token Creature — Soldier",
+            power: "1",
+            toughness: "1",
+            zone: "battlefield",
+          },
+        } as any);
+      }
+      
+      console.log(`[entrapmentManeuverSelect] Created ${toughness} Soldier token(s) for ${caster}`);
+    }
+    
+    // Clear the pending Entrapment Maneuver
+    delete (game.state as any).pendingEntrapmentManeuver[pid];
+    if (Object.keys((game.state as any).pendingEntrapmentManeuver).length === 0) {
+      delete (game.state as any).pendingEntrapmentManeuver;
+    }
+    
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+    
+    appendEvent(gameId, (game as any).seq ?? 0, "entrapmentManeuverSelect", {
+      playerId: pid,
+      caster,
+      sacrificedCreatureId: creatureId,
+      sacrificedCreatureName: creatureName,
+      tokensCreated: toughness,
+    });
+    
+    // Emit chat messages
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} sacrificed ${creatureName} (toughness ${toughness}).`,
+      ts: Date.now(),
+    });
+    
+    if (toughness > 0) {
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}_tokens`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, caster)} created ${toughness} 1/1 white Soldier creature token${toughness !== 1 ? 's' : ''}.`,
+        ts: Date.now(),
+      });
+    }
+    
+    broadcastGame(io, game, gameId);
+  });
+
   // Library search cancel
   socket.on("librarySearchCancel", ({ gameId }: { gameId: string }) => {
     const pid = socket.data.playerId as string | undefined;
