@@ -2260,12 +2260,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     const game = ensureGame(gameId);
     
+    // Ensure selectedTargetIds is a valid array (defensive check for malformed payloads)
+    const targetIds = Array.isArray(selectedTargetIds) ? selectedTargetIds : [];
+    
     // Store targets for the pending effect/spell
     // This will be used when the spell/ability resolves
     game.state.pendingTargets = game.state.pendingTargets || {};
     game.state.pendingTargets[effectId || 'default'] = {
       playerId: pid,
-      targetIds: selectedTargetIds,
+      targetIds: targetIds,
     };
     
     // Check if this is a spell cast that was waiting for targets
@@ -2276,11 +2279,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         // cardId can contain underscores, so we join all parts except first and last
         const cardId = parts.slice(1, -1).join('_');
         
-        console.log(`[targetSelectionConfirm] Spell cast with targets: cardId=${cardId}, targets=${selectedTargetIds.join(',')}`);
+        console.log(`[targetSelectionConfirm] Spell cast with targets: cardId=${cardId}, targets=${targetIds.join(',')}`);
         
         // Now cast the spell with the selected targets
         if (typeof game.applyEvent === 'function') {
-          game.applyEvent({ type: "castSpell", playerId: pid, cardId, targets: selectedTargetIds });
+          game.applyEvent({ type: "castSpell", playerId: pid, cardId, targets: targetIds });
           console.log(`[targetSelectionConfirm] Spell ${cardId} cast with targets via applyEvent`);
         }
       }
@@ -2293,10 +2296,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     appendEvent(gameId, (game as any).seq ?? 0, "targetSelectionConfirm", {
       playerId: pid,
       effectId,
-      selectedTargetIds,
+      selectedTargetIds: targetIds,
     });
     
-    console.log(`[targetSelectionConfirm] Player ${pid} selected targets:`, selectedTargetIds);
+    console.log(`[targetSelectionConfirm] Player ${pid} selected targets:`, targetIds);
     
     broadcastGame(io, game, gameId);
   });
