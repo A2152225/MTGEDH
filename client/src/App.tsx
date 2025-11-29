@@ -252,6 +252,14 @@ export function App() {
   // Triggered ability modal state
   const [triggerModalOpen, setTriggerModalOpen] = useState(false);
   const [pendingTriggers, setPendingTriggers] = useState<TriggerPromptData[]>([]);
+  // Track sources that the player wants to auto-resolve (shortcut)
+  // Map from sourceKey to { sourceName, count, effect }
+  const [ignoredTriggerSources, setIgnoredTriggerSources] = useState<Map<string, { 
+    sourceName: string; 
+    count: number; 
+    effect: string;
+    imageUrl?: string;
+  }>>(new Map());
   
   // Mulligan bottom selection modal state (London Mulligan)
   const [mulliganBottomModalOpen, setMulliganBottomModalOpen] = useState(false);
@@ -589,6 +597,27 @@ export function App() {
   React.useEffect(() => {
     const handler = (payload: any) => {
       if (payload.gameId === safeView?.id && payload.trigger) {
+        const trigger = payload.trigger;
+        // Check if this source is in the ignored list (auto-resolve shortcut)
+        const sourceKey = trigger.sourceId || trigger.sourceName;
+        if (sourceKey && ignoredTriggerSources.has(sourceKey)) {
+          // Increment the count for this ignored source
+          setIgnoredTriggerSources(prev => {
+            const next = new Map(prev);
+            const existing = next.get(sourceKey);
+            if (existing) {
+              next.set(sourceKey, { ...existing, count: existing.count + 1 });
+            }
+            return next;
+          });
+          // Auto-resolve this trigger without showing modal
+          socket.emit("resolveTrigger", {
+            gameId: safeView.id,
+            triggerId: trigger.id,
+            choice: { accepted: true, autoResolved: true },
+          });
+          return;
+        }
         setPendingTriggers(prev => [...prev, payload.trigger]);
         setTriggerModalOpen(true);
       }
@@ -597,7 +626,7 @@ export function App() {
     return () => {
       socket.off("triggerPrompt", handler);
     };
-  }, [safeView?.id]);
+  }, [safeView?.id, ignoredTriggerSources]);
 
   // Deck validation result listener
   React.useEffect(() => {
@@ -1613,6 +1642,56 @@ export function App() {
     }
   };
 
+  // Handle "ignore this source" from modal - auto-resolve all future triggers from this source
+  const handleIgnoreTriggerSource = (triggerId: string, sourceId: string, sourceName: string) => {
+    if (!safeView) return;
+    
+    // Find the trigger to get its effect and image
+    const trigger = pendingTriggers.find(t => t.id === triggerId);
+    const effect = trigger?.effect || '';
+    const imageUrl = trigger?.imageUrl;
+    
+    // Add source to ignored map (use sourceId if available, fallback to sourceName)
+    const sourceKey = sourceId || sourceName;
+    setIgnoredTriggerSources(prev => {
+      const next = new Map(prev);
+      next.set(sourceKey, { sourceName, count: 1, effect, imageUrl });
+      return next;
+    });
+    
+    // Resolve this trigger
+    socket.emit("resolveTrigger", {
+      gameId: safeView.id,
+      triggerId,
+      choice: { accepted: true, autoResolved: true },
+    });
+    
+    // Remove this trigger from pending
+    setPendingTriggers(prev => prev.filter(t => t.id !== triggerId));
+    if (pendingTriggers.length <= 1) {
+      setTriggerModalOpen(false);
+    }
+  };
+
+  // Handle "ignore this source" from stack UI - for triggers already on stack
+  const handleIgnoreTriggerSourceFromStack = (sourceId: string, sourceName: string, effect: string, imageUrl?: string) => {
+    const sourceKey = sourceId || sourceName;
+    setIgnoredTriggerSources(prev => {
+      const next = new Map(prev);
+      next.set(sourceKey, { sourceName, count: 0, effect, imageUrl });
+      return next;
+    });
+  };
+
+  // Stop ignoring a trigger source
+  const handleStopIgnoringSource = (sourceKey: string) => {
+    setIgnoredTriggerSources(prev => {
+      const next = new Map(prev);
+      next.delete(sourceKey);
+      return next;
+    });
+  };
+
   // Handle ordering of multiple simultaneous triggers
   const handleOrderTriggersConfirm = (orderedTriggerIds: string[]) => {
     if (!safeView) return;
@@ -2521,6 +2600,9 @@ export function App() {
               phase={String(safeView.phase || '')}
               step={String(safeView.step || '')}
               turnPlayer={safeView.turnPlayer}
+              ignoredTriggerSources={ignoredTriggerSources}
+              onIgnoreTriggerSource={handleIgnoreTriggerSourceFromStack}
+              onStopIgnoringSource={handleStopIgnoringSource}
             />
           ) : (
             <div style={{ padding: 20, color: "#666" }}>

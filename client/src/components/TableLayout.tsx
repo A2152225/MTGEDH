@@ -208,6 +208,10 @@ export function TableLayout(props: {
   // Graveyard view handler
   onViewGraveyard?: (playerId: PlayerID) => void;
   onViewExile?: (playerId: PlayerID) => void;
+  // Ignored trigger sources for auto-resolve shortcut
+  ignoredTriggerSources?: Map<string, { sourceName: string; count: number; effect: string; imageUrl?: string }>;
+  onIgnoreTriggerSource?: (sourceId: string, sourceName: string, effect: string, imageUrl?: string) => void;
+  onStopIgnoringSource?: (sourceKey: string) => void;
 }) {
   const {
     players, permanentsByPlayer, imagePref, isYouPlayer,
@@ -229,6 +233,7 @@ export function TableLayout(props: {
     hasThousandYearElixirEffect = false,
     appearanceSettings,
     onViewGraveyard, onViewExile,
+    ignoredTriggerSources, onIgnoreTriggerSource, onStopIgnoringSource,
   } = props;
 
   // Snapshot debug
@@ -1597,6 +1602,9 @@ export function TableLayout(props: {
             onPass={() => {
               if (gameId && you) socket.emit('passPriority', { gameId, by: you });
             }}
+            ignoredSources={ignoredTriggerSources}
+            onIgnoreTriggerSource={onIgnoreTriggerSource}
+            onStopIgnoring={onStopIgnoringSource}
           />
         </div>
       )}
