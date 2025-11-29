@@ -539,7 +539,6 @@ class CommanderGameSimulator {
     let remaining = cost;
     const colors: (keyof ManaPool)[] = ['colorless', 'white', 'blue', 'black', 'red', 'green'];
     for (const color of colors) {
-      if (color === 'generic') continue;
       const available = player.manaPool[color] || 0;
       const toPay = Math.min(available, remaining);
       player.manaPool[color] = available - toPay;
@@ -761,7 +760,20 @@ class CommanderGameSimulator {
         if (basics.length >= 2) {
           const land1 = basics[0];
           const land2 = basics[1];
-          player.library = player.library.filter(c => c !== land1 && c !== land2);
+          // Remove only one instance of each land
+          let removedFirst = false;
+          let removedSecond = false;
+          player.library = player.library.filter(c => {
+            if (!removedFirst && c === land1) {
+              removedFirst = true;
+              return false;
+            }
+            if (!removedSecond && c === land2) {
+              removedSecond = true;
+              return false;
+            }
+            return true;
+          });
           player.battlefield.push({
             card: land1,
             tapped: true,
@@ -892,10 +904,13 @@ class CommanderGameSimulator {
     
     if (attackers.length === 0) return;
     
-    // If Ghostly Prison, can only attack with creatures we can pay for
-    const affordableAttackers = hasGhostlyPrison 
-      ? attackers.filter(() => this.getTotalMana(attacker.manaPool) >= 2)
-      : attackers;
+    // If Ghostly Prison, calculate how many creatures we can afford to attack with
+    let affordableAttackers = attackers;
+    if (hasGhostlyPrison) {
+      const availableMana = this.getTotalMana(attacker.manaPool);
+      const maxAttackers = Math.floor(availableMana / 2);
+      affordableAttackers = attackers.slice(0, maxAttackers);
+    }
     
     if (affordableAttackers.length === 0) {
       state.events.push({
@@ -1001,10 +1016,10 @@ class CommanderGameSimulator {
   handleUpkeepTriggers(player: PlayerState, state: SimulatedGameState): void {
     const opponent = state.players[player.name.includes('1') ? 2 : 1];
     
-    // Howling Mine - both players draw
-    const anyHowlingMine = player.battlefield.some(p => p.card === 'Howling Mine') ||
-                          opponent.battlefield.some(p => p.card === 'Howling Mine' && !p.tapped);
-    if (anyHowlingMine) {
+    // Howling Mine - both players draw (only if untapped)
+    const playerHasUntappedHowlingMine = player.battlefield.some(p => p.card === 'Howling Mine' && !p.tapped);
+    const opponentHasUntappedHowlingMine = opponent.battlefield.some(p => p.card === 'Howling Mine' && !p.tapped);
+    if (playerHasUntappedHowlingMine || opponentHasUntappedHowlingMine) {
       this.drawCards(player, 1);
       state.events.push({
         turn: state.turn,
@@ -1249,10 +1264,9 @@ class CommanderGameSimulator {
           e.card === card && (e.action === 'trigger' || e.details?.includes(card))
         );
         
+        // Card has triggered abilities but never triggered during the game
         if (!hadEffect && (oracle.includes('whenever') || oracle.includes('at the beginning'))) {
-          if (!state.events.some(e => e.card === card)) {
-            noImpact.push(`${card} (${playerName})`);
-          }
+          noImpact.push(`${card} (${playerName})`);
         }
       }
     }
