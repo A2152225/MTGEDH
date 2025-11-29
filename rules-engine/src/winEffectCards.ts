@@ -169,9 +169,9 @@ export function detectWinEffect(
   const cardName = (card.name || '').toLowerCase();
   const oracleText = (card.oracle_text || '').toLowerCase();
   
-  // Check known cards first
+  // Check known cards first - use exact name matching to avoid false positives
   for (const [knownName, info] of Object.entries(WIN_EFFECT_CARDS)) {
-    if (cardName.includes(knownName) || info.pattern.test(oracleText)) {
+    if (cardName === knownName || info.pattern.test(oracleText)) {
       return {
         type: info.type,
         sourceId: permanentId,
@@ -361,6 +361,32 @@ export function checkEmptyLibraryDrawWin(
 }
 
 /**
+ * Pre-compiled regex patterns for devotion calculation
+ */
+const DEVOTION_PATTERNS: Record<string, { basic: RegExp; hybrid: RegExp }> = {
+  W: { 
+    basic: /\{W\}/gi, 
+    hybrid: /\{W\/[UBRGP]\}|\{[UBRGP]\/W\}/gi 
+  },
+  U: { 
+    basic: /\{U\}/gi, 
+    hybrid: /\{U\/[WBRGP]\}|\{[WBRGP]\/U\}/gi 
+  },
+  B: { 
+    basic: /\{B\}/gi, 
+    hybrid: /\{B\/[WURGP]\}|\{[WURGP]\/B\}/gi 
+  },
+  R: { 
+    basic: /\{R\}/gi, 
+    hybrid: /\{R\/[WUBGP]\}|\{[WUBGP]\/R\}/gi 
+  },
+  G: { 
+    basic: /\{G\}/gi, 
+    hybrid: /\{G\/[WUBRP]\}|\{[WUBRP]\/G\}/gi 
+  },
+};
+
+/**
  * Calculate devotion to a color for a player
  */
 export function calculateDevotion(
@@ -369,6 +395,8 @@ export function calculateDevotion(
   battlefield: readonly BattlefieldPermanent[]
 ): number {
   let devotion = 0;
+  const colorUpper = color.toUpperCase();
+  const patterns = DEVOTION_PATTERNS[colorUpper];
   
   for (const perm of battlefield) {
     if (perm.controller !== playerId) continue;
@@ -376,15 +404,25 @@ export function calculateDevotion(
     const card = perm.card as KnownCardRef;
     const manaCost = card?.mana_cost || '';
     
-    // Count mana symbols of the specified color
-    const colorSymbol = `{${color.toUpperCase()}}`;
-    const matches = manaCost.match(new RegExp(colorSymbol.replace(/[{}]/g, '\\$&'), 'gi')) || [];
-    devotion += matches.length;
-    
-    // Also count hybrid symbols containing the color
-    const hybridPattern = new RegExp(`\\{${color.toUpperCase()}\\/[WUBRGP]\\}|\\{[WUBRGP]\\/${color.toUpperCase()}\\}`, 'gi');
-    const hybridMatches = manaCost.match(hybridPattern) || [];
-    devotion += hybridMatches.length;
+    if (patterns) {
+      // Use pre-compiled patterns for standard colors
+      const basicMatches = manaCost.match(patterns.basic) || [];
+      devotion += basicMatches.length;
+      
+      const hybridMatches = manaCost.match(patterns.hybrid) || [];
+      devotion += hybridMatches.length;
+    } else {
+      // Fallback for non-standard colors (shouldn't happen in normal MTG)
+      // Use string matching instead of dynamic regex to avoid security issues
+      const colorSymbol = `{${colorUpper}}`;
+      let count = 0;
+      let idx = 0;
+      while ((idx = manaCost.toUpperCase().indexOf(colorSymbol, idx)) !== -1) {
+        count++;
+        idx += colorSymbol.length;
+      }
+      devotion += count;
+    }
   }
   
   return devotion;

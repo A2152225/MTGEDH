@@ -556,11 +556,12 @@ export function createBlockerDeclarationEvent(
     }),
     attackers: attackers.map(a => {
       const card = a.permanent.card as KnownCardRef;
+      const powerValue = card?.power ? Number(card.power) : 0;
       return {
         id: a.permanent.id,
         name: card?.name || 'Creature',
         imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
-        power: parseInt(String(card?.power || '0'), 10),
+        power: isNaN(powerValue) ? 0 : powerValue,
         keywords: a.keywords,
       };
     }),
