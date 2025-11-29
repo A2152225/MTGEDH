@@ -103,7 +103,11 @@ export interface CombatState {
  */
 export function parseCreatureKeywords(card: any, permanent?: any): CreatureKeywords {
   const oracleText = (card?.oracle_text || "").toLowerCase();
-  const keywords = (card?.keywords || []).map((k: string) => k.toLowerCase());
+  // Defensive handling: ensure keywords is an array of strings
+  const rawKeywords = card?.keywords;
+  const keywords = Array.isArray(rawKeywords) 
+    ? rawKeywords.filter((k: any) => typeof k === 'string').map((k: string) => k.toLowerCase())
+    : [];
   
   const hasKeyword = (kw: string) => 
     keywords.includes(kw.toLowerCase()) || oracleText.includes(kw.toLowerCase());
