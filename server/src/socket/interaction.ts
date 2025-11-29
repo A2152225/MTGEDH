@@ -1211,25 +1211,33 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       // Pay life cost if required (costs are paid immediately when activating)
       if (isTrueFetch) {
-        const life = (game.state as any)?.life?.[pid];
-        if (typeof life === "number") {
-          (game.state as any).life[pid] = life - 1;
-          
-          // Also update player object for UI sync
-          const players = game.state?.players || [];
-          const player = players.find((p: any) => p.id === pid);
-          if (player) {
-            (player as any).life = life - 1;
-          }
-          
-          io.to(gameId).emit("chat", {
-            id: `m_${Date.now()}`,
-            gameId,
-            from: "system",
-            message: `${getPlayerName(game, pid)} paid 1 life (${life} → ${life - 1}).`,
-            ts: Date.now(),
-          });
+        // Ensure life object exists
+        if (!(game.state as any).life) {
+          (game.state as any).life = {};
         }
+        const life = (game.state as any).life[pid] ?? (game as any).life?.[pid] ?? 40;
+        const newLife = life - 1;
+        
+        // Update life in all locations
+        (game.state as any).life[pid] = newLife;
+        if ((game as any).life) {
+          (game as any).life[pid] = newLife;
+        }
+        
+        // Also update player object for UI sync
+        const players = game.state?.players || [];
+        const player = players.find((p: any) => p.id === pid);
+        if (player) {
+          (player as any).life = newLife;
+        }
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, pid)} paid 1 life (${life} → ${newLife}).`,
+          ts: Date.now(),
+        });
       }
       
       // Tap the permanent (part of cost - paid immediately)
