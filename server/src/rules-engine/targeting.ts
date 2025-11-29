@@ -149,7 +149,7 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
       // Don't target your own spells (usually)
       if (stackItem.controller === caster) continue;
       
-      out.push({ kind: 'stack' as any, id: stackItem.id });
+      out.push({ kind: 'stack', id: stackItem.id });
     }
     return out;
   }
@@ -164,7 +164,7 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
       // Skip mana abilities (can't be countered)
       if (stackItem.isManaAbility) continue;
       
-      out.push({ kind: 'stack' as any, id: stackItem.id });
+      out.push({ kind: 'stack', id: stackItem.id });
     }
     return out;
   }

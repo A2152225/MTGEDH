@@ -570,6 +570,37 @@ interface TokenSpec {
 }
 
 /**
+ * Calculate token doubling multiplier from battlefield effects
+ * Checks for effects like Anointed Procession, Doubling Season, Parallel Lives, etc.
+ */
+function getTokenDoublerMultiplier(controller: PlayerID, state: any): number {
+  let multiplier = 1;
+  const battlefield = state.battlefield || [];
+  
+  for (const perm of battlefield) {
+    if (perm.controller !== controller) continue;
+    const permName = (perm.card?.name || '').toLowerCase();
+    const permOracle = (perm.card?.oracle_text || '').toLowerCase();
+    
+    // Anointed Procession: "If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead."
+    // Parallel Lives: "If an effect would create one or more creature tokens under your control, it creates twice that many of those tokens instead."
+    // Doubling Season: "If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead."
+    // Mondrak, Glory Dominus: Same effect
+    // Primal Vigor: Affects all players but still doubles tokens
+    if (permName.includes('anointed procession') ||
+        permName.includes('parallel lives') ||
+        permName.includes('doubling season') ||
+        permName.includes('mondrak, glory dominus') ||
+        permName.includes('primal vigor') ||
+        (permOracle.includes('twice that many') && permOracle.includes('token'))) {
+      multiplier *= 2;
+    }
+  }
+  
+  return multiplier;
+}
+
+/**
  * Parse token creation from spell oracle text
  * Handles patterns like:
  * - "Create two 1/1 blue Merfolk Wizard creature tokens"
@@ -596,28 +627,8 @@ function parseTokenCreation(cardName: string, oracleTextLower: string, controlle
   // Summon the School: "Create two 1/1 blue Merfolk Wizard creature tokens."
   // (The tap four Merfolk ability is a separate activated ability to return it from graveyard)
   if (nameLower.includes('summon the school')) {
-    // Base count is 2 tokens
-    let count = 2;
-    
-    // Check for token doublers like Anointed Procession, Doubling Season, Parallel Lives
-    const battlefield = state.battlefield || [];
-    for (const perm of battlefield) {
-      if (perm.controller !== controller) continue;
-      const permName = (perm.card?.name || '').toLowerCase();
-      const permOracle = (perm.card?.oracle_text || '').toLowerCase();
-      
-      // Anointed Procession: "If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead."
-      // Parallel Lives: "If an effect would create one or more creature tokens under your control, it creates twice that many of those tokens instead."
-      // Doubling Season: "If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead."
-      if (permName.includes('anointed procession') ||
-          permName.includes('parallel lives') ||
-          permName.includes('doubling season') ||
-          permName.includes('mondrak, glory dominus') ||
-          permName.includes('primal vigor') ||
-          (permOracle.includes('twice that many') && permOracle.includes('token'))) {
-        count *= 2;
-      }
-    }
+    // Base count is 2 tokens, multiplied by token doublers
+    const count = 2 * getTokenDoublerMultiplier(controller, state);
     
     return {
       count,
@@ -659,22 +670,8 @@ function parseTokenCreation(cardName: string, oracleTextLower: string, controlle
         count = 1;
       }
       
-      // Check for token doublers
-      const battlefield = state.battlefield || [];
-      for (const perm of battlefield) {
-        if (perm.controller !== controller) continue;
-        const permName = (perm.card?.name || '').toLowerCase();
-        const permOracle = (perm.card?.oracle_text || '').toLowerCase();
-        
-        if (permName.includes('anointed procession') ||
-            permName.includes('parallel lives') ||
-            permName.includes('doubling season') ||
-            permName.includes('mondrak, glory dominus') ||
-            permName.includes('primal vigor') ||
-            (permOracle.includes('twice that many') && permOracle.includes('token'))) {
-          count *= 2;
-        }
-      }
+      // Apply token doublers
+      count *= getTokenDoublerMultiplier(controller, state);
       
       const power = parseInt(match[2], 10);
       const toughness = parseInt(match[3], 10);

@@ -518,7 +518,8 @@ export interface AutomationErrorReport {
 export type TargetRef = 
   | { kind: 'permanent'; id: string }
   | { kind: 'player'; id: string }
-  | { kind: 'card'; id: string; zone: string };
+  | { kind: 'card'; id: string; zone: string }
+  | { kind: 'stack'; id: string };  // For targeting spells/abilities on the stack (counterspells)
 
 /* In-memory game type for server */
 export interface InMemoryGame {
