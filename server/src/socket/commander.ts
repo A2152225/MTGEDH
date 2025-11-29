@@ -57,6 +57,74 @@ function makeCandidateList(arr: any[] | undefined) {
 }
 
 /**
+ * Interface for extracted Scryfall card data used in debug output
+ */
+interface DebugCardData {
+  id?: string;
+  name?: string;
+  type_line?: string;
+  oracle_text?: string;
+  mana_cost?: string;
+  power?: string;
+  toughness?: string;
+  image_uris?: Record<string, string>;
+  card_faces?: unknown[];
+  layout?: string;
+  cmc?: number;
+  colors?: string[];
+  color_identity?: string[];
+  keywords?: string[];
+  rarity?: string;
+  set?: string;
+  set_name?: string;
+  legalities?: Record<string, string>;
+  edhrec_rank?: number;
+  produced_mana?: string[];
+}
+
+/**
+ * Extract Scryfall card data from a card object for debug output.
+ * Safely handles missing or malformed data.
+ */
+function extractScryfallData(card: unknown, includeExtended = false): DebugCardData {
+  if (!card || typeof card !== 'object') {
+    return {};
+  }
+  const c = card as Record<string, unknown>;
+  
+  const baseData: DebugCardData = {
+    id: typeof c.id === 'string' ? c.id : undefined,
+    name: typeof c.name === 'string' ? c.name : undefined,
+    type_line: typeof c.type_line === 'string' ? c.type_line : undefined,
+    oracle_text: typeof c.oracle_text === 'string' ? c.oracle_text : undefined,
+    mana_cost: typeof c.mana_cost === 'string' ? c.mana_cost : undefined,
+    power: typeof c.power === 'string' ? c.power : undefined,
+    toughness: typeof c.toughness === 'string' ? c.toughness : undefined,
+    image_uris: c.image_uris && typeof c.image_uris === 'object' 
+      ? c.image_uris as Record<string, string> : undefined,
+    card_faces: Array.isArray(c.card_faces) ? c.card_faces : undefined,
+    layout: typeof c.layout === 'string' ? c.layout : undefined,
+    cmc: typeof c.cmc === 'number' ? c.cmc : undefined,
+    colors: Array.isArray(c.colors) ? c.colors as string[] : undefined,
+    color_identity: Array.isArray(c.color_identity) ? c.color_identity as string[] : undefined,
+    keywords: Array.isArray(c.keywords) ? c.keywords as string[] : undefined,
+    rarity: typeof c.rarity === 'string' ? c.rarity : undefined,
+    set: typeof c.set === 'string' ? c.set : undefined,
+    set_name: typeof c.set_name === 'string' ? c.set_name : undefined,
+  };
+  
+  // Add extended data for import buffer dumps
+  if (includeExtended) {
+    baseData.legalities = c.legalities && typeof c.legalities === 'object' 
+      ? c.legalities as Record<string, string> : undefined;
+    baseData.edhrec_rank = typeof c.edhrec_rank === 'number' ? c.edhrec_rank : undefined;
+    baseData.produced_mana = Array.isArray(c.produced_mana) ? c.produced_mana as string[] : undefined;
+  }
+  
+  return baseData;
+}
+
+/**
  * Emit importedDeckCandidates to all currently-connected sockets that belong to `pid` (non-spectators).
  */
 export function emitImportedDeckCandidatesToPlayer(
@@ -749,39 +817,24 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       }
       
       // Get library from various possible locations
-      let library: any[] = [];
+      let library: unknown[] = [];
       
       // Try ctx.libraries or game.libraries (Map structure)
-      const librariesMap = (game as any).libraries;
+      const librariesMap = (game as { libraries?: Map<PlayerID, unknown[]> }).libraries;
       if (librariesMap && typeof librariesMap.get === "function" && pid) {
         library = librariesMap.get(pid) || [];
       }
       
       // Fall back to state.zones[pid].library
       if (library.length === 0 && pid && game.state?.zones?.[pid]) {
-        library = (game.state.zones[pid] as any).library || [];
+        const zoneData = game.state.zones[pid] as { library?: unknown[] };
+        library = zoneData.library || [];
       }
       
-      // Extract Scryfall data from library cards
-      const libraryWithScryfall = library.map((card: any, index: number) => ({
+      // Extract Scryfall data from library cards using shared utility
+      const libraryWithScryfall = library.map((card, index) => ({
         position: index,
-        id: card?.id,
-        name: card?.name,
-        type_line: card?.type_line,
-        oracle_text: card?.oracle_text,
-        mana_cost: card?.mana_cost,
-        power: card?.power,
-        toughness: card?.toughness,
-        image_uris: card?.image_uris,
-        card_faces: card?.card_faces,
-        layout: card?.layout,
-        cmc: card?.cmc,
-        colors: card?.colors,
-        color_identity: card?.color_identity,
-        keywords: card?.keywords,
-        rarity: card?.rarity,
-        set: card?.set,
-        set_name: card?.set_name,
+        ...extractScryfallData(card),
       }));
       
       console.info("[debug] dumpLibrary", {
@@ -818,8 +871,9 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       }
       
       // Get the imported deck buffer
-      const buf = (game as any)._lastImportedDecks as Map<PlayerID, any[]> | undefined;
-      let importedCards: any[] = [];
+      const gameWithBuffer = game as { _lastImportedDecks?: Map<PlayerID, unknown[]> };
+      const buf = gameWithBuffer._lastImportedDecks;
+      let importedCards: unknown[] = [];
       
       if (buf && typeof buf.get === "function" && pid) {
         importedCards = buf.get(pid) || [];
@@ -827,35 +881,14 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       
       // If no import buffer, fall back to library
       if (importedCards.length === 0) {
-        const librariesMap = (game as any).libraries;
+        const librariesMap = (game as { libraries?: Map<PlayerID, unknown[]> }).libraries;
         if (librariesMap && typeof librariesMap.get === "function" && pid) {
           importedCards = librariesMap.get(pid) || [];
         }
       }
       
-      // Extract full Scryfall data for each card
-      const cardsWithScryfall = importedCards.map((card: any) => ({
-        id: card?.id,
-        name: card?.name,
-        type_line: card?.type_line,
-        oracle_text: card?.oracle_text,
-        mana_cost: card?.mana_cost,
-        power: card?.power,
-        toughness: card?.toughness,
-        image_uris: card?.image_uris,
-        card_faces: card?.card_faces,
-        layout: card?.layout,
-        cmc: card?.cmc,
-        colors: card?.colors,
-        color_identity: card?.color_identity,
-        keywords: card?.keywords,
-        rarity: card?.rarity,
-        set: card?.set,
-        set_name: card?.set_name,
-        legalities: card?.legalities,
-        edhrec_rank: card?.edhrec_rank,
-        produced_mana: card?.produced_mana,
-      }));
+      // Extract full Scryfall data for each card using shared utility (with extended data)
+      const cardsWithScryfall = importedCards.map((card) => extractScryfallData(card, true));
       
       console.info("[debug] dumpImportedDeckBuffer", {
         gameId,
@@ -890,52 +923,57 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         return;
       }
       
+      // Define interface for commander state output
+      interface CommanderStateOutput {
+        playerName: string;
+        commanderIds: readonly string[];
+        commanderNames: readonly string[];
+        inCommandZone: readonly string[];
+        tax: number;
+        taxById: Record<string, number>;
+        commanderCards: DebugCardData[];
+      }
+      
       // Get all players' commander states for debugging
-      const allCommanderStates: Record<string, any> = {};
+      const allCommanderStates: Record<string, CommanderStateOutput> = {};
       const players = game.state?.players || [];
       
       for (const player of players) {
-        const playerId = (player as any).id;
+        const playerRecord = player as { id?: string; name?: string };
+        const playerId = playerRecord.id;
+        if (!playerId) continue;
+        
         const commandZone = game.state?.commandZone?.[playerId];
         
         if (commandZone) {
-          // Extract full Scryfall data for commander cards
-          const commanderCards = (commandZone.commanderCards || []).map((card: any) => ({
-            id: card?.id,
-            name: card?.name,
-            type_line: card?.type_line,
-            oracle_text: card?.oracle_text,
-            mana_cost: card?.mana_cost,
-            power: card?.power,
-            toughness: card?.toughness,
-            image_uris: card?.image_uris,
-            card_faces: card?.card_faces,
-            layout: card?.layout,
-            cmc: card?.cmc,
-            colors: card?.colors,
-            color_identity: card?.color_identity,
-            keywords: card?.keywords,
-            rarity: card?.rarity,
-            set: card?.set,
-            set_name: card?.set_name,
-          }));
+          // Extract full Scryfall data for commander cards using shared utility
+          const commanderCards = (commandZone.commanderCards || []).map(
+            (card: unknown) => extractScryfallData(card)
+          );
+          
+          const zoneRecord = commandZone as {
+            commanderNames?: readonly string[];
+            inCommandZone?: readonly string[];
+            taxById?: Record<string, number>;
+          };
           
           allCommanderStates[playerId] = {
-            playerName: (player as any).name,
+            playerName: playerRecord.name || playerId,
             commanderIds: commandZone.commanderIds || [],
-            commanderNames: (commandZone as any).commanderNames || [],
-            inCommandZone: (commandZone as any).inCommandZone || [],
+            commanderNames: zoneRecord.commanderNames || [],
+            inCommandZone: zoneRecord.inCommandZone || [],
             tax: commandZone.tax || 0,
-            taxById: (commandZone as any).taxById || {},
+            taxById: zoneRecord.taxById || {},
             commanderCards,
           };
         }
       }
       
       // Get additional debug info
-      const pendingInitialDraw = (game as any).pendingInitialDraw;
-      const pendingList = pendingInitialDraw 
-        ? (typeof pendingInitialDraw.values === "function" 
+      const gameWithPending = game as { pendingInitialDraw?: Set<string> | string[] };
+      const pendingInitialDraw = gameWithPending.pendingInitialDraw;
+      const pendingList: string[] = pendingInitialDraw 
+        ? (pendingInitialDraw instanceof Set 
             ? Array.from(pendingInitialDraw.values()) 
             : Array.isArray(pendingInitialDraw) 
               ? pendingInitialDraw 
