@@ -1,6 +1,16 @@
 import React, { useState } from 'react';
-import { useGameSocket } from '../hooks/useGameSocket';
-import { AutomationErrorReport } from '@mtgedh/shared';
+import { socket } from '../socket';
+
+interface AutomationErrorReport {
+  gameId: string;
+  playerId: string;
+  actionType?: string;
+  cardInvolved?: string;
+  description: string;
+  expectedBehavior: string;
+  gameState: any;
+  rulesReferences: string[];
+}
 
 interface Props {
   gameId: string;
@@ -12,10 +22,9 @@ export function AutomationErrorReporter({ gameId, playerId, lastAction }: Props)
   const [isOpen, setIsOpen] = useState(false);
   const [description, setDescription] = useState('');
   const [expectedBehavior, setExpectedBehavior] = useState('');
-  const { reportError } = useGameSocket();
 
   const handleSubmit = () => {
-    const report: Omit<AutomationErrorReport, 'id' | 'reportedAt' | 'status'> = {
+    const report: AutomationErrorReport = {
       gameId,
       playerId,
       actionType: lastAction?.type,
@@ -26,7 +35,7 @@ export function AutomationErrorReporter({ gameId, playerId, lastAction }: Props)
       rulesReferences: []
     };
 
-    reportError(report);
+    socket.emit('reportError' as any, report);
     setIsOpen(false);
     setDescription('');
     setExpectedBehavior('');

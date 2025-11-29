@@ -3,7 +3,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { socket } from '../socket';
-import type { SavedDeckSummary, SavedDeckDetail, GameID, DeckFolder } from '../../../shared/src/decks';
+import type { SavedDeckSummary, SavedDeckDetail, DeckFolder } from '../../../shared/src/decks';
+import type { GameID } from '../../../shared/src/types';
 import { PreconBrowser } from './PreconBrowser';
 
 type SavedLocalDeck = { id: string; name: string; text: string; savedAt: number };

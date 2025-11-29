@@ -163,6 +163,7 @@ export function App() {
 
     handleJoin,
     joinFromList,
+    leaveGame,
     requestImportDeck,
     requestUseSavedDeck,
     handleLocalImportConfirmChange,
@@ -299,6 +300,7 @@ export function App() {
     minTargets: number;
     maxTargets: number;
     effectId?: string; // For tracking which effect requested the targets
+    cardId?: string; // The card that is being targeted for
   } | null>(null);
   
   // Creature type selection modal state (for Cavern of Souls, Kindred Discovery, etc.)
@@ -419,6 +421,18 @@ export function App() {
     setAutoPassSteps(new Set());
     try {
       localStorage.removeItem('mtgedh:autoPassSteps');
+    } catch { /* ignore */ }
+  }, []);
+
+  // Select all auto-pass settings
+  const handleSelectAllAutoPass = React.useCallback(() => {
+    const allSteps = new Set([
+      'upkeep', 'draw', 'begincombat', 'declareattackers', 
+      'declareblockers', 'damage', 'endcombat', 'end'
+    ]);
+    setAutoPassSteps(allSteps);
+    try {
+      localStorage.setItem('mtgedh:autoPassSteps', JSON.stringify([...allSteps]));
     } catch { /* ignore */ }
   }, []);
 
@@ -728,7 +742,7 @@ export function App() {
           });
           // Auto-resolve this trigger without showing modal
           socket.emit("resolveTrigger", {
-            gameId: safeView.id,
+            gameId: safeView!.id,
             triggerId: trigger.id,
             choice: { accepted: true, autoResolved: true },
           });
@@ -1831,7 +1845,7 @@ export function App() {
     if (!safeView) return;
     socket.emit("orderTriggers", {
       gameId: safeView.id,
-      orderedTriggerIds,
+      triggerOrder: orderedTriggerIds,
     });
     // Clear all the ordered triggers from pending
     setPendingTriggers(prev => prev.filter(t => !orderedTriggerIds.includes(t.id)));
@@ -1843,9 +1857,8 @@ export function App() {
     if (!safeView) return;
     socket.emit("librarySearchSelect", {
       gameId: safeView.id,
-      selectedCardIds,
-      moveTo,
-      targetPlayerId: librarySearchData?.targetPlayerId,
+      cardIds: selectedCardIds,
+      destination: moveTo,
     });
     setLibrarySearchModalOpen(false);
     setLibrarySearchData(null);
@@ -1865,8 +1878,9 @@ export function App() {
     if (!safeView || !targetModalData) return;
     socket.emit("targetSelectionConfirm", {
       gameId: safeView.id,
-      effectId: targetModalData.effectId,
-      selectedTargetIds,
+      cardId: targetModalData?.cardId || "",
+      targets: selectedTargetIds,
+      effectId: targetModalData?.effectId,
     });
     setTargetModalOpen(false);
     setTargetModalData(null);
@@ -1876,6 +1890,7 @@ export function App() {
     if (!safeView) return;
     socket.emit("targetSelectionCancel", {
       gameId: safeView.id,
+      cardId: targetModalData?.cardId || "",
       effectId: targetModalData?.effectId,
     });
     setTargetModalOpen(false);
@@ -1938,7 +1953,8 @@ export function App() {
     const actionsToUndo = Math.max(1, Math.min(maxUndo, count));
     socket.emit("requestUndo", {
       gameId: safeView.id,
-      actionsToUndo,
+      type: "action",
+      count: actionsToUndo,
     });
   };
 
@@ -2025,8 +2041,7 @@ export function App() {
     socket.emit("activateGraveyardAbility", {
       gameId: safeView.id,
       cardId,
-      abilityId,
-      cardName: card.name,
+      abilityIndex: abilityId ? parseInt(abilityId, 10) || 0 : 0,
     });
     
     setGraveyardModalOpen(false);
@@ -2410,7 +2425,7 @@ export function App() {
           >
             <button
               onClick={() =>
-                socket.emit("nextStep", { gameId: safeView?.id })
+                safeView && socket.emit("nextStep", { gameId: safeView.id })
               }
               disabled={!canAdvanceStep}
             >
@@ -2418,7 +2433,7 @@ export function App() {
             </button>
             <button
               onClick={() =>
-                socket.emit("nextTurn", { gameId: safeView?.id })
+                safeView && socket.emit("nextTurn", { gameId: safeView.id })
               }
               disabled={!canAdvanceTurn}
             >
@@ -2426,8 +2441,8 @@ export function App() {
             </button>
             <button
               onClick={() =>
-                socket.emit("passPriority", {
-                  gameId: safeView?.id,
+                safeView && you && socket.emit("passPriority", {
+                  gameId: safeView.id,
                   by: you,
                 })
               }
@@ -2449,6 +2464,26 @@ export function App() {
               title="Auto-advance through untap/cleanup phases (reduces manual clicking)"
             >
               {autoAdvancePhases ? '⚡ Auto' : '⚡ Manual'}
+            </button>
+            <button
+              onClick={() => {
+                if (confirm('Are you sure you want to leave this game?')) {
+                  leaveGame();
+                }
+              }}
+              style={{
+                background: '#dc2626',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 4,
+                padding: '4px 8px',
+                cursor: 'pointer',
+                fontSize: 11,
+                marginLeft: 8,
+              }}
+              title="Leave this game and return to the lobby"
+            >
+              🚪 Leave Game
             </button>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 8 }}>
               {/* Smart Undo Buttons */}
@@ -2666,16 +2701,21 @@ export function App() {
                 socket.emit("updateCounters", {
                   gameId: safeView.id,
                   permanentId: id,
-                  deltas: { [kind]: delta },
+                  counterType: kind,
+                  delta,
                 })
               }
-              onBulkCounter={(ids, deltas) =>
-                safeView &&
-                socket.emit("updateCountersBulk", {
-                  gameId: safeView.id,
-                  updates: ids.map((id) => ({ permanentId: id, deltas })),
-                })
-              }
+              onBulkCounter={(ids, deltas) => {
+                if (!safeView) return;
+                // Apply counter updates to all selected permanents
+                for (const id of ids) {
+                  socket.emit("updateCountersBulk", {
+                    gameId: safeView.id,
+                    permanentId: id,
+                    counters: deltas,
+                  });
+                }
+              }}
               onPlayLandFromHand={(cardId) =>
                 safeView &&
                 socket.emit("playLand", { gameId: safeView.id, cardId })
@@ -2738,13 +2778,12 @@ export function App() {
               onCastCommander={handleCastCommander}
               reasonCannotPlayLand={reasonCannotPlayLand}
               reasonCannotCast={reasonCannotCast}
-              threeD={undefined}
               enablePanZoom
               tableCloth={{ imageUrl: "" }}
               worldSize={12000}
               appearanceSettings={appearanceSettings}
               onViewGraveyard={handleViewGraveyard}
-              onUpdatePermPos={(id, x, y, z) =>
+              onUpdatePermPos={(id: string, x: number, y: number, z: number) =>
                 safeView &&
                 socket.emit("updatePermanentPos", {
                   gameId: safeView.id,
@@ -2800,9 +2839,9 @@ export function App() {
           allPlayersReady={allPlayersHaveDecks && allPlayersKeptHands}
           phaseAdvanceBlockReason={phaseAdvanceBlockReason}
           onNextStep={() => socket.emit("nextStep", { gameId: safeView.id })}
-          onPassPriority={() => socket.emit("passPriority", { gameId: safeView.id, by: you })}
+          onPassPriority={() => you && socket.emit("passPriority", { gameId: safeView.id, by: you })}
           onAdvancingChange={setPhaseNavigatorAdvancing}
-          onSkipToPhase={(targetPhase, targetStep) => socket.emit("skipToPhase", { gameId: safeView.id, targetPhase, targetStep })}
+          onSkipToPhase={(targetPhase: string, targetStep?: string) => socket.emit("skipToPhase", { gameId: safeView.id, phase: targetPhase })}
         />
       )}
 
@@ -3059,14 +3098,14 @@ export function App() {
             if (peek.mode === "scry")
               socket.emit("confirmScry", {
                 gameId: view.id,
-                keepTopOrder: res.keepTopOrder,
-                bottomOrder: res.bottomOrder || [],
+                topCardIds: res.keepTopOrder || [],
+                bottomCardIds: res.bottomOrder || [],
               });
             else
               socket.emit("confirmSurveil", {
                 gameId: view.id,
-                toGraveyard: res.toGraveyard || [],
-                keepTopOrder: res.keepTopOrder,
+                topCardIds: res.keepTopOrder || [],
+                graveyardCardIds: res.toGraveyard || [],
               });
             setPeek(null);
           }}
@@ -3098,7 +3137,7 @@ export function App() {
             gameId: gid,
             playerName: pname,
             spectator: joinAsSpectator,
-            seatToken: token,
+            seatToken: token || undefined,
             fixedPlayerId,
           });
           setShowNameInUseModal(false);
@@ -3523,8 +3562,8 @@ export function App() {
         }}
         onPass={() => {
           setPriorityModalOpen(false);
-          if (safeView) {
-            socket.emit("passPriority", { gameId: safeView.id });
+          if (safeView && you) {
+            socket.emit("passPriority", { gameId: safeView.id, by: you });
           }
         }}
         autoPassSteps={autoPassSteps}
@@ -3544,6 +3583,7 @@ export function App() {
             autoPassSteps={autoPassSteps}
             onToggleAutoPass={handleToggleAutoPass}
             onClearAll={handleClearAllAutoPass}
+            onSelectAll={handleSelectAllAutoPass}
             isSinglePlayer={
               // Single player mode: not in pre-game AND only 1 active (non-spectator, non-inactive) player
               !isPreGame && 

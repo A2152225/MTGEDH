@@ -51,7 +51,7 @@ export interface ClientToServerEvents {
   getImportedDeckCandidates: (payload: { gameId: GameID }) => void;
   
   // saved deck CRUD
-  saveDeck: (payload: { gameId: GameID; name: string; list: string }) => void;
+  saveDeck: (payload: { gameId: GameID; name: string; list: string; cacheCards?: boolean }) => void;
   listSavedDecks: (payload: { gameId: GameID }) => void;
   getSavedDeck: (payload: { gameId: GameID; deckId: string }) => void;
   renameSavedDeck: (payload: { gameId: GameID; deckId: string; name: string }) => void;
@@ -65,7 +65,7 @@ export interface ClientToServerEvents {
   // NOTE: commanderIds is optional and supported by server; clients that have resolved IDs (from importedCandidates)
   // should include commanderIds when available. This is backwards-compatible.
   setCommander: (payload: { gameId: GameID; commanderNames: string[]; commanderIds?: string[] }) => void;
-  castCommander: (payload: { gameId: GameID; commanderNameOrId: string }) => void;
+  castCommander: (payload: { gameId: GameID; commanderNameOrId: string; payment?: any[] }) => void;
   moveCommanderToCommandZone: (payload: { gameId: GameID; commanderNameOrId: string }) => void;
 
   // gameplay: simple action emits (examples)
@@ -105,7 +105,7 @@ export interface ClientToServerEvents {
   setStop: (payload: { gameId: GameID; phase: string; enabled: boolean }) => void;
   
   // Combat declarations
-  declareAttackers: (payload: { gameId: GameID; attackers: Array<{ attackerId: string; defendingPlayer: PlayerID }> }) => void;
+  declareAttackers: (payload: { gameId: GameID; attackers: Array<{ attackerId?: string; creatureId?: string; defendingPlayer?: PlayerID; targetPlayerId?: string; targetPermanentId?: string }> }) => void;
   declareBlockers: (payload: { gameId: GameID; blockers: Array<{ blockerId: string; attackerId: string }> }) => void;
   
   // Combat damage assignment (for complex blocking scenarios)
@@ -187,6 +187,197 @@ export interface ClientToServerEvents {
     gameId: GameID;
     temptingOfferId: string;
     accept: boolean;
+  }) => void;
+
+  // ===== GAME MANAGEMENT EVENTS =====
+  
+  // Leave a game (disconnect cleanly)
+  leaveGame: (payload: { gameId: GameID }) => void;
+  
+  // Delete a game
+  deleteGame: (payload: { gameId: GameID }) => void;
+
+  // ===== PRE-GAME / MULLIGAN EVENTS =====
+  
+  // Keep current hand
+  keepHand: (payload: { gameId: GameID }) => void;
+  
+  // Take a mulligan
+  mulligan: (payload: { gameId: GameID }) => void;
+  
+  // Randomize starting player
+  randomizeStartingPlayer: (payload: { gameId: GameID }) => void;
+
+  // ===== GAMEPLAY ACTION EVENTS =====
+  
+  // Play a land from hand
+  playLand: (payload: { gameId: GameID; cardId: string }) => void;
+  
+  // Remove a permanent from battlefield
+  removePermanent: (payload: { gameId: GameID; permanentId: string; destination?: string }) => void;
+  
+  // Update counters on a permanent (supports both single counter and deltas object)
+  updateCounters: (payload: { gameId: GameID; permanentId: string; counterType?: string; delta?: number; deltas?: Record<string, number> }) => void;
+  
+  // Update multiple counters at once
+  updateCountersBulk: (payload: { gameId: GameID; permanentId: string; counters?: Record<string, number>; updates?: Record<string, number> }) => void;
+
+  // ===== TRIGGER HANDLING EVENTS =====
+  
+  // Resolve a triggered ability
+  resolveTrigger: (payload: { gameId: GameID; triggerId: string; choice?: any; choices?: any }) => void;
+  
+  // Skip/ignore a triggered ability
+  skipTrigger: (payload: { gameId: GameID; triggerId: string }) => void;
+  
+  // Sacrifice unless pay choice
+  sacrificeUnlessPayChoice: (payload: { gameId: GameID; permanentId: string; pay?: boolean; payMana?: boolean }) => void;
+
+  // ===== LIBRARY SEARCH EVENTS =====
+  
+  // Confirm library search selection
+  librarySearchSelect: (payload: { gameId: GameID; cardIds?: string[]; selectedCardIds?: string[]; destination: string }) => void;
+  
+  // Cancel library search
+  librarySearchCancel: (payload: { gameId: GameID }) => void;
+
+  // ===== TARGETING EVENTS =====
+  
+  // Confirm target selection
+  targetSelectionConfirm: (payload: { gameId: GameID; cardId: string; targets: string[]; effectId?: string }) => void;
+  
+  // Cancel target selection
+  targetSelectionCancel: (payload: { gameId: GameID; cardId: string; effectId?: string }) => void;
+
+  // ===== OPENING HAND ACTIONS =====
+  
+  // Play cards from opening hand (e.g., Leylines)
+  playOpeningHandCards: (payload: { gameId: GameID; cardIds: string[] }) => void;
+  
+  // Skip opening hand actions
+  skipOpeningHandActions: (payload: { gameId: GameID }) => void;
+
+  // ===== UNDO SYSTEM EVENTS =====
+  
+  // Request an undo
+  requestUndo: (payload: { gameId: GameID; type: string; count?: number; actionsToUndo?: number }) => void;
+  
+  // Respond to an undo request
+  respondUndo: (payload: { gameId: GameID; undoId: string; accept?: boolean; approved?: boolean }) => void;
+  
+  // Cancel an undo request
+  cancelUndo: (payload: { gameId: GameID; undoId: string }) => void;
+
+  // ===== GRAVEYARD ABILITIES =====
+  
+  // Activate an ability from graveyard (e.g., Flashback)
+  activateGraveyardAbility: (payload: { gameId: GameID; cardId: string; abilityIndex?: number; abilityId?: string }) => void;
+
+  // ===== COMBAT SKIP EVENTS =====
+  
+  // Skip declare attackers step
+  skipDeclareAttackers: (payload: { gameId: GameID }) => void;
+  
+  // Skip declare blockers step
+  skipDeclareBlockers: (payload: { gameId: GameID }) => void;
+
+  // ===== LAND ETB CHOICE EVENTS =====
+  
+  // Shock land choice (pay 2 life or enter tapped)
+  shockLandChoice: (payload: { gameId: GameID; permanentId: string; payLife: boolean }) => void;
+  
+  // Bounce land choice (return a land to hand)
+  bounceLandChoice: (payload: { gameId: GameID; bounceLandId: string; returnLandId?: string; returnPermanentId?: string }) => void;
+
+  // ===== UNDO INFO REQUESTS =====
+  
+  // Get undo count
+  getUndoCount: (payload: { gameId: GameID }) => void;
+  
+  // Get smart undo counts (by step, phase, turn)
+  getSmartUndoCounts: (payload: { gameId: GameID }) => void;
+
+  // ===== JUDGE REQUESTS =====
+  
+  // Request judge assistance
+  requestJudge: (payload: { gameId: GameID; reason?: string }) => void;
+
+  // ===== SPELL CASTING =====
+  
+  // Cast spell from hand (with payment info)
+  castSpellFromHand: (payload: { gameId: GameID; cardId: string; targets?: string[]; payment?: any[] }) => void;
+
+  // ===== POSITION / UI EVENTS =====
+  
+  // Update permanent position (for 3D/drag-drop UIs)
+  updatePermanentPos: (payload: { gameId: GameID; permanentId: string; x: number; y: number; z?: number }) => void;
+
+  // ===== PHASE NAVIGATION =====
+  
+  // Skip to a specific phase
+  skipToPhase: (payload: { gameId: GameID; phase: string }) => void;
+
+  // ===== SCRY/SURVEIL =====
+  
+  // Confirm scry result
+  confirmScry: (payload: { gameId: GameID; topCardIds: string[]; bottomCardIds: string[] }) => void;
+  
+  // Confirm surveil result
+  confirmSurveil: (payload: { gameId: GameID; topCardIds: string[]; graveyardCardIds: string[] }) => void;
+
+  // ===== TRIGGER ORDERING =====
+  
+  // Order multiple triggers
+  orderTriggers: (payload: { gameId: GameID; triggerOrder?: string[]; orderedTriggerIds?: string[] }) => void;
+
+  // ===== MULLIGAN EVENTS =====
+  
+  // Put cards to bottom after mulligan
+  mulliganPutToBottom: (payload: { gameId: GameID; cardIds: string[] }) => void;
+  
+  // Cleanup discard
+  cleanupDiscard: (payload: { gameId: GameID; cardIds: string[] }) => void;
+
+  // ===== CREATURE TYPE SELECTION =====
+  
+  // Creature type selected (for Morophon, Cavern of Souls, etc.)
+  creatureTypeSelected: (payload: { gameId: GameID; permanentId?: string; confirmId?: string; creatureType: string }) => void;
+
+  // ===== SACRIFICE SELECTION =====
+  
+  // Sacrifice selection (for effects that require sacrificing)
+  sacrificeSelected: (payload: { gameId: GameID; permanentIds?: string[]; permanentId?: string; triggerId?: string }) => void;
+
+  // ===== PERMANENT MANIPULATION =====
+  
+  // Tap a permanent
+  tapPermanent: (payload: { gameId: GameID; permanentId: string }) => void;
+  
+  // Untap a permanent
+  untapPermanent: (payload: { gameId: GameID; permanentId: string }) => void;
+  
+  // Sacrifice a permanent
+  sacrificePermanent: (payload: { gameId: GameID; permanentId: string }) => void;
+  
+  // Activate ability on battlefield permanent
+  activateBattlefieldAbility: (payload: { gameId: GameID; permanentId: string; abilityIndex?: number }) => void;
+
+  // ===== DECK MANAGEMENT EXTENDED =====
+  
+  // Cache a saved deck's cards
+  cacheSavedDeck: (payload: { gameId: GameID; deckId: string }) => void;
+  
+  // Import a precon deck
+  importPreconDeck: (payload: { 
+    gameId: GameID; 
+    deckId?: string; 
+    commanders?: string[]; 
+    deckName?: string; 
+    setName?: string;
+    year?: number | string;
+    setCode?: string;
+    colorIdentity?: string;
+    cacheCards?: boolean;
   }) => void;
 }
 
