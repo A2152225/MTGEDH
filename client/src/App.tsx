@@ -583,9 +583,17 @@ export function App() {
     if (!safeView || !you) return;
     
     const step = String((safeView as any).step || "").toLowerCase();
+    const phase = String((safeView as any).phase || "").toLowerCase();
     const priority = (safeView as any).priority;
     const youHavePriority = priority === you;
     const stackLength = (safeView as any).stack?.length || 0;
+    
+    // Don't show priority modal during pre-game phase
+    const isPreGamePhase = phase === 'pre_game' || phase === 'pregame' || phase === '';
+    if (isPreGamePhase) {
+      setPriorityModalOpen(false);
+      return;
+    }
     
     // Only show priority modal when:
     // 1. You have priority
@@ -2336,8 +2344,8 @@ export function App() {
                   >
                     Mulligan
                   </button>
-                  {/* Random starting player button - only show if no turn player set yet */}
-                  {!safeView?.turnPlayer && (
+                  {/* Random starting player button - show during pre-game phase */}
+                  {isPreGame && (
                     <button
                       onClick={() => socket.emit("randomizeStartingPlayer", { gameId: safeView?.id })}
                       style={{
@@ -3414,6 +3422,11 @@ export function App() {
             autoPassSteps={autoPassSteps}
             onToggleAutoPass={handleToggleAutoPass}
             onClearAll={handleClearAllAutoPass}
+            isSinglePlayer={
+              // Single player mode: not in pre-game AND only 1 active (non-spectator, non-inactive) player
+              !isPreGame && 
+              (safeView.players || []).filter((p: any) => !p.spectator && !p.inactive).length === 1
+            }
           />
         </div>
       )}

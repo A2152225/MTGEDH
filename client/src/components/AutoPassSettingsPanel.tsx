@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 
 interface Props {
   autoPassSteps: Set<string>;
   onToggleAutoPass: (step: string, enabled: boolean) => void;
   onClearAll: () => void;
+  isSinglePlayer?: boolean;
 }
 
 /**
@@ -20,91 +21,181 @@ const CONFIGURABLE_STEPS = [
   { key: 'end', label: 'End Step' },
 ];
 
-export function AutoPassSettingsPanel({ autoPassSteps, onToggleAutoPass, onClearAll }: Props) {
+export function AutoPassSettingsPanel({ autoPassSteps, onToggleAutoPass, onClearAll, isSinglePlayer }: Props) {
   const hasAnyAutoPass = autoPassSteps.size > 0;
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragRef = useRef<{ startX: number; startY: number; initialX: number; initialY: number } | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  
+  // Auto-enable all auto-pass for single player mode
+  useEffect(() => {
+    if (isSinglePlayer && autoPassSteps.size < CONFIGURABLE_STEPS.length) {
+      // Enable all auto-pass settings for single player mode
+      for (const { key } of CONFIGURABLE_STEPS) {
+        if (!autoPassSteps.has(key)) {
+          onToggleAutoPass(key, true);
+        }
+      }
+    }
+  }, [isSinglePlayer, autoPassSteps.size, onToggleAutoPass]);
+  
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    // Only start drag from the header area
+    if (!(e.target as HTMLElement).closest('.drag-handle')) return;
+    
+    setIsDragging(true);
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      initialX: position.x,
+      initialY: position.y,
+    };
+    e.preventDefault();
+  }, [position]);
+  
+  useEffect(() => {
+    if (!isDragging) return;
+    
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!dragRef.current) return;
+      
+      const dx = e.clientX - dragRef.current.startX;
+      const dy = e.clientY - dragRef.current.startY;
+      
+      setPosition({
+        x: dragRef.current.initialX + dx,
+        y: dragRef.current.initialY + dy,
+      });
+    };
+    
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      dragRef.current = null;
+    };
+    
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
   
   return (
-    <div style={{
-      background: '#1a1a1a',
-      border: '1px solid #333',
-      borderRadius: 8,
-      padding: 12,
-      marginTop: 8,
-    }}>
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center',
-        marginBottom: 10,
-      }}>
-        <h4 style={{ margin: 0, fontSize: 13, color: '#ddd' }}>
-          ⚡ Auto-Pass Priority Settings
-        </h4>
-        {hasAnyAutoPass && (
-          <button
-            onClick={onClearAll}
-            style={{
-              padding: '4px 8px',
-              background: '#dc2626',
-              border: 'none',
-              borderRadius: 4,
-              color: 'white',
-              cursor: 'pointer',
-              fontSize: 10,
-            }}
-          >
-            Clear All
-          </button>
-        )}
+    <div 
+      ref={panelRef}
+      style={{
+        background: '#1a1a1a',
+        border: '1px solid #333',
+        borderRadius: 8,
+        padding: 0,
+        marginTop: 8,
+        transform: `translate(${position.x}px, ${position.y}px)`,
+        cursor: isDragging ? 'grabbing' : 'auto',
+        userSelect: isDragging ? 'none' : 'auto',
+      }}
+      onMouseDown={handleMouseDown}
+    >
+      {/* Header - draggable and clickable to collapse */}
+      <div 
+        className="drag-handle"
+        style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center',
+          padding: '8px 12px',
+          borderBottom: isCollapsed ? 'none' : '1px solid #333',
+          cursor: 'grab',
+          background: '#222',
+          borderRadius: isCollapsed ? 8 : '8px 8px 0 0',
+        }}
+      >
+        <button
+          onClick={() => setIsCollapsed(!isCollapsed)}
+          style={{
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            margin: 0,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          <span style={{ fontSize: 10, color: '#888' }}>
+            {isCollapsed ? '▶' : '▼'}
+          </span>
+          <span style={{ fontSize: 13, color: '#ddd', fontWeight: 500 }}>
+            ⚡ Auto-Pass {isSinglePlayer && <span style={{ fontSize: 10, color: '#10b981' }}>(Solo)</span>}
+          </span>
+        </button>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          {hasAnyAutoPass && !isCollapsed && (
+            <button
+              onClick={onClearAll}
+              style={{
+                padding: '3px 6px',
+                background: '#dc2626',
+                border: 'none',
+                borderRadius: 4,
+                color: 'white',
+                cursor: 'pointer',
+                fontSize: 9,
+              }}
+            >
+              Clear All
+            </button>
+          )}
+          <span style={{ fontSize: 9, color: '#666' }}>⋮⋮</span>
+        </div>
       </div>
       
-      <p style={{ fontSize: 11, color: '#888', margin: '0 0 10px' }}>
-        When enabled, you'll automatically pass priority during these steps (unless you have cards to play).
-      </p>
-      
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {CONFIGURABLE_STEPS.map(({ key, label }) => (
-          <label 
-            key={key}
-            style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: 8, 
-              fontSize: 12, 
-              color: '#ccc',
-              cursor: 'pointer',
-              padding: '4px 0',
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={autoPassSteps.has(key)}
-              onChange={e => onToggleAutoPass(key, e.target.checked)}
-              style={{ cursor: 'pointer' }}
-            />
-            {label}
-            {autoPassSteps.has(key) && (
-              <span style={{ 
-                fontSize: 9, 
-                color: '#10b981',
-                marginLeft: 'auto',
-              }}>
-                ✓ Auto-pass
-              </span>
-            )}
-          </label>
-        ))}
-      </div>
-      
-      {!hasAnyAutoPass && (
-        <p style={{ 
-          fontSize: 10, 
-          color: '#666', 
-          margin: '10px 0 0',
-          fontStyle: 'italic',
-        }}>
-          No auto-pass steps configured. Priority popups will appear on step changes.
-        </p>
+      {/* Collapsible content */}
+      {!isCollapsed && (
+        <div style={{ padding: '10px 12px' }}>
+          <p style={{ fontSize: 10, color: '#888', margin: '0 0 8px' }}>
+            Auto-pass priority during these steps
+            {isSinglePlayer && <span style={{ color: '#10b981' }}> (auto-enabled for solo play)</span>}
+          </p>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {CONFIGURABLE_STEPS.map(({ key, label }) => (
+              <label 
+                key={key}
+                style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: 6, 
+                  fontSize: 11, 
+                  color: '#ccc',
+                  cursor: 'pointer',
+                  padding: '2px 0',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={autoPassSteps.has(key)}
+                  onChange={e => onToggleAutoPass(key, e.target.checked)}
+                  style={{ cursor: 'pointer', width: 12, height: 12 }}
+                />
+                {label}
+                {autoPassSteps.has(key) && (
+                  <span style={{ 
+                    fontSize: 8, 
+                    color: '#10b981',
+                    marginLeft: 'auto',
+                  }}>
+                    ✓
+                  </span>
+                )}
+              </label>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );

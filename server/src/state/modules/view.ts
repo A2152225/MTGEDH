@@ -207,5 +207,7 @@ export function viewFor(
     commandZone: viewCommandZone,
     poisonCounters: poison,
     experienceCounters: experience,
+    // Map turnNumber to turn for client compatibility
+    turn: (state as any).turnNumber ?? 1,
   } as any;
 }
