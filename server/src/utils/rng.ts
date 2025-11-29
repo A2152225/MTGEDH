@@ -2,13 +2,16 @@
 
 // Simple fast PRNG suitable for reproducible shuffles.
 // Returns a function that yields floats in [0, 1).
+// IMPORTANT: This implementation must match the inline versions in context.ts 
+// and applyEvent.ts exactly for deterministic replay to work correctly.
 export function mulberry32(seed: number) {
   let t = seed >>> 0;
   return function next() {
-    t += 0x6D2B79F5;
-    let x = Math.imul(t ^ (t >>> 15), 1 | t);
-    x ^= x + Math.imul(x ^ (x >>> 7), 61 | x);
-    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+    t = (t + 0x6D2B79F5) >>> 0;
+    let r = t;
+    r = Math.imul(r ^ (r >>> 15), r | 1);
+    r ^= r + Math.imul(r ^ (r >>> 7), r | 61);
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
   };
 }
 

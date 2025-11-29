@@ -27,6 +27,91 @@ const undoRequests = new Map<string, UndoRequest>();
 // Undo timeout in milliseconds (60 seconds)
 const UNDO_TIMEOUT_MS = 60000;
 
+// Event types that represent step changes
+const STEP_CHANGE_EVENTS = ['nextStep', 'skipToPhase'];
+
+// Event types that represent phase changes
+// Note: Currently same as STEP_CHANGE_EVENTS because the game doesn't distinguish 
+// between step and phase transitions in the event log. Both 'nextStep' events can 
+// represent moving to a new step within a phase OR moving to a new phase entirely.
+// The calculateUndoToPhase function handles this by looking for multiple step changes.
+const PHASE_CHANGE_EVENTS = ['nextStep', 'skipToPhase'];
+
+// Event types that represent turn changes
+const TURN_CHANGE_EVENTS = ['nextTurn'];
+
+/**
+ * Calculate how many events to undo to get back to the previous step.
+ * This finds the most recent step/phase transition event and undoes back to just before it.
+ */
+function calculateUndoToStep(events: Array<{ type: string; payload?: any }>): number {
+  if (events.length === 0) return 0;
+  
+  // Search backwards for the most recent step change event
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i];
+    if (STEP_CHANGE_EVENTS.includes(event.type)) {
+      // Found a step change - undo back to just before this event
+      return events.length - i;
+    }
+  }
+  
+  // No step change found, return all events
+  return events.length;
+}
+
+/**
+ * Calculate how many events to undo to get back to the previous phase.
+ * This finds the most recent phase transition and undoes back to the start of that phase.
+ */
+function calculateUndoToPhase(events: Array<{ type: string; payload?: any }>): number {
+  if (events.length === 0) return 0;
+  
+  let foundCurrentPhase = false;
+  
+  // Search backwards for the phase boundary
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i];
+    if (PHASE_CHANGE_EVENTS.includes(event.type)) {
+      if (!foundCurrentPhase) {
+        // This is the event that started the current step/phase, skip it
+        foundCurrentPhase = true;
+        continue;
+      }
+      // Found an earlier phase change - undo back to just before this event
+      return events.length - i;
+    }
+  }
+  
+  // If we found one phase change but no earlier one, undo to beginning
+  if (foundCurrentPhase) {
+    return events.length;
+  }
+  
+  // No phase change found, return all events
+  return events.length;
+}
+
+/**
+ * Calculate how many events to undo to get back to the previous turn.
+ * This finds the most recent turn transition and undoes back to just before it.
+ */
+function calculateUndoToTurn(events: Array<{ type: string; payload?: any }>): number {
+  if (events.length === 0) return 0;
+  
+  // Search backwards for the most recent turn change event
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i];
+    if (TURN_CHANGE_EVENTS.includes(event.type)) {
+      // Found a turn change - undo back to just before this event
+      return events.length - i;
+    }
+  }
+  
+  // No turn change found, return all events
+  return events.length;
+}
+
 /**
  * Generate unique undo request ID using crypto if available
  */
@@ -620,6 +705,98 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
       });
     } catch (err: any) {
       console.error(`getUndoCount error for game ${gameId}:`, err);
+    }
+  });
+
+  // Get smart undo counts (step, phase, turn)
+  socket.on("getSmartUndoCounts", ({ gameId }: { gameId: string }) => {
+    try {
+      const game = ensureGame(gameId);
+      if (!game) return;
+
+      let events: Array<{ type: string; payload?: any }> = [];
+      try {
+        events = getEvents(gameId);
+      } catch (e) {
+        console.warn(`[getSmartUndoCounts] Failed to get events for game ${gameId}:`, e);
+      }
+
+      const stepCount = calculateUndoToStep(events);
+      const phaseCount = calculateUndoToPhase(events);
+      const turnCount = calculateUndoToTurn(events);
+
+      socket.emit("smartUndoCountsUpdate", {
+        gameId,
+        stepCount,
+        phaseCount,
+        turnCount,
+        totalCount: events.length,
+      });
+    } catch (err: any) {
+      console.error(`getSmartUndoCounts error for game ${gameId}:`, err);
+    }
+  });
+
+  // Request undo to step (convenience wrapper)
+  socket.on("requestUndoToStep", ({ gameId }: { gameId: string }) => {
+    try {
+      let events: Array<{ type: string; payload?: any }> = [];
+      try {
+        events = getEvents(gameId);
+      } catch (e) {
+        console.warn(`[requestUndoToStep] Failed to get events:`, e);
+        return;
+      }
+
+      const actionsToUndo = calculateUndoToStep(events);
+      if (actionsToUndo > 0) {
+        // Emit the regular requestUndo with calculated count
+        socket.emit("requestUndo", { gameId, actionsToUndo });
+      }
+    } catch (err: any) {
+      console.error(`requestUndoToStep error for game ${gameId}:`, err);
+    }
+  });
+
+  // Request undo to phase (convenience wrapper)
+  socket.on("requestUndoToPhase", ({ gameId }: { gameId: string }) => {
+    try {
+      let events: Array<{ type: string; payload?: any }> = [];
+      try {
+        events = getEvents(gameId);
+      } catch (e) {
+        console.warn(`[requestUndoToPhase] Failed to get events:`, e);
+        return;
+      }
+
+      const actionsToUndo = calculateUndoToPhase(events);
+      if (actionsToUndo > 0) {
+        // Emit the regular requestUndo with calculated count
+        socket.emit("requestUndo", { gameId, actionsToUndo });
+      }
+    } catch (err: any) {
+      console.error(`requestUndoToPhase error for game ${gameId}:`, err);
+    }
+  });
+
+  // Request undo to turn (convenience wrapper)
+  socket.on("requestUndoToTurn", ({ gameId }: { gameId: string }) => {
+    try {
+      let events: Array<{ type: string; payload?: any }> = [];
+      try {
+        events = getEvents(gameId);
+      } catch (e) {
+        console.warn(`[requestUndoToTurn] Failed to get events:`, e);
+        return;
+      }
+
+      const actionsToUndo = calculateUndoToTurn(events);
+      if (actionsToUndo > 0) {
+        // Emit the regular requestUndo with calculated count
+        socket.emit("requestUndo", { gameId, actionsToUndo });
+      }
+    } catch (err: any) {
+      console.error(`requestUndoToTurn error for game ${gameId}:`, err);
     }
   });
 }

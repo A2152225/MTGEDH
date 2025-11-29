@@ -41,7 +41,7 @@ export function registerSocketHandlers(io: TypedServer) {
     registerDisconnectHandlers(io, socket);
 
     // --- deleteGame: hard wipe game state + events so gameId can be reused cleanly ---
-    // Now allows game creators to delete their own games
+    // Now allows game creators to delete their own games, OR anyone if no players are connected
     socket.on("deleteGame", ({ gameId }: { gameId: string }) => {
       try {
         if (!gameId || typeof gameId !== "string") {
@@ -58,18 +58,35 @@ export function registerSocketHandlers(io: TypedServer) {
         // Check if the player is the creator of the game
         const isCreator = playerId ? isGameCreator(gameId, playerId) : false;
         
+        // Check if there are any active (non-spectator) players connected to the game
+        // Use Socket.IO's room adapter to get all sockets in the game room
+        const room = io.sockets.adapter.rooms.get(gameId);
+        let activePlayerCount = 0;
+        if (room) {
+          for (const socketId of room) {
+            const s = io.sockets.sockets.get(socketId);
+            // Only count non-spectator players
+            if (s && s.data.playerId && !s.data.spectator) {
+              activePlayerCount++;
+            }
+          }
+        }
+        const noActivePlayers = activePlayerCount === 0;
+        
         console.info("[socket] deleteGame requested", {
           gameId,
           bySocket: socket.id,
           playerId,
           isCreator,
+          activePlayerCount,
+          noActivePlayers,
         });
 
-        // If the player is not the creator, emit an error and don't delete
-        if (!isCreator) {
+        // Allow delete if: player is creator, OR no active players are connected
+        if (!isCreator && !noActivePlayers) {
           socket.emit("error", {
             code: "DELETE_GAME_NOT_AUTHORIZED",
-            message: "Only the game creator can delete this game.",
+            message: "Only the game creator can delete this game, or you can delete it if no players are connected.",
           });
           return;
         }
