@@ -618,12 +618,19 @@ export function resolveTopOfStack(ctx: GameContext) {
       const etbTriggers = getETBTriggersForPermanent(card, newPermanent);
       
       // Also check other permanents for "whenever a creature/permanent enters" triggers
+      // Check if the entering permanent is a token
+      const isToken = !!(newPermanent as any).isToken || !!(card as any).isToken;
+      
       for (const perm of state.battlefield) {
         if (perm.id === newPermId) continue; // Skip the entering permanent
         const otherTriggers = getETBTriggersForPermanent(perm.card, perm);
         for (const trigger of otherTriggers) {
           // Only add triggers that fire on other permanents entering
           if (trigger.triggerType === 'creature_etb' && isCreature) {
+            // Check if this trigger requires nontoken creatures (e.g., Guardian Project)
+            if ((trigger as any).nontokenOnly && isToken) {
+              continue; // Skip - this trigger only fires for nontoken creatures
+            }
             etbTriggers.push({ ...trigger, permanentId: perm.id });
           } else if (trigger.triggerType === 'another_permanent_etb') {
             etbTriggers.push({ ...trigger, permanentId: perm.id });
