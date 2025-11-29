@@ -1344,6 +1344,48 @@ export function registerGameActions(io: Server, socket: Socket) {
           return;
         }
       }
+      
+      // Check if this spell has overload (e.g., Cyclonic Rift)
+      // If it does, and player hasn't specified which mode to use, prompt for mode selection
+      const hasOverload = oracleText.includes('overload');
+      const overloadMatch = oracleText.match(/overload\s*\{([^}]+)\}/i);
+      const overloadCost = overloadMatch ? `{${overloadMatch[1]}}` : null;
+      
+      // Check if overload mode was specified in the cast request
+      const castWithOverload = (payment as any[])?.some((p: any) => p.overload === true) || 
+                               (targets as any)?.overload === true ||
+                               (cardInHand as any).castWithOverload === true;
+      
+      if (hasOverload && overloadCost && !castWithOverload && !((payment as any)?.modeSelected)) {
+        // Prompt the player to choose between normal and overload casting
+        socket.emit("modeSelectionRequest", {
+          gameId,
+          cardId,
+          cardName: cardInHand.name,
+          source: cardInHand.name,
+          title: `Choose casting mode for ${cardInHand.name}`,
+          description: cardInHand.oracle_text,
+          imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+          modes: [
+            {
+              id: 'normal',
+              name: 'Normal',
+              description: `Cast ${cardInHand.name} targeting a single permanent`,
+              cost: cardInHand.mana_cost,
+            },
+            {
+              id: 'overload',
+              name: 'Overload',
+              description: `Cast ${cardInHand.name} affecting ALL qualifying permanents (replaces "target" with "each")`,
+              cost: overloadCost,
+            },
+          ],
+          effectId: `mode_${cardId}_${Date.now()}`,
+        });
+        
+        console.log(`[castSpellFromHand] Requesting overload mode selection for ${cardInHand.name}`);
+        return; // Wait for mode selection
+      }
 
       // Check if this spell requires targets (oracleText is already defined above)
       const spellSpec = categorizeSpell(cardInHand.name || '', oracleText);
@@ -4080,6 +4122,104 @@ export function registerGameActions(io: Server, socket: Socket) {
       broadcastGame(io, game, gameId);
     } catch (err: any) {
       console.error(`declineMiracle error for game ${gameId}:`, err);
+    }
+  });
+
+  /**
+   * Handle mode selection for modal spells (overload, kicker, etc.)
+   * After the player selects a mode, re-emit castSpellFromHand with the selected mode.
+   */
+  socket.on("modeSelectionConfirm", async ({ gameId, cardId, selectedMode, effectId }: {
+    gameId: string;
+    cardId: string;
+    selectedMode: string;
+    effectId?: string;
+  }) => {
+    try {
+      const playerId = socket.data.playerId as string | undefined;
+      if (!playerId) {
+        socket.emit("error", { code: "NOT_JOINED", message: "You must join the game first" });
+        return;
+      }
+
+      const game = ensureGame(gameId);
+      if (!game) {
+        socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+        return;
+      }
+
+      // Find the card in hand
+      const zones = game.state.zones?.[playerId];
+      if (!zones || !Array.isArray(zones.hand)) {
+        socket.emit("error", { code: "NO_HAND", message: "Hand not found" });
+        return;
+      }
+
+      const cardInHand = (zones.hand as any[]).find((c: any) => c && c.id === cardId);
+      if (!cardInHand) {
+        socket.emit("error", { code: "CARD_NOT_IN_HAND", message: "Card not found in hand" });
+        return;
+      }
+
+      console.log(`[modeSelectionConfirm] Player ${playerId} selected mode '${selectedMode}' for ${cardInHand.name}`);
+
+      if (selectedMode === 'overload') {
+        // Player wants to cast with overload
+        // The overload version doesn't require targets - it affects ALL qualifying permanents
+        
+        // Extract overload cost from oracle text
+        const oracleText = (cardInHand.oracle_text || "").toLowerCase();
+        const overloadMatch = oracleText.match(/overload\s*\{([^}]+)\}/i);
+        const overloadCost = overloadMatch ? `{${overloadMatch[1]}}` : null;
+        
+        if (!overloadCost) {
+          socket.emit("error", { code: "NO_OVERLOAD_COST", message: "Could not determine overload cost" });
+          return;
+        }
+        
+        // Mark the card as being cast with overload
+        (cardInHand as any).castWithOverload = true;
+        (cardInHand as any).overloadCost = overloadCost;
+        
+        // Re-emit castSpellFromHand with overload flag
+        // For overload, we don't need targets since it affects all permanents
+        socket.emit("overloadCastRequest", {
+          gameId,
+          cardId,
+          cardName: cardInHand.name,
+          overloadCost,
+          effectId: `overload_${cardId}_${Date.now()}`,
+        });
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} is casting ${cardInHand.name} with Overload!`,
+          ts: Date.now(),
+        });
+        
+        broadcastGame(io, game, gameId);
+      } else {
+        // Normal casting mode - proceed with regular targeting/casting flow
+        // Remove any overload flag
+        delete (cardInHand as any).castWithOverload;
+        delete (cardInHand as any).overloadCost;
+        
+        // This will continue to the normal target selection flow
+        // The spell already needs targets, so we let the normal flow handle it
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} is casting ${cardInHand.name} normally.`,
+          ts: Date.now(),
+        });
+      }
+      
+    } catch (err: any) {
+      console.error(`modeSelectionConfirm error:`, err);
+      socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "Mode selection failed" });
     }
   });
 
