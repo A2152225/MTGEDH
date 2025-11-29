@@ -338,16 +338,21 @@ function syncLifeAndCheckDefeat(ctx: GameContext): string[] {
  * - Trample: Excess damage from blocked attacker goes to defending player
  * - Lifelink: Controller gains life equal to damage dealt
  * - Deathtouch: Any damage is lethal (kills creature)
- * - First Strike / Double Strike: Handled in separate damage step (not implemented here yet)
+ * - First Strike / Double Strike: Handled in separate damage steps
+ * 
+ * @param ctx Game context
+ * @param isFirstStrikePhase If true, only first strike/double strike creatures deal damage.
+ *                          If false (or undefined), regular damage phase - all creatures deal damage,
+ *                          but first strike-only creatures are skipped (they already dealt damage).
  * 
  * Returns summary of damage dealt for logging/notification.
  */
-function dealCombatDamage(ctx: GameContext): {
+function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
   damageToPlayers: Record<string, number>;
   lifeGainForPlayers: Record<string, number>;
   creaturesDestroyed: string[];
 } {
-  console.log(`${ts()} [COMBAT_DAMAGE] ========== ENTERING dealCombatDamage ==========`);
+  console.log(`${ts()} [COMBAT_DAMAGE] ========== ENTERING dealCombatDamage (firstStrike=${isFirstStrikePhase}) ==========`);
   
   const result = {
     damageToPlayers: {} as Record<string, number>,
@@ -408,6 +413,29 @@ function dealCombatDamage(ctx: GameContext): {
       const attackerPower = parseInt(String(attacker.basePower ?? card.power ?? '0'), 10) || 0;
       const attackerController = attacker.controller;
       const defendingTarget = attacker.attacking; // Player ID or planeswalker ID
+      
+      // Check if this attacker should deal damage in this phase based on first strike rules
+      // First strike phase: only first strike and double strike creatures deal damage
+      // Regular damage phase: all creatures deal damage EXCEPT first strike-only (they already dealt)
+      //   Double strike creatures deal damage in BOTH phases
+      const hasFirstStrike = keywords.firstStrike || keywords.doubleStrike;
+      const hasDoubleStrike = keywords.doubleStrike;
+      
+      if (isFirstStrikePhase === true) {
+        // First strike phase - only first strike or double strike creatures deal damage
+        if (!hasFirstStrike) {
+          console.log(`${ts()} [dealCombatDamage] Skipping ${card.name || attacker.id} in first strike phase (no first/double strike)`);
+          continue;
+        }
+      } else if (isFirstStrikePhase === false) {
+        // Regular damage phase after first strike - skip first strike-only creatures
+        // but double strike creatures deal damage again
+        if (keywords.firstStrike && !keywords.doubleStrike) {
+          console.log(`${ts()} [dealCombatDamage] Skipping ${card.name || attacker.id} in regular phase (first strike only, already dealt)`);
+          continue;
+        }
+      }
+      // If isFirstStrikePhase is undefined, this is a normal combat with no first strikers, all creatures deal damage
       
       // Check if this attacker is blocked
       const blockedBy = attacker.blockedBy || [];
@@ -558,6 +586,24 @@ function dealCombatDamage(ctx: GameContext): {
           }
           const blockerPower = parseInt(String(blocker.basePower ?? blockerCard.power ?? '0'), 10) || 0;
           console.log(`${ts()} [COMBAT_DAMAGE] Blocker ${blockerCard.name || blockerId} has power ${blockerPower}`);
+          
+          // Check if this blocker should deal damage in this phase based on first strike rules
+          const blockerHasFirstStrike = blockerKeywords.firstStrike || blockerKeywords.doubleStrike;
+          
+          if (isFirstStrikePhase === true) {
+            // First strike phase - only first strike or double strike blockers deal damage
+            if (!blockerHasFirstStrike) {
+              console.log(`${ts()} [COMBAT_DAMAGE] Skipping blocker ${blockerCard.name || blockerId} in first strike phase (no first/double strike)`);
+              continue;
+            }
+          } else if (isFirstStrikePhase === false) {
+            // Regular damage phase after first strike - skip first strike-only blockers
+            // but double strike blockers deal damage again
+            if (blockerKeywords.firstStrike && !blockerKeywords.doubleStrike) {
+              console.log(`${ts()} [COMBAT_DAMAGE] Skipping blocker ${blockerCard.name || blockerId} in regular phase (first strike only, already dealt)`);
+              continue;
+            }
+          }
           
           if (blockerPower > 0) {
             // Deal damage to attacker
@@ -1409,24 +1455,64 @@ export function nextStep(ctx: GameContext) {
       } else if (currentStep === "declareAttackers" || currentStep === "DECLARE_ATTACKERS") {
         nextStep = "DECLARE_BLOCKERS";
       } else if (currentStep === "declareBlockers" || currentStep === "DECLARE_BLOCKERS") {
-        console.log(`${ts()} [COMBAT_STEP] ========== TRANSITIONING FROM DECLARE_BLOCKERS TO DAMAGE ==========`);
-        nextStep = "DAMAGE";
-        // Deal combat damage when entering the DAMAGE step (Rule 510)
-        // This handles unblocked attackers dealing damage to players,
-        // blocked attackers/blockers dealing damage to each other,
-        // lifelink life gain, and marking creatures for destruction
-        try {
-          console.log(`${ts()} [COMBAT_STEP] Calling dealCombatDamage...`);
-          const combatResult = dealCombatDamage(ctx);
-          console.log(`${ts()} [COMBAT_STEP] dealCombatDamage completed successfully`);
-          console.log(`${ts()} [COMBAT_STEP] Result: damageToPlayers=${JSON.stringify(combatResult.damageToPlayers)}, creaturesDestroyed=${combatResult.creaturesDestroyed.length}`);
-          // Store the result for the socket layer to broadcast
-          (ctx as any).state.lastCombatDamageResult = combatResult;
-        } catch (err) {
-          console.error(`${ts()} [COMBAT_STEP] CRASH in dealCombatDamage:`, err);
-          console.warn(`${ts()} [nextStep] Failed to deal combat damage:`, err);
+        // Check if any creature has first strike or double strike
+        // If so, go to FIRST_STRIKE_DAMAGE, otherwise go straight to DAMAGE
+        const battlefield = (ctx as any).state?.battlefield || [];
+        const attackers = battlefield.filter((perm: any) => perm && perm.attacking);
+        const blockers = battlefield.filter((perm: any) => perm && perm.blocking && perm.blocking.length > 0);
+        
+        const hasFirstStrikeOrDoubleStrike = [...attackers, ...blockers].some((perm: any) => {
+          const oracleText = (perm.card?.oracle_text || '').toLowerCase();
+          const keywords = perm.card?.keywords || [];
+          const grantedAbilities = perm.grantedAbilities || [];
+          const allKeywords = [...keywords, ...grantedAbilities].map((k: any) => 
+            typeof k === 'string' ? k.toLowerCase() : ''
+          ).join(' ');
+          const allText = oracleText + ' ' + allKeywords;
+          return allText.includes('first strike') || allText.includes('double strike');
+        });
+        
+        if (hasFirstStrikeOrDoubleStrike) {
+          console.log(`${ts()} [COMBAT_STEP] ========== TRANSITIONING TO FIRST_STRIKE_DAMAGE (first/double strike detected) ==========`);
+          nextStep = "FIRST_STRIKE_DAMAGE";
+          // Deal first strike damage
+          try {
+            console.log(`${ts()} [COMBAT_STEP] Calling dealCombatDamage (first strike phase)...`);
+            const combatResult = dealCombatDamage(ctx, true); // Pass flag for first strike phase
+            console.log(`${ts()} [COMBAT_STEP] First strike damage completed`);
+            (ctx as any).state.lastFirstStrikeDamageResult = combatResult;
+          } catch (err) {
+            console.error(`${ts()} [COMBAT_STEP] CRASH in first strike dealCombatDamage:`, err);
+          }
+        } else {
+          console.log(`${ts()} [COMBAT_STEP] ========== TRANSITIONING FROM DECLARE_BLOCKERS TO DAMAGE (no first strike) ==========`);
+          nextStep = "DAMAGE";
+          // Deal combat damage when entering the DAMAGE step (Rule 510)
+          try {
+            console.log(`${ts()} [COMBAT_STEP] Calling dealCombatDamage...`);
+            const combatResult = dealCombatDamage(ctx);
+            console.log(`${ts()} [COMBAT_STEP] dealCombatDamage completed successfully`);
+            console.log(`${ts()} [COMBAT_STEP] Result: damageToPlayers=${JSON.stringify(combatResult.damageToPlayers)}, creaturesDestroyed=${combatResult.creaturesDestroyed.length}`);
+            (ctx as any).state.lastCombatDamageResult = combatResult;
+          } catch (err) {
+            console.error(`${ts()} [COMBAT_STEP] CRASH in dealCombatDamage:`, err);
+            console.warn(`${ts()} [nextStep] Failed to deal combat damage:`, err);
+          }
         }
         console.log(`${ts()} [COMBAT_STEP] ========== END DAMAGE STEP PROCESSING ==========`);
+      } else if (currentStep === "firstStrikeDamage" || currentStep === "FIRST_STRIKE_DAMAGE") {
+        // After first strike damage, proceed to regular combat damage
+        console.log(`${ts()} [COMBAT_STEP] ========== TRANSITIONING FROM FIRST_STRIKE_DAMAGE TO DAMAGE ==========`);
+        nextStep = "DAMAGE";
+        // Deal regular combat damage (from creatures without first strike, and double strike creatures again)
+        try {
+          console.log(`${ts()} [COMBAT_STEP] Calling dealCombatDamage (regular damage phase after first strike)...`);
+          const combatResult = dealCombatDamage(ctx, false); // Regular damage phase
+          console.log(`${ts()} [COMBAT_STEP] Regular damage completed`);
+          (ctx as any).state.lastCombatDamageResult = combatResult;
+        } catch (err) {
+          console.error(`${ts()} [COMBAT_STEP] CRASH in regular dealCombatDamage:`, err);
+        }
       } else if (currentStep === "combatDamage" || currentStep === "DAMAGE") {
         nextStep = "END_COMBAT";
         
