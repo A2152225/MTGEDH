@@ -47,6 +47,7 @@ import {
   loadAppearanceSettings,
   saveAppearanceSettings,
 } from "./utils/appearanceSettings";
+import { IgnoredTriggersPanel } from "./components/IgnoredTriggersPanel";
 
 /** Map engine/internal phase enum to human-friendly name */
 function prettyPhase(phase?: string | null): string {
@@ -3270,6 +3271,13 @@ export function App() {
           </div>
         </div>
       )}
+
+      {/* Ignored Triggers Panel - Separate, persistent UI for viewing/managing auto-resolved triggers */}
+      <IgnoredTriggersPanel
+        ignoredSources={ignoredTriggerSources}
+        onStopIgnoring={handleStopIgnoringSource}
+        you={you || undefined}
+      />
     </div>
   );
 }
