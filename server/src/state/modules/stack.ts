@@ -627,6 +627,9 @@ export function resolveTopOfStack(ctx: GameContext) {
             etbTriggers.push({ ...trigger, permanentId: perm.id });
           } else if (trigger.triggerType === 'another_permanent_etb') {
             etbTriggers.push({ ...trigger, permanentId: perm.id });
+          } else if (trigger.triggerType === 'permanent_etb') {
+            // Altar of the Brood style - triggers on ANY permanent entering (not just yours)
+            etbTriggers.push({ ...trigger, permanentId: perm.id });
           }
         }
       }

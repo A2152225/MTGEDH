@@ -895,7 +895,22 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     });
   }
   
-  // "Whenever another permanent enters the battlefield under your control" (Altar of the Brood pattern)
+  // "Whenever another permanent enters the battlefield" - ANY permanent, not just yours
+  // This is the Altar of the Brood pattern: "Whenever another permanent enters the battlefield, each opponent mills a card."
+  // Also catches variations like "whenever another creature enters the battlefield"
+  const anotherPermanentAnyETBMatch = oracleText.match(/whenever another (?:creature|permanent) enters the battlefield(?!.*under your control),?\s*([^.]+)/i);
+  if (anotherPermanentAnyETBMatch && !triggers.some(t => t.triggerType === 'permanent_etb')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'permanent_etb',
+      description: anotherPermanentAnyETBMatch[1].trim(),
+      effect: anotherPermanentAnyETBMatch[1].trim(),
+      mandatory: true,
+    });
+  }
+  
+  // "Whenever another permanent enters the battlefield under your control"
   const anotherPermanentETBMatch = oracleText.match(/whenever another (?:creature|permanent) enters the battlefield under your control,?\s*([^.]+)/i);
   if (anotherPermanentETBMatch && !triggers.some(t => t.triggerType === 'another_permanent_etb')) {
     triggers.push({
