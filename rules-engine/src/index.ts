@@ -739,3 +739,20 @@ export {
   type AutomationStepResult,
   type GameEvent as AutomationGameEvent,
 } from './GameAutomationController';
+
+// Game Automation Verifier - comprehensive verification of automation setup
+export {
+  AutomationStatus,
+  runFullAutomationVerification,
+  getAutomationSummaryByCategory,
+  validateGameStateForAutomation,
+  verifyPhaseStepAutomation,
+  verifyPriorityAutomation,
+  verifyStateBasedActionsAutomation,
+  verifyTriggeredAbilitiesAutomation,
+  verifySpellCastingAutomation,
+  verifyGameSetupAndWinConditions,
+  verifySpecialRulesAutomation,
+  type AutomationCheckResult,
+  type VerificationReport,
+} from './GameAutomationVerifier';
