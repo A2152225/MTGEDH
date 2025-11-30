@@ -29,6 +29,28 @@ export {
   type TriggeredAbilityConfig,
 } from './triggeredAbilityCards';
 
+// Cast Triggers (Eldrazi, Storm, Cascade) - Pattern-based detection
+export {
+  hasCastTrigger,
+  detectCastTrigger,
+  wouldTriggerCastAbility,
+  getStormCount,
+  hasCascade,
+  getCascadeCount,
+  type CastTriggerInfo,
+} from './castTriggers';
+
+// Trigger Copying/Doubling Effects - Pattern-based detection
+export {
+  hasTriggerCopying,
+  detectTriggerCopying,
+  getTriggerMultiplier,
+  getActivatedTriggerCopiers,
+  getTokenMultiplier,
+  getCounterMultiplier,
+  type TriggerCopyInfo,
+} from './triggerCopying';
+
 // Cost Reduction Cards
 export {
   hasCostReduction,
@@ -42,6 +64,7 @@ export {
 export {
   hasSpecialActivatedAbility,
   getActivatedAbilityConfig,
+  targetsStack,
   ACTIVATED_ABILITY_CARDS,
   type ActivatedAbilityConfig,
 } from './activatedAbilityCards';

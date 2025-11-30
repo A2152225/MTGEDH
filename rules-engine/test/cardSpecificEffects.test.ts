@@ -13,6 +13,18 @@ import {
   // Triggered Ability Cards
   hasSpecialTriggeredAbility,
   getTriggeredAbilityConfig,
+  // Cast Triggers (pattern-based)
+  hasCastTrigger,
+  detectCastTrigger,
+  wouldTriggerCastAbility,
+  getStormCount,
+  hasCascade,
+  getCascadeCount,
+  // Trigger Copying (pattern-based)
+  hasTriggerCopying,
+  detectTriggerCopying,
+  getTokenMultiplier,
+  getActivatedTriggerCopiers,
   // Cost Reduction
   hasCostReduction,
   getCostReductionConfig,
@@ -20,6 +32,7 @@ import {
   // Activated Abilities
   hasSpecialActivatedAbility,
   getActivatedAbilityConfig,
+  targetsStack,
   // Echo
   hasEcho,
   getEchoConfig,
@@ -255,6 +268,17 @@ describe('Card-Specific Effects', () => {
       expect(config).toBeDefined();
       expect(config!.tapAbility!.requiresCount).toBe(7);
       expect(config!.tapAbility!.effect).toContain('Counter');
+      expect(config!.tapAbility!.targetType).toBe('spell');
+      expect(config!.tapAbility!.stackInteraction).toBe(true);
+    });
+
+    it('should identify Lullmage Mentor as targeting stack', () => {
+      expect(targetsStack('Lullmage Mentor')).toBe(true);
+    });
+
+    it('should not identify non-counterspell abilities as targeting stack', () => {
+      expect(targetsStack('Drowner of Secrets')).toBe(false);
+      expect(targetsStack('Squirrel Nest')).toBe(false);
     });
   });
 
@@ -387,6 +411,173 @@ describe('Card-Specific Effects', () => {
     it('should calculate new loyalty correctly', () => {
       expect(calculateNewLoyalty(4, 1)).toBe(5);
       expect(calculateNewLoyalty(4, -2)).toBe(2);
+    });
+  });
+
+  describe('Cast Triggers (Pattern-Based)', () => {
+    it('should detect Storm keyword', () => {
+      const grapeshot = 'Grapeshot deals 1 damage to any target.\nStorm (When you cast this spell, copy it for each spell cast before it this turn. You may choose new targets for the copies.)';
+      expect(hasCastTrigger(grapeshot)).toBe(true);
+      
+      const info = detectCastTrigger(grapeshot);
+      expect(info.hasStorm).toBe(true);
+      expect(info.triggerType).toBe('self_cast');
+    });
+
+    it('should detect Cascade keyword', () => {
+      const bloodbraidElf = 'Cascade (When you cast this spell, exile cards from the top of your library until you exile a nonland card that costs less. You may cast it without paying its mana cost. Put the exiled cards on the bottom of your library in a random order.)\nHaste';
+      expect(hasCastTrigger(bloodbraidElf)).toBe(true);
+      expect(hasCascade(bloodbraidElf)).toBe(true);
+      expect(getCascadeCount(bloodbraidElf)).toBe(1);
+    });
+
+    it('should detect multiple Cascades', () => {
+      const maelstromWanderer = 'Cascade, cascade\nCreatures you control have haste.';
+      expect(getCascadeCount(maelstromWanderer)).toBe(2);
+      
+      const apexDevastator = 'Cascade, cascade, cascade, cascade';
+      expect(getCascadeCount(apexDevastator)).toBe(4);
+    });
+
+    it('should detect "when you cast this" triggers (Eldrazi)', () => {
+      const kozilek = 'When you cast this spell, draw four cards.\nAnnihilator 4';
+      expect(hasCastTrigger(kozilek)).toBe(true);
+      
+      const info = detectCastTrigger(kozilek);
+      expect(info.triggerType).toBe('self_cast');
+      expect(info.effect).toContain('draw four cards');
+    });
+
+    it('should detect "whenever you cast another" triggers', () => {
+      const ulalek = 'Whenever you cast another Eldrazi spell, you may pay {C}{C}. If you do, copy all triggered abilities you control from that spell.';
+      expect(hasCastTrigger(ulalek)).toBe(true);
+      
+      const info = detectCastTrigger(ulalek);
+      expect(info.triggerType).toBe('other_cast');
+      expect(info.creatureTypeFilter).toBe('eldrazi');
+    });
+
+    it('should calculate storm count correctly', () => {
+      expect(getStormCount(1)).toBe(0);  // First spell, no copies
+      expect(getStormCount(3)).toBe(2);  // Third spell, 2 copies
+      expect(getStormCount(5)).toBe(4);  // Fifth spell, 4 copies
+    });
+
+    it('should detect if a spell triggers another cards cast ability', () => {
+      const ulalek = 'Whenever you cast another Eldrazi spell, you may pay {C}{C}. If you do, copy all triggered abilities you control from that spell.';
+      
+      // Eldrazi should trigger
+      expect(wouldTriggerCastAbility(ulalek, 'Creature — Eldrazi', ['Eldrazi'])).toBe(true);
+      
+      // Non-Eldrazi should not trigger
+      expect(wouldTriggerCastAbility(ulalek, 'Creature — Human Wizard', ['Human', 'Wizard'])).toBe(false);
+    });
+  });
+
+  describe('Trigger Copying (Pattern-Based)', () => {
+    it('should detect "triggers an additional time" effects', () => {
+      const panharmonicon = 'If an artifact or creature entering the battlefield causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time.';
+      expect(hasTriggerCopying(panharmonicon)).toBe(true);
+      
+      const info = detectTriggerCopying(panharmonicon);
+      expect(info.effectType).toBe('additional');
+      expect(info.triggerFilter?.etbOnly).toBe(true);
+    });
+
+    it('should detect Yarok ETB doubling', () => {
+      const yarok = 'If a permanent entering the battlefield causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time.';
+      expect(hasTriggerCopying(yarok)).toBe(true);
+      
+      const info = detectTriggerCopying(yarok);
+      expect(info.triggerFilter?.etbOnly).toBe(true);
+    });
+
+    it('should detect Teysa death trigger doubling', () => {
+      const teysa = 'If a creature dying causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time.';
+      expect(hasTriggerCopying(teysa)).toBe(true);
+      
+      const info = detectTriggerCopying(teysa);
+      expect(info.triggerFilter?.deathOnly).toBe(true);
+    });
+
+    it('should detect Isshin attack trigger doubling', () => {
+      const isshin = 'If a creature attacking causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time.';
+      expect(hasTriggerCopying(isshin)).toBe(true);
+      
+      const info = detectTriggerCopying(isshin);
+      expect(info.triggerFilter?.attackOnly).toBe(true);
+    });
+
+    it('should detect token doublers', () => {
+      const anointedProcession = 'If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead.';
+      expect(hasTriggerCopying(anointedProcession)).toBe(true);
+      
+      const info = detectTriggerCopying(anointedProcession);
+      expect(info.tokenDoubling).toBe(true);
+    });
+
+    it('should detect Doubling Season (tokens + counters)', () => {
+      const doublingSeason = 'If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead. If an effect would put one or more counters on a permanent you control, it puts twice that many of those counters on that permanent instead.';
+      expect(hasTriggerCopying(doublingSeason)).toBe(true);
+      
+      const info = detectTriggerCopying(doublingSeason);
+      expect(info.tokenDoubling).toBe(true);
+    });
+
+    it('should detect activated trigger copiers', () => {
+      const strionicResonator = '{2}, {T}: Copy target triggered ability you control. You may choose new targets for the copy.';
+      expect(hasTriggerCopying(strionicResonator)).toBe(true);
+      
+      const info = detectTriggerCopying(strionicResonator);
+      expect(info.effectType).toBe('copy');
+      expect(info.activationType).toBe('activated');
+    });
+
+    it('should detect colorless trigger copying (Echoes of Eternity)', () => {
+      const echoes = 'Whenever a triggered ability of a colorless spell you control or another colorless permanent you control triggers, copy that ability. You may choose new targets for the copy.';
+      expect(hasTriggerCopying(echoes)).toBe(true);
+      
+      const info = detectTriggerCopying(echoes);
+      expect(info.triggerFilter?.colorlessOnly).toBe(true);
+    });
+
+    it('should calculate token multiplier correctly', () => {
+      const battlefield = [
+        { controller: 'player1', oracleText: 'If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead.' },
+      ];
+      expect(getTokenMultiplier('player1', battlefield)).toBe(2);
+    });
+
+    it('should stack token doublers', () => {
+      const battlefield = [
+        { controller: 'player1', oracleText: 'If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead.' },
+        { controller: 'player1', oracleText: 'If an effect would create one or more creature tokens under your control, it creates twice that many of those tokens instead.' },
+      ];
+      expect(getTokenMultiplier('player1', battlefield)).toBe(4);
+    });
+
+    it('should not apply opponent token doublers', () => {
+      const battlefield = [
+        { controller: 'player2', oracleText: 'If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead.' },
+      ];
+      expect(getTokenMultiplier('player1', battlefield)).toBe(1);
+    });
+
+    it('should find activated trigger copiers', () => {
+      const battlefield = [
+        { id: 'sr1', name: 'Strionic Resonator', controller: 'player1', oracleText: '{2}, {T}: Copy target triggered ability you control.', tapped: false },
+      ];
+      const copiers = getActivatedTriggerCopiers(battlefield);
+      expect(copiers).toHaveLength(1);
+      expect(copiers[0].name).toBe('Strionic Resonator');
+    });
+
+    it('should not find tapped trigger copiers', () => {
+      const battlefield = [
+        { id: 'sr1', name: 'Strionic Resonator', controller: 'player1', oracleText: '{2}, {T}: Copy target triggered ability you control.', tapped: true },
+      ];
+      const copiers = getActivatedTriggerCopiers(battlefield);
+      expect(copiers).toHaveLength(0);
     });
   });
 });

@@ -195,7 +195,7 @@ const KNOWN_CAST_TYPE_TRIGGERS: Record<string, {
     effect: "Tap 7 untapped Merfolk, counter target spell",
     creatureType: "Merfolk",
     tapOrUntap: 'tap',
-    targetType: 'creature',
+    targetType: 'spell',
   },
   "goblin warchief": {
     effect: "Goblin spells cost {1} less, Goblins have haste",

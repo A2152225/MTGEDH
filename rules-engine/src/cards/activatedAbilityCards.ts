@@ -14,9 +14,10 @@ export interface ActivatedAbilityConfig {
   readonly tapAbility?: {
     readonly cost: string;
     readonly effect: string;
-    readonly targetType?: string;
-    readonly requiresType?: string;
-    readonly requiresCount?: number;
+    readonly targetType?: 'player' | 'creature' | 'permanent' | 'spell' | 'self';
+    readonly requiresType?: string;  // Creature type filter for tapping
+    readonly requiresCount?: number; // Number of creatures to tap
+    readonly stackInteraction?: boolean; // True if this ability targets the stack
   };
 }
 
@@ -47,6 +48,7 @@ export const ACTIVATED_ABILITY_CARDS: Record<string, ActivatedAbilityConfig> = {
       targetType: 'spell',
       requiresType: 'Merfolk',
       requiresCount: 7,
+      stackInteraction: true,
     },
   },
   'cryptbreaker': {
@@ -59,6 +61,36 @@ export const ACTIVATED_ABILITY_CARDS: Record<string, ActivatedAbilityConfig> = {
       requiresCount: 3,
     },
   },
+  'judge of currents': {
+    cardName: 'Judge of Currents',
+    tapAbility: {
+      cost: 'Tap an untapped Merfolk you control',
+      effect: 'You gain 1 life.',
+      targetType: 'self',
+      requiresType: 'Merfolk',
+      requiresCount: 1,
+    },
+  },
+  'fallowsage': {
+    cardName: 'Fallowsage',
+    tapAbility: {
+      cost: 'Tap an untapped Merfolk you control',
+      effect: 'Draw a card.',
+      targetType: 'self',
+      requiresType: 'Merfolk',
+      requiresCount: 1,
+    },
+  },
+  'stonybrook schoolmaster': {
+    cardName: 'Stonybrook Schoolmaster',
+    tapAbility: {
+      cost: 'Tap an untapped Merfolk you control',
+      effect: 'Create a 1/1 blue Merfolk Wizard creature token.',
+      targetType: 'self',
+      requiresType: 'Merfolk',
+      requiresCount: 1,
+    },
+  },
 };
 
 export function hasSpecialActivatedAbility(cardName: string): boolean {
@@ -67,4 +99,13 @@ export function hasSpecialActivatedAbility(cardName: string): boolean {
 
 export function getActivatedAbilityConfig(cardName: string): ActivatedAbilityConfig | undefined {
   return ACTIVATED_ABILITY_CARDS[cardName.toLowerCase()];
+}
+
+/**
+ * Check if an activated ability targets the stack (for counterspell effects)
+ */
+export function targetsStack(cardName: string): boolean {
+  const config = getActivatedAbilityConfig(cardName);
+  return config?.tapAbility?.stackInteraction === true || 
+         config?.tapAbility?.targetType === 'spell';
 }
