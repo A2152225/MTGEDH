@@ -837,6 +837,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     // Permanent spell resolves - move to battlefield
     const tl = (card.type_line || "").toLowerCase();
     const isCreature = /\bcreature\b/.test(tl);
+    const isPlaneswalker = /\bplaneswalker\b/.test(tl);
     const baseP = isCreature ? parsePT((card as any).power) : undefined;
     const baseT = isCreature ? parsePT((card as any).toughness) : undefined;
     
@@ -851,6 +852,16 @@ export function resolveTopOfStack(ctx: GameContext) {
     // their most recent turn began.
     const hasSummoningSickness = isCreature && !hasHaste;
     
+    // Initialize counters - planeswalkers enter with loyalty counters equal to their printed loyalty
+    const initialCounters: Record<string, number> = {};
+    if (isPlaneswalker && card.loyalty) {
+      const startingLoyalty = parseInt(card.loyalty, 10);
+      if (!isNaN(startingLoyalty)) {
+        initialCounters.loyalty = startingLoyalty;
+        console.log(`[resolveTopOfStack] Planeswalker ${card.name} enters with ${startingLoyalty} loyalty`);
+      }
+    }
+    
     state.battlefield = state.battlefield || [];
     const newPermId = uid("perm");
     const newPermanent = {
@@ -858,7 +869,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       controller,
       owner: controller,
       tapped: false,
-      counters: {},
+      counters: initialCounters,
       basePower: baseP,
       baseToughness: baseT,
       summoningSickness: hasSummoningSickness,
