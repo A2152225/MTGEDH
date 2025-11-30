@@ -190,7 +190,7 @@ export function AutoPassSettingsPanel({ autoPassSteps, onToggleAutoPass, onClear
       {!isCollapsed && (
         <div style={{ padding: '10px 12px' }}>
           <p style={{ fontSize: 10, color: '#888', margin: '0 0 8px' }}>
-            Auto-pass priority during these steps
+            Auto-pass during opponents' turns & phase navigator skips
             {isSinglePlayer && <span style={{ color: '#10b981' }}> (auto-enabled for solo play)</span>}
           </p>
           
