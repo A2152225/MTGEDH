@@ -298,6 +298,19 @@ export const BLUE_TOKENS: readonly TokenDefinition[] = [
     priority: 3,
     icon: "frog"
   },
+  {
+    name: "1/1 Merfolk (Hexproof)",
+    types: ["Creature"],
+    subtypes: ["Merfolk"],
+    colors: ["Blue"],
+    power: 1,
+    toughness: 1,
+    abilities: ["Hexproof"],
+    description: "Blue 1/1 Merfolk with hexproof. Created by Deeproot Waters when you cast a Merfolk spell.",
+    commonSets: ["Ixalan", "Rivals of Ixalan"],
+    priority: 1,
+    icon: "merfolk"
+  },
 ];
 
 /**
@@ -484,6 +497,19 @@ export const GREEN_TOKENS: readonly TokenDefinition[] = [
     commonSets: ["Various sets"],
     priority: 2,
     icon: "elemental-green"
+  },
+  {
+    name: "1/1 Squirrel",
+    types: ["Creature"],
+    subtypes: ["Squirrel"],
+    colors: ["Green"],
+    power: 1,
+    toughness: 1,
+    abilities: [],
+    description: "Green 1/1 Squirrel. Created by Deranged Hermit, Squirrel Nest, Drey Keeper and many others.",
+    commonSets: ["Odyssey", "Modern Horizons 2", "Unfinity"],
+    priority: 1,
+    icon: "squirrel"
   },
 ];
 
