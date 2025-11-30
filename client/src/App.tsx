@@ -651,11 +651,14 @@ export function App() {
     const stepKey = step.replace(/_/g, '').toLowerCase();
     const autoPassStepEnabled = autoPassSteps.has(stepKey) || autoPassSteps.has(step.toLowerCase());
     
-    // Auto-pass only activates when you are NOT the active player (not your turn)
-    // This allows players to leave auto-pass enabled without worrying about losing their turn
+    // Auto-pass activates when:
+    // 1. You are NOT the active player (not your turn), OR
+    // 2. The phase navigator is actively advancing (you clicked to skip ahead)
+    // This allows players to leave auto-pass enabled without losing their turn,
+    // but still auto-passes during phase navigator advancement on your turn
     const turnPlayer = (safeView as any).turnPlayer;
     const isYourTurn = turnPlayer !== null && turnPlayer !== undefined && turnPlayer === you;
-    const shouldAutoPass = autoPassStepEnabled && !isYourTurn;
+    const shouldAutoPass = autoPassStepEnabled && (!isYourTurn || phaseNavigatorAdvancing);
     
     if (youHavePriority && stackLength === 0 && !combatModalOpen) {
       // Check if this is a new step
@@ -663,7 +666,7 @@ export function App() {
         lastPriorityStep.current = step;
         
         if (shouldAutoPass) {
-          // Auto-pass priority (only during opponents' turns)
+          // Auto-pass priority (during opponents' turns OR during phase navigator advancement)
           socket.emit("passPriority", { gameId: safeView.id, by: you });
           setPriorityModalOpen(false);
         } else {
@@ -679,7 +682,7 @@ export function App() {
       // Close priority modal if we don't have priority or stack is not empty
       setPriorityModalOpen(false);
     }
-  }, [safeView, you, combatModalOpen, autoPassSteps]);
+  }, [safeView, you, combatModalOpen, autoPassSteps, phaseNavigatorAdvancing]);
 
   // Shock land prompt listener
   React.useEffect(() => {
