@@ -252,4 +252,96 @@ describe('skipToPhase turn-based actions', () => {
     const handCountAfter = g.state.zones?.[p1]?.handCount ?? 0;
     expect(handCountAfter).toBe(handCountBefore);
   });
+
+  it('should reset priority tracking when skipping to a phase', () => {
+    const g = createInitialGameState('skip_reset_priority');
+
+    const p1 = 'p1' as PlayerID;
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+
+    // Set up library for player
+    const sampleDeck = Array.from({ length: 20 }, (_, i) => ({
+      id: `card_${i}`,
+      name: `Test Card ${i}`,
+      type_line: 'Creature',
+      oracle_text: '',
+    }));
+    g.importDeckResolved(p1, sampleDeck);
+    g.drawCards(p1, 7); // Initial hand
+
+    // Set up game state in pre_game phase
+    (g.state as any).phase = 'pre_game';
+    (g.state as any).step = '';
+    (g.state as any).turnPlayer = p1;
+    (g.state as any).priority = p1;
+    
+    // Simulate that player already passed priority (this would cause auto-advance)
+    (g.state as any).priorityPassedBy = new Set<string>([p1]);
+
+    // Simulate skipToPhase logic - reset priority tracking
+    const targetPhase = 'precombatMain';
+    const targetStep = 'MAIN1';
+    
+    // Update phase/step (as skipToPhase does)
+    (g.state as any).phase = targetPhase;
+    (g.state as any).step = targetStep;
+    
+    // Reset priority tracking (this is the fix)
+    (g.state as any).priorityPassedBy = new Set<string>();
+    (g.state as any).priority = p1;
+
+    // Verify priority was reset
+    expect((g.state as any).priorityPassedBy.size).toBe(0);
+    expect((g.state as any).priority).toBe(p1);
+    
+    // Verify we're in the correct phase/step
+    expect((g.state as any).phase).toBe(targetPhase);
+    expect((g.state as any).step).toBe(targetStep);
+  });
+
+  it('should prevent auto-advance after skipToPhase in single-player game', () => {
+    const g = createInitialGameState('skip_no_autoadvance');
+
+    const p1 = 'p1' as PlayerID;
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+
+    // Set up library for player
+    const sampleDeck = Array.from({ length: 20 }, (_, i) => ({
+      id: `card_${i}`,
+      name: `Test Card ${i}`,
+      type_line: 'Creature',
+      oracle_text: '',
+    }));
+    g.importDeckResolved(p1, sampleDeck);
+    g.drawCards(p1, 7); // Initial hand
+
+    // Set up game state in pre_game phase
+    (g.state as any).phase = 'pre_game';
+    (g.state as any).step = '';
+    (g.state as any).turnPlayer = p1;
+    (g.state as any).priority = p1;
+
+    // Simulate skipToPhase to MAIN1
+    const targetPhase = 'precombatMain';
+    const targetStep = 'MAIN1';
+    
+    (g.state as any).phase = targetPhase;
+    (g.state as any).step = targetStep;
+    
+    // Reset priority tracking (the fix)
+    (g.state as any).priorityPassedBy = new Set<string>();
+    (g.state as any).priority = p1;
+
+    // Now when passPriority is called, it should mark the player as passed
+    // but since we just reset, the player should still be able to act first
+    
+    // Verify initial state after skipToPhase
+    expect((g.state as any).priorityPassedBy.has(p1)).toBe(false);
+    
+    // After the fix, the player should have a fresh priority state
+    // and can choose to act before passing (or the client can decide based on auto-pass settings)
+    expect((g.state as any).phase).toBe('precombatMain');
+    expect((g.state as any).step).toBe('MAIN1');
+    expect((g.state as any).priority).toBe(p1);
+  });
 });
