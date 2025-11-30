@@ -36,6 +36,7 @@ export interface KnownCardRef {
   mana_cost?: string;
   power?: string | number;
   toughness?: string | number;
+  loyalty?: string | number; // for planeswalkers - starting loyalty value
   zone?: string;
   faceDown?: boolean;
   knownTo?: PlayerID[]; // who knows the card face/identity
@@ -59,6 +60,7 @@ export interface HiddenCardRef {
   mana_cost?: string;
   power?: string | number;
   toughness?: string | number;
+  loyalty?: string | number; // for planeswalkers - starting loyalty value
 }
 
 /* Generic CardRef used across the app */
