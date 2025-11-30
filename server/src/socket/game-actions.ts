@@ -2846,6 +2846,29 @@ export function registerGameActions(io: Server, socket: Socket) {
         console.warn(`[skipToPhase] Failed to clear combat state:`, err);
       }
 
+      // CRITICAL: Reset priority tracking after skipping to a new phase
+      // This prevents the auto-pass cascade where:
+      // 1. Player uses skipToPhase to go to a specific step
+      // 2. Client has auto-pass enabled, sees priority, sends passPriority immediately
+      // 3. Server (single-player mode) auto-advances to next step
+      // 4. Repeat until end of turn
+      // 
+      // By resetting priorityPassedBy and ensuring priority is with the active player,
+      // we give the player a chance to act before any auto-advancement occurs.
+      try {
+        // Reset the priority tracking set
+        (game.state as any).priorityPassedBy = new Set<string>();
+        
+        // Ensure priority is with the turn player after skipping
+        if (turnPlayer) {
+          (game.state as any).priority = turnPlayer;
+        }
+        
+        console.log(`[skipToPhase] Reset priority tracking, priority set to ${turnPlayer}`);
+      } catch (err) {
+        console.warn(`[skipToPhase] Failed to reset priority tracking:`, err);
+      }
+
       // Handle CLEANUP phase specially - need to check for discard and auto-advance to next turn
       const isCleanupPhase = targetStepUpper === "CLEANUP";
       let needsDiscardSelection = false;
