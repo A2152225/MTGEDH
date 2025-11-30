@@ -855,7 +855,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     // Initialize counters - planeswalkers enter with loyalty counters equal to their printed loyalty
     const initialCounters: Record<string, number> = {};
     if (isPlaneswalker && card.loyalty) {
-      const startingLoyalty = parseInt(card.loyalty, 10);
+      const startingLoyalty = typeof card.loyalty === 'number' ? card.loyalty : parseInt(card.loyalty, 10);
       if (!isNaN(startingLoyalty)) {
         initialCounters.loyalty = startingLoyalty;
         console.log(`[resolveTopOfStack] Planeswalker ${card.name} enters with ${startingLoyalty} loyalty`);

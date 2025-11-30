@@ -285,9 +285,14 @@ export function App() {
     description?: string;
     filter?: { types?: string[]; subtypes?: string[]; maxCmc?: number };
     maxSelections: number;
-    moveTo: 'hand' | 'battlefield' | 'top' | 'graveyard';
+    moveTo: 'hand' | 'battlefield' | 'top' | 'graveyard' | 'split';
     shuffleAfter: boolean;
     targetPlayerId?: string; // Whose library we're searching (for Gitaxian Probe, etc.)
+    // Split destination props
+    splitDestination?: boolean;
+    toBattlefield?: number;
+    toHand?: number;
+    entersTapped?: boolean;
   } | null>(null);
   
   // Target selection modal state
@@ -790,6 +795,11 @@ export function App() {
           moveTo: payload.moveTo || 'hand',
           shuffleAfter: payload.shuffleAfter !== false,
           targetPlayerId: payload.targetPlayerId, // For searching opponent's library
+          // Split destination props
+          splitDestination: payload.splitDestination || false,
+          toBattlefield: payload.toBattlefield || 0,
+          toHand: payload.toHand || 0,
+          entersTapped: payload.entersTapped || false,
         });
         setLibrarySearchModalOpen(true);
       }
@@ -1853,12 +1863,17 @@ export function App() {
   };
 
   // Library search handlers (Tutor effects)
-  const handleLibrarySearchConfirm = (selectedCardIds: string[], moveTo: string) => {
+  const handleLibrarySearchConfirm = (
+    selectedCardIds: string[], 
+    moveTo: string,
+    splitAssignments?: { toBattlefield: string[]; toHand: string[] }
+  ) => {
     if (!safeView) return;
     socket.emit("librarySearchSelect", {
       gameId: safeView.id,
       cardIds: selectedCardIds,
       destination: moveTo,
+      splitAssignments,
     });
     setLibrarySearchModalOpen(false);
     setLibrarySearchData(null);
@@ -3346,6 +3361,10 @@ export function App() {
         maxSelections={librarySearchData?.maxSelections || 1}
         moveTo={librarySearchData?.moveTo || 'hand'}
         shuffleAfter={librarySearchData?.shuffleAfter ?? true}
+        splitDestination={librarySearchData?.splitDestination}
+        toBattlefield={librarySearchData?.toBattlefield}
+        toHand={librarySearchData?.toHand}
+        entersTapped={librarySearchData?.entersTapped}
         onConfirm={handleLibrarySearchConfirm}
         onCancel={handleLibrarySearchCancel}
       />

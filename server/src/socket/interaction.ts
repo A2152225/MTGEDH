@@ -1796,11 +1796,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   });
 
   // Library search selection (response to librarySearchRequest from tutors)
-  socket.on("librarySearchSelect", ({ gameId, selectedCardIds, moveTo, targetPlayerId }: { 
+  socket.on("librarySearchSelect", ({ gameId, selectedCardIds, moveTo, targetPlayerId, splitAssignments }: { 
     gameId: string; 
     selectedCardIds: string[]; 
     moveTo: string;
     targetPlayerId?: string; // For searching opponent's library (Gitaxian Probe, etc.)
+    splitAssignments?: { toBattlefield: string[]; toHand: string[] }; // For split destination (Cultivate, Kodama's Reach)
   }) => {
     const pid = socket.data.playerId as string | undefined;
     if (!pid || socket.data.spectator) return;
@@ -1820,6 +1821,103 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
     
     const movedCardNames: string[] = [];
+    const battlefieldCardNames: string[] = [];
+    const handCardNames: string[] = [];
+    
+    // Handle split destination (Cultivate, Kodama's Reach)
+    if (moveTo === 'split' && splitAssignments) {
+      // Get full card data before any operations
+      const libraryData = typeof game.searchLibrary === 'function' 
+        ? game.searchLibrary(libraryOwner, "", 1000) 
+        : [];
+      
+      const cardDataById = new Map<string, any>();
+      for (const card of libraryData) {
+        cardDataById.set(card.id, card);
+      }
+      
+      if (typeof game.selectFromLibrary === 'function') {
+        // Handle battlefield cards first
+        if (splitAssignments.toBattlefield && splitAssignments.toBattlefield.length > 0) {
+          const battlefieldCards = game.selectFromLibrary(libraryOwner, splitAssignments.toBattlefield, 'battlefield' as any);
+          
+          game.state.battlefield = game.state.battlefield || [];
+          
+          for (const minimalCard of battlefieldCards) {
+            const cardId = (minimalCard as any).id;
+            const fullCard = cardDataById.get(cardId) || minimalCard;
+            const cardName = (fullCard as any).name || "Unknown";
+            
+            battlefieldCardNames.push(cardName);
+            movedCardNames.push(cardName);
+            
+            const permanentId = generateId("perm");
+            
+            game.state.battlefield.push({
+              id: permanentId,
+              card: { ...fullCard, zone: 'battlefield' },
+              controller: pid,
+              owner: libraryOwner,
+              tapped: true, // Cultivate/Kodama's Reach puts lands onto battlefield tapped
+              counters: {},
+            } as any);
+          }
+        }
+        
+        // Handle hand cards
+        if (splitAssignments.toHand && splitAssignments.toHand.length > 0) {
+          const handCards = game.selectFromLibrary(libraryOwner, splitAssignments.toHand, 'hand');
+          
+          for (const card of handCards) {
+            const cardName = (card as any).name || "Unknown";
+            handCardNames.push(cardName);
+            movedCardNames.push(cardName);
+          }
+        }
+        
+        // Shuffle library after search
+        if (typeof game.shuffleLibrary === "function") {
+          game.shuffleLibrary(libraryOwner);
+        }
+        
+        if (typeof game.bumpSeq === "function") {
+          game.bumpSeq();
+        }
+        
+        appendEvent(gameId, (game as any).seq ?? 0, "librarySearchSelect", {
+          playerId: pid,
+          libraryOwner,
+          selectedCardIds,
+          moveTo: 'split',
+          splitAssignments,
+        });
+        
+        // Create message describing split destination
+        let message = `${getPlayerName(game, pid)} searched their library`;
+        if (battlefieldCardNames.length > 0) {
+          message += `, put ${battlefieldCardNames.join(", ")} onto the battlefield tapped`;
+        }
+        if (handCardNames.length > 0) {
+          if (battlefieldCardNames.length > 0) {
+            message += ` and ${handCardNames.join(", ")} into their hand`;
+          } else {
+            message += `, put ${handCardNames.join(", ")} into their hand`;
+          }
+        }
+        message += ', then shuffled.';
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message,
+          ts: Date.now(),
+        });
+        
+        broadcastGame(io, game, gameId);
+        return;
+      }
+    }
     
     // Use the game's selectFromLibrary function for supported destinations
     // This properly accesses the internal libraries Map
