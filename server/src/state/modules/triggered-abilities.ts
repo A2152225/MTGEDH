@@ -1618,6 +1618,18 @@ const KNOWN_END_STEP_TRIGGERS: Record<string, {
     effect: "Each opponent loses life equal to life they lost this turn", 
     mandatory: true,
   },
+  "hope estheim": {
+    effect: "Each opponent mills X cards, where X is the amount of life you gained this turn",
+    mandatory: true,
+  },
+  "twilight prophet": {
+    effect: "If you have the city's blessing, reveal top card, opponent loses life equal to its mana value, you gain that life",
+    mandatory: true,
+  },
+  "blightsteel colossus": {
+    effect: "Shuffle into library if put into graveyard (replacement)",
+    mandatory: true,
+  },
 };
 
 /**

@@ -1279,6 +1279,152 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "pushTriggeredAbility": {
+        // Push a triggered ability onto the stack
+        // This allows triggers to be replayed correctly
+        const triggerId = (e as any).triggerId;
+        const sourceId = (e as any).sourceId;
+        const sourceName = (e as any).sourceName;
+        const controllerId = (e as any).controllerId;
+        const description = (e as any).description;
+        const triggerType = (e as any).triggerType;
+        const effect = (e as any).effect;
+        
+        try {
+          // Check if this trigger is already on the stack (idempotency for replay)
+          const existingTrigger = (ctx.state.stack || []).find((s: any) => s.id === triggerId);
+          if (existingTrigger) {
+            console.info(`applyEvent(pushTriggeredAbility): trigger ${triggerId} already on stack, skipping (replay idempotency)`);
+            break;
+          }
+          
+          ctx.state.stack = ctx.state.stack || [];
+          ctx.state.stack.push({
+            id: triggerId,
+            type: 'triggered_ability',
+            controller: controllerId,
+            source: sourceId,
+            sourceName: sourceName,
+            description: description,
+            triggerType: triggerType,
+            effect: effect,
+            mandatory: true,
+          } as any);
+          
+          console.log(`[applyEvent] Pushed triggered ability: ${sourceName} - ${description}`);
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(pushTriggeredAbility): failed", err);
+        }
+        break;
+      }
+
+      case "resolveTriggeredAbility": {
+        // Resolve a triggered ability - execute its effect
+        const triggerId = (e as any).triggerId;
+        const effect = (e as any).effect;
+        const controllerId = (e as any).controllerId;
+        const sourceName = (e as any).sourceName;
+        
+        try {
+          // The actual effect execution is handled by resolveTopOfStack
+          // This event just records that the trigger was resolved
+          console.log(`[applyEvent] Resolved triggered ability: ${sourceName} - ${effect}`);
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(resolveTriggeredAbility): failed", err);
+        }
+        break;
+      }
+
+      case "executeEffect": {
+        // Execute a game effect (token creation, life change, draw, mill, etc.)
+        const effectType = (e as any).effectType;
+        const controllerId = (e as any).controllerId;
+        const targetId = (e as any).targetId;
+        const amount = (e as any).amount;
+        const tokenData = (e as any).tokenData;
+        
+        try {
+          switch (effectType) {
+            case 'createToken': {
+              if (tokenData) {
+                ctx.state.battlefield = ctx.state.battlefield || [];
+                const tokenId = tokenData.id || `token_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                
+                // Check if token already exists (replay idempotency)
+                const existingToken = ctx.state.battlefield.find((p: any) => p.id === tokenId);
+                if (existingToken) {
+                  console.info(`applyEvent(executeEffect/createToken): token ${tokenId} already exists, skipping`);
+                  break;
+                }
+                
+                ctx.state.battlefield.push({
+                  id: tokenId,
+                  controller: controllerId,
+                  owner: controllerId,
+                  tapped: false,
+                  counters: {},
+                  basePower: tokenData.power,
+                  baseToughness: tokenData.toughness,
+                  summoningSickness: !tokenData.hasHaste,
+                  isToken: true,
+                  card: {
+                    id: tokenId,
+                    name: tokenData.name,
+                    type_line: tokenData.typeLine,
+                    power: String(tokenData.power),
+                    toughness: String(tokenData.toughness),
+                    colors: tokenData.colors || [],
+                    oracle_text: tokenData.abilities?.join(', ') || '',
+                    keywords: tokenData.abilities || [],
+                    zone: 'battlefield',
+                  },
+                } as any);
+                console.log(`[applyEvent] Created token: ${tokenData.name} for ${controllerId}`);
+              }
+              break;
+            }
+            case 'gainLife':
+            case 'loseLife': {
+              const player = (ctx.state.players || []).find((p: any) => p.id === targetId);
+              if (player) {
+                const delta = effectType === 'gainLife' ? amount : -amount;
+                ctx.state.life = ctx.state.life || {};
+                ctx.state.life[targetId] = (ctx.state.life[targetId] ?? 40) + delta;
+                player.life = ctx.state.life[targetId];
+                console.log(`[applyEvent] ${targetId} ${effectType === 'gainLife' ? 'gained' : 'lost'} ${amount} life`);
+              }
+              break;
+            }
+            case 'drawCard': {
+              // Draw is handled by drawCards, just bump seq
+              break;
+            }
+            case 'mill': {
+              const zones = ctx.state.zones?.[targetId] as any;
+              if (zones?.library && Array.isArray(zones.library)) {
+                for (let i = 0; i < amount && zones.library.length > 0; i++) {
+                  const milledCard = zones.library.shift();
+                  if (milledCard) {
+                    zones.graveyard = zones.graveyard || [];
+                    milledCard.zone = 'graveyard';
+                    zones.graveyard.push(milledCard);
+                  }
+                }
+                zones.libraryCount = zones.library.length;
+                console.log(`[applyEvent] ${targetId} milled ${amount} card(s)`);
+              }
+              break;
+            }
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(executeEffect): failed", err);
+        }
+        break;
+      }
+
       default: {
         // Log unknown events but don't fail - they may be newer events not yet supported
         // or events that don't affect core game state
