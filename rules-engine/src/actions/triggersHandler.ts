@@ -5,14 +5,22 @@
  * Processes events and queues triggers for the stack.
  */
 
-import type { GameState } from '../../../shared/src';
+import type { GameState, KnownCardRef, BattlefieldPermanent } from '../../../shared/src';
 import {
   TriggerEvent,
   processEvent,
   putTriggersOnStack,
   createEmptyTriggerQueue,
   type TriggeredAbility,
+  parseTriggeredAbilitiesFromText,
 } from '../triggeredAbilities';
+import { 
+  hasSpecialTriggeredAbility, 
+  getTriggeredAbilityConfig,
+  isETBTokenCreator,
+  getETBTokenConfig,
+} from '../cards';
+import { hasChangeling, getAllCreatureTypes } from '../tribalSupport';
 
 export interface TriggerResult {
   state: GameState;
@@ -60,10 +68,10 @@ export function processTriggers(
 /**
  * Find all triggered abilities on permanents
  * 
- * Note: This is a simplified detection that looks for trigger keywords.
- * A full implementation would require parsing oracle text properly.
- * This may produce false positives for text containing trigger keywords
- * in non-ability contexts (e.g., reminder text, flavor references).
+ * This enhanced version checks:
+ * 1. Card-specific configurations from our cards module
+ * 2. Parsed oracle text patterns
+ * 3. Special trigger types (tribal, landfall, etc.)
  */
 export function findTriggeredAbilities(state: GameState): TriggeredAbility[] {
   const abilities: TriggeredAbility[] = [];
@@ -71,24 +79,54 @@ export function findTriggeredAbilities(state: GameState): TriggeredAbility[] {
   // Scan all permanents for triggered abilities
   for (const player of state.players) {
     for (const perm of player.battlefield || []) {
-      const oracleText = perm.card?.oracle_text || '';
+      const card = perm.card as KnownCardRef;
+      if (!card) continue;
       
-      // Look for trigger patterns at the start of sentences or after periods
-      // This reduces false positives from casual mentions in text
-      const triggerPattern = /(?:^|\.\s*)(when|whenever|at the beginning)/i;
+      const cardName = card.name || '';
+      const oracleText = card.oracle_text || '';
       
-      if (triggerPattern.test(oracleText)) {
-        // This is a simplified detection - real implementation would parse oracle text
-        abilities.push({
-          id: `${perm.id}-trigger`,
-          sourceId: perm.id,
-          sourceName: perm.card?.name || 'Unknown',
-          controllerId: player.id,
-          keyword: 'when' as any,
-          event: TriggerEvent.ENTERS_BATTLEFIELD, // Placeholder - would need proper parsing
-          effect: oracleText,
-        });
+      // Check for special card-specific triggers first
+      if (hasSpecialTriggeredAbility(cardName)) {
+        const config = getTriggeredAbilityConfig(cardName);
+        if (config) {
+          abilities.push({
+            id: `${perm.id}-special-trigger`,
+            sourceId: perm.id,
+            sourceName: cardName,
+            controllerId: player.id,
+            keyword: 'whenever' as any,
+            event: config.triggerEvent,
+            condition: config.triggerCondition,
+            effect: config.effect,
+            optional: config.requiresChoice,
+          });
+        }
       }
+      
+      // Check for ETB token creator triggers
+      if (isETBTokenCreator(cardName)) {
+        const etbConfig = getETBTokenConfig(cardName);
+        if (etbConfig) {
+          abilities.push({
+            id: `${perm.id}-etb-tokens`,
+            sourceId: perm.id,
+            sourceName: cardName,
+            controllerId: player.id,
+            keyword: 'when' as any,
+            event: TriggerEvent.ENTERS_BATTLEFIELD,
+            effect: `Create ${etbConfig.tokenCount} ${etbConfig.tokenType} token(s).`,
+          });
+        }
+      }
+      
+      // Parse additional triggers from oracle text
+      const parsedTriggers = parseTriggeredAbilitiesFromText(
+        oracleText,
+        perm.id,
+        player.id,
+        cardName
+      );
+      abilities.push(...parsedTriggers);
     }
   }
   
@@ -142,4 +180,128 @@ export function checkStepTriggers(
   const stepAbilities = abilities.filter(a => a.event === event);
   
   return processTriggers(state, event, stepAbilities);
+}
+
+/**
+ * Check for tribal creature cast triggers (e.g., Deeproot Waters for Merfolk)
+ * Takes into account changeling creatures
+ */
+export function checkTribalCastTriggers(
+  state: GameState,
+  castCard: KnownCardRef,
+  casterId: string
+): TriggerResult {
+  const logs: string[] = [];
+  const triggeredAbilities: TriggeredAbility[] = [];
+  
+  // Get the creature types of the cast card
+  const typeLine = castCard.type_line || '';
+  const oracleText = castCard.oracle_text || '';
+  const isCreature = typeLine.toLowerCase().includes('creature');
+  
+  if (!isCreature) {
+    return { state, triggersAdded: 0, logs: [] };
+  }
+  
+  // Get all creature types including changeling check
+  const isChangelingCard = hasChangeling(oracleText, typeLine);
+  const creatureTypes = isChangelingCard 
+    ? getAllCreatureTypes(typeLine, oracleText)
+    : getAllCreatureTypes(typeLine, '');
+  
+  // Find all tribal triggers on battlefield
+  for (const player of state.players) {
+    if (player.id !== casterId) continue; // Only trigger for controller
+    
+    for (const perm of player.battlefield || []) {
+      const permCard = perm.card as KnownCardRef;
+      if (!permCard) continue;
+      
+      const cardName = permCard.name || '';
+      
+      // Check for special tribal triggers (Deeproot Waters, etc.)
+      if (hasSpecialTriggeredAbility(cardName)) {
+        const config = getTriggeredAbilityConfig(cardName);
+        if (config?.triggerEvent === TriggerEvent.CREATURE_SPELL_CAST && config.creatureTypeFilter) {
+          // Check if the cast creature matches the required type
+          const requiredType = config.creatureTypeFilter.toLowerCase();
+          const matchesType = creatureTypes.some(t => t.toLowerCase() === requiredType);
+          
+          if (matchesType) {
+            logs.push(`${cardName} triggered from casting ${castCard.name}`);
+            triggeredAbilities.push({
+              id: `${perm.id}-tribal-cast-${Date.now()}`,
+              sourceId: perm.id,
+              sourceName: cardName,
+              controllerId: player.id,
+              keyword: 'whenever' as any,
+              event: TriggerEvent.CREATURE_SPELL_CAST,
+              effect: config.effect,
+              optional: config.requiresChoice,
+            });
+          }
+        }
+      }
+    }
+  }
+  
+  if (triggeredAbilities.length === 0) {
+    return { state, triggersAdded: 0, logs };
+  }
+  
+  return processTriggers(state, TriggerEvent.CREATURE_SPELL_CAST, triggeredAbilities);
+}
+
+/**
+ * Check for landfall triggers (e.g., Tireless Provisioner)
+ */
+export function checkLandfallTriggers(
+  state: GameState,
+  landPlayerId: string
+): TriggerResult {
+  const abilities = findTriggeredAbilities(state);
+  const landfallAbilities = abilities.filter(a => 
+    a.event === TriggerEvent.LANDFALL &&
+    a.controllerId === landPlayerId
+  );
+  
+  return processTriggers(state, TriggerEvent.LANDFALL, landfallAbilities);
+}
+
+/**
+ * Check for spell cast triggers (e.g., Aetherflux Reservoir)
+ */
+export function checkSpellCastTriggers(
+  state: GameState,
+  casterId: string
+): TriggerResult {
+  const abilities = findTriggeredAbilities(state);
+  const spellCastAbilities = abilities.filter(a => 
+    a.event === TriggerEvent.SPELL_CAST &&
+    a.controllerId === casterId
+  );
+  
+  return processTriggers(state, TriggerEvent.SPELL_CAST, spellCastAbilities);
+}
+
+/**
+ * Check for card draw triggers (e.g., Smothering Tithe)
+ */
+export function checkDrawTriggers(
+  state: GameState,
+  drawingPlayerId: string,
+  isOpponentDraw: boolean = false
+): TriggerResult {
+  const abilities = findTriggeredAbilities(state);
+  const drawAbilities = abilities.filter(a => {
+    if (a.event !== TriggerEvent.DRAWN) return false;
+    
+    // Filter by condition (opponent draw, etc.)
+    if (a.condition === 'opponent' && !isOpponentDraw) return false;
+    if (a.condition === 'you' && isOpponentDraw) return false;
+    
+    return true;
+  });
+  
+  return processTriggers(state, TriggerEvent.DRAWN, drawAbilities);
 }

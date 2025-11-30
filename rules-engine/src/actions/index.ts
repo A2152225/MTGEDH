@@ -92,6 +92,10 @@ export {
   checkETBTriggers,
   checkDiesTriggers,
   checkStepTriggers,
+  checkTribalCastTriggers,
+  checkLandfallTriggers,
+  checkSpellCastTriggers,
+  checkDrawTriggers,
   type TriggerResult,
 } from './triggersHandler';
 
