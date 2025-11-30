@@ -19,10 +19,15 @@ describe('Rules Engine Integration Tests', () => {
     gameState = {
       id: 'integration-test',
       format: 'standard' as any,
+      life: {},
+      turnPlayer: 'player1',
+      priority: 'player1',
+      active: true,
       players: [
         {
           id: 'player1',
           name: 'Alice',
+          seat: 0,
           life: 20,
           hand: [],
           library: [],
@@ -37,6 +42,7 @@ describe('Rules Engine Integration Tests', () => {
         {
           id: 'player2',
           name: 'Bob',
+          seat: 1,
           life: 20,
           hand: [],
           library: [],
@@ -56,6 +62,8 @@ describe('Rules Engine Integration Tests', () => {
       phase: 'precombatMain' as any,
       step: 'main' as any,
       stack: [],
+      battlefield: [],
+      commandZone: {},
       startingLife: 20,
       allowUndos: false,
       turnTimerEnabled: false,

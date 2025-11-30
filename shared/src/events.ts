@@ -236,7 +236,7 @@ export interface ClientToServerEvents {
   // ===== LIBRARY SEARCH EVENTS =====
   
   // Confirm library search selection
-  librarySearchSelect: (payload: { gameId: GameID; cardIds?: string[]; selectedCardIds?: string[]; destination: string }) => void;
+  librarySearchSelect: (payload: { gameId: GameID; cardIds?: string[]; selectedCardIds?: string[]; destination: string; splitAssignments?: { toBattlefield: string[]; toHand: string[] } }) => void;
   
   // Cancel library search
   librarySearchCancel: (payload: { gameId: GameID }) => void;
@@ -301,6 +301,9 @@ export interface ClientToServerEvents {
   
   // Request judge assistance
   requestJudge: (payload: { gameId: GameID; reason?: string }) => void;
+  
+  // Respond to judge confirmation
+  judgeConfirmResponse: (payload: { gameId: GameID; confirmId: string; accept: boolean }) => void;
 
   // ===== SPELL CASTING =====
   
@@ -342,6 +345,10 @@ export interface ClientToServerEvents {
   
   // Sacrifice selection (for effects that require sacrificing)
   sacrificeSelected: (payload: { gameId: GameID; permanentIds?: string[]; permanentId?: string; triggerId?: string }) => void;
+  
+  // Ability sacrifice confirm/cancel (for sacrifice-as-cost abilities)
+  abilitySacrificeConfirm: (payload: { gameId: GameID; pendingId: string; sacrificeTargetId: string }) => void;
+  abilitySacrificeCancel: (payload: { gameId: GameID; pendingId: string }) => void;
 
   // ===== PERMANENT MANIPULATION =====
   

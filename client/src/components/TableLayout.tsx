@@ -12,6 +12,7 @@ import type {
   CommanderInfo,
   GameID,
   KnownCardRef,
+  CardRef,
   ClientGameView,
   ChatMsg,
 } from '../../../shared/src';
@@ -1094,7 +1095,7 @@ export function TableLayout(props: {
                             </div>
                             <LandRow
                               lands={lands}
-                              imagePref={imagePref}
+                              imagePref={imagePref || 'small'}
                               tileWidth={TILE_W}
                               overlapRatio={0.33}
                               highlightTargets={highlightPermTargets}
@@ -1176,8 +1177,8 @@ export function TableLayout(props: {
                               )}
                             </div>
                             <HandGallery
-                              cards={yourHand}
-                              imagePref={imagePref}
+                              cards={yourHand as CardRef[]}
+                              imagePref={imagePref || 'small'}
                               onPlayLand={(cardId) =>
                                 onPlayLandFromHand?.(cardId)
                               }
@@ -1376,8 +1377,8 @@ export function TableLayout(props: {
                                 });
                               }
                             }}
-                            onViewGraveyard={onViewGraveyard ? () => onViewGraveyard(pid) : undefined}
-                            onViewExile={onViewExile ? () => onViewExile(pid) : undefined}
+                            onViewGraveyard={onViewGraveyard ? () => onViewGraveyard(pb.player.id) : undefined}
+                            onViewExile={onViewExile ? () => onViewExile(pb.player.id) : undefined}
                           />
                         )}
                       </div>

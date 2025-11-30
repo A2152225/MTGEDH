@@ -22,7 +22,7 @@ export interface TokenDefinition {
   readonly shortDescription: string;
   readonly fullDescription?: string;
   readonly rulesReference?: string;
-  readonlysets?: readonly string[]; // Sets where this token appears
+  readonly sets?: readonly string[]; // Sets where this token appears
 }
 
 /**

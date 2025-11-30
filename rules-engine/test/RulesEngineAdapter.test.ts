@@ -16,10 +16,15 @@ describe('RulesEngineAdapter', () => {
     testGameState = {
       id: 'test-game',
       format: 'commander' as any,
+      life: {},
+      turnPlayer: 'player1',
+      priority: 'player1',
+      active: true,
       players: [
         { 
           id: 'player1', 
           name: 'Player 1', 
+          seat: 0,
           life: 40, 
           hand: [], 
           library: [], 
@@ -34,6 +39,7 @@ describe('RulesEngineAdapter', () => {
         { 
           id: 'player2', 
           name: 'Player 2', 
+          seat: 1,
           life: 40, 
           hand: [], 
           library: [], 
@@ -53,6 +59,8 @@ describe('RulesEngineAdapter', () => {
       phase: 'beginning' as any,
       step: 'untap' as any,
       stack: [],
+      battlefield: [],
+      commandZone: {},
       startingLife: 40,
       allowUndos: false,
       turnTimerEnabled: false,

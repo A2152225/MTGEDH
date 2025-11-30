@@ -213,7 +213,7 @@ export function HandGallery(props: HandGalleryProps) {
             onDragEnter={() => handleDragEnter(i)}
             onDragEnd={handleDragEnd}
             onMouseEnter={(e) =>
-              isKnown &&
+              isKnown && kc &&
               showCardPreview(e.currentTarget as HTMLElement, kc, {
                 prefer: 'above',
                 anchorPadding: 0,

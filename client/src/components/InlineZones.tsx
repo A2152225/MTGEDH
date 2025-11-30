@@ -14,9 +14,12 @@ interface InlineZonesProps {
 export function InlineZones(props: InlineZonesProps) {
   const { zones, commander, isCommanderFormat, imagePref } = props;
 
-  const graveTop = zones.graveyard[zones.graveyard.length - 1];
+  // Get top cards safely - graveyard/exile may contain strings or KnownCardRef
+  const graveTopRaw = zones.graveyard[zones.graveyard.length - 1];
+  const graveTop: KnownCardRef | undefined = typeof graveTopRaw === 'object' && graveTopRaw !== null ? graveTopRaw as KnownCardRef : undefined;
   const exileTop = zones.exile && zones.exile.length ? (zones.exile[zones.exile.length - 1] as any as KnownCardRef) : undefined;
-  const libraryTop = zones.libraryTop;
+  // libraryTop doesn't exist on PlayerZones - use undefined
+  const libraryTop: KnownCardRef | undefined = undefined;
 
   function renderPile(label: string, count: number, topCard?: KnownCardRef) {
     return (

@@ -11,8 +11,19 @@
 
 import React, { useState, useMemo } from 'react';
 
+interface TokenPreset {
+  id: string;
+  name: string;
+  type: string;
+  subtype?: string;
+  colors: string[];
+  power?: number;
+  toughness?: number;
+  abilities?: string;
+}
+
 // Common token types for quick selection
-const COMMON_TOKEN_PRESETS = [
+const COMMON_TOKEN_PRESETS: TokenPreset[] = [
   // Artifact tokens
   { id: 'treasure', name: 'Treasure', type: 'Artifact', colors: [], abilities: 'Tap, Sacrifice: Add one mana of any color.' },
   { id: 'food', name: 'Food', type: 'Artifact', colors: [], abilities: 'Pay 2, Tap, Sacrifice: Gain 3 life.' },
@@ -58,17 +69,6 @@ const COLOR_ICONS: Record<string, string> = {
   'R': '🔴',
   'G': '🟢',
 };
-
-interface TokenPreset {
-  id: string;
-  name: string;
-  type: string;
-  subtype?: string;
-  colors: string[];
-  power?: number;
-  toughness?: number;
-  abilities?: string;
-}
 
 export interface TokenCreationModalProps {
   open: boolean;

@@ -10,7 +10,6 @@ import { showCardPreview, hideCardPreview } from "./CardPreviewLayer";
 const SAFE_DEFAULT_ZONES: PlayerZones = {
   hand: [],
   handCount: 0,
-  library: [],
   libraryCount: 0,
   graveyard: [],
   graveyardCount: 0,
@@ -28,7 +27,9 @@ export function ZonesPiles(props: {
   onViewGraveyard?: () => void;
   onViewExile?: () => void;
 }) {
-  const { zones = SAFE_DEFAULT_ZONES, commander, isCommanderFormat, showHandCount = 0, hideHandDetails, canCastCommander, onCastCommander, onViewGraveyard, onViewExile } = props;
+  const { zones: zonesInput = SAFE_DEFAULT_ZONES, commander, isCommanderFormat, showHandCount = 0, hideHandDetails, canCastCommander, onCastCommander, onViewGraveyard, onViewExile } = props;
+  // Ensure zones is never null
+  const zones = zonesInput ?? SAFE_DEFAULT_ZONES;
 
   // Defensive local arrays
   const libArr = Array.isArray((zones as any).library) ? ((zones as any).library as KnownCardRef[]) : [];

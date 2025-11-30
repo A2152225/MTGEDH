@@ -86,7 +86,7 @@ export function LibrarySearchModal({
 }: LibrarySearchModalProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [destination, setDestination] = useState(moveTo === 'split' ? 'hand' : moveTo);
+  const [destination, setDestination] = useState<'battlefield' | 'hand' | 'graveyard' | 'top'>(moveTo === 'split' ? 'hand' : moveTo);
   
   // For split destination: track which cards go where
   const [battlefieldAssignments, setBattlefieldAssignments] = useState<Set<string>>(new Set());
@@ -464,7 +464,7 @@ export function LibrarySearchModal({
             <span style={{ fontSize: 13, color: '#888' }}>Move to:</span>
             <select
               value={destination}
-              onChange={(e) => setDestination(e.target.value as typeof moveTo)}
+              onChange={(e) => setDestination(e.target.value as 'battlefield' | 'hand' | 'graveyard' | 'top')}
               style={{
                 padding: '6px 12px',
                 borderRadius: 6,

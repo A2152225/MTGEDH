@@ -79,9 +79,9 @@ describe('Rule 601: Casting Spells', () => {
     process = { ...process, currentStep: CastingStep.CHOOSE_PAYMENT };
     
     const manaCost = { green: 1, generic: 2 };
-    const additionalCosts = [{ type: 'tap' as const, sourceId: 'creature1' }];
+    const additionalCosts = [{ type: 'tap' as const, sourceId: 'creature1', description: 'Tap creature', isOptional: false, isMandatory: true }];
     
-    process = determineTotalCost(process, manaCost, additionalCosts);
+    process = determineTotalCost(process, manaCost, additionalCosts as any);
     
     expect(process.manaCost).toEqual(manaCost);
     expect(process.additionalCosts).toEqual(additionalCosts);
