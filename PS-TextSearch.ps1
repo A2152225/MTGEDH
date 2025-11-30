@@ -14,7 +14,7 @@
 
 param(
     [string]$Root = ".",
-    [string]$Pattern = "TableLayout",
+    [string]$Pattern = "pre_game",
     [switch]$CaseSensitive = $false,
     [switch]$ListFilesOnly,
     [int]$Context = 0,

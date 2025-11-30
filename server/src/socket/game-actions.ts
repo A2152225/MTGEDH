@@ -1295,7 +1295,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Check if we're in PRE_GAME phase - spells cannot be cast during pre-game
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
-      if (phaseStr === "" || phaseStr === "pre_game") {
+      if (phaseStr === "" || phaseStr === "PRE_GAME") {
         socket.emit("error", {
           code: "PREGAME_NO_CAST",
           message: "Cannot cast spells during pre-game. Start the game first by claiming turn and advancing to main phase.",
@@ -2201,7 +2201,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
       const pregame =
         phaseStr === "" ||
-        phaseStr === "pre_game" ||
+        phaseStr === "PRE_GAME" ||
         phaseStr.includes("BEGIN");
 
       if (!pregame) {
@@ -2326,7 +2326,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
       const pregame =
         phaseStr === "" ||
-        phaseStr === "pre_game" ||
+        phaseStr === "PRE_GAME" ||
         phaseStr.includes("BEGIN");
 
       // During pre-game, check that all players have imported their decks
@@ -2514,7 +2514,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
       const pregame =
         phaseStr === "" ||
-        phaseStr === "pre_game" ||
+        phaseStr === "PRE_GAME" ||
         phaseStr.includes("BEGIN");
 
       // During pre-game, check that all players have imported their decks
