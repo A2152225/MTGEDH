@@ -557,7 +557,8 @@ export function App() {
     if (!safeView || !you) return;
     
     const step = String((safeView as any).step || "").toLowerCase();
-    const isYourTurn = safeView.turnPlayer === you;
+    const turnPlayer = safeView.turnPlayer;
+    const isYourTurn = turnPlayer != null && turnPlayer === you;
     const stackLength = (safeView as any).stack?.length || 0;
     // Include combatNumber to handle multiple combat phases per turn (Aurelia, Combat Celebrant, etc.)
     const combatNumber = (safeView as any).combatNumber || 1;
@@ -1294,7 +1295,7 @@ export function App() {
     if (phaseNavigatorAdvancing) return;
     // Only auto-advance if it's our turn and we have priority
     if (safeView.priority !== you) return;
-    if (safeView.turnPlayer !== you) return;
+    if (safeView.turnPlayer == null || safeView.turnPlayer !== you) return;
     
     // Only auto-advance during certain phases/steps
     const step = String(safeView.step || '').toLowerCase();
@@ -1332,7 +1333,7 @@ export function App() {
     if (!safeView || !you) return false;
     // During pregame, must have all players ready before advancing
     if (isPreGame && (!allPlayersHaveDecks || !allPlayersKeptHands)) return false;
-    if (safeView.turnPlayer === you) return true;
+    if (safeView.turnPlayer != null && safeView.turnPlayer === you) return true;
     const phaseStr = String(safeView.phase || "").toUpperCase();
     if (phaseStr === "PRE_GAME" && safeView.players?.[0]?.id === you)
       return true;
@@ -1383,7 +1384,7 @@ export function App() {
     const landsPlayedThisTurn =
       (safeView as any).landsPlayedThisTurn?.[you] || 0;
 
-    if (turnPlayer !== you) return "Not your turn";
+    if (turnPlayer == null || turnPlayer !== you) return "Not your turn";
     if (!phase || !String(phase).toLowerCase().includes("main")) {
       return "Can only play lands during your main phase";
     }
@@ -2900,7 +2901,7 @@ export function App() {
           currentStep={safeView.step}
           turnPlayer={safeView.turnPlayer}
           you={you}
-          isYourTurn={safeView.turnPlayer === you}
+          isYourTurn={safeView.turnPlayer != null && safeView.turnPlayer === you}
           hasPriority={safeView.priority === you}
           stackEmpty={!((safeView as any).stack?.length > 0)}
           allPlayersReady={allPlayersHaveDecks && allPlayersKeptHands}
@@ -3294,7 +3295,7 @@ export function App() {
         availableCreatures={combatMode === 'blockers' ? myBlockerCreatures : myCreatures}
         attackingCreatures={attackingCreatures}
         defenders={defenders}
-        isYourTurn={safeView.turnPlayer === you}
+        isYourTurn={safeView?.turnPlayer != null && safeView.turnPlayer === you}
         onConfirm={(selections) => {
           if (combatMode === 'attackers') {
             handleDeclareAttackers(selections as AttackerSelection[]);
