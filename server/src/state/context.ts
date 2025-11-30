@@ -57,6 +57,11 @@ export interface GameContext {
   // Priority tracking for stack resolution
   passesInRow: { value: number };
 
+  // Replay mode flag - when true, skip side effects in functions like nextStep
+  // This prevents duplicate actions when replaying events (e.g., don't draw again 
+  // during nextStep if a separate drawCards event was already replayed)
+  isReplaying?: boolean;
+
   // misc runtime helpers that modules may call
   landsPlayedThisTurn?: Record<PlayerID, number>;
   maxLandsPerTurn?: Record<PlayerID, number>;  // Default 1, can be increased by effects like Exploration, Azusa

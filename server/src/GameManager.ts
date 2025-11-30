@@ -313,6 +313,47 @@ class GameManagerClass {
   }
 
   /**
+   * Get the Socket.IO server instance
+   */
+  getIOServer(): any {
+    return this.ioServer;
+  }
+
+  /**
+   * Get the count of active (non-spectator) player connections for a game.
+   * Uses Socket.IO's room adapter to count connected sockets.
+   * 
+   * This count is used to determine when games can be safely deleted by anyone
+   * (not just the creator). When activeConnectionsCount is 0, any user can delete
+   * the game since no players are actively connected.
+   * 
+   * @param gameId The game ID to check
+   * @returns Number of active player connections (0 if no IO server or no room)
+   */
+  getActiveConnectionsCount(gameId: string): number {
+    if (!this.ioServer) return 0;
+    
+    try {
+      const room = this.ioServer.sockets.adapter.rooms.get(gameId);
+      if (!room) return 0;
+      
+      let count = 0;
+      for (const socketId of room) {
+        const socket = this.ioServer.sockets.sockets.get(socketId);
+        // Only count non-spectator players - spectators don't prevent game deletion
+        // since they're not active participants in the game
+        if (socket && socket.data.playerId && !socket.data.spectator) {
+          count++;
+        }
+      }
+      return count;
+    } catch (e) {
+      console.warn(`[GameManager] getActiveConnectionsCount failed for ${gameId}:`, e);
+      return 0;
+    }
+  }
+
+  /**
    * Get the RulesBridge for a specific game
    */
   getRulesBridge(gameId: string): RulesBridge | undefined {

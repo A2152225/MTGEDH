@@ -1403,12 +1403,18 @@ export function executeCleanupDiscard(ctx: GameContext, playerId: string, cardId
  * nextStep: advance to next step within the current turn
  * Simple progression through main phases and steps.
  * Full step/phase automation would be more complex, but this provides basic progression.
+ * 
+ * When ctx.isReplaying is true, skip side effects (drawing, untapping, triggers, etc.)
+ * because those actions should be handled by separate replayed events.
  */
 export function nextStep(ctx: GameContext) {
   try {
     (ctx as any).state = (ctx as any).state || {};
     const currentPhase = String((ctx as any).state.phase || "beginning");
     const currentStep = String((ctx as any).state.step || "");
+    
+    // Check if we're in replay mode - if so, skip side effects
+    const isReplaying = !!(ctx as any).isReplaying;
 
     // Simple step progression logic
     // beginning phase: UNTAP -> UPKEEP -> DRAW
@@ -1427,38 +1433,41 @@ export function nextStep(ctx: GameContext) {
       if (currentStep === "" || currentStep === "untap" || currentStep === "UNTAP") {
         nextPhase = "beginning";
         nextStep = "UPKEEP";
-        shouldUntap = true; // Untap all permanents when leaving UNTAP step
+        shouldUntap = !isReplaying; // Untap all permanents when leaving UNTAP step (skip during replay)
         
         // Process beginning of upkeep triggers (e.g., Phyrexian Arena, Progenitor Mimic, cumulative upkeep)
-        const turnPlayer = (ctx as any).state?.turnPlayer;
-        if (turnPlayer) {
-          const upkeepTriggers = getUpkeepTriggersForPlayer(ctx, turnPlayer);
-          if (upkeepTriggers.length > 0) {
-            console.log(`${ts()} [nextStep] Found ${upkeepTriggers.length} upkeep triggers`);
-            // Store pending triggers on the game state for the socket layer to process
-            (ctx as any).state.pendingUpkeepTriggers = upkeepTriggers;
-            
-            // Push mandatory upkeep triggers onto the stack
-            // Active player's triggers are put on the stack in the order they choose (APNAP),
-            // but for simplicity we push them in order detected
-            for (const trigger of upkeepTriggers) {
-              if (trigger.mandatory && trigger.triggerType === 'upkeep_effect') {
-                const triggerId = `upkeep_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-                (ctx as any).state.stack = (ctx as any).state.stack || [];
-                (ctx as any).state.stack.push({
-                  id: triggerId,
-                  type: 'triggered_ability',
-                  controller: trigger.permanentId ? 
-                    ((ctx as any).state.battlefield || []).find((p: any) => p?.id === trigger.permanentId)?.controller || turnPlayer 
-                    : turnPlayer,
-                  source: trigger.permanentId,
-                  sourceName: trigger.cardName,
-                  description: trigger.description,
-                  triggerType: 'upkeep_effect',
-                  mandatory: true,
-                  effect: trigger.effect,
-                });
-                console.log(`${ts()} [nextStep] ⚡ Pushed upkeep trigger onto stack: ${trigger.cardName} - ${trigger.description}`);
+        // Skip trigger processing during replay - triggers should be handled by replayed events
+        if (!isReplaying) {
+          const turnPlayer = (ctx as any).state?.turnPlayer;
+          if (turnPlayer) {
+            const upkeepTriggers = getUpkeepTriggersForPlayer(ctx, turnPlayer);
+            if (upkeepTriggers.length > 0) {
+              console.log(`${ts()} [nextStep] Found ${upkeepTriggers.length} upkeep triggers`);
+              // Store pending triggers on the game state for the socket layer to process
+              (ctx as any).state.pendingUpkeepTriggers = upkeepTriggers;
+              
+              // Push mandatory upkeep triggers onto the stack
+              // Active player's triggers are put on the stack in the order they choose (APNAP),
+              // but for simplicity we push them in order detected
+              for (const trigger of upkeepTriggers) {
+                if (trigger.mandatory && trigger.triggerType === 'upkeep_effect') {
+                  const triggerId = `upkeep_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                  (ctx as any).state.stack = (ctx as any).state.stack || [];
+                  (ctx as any).state.stack.push({
+                    id: triggerId,
+                    type: 'triggered_ability',
+                    controller: trigger.permanentId ? 
+                      ((ctx as any).state.battlefield || []).find((p: any) => p?.id === trigger.permanentId)?.controller || turnPlayer 
+                      : turnPlayer,
+                    source: trigger.permanentId,
+                    sourceName: trigger.cardName,
+                    description: trigger.description,
+                    triggerType: 'upkeep_effect',
+                    mandatory: true,
+                    effect: trigger.effect,
+                  });
+                  console.log(`${ts()} [nextStep] ⚡ Pushed upkeep trigger onto stack: ${trigger.cardName} - ${trigger.description}`);
+                }
               }
             }
           }
@@ -1466,15 +1475,18 @@ export function nextStep(ctx: GameContext) {
       } else if (currentStep === "upkeep" || currentStep === "UPKEEP") {
         nextPhase = "beginning";
         nextStep = "DRAW";
-        shouldDraw = true; // Draw a card when entering draw step
+        shouldDraw = !isReplaying; // Draw a card when entering draw step (skip during replay)
         
         // Process draw step triggers (rare, but some cards have them)
-        const turnPlayer = (ctx as any).state?.turnPlayer;
-        if (turnPlayer) {
-          const drawTriggers = getDrawStepTriggers(ctx, turnPlayer);
-          if (drawTriggers.length > 0) {
-            console.log(`${ts()} [nextStep] Found ${drawTriggers.length} draw step triggers`);
-            (ctx as any).state.pendingDrawStepTriggers = drawTriggers;
+        // Skip during replay - triggers should be handled by replayed events
+        if (!isReplaying) {
+          const turnPlayer = (ctx as any).state?.turnPlayer;
+          if (turnPlayer) {
+            const drawTriggers = getDrawStepTriggers(ctx, turnPlayer);
+            if (drawTriggers.length > 0) {
+              console.log(`${ts()} [nextStep] Found ${drawTriggers.length} draw step triggers`);
+              (ctx as any).state.pendingDrawStepTriggers = drawTriggers;
+            }
           }
         }
       } else {
@@ -1487,13 +1499,16 @@ export function nextStep(ctx: GameContext) {
       nextStep = "BEGIN_COMBAT";
       
       // Process beginning of combat triggers (e.g., Hakbal of the Surging Soul)
-      const turnPlayer = (ctx as any).state?.turnPlayer;
-      if (turnPlayer) {
-        const combatTriggers = getBeginningOfCombatTriggers(ctx, turnPlayer);
-        if (combatTriggers.length > 0) {
-          console.log(`${ts()} [nextStep] Found ${combatTriggers.length} beginning of combat triggers`);
-          // Store pending triggers on the game state for the socket layer to process
-          (ctx as any).state.pendingCombatTriggers = combatTriggers;
+      // Skip during replay - triggers should be handled by replayed events
+      if (!isReplaying) {
+        const turnPlayer = (ctx as any).state?.turnPlayer;
+        if (turnPlayer) {
+          const combatTriggers = getBeginningOfCombatTriggers(ctx, turnPlayer);
+          if (combatTriggers.length > 0) {
+            console.log(`${ts()} [nextStep] Found ${combatTriggers.length} beginning of combat triggers`);
+            // Store pending triggers on the game state for the socket layer to process
+            (ctx as any).state.pendingCombatTriggers = combatTriggers;
+          }
         }
       }
     } else if (currentPhase === "combat") {
@@ -1522,28 +1537,32 @@ export function nextStep(ctx: GameContext) {
         if (hasFirstStrikeOrDoubleStrike) {
           console.log(`${ts()} [COMBAT_STEP] ========== TRANSITIONING TO FIRST_STRIKE_DAMAGE (first/double strike detected) ==========`);
           nextStep = "FIRST_STRIKE_DAMAGE";
-          // Deal first strike damage
-          try {
-            console.log(`${ts()} [COMBAT_STEP] Calling dealCombatDamage (first strike phase)...`);
-            const combatResult = dealCombatDamage(ctx, true); // Pass flag for first strike phase
-            console.log(`${ts()} [COMBAT_STEP] First strike damage completed`);
-            (ctx as any).state.lastFirstStrikeDamageResult = combatResult;
-          } catch (err) {
-            console.error(`${ts()} [COMBAT_STEP] CRASH in first strike dealCombatDamage:`, err);
+          // Deal first strike damage - skip during replay
+          if (!isReplaying) {
+            try {
+              console.log(`${ts()} [COMBAT_STEP] Calling dealCombatDamage (first strike phase)...`);
+              const combatResult = dealCombatDamage(ctx, true); // Pass flag for first strike phase
+              console.log(`${ts()} [COMBAT_STEP] First strike damage completed`);
+              (ctx as any).state.lastFirstStrikeDamageResult = combatResult;
+            } catch (err) {
+              console.error(`${ts()} [COMBAT_STEP] CRASH in first strike dealCombatDamage:`, err);
+            }
           }
         } else {
           console.log(`${ts()} [COMBAT_STEP] ========== TRANSITIONING FROM DECLARE_BLOCKERS TO DAMAGE (no first strike) ==========`);
           nextStep = "DAMAGE";
-          // Deal combat damage when entering the DAMAGE step (Rule 510)
-          try {
-            console.log(`${ts()} [COMBAT_STEP] Calling dealCombatDamage...`);
-            const combatResult = dealCombatDamage(ctx);
-            console.log(`${ts()} [COMBAT_STEP] dealCombatDamage completed successfully`);
-            console.log(`${ts()} [COMBAT_STEP] Result: damageToPlayers=${JSON.stringify(combatResult.damageToPlayers)}, creaturesDestroyed=${combatResult.creaturesDestroyed.length}`);
-            (ctx as any).state.lastCombatDamageResult = combatResult;
-          } catch (err) {
-            console.error(`${ts()} [COMBAT_STEP] CRASH in dealCombatDamage:`, err);
-            console.warn(`${ts()} [nextStep] Failed to deal combat damage:`, err);
+          // Deal combat damage when entering the DAMAGE step (Rule 510) - skip during replay
+          if (!isReplaying) {
+            try {
+              console.log(`${ts()} [COMBAT_STEP] Calling dealCombatDamage...`);
+              const combatResult = dealCombatDamage(ctx);
+              console.log(`${ts()} [COMBAT_STEP] dealCombatDamage completed successfully`);
+              console.log(`${ts()} [COMBAT_STEP] Result: damageToPlayers=${JSON.stringify(combatResult.damageToPlayers)}, creaturesDestroyed=${combatResult.creaturesDestroyed.length}`);
+              (ctx as any).state.lastCombatDamageResult = combatResult;
+            } catch (err) {
+              console.error(`${ts()} [COMBAT_STEP] CRASH in dealCombatDamage:`, err);
+              console.warn(`${ts()} [nextStep] Failed to deal combat damage:`, err);
+            }
           }
         }
         console.log(`${ts()} [COMBAT_STEP] ========== END DAMAGE STEP PROCESSING ==========`);
@@ -1552,29 +1571,35 @@ export function nextStep(ctx: GameContext) {
         console.log(`${ts()} [COMBAT_STEP] ========== TRANSITIONING FROM FIRST_STRIKE_DAMAGE TO DAMAGE ==========`);
         nextStep = "DAMAGE";
         // Deal regular combat damage (from creatures without first strike, and double strike creatures again)
-        try {
-          console.log(`${ts()} [COMBAT_STEP] Calling dealCombatDamage (regular damage phase after first strike)...`);
-          const combatResult = dealCombatDamage(ctx, false); // Regular damage phase
-          console.log(`${ts()} [COMBAT_STEP] Regular damage completed`);
-          (ctx as any).state.lastCombatDamageResult = combatResult;
-        } catch (err) {
-          console.error(`${ts()} [COMBAT_STEP] CRASH in regular dealCombatDamage:`, err);
+        // Skip during replay - combat damage should be handled by replayed events
+        if (!isReplaying) {
+          try {
+            console.log(`${ts()} [COMBAT_STEP] Calling dealCombatDamage (regular damage phase after first strike)...`);
+            const combatResult = dealCombatDamage(ctx, false); // Regular damage phase
+            console.log(`${ts()} [COMBAT_STEP] Regular damage completed`);
+            (ctx as any).state.lastCombatDamageResult = combatResult;
+          } catch (err) {
+            console.error(`${ts()} [COMBAT_STEP] CRASH in regular dealCombatDamage:`, err);
+          }
         }
       } else if (currentStep === "combatDamage" || currentStep === "DAMAGE") {
         nextStep = "END_COMBAT";
         
-        // Process end of combat triggers
-        const turnPlayer = (ctx as any).state?.turnPlayer;
-        if (turnPlayer) {
-          const endCombatTriggers = getEndOfCombatTriggers(ctx, turnPlayer);
-          if (endCombatTriggers.length > 0) {
-            console.log(`${ts()} [nextStep] Found ${endCombatTriggers.length} end of combat triggers`);
-            (ctx as any).state.pendingEndOfCombatTriggers = endCombatTriggers;
+        // Process end of combat triggers - skip during replay
+        if (!isReplaying) {
+          const turnPlayer = (ctx as any).state?.turnPlayer;
+          if (turnPlayer) {
+            const endCombatTriggers = getEndOfCombatTriggers(ctx, turnPlayer);
+            if (endCombatTriggers.length > 0) {
+              console.log(`${ts()} [nextStep] Found ${endCombatTriggers.length} end of combat triggers`);
+              (ctx as any).state.pendingEndOfCombatTriggers = endCombatTriggers;
+            }
           }
         }
       } else {
         // After endCombat, check for extra combat phases before going to postcombatMain
-        if (hasExtraCombat(ctx)) {
+        // Skip extra combat processing during replay - should be handled by replayed events
+        if (!isReplaying && hasExtraCombat(ctx)) {
           // There's an extra combat phase pending
           const extraCombat = consumeExtraCombat(ctx);
           console.log(`${ts()} [nextStep] Starting extra combat phase from ${extraCombat?.source || 'Unknown'}`);
@@ -1607,13 +1632,16 @@ export function nextStep(ctx: GameContext) {
       nextStep = "END";
       
       // Process beginning of end step triggers (e.g., Kynaios and Tiro, Meren, Atraxa)
-      const turnPlayer = (ctx as any).state?.turnPlayer;
-      if (turnPlayer) {
-        const endStepTriggers = getEndStepTriggers(ctx, turnPlayer);
-        if (endStepTriggers.length > 0) {
-          console.log(`${ts()} [nextStep] Found ${endStepTriggers.length} end step triggers`);
-          // Store pending triggers on the game state for the socket layer to process
-          (ctx as any).state.pendingEndStepTriggers = endStepTriggers;
+      // Skip during replay - triggers should be handled by replayed events
+      if (!isReplaying) {
+        const turnPlayer = (ctx as any).state?.turnPlayer;
+        if (turnPlayer) {
+          const endStepTriggers = getEndStepTriggers(ctx, turnPlayer);
+          if (endStepTriggers.length > 0) {
+            console.log(`${ts()} [nextStep] Found ${endStepTriggers.length} end step triggers`);
+            // Store pending triggers on the game state for the socket layer to process
+            (ctx as any).state.pendingEndStepTriggers = endStepTriggers;
+          }
         }
       }
     } else if (currentPhase === "ending") {
@@ -1621,11 +1649,11 @@ export function nextStep(ctx: GameContext) {
         nextStep = "CLEANUP";
         // When entering cleanup step, check if we should auto-advance to next turn
         // This happens when no discard is needed, stack is empty, no triggers, and no Sundial effect
-        shouldAdvanceTurn = true; // Set flag to check for auto-advance after entering cleanup
+        shouldAdvanceTurn = !isReplaying; // Only auto-advance during live play, not during replay
       } else if (currentStep === "cleanup" || currentStep === "CLEANUP") {
         // Cleanup step: player has already had opportunity to use Sundial
         // Now advance to next turn (after discard check)
-        shouldAdvanceTurn = true;
+        shouldAdvanceTurn = !isReplaying; // Only auto-advance during live play, not during replay
         // Mark that we're proceeding from cleanup (not entering it)
         // So we skip the Sundial check since player already passed
         (ctx as any)._cleanupProceed = true;

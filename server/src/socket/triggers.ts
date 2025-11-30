@@ -27,6 +27,19 @@ const SHOCK_LANDS = new Set([
 ]);
 
 /**
+ * Card name for Mox Diamond (ETB replacement effect card)
+ * This constant is used for matching the card when resolving its replacement effect.
+ */
+const MOX_DIAMOND_NAME = "mox diamond";
+
+/**
+ * Check if a card is Mox Diamond
+ */
+function isMoxDiamond(cardName: string): boolean {
+  return (cardName || "").toLowerCase().trim() === MOX_DIAMOND_NAME;
+}
+
+/**
  * Check if a card is a shock land or similar
  */
 function isShockLand(cardName: string): boolean {
@@ -149,6 +162,170 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
       console.error(`[triggers] shockLandChoice error:`, err);
       socket.emit("error", {
         code: "SHOCK_LAND_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
+
+  /**
+   * Handle Mox Diamond ETB replacement effect
+   * "If Mox Diamond would enter the battlefield, you may discard a land card instead.
+   * If you do, put Mox Diamond onto the battlefield. If you don't, put it into its owner's graveyard."
+   */
+  socket.on("moxDiamondChoice", async ({
+    gameId,
+    stackItemId,
+    discardLandId,
+  }: {
+    gameId: string;
+    stackItemId: string;
+    discardLandId: string | null; // null means put Mox Diamond in graveyard
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId as PlayerID | undefined;
+      
+      if (!game || !playerId) {
+        socket.emit("error", {
+          code: "MOX_DIAMOND_ERROR",
+          message: "Game not found or player not identified",
+        });
+        return;
+      }
+
+      // Ensure game state exists
+      game.state = (game.state || {}) as any;
+      game.state.battlefield = game.state.battlefield || [];
+      game.state.stack = game.state.stack || [];
+      
+      // Find the Mox Diamond on the stack (waiting to resolve)
+      const stack = game.state.stack;
+      const moxDiamondIndex = stack.findIndex((item: any) => 
+        item.id === stackItemId && 
+        item.controller === playerId &&
+        isMoxDiamond(item.card?.name)
+      );
+      
+      if (moxDiamondIndex === -1) {
+        socket.emit("error", {
+          code: "MOX_DIAMOND_NOT_FOUND",
+          message: "Mox Diamond not found on stack",
+        });
+        return;
+      }
+      
+      const moxDiamondItem = stack[moxDiamondIndex];
+      const moxCard = moxDiamondItem.card;
+      
+      // Remove Mox Diamond from the stack (it's about to resolve or be put in graveyard)
+      stack.splice(moxDiamondIndex, 1);
+      
+      // Get zones for player
+      const zones = game.state.zones = game.state.zones || {};
+      zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 } as any;
+      const playerZones = zones[playerId] as any;
+      playerZones.hand = playerZones.hand || [];
+      playerZones.graveyard = playerZones.graveyard || [];
+      
+      const cardName = moxCard?.name || 'Mox Diamond';
+      const cardImageUrl = moxCard?.image_uris?.normal || moxCard?.image_uris?.small;
+      
+      if (discardLandId) {
+        // Player chose to discard a land - find it in hand
+        const hand = playerZones.hand;
+        const landIndex = hand.findIndex((c: any) => c?.id === discardLandId);
+        
+        if (landIndex === -1) {
+          socket.emit("error", {
+            code: "LAND_NOT_IN_HAND",
+            message: "Selected land card not found in hand",
+          });
+          // Put Mox Diamond back on stack since we can't complete the action
+          stack.push(moxDiamondItem);
+          return;
+        }
+        
+        // Verify it's actually a land
+        const landCard = hand[landIndex];
+        const landTypeLine = (landCard?.type_line || '').toLowerCase();
+        if (!landTypeLine.includes('land')) {
+          socket.emit("error", {
+            code: "NOT_A_LAND",
+            message: "Selected card is not a land",
+          });
+          stack.push(moxDiamondItem);
+          return;
+        }
+        
+        const landName = landCard?.name || 'land';
+        
+        // Remove land from hand and put it in graveyard
+        const [discardedLand] = hand.splice(landIndex, 1);
+        playerZones.handCount = hand.length;
+        playerZones.graveyard.push({ ...discardedLand, zone: 'graveyard' });
+        playerZones.graveyardCount = playerZones.graveyard.length;
+        
+        // Put Mox Diamond onto the battlefield
+        const permId = `perm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const newPermanent = {
+          id: permId,
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          counters: {},
+          card: { ...moxCard, zone: 'battlefield' },
+        } as any;
+        game.state.battlefield.push(newPermanent);
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} discards ${landName} to put ${cardName} onto the battlefield.`,
+          ts: Date.now(),
+        });
+        
+        console.log(`[triggers] Mox Diamond: ${playerId} discarded ${landName}, Mox Diamond enters battlefield`);
+        
+      } else {
+        // Player chose not to discard - put Mox Diamond in graveyard
+        playerZones.graveyard.push({ ...moxCard, zone: 'graveyard' });
+        playerZones.graveyardCount = playerZones.graveyard.length;
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} doesn't discard a land. ${cardName} is put into the graveyard.`,
+          ts: Date.now(),
+        });
+        
+        console.log(`[triggers] Mox Diamond: ${playerId} didn't discard, Mox Diamond goes to graveyard`);
+      }
+      
+      // Persist the event
+      try {
+        await appendEvent(gameId, (game as any).seq || 0, "moxDiamondChoice", {
+          playerId,
+          stackItemId,
+          discardLandId,
+          cardName,
+        });
+      } catch (e) {
+        console.warn("[triggers] Failed to persist moxDiamondChoice event:", e);
+      }
+      
+      // Bump sequence and broadcast
+      if (typeof (game as any).bumpSeq === "function") {
+        (game as any).bumpSeq();
+      }
+      
+      broadcastGame(io, game, gameId);
+      
+    } catch (err: any) {
+      console.error(`[triggers] moxDiamondChoice error:`, err);
+      socket.emit("error", {
+        code: "MOX_DIAMOND_ERROR",
         message: err?.message ?? String(err),
       });
     }

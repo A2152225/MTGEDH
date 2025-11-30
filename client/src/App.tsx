@@ -28,6 +28,7 @@ import { OpeningHandActionsModal } from "./components/OpeningHandActionsModal";
 import { LibrarySearchModal } from "./components/LibrarySearchModal";
 import { TargetSelectionModal, type TargetOption } from "./components/TargetSelectionModal";
 import { UndoRequestModal, type UndoRequestData } from "./components/UndoRequestModal";
+import { MoxDiamondModal } from "./components/MoxDiamondModal";
 import { SplitCardChoiceModal, type CardFaceOption } from "./components/SplitCardChoiceModal";
 import { CreatureTypeSelectModal } from "./components/CreatureTypeSelectModal";
 import { AppearanceSettingsModal } from "./components/AppearanceSettingsModal";
@@ -233,6 +234,14 @@ export function App() {
     cardName: string;
     imageUrl?: string;
     currentLife?: number;
+  } | null>(null);
+  
+  // Mox Diamond replacement effect modal state
+  const [moxDiamondModalOpen, setMoxDiamondModalOpen] = useState(false);
+  const [moxDiamondData, setMoxDiamondData] = useState<{
+    stackItemId: string;
+    cardImageUrl?: string;
+    landCardsInHand: Array<{ id: string; name: string; imageUrl?: string }>;
   } | null>(null);
   
   // Bounce land choice modal state
@@ -640,25 +649,31 @@ export function App() {
       return;
     }
     
-    // Only show priority modal when:
+    // Show priority modal when all of these conditions are met:
     // 1. You have priority
     // 2. The stack is empty (not responding to something)
     // 3. The step changed since last time we showed the modal
     // 4. We're not in a combat modal already
-    // 5. Auto-pass is not enabled for this step
+    // 5. Either: auto-pass is NOT enabled for this step, 
+    //    OR: it's your turn and you're not using phase navigator,
+    //    OR: there are pending triggers to handle
+    
+    // Check for pending triggers in the game state
+    const hasPendingTriggers = pendingTriggers.length > 0;
     
     // Normalize step key - remove underscores and convert to lowercase for consistent comparison
     const stepKey = step.replace(/_/g, '').toLowerCase();
     const autoPassStepEnabled = autoPassSteps.has(stepKey) || autoPassSteps.has(step.toLowerCase());
     
     // Auto-pass activates when:
-    // 1. You are NOT the active player (not your turn), OR
-    // 2. The phase navigator is actively advancing (you clicked to skip ahead)
+    // 1. Auto-pass is enabled for this step, AND
+    // 2. Either: you are NOT the active player (not your turn), OR the phase navigator is actively advancing, AND
+    // 3. There are no pending triggers to handle
     // This allows players to leave auto-pass enabled without losing their turn,
     // but still auto-passes during phase navigator advancement on your turn
     const turnPlayer = (safeView as any).turnPlayer;
     const isYourTurn = turnPlayer !== null && turnPlayer !== undefined && turnPlayer === you;
-    const shouldAutoPass = autoPassStepEnabled && (!isYourTurn || phaseNavigatorAdvancing);
+    const shouldAutoPass = autoPassStepEnabled && (!isYourTurn || phaseNavigatorAdvancing) && !hasPendingTriggers;
     
     if (youHavePriority && stackLength === 0 && !combatModalOpen) {
       // Check if this is a new step
@@ -682,7 +697,7 @@ export function App() {
       // Close priority modal if we don't have priority or stack is not empty
       setPriorityModalOpen(false);
     }
-  }, [safeView, you, combatModalOpen, autoPassSteps, phaseNavigatorAdvancing]);
+  }, [safeView, you, combatModalOpen, autoPassSteps, phaseNavigatorAdvancing, pendingTriggers]);
 
   // Shock land prompt listener
   React.useEffect(() => {
@@ -700,6 +715,24 @@ export function App() {
     socket.on("shockLandPrompt", handler);
     return () => {
       socket.off("shockLandPrompt", handler);
+    };
+  }, [safeView?.id]);
+
+  // Mox Diamond prompt listener
+  React.useEffect(() => {
+    const handler = (payload: any) => {
+      if (payload.gameId === safeView?.id) {
+        setMoxDiamondData({
+          stackItemId: payload.stackItemId,
+          cardImageUrl: payload.cardImageUrl,
+          landCardsInHand: payload.landCardsInHand || [],
+        });
+        setMoxDiamondModalOpen(true);
+      }
+    };
+    socket.on("moxDiamondPrompt", handler);
+    return () => {
+      socket.off("moxDiamondPrompt", handler);
     };
   }, [safeView?.id]);
 
@@ -1799,6 +1832,29 @@ export function App() {
     });
     setShockLandModalOpen(false);
     setShockLandData(null);
+  };
+
+  // Mox Diamond handlers
+  const handleMoxDiamondDiscardLand = (landCardId: string) => {
+    if (!safeView || !moxDiamondData) return;
+    socket.emit("moxDiamondChoice", {
+      gameId: safeView.id,
+      stackItemId: moxDiamondData.stackItemId,
+      discardLandId: landCardId,
+    });
+    setMoxDiamondModalOpen(false);
+    setMoxDiamondData(null);
+  };
+
+  const handleMoxDiamondPutInGraveyard = () => {
+    if (!safeView || !moxDiamondData) return;
+    socket.emit("moxDiamondChoice", {
+      gameId: safeView.id,
+      stackItemId: moxDiamondData.stackItemId,
+      discardLandId: null,
+    });
+    setMoxDiamondModalOpen(false);
+    setMoxDiamondData(null);
   };
 
   // Bounce land handler - player selects which land to return
@@ -3324,6 +3380,15 @@ export function App() {
         currentLife={shockLandData?.currentLife}
         onPayLife={handleShockLandPayLife}
         onEnterTapped={handleShockLandTapped}
+      />
+
+      {/* Mox Diamond Replacement Effect Modal */}
+      <MoxDiamondModal
+        open={moxDiamondModalOpen}
+        cardImageUrl={moxDiamondData?.cardImageUrl}
+        landCardsInHand={moxDiamondData?.landCardsInHand || []}
+        onDiscardLand={handleMoxDiamondDiscardLand}
+        onPutInGraveyard={handleMoxDiamondPutInGraveyard}
       />
 
       {/* Bounce Land Choice Modal */}
