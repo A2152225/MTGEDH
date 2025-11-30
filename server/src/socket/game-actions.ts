@@ -2740,7 +2740,17 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Update phase and step directly
       (game.state as any).phase = targetPhase;
       (game.state as any).step = targetStep;
-
+			// Mark that we just arrived here via skipToPhase so automation/auto-pass
+			// can give the active player one full priority window at this step
+		try {
+			(game.state as any).justSkippedToPhase = {
+			playerId: playerId,
+			phase: targetPhase,
+			step: targetStep,
+			};
+			} catch {
+			// best-effort; don't fail skipToPhase if this metadata write fails
+			}
       // Determine if we need to execute turn-based actions when skipping phases
       // This ensures that skipping from early phases to main phases still triggers
       // the appropriate untap and draw actions

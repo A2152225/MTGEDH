@@ -14,7 +14,7 @@
 
 param(
     [string]$Root = ".",
-    [string]$Pattern = "pre_game",
+    [string]$Pattern = "skiptophase",
     [switch]$CaseSensitive = $false,
     [switch]$ListFilesOnly,
     [int]$Context = 0,
