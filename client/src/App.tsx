@@ -1933,8 +1933,8 @@ export function App() {
     if (!safeView) return;
     socket.emit("librarySearchSelect", {
       gameId: safeView.id,
-      cardIds: selectedCardIds,
-      destination: moveTo,
+      selectedCardIds: selectedCardIds,
+      moveTo: moveTo,
       splitAssignments,
     });
     setLibrarySearchModalOpen(false);
@@ -3175,14 +3175,14 @@ export function App() {
             if (peek.mode === "scry")
               socket.emit("confirmScry", {
                 gameId: view.id,
-                topCardIds: res.keepTopOrder || [],
-                bottomCardIds: res.bottomOrder || [],
+                keepTopOrder: (res.keepTopOrder || []).map(id => ({ id })),
+                bottomOrder: (res.bottomOrder || []).map(id => ({ id })),
               });
             else
               socket.emit("confirmSurveil", {
                 gameId: view.id,
-                topCardIds: res.keepTopOrder || [],
-                graveyardCardIds: res.toGraveyard || [],
+                keepTopOrder: (res.keepTopOrder || []).map(id => ({ id })),
+                toGraveyard: (res.toGraveyard || []).map(id => ({ id })),
               });
             setPeek(null);
           }}

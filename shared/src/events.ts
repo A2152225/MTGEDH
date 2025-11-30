@@ -236,7 +236,7 @@ export interface ClientToServerEvents {
   // ===== LIBRARY SEARCH EVENTS =====
   
   // Confirm library search selection
-  librarySearchSelect: (payload: { gameId: GameID; cardIds?: string[]; selectedCardIds?: string[]; destination: string; splitAssignments?: { toBattlefield: string[]; toHand: string[] } }) => void;
+  librarySearchSelect: (payload: { gameId: GameID; selectedCardIds: string[]; moveTo: string; targetPlayerId?: string; splitAssignments?: { toBattlefield: string[]; toHand: string[] } }) => void;
   
   // Cancel library search
   librarySearchCancel: (payload: { gameId: GameID }) => void;
@@ -323,10 +323,10 @@ export interface ClientToServerEvents {
   // ===== SCRY/SURVEIL =====
   
   // Confirm scry result
-  confirmScry: (payload: { gameId: GameID; topCardIds: string[]; bottomCardIds: string[] }) => void;
+  confirmScry: (payload: { gameId: GameID; keepTopOrder: Array<{ id: string }>; bottomOrder: Array<{ id: string }> }) => void;
   
   // Confirm surveil result
-  confirmSurveil: (payload: { gameId: GameID; topCardIds: string[]; graveyardCardIds: string[] }) => void;
+  confirmSurveil: (payload: { gameId: GameID; toGraveyard: Array<{ id: string }>; keepTopOrder: Array<{ id: string }> }) => void;
 
   // ===== MULLIGAN EVENTS =====
   
@@ -362,7 +362,7 @@ export interface ClientToServerEvents {
   sacrificePermanent: (payload: { gameId: GameID; permanentId: string }) => void;
   
   // Activate ability on battlefield permanent
-  activateBattlefieldAbility: (payload: { gameId: GameID; permanentId: string; abilityIndex?: number }) => void;
+  activateBattlefieldAbility: (payload: { gameId: GameID; permanentId: string; abilityId: string }) => void;
 
   // ===== DECK MANAGEMENT EXTENDED =====
   
