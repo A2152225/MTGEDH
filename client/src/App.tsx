@@ -640,13 +640,14 @@ export function App() {
       return;
     }
     
-    // Only show priority modal when:
+    // Show priority modal when all of these conditions are met:
     // 1. You have priority
     // 2. The stack is empty (not responding to something)
     // 3. The step changed since last time we showed the modal
     // 4. We're not in a combat modal already
-    // 5. Auto-pass is not enabled for this step
-    // 6. There are no pending triggers to handle
+    // 5. Either: auto-pass is NOT enabled for this step, 
+    //    OR: it's your turn and you're not using phase navigator,
+    //    OR: there are pending triggers to handle
     
     // Check for pending triggers in the game state
     const hasPendingTriggers = pendingTriggers.length > 0;
@@ -656,9 +657,9 @@ export function App() {
     const autoPassStepEnabled = autoPassSteps.has(stepKey) || autoPassSteps.has(step.toLowerCase());
     
     // Auto-pass activates when:
-    // 1. You are NOT the active player (not your turn), OR
-    // 2. The phase navigator is actively advancing (you clicked to skip ahead)
-    // 3. AND there are no pending triggers to handle
+    // 1. Auto-pass is enabled for this step, AND
+    // 2. Either: you are NOT the active player (not your turn), OR the phase navigator is actively advancing, AND
+    // 3. There are no pending triggers to handle
     // This allows players to leave auto-pass enabled without losing their turn,
     // but still auto-passes during phase navigator advancement on your turn
     const turnPlayer = (safeView as any).turnPlayer;
