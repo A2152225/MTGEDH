@@ -8,6 +8,7 @@ type GameRow = {
   createdAt: number;
   createdByPlayerId: string | null;
   playersCount: number;
+  activeConnectionsCount: number;
   turn: number | null;
   phase: string | null;
   status: string | null;
@@ -78,11 +79,14 @@ export default function GameList(props: GameListProps) {
     if (isLocalhost) return true;
     // Game creators can delete their games
     if (currentPlayerId && game.createdByPlayerId === currentPlayerId) return true;
+    // Anyone can delete a game with no active player connections
+    if (game.activeConnectionsCount === 0) return true;
     return false;
   };
   
   const handleDelete = async (game: GameRow) => {
     const isCreator = currentPlayerId && game.createdByPlayerId === currentPlayerId;
+    const noActiveConnections = game.activeConnectionsCount === 0;
     
     if (!confirm(`Delete game ${game.id}? This removes persisted events.`)) return;
     
@@ -98,8 +102,8 @@ export default function GameList(props: GameListProps) {
         } else {
           await fetchGames();
         }
-      } else if (isCreator) {
-        // Use socket to delete as the creator
+      } else if (isCreator || noActiveConnections) {
+        // Use socket to delete as the creator or when no players are connected
         socket.emit("deleteGame" as any, { gameId: game.id });
         // The game will be removed from the list via the gameDeletedAck event listener
       }
@@ -146,7 +150,12 @@ export default function GameList(props: GameListProps) {
                     <button 
                       disabled={deleting === g.id} 
                       onClick={() => handleDelete(g)}
-                      title={currentPlayerId && g.createdByPlayerId === currentPlayerId ? "Delete your game" : "Admin delete"}
+                      title={
+                        isLocalhost ? "Admin delete" :
+                        currentPlayerId && g.createdByPlayerId === currentPlayerId ? "Delete your game" :
+                        g.activeConnectionsCount === 0 ? "Delete (no active players)" :
+                        "Delete"
+                      }
                     >
                       {deleting === g.id ? "Deleting…" : "Delete"}
                     </button>

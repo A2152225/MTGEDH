@@ -183,7 +183,7 @@ const KNOWN_CAST_TYPE_TRIGGERS: Record<string, {
   effect: string;
   creatureType: string;
   tapOrUntap: 'tap' | 'untap' | 'choice';
-  targetType: 'permanent' | 'creature' | 'land' | 'artifact';
+  targetType: 'permanent' | 'creature' | 'land' | 'artifact' | 'spell';
 }> = {
   "merrow reejerey": {
     effect: "Tap or untap target permanent",
