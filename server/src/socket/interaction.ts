@@ -1276,6 +1276,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const pid = socket.data.playerId as string | undefined;
     if (!pid || socket.data.spectator) return;
 
+    // Validate abilityId is provided
+    if (!abilityId || typeof abilityId !== 'string') {
+      socket.emit("error", {
+        code: "INVALID_ABILITY",
+        message: "Ability ID is required",
+      });
+      return;
+    }
+
     const game = ensureGame(gameId);
     const battlefield = game.state?.battlefield || [];
     
