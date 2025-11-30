@@ -130,23 +130,25 @@ export function parseStaticAbilities(
   }
   
   // Check for "Creatures you control get +X/+Y" (but not "Other [type] creatures")
-  // Only match if it doesn't start with "other" since that's handled by the lord pattern
-  const creaturePumpMatch = oracleText.match(/(?:^|[^r]\s)(creatures?\s+you\s+control\s+get\s+\+(\d+)\/\+(\d+))/i);
-  if (creaturePumpMatch && !lordMatch) {
-    abilities.push({
-      id: `${permanentId}-pump-your-creatures`,
-      sourceId: permanentId,
-      sourceName: name,
-      controllerId,
-      effectType: StaticEffectType.PUMP,
-      filter: {
-        cardTypes: ['creature'],
-        controller: 'you',
-      },
-      powerMod: parseInt(creaturePumpMatch[2]),
-      toughnessMod: parseInt(creaturePumpMatch[3]),
-      layer: 7,
-    });
+  // Only match if the lord pattern didn't match (to avoid double-counting)
+  if (!lordMatch) {
+    const creaturePumpMatch = oracleText.match(/creatures?\s+you\s+control\s+get\s+\+(\d+)\/\+(\d+)/i);
+    if (creaturePumpMatch) {
+      abilities.push({
+        id: `${permanentId}-pump-your-creatures`,
+        sourceId: permanentId,
+        sourceName: name,
+        controllerId,
+        effectType: StaticEffectType.PUMP,
+        filter: {
+          cardTypes: ['creature'],
+          controller: 'you',
+        },
+        powerMod: parseInt(creaturePumpMatch[1]),
+        toughnessMod: parseInt(creaturePumpMatch[2]),
+        layer: 7,
+      });
+    }
   }
   
   // Check for "[Color] creatures get +1/+1" (like Crusade)
@@ -359,7 +361,7 @@ export function parseStaticAbilities(
         other: !!landTypeGrantMatch[1], // "other" means exclude self
         controller: 'any', // Affects all lands on the battlefield
       },
-      value: landTypeGrantMatch[2], // 'Forest', 'Swamp', etc.
+      value: landTypeGrantMatch[2].toLowerCase(), // Normalize to lowercase for consistency
       layer: 4, // Layer 4: Type-changing effects
     });
   }
@@ -381,7 +383,7 @@ export function parseStaticAbilities(
       powerMod: parseInt(pumpPerTypeMatch[1]),
       toughnessMod: parseInt(pumpPerTypeMatch[2]),
       countFilter: {
-        types: [pumpPerTypeMatch[4]],
+        types: [pumpPerTypeMatch[4].toLowerCase()], // Normalize to lowercase for consistency
         other: !!pumpPerTypeMatch[3], // Count "other" creatures
         controller: 'any', // Count all on battlefield
       },
