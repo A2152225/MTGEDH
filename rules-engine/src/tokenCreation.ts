@@ -391,6 +391,26 @@ export const COMMON_TOKENS: Record<string, TokenCharacteristics> = {
     toughness: 6,
     abilities: ['Trample'],
   },
+  // Squirrel token (Deranged Hermit, Drey Keeper, Squirrel Nest, etc.)
+  '1/1 Squirrel': {
+    name: 'Squirrel',
+    colors: ['G'],
+    types: ['Creature'],
+    subtypes: ['Squirrel'],
+    power: 1,
+    toughness: 1,
+    abilities: [],
+  },
+  // Merfolk token with hexproof (Deeproot Waters)
+  '1/1 Merfolk (Hexproof)': {
+    name: 'Merfolk',
+    colors: ['U'],
+    types: ['Creature'],
+    subtypes: ['Merfolk'],
+    power: 1,
+    toughness: 1,
+    abilities: ['Hexproof'],
+  },
 };
 
 /**

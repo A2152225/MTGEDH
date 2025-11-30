@@ -25,6 +25,7 @@ export enum StaticEffectType {
   // Power/Toughness modifications
   PUMP = 'pump',                    // +X/+Y
   SET_PT = 'set_pt',                // Base P/T becomes X/Y
+  PUMP_PER_CREATURE = 'pump_per_creature', // +X/+Y per creature of type (Squirrel Mob)
   
   // Ability grants
   GRANT_ABILITY = 'grant_ability',  // Give flying, trample, etc.
@@ -33,6 +34,7 @@ export enum StaticEffectType {
   // Type modifications
   ADD_TYPE = 'add_type',            // Add creature type
   REMOVE_TYPE = 'remove_type',      // Remove creature type
+  ADD_LAND_TYPE = 'add_land_type',  // Add land type (Yavimaya, Urborg)
   
   // Color modifications
   ADD_COLOR = 'add_color',          // Add color
@@ -62,8 +64,10 @@ export interface StaticEffectFilter {
   controller?: 'you' | 'opponents' | 'any';
   types?: string[];          // Creature types like 'Merfolk', 'Elf'
   cardTypes?: string[];      // Card types like 'creature', 'artifact'
+  landTypes?: string[];      // Land types like 'forest', 'island'
   colors?: string[];         // Colors like 'white', 'blue'
   other?: boolean;           // "Other" creatures (excludes source)
+  selfOnly?: boolean;        // Only applies to the source permanent itself
   name?: string;             // Specific card name
   hasAbility?: string;       // Filter for creatures that have a specific ability (for Kwende-style effects)
   preventGaining?: boolean;  // Flag to indicate this effect prevents gaining the ability
@@ -79,10 +83,16 @@ export interface StaticAbility {
   controllerId: PlayerID;
   effectType: StaticEffectType;
   filter: StaticEffectFilter;
-  value?: number | string | string[];  // +X for pump, ability name for grant, etc.
+  value?: number | string | string[];  // +X for pump, ability name for grant, land type for ADD_LAND_TYPE
   powerMod?: number;
   toughnessMod?: number;
   layer: number;  // Rule 613 layer system (1-7)
+  // For PUMP_PER_CREATURE effects
+  countFilter?: {
+    types?: string[];        // Creature types to count
+    other?: boolean;         // Count other creatures only (not self)
+    controller?: 'you' | 'opponents' | 'any';
+  };
 }
 
 /**
@@ -119,23 +129,26 @@ export function parseStaticAbilities(
     });
   }
   
-  // Check for "Creatures you control get +X/+Y"
-  const creaturePumpMatch = oracleText.match(/creatures?\s+you\s+control\s+get\s+\+(\d+)\/\+(\d+)/i);
-  if (creaturePumpMatch) {
-    abilities.push({
-      id: `${permanentId}-pump-your-creatures`,
-      sourceId: permanentId,
-      sourceName: name,
-      controllerId,
-      effectType: StaticEffectType.PUMP,
-      filter: {
-        cardTypes: ['creature'],
-        controller: 'you',
-      },
-      powerMod: parseInt(creaturePumpMatch[1]),
-      toughnessMod: parseInt(creaturePumpMatch[2]),
-      layer: 7,
-    });
+  // Check for "Creatures you control get +X/+Y" (but not "Other [type] creatures")
+  // Only match if the lord pattern didn't match (to avoid double-counting)
+  if (!lordMatch) {
+    const creaturePumpMatch = oracleText.match(/creatures?\s+you\s+control\s+get\s+\+(\d+)\/\+(\d+)/i);
+    if (creaturePumpMatch) {
+      abilities.push({
+        id: `${permanentId}-pump-your-creatures`,
+        sourceId: permanentId,
+        sourceName: name,
+        controllerId,
+        effectType: StaticEffectType.PUMP,
+        filter: {
+          cardTypes: ['creature'],
+          controller: 'you',
+        },
+        powerMod: parseInt(creaturePumpMatch[1]),
+        toughnessMod: parseInt(creaturePumpMatch[2]),
+        layer: 7,
+      });
+    }
   }
   
   // Check for "[Color] creatures get +1/+1" (like Crusade)
@@ -332,6 +345,52 @@ export function parseStaticAbilities(
     });
   }
   
+  // Check for land type granting: "Each other land is a [type] in addition to its other types"
+  // Pattern: Yavimaya, Cradle of Growth - "Each other land is a Forest in addition to its other types."
+  // Pattern: Urborg, Tomb of Yawgmoth - "Each land is a Swamp in addition to its other types."
+  const landTypeGrantMatch = oracleText.match(/each\s+(other\s+)?land\s+is\s+(?:a\s+)?(\w+)\s+in\s+addition/i);
+  if (landTypeGrantMatch) {
+    abilities.push({
+      id: `${permanentId}-add-land-type`,
+      sourceId: permanentId,
+      sourceName: name,
+      controllerId,
+      effectType: StaticEffectType.ADD_LAND_TYPE,
+      filter: {
+        cardTypes: ['land'],
+        other: !!landTypeGrantMatch[1], // "other" means exclude self
+        controller: 'any', // Affects all lands on the battlefield
+      },
+      value: landTypeGrantMatch[2].toLowerCase(), // Normalize to lowercase for consistency
+      layer: 4, // Layer 4: Type-changing effects
+    });
+  }
+  
+  // Check for "+1/+1 for each other [type]" patterns
+  // Pattern: Squirrel Mob - "Squirrel Mob gets +1/+1 for each other Squirrel on the battlefield."
+  const pumpPerTypeMatch = oracleText.match(/gets?\s+\+(\d+)\/\+(\d+)\s+for\s+each\s+(other\s+)?(\w+)/i);
+  if (pumpPerTypeMatch) {
+    abilities.push({
+      id: `${permanentId}-pump-per-creature`,
+      sourceId: permanentId,
+      sourceName: name,
+      controllerId,
+      effectType: StaticEffectType.PUMP_PER_CREATURE,
+      filter: {
+        cardTypes: ['creature'],
+        selfOnly: true, // "gets" abilities only apply to self
+      },
+      powerMod: parseInt(pumpPerTypeMatch[1]),
+      toughnessMod: parseInt(pumpPerTypeMatch[2]),
+      countFilter: {
+        types: [pumpPerTypeMatch[4].toLowerCase()], // Normalize to lowercase for consistency
+        other: !!pumpPerTypeMatch[3], // Count "other" creatures
+        controller: 'any', // Count all on battlefield
+      },
+      layer: 7, // Layer 7c: power/toughness changes
+    });
+  }
+  
   return abilities;
 }
 
@@ -355,6 +414,11 @@ export function matchesFilter(
     return false;
   }
   if (filter.controller === 'opponents' && permanent.controller === controllerId) {
+    return false;
+  }
+  
+  // Check "selfOnly" (only applies to the source permanent)
+  if (filter.selfOnly && permanent.id !== sourceId) {
     return false;
   }
   
@@ -470,6 +534,50 @@ export function calculateEffectivePT(
       case StaticEffectType.PUMP:
         power += ability.powerMod || 0;
         toughness += ability.toughnessMod || 0;
+        break;
+        
+      case StaticEffectType.PUMP_PER_CREATURE:
+        // Count creatures matching countFilter and apply bonus per creature
+        if (ability.countFilter) {
+          let count = 0;
+          for (const perm of battlefield) {
+            // Skip self if "other" is specified
+            if (ability.countFilter.other && perm.id === permanent.id) {
+              continue;
+            }
+            
+            const permCard = perm.card as KnownCardRef;
+            if (!permCard) continue;
+            
+            const permTypeLine = (permCard.type_line || '').toLowerCase();
+            
+            // Must be a creature
+            if (!permTypeLine.includes('creature')) continue;
+            
+            // Check controller filter
+            if (ability.countFilter.controller === 'you' && perm.controller !== ability.controllerId) {
+              continue;
+            }
+            if (ability.countFilter.controller === 'opponents' && perm.controller === ability.controllerId) {
+              continue;
+            }
+            
+            // Check creature type filter
+            if (ability.countFilter.types && ability.countFilter.types.length > 0) {
+              const hasType = ability.countFilter.types.some(t => 
+                permTypeLine.includes(t.toLowerCase())
+              );
+              // Also check for changeling
+              const isChangeling = (permCard.oracle_text || '').toLowerCase().includes('changeling');
+              if (!hasType && !isChangeling) continue;
+            }
+            
+            count++;
+          }
+          
+          power += (ability.powerMod || 0) * count;
+          toughness += (ability.toughnessMod || 0) * count;
+        }
         break;
         
       case StaticEffectType.SET_PT:
