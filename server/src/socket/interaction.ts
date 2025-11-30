@@ -1701,6 +1701,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     let abilityText = "";
     let requiresTap = false;
     let manaCost = "";
+    let sacrificeType: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'self' | null = null;
     
     // Parse activated abilities: look for "cost: effect" patterns
     const abilityPattern = /([^:]+):\s*([^.]+\.?)/gi;
@@ -1720,8 +1721,93 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       abilityText = ability.effect;
       requiresTap = ability.cost.toLowerCase().includes('{t}') || ability.cost.toLowerCase().includes('tap');
       manaCost = ability.cost;
+      
+      // Detect sacrifice type from cost
+      const lowerCost = ability.cost.toLowerCase();
+      if (/sacrifice\s+(?:a|an)\s+creature/i.test(lowerCost)) {
+        sacrificeType = 'creature';
+      } else if (/sacrifice\s+(?:a|an)\s+artifact/i.test(lowerCost)) {
+        sacrificeType = 'artifact';
+      } else if (/sacrifice\s+(?:a|an)\s+enchantment/i.test(lowerCost)) {
+        sacrificeType = 'enchantment';
+      } else if (/sacrifice\s+(?:a|an)\s+land/i.test(lowerCost)) {
+        sacrificeType = 'land';
+      } else if (/sacrifice\s+(?:a|an)\s+permanent/i.test(lowerCost)) {
+        sacrificeType = 'permanent';
+      } else if (/sacrifice\s+(?:~|this)/i.test(lowerCost)) {
+        sacrificeType = 'self';
+      }
     } else {
       abilityText = `Activated ability on ${cardName}`;
+    }
+    
+    // Check if sacrifice is required and we need to prompt for selection
+    if (sacrificeType && sacrificeType !== 'self') {
+      // Get eligible permanents for sacrifice
+      const eligiblePermanents = battlefield.filter((p: any) => {
+        if (p.controller !== pid) return false;
+        const permTypeLine = (p.card?.type_line || '').toLowerCase();
+        
+        switch (sacrificeType) {
+          case 'creature':
+            return permTypeLine.includes('creature');
+          case 'artifact':
+            return permTypeLine.includes('artifact');
+          case 'enchantment':
+            return permTypeLine.includes('enchantment');
+          case 'land':
+            return permTypeLine.includes('land');
+          case 'permanent':
+            return true; // Any permanent
+          default:
+            return false;
+        }
+      });
+      
+      if (eligiblePermanents.length === 0) {
+        socket.emit("error", {
+          code: "NO_SACRIFICE_TARGET",
+          message: `You don't control any ${sacrificeType}s to sacrifice.`,
+        });
+        return;
+      }
+      
+      // Store pending ability activation and emit sacrifice selection request
+      const pendingAbilityId = `pending_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      (game.state as any).pendingSacrificeAbility = (game.state as any).pendingSacrificeAbility || {};
+      (game.state as any).pendingSacrificeAbility[pid] = {
+        pendingId: pendingAbilityId,
+        permanentId,
+        abilityIndex,
+        cardName,
+        abilityText,
+        manaCost,
+        requiresTap,
+        sacrificeType,
+        effect: abilityText,
+      };
+      
+      // Emit sacrifice selection request
+      const sacrificeTargets = eligiblePermanents.map((p: any) => ({
+        id: p.id,
+        type: 'permanent' as const,
+        name: p.card?.name || 'Unknown',
+        imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+        typeLine: p.card?.type_line,
+      }));
+      
+      emitToPlayer(io, pid, "abilitySacrificeRequest", {
+        gameId,
+        pendingId: pendingAbilityId,
+        permanentId,
+        cardName,
+        abilityEffect: abilityText,
+        sacrificeType,
+        eligibleTargets: sacrificeTargets,
+      });
+      
+      console.log(`[activateBattlefieldAbility] ${cardName} requires sacrifice of a ${sacrificeType}. Waiting for selection from ${pid}`);
+      return;
     }
     
     // Tap the permanent if required
@@ -2464,6 +2550,200 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       ts: Date.now(),
     });
     
+    broadcastGame(io, game, gameId);
+  });
+
+  // ============================================================================
+  // Ability Sacrifice Selection (for Ashnod's Altar, Phyrexian Altar, etc.)
+  // ============================================================================
+
+  /**
+   * Handle sacrifice selection for activated abilities that require sacrificing a permanent
+   * This is used when abilities like "Sacrifice a creature: Add {C}{C}" need to know
+   * which creature to sacrifice
+   */
+  socket.on("abilitySacrificeConfirm", ({
+    gameId,
+    pendingId,
+    sacrificeTargetId,
+  }: {
+    gameId: string;
+    pendingId: string;
+    sacrificeTargetId: string;
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit("error", {
+        code: "GAME_NOT_FOUND",
+        message: "Game not found",
+      });
+      return;
+    }
+
+    // Get the pending ability activation
+    const pending = (game.state as any).pendingSacrificeAbility?.[pid];
+    if (!pending || pending.pendingId !== pendingId) {
+      socket.emit("error", {
+        code: "INVALID_PENDING_ABILITY",
+        message: "No pending ability activation found",
+      });
+      return;
+    }
+
+    // Clear the pending state
+    delete (game.state as any).pendingSacrificeAbility[pid];
+
+    const battlefield = game.state.battlefield || [];
+    
+    // Find and remove the sacrificed permanent
+    const sacrificeIndex = battlefield.findIndex((p: any) => p.id === sacrificeTargetId && p.controller === pid);
+    if (sacrificeIndex === -1) {
+      socket.emit("error", {
+        code: "SACRIFICE_TARGET_NOT_FOUND",
+        message: "Sacrifice target not found",
+      });
+      return;
+    }
+
+    const sacrificed = battlefield.splice(sacrificeIndex, 1)[0];
+    const sacrificedCard = (sacrificed as any).card;
+    const sacrificedName = sacrificedCard?.name || "Unknown";
+
+    // Move sacrificed permanent to graveyard
+    const zones = game.state.zones?.[pid];
+    if (zones) {
+      zones.graveyard = zones.graveyard || [];
+      (zones.graveyard as any[]).push({ ...sacrificedCard, zone: 'graveyard' });
+      zones.graveyardCount = (zones.graveyard as any[]).length;
+    }
+
+    // Find the source permanent and tap it if required
+    const sourcePerm = battlefield.find((p: any) => p.id === pending.permanentId);
+    if (sourcePerm && pending.requiresTap && !(sourcePerm as any).tapped) {
+      (sourcePerm as any).tapped = true;
+    }
+
+    // Check if this is a mana ability (doesn't use the stack)
+    const oracleText = (sourcePerm as any)?.card?.oracle_text || pending.effect || "";
+    const isManaAbility = /add\s*(\{[wubrgc]\}|mana|one mana|two mana|three mana)/i.test(oracleText);
+
+    if (!isManaAbility) {
+      // Put the ability on the stack
+      const stackItem = {
+        id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        type: 'ability' as const,
+        controller: pid,
+        source: pending.permanentId,
+        sourceName: pending.cardName,
+        description: pending.abilityText,
+        sacrificedPermanent: {
+          id: sacrificeTargetId,
+          name: sacrificedName,
+        },
+      } as any;
+
+      game.state.stack = game.state.stack || [];
+      game.state.stack.push(stackItem);
+
+      // Emit stack update
+      io.to(gameId).emit("stackUpdate", {
+        gameId,
+        stack: (game.state.stack || []).map((s: any) => ({
+          id: s.id,
+          type: s.type,
+          name: s.sourceName || s.card?.name || 'Ability',
+          controller: s.controller,
+          targets: s.targets,
+          source: s.source,
+          sourceName: s.sourceName,
+          description: s.description,
+        })),
+      });
+
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `⚡ ${getPlayerName(game, pid)} activated ${pending.cardName}'s ability (sacrificed ${sacrificedName}): ${pending.abilityText}`,
+        ts: Date.now(),
+      });
+    } else {
+      // Mana ability - handle immediately without stack
+      // Extract mana production and add to mana pool
+      const manaMatch = oracleText.match(/add\s+(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+      if (manaMatch) {
+        const manaStr = manaMatch[1];
+        (game.state as any).manaPool = (game.state as any).manaPool || {};
+        (game.state as any).manaPool[pid] = (game.state as any).manaPool[pid] || { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
+        
+        // Parse and add mana
+        const manaRegex = /\{([WUBRGC])\}/gi;
+        let manaSymbol;
+        while ((manaSymbol = manaRegex.exec(manaStr)) !== null) {
+          const color = manaSymbol[1].toUpperCase();
+          if ((game.state as any).manaPool[pid][color] !== undefined) {
+            (game.state as any).manaPool[pid][color]++;
+          }
+        }
+      }
+
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} activated ${pending.cardName} (sacrificed ${sacrificedName}) for mana.`,
+        ts: Date.now(),
+      });
+    }
+
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+
+    appendEvent(gameId, (game as any).seq ?? 0, "abilitySacrificeConfirm", {
+      playerId: pid,
+      pendingId,
+      permanentId: pending.permanentId,
+      sacrificeTargetId,
+      sacrificedName,
+    });
+
+    broadcastGame(io, game, gameId);
+  });
+
+  /**
+   * Cancel ability activation that required sacrifice
+   */
+  socket.on("abilitySacrificeCancel", ({
+    gameId,
+    pendingId,
+  }: {
+    gameId: string;
+    pendingId: string;
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    if (!game) return;
+
+    // Clear the pending state
+    if ((game.state as any).pendingSacrificeAbility?.[pid]?.pendingId === pendingId) {
+      const pending = (game.state as any).pendingSacrificeAbility[pid];
+      delete (game.state as any).pendingSacrificeAbility[pid];
+
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} cancelled ${pending.cardName}'s ability activation.`,
+        ts: Date.now(),
+      });
+    }
+
     broadcastGame(io, game, gameId);
   });
 

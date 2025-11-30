@@ -26,6 +26,8 @@ export interface ParsedActivatedAbility {
   requiresTap: boolean;
   requiresUntap: boolean;  // For untap symbol costs like {Q}
   requiresSacrifice: boolean;
+  sacrificeType?: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'self';  // What to sacrifice
+  sacrificeCount?: number;  // How many to sacrifice (default 1)
   manaCost?: string;
   lifeCost?: number;
   loyaltyCost?: number;  // For planeswalker abilities
@@ -225,6 +227,8 @@ function parseCostComponents(costStr: string): {
   requiresTap: boolean;
   requiresUntap: boolean;
   requiresSacrifice: boolean;
+  sacrificeType?: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'self';
+  sacrificeCount?: number;
   manaCost?: string;
   lifeCost?: number;
   loyaltyCost?: number;
@@ -235,6 +239,8 @@ function parseCostComponents(costStr: string): {
     requiresTap: boolean;
     requiresUntap: boolean;
     requiresSacrifice: boolean;
+    sacrificeType?: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'self';
+    sacrificeCount?: number;
     manaCost?: string;
     lifeCost?: number;
     loyaltyCost?: number;
@@ -244,6 +250,8 @@ function parseCostComponents(costStr: string): {
     requiresTap: false,
     requiresUntap: false,
     requiresSacrifice: false,
+    sacrificeType: undefined,
+    sacrificeCount: undefined,
     manaCost: undefined,
     lifeCost: undefined,
     loyaltyCost: undefined,
@@ -263,9 +271,37 @@ function parseCostComponents(costStr: string): {
     result.requiresUntap = true;
   }
   
-  // Check for sacrifice
+  // Check for sacrifice and parse what type
   if (/\bsacrifice\b/i.test(costStr)) {
     result.requiresSacrifice = true;
+    
+    // Parse sacrifice type
+    // "Sacrifice ~" or "sacrifice this" = sacrifice self
+    if (lowerCost.includes('sacrifice ~') || lowerCost.includes('sacrifice this')) {
+      result.sacrificeType = 'self';
+    }
+    // "Sacrifice a/an X" patterns
+    else if (/sacrifice\s+(?:a|an)\s+creature/i.test(lowerCost)) {
+      result.sacrificeType = 'creature';
+    } else if (/sacrifice\s+(?:a|an)\s+artifact/i.test(lowerCost)) {
+      result.sacrificeType = 'artifact';
+    } else if (/sacrifice\s+(?:a|an)\s+enchantment/i.test(lowerCost)) {
+      result.sacrificeType = 'enchantment';
+    } else if (/sacrifice\s+(?:a|an)\s+land/i.test(lowerCost)) {
+      result.sacrificeType = 'land';
+    } else if (/sacrifice\s+(?:a|an)\s+permanent/i.test(lowerCost)) {
+      result.sacrificeType = 'permanent';
+    }
+    // "Sacrifice X creatures/artifacts/etc"
+    else if (/sacrifice\s+(\d+|two|three|four|five)\s+creatures?/i.test(lowerCost)) {
+      result.sacrificeType = 'creature';
+      const countMatch = lowerCost.match(/sacrifice\s+(\d+|two|three|four|five)\s+creatures?/i);
+      if (countMatch) {
+        const countWord = countMatch[1].toLowerCase();
+        const wordToNum: Record<string, number> = { two: 2, three: 3, four: 4, five: 5 };
+        result.sacrificeCount = wordToNum[countWord] || parseInt(countWord, 10) || 1;
+      }
+    }
   }
   
   // Extract mana cost

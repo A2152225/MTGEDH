@@ -332,6 +332,23 @@ export function App() {
     }>;
   } | null>(null);
   
+  // Ability sacrifice selection modal state (for Ashnod's Altar, Phyrexian Altar, etc.)
+  const [abilitySacrificeModalOpen, setAbilitySacrificeModalOpen] = useState(false);
+  const [abilitySacrificeData, setAbilitySacrificeData] = useState<{
+    pendingId: string;
+    permanentId: string;
+    cardName: string;
+    abilityEffect: string;
+    sacrificeType: string;
+    eligibleTargets: Array<{
+      id: string;
+      type: 'permanent';
+      name: string;
+      imageUrl?: string;
+      typeLine?: string;
+    }>;
+  } | null>(null);
+  
   // Undo request modal state
   const [undoModalOpen, setUndoModalOpen] = useState(false);
   const [undoRequestData, setUndoRequestData] = useState<UndoRequestData | null>(null);
@@ -914,6 +931,41 @@ export function App() {
     socket.on("sacrificeSelectionRequest", handler);
     return () => {
       socket.off("sacrificeSelectionRequest", handler);
+    };
+  }, [safeView?.id]);
+
+  // Ability sacrifice request listener (for Ashnod's Altar, Phyrexian Altar, etc.)
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      pendingId: string;
+      permanentId: string;
+      cardName: string;
+      abilityEffect: string;
+      sacrificeType: string;
+      eligibleTargets: Array<{
+        id: string;
+        type: 'permanent';
+        name: string;
+        imageUrl?: string;
+        typeLine?: string;
+      }>;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        setAbilitySacrificeData({
+          pendingId: payload.pendingId,
+          permanentId: payload.permanentId,
+          cardName: payload.cardName,
+          abilityEffect: payload.abilityEffect,
+          sacrificeType: payload.sacrificeType,
+          eligibleTargets: payload.eligibleTargets,
+        });
+        setAbilitySacrificeModalOpen(true);
+      }
+    };
+    socket.on("abilitySacrificeRequest", handler);
+    return () => {
+      socket.off("abilitySacrificeRequest", handler);
     };
   }, [safeView?.id]);
 
@@ -3454,6 +3506,43 @@ export function App() {
         onCancel={() => {
           // Sacrifice is mandatory - inform the user they must select
           alert("You must sacrifice a creature to this triggered ability.");
+        }}
+      />
+
+      {/* Ability Sacrifice Selection Modal (for Ashnod's Altar, Phyrexian Altar, etc.) */}
+      <TargetSelectionModal
+        open={abilitySacrificeModalOpen}
+        title={`Sacrifice a ${abilitySacrificeData?.sacrificeType || 'permanent'}`}
+        description={abilitySacrificeData ? `${abilitySacrificeData.cardName}: ${abilitySacrificeData.abilityEffect}` : undefined}
+        targets={abilitySacrificeData?.eligibleTargets.map(t => ({
+          id: t.id,
+          type: 'permanent' as const,
+          name: t.name,
+          imageUrl: t.imageUrl,
+          typeLine: t.typeLine,
+        })) || []}
+        minTargets={1}
+        maxTargets={1}
+        onConfirm={(selectedIds) => {
+          if (selectedIds.length > 0 && abilitySacrificeData && safeView?.id) {
+            socket.emit("abilitySacrificeConfirm", {
+              gameId: safeView.id,
+              pendingId: abilitySacrificeData.pendingId,
+              sacrificeTargetId: selectedIds[0],
+            });
+            setAbilitySacrificeModalOpen(false);
+            setAbilitySacrificeData(null);
+          }
+        }}
+        onCancel={() => {
+          if (abilitySacrificeData && safeView?.id) {
+            socket.emit("abilitySacrificeCancel", {
+              gameId: safeView.id,
+              pendingId: abilitySacrificeData.pendingId,
+            });
+            setAbilitySacrificeModalOpen(false);
+            setAbilitySacrificeData(null);
+          }
         }}
       />
 
