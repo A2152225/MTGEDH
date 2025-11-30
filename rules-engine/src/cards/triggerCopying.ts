@@ -43,10 +43,11 @@ export function detectTriggerCopying(oracleText: string): TriggerCopyInfo {
     const attackOnly = text.includes('attacking') || text.includes('creature attacking');
     
     // Check for creature type filter (Harmonic Prodigy - Shamans/Wizards)
+    // Handle multi-word types by matching until "you control"
     let creatureTypeFilter: string | undefined;
-    const typeMatch = text.match(/(?:of a|ability of a) (\w+) (?:or (\w+) )?you control/);
+    const typeMatch = text.match(/(?:of a|ability of a) ([\w\s]+?) (?:or ([\w\s]+?) )?you control/);
     if (typeMatch) {
-      creatureTypeFilter = typeMatch[2] ? `${typeMatch[1]} or ${typeMatch[2]}` : typeMatch[1];
+      creatureTypeFilter = typeMatch[2] ? `${typeMatch[1].trim()} or ${typeMatch[2].trim()}` : typeMatch[1].trim();
     }
     
     return {
@@ -234,8 +235,8 @@ export function getActivatedTriggerCopiers(
     
     if (info.hasTriggerCopying && info.activationType === 'activated') {
       // Check if requires tap and is already tapped
-      // The cost is lowercased, so check for {t}
-      if (info.activationCost?.toLowerCase().includes('{t}') && perm.tapped) {
+      const costLower = info.activationCost?.toLowerCase() || '';
+      if (costLower.includes('{t}') && perm.tapped) {
         continue;
       }
       

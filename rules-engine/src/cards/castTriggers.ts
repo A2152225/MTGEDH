@@ -63,12 +63,12 @@ export function detectCastTrigger(oracleText: string, typeLine?: string): CastTr
   }
   
   // Check for "when you cast" other spells (like Ulalek)
-  // Pattern: "whenever you cast" + creature type
-  const otherCastPattern = /whenever you cast (?:a|an|another) ([a-z]+) (?:spell|creature)/i;
+  // Pattern: "whenever you cast" + creature type (handles multi-word types)
+  const otherCastPattern = /whenever you cast (?:a|an|another) ([\w\s]+?) (?:spell|creature)/i;
   const otherMatch = text.match(otherCastPattern);
   if (otherMatch) {
     // Extract the creature type filter
-    const creatureType = otherMatch[1];
+    const creatureType = otherMatch[1].trim();
     // Check if it copies triggers (Ulalek pattern)
     const copyTriggers = text.includes('copy') && text.includes('trigger');
     
