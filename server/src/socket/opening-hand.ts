@@ -67,7 +67,11 @@ export function registerOpeningHandHandlers(io: Server, socket: Socket) {
       }
 
       const hand = zones.hand as any[];
-      const battlefield = game.state?.battlefield || [];
+      // Ensure battlefield array exists on game.state
+      if (!game.state.battlefield) {
+        game.state.battlefield = [];
+      }
+      const battlefield = game.state.battlefield;
       const playedCards: string[] = [];
 
       for (const cardId of cardIds) {
