@@ -54,6 +54,8 @@ export {
   createEvolvingWildsAction,
   createEnemyFetchlandAction,
   createAlliedFetchlandAction,
+  createFetchlandActionFromCard,
+  isPermanentFetchland,
   type FetchlandAction,
 } from './fetchland';
 
@@ -90,6 +92,10 @@ export {
   checkETBTriggers,
   checkDiesTriggers,
   checkStepTriggers,
+  checkTribalCastTriggers,
+  checkLandfallTriggers,
+  checkSpellCastTriggers,
+  checkDrawTriggers,
   type TriggerResult,
 } from './triggersHandler';
 
@@ -151,3 +157,11 @@ export {
   type AttackCostCheckResult,
   type PillowfortCardName,
 } from '../pillowfortEffects';
+
+// ETB Handler
+export {
+  processETBTriggers,
+  processEchoUpkeep,
+  sacrificeForEcho,
+  type ETBAction,
+} from './etbHandler';

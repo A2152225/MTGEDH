@@ -10,6 +10,7 @@ import type { EngineResult, ActionContext, BaseAction } from '../core/types';
 import { RulesEngineEvent } from '../core/events';
 import { executeSacrifice, type SacrificeAction } from './sacrifice';
 import { executeSearchLibrary, type SearchLibraryAction, type SearchCriteria } from './searchLibrary';
+import { isFetchland, getFetchlandConfig, buildFetchlandSearchCriteria } from '../cards/fetchlands';
 
 export interface FetchlandAction extends BaseAction {
   readonly type: 'activateFetchland';
@@ -206,4 +207,42 @@ export function createAlliedFetchlandAction(
     tapped: false,
     selectedCardIds: selectedCardId ? [selectedCardId] : undefined,
   };
+}
+
+/**
+ * Create a fetchland action from card name using the cards module
+ * This auto-detects the fetchland configuration
+ */
+export function createFetchlandActionFromCard(
+  playerId: string,
+  sourceId: string,
+  cardName: string,
+  selectedCardId?: string
+): FetchlandAction | null {
+  const config = getFetchlandConfig(cardName);
+  if (!config) {
+    return null;
+  }
+  
+  const searchCriteria = buildFetchlandSearchCriteria(config);
+  
+  return {
+    type: 'activateFetchland',
+    playerId,
+    sourceId,
+    payLife: config.paysLife,
+    searchCriteria: {
+      ...searchCriteria,
+      maxResults: 1,
+    },
+    tapped: config.entersTapped,
+    selectedCardIds: selectedCardId ? [selectedCardId] : undefined,
+  };
+}
+
+/**
+ * Check if a permanent is a known fetchland
+ */
+export function isPermanentFetchland(cardName: string): boolean {
+  return isFetchland(cardName);
 }
