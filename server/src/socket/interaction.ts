@@ -6,6 +6,7 @@ import {
   permanentHasCreatureType,
   findPermanentsWithCreatureType 
 } from "../../../shared/src/creatureTypes";
+import { parseSacrificeCost, type SacrificeType } from "../../../shared/src/textUtils";
 import { getDeathTriggers, getPlayersWhoMustSacrifice } from "../state/modules/triggered-abilities";
 
 // ============================================================================
@@ -1722,20 +1723,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       requiresTap = ability.cost.toLowerCase().includes('{t}') || ability.cost.toLowerCase().includes('tap');
       manaCost = ability.cost;
       
-      // Detect sacrifice type from cost
-      const lowerCost = ability.cost.toLowerCase();
-      if (/sacrifice\s+(?:a|an)\s+creature/i.test(lowerCost)) {
-        sacrificeType = 'creature';
-      } else if (/sacrifice\s+(?:a|an)\s+artifact/i.test(lowerCost)) {
-        sacrificeType = 'artifact';
-      } else if (/sacrifice\s+(?:a|an)\s+enchantment/i.test(lowerCost)) {
-        sacrificeType = 'enchantment';
-      } else if (/sacrifice\s+(?:a|an)\s+land/i.test(lowerCost)) {
-        sacrificeType = 'land';
-      } else if (/sacrifice\s+(?:a|an)\s+permanent/i.test(lowerCost)) {
-        sacrificeType = 'permanent';
-      } else if (/sacrifice\s+(?:~|this)/i.test(lowerCost)) {
-        sacrificeType = 'self';
+      // Detect sacrifice type from cost using shared utility
+      const sacrificeInfo = parseSacrificeCost(ability.cost);
+      if (sacrificeInfo.requiresSacrifice && sacrificeInfo.sacrificeType) {
+        sacrificeType = sacrificeInfo.sacrificeType;
       }
     } else {
       abilityText = `Activated ability on ${cardName}`;

@@ -29,3 +29,64 @@ export function parseNumberFromText(text: string, defaultValue: number = 1): num
   const num = parseInt(text, 10);
   return isNaN(num) ? defaultValue : num;
 }
+
+/**
+ * Types of permanents that can be sacrificed
+ */
+export type SacrificeType = 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'self';
+
+/**
+ * Result of parsing sacrifice requirements from a cost string
+ */
+export interface SacrificeCostInfo {
+  requiresSacrifice: boolean;
+  sacrificeType?: SacrificeType;
+  sacrificeCount?: number;
+}
+
+/**
+ * Parse sacrifice requirements from a cost string
+ * Detects patterns like "Sacrifice a creature", "Sacrifice an artifact", etc.
+ * 
+ * @param costStr The cost portion of an activated ability (e.g., "Sacrifice a creature")
+ * @returns Information about the sacrifice requirement
+ */
+export function parseSacrificeCost(costStr: string): SacrificeCostInfo {
+  const lowerCost = costStr.toLowerCase();
+  
+  if (!/\bsacrifice\b/i.test(costStr)) {
+    return { requiresSacrifice: false };
+  }
+  
+  const result: SacrificeCostInfo = { requiresSacrifice: true };
+  
+  // "Sacrifice ~" or "sacrifice this" = sacrifice self
+  if (lowerCost.includes('sacrifice ~') || lowerCost.includes('sacrifice this')) {
+    result.sacrificeType = 'self';
+    return result;
+  }
+  
+  // "Sacrifice a/an X" patterns
+  if (/sacrifice\s+(?:a|an)\s+creature/i.test(lowerCost)) {
+    result.sacrificeType = 'creature';
+  } else if (/sacrifice\s+(?:a|an)\s+artifact/i.test(lowerCost)) {
+    result.sacrificeType = 'artifact';
+  } else if (/sacrifice\s+(?:a|an)\s+enchantment/i.test(lowerCost)) {
+    result.sacrificeType = 'enchantment';
+  } else if (/sacrifice\s+(?:a|an)\s+land/i.test(lowerCost)) {
+    result.sacrificeType = 'land';
+  } else if (/sacrifice\s+(?:a|an)\s+permanent/i.test(lowerCost)) {
+    result.sacrificeType = 'permanent';
+  }
+  
+  // "Sacrifice X creatures/artifacts/etc" (multiple)
+  if (/sacrifice\s+(\d+|two|three|four|five)\s+creatures?/i.test(lowerCost)) {
+    result.sacrificeType = 'creature';
+    const countMatch = lowerCost.match(/sacrifice\s+(\d+|two|three|four|five)\s+creatures?/i);
+    if (countMatch) {
+      result.sacrificeCount = parseNumberFromText(countMatch[1]);
+    }
+  }
+  
+  return result;
+}

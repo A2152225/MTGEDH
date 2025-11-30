@@ -12,6 +12,7 @@
  */
 
 import type { KnownCardRef } from '../../../shared/src';
+import { parseSacrificeCost, type SacrificeType } from '../../../shared/src/textUtils';
 
 /**
  * Represents a parsed activated ability
@@ -271,37 +272,12 @@ function parseCostComponents(costStr: string): {
     result.requiresUntap = true;
   }
   
-  // Check for sacrifice and parse what type
-  if (/\bsacrifice\b/i.test(costStr)) {
+  // Check for sacrifice and parse what type using shared utility
+  const sacrificeInfo = parseSacrificeCost(costStr);
+  if (sacrificeInfo.requiresSacrifice) {
     result.requiresSacrifice = true;
-    
-    // Parse sacrifice type
-    // "Sacrifice ~" or "sacrifice this" = sacrifice self
-    if (lowerCost.includes('sacrifice ~') || lowerCost.includes('sacrifice this')) {
-      result.sacrificeType = 'self';
-    }
-    // "Sacrifice a/an X" patterns
-    else if (/sacrifice\s+(?:a|an)\s+creature/i.test(lowerCost)) {
-      result.sacrificeType = 'creature';
-    } else if (/sacrifice\s+(?:a|an)\s+artifact/i.test(lowerCost)) {
-      result.sacrificeType = 'artifact';
-    } else if (/sacrifice\s+(?:a|an)\s+enchantment/i.test(lowerCost)) {
-      result.sacrificeType = 'enchantment';
-    } else if (/sacrifice\s+(?:a|an)\s+land/i.test(lowerCost)) {
-      result.sacrificeType = 'land';
-    } else if (/sacrifice\s+(?:a|an)\s+permanent/i.test(lowerCost)) {
-      result.sacrificeType = 'permanent';
-    }
-    // "Sacrifice X creatures/artifacts/etc"
-    else if (/sacrifice\s+(\d+|two|three|four|five)\s+creatures?/i.test(lowerCost)) {
-      result.sacrificeType = 'creature';
-      const countMatch = lowerCost.match(/sacrifice\s+(\d+|two|three|four|five)\s+creatures?/i);
-      if (countMatch) {
-        const countWord = countMatch[1].toLowerCase();
-        const wordToNum: Record<string, number> = { two: 2, three: 3, four: 4, five: 5 };
-        result.sacrificeCount = wordToNum[countWord] || parseInt(countWord, 10) || 1;
-      }
-    }
+    result.sacrificeType = sacrificeInfo.sacrificeType;
+    result.sacrificeCount = sacrificeInfo.sacrificeCount;
   }
   
   // Extract mana cost

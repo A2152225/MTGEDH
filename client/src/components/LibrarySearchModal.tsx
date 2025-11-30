@@ -126,17 +126,21 @@ export function LibrarySearchModal({
       if (next.has(cardId)) {
         next.delete(cardId);
         // Also remove from split assignments if in split mode
+        // Use unstable_batchedUpdates pattern by deferring updates
         if (splitDestination) {
-          setBattlefieldAssignments(ba => {
-            const newBa = new Set(ba);
-            newBa.delete(cardId);
-            return newBa;
-          });
-          setHandAssignments(ha => {
-            const newHa = new Set(ha);
-            newHa.delete(cardId);
-            return newHa;
-          });
+          // Use setTimeout to batch these updates together
+          setTimeout(() => {
+            setBattlefieldAssignments(ba => {
+              const newBa = new Set(ba);
+              newBa.delete(cardId);
+              return newBa;
+            });
+            setHandAssignments(ha => {
+              const newHa = new Set(ha);
+              newHa.delete(cardId);
+              return newHa;
+            });
+          }, 0);
         }
       } else if (next.size < maxSelections) {
         next.add(cardId);
