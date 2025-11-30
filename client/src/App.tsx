@@ -285,9 +285,14 @@ export function App() {
     description?: string;
     filter?: { types?: string[]; subtypes?: string[]; maxCmc?: number };
     maxSelections: number;
-    moveTo: 'hand' | 'battlefield' | 'top' | 'graveyard';
+    moveTo: 'hand' | 'battlefield' | 'top' | 'graveyard' | 'split';
     shuffleAfter: boolean;
     targetPlayerId?: string; // Whose library we're searching (for Gitaxian Probe, etc.)
+    // Split destination props
+    splitDestination?: boolean;
+    toBattlefield?: number;
+    toHand?: number;
+    entersTapped?: boolean;
   } | null>(null);
   
   // Target selection modal state
@@ -321,6 +326,23 @@ export function App() {
     reason: string;
     creatures: Array<{
       id: string;
+      name: string;
+      imageUrl?: string;
+      typeLine?: string;
+    }>;
+  } | null>(null);
+  
+  // Ability sacrifice selection modal state (for Ashnod's Altar, Phyrexian Altar, etc.)
+  const [abilitySacrificeModalOpen, setAbilitySacrificeModalOpen] = useState(false);
+  const [abilitySacrificeData, setAbilitySacrificeData] = useState<{
+    pendingId: string;
+    permanentId: string;
+    cardName: string;
+    abilityEffect: string;
+    sacrificeType: string;
+    eligibleTargets: Array<{
+      id: string;
+      type: 'permanent';
       name: string;
       imageUrl?: string;
       typeLine?: string;
@@ -790,6 +812,11 @@ export function App() {
           moveTo: payload.moveTo || 'hand',
           shuffleAfter: payload.shuffleAfter !== false,
           targetPlayerId: payload.targetPlayerId, // For searching opponent's library
+          // Split destination props
+          splitDestination: payload.splitDestination || false,
+          toBattlefield: payload.toBattlefield || 0,
+          toHand: payload.toHand || 0,
+          entersTapped: payload.entersTapped || false,
         });
         setLibrarySearchModalOpen(true);
       }
@@ -904,6 +931,41 @@ export function App() {
     socket.on("sacrificeSelectionRequest", handler);
     return () => {
       socket.off("sacrificeSelectionRequest", handler);
+    };
+  }, [safeView?.id]);
+
+  // Ability sacrifice request listener (for Ashnod's Altar, Phyrexian Altar, etc.)
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      pendingId: string;
+      permanentId: string;
+      cardName: string;
+      abilityEffect: string;
+      sacrificeType: string;
+      eligibleTargets: Array<{
+        id: string;
+        type: 'permanent';
+        name: string;
+        imageUrl?: string;
+        typeLine?: string;
+      }>;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        setAbilitySacrificeData({
+          pendingId: payload.pendingId,
+          permanentId: payload.permanentId,
+          cardName: payload.cardName,
+          abilityEffect: payload.abilityEffect,
+          sacrificeType: payload.sacrificeType,
+          eligibleTargets: payload.eligibleTargets,
+        });
+        setAbilitySacrificeModalOpen(true);
+      }
+    };
+    socket.on("abilitySacrificeRequest", handler);
+    return () => {
+      socket.off("abilitySacrificeRequest", handler);
     };
   }, [safeView?.id]);
 
@@ -1853,12 +1915,17 @@ export function App() {
   };
 
   // Library search handlers (Tutor effects)
-  const handleLibrarySearchConfirm = (selectedCardIds: string[], moveTo: string) => {
+  const handleLibrarySearchConfirm = (
+    selectedCardIds: string[], 
+    moveTo: string,
+    splitAssignments?: { toBattlefield: string[]; toHand: string[] }
+  ) => {
     if (!safeView) return;
     socket.emit("librarySearchSelect", {
       gameId: safeView.id,
       cardIds: selectedCardIds,
       destination: moveTo,
+      splitAssignments,
     });
     setLibrarySearchModalOpen(false);
     setLibrarySearchData(null);
@@ -3346,6 +3413,10 @@ export function App() {
         maxSelections={librarySearchData?.maxSelections || 1}
         moveTo={librarySearchData?.moveTo || 'hand'}
         shuffleAfter={librarySearchData?.shuffleAfter ?? true}
+        splitDestination={librarySearchData?.splitDestination}
+        toBattlefield={librarySearchData?.toBattlefield}
+        toHand={librarySearchData?.toHand}
+        entersTapped={librarySearchData?.entersTapped}
         onConfirm={handleLibrarySearchConfirm}
         onCancel={handleLibrarySearchCancel}
       />
@@ -3435,6 +3506,43 @@ export function App() {
         onCancel={() => {
           // Sacrifice is mandatory - inform the user they must select
           alert("You must sacrifice a creature to this triggered ability.");
+        }}
+      />
+
+      {/* Ability Sacrifice Selection Modal (for Ashnod's Altar, Phyrexian Altar, etc.) */}
+      <TargetSelectionModal
+        open={abilitySacrificeModalOpen}
+        title={`Sacrifice a ${abilitySacrificeData?.sacrificeType || 'permanent'}`}
+        description={abilitySacrificeData ? `${abilitySacrificeData.cardName}: ${abilitySacrificeData.abilityEffect}` : undefined}
+        targets={abilitySacrificeData?.eligibleTargets.map(t => ({
+          id: t.id,
+          type: 'permanent' as const,
+          name: t.name,
+          imageUrl: t.imageUrl,
+          typeLine: t.typeLine,
+        })) || []}
+        minTargets={1}
+        maxTargets={1}
+        onConfirm={(selectedIds) => {
+          if (selectedIds.length > 0 && abilitySacrificeData && safeView?.id) {
+            socket.emit("abilitySacrificeConfirm", {
+              gameId: safeView.id,
+              pendingId: abilitySacrificeData.pendingId,
+              sacrificeTargetId: selectedIds[0],
+            });
+            setAbilitySacrificeModalOpen(false);
+            setAbilitySacrificeData(null);
+          }
+        }}
+        onCancel={() => {
+          if (abilitySacrificeData && safeView?.id) {
+            socket.emit("abilitySacrificeCancel", {
+              gameId: safeView.id,
+              pendingId: abilitySacrificeData.pendingId,
+            });
+            setAbilitySacrificeModalOpen(false);
+            setAbilitySacrificeData(null);
+          }
         }}
       />
 

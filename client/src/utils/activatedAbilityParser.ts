@@ -12,6 +12,7 @@
  */
 
 import type { KnownCardRef } from '../../../shared/src';
+import { parseSacrificeCost, type SacrificeType } from '../../../shared/src/textUtils';
 
 /**
  * Represents a parsed activated ability
@@ -26,6 +27,8 @@ export interface ParsedActivatedAbility {
   requiresTap: boolean;
   requiresUntap: boolean;  // For untap symbol costs like {Q}
   requiresSacrifice: boolean;
+  sacrificeType?: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'self';  // What to sacrifice
+  sacrificeCount?: number;  // How many to sacrifice (default 1)
   manaCost?: string;
   lifeCost?: number;
   loyaltyCost?: number;  // For planeswalker abilities
@@ -225,6 +228,8 @@ function parseCostComponents(costStr: string): {
   requiresTap: boolean;
   requiresUntap: boolean;
   requiresSacrifice: boolean;
+  sacrificeType?: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'self';
+  sacrificeCount?: number;
   manaCost?: string;
   lifeCost?: number;
   loyaltyCost?: number;
@@ -235,6 +240,8 @@ function parseCostComponents(costStr: string): {
     requiresTap: boolean;
     requiresUntap: boolean;
     requiresSacrifice: boolean;
+    sacrificeType?: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'self';
+    sacrificeCount?: number;
     manaCost?: string;
     lifeCost?: number;
     loyaltyCost?: number;
@@ -244,6 +251,8 @@ function parseCostComponents(costStr: string): {
     requiresTap: false,
     requiresUntap: false,
     requiresSacrifice: false,
+    sacrificeType: undefined,
+    sacrificeCount: undefined,
     manaCost: undefined,
     lifeCost: undefined,
     loyaltyCost: undefined,
@@ -263,9 +272,12 @@ function parseCostComponents(costStr: string): {
     result.requiresUntap = true;
   }
   
-  // Check for sacrifice
-  if (/\bsacrifice\b/i.test(costStr)) {
+  // Check for sacrifice and parse what type using shared utility
+  const sacrificeInfo = parseSacrificeCost(costStr);
+  if (sacrificeInfo.requiresSacrifice) {
     result.requiresSacrifice = true;
+    result.sacrificeType = sacrificeInfo.sacrificeType;
+    result.sacrificeCount = sacrificeInfo.sacrificeCount;
   }
   
   // Extract mana cost
