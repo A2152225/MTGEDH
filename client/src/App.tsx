@@ -649,7 +649,13 @@ export function App() {
     
     // Normalize step key - remove underscores and convert to lowercase for consistent comparison
     const stepKey = step.replace(/_/g, '').toLowerCase();
-    const shouldAutoPass = autoPassSteps.has(stepKey) || autoPassSteps.has(step.toLowerCase());
+    const autoPassStepEnabled = autoPassSteps.has(stepKey) || autoPassSteps.has(step.toLowerCase());
+    
+    // Auto-pass only activates when you are NOT the active player (not your turn)
+    // This allows players to leave auto-pass enabled without worrying about losing their turn
+    const turnPlayer = (safeView as any).turnPlayer;
+    const isYourTurn = turnPlayer !== null && turnPlayer !== undefined && turnPlayer === you;
+    const shouldAutoPass = autoPassStepEnabled && !isYourTurn;
     
     if (youHavePriority && stackLength === 0 && !combatModalOpen) {
       // Check if this is a new step
@@ -657,7 +663,7 @@ export function App() {
         lastPriorityStep.current = step;
         
         if (shouldAutoPass) {
-          // Auto-pass priority
+          // Auto-pass priority (only during opponents' turns)
           socket.emit("passPriority", { gameId: safeView.id, by: you });
           setPriorityModalOpen(false);
         } else {
