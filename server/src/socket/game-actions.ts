@@ -2076,6 +2076,42 @@ export function registerGameActions(io: Server, socket: Socket) {
         const resolvedCard = topItem?.card;
         const resolvedController = topItem?.controller;
         
+        // Check for Mox Diamond replacement effect BEFORE resolving
+        // "If Mox Diamond would enter the battlefield, you may discard a land card instead."
+        const isMoxDiamondCard = (resolvedCard?.name || '').toLowerCase().trim() === 'mox diamond';
+        if (resolvedCard && resolvedController && isMoxDiamondCard) {
+          // Don't resolve yet - prompt the player for their choice
+          const zones = game.state?.zones?.[resolvedController];
+          const hand = Array.isArray(zones?.hand) ? zones.hand : [];
+          
+          // Find land cards in hand (using land type check)
+          const landCardsInHand = hand
+            .filter((c: any) => c && /\bland\b/i.test(c.type_line || ''))
+            .map((c: any) => ({
+              id: c.id,
+              name: c.name || 'Unknown Land',
+              imageUrl: c.image_uris?.small || c.image_uris?.normal,
+            }));
+          
+          // Emit prompt to the controller
+          emitToPlayer(io, resolvedController as string, "moxDiamondPrompt", {
+            gameId,
+            stackItemId: topItem.id,
+            cardImageUrl: resolvedCard.image_uris?.normal || resolvedCard.image_uris?.small,
+            landCardsInHand,
+          });
+          
+          console.log(`[passPriority] Mox Diamond replacement effect: prompting ${resolvedController} to discard a land or put in graveyard`);
+          
+          // Don't resolve the stack item yet - wait for moxDiamondChoice event
+          // Bump sequence and broadcast to show updated state
+          if (typeof game.bumpSeq === 'function') {
+            game.bumpSeq();
+          }
+          broadcastGame(io, game, gameId);
+          return;
+        }
+        
         // Directly call resolveTopOfStack to ensure the spell resolves
         // (appendGameEvent may fail silently if applyEvent has issues)
         if (typeof (game as any).resolveTopOfStack === 'function') {

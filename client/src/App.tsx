@@ -28,6 +28,7 @@ import { OpeningHandActionsModal } from "./components/OpeningHandActionsModal";
 import { LibrarySearchModal } from "./components/LibrarySearchModal";
 import { TargetSelectionModal, type TargetOption } from "./components/TargetSelectionModal";
 import { UndoRequestModal, type UndoRequestData } from "./components/UndoRequestModal";
+import { MoxDiamondModal } from "./components/MoxDiamondModal";
 import { SplitCardChoiceModal, type CardFaceOption } from "./components/SplitCardChoiceModal";
 import { CreatureTypeSelectModal } from "./components/CreatureTypeSelectModal";
 import { AppearanceSettingsModal } from "./components/AppearanceSettingsModal";
@@ -233,6 +234,14 @@ export function App() {
     cardName: string;
     imageUrl?: string;
     currentLife?: number;
+  } | null>(null);
+  
+  // Mox Diamond replacement effect modal state
+  const [moxDiamondModalOpen, setMoxDiamondModalOpen] = useState(false);
+  const [moxDiamondData, setMoxDiamondData] = useState<{
+    stackItemId: string;
+    cardImageUrl?: string;
+    landCardsInHand: Array<{ id: string; name: string; imageUrl?: string }>;
   } | null>(null);
   
   // Bounce land choice modal state
@@ -706,6 +715,24 @@ export function App() {
     socket.on("shockLandPrompt", handler);
     return () => {
       socket.off("shockLandPrompt", handler);
+    };
+  }, [safeView?.id]);
+
+  // Mox Diamond prompt listener
+  React.useEffect(() => {
+    const handler = (payload: any) => {
+      if (payload.gameId === safeView?.id) {
+        setMoxDiamondData({
+          stackItemId: payload.stackItemId,
+          cardImageUrl: payload.cardImageUrl,
+          landCardsInHand: payload.landCardsInHand || [],
+        });
+        setMoxDiamondModalOpen(true);
+      }
+    };
+    socket.on("moxDiamondPrompt", handler);
+    return () => {
+      socket.off("moxDiamondPrompt", handler);
     };
   }, [safeView?.id]);
 
@@ -1805,6 +1832,29 @@ export function App() {
     });
     setShockLandModalOpen(false);
     setShockLandData(null);
+  };
+
+  // Mox Diamond handlers
+  const handleMoxDiamondDiscardLand = (landCardId: string) => {
+    if (!safeView || !moxDiamondData) return;
+    socket.emit("moxDiamondChoice", {
+      gameId: safeView.id,
+      stackItemId: moxDiamondData.stackItemId,
+      discardLandId: landCardId,
+    });
+    setMoxDiamondModalOpen(false);
+    setMoxDiamondData(null);
+  };
+
+  const handleMoxDiamondPutInGraveyard = () => {
+    if (!safeView || !moxDiamondData) return;
+    socket.emit("moxDiamondChoice", {
+      gameId: safeView.id,
+      stackItemId: moxDiamondData.stackItemId,
+      discardLandId: null,
+    });
+    setMoxDiamondModalOpen(false);
+    setMoxDiamondData(null);
   };
 
   // Bounce land handler - player selects which land to return
@@ -3330,6 +3380,15 @@ export function App() {
         currentLife={shockLandData?.currentLife}
         onPayLife={handleShockLandPayLife}
         onEnterTapped={handleShockLandTapped}
+      />
+
+      {/* Mox Diamond Replacement Effect Modal */}
+      <MoxDiamondModal
+        open={moxDiamondModalOpen}
+        cardImageUrl={moxDiamondData?.cardImageUrl}
+        landCardsInHand={moxDiamondData?.landCardsInHand || []}
+        onDiscardLand={handleMoxDiamondDiscardLand}
+        onPutInGraveyard={handleMoxDiamondPutInGraveyard}
       />
 
       {/* Bounce Land Choice Modal */}

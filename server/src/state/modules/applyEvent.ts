@@ -1106,6 +1106,66 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "moxDiamondChoice": {
+        // Mox Diamond replacement effect - discard a land to enter battlefield, or go to graveyard
+        const pid = (e as any).playerId;
+        const discardLandId = (e as any).discardLandId;
+        const stackItemId = (e as any).stackItemId;
+        try {
+          const zones = ctx.state.zones || {};
+          const z = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+          zones[pid] = z as any;
+          ctx.state.zones = zones;
+          
+          // Find Mox Diamond on stack (it may already be removed by socket handler, but handle replay case)
+          const stack = ctx.state.stack || [];
+          const moxIdx = stack.findIndex((item: any) => item.id === stackItemId);
+          let moxCard = null;
+          
+          if (moxIdx !== -1) {
+            const [moxItem] = stack.splice(moxIdx, 1);
+            moxCard = moxItem.card;
+          }
+          
+          if (discardLandId) {
+            // Discard a land and put Mox Diamond on battlefield
+            const hand = z.hand as any[];
+            const landIdx = hand.findIndex((c: any) => c?.id === discardLandId);
+            if (landIdx !== -1) {
+              const [discardedLand] = hand.splice(landIdx, 1);
+              z.handCount = hand.length;
+              (z.graveyard as any[]).push({ ...discardedLand, zone: 'graveyard' });
+              z.graveyardCount = (z.graveyard as any[]).length;
+            }
+            
+            // Put Mox Diamond on battlefield
+            if (moxCard) {
+              ctx.state.battlefield = ctx.state.battlefield || [];
+              const permId = `perm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+              ctx.state.battlefield.push({
+                id: permId,
+                controller: pid,
+                owner: pid,
+                tapped: false,
+                counters: {},
+                card: { ...moxCard, zone: 'battlefield' },
+              } as any);
+            }
+          } else {
+            // Put Mox Diamond in graveyard
+            if (moxCard) {
+              (z.graveyard as any[]).push({ ...moxCard, zone: 'graveyard' });
+              z.graveyardCount = (z.graveyard as any[]).length;
+            }
+          }
+          
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(moxDiamondChoice): failed", err);
+        }
+        break;
+      }
+
       case "bounceLandChoice": {
         // Bounce land: return a land to hand
         const pid = (e as any).playerId;
