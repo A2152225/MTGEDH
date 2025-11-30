@@ -2918,7 +2918,7 @@ export function App() {
           onNextStep={() => socket.emit("nextStep", { gameId: safeView.id })}
           onPassPriority={() => you && socket.emit("passPriority", { gameId: safeView.id, by: you })}
           onAdvancingChange={setPhaseNavigatorAdvancing}
-          onSkipToPhase={(targetPhase: string, targetStep?: string) => socket.emit("skipToPhase", { gameId: safeView.id, phase: targetPhase })}
+          onSkipToPhase={(targetPhase: string, targetStep?: string) => socket.emit("skipToPhase", { gameId: safeView.id, targetPhase, targetStep })}
         />
       )}
 

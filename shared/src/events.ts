@@ -318,7 +318,7 @@ export interface ClientToServerEvents {
   // ===== PHASE NAVIGATION =====
   
   // Skip to a specific phase
-  skipToPhase: (payload: { gameId: GameID; phase: string }) => void;
+  skipToPhase: (payload: { gameId: GameID; targetPhase: string; targetStep?: string }) => void;
 
   // ===== SCRY/SURVEIL =====
   
