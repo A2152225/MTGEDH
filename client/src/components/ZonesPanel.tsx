@@ -66,7 +66,7 @@ export function ZonesPanel(props: {
           // Local defensive copies for arrays/counts
           const gy = Array.isArray(z.graveyard) ? z.graveyard as any as Array<Partial<KnownCardRef> & { id: string }> : [];
           const ex = Array.isArray(z.exile) ? z.exile as any as Array<Partial<KnownCardRef> & { id: string }> : [];
-          const libCount = typeof z.libraryCount === 'number' ? z.libraryCount : (Array.isArray(z.library) ? z.library.length : 0);
+          const libCount = typeof z.libraryCount === 'number' ? z.libraryCount : (Array.isArray((z as any).library) ? (z as any).library.length : 0);
           const canAct = isYouPlayer && you === p.id;
 
           return (

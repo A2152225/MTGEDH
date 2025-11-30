@@ -16,10 +16,15 @@ describe('AIEngine', () => {
     testGameState = {
       id: 'test-game',
       format: 'commander' as any,
+      life: {},
+      turnPlayer: 'ai1',
+      priority: 'ai1',
+      active: true,
       players: [
         {
           id: 'ai1',
           name: 'AI Player 1',
+          seat: 0,
           life: 40,
           hand: [
             { id: 'card1', name: 'Forest', types: ['Land'] },
@@ -37,6 +42,7 @@ describe('AIEngine', () => {
         {
           id: 'ai2',
           name: 'AI Player 2',
+          seat: 1,
           life: 40,
           hand: [],
           library: [],
@@ -55,6 +61,8 @@ describe('AIEngine', () => {
       phase: 'beginning' as any,
       step: 'untap' as any,
       stack: [],
+      battlefield: [],
+      commandZone: {},
       startingLife: 40,
       allowUndos: false,
       turnTimerEnabled: false,

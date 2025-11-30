@@ -12,6 +12,7 @@ import type {
   CommanderInfo,
   GameID,
   KnownCardRef,
+  CardRef,
   ClientGameView,
   ChatMsg,
 } from '../../../shared/src';
@@ -1030,7 +1031,7 @@ export function TableLayout(props: {
                           players={players.map(p => ({ id: p.id, name: p.name }))}
                           onTap={isYouThis && gameId ? (id) => socket.emit('tapPermanent', { gameId, permanentId: id }) : undefined}
                           onUntap={isYouThis && gameId ? (id) => socket.emit('untapPermanent', { gameId, permanentId: id }) : undefined}
-                          onActivateAbility={isYouThis && gameId ? (permanentId, abilityId) => socket.emit('activateBattlefieldAbility', { gameId, permanentId, abilityIndex: typeof abilityId === 'number' ? abilityId : parseInt(abilityId || '0', 10) }) : undefined}
+                          onActivateAbility={isYouThis && gameId ? (permanentId, abilityId) => socket.emit('activateBattlefieldAbility', { gameId, permanentId, abilityId: typeof abilityId === 'number' ? String(abilityId) : (abilityId || '0') }) : undefined}
                           onAddCounter={isYouThis ? onCounter : undefined}
                           onSacrifice={isYouThis && gameId ? (id) => socket.emit('sacrificePermanent', { gameId, permanentId: id }) : undefined}
                           onRemove={isYouThis ? onRemove : undefined}
@@ -1072,7 +1073,7 @@ export function TableLayout(props: {
                               onCounter={isYouPlayer ? onCounter : undefined}
                               onTap={isYouThis && gameId ? (id) => socket.emit('tapPermanent', { gameId, permanentId: id }) : undefined}
                               onUntap={isYouThis && gameId ? (id) => socket.emit('untapPermanent', { gameId, permanentId: id }) : undefined}
-                              onActivateAbility={isYouThis && gameId ? (permanentId, abilityId) => socket.emit('activateBattlefieldAbility', { gameId, permanentId, abilityIndex: typeof abilityId === 'number' ? abilityId : parseInt(abilityId || '0', 10) }) : undefined}
+                              onActivateAbility={isYouThis && gameId ? (permanentId, abilityId) => socket.emit('activateBattlefieldAbility', { gameId, permanentId, abilityId: typeof abilityId === 'number' ? String(abilityId) : (abilityId || '0') }) : undefined}
                               onSacrifice={isYouThis && gameId ? (id) => socket.emit('sacrificePermanent', { gameId, permanentId: id }) : undefined}
                               canActivate={isYouThis || false}
                               playerId={isYouThis ? you : undefined}
@@ -1094,7 +1095,7 @@ export function TableLayout(props: {
                             </div>
                             <LandRow
                               lands={lands}
-                              imagePref={imagePref}
+                              imagePref={imagePref || 'small'}
                               tileWidth={TILE_W}
                               overlapRatio={0.33}
                               highlightTargets={highlightPermTargets}
@@ -1104,7 +1105,7 @@ export function TableLayout(props: {
                               onCounter={isYouPlayer ? onCounter : undefined}
                               onTap={isYouThis && gameId ? (id) => socket.emit('tapPermanent', { gameId, permanentId: id }) : undefined}
                               onUntap={isYouThis && gameId ? (id) => socket.emit('untapPermanent', { gameId, permanentId: id }) : undefined}
-                              onActivateAbility={isYouThis && gameId ? (permanentId, abilityId) => socket.emit('activateBattlefieldAbility', { gameId, permanentId, abilityIndex: typeof abilityId === 'number' ? abilityId : parseInt(abilityId || '0', 10) }) : undefined}
+                              onActivateAbility={isYouThis && gameId ? (permanentId, abilityId) => socket.emit('activateBattlefieldAbility', { gameId, permanentId, abilityId: typeof abilityId === 'number' ? String(abilityId) : (abilityId || '0') }) : undefined}
                               onSacrifice={isYouThis && gameId ? (id) => socket.emit('sacrificePermanent', { gameId, permanentId: id }) : undefined}
                               canActivate={isYouThis || false}
                               playerId={isYouThis ? you : undefined}
@@ -1176,8 +1177,8 @@ export function TableLayout(props: {
                               )}
                             </div>
                             <HandGallery
-                              cards={yourHand}
-                              imagePref={imagePref}
+                              cards={yourHand as CardRef[]}
+                              imagePref={imagePref || 'small'}
                               onPlayLand={(cardId) =>
                                 onPlayLandFromHand?.(cardId)
                               }
@@ -1376,8 +1377,8 @@ export function TableLayout(props: {
                                 });
                               }
                             }}
-                            onViewGraveyard={onViewGraveyard ? () => onViewGraveyard(pid) : undefined}
-                            onViewExile={onViewExile ? () => onViewExile(pid) : undefined}
+                            onViewGraveyard={onViewGraveyard ? () => onViewGraveyard(pb.player.id) : undefined}
+                            onViewExile={onViewExile ? () => onViewExile(pb.player.id) : undefined}
                           />
                         )}
                       </div>

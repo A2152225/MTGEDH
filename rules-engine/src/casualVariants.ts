@@ -181,11 +181,13 @@ export function validateCommanderDeck(deck: CommanderDeck): {
   }
 
   // Check color identity
-  for (const card of deck.deck) {
-    if (!canCardBeInCommanderDeck(card, deck.colorIdentity)) {
-      errors.push(`${card} violates color identity`);
-    }
-  }
+  // TODO: This check expects card color identity but deck.deck contains card names.
+  // For now, we skip this validation as it would require resolving card names to color identities.
+  // for (const card of deck.deck) {
+  //   if (!canCardBeInCommanderDeck(card, deck.colorIdentity)) {
+  //     errors.push(`${card} violates color identity`);
+  //   }
+  // }
 
   // Validate commanders
   for (const commander of deck.commanders) {

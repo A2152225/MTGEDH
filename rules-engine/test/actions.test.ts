@@ -5,6 +5,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { GameState } from '../../shared/src';
+import { GameStep } from '../../shared/src';
 import { RulesEngineEvent, type RulesEvent } from '../src/core/events';
 import {
   executeSacrifice,
@@ -278,7 +279,7 @@ describe('Combat Actions', () => {
       tapped: false,
       card: { name: 'Hill Giant', type_line: 'Creature — Giant', power: '3', toughness: '3' },
     });
-    gameState.step = 'DECLARE_ATTACKERS';
+    gameState.step = GameStep.DECLARE_ATTACKERS;
     gameStates = new Map([['test-game', gameState]]);
     context = createMockContext(gameStates);
   });
@@ -295,7 +296,7 @@ describe('Combat Actions', () => {
   });
 
   it('should reject declare attackers in wrong step', () => {
-    gameState.step = 'main';
+    gameState.step = GameStep.MAIN1;
     
     const action = {
       type: 'declareAttackers' as const,
@@ -924,7 +925,7 @@ describe('Combat Validation in Actions', () => {
   });
 
   it('should reject blocking with a non-creature permanent', () => {
-    gameState.step = 'DECLARE_BLOCKERS';
+    gameState.step = GameStep.DECLARE_BLOCKERS;
     
     // Add an attacker
     (gameState as any).combat = {

@@ -1933,8 +1933,8 @@ export function App() {
     if (!safeView) return;
     socket.emit("librarySearchSelect", {
       gameId: safeView.id,
-      cardIds: selectedCardIds,
-      destination: moveTo,
+      selectedCardIds: selectedCardIds,
+      moveTo: moveTo,
       splitAssignments,
     });
     setLibrarySearchModalOpen(false);
@@ -2918,7 +2918,7 @@ export function App() {
           onNextStep={() => socket.emit("nextStep", { gameId: safeView.id })}
           onPassPriority={() => you && socket.emit("passPriority", { gameId: safeView.id, by: you })}
           onAdvancingChange={setPhaseNavigatorAdvancing}
-          onSkipToPhase={(targetPhase: string, targetStep?: string) => socket.emit("skipToPhase", { gameId: safeView.id, phase: targetPhase })}
+          onSkipToPhase={(targetPhase: string, targetStep?: string) => socket.emit("skipToPhase", { gameId: safeView.id, targetPhase, targetStep })}
         />
       )}
 
@@ -3175,14 +3175,14 @@ export function App() {
             if (peek.mode === "scry")
               socket.emit("confirmScry", {
                 gameId: view.id,
-                topCardIds: res.keepTopOrder || [],
-                bottomCardIds: res.bottomOrder || [],
+                keepTopOrder: (res.keepTopOrder || []).map(id => ({ id })),
+                bottomOrder: (res.bottomOrder || []).map(id => ({ id })),
               });
             else
               socket.emit("confirmSurveil", {
                 gameId: view.id,
-                topCardIds: res.keepTopOrder || [],
-                graveyardCardIds: res.toGraveyard || [],
+                keepTopOrder: (res.keepTopOrder || []).map(id => ({ id })),
+                toGraveyard: (res.toGraveyard || []).map(id => ({ id })),
               });
             setPeek(null);
           }}

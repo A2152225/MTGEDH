@@ -236,7 +236,7 @@ export interface ClientToServerEvents {
   // ===== LIBRARY SEARCH EVENTS =====
   
   // Confirm library search selection
-  librarySearchSelect: (payload: { gameId: GameID; cardIds?: string[]; selectedCardIds?: string[]; destination: string }) => void;
+  librarySearchSelect: (payload: { gameId: GameID; selectedCardIds: string[]; moveTo: string; targetPlayerId?: string; splitAssignments?: { toBattlefield: string[]; toHand: string[] } }) => void;
   
   // Cancel library search
   librarySearchCancel: (payload: { gameId: GameID }) => void;
@@ -301,6 +301,9 @@ export interface ClientToServerEvents {
   
   // Request judge assistance
   requestJudge: (payload: { gameId: GameID; reason?: string }) => void;
+  
+  // Respond to judge confirmation
+  judgeConfirmResponse: (payload: { gameId: GameID; confirmId: string; accept: boolean }) => void;
 
   // ===== SPELL CASTING =====
   
@@ -315,15 +318,15 @@ export interface ClientToServerEvents {
   // ===== PHASE NAVIGATION =====
   
   // Skip to a specific phase
-  skipToPhase: (payload: { gameId: GameID; phase: string }) => void;
+  skipToPhase: (payload: { gameId: GameID; targetPhase: string; targetStep?: string }) => void;
 
   // ===== SCRY/SURVEIL =====
   
   // Confirm scry result
-  confirmScry: (payload: { gameId: GameID; topCardIds: string[]; bottomCardIds: string[] }) => void;
+  confirmScry: (payload: { gameId: GameID; keepTopOrder: Array<{ id: string }>; bottomOrder: Array<{ id: string }> }) => void;
   
   // Confirm surveil result
-  confirmSurveil: (payload: { gameId: GameID; topCardIds: string[]; graveyardCardIds: string[] }) => void;
+  confirmSurveil: (payload: { gameId: GameID; toGraveyard: Array<{ id: string }>; keepTopOrder: Array<{ id: string }> }) => void;
 
   // ===== MULLIGAN EVENTS =====
   
@@ -342,6 +345,10 @@ export interface ClientToServerEvents {
   
   // Sacrifice selection (for effects that require sacrificing)
   sacrificeSelected: (payload: { gameId: GameID; permanentIds?: string[]; permanentId?: string; triggerId?: string }) => void;
+  
+  // Ability sacrifice confirm/cancel (for sacrifice-as-cost abilities)
+  abilitySacrificeConfirm: (payload: { gameId: GameID; pendingId: string; sacrificeTargetId: string }) => void;
+  abilitySacrificeCancel: (payload: { gameId: GameID; pendingId: string }) => void;
 
   // ===== PERMANENT MANIPULATION =====
   
@@ -355,7 +362,7 @@ export interface ClientToServerEvents {
   sacrificePermanent: (payload: { gameId: GameID; permanentId: string }) => void;
   
   // Activate ability on battlefield permanent
-  activateBattlefieldAbility: (payload: { gameId: GameID; permanentId: string; abilityIndex?: number }) => void;
+  activateBattlefieldAbility: (payload: { gameId: GameID; permanentId: string; abilityId: string }) => void;
 
   // ===== DECK MANAGEMENT EXTENDED =====
   

@@ -204,7 +204,7 @@ export function useGameSocket(): UseGameSocketState {
     const out: Record<string, any> = { ...(view.zones || {}) };
     const players = Array.isArray(view.players) ? view.players : [];
     for (const p of players) {
-      const pid = p?.id ?? p?.playerId;
+      const pid = p?.id ?? (p as any)?.playerId;
       if (!pid) continue;
       if (!out[pid]) out[pid] = { ...defaultPlayerZones };
       else {
@@ -465,13 +465,13 @@ export function useGameSocket(): UseGameSocketState {
     );
 
     socket.on("debugCommanderState", (payload: any) =>
-      setDebugData((prev) => ({ ...(prev || {}), commanderState: payload }))
+      setDebugData((prev: Record<string, any> | null) => ({ ...(prev || {}), commanderState: payload }))
     );
     socket.on("debugLibraryDump", (payload: any) =>
-      setDebugData((prev) => ({ ...(prev || {}), libraryDump: payload }))
+      setDebugData((prev: Record<string, any> | null) => ({ ...(prev || {}), libraryDump: payload }))
     );
     socket.on("debugImportedDeckBuffer", (payload: any) =>
-      setDebugData((prev) => ({ ...(prev || {}), importBuffer: payload }))
+      setDebugData((prev: Record<string, any> | null) => ({ ...(prev || {}), importBuffer: payload }))
     );
 
     // generic confirm workflow (import or judge)
