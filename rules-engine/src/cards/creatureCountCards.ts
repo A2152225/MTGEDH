@@ -59,13 +59,15 @@ export function countCreaturesWithFilter(
   
   const filterLower = filter.toLowerCase();
   
-  // Power filter
+  // Power filter - MTG uses "or greater" for >= and "or less" for <=
   const powerMatch = filterLower.match(/power (\d+) or (greater|less)/);
   if (powerMatch) {
     const threshold = parseInt(powerMatch[1]);
     const direction = powerMatch[2];
     return creatures.filter(c => {
-      const power = c.power || 0;
+      const power = c.power ?? 0;
+      // MTG "power X or greater" means >= X
+      // MTG "power X or less" means <= X (standard MTG wording)
       return direction === 'greater' ? power >= threshold : power <= threshold;
     }).length;
   }

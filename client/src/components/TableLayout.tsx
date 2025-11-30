@@ -724,8 +724,12 @@ export function TableLayout(props: {
                 const pos = seatPositions[i];
                 const perms = pb.permanents;
                 // Tokens are identified by the isToken property, not by type_line
-                const tokens = perms.filter(x => (x as any).isToken === true);
-                const nonTokens = perms.filter(x => (x as any).isToken !== true);
+                // Use type guard to safely check for isToken
+                const isTokenPermanent = (x: BattlefieldPermanent): boolean => {
+                  return 'isToken' in x && x.isToken === true;
+                };
+                const tokens = perms.filter(isTokenPermanent);
+                const nonTokens = perms.filter(x => !isTokenPermanent(x));
                 const lands = splitLands ? nonTokens.filter(x => isLandTypeLine((x.card as any)?.type_line)) : [];
                 // Separate mana sources (mana rocks/dorks) from other permanents
                 const nonLands = splitLands ? nonTokens.filter(x => !isLandTypeLine((x.card as any)?.type_line)) : nonTokens;

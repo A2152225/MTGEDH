@@ -53,8 +53,8 @@ export function getAdditionalCostConfig(cardName: string): AdditionalCostConfig 
 export function detectAdditionalCostFromText(oracleText: string): AdditionalCostConfig | null {
   const text = oracleText.toLowerCase();
   
-  // As an additional cost pattern
-  const sacrificeMatch = text.match(/as an additional cost.*sacrifice (?:a |an )?([^,\.]+)/);
+  // As an additional cost pattern - use word boundaries for safer matching
+  const sacrificeMatch = text.match(/as an additional cost.*sacrifice (?:a |an )?(\w+(?:\s+\w+)?(?:\s+or\s+\w+)?)/);
   if (sacrificeMatch) {
     return {
       cardName: '',

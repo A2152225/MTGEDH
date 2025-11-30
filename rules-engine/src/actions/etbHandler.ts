@@ -204,16 +204,19 @@ function addVanishingCounters(
 
 /**
  * Mark a permanent as needing echo payment
+ * Note: needsEchoPayment is added as a runtime property for tracking state
  */
 function markForEcho(state: GameState, permanentId: string): GameState {
   const updatedPlayers = state.players.map(p => ({
     ...p,
     battlefield: (p.battlefield || []).map((perm: BattlefieldPermanent) => {
       if (perm.id === permanentId) {
+        // Add runtime tracking property - this is a state marker, not part of the permanent's card
+        const permWithEcho = perm as BattlefieldPermanent & { needsEchoPayment?: boolean };
         return {
-          ...perm,
+          ...permWithEcho,
           needsEchoPayment: true,
-        } as BattlefieldPermanent;
+        };
       }
       return perm;
     }),
@@ -245,7 +248,7 @@ export function processEchoUpkeep(
   }
   
   const logs: string[] = [];
-  const echoPerms = (player.battlefield || []).filter((p: any) => p.needsEchoPayment);
+  const echoPerms = (player.battlefield || []).filter((p: BattlefieldPermanent & { needsEchoPayment?: boolean }) => p.needsEchoPayment);
   
   for (const perm of echoPerms) {
     const card = perm.card as KnownCardRef;
