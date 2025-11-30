@@ -369,4 +369,25 @@ describe('Token Entry Scenarios', () => {
     expect(faerie.colors).toContain('B');
     expect(faerie.abilities).toContain('Flying');
   });
+
+  it('should have Squirrel token for Deranged Hermit and Squirrel Nest', () => {
+    const squirrel = COMMON_TOKENS['1/1 Squirrel'];
+    expect(squirrel).toBeDefined();
+    expect(squirrel.name).toBe('Squirrel');
+    expect(squirrel.power).toBe(1);
+    expect(squirrel.toughness).toBe(1);
+    expect(squirrel.colors).toContain('G');
+    expect(squirrel.subtypes).toContain('Squirrel');
+  });
+
+  it('should have Merfolk token with Hexproof for Deeproot Waters', () => {
+    const merfolk = COMMON_TOKENS['1/1 Merfolk (Hexproof)'];
+    expect(merfolk).toBeDefined();
+    expect(merfolk.name).toBe('Merfolk');
+    expect(merfolk.power).toBe(1);
+    expect(merfolk.toughness).toBe(1);
+    expect(merfolk.colors).toContain('U');
+    expect(merfolk.subtypes).toContain('Merfolk');
+    expect(merfolk.abilities).toContain('Hexproof');
+  });
 });
