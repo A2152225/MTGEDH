@@ -646,6 +646,10 @@ export function App() {
     // 3. The step changed since last time we showed the modal
     // 4. We're not in a combat modal already
     // 5. Auto-pass is not enabled for this step
+    // 6. There are no pending triggers to handle
+    
+    // Check for pending triggers in the game state
+    const hasPendingTriggers = pendingTriggers.length > 0;
     
     // Normalize step key - remove underscores and convert to lowercase for consistent comparison
     const stepKey = step.replace(/_/g, '').toLowerCase();
@@ -654,11 +658,12 @@ export function App() {
     // Auto-pass activates when:
     // 1. You are NOT the active player (not your turn), OR
     // 2. The phase navigator is actively advancing (you clicked to skip ahead)
+    // 3. AND there are no pending triggers to handle
     // This allows players to leave auto-pass enabled without losing their turn,
     // but still auto-passes during phase navigator advancement on your turn
     const turnPlayer = (safeView as any).turnPlayer;
     const isYourTurn = turnPlayer !== null && turnPlayer !== undefined && turnPlayer === you;
-    const shouldAutoPass = autoPassStepEnabled && (!isYourTurn || phaseNavigatorAdvancing);
+    const shouldAutoPass = autoPassStepEnabled && (!isYourTurn || phaseNavigatorAdvancing) && !hasPendingTriggers;
     
     if (youHavePriority && stackLength === 0 && !combatModalOpen) {
       // Check if this is a new step
@@ -682,7 +687,7 @@ export function App() {
       // Close priority modal if we don't have priority or stack is not empty
       setPriorityModalOpen(false);
     }
-  }, [safeView, you, combatModalOpen, autoPassSteps, phaseNavigatorAdvancing]);
+  }, [safeView, you, combatModalOpen, autoPassSteps, phaseNavigatorAdvancing, pendingTriggers]);
 
   // Shock land prompt listener
   React.useEffect(() => {
