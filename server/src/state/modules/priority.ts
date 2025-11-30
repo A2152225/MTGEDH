@@ -32,9 +32,6 @@ export function passPriority(ctx: GameContext, playerId: PlayerID): { changed: b
   }
   stateAny.priorityPassedBy.add(playerId);
   
-  state.priority = advancePriorityClockwise(ctx, playerId);
-  bumpSeq();
-  
   let resolvedNow = false;
   let advanceStep = false;
   
@@ -47,6 +44,12 @@ export function passPriority(ctx: GameContext, playerId: PlayerID): { changed: b
       resolvedNow = true;
       passesInRow.value = 0;
       stateAny.priorityPassedBy = new Set<string>(); // Reset tracking
+      // After stack resolution, priority goes back to the active player (turn player)
+      // per MTG rule 117.3b - "After a spell or ability resolves, the active player receives priority"
+      state.priority = state.turnPlayer as PlayerID;
+    } else {
+      // Not all players have passed yet, advance priority clockwise
+      state.priority = advancePriorityClockwise(ctx, playerId);
     }
   } else {
     passesInRow.value = 0;
@@ -54,9 +57,15 @@ export function passPriority(ctx: GameContext, playerId: PlayerID): { changed: b
     if (allPassed) {
       advanceStep = true;
       stateAny.priorityPassedBy = new Set<string>(); // Reset tracking
+      // Priority stays with the active player (turn player) for the next step
+      state.priority = state.turnPlayer as PlayerID;
+    } else {
+      // Not all players have passed yet, advance priority clockwise
+      state.priority = advancePriorityClockwise(ctx, playerId);
     }
   }
   
+  bumpSeq();
   return { changed: true, resolvedNow, advanceStep };
 }
 

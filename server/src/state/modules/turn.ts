@@ -1437,6 +1437,30 @@ export function nextStep(ctx: GameContext) {
             console.log(`${ts()} [nextStep] Found ${upkeepTriggers.length} upkeep triggers`);
             // Store pending triggers on the game state for the socket layer to process
             (ctx as any).state.pendingUpkeepTriggers = upkeepTriggers;
+            
+            // Push mandatory upkeep triggers onto the stack
+            // Active player's triggers are put on the stack in the order they choose (APNAP),
+            // but for simplicity we push them in order detected
+            for (const trigger of upkeepTriggers) {
+              if (trigger.mandatory && trigger.triggerType === 'upkeep_effect') {
+                const triggerId = `upkeep_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                (ctx as any).state.stack = (ctx as any).state.stack || [];
+                (ctx as any).state.stack.push({
+                  id: triggerId,
+                  type: 'triggered_ability',
+                  controller: trigger.permanentId ? 
+                    ((ctx as any).state.battlefield || []).find((p: any) => p?.id === trigger.permanentId)?.controller || turnPlayer 
+                    : turnPlayer,
+                  source: trigger.permanentId,
+                  sourceName: trigger.cardName,
+                  description: trigger.description,
+                  triggerType: 'upkeep_effect',
+                  mandatory: true,
+                  effect: trigger.effect,
+                });
+                console.log(`${ts()} [nextStep] ⚡ Pushed upkeep trigger onto stack: ${trigger.cardName} - ${trigger.description}`);
+              }
+            }
           }
         }
       } else if (currentStep === "upkeep" || currentStep === "UPKEEP") {

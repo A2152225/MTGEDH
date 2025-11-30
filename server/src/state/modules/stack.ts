@@ -431,7 +431,9 @@ function executeTriggerEffect(
     return;
   }
   
-  // Pattern: "Create a X/Y [creature type] creature token" (Precinct Captain, Brimaz, etc.)
+  // Pattern: "Create a X/Y [creature type] creature token" (various patterns)
+  // Matches: "create a 2/2 green Wolf creature token", "create a 1/1 white Soldier creature token with vigilance"
+  // Also matches: "create a 0/1 colorless Eldrazi Spawn creature token"
   const createTokenMatch = desc.match(/create (?:a|an|(\d+)) (\d+)\/(\d+) ([^\.]+?)(?:\s+creature)?\s+tokens?/i);
   if (createTokenMatch) {
     const tokenCount = createTokenMatch[1] ? parseInt(createTokenMatch[1], 10) : 1;
@@ -446,14 +448,14 @@ function executeTriggerEffect(
     const creatureTypes: string[] = [];
     
     const colorMap: Record<string, string> = {
-      'white': 'W', 'blue': 'U', 'black': 'B', 'red': 'R', 'green': 'G'
+      'white': 'W', 'blue': 'U', 'black': 'B', 'red': 'R', 'green': 'G', 'colorless': ''
     };
     
     for (const part of parts) {
       const lowerPart = part.toLowerCase();
-      if (colorMap[lowerPart]) {
-        colors.push(colorMap[lowerPart]);
-      } else if (lowerPart !== 'creature' && lowerPart !== 'token' && lowerPart !== 'and') {
+      if (colorMap[lowerPart] !== undefined) {
+        if (colorMap[lowerPart]) colors.push(colorMap[lowerPart]);
+      } else if (lowerPart !== 'creature' && lowerPart !== 'token' && lowerPart !== 'and' && lowerPart !== 'with') {
         creatureTypes.push(part.charAt(0).toUpperCase() + part.slice(1).toLowerCase());
       }
     }
@@ -467,6 +469,8 @@ function executeTriggerEffect(
     if (desc.includes('flying')) abilities.push('Flying');
     if (desc.includes('first strike')) abilities.push('First strike');
     if (desc.includes('trample')) abilities.push('Trample');
+    if (desc.includes('menace')) abilities.push('Menace');
+    if (desc.includes('reach')) abilities.push('Reach');
     
     // Create the tokens
     state.battlefield = state.battlefield || [];
@@ -500,6 +504,264 @@ function executeTriggerEffect(
       
       state.battlefield.push(token);
       console.log(`[executeTriggerEffect] Created ${power}/${toughness} ${tokenName} token for ${controller}`);
+    }
+    return;
+  }
+  
+  // Pattern: "each opponent mills X cards" or "each opponent mills a card" (Altar of the Brood)
+  const millOpponentsMatch = desc.match(/each opponent mills? (?:a card|(\d+) cards?)/i);
+  if (millOpponentsMatch) {
+    const millCount = millOpponentsMatch[1] ? parseInt(millOpponentsMatch[1], 10) : 1;
+    console.log(`[executeTriggerEffect] Each opponent mills ${millCount} card(s)`);
+    
+    // Set up pending mill for each opponent
+    state.pendingMill = state.pendingMill || {};
+    for (const opp of opponents) {
+      state.pendingMill[opp.id] = (state.pendingMill[opp.id] || 0) + millCount;
+      
+      // Actually mill the cards by moving from library to graveyard
+      const oppZones = (ctx as any).zones?.[opp.id] || state.zones?.[opp.id];
+      if (oppZones?.library && Array.isArray(oppZones.library)) {
+        for (let i = 0; i < millCount && oppZones.library.length > 0; i++) {
+          const milledCard = oppZones.library.shift();
+          if (milledCard) {
+            oppZones.graveyard = oppZones.graveyard || [];
+            milledCard.zone = 'graveyard';
+            oppZones.graveyard.push(milledCard);
+            console.log(`[executeTriggerEffect] Milled ${milledCard.name || 'card'} from ${opp.id}'s library`);
+          }
+        }
+        // Update library count
+        oppZones.libraryCount = oppZones.library.length;
+      }
+    }
+    return;
+  }
+  
+  // Pattern: "scry X" or "scry 1"
+  const scryMatch = desc.match(/scry (\d+)/i);
+  if (scryMatch) {
+    const scryCount = parseInt(scryMatch[1], 10);
+    console.log(`[executeTriggerEffect] ${controller} scries ${scryCount}`);
+    
+    // Set up pending scry for the controller
+    state.pendingScry = state.pendingScry || {};
+    state.pendingScry[controller] = scryCount;
+    return;
+  }
+  
+  // Pattern: "each player draws X cards" or "each player draws a card"
+  const eachDrawMatch = desc.match(/each player draws? (?:a card|(\d+) cards?)/i);
+  if (eachDrawMatch) {
+    const count = eachDrawMatch[1] ? parseInt(eachDrawMatch[1], 10) : 1;
+    state.pendingDraws = state.pendingDraws || {};
+    for (const player of players) {
+      if (!player.hasLost) {
+        state.pendingDraws[player.id] = (state.pendingDraws[player.id] || 0) + count;
+        console.log(`[executeTriggerEffect] ${player.id} will draw ${count} card(s)`);
+      }
+    }
+    return;
+  }
+  
+  // Pattern: "each opponent discards a card" or "each opponent discards X cards"
+  const discardOpponentsMatch = desc.match(/each opponent discards? (?:a card|(\d+) cards?)/i);
+  if (discardOpponentsMatch) {
+    const discardCount = discardOpponentsMatch[1] ? parseInt(discardOpponentsMatch[1], 10) : 1;
+    console.log(`[executeTriggerEffect] Each opponent discards ${discardCount} card(s)`);
+    
+    state.pendingDiscard = state.pendingDiscard || {};
+    for (const opp of opponents) {
+      state.pendingDiscard[opp.id] = (state.pendingDiscard[opp.id] || 0) + discardCount;
+    }
+    return;
+  }
+  
+  // Pattern: "put a +1/+1 counter on ~" or "put a +1/+1 counter on it"
+  const putCounterOnSelfMatch = desc.match(/put (?:a|an|(\d+)) \+1\/\+1 counters? on (?:~|it|this creature)/i);
+  if (putCounterOnSelfMatch) {
+    const counterCount = putCounterOnSelfMatch[1] ? parseInt(putCounterOnSelfMatch[1], 10) : 1;
+    const sourceId = triggerItem.source || triggerItem.permanentId;
+    
+    if (sourceId) {
+      const perm = (state.battlefield || []).find((p: any) => p?.id === sourceId);
+      if (perm) {
+        perm.counters = perm.counters || {};
+        perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + counterCount;
+        console.log(`[executeTriggerEffect] Added ${counterCount} +1/+1 counter(s) to ${perm.card?.name || perm.id}`);
+      }
+    }
+    return;
+  }
+  
+  // Pattern: "target player loses X life" (without the you gain part)
+  const targetLosesMatch = desc.match(/target (?:player|opponent) loses (\d+) life/i);
+  if (targetLosesMatch && !desc.includes('you gain')) {
+    const loseAmount = parseInt(targetLosesMatch[1], 10);
+    const targets = triggerItem.targets || [];
+    const targetPlayer = targets[0] || (opponents[0]?.id);
+    
+    if (targetPlayer) {
+      modifyLife(targetPlayer, -loseAmount);
+    }
+    return;
+  }
+  
+  // Pattern: "you lose X life" (Phyrexian Arena style)
+  const youLoseLifeMatch = desc.match(/you lose (\d+) life/i);
+  if (youLoseLifeMatch) {
+    const amount = parseInt(youLoseLifeMatch[1], 10);
+    modifyLife(controller, -amount);
+    // Check for "draw a card" in same trigger
+    if (desc.includes('draw a card') || desc.includes('draw 1 card')) {
+      state.pendingDraws = state.pendingDraws || {};
+      state.pendingDraws[controller] = (state.pendingDraws[controller] || 0) + 1;
+      console.log(`[executeTriggerEffect] ${controller} will draw 1 card`);
+    }
+    return;
+  }
+  
+  // Pattern: "deals X damage to target" or "deals X damage to any target"
+  const dealsTargetDamageMatch = desc.match(/deals? (\d+) damage to (?:target|any target|that creature|it)/i);
+  if (dealsTargetDamageMatch) {
+    const damage = parseInt(dealsTargetDamageMatch[1], 10);
+    const targets = triggerItem.targets || [];
+    
+    if (targets.length > 0) {
+      const targetId = targets[0];
+      // Check if target is a player
+      const targetPlayer = players.find((p: any) => p.id === targetId);
+      if (targetPlayer) {
+        modifyLife(targetId, -damage);
+      } else {
+        // Target is a permanent - deal damage
+        const targetPerm = (state.battlefield || []).find((p: any) => p?.id === targetId);
+        if (targetPerm) {
+          targetPerm.damageMarked = (targetPerm.damageMarked || 0) + damage;
+          console.log(`[executeTriggerEffect] Dealt ${damage} damage to ${targetPerm.card?.name || targetId}`);
+        }
+      }
+    }
+    return;
+  }
+  
+  // Pattern: "untap all creatures you control" or "untap target creature"
+  if (desc.includes('untap all creatures you control')) {
+    const battlefield = state.battlefield || [];
+    for (const perm of battlefield) {
+      if (!perm) continue;
+      if (perm.controller !== controller) continue;
+      const typeLine = (perm.card?.type_line || '').toLowerCase();
+      if (!typeLine.includes('creature')) continue;
+      
+      if (perm.tapped) {
+        perm.tapped = false;
+        console.log(`[executeTriggerEffect] Untapped ${perm.card?.name || perm.id}`);
+      }
+    }
+    return;
+  }
+  
+  // Pattern: "tap target creature" or "tap all creatures"
+  if (desc.includes('tap target creature')) {
+    const targets = triggerItem.targets || [];
+    if (targets.length > 0) {
+      const targetPerm = (state.battlefield || []).find((p: any) => p?.id === targets[0]);
+      if (targetPerm) {
+        targetPerm.tapped = true;
+        console.log(`[executeTriggerEffect] Tapped ${targetPerm.card?.name || targetPerm.id}`);
+      }
+    }
+    return;
+  }
+  
+  // Pattern: "exile target creature" or "exile it"
+  const exileMatch = desc.match(/exile (?:target (?:creature|permanent)|it|that creature)/i);
+  if (exileMatch) {
+    const targets = triggerItem.targets || [];
+    if (targets.length > 0) {
+      const targetPerm = (state.battlefield || []).find((p: any) => p?.id === targets[0]);
+      if (targetPerm) {
+        // Move to exile
+        const permIndex = state.battlefield.indexOf(targetPerm);
+        if (permIndex !== -1) {
+          state.battlefield.splice(permIndex, 1);
+          state.exile = state.exile || [];
+          targetPerm.card.zone = 'exile';
+          state.exile.push(targetPerm);
+          console.log(`[executeTriggerEffect] Exiled ${targetPerm.card?.name || targetPerm.id}`);
+        }
+      }
+    }
+    return;
+  }
+  
+  // Pattern: "destroy target creature" or "destroy it"  
+  const destroyMatch = desc.match(/destroy (?:target (?:creature|permanent|artifact|enchantment)|it|that creature)/i);
+  if (destroyMatch) {
+    const targets = triggerItem.targets || [];
+    if (targets.length > 0) {
+      const targetPerm = (state.battlefield || []).find((p: any) => p?.id === targets[0]);
+      if (targetPerm) {
+        // Move to graveyard
+        const permIndex = state.battlefield.indexOf(targetPerm);
+        if (permIndex !== -1) {
+          state.battlefield.splice(permIndex, 1);
+          const ownerZones = state.zones?.[targetPerm.owner];
+          if (ownerZones) {
+            ownerZones.graveyard = ownerZones.graveyard || [];
+            targetPerm.card.zone = 'graveyard';
+            ownerZones.graveyard.push(targetPerm.card);
+          }
+          console.log(`[executeTriggerEffect] Destroyed ${targetPerm.card?.name || targetPerm.id}`);
+        }
+      }
+    }
+    return;
+  }
+  
+  // Pattern: "return target creature to its owner's hand" (bounce)
+  const bounceMatch = desc.match(/return (?:target|a) (?:creature|permanent) (?:card )?(?:from [^.]+ )?to its owner's hand/i);
+  if (bounceMatch) {
+    const targets = triggerItem.targets || [];
+    if (targets.length > 0) {
+      const targetPerm = (state.battlefield || []).find((p: any) => p?.id === targets[0]);
+      if (targetPerm) {
+        // Move to owner's hand
+        const permIndex = state.battlefield.indexOf(targetPerm);
+        if (permIndex !== -1) {
+          state.battlefield.splice(permIndex, 1);
+          const ownerZones = state.zones?.[targetPerm.owner];
+          if (ownerZones) {
+            ownerZones.hand = ownerZones.hand || [];
+            targetPerm.card.zone = 'hand';
+            ownerZones.hand.push(targetPerm.card);
+            ownerZones.handCount = ownerZones.hand.length;
+          }
+          console.log(`[executeTriggerEffect] Returned ${targetPerm.card?.name || targetPerm.id} to owner's hand`);
+        }
+      }
+    }
+    return;
+  }
+  
+  // Pattern: add mana (Cryptolith Rite, etc.)
+  const addManaMatch = desc.match(/add (\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (addManaMatch) {
+    const manaString = addManaMatch[1];
+    console.log(`[executeTriggerEffect] ${controller} adds ${manaString} to mana pool`);
+    
+    // Parse mana and add to pool
+    state.manaPool = state.manaPool || {};
+    state.manaPool[controller] = state.manaPool[controller] || { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
+    
+    const manaRegex = /\{([WUBRGC])\}/gi;
+    let match;
+    while ((match = manaRegex.exec(manaString)) !== null) {
+      const color = match[1].toUpperCase();
+      if (state.manaPool[controller][color] !== undefined) {
+        state.manaPool[controller][color]++;
+      }
     }
     return;
   }
@@ -575,6 +837,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     // Permanent spell resolves - move to battlefield
     const tl = (card.type_line || "").toLowerCase();
     const isCreature = /\bcreature\b/.test(tl);
+    const isPlaneswalker = /\bplaneswalker\b/.test(tl);
     const baseP = isCreature ? parsePT((card as any).power) : undefined;
     const baseT = isCreature ? parsePT((card as any).toughness) : undefined;
     
@@ -589,6 +852,16 @@ export function resolveTopOfStack(ctx: GameContext) {
     // their most recent turn began.
     const hasSummoningSickness = isCreature && !hasHaste;
     
+    // Initialize counters - planeswalkers enter with loyalty counters equal to their printed loyalty
+    const initialCounters: Record<string, number> = {};
+    if (isPlaneswalker && card.loyalty) {
+      const startingLoyalty = parseInt(card.loyalty, 10);
+      if (!isNaN(startingLoyalty)) {
+        initialCounters.loyalty = startingLoyalty;
+        console.log(`[resolveTopOfStack] Planeswalker ${card.name} enters with ${startingLoyalty} loyalty`);
+      }
+    }
+    
     state.battlefield = state.battlefield || [];
     const newPermId = uid("perm");
     const newPermanent = {
@@ -596,7 +869,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       controller,
       owner: controller,
       tapped: false,
-      counters: {},
+      counters: initialCounters,
       basePower: baseP,
       baseToughness: baseT,
       summoningSickness: hasSummoningSickness,
@@ -618,14 +891,24 @@ export function resolveTopOfStack(ctx: GameContext) {
       const etbTriggers = getETBTriggersForPermanent(card, newPermanent);
       
       // Also check other permanents for "whenever a creature/permanent enters" triggers
+      // Check if the entering permanent is a token
+      const isToken = !!(newPermanent as any).isToken || !!(card as any).isToken;
+      
       for (const perm of state.battlefield) {
         if (perm.id === newPermId) continue; // Skip the entering permanent
         const otherTriggers = getETBTriggersForPermanent(perm.card, perm);
         for (const trigger of otherTriggers) {
           // Only add triggers that fire on other permanents entering
           if (trigger.triggerType === 'creature_etb' && isCreature) {
+            // Check if this trigger requires nontoken creatures (e.g., Guardian Project)
+            if ((trigger as any).nontokenOnly && isToken) {
+              continue; // Skip - this trigger only fires for nontoken creatures
+            }
             etbTriggers.push({ ...trigger, permanentId: perm.id });
           } else if (trigger.triggerType === 'another_permanent_etb') {
+            etbTriggers.push({ ...trigger, permanentId: perm.id });
+          } else if (trigger.triggerType === 'permanent_etb') {
+            // Altar of the Brood style - triggers on ANY permanent entering (not just yours)
             etbTriggers.push({ ...trigger, permanentId: perm.id });
           }
         }

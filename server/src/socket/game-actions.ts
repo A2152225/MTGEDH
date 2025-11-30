@@ -1423,10 +1423,127 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
 
       // Check if this spell requires targets (oracleText is already defined above)
-      const spellSpec = categorizeSpell(cardInHand.name || '', oracleText);
+      // IMPORTANT: Only check for targeting if:
+      // 1. The spell is an instant/sorcery, OR
+      // 2. The spell is an Aura enchantment (Auras target when cast)
+      // Non-Aura permanents (creatures, artifacts, regular enchantments, planeswalkers) don't require 
+      // targets when cast, even if they have activated/triggered abilities with "target" in the text.
+      // This includes Equipment (which are artifacts) - they enter unattached and equipping is a separate ability.
+      const isAura = typeLine.includes('aura');
+      const requiresTargetingCheck = isInstant || typeLine.includes('sorcery') || isAura;
+      
+      // For Auras, determine valid targets based on "Enchant X" text
+      // Common patterns: "Enchant creature", "Enchant player", "Enchant opponent", "Enchant permanent"
+      let auraTargetType: 'creature' | 'player' | 'opponent' | 'permanent' | 'artifact' | 'land' | null = null;
+      if (isAura) {
+        const enchantMatch = oracleText.match(/enchant\s+(creature|player|opponent|permanent|artifact|land|enchantment)/i);
+        if (enchantMatch) {
+          auraTargetType = enchantMatch[1].toLowerCase() as typeof auraTargetType;
+        }
+      }
+      
+      const spellSpec = (requiresTargetingCheck && !isAura) ? categorizeSpell(cardInHand.name || '', oracleText) : null;
+      
+      // Handle Aura targeting separately from spell targeting
+      if (isAura && auraTargetType && (!targets || targets.length === 0)) {
+        // Build valid targets based on Aura's enchant type
+        let validTargets: { id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string }[] = [];
+        
+        if (auraTargetType === 'player') {
+          // Enchant player - can target any player
+          validTargets = (game.state.players || []).map((p: any) => ({
+            id: p.id,
+            kind: 'player',
+            name: p.name || p.id,
+            isOpponent: p.id !== playerId,
+          }));
+        } else if (auraTargetType === 'opponent') {
+          // Enchant opponent - can only target opponents (Curses typically)
+          validTargets = (game.state.players || [])
+            .filter((p: any) => p.id !== playerId)
+            .map((p: any) => ({
+              id: p.id,
+              kind: 'player',
+              name: p.name || p.id,
+              isOpponent: true,
+            }));
+        } else if (auraTargetType === 'creature') {
+          // Enchant creature - target creatures on battlefield
+          validTargets = (game.state.battlefield || [])
+            .filter((p: any) => {
+              const tl = (p.card?.type_line || '').toLowerCase();
+              return tl.includes('creature');
+            })
+            .map((p: any) => ({
+              id: p.id,
+              kind: 'permanent',
+              name: p.card?.name || 'Unknown',
+              controller: p.controller,
+              isOpponent: p.controller !== playerId,
+              imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+            }));
+        } else if (auraTargetType === 'permanent') {
+          // Enchant permanent - any permanent
+          validTargets = (game.state.battlefield || []).map((p: any) => ({
+            id: p.id,
+            kind: 'permanent',
+            name: p.card?.name || 'Unknown',
+            controller: p.controller,
+            isOpponent: p.controller !== playerId,
+            imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+          }));
+        } else if (auraTargetType === 'artifact') {
+          validTargets = (game.state.battlefield || [])
+            .filter((p: any) => (p.card?.type_line || '').toLowerCase().includes('artifact'))
+            .map((p: any) => ({
+              id: p.id,
+              kind: 'permanent',
+              name: p.card?.name || 'Unknown',
+              controller: p.controller,
+              isOpponent: p.controller !== playerId,
+              imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+            }));
+        } else if (auraTargetType === 'land') {
+          validTargets = (game.state.battlefield || [])
+            .filter((p: any) => (p.card?.type_line || '').toLowerCase().includes('land'))
+            .map((p: any) => ({
+              id: p.id,
+              kind: 'permanent',
+              name: p.card?.name || 'Unknown',
+              controller: p.controller,
+              isOpponent: p.controller !== playerId,
+              imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+            }));
+        }
+        
+        if (validTargets.length === 0) {
+          socket.emit("error", {
+            code: "NO_VALID_TARGETS",
+            message: `No valid targets for ${cardInHand.name} (Enchant ${auraTargetType})`,
+          });
+          return;
+        }
+        
+        // Emit target selection request for Aura
+        socket.emit("targetSelectionRequest", {
+          gameId,
+          cardId,
+          cardName: cardInHand.name,
+          source: cardInHand.name,
+          title: `Choose target for ${cardInHand.name}`,
+          description: `Enchant ${auraTargetType}`,
+          targets: validTargets,
+          minTargets: 1,
+          maxTargets: 1,
+          effectId: `cast_${cardId}_${Date.now()}`,
+        });
+        
+        console.log(`[castSpellFromHand] Requesting Aura target (enchant ${auraTargetType}) for ${cardInHand.name}`);
+        return; // Wait for target selection
+      }
       
       if (spellSpec && spellSpec.minTargets > 0) {
-        // This spell requires targets
+        // This spell requires targets (instant/sorcery)
         if (!targets || targets.length < spellSpec.minTargets) {
           // Need to request targets from the player
           // Use evaluateTargeting to find valid targets

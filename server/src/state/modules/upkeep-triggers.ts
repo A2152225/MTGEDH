@@ -46,7 +46,7 @@ export interface UpkeepTrigger {
  */
 const KNOWN_UPKEEP_CARDS: Record<string, { effect: string; mandatory: boolean; requiresChoice?: boolean; requiresSacrifice?: boolean }> = {
   // Draw/Life effects
-  "phyrexian arena": { effect: "Draw a card, lose 1 life", mandatory: true },
+  "phyrexian arena": { effect: "Draw a card, you lose 1 life", mandatory: true },
   "dark confidant": { effect: "Reveal top card, put in hand, lose life equal to its mana value", mandatory: true },
   "bob": { effect: "Reveal top card, put in hand, lose life equal to its mana value", mandatory: true },
   "sheoldred, the apocalypse": { effect: "Opponents lose 2 life when they draw", mandatory: true },
@@ -62,7 +62,7 @@ const KNOWN_UPKEEP_CARDS: Record<string, { effect: string; mandatory: boolean; r
   "rhystic study": { effect: "When opponent casts, they pay {1} or you draw", mandatory: true },
   "mystic remora": { effect: "When opponent casts noncreature, they pay {4} or you draw", mandatory: true },
   "black market": { effect: "Add {B} for each charge counter", mandatory: true },
-  "bitterblossom": { effect: "Lose 1 life, create 1/1 Faerie Rogue with flying", mandatory: true },
+  "bitterblossom": { effect: "You lose 1 life, create a 1/1 black Faerie Rogue creature token with flying", mandatory: true },
   
   // Counter manipulation
   "atraxa, praetors' voice": { effect: "Proliferate (at end step, not upkeep)", mandatory: true },
@@ -74,13 +74,33 @@ const KNOWN_UPKEEP_CARDS: Record<string, { effect: string; mandatory: boolean; r
   "havoc festival": { effect: "Each player loses half their life", mandatory: true },
   "wound reflection": { effect: "Opponents lose life equal to life lost this turn (end step)", mandatory: true },
   
-  // Token creation
-  "assemble the legion": { effect: "Put a muster counter, create that many 1/1 Soldiers with haste", mandatory: true },
-  "tendershoot dryad": { effect: "Create 1/1 Saproling", mandatory: true },
-  "verdant force": { effect: "Create 1/1 Saproling", mandatory: true },
-  "awakening zone": { effect: "Create 0/1 Eldrazi Spawn", mandatory: true },
-  "from beyond": { effect: "Create 1/1 Eldrazi Scion", mandatory: true },
+  // Token creation - Creatures that create tokens at upkeep
+  "master of the wild hunt": { effect: "Create a 2/2 green Wolf creature token", mandatory: true },
+  "verdant force": { effect: "Create a 1/1 green Saproling creature token", mandatory: true },
+  "tendershoot dryad": { effect: "Create a 1/1 green Saproling creature token", mandatory: true },
+  "awakening zone": { effect: "Create a 0/1 colorless Eldrazi Spawn creature token with sacrifice for mana", mandatory: true },
+  "from beyond": { effect: "Create a 1/1 colorless Eldrazi Scion creature token with sacrifice for mana", mandatory: true },
+  "assemble the legion": { effect: "Put a muster counter, create that many 1/1 red and white Soldier creature tokens with haste", mandatory: true },
   "progenitor mimic": { effect: "If this creature isn't a token, create a token that's a copy of this creature", mandatory: true },
+  "ghoulcaller gisa": { effect: "Create 2/2 black Zombie creature tokens", mandatory: false, requiresChoice: true },
+  "sliver queen": { effect: "Create a 1/1 colorless Sliver creature token (activated)", mandatory: false, requiresChoice: true },
+  "krenko, mob boss": { effect: "Create 1/1 red Goblin creature tokens (activated)", mandatory: false, requiresChoice: true },
+  "avenger of zendikar": { effect: "Landfall: Put +1/+1 counter on each Plant", mandatory: true },
+  "chasm skulker": { effect: "Draw trigger: Put +1/+1 counter", mandatory: true },
+  "najeela, the blade-blossom": { effect: "Whenever a Warrior attacks, create 1/1 white Warrior creature token", mandatory: true },
+  "ophiomancer": { effect: "If you control no Snakes, create a 1/1 black Snake creature token with deathtouch", mandatory: true },
+  "dragonmaster outcast": { effect: "If you control 6+ lands, create a 5/5 red Dragon creature token with flying", mandatory: true },
+  "outlaws' merriment": { effect: "Create a 1/2 Human Cleric, 3/1 Human Rogue, or 2/3 Human Warrior token", mandatory: true },
+  "dragon broodmother": { effect: "Create a 1/1 red and green Dragon creature token with flying and devour 2", mandatory: true },
+  "scute swarm": { effect: "Landfall: Create 1/1 Insect or copy", mandatory: true },
+  "dockside extortionist": { effect: "Create Treasure tokens (ETB only)", mandatory: true },
+  "pest infestation": { effect: "Create 1/1 Pest tokens (sorcery)", mandatory: true },
+  "anointed procession": { effect: "Double tokens (passive)", mandatory: true },
+  "parallel lives": { effect: "Double creature tokens (passive)", mandatory: true },
+  "doubling season": { effect: "Double tokens and counters (passive)", mandatory: true },
+  
+  // Sheoldred variants
+  "sheoldred, whispering one": { effect: "Return creature from your graveyard to the battlefield; each opponent sacrifices a creature", mandatory: true, requiresSacrifice: true },
   
   // Tutoring/Library manipulation
   "search for azcanta": { effect: "Surveil 1, may transform if 7+ cards in graveyard", mandatory: true, requiresChoice: true },
@@ -94,7 +114,6 @@ const KNOWN_UPKEEP_CARDS: Record<string, { effect: string; mandatory: boolean; r
   
   // Sacrifice triggers
   "eldrazi monument": { effect: "Sacrifice a creature or sacrifice Eldrazi Monument", mandatory: true, requiresChoice: true, requiresSacrifice: true },
-  "sheoldred, whispering one": { effect: "Return creature from your graveyard; each opponent sacrifices a creature", mandatory: true, requiresSacrifice: true },
   "smokestack": { effect: "Each player sacrifices permanents equal to soot counters", mandatory: true, requiresSacrifice: true },
   "pox": { effect: "Sacrifice 1/3 of creatures, lands; lose 1/3 life", mandatory: true, requiresSacrifice: true },
   
@@ -102,6 +121,12 @@ const KNOWN_UPKEEP_CARDS: Record<string, { effect: string; mandatory: boolean; r
   "luminarch ascension": { effect: "If no damage taken, add quest counter", mandatory: true },
   "court of": { effect: "Become monarch if not, trigger court effect", mandatory: true },
   "the gitrog monster": { effect: "Sacrifice a land", mandatory: true, requiresSacrifice: true },
+  "luminous broodmoth": { effect: "When creature without flying dies, return with flying counter", mandatory: true },
+  "hullbreacher": { effect: "If opponent would draw, they don't, you create Treasure instead", mandatory: true },
+  "notion thief": { effect: "If opponent would draw, they don't, you draw instead", mandatory: true },
+  "consecrated sphinx": { effect: "Whenever opponent draws, you may draw 2", mandatory: false, requiresChoice: true },
+  "jin-gitaxias, core augur": { effect: "Draw 7 at end step; opponents max hand size 0", mandatory: true },
+  "jin-gitaxias, progress tyrant": { effect: "Copy first artifact/instant/sorcery; counter first opponent spell", mandatory: true },
 };
 
 /**

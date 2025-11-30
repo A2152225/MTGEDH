@@ -67,6 +67,7 @@ export interface TriggeredAbility {
   targetType?: string;
   requiresChoice?: boolean; // For triggers where player must choose
   creatureType?: string; // For "whenever you cast a [type] spell" triggers
+  nontokenOnly?: boolean; // For triggers that only fire for nontoken creatures (Guardian Project)
 }
 
 /**
@@ -852,8 +853,11 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     }
   }
   
-  // "When ~ enters the battlefield"
-  const etbMatch = oracleText.match(/when\s+(?:~|this creature|this permanent)\s+enters the battlefield,?\s*([^.]+)/i);
+  // "When ~ enters the battlefield" or "When [CARDNAME] enters the battlefield"
+  // The ~ is used in some oracle text, but the actual card name is also used
+  const cardNameEscaped = cardName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const etbPattern = new RegExp(`when\\s+(?:~|this creature|this permanent|${cardNameEscaped})\\s+enters the battlefield,?\\s*([^.]+)`, 'i');
+  const etbMatch = oracleText.match(etbPattern);
   if (etbMatch && !triggers.some(t => t.triggerType === 'etb' || t.triggerType === 'etb_sacrifice_unless_pay')) {
     const effectText = etbMatch[1].trim();
     
@@ -882,9 +886,10 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     }
   }
   
-  // "Whenever a creature enters the battlefield under your control"
-  const creatureETBMatch = oracleText.match(/whenever a creature enters the battlefield under your control,?\s*([^.]+)/i);
+  // "Whenever a creature enters the battlefield under your control" or "Whenever a nontoken creature enters..."
+  const creatureETBMatch = oracleText.match(/whenever a (?:nontoken )?creature enters the battlefield under your control,?\s*([^.]+)/i);
   if (creatureETBMatch && !triggers.some(t => t.triggerType === 'creature_etb')) {
+    const isNontokenOnly = oracleText.toLowerCase().includes('nontoken creature enters');
     triggers.push({
       permanentId,
       cardName,
@@ -892,10 +897,26 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       description: creatureETBMatch[1].trim(),
       effect: creatureETBMatch[1].trim(),
       mandatory: true,
+      nontokenOnly: isNontokenOnly,
     });
   }
   
-  // "Whenever another permanent enters the battlefield under your control" (Altar of the Brood pattern)
+  // "Whenever another permanent enters the battlefield" - ANY permanent, not just yours
+  // This is the Altar of the Brood pattern: "Whenever another permanent enters the battlefield, each opponent mills a card."
+  // Also catches variations like "whenever another creature enters the battlefield"
+  const anotherPermanentAnyETBMatch = oracleText.match(/whenever another (?:creature|permanent) enters the battlefield(?!.*under your control),?\s*([^.]+)/i);
+  if (anotherPermanentAnyETBMatch && !triggers.some(t => t.triggerType === 'permanent_etb')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'permanent_etb',
+      description: anotherPermanentAnyETBMatch[1].trim(),
+      effect: anotherPermanentAnyETBMatch[1].trim(),
+      mandatory: true,
+    });
+  }
+  
+  // "Whenever another permanent enters the battlefield under your control"
   const anotherPermanentETBMatch = oracleText.match(/whenever another (?:creature|permanent) enters the battlefield under your control,?\s*([^.]+)/i);
   if (anotherPermanentETBMatch && !triggers.some(t => t.triggerType === 'another_permanent_etb')) {
     triggers.push({
@@ -1595,6 +1616,18 @@ const KNOWN_END_STEP_TRIGGERS: Record<string, {
   },
   "wound reflection": { 
     effect: "Each opponent loses life equal to life they lost this turn", 
+    mandatory: true,
+  },
+  "hope estheim": {
+    effect: "Each opponent mills X cards, where X is the amount of life you gained this turn",
+    mandatory: true,
+  },
+  "twilight prophet": {
+    effect: "If you have the city's blessing, reveal top card, opponent loses life equal to its mana value, you gain that life",
+    mandatory: true,
+  },
+  "blightsteel colossus": {
+    effect: "Shuffle into library if put into graveyard (replacement)",
     mandatory: true,
   },
 };

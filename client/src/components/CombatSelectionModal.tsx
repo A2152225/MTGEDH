@@ -17,6 +17,10 @@ export interface CombatSelectionModalProps {
   onConfirm: (selections: AttackerSelection[] | BlockerSelection[]) => void;
   onSkip: () => void;
   onCancel?: () => void;
+  /** If true, the modal is view-only (for spectators or non-active players) */
+  readOnly?: boolean;
+  /** Whether it's the current player's turn (for attackers mode) */
+  isYourTurn?: boolean;
 }
 
 export interface AttackerSelection {
@@ -88,12 +92,19 @@ export function CombatSelectionModal({
   onConfirm,
   onSkip,
   onCancel,
+  readOnly = false,
+  isYourTurn = true,
 }: CombatSelectionModalProps) {
   // For attackers: selected creatures and their targets
   const [selectedAttackers, setSelectedAttackers] = useState<Map<string, string | undefined>>(new Map());
   
   // For blockers: which blockers block which attackers
   const [selectedBlockers, setSelectedBlockers] = useState<Map<string, string>>(new Map());
+  
+  // Determine if the modal should be interactive
+  // For attackers mode, only the turn player can interact
+  // For blockers mode, only the defending player can interact
+  const isInteractive = !readOnly && (mode === 'blockers' || isYourTurn);
   
   // Reset selections when modal opens
   React.useEffect(() => {
@@ -114,6 +125,7 @@ export function CombatSelectionModal({
   }, [availableCreatures]);
 
   const handleToggleAttacker = (creatureId: string) => {
+    if (!isInteractive) return; // Don't allow interaction if read-only
     setSelectedAttackers(prev => {
       const next = new Map(prev);
       if (next.has(creatureId)) {
@@ -136,6 +148,7 @@ export function CombatSelectionModal({
   };
 
   const handleToggleBlocker = (blockerId: string, attackerId: string) => {
+    if (!isInteractive) return; // Don't allow interaction if read-only
     setSelectedBlockers(prev => {
       const next = new Map(prev);
       if (next.get(blockerId) === attackerId) {
@@ -148,6 +161,7 @@ export function CombatSelectionModal({
   };
 
   const handleConfirm = () => {
+    if (!isInteractive) return; // Don't allow if read-only
     if (mode === 'attackers') {
       const selections: AttackerSelection[] = Array.from(selectedAttackers.entries()).map(([creatureId, target]) => ({
         creatureId,

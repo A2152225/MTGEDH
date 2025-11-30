@@ -253,6 +253,24 @@ export function getManaAbilitiesForPermanent(
   const isCreature = typeLine.includes("creature");
   const isBasic = typeLine.includes("basic");
   
+  // Check for Metalcraft requirement (e.g., Mox Opal)
+  // Rule 702.80 - Metalcraft abilities only work if you control 3+ artifacts
+  if (oracleText.includes('metalcraft')) {
+    const battlefield = gameState?.battlefield || [];
+    const artifactCount = battlefield.filter((p: any) => {
+      if (p.controller !== playerId) return false;
+      const permTypeLine = (p.card?.type_line || '').toLowerCase();
+      return permTypeLine.includes('artifact');
+    }).length;
+    
+    if (artifactCount < 3) {
+      // Metalcraft is not active - return no mana abilities for this permanent
+      // (or only colorless if the card has a non-metalcraft ability)
+      console.log(`[getManaAbilitiesForPermanent] Metalcraft not active for ${card.name} (${artifactCount}/3 artifacts)`);
+      return abilities; // Return empty - no mana abilities available
+    }
+  }
+  
   // Get modifiers affecting this player
   const modifiers = detectManaModifiers(gameState, playerId);
   
