@@ -3295,7 +3295,7 @@ export function App() {
         availableCreatures={combatMode === 'blockers' ? myBlockerCreatures : myCreatures}
         attackingCreatures={attackingCreatures}
         defenders={defenders}
-        isYourTurn={safeView?.turnPlayer != null && safeView.turnPlayer === you}
+        isYourTurn={safeView != null && safeView.turnPlayer != null && safeView.turnPlayer === you}
         onConfirm={(selections) => {
           if (combatMode === 'attackers') {
             handleDeclareAttackers(selections as AttackerSelection[]);
