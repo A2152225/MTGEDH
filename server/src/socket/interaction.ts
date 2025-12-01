@@ -1476,7 +1476,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const typeLine = (card?.type_line || "").toLowerCase();
     
     // Handle fetch land ability
-    if (abilityId === "fetch-land") {
+    // Support both legacy "fetch-land" format and new parser format like "${cardId}-fetch-${index}"
+    const isFetchLandAbility = abilityId === "fetch-land" || 
+      abilityId.includes("-fetch-") || 
+      (oracleText.includes("sacrifice") && oracleText.includes("search your library") && abilityId.includes("fetch"));
+    if (isFetchLandAbility) {
       // Validate: permanent must not be tapped
       if ((permanent as any).tapped) {
         socket.emit("error", {

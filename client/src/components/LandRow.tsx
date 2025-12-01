@@ -1,8 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import type { BattlefieldPermanent, KnownCardRef } from '../../../shared/src';
 import type { ImagePref } from './BattlefieldGrid';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 import { CardContextMenu } from './CardContextMenu';
+import { AbilitySelectionModal } from './AbilitySelectionModal';
+import { parseActivatedAbilities, canActivateTapAbility, type ParsedActivatedAbility, type ActivationContext } from '../utils/activatedAbilityParser';
 
 function canonicalLandKey(typeLine?: string, name?: string) {
   const tl = (typeLine || '').toLowerCase();
@@ -28,10 +30,15 @@ export function LandRow(props: {
   // Context menu callbacks
   onTap?: (id: string) => void;
   onUntap?: (id: string) => void;
-  onActivateAbility?: (permanentId: string, abilityId: string) => void;
+  onActivateAbility?: (permanentId: string, abilityId: string, ability?: ParsedActivatedAbility) => void;
   onSacrifice?: (id: string) => void;
   canActivate?: boolean;
   playerId?: string;
+  // Game state for ability activation (for double-click feature)
+  hasPriority?: boolean;
+  isOwnTurn?: boolean;
+  isMainPhase?: boolean;
+  stackEmpty?: boolean;
 }) {
   const {
     lands,
@@ -44,7 +51,11 @@ export function LandRow(props: {
     onRemove,
     onCounter,
     onTap, onUntap, onActivateAbility, onSacrifice,
-    canActivate = true, playerId
+    canActivate = true, playerId,
+    hasPriority = false,
+    isOwnTurn = false,
+    isMainPhase = false,
+    stackEmpty = true,
   } = props;
 
   const items = useMemo(() => lands.map(p => {
@@ -63,6 +74,82 @@ export function LandRow(props: {
 
   const [hovered, setHovered] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ permanent: BattlefieldPermanent; x: number; y: number } | null>(null);
+  
+  // State for ability selection modal (shown on double-click when multiple abilities exist)
+  const [abilitySelectionModal, setAbilitySelectionModal] = useState<{
+    permanent: BattlefieldPermanent;
+    abilities: { ability: ParsedActivatedAbility; canActivate: boolean; reason?: string }[];
+  } | null>(null);
+
+  // Handle double-click on a land
+  const handleDoubleClick = useCallback((perm: BattlefieldPermanent) => {
+    if (!canActivate || !onActivateAbility || perm.controller !== playerId) return;
+
+    const kc = perm.card as KnownCardRef;
+    if (!kc) return;
+
+    // Parse abilities from the card
+    const abilities = parseActivatedAbilities(kc);
+    if (abilities.length === 0) return;
+
+    // Build activation context
+    const context: ActivationContext = {
+      isTapped: !!perm.tapped,
+      hasSummoningSickness: false, // Lands don't have summoning sickness
+      hasHaste: false,
+      hasThousandYearElixirEffect: false,
+      loyaltyCounters: undefined,
+      controllerHasPriority: hasPriority,
+      isMainPhase,
+      isOwnTurn,
+      stackEmpty,
+    };
+
+    // Annotate abilities with activation status
+    const annotatedAbilities = abilities.map(ability => {
+      const tapCheck = canActivateTapAbility(ability.requiresTap, context, ability.isManaAbility);
+      let canActivateAbility = tapCheck.canActivate;
+      let reason = tapCheck.reason;
+
+      // Check sorcery timing restriction
+      if (ability.timingRestriction === 'sorcery') {
+        if (!context.isMainPhase || !context.isOwnTurn || !context.stackEmpty) {
+          canActivateAbility = false;
+          reason = 'Sorcery timing required';
+        }
+      }
+
+      // Need priority for non-mana abilities
+      if (!ability.isManaAbility && !context.controllerHasPriority) {
+        canActivateAbility = false;
+        reason = 'No priority';
+      }
+
+      return { ability, canActivate: canActivateAbility, reason };
+    });
+
+    // Filter to only activatable abilities for direct activation
+    const activatableAbilities = annotatedAbilities.filter(a => a.canActivate);
+
+    // If only one ability and it can be activated, activate it directly
+    if (abilities.length === 1) {
+      if (activatableAbilities.length === 1) {
+        onActivateAbility(perm.id, activatableAbilities[0].ability.id, activatableAbilities[0].ability);
+      }
+      return;
+    }
+
+    // If multiple abilities, show the selection modal
+    setAbilitySelectionModal({ permanent: perm, abilities: annotatedAbilities });
+  }, [canActivate, onActivateAbility, playerId, hasPriority, isMainPhase, isOwnTurn, stackEmpty]);
+
+  // Handle ability selection from modal
+  const handleAbilitySelect = useCallback((ability: ParsedActivatedAbility) => {
+    if (abilitySelectionModal && onActivateAbility) {
+      onActivateAbility(abilitySelectionModal.permanent.id, ability.id, ability);
+    }
+    setAbilitySelectionModal(null);
+  }, [abilitySelectionModal, onActivateAbility]);
 
   return (
     <>
@@ -94,6 +181,11 @@ export function LandRow(props: {
             onMouseEnter={(e) => { setHovered(it.id); showCardPreview(e.currentTarget as HTMLElement, (lands[idx].card as any), { prefer: 'above', anchorPadding: 0 }); }}
             onMouseLeave={(e) => { setHovered(prev => prev === it.id ? null : prev); hideCardPreview(e.currentTarget as HTMLElement); }}
             onClick={onCardClick ? () => onCardClick(it.id) : undefined}
+            onDoubleClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleDoubleClick(it.perm);
+            }}
             onContextMenu={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -176,6 +268,19 @@ export function LandRow(props: {
         onRemove={onRemove}
         canActivate={canActivate}
         playerId={playerId}
+      />
+    )}
+
+    {/* Ability Selection Modal (for double-click with multiple abilities) */}
+    {abilitySelectionModal && (
+      <AbilitySelectionModal
+        open={true}
+        cardName={(abilitySelectionModal.permanent.card as KnownCardRef)?.name || 'Unknown'}
+        cardImageUrl={(abilitySelectionModal.permanent.card as KnownCardRef)?.image_uris?.normal || 
+                     (abilitySelectionModal.permanent.card as KnownCardRef)?.image_uris?.small}
+        abilities={abilitySelectionModal.abilities}
+        onSelect={handleAbilitySelect}
+        onCancel={() => setAbilitySelectionModal(null)}
       />
     )}
     </>
