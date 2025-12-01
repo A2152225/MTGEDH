@@ -577,6 +577,14 @@ export function parseOracleText(oracleText: string, cardName?: string): OracleTe
       hasTargets = true;
     }
     
+    // Step 4: Check for keyword abilities with cost (Equip, Cycling, etc.)
+    // These don't have a colon, so they weren't caught in Step 1
+    const keywordAbility = parseActivatedAbility(trimmed);
+    if (keywordAbility && keywordAbility.type === AbilityType.KEYWORD) {
+      abilities.push(keywordAbility);
+      continue;
+    }
+    
     // Fallback: Static or spell ability (no specific pattern matched)
     // Only add if not empty and not already captured
     if (!abilities.some(a => a.text === trimmed)) {
@@ -596,7 +604,7 @@ export function parseOracleText(oracleText: string, cardName?: string): OracleTe
     keywords,
     keywordActions,
     isTriggered: abilities.some(a => a.type === AbilityType.TRIGGERED),
-    isActivated: abilities.some(a => a.type === AbilityType.ACTIVATED),
+    isActivated: abilities.some(a => a.type === AbilityType.ACTIVATED || a.type === AbilityType.KEYWORD),
     isReplacement: abilities.some(a => a.type === AbilityType.REPLACEMENT),
     hasTargets,
     hasModes,
@@ -614,6 +622,11 @@ export function hasTriggeredAbility(oracleText: string): boolean {
  * Quick check if oracle text contains an activated ability
  */
 export function hasActivatedAbility(oracleText: string): boolean {
+  // Check for keyword abilities with costs (Equip, Cycling, etc.) - these don't have colons
+  if (KEYWORD_COST_PATTERN.test(oracleText)) {
+    return true;
+  }
+  
   // Must have colon but not start with trigger keywords
   if (!oracleText.includes(':')) return false;
   
