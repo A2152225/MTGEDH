@@ -195,7 +195,9 @@ export interface ClientToServerEvents {
   leaveGame: (payload: { gameId: GameID }) => void;
   
   // Delete a game
-  deleteGame: (payload: { gameId: GameID }) => void;
+  // claimedPlayerId is optional - used when socket hasn't joined a game yet
+  // but the client knows their player ID from localStorage/session
+  deleteGame: (payload: { gameId: GameID; claimedPlayerId?: PlayerID }) => void;
 
   // ===== PRE-GAME / MULLIGAN EVENTS =====
   

@@ -841,3 +841,21 @@ export {
   type ChoiceResponse,
   type ChoiceEventEmitter,
 } from './choiceEvents';
+
+// Oracle Text Parser (comprehensive parsing for MTG abilities)
+export {
+  AbilityType,
+  parseOracleText,
+  parseActivatedAbility,
+  parseTriggeredAbility,
+  parseReplacementEffect,
+  parseKeywordActions,
+  parseKeywords,
+  parseDelayedTrigger,
+  hasTriggeredAbility,
+  hasActivatedAbility,
+  hasReplacementEffect,
+  type ParsedAbility,
+  type ParsedKeywordAction,
+  type OracleTextParseResult,
+} from './oracleTextParser';

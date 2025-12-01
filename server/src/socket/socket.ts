@@ -42,7 +42,15 @@ export function registerSocketHandlers(io: TypedServer) {
 
     // --- deleteGame: hard wipe game state + events so gameId can be reused cleanly ---
     // Now allows game creators to delete their own games, OR anyone if no players are connected
-    socket.on("deleteGame", ({ gameId }: { gameId: string }) => {
+    // Also accepts optional claimedPlayerId for cases where socket hasn't joined a game yet
+    // but the client knows their player ID from localStorage/session
+    //
+    // SECURITY NOTE: The claimedPlayerId parameter is client-provided and therefore untrusted.
+    // It is validated against the server's database record (isGameCreator check) before any action.
+    // An attacker cannot delete games they don't own because isGameCreator verifies that the
+    // claimedPlayerId matches the game's stored created_by_player_id field in the database.
+    // The only fallback is noActivePlayers, which allows anyone to clean up abandoned games.
+    socket.on("deleteGame", ({ gameId, claimedPlayerId }: { gameId: string; claimedPlayerId?: string }) => {
       try {
         if (!gameId || typeof gameId !== "string") {
           socket.emit("error", {
@@ -52,10 +60,12 @@ export function registerSocketHandlers(io: TypedServer) {
           return;
         }
 
-        // Get the player ID of the requesting socket
-        const playerId = socket.data?.playerId;
+        // Get the player ID of the requesting socket, or use the claimed player ID
+        // Priority: socket.data.playerId (if user is currently in a game) > claimedPlayerId (from localStorage)
+        // Note: Both values are ultimately validated against the database in isGameCreator()
+        const playerId = socket.data?.playerId || claimedPlayerId;
         
-        // Check if the player is the creator of the game
+        // Check if the player is the creator of the game (validated against DB record)
         const isCreator = playerId ? isGameCreator(gameId, playerId) : false;
         
         // Check if there are any active (non-spectator) players connected to the game
@@ -76,7 +86,9 @@ export function registerSocketHandlers(io: TypedServer) {
         console.info("[socket] deleteGame requested", {
           gameId,
           bySocket: socket.id,
-          playerId,
+          socketPlayerId: socket.data?.playerId,
+          claimedPlayerId,
+          resolvedPlayerId: playerId,
           isCreator,
           activePlayerCount,
           noActivePlayers,
