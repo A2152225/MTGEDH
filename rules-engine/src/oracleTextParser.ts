@@ -96,7 +96,7 @@ const LOYALTY_ABILITY_PATTERN = /^([+−-]?\d+|0)\s*:\s*(.+)$/;
  * Keyword ability with cost pattern (Equip, Cycling, etc.)
  * Captures: keyword (group 1), cost (group 2)
  */
-const KEYWORD_COST_PATTERN = /^(Equip|Cycling|Kicker|Entwine|Flashback|Unearth|Evoke|Emerge|Escalate|Escape|Foretell|Ward|Craft)\s+(.+)$/i;
+const KEYWORD_COST_PATTERN = /^(Equip|Cycling|Kicker|Entwine|Flashback|Unearth|Evoke|Emerge|Escalate|Escape|Foretell|Ward|Craft|Overload|Bestow|Dash|Embalm|Eternalize|Morph|Megamorph|Mutate|Ninjutsu|Prototype|Prowl|Spectacle|Suspend|Transfigure|Transmute)\s+(.+)$/i;
 
 /**
  * Parse an activated ability from oracle text line
