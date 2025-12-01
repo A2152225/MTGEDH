@@ -801,9 +801,22 @@ export function recalculatePlayerEffects(ctx: GameContext, playerId?: string): v
     (ctx as any).maxLandsPerTurn = (ctx as any).maxLandsPerTurn || {};
     (ctx as any).maxLandsPerTurn[pid] = maxLands;
     
+    // Also update ctx.state.maxLandsPerTurn for compatibility with game-actions.ts
+    // which reads from game.state.maxLandsPerTurn
+    if (ctx.state) {
+      (ctx.state as any).maxLandsPerTurn = (ctx.state as any).maxLandsPerTurn || {};
+      (ctx.state as any).maxLandsPerTurn[pid] = maxLands;
+    }
+    
     // Calculate and set additional draws per turn
     const additionalDraws = calculateAdditionalDraws(ctx, pid);
     (ctx as any).additionalDrawsPerTurn = (ctx as any).additionalDrawsPerTurn || {};
     (ctx as any).additionalDrawsPerTurn[pid] = additionalDraws;
+    
+    // Also update ctx.state.additionalDrawsPerTurn for compatibility
+    if (ctx.state) {
+      (ctx.state as any).additionalDrawsPerTurn = (ctx.state as any).additionalDrawsPerTurn || {};
+      (ctx.state as any).additionalDrawsPerTurn[pid] = additionalDraws;
+    }
   }
 }

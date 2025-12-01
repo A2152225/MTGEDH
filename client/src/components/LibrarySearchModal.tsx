@@ -16,8 +16,9 @@ export interface LibrarySearchModalProps {
   title?: string;
   description?: string;
   filter?: {
+    supertypes?: string[]; // e.g., ['legendary', 'basic', 'snow']
     types?: string[];      // e.g., ['creature', 'planeswalker']
-    subtypes?: string[];   // e.g., ['forest', 'island']
+    subtypes?: string[];   // e.g., ['forest', 'island', 'equipment', 'elf']
     maxCmc?: number;
     minCmc?: number;
     colors?: string[];
@@ -40,13 +41,51 @@ function matchesFilter(card: KnownCardRef, filter: LibrarySearchModalProps['filt
   const typeLine = (card.type_line || '').toLowerCase();
   const oracleText = (card.oracle_text || '').toLowerCase();
   
+  // Supertype filter (e.g., 'legendary', 'basic', 'snow')
+  if (filter.supertypes && filter.supertypes.length > 0) {
+    const matchesSupertype = filter.supertypes.some(st => typeLine.includes(st.toLowerCase()));
+    if (!matchesSupertype) return false;
+  }
+  
   // Type filter
   if (filter.types && filter.types.length > 0) {
-    const matchesType = filter.types.some(t => typeLine.includes(t.toLowerCase()));
+    // Handle special composite types
+    const matchesType = filter.types.some(t => {
+      const tLower = t.toLowerCase();
+      
+      // Special handling for composite types
+      if (tLower === 'historic') {
+        // Historic = artifacts, legendaries, sagas
+        return typeLine.includes('artifact') || 
+               typeLine.includes('legendary') || 
+               typeLine.includes('saga');
+      }
+      if (tLower === 'permanent') {
+        // Permanent = creature, artifact, enchantment, land, planeswalker, battle
+        return typeLine.includes('creature') || 
+               typeLine.includes('artifact') || 
+               typeLine.includes('enchantment') || 
+               typeLine.includes('land') || 
+               typeLine.includes('planeswalker') ||
+               typeLine.includes('battle');
+      }
+      if (tLower === 'noncreature') {
+        return !typeLine.includes('creature');
+      }
+      if (tLower === 'nonland') {
+        return !typeLine.includes('land');
+      }
+      if (tLower === 'nonartifact') {
+        return !typeLine.includes('artifact');
+      }
+      
+      // Standard type matching
+      return typeLine.includes(tLower);
+    });
     if (!matchesType) return false;
   }
   
-  // Subtype filter (e.g., for fetch lands)
+  // Subtype filter (e.g., for fetch lands, creature types, equipment)
   if (filter.subtypes && filter.subtypes.length > 0) {
     const matchesSubtype = filter.subtypes.some(st => typeLine.includes(st.toLowerCase()));
     if (!matchesSubtype) return false;

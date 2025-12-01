@@ -1000,12 +1000,13 @@ export function resolveTopOfStack(ctx: GameContext) {
     // Handle token creation spells (where the caster creates tokens)
     // Patterns: "create X 1/1 tokens", "create two 1/1 tokens", etc.
     const oracleTextLower = oracleText.toLowerCase();
-    const tokenCreationResult = parseTokenCreation(card.name, oracleTextLower, controller, state);
+    const spellXValue = (item as any).xValue;
+    const tokenCreationResult = parseTokenCreation(card.name, oracleTextLower, controller, state, spellXValue);
     if (tokenCreationResult) {
       for (let i = 0; i < tokenCreationResult.count; i++) {
         createTokenFromSpec(ctx, controller, tokenCreationResult);
       }
-      console.log(`[resolveTopOfStack] ${card.name} created ${tokenCreationResult.count} ${tokenCreationResult.name} token(s) for ${controller}`);
+      console.log(`[resolveTopOfStack] ${card.name} created ${tokenCreationResult.count} ${tokenCreationResult.name} token(s) for ${controller} (xValue: ${spellXValue ?? 'N/A'})`);
     }
     
     // Handle extra turn spells (Time Warp, Time Walk, Temporal Mastery, etc.)
@@ -1447,8 +1448,10 @@ function getTokenDoublerMultiplier(controller: PlayerID, state: any): number {
  * 
  * For cards like Summon the School that have conditions (e.g., "equal to the number of Merfolk you control"),
  * we count the relevant permanents on the battlefield.
+ * 
+ * @param xValue - Optional value of X for X spells like Secure the Wastes
  */
-function parseTokenCreation(cardName: string, oracleTextLower: string, controller: PlayerID, state: any): TokenSpec | null {
+function parseTokenCreation(cardName: string, oracleTextLower: string, controller: PlayerID, state: any, xValue?: number): TokenSpec | null {
   // Skip if this doesn't create tokens for the caster
   if (!oracleTextLower.includes('create') || !oracleTextLower.includes('token')) {
     return null;
@@ -1504,8 +1507,8 @@ function parseTokenCreation(cardName: string, oracleTextLower: string, controlle
       } else if (/^\d+$/.test(countWord)) {
         count = parseInt(countWord, 10);
       } else if (countWord === 'x') {
-        // X is typically determined by something else; default to 1 for now
-        count = 1;
+        // Use the provided xValue from the spell cast, default to 1 if not provided
+        count = xValue !== undefined && xValue >= 0 ? xValue : 1;
       }
       
       // Apply token doublers
