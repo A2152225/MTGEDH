@@ -629,6 +629,111 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     broadcastGame(io, game, gameId);
   });
 
+  // Explore: Reveal top card, if land put in hand, else +1/+1 counter and may put in graveyard
+  socket.on("beginExplore", ({ gameId, permanentId }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    const cards = game.peekTopN(pid, 1);
+    
+    if (!cards || cards.length === 0) {
+      // Empty library - creature still explores but nothing happens
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)}'s creature explores (empty library).`,
+        ts: Date.now(),
+      });
+      return;
+    }
+
+    const revealedCard = cards[0];
+    const typeLine = (revealedCard.type_line || "").toLowerCase();
+    const isLand = typeLine.includes("land");
+
+    // Find the exploring permanent for its name
+    const battlefield = game.state?.battlefield || [];
+    const exploringPerm = battlefield.find((p: any) => p.id === permanentId && p.controller === pid);
+    const exploringName = exploringPerm?.card?.name || "Creature";
+
+    socket.emit("explorePrompt", {
+      gameId,
+      permanentId,
+      permanentName: exploringName,
+      revealedCard,
+      isLand,
+    });
+
+    // Announce the reveal to all players
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)}'s ${exploringName} explores, revealing ${revealedCard.name}${isLand ? " (land)" : ""}.`,
+      ts: Date.now(),
+    });
+  });
+
+  socket.on("confirmExplore", ({ gameId, permanentId, toGraveyard }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    const cards = game.peekTopN(pid, 1);
+    
+    if (!cards || cards.length === 0) {
+      return;
+    }
+
+    const revealedCard = cards[0];
+    const typeLine = (revealedCard.type_line || "").toLowerCase();
+    const isLand = typeLine.includes("land");
+
+    // Find the exploring permanent
+    const battlefield = game.state?.battlefield || [];
+    const exploringPerm = battlefield.find((p: any) => p.id === permanentId && p.controller === pid);
+    const exploringName = exploringPerm?.card?.name || "Creature";
+
+    game.applyEvent({
+      type: "exploreResolve",
+      playerId: pid,
+      permanentId,
+      revealedCardId: revealedCard.id,
+      isLand,
+      toGraveyard: isLand ? false : toGraveyard,
+    });
+
+    appendEvent(gameId, game.seq, "exploreResolve", {
+      playerId: pid,
+      permanentId,
+      revealedCardId: revealedCard.id,
+      isLand,
+      toGraveyard,
+    });
+
+    // Announce the result
+    let resultMessage: string;
+    if (isLand) {
+      resultMessage = `${getPlayerName(game, pid)} puts ${revealedCard.name} into their hand.`;
+    } else if (toGraveyard) {
+      resultMessage = `${getPlayerName(game, pid)} puts a +1/+1 counter on ${exploringName} and puts ${revealedCard.name} into their graveyard.`;
+    } else {
+      resultMessage = `${getPlayerName(game, pid)} puts a +1/+1 counter on ${exploringName} and keeps ${revealedCard.name} on top of their library.`;
+    }
+
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: resultMessage,
+      ts: Date.now(),
+    });
+
+    broadcastGame(io, game, gameId);
+  });
+
   // Library search: Query and select cards
   socket.on("searchLibrary", ({ gameId, query, limit }) => {
     const pid = socket.data.playerId as string | undefined;
