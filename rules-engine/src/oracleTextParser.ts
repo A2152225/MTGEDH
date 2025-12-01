@@ -96,7 +96,7 @@ const LOYALTY_ABILITY_PATTERN = /^([+−-]?\d+|0)\s*:\s*(.+)$/;
  * Keyword ability with cost pattern (Equip, Cycling, etc.)
  * Captures: keyword (group 1), cost (group 2)
  */
-const KEYWORD_COST_PATTERN = /^(Equip|Cycling|Kicker|Entwine|Flashback|Unearth|Evoke|Emerge|Escalate|Escape|Foretell|Ward|Craft|Overload|Bestow|Dash|Embalm|Eternalize|Morph|Megamorph|Mutate|Ninjutsu|Prototype|Prowl|Spectacle|Suspend|Transfigure|Transmute)\s+(.+)$/i;
+const KEYWORD_COST_PATTERN = /^(Equip|Cycling|Kicker|Entwine|Flashback|Unearth|Evoke|Emerge|Escalate|Escape|Foretell|Ward|Craft|Overload|Bestow|Dash|Embalm|Eternalize|Morph|Megamorph|Mutate|Ninjutsu|Prototype|Prowl|Spectacle|Suspend|Transfigure|Transmute|Warp|Blitz|Channel|Disturb|Encore|Madness|Miracle|Outlast|Reconfigure|Reinforce|Scavenge|Squad|Sunburst|Umbra armor|Backup|Bargain|Boast|Buyback|Casualty|Cleave|Conspire|Convoke|Crew|Delve|Demonstrate|Devour|Dredge|Echo|Enlist|Epic|Exploit|Extort|Fabricate|Fading|Fortify|Fuse|Graft|Haunt|Hideaway|Improvise|Incubate|Jump-start|Landfall|Level up|Living weapon|Meld|Modular|Monstrosity|Offering|Overrun|Persist|Phasing|Populate|Proliferate|Radiance|Raid|Ravenous|Replicate|Retrace|Riot|Saga|Soulbond|Splice|Split second|Storm|Strive|Sunburst|Surge|Undying|Unleash|Vanishing)\s+(.+)$/i;
 
 /**
  * Parse an activated ability from oracle text line
