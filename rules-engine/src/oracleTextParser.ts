@@ -449,7 +449,7 @@ export function parseKeywords(oracleText: string): string[] {
     'bushido', 'buyback', 'cascade', 'casualty', 'celebration', 'champion', 'changeling',
     'cipher', 'cleave', 'companion', 'compleated', 'conjure', 'connive', 'conspire', 'convoke',
     'corrupted', 'crew', 'cumulative upkeep', 'cycling', 'dash', 'daybound', 'deathtouch',
-    'decayed', 'defender', 'delve', 'demonstate', 'descend', 'detain', 'devotion', 'devour',
+    'decayed', 'defender', 'delve', 'demonstrate', 'descend', 'detain', 'devotion', 'devour',
     'discover', 'disguise', 'disturb', 'domain', 'double strike', 'dredge', 'echo', 'embalm',
     'emerge', 'enchant', 'encore', 'enlist', 'enrage', 'entwine', 'equip', 'escalate', 'escape',
     'eternalize', 'evoke', 'evolve', 'exalted', 'exploit', 'explore', 'extort', 'fabricate',
