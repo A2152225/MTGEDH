@@ -5,6 +5,7 @@ import { recalculatePlayerEffects } from "./game-state-effects.js";
 import { categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
 import { getETBTriggersForPermanent, type TriggeredAbility } from "./triggered-abilities.js";
 import { addExtraTurn } from "./turn.js";
+import { drawCards as drawCardsFromZone } from "./zones.js";
 
 /**
  * Stack / resolution helpers (extracted).
@@ -1041,10 +1042,90 @@ export function resolveTopOfStack(ctx: GameContext) {
       // Draw cards for each player
       const players = (state as any).players || [];
       for (const player of players) {
-        if (player && player.id && typeof (ctx as any).drawCards === 'function') {
+        if (player && player.id) {
           try {
-            (ctx as any).drawCards(player.id, drawCount);
-            console.log(`[resolveTopOfStack] ${card.name}: ${player.name || player.id} drew ${drawCount} card(s)`);
+            const drawn = drawCardsFromZone(ctx, player.id as PlayerID, drawCount);
+            console.log(`[resolveTopOfStack] ${card.name}: ${player.name || player.id} drew ${drawn.length} card(s)`);
+          } catch (err) {
+            console.warn(`[resolveTopOfStack] Failed to draw cards for ${player.id}:`, err);
+          }
+        }
+      }
+    }
+    
+    // Handle "You draw X. Each other player draws Y" patterns (Words of Wisdom style)
+    // Words of Wisdom: "You draw two cards. Each other player draws a card."
+    const youDrawMatch = oracleTextLower.match(/you draw\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?/i);
+    const eachOtherDrawMatch = oracleTextLower.match(/each other player draws?\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?/i);
+    
+    if (youDrawMatch && !eachPlayerDrawsMatch) {
+      const wordToNumber: Record<string, number> = { 
+        'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+        'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10
+      };
+      const controllerDrawCount = wordToNumber[youDrawMatch[1].toLowerCase()] || parseInt(youDrawMatch[1], 10) || 1;
+      
+      try {
+        const drawn = drawCardsFromZone(ctx, controller, controllerDrawCount);
+        console.log(`[resolveTopOfStack] ${card.name}: Controller ${controller} drew ${drawn.length} card(s)`);
+      } catch (err) {
+        console.warn(`[resolveTopOfStack] Failed to draw cards for controller ${controller}:`, err);
+      }
+      
+      // Handle "each other player draws" if present
+      if (eachOtherDrawMatch) {
+        const otherDrawCount = wordToNumber[eachOtherDrawMatch[1].toLowerCase()] || parseInt(eachOtherDrawMatch[1], 10) || 1;
+        const players = (state as any).players || [];
+        for (const player of players) {
+          if (player && player.id && player.id !== controller) {
+            try {
+              const drawn = drawCardsFromZone(ctx, player.id as PlayerID, otherDrawCount);
+              console.log(`[resolveTopOfStack] ${card.name}: ${player.name || player.id} drew ${drawn.length} card(s)`);
+            } catch (err) {
+              console.warn(`[resolveTopOfStack] Failed to draw cards for ${player.id}:`, err);
+            }
+          }
+        }
+      }
+    }
+    
+    // Handle Windfall-style effects: "Each player discards their hand, then draws cards equal to..."
+    if (oracleTextLower.includes('each player discards') && oracleTextLower.includes('hand') && 
+        (oracleTextLower.includes('then draws') || oracleTextLower.includes('draws cards equal'))) {
+      const players = (state as any).players || [];
+      const zones = state.zones || {};
+      let greatestDiscarded = 0;
+      
+      // First pass: discard all hands and track the greatest number discarded
+      for (const player of players) {
+        if (player && player.id) {
+          const playerZones = zones[player.id];
+          if (playerZones && Array.isArray(playerZones.hand)) {
+            const handSize = playerZones.hand.length;
+            greatestDiscarded = Math.max(greatestDiscarded, handSize);
+            
+            // Move hand to graveyard
+            playerZones.graveyard = playerZones.graveyard || [];
+            for (const handCard of playerZones.hand) {
+              if (handCard && typeof handCard === 'object') {
+                (playerZones.graveyard as any[]).push({ ...handCard, zone: 'graveyard' });
+              }
+            }
+            playerZones.hand = [];
+            playerZones.handCount = 0;
+            playerZones.graveyardCount = (playerZones.graveyard as any[]).length;
+            
+            console.log(`[resolveTopOfStack] ${card.name}: ${player.name || player.id} discarded ${handSize} card(s)`);
+          }
+        }
+      }
+      
+      // Second pass: each player draws cards equal to the greatest number discarded
+      for (const player of players) {
+        if (player && player.id && greatestDiscarded > 0) {
+          try {
+            const drawn = drawCardsFromZone(ctx, player.id as PlayerID, greatestDiscarded);
+            console.log(`[resolveTopOfStack] ${card.name}: ${player.name || player.id} drew ${drawn.length} card(s) (greatest discarded: ${greatestDiscarded})`);
           } catch (err) {
             console.warn(`[resolveTopOfStack] Failed to draw cards for ${player.id}:`, err);
           }
