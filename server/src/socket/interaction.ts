@@ -688,6 +688,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
 
     const revealedCard = cards[0];
+    // Re-check land status from server state to prevent race conditions
+    // where client and server state could diverge
     const typeLine = (revealedCard.type_line || "").toLowerCase();
     const isLand = typeLine.includes("land");
 
@@ -702,6 +704,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       permanentId,
       revealedCardId: revealedCard.id,
       isLand,
+      // Defensive: ensure lands never go to graveyard regardless of client input
       toGraveyard: isLand ? false : toGraveyard,
     });
 

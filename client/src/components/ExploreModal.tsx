@@ -116,7 +116,8 @@ export function ExploreModal({
           <div
             onMouseEnter={(e) => showCardPreview(
               e.currentTarget as HTMLElement, 
-              revealedCard as any, 
+              // ExploreCard is compatible with CardLike (has name, type_line, image_uris)
+              revealedCard, 
               { prefer: 'right', anchorPadding: 8 }
             )}
             onMouseLeave={(e) => hideCardPreview(e.currentTarget as HTMLElement)}

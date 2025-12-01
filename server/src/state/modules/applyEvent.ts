@@ -27,6 +27,7 @@ import {
   reconcileZonesConsistency,
   applyScry,
   applySurveil,
+  applyExplore,
 } from "./zones";
 import { setCommander, castCommander, moveCommanderToCZ } from "./commander";
 import {
@@ -730,6 +731,18 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           (e as any).playerId,
           (e as any).toGraveyard || [],
           (e as any).keepTopOrder || []
+        );
+        break;
+      }
+
+      case "exploreResolve": {
+        applyExplore(
+          ctx as any,
+          (e as any).playerId,
+          (e as any).permanentId,
+          (e as any).revealedCardId,
+          (e as any).isLand || false,
+          (e as any).toGraveyard || false
         );
         break;
       }

@@ -441,6 +441,76 @@ export function applySurveil(ctx: GameContext, playerId: PlayerID, toGraveyard: 
   ctx.bumpSeq();
 }
 
+/**
+ * applyExplore
+ * Rule 701.44: A permanent explores. Reveal top card of library.
+ * - If land: put in hand
+ * - If not land: put +1/+1 counter on the exploring permanent, 
+ *   and you may put the revealed card into graveyard (else leave on top)
+ */
+export function applyExplore(
+  ctx: GameContext,
+  playerId: PlayerID,
+  permanentId: string,
+  revealedCardId: string,
+  isLand: boolean,
+  toGraveyard: boolean
+): void {
+  const lib = ctx.libraries.get(playerId) || [];
+  if (lib.length === 0) return;
+  
+  // Find the revealed card at top of library
+  const topCard = lib[0];
+  if (!topCard || topCard.id !== revealedCardId) {
+    // Card mismatch - state has changed, ignore
+    return;
+  }
+  
+  // Remove from top of library
+  lib.shift();
+  
+  const zones = ctx.state.zones = ctx.state.zones || {};
+  const z = zones[playerId] || (zones[playerId] = {
+    hand: [],
+    handCount: 0,
+    libraryCount: 0,
+    graveyard: [],
+    graveyardCount: 0,
+  } as any);
+  
+  if (isLand) {
+    // Land goes to hand
+    (z as any).hand = (z as any).hand || [];
+    (z as any).hand.push({ ...topCard, zone: "hand", faceDown: false });
+    (z as any).handCount = ((z as any).hand || []).length;
+  } else {
+    // Not a land - add +1/+1 counter to exploring permanent
+    const battlefield = ctx.state.battlefield || [];
+    const perm = battlefield.find((p: any) => p.id === permanentId && p.controller === playerId);
+    if (perm) {
+      perm.counters = perm.counters || {};
+      perm.counters["+1/+1"] = (perm.counters["+1/+1"] || 0) + 1;
+    }
+    
+    if (toGraveyard) {
+      // Put revealed card in graveyard
+      (z as any).graveyard = (z as any).graveyard || [];
+      (z as any).graveyard.push({ ...topCard, zone: "graveyard", faceDown: false });
+      (z as any).graveyardCount = ((z as any).graveyard || []).length;
+    }
+    // If not toGraveyard, card is already removed from library top and we just
+    // don't add it back - wait, that's wrong. It should stay on top if not to graveyard.
+    // Let me fix this: if not toGraveyard, put it back on top
+    if (!toGraveyard) {
+      lib.unshift({ ...topCard, zone: "library" });
+    }
+  }
+  
+  (z as any).libraryCount = lib.length;
+  ctx.libraries.set(playerId, lib);
+  ctx.bumpSeq();
+}
+
 /* ===== search helper ===== */
 
 /**
@@ -682,6 +752,7 @@ export default {
   reorderHand,
   applyScry,
   applySurveil,
+  applyExplore,
   searchLibrary,
   putCardsOnTopOfLibrary,
   putCardsOnBottomOfLibrary,
