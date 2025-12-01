@@ -42,7 +42,9 @@ export function registerSocketHandlers(io: TypedServer) {
 
     // --- deleteGame: hard wipe game state + events so gameId can be reused cleanly ---
     // Now allows game creators to delete their own games, OR anyone if no players are connected
-    socket.on("deleteGame", ({ gameId }: { gameId: string }) => {
+    // Also accepts optional claimedPlayerId for cases where socket hasn't joined a game yet
+    // but the client knows their player ID from localStorage/session
+    socket.on("deleteGame", ({ gameId, claimedPlayerId }: { gameId: string; claimedPlayerId?: string }) => {
       try {
         if (!gameId || typeof gameId !== "string") {
           socket.emit("error", {
@@ -52,8 +54,9 @@ export function registerSocketHandlers(io: TypedServer) {
           return;
         }
 
-        // Get the player ID of the requesting socket
-        const playerId = socket.data?.playerId;
+        // Get the player ID of the requesting socket, or use the claimed player ID
+        // Priority: socket.data.playerId (if user is currently in a game) > claimedPlayerId (from localStorage)
+        const playerId = socket.data?.playerId || claimedPlayerId;
         
         // Check if the player is the creator of the game
         const isCreator = playerId ? isGameCreator(gameId, playerId) : false;
@@ -76,7 +79,9 @@ export function registerSocketHandlers(io: TypedServer) {
         console.info("[socket] deleteGame requested", {
           gameId,
           bySocket: socket.id,
-          playerId,
+          socketPlayerId: socket.data?.playerId,
+          claimedPlayerId,
+          resolvedPlayerId: playerId,
           isCreator,
           activePlayerCount,
           noActivePlayers,

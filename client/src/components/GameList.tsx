@@ -107,7 +107,12 @@ export default function GameList(props: GameListProps) {
         }
       } else if (isCreator || noActiveConnections) {
         // Use socket to delete as the creator or when no players are connected
-        socket.emit("deleteGame" as any, { gameId: game.id });
+        // Pass claimedPlayerId for cases where the socket hasn't joined a game yet
+        // (e.g., user is on game list but hasn't joined any game)
+        socket.emit("deleteGame" as any, { 
+          gameId: game.id,
+          claimedPlayerId: currentPlayerId || undefined
+        });
         // The game will be removed from the list via the gameDeletedAck event listener
         // Also refresh the list after a short delay as a fallback in case the event isn't received
         setTimeout(() => {
