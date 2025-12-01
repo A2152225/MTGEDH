@@ -667,13 +667,28 @@ export function App() {
     
     // Auto-pass activates when:
     // 1. Auto-pass is enabled for this step, AND
-    // 2. Either: you are NOT the active player (not your turn), OR the phase navigator is actively advancing, AND
+    // 2. Either: you are NOT the active player (not your turn), OR you're using phase navigator during a NON-action phase, AND
     // 3. There are no pending triggers to handle
-    // This allows players to leave auto-pass enabled without losing their turn,
-    // but still auto-passes during phase navigator advancement on your turn
+    // 
+    // IMPORTANT: The turn player should NEVER auto-pass during their own "action phases":
+    // - Main Phase 1 (MAIN1) - can play lands, cast sorcery-speed spells
+    // - Main Phase 2 (MAIN2) - can play lands, cast sorcery-speed spells
+    // These are the phases where the turn player typically wants to take actions.
+    // Even with phaseNavigatorAdvancing=true, we should stop at main phases on your turn.
     const turnPlayer = (safeView as any).turnPlayer;
     const isYourTurn = turnPlayer !== null && turnPlayer !== undefined && turnPlayer === you;
-    const shouldAutoPass = autoPassStepEnabled && (!isYourTurn || phaseNavigatorAdvancing) && !hasPendingTriggers;
+    
+    // Action phases are main phases where the turn player can play lands and cast sorcery-speed spells
+    // The turn player should ALWAYS get priority at these phases, regardless of auto-pass settings
+    const isActionPhase = stepKey === 'main1' || stepKey === 'main2' || 
+                          step.toLowerCase().includes('main') ||
+                          phase.toLowerCase().includes('main');
+    
+    // For the turn player, don't auto-pass during action phases even when phase navigator is advancing
+    // This prevents the "skip to cleanup" bug where clicking phase navigator skips the entire turn
+    const canAutoPassOnYourTurn = phaseNavigatorAdvancing && !isActionPhase;
+    
+    const shouldAutoPass = autoPassStepEnabled && (!isYourTurn || canAutoPassOnYourTurn) && !hasPendingTriggers;
     
     if (youHavePriority && stackLength === 0 && !combatModalOpen) {
       // Check if this is a new step

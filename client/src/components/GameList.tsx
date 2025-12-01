@@ -106,6 +106,10 @@ export default function GameList(props: GameListProps) {
         // Use socket to delete as the creator or when no players are connected
         socket.emit("deleteGame" as any, { gameId: game.id });
         // The game will be removed from the list via the gameDeletedAck event listener
+        // Also refresh the list after a short delay as a fallback in case the event isn't received
+        setTimeout(() => {
+          fetchGames();
+        }, 500);
       }
     } catch (err) {
       console.error("Delete failed:", err);
