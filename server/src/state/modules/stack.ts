@@ -365,12 +365,64 @@ function executeTriggerEffect(
   
   // Pattern: "Draw a card" or "Draw X cards"
   const drawMatch = desc.match(/draw (?:a card|(\d+) cards?)/i);
-  if (drawMatch) {
+  if (drawMatch && !desc.includes('each player may put a land')) {
+    // Skip if this is a Kynaios-style effect (handled below)
     const count = drawMatch[1] ? parseInt(drawMatch[1], 10) : 1;
     // Set up pending draw - actual draw happens through zone management
     state.pendingDraws = state.pendingDraws || {};
     state.pendingDraws[controller] = (state.pendingDraws[controller] || 0) + count;
     console.log(`[executeTriggerEffect] ${controller} will draw ${count} card(s)`);
+    return;
+  }
+  
+  // Pattern: Kynaios and Tiro of Meletis style - "draw a card. Each player may put a land...then each opponent who didn't draws a card"
+  // This is a complex multi-step effect that requires player choices
+  if (desc.includes('each player may put a land') && desc.includes('opponent') && desc.includes('draws a card')) {
+    // First, controller draws a card
+    state.pendingDraws = state.pendingDraws || {};
+    state.pendingDraws[controller] = (state.pendingDraws[controller] || 0) + 1;
+    
+    // Set up pending land play choice for all players, and pending conditional draw for opponents
+    state.pendingKynaiosChoice = state.pendingKynaiosChoice || {};
+    state.pendingKynaiosChoice[controller] = {
+      sourceName,
+      sourceController: controller,
+      playersWhoMayPlayLand: players.map((p: any) => p.id),
+      playersWhoPlayedLand: [],
+      active: true,
+    };
+    
+    console.log(`[executeTriggerEffect] ${sourceName}: ${controller} draws 1, all players may put a land, opponents who don't will draw`);
+    return;
+  }
+  
+  // Pattern: "Target player draws X cards" or "that player draws X cards"
+  const targetDrawMatch = desc.match(/(?:target|that) player draws? (\d+|a|an|one|two|three) cards?/i);
+  if (targetDrawMatch) {
+    const wordToNum: Record<string, number> = { 'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3 };
+    const count = wordToNum[targetDrawMatch[1].toLowerCase()] || parseInt(targetDrawMatch[1], 10) || 1;
+    
+    // Use target if available, otherwise controller
+    const targets = triggerItem?.targets || [];
+    const targetPlayer = targets[0]?.id || targets[0] || controller;
+    
+    state.pendingDraws = state.pendingDraws || {};
+    state.pendingDraws[targetPlayer] = (state.pendingDraws[targetPlayer] || 0) + count;
+    console.log(`[executeTriggerEffect] ${targetPlayer} will draw ${count} card(s)`);
+    return;
+  }
+  
+  // Pattern: "each opponent draws a card" 
+  const eachOpponentDrawsMatch = desc.match(/each opponent draws? (\d+|a|an|one|two) cards?/i);
+  if (eachOpponentDrawsMatch) {
+    const wordToNum: Record<string, number> = { 'a': 1, 'an': 1, 'one': 1, 'two': 2 };
+    const count = wordToNum[eachOpponentDrawsMatch[1].toLowerCase()] || parseInt(eachOpponentDrawsMatch[1], 10) || 1;
+    
+    state.pendingDraws = state.pendingDraws || {};
+    for (const opp of opponents) {
+      state.pendingDraws[opp.id] = (state.pendingDraws[opp.id] || 0) + count;
+    }
+    console.log(`[executeTriggerEffect] Each opponent will draw ${count} card(s)`);
     return;
   }
   
@@ -435,12 +487,21 @@ function executeTriggerEffect(
   // Pattern: "Create a X/Y [creature type] creature token" (various patterns)
   // Matches: "create a 2/2 green Wolf creature token", "create a 1/1 white Soldier creature token with vigilance"
   // Also matches: "create a 0/1 colorless Eldrazi Spawn creature token"
-  const createTokenMatch = desc.match(/create (?:a|an|(\d+)) (\d+)\/(\d+) ([^\.]+?)(?:\s+creature)?\s+tokens?/i);
+  // Also matches: "create two 1/1 white Cat creature tokens that are tapped and attacking"
+  const createTokenMatch = desc.match(/create (?:a|an|one|two|three|four|five|(\d+)) (\d+)\/(\d+) ([^\.]+?)(?:\s+creature)?\s+tokens?/i);
   if (createTokenMatch) {
-    const tokenCount = createTokenMatch[1] ? parseInt(createTokenMatch[1], 10) : 1;
+    // Parse count from word or number
+    const countWord = desc.match(/create (a|an|one|two|three|four|five|\d+)/i)?.[1]?.toLowerCase() || 'a';
+    const wordToCount: Record<string, number> = {
+      'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5
+    };
+    const tokenCount = wordToCount[countWord] || (createTokenMatch[1] ? parseInt(createTokenMatch[1], 10) : 1);
     const power = parseInt(createTokenMatch[2], 10);
     const toughness = parseInt(createTokenMatch[3], 10);
     const tokenDescription = createTokenMatch[4].trim();
+    
+    // Check for "tapped and attacking" pattern
+    const isTappedAndAttacking = desc.includes('tapped and attacking');
     
     // Extract color and creature type from description
     // e.g., "white Soldier" -> color: white, type: Soldier
@@ -456,7 +517,8 @@ function executeTriggerEffect(
       const lowerPart = part.toLowerCase();
       if (colorMap[lowerPart] !== undefined) {
         if (colorMap[lowerPart]) colors.push(colorMap[lowerPart]);
-      } else if (lowerPart !== 'creature' && lowerPart !== 'token' && lowerPart !== 'and' && lowerPart !== 'with') {
+      } else if (lowerPart !== 'creature' && lowerPart !== 'token' && lowerPart !== 'and' && lowerPart !== 'with' && 
+                 lowerPart !== 'that' && lowerPart !== 'are' && lowerPart !== 'tapped' && lowerPart !== 'attacking') {
         creatureTypes.push(part.charAt(0).toUpperCase() + part.slice(1).toLowerCase());
       }
     }
@@ -484,12 +546,16 @@ function executeTriggerEffect(
         id: tokenId,
         controller,
         owner: controller,
-        tapped: false,
+        // Tokens that enter "tapped and attacking" are tapped, have no summoning sickness issue for attacking
+        tapped: isTappedAndAttacking,
         counters: {},
         basePower: power,
         baseToughness: toughness,
-        summoningSickness: !abilities.includes('Haste'),
+        // Tokens that enter attacking don't have summoning sickness for the purpose of attacking
+        summoningSickness: !abilities.includes('Haste') && !isTappedAndAttacking,
         isToken: true,
+        // Mark as attacking if it enters attacking
+        isAttacking: isTappedAndAttacking,
         card: {
           id: tokenId,
           name: tokenName,
@@ -504,7 +570,7 @@ function executeTriggerEffect(
       } as any;
       
       state.battlefield.push(token);
-      console.log(`[executeTriggerEffect] Created ${power}/${toughness} ${tokenName} token for ${controller}`);
+      console.log(`[executeTriggerEffect] Created ${power}/${toughness} ${tokenName} token for ${controller}${isTappedAndAttacking ? ' (tapped and attacking)' : ''}`);
     }
     return;
   }
