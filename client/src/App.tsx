@@ -680,9 +680,8 @@ export function App() {
     
     // Action phases are main phases where the turn player can play lands and cast sorcery-speed spells
     // The turn player should ALWAYS get priority at these phases, regardless of auto-pass settings
-    const isActionPhase = stepKey === 'main1' || stepKey === 'main2' || 
-                          step.toLowerCase().includes('main') ||
-                          phase.toLowerCase().includes('main');
+    // Use stepKey (normalized, lowercase, no underscores) for precise detection
+    const isActionPhase = stepKey.includes('main');
     
     // For the turn player, don't auto-pass during action phases even when phase navigator is advancing
     // This prevents the "skip to cleanup" bug where clicking phase navigator skips the entire turn

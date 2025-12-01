@@ -1,6 +1,9 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { socket } from "../socket";
 
+/** Delay before fallback refresh after socket-based game deletion (ms) */
+const GAME_DELETE_FALLBACK_DELAY_MS = 500;
+
 type GameRow = {
   id: string;
   format: string;
@@ -109,7 +112,7 @@ export default function GameList(props: GameListProps) {
         // Also refresh the list after a short delay as a fallback in case the event isn't received
         setTimeout(() => {
           fetchGames();
-        }, 500);
+        }, GAME_DELETE_FALLBACK_DELAY_MS);
       }
     } catch (err) {
       console.error("Delete failed:", err);
