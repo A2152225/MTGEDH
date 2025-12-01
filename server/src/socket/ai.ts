@@ -2671,10 +2671,16 @@ async function handlePendingLibrarySearchAfterResolution(
         
         if (searchFor.includes('creature')) {
           validCards = library.filter((c: any) => c.type_line?.toLowerCase().includes('creature'));
+        } else if (searchFor.includes('planeswalker')) {
+          validCards = library.filter((c: any) => c.type_line?.toLowerCase().includes('planeswalker'));
         } else if (searchFor.includes('instant')) {
           validCards = library.filter((c: any) => c.type_line?.toLowerCase().includes('instant'));
         } else if (searchFor.includes('sorcery')) {
           validCards = library.filter((c: any) => c.type_line?.toLowerCase().includes('sorcery'));
+        } else if (searchFor.includes('artifact')) {
+          validCards = library.filter((c: any) => c.type_line?.toLowerCase().includes('artifact'));
+        } else if (searchFor.includes('enchantment')) {
+          validCards = library.filter((c: any) => c.type_line?.toLowerCase().includes('enchantment'));
         } else if (searchFor.includes('land')) {
           validCards = library.filter((c: any) => c.type_line?.toLowerCase().includes('land'));
           if (searchFor.includes('basic')) {
@@ -2772,8 +2778,8 @@ async function handlePendingLibrarySearchAfterResolution(
           cards: library,
           title: info.source || 'Search',
           description: info.searchFor ? `Search for: ${info.searchFor}` : 'Search your library',
-          filter: {},
-          maxSelections: 1,
+          filter: info.filter || {},
+          maxSelections: info.maxSelections || 1,
           moveTo: info.destination || 'hand',
           shuffleAfter: info.shuffleAfter ?? true,
           optional: info.optional || false,

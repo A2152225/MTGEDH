@@ -150,3 +150,132 @@ describe('Tutor Destination Parsing', () => {
     });
   });
 });
+
+/**
+ * Test suite for parseSearchFilter function
+ * Tests that search criteria strings are correctly parsed into filter objects
+ * with proper format for LibrarySearchModal (types array, not boolean properties)
+ */
+describe('parseSearchFilter', () => {
+  // Re-implement parseSearchFilter for testing (mirrors server/src/socket/util.ts)
+  function parseSearchFilter(criteria: string): { types?: string[]; subtypes?: string[]; supertypes?: string[]; maxCmc?: number } {
+    if (!criteria) return {};
+    
+    const filter: { types?: string[]; subtypes?: string[]; supertypes?: string[]; maxCmc?: number } = {};
+    const text = criteria.toLowerCase();
+    
+    // Card types - must be in types array for client filter to work
+    const types: string[] = [];
+    if (text.includes('creature')) types.push('creature');
+    if (text.includes('instant')) types.push('instant');
+    if (text.includes('sorcery')) types.push('sorcery');
+    if (text.includes('artifact')) types.push('artifact');
+    if (text.includes('enchantment')) types.push('enchantment');
+    if (text.includes('planeswalker')) types.push('planeswalker');
+    if (text.includes('land')) types.push('land');
+    
+    if (types.length > 0) {
+      filter.types = types;
+    }
+    
+    // Supertypes
+    const supertypes: string[] = [];
+    if (text.includes('basic')) supertypes.push('basic');
+    if (text.includes('legendary')) supertypes.push('legendary');
+    if (text.includes('snow')) supertypes.push('snow');
+    
+    if (supertypes.length > 0) {
+      filter.supertypes = supertypes;
+    }
+    
+    // Subtypes (land types, creature types, etc.)
+    const subtypes: string[] = [];
+    if (text.includes('forest')) subtypes.push('forest');
+    if (text.includes('plains')) subtypes.push('plains');
+    if (text.includes('island')) subtypes.push('island');
+    if (text.includes('swamp')) subtypes.push('swamp');
+    if (text.includes('mountain')) subtypes.push('mountain');
+    if (text.includes('equipment')) subtypes.push('equipment');
+    
+    if (subtypes.length > 0) {
+      filter.subtypes = subtypes;
+    }
+    
+    // CMC restrictions
+    const cmcMatch = text.match(/mana value (\d+) or less/);
+    if (cmcMatch) {
+      filter.maxCmc = parseInt(cmcMatch[1], 10);
+    }
+    
+    return filter;
+  }
+
+  it('should parse planeswalker card to types array', () => {
+    const filter = parseSearchFilter('planeswalker card');
+    
+    expect(filter.types).toBeDefined();
+    expect(filter.types).toContain('planeswalker');
+    expect(filter.types?.length).toBe(1);
+  });
+
+  it('should parse creature card to types array', () => {
+    const filter = parseSearchFilter('creature card');
+    
+    expect(filter.types).toBeDefined();
+    expect(filter.types).toContain('creature');
+  });
+
+  it('should parse artifact card to types array', () => {
+    const filter = parseSearchFilter('artifact card');
+    
+    expect(filter.types).toBeDefined();
+    expect(filter.types).toContain('artifact');
+  });
+
+  it('should parse basic land to both types and supertypes', () => {
+    const filter = parseSearchFilter('basic land card');
+    
+    expect(filter.types).toBeDefined();
+    expect(filter.types).toContain('land');
+    expect(filter.supertypes).toBeDefined();
+    expect(filter.supertypes).toContain('basic');
+  });
+
+  it('should parse forest to subtypes', () => {
+    const filter = parseSearchFilter('Forest card');
+    
+    expect(filter.subtypes).toBeDefined();
+    expect(filter.subtypes).toContain('forest');
+  });
+
+  it('should parse mana value restrictions', () => {
+    const filter = parseSearchFilter('creature card with mana value 3 or less');
+    
+    expect(filter.types).toContain('creature');
+    expect(filter.maxCmc).toBe(3);
+  });
+
+  it('should return empty object for generic card search', () => {
+    const filter = parseSearchFilter('card');
+    
+    // Should have no type restrictions for generic "card" search
+    expect(filter.types).toBeUndefined();
+  });
+
+  it('should handle enchantment creature (multiple types)', () => {
+    const filter = parseSearchFilter('enchantment creature card');
+    
+    expect(filter.types).toBeDefined();
+    expect(filter.types).toContain('enchantment');
+    expect(filter.types).toContain('creature');
+  });
+
+  it('should handle legendary planeswalker', () => {
+    const filter = parseSearchFilter('legendary planeswalker card');
+    
+    expect(filter.types).toBeDefined();
+    expect(filter.types).toContain('planeswalker');
+    expect(filter.supertypes).toBeDefined();
+    expect(filter.supertypes).toContain('legendary');
+  });
+});

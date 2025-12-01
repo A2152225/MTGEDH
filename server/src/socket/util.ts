@@ -1004,32 +1004,62 @@ function handlePendingEntrapmentManeuver(io: Server, game: any, gameId: string):
 
 /**
  * Parse search criteria string into a filter object for library search.
- * E.g., "basic land card" -> { types: ['Land'], subtypes: ['Plains', 'Island', ...] }
+ * E.g., "basic land card" -> { types: ['land'], supertypes: ['basic'] }
+ * E.g., "planeswalker card" -> { types: ['planeswalker'] }
+ * 
+ * The filter format must match LibrarySearchModalProps['filter']:
+ * - types: string[] (e.g., ['creature', 'planeswalker'])
+ * - subtypes: string[] (e.g., ['forest', 'equipment'])
+ * - supertypes: string[] (e.g., ['basic', 'legendary'])
+ * - maxCmc: number
  */
-function parseSearchFilter(criteria: string): Record<string, any> {
+function parseSearchFilter(criteria: string): { types?: string[]; subtypes?: string[]; supertypes?: string[]; maxCmc?: number } {
   if (!criteria) return {};
   
-  const filter: Record<string, any> = {};
+  const filter: { types?: string[]; subtypes?: string[]; supertypes?: string[]; maxCmc?: number } = {};
   const text = criteria.toLowerCase();
   
-  // Common card type patterns
-  if (text.includes('creature')) filter.creature = true;
-  if (text.includes('instant')) filter.instant = true;
-  if (text.includes('sorcery')) filter.sorcery = true;
-  if (text.includes('artifact')) filter.artifact = true;
-  if (text.includes('enchantment')) filter.enchantment = true;
-  if (text.includes('planeswalker')) filter.planeswalker = true;
-  if (text.includes('land')) filter.land = true;
+  // Card types - must be in types array for client filter to work
+  const types: string[] = [];
+  if (text.includes('creature')) types.push('creature');
+  if (text.includes('instant')) types.push('instant');
+  if (text.includes('sorcery')) types.push('sorcery');
+  if (text.includes('artifact')) types.push('artifact');
+  if (text.includes('enchantment')) types.push('enchantment');
+  if (text.includes('planeswalker')) types.push('planeswalker');
+  if (text.includes('land')) types.push('land');
   
-  // Basic land restriction
-  if (text.includes('basic land') || text.includes('basic')) {
-    filter.basicLand = true;
+  if (types.length > 0) {
+    filter.types = types;
+  }
+  
+  // Supertypes
+  const supertypes: string[] = [];
+  if (text.includes('basic')) supertypes.push('basic');
+  if (text.includes('legendary')) supertypes.push('legendary');
+  if (text.includes('snow')) supertypes.push('snow');
+  
+  if (supertypes.length > 0) {
+    filter.supertypes = supertypes;
+  }
+  
+  // Subtypes (land types, creature types, etc.)
+  const subtypes: string[] = [];
+  if (text.includes('forest')) subtypes.push('forest');
+  if (text.includes('plains')) subtypes.push('plains');
+  if (text.includes('island')) subtypes.push('island');
+  if (text.includes('swamp')) subtypes.push('swamp');
+  if (text.includes('mountain')) subtypes.push('mountain');
+  if (text.includes('equipment')) subtypes.push('equipment');
+  
+  if (subtypes.length > 0) {
+    filter.subtypes = subtypes;
   }
   
   // CMC restrictions
   const cmcMatch = text.match(/mana value (\d+) or less/);
   if (cmcMatch) {
-    filter.maxCMC = parseInt(cmcMatch[1], 10);
+    filter.maxCmc = parseInt(cmcMatch[1], 10);
   }
   
   return filter;
