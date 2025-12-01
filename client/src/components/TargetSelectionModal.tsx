@@ -305,12 +305,13 @@ export function TargetSelectionModal({
                       ) : (
                         // Card/Permanent target display
                         <>
-                          <div style={{ width: '100%', aspectRatio: '0.72', overflow: 'hidden' }}>
+                          <div style={{ width: '100%', aspectRatio: '0.72', overflow: 'hidden', pointerEvents: 'none' }}>
                             {target.imageUrl ? (
                               <img
                                 src={target.imageUrl}
                                 alt={target.name}
-                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                draggable={false}
+                                style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }}
                               />
                             ) : (
                               <div
@@ -324,6 +325,7 @@ export function TargetSelectionModal({
                                   fontSize: 10,
                                   textAlign: 'center',
                                   padding: 4,
+                                  pointerEvents: 'none',
                                 }}
                               >
                                 {target.name}
@@ -337,6 +339,7 @@ export function TargetSelectionModal({
                               whiteSpace: 'nowrap',
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
+                              pointerEvents: 'none',
                             }}
                           >
                             {target.displayName || target.name}
@@ -359,6 +362,7 @@ export function TargetSelectionModal({
                             color: '#000',
                             fontSize: 12,
                             fontWeight: 600,
+                            pointerEvents: 'none',
                           }}
                         >
                           ✓

@@ -202,12 +202,14 @@ export function OpeningHandActionsModal({
                   <img
                     src={img}
                     alt={card.name}
+                    draggable={false}
                     style={{
                       position: 'absolute',
                       inset: 0,
                       width: '100%',
                       height: '100%',
                       objectFit: 'cover',
+                      pointerEvents: 'none',
                     }}
                   />
                 ) : (
@@ -222,6 +224,7 @@ export function OpeningHandActionsModal({
                       fontSize: 11,
                       padding: 4,
                       textAlign: 'center',
+                      pointerEvents: 'none',
                     }}
                   >
                     {card.name}
@@ -243,6 +246,7 @@ export function OpeningHandActionsModal({
                       justifyContent: 'center',
                       fontWeight: 700,
                       fontSize: 14,
+                      pointerEvents: 'none',
                     }}
                   >
                     ✓

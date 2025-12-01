@@ -5,7 +5,7 @@
  * Used for tutor effects like "search your library for a card".
  */
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import type { KnownCardRef } from '../../../shared/src';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 
@@ -130,6 +130,17 @@ export function LibrarySearchModal({
   // For split destination: track which cards go where
   const [battlefieldAssignments, setBattlefieldAssignments] = useState<Set<string>>(new Set());
   const [handAssignments, setHandAssignments] = useState<Set<string>>(new Set());
+  
+  // Reset selection state when modal opens or cards change
+  useEffect(() => {
+    if (open) {
+      setSelectedIds(new Set());
+      setSearchQuery('');
+      setBattlefieldAssignments(new Set());
+      setHandAssignments(new Set());
+      setDestination(moveTo === 'split' ? 'hand' : moveTo);
+    }
+  }, [open, cards, moveTo]);
   
   // Get cards that match the type/attribute filter (before text search)
   // This represents all valid targets for the tutor
@@ -445,15 +456,16 @@ export function LibrarySearchModal({
                       transition: 'all 0.15s',
                     }}
                   >
-                    <div style={{ width: '100%', aspectRatio: '0.72', overflow: 'hidden' }}>
+                    <div style={{ width: '100%', aspectRatio: '0.72', overflow: 'hidden', pointerEvents: 'none' }}>
                       {card.image_uris?.normal || card.image_uris?.small ? (
                         <img
                           src={card.image_uris.small || card.image_uris.normal}
                           alt={card.name}
-                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                          draggable={false}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }}
                         />
                       ) : (
-                        <div style={{ width: '100%', height: '100%', background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, textAlign: 'center', padding: 6 }}>
+                        <div style={{ width: '100%', height: '100%', background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, textAlign: 'center', padding: 6, pointerEvents: 'none' }}>
                           {card.name}
                         </div>
                       )}
@@ -465,6 +477,7 @@ export function LibrarySearchModal({
                         whiteSpace: 'nowrap',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
+                        pointerEvents: 'none',
                       }}
                     >
                       {card.name}
@@ -485,6 +498,7 @@ export function LibrarySearchModal({
                           color: '#fff',
                           fontSize: 14,
                           fontWeight: 600,
+                          pointerEvents: 'none',
                         }}
                       >
                         ✓
