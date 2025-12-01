@@ -4562,4 +4562,117 @@ export function registerGameActions(io: Server, socket: Socket) {
       console.error(`getCostReductions error for game ${gameId}:`, err);
     }
   });
+
+  // Handle equip ability - prompts player to select creature to attach equipment to
+  socket.on("equipAbility", ({ gameId, equipmentId, targetCreatureId }: { 
+    gameId: string; 
+    equipmentId: string; 
+    targetCreatureId?: string;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      const battlefield = game.state?.battlefield || [];
+      const equipment = battlefield.find((p: any) => p.id === equipmentId);
+      
+      if (!equipment) {
+        socket.emit("error", { code: "NOT_FOUND", message: "Equipment not found" });
+        return;
+      }
+
+      // Check if player controls the equipment
+      if (equipment.controller !== playerId) {
+        socket.emit("error", { code: "NOT_CONTROLLER", message: "You do not control this equipment" });
+        return;
+      }
+
+      const oracleText = (equipment.card?.oracle_text || "").toLowerCase();
+      const typeLine = (equipment.card?.type_line || "").toLowerCase();
+      
+      // Check if its actually equipment
+      if (!typeLine.includes("equipment")) {
+        socket.emit("error", { code: "NOT_EQUIPMENT", message: "This permanent is not equipment" });
+        return;
+      }
+
+      // Parse equip cost from oracle text
+      const equipCostMatch = oracleText.match(/equip\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+      const equipCost = equipCostMatch ? equipCostMatch[1] : "{0}";
+
+      if (!targetCreatureId) {
+        // No target specified - send list of valid targets
+        const validTargets = battlefield.filter((p: any) => {
+          if (p.controller !== playerId) return false;
+          const pTypeLine = (p.card?.type_line || "").toLowerCase();
+          return pTypeLine.includes("creature");
+        });
+
+        socket.emit("selectEquipTarget", {
+          gameId,
+          equipmentId,
+          equipmentName: equipment.card?.name || "Equipment",
+          equipCost,
+          validTargets: validTargets.map((c: any) => ({
+            id: c.id,
+            name: c.card?.name || "Creature",
+            power: c.card?.power || c.basePower || "0",
+            toughness: c.card?.toughness || c.baseToughness || "0",
+            imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
+          })),
+        });
+        return;
+      }
+
+      // Target specified - attach equipment
+      const targetCreature = battlefield.find((p: any) => p.id === targetCreatureId);
+      if (!targetCreature) {
+        socket.emit("error", { code: "TARGET_NOT_FOUND", message: "Target creature not found" });
+        return;
+      }
+
+      // Check target is a creature the player controls
+      if (targetCreature.controller !== playerId) {
+        socket.emit("error", { code: "NOT_YOUR_CREATURE", message: "You can only equip to creatures you control" });
+        return;
+      }
+
+      const targetTypeLine = (targetCreature.card?.type_line || "").toLowerCase();
+      if (!targetTypeLine.includes("creature")) {
+        socket.emit("error", { code: "NOT_CREATURE", message: "Target is not a creature" });
+        return;
+      }
+
+      // Detach from previous creature if attached
+      if (equipment.attachedTo) {
+        const prevCreature = battlefield.find((p: any) => p.id === equipment.attachedTo);
+        if (prevCreature) {
+          (prevCreature as any).attachedEquipment = ((prevCreature as any).attachedEquipment || []).filter((id: string) => id !== equipmentId);
+        }
+      }
+
+      // Attach to new creature
+      equipment.attachedTo = targetCreatureId;
+      (targetCreature as any).attachedEquipment = (targetCreature as any).attachedEquipment || [];
+      if (!(targetCreature as any).attachedEquipment.includes(equipmentId)) {
+        (targetCreature as any).attachedEquipment.push(equipmentId);
+      }
+
+      console.log(`[equipAbility] ${equipment.card?.name} equipped to ${targetCreature.card?.name} by ${playerId}`);
+
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `⚔️ ${getPlayerName(game, playerId)} equips ${equipment.card?.name || "Equipment"} to ${targetCreature.card?.name || "Creature"}`,
+        ts: Date.now(),
+      });
+
+      broadcastGame(io, game, gameId);
+    } catch (err: any) {
+      console.error(`equipAbility error for game ${gameId}:`, err);
+      socket.emit("error", { code: "EQUIP_ERROR", message: err?.message ?? String(err) });
+    }
+  });
 }
