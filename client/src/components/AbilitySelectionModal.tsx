@@ -33,21 +33,21 @@ export function AbilitySelectionModal({
 }: AbilitySelectionModalProps) {
   if (!open) return null;
 
-  // Get color based on ability type
-  const getAbilityColor = (ability: ParsedActivatedAbility): { bg: string; border: string; accent: string } => {
+  // Get color based on ability type - returns both normal and hover colors
+  const getAbilityColor = (ability: ParsedActivatedAbility): { bg: string; bgHover: string; border: string; accent: string } => {
     if (ability.isManaAbility) {
-      return { bg: 'rgba(16, 185, 129, 0.15)', border: 'rgba(52, 211, 153, 0.4)', accent: '#10b981' };
+      return { bg: 'rgba(16, 185, 129, 0.15)', bgHover: 'rgba(16, 185, 129, 0.25)', border: 'rgba(52, 211, 153, 0.4)', accent: '#10b981' };
     }
     if (ability.isFetchAbility) {
-      return { bg: 'rgba(139, 92, 246, 0.15)', border: 'rgba(167, 139, 250, 0.4)', accent: '#8b5cf6' };
+      return { bg: 'rgba(139, 92, 246, 0.15)', bgHover: 'rgba(139, 92, 246, 0.25)', border: 'rgba(167, 139, 250, 0.4)', accent: '#8b5cf6' };
     }
     if (ability.isLoyaltyAbility) {
-      return { bg: 'rgba(168, 85, 247, 0.15)', border: 'rgba(192, 132, 252, 0.4)', accent: '#a855f7' };
+      return { bg: 'rgba(168, 85, 247, 0.15)', bgHover: 'rgba(168, 85, 247, 0.25)', border: 'rgba(192, 132, 252, 0.4)', accent: '#a855f7' };
     }
     if (ability.requiresSacrifice) {
-      return { bg: 'rgba(239, 68, 68, 0.15)', border: 'rgba(252, 165, 165, 0.4)', accent: '#ef4444' };
+      return { bg: 'rgba(239, 68, 68, 0.15)', bgHover: 'rgba(239, 68, 68, 0.25)', border: 'rgba(252, 165, 165, 0.4)', accent: '#ef4444' };
     }
-    return { bg: 'rgba(100, 116, 139, 0.1)', border: 'rgba(148, 163, 184, 0.3)', accent: '#64748b' };
+    return { bg: 'rgba(100, 116, 139, 0.1)', bgHover: 'rgba(100, 116, 139, 0.2)', border: 'rgba(148, 163, 184, 0.3)', accent: '#64748b' };
   };
 
   return (
@@ -136,7 +136,7 @@ export function AbilitySelectionModal({
                 }}
                 onMouseEnter={(e) => {
                   if (canActivate) {
-                    (e.currentTarget as HTMLButtonElement).style.backgroundColor = colors.bg.replace('0.15', '0.25');
+                    (e.currentTarget as HTMLButtonElement).style.backgroundColor = colors.bgHover;
                     (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1.02)';
                   }
                 }}
