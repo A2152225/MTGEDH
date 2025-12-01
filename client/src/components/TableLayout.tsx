@@ -1082,6 +1082,10 @@ export function TableLayout(props: {
                               onSacrifice={isYouThis && gameId ? (id) => socket.emit('sacrificePermanent', { gameId, permanentId: id }) : undefined}
                               canActivate={isYouThis || false}
                               playerId={isYouThis ? you : undefined}
+                              hasPriority={hasPriority || false}
+                              isOwnTurn={!!isOwnTurn}
+                              isMainPhase={!!isMainPhase}
+                              stackEmpty={stackEmpty}
                             />
                           </div>
                         )}
@@ -1114,6 +1118,10 @@ export function TableLayout(props: {
                               onSacrifice={isYouThis && gameId ? (id) => socket.emit('sacrificePermanent', { gameId, permanentId: id }) : undefined}
                               canActivate={isYouThis || false}
                               playerId={isYouThis ? you : undefined}
+                              hasPriority={hasPriority || false}
+                              isOwnTurn={!!isOwnTurn}
+                              isMainPhase={!!isMainPhase}
+                              stackEmpty={stackEmpty}
                             />
                           </div>
                         )}

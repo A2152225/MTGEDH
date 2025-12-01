@@ -1,11 +1,12 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState, useCallback } from 'react';
 import type { BattlefieldPermanent, KnownCardRef, PlayerID } from '../../../shared/src';
 import type { ImagePref } from './BattlefieldGrid';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 import { getKeywordInfo, KEYWORD_GLOSSARY } from '../utils/keywordGlossary';
 import { CardContextMenu } from './CardContextMenu';
 import { ActivatedAbilityButtons } from './ActivatedAbilityButtons';
-import type { ParsedActivatedAbility } from '../utils/activatedAbilityParser';
+import { AbilitySelectionModal } from './AbilitySelectionModal';
+import { parseActivatedAbilities, canActivateTapAbility, type ParsedActivatedAbility, type ActivationContext } from '../utils/activatedAbilityParser';
 
 function parsePT(raw?: string | number): number | undefined {
   if (typeof raw === 'number') return raw;
@@ -124,6 +125,125 @@ export function FreeField(props: {
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ permanent: BattlefieldPermanent; x: number; y: number } | null>(null);
   const drag = useRef<{ id: string; startX: number; startY: number; baseX: number; baseY: number; z?: number } | null>(null);
+  
+  // State for ability selection modal (shown on double-click when multiple abilities exist)
+  const [abilitySelectionModal, setAbilitySelectionModal] = useState<{
+    permanent: BattlefieldPermanent;
+    abilities: { ability: ParsedActivatedAbility; canActivate: boolean; reason?: string }[];
+  } | null>(null);
+
+  // Check if a creature has haste (for summoning sickness check)
+  const hasHaste = useCallback((perm: BattlefieldPermanent): boolean => {
+    const abilities = perm.grantedAbilities || [];
+    if (abilities.some(a => a.toLowerCase() === 'haste')) return true;
+    const kc = perm.card as KnownCardRef;
+    const oracleText = (kc?.oracle_text || '').toLowerCase();
+    return oracleText.includes('haste');
+  }, []);
+
+  // Check if a permanent is a creature
+  const isCreature = useCallback((perm: BattlefieldPermanent): boolean => {
+    const kc = perm.card as KnownCardRef;
+    const typeLine = (kc?.type_line || '').toLowerCase();
+    return typeLine.includes('creature');
+  }, []);
+
+  // Get loyalty counters for planeswalkers
+  const getLoyaltyCounters = useCallback((perm: BattlefieldPermanent): number | undefined => {
+    if (perm.loyalty !== undefined) return perm.loyalty;
+    if (perm.counters?.['loyalty'] !== undefined) return perm.counters['loyalty'];
+    return undefined;
+  }, []);
+
+  // Handle double-click on a battlefield permanent
+  const handleDoubleClick = useCallback((perm: BattlefieldPermanent) => {
+    if (!canActivate || !onActivateAbility || perm.controller !== playerId) return;
+
+    const kc = perm.card as KnownCardRef;
+    if (!kc) return;
+
+    // Parse abilities from the card
+    const abilities = parseActivatedAbilities(kc);
+    if (abilities.length === 0) return;
+
+    // Build activation context
+    const context: ActivationContext = {
+      isTapped: !!perm.tapped,
+      hasSummoningSickness: !!perm.summoningSickness && isCreature(perm),
+      hasHaste: hasHaste(perm),
+      hasThousandYearElixirEffect,
+      loyaltyCounters: getLoyaltyCounters(perm),
+      controllerHasPriority: hasPriority,
+      isMainPhase,
+      isOwnTurn,
+      stackEmpty,
+    };
+
+    // Annotate abilities with activation status
+    const annotatedAbilities = abilities.map(ability => {
+      const tapCheck = canActivateTapAbility(ability.requiresTap, context, ability.isManaAbility);
+      let canActivateAbility = tapCheck.canActivate;
+      let reason = tapCheck.reason;
+
+      // Check loyalty ability restrictions
+      if (ability.isLoyaltyAbility) {
+        if (!context.isMainPhase) {
+          canActivateAbility = false;
+          reason = 'Only during main phase';
+        } else if (!context.isOwnTurn) {
+          canActivateAbility = false;
+          reason = 'Only on your turn';
+        } else if (!context.stackEmpty) {
+          canActivateAbility = false;
+          reason = 'Stack must be empty';
+        } else if (ability.loyaltyCost !== undefined && context.loyaltyCounters !== undefined) {
+          if (ability.loyaltyCost < 0 && context.loyaltyCounters < Math.abs(ability.loyaltyCost)) {
+            canActivateAbility = false;
+            reason = 'Not enough loyalty';
+          }
+        }
+      }
+
+      // Check sorcery timing restriction
+      if (ability.timingRestriction === 'sorcery') {
+        if (!context.isMainPhase || !context.isOwnTurn || !context.stackEmpty) {
+          canActivateAbility = false;
+          reason = 'Sorcery timing required';
+        }
+      }
+
+      // Need priority for non-mana abilities
+      if (!ability.isManaAbility && !context.controllerHasPriority) {
+        canActivateAbility = false;
+        reason = 'No priority';
+      }
+
+      return { ability, canActivate: canActivateAbility, reason };
+    });
+
+    // Filter to only activatable abilities for direct activation
+    const activatableAbilities = annotatedAbilities.filter(a => a.canActivate);
+
+    // If only one ability and it can be activated, activate it directly
+    if (abilities.length === 1) {
+      if (activatableAbilities.length === 1) {
+        onActivateAbility(perm.id, activatableAbilities[0].ability.id, activatableAbilities[0].ability);
+      }
+      return;
+    }
+
+    // If multiple abilities, show the selection modal
+    setAbilitySelectionModal({ permanent: perm, abilities: annotatedAbilities });
+  }, [canActivate, onActivateAbility, playerId, hasHaste, isCreature, getLoyaltyCounters,
+      hasPriority, isMainPhase, isOwnTurn, stackEmpty, hasThousandYearElixirEffect]);
+
+  // Handle ability selection from modal
+  const handleAbilitySelect = useCallback((ability: ParsedActivatedAbility) => {
+    if (abilitySelectionModal && onActivateAbility) {
+      onActivateAbility(abilitySelectionModal.permanent.id, ability.id, ability);
+    }
+    setAbilitySelectionModal(null);
+  }, [abilitySelectionModal, onActivateAbility]);
 
   const items = useMemo(() => {
     const placed: Array<{
@@ -325,6 +445,11 @@ export function FreeField(props: {
             onMouseEnter={(e) => { setHoverId(id); showCardPreview(e.currentTarget as HTMLElement, raw.card as any, { prefer: 'above', anchorPadding: 0 }); }}
             onMouseLeave={(e) => { setHoverId(prev => prev === id ? null : prev); hideCardPreview(e.currentTarget as HTMLElement); }}
             onClick={() => onCardClick && onCardClick(id)}
+            onDoubleClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleDoubleClick(raw);
+            }}
             onContextMenu={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -717,6 +842,19 @@ export function FreeField(props: {
           onRemove={onRemove}
           canActivate={canActivate}
           playerId={playerId}
+        />
+      )}
+
+      {/* Ability Selection Modal (for double-click with multiple abilities) */}
+      {abilitySelectionModal && (
+        <AbilitySelectionModal
+          open={true}
+          cardName={(abilitySelectionModal.permanent.card as KnownCardRef)?.name || 'Unknown'}
+          cardImageUrl={(abilitySelectionModal.permanent.card as KnownCardRef)?.image_uris?.normal || 
+                       (abilitySelectionModal.permanent.card as KnownCardRef)?.image_uris?.small}
+          abilities={abilitySelectionModal.abilities}
+          onSelect={handleAbilitySelect}
+          onCancel={() => setAbilitySelectionModal(null)}
         />
       )}
     </div>
