@@ -947,12 +947,17 @@ function creatureHasHaste(permanent: any, battlefield: any[], controller: string
         }
         
         // Check for tribal haste grants (e.g., "Goblin creatures you control have haste")
-        // Extract creature types from the permanent being checked
+        // Optimization: Use indexOf instead of creating RegExp for each creature type
         const creatureTypes = extractCreatureTypes(permTypeLine);
         for (const creatureType of creatureTypes) {
-          const pattern = new RegExp(`${creatureType}[^.]*have haste`, 'i');
-          if (pattern.test(grantorOracle)) {
-            return true;
+          const typeIndex = grantorOracle.indexOf(creatureType);
+          const hasteIndex = grantorOracle.indexOf('have haste');
+          // Check if creature type appears before "have haste" with no period between them
+          if (typeIndex !== -1 && hasteIndex !== -1 && typeIndex < hasteIndex) {
+            const textBetween = grantorOracle.slice(typeIndex, hasteIndex);
+            if (!textBetween.includes('.')) {
+              return true;
+            }
           }
         }
         
