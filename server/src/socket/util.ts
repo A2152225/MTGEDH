@@ -17,6 +17,18 @@ import type { InMemoryGame } from "../state/types.js";
 import { GameManager } from "../GameManager.js";
 import type { GameID, PlayerID } from "../../../shared/src/index.js";
 
+// ============================================================================
+// Pre-compiled RegExp patterns for mana color matching in devotion calculations
+// Optimization: Created once at module load instead of inside loops
+// ============================================================================
+const DEVOTION_COLOR_PATTERNS: Record<string, RegExp> = {
+  W: /\{W\}/gi,
+  U: /\{U\}/gi,
+  B: /\{B\}/gi,
+  R: /\{R\}/gi,
+  G: /\{G\}/gi,
+};
+
 /* ------------------- Event transformation helpers ------------------- */
 
 /**
@@ -1791,10 +1803,12 @@ export function calculateManaProduction(
     for (const perm of battlefield) {
       if (perm && perm.controller === playerId) {
         const manaCost = (perm.card?.mana_cost || '').toUpperCase();
-        // Count occurrences of the color symbol
-        const colorSymbol = `{${devotionColor}}`;
-        const matches = manaCost.match(new RegExp(`\\{${devotionColor}\\}`, 'gi')) || [];
-        devotion += matches.length;
+        // Count occurrences of the color symbol using pre-compiled pattern
+        const pattern = DEVOTION_COLOR_PATTERNS[devotionColor];
+        if (pattern) {
+          const matches = manaCost.match(pattern) || [];
+          devotion += matches.length;
+        }
         
         // Also count hybrid mana that includes this color (e.g., {W/U} counts for both W and U)
         const hybridMatches = manaCost.match(/\{[WUBRG]\/[WUBRG]\}/gi) || [];
@@ -1847,8 +1861,12 @@ export function calculateManaProduction(
     for (const perm of battlefield) {
       if (perm && perm.controller === playerId) {
         const manaCost = (perm.card?.mana_cost || '').toUpperCase();
-        const matches = manaCost.match(new RegExp(`\\{${devotionColor}\\}`, 'gi')) || [];
-        devotion += matches.length;
+        // Use pre-compiled pattern for devotion color matching
+        const pattern = DEVOTION_COLOR_PATTERNS[devotionColor];
+        if (pattern) {
+          const matches = manaCost.match(pattern) || [];
+          devotion += matches.length;
+        }
         
         const hybridMatches = manaCost.match(/\{[WUBRG]\/[WUBRG]\}/gi) || [];
         for (const hybrid of hybridMatches) {

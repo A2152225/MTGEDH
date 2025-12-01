@@ -10,6 +10,50 @@ import { parseSacrificeCost, type SacrificeType } from "../../../shared/src/text
 import { getDeathTriggers, getPlayersWhoMustSacrifice } from "../state/modules/triggered-abilities";
 
 // ============================================================================
+// Pre-compiled RegExp patterns for creature type matching
+// Optimization: Created once at module load instead of inside loops
+// ============================================================================
+
+/** All known creature types for type line parsing */
+const CREATURE_TYPES = [
+  // Humanoid races
+  'human', 'elf', 'dwarf', 'goblin', 'orc', 'giant', 'merfolk', 'vampire', 
+  'zombie', 'skeleton', 'spirit', 'specter', 'wraith', 'shade',
+  'angel', 'demon', 'devil', 'dragon', 'drake', 'hydra', 'phoenix', 'sphinx',
+  'elemental', 'construct', 'golem', 'myr', 'thopter', 'servo',
+  'wizard', 'cleric', 'rogue', 'warrior', 'knight', 'soldier', 'berserker',
+  'shaman', 'druid', 'monk', 'samurai', 'ninja', 'assassin', 'archer', 'scout',
+  'artificer', 'pilot', 'pirate', 'rebel', 'advisor', 'noble', 'citizen',
+  // Animals and beasts
+  'beast', 'cat', 'dog', 'wolf', 'bear', 'bird', 'snake', 'spider', 'insect',
+  'rat', 'bat', 'ape', 'elephant', 'dinosaur', 'lizard', 'crocodile',
+  'fish', 'shark', 'whale', 'octopus', 'crab', 'turtle', 'frog', 'salamander',
+  'horse', 'unicorn', 'pegasus', 'ox', 'boar', 'elk', 'deer', 'goat', 'sheep',
+  'squirrel', 'rabbit', 'badger', 'weasel', 'fox', 'wolverine', 'otter',
+  // Fantasy creatures
+  'sliver', 'eldrazi', 'phyrexian', 'horror', 'nightmare', 'wurm', 'leviathan',
+  'kraken', 'serpent', 'treefolk', 'fungus', 'plant', 'saproling', 'ooze', 'slime',
+  'faerie', 'sprite', 'imp', 'homunculus', 'shapeshifter', 'changeling',
+  'avatar', 'god', 'demigod', 'archon', 'incarnation', 'praetor',
+  'kithkin', 'vedalken', 'viashino', 'leonin', 'loxodon', 'minotaur', 'centaur',
+  'satyr', 'nymph', 'dryad', 'naiad', 'siren', 'gorgon', 'cyclops',
+  // Tribal favorites
+  'ally', 'mutant', 'mercenary', 'minion', 'thrull', 'serf',
+  // Typal specific
+  'kavu', 'atog', 'brushwagg', 'homarid', 'cephalid', 'moonfolk', 'noggle',
+  'surrakar', 'kraul', 'lhurgoyf', 'thalakos', 'dauthi', 'soltari',
+  // More creatures
+  'gnome', 'kobold', 'werewolf', 'hellion', 'kor', 'zubera', 'bringer',
+  'flagbearer', 'illusion', 'elder', 'spawn', 'scion',
+  'processor', 'drone', 'ranger', 'bard', 'warlock', 'barbarian',
+] as const;
+
+/** Pre-compiled word-boundary regex patterns for each creature type */
+const CREATURE_TYPE_PATTERNS: Map<string, RegExp> = new Map(
+  CREATURE_TYPES.map(type => [type, new RegExp(`\\b${type}\\b`, 'i')])
+);
+
+// ============================================================================
 // Library Search Restriction Handling (Aven Mindcensor, Stranglehold, etc.)
 // ============================================================================
 
@@ -457,46 +501,12 @@ function parseSearchCriteria(criteria: string): { supertypes?: string[]; types?:
   if (text.includes('lesson')) subtypes.push('lesson');
   
   // ============================================
-  // Common creature types (extensive list)
+  // Common creature types (using pre-compiled patterns)
   // ============================================
-  const creatureTypes = [
-    // Humanoid races
-    'human', 'elf', 'dwarf', 'goblin', 'orc', 'giant', 'merfolk', 'vampire', 
-    'zombie', 'skeleton', 'spirit', 'specter', 'wraith', 'shade',
-    'angel', 'demon', 'devil', 'dragon', 'drake', 'hydra', 'phoenix', 'sphinx',
-    'elemental', 'construct', 'golem', 'myr', 'thopter', 'servo',
-    'wizard', 'cleric', 'rogue', 'warrior', 'knight', 'soldier', 'berserker',
-    'shaman', 'druid', 'monk', 'samurai', 'ninja', 'assassin', 'archer', 'scout',
-    'artificer', 'pilot', 'pirate', 'rebel', 'advisor', 'noble', 'citizen',
-    // Animals and beasts
-    'beast', 'cat', 'dog', 'wolf', 'bear', 'bird', 'snake', 'spider', 'insect',
-    'rat', 'bat', 'ape', 'elephant', 'dinosaur', 'lizard', 'crocodile',
-    'fish', 'shark', 'whale', 'octopus', 'crab', 'turtle', 'frog', 'salamander',
-    'horse', 'unicorn', 'pegasus', 'ox', 'boar', 'elk', 'deer', 'goat', 'sheep',
-    'squirrel', 'rabbit', 'badger', 'weasel', 'fox', 'wolverine', 'otter',
-    // Fantasy creatures
-    'sliver', 'eldrazi', 'phyrexian', 'horror', 'nightmare', 'wurm', 'leviathan',
-    'kraken', 'serpent', 'treefolk', 'fungus', 'plant', 'saproling', 'ooze', 'slime',
-    'faerie', 'sprite', 'imp', 'homunculus', 'shapeshifter', 'changeling',
-    'avatar', 'god', 'demigod', 'archon', 'incarnation', 'praetor',
-    'kithkin', 'vedalken', 'viashino', 'leonin', 'loxodon', 'minotaur', 'centaur',
-    'satyr', 'nymph', 'dryad', 'naiad', 'siren', 'gorgon', 'cyclops',
-    // Tribal favorites
-    'ally', 'sliver', 'mutant', 'rebel', 'mercenary', 'minion', 'thrull', 'serf',
-    // Typal specific
-    'kavu', 'atog', 'brushwagg', 'homarid', 'cephalid', 'moonfolk', 'noggle',
-    'surrakar', 'kraul', 'lhurgoyf', 'thalakos', 'dauthi', 'soltari',
-    // More creatures
-    'gnome', 'kobold', 'werewolf', 'hellion', 'kor', 'zubera', 'bringer',
-    'flagbearer', 'illusion', 'incarnation', 'elder', 'spawn', 'scion',
-    'processor', 'drone', 'scout', 'ranger', 'bard', 'warlock', 'barbarian',
-  ];
-  
-  for (const creatureType of creatureTypes) {
-    // Use word boundary matching to avoid false positives
+  for (const [creatureType, pattern] of CREATURE_TYPE_PATTERNS) {
+    // Use pre-compiled word boundary regex to avoid false positives
     // e.g., "elf" should match "elf" but not "shelf"
-    const regex = new RegExp(`\\b${creatureType}\\b`, 'i');
-    if (regex.test(text)) {
+    if (pattern.test(text)) {
       subtypes.push(creatureType);
     }
   }
