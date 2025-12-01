@@ -4,10 +4,10 @@ import type {
   ServerToClientEvents,
   InterServerEvents,
   SocketData,
-} from "../../../shared/src";
-import { deleteGame as deleteGameFromDb, isGameCreator } from "../db";
-import GameManager from "../GameManager";
-import { games, priorityTimers } from "./socket";
+} from "../../../shared/src/events.js";
+import { deleteGame as deleteGameFromDb, isGameCreator } from "../db/index.js";
+import GameManager from "../GameManager.js";
+import { games, priorityTimers } from "./socket.js";
 
 type TypedServer = Server<
   ClientToServerEvents,
