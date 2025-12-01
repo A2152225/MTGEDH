@@ -33,6 +33,26 @@ import {
 } from './cards/activatedAbilityCards';
 
 /**
+ * Common counter types that can appear in cost text
+ * Used for parsing "remove X counter(s)" costs
+ */
+const KNOWN_COUNTER_TYPES = [
+  '+1/+1',
+  '-1/-1',
+  'charge',
+  'loyalty',
+  'time',
+  'fade',
+  'age',
+  'divinity',
+  'storage',
+  'verse',
+  'quest',
+  'energy',
+  'experience',
+];
+
+/**
  * Discovered ability from a permanent
  */
 export interface DiscoveredAbility {
@@ -98,6 +118,10 @@ function parseManaCostFromCostText(costText: string): ManaCost | undefined {
         case 'R': red++; break;
         case 'G': green++; break;
         case 'C': colorless++; break;
+        default:
+          // Unknown mana symbol - treat as generic 1 for flexibility
+          // This handles edge cases like hybrid mana or other special symbols
+          break;
       }
     }
   }
@@ -181,7 +205,12 @@ function parseAdditionalCosts(costText: string): Cost[] {
   }
   
   // Check for remove counter costs
-  const counterMatch = text.match(/remove (?:a |an |(\d+) )?(\+1\/\+1|charge|loyalty|\w+) counters?/i);
+  // Build regex pattern from known counter types for better extensibility
+  // Escape special regex characters properly (including backslash) to avoid injection
+  const escapeRegex = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const counterTypesPattern = KNOWN_COUNTER_TYPES.map(escapeRegex).join('|');
+  const counterRegex = new RegExp(`remove (?:a |an |(\\d+) )?(${counterTypesPattern}|\\w+) counters?`, 'i');
+  const counterMatch = text.match(counterRegex);
   if (counterMatch) {
     costs.push({
       type: CostType.REMOVE_COUNTER,
@@ -476,7 +505,7 @@ export function toActivatedAbility(discovered: DiscoveredAbility): ActivatedAbil
     additionalCosts: discovered.additionalCosts,
     effect: discovered.effect,
     targets: discovered.targets,
-    restrictions: discovered.restrictions as ActivationRestriction[],
+    restrictions: discovered.restrictions ? [...discovered.restrictions] : undefined,
     isManaAbility: discovered.isManaAbility,
     isLoyaltyAbility: discovered.isLoyaltyAbility,
   };
