@@ -1376,8 +1376,9 @@ export function resolveTopOfStack(ctx: GameContext) {
         (state as any).winCondition = 'Approach of the Second Sun';
       } else {
         // Put 7th from top of library (position 6 in 0-indexed)
+        // If library has fewer than 7 cards, put at the bottom (lib.length position)
         const lib = ctx.libraries?.get(controller) || [];
-        const insertPosition = Math.min(6, lib.length); // 7th from top or as deep as possible
+        const insertPosition = Math.min(6, lib.length); // 7th from top, or bottom if library is small
         (lib as any[]).splice(insertPosition, 0, { ...card, zone: 'library' });
         ctx.libraries?.set(controller, lib);
         
