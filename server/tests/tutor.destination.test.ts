@@ -187,7 +187,8 @@ describe('parseSearchFilter', () => {
       filter.types = types;
     }
     
-    // Supertypes (Basic, Legendary, Snow, World, Ongoing, Host)
+    // Supertypes (Basic, Legendary, Snow, World, Ongoing)
+    // Note: 'host' is included for consistency with existing code, though per MTG rules it's a creature type
     const supertypes: string[] = [];
     if (text.includes('basic')) supertypes.push('basic');
     if (text.includes('legendary')) supertypes.push('legendary');
