@@ -929,6 +929,26 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     });
   }
   
+  // "As [this] enters the battlefield, choose" - Modal permanents like Outpost Siege
+  // Pattern: "As ~ enters the battlefield, choose Khans or Dragons."
+  const modalETBMatch = oracleText.match(/as (?:~|this (?:creature|permanent|enchantment)) enters the battlefield,?\s*choose\s+([^.]+)/i);
+  if (modalETBMatch) {
+    const choiceText = modalETBMatch[1].trim();
+    // Parse the options (usually "X or Y" pattern)
+    const options = choiceText.split(/\s+or\s+/i).map(opt => opt.trim().replace(/[.,]$/, ''));
+    
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'etb_modal_choice',
+      description: `Choose: ${options.join(' or ')}`,
+      effect: choiceText,
+      mandatory: true,
+      requiresChoice: true,
+      modalOptions: options,
+    } as any);
+  }
+  
   return triggers;
 }
 
@@ -1331,6 +1351,13 @@ const KNOWN_BEGINNING_COMBAT_TRIGGERS: Record<string, { effect: string; requires
   "saskia the unyielding": { effect: "Damage to chosen player is dealt to them again" },
   "najeela, the blade-blossom": { effect: "Create 1/1 Warrior token when attacking" },
   "grand arbiter augustin iv": { effect: "Your spells cost less; opponent spells cost more" },
+  // Added triggers
+  "legion warboss": { effect: "Create a 1/1 red Goblin creature token with haste. That token attacks this combat if able." },
+  "hanweir garrison": { effect: "Create two 1/1 red Human creature tokens tapped and attacking" },
+  "hero of bladehold": { effect: "Create two 1/1 white Soldier creature tokens tapped and attacking" },
+  "brimaz, king of oreskos": { effect: "Create a 1/1 white Cat Soldier creature token with vigilance" },
+  "rabble rousing": { effect: "Create X 1/1 green and white Citizen creature tokens, where X is the number of creatures attacking" },
+  "adeline, resplendent cathar": { effect: "Create a 1/1 white Human creature token tapped and attacking" },
 };
 
 /**
@@ -2966,3 +2993,118 @@ export function isPermanentPreventedFromUntapping(
   
   return false;
 }
+
+
+// ============================================================================
+// Card Draw Trigger System
+// ============================================================================
+
+export interface CardDrawTrigger {
+  permanentId: string;
+  cardName: string;
+  controllerId: string;
+  triggerType: "opponent_draws" | "player_draws" | "you_draw";
+  effect: string;
+  mandatory: boolean;
+}
+
+/**
+ * Detect card draw triggers from a permanents oracle text
+ * Handles patterns like:
+ * - "Whenever an opponent draws a card, they lose 1 life" (Nekusar)
+ * - "Whenever a player draws a card, that player discards a card" (Notion Thief reverse)
+ * - "Whenever you draw a card, you gain 1 life" (various)
+ */
+export function detectCardDrawTriggers(card: any, permanent: any): CardDrawTrigger[] {
+  const triggers: CardDrawTrigger[] = [];
+  const oracleText = (card?.oracle_text || "");
+  const lowerOracle = oracleText.toLowerCase();
+  const cardName = card?.name || "Unknown";
+  const permanentId = permanent?.id || "";
+  const controllerId = permanent?.controller || "";
+  
+  // Pattern: "Whenever an opponent draws a card"
+  const opponentDrawsMatch = oracleText.match(/whenever an opponent draws (?:a card|cards?),?\s*([^.]+)/i);
+  if (opponentDrawsMatch) {
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: "opponent_draws",
+      effect: opponentDrawsMatch[1].trim(),
+      mandatory: true,
+    });
+  }
+  
+  // Pattern: "Whenever a player draws a card" (except first each turn sometimes)
+  const playerDrawsMatch = oracleText.match(/whenever a player draws (?:a card|cards?),?\s*([^.]+)/i);
+  if (playerDrawsMatch) {
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: "player_draws",
+      effect: playerDrawsMatch[1].trim(),
+      mandatory: true,
+    });
+  }
+  
+  // Pattern: "Whenever you draw a card"
+  const youDrawMatch = oracleText.match(/whenever you draw (?:a card|cards?),?\s*([^.]+)/i);
+  if (youDrawMatch) {
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: "you_draw",
+      effect: youDrawMatch[1].trim(),
+      mandatory: true,
+    });
+  }
+  
+  return triggers;
+}
+
+/**
+ * Get all card draw triggers that should fire when a player draws a card
+ */
+export function getCardDrawTriggers(
+  ctx: GameContext,
+  drawingPlayerId: string,
+  controllerId?: string
+): CardDrawTrigger[] {
+  const triggers: CardDrawTrigger[] = [];
+  const battlefield = ctx.state?.battlefield || [];
+  
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+    
+    const permController = permanent.controller;
+    const permTriggers = detectCardDrawTriggers(permanent.card, permanent);
+    
+    for (const trigger of permTriggers) {
+      // Check if this trigger applies
+      switch (trigger.triggerType) {
+        case "opponent_draws":
+          // Triggers when an opponent of the permanents controller draws
+          if (drawingPlayerId !== permController) {
+            triggers.push({ ...trigger, controllerId: permController });
+          }
+          break;
+        case "player_draws":
+          // Triggers for any player drawing
+          triggers.push({ ...trigger, controllerId: permController });
+          break;
+        case "you_draw":
+          // Triggers when the permanents controller draws
+          if (drawingPlayerId === permController) {
+            triggers.push({ ...trigger, controllerId: permController });
+          }
+          break;
+      }
+    }
+  }
+  
+  return triggers;
+}
+

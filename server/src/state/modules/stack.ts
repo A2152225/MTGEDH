@@ -5,6 +5,7 @@ import { recalculatePlayerEffects } from "./game-state-effects.js";
 import { categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
 import { getETBTriggersForPermanent, type TriggeredAbility } from "./triggered-abilities.js";
 import { addExtraTurn } from "./turn.js";
+import { drawCards as drawCardsFromZone } from "./zones.js";
 
 /**
  * Stack / resolution helpers (extracted).
@@ -362,14 +363,109 @@ function executeTriggerEffect(
     return;
   }
   
+  // Pattern: "+1/+1 counter on each other [creature type] you control" (Thalia's Lieutenant, Champion of the Parish, etc.)
+  // Matches: "put a +1/+1 counter on each other Human you control"
+  const counterOnEachOtherTypeMatch = desc.match(/\+1\/\+1 counter on each other (\w+) you control/i);
+  if (counterOnEachOtherTypeMatch) {
+    const creatureType = counterOnEachOtherTypeMatch[1].toLowerCase();
+    const battlefield = state.battlefield || [];
+    const sourcePermId = triggerItem?.source || triggerItem?.permanentId;
+    
+    for (const perm of battlefield) {
+      if (!perm) continue;
+      if (perm.controller !== controller) continue;
+      // Skip the source permanent (it says "each OTHER")
+      if (perm.id === sourcePermId) continue;
+      
+      const typeLine = (perm.card?.type_line || '').toLowerCase();
+      // Check if this creature has the required creature type
+      if (!typeLine.includes('creature')) continue;
+      if (!typeLine.includes(creatureType)) continue;
+      
+      // Add +1/+1 counter
+      perm.counters = perm.counters || {};
+      perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + 1;
+      console.log(`[executeTriggerEffect] Added +1/+1 counter to ${perm.card?.name || perm.id} (${creatureType})`);
+    }
+    return;
+  }
+  
+  // Pattern: "+1/+1 counter on [creature type] you control" without "other" (Thalia's Lieutenant's second ability)
+  // Matches: "put a +1/+1 counter on Thalia's Lieutenant" when another Human ETBs
+  const counterOnSelfMatch = desc.match(/\+1\/\+1 counter on (?:~|this creature|it)/i);
+  if (counterOnSelfMatch) {
+    const sourcePermId = triggerItem?.source || triggerItem?.permanentId;
+    const battlefield = state.battlefield || [];
+    const sourcePerm = battlefield.find((p: any) => p.id === sourcePermId);
+    
+    if (sourcePerm) {
+      sourcePerm.counters = sourcePerm.counters || {};
+      sourcePerm.counters['+1/+1'] = (sourcePerm.counters['+1/+1'] || 0) + 1;
+      console.log(`[executeTriggerEffect] Added +1/+1 counter to ${sourcePerm.card?.name || sourcePerm.id}`);
+    }
+    return;
+  }
+  
   // Pattern: "Draw a card" or "Draw X cards"
   const drawMatch = desc.match(/draw (?:a card|(\d+) cards?)/i);
-  if (drawMatch) {
+  if (drawMatch && !desc.includes('each player may put a land')) {
+    // Skip if this is a Kynaios-style effect (handled below)
     const count = drawMatch[1] ? parseInt(drawMatch[1], 10) : 1;
     // Set up pending draw - actual draw happens through zone management
     state.pendingDraws = state.pendingDraws || {};
     state.pendingDraws[controller] = (state.pendingDraws[controller] || 0) + count;
     console.log(`[executeTriggerEffect] ${controller} will draw ${count} card(s)`);
+    return;
+  }
+  
+  // Pattern: Kynaios and Tiro of Meletis style - "draw a card. Each player may put a land...then each opponent who didn't draws a card"
+  // This is a complex multi-step effect that requires player choices
+  if (desc.includes('each player may put a land') && desc.includes('opponent') && desc.includes('draws a card')) {
+    // First, controller draws a card
+    state.pendingDraws = state.pendingDraws || {};
+    state.pendingDraws[controller] = (state.pendingDraws[controller] || 0) + 1;
+    
+    // Set up pending land play choice for all players, and pending conditional draw for opponents
+    state.pendingKynaiosChoice = state.pendingKynaiosChoice || {};
+    state.pendingKynaiosChoice[controller] = {
+      sourceName,
+      sourceController: controller,
+      playersWhoMayPlayLand: players.map((p: any) => p.id),
+      playersWhoPlayedLand: [],
+      active: true,
+    };
+    
+    console.log(`[executeTriggerEffect] ${sourceName}: ${controller} draws 1, all players may put a land, opponents who don't will draw`);
+    return;
+  }
+  
+  // Pattern: "Target player draws X cards" or "that player draws X cards"
+  const targetDrawMatch = desc.match(/(?:target|that) player draws? (\d+|a|an|one|two|three) cards?/i);
+  if (targetDrawMatch) {
+    const wordToNum: Record<string, number> = { 'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3 };
+    const count = wordToNum[targetDrawMatch[1].toLowerCase()] || parseInt(targetDrawMatch[1], 10) || 1;
+    
+    // Use target if available, otherwise controller
+    const targets = triggerItem?.targets || [];
+    const targetPlayer = targets[0]?.id || targets[0] || controller;
+    
+    state.pendingDraws = state.pendingDraws || {};
+    state.pendingDraws[targetPlayer] = (state.pendingDraws[targetPlayer] || 0) + count;
+    console.log(`[executeTriggerEffect] ${targetPlayer} will draw ${count} card(s)`);
+    return;
+  }
+  
+  // Pattern: "each opponent draws a card" 
+  const eachOpponentDrawsMatch = desc.match(/each opponent draws? (\d+|a|an|one|two) cards?/i);
+  if (eachOpponentDrawsMatch) {
+    const wordToNum: Record<string, number> = { 'a': 1, 'an': 1, 'one': 1, 'two': 2 };
+    const count = wordToNum[eachOpponentDrawsMatch[1].toLowerCase()] || parseInt(eachOpponentDrawsMatch[1], 10) || 1;
+    
+    state.pendingDraws = state.pendingDraws || {};
+    for (const opp of opponents) {
+      state.pendingDraws[opp.id] = (state.pendingDraws[opp.id] || 0) + count;
+    }
+    console.log(`[executeTriggerEffect] Each opponent will draw ${count} card(s)`);
     return;
   }
   
@@ -434,12 +530,21 @@ function executeTriggerEffect(
   // Pattern: "Create a X/Y [creature type] creature token" (various patterns)
   // Matches: "create a 2/2 green Wolf creature token", "create a 1/1 white Soldier creature token with vigilance"
   // Also matches: "create a 0/1 colorless Eldrazi Spawn creature token"
-  const createTokenMatch = desc.match(/create (?:a|an|(\d+)) (\d+)\/(\d+) ([^\.]+?)(?:\s+creature)?\s+tokens?/i);
+  // Also matches: "create two 1/1 white Cat creature tokens that are tapped and attacking"
+  const createTokenMatch = desc.match(/create (?:a|an|one|two|three|four|five|(\d+)) (\d+)\/(\d+) ([^\.]+?)(?:\s+creature)?\s+tokens?/i);
   if (createTokenMatch) {
-    const tokenCount = createTokenMatch[1] ? parseInt(createTokenMatch[1], 10) : 1;
+    // Parse count from word or number
+    const countWord = desc.match(/create (a|an|one|two|three|four|five|\d+)/i)?.[1]?.toLowerCase() || 'a';
+    const wordToCount: Record<string, number> = {
+      'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5
+    };
+    const tokenCount = wordToCount[countWord] || (createTokenMatch[1] ? parseInt(createTokenMatch[1], 10) : 1);
     const power = parseInt(createTokenMatch[2], 10);
     const toughness = parseInt(createTokenMatch[3], 10);
     const tokenDescription = createTokenMatch[4].trim();
+    
+    // Check for "tapped and attacking" pattern
+    const isTappedAndAttacking = desc.includes('tapped and attacking');
     
     // Extract color and creature type from description
     // e.g., "white Soldier" -> color: white, type: Soldier
@@ -455,7 +560,8 @@ function executeTriggerEffect(
       const lowerPart = part.toLowerCase();
       if (colorMap[lowerPart] !== undefined) {
         if (colorMap[lowerPart]) colors.push(colorMap[lowerPart]);
-      } else if (lowerPart !== 'creature' && lowerPart !== 'token' && lowerPart !== 'and' && lowerPart !== 'with') {
+      } else if (lowerPart !== 'creature' && lowerPart !== 'token' && lowerPart !== 'and' && lowerPart !== 'with' && 
+                 lowerPart !== 'that' && lowerPart !== 'are' && lowerPart !== 'tapped' && lowerPart !== 'attacking') {
         creatureTypes.push(part.charAt(0).toUpperCase() + part.slice(1).toLowerCase());
       }
     }
@@ -483,12 +589,16 @@ function executeTriggerEffect(
         id: tokenId,
         controller,
         owner: controller,
-        tapped: false,
+        // Tokens that enter "tapped and attacking" are tapped, have no summoning sickness issue for attacking
+        tapped: isTappedAndAttacking,
         counters: {},
         basePower: power,
         baseToughness: toughness,
-        summoningSickness: !abilities.includes('Haste'),
+        // Tokens that enter attacking don't have summoning sickness for the purpose of attacking
+        summoningSickness: !abilities.includes('Haste') && !isTappedAndAttacking,
         isToken: true,
+        // Mark as attacking if it enters attacking
+        isAttacking: isTappedAndAttacking,
         card: {
           id: tokenId,
           name: tokenName,
@@ -503,7 +613,7 @@ function executeTriggerEffect(
       } as any;
       
       state.battlefield.push(token);
-      console.log(`[executeTriggerEffect] Created ${power}/${toughness} ${tokenName} token for ${controller}`);
+      console.log(`[executeTriggerEffect] Created ${power}/${toughness} ${tokenName} token for ${controller}${isTappedAndAttacking ? ' (tapped and attacking)' : ''}`);
     }
     return;
   }
@@ -766,6 +876,59 @@ function executeTriggerEffect(
     return;
   }
   
+  // Pattern: "whenever an opponent draws a card" - deals damage or other effect
+  // Scrawling Crawler, Nekusar, Fate Unraveler, etc.
+  const opponentDrawsDamageMatch = desc.match(/whenever (?:an )?opponent draws (?:a card|cards?),?\s*(?:[^,.]+ )?(?:deals? |loses? )(\d+) (?:damage|life)/i);
+  if (opponentDrawsDamageMatch) {
+    const damage = parseInt(opponentDrawsDamageMatch[1], 10);
+    // This trigger should have been put on stack when opponent drew
+    // The triggerItem should contain info about which opponent drew
+    const drawingPlayer = triggerItem?.triggeringPlayer || triggerItem?.targets?.[0];
+    if (drawingPlayer && drawingPlayer !== controller) {
+      modifyLife(drawingPlayer, -damage);
+      console.log(`[executeTriggerEffect] ${sourceName}: ${drawingPlayer} loses ${damage} life from drawing`);
+    }
+    return;
+  }
+  
+  // Pattern: "whenever a player draws a card" - universal draw trigger
+  const playerDrawsTriggerMatch = desc.match(/whenever (?:a )?player draws (?:a card|cards?),?\s*([^.]+)/i);
+  if (playerDrawsTriggerMatch) {
+    const effectText = playerDrawsTriggerMatch[1].trim();
+    // Check for damage/life loss patterns
+    const damageMatch = effectText.match(/(?:deals? |loses? )(\d+) (?:damage|life)/i);
+    if (damageMatch) {
+      const damage = parseInt(damageMatch[1], 10);
+      const drawingPlayer = triggerItem?.triggeringPlayer || triggerItem?.targets?.[0];
+      if (drawingPlayer) {
+        modifyLife(drawingPlayer, -damage);
+        console.log(`[executeTriggerEffect] ${sourceName}: ${drawingPlayer} loses ${damage} life from drawing`);
+      }
+    }
+    return;
+  }
+  
+  // Pattern: "that player adds {X}{X}{X}" - mana production for specific player
+  const thatPlayerAddsManaMatch = desc.match(/that player adds (\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (thatPlayerAddsManaMatch) {
+    const manaString = thatPlayerAddsManaMatch[1];
+    const targetPlayer = triggerItem?.triggeringPlayer || controller;
+    console.log(`[executeTriggerEffect] ${targetPlayer} adds ${manaString} to mana pool`);
+    
+    state.manaPool = state.manaPool || {};
+    state.manaPool[targetPlayer] = state.manaPool[targetPlayer] || { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
+    
+    const manaRegex2 = /\{([WUBRGC])\}/gi;
+    let manaMatch;
+    while ((manaMatch = manaRegex2.exec(manaString)) !== null) {
+      const color = manaMatch[1].toUpperCase();
+      if (state.manaPool[targetPlayer][color] !== undefined) {
+        state.manaPool[targetPlayer][color]++;
+      }
+    }
+    return;
+  }
+  
   // Log unhandled triggers for future implementation
   console.log(`[executeTriggerEffect] Unhandled trigger effect: "${description}" from ${sourceName}`);
 }
@@ -1000,12 +1163,13 @@ export function resolveTopOfStack(ctx: GameContext) {
     // Handle token creation spells (where the caster creates tokens)
     // Patterns: "create X 1/1 tokens", "create two 1/1 tokens", etc.
     const oracleTextLower = oracleText.toLowerCase();
-    const tokenCreationResult = parseTokenCreation(card.name, oracleTextLower, controller, state);
+    const spellXValue = (item as any).xValue;
+    const tokenCreationResult = parseTokenCreation(card.name, oracleTextLower, controller, state, spellXValue);
     if (tokenCreationResult) {
       for (let i = 0; i < tokenCreationResult.count; i++) {
         createTokenFromSpec(ctx, controller, tokenCreationResult);
       }
-      console.log(`[resolveTopOfStack] ${card.name} created ${tokenCreationResult.count} ${tokenCreationResult.name} token(s) for ${controller}`);
+      console.log(`[resolveTopOfStack] ${card.name} created ${tokenCreationResult.count} ${tokenCreationResult.name} token(s) for ${controller} (xValue: ${spellXValue ?? 'N/A'})`);
     }
     
     // Handle extra turn spells (Time Warp, Time Walk, Temporal Mastery, etc.)
@@ -1040,10 +1204,90 @@ export function resolveTopOfStack(ctx: GameContext) {
       // Draw cards for each player
       const players = (state as any).players || [];
       for (const player of players) {
-        if (player && player.id && typeof (ctx as any).drawCards === 'function') {
+        if (player && player.id) {
           try {
-            (ctx as any).drawCards(player.id, drawCount);
-            console.log(`[resolveTopOfStack] ${card.name}: ${player.name || player.id} drew ${drawCount} card(s)`);
+            const drawn = drawCardsFromZone(ctx, player.id as PlayerID, drawCount);
+            console.log(`[resolveTopOfStack] ${card.name}: ${player.name || player.id} drew ${drawn.length} card(s)`);
+          } catch (err) {
+            console.warn(`[resolveTopOfStack] Failed to draw cards for ${player.id}:`, err);
+          }
+        }
+      }
+    }
+    
+    // Handle "You draw X. Each other player draws Y" patterns (Words of Wisdom style)
+    // Words of Wisdom: "You draw two cards. Each other player draws a card."
+    const youDrawMatch = oracleTextLower.match(/you draw\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?/i);
+    const eachOtherDrawMatch = oracleTextLower.match(/each other player draws?\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?/i);
+    
+    if (youDrawMatch && !eachPlayerDrawsMatch) {
+      const wordToNumber: Record<string, number> = { 
+        'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+        'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10
+      };
+      const controllerDrawCount = wordToNumber[youDrawMatch[1].toLowerCase()] || parseInt(youDrawMatch[1], 10) || 1;
+      
+      try {
+        const drawn = drawCardsFromZone(ctx, controller, controllerDrawCount);
+        console.log(`[resolveTopOfStack] ${card.name}: Controller ${controller} drew ${drawn.length} card(s)`);
+      } catch (err) {
+        console.warn(`[resolveTopOfStack] Failed to draw cards for controller ${controller}:`, err);
+      }
+      
+      // Handle "each other player draws" if present
+      if (eachOtherDrawMatch) {
+        const otherDrawCount = wordToNumber[eachOtherDrawMatch[1].toLowerCase()] || parseInt(eachOtherDrawMatch[1], 10) || 1;
+        const players = (state as any).players || [];
+        for (const player of players) {
+          if (player && player.id && player.id !== controller) {
+            try {
+              const drawn = drawCardsFromZone(ctx, player.id as PlayerID, otherDrawCount);
+              console.log(`[resolveTopOfStack] ${card.name}: ${player.name || player.id} drew ${drawn.length} card(s)`);
+            } catch (err) {
+              console.warn(`[resolveTopOfStack] Failed to draw cards for ${player.id}:`, err);
+            }
+          }
+        }
+      }
+    }
+    
+    // Handle Windfall-style effects: "Each player discards their hand, then draws cards equal to..."
+    if (oracleTextLower.includes('each player discards') && oracleTextLower.includes('hand') && 
+        (oracleTextLower.includes('then draws') || oracleTextLower.includes('draws cards equal'))) {
+      const players = (state as any).players || [];
+      const zones = state.zones || {};
+      let greatestDiscarded = 0;
+      
+      // First pass: discard all hands and track the greatest number discarded
+      for (const player of players) {
+        if (player && player.id) {
+          const playerZones = zones[player.id];
+          if (playerZones && Array.isArray(playerZones.hand)) {
+            const handSize = playerZones.hand.length;
+            greatestDiscarded = Math.max(greatestDiscarded, handSize);
+            
+            // Move hand to graveyard
+            playerZones.graveyard = playerZones.graveyard || [];
+            for (const handCard of playerZones.hand) {
+              if (handCard && typeof handCard === 'object') {
+                (playerZones.graveyard as any[]).push({ ...handCard, zone: 'graveyard' });
+              }
+            }
+            playerZones.hand = [];
+            playerZones.handCount = 0;
+            playerZones.graveyardCount = (playerZones.graveyard as any[]).length;
+            
+            console.log(`[resolveTopOfStack] ${card.name}: ${player.name || player.id} discarded ${handSize} card(s)`);
+          }
+        }
+      }
+      
+      // Second pass: each player draws cards equal to the greatest number discarded
+      for (const player of players) {
+        if (player && player.id && greatestDiscarded > 0) {
+          try {
+            const drawn = drawCardsFromZone(ctx, player.id as PlayerID, greatestDiscarded);
+            console.log(`[resolveTopOfStack] ${card.name}: ${player.name || player.id} drew ${drawn.length} card(s) (greatest discarded: ${greatestDiscarded})`);
           } catch (err) {
             console.warn(`[resolveTopOfStack] Failed to draw cards for ${player.id}:`, err);
           }
@@ -1143,6 +1387,89 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
     }
     
+    // Handle Chaos Warp - "The owner of target permanent shuffles it into their library, 
+    // then reveals the top card of their library. If it's a permanent card, they put it onto the battlefield."
+    const isChaosWarp = card.name?.toLowerCase().includes('chaos warp') ||
+      (oracleTextLower.includes('shuffles it into their library') && 
+       oracleTextLower.includes('reveals the top card') &&
+       oracleTextLower.includes('permanent'));
+    
+    if (isChaosWarp && targets.length > 0) {
+      const targetPermId = targets[0]?.id || targets[0];
+      const battlefield = state.battlefield || [];
+      const targetPerm = battlefield.find((p: any) => p.id === targetPermId);
+      
+      if (targetPerm) {
+        const owner = targetPerm.owner as PlayerID;
+        const targetCard = targetPerm.card;
+        
+        // Remove permanent from battlefield
+        const idx = battlefield.findIndex((p: any) => p.id === targetPermId);
+        if (idx !== -1) {
+          battlefield.splice(idx, 1);
+        }
+        
+        // Shuffle into owner's library
+        const lib = ctx.libraries?.get(owner) || [];
+        (lib as any[]).push({ ...targetCard, zone: 'library' });
+        
+        // Shuffle library
+        for (let i = lib.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [lib[i], lib[j]] = [lib[j], lib[i]];
+        }
+        ctx.libraries?.set(owner, lib);
+        
+        console.log(`[resolveTopOfStack] Chaos Warp: ${targetCard?.name || 'Permanent'} shuffled into ${owner}'s library`);
+        
+        // Reveal top card of library
+        if (lib.length > 0) {
+          const topCard = lib[0];
+          const topTypeLine = (topCard?.type_line || '').toLowerCase();
+          
+          // Check if it's a permanent card (creature, artifact, enchantment, land, planeswalker, battle)
+          const isPermanent = topTypeLine.includes('creature') || 
+                              topTypeLine.includes('artifact') || 
+                              topTypeLine.includes('enchantment') || 
+                              topTypeLine.includes('land') || 
+                              topTypeLine.includes('planeswalker') ||
+                              topTypeLine.includes('battle');
+          
+          if (isPermanent) {
+            // Remove from library
+            lib.shift();
+            ctx.libraries?.set(owner, lib);
+            
+            // Put onto battlefield
+            const isCreature = topTypeLine.includes('creature');
+            const newPermanent = {
+              id: uid("perm"),
+              controller: owner,
+              owner: owner,
+              tapped: false,
+              counters: {},
+              basePower: isCreature ? parsePT((topCard as any).power) : undefined,
+              baseToughness: isCreature ? parsePT((topCard as any).toughness) : undefined,
+              summoningSickness: isCreature,
+              card: { ...topCard, zone: "battlefield" },
+            } as any;
+            
+            battlefield.push(newPermanent);
+            console.log(`[resolveTopOfStack] Chaos Warp: ${owner} revealed ${topCard?.name || 'card'} (permanent) - put onto battlefield`);
+          } else {
+            console.log(`[resolveTopOfStack] Chaos Warp: ${owner} revealed ${topCard?.name || 'card'} (${topTypeLine}) - not a permanent, stays on top`);
+          }
+        }
+        
+        // Update library count
+        const zones = state.zones || {};
+        const z = zones[owner];
+        if (z) {
+          z.libraryCount = lib.length;
+        }
+      }
+    }
+    
     // Handle Join Forces spells (Mind's Aglow, Collective Voyage, etc.)
     // These require all players to have the option to contribute mana
     if (isJoinForcesSpell(card.name, oracleTextLower)) {
@@ -1156,6 +1483,59 @@ export function resolveTopOfStack(ctx: GameContext) {
         imageUrl: card.image_uris?.normal || card.image_uris?.small,
       });
       console.log(`[resolveTopOfStack] Join Forces spell ${card.name} waiting for player contributions`);
+    }
+    
+    // Handle Approach of the Second Sun - goes 7th from top of library, not graveyard
+    // Also track that it was cast for win condition checking
+    const isApproach = (card.name || '').toLowerCase().includes('approach of the second sun') ||
+                       (oracleTextLower.includes('put it into its owner\'s library seventh from the top') &&
+                        oracleTextLower.includes('you win the game'));
+    
+    if (isApproach) {
+      // Track that Approach was cast (for win condition)
+      (state as any).approachCastHistory = (state as any).approachCastHistory || {};
+      (state as any).approachCastHistory[controller] = (state as any).approachCastHistory[controller] || [];
+      (state as any).approachCastHistory[controller].push({
+        timestamp: Date.now(),
+        castFromHand: true, // Assuming cast from hand for now
+      });
+      
+      // Check if this is the second time casting from hand
+      const castCount = (state as any).approachCastHistory[controller].length;
+      if (castCount >= 2) {
+        // Win the game!
+        console.log(`[resolveTopOfStack] ${controller} wins! Approach of the Second Sun cast for the second time!`);
+        
+        // Set winner
+        (state as any).winner = controller;
+        (state as any).gameOver = true;
+        (state as any).winCondition = 'Approach of the Second Sun';
+      } else {
+        // Put 7th from top of library (position 6 in 0-indexed)
+        // If library has fewer than 7 cards, put at the bottom (lib.length position)
+        const lib = ctx.libraries?.get(controller) || [];
+        const insertPosition = Math.min(6, lib.length); // 7th from top, or bottom if library is small
+        (lib as any[]).splice(insertPosition, 0, { ...card, zone: 'library' });
+        ctx.libraries?.set(controller, lib);
+        
+        // Update library count
+        const zones = ctx.state.zones || {};
+        const z = zones[controller];
+        if (z) {
+          z.libraryCount = lib.length;
+        }
+        
+        // Gain 7 life
+        state.life = state.life || {};
+        state.life[controller] = (state.life[controller] || 40) + 7;
+        const player = (state.players || []).find((p: any) => p.id === controller);
+        if (player) player.life = state.life[controller];
+        
+        console.log(`[resolveTopOfStack] Approach of the Second Sun: ${controller} gained 7 life, card put 7th from top (cast #${castCount})`);
+      }
+      
+      bumpSeq();
+      return; // Skip normal graveyard movement
     }
     
     // Move spell to graveyard after resolution
@@ -1447,8 +1827,10 @@ function getTokenDoublerMultiplier(controller: PlayerID, state: any): number {
  * 
  * For cards like Summon the School that have conditions (e.g., "equal to the number of Merfolk you control"),
  * we count the relevant permanents on the battlefield.
+ * 
+ * @param xValue - Optional value of X for X spells like Secure the Wastes
  */
-function parseTokenCreation(cardName: string, oracleTextLower: string, controller: PlayerID, state: any): TokenSpec | null {
+function parseTokenCreation(cardName: string, oracleTextLower: string, controller: PlayerID, state: any, xValue?: number): TokenSpec | null {
   // Skip if this doesn't create tokens for the caster
   if (!oracleTextLower.includes('create') || !oracleTextLower.includes('token')) {
     return null;
@@ -1504,8 +1886,8 @@ function parseTokenCreation(cardName: string, oracleTextLower: string, controlle
       } else if (/^\d+$/.test(countWord)) {
         count = parseInt(countWord, 10);
       } else if (countWord === 'x') {
-        // X is typically determined by something else; default to 1 for now
-        count = 1;
+        // Use the provided xValue from the spell cast, default to 1 if not provided
+        count = xValue !== undefined && xValue >= 0 ? xValue : 1;
       }
       
       // Apply token doublers
@@ -1667,6 +2049,45 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
   } as any);
   state.landsPlayedThisTurn = state.landsPlayedThisTurn || {};
   state.landsPlayedThisTurn[playerId] = (state.landsPlayedThisTurn[playerId] ?? 0) + 1;
+  
+  // Check for ETB triggers on the land (e.g., Wind-Scarred Crag "you gain 1 life")
+  // Get the newly created permanent from the battlefield
+  const newPermanent = state.battlefield[state.battlefield.length - 1];
+  try {
+    const etbTriggers = getETBTriggersForPermanent(card, newPermanent);
+    
+    if (etbTriggers.length > 0) {
+      console.log(`[playLand] Found ${etbTriggers.length} ETB trigger(s) for ${card.name || 'land'}`);
+      
+      // Put ETB triggers on the stack
+      state.stack = state.stack || [];
+      for (const trigger of etbTriggers) {
+        // Skip "sacrifice unless pay" triggers - those are handled separately via prompts
+        if (trigger.triggerType === 'etb_sacrifice_unless_pay') {
+          continue;
+        }
+        
+        // Push trigger onto the stack
+        state.stack.push({
+          id: uid("trigger"),
+          type: 'etb-trigger',
+          controller: playerId,
+          card: { id: card.id, name: card.name || 'Land', oracle_text: card.oracle_text || '' },
+          trigger: {
+            type: trigger.triggerType,
+            description: trigger.description || trigger.effect || '',
+            sourcePermanentId: newPermanent.id,
+            sourceCardName: card.name || 'Land',
+          },
+          targets: [],
+        } as any);
+        
+        console.log(`[playLand] Pushed ETB trigger to stack: ${trigger.description || trigger.effect}`);
+      }
+    }
+  } catch (err) {
+    console.warn('[playLand] Failed to check ETB triggers:', err);
+  }
   
   // Recalculate player effects when lands ETB (some lands might have effects)
   try {

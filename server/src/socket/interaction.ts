@@ -341,11 +341,24 @@ function detectTutorEffect(oracleText: string): TutorInfo {
 /**
  * Parse search criteria to create a filter object
  */
-function parseSearchCriteria(criteria: string): { types?: string[]; subtypes?: string[] } {
-  const result: { types?: string[]; subtypes?: string[] } = {};
+function parseSearchCriteria(criteria: string): { supertypes?: string[]; types?: string[]; subtypes?: string[] } {
+  const result: { supertypes?: string[]; types?: string[]; subtypes?: string[] } = {};
   const text = criteria.toLowerCase();
   
+  // ============================================
+  // Supertypes (Basic, Legendary, Snow, World, Ongoing, Host)
+  // ============================================
+  const supertypes: string[] = [];
+  if (text.includes('basic')) supertypes.push('basic');
+  if (text.includes('legendary')) supertypes.push('legendary');
+  if (text.includes('snow')) supertypes.push('snow');
+  if (text.includes('world')) supertypes.push('world');
+  if (text.includes('ongoing')) supertypes.push('ongoing');
+  if (text.includes('host')) supertypes.push('host');
+  
+  // ============================================
   // Card types
+  // ============================================
   const types: string[] = [];
   if (text.includes('creature')) types.push('creature');
   if (text.includes('planeswalker')) types.push('planeswalker');
@@ -354,16 +367,165 @@ function parseSearchCriteria(criteria: string): { types?: string[]; subtypes?: s
   if (text.includes('instant')) types.push('instant');
   if (text.includes('sorcery')) types.push('sorcery');
   if (text.includes('land')) types.push('land');
+  if (text.includes('tribal') || text.includes('kindred')) types.push('tribal'); // Tribal/Kindred type
+  if (text.includes('battle')) types.push('battle'); // New type from March of the Machine
+  if (text.includes('dungeon')) types.push('dungeon');
+  if (text.includes('conspiracy')) types.push('conspiracy');
+  if (text.includes('phenomenon')) types.push('phenomenon');
+  if (text.includes('plane')) types.push('plane');
+  if (text.includes('scheme')) types.push('scheme');
+  if (text.includes('vanguard')) types.push('vanguard');
   
-  // Land subtypes (for fetch lands)
+  // Special composite searches
+  if (text.includes('historic')) {
+    // Historic = artifacts, legendaries, sagas
+    // Add as a special marker
+    types.push('historic');
+  }
+  if (text.includes('permanent')) {
+    // Permanent = creature, artifact, enchantment, land, planeswalker, battle
+    types.push('permanent');
+  }
+  if (text.includes('noncreature')) {
+    types.push('noncreature');
+  }
+  if (text.includes('nonland')) {
+    types.push('nonland');
+  }
+  if (text.includes('nonartifact')) {
+    types.push('nonartifact');
+  }
+  
   const subtypes: string[] = [];
+  
+  // ============================================
+  // Artifact subtypes
+  // ============================================
+  if (text.includes('equipment')) subtypes.push('equipment');
+  if (text.includes('vehicle')) subtypes.push('vehicle');
+  if (text.includes('treasure')) subtypes.push('treasure');
+  if (text.includes('food')) subtypes.push('food');
+  if (text.includes('clue')) subtypes.push('clue');
+  if (text.includes('blood')) subtypes.push('blood');
+  if (text.includes('gold')) subtypes.push('gold');
+  if (text.includes('powerstone')) subtypes.push('powerstone');
+  if (text.includes('map')) subtypes.push('map');
+  if (text.includes('fortification')) subtypes.push('fortification');
+  if (text.includes('contraption')) subtypes.push('contraption');
+  if (text.includes('attraction')) subtypes.push('attraction');
+  
+  // ============================================
+  // Enchantment subtypes
+  // ============================================
+  if (text.includes('aura')) subtypes.push('aura');
+  if (text.includes('curse')) subtypes.push('curse');
+  if (text.includes('saga')) subtypes.push('saga');
+  if (text.includes('shrine')) subtypes.push('shrine');
+  if (text.includes('cartouche')) subtypes.push('cartouche');
+  if (text.includes('background')) subtypes.push('background');
+  if (text.includes('class')) subtypes.push('class');
+  if (text.includes('role')) subtypes.push('role');
+  if (text.includes('room')) subtypes.push('room');
+  if (text.includes('case')) subtypes.push('case');
+  if (text.includes('rune')) subtypes.push('rune');
+  if (text.includes('shard')) subtypes.push('shard');
+  
+  // ============================================
+  // Land subtypes
+  // ============================================
   if (text.includes('forest')) subtypes.push('forest');
   if (text.includes('plains')) subtypes.push('plains');
   if (text.includes('island')) subtypes.push('island');
   if (text.includes('swamp')) subtypes.push('swamp');
   if (text.includes('mountain')) subtypes.push('mountain');
-  if (text.includes('basic')) subtypes.push('basic');
+  if (text.includes('gate')) subtypes.push('gate');
+  if (text.includes('desert')) subtypes.push('desert');
+  if (text.includes('locus')) subtypes.push('locus');
+  if (text.includes('lair')) subtypes.push('lair');
+  if (text.includes('cave')) subtypes.push('cave');
+  if (text.includes('sphere')) subtypes.push('sphere');
+  if (text.includes('mine')) subtypes.push('mine');
+  if (text.includes('power-plant')) subtypes.push('power-plant');
+  if (text.includes('tower')) subtypes.push('tower');
   
+  // ============================================
+  // Spell subtypes
+  // ============================================
+  if (text.includes('arcane')) subtypes.push('arcane');
+  if (text.includes('trap')) subtypes.push('trap');
+  if (text.includes('adventure')) subtypes.push('adventure');
+  if (text.includes('lesson')) subtypes.push('lesson');
+  
+  // ============================================
+  // Common creature types (extensive list)
+  // ============================================
+  const creatureTypes = [
+    // Humanoid races
+    'human', 'elf', 'dwarf', 'goblin', 'orc', 'giant', 'merfolk', 'vampire', 
+    'zombie', 'skeleton', 'spirit', 'specter', 'wraith', 'shade',
+    'angel', 'demon', 'devil', 'dragon', 'drake', 'hydra', 'phoenix', 'sphinx',
+    'elemental', 'construct', 'golem', 'myr', 'thopter', 'servo',
+    'wizard', 'cleric', 'rogue', 'warrior', 'knight', 'soldier', 'berserker',
+    'shaman', 'druid', 'monk', 'samurai', 'ninja', 'assassin', 'archer', 'scout',
+    'artificer', 'pilot', 'pirate', 'rebel', 'advisor', 'noble', 'citizen',
+    // Animals and beasts
+    'beast', 'cat', 'dog', 'wolf', 'bear', 'bird', 'snake', 'spider', 'insect',
+    'rat', 'bat', 'ape', 'elephant', 'dinosaur', 'lizard', 'crocodile',
+    'fish', 'shark', 'whale', 'octopus', 'crab', 'turtle', 'frog', 'salamander',
+    'horse', 'unicorn', 'pegasus', 'ox', 'boar', 'elk', 'deer', 'goat', 'sheep',
+    'squirrel', 'rabbit', 'badger', 'weasel', 'fox', 'wolverine', 'otter',
+    // Fantasy creatures
+    'sliver', 'eldrazi', 'phyrexian', 'horror', 'nightmare', 'wurm', 'leviathan',
+    'kraken', 'serpent', 'treefolk', 'fungus', 'plant', 'saproling', 'ooze', 'slime',
+    'faerie', 'sprite', 'imp', 'homunculus', 'shapeshifter', 'changeling',
+    'avatar', 'god', 'demigod', 'archon', 'incarnation', 'praetor',
+    'kithkin', 'vedalken', 'viashino', 'leonin', 'loxodon', 'minotaur', 'centaur',
+    'satyr', 'nymph', 'dryad', 'naiad', 'siren', 'gorgon', 'cyclops',
+    // Tribal favorites
+    'ally', 'sliver', 'mutant', 'rebel', 'mercenary', 'minion', 'thrull', 'serf',
+    // Typal specific
+    'kavu', 'atog', 'brushwagg', 'homarid', 'cephalid', 'moonfolk', 'noggle',
+    'surrakar', 'kraul', 'lhurgoyf', 'thalakos', 'dauthi', 'soltari',
+    // More creatures
+    'gnome', 'kobold', 'werewolf', 'hellion', 'kor', 'zubera', 'bringer',
+    'flagbearer', 'illusion', 'incarnation', 'elder', 'spawn', 'scion',
+    'processor', 'drone', 'scout', 'ranger', 'bard', 'warlock', 'barbarian',
+  ];
+  
+  for (const creatureType of creatureTypes) {
+    // Use word boundary matching to avoid false positives
+    // e.g., "elf" should match "elf" but not "shelf"
+    const regex = new RegExp(`\\b${creatureType}\\b`, 'i');
+    if (regex.test(text)) {
+      subtypes.push(creatureType);
+    }
+  }
+  
+  // ============================================
+  // Planeswalker subtypes (planeswalker types)
+  // ============================================
+  const planeswalkerTypes = [
+    'jace', 'liliana', 'chandra', 'garruk', 'ajani', 'elspeth', 'nissa', 'gideon',
+    'sorin', 'tamiyo', 'nahiri', 'ashiok', 'teferi', 'karn', 'ugin', 'nicol',
+    'bolas', 'tibalt', 'vraska', 'domri', 'ral', 'kaya', 'vivien', 'oko',
+    'basri', 'lukka', 'calix', 'tyvar', 'lolth', 'mordenkainen', 'ellywick',
+    'zariel', 'dakkon', 'dihada', 'jeska', 'ob nixilis', 'tezzeret', 'kiora',
+    'xenagos', 'saheeli', 'huatli', 'angrath', 'aminatou', 'estrid', 'rowan', 'will',
+    'kaito', 'the wanderer', 'wrenn', 'niko', 'quintorius', 'elminster', 'minsc',
+  ];
+  
+  for (const pwType of planeswalkerTypes) {
+    if (text.includes(pwType)) {
+      subtypes.push(pwType);
+    }
+  }
+  
+  // ============================================
+  // Battle subtypes
+  // ============================================
+  if (text.includes('siege')) subtypes.push('siege');
+  
+  if (supertypes.length > 0) result.supertypes = supertypes;
   if (types.length > 0) result.types = types;
   if (subtypes.length > 0) result.subtypes = subtypes;
   

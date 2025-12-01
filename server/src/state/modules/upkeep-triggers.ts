@@ -44,7 +44,7 @@ export interface UpkeepTrigger {
 /**
  * Common upkeep trigger patterns and their effects
  */
-const KNOWN_UPKEEP_CARDS: Record<string, { effect: string; mandatory: boolean; requiresChoice?: boolean; requiresSacrifice?: boolean }> = {
+const KNOWN_UPKEEP_CARDS: Record<string, { effect: string; mandatory: boolean; requiresChoice?: boolean; requiresSacrifice?: boolean; anyPlayerTrigger?: boolean; endStepTrigger?: boolean }> = {
   // Draw/Life effects
   "phyrexian arena": { effect: "Draw a card, you lose 1 life", mandatory: true },
   "dark confidant": { effect: "Reveal top card, put in hand, lose life equal to its mana value", mandatory: true },
@@ -63,6 +63,10 @@ const KNOWN_UPKEEP_CARDS: Record<string, { effect: string; mandatory: boolean; r
   "mystic remora": { effect: "When opponent casts noncreature, they pay {4} or you draw", mandatory: true },
   "black market": { effect: "Add {B} for each charge counter", mandatory: true },
   "bitterblossom": { effect: "You lose 1 life, create a 1/1 black Faerie Rogue creature token with flying", mandatory: true },
+  
+  // Mana production at upkeep
+  "shizuko, caller of autumn": { effect: "That player adds {G}{G}{G}. This mana doesn't empty until end of turn.", mandatory: true, anyPlayerTrigger: true },
+  "citanul hierophants": { effect: "Creatures you control have tap for {G}", mandatory: true },
   
   // Counter manipulation
   "atraxa, praetors' voice": { effect: "Proliferate (at end step, not upkeep)", mandatory: true },
@@ -101,6 +105,9 @@ const KNOWN_UPKEEP_CARDS: Record<string, { effect: string; mandatory: boolean; r
   
   // Sheoldred variants
   "sheoldred, whispering one": { effect: "Return creature from your graveyard to the battlefield; each opponent sacrifices a creature", mandatory: true, requiresSacrifice: true },
+  
+  // End step triggers (tracked here for completeness)
+  "the second doctor": { effect: "Draw a card for each different mana value among nonland permanents you control", mandatory: true, endStepTrigger: true },
   
   // Tutoring/Library manipulation
   "search for azcanta": { effect: "Surveil 1, may transform if 7+ cards in graveyard", mandatory: true, requiresChoice: true },

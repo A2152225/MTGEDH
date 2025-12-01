@@ -801,9 +801,109 @@ export function recalculatePlayerEffects(ctx: GameContext, playerId?: string): v
     (ctx as any).maxLandsPerTurn = (ctx as any).maxLandsPerTurn || {};
     (ctx as any).maxLandsPerTurn[pid] = maxLands;
     
+    // Also update ctx.state.maxLandsPerTurn for compatibility with game-actions.ts
+    // which reads from game.state.maxLandsPerTurn
+    if (ctx.state) {
+      (ctx.state as any).maxLandsPerTurn = (ctx.state as any).maxLandsPerTurn || {};
+      (ctx.state as any).maxLandsPerTurn[pid] = maxLands;
+    }
+    
     // Calculate and set additional draws per turn
     const additionalDraws = calculateAdditionalDraws(ctx, pid);
     (ctx as any).additionalDrawsPerTurn = (ctx as any).additionalDrawsPerTurn || {};
     (ctx as any).additionalDrawsPerTurn[pid] = additionalDraws;
+    
+    // Also update ctx.state.additionalDrawsPerTurn for compatibility
+    if (ctx.state) {
+      (ctx.state as any).additionalDrawsPerTurn = (ctx.state as any).additionalDrawsPerTurn || {};
+      (ctx.state as any).additionalDrawsPerTurn[pid] = additionalDraws;
+    }
   }
 }
+
+
+/**
+ * Damage modifiers for creatures like Gisela, Blade of Goldnight
+ * Key: lowercase card name, Value: modifier configuration
+ */
+const DAMAGE_MODIFIERS: Record<string, { 
+  doubleDamageToOpponents?: boolean; 
+  halveDamageToController?: boolean;
+  doubleDamageFromSource?: boolean;
+}> = {
+  "gisela, blade of goldnight": {
+    doubleDamageToOpponents: true,
+    halveDamageToController: true,
+  },
+  "furnace of rath": {
+    doubleDamageToOpponents: true,
+    doubleDamageFromSource: true, // Doubles ALL damage
+  },
+  "dictate of the twin gods": {
+    doubleDamageToOpponents: true,
+    doubleDamageFromSource: true, // Doubles ALL damage
+  },
+  "fiery emancipation": {
+    // Triples damage dealt by sources you control
+    doubleDamageToOpponents: false, // Special handling needed for triple
+  },
+};
+
+/**
+ * Calculate modified damage amount based on battlefield effects
+ * Handles Gisela, Furnace of Rath, etc.
+ * 
+ * @param ctx - Game context
+ * @param damageAmount - Base damage amount
+ * @param damageDealer - Player ID dealing the damage (controller of damage source)
+ * @param damageReceiver - Player ID receiving the damage
+ * @returns Modified damage amount
+ */
+export function calculateModifiedDamage(
+  ctx: GameContext,
+  damageAmount: number,
+  damageDealer: string,
+  damageReceiver: string
+): { amount: number; modifiers: string[] } {
+  let modifiedAmount = damageAmount;
+  const modifiers: string[] = [];
+  
+  const battlefield = getActivePermanents(ctx);
+  
+  for (const perm of battlefield) {
+    const cardName = (perm.card?.name || "").toLowerCase();
+    const controller = perm.controller;
+    
+    // Check for Gisela, Blade of Goldnight
+    if (cardName.includes("gisela, blade of goldnight")) {
+      // "If a source would deal damage to an opponent of Gisela's controller or to a permanent
+      // an opponent controls, that source deals double that damage to that player or permanent instead."
+      if (controller === damageDealer && controller !== damageReceiver) {
+        modifiedAmount *= 2;
+        modifiers.push("Gisela doubles damage to opponents");
+      }
+      
+      // "If a source would deal damage to you or a permanent you control, 
+      // prevent half that damage, rounded up."
+      if (controller === damageReceiver) {
+        modifiedAmount = Math.floor(modifiedAmount / 2);
+        modifiers.push("Gisela halves damage to controller");
+      }
+    }
+    
+    // Check for Furnace of Rath / Dictate of the Twin Gods
+    if (cardName.includes("furnace of rath") || cardName.includes("dictate of the twin gods")) {
+      modifiedAmount *= 2;
+      modifiers.push(`${perm.card?.name || "Effect"} doubles damage`);
+    }
+    
+    // Check for Fiery Emancipation (triples damage)
+    if (cardName.includes("fiery emancipation") && controller === damageDealer) {
+      modifiedAmount *= 3;
+      modifiers.push("Fiery Emancipation triples damage");
+    }
+  }
+  
+  return { amount: modifiedAmount, modifiers };
+}
+
