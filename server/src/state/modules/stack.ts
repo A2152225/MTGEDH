@@ -876,6 +876,59 @@ function executeTriggerEffect(
     return;
   }
   
+  // Pattern: "whenever an opponent draws a card" - deals damage or other effect
+  // Scrawling Crawler, Nekusar, Fate Unraveler, etc.
+  const opponentDrawsDamageMatch = desc.match(/whenever (?:an )?opponent draws (?:a card|cards?),?\s*(?:[^,.]+ )?(?:deals? |loses? )(\d+) (?:damage|life)/i);
+  if (opponentDrawsDamageMatch) {
+    const damage = parseInt(opponentDrawsDamageMatch[1], 10);
+    // This trigger should have been put on stack when opponent drew
+    // The triggerItem should contain info about which opponent drew
+    const drawingPlayer = triggerItem?.triggeringPlayer || triggerItem?.targets?.[0];
+    if (drawingPlayer && drawingPlayer !== controller) {
+      modifyLife(drawingPlayer, -damage);
+      console.log(`[executeTriggerEffect] ${sourceName}: ${drawingPlayer} loses ${damage} life from drawing`);
+    }
+    return;
+  }
+  
+  // Pattern: "whenever a player draws a card" - universal draw trigger
+  const playerDrawsTriggerMatch = desc.match(/whenever (?:a )?player draws (?:a card|cards?),?\s*([^.]+)/i);
+  if (playerDrawsTriggerMatch) {
+    const effectText = playerDrawsTriggerMatch[1].trim();
+    // Check for damage/life loss patterns
+    const damageMatch = effectText.match(/(?:deals? |loses? )(\d+) (?:damage|life)/i);
+    if (damageMatch) {
+      const damage = parseInt(damageMatch[1], 10);
+      const drawingPlayer = triggerItem?.triggeringPlayer || triggerItem?.targets?.[0];
+      if (drawingPlayer) {
+        modifyLife(drawingPlayer, -damage);
+        console.log(`[executeTriggerEffect] ${sourceName}: ${drawingPlayer} loses ${damage} life from drawing`);
+      }
+    }
+    return;
+  }
+  
+  // Pattern: "that player adds {X}{X}{X}" - mana production for specific player
+  const thatPlayerAddsManaMatch = desc.match(/that player adds (\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (thatPlayerAddsManaMatch) {
+    const manaString = thatPlayerAddsManaMatch[1];
+    const targetPlayer = triggerItem?.triggeringPlayer || controller;
+    console.log(`[executeTriggerEffect] ${targetPlayer} adds ${manaString} to mana pool`);
+    
+    state.manaPool = state.manaPool || {};
+    state.manaPool[targetPlayer] = state.manaPool[targetPlayer] || { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
+    
+    const manaRegex2 = /\{([WUBRGC])\}/gi;
+    let manaMatch;
+    while ((manaMatch = manaRegex2.exec(manaString)) !== null) {
+      const color = manaMatch[1].toUpperCase();
+      if (state.manaPool[targetPlayer][color] !== undefined) {
+        state.manaPool[targetPlayer][color]++;
+      }
+    }
+    return;
+  }
+  
   // Log unhandled triggers for future implementation
   console.log(`[executeTriggerEffect] Unhandled trigger effect: "${description}" from ${sourceName}`);
 }
