@@ -150,3 +150,226 @@ describe('Tutor Destination Parsing', () => {
     });
   });
 });
+
+/**
+ * Test suite for parseSearchFilter function
+ * Tests that search criteria strings are correctly parsed into filter objects
+ * with proper format for LibrarySearchModal (types array, not boolean properties)
+ */
+describe('parseSearchFilter', () => {
+  // Re-implement parseSearchFilter for testing (mirrors server/src/socket/util.ts)
+  function parseSearchFilter(criteria: string): { types?: string[]; subtypes?: string[]; supertypes?: string[]; maxCmc?: number } {
+    if (!criteria) return {};
+    
+    const filter: { types?: string[]; subtypes?: string[]; supertypes?: string[]; maxCmc?: number } = {};
+    const text = criteria.toLowerCase();
+    
+    // Card types - must be in types array for client filter to work
+    const types: string[] = [];
+    if (text.includes('creature')) types.push('creature');
+    if (text.includes('instant')) types.push('instant');
+    if (text.includes('sorcery')) types.push('sorcery');
+    if (text.includes('artifact')) types.push('artifact');
+    if (text.includes('enchantment')) types.push('enchantment');
+    if (text.includes('planeswalker')) types.push('planeswalker');
+    if (text.includes('land')) types.push('land');
+    if (text.includes('tribal') || text.includes('kindred')) types.push('tribal');
+    if (text.includes('battle')) types.push('battle');
+    
+    // Special composite types (these are handled specially by client matchesFilter)
+    if (text.includes('historic')) types.push('historic');
+    if (text.includes('permanent')) types.push('permanent');
+    if (text.includes('noncreature')) types.push('noncreature');
+    if (text.includes('nonland')) types.push('nonland');
+    if (text.includes('nonartifact')) types.push('nonartifact');
+    
+    if (types.length > 0) {
+      filter.types = types;
+    }
+    
+    // Supertypes (Basic, Legendary, Snow, World, Ongoing)
+    // Note: 'host' is included for consistency with existing code, though per MTG rules it's a creature type
+    const supertypes: string[] = [];
+    if (text.includes('basic')) supertypes.push('basic');
+    if (text.includes('legendary')) supertypes.push('legendary');
+    if (text.includes('snow')) supertypes.push('snow');
+    if (text.includes('world')) supertypes.push('world');
+    if (text.includes('ongoing')) supertypes.push('ongoing');
+    if (text.includes('host')) supertypes.push('host');
+    
+    if (supertypes.length > 0) {
+      filter.supertypes = supertypes;
+    }
+    
+    // Subtypes (land types, creature types, etc.)
+    const subtypes: string[] = [];
+    if (text.includes('forest')) subtypes.push('forest');
+    if (text.includes('plains')) subtypes.push('plains');
+    if (text.includes('island')) subtypes.push('island');
+    if (text.includes('swamp')) subtypes.push('swamp');
+    if (text.includes('mountain')) subtypes.push('mountain');
+    if (text.includes('equipment')) subtypes.push('equipment');
+    if (text.includes('aura')) subtypes.push('aura');
+    if (text.includes('vehicle')) subtypes.push('vehicle');
+    
+    if (subtypes.length > 0) {
+      filter.subtypes = subtypes;
+    }
+    
+    // CMC restrictions
+    const cmcMatch = text.match(/mana value (\d+) or less/);
+    if (cmcMatch) {
+      filter.maxCmc = parseInt(cmcMatch[1], 10);
+    }
+    
+    return filter;
+  }
+
+  it('should parse planeswalker card to types array', () => {
+    const filter = parseSearchFilter('planeswalker card');
+    
+    expect(filter.types).toBeDefined();
+    expect(filter.types).toContain('planeswalker');
+    expect(filter.types?.length).toBe(1);
+  });
+
+  it('should parse creature card to types array', () => {
+    const filter = parseSearchFilter('creature card');
+    
+    expect(filter.types).toBeDefined();
+    expect(filter.types).toContain('creature');
+  });
+
+  it('should parse artifact card to types array', () => {
+    const filter = parseSearchFilter('artifact card');
+    
+    expect(filter.types).toBeDefined();
+    expect(filter.types).toContain('artifact');
+  });
+
+  it('should parse basic land to both types and supertypes', () => {
+    const filter = parseSearchFilter('basic land card');
+    
+    expect(filter.types).toBeDefined();
+    expect(filter.types).toContain('land');
+    expect(filter.supertypes).toBeDefined();
+    expect(filter.supertypes).toContain('basic');
+  });
+
+  it('should parse forest to subtypes', () => {
+    const filter = parseSearchFilter('Forest card');
+    
+    expect(filter.subtypes).toBeDefined();
+    expect(filter.subtypes).toContain('forest');
+  });
+
+  it('should parse mana value restrictions', () => {
+    const filter = parseSearchFilter('creature card with mana value 3 or less');
+    
+    expect(filter.types).toContain('creature');
+    expect(filter.maxCmc).toBe(3);
+  });
+
+  it('should return empty object for generic card search', () => {
+    const filter = parseSearchFilter('card');
+    
+    // Should have no type restrictions for generic "card" search
+    expect(filter.types).toBeUndefined();
+  });
+
+  it('should handle enchantment creature (multiple types)', () => {
+    const filter = parseSearchFilter('enchantment creature card');
+    
+    expect(filter.types).toBeDefined();
+    expect(filter.types).toContain('enchantment');
+    expect(filter.types).toContain('creature');
+  });
+
+  it('should handle legendary planeswalker', () => {
+    const filter = parseSearchFilter('legendary planeswalker card');
+    
+    expect(filter.types).toBeDefined();
+    expect(filter.types).toContain('planeswalker');
+    expect(filter.supertypes).toBeDefined();
+    expect(filter.supertypes).toContain('legendary');
+  });
+
+  // Additional tests for complete card type coverage
+  it('should parse instant card to types array', () => {
+    const filter = parseSearchFilter('instant card');
+    
+    expect(filter.types).toBeDefined();
+    expect(filter.types).toContain('instant');
+  });
+
+  it('should parse sorcery card to types array', () => {
+    const filter = parseSearchFilter('sorcery card');
+    
+    expect(filter.types).toBeDefined();
+    expect(filter.types).toContain('sorcery');
+  });
+
+  it('should parse battle card to types array', () => {
+    const filter = parseSearchFilter('battle card');
+    
+    expect(filter.types).toBeDefined();
+    expect(filter.types).toContain('battle');
+  });
+
+  it('should parse tribal/kindred card to types array', () => {
+    const filter = parseSearchFilter('tribal instant card');
+    
+    expect(filter.types).toBeDefined();
+    expect(filter.types).toContain('tribal');
+    expect(filter.types).toContain('instant');
+  });
+
+  // Tests for composite types
+  it('should parse historic card to types array', () => {
+    const filter = parseSearchFilter('historic permanent');
+    
+    expect(filter.types).toBeDefined();
+    expect(filter.types).toContain('historic');
+    expect(filter.types).toContain('permanent');
+  });
+
+  it('should parse noncreature permanent to types array', () => {
+    const filter = parseSearchFilter('noncreature permanent');
+    
+    expect(filter.types).toBeDefined();
+    expect(filter.types).toContain('noncreature');
+    expect(filter.types).toContain('permanent');
+  });
+
+  it('should parse nonland card to types array', () => {
+    const filter = parseSearchFilter('nonland card');
+    
+    expect(filter.types).toBeDefined();
+    expect(filter.types).toContain('nonland');
+  });
+
+  // Tests for additional supertypes
+  it('should parse snow permanent to supertypes', () => {
+    const filter = parseSearchFilter('snow permanent');
+    
+    expect(filter.supertypes).toBeDefined();
+    expect(filter.supertypes).toContain('snow');
+  });
+
+  // Tests for additional subtypes
+  it('should parse aura card to subtypes', () => {
+    const filter = parseSearchFilter('aura card');
+    
+    expect(filter.subtypes).toBeDefined();
+    expect(filter.subtypes).toContain('aura');
+  });
+
+  it('should parse vehicle artifact to subtypes', () => {
+    const filter = parseSearchFilter('vehicle artifact card');
+    
+    expect(filter.types).toBeDefined();
+    expect(filter.types).toContain('artifact');
+    expect(filter.subtypes).toBeDefined();
+    expect(filter.subtypes).toContain('vehicle');
+  });
+});

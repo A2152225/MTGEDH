@@ -859,7 +859,10 @@ export function App() {
   // Library search request listener (Tutor effects)
   React.useEffect(() => {
     const handler = (payload: any) => {
-      if (payload.gameId === safeView?.id) {
+      // Only show modal if this is for our game AND either:
+      // 1. No playerId specified (direct socket emit to us), OR
+      // 2. The playerId matches us (broadcast with player filter)
+      if (payload.gameId === safeView?.id && (!payload.playerId || payload.playerId === you)) {
         setLibrarySearchData({
           cards: payload.cards || [],
           title: payload.title || 'Search Library',
@@ -882,7 +885,7 @@ export function App() {
     return () => {
       socket.off("librarySearchRequest", handler);
     };
-  }, [safeView?.id]);
+  }, [safeView?.id, you]);
 
   // Target selection request listener
   React.useEffect(() => {
