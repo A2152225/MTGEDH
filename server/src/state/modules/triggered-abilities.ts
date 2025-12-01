@@ -1331,6 +1331,13 @@ const KNOWN_BEGINNING_COMBAT_TRIGGERS: Record<string, { effect: string; requires
   "saskia the unyielding": { effect: "Damage to chosen player is dealt to them again" },
   "najeela, the blade-blossom": { effect: "Create 1/1 Warrior token when attacking" },
   "grand arbiter augustin iv": { effect: "Your spells cost less; opponent spells cost more" },
+  // Added triggers
+  "legion warboss": { effect: "Create a 1/1 red Goblin creature token with haste. That token attacks this combat if able." },
+  "hanweir garrison": { effect: "Create two 1/1 red Human creature tokens tapped and attacking" },
+  "hero of bladehold": { effect: "Create two 1/1 white Soldier creature tokens tapped and attacking" },
+  "brimaz, king of oreskos": { effect: "Create a 1/1 white Cat Soldier creature token with vigilance" },
+  "rabble rousing": { effect: "Create X 1/1 green and white Citizen creature tokens, where X is the number of creatures attacking" },
+  "adeline, resplendent cathar": { effect: "Create a 1/1 white Human creature token tapped and attacking" },
 };
 
 /**

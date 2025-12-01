@@ -1334,6 +1334,89 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
     }
     
+    // Handle Chaos Warp - "The owner of target permanent shuffles it into their library, 
+    // then reveals the top card of their library. If it's a permanent card, they put it onto the battlefield."
+    const isChaosWarp = card.name?.toLowerCase().includes('chaos warp') ||
+      (oracleTextLower.includes('shuffles it into their library') && 
+       oracleTextLower.includes('reveals the top card') &&
+       oracleTextLower.includes('permanent'));
+    
+    if (isChaosWarp && targets.length > 0) {
+      const targetPermId = targets[0]?.id || targets[0];
+      const battlefield = state.battlefield || [];
+      const targetPerm = battlefield.find((p: any) => p.id === targetPermId);
+      
+      if (targetPerm) {
+        const owner = targetPerm.owner as PlayerID;
+        const targetCard = targetPerm.card;
+        
+        // Remove permanent from battlefield
+        const idx = battlefield.findIndex((p: any) => p.id === targetPermId);
+        if (idx !== -1) {
+          battlefield.splice(idx, 1);
+        }
+        
+        // Shuffle into owner's library
+        const lib = ctx.libraries?.get(owner) || [];
+        (lib as any[]).push({ ...targetCard, zone: 'library' });
+        
+        // Shuffle library
+        for (let i = lib.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [lib[i], lib[j]] = [lib[j], lib[i]];
+        }
+        ctx.libraries?.set(owner, lib);
+        
+        console.log(`[resolveTopOfStack] Chaos Warp: ${targetCard?.name || 'Permanent'} shuffled into ${owner}'s library`);
+        
+        // Reveal top card of library
+        if (lib.length > 0) {
+          const topCard = lib[0];
+          const topTypeLine = (topCard?.type_line || '').toLowerCase();
+          
+          // Check if it's a permanent card (creature, artifact, enchantment, land, planeswalker, battle)
+          const isPermanent = topTypeLine.includes('creature') || 
+                              topTypeLine.includes('artifact') || 
+                              topTypeLine.includes('enchantment') || 
+                              topTypeLine.includes('land') || 
+                              topTypeLine.includes('planeswalker') ||
+                              topTypeLine.includes('battle');
+          
+          if (isPermanent) {
+            // Remove from library
+            lib.shift();
+            ctx.libraries?.set(owner, lib);
+            
+            // Put onto battlefield
+            const isCreature = topTypeLine.includes('creature');
+            const newPermanent = {
+              id: uid("perm"),
+              controller: owner,
+              owner: owner,
+              tapped: false,
+              counters: {},
+              basePower: isCreature ? parsePT((topCard as any).power) : undefined,
+              baseToughness: isCreature ? parsePT((topCard as any).toughness) : undefined,
+              summoningSickness: isCreature,
+              card: { ...topCard, zone: "battlefield" },
+            } as any;
+            
+            battlefield.push(newPermanent);
+            console.log(`[resolveTopOfStack] Chaos Warp: ${owner} revealed ${topCard?.name || 'card'} (permanent) - put onto battlefield`);
+          } else {
+            console.log(`[resolveTopOfStack] Chaos Warp: ${owner} revealed ${topCard?.name || 'card'} (${topTypeLine}) - not a permanent, stays on top`);
+          }
+        }
+        
+        // Update library count
+        const zones = state.zones || {};
+        const z = zones[owner];
+        if (z) {
+          z.libraryCount = lib.length;
+        }
+      }
+    }
+    
     // Handle Join Forces spells (Mind's Aglow, Collective Voyage, etc.)
     // These require all players to have the option to contribute mana
     if (isJoinForcesSpell(card.name, oracleTextLower)) {
