@@ -1752,6 +1752,45 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
   state.landsPlayedThisTurn = state.landsPlayedThisTurn || {};
   state.landsPlayedThisTurn[playerId] = (state.landsPlayedThisTurn[playerId] ?? 0) + 1;
   
+  // Check for ETB triggers on the land (e.g., Wind-Scarred Crag "you gain 1 life")
+  // Get the newly created permanent from the battlefield
+  const newPermanent = state.battlefield[state.battlefield.length - 1];
+  try {
+    const etbTriggers = getETBTriggersForPermanent(card, newPermanent);
+    
+    if (etbTriggers.length > 0) {
+      console.log(`[playLand] Found ${etbTriggers.length} ETB trigger(s) for ${card.name || 'land'}`);
+      
+      // Put ETB triggers on the stack
+      state.stack = state.stack || [];
+      for (const trigger of etbTriggers) {
+        // Skip "sacrifice unless pay" triggers - those are handled separately via prompts
+        if (trigger.triggerType === 'etb_sacrifice_unless_pay') {
+          continue;
+        }
+        
+        // Push trigger onto the stack
+        state.stack.push({
+          id: uid("trigger"),
+          type: 'etb-trigger',
+          controller: playerId,
+          card: { id: card.id, name: card.name || 'Land', oracle_text: card.oracle_text || '' },
+          trigger: {
+            type: trigger.triggerType,
+            description: trigger.description || trigger.effect || '',
+            sourcePermanentId: newPermanent.id,
+            sourceCardName: card.name || 'Land',
+          },
+          targets: [],
+        } as any);
+        
+        console.log(`[playLand] Pushed ETB trigger to stack: ${trigger.description || trigger.effect}`);
+      }
+    }
+  } catch (err) {
+    console.warn('[playLand] Failed to check ETB triggers:', err);
+  }
+  
   // Recalculate player effects when lands ETB (some lands might have effects)
   try {
     recalculatePlayerEffects(ctx);
