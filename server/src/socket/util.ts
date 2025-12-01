@@ -1024,6 +1024,65 @@ function parseSearchFilter(criteria: string): Record<string, any> {
 }
 
 /**
+ * Handle pending Join Forces effects after stack resolution.
+ * When a Join Forces spell resolves, this emits the joinForcesRequest event
+ * to all players so they can contribute mana.
+ */
+export function handlePendingJoinForces(io: Server, game: any, gameId: string): void {
+  try {
+    const pendingArray = game.state?.pendingJoinForces;
+    if (!pendingArray || !Array.isArray(pendingArray) || pendingArray.length === 0) return;
+    
+    // Get all non-spectator players
+    const players = (game.state?.players || [])
+      .filter((p: any) => p && !p.spectator)
+      .map((p: any) => p.id);
+    
+    if (players.length === 0) {
+      // No players to participate
+      game.state.pendingJoinForces = [];
+      return;
+    }
+    
+    for (const jf of pendingArray) {
+      if (!jf) continue;
+      
+      const { id, controller, cardName, effectDescription, imageUrl } = jf;
+      
+      // Emit Join Forces request to all players
+      io.to(gameId).emit("joinForcesRequest", {
+        id,
+        gameId,
+        initiator: controller,
+        initiatorName: getPlayerName(game, controller),
+        cardName,
+        effectDescription,
+        cardImageUrl: imageUrl,
+        players,
+        timeoutMs: 60000, // 60 second timeout
+      });
+      
+      // Chat notification
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `🤝 ${getPlayerName(game, controller)} casts ${cardName} - all players may contribute mana!`,
+        ts: Date.now(),
+      });
+      
+      console.log(`[handlePendingJoinForces] Emitted joinForcesRequest for ${cardName} by ${controller}`);
+    }
+    
+    // Clear pending Join Forces after emitting
+    game.state.pendingJoinForces = [];
+    
+  } catch (err) {
+    console.warn('[handlePendingJoinForces] Error:', err);
+  }
+}
+
+/**
  * Maps mana color symbols to their human-readable names.
  */
 export const MANA_COLOR_NAMES: Record<string, string> = {
