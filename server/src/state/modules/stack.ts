@@ -363,6 +363,49 @@ function executeTriggerEffect(
     return;
   }
   
+  // Pattern: "+1/+1 counter on each other [creature type] you control" (Thalia's Lieutenant, Champion of the Parish, etc.)
+  // Matches: "put a +1/+1 counter on each other Human you control"
+  const counterOnEachOtherTypeMatch = desc.match(/\+1\/\+1 counter on each other (\w+) you control/i);
+  if (counterOnEachOtherTypeMatch) {
+    const creatureType = counterOnEachOtherTypeMatch[1].toLowerCase();
+    const battlefield = state.battlefield || [];
+    const sourcePermId = triggerItem?.source || triggerItem?.permanentId;
+    
+    for (const perm of battlefield) {
+      if (!perm) continue;
+      if (perm.controller !== controller) continue;
+      // Skip the source permanent (it says "each OTHER")
+      if (perm.id === sourcePermId) continue;
+      
+      const typeLine = (perm.card?.type_line || '').toLowerCase();
+      // Check if this creature has the required creature type
+      if (!typeLine.includes('creature')) continue;
+      if (!typeLine.includes(creatureType)) continue;
+      
+      // Add +1/+1 counter
+      perm.counters = perm.counters || {};
+      perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + 1;
+      console.log(`[executeTriggerEffect] Added +1/+1 counter to ${perm.card?.name || perm.id} (${creatureType})`);
+    }
+    return;
+  }
+  
+  // Pattern: "+1/+1 counter on [creature type] you control" without "other" (Thalia's Lieutenant's second ability)
+  // Matches: "put a +1/+1 counter on Thalia's Lieutenant" when another Human ETBs
+  const counterOnSelfMatch = desc.match(/\+1\/\+1 counter on (?:~|this creature|it)/i);
+  if (counterOnSelfMatch) {
+    const sourcePermId = triggerItem?.source || triggerItem?.permanentId;
+    const battlefield = state.battlefield || [];
+    const sourcePerm = battlefield.find((p: any) => p.id === sourcePermId);
+    
+    if (sourcePerm) {
+      sourcePerm.counters = sourcePerm.counters || {};
+      sourcePerm.counters['+1/+1'] = (sourcePerm.counters['+1/+1'] || 0) + 1;
+      console.log(`[executeTriggerEffect] Added +1/+1 counter to ${sourcePerm.card?.name || sourcePerm.id}`);
+    }
+    return;
+  }
+  
   // Pattern: "Draw a card" or "Draw X cards"
   const drawMatch = desc.match(/draw (?:a card|(\d+) cards?)/i);
   if (drawMatch && !desc.includes('each player may put a land')) {
@@ -1304,6 +1347,58 @@ export function resolveTopOfStack(ctx: GameContext) {
         imageUrl: card.image_uris?.normal || card.image_uris?.small,
       });
       console.log(`[resolveTopOfStack] Join Forces spell ${card.name} waiting for player contributions`);
+    }
+    
+    // Handle Approach of the Second Sun - goes 7th from top of library, not graveyard
+    // Also track that it was cast for win condition checking
+    const isApproach = (card.name || '').toLowerCase().includes('approach of the second sun') ||
+                       (oracleTextLower.includes('put it into its owner\'s library seventh from the top') &&
+                        oracleTextLower.includes('you win the game'));
+    
+    if (isApproach) {
+      // Track that Approach was cast (for win condition)
+      (state as any).approachCastHistory = (state as any).approachCastHistory || {};
+      (state as any).approachCastHistory[controller] = (state as any).approachCastHistory[controller] || [];
+      (state as any).approachCastHistory[controller].push({
+        timestamp: Date.now(),
+        castFromHand: true, // Assuming cast from hand for now
+      });
+      
+      // Check if this is the second time casting from hand
+      const castCount = (state as any).approachCastHistory[controller].length;
+      if (castCount >= 2) {
+        // Win the game!
+        console.log(`[resolveTopOfStack] ${controller} wins! Approach of the Second Sun cast for the second time!`);
+        
+        // Set winner
+        (state as any).winner = controller;
+        (state as any).gameOver = true;
+        (state as any).winCondition = 'Approach of the Second Sun';
+      } else {
+        // Put 7th from top of library (position 6 in 0-indexed)
+        const lib = ctx.libraries?.get(controller) || [];
+        const insertPosition = Math.min(6, lib.length); // 7th from top or as deep as possible
+        (lib as any[]).splice(insertPosition, 0, { ...card, zone: 'library' });
+        ctx.libraries?.set(controller, lib);
+        
+        // Update library count
+        const zones = ctx.state.zones || {};
+        const z = zones[controller];
+        if (z) {
+          z.libraryCount = lib.length;
+        }
+        
+        // Gain 7 life
+        state.life = state.life || {};
+        state.life[controller] = (state.life[controller] || 40) + 7;
+        const player = (state.players || []).find((p: any) => p.id === controller);
+        if (player) player.life = state.life[controller];
+        
+        console.log(`[resolveTopOfStack] Approach of the Second Sun: ${controller} gained 7 life, card put 7th from top (cast #${castCount})`);
+      }
+      
+      bumpSeq();
+      return; // Skip normal graveyard movement
     }
     
     // Move spell to graveyard after resolution
