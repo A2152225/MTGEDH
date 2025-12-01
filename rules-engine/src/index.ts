@@ -859,3 +859,16 @@ export {
   type ParsedKeywordAction,
   type OracleTextParseResult,
 } from './oracleTextParser';
+
+// Permanent Ability Discovery (integrates oracleTextParser for battlefield permanents)
+export {
+  discoverPermanentAbilities,
+  discoverPlayerAbilities,
+  getManaAbilitiesFromPermanent,
+  getNonManaAbilitiesFromPermanent,
+  toActivatedAbility,
+  permanentHasActivatedAbilities,
+  permanentHasManaAbilities,
+  type DiscoveredAbility,
+  type AbilityDiscoveryResult,
+} from './permanentAbilityDiscovery';

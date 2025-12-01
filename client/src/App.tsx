@@ -35,6 +35,7 @@ import { AppearanceSettingsModal } from "./components/AppearanceSettingsModal";
 import { GraveyardViewModal } from "./components/GraveyardViewModal";
 import { JoinForcesModal, type JoinForcesRequest } from "./components/JoinForcesModal";
 import { TemptingOfferModal, type TemptingOfferRequest } from "./components/TemptingOfferModal";
+import { ExploreModal, type ExploreCard } from "./components/ExploreModal";
 import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
 import { useGameSocket } from "./hooks/useGameSocket";
@@ -198,6 +199,14 @@ export function App() {
   const [peek, setPeek] = useState<{
     mode: "scry" | "surveil";
     cards: any[];
+  } | null>(null);
+
+  // Explore modal state
+  const [explorePrompt, setExplorePrompt] = useState<{
+    permanentId: string;
+    permanentName: string;
+    revealedCard: ExploreCard;
+    isLand: boolean;
   } | null>(null);
 
   const [showNameInUseModal, setShowNameInUseModal] = useState(false);
@@ -1211,6 +1220,50 @@ export function App() {
       socket.off("temptingOfferComplete", handleTemptingOfferComplete);
     };
   }, [safeView?.id, temptingOfferRequest?.id]);
+
+  // Explore prompt handler
+  useEffect(() => {
+    const handleExplorePrompt = (data: {
+      gameId: string;
+      permanentId: string;
+      permanentName: string;
+      revealedCard: ExploreCard;
+      isLand: boolean;
+    }) => {
+      if (!safeView || data.gameId !== safeView.id) return;
+      setExplorePrompt({
+        permanentId: data.permanentId,
+        permanentName: data.permanentName,
+        revealedCard: data.revealedCard,
+        isLand: data.isLand,
+      });
+    };
+
+    socket.on("explorePrompt", handleExplorePrompt);
+    return () => {
+      socket.off("explorePrompt", handleExplorePrompt);
+    };
+  }, [safeView?.id]);
+
+  // Scry/Surveil peek handlers
+  useEffect(() => {
+    const handleScryPeek = (data: { gameId: string; cards: any[] }) => {
+      if (!safeView || data.gameId !== safeView.id) return;
+      setPeek({ mode: "scry", cards: data.cards });
+    };
+
+    const handleSurveilPeek = (data: { gameId: string; cards: any[] }) => {
+      if (!safeView || data.gameId !== safeView.id) return;
+      setPeek({ mode: "surveil", cards: data.cards });
+    };
+
+    socket.on("scryPeek", handleScryPeek);
+    socket.on("surveilPeek", handleSurveilPeek);
+    return () => {
+      socket.off("scryPeek", handleScryPeek);
+      socket.off("surveilPeek", handleSurveilPeek);
+    };
+  }, [safeView?.id]);
 
   const isTable = layout === "table";
   const canPass = !!safeView && !!you && safeView.priority === you;
@@ -3258,6 +3311,27 @@ export function App() {
                 toGraveyard: (res.toGraveyard || []).map(id => ({ id })),
               });
             setPeek(null);
+          }}
+        />
+      )}
+
+      {/* Explore */}
+      {explorePrompt && view && (
+        <ExploreModal
+          exploringCreature={{
+            id: explorePrompt.permanentId,
+            name: explorePrompt.permanentName,
+          }}
+          revealedCard={explorePrompt.revealedCard}
+          isLand={explorePrompt.isLand}
+          imagePref={imagePref}
+          onConfirm={(result) => {
+            socket.emit("confirmExplore", {
+              gameId: view.id,
+              permanentId: explorePrompt.permanentId,
+              toGraveyard: result.toGraveyard,
+            });
+            setExplorePrompt(null);
           }}
         />
       )}
