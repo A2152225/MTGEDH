@@ -91,6 +91,19 @@ const KNOWN_DEATH_TRIGGERS: Record<string, { effect: string; triggerOn: 'own' | 
   "dark prophecy": { effect: "Draw a card, lose 1 life when creature dies", triggerOn: 'controlled' },
 };
 
+/**
+ * OPTIMIZATION CACHE: Known cards with attack triggers
+ * 
+ * NOTE: This is an OPTIMIZATION cache for frequently-used cards, NOT the primary
+ * trigger detection mechanism. The actual trigger detection uses DYNAMIC PATTERN
+ * RECOGNITION via regex patterns in detectAttackTriggers() which can handle ANY
+ * card by parsing its oracle text with patterns like:
+ * - "Whenever ~ attacks, [effect]"
+ * - "Whenever a creature you control attacks, [effect]"
+ * - Token creation patterns like "create a X/Y [type] creature token"
+ * 
+ * This cache provides faster lookups for common tournament-level cards.
+ */
 const KNOWN_ATTACK_TRIGGERS: Record<string, { effect: string; value?: number; putFromHand?: boolean; tappedAndAttacking?: boolean; createTokens?: { count: number; power: number; toughness: number; type: string; color: string; abilities?: string[] } }> = {
   "hellkite charger": { effect: "Pay {5}{R}{R} for additional combat phase" },
   "combat celebrant": { effect: "Exert for additional combat phase" },
@@ -423,7 +436,22 @@ const KNOWN_TAP_UNTAP_ABILITIES: Record<string, {
 };
 
 /**
- * Known cards with ETB triggers (enters the battlefield)
+ * OPTIMIZATION CACHE: Known cards with ETB triggers (enters the battlefield)
+ * 
+ * NOTE: This is an OPTIMIZATION cache for frequently-used cards, NOT the primary
+ * trigger detection mechanism. The actual trigger detection uses DYNAMIC PATTERN
+ * RECOGNITION via regex patterns in detectETBTriggers() which can handle ANY
+ * of the 27,000+ MTG cards by parsing their oracle text.
+ * 
+ * The pattern detection handles:
+ * - "When ~ enters the battlefield, [effect]"
+ * - "Whenever a creature enters the battlefield under your control, [effect]"
+ * - "Whenever another permanent enters the battlefield, [effect]"
+ * - "Search your library for a [type] card" with power/toughness/CMC restrictions
+ * - Token creation patterns
+ * - And more...
+ * 
+ * This cache provides faster lookups for common tournament-level cards.
  */
 const KNOWN_ETB_TRIGGERS: Record<string, { 
   effect: string; 
