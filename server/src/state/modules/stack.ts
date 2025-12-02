@@ -8,6 +8,96 @@ import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone } from "./zones.js";
 
 /**
+ * Detect "enters with counters" patterns from a card's oracle text.
+ * Handles patterns like:
+ * - "~ enters the battlefield with N +1/+1 counter(s) on it"
+ * - "~ enters with N +1/+1 counter(s)"
+ * - Saga cards entering with lore counters
+ * - Creatures with fabricate, modular, etc.
+ * 
+ * @param card - The card to analyze
+ * @returns Object with counter types and amounts to add on ETB
+ */
+function detectEntersWithCounters(card: any): Record<string, number> {
+  const counters: Record<string, number> = {};
+  if (!card) return counters;
+  
+  const oracleText = (card.oracle_text || '').toLowerCase();
+  const typeLine = (card.type_line || '').toLowerCase();
+  
+  // Pattern 1: "enters the battlefield with N +1/+1 counter(s) on it"
+  // Also matches: "~ enters with N +1/+1 counters"
+  const counterPatterns = [
+    // Standard ETB with counters pattern
+    /enters (?:the battlefield )?with (\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s*([+\-\d\/]+|\w+)\s*counters?\s*(?:on it)?/gi,
+    // Planeswalker-style (handled separately for loyalty)
+    // Creature with static counter text
+    /(?:~|this creature) (?:enters|comes into play) with (\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s*([+\-\d\/]+|\w+)\s*counters?/gi,
+  ];
+  
+  for (const pattern of counterPatterns) {
+    let match;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      let countStr = match[1].toLowerCase();
+      let counterType = match[2].trim();
+      
+      // Convert word numbers to digits
+      const wordToNum: Record<string, number> = {
+        'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+        'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10
+      };
+      const count = wordToNum[countStr] !== undefined ? wordToNum[countStr] : parseInt(countStr, 10);
+      
+      if (!isNaN(count) && count > 0) {
+        counters[counterType] = (counters[counterType] || 0) + count;
+      }
+    }
+  }
+  
+  // Saga cards enter with 1 lore counter (Rule 714.3a)
+  // Check for Saga in type line
+  if (typeLine.includes('saga')) {
+    counters['lore'] = (counters['lore'] || 0) + 1;
+  }
+  
+  // Modular N - enters with N +1/+1 counters (Rule 702.43a)
+  const modularMatch = oracleText.match(/modular\s+(\d+)/i);
+  if (modularMatch) {
+    const n = parseInt(modularMatch[1], 10);
+    if (!isNaN(n) && n > 0) {
+      counters['+1/+1'] = (counters['+1/+1'] || 0) + n;
+    }
+  }
+  
+  // Fabricate N - may be distributed (simplified - puts on self if creature)
+  const fabricateMatch = oracleText.match(/fabricate\s+(\d+)/i);
+  if (fabricateMatch && typeLine.includes('creature')) {
+    const n = parseInt(fabricateMatch[1], 10);
+    if (!isNaN(n) && n > 0) {
+      // For simplicity, default to +1/+1 counters on self
+      // (Real implementation would ask player)
+      counters['+1/+1'] = (counters['+1/+1'] || 0) + n;
+    }
+  }
+  
+  // Unleash - may enter with +1/+1 counter (simplified - always add)
+  if (oracleText.includes('unleash')) {
+    counters['+1/+1'] = (counters['+1/+1'] || 0) + 1;
+  }
+  
+  // Undying creatures returning (handled by death trigger, not here)
+  
+  // Ravenous - if X >= 5 (handled separately with X value)
+  
+  // Devour (handled separately with sacrificed creatures count)
+  
+  // Tribute N - opponent may put counters (handled interactively)
+  
+  return counters;
+}
+
+/**
  * Stack / resolution helpers (extracted).
  *
  * Exports:
@@ -1295,6 +1385,13 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
     }
     
+    // Check for "enters with counters" patterns (Zack Fair, modular creatures, sagas, etc.)
+    const etbCounters = detectEntersWithCounters(card);
+    for (const [counterType, count] of Object.entries(etbCounters)) {
+      initialCounters[counterType] = (initialCounters[counterType] || 0) + count;
+      console.log(`[resolveTopOfStack] ${card.name} enters with ${count} ${counterType} counter(s)`);
+    }
+    
     state.battlefield = state.battlefield || [];
     const newPermId = uid("perm");
     const newPermanent = {
@@ -1302,7 +1399,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       controller,
       owner: controller,
       tapped: false,
-      counters: initialCounters,
+      counters: Object.keys(initialCounters).length > 0 ? initialCounters : undefined,
       basePower: baseP,
       baseToughness: baseT,
       summoningSickness: hasSummoningSickness,

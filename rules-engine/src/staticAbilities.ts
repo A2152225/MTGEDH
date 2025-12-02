@@ -391,6 +391,71 @@ export function parseStaticAbilities(
     });
   }
   
+  // Check for "Commander you control gets +X/+Y" patterns (Bastion Protector)
+  // Pattern: "Commander creatures you control get +2/+2 and have indestructible"
+  const commanderPumpMatch = oracleText.match(/commander\s+(?:creatures?\s+)?(?:you\s+control\s+)?(?:gets?|has|have)\s+\+(\d+)\/\+(\d+)/i);
+  if (commanderPumpMatch) {
+    abilities.push({
+      id: `${permanentId}-commander-pump`,
+      sourceId: permanentId,
+      sourceName: name,
+      controllerId,
+      effectType: StaticEffectType.PUMP,
+      filter: {
+        cardTypes: ['creature'],
+        controller: 'you',
+        // Mark this as a commander-only filter (needs special handling in matchesFilter)
+        isCommander: true,
+      } as any,
+      powerMod: parseInt(commanderPumpMatch[1]),
+      toughnessMod: parseInt(commanderPumpMatch[2]),
+      layer: 7,
+    });
+  }
+  
+  // Check for "Commander you control has indestructible" (Bastion Protector)
+  const commanderIndestructibleMatch = oracleText.match(/commander\s+(?:creatures?\s+)?(?:you\s+control\s+)?(?:has|have)\s+indestructible/i);
+  if (commanderIndestructibleMatch) {
+    abilities.push({
+      id: `${permanentId}-commander-indestructible`,
+      sourceId: permanentId,
+      sourceName: name,
+      controllerId,
+      effectType: StaticEffectType.GRANT_ABILITY,
+      filter: {
+        cardTypes: ['creature'],
+        controller: 'you',
+        isCommander: true,
+      } as any,
+      value: 'indestructible',
+      layer: 6,
+    });
+  }
+  
+  // Check for "power is equal to number of [permanents]" patterns (Bronze Guardian)
+  // Pattern: "~'s power is equal to the number of artifacts you control"
+  const powerEqualMatch = oracleText.match(/(?:~'?s?|this creature'?s?)\s+power\s+is\s+equal\s+to\s+(?:the\s+)?number\s+of\s+(\w+)s?\s+you\s+control/i);
+  if (powerEqualMatch) {
+    abilities.push({
+      id: `${permanentId}-power-equal-count`,
+      sourceId: permanentId,
+      sourceName: name,
+      controllerId,
+      effectType: StaticEffectType.PUMP_PER_CREATURE,
+      filter: {
+        selfOnly: true, // Only applies to self
+      },
+      powerMod: 1, // +1 power per artifact
+      toughnessMod: 0, // Toughness not affected
+      countFilter: {
+        types: [powerEqualMatch[1].toLowerCase()],
+        other: false, // Count ALL including self
+        controller: 'you',
+      },
+      layer: 7,
+    });
+  }
+  
   return abilities;
 }
 
@@ -425,6 +490,15 @@ export function matchesFilter(
   // Check "other" (exclude source)
   if (filter.other && permanent.id === sourceId) {
     return false;
+  }
+  
+  // Check if this must be a commander (for Bastion Protector etc.)
+  if ((filter as any).isCommander) {
+    // Check if this permanent is marked as a commander
+    const isCommander = (permanent as any).isCommander === true || 
+                        (permanent as any).commander === true ||
+                        (card as any).isCommander === true;
+    if (!isCommander) return false;
   }
   
   // Check card types
@@ -537,7 +611,7 @@ export function calculateEffectivePT(
         break;
         
       case StaticEffectType.PUMP_PER_CREATURE:
-        // Count creatures matching countFilter and apply bonus per creature
+        // Count permanents matching countFilter and apply bonus per count
         if (ability.countFilter) {
           let count = 0;
           for (const perm of battlefield) {
@@ -551,9 +625,6 @@ export function calculateEffectivePT(
             
             const permTypeLine = (permCard.type_line || '').toLowerCase();
             
-            // Must be a creature
-            if (!permTypeLine.includes('creature')) continue;
-            
             // Check controller filter
             if (ability.countFilter.controller === 'you' && perm.controller !== ability.controllerId) {
               continue;
@@ -562,12 +633,12 @@ export function calculateEffectivePT(
               continue;
             }
             
-            // Check creature type filter
+            // Check type filter (supports both creature types and card types like "artifact")
             if (ability.countFilter.types && ability.countFilter.types.length > 0) {
               const hasType = ability.countFilter.types.some(t => 
                 permTypeLine.includes(t.toLowerCase())
               );
-              // Also check for changeling
+              // Also check for changeling (for creature types)
               const isChangeling = (permCard.oracle_text || '').toLowerCase().includes('changeling');
               if (!hasType && !isChangeling) continue;
             }

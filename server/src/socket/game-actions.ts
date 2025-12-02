@@ -224,6 +224,26 @@ function evaluateConditionalLandETB(
 } {
   const text = (oracleText || '').toLowerCase();
   
+  // BFZ Tango/Battle lands (Cinder Glade, Canopy Vista, etc.)
+  // "enters the battlefield tapped unless you control two or more basic lands"
+  const battleLandMatch = text.match(/enters the battlefield tapped unless you control two or more basic lands/i);
+  if (battleLandMatch) {
+    // Need to count BASIC lands specifically - this requires additional parameter
+    // For now, we check if any of the controlled land types are basic (Plains, Island, Swamp, Mountain, Forest)
+    // A basic land has "Basic" in its supertype line (e.g., "Basic Land — Forest")
+    // Since we only get subtypes, we check if they're in our known basic subtypes list
+    // In practice, if someone controls Forest/Mountain/etc., they're likely basic unless they're shock/dual lands
+    // This is a simplified check - the calling code should pass basic land count
+    const basicLandCount = controlledLandTypes.length; // Each basic land type counts as one basic land
+    const shouldTap = basicLandCount < 2;
+    return {
+      shouldEnterTapped: shouldTap,
+      reason: shouldTap 
+        ? `Enters tapped (you control only ${basicLandCount} basic land${basicLandCount !== 1 ? 's' : ''})` 
+        : `Enters untapped (you control ${basicLandCount} basic lands)`,
+    };
+  }
+  
   // Slow lands (Stormcarved Coast, Haunted Ridge, etc.)
   // "enters the battlefield tapped unless you control two or more other lands"
   const slowLandMatch = text.match(/enters the battlefield tapped unless you control two or more other lands/i);
@@ -1586,24 +1606,54 @@ export function registerGameActions(io: Server, socket: Socket) {
           }).length;
           
           // Get controlled land types from other lands
+          // For battle/tango lands like Cinder Glade, we need to count BASIC lands
+          // A basic land has "Basic Land" in its type line (e.g., "Basic Land — Forest")
           const controlledLandTypes: string[] = [];
+          let basicLandCount = 0;
           for (const p of battlefield) {
             if (p.id === permanent.id) continue; // Exclude this land
             if (p.controller !== playerId) continue;
-            const subtypes = getLandSubtypes(p.card?.type_line || '');
+            const typeLine = (p.card?.type_line || '').toLowerCase();
+            
+            // Check if this is a basic land (has "basic" in the type line)
+            if (typeLine.includes('basic')) {
+              basicLandCount++;
+            }
+            
+            const subtypes = getLandSubtypes(typeLine);
             controlledLandTypes.push(...subtypes);
           }
+          
+          // For battle lands, we need to pass the basic land count
+          // We do this by padding the controlledLandTypes array with dummy entries
+          // that represent basic lands (for the battleLand check)
+          // Actually, let's enhance the function signature instead
+          // For now, we use a workaround: check the oracle text here first
+          const hasBattleLandPattern = oracleText.toLowerCase().includes('two or more basic lands');
           
           // Get player's hand for reveal land checks
           const playerHand = Array.isArray(zones?.hand) ? zones.hand : [];
           
           // Evaluate the conditional ETB
-          const evaluation = evaluateConditionalLandETB(
-            oracleText,
-            otherLandCount,
-            controlledLandTypes,
-            playerHand
-          );
+          // For battle lands, use basic land count instead of land types
+          let evaluation;
+          if (hasBattleLandPattern) {
+            // Battle land - check basic land count
+            const shouldTap = basicLandCount < 2;
+            evaluation = {
+              shouldEnterTapped: shouldTap,
+              reason: shouldTap 
+                ? `Enters tapped (you control only ${basicLandCount} basic land${basicLandCount !== 1 ? 's' : ''})` 
+                : `Enters untapped (you control ${basicLandCount} basic lands)`,
+            };
+          } else {
+            evaluation = evaluateConditionalLandETB(
+              oracleText,
+              otherLandCount,
+              controlledLandTypes,
+              playerHand
+            );
+          }
           
           console.log(`[playLand] ${cardName} conditional ETB: ${evaluation.reason}`);
           
