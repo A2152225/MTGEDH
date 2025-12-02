@@ -21,6 +21,7 @@ import { CombatSelectionModal, type AttackerSelection, type BlockerSelection } f
 import { ShockLandChoiceModal } from "./components/ShockLandChoiceModal";
 import { BounceLandChoiceModal } from "./components/BounceLandChoiceModal";
 import { SacrificeUnlessPayModal } from "./components/SacrificeUnlessPayModal";
+import { CardSelectionModal } from "./components/CardSelectionModal";
 import { TriggeredAbilityModal, type TriggerPromptData } from "./components/TriggeredAbilityModal";
 import { MulliganBottomModal } from "./components/MulliganBottomModal";
 import { DiscardSelectionModal } from "./components/DiscardSelectionModal";
@@ -269,6 +270,26 @@ export function App() {
     cardName: string;
     manaCost: string;
     imageUrl?: string;
+  } | null>(null);
+  
+  // Reveal land modal state (Furycalm Snarl, etc.)
+  const [revealLandModalOpen, setRevealLandModalOpen] = useState(false);
+  const [revealLandData, setRevealLandData] = useState<{
+    permanentId: string;
+    cardName: string;
+    imageUrl?: string;
+    revealTypes: string[];
+    message: string;
+  } | null>(null);
+
+  // Equip target selection modal state
+  const [equipTargetModalOpen, setEquipTargetModalOpen] = useState(false);
+  const [equipTargetData, setEquipTargetData] = useState<{
+    equipmentId: string;
+    equipmentName: string;
+    equipCost: string;
+    imageUrl?: string;
+    validTargets: { id: string; name: string; power: string; toughness: string; imageUrl?: string }[];
   } | null>(null);
   
   // Triggered ability modal state
@@ -794,6 +815,46 @@ export function App() {
     socket.on("sacrificeUnlessPayPrompt", handler);
     return () => {
       socket.off("sacrificeUnlessPayPrompt", handler);
+    };
+  }, [safeView?.id]);
+
+  // Reveal land prompt listener (Furycalm Snarl, etc.)
+  React.useEffect(() => {
+    const handler = (payload: any) => {
+      if (payload.gameId === safeView?.id) {
+        setRevealLandData({
+          permanentId: payload.permanentId,
+          cardName: payload.cardName,
+          imageUrl: payload.imageUrl,
+          revealTypes: payload.revealTypes || [],
+          message: payload.message || 'Reveal a card to enter untapped',
+        });
+        setRevealLandModalOpen(true);
+      }
+    };
+    socket.on("revealLandPrompt", handler);
+    return () => {
+      socket.off("revealLandPrompt", handler);
+    };
+  }, [safeView?.id]);
+
+  // Equip target selection listener
+  React.useEffect(() => {
+    const handler = (payload: any) => {
+      if (payload.gameId === safeView?.id) {
+        setEquipTargetData({
+          equipmentId: payload.equipmentId,
+          equipmentName: payload.equipmentName,
+          equipCost: payload.equipCost,
+          imageUrl: payload.imageUrl,
+          validTargets: payload.validTargets || [],
+        });
+        setEquipTargetModalOpen(true);
+      }
+    };
+    socket.on("selectEquipTarget", handler);
+    return () => {
+      socket.off("selectEquipTarget", handler);
     };
   }, [safeView?.id]);
 
@@ -1960,6 +2021,32 @@ export function App() {
     });
     setSacrificeUnlessPayModalOpen(false);
     setSacrificeUnlessPayData(null);
+  };
+
+  // Reveal land handlers (Furycalm Snarl, etc.)
+  const handleRevealLand = (cardId: string | null) => {
+    if (!safeView || !revealLandData) return;
+    socket.emit("revealLandChoice", {
+      gameId: safeView.id,
+      permanentId: revealLandData.permanentId,
+      revealCardId: cardId,
+    });
+    setRevealLandModalOpen(false);
+    setRevealLandData(null);
+  };
+
+  // Equip target handlers
+  const handleEquipTarget = (targetId: string | null) => {
+    if (!safeView || !equipTargetData) return;
+    if (targetId) {
+      socket.emit("equipAbility", {
+        gameId: safeView.id,
+        equipmentId: equipTargetData.equipmentId,
+        targetCreatureId: targetId,
+      });
+    }
+    setEquipTargetModalOpen(false);
+    setEquipTargetData(null);
   };
 
   // Trigger handlers
@@ -3499,6 +3586,60 @@ export function App() {
         manaCost={sacrificeUnlessPayData?.manaCost || '{1}'}
         onPayMana={handleSacrificeUnlessPayMana}
         onSacrifice={handleSacrificeUnlessPaySacrifice}
+      />
+
+      {/* Reveal Land Modal (Furycalm Snarl, etc.) */}
+      <CardSelectionModal
+        open={revealLandModalOpen}
+        title={`Reveal for ${revealLandData?.cardName || 'Land'}`}
+        subtitle={revealLandData?.message}
+        sourceCardName={revealLandData?.cardName}
+        sourceCardImageUrl={revealLandData?.imageUrl}
+        options={useMemo(() => {
+          if (!safeView || !you || !revealLandData) return [];
+          const zones = safeView.zones?.[you];
+          const hand = zones?.hand || [];
+          const revealTypes = revealLandData.revealTypes.map(t => t.toLowerCase());
+          return hand
+            .filter((c: any) => {
+              if (!c?.type_line) return false;
+              const typeLine = c.type_line.toLowerCase();
+              return revealTypes.some(t => typeLine.includes(t));
+            })
+            .map((c: any) => ({
+              id: c.id,
+              name: c.name || 'Card',
+              imageUrl: c.image_uris?.small || c.image_uris?.normal,
+            }));
+        }, [safeView, you, revealLandData])}
+        minSelections={0}
+        maxSelections={1}
+        canCancel={true}
+        confirmButtonText="Reveal"
+        cancelButtonText="Don't Reveal (Enter Tapped)"
+        onConfirm={(selectedIds) => handleRevealLand(selectedIds[0] || null)}
+        onCancel={() => handleRevealLand(null)}
+      />
+
+      {/* Equip Target Selection Modal */}
+      <CardSelectionModal
+        open={equipTargetModalOpen}
+        title={`Equip ${equipTargetData?.equipmentName || 'Equipment'}`}
+        subtitle={`Pay ${equipTargetData?.equipCost || '{0}'} to attach to target creature`}
+        sourceCardName={equipTargetData?.equipmentName}
+        sourceCardImageUrl={equipTargetData?.imageUrl}
+        options={(equipTargetData?.validTargets || []).map(t => ({
+          id: t.id,
+          name: `${t.name} (${t.power}/${t.toughness})`,
+          imageUrl: t.imageUrl,
+        }))}
+        minSelections={1}
+        maxSelections={1}
+        canCancel={true}
+        confirmButtonText="Equip"
+        cancelButtonText="Cancel"
+        onConfirm={(selectedIds) => handleEquipTarget(selectedIds[0])}
+        onCancel={() => handleEquipTarget(null)}
       />
 
       {/* Triggered Ability Modal */}
