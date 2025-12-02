@@ -4,7 +4,7 @@ import { uid, parsePT } from "../utils.js";
 import { recalculatePlayerEffects } from "./game-state-effects.js";
 import { categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
 import { getETBTriggersForPermanent, type TriggeredAbility } from "./triggered-abilities.js";
-import { addExtraTurn } from "./turn.js";
+import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone } from "./zones.js";
 
 /**

@@ -55,65 +55,432 @@ export function calculateVariablePT(
   const name = (card.name || '').toLowerCase();
   const oracleText = (card.oracle_text || '').toLowerCase();
   const typeLine = (card.type_line || '').toLowerCase();
+  const controllerId = card.controller;
+  const battlefield = gameState?.battlefield || [];
+  const zones = gameState?.zones || {};
   
   // Marit Lage token - Defined as 20/20
   if (name.includes('marit lage')) {
     return { power: 20, toughness: 20 };
   }
   
-  // Check oracle text for common patterns
+  // ===== SPECIFIC CARD HANDLERS =====
   
-  // "where X is" patterns - e.g., "power and toughness are each equal to"
+  // Omnath, Locus of Mana - gets +1/+1 for each green mana in your mana pool
+  if (name.includes('omnath, locus of mana') || name.includes('omnath locus of mana')) {
+    const manaPool = gameState?.manaPool?.[controllerId] || {};
+    const greenMana = manaPool.G || manaPool.green || 0;
+    // Base is 1/1, plus green mana
+    return { power: 1 + greenMana, toughness: 1 + greenMana };
+  }
+  
+  // Tarmogoyf - */* where * is the number of card types among cards in all graveyards
+  if (name.includes('tarmogoyf')) {
+    const cardTypes = new Set<string>();
+    const allPlayers = gameState?.players || [];
+    for (const player of allPlayers) {
+      const playerZones = zones[player.id];
+      const graveyard = playerZones?.graveyard || [];
+      for (const card of graveyard) {
+        const cardTypeLine = (card.type_line || '').toLowerCase();
+        if (cardTypeLine.includes('creature')) cardTypes.add('creature');
+        if (cardTypeLine.includes('instant')) cardTypes.add('instant');
+        if (cardTypeLine.includes('sorcery')) cardTypes.add('sorcery');
+        if (cardTypeLine.includes('artifact')) cardTypes.add('artifact');
+        if (cardTypeLine.includes('enchantment')) cardTypes.add('enchantment');
+        if (cardTypeLine.includes('planeswalker')) cardTypes.add('planeswalker');
+        if (cardTypeLine.includes('land')) cardTypes.add('land');
+        if (cardTypeLine.includes('tribal')) cardTypes.add('tribal');
+        if (cardTypeLine.includes('kindred')) cardTypes.add('kindred');
+        if (cardTypeLine.includes('battle')) cardTypes.add('battle');
+      }
+    }
+    // Tarmogoyf is */1+* 
+    return { power: cardTypes.size, toughness: cardTypes.size + 1 };
+  }
+  
+  // Lhurgoyf - */* where power is creatures in all graveyards, toughness is 1+that
+  if (name.includes('lhurgoyf') && !name.includes('mortivore')) {
+    let creatureCount = 0;
+    const allPlayers = gameState?.players || [];
+    for (const player of allPlayers) {
+      const playerZones = zones[player.id];
+      const graveyard = playerZones?.graveyard || [];
+      for (const card of graveyard) {
+        if ((card.type_line || '').toLowerCase().includes('creature')) {
+          creatureCount++;
+        }
+      }
+    }
+    return { power: creatureCount, toughness: creatureCount + 1 };
+  }
+  
+  // Mortivore - */* where * is creatures in all graveyards
+  if (name.includes('mortivore')) {
+    let creatureCount = 0;
+    const allPlayers = gameState?.players || [];
+    for (const player of allPlayers) {
+      const playerZones = zones[player.id];
+      const graveyard = playerZones?.graveyard || [];
+      for (const card of graveyard) {
+        if ((card.type_line || '').toLowerCase().includes('creature')) {
+          creatureCount++;
+        }
+      }
+    }
+    return { power: creatureCount, toughness: creatureCount };
+  }
+  
+  // Nighthowler - */* where * is creatures in all graveyards
+  if (name.includes('nighthowler')) {
+    let creatureCount = 0;
+    const allPlayers = gameState?.players || [];
+    for (const player of allPlayers) {
+      const playerZones = zones[player.id];
+      const graveyard = playerZones?.graveyard || [];
+      for (const card of graveyard) {
+        if ((card.type_line || '').toLowerCase().includes('creature')) {
+          creatureCount++;
+        }
+      }
+    }
+    return { power: creatureCount, toughness: creatureCount };
+  }
+  
+  // Consuming Aberration - */* where * is cards in opponents' graveyards
+  if (name.includes('consuming aberration')) {
+    let cardCount = 0;
+    const allPlayers = gameState?.players || [];
+    for (const player of allPlayers) {
+      if (player.id === controllerId) continue; // Skip controller
+      const playerZones = zones[player.id];
+      const graveyard = playerZones?.graveyard || [];
+      cardCount += graveyard.length;
+    }
+    return { power: cardCount, toughness: cardCount };
+  }
+  
+  // Sewer Nemesis - */* where * is cards in chosen player's graveyard
+  if (name.includes('sewer nemesis')) {
+    // Assumes chosen player is stored on the card
+    const chosenPlayer = card.chosenPlayer || controllerId;
+    const playerZones = zones[chosenPlayer];
+    const cardCount = playerZones?.graveyard?.length || 0;
+    return { power: cardCount, toughness: cardCount };
+  }
+  
+  // Bonehoard - equipped creature gets +X/+X where X is creatures in all graveyards
+  // (handled in equipment bonus calculation)
+  
+  // Cranial Plating - equipped creature gets +X/+0 where X is artifacts you control
+  // (handled in equipment calculation)
+  
+  // Nettlecyst - equipped creature gets +1/+1 for each artifact and enchantment you control
+  // (handled in equipment calculation)
+  
+  // Blackblade Reforged - equipped creature gets +1/+1 for each land you control
+  // (handled in equipment calculation)
+  
+  // Multani, Yavimaya's Avatar - */* where * is lands you control + lands in graveyard
+  if (name.includes('multani, yavimaya')) {
+    const lands = battlefield.filter((p: any) => 
+      p.controller === controllerId && 
+      (p.card?.type_line || '').toLowerCase().includes('land')
+    );
+    const playerZones = zones[controllerId];
+    const graveyardLands = (playerZones?.graveyard || []).filter((c: any) =>
+      (c.type_line || '').toLowerCase().includes('land')
+    );
+    const total = lands.length + graveyardLands.length;
+    return { power: total, toughness: total };
+  }
+  
+  // Splinterfright - */* where * is creatures in your graveyard
+  if (name.includes('splinterfright')) {
+    const playerZones = zones[controllerId];
+    const graveyardCreatures = (playerZones?.graveyard || []).filter((c: any) =>
+      (c.type_line || '').toLowerCase().includes('creature')
+    );
+    return { power: graveyardCreatures.length, toughness: graveyardCreatures.length };
+  }
+  
+  // Boneyard Wurm - */* where * is creatures in your graveyard
+  if (name.includes('boneyard wurm')) {
+    const playerZones = zones[controllerId];
+    const graveyardCreatures = (playerZones?.graveyard || []).filter((c: any) =>
+      (c.type_line || '').toLowerCase().includes('creature')
+    );
+    return { power: graveyardCreatures.length, toughness: graveyardCreatures.length };
+  }
+  
+  // Cognivore - */* where * is instants in all graveyards
+  if (name.includes('cognivore')) {
+    let instantCount = 0;
+    const allPlayers = gameState?.players || [];
+    for (const player of allPlayers) {
+      const playerZones = zones[player.id];
+      const graveyard = playerZones?.graveyard || [];
+      for (const card of graveyard) {
+        if ((card.type_line || '').toLowerCase().includes('instant')) {
+          instantCount++;
+        }
+      }
+    }
+    return { power: instantCount, toughness: instantCount };
+  }
+  
+  // Magnivore - */* where * is sorceries in all graveyards
+  if (name.includes('magnivore')) {
+    let sorceryCount = 0;
+    const allPlayers = gameState?.players || [];
+    for (const player of allPlayers) {
+      const playerZones = zones[player.id];
+      const graveyard = playerZones?.graveyard || [];
+      for (const card of graveyard) {
+        if ((card.type_line || '').toLowerCase().includes('sorcery')) {
+          sorceryCount++;
+        }
+      }
+    }
+    return { power: sorceryCount, toughness: sorceryCount };
+  }
+  
+  // Terravore - */* where * is lands in all graveyards
+  if (name.includes('terravore')) {
+    let landCount = 0;
+    const allPlayers = gameState?.players || [];
+    for (const player of allPlayers) {
+      const playerZones = zones[player.id];
+      const graveyard = playerZones?.graveyard || [];
+      for (const card of graveyard) {
+        if ((card.type_line || '').toLowerCase().includes('land')) {
+          landCount++;
+        }
+      }
+    }
+    return { power: landCount, toughness: landCount };
+  }
+  
+  // Masticore variants with hand-based P/T
+  // Maro - */* where * is cards in your hand
+  if (name === 'maro' || name.includes('maro,')) {
+    const playerZones = zones[controllerId];
+    const handSize = playerZones?.handCount ?? playerZones?.hand?.length ?? 0;
+    return { power: handSize, toughness: handSize };
+  }
+  
+  // Molimo, Maro-Sorcerer - */* where * is lands you control
+  if (name.includes('molimo')) {
+    const lands = battlefield.filter((p: any) => 
+      p.controller === controllerId && 
+      (p.card?.type_line || '').toLowerCase().includes('land')
+    );
+    return { power: lands.length, toughness: lands.length };
+  }
+  
+  // Korlash, Heir to Blackblade - */* where * is Swamps you control
+  if (name.includes('korlash')) {
+    const swamps = battlefield.filter((p: any) => 
+      p.controller === controllerId && 
+      (p.card?.type_line || '').toLowerCase().includes('swamp')
+    );
+    return { power: swamps.length, toughness: swamps.length };
+  }
+  
+  // Dungrove Elder - */* where * is Forests you control
+  if (name.includes('dungrove elder')) {
+    const forests = battlefield.filter((p: any) => 
+      p.controller === controllerId && 
+      (p.card?.type_line || '').toLowerCase().includes('forest')
+    );
+    return { power: forests.length, toughness: forests.length };
+  }
+  
+  // Dakkon Blackblade - */* where * is lands you control
+  if (name.includes('dakkon blackblade')) {
+    const lands = battlefield.filter((p: any) => 
+      p.controller === controllerId && 
+      (p.card?.type_line || '').toLowerCase().includes('land')
+    );
+    return { power: lands.length, toughness: lands.length };
+  }
+  
+  // Kavu Titan - 5/5 if kicked
+  if (name.includes('kavu titan') && card.wasKicked) {
+    return { power: 5, toughness: 5 };
+  }
+  
+  // Serra Avatar - */* where * is your life total
+  if (name.includes('serra avatar')) {
+    const life = gameState?.life?.[controllerId] ?? 40;
+    return { power: life, toughness: life };
+  }
+  
+  // Soramaro, First to Dream - */* where * is cards in hand
+  if (name.includes('soramaro')) {
+    const playerZones = zones[controllerId];
+    const handSize = playerZones?.handCount ?? playerZones?.hand?.length ?? 0;
+    return { power: handSize, toughness: handSize };
+  }
+  
+  // Masumaro, First to Live - */* where * is cards in hand
+  if (name.includes('masumaro')) {
+    const playerZones = zones[controllerId];
+    const handSize = playerZones?.handCount ?? playerZones?.hand?.length ?? 0;
+    return { power: handSize * 2, toughness: handSize * 2 };
+  }
+  
+  // Adamaro, First to Desire - */* where * is cards in opponent's hand with most cards
+  if (name.includes('adamaro')) {
+    let maxHandSize = 0;
+    const allPlayers = gameState?.players || [];
+    for (const player of allPlayers) {
+      if (player.id === controllerId) continue;
+      const playerZones = zones[player.id];
+      const handSize = playerZones?.handCount ?? playerZones?.hand?.length ?? 0;
+      maxHandSize = Math.max(maxHandSize, handSize);
+    }
+    return { power: maxHandSize, toughness: maxHandSize };
+  }
+  
+  // Kagemaro, First to Suffer - */* where * is cards in your hand
+  if (name.includes('kagemaro')) {
+    const playerZones = zones[controllerId];
+    const handSize = playerZones?.handCount ?? playerZones?.hand?.length ?? 0;
+    return { power: handSize, toughness: handSize };
+  }
+  
+  // ===== GENERIC PATTERN MATCHING =====
+  
+  // "power and toughness are each equal to" patterns
   if (oracleText.includes('power and toughness are each equal to')) {
-    // Common patterns:
     
     // "number of creatures you control"
     if (oracleText.includes('number of creatures you control')) {
-      // Dynamic - would need battlefield state
-      if (gameState?.battlefield) {
-        const controllerId = card.controller;
-        const creatures = gameState.battlefield.filter((p: any) => 
-          p.controller === controllerId && 
-          (p.card?.type_line || '').toLowerCase().includes('creature')
-        );
-        return { power: creatures.length, toughness: creatures.length };
-      }
-      return { power: 0, toughness: 0 }; // Default for unknown state
+      const creatures = battlefield.filter((p: any) => 
+        p.controller === controllerId && 
+        (p.card?.type_line || '').toLowerCase().includes('creature')
+      );
+      return { power: creatures.length, toughness: creatures.length };
+    }
+    
+    // "number of creatures on the battlefield" (all creatures)
+    if (oracleText.includes('number of creatures on the battlefield') || 
+        oracleText.includes('total number of creatures')) {
+      const creatures = battlefield.filter((p: any) => 
+        (p.card?.type_line || '').toLowerCase().includes('creature')
+      );
+      return { power: creatures.length, toughness: creatures.length };
     }
     
     // "cards in your hand"
     if (oracleText.includes('cards in your hand')) {
-      // Dynamic - need zone state to calculate
-      if (gameState?.zones) {
-        const controllerId = card.controller;
-        if (controllerId && gameState.zones[controllerId]) {
-          const playerZones = gameState.zones[controllerId];
-          // Try handCount first (most reliable), then fall back to hand array length
-          const handSize = typeof playerZones.handCount === 'number' 
-            ? playerZones.handCount 
-            : (Array.isArray(playerZones.hand) ? playerZones.hand.length : 0);
-          return { power: handSize, toughness: handSize };
-        }
-      }
-      return { power: 0, toughness: 0 }; // Default for unknown state
+      const playerZones = zones[controllerId];
+      const handSize = playerZones?.handCount ?? playerZones?.hand?.length ?? 0;
+      return { power: handSize, toughness: handSize };
     }
     
     // "lands you control"
-    if (oracleText.includes('lands you control')) {
-      if (gameState?.battlefield) {
-        const controllerId = card.controller;
-        const lands = gameState.battlefield.filter((p: any) => 
-          p.controller === controllerId && 
-          (p.card?.type_line || '').toLowerCase().includes('land')
-        );
-        return { power: lands.length, toughness: lands.length };
+    if (oracleText.includes('lands you control') || oracleText.includes('number of lands you control')) {
+      const lands = battlefield.filter((p: any) => 
+        p.controller === controllerId && 
+        (p.card?.type_line || '').toLowerCase().includes('land')
+      );
+      return { power: lands.length, toughness: lands.length };
+    }
+    
+    // "your life total"
+    if (oracleText.includes('your life total')) {
+      const life = gameState?.life?.[controllerId] ?? 40;
+      return { power: life, toughness: life };
+    }
+    
+    // "creature cards in all graveyards"
+    if (oracleText.includes('creature cards in all graveyards') || 
+        oracleText.includes('creatures in all graveyards')) {
+      let creatureCount = 0;
+      const allPlayers = gameState?.players || [];
+      for (const player of allPlayers) {
+        const playerZones = zones[player.id];
+        const graveyard = playerZones?.graveyard || [];
+        for (const card of graveyard) {
+          if ((card.type_line || '').toLowerCase().includes('creature')) {
+            creatureCount++;
+          }
+        }
       }
-      return { power: 0, toughness: 0 };
+      return { power: creatureCount, toughness: creatureCount };
+    }
+    
+    // "cards in your graveyard"
+    if (oracleText.includes('cards in your graveyard')) {
+      const playerZones = zones[controllerId];
+      const cardCount = playerZones?.graveyard?.length ?? 0;
+      return { power: cardCount, toughness: cardCount };
+    }
+    
+    // "creature cards in your graveyard"
+    if (oracleText.includes('creature cards in your graveyard') ||
+        oracleText.includes('creatures in your graveyard')) {
+      const playerZones = zones[controllerId];
+      const creatureCount = (playerZones?.graveyard || []).filter((c: any) =>
+        (c.type_line || '').toLowerCase().includes('creature')
+      ).length;
+      return { power: creatureCount, toughness: creatureCount };
+    }
+    
+    // "artifacts you control"
+    if (oracleText.includes('artifacts you control')) {
+      const artifacts = battlefield.filter((p: any) => 
+        p.controller === controllerId && 
+        (p.card?.type_line || '').toLowerCase().includes('artifact')
+      );
+      return { power: artifacts.length, toughness: artifacts.length };
+    }
+    
+    // "enchantments you control"
+    if (oracleText.includes('enchantments you control')) {
+      const enchantments = battlefield.filter((p: any) => 
+        p.controller === controllerId && 
+        (p.card?.type_line || '').toLowerCase().includes('enchantment')
+      );
+      return { power: enchantments.length, toughness: enchantments.length };
+    }
+  }
+  
+  // "gets +1/+1 for each" patterns (for base stats of 0/0 creatures)
+  const getsPlusPattern = oracleText.match(/gets? \+1\/\+1 for each ([^.]+)/i);
+  if (getsPlusPattern && (card.power === '*' || card.power === '0')) {
+    const condition = getsPlusPattern[1].toLowerCase();
+    
+    if (condition.includes('creature you control') || condition.includes('other creature you control')) {
+      const creatures = battlefield.filter((p: any) => 
+        p.controller === controllerId && 
+        (p.card?.type_line || '').toLowerCase().includes('creature')
+      );
+      // Subtract 1 if "other" (don't count itself)
+      const count = condition.includes('other') ? Math.max(0, creatures.length - 1) : creatures.length;
+      return { power: count, toughness: count };
+    }
+    
+    if (condition.includes('land you control')) {
+      const lands = battlefield.filter((p: any) => 
+        p.controller === controllerId && 
+        (p.card?.type_line || '').toLowerCase().includes('land')
+      );
+      return { power: lands.length, toughness: lands.length };
+    }
+    
+    if (condition.includes('artifact you control')) {
+      const artifacts = battlefield.filter((p: any) => 
+        p.controller === controllerId && 
+        (p.card?.type_line || '').toLowerCase().includes('artifact')
+      );
+      return { power: artifacts.length, toughness: artifacts.length };
     }
   }
   
   // For cards we can't calculate, check if there's a defined base in reminder text
-  // Some cards define their size like "(This creature has base power 6/6)"
   const sizeMatch = oracleText.match(/base power and toughness (\d+)\/(\d+)/i);
   if (sizeMatch) {
     return { power: parseInt(sizeMatch[1], 10), toughness: parseInt(sizeMatch[2], 10) };
@@ -329,7 +696,8 @@ export function calculateAllPTBonuses(
   const creatureTypeLine = (creaturePerm.card?.type_line || '').toLowerCase();
   
   // 1. Equipment and Aura bonuses (attached to this creature)
-  const equipBonus = calculateEquipmentBonus(creaturePerm, battlefield);
+  // Pass gameState for variable equipment calculations
+  const equipBonus = calculateEquipmentBonus(creaturePerm, battlefield, gameState);
   powerBonus += equipBonus.power;
   toughnessBonus += equipBonus.toughness;
   
@@ -480,20 +848,129 @@ export function calculateAllPTBonuses(
     }
   }
   
+  // 10. Plane card effects (Planechase format)
+  // Active plane affects all players or specific conditions
+  const activePlane = gameState.activePlane || gameState.currentPlane;
+  if (activePlane) {
+    const planeText = (activePlane.text || activePlane.oracle_text || activePlane.effect || '').toLowerCase();
+    const planeName = (activePlane.name || '').toLowerCase();
+    
+    // Check for global creature pump effects on planes
+    // "All creatures get +X/+Y"
+    const allCreaturesMatch = planeText.match(/all creatures get \+(\d+)\/\+(\d+)/i);
+    if (allCreaturesMatch) {
+      powerBonus += parseInt(allCreaturesMatch[1], 10);
+      toughnessBonus += parseInt(allCreaturesMatch[2], 10);
+    }
+    
+    // "Creatures you control get +X/+Y"
+    const yourCreaturesMatch = planeText.match(/creatures you control get \+(\d+)\/\+(\d+)/i);
+    if (yourCreaturesMatch && activePlane.controller === controllerId) {
+      powerBonus += parseInt(yourCreaturesMatch[1], 10);
+      toughnessBonus += parseInt(yourCreaturesMatch[2], 10);
+    }
+    
+    // Specific plane effects
+    // Llanowar - "All creatures have +X/+X for each basic land type among lands you control"
+    if (planeName.includes('llanowar')) {
+      // Count basic land types controlled by the creature's controller
+      const controllerLands = battlefield.filter((p: any) => 
+        p.controller === controllerId && 
+        (p.card?.type_line || '').toLowerCase().includes('land')
+      );
+      const landTypes = new Set<string>();
+      for (const land of controllerLands) {
+        const landTypeLine = (land.card?.type_line || '').toLowerCase();
+        if (landTypeLine.includes('plains')) landTypes.add('plains');
+        if (landTypeLine.includes('island')) landTypes.add('island');
+        if (landTypeLine.includes('swamp')) landTypes.add('swamp');
+        if (landTypeLine.includes('mountain')) landTypes.add('mountain');
+        if (landTypeLine.includes('forest')) landTypes.add('forest');
+      }
+      const boost = landTypes.size;
+      powerBonus += boost;
+      toughnessBonus += boost;
+    }
+    
+    // The Great Forest - Creatures with trample get +2/+2
+    if (planeName.includes('great forest')) {
+      const oracleText = (creaturePerm.card?.oracle_text || '').toLowerCase();
+      const keywords = creaturePerm.card?.keywords || [];
+      if (oracleText.includes('trample') || keywords.some((k: string) => k.toLowerCase() === 'trample')) {
+        powerBonus += 2;
+        toughnessBonus += 2;
+      }
+    }
+  }
+  
+  // 11. Scheme card effects (Archenemy format)
+  // Ongoing schemes that affect creatures
+  const activeSchemes = gameState.activeSchemes || gameState.ongoingSchemes || [];
+  for (const scheme of activeSchemes) {
+    if (!scheme) continue;
+    
+    const schemeText = (scheme.text || scheme.oracle_text || scheme.effect || '').toLowerCase();
+    
+    // "Creatures you control get +X/+Y"
+    const schemeCreaturesMatch = schemeText.match(/creatures you control get \+(\d+)\/\+(\d+)/i);
+    if (schemeCreaturesMatch && scheme.controller === controllerId) {
+      powerBonus += parseInt(schemeCreaturesMatch[1], 10);
+      toughnessBonus += parseInt(schemeCreaturesMatch[2], 10);
+    }
+    
+    // "All creatures get +X/+Y" (affects everyone)
+    const schemeAllMatch = schemeText.match(/all creatures get \+(\d+)\/\+(\d+)/i);
+    if (schemeAllMatch) {
+      powerBonus += parseInt(schemeAllMatch[1], 10);
+      toughnessBonus += parseInt(schemeAllMatch[2], 10);
+    }
+  }
+  
+  // 12. Conspiracy cards (Conspiracy draft format) - affects creatures you control
+  const conspiracies = gameState.conspiracies || [];
+  for (const conspiracy of conspiracies) {
+    if (!conspiracy || conspiracy.controller !== controllerId) continue;
+    
+    const conspText = (conspiracy.text || conspiracy.oracle_text || conspiracy.effect || '').toLowerCase();
+    
+    // Check for creature buff effects
+    const conspBuffMatch = conspText.match(/creatures you control get \+(\d+)\/\+(\d+)/i);
+    if (conspBuffMatch) {
+      powerBonus += parseInt(conspBuffMatch[1], 10);
+      toughnessBonus += parseInt(conspBuffMatch[2], 10);
+    }
+  }
+  
+  // 13. Dungeon room effects (AFR/CLB dungeons)
+  const activeDungeon = gameState.activeDungeon || gameState.currentDungeon;
+  if (activeDungeon && activeDungeon.controller === controllerId) {
+    const roomText = (activeDungeon.currentRoomEffect || activeDungeon.roomEffect || '').toLowerCase();
+    
+    // Some rooms give creature buffs
+    const roomBuffMatch = roomText.match(/creatures you control get \+(\d+)\/\+(\d+)/i);
+    if (roomBuffMatch) {
+      powerBonus += parseInt(roomBuffMatch[1], 10);
+      toughnessBonus += parseInt(roomBuffMatch[2], 10);
+    }
+  }
+  
   return { power: powerBonus, toughness: toughnessBonus };
 }
 
 /**
- * Calculate total equipment/aura bonus for a creature (simpler version)
+ * Calculate total equipment/aura bonus for a creature
  * Looks at all attached equipment and auras and sums their P/T bonuses
+ * Includes variable equipment like Cranial Plating, Blackblade Reforged, Trepanation Blade
  * 
  * @param creaturePerm - The creature permanent
  * @param battlefield - All permanents on the battlefield
+ * @param gameState - Optional game state for variable equipment calculations
  * @returns { power, toughness } total bonus
  */
 export function calculateEquipmentBonus(
   creaturePerm: any,
-  battlefield: any[]
+  battlefield: any[],
+  gameState?: any
 ): { power: number; toughness: number } {
   let powerBonus = 0;
   let toughnessBonus = 0;
@@ -501,6 +978,9 @@ export function calculateEquipmentBonus(
   if (!creaturePerm || !Array.isArray(battlefield)) {
     return { power: 0, toughness: 0 };
   }
+  
+  const controllerId = creaturePerm.controller;
+  const zones = gameState?.zones || {};
   
   // Find all equipment/auras attached to this creature
   for (const perm of battlefield) {
@@ -520,16 +1000,175 @@ export function calculateEquipmentBonus(
     if (!isAttached) continue;
     
     const cardName = (perm.card.name || '').toLowerCase();
+    const oracleText = (perm.card.oracle_text || '').toLowerCase();
     
-    // Check known equipment bonuses
+    // ===== VARIABLE EQUIPMENT BONUSES =====
+    
+    // Cranial Plating - +1/+0 for each artifact you control
+    if (cardName.includes('cranial plating')) {
+      const artifacts = battlefield.filter((p: any) => 
+        p.controller === controllerId && 
+        (p.card?.type_line || '').toLowerCase().includes('artifact')
+      );
+      powerBonus += artifacts.length;
+      continue;
+    }
+    
+    // Nettlecyst - +1/+1 for each artifact and enchantment you control
+    if (cardName.includes('nettlecyst')) {
+      const artifactsAndEnchantments = battlefield.filter((p: any) => {
+        if (p.controller !== controllerId) return false;
+        const tl = (p.card?.type_line || '').toLowerCase();
+        return tl.includes('artifact') || tl.includes('enchantment');
+      });
+      const bonus = artifactsAndEnchantments.length;
+      powerBonus += bonus;
+      toughnessBonus += bonus;
+      continue;
+    }
+    
+    // Blackblade Reforged - +1/+1 for each land you control
+    if (cardName.includes('blackblade reforged')) {
+      const lands = battlefield.filter((p: any) => 
+        p.controller === controllerId && 
+        (p.card?.type_line || '').toLowerCase().includes('land')
+      );
+      const bonus = lands.length;
+      powerBonus += bonus;
+      toughnessBonus += bonus;
+      continue;
+    }
+    
+    // Bonehoard - +X/+X where X is creatures in all graveyards
+    if (cardName.includes('bonehoard')) {
+      let creatureCount = 0;
+      const allPlayers = gameState?.players || [];
+      for (const player of allPlayers) {
+        const playerZones = zones[player.id];
+        const graveyard = playerZones?.graveyard || [];
+        for (const card of graveyard) {
+          if ((card.type_line || '').toLowerCase().includes('creature')) {
+            creatureCount++;
+          }
+        }
+      }
+      powerBonus += creatureCount;
+      toughnessBonus += creatureCount;
+      continue;
+    }
+    
+    // Runechanter's Pike - +X/+0 where X is instants and sorceries in your graveyard
+    if (cardName.includes("runechanter's pike")) {
+      const playerZones = zones[controllerId];
+      const graveyard = playerZones?.graveyard || [];
+      let count = 0;
+      for (const card of graveyard) {
+        const tl = (card.type_line || '').toLowerCase();
+        if (tl.includes('instant') || tl.includes('sorcery')) {
+          count++;
+        }
+      }
+      powerBonus += count;
+      continue;
+    }
+    
+    // Trepanation Blade - variable based on last attack (stored on equipment)
+    if (cardName.includes('trepanation blade')) {
+      // The bonus is determined when attacking and stored on the equipment
+      const storedBonus = perm.trepanationBonus || perm.lastTrepanationBonus || 0;
+      powerBonus += storedBonus;
+      continue;
+    }
+    
+    // Stoneforge Masterwork - +1/+1 for each creature sharing a type with equipped creature
+    if (cardName.includes('stoneforge masterwork')) {
+      const creatureTypes = extractCreatureTypes(creaturePerm.card?.type_line || '');
+      let matchCount = 0;
+      for (const p of battlefield) {
+        if (!p || !p.card || p.id === creaturePerm.id) continue;
+        if (p.controller !== controllerId) continue;
+        const pTypeLine = (p.card.type_line || '').toLowerCase();
+        if (!pTypeLine.includes('creature')) continue;
+        
+        for (const cType of creatureTypes) {
+          if (pTypeLine.includes(cType.toLowerCase())) {
+            matchCount++;
+            break;
+          }
+        }
+      }
+      powerBonus += matchCount;
+      toughnessBonus += matchCount;
+      continue;
+    }
+    
+    // Conqueror's Flail - +1/+1 for each color among permanents you control
+    if (cardName.includes("conqueror's flail")) {
+      const colors = new Set<string>();
+      for (const p of battlefield) {
+        if (p.controller !== controllerId) continue;
+        const cardColors = p.card?.colors || [];
+        for (const c of cardColors) {
+          colors.add(c);
+        }
+      }
+      const bonus = colors.size;
+      powerBonus += bonus;
+      toughnessBonus += bonus;
+      continue;
+    }
+    
+    // All That Glitters - +1/+1 for each artifact and enchantment you control
+    if (cardName.includes('all that glitters')) {
+      const count = battlefield.filter((p: any) => {
+        if (p.controller !== controllerId) return false;
+        const tl = (p.card?.type_line || '').toLowerCase();
+        return tl.includes('artifact') || tl.includes('enchantment');
+      }).length;
+      powerBonus += count;
+      toughnessBonus += count;
+      continue;
+    }
+    
+    // Ethereal Armor - +1/+1 for each enchantment you control
+    if (cardName.includes('ethereal armor')) {
+      const enchantments = battlefield.filter((p: any) => 
+        p.controller === controllerId && 
+        (p.card?.type_line || '').toLowerCase().includes('enchantment')
+      );
+      const bonus = enchantments.length;
+      powerBonus += bonus;
+      toughnessBonus += bonus;
+      continue;
+    }
+    
+    // Ancestral Mask - +2/+2 for each other enchantment on the battlefield
+    if (cardName.includes('ancestral mask')) {
+      const enchantments = battlefield.filter((p: any) => {
+        if (p.id === perm.id) return false; // Don't count itself
+        return (p.card?.type_line || '').toLowerCase().includes('enchantment');
+      });
+      const bonus = enchantments.length * 2;
+      powerBonus += bonus;
+      toughnessBonus += bonus;
+      continue;
+    }
+    
+    // ===== CHECK KNOWN STATIC EQUIPMENT BONUSES =====
     if (EQUIPMENT_BONUSES[cardName]) {
       powerBonus += EQUIPMENT_BONUSES[cardName].power;
       toughnessBonus += EQUIPMENT_BONUSES[cardName].toughness;
       continue;
     }
     
+    // Check known aura bonuses
+    if (AURA_BONUSES[cardName]) {
+      powerBonus += AURA_BONUSES[cardName].power;
+      toughnessBonus += AURA_BONUSES[cardName].toughness;
+      continue;
+    }
+    
     // Try to parse bonus from oracle text for unknown equipment
-    const oracleText = perm.card.oracle_text || '';
     const bonusMatch = oracleText.match(/equipped creature gets? \+(\d+)\/\+(\d+)/i);
     if (bonusMatch) {
       powerBonus += parseInt(bonusMatch[1], 10);
@@ -554,4 +1193,16 @@ export function calculateEquipmentBonus(
   }
   
   return { power: powerBonus, toughness: toughnessBonus };
+}
+
+/**
+ * Extract creature types from a type line
+ * e.g., "Legendary Creature — Human Soldier" -> ["Human", "Soldier"]
+ */
+function extractCreatureTypes(typeLine: string): string[] {
+  if (!typeLine) return [];
+  const dashIndex = typeLine.indexOf('—');
+  if (dashIndex === -1) return [];
+  const subtypes = typeLine.substring(dashIndex + 1).trim();
+  return subtypes.split(/\s+/).filter(t => t.length > 0);
 }
