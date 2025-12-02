@@ -6,5 +6,5 @@
     "noEmit": true,
     "strict": false
   },
-  "include": ["src", "test"]
+  "include": ["src", "test", "cli"]
 }
