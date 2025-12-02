@@ -609,6 +609,16 @@ interface MoxfieldDeckResponse {
   commanders?: Record<string, MoxfieldCardEntry>;
   sideboard?: Record<string, MoxfieldCardEntry>;
   companions?: Record<string, MoxfieldCardEntry>;
+  // Additional sections that Moxfield API may include
+  maybeboard?: Record<string, MoxfieldCardEntry>;
+  considering?: Record<string, MoxfieldCardEntry>;
+  // Some API versions may use different structures
+  boards?: {
+    mainboard?: Record<string, MoxfieldCardEntry>;
+    commanders?: Record<string, MoxfieldCardEntry>;
+    sideboard?: Record<string, MoxfieldCardEntry>;
+    companions?: Record<string, MoxfieldCardEntry>;
+  };
   publicId?: string;
 }
 
@@ -663,54 +673,85 @@ export async function fetchDeckFromMoxfield(urlOrId: string): Promise<{
     throw new Error(`Failed to fetch deck from Moxfield: ${err instanceof Error ? err.message : String(err)}`);
   }
   
+  // Log raw response structure for debugging (keys only, not the full data)
+  const dataKeys = Object.keys(data);
+  console.log(`[fetchDeckFromMoxfield] Response keys: ${dataKeys.join(', ')}`);
+  
+  // Handle alternative API response structure where data might be nested in 'boards'
+  const boardsData = data.boards || data;
+  
+  // Get commanders section (try multiple possible locations)
+  const commandersSection = (boardsData as any).commanders || data.commanders || {};
+  
+  // Get mainboard section (try multiple possible locations)
+  const mainboardSection = (boardsData as any).mainboard || data.mainboard || {};
+  
+  // Log section sizes for debugging
+  const commandersSectionSize = Object.keys(commandersSection).length;
+  const mainboardSectionSize = Object.keys(mainboardSection).length;
+  console.log(`[fetchDeckFromMoxfield] Commanders section: ${commandersSectionSize} entries, Mainboard section: ${mainboardSectionSize} entries`);
+  
   // Extract commanders
   const commanders: string[] = [];
-  if (data.commanders) {
-    for (const entry of Object.values(data.commanders)) {
-      if (entry.card?.name) {
-        commanders.push(entry.card.name);
-      }
+  for (const entry of Object.values(commandersSection)) {
+    const typedEntry = entry as MoxfieldCardEntry;
+    if (typedEntry?.card?.name) {
+      commanders.push(typedEntry.card.name);
     }
   }
   
-  // Extract cards from mainboard
+  // Extract cards from all relevant sections
   const cards: ParsedLine[] = [];
   const seenCards = new Set<string>(); // Track cards to avoid duplicates
   
-  // Add commanders first (they should be in the deck)
-  for (const entry of Object.values(data.commanders || {})) {
-    if (entry.card?.name) {
-      const normalizedName = entry.card.name.toLowerCase();
-      if (!seenCards.has(normalizedName)) {
-        cards.push({
-          name: entry.card.name,
-          count: entry.quantity || 1,
-        });
-        seenCards.add(normalizedName);
+  // Helper function to add cards from a section
+  const addCardsFromSection = (section: Record<string, MoxfieldCardEntry> | undefined, sectionName: string) => {
+    if (!section || typeof section !== 'object') {
+      console.log(`[fetchDeckFromMoxfield] Section "${sectionName}" is empty or invalid`);
+      return;
+    }
+    
+    const entries = Object.values(section);
+    let addedCount = 0;
+    
+    for (const entry of entries) {
+      if (entry?.card?.name) {
+        const normalizedName = entry.card.name.toLowerCase();
+        if (!seenCards.has(normalizedName)) {
+          cards.push({
+            name: entry.card.name,
+            count: entry.quantity || 1,
+          });
+          seenCards.add(normalizedName);
+          addedCount++;
+        }
       }
     }
-  }
+    
+    if (addedCount > 0) {
+      console.log(`[fetchDeckFromMoxfield] Added ${addedCount} cards from "${sectionName}" section`);
+    }
+  };
   
-  // Add mainboard cards (skipping any already added as commanders)
-  for (const entry of Object.values(data.mainboard || {})) {
-    if (entry.card?.name) {
-      const normalizedName = entry.card.name.toLowerCase();
-      if (!seenCards.has(normalizedName)) {
-        cards.push({
-          name: entry.card.name,
-          count: entry.quantity || 1,
-        });
-        seenCards.add(normalizedName);
-      } else {
-        // Card already exists (commander in mainboard), don't add duplicate
-        console.log(`[fetchDeckFromMoxfield] Skipping duplicate: ${entry.card.name} (already added as commander)`);
-      }
-    }
-  }
+  // Add commanders first (they should be in the deck)
+  addCardsFromSection(commandersSection, 'commanders');
+  
+  // Add mainboard cards
+  addCardsFromSection(mainboardSection, 'mainboard');
+  
+  // Also check for companions (they should be included in the deck too)
+  const companionsSection = (boardsData as any).companions || data.companions;
+  addCardsFromSection(companionsSection, 'companions');
   
   // Log total card count for debugging
   const totalCards = cards.reduce((sum, c) => sum + c.count, 0);
   console.log(`[fetchDeckFromMoxfield] Deck "${data.name}": ${cards.length} unique cards, ${totalCards} total cards`);
+  
+  // Warn if we only got commanders (likely an API issue)
+  if (cards.length === commanders.length && commanders.length > 0) {
+    console.warn(`[fetchDeckFromMoxfield] Warning: Only commanders found in deck "${data.name}". Mainboard may be empty or API response format may have changed.`);
+    console.warn(`[fetchDeckFromMoxfield] Response structure: ${JSON.stringify(dataKeys)}`);
+  }
   
   return {
     name: data.name || 'Imported Deck',
