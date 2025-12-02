@@ -9,7 +9,7 @@ import { emitSacrificeUnlessPayPrompt } from "./triggers";
 import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, type SpellCastTrigger } from "../state/modules/triggered-abilities";
 import { getUpkeepTriggersForPlayer } from "../state/modules/upkeep-triggers";
 import { categorizeSpell, evaluateTargeting, requiresTargeting, parseTargetRequirements } from "../rules-engine/targeting";
-import { recalculatePlayerEffects } from "../state/modules/game-state-effects";
+import { recalculatePlayerEffects, hasMetalcraft, countArtifacts } from "../state/modules/game-state-effects";
 import { PAY_X_LIFE_CARDS, getMaxPayableLife, validateLifePayment } from "../state/utils";
 
 /** Shock lands and similar "pay life or enter tapped" lands */
@@ -5733,7 +5733,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       let equipCost = equipCostMatch ? equipCostMatch[1] : "{0}";
       
       // Check for Puresteel Paladin metalcraft effect (equip costs {0})
-      // Import from game-state-effects if needed
+      // Use centralized hasMetalcraft from game-state-effects
       const hasMetalcraftEquipReduction = battlefield.some((p: any) => {
         if (p.controller !== playerId) return false;
         const pOracle = (p.card?.oracle_text || '').toLowerCase();
@@ -5745,16 +5745,10 @@ export function registerGameActions(io: Server, socket: Socket) {
       });
       
       if (hasMetalcraftEquipReduction) {
-        // Check if metalcraft is active (3+ artifacts)
-        const artifactCount = battlefield.filter((p: any) => {
-          if (p.controller !== playerId) return false;
-          const pTypeLine = (p.card?.type_line || '').toLowerCase();
-          return pTypeLine.includes('artifact');
-        }).length;
-        
-        if (artifactCount >= 3) {
+        // Check if metalcraft is active using centralized function
+        if (hasMetalcraft(game as any, playerId)) {
           equipCost = '{0}';
-          console.log(`[equipAbility] Metalcraft active - equip cost reduced to {0}`);
+          console.log(`[equipAbility] Metalcraft active (${countArtifacts(game as any, playerId)} artifacts) - equip cost reduced to {0}`);
         }
       }
 
