@@ -6067,4 +6067,485 @@ export function registerGameActions(io: Server, socket: Socket) {
       socket.emit("error", { code: "EQUIP_PAYMENT_ERROR", message: err?.message ?? String(err) });
     }
   });
+
+  // ==========================================================================
+  // FORETELL SUPPORT
+  // ==========================================================================
+  
+  /**
+   * Handle foretelling a card from hand (exile face-down for {2})
+   * Foretell: Exile this card from your hand face-down for {2}. 
+   * You may cast it later for its foretell cost.
+   */
+  socket.on("foretellCard", ({ gameId, cardId }: {
+    gameId: string;
+    cardId: string;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      const zones = game.state.zones?.[playerId];
+      if (!zones || !Array.isArray(zones.hand)) {
+        socket.emit("error", { code: "NO_HAND", message: "Hand not found" });
+        return;
+      }
+
+      // Find the card in hand
+      const cardIndex = (zones.hand as any[]).findIndex((c: any) => c?.id === cardId);
+      if (cardIndex === -1) {
+        socket.emit("error", { code: "CARD_NOT_FOUND", message: "Card not found in hand" });
+        return;
+      }
+
+      const card = zones.hand[cardIndex] as any;
+      const oracleText = (card.oracle_text || '').toLowerCase();
+      
+      // Check if card has foretell (use word boundary to avoid false matches)
+      if (!/\bforetell\b/i.test(oracleText)) {
+        socket.emit("error", { code: "NO_FORETELL", message: "This card doesn't have foretell" });
+        return;
+      }
+
+      // Parse foretell cost from oracle text
+      const foretellCostMatch = (card.oracle_text || '').match(/\bforetell\b\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+      const foretellCost = foretellCostMatch ? foretellCostMatch[1] : '{2}';
+
+      // Remove from hand
+      (zones.hand as any[]).splice(cardIndex, 1);
+      zones.handCount = (zones.hand as any[]).length;
+
+      // Add to exile face-down with foretell marker
+      zones.exile = zones.exile || [];
+      const foretoldCard = {
+        ...card,
+        zone: 'exile',
+        foretold: true,
+        foretellCost: foretellCost,
+        foretoldBy: playerId,
+        foretoldAt: Date.now(),
+        faceDown: true,
+      };
+      (zones.exile as any[]).push(foretoldCard);
+      (zones as any).exileCount = (zones.exile as any[]).length;
+
+      console.log(`[foretellCard] ${playerId} foretold ${card.name} (foretell cost: ${foretellCost})`);
+
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `🔮 ${getPlayerName(game, playerId)} foretells a card.`,
+        ts: Date.now(),
+      });
+
+      broadcastGame(io, game, gameId);
+    } catch (err: any) {
+      console.error(`foretellCard error for game ${gameId}:`, err);
+      socket.emit("error", { code: "FORETELL_ERROR", message: err?.message ?? String(err) });
+    }
+  });
+
+  /**
+   * Handle casting a foretold card from exile
+   */
+  socket.on("castForetold", ({ gameId, cardId }: {
+    gameId: string;
+    cardId: string;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      const zones = game.state.zones?.[playerId];
+      if (!zones || !Array.isArray(zones.exile)) {
+        socket.emit("error", { code: "NO_EXILE", message: "Exile zone not found" });
+        return;
+      }
+
+      // Find the foretold card in exile
+      const cardIndex = (zones.exile as any[]).findIndex((c: any) => c?.id === cardId && c?.foretold);
+      if (cardIndex === -1) {
+        socket.emit("error", { code: "CARD_NOT_FOUND", message: "Foretold card not found in exile" });
+        return;
+      }
+
+      const card = zones.exile[cardIndex] as any;
+      
+      // Emit cast request with foretell cost
+      socket.emit("castForetoldRequest", {
+        gameId,
+        cardId,
+        cardName: card.name,
+        foretellCost: card.foretellCost,
+        imageUrl: card.image_uris?.small || card.image_uris?.normal,
+      });
+
+      console.log(`[castForetold] ${playerId} attempting to cast foretold ${card.name} for ${card.foretellCost}`);
+    } catch (err: any) {
+      console.error(`castForetold error for game ${gameId}:`, err);
+      socket.emit("error", { code: "CAST_FORETOLD_ERROR", message: err?.message ?? String(err) });
+    }
+  });
+
+  // ==========================================================================
+  // PHASE OUT SUPPORT
+  // ==========================================================================
+  
+  /**
+   * Handle phase out effect (Clever Concealment, Teferi's Protection, etc.)
+   */
+  socket.on("phaseOutPermanents", ({ gameId, permanentIds }: {
+    gameId: string;
+    permanentIds: string[];
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      const battlefield = game.state?.battlefield || [];
+      const phasedOut: string[] = [];
+
+      for (const permId of permanentIds) {
+        const permanent = battlefield.find((p: any) => p?.id === permId);
+        if (permanent && permanent.controller === playerId && !permanent.phasedOut) {
+          permanent.phasedOut = true;
+          permanent.phaseOutController = playerId;
+          phasedOut.push(permanent.card?.name || permId);
+        }
+      }
+
+      if (phasedOut.length > 0) {
+        console.log(`[phaseOutPermanents] ${playerId} phased out: ${phasedOut.join(', ')}`);
+
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `✨ ${getPlayerName(game, playerId)}'s permanents phase out: ${phasedOut.join(', ')}`,
+          ts: Date.now(),
+        });
+
+        broadcastGame(io, game, gameId);
+      }
+    } catch (err: any) {
+      console.error(`phaseOutPermanents error for game ${gameId}:`, err);
+      socket.emit("error", { code: "PHASE_OUT_ERROR", message: err?.message ?? String(err) });
+    }
+  });
+
+  // ==========================================================================
+  // GRAVEYARD TARGET SELECTION
+  // ==========================================================================
+  
+  /**
+   * Request graveyard target selection (Elena Turk, Red XIII, Unfinished Business)
+   * Sends a list of valid graveyard targets to the client for selection.
+   */
+  socket.on("requestGraveyardTargets", ({ gameId, effectId, cardName, filter, minTargets, maxTargets, targetPlayerId }: {
+    gameId: string;
+    effectId: string;
+    cardName: string;
+    filter: { types?: string[]; subtypes?: string[]; excludeTypes?: string[] };
+    minTargets: number;
+    maxTargets: number;
+    targetPlayerId?: string; // Whose graveyard to search (defaults to self)
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      const searchPlayerId = targetPlayerId || playerId;
+      const zones = game.state.zones?.[searchPlayerId];
+      if (!zones || !Array.isArray(zones.graveyard)) {
+        socket.emit("graveyardTargetsResponse", {
+          gameId,
+          effectId,
+          cardName,
+          validTargets: [],
+          minTargets,
+          maxTargets,
+        });
+        return;
+      }
+
+      // Filter graveyard cards based on criteria
+      const validTargets = (zones.graveyard as any[]).filter((card: any) => {
+        if (!card) return false;
+        const typeLine = (card.type_line || '').toLowerCase();
+        
+        // Check type filter
+        if (filter.types && filter.types.length > 0) {
+          if (!filter.types.some(t => typeLine.includes(t.toLowerCase()))) {
+            return false;
+          }
+        }
+        
+        // Check subtype filter
+        if (filter.subtypes && filter.subtypes.length > 0) {
+          if (!filter.subtypes.some(st => typeLine.includes(st.toLowerCase()))) {
+            return false;
+          }
+        }
+        
+        // Check excluded types
+        if (filter.excludeTypes && filter.excludeTypes.length > 0) {
+          if (filter.excludeTypes.some(et => typeLine.includes(et.toLowerCase()))) {
+            return false;
+          }
+        }
+        
+        return true;
+      }).map((card: any) => ({
+        id: card.id,
+        name: card.name,
+        typeLine: card.type_line,
+        manaCost: card.mana_cost,
+        imageUrl: card.image_uris?.small || card.image_uris?.normal,
+      }));
+
+      socket.emit("graveyardTargetsResponse", {
+        gameId,
+        effectId,
+        cardName,
+        validTargets,
+        minTargets,
+        maxTargets,
+        targetPlayerId: searchPlayerId,
+      });
+
+      console.log(`[requestGraveyardTargets] Found ${validTargets.length} valid targets in ${searchPlayerId}'s graveyard for ${cardName}`);
+    } catch (err: any) {
+      console.error(`requestGraveyardTargets error for game ${gameId}:`, err);
+      socket.emit("error", { code: "GRAVEYARD_TARGETS_ERROR", message: err?.message ?? String(err) });
+    }
+  });
+
+  /**
+   * Handle graveyard target selection confirmation
+   */
+  socket.on("confirmGraveyardTargets", ({ gameId, effectId, selectedCardIds, destination }: {
+    gameId: string;
+    effectId: string;
+    selectedCardIds: string[];
+    destination: 'hand' | 'battlefield' | 'library_top' | 'library_bottom';
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      const zones = game.state.zones?.[playerId];
+      if (!zones || !Array.isArray(zones.graveyard)) {
+        socket.emit("error", { code: "NO_GRAVEYARD", message: "Graveyard not found" });
+        return;
+      }
+
+      const movedCards: string[] = [];
+
+      for (const cardId of selectedCardIds) {
+        const cardIndex = (zones.graveyard as any[]).findIndex((c: any) => c?.id === cardId);
+        if (cardIndex === -1) continue;
+
+        const card = zones.graveyard[cardIndex] as any;
+        (zones.graveyard as any[]).splice(cardIndex, 1);
+        movedCards.push(card.name || cardId);
+
+        switch (destination) {
+          case 'hand':
+            zones.hand = zones.hand || [];
+            (zones.hand as any[]).push({ ...(card as any), zone: 'hand' });
+            zones.handCount = zones.hand.length;
+            break;
+          case 'battlefield':
+            const battlefield = game.state.battlefield || [];
+            const typeLine = ((card as any).type_line || '').toLowerCase();
+            const isCreature = typeLine.includes('creature');
+            battlefield.push({
+              id: `perm_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
+              controller: playerId,
+              owner: playerId,
+              tapped: false,
+              counters: {},
+              basePower: isCreature ? parseInt((card as any).power || '0', 10) : undefined,
+              baseToughness: isCreature ? parseInt((card as any).toughness || '0', 10) : undefined,
+              summoningSickness: isCreature,
+              card: { ...(card as any), zone: 'battlefield' },
+            });
+            break;
+          case 'library_top':
+            const lib = game.libraries?.get(playerId) || [];
+            (lib as any[]).unshift({ ...(card as any), zone: 'library' });
+            game.libraries?.set(playerId, lib);
+            zones.libraryCount = lib.length;
+            break;
+          case 'library_bottom':
+            const libBottom = game.libraries?.get(playerId) || [];
+            (libBottom as any[]).push({ ...(card as any), zone: 'library' });
+            game.libraries?.set(playerId, libBottom);
+            zones.libraryCount = libBottom.length;
+            break;
+        }
+      }
+
+      zones.graveyardCount = zones.graveyard.length;
+
+      if (movedCards.length > 0) {
+        const destName = destination === 'hand' ? 'hand' : 
+                        destination === 'battlefield' ? 'battlefield' :
+                        destination === 'library_top' ? 'top of library' : 'bottom of library';
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `📜 ${getPlayerName(game, playerId)} returns ${movedCards.join(', ')} from graveyard to ${destName}.`,
+          ts: Date.now(),
+        });
+
+        console.log(`[confirmGraveyardTargets] ${playerId} moved ${movedCards.join(', ')} to ${destName}`);
+      }
+
+      broadcastGame(io, game, gameId);
+    } catch (err: any) {
+      console.error(`confirmGraveyardTargets error for game ${gameId}:`, err);
+      socket.emit("error", { code: "GRAVEYARD_CONFIRM_ERROR", message: err?.message ?? String(err) });
+    }
+  });
+
+  // ==========================================================================
+  // OPPONENT SELECTION (Secret Rendezvous, etc.)
+  // ==========================================================================
+  
+  /**
+   * Request opponent selection for effects like Secret Rendezvous
+   */
+  socket.on("requestOpponentSelection", ({ gameId, effectId, cardName, description, minOpponents, maxOpponents }: {
+    gameId: string;
+    effectId: string;
+    cardName: string;
+    description: string;
+    minOpponents: number;
+    maxOpponents: number;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      const players = game.state?.players || [];
+      const opponents = players.filter((p: any) => p && p.id !== playerId).map((p: any) => ({
+        id: p.id,
+        name: p.name || p.id,
+        life: game.state.life?.[p.id] ?? 40,
+        libraryCount: game.state.zones?.[p.id]?.libraryCount ?? 0,
+        isOpponent: true,
+      }));
+
+      socket.emit("opponentSelectionRequest", {
+        gameId,
+        effectId,
+        cardName,
+        description,
+        opponents,
+        minOpponents,
+        maxOpponents,
+      });
+
+      console.log(`[requestOpponentSelection] Requesting opponent selection for ${cardName}`);
+    } catch (err: any) {
+      console.error(`requestOpponentSelection error for game ${gameId}:`, err);
+      socket.emit("error", { code: "OPPONENT_SELECTION_ERROR", message: err?.message ?? String(err) });
+    }
+  });
+
+  /**
+   * Handle opponent selection confirmation
+   */
+  socket.on("confirmOpponentSelection", ({ gameId, effectId, selectedOpponentIds }: {
+    gameId: string;
+    effectId: string;
+    selectedOpponentIds: string[];
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      // Store the selection for effect resolution
+      (game.state as any).pendingOpponentSelections = (game.state as any).pendingOpponentSelections || {};
+      (game.state as any).pendingOpponentSelections[effectId] = {
+        selectedOpponentIds,
+        playerId,
+        timestamp: Date.now(),
+      };
+
+      console.log(`[confirmOpponentSelection] ${playerId} selected opponents: ${selectedOpponentIds.join(', ')}`);
+
+      broadcastGame(io, game, gameId);
+    } catch (err: any) {
+      console.error(`confirmOpponentSelection error for game ${gameId}:`, err);
+      socket.emit("error", { code: "OPPONENT_CONFIRM_ERROR", message: err?.message ?? String(err) });
+    }
+  });
+
+  // ==========================================================================
+  // SACRIFICE SELECTION FOR EDICT EFFECTS (Grave Pact, Dictate of Erebos, etc.)
+  // ==========================================================================
+  
+  /**
+   * Request sacrifice selection from a player due to an edict effect
+   */
+  socket.on("requestSacrificeSelection", ({ gameId, effectId, sourceName, targetPlayerId, permanentType, count }: {
+    gameId: string;
+    effectId: string;
+    sourceName: string;
+    targetPlayerId: string;
+    permanentType: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent';
+    count: number;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      if (!game) return;
+
+      const battlefield = game.state?.battlefield || [];
+      
+      // Find valid permanents to sacrifice for target player
+      const eligiblePermanents = battlefield.filter((p: any) => {
+        if (!p || p.controller !== targetPlayerId) return false;
+        const typeLine = (p.card?.type_line || '').toLowerCase();
+        
+        if (permanentType === 'permanent') return true;
+        return typeLine.includes(permanentType);
+      }).map((p: any) => ({
+        id: p.id,
+        name: p.card?.name || p.id,
+        typeLine: p.card?.type_line || '',
+        imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+        power: p.basePower,
+        toughness: p.baseToughness,
+      }));
+
+      // Emit to the target player
+      emitToPlayer(io, targetPlayerId, "sacrificeSelectionRequest", {
+        gameId,
+        triggerId: effectId,
+        sourceName,
+        sourceController: socket.data.playerId,
+        reason: `${sourceName} requires you to sacrifice ${count} ${permanentType}(s)`,
+        creatures: eligiblePermanents,
+        count,
+        permanentType,
+      });
+
+      console.log(`[requestSacrificeSelection] ${targetPlayerId} must sacrifice ${count} ${permanentType}(s) due to ${sourceName}`);
+    } catch (err: any) {
+      console.error(`requestSacrificeSelection error for game ${gameId}:`, err);
+      socket.emit("error", { code: "SACRIFICE_REQUEST_ERROR", message: err?.message ?? String(err) });
+    }
+  });
 }
