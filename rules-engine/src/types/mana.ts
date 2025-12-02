@@ -53,8 +53,6 @@ export type ManaRestrictionType =
 export interface RestrictedManaEntry {
   /** The type of mana - accepts both ManaType enum and string literals for compatibility */
   type: ManaType | 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
-  /** Alias for type (backwards compatibility) */
-  color?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
   /** Amount of mana with this restriction */
   amount: number;
   /** Type of restriction on this mana */
@@ -312,13 +310,9 @@ export function removeManaDoesNotEmpty(
   const newSourceIds = pool.noEmptySourceIds.filter(id => id !== sourceId);
   
   if (newSourceIds.length === 0) {
-    // No more sources, remove the effect
-    return {
-      ...pool,
-      doesNotEmpty: undefined,
-      convertsToColorless: undefined,
-      noEmptySourceIds: undefined
-    };
+    // No more sources, remove the effect by returning a pool without those fields
+    const { doesNotEmpty, convertsToColorless, noEmptySourceIds, ...rest } = pool;
+    return rest as ManaPool;
   }
   
   return {

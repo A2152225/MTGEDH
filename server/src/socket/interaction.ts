@@ -3462,7 +3462,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       pool.restricted = pool.restricted || [];
       pool.restricted.push({
         type: color,
-        color: color,
         amount,
         restriction,
         restrictedTo,

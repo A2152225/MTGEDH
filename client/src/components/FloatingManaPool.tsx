@@ -283,8 +283,8 @@ export function FloatingManaPool({ manaPool, playerId, onManaClick, compact = fa
             flexWrap: 'wrap',
           }}>
             {manaPool.restricted.map((entry, index) => {
-              // Support both 'type' and 'color' for compatibility
-              const colorName = entry.type || entry.color || 'colorless';
+              // Use 'type' as the primary color field
+              const colorName = entry.type || 'colorless';
               const colors = MANA_SYMBOL_COLORS[colorName] || MANA_SYMBOL_COLORS.colorless;
               const symbol = MANA_SYMBOLS[colorName] || '?';
               const restrictionInfo = RESTRICTION_ICONS[entry.restriction] || { icon: '🔒', label: 'Restricted' };

@@ -2143,15 +2143,21 @@ export type ManaRestrictionType =
  * Restricted mana entry in the mana pool
  */
 export interface RestrictedManaEntry {
-  /** The type of mana (primary field, matches rules-engine) */
+  /** The type of mana (primary field for identifying the mana color) */
   type?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
-  /** Alias for type (backwards compatibility) */
-  color?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
   amount: number;
   restriction: ManaRestrictionType;
   restrictedTo?: string;
   sourceId?: string;
   sourceName?: string;
+}
+
+/**
+ * Helper function to get the color from a restricted mana entry
+ * Uses the 'type' field as the primary source
+ */
+export function getManaEntryColor(entry: RestrictedManaEntry): 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless' {
+  return entry.type || 'colorless';
 }
 
 /**
@@ -2202,7 +2208,7 @@ export function addRestrictedManaToPool(
   
   // Check if there's already an entry with the same attributes (check both type and color for compatibility)
   const existingIndex = pool.restricted.findIndex(
-    entry => (entry.type === color || entry.color === color) && 
+    entry => getManaEntryColor(entry) === color && 
              entry.restriction === restriction && 
              entry.sourceId === sourceId &&
              entry.restrictedTo === restrictedTo
@@ -2212,10 +2218,9 @@ export function addRestrictedManaToPool(
     // Add to existing entry
     pool.restricted[existingIndex].amount += amount;
   } else {
-    // Create new entry - use both type and color for compatibility
+    // Create new entry
     pool.restricted.push({
       type: color,
-      color: color,
       amount,
       restriction,
       restrictedTo,
@@ -2325,7 +2330,7 @@ export function getTotalManaOfColorInPool(
   const pool = getOrInitEnhancedManaPool(gameState, playerId);
   const regularMana = pool[color] || 0;
   const restrictedMana = pool.restricted
-    ?.filter(entry => entry.type === color || entry.color === color)
+    ?.filter(entry => getManaEntryColor(entry) === color)
     .reduce((sum, entry) => sum + entry.amount, 0) || 0;
   return regularMana + restrictedMana;
 }

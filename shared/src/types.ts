@@ -521,11 +521,8 @@ export type ManaRestrictionType =
  * Rule 106.6: Some effects produce mana with restrictions on what it can be spent on
  */
 export interface RestrictedManaEntry {
-  /** The color of the mana */
-  /** The type of the mana (matching rules-engine ManaType) */
+  /** The type of the mana (primary field for identifying the mana color) */
   type: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
-  /** Alias for type for convenience */
-  color?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
   /** Amount of mana with this restriction */
   amount: number;
   /** Type of restriction on this mana */
