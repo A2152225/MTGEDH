@@ -323,6 +323,15 @@ export function App() {
   const [discardCount, setDiscardCount] = useState(0);
   const [discardMaxHandSize, setDiscardMaxHandSize] = useState(7);
   
+  // Game over notification state
+  const [gameOverModalOpen, setGameOverModalOpen] = useState(false);
+  const [gameOverData, setGameOverData] = useState<{
+    type: 'victory' | 'defeat' | 'eliminated' | 'draw';
+    message: string;
+    winnerId?: string;
+    winnerName?: string;
+  } | null>(null);
+  
   // Opening hand actions modal state (Leylines)
   const [openingHandActionsModalOpen, setOpeningHandActionsModalOpen] = useState(false);
   
@@ -1355,6 +1364,86 @@ export function App() {
       socket.off("surveilPeek", handleSurveilPeek);
     };
   }, [safeView?.id]);
+
+  // Game over notification listener
+  useEffect(() => {
+    const handleGameOver = (data: { 
+      gameId: string; 
+      type: 'victory' | 'defeat' | 'eliminated' | 'draw';
+      winnerId?: string;
+      winnerName?: string;
+      loserId?: string;
+      loserName?: string;
+      message?: string;
+    }) => {
+      if (!safeView || data.gameId !== safeView.id) return;
+      
+      let notificationType: 'victory' | 'defeat' | 'eliminated' | 'draw' = data.type;
+      let message = data.message || '';
+      
+      // Determine notification type based on who we are
+      if (data.type === 'victory' && data.winnerId === you) {
+        notificationType = 'victory';
+        message = message || "You've Won!";
+      } else if (data.type === 'defeat' && data.loserId === you) {
+        notificationType = 'defeat';
+        message = message || "Defeated";
+      } else if (data.type === 'eliminated' && data.loserId === you) {
+        notificationType = 'eliminated';
+        message = message || "Eliminated";
+      } else if (data.type === 'draw') {
+        notificationType = 'draw';
+        message = message || "Draw!";
+      } else if (data.winnerId && data.winnerId !== you) {
+        // Someone else won
+        notificationType = 'defeat';
+        message = `${data.winnerName || 'Opponent'} has won the game`;
+      }
+      
+      setGameOverData({
+        type: notificationType,
+        message,
+        winnerId: data.winnerId,
+        winnerName: data.winnerName,
+      });
+      setGameOverModalOpen(true);
+      
+      // Auto-close after 3 seconds
+      setTimeout(() => {
+        setGameOverModalOpen(false);
+        setGameOverData(null);
+      }, 3000);
+    };
+
+    const handlePlayerEliminated = (data: { 
+      gameId: string; 
+      playerId: string;
+      playerName: string;
+      reason?: string;
+    }) => {
+      if (!safeView || data.gameId !== safeView.id) return;
+      
+      if (data.playerId === you) {
+        setGameOverData({
+          type: 'eliminated',
+          message: 'Eliminated',
+        });
+        setGameOverModalOpen(true);
+        
+        setTimeout(() => {
+          setGameOverModalOpen(false);
+          setGameOverData(null);
+        }, 3000);
+      }
+    };
+
+    socket.on("gameOver", handleGameOver);
+    socket.on("playerEliminated", handlePlayerEliminated);
+    return () => {
+      socket.off("gameOver", handleGameOver);
+      socket.off("playerEliminated", handlePlayerEliminated);
+    };
+  }, [safeView?.id, you]);
 
   const isTable = layout === "table";
   const canPass = !!safeView && !!you && safeView.priority === you;
@@ -3711,6 +3800,71 @@ export function App() {
         onConfirm={(selectedIds) => handleCrewConfirm(selectedIds)}
         onCancel={() => { setCrewModalOpen(false); setCrewData(null); }}
       />
+
+      {/* Game Over Overlay */}
+      {gameOverModalOpen && gameOverData && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+            animation: 'fadeIn 0.3s ease-out',
+          }}
+        >
+          <div
+            style={{
+              textAlign: 'center',
+              color: gameOverData.type === 'victory' ? '#ffd700' : 
+                     gameOverData.type === 'draw' ? '#60a5fa' : '#ef4444',
+              animation: 'scaleIn 0.5s ease-out',
+            }}
+          >
+            <div
+              style={{
+                fontSize: gameOverData.type === 'victory' ? '5rem' : '4rem',
+                fontWeight: 'bold',
+                textShadow: gameOverData.type === 'victory' 
+                  ? '0 0 30px rgba(255, 215, 0, 0.8), 0 0 60px rgba(255, 215, 0, 0.4)'
+                  : gameOverData.type === 'draw'
+                  ? '0 0 30px rgba(96, 165, 250, 0.8)'
+                  : '0 0 30px rgba(239, 68, 68, 0.8)',
+                marginBottom: '1rem',
+              }}
+            >
+              {gameOverData.type === 'victory' ? '🏆' : 
+               gameOverData.type === 'draw' ? '🤝' : '💀'}
+            </div>
+            <div
+              style={{
+                fontSize: '3rem',
+                fontWeight: 'bold',
+                letterSpacing: '0.1em',
+                textTransform: 'uppercase',
+              }}
+            >
+              {gameOverData.message}
+            </div>
+            {gameOverData.winnerName && gameOverData.type !== 'victory' && (
+              <div
+                style={{
+                  fontSize: '1.5rem',
+                  marginTop: '1rem',
+                  opacity: 0.8,
+                }}
+              >
+                Winner: {gameOverData.winnerName}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Triggered Ability Modal */}
       <TriggeredAbilityModal

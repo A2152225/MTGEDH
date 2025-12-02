@@ -157,6 +157,10 @@ export function runSBA(ctx: GameContext) {
       }
     }
   }
+  
+  // Update god creature status based on devotion (Rule 704.5n - gods with insufficient devotion aren't creatures)
+  updateGodCreatureStatus(ctx);
+  
   if (changed) bumpSeq();
 }
 
@@ -168,4 +172,109 @@ export function applyEngineEffects(ctx: GameContext, effects: readonly any[]) {
       case "DestroyPermanent": removePermanent(ctx, eff.permanentId); break;
     }
   }
+}
+
+/**
+ * Calculate devotion to a color for a player based on their permanents
+ * Devotion = sum of all instances of the color's mana symbol in mana costs of permanents they control
+ * 
+ * @param ctx Game context
+ * @param playerId Player to calculate devotion for
+ * @param color Color symbol (W, U, B, R, G)
+ * @returns Total devotion to that color
+ */
+export function calculateDevotion(ctx: GameContext, playerId: PlayerID, color: string): number {
+  const { state } = ctx;
+  const battlefield = state.battlefield || [];
+  
+  let devotion = 0;
+  const colorUpper = color.toUpperCase();
+  
+  for (const perm of battlefield) {
+    if (perm.controller !== playerId) continue;
+    
+    const manaCost = (perm.card as any)?.mana_cost || '';
+    
+    // Count occurrences of the color symbol
+    const regex = new RegExp(`\\{${colorUpper}\\}`, 'gi');
+    const matches = manaCost.match(regex);
+    if (matches) devotion += matches.length;
+    
+    // Also check hybrid mana symbols (e.g., {W/U}, {R/G})
+    const hybridRegex = /\{([WUBRG])\/([WUBRG])\}/gi;
+    let hybridMatch;
+    while ((hybridMatch = hybridRegex.exec(manaCost)) !== null) {
+      if (hybridMatch[1].toUpperCase() === colorUpper || hybridMatch[2].toUpperCase() === colorUpper) {
+        devotion++;
+      }
+    }
+    
+    // Phyrexian hybrid mana (e.g., {W/P})
+    const phyrexianRegex = /\{([WUBRG])\/P\}/gi;
+    let phyrexMatch;
+    while ((phyrexMatch = phyrexianRegex.exec(manaCost)) !== null) {
+      if (phyrexMatch[1].toUpperCase() === colorUpper) {
+        devotion++;
+      }
+    }
+  }
+  
+  return devotion;
+}
+
+/**
+ * Update all Theros-style gods on the battlefield based on devotion
+ * Gods are creatures only when devotion to their color(s) meets the threshold
+ * 
+ * @param ctx Game context
+ */
+export function updateGodCreatureStatus(ctx: GameContext): void {
+  const { state, bumpSeq } = ctx;
+  const battlefield = state.battlefield || [];
+  
+  let changed = false;
+  
+  for (const perm of battlefield) {
+    const typeLine = ((perm.card as any)?.type_line || '').toLowerCase();
+    const oracleText = ((perm.card as any)?.oracle_text || '').toLowerCase();
+    
+    // Check if this is a Theros-style god
+    if (!typeLine.includes('god') || !typeLine.includes('creature')) continue;
+    
+    // Check for devotion requirement pattern
+    const devotionMatch = oracleText.match(/devotion to (\w+)(?:\s+and\s+(\w+))? is less than (\d+)/i);
+    if (!devotionMatch) continue;
+    
+    const color1 = devotionMatch[1].toLowerCase();
+    const color2 = devotionMatch[2]?.toLowerCase();
+    const threshold = parseInt(devotionMatch[3], 10);
+    
+    // Map color words to mana symbols
+    const colorToSymbol: Record<string, string> = {
+      'white': 'W', 'blue': 'U', 'black': 'B', 'red': 'R', 'green': 'G'
+    };
+    const symbol1 = colorToSymbol[color1] || color1.charAt(0).toUpperCase();
+    const symbol2 = color2 ? (colorToSymbol[color2] || color2.charAt(0).toUpperCase()) : null;
+    
+    // Calculate devotion
+    let devotion = calculateDevotion(ctx, perm.controller as PlayerID, symbol1);
+    if (symbol2) {
+      devotion += calculateDevotion(ctx, perm.controller as PlayerID, symbol2);
+    }
+    
+    // Store calculated devotion for reference
+    (perm as any).calculatedDevotion = devotion;
+    
+    // Determine if god is a creature
+    const wasCreature = !(perm as any).notCreature;
+    const isCreature = devotion >= threshold;
+    
+    if (isCreature !== wasCreature) {
+      (perm as any).notCreature = !isCreature;
+      changed = true;
+      console.log(`[updateGodCreatureStatus] ${(perm.card as any)?.name}: devotion ${devotion}/${threshold} - ${isCreature ? 'IS' : 'NOT'} a creature`);
+    }
+  }
+  
+  if (changed) bumpSeq();
 }

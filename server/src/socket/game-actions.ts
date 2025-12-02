@@ -4160,6 +4160,60 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       console.log(`[setLife] ${targetName}'s life set to ${life} (was ${currentLife}) in game ${gameId}`);
 
+      // Check for player defeat (life <= 0)
+      if (life <= 0) {
+        const players = game.state.players || [];
+        const activePlayers = players.filter((p: any) => !p.hasLost && !p.eliminated);
+        
+        // Mark player as eliminated
+        const targetPlayer = players.find((p: any) => p.id === targetPid) as any;
+        if (targetPlayer) {
+          targetPlayer.hasLost = true;
+          targetPlayer.eliminated = true;
+          targetPlayer.lossReason = "Life total is 0 or less";
+        }
+        
+        // Emit elimination event
+        io.to(gameId).emit("playerEliminated", {
+          gameId,
+          playerId: targetPid,
+          playerName: targetName,
+          reason: "Life total is 0 or less",
+        });
+        
+        // Check if game is over (only 1 or 0 players remaining)
+        const remainingPlayers = activePlayers.filter((p: any) => p.id !== targetPid);
+        
+        if (remainingPlayers.length === 1) {
+          // One player left - they win!
+          const winner = remainingPlayers[0];
+          const winnerName = getPlayerName(game, winner.id);
+          
+          io.to(gameId).emit("gameOver", {
+            gameId,
+            type: 'victory',
+            winnerId: winner.id,
+            winnerName,
+            loserId: targetPid,
+            loserName: targetName,
+            message: "You've Won!",
+          });
+          
+          // Mark game as over
+          (game.state as any).gameOver = true;
+          (game.state as any).winner = winner.id;
+        } else if (remainingPlayers.length === 0) {
+          // No players left - draw
+          io.to(gameId).emit("gameOver", {
+            gameId,
+            type: 'draw',
+            message: "Draw!",
+          });
+          
+          (game.state as any).gameOver = true;
+        }
+      }
+
       broadcastGame(io, game, gameId);
     } catch (err: any) {
       console.error(`setLife error for game ${gameId}:`, err);

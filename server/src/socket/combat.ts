@@ -167,6 +167,70 @@ function isCurrentlyCreature(permanent: any): boolean {
     if (permanent.grantedTypes.includes('Creature')) return true;
   }
   
+  // Handle Gods - they are only creatures if devotion threshold is met
+  // Theros gods like Purphoros require devotion to their color(s) >= a threshold
+  // Oracle text pattern: "As long as your devotion to [color] is less than [N], ~ isn't a creature"
+  if (typeLine.includes('god') && typeLine.includes('creature')) {
+    // Check if this is a Theros-style god with devotion requirement
+    const devotionMatch = oracleText.match(/devotion to (\w+)(?:\s+and\s+(\w+))? is less than (\d+)/i);
+    if (devotionMatch) {
+      const color1 = devotionMatch[1].toLowerCase();
+      const color2 = devotionMatch[2]?.toLowerCase();
+      const threshold = parseInt(devotionMatch[3], 10);
+      
+      // Calculate devotion from permanents in the same context
+      // If we have access to battlefield through permanent.battlefield or similar
+      const playerPerms = permanent.controllerBattlefield || [];
+      let devotion = 0;
+      
+      // Map color words to mana symbols
+      const colorToSymbol: Record<string, string> = {
+        'white': 'W', 'blue': 'U', 'black': 'B', 'red': 'R', 'green': 'G'
+      };
+      const symbol1 = colorToSymbol[color1] || color1.charAt(0).toUpperCase();
+      const symbol2 = color2 ? (colorToSymbol[color2] || color2.charAt(0).toUpperCase()) : null;
+      
+      for (const perm of playerPerms) {
+        const manaCost = perm.card?.mana_cost || '';
+        // Count occurrences of the color symbol(s)
+        const regex1 = new RegExp(`\\{${symbol1}\\}`, 'gi');
+        const matches1 = manaCost.match(regex1);
+        if (matches1) devotion += matches1.length;
+        
+        if (symbol2) {
+          const regex2 = new RegExp(`\\{${symbol2}\\}`, 'gi');
+          const matches2 = manaCost.match(regex2);
+          if (matches2) devotion += matches2.length;
+        }
+        
+        // Also check hybrid mana symbols
+        const hybridRegex = /\{([WUBRG])\/([WUBRG])\}/gi;
+        let hybridMatch;
+        while ((hybridMatch = hybridRegex.exec(manaCost)) !== null) {
+          if (hybridMatch[1] === symbol1 || hybridMatch[2] === symbol1) devotion++;
+          if (symbol2 && (hybridMatch[1] === symbol2 || hybridMatch[2] === symbol2)) devotion++;
+        }
+      }
+      
+      // Check if there's a stored devotion value on the permanent (from game state)
+      if (permanent.calculatedDevotion !== undefined) {
+        devotion = permanent.calculatedDevotion;
+      }
+      
+      // Check the notCreature flag set by game state
+      if (permanent.notCreature === true) {
+        return false;
+      }
+      
+      // If devotion is less than threshold, it's not a creature
+      if (devotion < threshold) {
+        return false;
+      }
+      // Devotion met - it IS a creature
+      return true;
+    }
+  }
+  
   // Check if the base type line includes creature
   if (typeLine.includes('creature')) {
     return true;
