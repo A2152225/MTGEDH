@@ -85,8 +85,8 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
   const oracleText = (card?.oracle_text || "").toLowerCase();
   const cardName = card?.name || "Unknown";
   
-  // Upkeep triggers
-  const upkeepMatch = oracleText.match(/at the beginning of (?:your )?upkeep,?\s*([^.]+)/i);
+  // Upkeep triggers (text is already lowercased, no need for /i flag)
+  const upkeepMatch = oracleText.match(/at the beginning of (?:your )?upkeep,?\s*([^.]+)/);
   if (upkeepMatch) {
     triggers.push({
       id: `${permanentId}_upkeep`,
@@ -95,12 +95,12 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       cardName,
       timing: 'upkeep',
       effect: upkeepMatch[1].trim(),
-      mandatory: !upkeepMatch[1].toLowerCase().includes('you may'),
+      mandatory: !upkeepMatch[1].includes('you may'),
     });
   }
   
   // End step triggers
-  const endStepMatch = oracleText.match(/at the beginning of (?:your |each )?end step,?\s*([^.]+)/i);
+  const endStepMatch = oracleText.match(/at the beginning of (?:your |each )?end step,?\s*([^.]+)/);
   if (endStepMatch) {
     triggers.push({
       id: `${permanentId}_end_step`,
@@ -109,12 +109,12 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       cardName,
       timing: 'end_step',
       effect: endStepMatch[1].trim(),
-      mandatory: !endStepMatch[1].toLowerCase().includes('you may'),
+      mandatory: !endStepMatch[1].includes('you may'),
     });
   }
   
-  // ETB triggers (self)
-  const etbSelfMatch = oracleText.match(/when (?:~|this creature|this permanent|this enchantment) enters the battlefield,?\s*([^.]+)/i);
+  // ETB triggers (self) - text is already lowercased
+  const etbSelfMatch = oracleText.match(/when (?:~|this creature|this permanent|this enchantment) enters the battlefield,?\s*([^.]+)/);
   if (etbSelfMatch) {
     triggers.push({
       id: `${permanentId}_etb_self`,
@@ -124,12 +124,12 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       timing: 'etb',
       condition: 'self',
       effect: etbSelfMatch[1].trim(),
-      mandatory: !etbSelfMatch[1].toLowerCase().includes('you may'),
+      mandatory: !etbSelfMatch[1].includes('you may'),
     });
   }
   
   // ETB triggers (other creatures)
-  const etbCreatureMatch = oracleText.match(/whenever (?:a|another) (?:nontoken )?creature enters the battlefield(?: under your control)?,?\s*([^.]+)/i);
+  const etbCreatureMatch = oracleText.match(/whenever (?:a|another) (?:nontoken )?creature enters the battlefield(?: under your control)?,?\s*([^.]+)/);
   if (etbCreatureMatch) {
     triggers.push({
       id: `${permanentId}_etb_creature`,
@@ -139,12 +139,12 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       timing: 'etb',
       condition: 'creature',
       effect: etbCreatureMatch[1].trim(),
-      mandatory: !etbCreatureMatch[1].toLowerCase().includes('you may'),
+      mandatory: !etbCreatureMatch[1].includes('you may'),
     });
   }
   
   // Attack triggers
-  const attackMatch = oracleText.match(/whenever (?:~|this creature) attacks,?\s*([^.]+)/i);
+  const attackMatch = oracleText.match(/whenever (?:~|this creature) attacks,?\s*([^.]+)/);
   if (attackMatch) {
     triggers.push({
       id: `${permanentId}_attack`,
@@ -153,12 +153,12 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       cardName,
       timing: 'declare_attackers',
       effect: attackMatch[1].trim(),
-      mandatory: !attackMatch[1].toLowerCase().includes('you may'),
+      mandatory: !attackMatch[1].includes('you may'),
     });
   }
   
   // Combat damage triggers
-  const combatDamageMatch = oracleText.match(/whenever (?:~|this creature) deals combat damage to (?:a player|an opponent),?\s*([^.]+)/i);
+  const combatDamageMatch = oracleText.match(/whenever (?:~|this creature) deals combat damage to (?:a player|an opponent),?\s*([^.]+)/);
   if (combatDamageMatch) {
     triggers.push({
       id: `${permanentId}_combat_damage`,
@@ -167,12 +167,12 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       cardName,
       timing: 'combat_damage',
       effect: combatDamageMatch[1].trim(),
-      mandatory: !combatDamageMatch[1].toLowerCase().includes('you may'),
+      mandatory: !combatDamageMatch[1].includes('you may'),
     });
   }
   
   // Death triggers
-  const deathMatch = oracleText.match(/when (?:~|this creature) dies,?\s*([^.]+)/i);
+  const deathMatch = oracleText.match(/when (?:~|this creature) dies,?\s*([^.]+)/);
   if (deathMatch) {
     triggers.push({
       id: `${permanentId}_dies`,
@@ -182,12 +182,12 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       timing: 'dies',
       condition: 'self',
       effect: deathMatch[1].trim(),
-      mandatory: !deathMatch[1].toLowerCase().includes('you may'),
+      mandatory: !deathMatch[1].includes('you may'),
     });
   }
   
   // Whenever a creature you control dies
-  const creatureDiesMatch = oracleText.match(/whenever (?:a|another) creature you control dies,?\s*([^.]+)/i);
+  const creatureDiesMatch = oracleText.match(/whenever (?:a|another) creature you control dies,?\s*([^.]+)/);
   if (creatureDiesMatch) {
     triggers.push({
       id: `${permanentId}_creature_dies`,
@@ -197,12 +197,12 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       timing: 'dies',
       condition: 'controlled_creature',
       effect: creatureDiesMatch[1].trim(),
-      mandatory: !creatureDiesMatch[1].toLowerCase().includes('you may'),
+      mandatory: !creatureDiesMatch[1].includes('you may'),
     });
   }
   
   // Tap triggers
-  const tapMatch = oracleText.match(/whenever (?:~|this creature) becomes tapped,?\s*([^.]+)/i);
+  const tapMatch = oracleText.match(/whenever (?:~|this creature) becomes tapped,?\s*([^.]+)/);
   if (tapMatch) {
     triggers.push({
       id: `${permanentId}_tap`,
@@ -211,12 +211,12 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       cardName,
       timing: 'tap',
       effect: tapMatch[1].trim(),
-      mandatory: !tapMatch[1].toLowerCase().includes('you may'),
+      mandatory: !tapMatch[1].includes('you may'),
     });
   }
   
   // Draw triggers
-  const drawMatch = oracleText.match(/whenever (?:you|a player|an opponent) draws? (?:a card|cards),?\s*([^.]+)/i);
+  const drawMatch = oracleText.match(/whenever (?:you|a player|an opponent) draws? (?:a card|cards),?\s*([^.]+)/);
   if (drawMatch) {
     triggers.push({
       id: `${permanentId}_draw`,
@@ -225,12 +225,12 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       cardName,
       timing: 'draw',
       effect: drawMatch[1].trim(),
-      mandatory: !drawMatch[1].toLowerCase().includes('you may'),
+      mandatory: !drawMatch[1].includes('you may'),
     });
   }
   
   // Cast triggers
-  const castMatch = oracleText.match(/whenever you cast (?:a |an )?(\w+)?\s*spell,?\s*([^.]+)/i);
+  const castMatch = oracleText.match(/whenever you cast (?:a |an )?(\w+)?\s*spell,?\s*([^.]+)/);
   if (castMatch) {
     triggers.push({
       id: `${permanentId}_cast`,
@@ -240,7 +240,7 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       timing: 'cast',
       condition: castMatch[1] || 'any',
       effect: castMatch[2].trim(),
-      mandatory: !castMatch[2].toLowerCase().includes('you may'),
+      mandatory: !castMatch[2].includes('you may'),
     });
   }
   
