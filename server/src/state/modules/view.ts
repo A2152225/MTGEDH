@@ -8,7 +8,7 @@ import type {
   BattlefieldPermanent,
 } from "../../../../shared/src/index.js";
 import type { GameContext } from "../context.js";
-import { parsePT, calculateVariablePT } from "../utils.js";
+import { parsePT, calculateVariablePT, calculateAllPTBonuses } from "../utils.js";
 
 /**
  * Determine if `viewer` can see `owner`'s hidden zones (hand, library top, etc.)
@@ -70,11 +70,34 @@ export function viewFor(
       }
       
       if (typeof baseP === "number" && typeof baseT === "number") {
+        // Calculate counter bonuses (+1/+1, -1/-1, and other counter types)
         const plus = perm.counters?.["+1/+1"] ?? 0;
         const minus = perm.counters?.["-1/-1"] ?? 0;
-        const delta = plus - minus;
-        effectivePower = baseP + delta;
-        effectiveToughness = baseT + delta;
+        const counterDelta = plus - minus;
+        
+        // Check for other counter types that affect P/T
+        // +1/+0, +0/+1, +2/+2, etc. counters
+        let otherCounterPower = 0;
+        let otherCounterToughness = 0;
+        if (perm.counters) {
+          for (const [counterType, count] of Object.entries(perm.counters)) {
+            if (counterType === "+1/+1" || counterType === "-1/-1") continue;
+            // Parse counter types like "+1/+0", "+0/+2", "+2/+2", "-2/-2", etc.
+            const counterMatch = counterType.match(/^([+-]?\d+)\/([+-]?\d+)$/);
+            if (counterMatch) {
+              const pMod = parseInt(counterMatch[1], 10);
+              const tMod = parseInt(counterMatch[2], 10);
+              otherCounterPower += pMod * (count as number);
+              otherCounterToughness += tMod * (count as number);
+            }
+          }
+        }
+        
+        // Calculate ALL other bonuses (equipment, auras, anthems, lords, emblems, etc.)
+        const allBonuses = calculateAllPTBonuses(perm, state);
+        
+        effectivePower = baseP + counterDelta + otherCounterPower + allBonuses.power;
+        effectiveToughness = baseT + counterDelta + otherCounterToughness + allBonuses.toughness;
       }
     }
     const cz = state.commandZone[perm.controller];
