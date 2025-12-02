@@ -1884,6 +1884,86 @@ export function registerGameActions(io: Server, socket: Socket) {
         (cardInHand as any).lifePaymentAmount = lifePayment;
         console.log(`[castSpellFromHand] Life payment of ${lifePayment} validated for ${cardInHand.name}`);
       }
+      
+      // Check for additional costs (discard a card, sacrifice, etc.)
+      // This handles cards like Seize the Spoils, Faithless Looting, etc.
+      const additionalCost = detectAdditionalCost(oracleText);
+      const additionalCostPaid = (payment as any[])?.some((p: any) => p.additionalCostPaid === true) ||
+                                  (targets as any)?.additionalCostPaid === true;
+      
+      if (additionalCost && !additionalCostPaid) {
+        // Need to prompt for additional cost payment
+        if (additionalCost.type === 'discard') {
+          // Check if player has enough cards to discard
+          const handCards = zones.hand.filter((c: any) => c.id !== cardId); // Exclude the card being cast
+          if (handCards.length < additionalCost.amount) {
+            socket.emit("error", {
+              code: "CANNOT_PAY_COST",
+              message: `Cannot cast ${cardInHand.name}: You need to discard ${additionalCost.amount} card(s) but only have ${handCards.length} other card(s) in hand.`,
+            });
+            return;
+          }
+          
+          // Emit discard selection request
+          socket.emit("additionalCostRequest", {
+            gameId,
+            cardId,
+            cardName: cardInHand.name,
+            costType: 'discard',
+            amount: additionalCost.amount,
+            title: `Discard ${additionalCost.amount} card${additionalCost.amount > 1 ? 's' : ''} to cast ${cardInHand.name}`,
+            description: `As an additional cost to cast ${cardInHand.name}, discard ${additionalCost.amount} card${additionalCost.amount > 1 ? 's' : ''}.`,
+            imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            availableCards: handCards.map((c: any) => ({
+              id: c.id,
+              name: c.name,
+              imageUrl: c.image_uris?.small || c.image_uris?.normal,
+            })),
+            effectId: `addcost_${cardId}_${Date.now()}`,
+          });
+          
+          console.log(`[castSpellFromHand] Requesting discard of ${additionalCost.amount} card(s) for ${cardInHand.name}`);
+          return; // Wait for discard selection
+        } else if (additionalCost.type === 'sacrifice') {
+          // Find valid sacrifice targets
+          const battlefield = game.state?.battlefield || [];
+          const validSacrificeTargets = battlefield.filter((p: any) => {
+            if (p.controller !== playerId) return false;
+            const tl = (p.card?.type_line || '').toLowerCase();
+            if (!additionalCost.filter) return true;
+            return tl.includes(additionalCost.filter.toLowerCase());
+          });
+          
+          if (validSacrificeTargets.length < additionalCost.amount) {
+            socket.emit("error", {
+              code: "CANNOT_PAY_COST",
+              message: `Cannot cast ${cardInHand.name}: You need to sacrifice ${additionalCost.amount} ${additionalCost.filter || 'permanent'}(s) but don't control enough.`,
+            });
+            return;
+          }
+          
+          socket.emit("additionalCostRequest", {
+            gameId,
+            cardId,
+            cardName: cardInHand.name,
+            costType: 'sacrifice',
+            amount: additionalCost.amount,
+            filter: additionalCost.filter,
+            title: `Sacrifice ${additionalCost.amount} ${additionalCost.filter || 'permanent'}${additionalCost.amount > 1 ? 's' : ''} to cast ${cardInHand.name}`,
+            description: `As an additional cost to cast ${cardInHand.name}, sacrifice ${additionalCost.amount} ${additionalCost.filter || 'permanent'}${additionalCost.amount > 1 ? 's' : ''}.`,
+            imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            availableTargets: validSacrificeTargets.map((p: any) => ({
+              id: p.id,
+              name: p.card?.name || 'Unknown',
+              imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+            })),
+            effectId: `addcost_${cardId}_${Date.now()}`,
+          });
+          
+          console.log(`[castSpellFromHand] Requesting sacrifice of ${additionalCost.amount} ${additionalCost.filter || 'permanent'}(s) for ${cardInHand.name}`);
+          return; // Wait for sacrifice selection
+        }
+      }
 
       // Check if this spell requires targets (oracleText is already defined above)
       // IMPORTANT: Only check for targeting if:
@@ -5143,6 +5223,120 @@ export function registerGameActions(io: Server, socket: Socket) {
     } catch (err: any) {
       console.error(`lifePaymentConfirm error:`, err);
       socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "Life payment failed" });
+    }
+  });
+
+  /**
+   * Handle additional cost confirmation (discard, sacrifice, etc.)
+   * This handles cards like Seize the Spoils, Faithless Looting, etc.
+   */
+  socket.on("additionalCostConfirm", async ({ gameId, cardId, costType, selectedCards, effectId }: {
+    gameId: string;
+    cardId: string;
+    costType: 'discard' | 'sacrifice';
+    selectedCards: string[]; // IDs of cards/permanents selected to pay the cost
+    effectId?: string;
+  }) => {
+    try {
+      const playerId = socket.data.playerId as string | undefined;
+      if (!playerId) {
+        socket.emit("error", { code: "NOT_JOINED", message: "You must join the game first" });
+        return;
+      }
+
+      const game = ensureGame(gameId);
+      if (!game) {
+        socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+        return;
+      }
+
+      const zones = game.state.zones?.[playerId];
+      if (!zones) {
+        socket.emit("error", { code: "NO_ZONES", message: "Player zones not found" });
+        return;
+      }
+
+      const cardInHand = (zones.hand as any[]).find((c: any) => c && c.id === cardId);
+      if (!cardInHand) {
+        socket.emit("error", { code: "CARD_NOT_IN_HAND", message: "Card not found in hand" });
+        return;
+      }
+
+      console.log(`[additionalCostConfirm] ${playerId} paying ${costType} cost for ${cardInHand.name} with ${selectedCards.length} selection(s)`);
+
+      if (costType === 'discard') {
+        // Discard the selected cards
+        const discardedCards: string[] = [];
+        for (const discardId of selectedCards) {
+          const discardIndex = (zones.hand as any[]).findIndex((c: any) => c && c.id === discardId);
+          if (discardIndex !== -1) {
+            const discarded = (zones.hand as any[]).splice(discardIndex, 1)[0];
+            zones.graveyard = zones.graveyard || [];
+            discarded.zone = 'graveyard';
+            zones.graveyard.push(discarded);
+            discardedCards.push(discarded.name || 'Unknown');
+          }
+        }
+        zones.handCount = zones.hand.length;
+        zones.graveyardCount = zones.graveyard.length;
+
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} discards ${discardedCards.join(', ')} as an additional cost.`,
+          ts: Date.now(),
+        });
+      } else if (costType === 'sacrifice') {
+        // Sacrifice the selected permanents
+        const battlefield = game.state.battlefield || [];
+        const sacrificedNames: string[] = [];
+        
+        for (const permId of selectedCards) {
+          const permIndex = battlefield.findIndex((p: any) => p && p.id === permId);
+          if (permIndex !== -1) {
+            const perm = battlefield[permIndex];
+            battlefield.splice(permIndex, 1);
+            
+            // Move to graveyard
+            zones.graveyard = zones.graveyard || [];
+            if (perm.card) {
+              perm.card.zone = 'graveyard';
+              (zones.graveyard as any[]).push(perm.card);
+            }
+            sacrificedNames.push(perm.card?.name || 'Unknown');
+          }
+        }
+        zones.graveyardCount = zones.graveyard.length;
+
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} sacrifices ${sacrificedNames.join(', ')} as an additional cost.`,
+          ts: Date.now(),
+        });
+      }
+
+      // Mark the additional cost as paid and continue casting
+      (cardInHand as any).additionalCostPaid = true;
+      
+      // Emit event to continue the cast
+      socket.emit("additionalCostComplete", {
+        gameId,
+        cardId,
+        costType,
+        effectId,
+      });
+
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+      broadcastGame(io, game, gameId);
+
+    } catch (err: any) {
+      console.error(`additionalCostConfirm error:`, err);
+      socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "Additional cost payment failed" });
     }
   });
 

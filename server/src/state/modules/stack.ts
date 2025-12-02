@@ -1565,6 +1565,62 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
     }
     
+    // Handle "draw X, then discard Y" spells (Faithless Looting, Cathartic Reunion, Tormenting Voice, etc.)
+    // Pattern: "Draw two cards, then discard two cards" or "Draw two cards. Then discard two cards."
+    const drawThenDiscardMatch = oracleTextLower.match(/draw\s+(\d+|a|an|one|two|three|four|five)\s+cards?(?:\.|,)?\s*(?:then\s+)?discard\s+(\d+|a|an|one|two|three|four|five)\s+cards?/i);
+    if (drawThenDiscardMatch && !oracleTextLower.includes('each player')) {
+      const wordToNumber: Record<string, number> = { 
+        'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5
+      };
+      const drawCount = wordToNumber[drawThenDiscardMatch[1].toLowerCase()] || parseInt(drawThenDiscardMatch[1], 10) || 1;
+      const discardCount = wordToNumber[drawThenDiscardMatch[2].toLowerCase()] || parseInt(drawThenDiscardMatch[2], 10) || 1;
+      
+      try {
+        // Draw first
+        const drawn = drawCardsFromZone(ctx, controller, drawCount);
+        console.log(`[resolveTopOfStack] ${card.name}: ${controller} drew ${drawn.length} card(s)`);
+        
+        // Set up pending discard - the socket layer will prompt for discard selection
+        (state as any).pendingDiscard = (state as any).pendingDiscard || {};
+        (state as any).pendingDiscard[controller] = {
+          count: discardCount,
+          source: card.name || 'Spell',
+          reason: 'spell_effect',
+        };
+        console.log(`[resolveTopOfStack] ${card.name}: ${controller} must discard ${discardCount} card(s)`);
+      } catch (err) {
+        console.warn(`[resolveTopOfStack] Failed to process draw/discard for ${controller}:`, err);
+      }
+    }
+    
+    // Handle "draw cards and create treasure" spells (Seize the Spoils, Unexpected Windfall, etc.)
+    // Pattern: "Draw two cards and create a Treasure token"
+    const drawAndTreasureMatch = oracleTextLower.match(/draw\s+(\d+|a|an|one|two|three|four|five)\s+cards?.*(?:create|creates?)\s+(?:a|an|one|two|three|\d+)?\s*treasure\s+tokens?/i);
+    if (drawAndTreasureMatch && !oracleTextLower.includes('each player') && !drawThenDiscardMatch) {
+      const wordToNumber: Record<string, number> = { 
+        'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5
+      };
+      const drawCount = wordToNumber[drawAndTreasureMatch[1].toLowerCase()] || parseInt(drawAndTreasureMatch[1], 10) || 1;
+      
+      // Check how many treasures to create
+      const treasureCountMatch = oracleTextLower.match(/create\s+(?:a|an|(\d+)|one|two|three)\s*treasure\s+tokens?/i);
+      const treasureCount = treasureCountMatch && treasureCountMatch[1] ? 
+        parseInt(treasureCountMatch[1], 10) : 1;
+      
+      try {
+        const drawn = drawCardsFromZone(ctx, controller, drawCount);
+        console.log(`[resolveTopOfStack] ${card.name}: ${controller} drew ${drawn.length} card(s)`);
+        
+        // Create treasure tokens
+        for (let i = 0; i < treasureCount; i++) {
+          createTreasureToken(ctx, controller);
+        }
+        console.log(`[resolveTopOfStack] ${card.name}: ${controller} created ${treasureCount} Treasure token(s)`);
+      } catch (err) {
+        console.warn(`[resolveTopOfStack] Failed to process draw/treasure for ${controller}:`, err);
+      }
+    }
+    
     // Handle tutor spells (Demonic Tutor, Vampiric Tutor, Diabolic Tutor, Kodama's Reach, Cultivate, etc.)
     // These need to trigger a library search prompt for the player
     const tutorInfo = detectTutorSpell(oracleText);
@@ -2224,6 +2280,33 @@ function createTokenFromSpec(ctx: GameContext, controller: PlayerID, spec: Token
       toughness: String(spec.toughness),
       zone: "battlefield",
       colors: spec.colors,
+    },
+  } as any);
+}
+
+/**
+ * Create a Treasure token on the battlefield
+ * Treasure tokens have: "{T}, Sacrifice this artifact: Add one mana of any color."
+ */
+function createTreasureToken(ctx: GameContext, controller: PlayerID): void {
+  const { state } = ctx;
+  
+  state.battlefield = state.battlefield || [];
+  const tokenId = uid("treasure");
+  state.battlefield.push({
+    id: tokenId,
+    controller,
+    owner: controller,
+    tapped: false,
+    counters: {},
+    isToken: true,
+    card: {
+      id: tokenId,
+      name: "Treasure",
+      type_line: "Token Artifact — Treasure",
+      oracle_text: "{T}, Sacrifice this artifact: Add one mana of any color.",
+      zone: "battlefield",
+      colors: [],
     },
   } as any);
 }
