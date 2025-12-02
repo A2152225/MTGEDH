@@ -1,11 +1,225 @@
 import type { PlayerID } from "../../../../shared/src/index.js";
 import type { GameContext } from "../context.js";
 import { uid, parsePT } from "../utils.js";
-import { recalculatePlayerEffects } from "./game-state-effects.js";
+import { recalculatePlayerEffects, hasMetalcraft, countArtifacts } from "./game-state-effects.js";
 import { categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
 import { getETBTriggersForPermanent, type TriggeredAbility } from "./triggered-abilities.js";
 import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone } from "./zones.js";
+
+/**
+ * Detect "enters with counters" patterns from a card's oracle text.
+ * Handles patterns like:
+ * - "~ enters the battlefield with N +1/+1 counter(s) on it"
+ * - "~ enters with N +1/+1 counter(s)"
+ * - Saga cards entering with lore counters
+ * - Creatures with fabricate, modular, etc.
+ * 
+ * @param card - The card to analyze
+ * @returns Object with counter types and amounts to add on ETB
+ */
+function detectEntersWithCounters(card: any): Record<string, number> {
+  const counters: Record<string, number> = {};
+  if (!card) return counters;
+  
+  const oracleText = (card.oracle_text || '').toLowerCase();
+  const typeLine = (card.type_line || '').toLowerCase();
+  
+  // Pattern 1: "enters the battlefield with N +1/+1 counter(s) on it"
+  // Also matches: "~ enters with N +1/+1 counters"
+  const counterPatterns = [
+    // Standard ETB with counters pattern
+    /enters (?:the battlefield )?with (\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s*([+\-\d\/]+|\w+)\s*counters?\s*(?:on it)?/gi,
+    // Planeswalker-style (handled separately for loyalty)
+    // Creature with static counter text
+    /(?:~|this creature) (?:enters|comes into play) with (\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s*([+\-\d\/]+|\w+)\s*counters?/gi,
+  ];
+  
+  for (const pattern of counterPatterns) {
+    let match;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      let countStr = match[1].toLowerCase();
+      let counterType = match[2].trim();
+      
+      // Convert word numbers to digits
+      const wordToNum: Record<string, number> = {
+        'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+        'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10
+      };
+      const count = wordToNum[countStr] !== undefined ? wordToNum[countStr] : parseInt(countStr, 10);
+      
+      if (!isNaN(count) && count > 0) {
+        counters[counterType] = (counters[counterType] || 0) + count;
+      }
+    }
+  }
+  
+  // Saga cards enter with 1 lore counter (Rule 714.3a)
+  // Check for Saga in type line
+  if (typeLine.includes('saga')) {
+    counters['lore'] = (counters['lore'] || 0) + 1;
+  }
+  
+  // Modular N - enters with N +1/+1 counters (Rule 702.43a)
+  const modularMatch = oracleText.match(/modular\s+(\d+)/i);
+  if (modularMatch) {
+    const n = parseInt(modularMatch[1], 10);
+    if (!isNaN(n) && n > 0) {
+      counters['+1/+1'] = (counters['+1/+1'] || 0) + n;
+    }
+  }
+  
+  // Fabricate N - may be distributed (simplified - puts on self if creature)
+  const fabricateMatch = oracleText.match(/fabricate\s+(\d+)/i);
+  if (fabricateMatch && typeLine.includes('creature')) {
+    const n = parseInt(fabricateMatch[1], 10);
+    if (!isNaN(n) && n > 0) {
+      // For simplicity, default to +1/+1 counters on self
+      // (Real implementation would ask player)
+      counters['+1/+1'] = (counters['+1/+1'] || 0) + n;
+    }
+  }
+  
+  // Unleash - may enter with +1/+1 counter (simplified - always add)
+  if (oracleText.includes('unleash')) {
+    counters['+1/+1'] = (counters['+1/+1'] || 0) + 1;
+  }
+  
+  // Undying creatures returning (handled by death trigger, not here)
+  
+  // Ravenous - if X >= 5 (handled separately with X value)
+  
+  // Devour (handled separately with sacrificed creatures count)
+  
+  // Tribute N - opponent may put counters (handled interactively)
+  
+  return counters;
+}
+
+/**
+ * Handle Dispatch and similar metalcraft-conditional spells.
+ * Dispatch: "Tap target creature. Metalcraft — If you control three or more artifacts, exile that creature instead."
+ * 
+ * @returns true if the spell was handled
+ */
+function handleDispatch(
+  ctx: GameContext, 
+  card: any, 
+  controller: PlayerID, 
+  targets: any[], 
+  state: any
+): boolean {
+  const oracleText = (card.oracle_text || '').toLowerCase();
+  const cardName = (card.name || '').toLowerCase();
+  
+  // Check for Dispatch specifically or similar patterns
+  // Pattern: "Tap target creature. Metalcraft — ... exile that creature instead"
+  const isDispatchPattern = 
+    cardName.includes('dispatch') ||
+    (oracleText.includes('tap target creature') && 
+     oracleText.includes('metalcraft') && 
+     oracleText.includes('exile'));
+  
+  if (!isDispatchPattern || targets.length === 0) {
+    return false;
+  }
+  
+  const battlefield = state.battlefield || [];
+  const targetPerm = battlefield.find((p: any) => p?.id === targets[0] || p?.id === targets[0]?.id);
+  
+  if (!targetPerm) {
+    console.log(`[handleDispatch] Target not found on battlefield`);
+    return false;
+  }
+  
+  // Check metalcraft using the centralized function
+  const metalcraftActive = hasMetalcraft(ctx, controller);
+  
+  if (metalcraftActive) {
+    // Exile the creature instead of tapping
+    const permIndex = battlefield.indexOf(targetPerm);
+    if (permIndex !== -1) {
+      battlefield.splice(permIndex, 1);
+      
+      // Move to exile zone
+      const owner = targetPerm.owner || targetPerm.controller;
+      const zones = state.zones || {};
+      zones[owner] = zones[owner] || { hand: [], graveyard: [], exile: [] };
+      zones[owner].exile = zones[owner].exile || [];
+      zones[owner].exile.push({ ...targetPerm.card, zone: 'exile' });
+      zones[owner].exileCount = zones[owner].exile.length;
+      
+      console.log(`[handleDispatch] Metalcraft active (${countArtifacts(ctx, controller)} artifacts) - exiled ${targetPerm.card?.name || targetPerm.id}`);
+    }
+  } else {
+    // Just tap the creature
+    targetPerm.tapped = true;
+    console.log(`[handleDispatch] Metalcraft inactive (${countArtifacts(ctx, controller)} artifacts) - tapped ${targetPerm.card?.name || targetPerm.id}`);
+  }
+  
+  return true;
+}
+
+/**
+ * Check if a card's metalcraft ability is active and apply appropriate effects.
+ * This handles both spells and permanents with metalcraft.
+ * Uses the centralized hasMetalcraft/countArtifacts from game-state-effects.
+ * 
+ * @param ctx - The game context
+ * @param oracleText - The card's oracle text
+ * @param controllerId - The controller's ID
+ * @returns Object with metalcraft status and any special effects
+ */
+function evaluateMetalcraft(
+  ctx: GameContext,
+  oracleText: string, 
+  controllerId: string
+): { isActive: boolean; artifactCount: number; effects: string[] } {
+  const text = oracleText.toLowerCase();
+  
+  // Check if the card even has metalcraft
+  if (!text.includes('metalcraft')) {
+    return { isActive: false, artifactCount: 0, effects: [] };
+  }
+  
+  const artifactCount = countArtifacts(ctx, controllerId);
+  const isActive = hasMetalcraft(ctx, controllerId);
+  const effects: string[] = [];
+  
+  if (isActive) {
+    // Parse metalcraft effects
+    // Common patterns:
+    // "Metalcraft — [effect]" or "Metalcraft — As long as you control three or more artifacts, [effect]"
+    
+    // Equipment equip cost reduction (Puresteel Paladin)
+    if (text.includes('equip costs') && (text.includes('{0}') || text.includes('cost {0}'))) {
+      effects.push('equip_cost_zero');
+    }
+    
+    // Draw on artifact ETB (Puresteel Paladin)
+    if (text.includes('whenever an equipment enters') && text.includes('draw a card')) {
+      effects.push('draw_on_equipment_etb');
+    }
+    
+    // Indestructible (Darksteel Juggernaut has no metalcraft but similar)
+    if (text.includes('indestructible')) {
+      effects.push('indestructible');
+    }
+    
+    // +2/+2 bonus (Carapace Forger)
+    if (text.match(/gets?\s+\+(\d+)\/\+(\d+)/)) {
+      effects.push('power_toughness_bonus');
+    }
+    
+    // Exile instead of other effect (Dispatch)
+    if (text.includes('exile') && text.includes('instead')) {
+      effects.push('exile_instead');
+    }
+  }
+  
+  return { isActive, artifactCount, effects };
+}
 
 /**
  * Stack / resolution helpers (extracted).
@@ -1295,6 +1509,13 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
     }
     
+    // Check for "enters with counters" patterns (Zack Fair, modular creatures, sagas, etc.)
+    const etbCounters = detectEntersWithCounters(card);
+    for (const [counterType, count] of Object.entries(etbCounters)) {
+      initialCounters[counterType] = (initialCounters[counterType] || 0) + count;
+      console.log(`[resolveTopOfStack] ${card.name} enters with ${count} ${counterType} counter(s)`);
+    }
+    
     state.battlefield = state.battlefield || [];
     const newPermId = uid("perm");
     const newPermanent = {
@@ -1302,7 +1523,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       controller,
       owner: controller,
       tapped: false,
-      counters: initialCounters,
+      counters: Object.keys(initialCounters).length > 0 ? initialCounters : undefined,
       basePower: baseP,
       baseToughness: baseT,
       summoningSickness: hasSummoningSickness,
@@ -1429,6 +1650,10 @@ export function resolveTopOfStack(ctx: GameContext) {
         }
       }
     }
+    
+    // Handle Dispatch and similar metalcraft spells
+    // Dispatch: "Tap target creature. Metalcraft — If you control three or more artifacts, exile that creature instead."
+    const dispatchHandled = handleDispatch(ctx, card, controller, targets, state);
     
     // Handle token creation spells (where the caster creates tokens)
     // Patterns: "create X 1/1 tokens", "create two 1/1 tokens", etc.
@@ -1618,6 +1843,38 @@ export function resolveTopOfStack(ctx: GameContext) {
         console.log(`[resolveTopOfStack] ${card.name}: ${controller} created ${treasureCount} Treasure token(s)`);
       } catch (err) {
         console.warn(`[resolveTopOfStack] Failed to process draw/treasure for ${controller}:`, err);
+      }
+    }
+    
+    // Handle simple "Draw X cards" spells (Harmonize, Concentrate, Jace's Ingenuity, etc.)
+    // Pattern: "Draw three cards." or "Draw four cards." 
+    // This is the imperative form without "you" and catches cards like Harmonize
+    // Must NOT match other patterns we've already handled
+    if (!eachPlayerDrawsMatch && !youDrawMatch && !drawThenDiscardMatch && !drawAndTreasureMatch) {
+      // First try exact match for simple draw spells (e.g., "Draw three cards.")
+      // Then try to find "draw X cards" anywhere in the text if it's the main effect
+      const simpleDrawMatch = oracleTextLower.match(/^draw\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?\.?$/i) ||
+                              oracleTextLower.match(/^draw\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?\s*$/i);
+      
+      // Also handle cards where "Draw X cards" is at the start but may have a period
+      const altDrawMatch = !simpleDrawMatch && oracleTextLower.startsWith('draw ') ?
+        oracleTextLower.match(/^draw\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?/i) : null;
+      
+      const matchToUse = simpleDrawMatch || altDrawMatch;
+      
+      if (matchToUse) {
+        const wordToNumber: Record<string, number> = { 
+          'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+          'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10
+        };
+        const drawCount = wordToNumber[matchToUse[1].toLowerCase()] || parseInt(matchToUse[1], 10) || 1;
+        
+        try {
+          const drawn = drawCardsFromZone(ctx, controller, drawCount);
+          console.log(`[resolveTopOfStack] ${card.name}: ${controller} drew ${drawn.length} card(s) (simple draw spell)`);
+        } catch (err) {
+          console.warn(`[resolveTopOfStack] Failed to draw cards for ${controller}:`, err);
+        }
       }
     }
     
