@@ -654,21 +654,54 @@ function getManaProduction(card: any): string[] {
 
 /**
  * Check if a permanent has a mana ability (can tap for mana)
+ * IMPORTANT: Cards that "create" treasure tokens should NOT be treated as having mana abilities
+ * Only actual Treasure tokens (with the sacrifice ability) have mana abilities
  */
 function hasManaAbility(card: any): boolean {
   const oracleText = (card?.oracle_text || '').toLowerCase();
   const typeLine = (card?.type_line || '').toLowerCase();
+  const cardName = (card?.name || '').toLowerCase();
   
   // Lands always have implicit mana abilities (basic lands)
   if (typeLine.includes('land')) return true;
+  
+  // IMPORTANT: Cards that "create" treasure/food/clue tokens do NOT have mana abilities
+  // Only actual Treasure tokens have mana abilities
+  // Detect cards that create treasures vs actual treasures
+  if (oracleText.includes('create') && 
+      (oracleText.includes('treasure') || oracleText.includes('food') || oracleText.includes('clue'))) {
+    // This card creates tokens, it's not itself a token with mana ability
+    // Check if it's actually a Treasure subtype by looking at type_line
+    const hasEmDash = typeLine.includes("—") || typeLine.includes("-");
+    if (hasEmDash) {
+      const subtypePortion = typeLine.split(/[—-]/)[1] || "";
+      // If not an actual Treasure/Food/Clue subtype, don't give it mana abilities
+      if (!subtypePortion.includes("treasure") && 
+          !subtypePortion.includes("food") && 
+          !subtypePortion.includes("clue")) {
+        return false;
+      }
+    } else {
+      // No subtype section, so this is a card that creates tokens, not a token itself
+      return false;
+    }
+  }
   
   // Check for tap-to-add-mana pattern: "{T}: Add" or "{T}, ... : Add"
   if (oracleText.includes('{t}') && oracleText.includes('add {')) return true;
   if (oracleText.includes('{t}') && oracleText.includes('add one mana')) return true;
   if (oracleText.includes('{t}') && oracleText.includes('add mana')) return true;
   
+  // Treasure tokens: "{T}, Sacrifice this artifact: Add one mana of any color."
+  // Check for this specific pattern (sacrifice to add mana)
+  if (oracleText.includes('sacrifice') && oracleText.includes('add one mana of any color')) {
+    // Verify it's actually a Treasure artifact by checking type_line
+    if (typeLine.includes('treasure') || typeLine.includes('artifact')) {
+      return true;
+    }
+  }
+  
   // Known mana rocks and dorks
-  const cardName = (card?.name || '').toLowerCase();
   const knownManaSources = [
     'sol ring', 'mana crypt', 'mana vault', 'arcane signet', 'mind stone',
     'fellwar stone', 'thought vessel', 'commander\'s sphere', 'chromatic lantern',

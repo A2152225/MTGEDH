@@ -9,9 +9,10 @@ export type SpellOp =
   | 'DESTROY_ALL' | 'EXILE_ALL'
   | 'DESTROY_EACH' | 'DAMAGE_EACH'
   | 'ANY_TARGET_DAMAGE'
+  | 'TARGET_PERMANENT' | 'TARGET_CREATURE' | 'TARGET_PLAYER'
   | 'COUNTER_TARGET_SPELL' | 'COUNTER_TARGET_ABILITY';
 
-export type PermanentFilter = 'ANY' | 'CREATURE' | 'PLANESWALKER' | 'PERMANENT';
+export type PermanentFilter = 'ANY' | 'CREATURE' | 'PLANESWALKER' | 'PERMANENT' | 'ARTIFACT' | 'ENCHANTMENT' | 'LAND';
 
 // Spell type filter for counterspells
 export type SpellTypeFilter = 'ANY_SPELL' | 'INSTANT_SORCERY' | 'NONCREATURE' | 'CREATURE_SPELL';
@@ -23,7 +24,116 @@ export type SpellSpec = {
   maxTargets: number;
   amount?: number;
   spellTypeFilter?: SpellTypeFilter; // For counterspells that only counter certain spell types
+  targetDescription?: string; // Human-readable description of what can be targeted
 };
+
+/**
+ * Detect if a spell requires targets based on oracle text
+ * This is a comprehensive check that looks for ANY "target" pattern in the spell text
+ * 
+ * MTG Rules 601.2c: The player announces targets for the spell.
+ * Targets must be chosen before costs are paid.
+ */
+export function requiresTargeting(oracleText?: string): boolean {
+  if (!oracleText) return false;
+  const t = oracleText.toLowerCase();
+  
+  // Skip if this is an enchant aura (handled separately)
+  if (/^enchant\s+/.test(t)) return false;
+  
+  // Check for "target" keyword followed by a valid target type
+  // This catches ALL spells that require targets
+  const targetPatterns = [
+    /target\s+(?:creature|permanent|artifact|enchantment|land|player|opponent|planeswalker)/i,
+    /any\s+target/i,
+    /target\s+spell/i,
+    /target\s+(?:activated|triggered)\s+ability/i,
+    /up\s+to\s+\w+\s+target/i,
+    /target\s+(?:nonland|noncreature|nonartifact)/i,
+    /each\s+target/i,
+  ];
+  
+  return targetPatterns.some(pattern => pattern.test(t));
+}
+
+/**
+ * Parse target requirements from oracle text
+ * Returns details about what types of targets are needed and how many
+ */
+export function parseTargetRequirements(oracleText?: string): {
+  needsTargets: boolean;
+  targetTypes: string[];
+  minTargets: number;
+  maxTargets: number;
+  targetDescription: string;
+} {
+  if (!oracleText) return { needsTargets: false, targetTypes: [], minTargets: 0, maxTargets: 0, targetDescription: '' };
+  
+  const t = oracleText.toLowerCase();
+  const targetTypes: string[] = [];
+  let minTargets = 0;
+  let maxTargets = 0;
+  let targetDescription = '';
+  
+  // Check for "up to X target" patterns
+  const upToMatch = t.match(/up\s+to\s+(\w+)\s+target\s+(\w+)/i);
+  if (upToMatch) {
+    const numWord = upToMatch[1];
+    const targetType = upToMatch[2];
+    const numMap: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
+    maxTargets = numMap[numWord] || parseInt(numWord, 10) || 1;
+    minTargets = 0; // "up to" means minimum is 0
+    targetTypes.push(targetType);
+    targetDescription = `up to ${numWord} target ${targetType}`;
+    return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription };
+  }
+  
+  // Check for "X target" patterns (e.g., "two target creatures")
+  const multiTargetMatch = t.match(/(\w+)\s+target\s+(\w+)/i);
+  if (multiTargetMatch) {
+    const numWord = multiTargetMatch[1];
+    const targetType = multiTargetMatch[2];
+    const numMap: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
+    const num = numMap[numWord] || parseInt(numWord, 10);
+    if (num && num > 0) {
+      minTargets = num;
+      maxTargets = num;
+      targetTypes.push(targetType);
+      targetDescription = `${numWord} target ${targetType}`;
+      return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription };
+    }
+  }
+  
+  // Check for "any target" (can target creatures, planeswalkers, or players)
+  if (/any\s+target/i.test(t)) {
+    minTargets = 1;
+    maxTargets = 1;
+    targetTypes.push('any');
+    targetDescription = 'any target';
+    return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription };
+  }
+  
+  // Check for standard "target X" patterns
+  const targetMatch = t.match(/target\s+(creature|permanent|artifact|enchantment|land|player|opponent|planeswalker|spell|nonland\s+permanent|noncreature\s+permanent)/i);
+  if (targetMatch) {
+    minTargets = 1;
+    maxTargets = 1;
+    targetTypes.push(targetMatch[1]);
+    targetDescription = `target ${targetMatch[1]}`;
+    return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription };
+  }
+  
+  // Check for "target activated or triggered ability"
+  if (/target\s+(?:activated|triggered)\s+ability/i.test(t)) {
+    minTargets = 1;
+    maxTargets = 1;
+    targetTypes.push('ability');
+    targetDescription = 'target ability';
+    return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription };
+  }
+  
+  return { needsTargets: false, targetTypes: [], minTargets: 0, maxTargets: 0, targetDescription: '' };
+}
 
 export function categorizeSpell(_name: string, oracleText?: string): SpellSpec | null {
   const t = (oracleText || '').toLowerCase();
@@ -100,6 +210,22 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
 
   if (/exile target/.test(t)) return { op: 'EXILE_TARGET', filter, minTargets: 1, maxTargets: 1 };
   if (/destroy target/.test(t)) return { op: 'DESTROY_TARGET', filter, minTargets: 1, maxTargets: 1 };
+  
+  // Chaos Warp and similar shuffle effects: "target permanent" or "of target permanent"
+  if (/(?:of )?target permanent/.test(t) && /shuffles? it into/.test(t)) {
+    return { op: 'DESTROY_TARGET', filter: 'PERMANENT', minTargets: 1, maxTargets: 1 };
+  }
+  
+  // Generic "target permanent" patterns for spells that affect permanents
+  // This catches spells like Chaos Warp that don't use standard destroy/exile wording
+  if (/target permanent\b/.test(t) && !(/enchant/.test(t))) {
+    return { op: 'DESTROY_TARGET', filter: 'PERMANENT', minTargets: 1, maxTargets: 1 };
+  }
+  
+  // Target creature/artifact/enchantment patterns without destroy/exile
+  if (/target creature\b/.test(t) && !(/enchant/.test(t))) {
+    return { op: 'DESTROY_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1 };
+  }
 
   if (/any target/.test(t) && /\bdamage\b/.test(t)) {
     const m = t.match(/(\d+)\s+damage/);

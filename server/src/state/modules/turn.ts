@@ -1456,19 +1456,45 @@ export function nextStep(ctx: GameContext) {
               // Store pending triggers on the game state for the socket layer to process
               (ctx as any).state.pendingUpkeepTriggers = upkeepTriggers;
               
-              // Push mandatory upkeep triggers onto the stack
-              // Active player's triggers are put on the stack in the order they choose (APNAP),
-              // but for simplicity we push them in order detected
+              // Group triggers by controller for APNAP ordering
+              const triggersByController = new Map<string, typeof upkeepTriggers>();
               for (const trigger of upkeepTriggers) {
                 if (trigger.mandatory && trigger.triggerType === 'upkeep_effect') {
+                  const controller = trigger.permanentId ? 
+                    ((ctx as any).state.battlefield || []).find((p: any) => p?.id === trigger.permanentId)?.controller || turnPlayer 
+                    : turnPlayer;
+                  const existing = triggersByController.get(controller) || [];
+                  existing.push(trigger);
+                  triggersByController.set(controller, existing);
+                }
+              }
+              
+              // If a player has multiple triggers, they need to choose the order (APNAP rule)
+              // For now, if a player has 2+ triggers, set a flag for the socket layer to handle ordering
+              for (const [controller, triggers] of triggersByController.entries()) {
+                if (triggers.length > 1) {
+                  // Store pending trigger ordering request
+                  (ctx as any).state.pendingTriggerOrdering = (ctx as any).state.pendingTriggerOrdering || {};
+                  (ctx as any).state.pendingTriggerOrdering[controller] = {
+                    timing: 'upkeep',
+                    triggers: triggers.map(t => ({
+                      id: `upkeep_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                      cardName: t.cardName,
+                      description: t.description,
+                      permanentId: t.permanentId,
+                      effect: t.effect,
+                    })),
+                  };
+                  console.log(`${ts()} [nextStep] ${controller} has ${triggers.length} upkeep triggers to order`);
+                } else if (triggers.length === 1) {
+                  // Single trigger, just push to stack
+                  const trigger = triggers[0];
                   const triggerId = `upkeep_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
                   (ctx as any).state.stack = (ctx as any).state.stack || [];
                   (ctx as any).state.stack.push({
                     id: triggerId,
                     type: 'triggered_ability',
-                    controller: trigger.permanentId ? 
-                      ((ctx as any).state.battlefield || []).find((p: any) => p?.id === trigger.permanentId)?.controller || turnPlayer 
-                      : turnPlayer,
+                    controller,
                     source: trigger.permanentId,
                     sourceName: trigger.cardName,
                     description: trigger.description,

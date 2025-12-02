@@ -1406,9 +1406,17 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const oracleText = (card?.oracle_text || "").toLowerCase();
     const typeLine = (card?.type_line || "").toLowerCase();
     const isCreature = typeLine.includes("creature");
+    const isLand = typeLine.includes("land");
     
     // Check if this is a fetch land or similar with search effect
-    const isFetchLand = oracleText.includes("sacrifice") && oracleText.includes("search your library");
+    // IMPORTANT: Only lands that specifically search for land cards should trigger library search
+    // Creatures like Magda, Brazen Outlaw search for artifacts/dragons, not lands
+    const searchesForLand = oracleText.includes("land card") || 
+      oracleText.match(/search[^.]*for[^.]*(?:forest|plains|island|swamp|mountain)/) !== null;
+    const isFetchLand = isLand && !isCreature && 
+      oracleText.includes("sacrifice") && 
+      oracleText.includes("search your library") &&
+      searchesForLand;
     
     // Remove from battlefield
     battlefield.splice(permIndex, 1);
@@ -1585,13 +1593,26 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     
     // Handle fetch land ability
     // Support both legacy "fetch-land" format and new parser format like "${cardId}-fetch-${index}"
-    // Also validate that this is actually a land that fetches (not a spell or artifact)
+    // Also validate that this is actually a land that fetches (not a spell, creature, or artifact)
+    // IMPORTANT: Creatures like Magda, Brazen Outlaw have "sacrifice...search your library" text
+    // but are NOT fetch lands - they search for non-land cards (artifacts, dragons, etc.)
     const isLand = typeLine.includes("land");
-    const hasFetchPattern = oracleText.includes("sacrifice") && oracleText.includes("search your library") && 
-      (oracleText.includes("land card") || oracleText.includes("forest") || oracleText.includes("plains") || 
-       oracleText.includes("island") || oracleText.includes("swamp") || oracleText.includes("mountain"));
+    const isCreature = typeLine.includes("creature");
+    const isArtifact = typeLine.includes("artifact") && !typeLine.includes("land");
+    
+    // A true fetch land pattern requires:
+    // 1. It's a land (not creature, not non-land artifact)
+    // 2. Has sacrifice + search your library
+    // 3. Specifically searches for LAND cards (not artifacts, dragons, etc.)
+    const hasFetchPattern = oracleText.includes("sacrifice") && 
+      oracleText.includes("search your library") && 
+      (oracleText.includes("land card") || 
+       // Check for basic land type searching like "search...for a forest or plains"
+       (oracleText.match(/search[^.]*for[^.]*(?:forest|plains|island|swamp|mountain)/) !== null));
+    
+    // Exclude creatures and non-land artifacts from fetch land detection
     const isFetchLandAbility = (abilityId === "fetch-land" || abilityId.includes("-fetch-")) && 
-      (isLand && hasFetchPattern);
+      isLand && !isCreature && !isArtifact && hasFetchPattern;
     if (isFetchLandAbility) {
       // Validate: permanent must not be tapped
       if ((permanent as any).tapped) {

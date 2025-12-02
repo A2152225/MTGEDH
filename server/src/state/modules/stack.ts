@@ -390,6 +390,49 @@ function executeTriggerEffect(
     console.log(`[executeTriggerEffect] ${playerId} ${action} ${amount} life (${currentLife} -> ${state.life[playerId]})`);
   };
   
+  // ===== COMBINED EFFECT HANDLERS =====
+  // These handle triggers with multiple effects in one description (like Phyrexian Arena)
+  // Process ALL matching effects, not just the first one
+  
+  let handled = false;
+  
+  // Pattern: "Draw a card" (standalone or as part of combined effect)
+  if (desc.includes('draw a card') || desc.includes('draw 1 card') || desc.match(/draw \d+ cards?/i)) {
+    const drawCountMatch = desc.match(/draw (\d+) cards?/i);
+    const drawCount = drawCountMatch ? parseInt(drawCountMatch[1], 10) : 1;
+    
+    state.pendingDraws = state.pendingDraws || {};
+    state.pendingDraws[controller] = (state.pendingDraws[controller] || 0) + drawCount;
+    console.log(`[executeTriggerEffect] ${controller} will draw ${drawCount} card(s) from ${sourceName}`);
+    handled = true;
+  }
+  
+  // Pattern: "you lose X life" (combined effect)
+  const youLoseLifeMatch = desc.match(/you lose (\d+) life/i);
+  if (youLoseLifeMatch) {
+    const amount = parseInt(youLoseLifeMatch[1], 10);
+    modifyLife(controller, -amount);
+    console.log(`[executeTriggerEffect] ${controller} loses ${amount} life from ${sourceName}`);
+    handled = true;
+  }
+  
+  // Pattern: "you gain X life" (combined effect)
+  const youGainLifeMatch = desc.match(/you gain (\d+) life/i);
+  if (youGainLifeMatch) {
+    const amount = parseInt(youGainLifeMatch[1], 10);
+    modifyLife(controller, amount);
+    console.log(`[executeTriggerEffect] ${controller} gains ${amount} life from ${sourceName}`);
+    handled = true;
+  }
+  
+  // If we handled any combined effects, we're done
+  if (handled) {
+    return;
+  }
+  
+  // ===== SINGLE EFFECT HANDLERS =====
+  // These are for triggers that have only one effect
+  
   // Pattern: "You gain X life"
   const gainLifeMatch = desc.match(/you gain (\d+) life/i);
   if (gainLifeMatch) {
@@ -860,17 +903,12 @@ function executeTriggerEffect(
     return;
   }
   
-  // Pattern: "you lose X life" (Phyrexian Arena style)
-  const youLoseLifeMatch = desc.match(/you lose (\d+) life/i);
-  if (youLoseLifeMatch) {
-    const amount = parseInt(youLoseLifeMatch[1], 10);
+  // Pattern: "you lose X life" (Phyrexian Arena style) - LEGACY handler for single effects
+  // NOTE: Combined effects are now handled earlier in the function
+  const singleYouLoseLifeMatch = desc.match(/you lose (\d+) life/i);
+  if (singleYouLoseLifeMatch && !desc.includes('draw')) {
+    const amount = parseInt(singleYouLoseLifeMatch[1], 10);
     modifyLife(controller, -amount);
-    // Check for "draw a card" in same trigger
-    if (desc.includes('draw a card') || desc.includes('draw 1 card')) {
-      state.pendingDraws = state.pendingDraws || {};
-      state.pendingDraws[controller] = (state.pendingDraws[controller] || 0) + 1;
-      console.log(`[executeTriggerEffect] ${controller} will draw 1 card`);
-    }
     return;
   }
   
@@ -994,6 +1032,49 @@ function executeTriggerEffect(
           console.log(`[executeTriggerEffect] Returned ${targetPerm.card?.name || targetPerm.id} to owner's hand`);
         }
       }
+    }
+    return;
+  }
+  
+  // Pattern: "exile the top card of your library" (Prosper, Theater of Horrors, etc.)
+  // These cards let you play the exiled card until end of turn or end of next turn
+  const exileTopCardMatch = desc.match(/exile the top card of your library/i);
+  if (exileTopCardMatch) {
+    // Get the controller's library
+    const lib = (ctx as any).libraries?.get(controller);
+    if (lib && lib.length > 0) {
+      // Remove top card from library
+      const topCard = lib.shift();
+      (ctx as any).libraries?.set(controller, lib);
+      
+      // Update library count
+      const zones = state.zones?.[controller];
+      if (zones) {
+        zones.libraryCount = lib.length;
+      }
+      
+      // Add to exile zone with "can play" flag
+      state.exile = state.exile || [];
+      const exiledCard = {
+        ...topCard,
+        zone: 'exile',
+        canBePlayedBy: controller,
+        playableUntilTurn: (state.turnNumber || 0) + 1, // Until end of next turn
+        exiledBy: sourceName,
+      };
+      state.exile.push(exiledCard);
+      
+      // Also track in a pending impulse draw state for the UI
+      state.pendingImpulseDraws = state.pendingImpulseDraws || {};
+      state.pendingImpulseDraws[controller] = state.pendingImpulseDraws[controller] || [];
+      state.pendingImpulseDraws[controller].push({
+        cardId: topCard.id,
+        cardName: topCard.name,
+        exiledBy: sourceName,
+        playableUntilTurn: (state.turnNumber || 0) + 1,
+      });
+      
+      console.log(`[executeTriggerEffect] ${sourceName}: Exiled ${topCard.name || 'card'} from ${controller}'s library (can play until end of next turn)`);
     }
     return;
   }

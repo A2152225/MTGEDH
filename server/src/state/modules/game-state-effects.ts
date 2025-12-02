@@ -44,6 +44,71 @@
 
 import type { GameContext } from "../context.js";
 
+/**
+ * Check if a permanent is an actual Treasure token/artifact (not just a card that creates treasures)
+ * A Treasure has "Treasure" as a subtype in type_line (e.g., "Token Artifact — Treasure")
+ * Cards like "Dockside Extortionist" have "treasure" in oracle text but are NOT treasures
+ */
+export function isTreasureToken(permanent: any): boolean {
+  const typeLine = (permanent?.card?.type_line || "").toLowerCase();
+  const oracleText = (permanent?.card?.oracle_text || "").toLowerCase();
+  const cardName = (permanent?.card?.name || "").toLowerCase();
+  
+  // Check if type_line contains "treasure" as a subtype (after the em-dash or hyphen)
+  // Valid: "Token Artifact — Treasure", "Artifact — Treasure"
+  // Invalid: Cards that just mention "treasure" in name/text
+  const hasEmDash = typeLine.includes("—") || typeLine.includes("-");
+  if (hasEmDash) {
+    // Get the subtype portion (after the dash)
+    const subtypePortion = typeLine.split(/[—-]/)[1] || "";
+    // Must have "treasure" as a subtype, not in the main type
+    if (subtypePortion.includes("treasure")) {
+      return true;
+    }
+  }
+  
+  // For tokens without type_line parsing, check if it's explicitly a treasure token
+  if (permanent?.isToken && cardName === "treasure") {
+    return true;
+  }
+  
+  // Check for the standard Treasure token oracle text pattern
+  // Treasure tokens have: "{T}, Sacrifice this artifact: Add one mana of any color."
+  if (typeLine.includes("artifact") && 
+      oracleText.includes("sacrifice") && 
+      oracleText.includes("add one mana of any color") &&
+      // Must NOT have other complex abilities (real cards have more text)
+      oracleText.length < 100) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Check if a permanent is a Food, Clue, Blood, or other artifact token type
+ * Similar logic to isTreasureToken - checks actual subtype, not oracle text mentions
+ */
+export function isArtifactTokenSubtype(permanent: any, subtype: string): boolean {
+  const typeLine = (permanent?.card?.type_line || "").toLowerCase();
+  const subtypeLower = subtype.toLowerCase();
+  
+  const hasEmDash = typeLine.includes("—") || typeLine.includes("-");
+  if (hasEmDash) {
+    const subtypePortion = typeLine.split(/[—-]/)[1] || "";
+    if (subtypePortion.includes(subtypeLower)) {
+      return true;
+    }
+  }
+  
+  // For tokens without type_line parsing
+  if (permanent?.isToken && (permanent?.card?.name || "").toLowerCase() === subtypeLower) {
+    return true;
+  }
+  
+  return false;
+}
+
 export interface WinCondition {
   permanentId: string;
   cardName: string;
@@ -253,10 +318,8 @@ const WIN_CONDITIONS: Record<string, Omit<WinCondition, 'permanentId' | 'cardNam
     description: "Win if you control 10+ Treasures at upkeep",
     checkFunction: (ctx, playerId) => {
       const permanents = getActiveControlledPermanents(ctx, playerId);
-      const treasureCount = permanents.filter((p: any) => 
-        (p.card?.type_line || "").toLowerCase().includes("treasure") ||
-        (p.card?.name || "").toLowerCase().includes("treasure")
-      ).length;
+      // Use the isTreasureToken helper to properly identify actual Treasure tokens
+      const treasureCount = permanents.filter((p: any) => isTreasureToken(p)).length;
       return treasureCount >= 10;
     },
   },

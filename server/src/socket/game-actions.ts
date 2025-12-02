@@ -7,7 +7,7 @@ import { requiresCreatureTypeSelection, requestCreatureTypeSelection } from "./c
 import { checkAndPromptOpeningHandActions } from "./opening-hand";
 import { emitSacrificeUnlessPayPrompt } from "./triggers";
 import { detectSpellCastTriggers, type SpellCastTrigger } from "../state/modules/triggered-abilities";
-import { categorizeSpell, evaluateTargeting } from "../rules-engine/targeting";
+import { categorizeSpell, evaluateTargeting, requiresTargeting, parseTargetRequirements } from "../rules-engine/targeting";
 import { recalculatePlayerEffects } from "../state/modules/game-state-effects";
 import { PAY_X_LIFE_CARDS, getMaxPayableLife, validateLifePayment } from "../state/utils";
 
@@ -48,6 +48,77 @@ const BOUNCE_LANDS = new Set([
 /** Check if a card name is a bounce land */
 function isBounceLand(cardName: string): boolean {
   return BOUNCE_LANDS.has((cardName || "").toLowerCase().trim());
+}
+
+/**
+ * Detect scry on ETB from oracle text.
+ * Returns the scry amount if the land/permanent has "When ~ enters the battlefield, scry X"
+ * 
+ * This handles Temple of Malice and all other scry lands automatically.
+ * Pattern: "When ~ enters the battlefield, scry X" or "enters the battlefield, scry X"
+ */
+function detectScryOnETB(oracleText: string): number | null {
+  const lowerText = (oracleText || "").toLowerCase();
+  
+  // Check for scry on ETB patterns
+  // "When ~ enters the battlefield, scry 1" (Temples)
+  // "enters the battlefield, scry 2" (some cards)
+  const scryPatterns = [
+    /when\s+(?:~|this\s+\w+)\s+enters\s+(?:the\s+battlefield)?,?\s*scry\s+(\d+)/i,
+    /enters\s+(?:the\s+battlefield)?,?\s*scry\s+(\d+)/i,
+    // Also check for ", scry X." pattern at end of ETB effect
+    /enters\s+(?:the\s+battlefield)[^.]*,\s*scry\s+(\d+)/i,
+  ];
+  
+  for (const pattern of scryPatterns) {
+    const match = lowerText.match(pattern);
+    if (match) {
+      return parseInt(match[1], 10);
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Detect if a spell/permanent has additional costs like "discard a card" or "sacrifice a creature"
+ * Returns the additional cost requirement if found.
+ * 
+ * This handles Seize the Spoils, Faithless Looting, and similar cards.
+ * Pattern: "As an additional cost to cast this spell, discard a card"
+ */
+function detectAdditionalCost(oracleText: string): { type: 'discard' | 'sacrifice' | 'pay_life'; amount: number; filter?: string } | null {
+  const lowerText = (oracleText || "").toLowerCase();
+  
+  // "As an additional cost to cast this spell, discard a card"
+  const discardMatch = lowerText.match(/as an additional cost.*discard\s+(?:a|(\d+))\s+cards?/i);
+  if (discardMatch) {
+    return {
+      type: 'discard',
+      amount: discardMatch[1] ? parseInt(discardMatch[1], 10) : 1,
+    };
+  }
+  
+  // "As an additional cost to cast this spell, sacrifice a creature"
+  const sacrificeMatch = lowerText.match(/as an additional cost.*sacrifice\s+(?:a|an)\s+(\w+(?:\s+or\s+\w+)?)/i);
+  if (sacrificeMatch) {
+    return {
+      type: 'sacrifice',
+      amount: 1,
+      filter: sacrificeMatch[1].trim(),
+    };
+  }
+  
+  // "As an additional cost to cast this spell, pay X life"
+  const payLifeMatch = lowerText.match(/as an additional cost.*pay\s+(\d+)\s+life/i);
+  if (payLifeMatch) {
+    return {
+      type: 'pay_life',
+      amount: parseInt(payLifeMatch[1], 10),
+    };
+  }
+  
+  return null;
 }
 
 /**
@@ -1562,8 +1633,31 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
       }
 
-      // Check for "sacrifice unless you pay" ETB triggers (Transguild Promenade, Gateway Plaza, etc.)
+      // Check for scry on ETB (Temple of Malice, etc.)
       const oracleText = (cardInHand as any)?.oracle_text || '';
+      const scryAmount = detectScryOnETB(oracleText);
+      if (scryAmount && scryAmount > 0) {
+        // Emit scry prompt to the player
+        console.log(`[playLand] ${cardName} has "scry ${scryAmount}" ETB trigger`);
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${cardName} enters the battlefield. ${getPlayerName(game, playerId)} scries ${scryAmount}.`,
+          ts: Date.now(),
+        });
+        
+        // Emit scry event to the player - triggers the scry UI
+        emitToPlayer(io, playerId as string, "beginScryPrompt", {
+          gameId,
+          count: scryAmount,
+          sourceName: cardName,
+          sourceId: cardId,
+        });
+      }
+
+      // Check for "sacrifice unless you pay" ETB triggers (Transguild Promenade, Gateway Plaza, etc.)
       const sacrificeCost = detectSacrificeUnlessPayETB(cardName, oracleText);
       if (sacrificeCost) {
         // Find the permanent that was just played
@@ -1799,7 +1893,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       // targets when cast, even if they have activated/triggered abilities with "target" in the text.
       // This includes Equipment (which are artifacts) - they enter unattached and equipping is a separate ability.
       const isAura = typeLine.includes('aura');
-      const requiresTargetingCheck = isInstant || typeLine.includes('sorcery') || isAura;
+      const isInstantOrSorcery = isInstant || typeLine.includes('sorcery');
+      const requiresTargetingCheck = isInstantOrSorcery || isAura;
       
       // For Auras, determine valid targets based on "Enchant X" text
       // Common patterns: "Enchant creature", "Enchant player", "Enchant opponent", "Enchant permanent"
@@ -1811,7 +1906,15 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
       }
       
+      // Use comprehensive targeting detection for instants/sorceries
+      // This catches ALL spells with "target" in their text, not just specific patterns
       const spellSpec = (requiresTargetingCheck && !isAura) ? categorizeSpell(cardInHand.name || '', oracleText) : null;
+      
+      // If categorizeSpell didn't find a pattern but the spell has "target" in text,
+      // use the comprehensive detection
+      const targetReqs = (isInstantOrSorcery && !isAura) ? parseTargetRequirements(oracleText) : null;
+      const needsTargetSelection = (spellSpec && spellSpec.minTargets > 0) || 
+                                   (targetReqs && targetReqs.needsTargets && (!targets || targets.length === 0));
       
       // Handle Aura targeting separately from spell targeting
       if (isAura && auraTargetType && (!targets || targets.length === 0)) {
@@ -1911,14 +2014,128 @@ export function registerGameActions(io: Server, socket: Socket) {
         return; // Wait for target selection
       }
       
-      if (spellSpec && spellSpec.minTargets > 0) {
-        // This spell requires targets (instant/sorcery)
-        if (!targets || targets.length < spellSpec.minTargets) {
+      // Handle targeting for instants/sorceries
+      // Use BOTH spellSpec (for known patterns) and targetReqs (for any "target" text)
+      if (needsTargetSelection) {
+        // This spell requires targets - check if we have them already
+        const requiredMinTargets = spellSpec?.minTargets || targetReqs?.minTargets || 1;
+        const requiredMaxTargets = spellSpec?.maxTargets || targetReqs?.maxTargets || 1;
+        
+        if (!targets || targets.length < requiredMinTargets) {
           // Need to request targets from the player
-          // Use evaluateTargeting to find valid targets
-          const validTargets = evaluateTargeting(game.state as any, playerId, spellSpec);
+          // Build valid targets based on what the spell can target
+          let validTargetList: { id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string; typeLine?: string }[] = [];
           
-          if (validTargets.length === 0) {
+          // Use evaluateTargeting if we have a spellSpec
+          if (spellSpec) {
+            const validRefs = evaluateTargeting(game.state as any, playerId, spellSpec);
+            validTargetList = validRefs.map((t: any) => {
+              if (t.kind === 'permanent') {
+                const perm = (game.state.battlefield || []).find((p: any) => p.id === t.id);
+                return {
+                  id: t.id,
+                  kind: t.kind,
+                  name: perm?.card?.name || 'Unknown',
+                  imageUrl: perm?.card?.image_uris?.small || perm?.card?.image_uris?.normal,
+                  controller: perm?.controller,
+                  isOpponent: perm?.controller !== playerId,
+                };
+              } else if (t.kind === 'stack') {
+                const stackItem = (game.state.stack || []).find((s: any) => s.id === t.id);
+                return {
+                  id: t.id,
+                  kind: t.kind,
+                  name: stackItem?.card?.name || 'Unknown Spell',
+                  imageUrl: stackItem?.card?.image_uris?.small || stackItem?.card?.image_uris?.normal,
+                  controller: stackItem?.controller,
+                  isOpponent: stackItem?.controller !== playerId,
+                  typeLine: stackItem?.card?.type_line,
+                };
+              } else {
+                const player = (game.state.players || []).find((p: any) => p.id === t.id);
+                return {
+                  id: t.id,
+                  kind: t.kind,
+                  name: player?.name || t.id,
+                  isOpponent: t.id !== playerId,
+                };
+              }
+            });
+          } else if (targetReqs) {
+            // Build targets based on parsed requirements
+            for (const targetType of targetReqs.targetTypes) {
+              const targetTypeLower = targetType.toLowerCase();
+              if (targetTypeLower === 'creature' || targetTypeLower === 'permanent' || targetTypeLower === 'artifact' || 
+                  targetTypeLower === 'enchantment' || targetTypeLower === 'land' || targetTypeLower === 'planeswalker' ||
+                  targetTypeLower.includes('nonland') || targetTypeLower.includes('noncreature')) {
+                // Add battlefield permanents matching the type
+                const perms = (game.state.battlefield || []).filter((p: any) => {
+                  const tl = (p.card?.type_line || '').toLowerCase();
+                  if (targetTypeLower === 'permanent') return true;
+                  if (targetTypeLower.includes('nonland')) return !tl.includes('land');
+                  if (targetTypeLower.includes('noncreature')) return !tl.includes('creature');
+                  return tl.includes(targetTypeLower);
+                });
+                for (const perm of perms) {
+                  validTargetList.push({
+                    id: perm.id,
+                    kind: 'permanent',
+                    name: perm.card?.name || 'Unknown',
+                    imageUrl: perm.card?.image_uris?.small || perm.card?.image_uris?.normal,
+                    controller: perm.controller,
+                    isOpponent: perm.controller !== playerId,
+                  });
+                }
+              } else if (targetType === 'player' || targetType === 'opponent' || targetType === 'any') {
+                // Add players
+                const players = (game.state.players || []).filter((p: any) => {
+                  if (targetType === 'opponent') return p.id !== playerId;
+                  return true;
+                });
+                for (const p of players) {
+                  validTargetList.push({
+                    id: p.id,
+                    kind: 'player',
+                    name: p.name || p.id,
+                    isOpponent: p.id !== playerId,
+                  });
+                }
+                // If "any target", also add creatures and planeswalkers
+                if (targetType === 'any') {
+                  const perms = (game.state.battlefield || []).filter((p: any) => {
+                    const tl = (p.card?.type_line || '').toLowerCase();
+                    return tl.includes('creature') || tl.includes('planeswalker');
+                  });
+                  for (const perm of perms) {
+                    validTargetList.push({
+                      id: perm.id,
+                      kind: 'permanent',
+                      name: perm.card?.name || 'Unknown',
+                      imageUrl: perm.card?.image_uris?.small || perm.card?.image_uris?.normal,
+                      controller: perm.controller,
+                      isOpponent: perm.controller !== playerId,
+                    });
+                  }
+                }
+              } else if (targetType === 'spell') {
+                // Add spells on the stack
+                const stackItems = (game.state.stack || []).filter((s: any) => s.controller !== playerId);
+                for (const item of stackItems) {
+                  validTargetList.push({
+                    id: item.id,
+                    kind: 'stack',
+                    name: item.card?.name || 'Unknown Spell',
+                    imageUrl: item.card?.image_uris?.small || item.card?.image_uris?.normal,
+                    controller: item.controller,
+                    isOpponent: item.controller !== playerId,
+                    typeLine: item.card?.type_line,
+                  });
+                }
+              }
+            }
+          }
+          
+          if (validTargetList.length === 0) {
             socket.emit("error", {
               code: "NO_VALID_TARGETS",
               message: `No valid targets for ${cardInHand.name}`,
@@ -1926,71 +2143,39 @@ export function registerGameActions(io: Server, socket: Socket) {
             return;
           }
           
-          // Build target list with readable info for the client
-          const targetOptions = validTargets.map((t: any) => {
-            if (t.kind === 'permanent') {
-              const perm = (game.state.battlefield || []).find((p: any) => p.id === t.id);
-              return {
-                id: t.id,
-                kind: t.kind,
-                name: perm?.card?.name || 'Unknown',
-                imageUrl: perm?.card?.image_uris?.small || perm?.card?.image_uris?.normal,
-                controller: perm?.controller,
-                isOpponent: perm?.controller !== playerId,
-              };
-            } else if (t.kind === 'stack') {
-              // Stack target (for counterspells)
-              const stackItem = (game.state.stack || []).find((s: any) => s.id === t.id);
-              return {
-                id: t.id,
-                kind: t.kind,
-                name: stackItem?.card?.name || 'Unknown Spell',
-                imageUrl: stackItem?.card?.image_uris?.small || stackItem?.card?.image_uris?.normal,
-                controller: stackItem?.controller,
-                isOpponent: stackItem?.controller !== playerId,
-                typeLine: stackItem?.card?.type_line,
-              };
-            } else {
-              const player = (game.state.players || []).find((p: any) => p.id === t.id);
-              return {
-                id: t.id,
-                kind: t.kind,
-                name: player?.name || t.id,
-                isOpponent: t.id !== playerId,
-              };
-            }
-          });
-          
           // Emit target selection request
+          const targetDescription = targetReqs?.targetDescription || spellSpec?.targetDescription || 'target';
           socket.emit("targetSelectionRequest", {
             gameId,
             cardId,
             cardName: cardInHand.name,
             source: cardInHand.name,
-            title: `Choose target${spellSpec.maxTargets > 1 ? 's' : ''} for ${cardInHand.name}`,
+            title: `Choose ${targetDescription} for ${cardInHand.name}`,
             description: oracleText,
-            targets: targetOptions,
-            minTargets: spellSpec.minTargets,
-            maxTargets: spellSpec.maxTargets,
+            targets: validTargetList,
+            minTargets: requiredMinTargets,
+            maxTargets: requiredMaxTargets,
             effectId: `cast_${cardId}_${Date.now()}`,
           });
           
-          console.log(`[castSpellFromHand] Requesting ${spellSpec.minTargets}-${spellSpec.maxTargets} target(s) for ${cardInHand.name}`);
+          console.log(`[castSpellFromHand] Requesting ${requiredMinTargets}-${requiredMaxTargets} target(s) for ${cardInHand.name} (${targetDescription})`);
           return; // Wait for target selection
         }
         
-        // Validate provided targets
-        const validTargets = evaluateTargeting(game.state as any, playerId, spellSpec);
-        const validTargetIds = new Set(validTargets.map((t: any) => t.id));
-        
-        for (const target of targets) {
-          const targetId = typeof target === 'string' ? target : target.id;
-          if (!validTargetIds.has(targetId)) {
-            socket.emit("error", {
-              code: "INVALID_TARGET",
-              message: `Invalid target for ${cardInHand.name}`,
-            });
-            return;
+        // Validate provided targets if we have a spellSpec
+        if (spellSpec) {
+          const validRefs = evaluateTargeting(game.state as any, playerId, spellSpec);
+          const validTargetIds = new Set(validRefs.map((t: any) => t.id));
+          
+          for (const target of targets) {
+            const targetId = typeof target === 'string' ? target : target.id;
+            if (!validTargetIds.has(targetId)) {
+              socket.emit("error", {
+                code: "INVALID_TARGET",
+                message: `Invalid target for ${cardInHand.name}`,
+              });
+              return;
+            }
           }
         }
       }
