@@ -352,6 +352,56 @@ export interface ClientToServerEvents {
   abilitySacrificeConfirm: (payload: { gameId: GameID; pendingId: string; sacrificeTargetId: string }) => void;
   abilitySacrificeCancel: (payload: { gameId: GameID; pendingId: string }) => void;
 
+  // ===== MANA POOL MANIPULATION =====
+  
+  // Add mana to pool (manual adjustment or from effects)
+  addManaToPool: (payload: { 
+    gameId: GameID; 
+    color: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+    amount: number;
+    /** If adding restricted mana, specify the restriction type */
+    restriction?: 'creatures' | 'abilities' | 'colorless_spells' | 'artifacts' | 'legendary' | 
+                  'multicolored' | 'commander' | 'activated_abilities' | 'instant_sorcery' | 'specific_card';
+    /** For specific_card restriction, the card/permanent ID */
+    restrictedTo?: string;
+    /** Source permanent that produced this mana */
+    sourceId?: string;
+    /** Source permanent name */
+    sourceName?: string;
+  }) => void;
+  
+  // Remove mana from pool (manual adjustment)
+  removeManaFromPool: (payload: {
+    gameId: GameID;
+    color: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+    amount: number;
+    /** If removing from restricted pool, specify the index */
+    restrictedIndex?: number;
+  }) => void;
+  
+  // Set mana pool doesn't empty (for Horizon Stone, Omnath, etc.)
+  setManaPoolDoesNotEmpty: (payload: {
+    gameId: GameID;
+    sourceId: string;
+    sourceName: string;
+    /** 
+     * Target color to convert mana to. Examples:
+     * - 'colorless' for Kruphix, God of Horizons and Horizon Stone
+     * - 'black' for Omnath, Locus of All
+     * - 'red' for Ozai, the Phoenix King
+     * If omitted, mana is preserved as-is without conversion
+     */
+    convertsTo?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+    /** @deprecated Use convertsTo: 'colorless' instead */
+    convertsToColorless?: boolean;
+  }) => void;
+  
+  // Remove mana pool doesn't empty effect (when source leaves battlefield)
+  removeManaPoolDoesNotEmpty: (payload: {
+    gameId: GameID;
+    sourceId: string;
+  }) => void;
+
   // ===== PERMANENT MANIPULATION =====
   
   // Tap a permanent
@@ -676,6 +726,35 @@ export interface ServerToClientEvents {
       sourceName: string;
       description: string;
     }>;
+  }) => void;
+  
+  // Mana pool update notification
+  manaPoolUpdate: (payload: {
+    gameId: GameID;
+    playerId: PlayerID;
+    manaPool: {
+      white: number;
+      blue: number;
+      black: number;
+      red: number;
+      green: number;
+      colorless: number;
+      restricted?: Array<{
+        color: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+        amount: number;
+        restriction: string;
+        restrictedTo?: string;
+        sourceId?: string;
+        sourceName?: string;
+      }>;
+      doesNotEmpty?: boolean;
+      convertsToColorless?: boolean;
+      noEmptySourceIds?: string[];
+    };
+    /** Total mana in pool (including restricted) */
+    totalMana: number;
+    /** Reason for the update */
+    reason?: string;
   }) => void;
 
   // generic pushes from server

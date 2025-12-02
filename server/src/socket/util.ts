@@ -2119,3 +2119,314 @@ export function emitToPlayer(
     console.warn(`[util] emitToPlayer failed for ${event}:`, err);
   }
 }
+
+// ============================================================================
+// ENHANCED MANA POOL FUNCTIONS - Support for restricted mana
+// ============================================================================
+
+/**
+ * Mana restriction types for restricted mana
+ */
+export type ManaRestrictionType = 
+  | 'creatures'           // Can only be spent on creatures
+  | 'abilities'           // Can only be spent on abilities
+  | 'colorless_spells'    // Can only be spent on colorless spells
+  | 'artifacts'           // Can only be spent on artifacts
+  | 'legendary'           // Can only be spent on legendary spells
+  | 'multicolored'        // Can only be spent on multicolored spells
+  | 'commander'           // Can only be spent on commander costs
+  | 'activated_abilities' // Can only be spent to activate abilities
+  | 'instant_sorcery'     // Can only be spent on instants and sorceries
+  | 'specific_card';      // Can only be spent on a specific card or permanent
+
+/**
+ * Restricted mana entry in the mana pool
+ */
+export interface RestrictedManaEntry {
+  /** The type of mana (primary field for identifying the mana color) */
+  type?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+  amount: number;
+  restriction: ManaRestrictionType;
+  restrictedTo?: string;
+  sourceId?: string;
+  sourceName?: string;
+}
+
+/**
+ * Helper function to get the color from a restricted mana entry
+ * Uses the 'type' field as the primary source
+ */
+export function getManaEntryColor(entry: RestrictedManaEntry): 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless' {
+  return entry.type || 'colorless';
+}
+
+/**
+ * Enhanced mana pool with restricted mana support
+ */
+export interface EnhancedManaPool {
+  white: number;
+  blue: number;
+  black: number;
+  red: number;
+  green: number;
+  colorless: number;
+  restricted?: RestrictedManaEntry[];
+  doesNotEmpty?: boolean;
+  /** Target color to convert mana to (e.g., 'colorless', 'black', 'red') */
+  convertsTo?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+  /** @deprecated Use convertsTo instead */
+  convertsToColorless?: boolean;
+  noEmptySourceIds?: string[];
+}
+
+/**
+ * Get or initialize enhanced mana pool for a player
+ */
+export function getOrInitEnhancedManaPool(
+  gameState: any,
+  playerId: string
+): EnhancedManaPool {
+  gameState.manaPool = gameState.manaPool || {};
+  gameState.manaPool[playerId] = gameState.manaPool[playerId] || {
+    white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+  };
+  return gameState.manaPool[playerId];
+}
+
+/**
+ * Add restricted mana to a player's mana pool
+ */
+export function addRestrictedManaToPool(
+  gameState: any,
+  playerId: string,
+  color: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless',
+  amount: number,
+  restriction: ManaRestrictionType,
+  restrictedTo?: string,
+  sourceId?: string,
+  sourceName?: string
+): void {
+  const pool = getOrInitEnhancedManaPool(gameState, playerId);
+  pool.restricted = pool.restricted || [];
+  
+  // Check if there's already an entry with the same attributes (check both type and color for compatibility)
+  const existingIndex = pool.restricted.findIndex(
+    entry => getManaEntryColor(entry) === color && 
+             entry.restriction === restriction && 
+             entry.sourceId === sourceId &&
+             entry.restrictedTo === restrictedTo
+  );
+  
+  if (existingIndex >= 0) {
+    // Add to existing entry
+    pool.restricted[existingIndex].amount += amount;
+  } else {
+    // Create new entry
+    pool.restricted.push({
+      type: color,
+      amount,
+      restriction,
+      restrictedTo,
+      sourceId,
+      sourceName,
+    });
+  }
+}
+
+/**
+ * Remove restricted mana from pool
+ */
+export function removeRestrictedManaFromPool(
+  gameState: any,
+  playerId: string,
+  restrictedIndex: number,
+  amount: number = 1
+): boolean {
+  const pool = getOrInitEnhancedManaPool(gameState, playerId);
+  if (!pool.restricted || restrictedIndex >= pool.restricted.length) {
+    return false;
+  }
+  
+  const entry = pool.restricted[restrictedIndex];
+  if (entry.amount < amount) {
+    return false;
+  }
+  
+  if (entry.amount === amount) {
+    // Remove the entry entirely
+    pool.restricted.splice(restrictedIndex, 1);
+    if (pool.restricted.length === 0) {
+      delete pool.restricted;
+    }
+  } else {
+    entry.amount -= amount;
+  }
+  
+  return true;
+}
+
+/**
+ * Set the "doesn't empty" flag on a player's mana pool
+ * Used by effects like Horizon Stone, Omnath, Kruphix, Ozai
+ * 
+ * @param convertsTo - Target color to convert mana to (e.g., 'colorless', 'black', 'red')
+ * @param convertsToColorless - @deprecated Use convertsTo: 'colorless' instead
+ */
+export function setManaPoolDoesNotEmpty(
+  gameState: any,
+  playerId: string,
+  sourceId: string,
+  convertsTo?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless',
+  convertsToColorless: boolean = false
+): void {
+  const pool = getOrInitEnhancedManaPool(gameState, playerId);
+  pool.doesNotEmpty = true;
+  
+  // Support both new convertsTo and deprecated convertsToColorless
+  if (convertsTo) {
+    pool.convertsTo = convertsTo;
+  } else if (convertsToColorless) {
+    pool.convertsTo = 'colorless';
+    pool.convertsToColorless = true;
+  }
+  
+  pool.noEmptySourceIds = pool.noEmptySourceIds || [];
+  
+  if (!pool.noEmptySourceIds.includes(sourceId)) {
+    pool.noEmptySourceIds.push(sourceId);
+  }
+}
+
+/**
+ * Remove the "doesn't empty" effect from a specific source
+ * Called when the source permanent leaves the battlefield
+ */
+export function removeManaPoolDoesNotEmpty(
+  gameState: any,
+  playerId: string,
+  sourceId: string
+): void {
+  const pool = getOrInitEnhancedManaPool(gameState, playerId);
+  
+  if (!pool.noEmptySourceIds) return;
+  
+  pool.noEmptySourceIds = pool.noEmptySourceIds.filter(id => id !== sourceId);
+  
+  if (pool.noEmptySourceIds.length === 0) {
+    delete pool.doesNotEmpty;
+    delete pool.convertsTo;
+    delete pool.convertsToColorless;
+    delete pool.noEmptySourceIds;
+  }
+}
+
+/**
+ * Calculate total mana in pool (including restricted)
+ */
+export function getTotalManaInPool(
+  gameState: any,
+  playerId: string
+): number {
+  const pool = getOrInitEnhancedManaPool(gameState, playerId);
+  const regularMana = (pool.white || 0) + (pool.blue || 0) + (pool.black || 0) +
+                      (pool.red || 0) + (pool.green || 0) + (pool.colorless || 0);
+  const restrictedMana = pool.restricted?.reduce((sum, entry) => sum + entry.amount, 0) || 0;
+  return regularMana + restrictedMana;
+}
+
+/**
+ * Calculate total mana of a specific color in pool (including restricted)
+ * Useful for cards like Omnath, Locus of Mana which get +1/+1 for each green mana
+ */
+export function getTotalManaOfColorInPool(
+  gameState: any,
+  playerId: string,
+  color: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless'
+): number {
+  const pool = getOrInitEnhancedManaPool(gameState, playerId);
+  const regularMana = pool[color] || 0;
+  const restrictedMana = pool.restricted
+    ?.filter(entry => getManaEntryColor(entry) === color)
+    .reduce((sum, entry) => sum + entry.amount, 0) || 0;
+  return regularMana + restrictedMana;
+}
+
+/**
+ * Check if restricted mana can be used for a specific purpose
+ */
+export function canUseRestrictedMana(
+  entry: RestrictedManaEntry,
+  purpose: {
+    isCreature?: boolean;
+    isAbility?: boolean;
+    isColorless?: boolean;
+    isArtifact?: boolean;
+    isLegendary?: boolean;
+    isMulticolored?: boolean;
+    isCommander?: boolean;
+    isActivatedAbility?: boolean;
+    isInstantOrSorcery?: boolean;
+    cardId?: string;
+  }
+): boolean {
+  switch (entry.restriction) {
+    case 'creatures':
+      return purpose.isCreature === true;
+    case 'abilities':
+      return purpose.isAbility === true;
+    case 'colorless_spells':
+      return purpose.isColorless === true;
+    case 'artifacts':
+      return purpose.isArtifact === true;
+    case 'legendary':
+      return purpose.isLegendary === true;
+    case 'multicolored':
+      return purpose.isMulticolored === true;
+    case 'commander':
+      return purpose.isCommander === true;
+    case 'activated_abilities':
+      return purpose.isActivatedAbility === true;
+    case 'instant_sorcery':
+      return purpose.isInstantOrSorcery === true;
+    case 'specific_card':
+      return entry.restrictedTo === purpose.cardId;
+    default:
+      return false;
+  }
+}
+
+/**
+ * Broadcast mana pool update to all clients
+ */
+export function broadcastManaPoolUpdate(
+  io: Server,
+  gameId: string,
+  playerId: string,
+  manaPool: EnhancedManaPool,
+  reason?: string
+): void {
+  try {
+    const totalMana = getTotalManaInPool({ manaPool: { [playerId]: manaPool } }, playerId);
+    
+    io.to(gameId).emit('manaPoolUpdate', {
+      gameId,
+      playerId,
+      manaPool: {
+        white: manaPool.white || 0,
+        blue: manaPool.blue || 0,
+        black: manaPool.black || 0,
+        red: manaPool.red || 0,
+        green: manaPool.green || 0,
+        colorless: manaPool.colorless || 0,
+        restricted: manaPool.restricted,
+        doesNotEmpty: manaPool.doesNotEmpty,
+        convertsToColorless: manaPool.convertsToColorless,
+        noEmptySourceIds: manaPool.noEmptySourceIds,
+      },
+      totalMana,
+      reason,
+    });
+  } catch (err) {
+    console.warn(`[util] broadcastManaPoolUpdate failed:`, err);
+  }
+}

@@ -10,6 +10,9 @@ import type { Cost, CostType } from './types/costs';
 import type { CastingProcess, CastingStep } from './types/spellsAbilitiesEffects';
 import { canPayManaCost } from './types/costs';
 
+/** Type for mana color keys (subset of ManaPool that are numeric) */
+type ManaColorKey = 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+
 /**
  * Complete spell casting context with all necessary state
  */
@@ -105,10 +108,10 @@ export function payManaCost(
     let remaining = cost.generic;
     
     // Use up any remaining colored mana first (player's choice, simplified here)
-    const payFromColor = (color: keyof ManaPool, amount: number) => {
-      const available = pool[color];
+    const payFromColor = (color: ManaColorKey, amount: number) => {
+      const available = pool[color] as number;
       const toPay = Math.min(available, amount);
-      pool[color] -= toPay;
+      (pool as Record<ManaColorKey, number>)[color] -= toPay;
       return amount - toPay;
     };
     

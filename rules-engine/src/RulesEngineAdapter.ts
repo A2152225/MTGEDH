@@ -37,8 +37,19 @@ import {
   takeMulligan,
   keepHand,
 } from './types/gameFlow';
-import { ManaType, type ManaPool, type ManaCost } from './types/mana';
+import { ManaType, type ManaPool as RulesEngineManaPool, type ManaCost } from './types/mana';
 import { emptyManaPool } from './manaAbilities';
+
+/** Simple mana pool interface for checking mana availability (doesn't need restricted mana info) */
+interface SimpleManaPool {
+  white: number;
+  blue: number;
+  black: number;
+  red: number;
+  green: number;
+  colorless: number;
+}
+
 import {
   castSpell,
   validateSpellTiming,
@@ -410,7 +421,7 @@ export class RulesEngineAdapter {
   /**
    * Check if a mana cost can be paid from the given mana pool
    */
-  private canPayManaCostFromPool(cost: ManaCost, pool: ManaPool): { canPay: boolean; reason?: string } {
+  private canPayManaCostFromPool(cost: ManaCost, pool: SimpleManaPool): { canPay: boolean; reason?: string } {
     // Check specific color requirements
     if ((cost.white || 0) > pool.white) {
       return { canPay: false, reason: `Need ${cost.white} white mana, have ${pool.white}` };

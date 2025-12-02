@@ -1,5 +1,35 @@
 import React from 'react';
-import type { PlayerID, PlayerStatus } from '../../../shared/src';
+import type { PlayerID, PlayerStatus, ManaPool, RestrictedManaEntry } from '../../../shared/src';
+
+// Mana symbol colors for compact display
+const MANA_COLORS_MAP: Record<string, { bg: string; text: string }> = {
+  white: { bg: '#fffbd5', text: '#8a6d3b' },
+  blue: { bg: '#0e68ab', text: '#fff' },
+  black: { bg: '#150b00', text: '#c9c5c2' },
+  red: { bg: '#d3202a', text: '#fff' },
+  green: { bg: '#00733e', text: '#fff' },
+  colorless: { bg: '#ccc2c0', text: '#333' },
+};
+
+const MANA_SYMBOLS_MAP: Record<string, string> = {
+  white: 'W',
+  blue: 'U',
+  black: 'B',
+  red: 'R',
+  green: 'G',
+  colorless: 'C',
+};
+
+interface ManaPoolData {
+  white?: number;
+  blue?: number;
+  black?: number;
+  red?: number;
+  green?: number;
+  colorless?: number;
+  restricted?: RestrictedManaEntry[];
+  doesNotEmpty?: boolean;
+}
 
 interface Props {
   playerId: PlayerID;
@@ -10,6 +40,10 @@ interface Props {
   onAdjustPoison?: (delta: number) => void;
   onAdjustExperience?: (delta: number) => void;
   onAdjustEnergy?: (delta: number) => void;
+  /** Current mana pool for this player */
+  manaPool?: ManaPoolData;
+  /** Callback when player adjusts mana manually */
+  onAdjustMana?: (color: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless', delta: number) => void;
 }
 
 const abilityIconMap: Record<string,string> = {
@@ -29,7 +63,9 @@ export function PlayerStatusBar({
   onAdjustLife,
   onAdjustPoison,
   onAdjustExperience,
-  onAdjustEnergy
+  onAdjustEnergy,
+  manaPool,
+  onAdjustMana
 }: Props) {
   const poison = status?.poison ?? 0;
   const exp = status?.experience ?? 0;
@@ -41,6 +77,13 @@ export function PlayerStatusBar({
   const lifeColor = (life ?? 40) <= 10 ? '#ef4444' : (life ?? 40) <= 20 ? '#fbbf24' : '#4ade80';
   // Poison warning at 7+
   const poisonCritical = poison >= 7;
+  
+  // Calculate total mana in pool
+  const totalMana = manaPool 
+    ? (manaPool.white || 0) + (manaPool.blue || 0) + (manaPool.black || 0) + 
+      (manaPool.red || 0) + (manaPool.green || 0) + (manaPool.colorless || 0) +
+      (manaPool.restricted?.reduce((sum, r) => sum + r.amount, 0) || 0)
+    : 0;
 
   return (
     <div style={{
@@ -53,7 +96,8 @@ export function PlayerStatusBar({
       padding:'6px 12px',
       border:'1px solid rgba(255,255,255,0.12)',
       borderRadius:8,
-      boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.2)'
+      boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.2)',
+      flexWrap: 'wrap'
     }}>
       {/* Life Counter */}
       <div style={{ display:'flex', alignItems:'center', gap:6 }}>
@@ -148,6 +192,112 @@ export function PlayerStatusBar({
         )}
       </div>
       
+      {/* Mana Pool - only show if there is mana or if isYou for adjustments */}
+      {(totalMana > 0 || isYou) && (
+        <>
+          <div style={{ width:1, height:20, background:'rgba(255,255,255,0.15)' }} />
+          <div 
+            style={{ 
+              display:'flex', 
+              alignItems:'center', 
+              gap:4,
+              color: totalMana > 0 ? '#f59e0b' : 'rgba(136,136,136,0.6)',
+              fontWeight: totalMana > 0 ? 600 : 400
+            }}
+            title={`Mana Pool${manaPool?.doesNotEmpty ? ' (doesn\'t empty)' : ''}`}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              🔮 
+              {manaPool?.doesNotEmpty && (
+                <span style={{ color: '#10b981', fontSize: 10 }} title="Mana doesn't empty">∞</span>
+              )}
+            </span>
+            {/* Show compact mana symbols */}
+            <div style={{ display: 'flex', gap: 2 }}>
+              {(['white', 'blue', 'black', 'red', 'green', 'colorless'] as const).map(color => {
+                const amount = manaPool?.[color] || 0;
+                const colors = MANA_COLORS_MAP[color];
+                const symbol = MANA_SYMBOLS_MAP[color];
+                
+                if (amount === 0 && !isYou) return null;
+                
+                return (
+                  <div 
+                    key={color}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1,
+                      padding: '1px 3px',
+                      borderRadius: 4,
+                      background: amount > 0 ? colors.bg : 'transparent',
+                      border: amount > 0 ? `1px solid ${colors.bg}` : '1px solid rgba(255,255,255,0.1)',
+                      opacity: amount > 0 ? 1 : 0.4,
+                    }}
+                    title={`${amount} ${color} mana${isYou ? ' - Click +/- to adjust' : ''}`}
+                  >
+                    <span style={{ 
+                      fontSize: 9, 
+                      fontWeight: 700, 
+                      color: amount > 0 ? colors.text : '#888',
+                      fontFamily: 'monospace',
+                    }}>
+                      {symbol}
+                    </span>
+                    <span style={{ 
+                      fontSize: 9, 
+                      color: amount > 0 ? colors.text : '#888' 
+                    }}>
+                      {amount}
+                    </span>
+                    {isYou && onAdjustMana && (
+                      <span style={{ display: 'flex', marginLeft: 1 }}>
+                        <button 
+                          onClick={() => onAdjustMana(color, +1)} 
+                          style={{
+                            ...manaAdjustBtnStyle,
+                            background: colors.bg,
+                            color: colors.text,
+                          }}
+                          title={`Add 1 ${color} mana`}
+                        >+</button>
+                        <button 
+                          onClick={() => onAdjustMana(color, -1)} 
+                          disabled={amount === 0}
+                          style={{
+                            ...manaAdjustBtnStyle,
+                            background: amount > 0 ? colors.bg : '#333',
+                            color: amount > 0 ? colors.text : '#666',
+                            opacity: amount > 0 ? 1 : 0.5,
+                          }}
+                          title={`Remove 1 ${color} mana`}
+                        >−</button>
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {/* Show restricted mana count if any */}
+            {manaPool?.restricted && manaPool.restricted.length > 0 && (
+              <span 
+                style={{ 
+                  fontSize: 9, 
+                  color: '#a855f7', 
+                  marginLeft: 2,
+                  padding: '1px 3px',
+                  background: 'rgba(168, 85, 247, 0.2)',
+                  borderRadius: 3,
+                }} 
+                title="Restricted mana (can only be spent on specific things)"
+              >
+                +{manaPool.restricted.reduce((sum, r) => sum + r.amount, 0)}🔒
+              </span>
+            )}
+          </div>
+        </>
+      )}
+      
       {/* Player protection badges */}
       {(hexproof || shroud) && (
         <div style={{ display:'flex', gap:4, marginLeft:4 }}>
@@ -179,6 +329,16 @@ const counterBtnStyleSmall: React.CSSProperties = {
   color: '#aaa',
   cursor: 'pointer',
   lineHeight: '12px'
+};
+
+const manaAdjustBtnStyle: React.CSSProperties = {
+  padding: '0px 2px',
+  fontSize: 8,
+  border: 'none',
+  borderRadius: 2,
+  cursor: 'pointer',
+  lineHeight: '10px',
+  minWidth: 12,
 };
 
 const badgeStyle:React.CSSProperties={

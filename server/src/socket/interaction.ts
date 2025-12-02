@@ -1,5 +1,5 @@
 import type { Server, Socket } from "socket.io";
-import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer } from "./util";
+import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate } from "./util";
 import { appendEvent } from "../db";
 import { games } from "./socket";
 import { 
@@ -3413,6 +3413,265 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       ts: Date.now(),
     });
     
+    broadcastGame(io, game, gameId);
+  });
+
+  // ============================================================================
+  // Mana Pool Manipulation
+  // ============================================================================
+
+  /**
+   * Add mana to a player's mana pool
+   * Used for manual adjustments or card effects that add restricted mana
+   */
+  socket.on("addManaToPool", ({
+    gameId,
+    color,
+    amount,
+    restriction,
+    restrictedTo,
+    sourceId,
+    sourceName,
+  }: {
+    gameId: string;
+    color: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+    amount: number;
+    restriction?: string;
+    restrictedTo?: string;
+    sourceId?: string;
+    sourceName?: string;
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+      return;
+    }
+
+    // Initialize mana pool if needed
+    game.state.manaPool = game.state.manaPool || {};
+    game.state.manaPool[pid] = game.state.manaPool[pid] || {
+      white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+    };
+
+    if (restriction) {
+      // Add restricted mana
+      const pool = game.state.manaPool[pid] as any;
+      pool.restricted = pool.restricted || [];
+      pool.restricted.push({
+        type: color,
+        amount,
+        restriction,
+        restrictedTo,
+        sourceId,
+        sourceName,
+      });
+    } else {
+      // Add regular mana
+      (game.state.manaPool[pid] as any)[color] = 
+        ((game.state.manaPool[pid] as any)[color] || 0) + amount;
+    }
+
+    // Bump game sequence
+    if (typeof (game as any).bumpSeq === "function") {
+      (game as any).bumpSeq();
+    }
+
+    // Log the mana addition
+    const restrictionText = restriction ? ` (${restriction})` : '';
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} added ${amount} ${color} mana to their pool${restrictionText}.`,
+      ts: Date.now(),
+    });
+
+    // Emit mana pool update
+    broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, 'Added mana');
+    broadcastGame(io, game, gameId);
+  });
+
+  /**
+   * Remove mana from a player's mana pool
+   * Used for manual adjustments or payment verification
+   */
+  socket.on("removeManaFromPool", ({
+    gameId,
+    color,
+    amount,
+    restrictedIndex,
+  }: {
+    gameId: string;
+    color: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+    amount: number;
+    restrictedIndex?: number;
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+      return;
+    }
+
+    const pool = game.state.manaPool?.[pid] as any;
+    if (!pool) {
+      socket.emit("error", { code: "INVALID_ACTION", message: "No mana pool to remove from" });
+      return;
+    }
+
+    if (restrictedIndex !== undefined) {
+      // Remove from restricted mana
+      if (!pool.restricted || restrictedIndex >= pool.restricted.length) {
+        socket.emit("error", { code: "INVALID_ACTION", message: "Invalid restricted mana index" });
+        return;
+      }
+      const entry = pool.restricted[restrictedIndex];
+      if (entry.amount < amount) {
+        socket.emit("error", { code: "INVALID_ACTION", message: "Not enough restricted mana" });
+        return;
+      }
+      if (entry.amount === amount) {
+        pool.restricted.splice(restrictedIndex, 1);
+        if (pool.restricted.length === 0) {
+          delete pool.restricted;
+        }
+      } else {
+        entry.amount -= amount;
+      }
+    } else {
+      // Remove from regular mana
+      if ((pool[color] || 0) < amount) {
+        socket.emit("error", { code: "INVALID_ACTION", message: `Not enough ${color} mana` });
+        return;
+      }
+      pool[color] = (pool[color] || 0) - amount;
+    }
+
+    // Bump game sequence
+    if (typeof (game as any).bumpSeq === "function") { (game as any).bumpSeq(); }
+
+    // Log the mana removal
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} removed ${amount} ${color} mana from their pool.`,
+      ts: Date.now(),
+    });
+
+    // Emit mana pool update
+    broadcastManaPoolUpdate(io, gameId, pid, pool, 'Removed mana');
+    broadcastGame(io, game, gameId);
+  });
+
+  /**
+   * Set mana pool "doesn't empty" effect
+   * Used by cards like Horizon Stone, Omnath Locus of Mana, Kruphix
+   */
+  socket.on("setManaPoolDoesNotEmpty", ({
+    gameId,
+    sourceId,
+    sourceName,
+    convertsTo,
+    convertsToColorless,
+  }: {
+    gameId: string;
+    sourceId: string;
+    sourceName: string;
+    convertsTo?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+    convertsToColorless?: boolean;
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+      return;
+    }
+
+    // Initialize mana pool if needed
+    game.state.manaPool = game.state.manaPool || {};
+    game.state.manaPool[pid] = game.state.manaPool[pid] || {
+      white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+    };
+
+    const pool = game.state.manaPool[pid] as any;
+    pool.doesNotEmpty = true;
+    
+    // Support both new convertsTo and deprecated convertsToColorless
+    if (convertsTo) {
+      pool.convertsTo = convertsTo;
+    } else if (convertsToColorless) {
+      pool.convertsTo = 'colorless';
+      pool.convertsToColorless = true; // Keep for backwards compatibility
+    }
+    
+    pool.noEmptySourceIds = pool.noEmptySourceIds || [];
+    if (!pool.noEmptySourceIds.includes(sourceId)) {
+      pool.noEmptySourceIds.push(sourceId);
+    }
+
+    // Bump game sequence
+    if (typeof (game as any).bumpSeq === "function") { (game as any).bumpSeq(); }
+
+    // Log the effect
+    const targetColor = convertsTo || (convertsToColorless ? 'colorless' : null);
+    const effectText = targetColor 
+      ? `Mana converts to ${targetColor} instead of emptying (${sourceName})`
+      : `Mana doesn't empty from pool (${sourceName})`;
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)}: ${effectText}`,
+      ts: Date.now(),
+    });
+
+    // Emit mana pool update
+    broadcastManaPoolUpdate(io, gameId, pid, pool, `Doesn't empty (${sourceName})`);
+    broadcastGame(io, game, gameId);
+  });
+
+  /**
+   * Remove mana pool "doesn't empty" effect
+   * Called when the source permanent leaves the battlefield
+   */
+  socket.on("removeManaPoolDoesNotEmpty", ({
+    gameId,
+    sourceId,
+  }: {
+    gameId: string;
+    sourceId: string;
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+      return;
+    }
+
+    const pool = game.state.manaPool?.[pid] as any;
+    if (!pool || !pool.noEmptySourceIds) return;
+
+    pool.noEmptySourceIds = pool.noEmptySourceIds.filter((id: string) => id !== sourceId);
+
+    if (pool.noEmptySourceIds.length === 0) {
+      delete pool.doesNotEmpty;
+      delete pool.convertsToColorless;
+      delete pool.noEmptySourceIds;
+    }
+
+    // Bump game sequence
+    if (typeof (game as any).bumpSeq === "function") { (game as any).bumpSeq(); }
+
     broadcastGame(io, game, gameId);
   });
 }
