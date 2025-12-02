@@ -404,7 +404,6 @@ export function applyLifeGain(
     message: source ? `Gained ${amount} life from ${source}` : `Gained ${amount} life` 
   };
 }
-};
 
 /**
  * Parse power/toughness values from card data.
