@@ -91,7 +91,7 @@ const KNOWN_DEATH_TRIGGERS: Record<string, { effect: string; triggerOn: 'own' | 
   "dark prophecy": { effect: "Draw a card, lose 1 life when creature dies", triggerOn: 'controlled' },
 };
 
-const KNOWN_ATTACK_TRIGGERS: Record<string, { effect: string; value?: number; putFromHand?: boolean; tappedAndAttacking?: boolean }> = {
+const KNOWN_ATTACK_TRIGGERS: Record<string, { effect: string; value?: number; putFromHand?: boolean; tappedAndAttacking?: boolean; createTokens?: { count: number; power: number; toughness: number; type: string; color: string; abilities?: string[] } }> = {
   "hellkite charger": { effect: "Pay {5}{R}{R} for additional combat phase" },
   "combat celebrant": { effect: "Exert for additional combat phase" },
   "aurelia, the warleader": { effect: "Additional combat phase (first attack each turn)" },
@@ -100,6 +100,23 @@ const KNOWN_ATTACK_TRIGGERS: Record<string, { effect: string; value?: number; pu
   "marisi, breaker of the coil": { effect: "Goad all creatures that player controls" },
   "grand warlord radha": { effect: "Add mana for each attacking creature" },
   "neheb, the eternal": { effect: "Add {R} for each life opponent lost (postcombat)" },
+  // Token creation on attack
+  "hero of bladehold": { 
+    effect: "Create two 1/1 white Soldier creature tokens tapped and attacking", 
+    createTokens: { count: 2, power: 1, toughness: 1, type: "Soldier", color: "white" }
+  },
+  "brimaz, king of oreskos": { 
+    effect: "Create a 1/1 white Cat Soldier creature token with vigilance tapped and attacking", 
+    createTokens: { count: 1, power: 1, toughness: 1, type: "Cat Soldier", color: "white", abilities: ["vigilance"] }
+  },
+  "hanweir garrison": {
+    effect: "Create two 1/1 red Human creature tokens tapped and attacking",
+    createTokens: { count: 2, power: 1, toughness: 1, type: "Human", color: "red" }
+  },
+  "Captain of the Watch": {
+    effect: "Create 1/1 white Soldier creature tokens",
+    createTokens: { count: 3, power: 1, toughness: 1, type: "Soldier", color: "white" }
+  },
   // Creatures that put cards from hand onto battlefield tapped and attacking
   "kaalia of the vast": { effect: "Put an Angel, Demon, or Dragon from hand onto battlefield tapped and attacking", putFromHand: true, tappedAndAttacking: true },
   "kaalia, zenith seeker": { effect: "Look at top 6 cards, reveal Angel/Demon/Dragon to hand" },
@@ -412,6 +429,9 @@ const KNOWN_ETB_TRIGGERS: Record<string, {
   effect: string; 
   triggerOn: 'self' | 'creature' | 'another_permanent' | 'any_permanent';
   millAmount?: number;
+  searchFilter?: { types?: string[]; subtypes?: string[]; maxPower?: number; maxToughness?: number };
+  searchDestination?: 'hand' | 'battlefield' | 'top';
+  searchEntersTapped?: boolean;
 }> = {
   "altar of the brood": { 
     effect: "Each opponent mills 1 card", 
@@ -465,6 +485,57 @@ const KNOWN_ETB_TRIGGERS: Record<string, {
   "cathar's crusade": { 
     effect: "+1/+1 counter on each creature you control", 
     triggerOn: 'creature',
+  },
+  // Tutor creatures
+  "imperial recruiter": {
+    effect: "Search your library for a creature with power 2 or less, reveal it, and put it into your hand",
+    triggerOn: 'self',
+    searchFilter: { types: ['creature'], maxPower: 2 },
+    searchDestination: 'hand',
+  },
+  "recruiter of the guard": {
+    effect: "Search your library for a creature with toughness 2 or less, reveal it, and put it into your hand",
+    triggerOn: 'self',
+    searchFilter: { types: ['creature'], maxToughness: 2 },
+    searchDestination: 'hand',
+  },
+  "wood elves": {
+    effect: "Search your library for a Forest card and put it onto the battlefield",
+    triggerOn: 'self',
+    searchFilter: { subtypes: ['Forest'] },
+    searchDestination: 'battlefield',
+  },
+  "farhaven elf": {
+    effect: "Search your library for a basic land card and put it onto the battlefield tapped",
+    triggerOn: 'self',
+    searchFilter: { types: ['land'], subtypes: ['Basic'] },
+    searchDestination: 'battlefield',
+    searchEntersTapped: true,
+  },
+  "sakura-tribe elder": {
+    effect: "Sacrifice Sakura-Tribe Elder: Search your library for a basic land card and put it onto the battlefield tapped",
+    triggerOn: 'self',
+    searchFilter: { types: ['land'], subtypes: ['Basic'] },
+    searchDestination: 'battlefield',
+    searchEntersTapped: true,
+  },
+  "solemn simulacrum": {
+    effect: "Search your library for a basic land card and put it onto the battlefield tapped",
+    triggerOn: 'self',
+    searchFilter: { types: ['land'], subtypes: ['Basic'] },
+    searchDestination: 'battlefield',
+    searchEntersTapped: true,
+  },
+  "elvish rejuvenator": {
+    effect: "Look at the top five cards of your library and put a land card onto the battlefield tapped",
+    triggerOn: 'self',
+    searchFilter: { types: ['land'] },
+    searchDestination: 'battlefield',
+    searchEntersTapped: true,
+  },
+  "silvergill adept": {
+    effect: "As an additional cost, reveal a Merfolk card from your hand or pay {3}",
+    triggerOn: 'self',
   },
 };
 
@@ -841,7 +912,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
           triggerType = 'etb';
       }
       
-      triggers.push({
+      const trigger: TriggeredAbility = {
         permanentId,
         cardName,
         triggerType,
@@ -849,7 +920,16 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
         effect: info.effect,
         millAmount: info.millAmount,
         mandatory: true,
-      });
+      };
+      
+      // Add search filter info if present
+      if (info.searchFilter) {
+        (trigger as any).searchFilter = info.searchFilter;
+        (trigger as any).searchDestination = info.searchDestination || 'hand';
+        (trigger as any).searchEntersTapped = info.searchEntersTapped || false;
+      }
+      
+      triggers.push(trigger);
     }
   }
   
