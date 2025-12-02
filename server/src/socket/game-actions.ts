@@ -165,6 +165,20 @@ function evaluateConditionalLandETB(
     };
   }
   
+  // AFR Creature Lands / Lair lands (Den of the Bugbear, Hive of the Eye Tyrant, etc.)
+  // "If you control two or more other lands, ~ enters the battlefield tapped"
+  // This is the INVERSE of slow lands - enters tapped if you have 2+ other lands
+  const lairLandMatch = text.match(/if you control two or more other lands,.*enters the battlefield tapped/i);
+  if (lairLandMatch) {
+    const shouldTap = controlledLandCount >= 2;
+    return {
+      shouldEnterTapped: shouldTap,
+      reason: shouldTap 
+        ? `Enters tapped (you control ${controlledLandCount} other lands)` 
+        : `Enters untapped (you control only ${controlledLandCount} other land${controlledLandCount !== 1 ? 's' : ''})`,
+    };
+  }
+  
   // Fast lands (Blooming Marsh, Botanical Sanctum, etc.)
   // "enters the battlefield tapped unless you control two or fewer other lands"
   const fastLandMatch = text.match(/enters the battlefield tapped unless you control two or fewer other lands/i);

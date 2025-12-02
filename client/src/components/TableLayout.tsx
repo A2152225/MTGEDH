@@ -685,11 +685,42 @@ export function TableLayout(props: {
   const [chatCollapsed, setChatCollapsed] = useState(false);
   const [chatSize, setChatSize] = useState<'small' | 'medium' | 'large'>('small');
   
+  // Chat auto-scroll: ref and state to track if user has manually scrolled up
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const [chatUserScrolledUp, setChatUserScrolledUp] = useState(false);
+  
   // Chat size dimensions
   const chatSizeConfig = {
     small: { width: 220, height: 150 },
     medium: { width: 300, height: 220 },
     large: { width: 400, height: 300 },
+  };
+  
+  // Auto-scroll chat to bottom when new messages arrive (unless user has scrolled up)
+  useEffect(() => {
+    const container = chatContainerRef.current;
+    if (!container || chatUserScrolledUp) return;
+    
+    // Scroll to bottom
+    container.scrollTop = container.scrollHeight;
+  }, [chatMessages, chatUserScrolledUp]);
+  
+  // Handle chat scroll: detect if user scrolled up or back to bottom
+  const handleChatScroll = () => {
+    const container = chatContainerRef.current;
+    if (!container) return;
+    
+    // Check if user is at the bottom (with a small threshold for rounding errors)
+    const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 10;
+    
+    // If user scrolls back to bottom, resume auto-scroll
+    if (isAtBottom && chatUserScrolledUp) {
+      setChatUserScrolledUp(false);
+    }
+    // If user scrolls up (away from bottom), pause auto-scroll
+    else if (!isAtBottom && !chatUserScrolledUp) {
+      setChatUserScrolledUp(true);
+    }
   };
 
   const handleSendChat = () => {
@@ -1604,6 +1635,8 @@ export function TableLayout(props: {
           {!chatCollapsed && (
             <>
               <div
+                ref={chatContainerRef}
+                onScroll={handleChatScroll}
                 style={{
                   flex: 1,
                   overflowY: 'auto',
