@@ -25,6 +25,7 @@ import { ZonesPiles } from './ZonesPiles';
 import { FreeField } from './FreeField';
 import { DeckManagerModal } from './DeckManagerModal';
 import { CentralStack } from './CentralStack';
+import { FloatingManaPool } from './FloatingManaPool';
 import { socket } from '../socket';
 import type { AppearanceSettings } from '../utils/appearanceSettings';
 import { getPlayAreaGradientStyle, getBackgroundStyle } from '../utils/appearanceSettings';
@@ -254,6 +255,24 @@ export function TableLayout(props: {
   ignoredTriggerSources?: Map<string, { sourceName: string; count: number; effect: string; imageUrl?: string }>;
   onIgnoreTriggerSource?: (sourceId: string, sourceName: string, effect: string, imageUrl?: string) => void;
   onStopIgnoringSource?: (sourceKey: string) => void;
+  // Mana pool for displaying floating mana
+  manaPool?: {
+    white: number;
+    blue: number;
+    black: number;
+    red: number;
+    green: number;
+    colorless: number;
+    restricted?: Array<{
+      type?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+      amount: number;
+      restriction: string;
+      restrictedTo?: string;
+      sourceId?: string;
+      sourceName?: string;
+    }>;
+    doesNotEmpty?: boolean;
+  } | null;
   // Legacy 3D/pan-zoom props (kept for backwards compatibility)
   threeD?: any;
   enablePanZoom?: boolean;
@@ -282,6 +301,7 @@ export function TableLayout(props: {
     appearanceSettings,
     onViewGraveyard, onViewExile,
     ignoredTriggerSources, onIgnoreTriggerSource, onStopIgnoringSource,
+    manaPool,
   } = props;
 
   // Snapshot debug
@@ -958,6 +978,10 @@ export function TableLayout(props: {
                                 ⚡ {energyVal}
                               </span>
                             </div>
+                            {/* Floating Mana Pool - Show next to counters for current player */}
+                            {isYouThis && manaPool && (
+                              <FloatingManaPool manaPool={manaPool} compact />
+                            )}
                             {isYouThis && (
                               <button
                                 ref={decksBtnRef}

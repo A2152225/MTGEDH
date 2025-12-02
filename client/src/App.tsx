@@ -495,6 +495,25 @@ export function App() {
     effectId?: string;
   } | null>(null);
   
+  // Mana Pool state - tracks floating mana for the current player
+  const [manaPool, setManaPool] = useState<{
+    white: number;
+    blue: number;
+    black: number;
+    red: number;
+    green: number;
+    colorless: number;
+    restricted?: Array<{
+      type?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+      amount: number;
+      restriction: string;
+      restrictedTo?: string;
+      sourceId?: string;
+      sourceName?: string;
+    }>;
+    doesNotEmpty?: boolean;
+  } | null>(null);
+  
   // Auto-pass steps - which steps to automatically pass priority on
   const [autoPassSteps, setAutoPassSteps] = useState<Set<string>>(() => {
     try {
@@ -1204,6 +1223,53 @@ export function App() {
       socket.off("mdfcFaceSelectionComplete", handler);
     };
   }, [safeView?.id]);
+
+  // Mana pool update listener - update local mana pool state when server sends updates
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      playerId: string;
+      manaPool: {
+        white: number;
+        blue: number;
+        black: number;
+        red: number;
+        green: number;
+        colorless: number;
+        restricted?: Array<{
+          type?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+          amount: number;
+          restriction: string;
+          restrictedTo?: string;
+          sourceId?: string;
+          sourceName?: string;
+        }>;
+        doesNotEmpty?: boolean;
+      };
+      totalMana: number;
+      reason?: string;
+    }) => {
+      // Only update if this is for the current player
+      if (payload.gameId === safeView?.id && payload.playerId === you) {
+        setManaPool(payload.manaPool);
+        console.log('[App] Mana pool updated:', payload.reason, payload.manaPool);
+      }
+    };
+    socket.on("manaPoolUpdate", handler);
+    return () => {
+      socket.off("manaPoolUpdate", handler);
+    };
+  }, [safeView?.id, you]);
+
+  // Also sync mana pool from state when it changes (fallback for when broadcastGame includes manaPool)
+  React.useEffect(() => {
+    if (!safeView || !you) return;
+    
+    const statePool = (safeView as any).manaPool?.[you];
+    if (statePool) {
+      setManaPool(statePool);
+    }
+  }, [safeView, you]);
 
   // Sacrifice selection listener (for Grave Pact, Dictate of Erebos, etc.)
   React.useEffect(() => {
@@ -3369,6 +3435,7 @@ export function App() {
               ignoredTriggerSources={ignoredTriggerSources}
               onIgnoreTriggerSource={handleIgnoreTriggerSourceFromStack}
               onStopIgnoringSource={handleStopIgnoringSource}
+              manaPool={manaPool}
             />
           ) : (
             <div style={{ padding: 20, color: "#666" }}>
@@ -3764,6 +3831,7 @@ export function App() {
               mana_cost: c.mana_cost
             }));
         }, [safeView, you, spellToCast])}
+        floatingMana={manaPool || undefined}
         onConfirm={handleCastSpellConfirm}
         onCancel={handleCastSpellCancel}
       />
