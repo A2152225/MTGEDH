@@ -3,6 +3,410 @@ export function uid(prefix = "id"): string {
 }
 
 /**
+ * Validate if a player can pay a specific amount of life.
+ * Rule 119.4: A player can't pay more life than they have.
+ * 
+ * @param currentLife - Player's current life total
+ * @param amount - Amount of life to pay
+ * @returns true if the player can pay, false otherwise
+ */
+export function canPayLife(currentLife: number, amount: number): boolean {
+  // You can pay life as long as you have at least that much life
+  // Note: You CAN pay life that would put you at 0 (you'll lose to SBA, but the payment is legal)
+  return currentLife >= amount;
+}
+
+/**
+ * Get the maximum life a player can pay.
+ * Useful for "pay X life" effects where X can be chosen.
+ * 
+ * @param currentLife - Player's current life total
+ * @returns Maximum life that can be paid (their current life total)
+ */
+export function getMaxPayableLife(currentLife: number): number {
+  return Math.max(0, currentLife);
+}
+
+/**
+ * Validate life payment for a spell or ability.
+ * Returns an error message if invalid, or null if valid.
+ * 
+ * @param currentLife - Player's current life total
+ * @param amount - Amount of life to pay
+ * @param cardName - Name of the card for error messages
+ * @returns Error message or null if valid
+ */
+export function validateLifePayment(currentLife: number, amount: number, cardName?: string): string | null {
+  if (amount < 0) {
+    return `Cannot pay negative life`;
+  }
+  if (amount > currentLife) {
+    return `Cannot pay ${amount} life (only have ${currentLife} life)${cardName ? ` for ${cardName}` : ''}`;
+  }
+  return null;
+}
+
+/**
+ * Known cards with "pay X life" effects where X is chosen by the player.
+ * Maps card name (lowercase) to effect details.
+ */
+export const PAY_X_LIFE_CARDS: Record<string, {
+  effect: string;
+  affectsAll?: boolean; // True for cards like Toxic Deluge that affect all creatures
+  minX?: number;
+  targetType?: 'creatures' | 'players' | 'any';
+}> = {
+  "toxic deluge": {
+    effect: "All creatures get -X/-X until end of turn",
+    affectsAll: true,
+    minX: 0,
+    targetType: 'creatures',
+  },
+  "aetherflux reservoir": {
+    effect: "Pay 50 life: Deal 50 damage to target",
+    minX: 50,
+    targetType: 'any',
+  },
+  "bolas's citadel": {
+    effect: "Pay 10 life, sacrifice 10 permanents: Each opponent loses 10 life",
+    minX: 10,
+    targetType: 'players',
+  },
+  "hatred": {
+    effect: "Pay X life: Target creature gets +X/+0 until end of turn",
+    minX: 0,
+    targetType: 'creatures',
+  },
+  "unspeakable symbol": {
+    effect: "Pay 3 life: Put a +1/+1 counter on target creature",
+    minX: 3,
+    targetType: 'creatures',
+  },
+  "necropotence": {
+    effect: "Pay 1 life: Exile top card, put into hand at end step",
+    minX: 1,
+  },
+  "greed": {
+    effect: "Pay 2 life: Draw a card",
+    minX: 2,
+  },
+  "erebos, god of the dead": {
+    effect: "Pay 2 life: Draw a card",
+    minX: 2,
+  },
+  "arguel's blood fast": {
+    effect: "Pay 2 life: Draw a card",
+    minX: 2,
+  },
+  "sylvan library": {
+    effect: "Pay 4 life per extra card kept",
+    minX: 4,
+  },
+  "ad nauseam": {
+    effect: "Reveal cards, lose life equal to CMC, repeat",
+    minX: 0,
+  },
+  "fire covenant": {
+    effect: "Pay X life: Deal X damage divided among creatures",
+    minX: 1,
+    targetType: 'creatures',
+  },
+  "font of agonies": {
+    effect: "Triggers when you pay life",
+    minX: 0,
+  },
+  "treasonous ogre": {
+    effect: "Pay 3 life: Add {R}",
+    minX: 3,
+  },
+  "channel": {
+    effect: "Pay 1 life: Add {C}{C}",
+    minX: 1,
+  },
+  "sword of war and peace": {
+    effect: "Damage equal to cards in hand, gain life equal to cards in opponent's hand",
+    minX: 0,
+  },
+  "minion of the wastes": {
+    effect: "Pay any amount of life as it enters",
+    minX: 0,
+  },
+  "wall of blood": {
+    effect: "Pay 1 life: +1/+1 until end of turn",
+    minX: 1,
+  },
+  "immolating souleater": {
+    effect: "Pay 2 life: +1/+0 until end of turn",
+    minX: 2,
+  },
+  "moltensteel dragon": {
+    effect: "Pay 2 life: +1/+0 until end of turn",
+    minX: 2,
+  },
+};
+
+/**
+ * Known cards that PREVENT life gain.
+ * These effects can be global, affect only opponents, or affect specific players.
+ */
+export const LIFE_GAIN_PREVENTION_CARDS: Record<string, {
+  effect: string;
+  affectsOpponents: boolean; // True if only affects opponents
+  affectsAll: boolean; // True if affects all players including controller
+  isStatic: boolean; // True if it's a static ability (always active while on battlefield)
+  isEmblem?: boolean; // True if it creates an emblem with this effect
+}> = {
+  "erebos, god of the dead": {
+    effect: "Your opponents can't gain life",
+    affectsOpponents: true,
+    affectsAll: false,
+    isStatic: true,
+  },
+  "sulfuric vortex": {
+    effect: "Players can't gain life",
+    affectsOpponents: false,
+    affectsAll: true,
+    isStatic: true,
+  },
+  "leyline of punishment": {
+    effect: "Players can't gain life",
+    affectsOpponents: false,
+    affectsAll: true,
+    isStatic: true,
+  },
+  "tibalt, rakish instigator": {
+    effect: "Your opponents can't gain life",
+    affectsOpponents: true,
+    affectsAll: false,
+    isStatic: true,
+  },
+  "stigma lasher": {
+    effect: "Player dealt damage by ~ can't gain life for the rest of the game",
+    affectsOpponents: false,
+    affectsAll: false,
+    isStatic: false, // Triggered, creates lasting effect
+  },
+  "everlasting torment": {
+    effect: "Players can't gain life. Damage causes -1/-1 counters.",
+    affectsOpponents: false,
+    affectsAll: true,
+    isStatic: true,
+  },
+  "havoc festival": {
+    effect: "Players can't gain life",
+    affectsOpponents: false,
+    affectsAll: true,
+    isStatic: true,
+  },
+  "rain of gore": {
+    effect: "If a spell or ability would cause its controller to gain life, that player loses that much life instead",
+    affectsOpponents: false,
+    affectsAll: true,
+    isStatic: true,
+  },
+  "witch hunt": {
+    effect: "Players can't gain life",
+    affectsOpponents: false,
+    affectsAll: true,
+    isStatic: true,
+  },
+  "forsaken wastes": {
+    effect: "Players can't gain life",
+    affectsOpponents: false,
+    affectsAll: true,
+    isStatic: true,
+  },
+  "rampaging ferocidon": {
+    effect: "Players can't gain life",
+    affectsOpponents: false,
+    affectsAll: true,
+    isStatic: true,
+  },
+  "archfiend of ifnir": {
+    effect: "Your opponents can't gain life (during your turn)",
+    affectsOpponents: true,
+    affectsAll: false,
+    isStatic: true,
+  },
+  "kederekt parasite": {
+    effect: "Whenever an opponent draws a card, if you control a red permanent, damage dealt",
+    affectsOpponents: true,
+    affectsAll: false,
+    isStatic: false,
+  },
+  "roiling vortex": {
+    effect: "At the beginning of each player's upkeep, that player loses 1 life. Whenever a player casts a spell, if no mana was spent to cast that spell, that player loses 5 life. Players can't gain life.",
+    affectsOpponents: false,
+    affectsAll: true,
+    isStatic: true,
+  },
+  "quakebringer": {
+    effect: "Your opponents can't gain life (while in graveyard too)",
+    affectsOpponents: true,
+    affectsAll: false,
+    isStatic: true,
+  },
+};
+
+/**
+ * Known cards that REVERSE life gain to life loss.
+ * These cause the player who would gain life to lose that much life instead.
+ */
+export const LIFE_GAIN_REVERSAL_CARDS: Record<string, {
+  effect: string;
+  affectsOpponents: boolean; // True if only affects opponents
+  affectsAll: boolean; // True if affects all players
+  isStatic: boolean;
+}> = {
+  "tainted remedy": {
+    effect: "If an opponent would gain life, that player loses that much life instead",
+    affectsOpponents: true,
+    affectsAll: false,
+    isStatic: true,
+  },
+  "rain of gore": {
+    effect: "If a spell or ability would cause its controller to gain life, that player loses that much life instead",
+    affectsOpponents: false,
+    affectsAll: true,
+    isStatic: true,
+  },
+  "archfiend of despair": {
+    effect: "Your opponents can't gain life. At end of each end step, each opponent who lost life this turn loses that much life again.",
+    affectsOpponents: true,
+    affectsAll: false,
+    isStatic: true,
+  },
+  "false cure": {
+    effect: "Until end of turn, whenever a player gains life, that player loses 2 life for each 1 life gained",
+    affectsOpponents: false,
+    affectsAll: true,
+    isStatic: false, // Temporary effect
+  },
+};
+
+/**
+ * Check if a player's life gain is prevented by any effect on the battlefield.
+ * 
+ * @param gameState - The current game state
+ * @param playerId - The player who would gain life
+ * @returns { prevented: boolean, source?: string } - Whether life gain is prevented and by what
+ */
+export function checkLifeGainPrevention(
+  gameState: any,
+  playerId: string
+): { prevented: boolean; source?: string; reversedToLoss?: boolean } {
+  const battlefield = gameState?.battlefield || [];
+  
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    
+    const cardName = (perm.card.name || '').toLowerCase();
+    const controller = perm.controller;
+    
+    // Check prevention effects
+    const prevention = LIFE_GAIN_PREVENTION_CARDS[cardName];
+    if (prevention && prevention.isStatic) {
+      // Check if this affects the player
+      if (prevention.affectsAll) {
+        return { prevented: true, source: perm.card.name };
+      }
+      if (prevention.affectsOpponents && controller !== playerId) {
+        return { prevented: true, source: perm.card.name };
+      }
+    }
+    
+    // Check reversal effects
+    const reversal = LIFE_GAIN_REVERSAL_CARDS[cardName];
+    if (reversal && reversal.isStatic) {
+      if (reversal.affectsAll) {
+        return { prevented: false, reversedToLoss: true, source: perm.card.name };
+      }
+      if (reversal.affectsOpponents && controller !== playerId) {
+        return { prevented: false, reversedToLoss: true, source: perm.card.name };
+      }
+    }
+  }
+  
+  // Also check for lasting effects (like Stigma Lasher's "can't gain life for rest of game")
+  const lastingEffects = gameState?.lastingEffects || [];
+  for (const effect of lastingEffects) {
+    if (effect.type === 'preventLifeGain' && effect.targetPlayer === playerId) {
+      return { prevented: true, source: effect.source };
+    }
+  }
+  
+  return { prevented: false };
+}
+
+/**
+ * Apply life gain to a player, considering prevention and reversal effects.
+ * 
+ * @param gameState - The current game state (will be modified)
+ * @param playerId - The player gaining life
+ * @param amount - The amount of life to gain
+ * @param source - The source of the life gain (for logging)
+ * @returns { actualChange: number, message: string } - The actual life change and explanation
+ */
+export function applyLifeGain(
+  gameState: any,
+  playerId: string,
+  amount: number,
+  source?: string
+): { actualChange: number; message: string } {
+  if (amount <= 0) {
+    return { actualChange: 0, message: 'No life to gain' };
+  }
+  
+  const check = checkLifeGainPrevention(gameState, playerId);
+  
+  if (check.prevented) {
+    return { 
+      actualChange: 0, 
+      message: `Life gain prevented by ${check.source}` 
+    };
+  }
+  
+  if (check.reversedToLoss) {
+    // Reverse the life gain to life loss
+    const startingLife = gameState?.startingLife || 40;
+    const currentLife = gameState?.life?.[playerId] ?? startingLife;
+    
+    if (!gameState.life) gameState.life = {};
+    gameState.life[playerId] = currentLife - amount;
+    
+    // Sync to player object
+    const player = (gameState.players || []).find((p: any) => p.id === playerId);
+    if (player) {
+      player.life = gameState.life[playerId];
+    }
+    
+    return { 
+      actualChange: -amount, 
+      message: `Life gain reversed to ${amount} life loss by ${check.source}` 
+    };
+  }
+  
+  // Normal life gain
+  const startingLife = gameState?.startingLife || 40;
+  const currentLife = gameState?.life?.[playerId] ?? startingLife;
+  
+  if (!gameState.life) gameState.life = {};
+  gameState.life[playerId] = currentLife + amount;
+  
+  // Sync to player object
+  const player = (gameState.players || []).find((p: any) => p.id === playerId);
+  if (player) {
+    player.life = gameState.life[playerId];
+  }
+  
+  return { 
+    actualChange: amount, 
+    message: source ? `Gained ${amount} life from ${source}` : `Gained ${amount} life` 
+  };
+}
+};
+
+/**
  * Parse power/toughness values from card data.
  * Handles numeric values, "*", and expressions like "*+1" or "1+*".
  * For pure "*" values, returns undefined (caller should use calculateVariablePT).
