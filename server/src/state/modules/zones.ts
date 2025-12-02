@@ -488,8 +488,10 @@ export function applyExplore(
     const battlefield = ctx.state.battlefield || [];
     const perm = battlefield.find((p: any) => p.id === permanentId && p.controller === playerId);
     if (perm) {
-      perm.counters = perm.counters || {};
-      perm.counters["+1/+1"] = (perm.counters["+1/+1"] || 0) + 1;
+      // Create a mutable copy of counters to avoid modifying readonly object
+      const newCounters = { ...(perm.counters || {}) };
+      newCounters["+1/+1"] = (newCounters["+1/+1"] || 0) + 1;
+      (perm as any).counters = newCounters;
     }
     
     if (toGraveyard) {
