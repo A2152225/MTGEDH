@@ -76,6 +76,12 @@ export interface ParsedModalTrigger {
 }
 
 /**
+ * Maximum number of modes for "choose one or more" or "choose any number" patterns
+ * This is an arbitrary upper limit to prevent unbounded arrays
+ */
+const MAX_MODAL_MODES = 10;
+
+/**
  * Black Market Connections card pattern
  * "At the beginning of your precombat main phase, choose up to three —"
  * This means you can choose 0, 1, 2, or 3 modes (each has a life cost)
@@ -83,12 +89,20 @@ export interface ParsedModalTrigger {
  * - Sell Contraband — You lose 1 life. Create a Treasure token.
  * - Buy Information — You lose 2 life. Draw a card.
  * - Hire a Mercenary — You lose 3 life. Create a 3/2 colorless Shapeshifter creature token with changeling.
+ * 
+ * Note: Pattern handles both "precombat" and "pre-combat" variations
  */
-const BLACK_MARKET_CONNECTIONS_PATTERN = /at the beginning of your precombat main phase, choose up to three/i;
+const BLACK_MARKET_CONNECTIONS_PATTERN = /at the beginning of your pre-?combat main phase, choose up to three/i;
 
 /**
  * Generic modal trigger pattern
  * Matches "At/When/Whenever [condition], choose [X] —"
+ * 
+ * Pattern breakdown:
+ * - ^(at|when|whenever) - Must start with trigger keyword
+ * - \s+(.+?) - Capture the trigger condition (non-greedy)
+ * - ,\s+choose\s+ - Comma followed by "choose"
+ * - (one|two|three|up to one|up to two|up to three|one or more|any number) - Mode count
  */
 const MODAL_TRIGGER_PATTERN = /^(at|when|whenever)\s+(.+?),\s+choose\s+(one|two|three|up to one|up to two|up to three|one or more|any number)/i;
 
@@ -96,6 +110,13 @@ const MODAL_TRIGGER_PATTERN = /^(at|when|whenever)\s+(.+?),\s+choose\s+(one|two|
  * Mode pattern for bullet points
  * Matches "• Mode Name — Effect text" or "+ Cost — Effect text" (for spree-style)
  * Also handles inline bullets separated by spaces
+ * 
+ * Pattern breakdown:
+ * - [•+] - Match bullet point (• or +)
+ * - \s* - Optional whitespace
+ * - (?:([^—•+\n]+?)\s*—\s*)? - Optional mode name followed by em dash
+ * - ([^•+\n]+?) - Capture the effect text (non-greedy)
+ * - (?=\s*[•+]|\n[•+]|$) - Lookahead for next bullet, newline+bullet, or end
  */
 const MODE_BULLET_PATTERN = /[•+]\s*(?:([^—•+\n]+?)\s*—\s*)?([^•+\n]+?)(?=\s*[•+]|\n[•+]|$)/gi;
 
@@ -173,11 +194,11 @@ export function parseModalTriggerText(oracleText: string): ParsedModalTrigger {
       break;
     case 'one or more':
       minModes = 1;
-      maxModes = 10; // Will be adjusted to actual mode count
+      maxModes = MAX_MODAL_MODES; // Will be adjusted to actual mode count
       break;
     case 'any number':
       minModes = 0;
-      maxModes = 10; // Will be adjusted to actual mode count
+      maxModes = MAX_MODAL_MODES; // Will be adjusted to actual mode count
       break;
   }
   
