@@ -569,8 +569,18 @@ export interface ManaPool {
   readonly doesNotEmpty?: boolean;
   
   /**
+   * If mana doesn't empty but converts to a specific color, specify that color
+   * Examples:
+   * - 'colorless' for Kruphix, God of Horizons and Horizon Stone
+   * - 'black' for Omnath, Locus of All
+   * - 'red' for Ozai, the Phoenix King
+   * If undefined and doesNotEmpty is true, mana is preserved as-is
+   */
+  readonly convertsTo?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+  
+  /**
+   * @deprecated Use convertsTo instead. Kept for backwards compatibility.
    * If mana doesn't empty but converts to colorless, specify that transformation
-   * (e.g., Kruphix converts unused mana to colorless instead of it emptying)
    */
   readonly convertsToColorless?: boolean;
   

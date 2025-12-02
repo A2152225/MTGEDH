@@ -86,7 +86,17 @@ export interface ManaPool {
   readonly doesNotEmpty?: boolean;
   
   /**
-   * If mana doesn't empty but converts to colorless, specify that transformation
+   * If mana doesn't empty but converts to a specific color, specify that color
+   * Examples:
+   * - 'colorless' for Kruphix, God of Horizons and Horizon Stone
+   * - 'black' for Omnath, Locus of All
+   * - 'red' for Ozai, the Phoenix King
+   * If undefined and doesNotEmpty is true, mana is preserved as-is
+   */
+  readonly convertsTo?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+  
+  /**
+   * @deprecated Use convertsTo instead. Kept for backwards compatibility.
    */
   readonly convertsToColorless?: boolean;
   
@@ -275,11 +285,15 @@ export function removeRestrictedMana(
 
 /**
  * Set the "doesn't empty" flag on a mana pool
- * Used by effects like Horizon Stone, Omnath, Kruphix
+ * Used by effects like Horizon Stone, Omnath, Kruphix, Ozai
+ * 
+ * @param convertsTo - Target color to convert mana to (e.g., 'colorless', 'black', 'red')
+ * @param convertsToColorless - @deprecated Use convertsTo: 'colorless' instead
  */
 export function setManaDoesNotEmpty(
   pool: Readonly<ManaPool>,
   sourceId: string,
+  convertsTo?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless',
   convertsToColorless: boolean = false
 ): ManaPool {
   const existingSourceIds = pool.noEmptySourceIds ? [...pool.noEmptySourceIds] : [];
@@ -287,9 +301,13 @@ export function setManaDoesNotEmpty(
     existingSourceIds.push(sourceId);
   }
   
+  // Support both new convertsTo and deprecated convertsToColorless
+  const targetColor = convertsTo || (convertsToColorless ? 'colorless' : undefined);
+  
   return {
     ...pool,
     doesNotEmpty: true,
+    convertsTo: targetColor || pool.convertsTo,
     convertsToColorless: convertsToColorless || pool.convertsToColorless,
     noEmptySourceIds: existingSourceIds
   };
@@ -311,7 +329,7 @@ export function removeManaDoesNotEmpty(
   
   if (newSourceIds.length === 0) {
     // No more sources, remove the effect by returning a pool without those fields
-    const { doesNotEmpty, convertsToColorless, noEmptySourceIds, ...rest } = pool;
+    const { doesNotEmpty, convertsTo, convertsToColorless, noEmptySourceIds, ...rest } = pool;
     return rest as ManaPool;
   }
   

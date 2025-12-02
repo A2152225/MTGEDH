@@ -3577,11 +3577,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     gameId,
     sourceId,
     sourceName,
+    convertsTo,
     convertsToColorless,
   }: {
     gameId: string;
     sourceId: string;
     sourceName: string;
+    convertsTo?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
     convertsToColorless?: boolean;
   }) => {
     const pid = socket.data.playerId as string | undefined;
@@ -3601,7 +3603,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     const pool = game.state.manaPool[pid] as any;
     pool.doesNotEmpty = true;
-    pool.convertsToColorless = convertsToColorless || pool.convertsToColorless;
+    
+    // Support both new convertsTo and deprecated convertsToColorless
+    if (convertsTo) {
+      pool.convertsTo = convertsTo;
+    } else if (convertsToColorless) {
+      pool.convertsTo = 'colorless';
+      pool.convertsToColorless = true; // Keep for backwards compatibility
+    }
+    
     pool.noEmptySourceIds = pool.noEmptySourceIds || [];
     if (!pool.noEmptySourceIds.includes(sourceId)) {
       pool.noEmptySourceIds.push(sourceId);
@@ -3611,8 +3621,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (typeof (game as any).bumpSeq === "function") { (game as any).bumpSeq(); }
 
     // Log the effect
-    const effectText = convertsToColorless 
-      ? `Mana converts to colorless instead of emptying (${sourceName})`
+    const targetColor = convertsTo || (convertsToColorless ? 'colorless' : null);
+    const effectText = targetColor 
+      ? `Mana converts to ${targetColor} instead of emptying (${sourceName})`
       : `Mana doesn't empty from pool (${sourceName})`;
     io.to(gameId).emit("chat", {
       id: `m_${Date.now()}`,

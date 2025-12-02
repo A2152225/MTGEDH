@@ -2172,6 +2172,9 @@ export interface EnhancedManaPool {
   colorless: number;
   restricted?: RestrictedManaEntry[];
   doesNotEmpty?: boolean;
+  /** Target color to convert mana to (e.g., 'colorless', 'black', 'red') */
+  convertsTo?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+  /** @deprecated Use convertsTo instead */
   convertsToColorless?: boolean;
   noEmptySourceIds?: string[];
 }
@@ -2264,17 +2267,29 @@ export function removeRestrictedManaFromPool(
 
 /**
  * Set the "doesn't empty" flag on a player's mana pool
- * Used by effects like Horizon Stone, Omnath, Kruphix
+ * Used by effects like Horizon Stone, Omnath, Kruphix, Ozai
+ * 
+ * @param convertsTo - Target color to convert mana to (e.g., 'colorless', 'black', 'red')
+ * @param convertsToColorless - @deprecated Use convertsTo: 'colorless' instead
  */
 export function setManaPoolDoesNotEmpty(
   gameState: any,
   playerId: string,
   sourceId: string,
+  convertsTo?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless',
   convertsToColorless: boolean = false
 ): void {
   const pool = getOrInitEnhancedManaPool(gameState, playerId);
   pool.doesNotEmpty = true;
-  pool.convertsToColorless = convertsToColorless || pool.convertsToColorless;
+  
+  // Support both new convertsTo and deprecated convertsToColorless
+  if (convertsTo) {
+    pool.convertsTo = convertsTo;
+  } else if (convertsToColorless) {
+    pool.convertsTo = 'colorless';
+    pool.convertsToColorless = true;
+  }
+  
   pool.noEmptySourceIds = pool.noEmptySourceIds || [];
   
   if (!pool.noEmptySourceIds.includes(sourceId)) {
@@ -2299,6 +2314,7 @@ export function removeManaPoolDoesNotEmpty(
   
   if (pool.noEmptySourceIds.length === 0) {
     delete pool.doesNotEmpty;
+    delete pool.convertsTo;
     delete pool.convertsToColorless;
     delete pool.noEmptySourceIds;
   }

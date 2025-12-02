@@ -1178,33 +1178,47 @@ function clearManaPool(ctx: GameContext) {
       
       // Check if this player has a "doesn't empty" effect
       if (currentPool.doesNotEmpty) {
-        // Check if mana should convert to colorless (e.g., Kruphix)
-        if (currentPool.convertsToColorless) {
-          const totalColored = (currentPool.white || 0) + (currentPool.blue || 0) + 
-                               (currentPool.black || 0) + (currentPool.red || 0) + 
-                               (currentPool.green || 0);
+        // Determine target color for conversion (support both new convertsTo and deprecated convertsToColorless)
+        const targetColor = currentPool.convertsTo || (currentPool.convertsToColorless ? 'colorless' : null);
+        
+        if (targetColor) {
+          // Convert all other colors to the target color
+          const colorsToConvert = ['white', 'blue', 'black', 'red', 'green', 'colorless'].filter(c => c !== targetColor);
+          let totalConverted = 0;
           
-          (ctx as any).state.manaPool[pid] = {
+          for (const color of colorsToConvert) {
+            totalConverted += (currentPool[color] || 0);
+          }
+          
+          const newPool: any = {
             white: 0,
             blue: 0,
             black: 0,
             red: 0,
             green: 0,
-            colorless: (currentPool.colorless || 0) + totalColored,
+            colorless: 0,
             doesNotEmpty: currentPool.doesNotEmpty,
+            convertsTo: currentPool.convertsTo,
             convertsToColorless: currentPool.convertsToColorless,
             noEmptySourceIds: currentPool.noEmptySourceIds,
-            // Restricted mana also converts to colorless - update both type and color for compatibility
-            restricted: currentPool.restricted?.map((entry: any) => ({
-              ...entry,
-              type: 'colorless',
-              color: 'colorless'
-            })),
           };
           
-          console.log(`${ts()} [clearManaPool] Player ${pid}: Converted ${totalColored} colored mana to colorless (Kruphix effect)`);
+          // Set the target color to include both existing amount and converted amount
+          newPool[targetColor] = (currentPool[targetColor] || 0) + totalConverted;
+          
+          // Restricted mana also converts to target color
+          if (currentPool.restricted) {
+            newPool.restricted = currentPool.restricted.map((entry: any) => ({
+              ...entry,
+              type: targetColor,
+            }));
+          }
+          
+          (ctx as any).state.manaPool[pid] = newPool;
+          
+          console.log(`${ts()} [clearManaPool] Player ${pid}: Converted ${totalConverted} mana to ${targetColor}`);
         } else {
-          // Mana doesn't empty at all (e.g., Omnath for green, Horizon Stone for all)
+          // Mana doesn't empty at all (e.g., Omnath Locus of Mana for green)
           console.log(`${ts()} [clearManaPool] Player ${pid}: Mana pool preserved (doesn't empty effect)`);
         }
       } else {

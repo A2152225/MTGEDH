@@ -384,7 +384,15 @@ export interface ClientToServerEvents {
     gameId: GameID;
     sourceId: string;
     sourceName: string;
-    /** If true, colored mana converts to colorless instead of staying (Kruphix) */
+    /** 
+     * Target color to convert mana to. Examples:
+     * - 'colorless' for Kruphix, God of Horizons and Horizon Stone
+     * - 'black' for Omnath, Locus of All
+     * - 'red' for Ozai, the Phoenix King
+     * If omitted, mana is preserved as-is without conversion
+     */
+    convertsTo?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+    /** @deprecated Use convertsTo: 'colorless' instead */
     convertsToColorless?: boolean;
   }) => void;
   
