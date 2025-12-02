@@ -1,0 +1,1462 @@
+"cards": [
+      {
+        "id": "acf0cab3-da50-4561-8797-cd179af39216_mio6vbs8_jb_266b42eb",
+        "name": "Omnath, Locus of Mana",
+        "type_line": "Legendary Creature — Elemental",
+        "oracle_text": "You don't lose unspent green mana as steps and phases end.\nOmnath gets +1/+1 for each unspent green mana you have.",
+        "mana_cost": "{2}{G}",
+        "power": "1",
+        "toughness": "1",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/c/acf0cab3-da50-4561-8797-cd179af39216.jpg?1689998741",
+          "normal": "https://cards.scryfall.io/normal/front/a/c/acf0cab3-da50-4561-8797-cd179af39216.jpg?1689998741",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/c/acf0cab3-da50-4561-8797-cd179af39216.jpg?1689998741"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "516e137a-d9d9-4ba7-89fb-e680ddb2c2d1_mio6vbs8_jc_06f90c60",
+        "name": "Abundant Harvest",
+        "type_line": "Sorcery",
+        "oracle_text": "Choose land or nonland. Reveal cards from the top of your library until you reveal a card of the chosen kind. Put that card into your hand and the rest on the bottom of your library in a random order.",
+        "mana_cost": "{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/5/1/516e137a-d9d9-4ba7-89fb-e680ddb2c2d1.jpg?1689998315",
+          "normal": "https://cards.scryfall.io/normal/front/5/1/516e137a-d9d9-4ba7-89fb-e680ddb2c2d1.jpg?1689998315",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/5/1/516e137a-d9d9-4ba7-89fb-e680ddb2c2d1.jpg?1689998315"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "5caae5ae-845f-42c2-b1ae-956df2739433_mio6vbs8_jd_59085597",
+        "name": "Archdruid's Charm",
+        "type_line": "Instant",
+        "oracle_text": "Choose one —\n• Search your library for a creature or land card and reveal it. Put it onto the battlefield tapped if it's a land card. Otherwise, put it into your hand. Then shuffle.\n• Put a +1/+1 counter on target creature you control. It deals damage equal to its power to target creature you don't control.\n• Exile target artifact or enchantment.",
+        "mana_cost": "{G}{G}{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/5/c/5caae5ae-845f-42c2-b1ae-956df2739433.jpg?1706241943",
+          "normal": "https://cards.scryfall.io/normal/front/5/c/5caae5ae-845f-42c2-b1ae-956df2739433.jpg?1706241943",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/5/c/5caae5ae-845f-42c2-b1ae-956df2739433.jpg?1706241943"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "ec2b56b0-126c-411b-8c43-b690fc8c194b_mio6vbs8_je_5bf7e970",
+        "name": "Asceticism",
+        "type_line": "Enchantment",
+        "oracle_text": "Creatures you control have hexproof.\n{1}{G}: Regenerate target creature. (The next time it would be destroyed this turn, instead tap it, remove it from combat, and heal all damage on it.)",
+        "mana_cost": "{3}{G}{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/e/c/ec2b56b0-126c-411b-8c43-b690fc8c194b.jpg?1562824694",
+          "normal": "https://cards.scryfall.io/normal/front/e/c/ec2b56b0-126c-411b-8c43-b690fc8c194b.jpg?1562824694",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/e/c/ec2b56b0-126c-411b-8c43-b690fc8c194b.jpg?1562824694"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "e08ed414-77bf-402a-82a8-9d4e1bd627a1_mio6vbs8_jf_32ac1583",
+        "name": "Atraxa's Fall",
+        "type_line": "Sorcery",
+        "oracle_text": "Destroy target artifact, battle, enchantment, or creature with flying.",
+        "mana_cost": "{1}{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/e/0/e08ed414-77bf-402a-82a8-9d4e1bd627a1.jpg?1682204635",
+          "normal": "https://cards.scryfall.io/normal/front/e/0/e08ed414-77bf-402a-82a8-9d4e1bd627a1.jpg?1682204635",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/e/0/e08ed414-77bf-402a-82a8-9d4e1bd627a1.jpg?1682204635"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "3ea495ff-33df-406b-98e3-5579e2158bbc_mio6vbs8_jg_47221945",
+        "name": "Bane of Progress",
+        "type_line": "Creature — Elemental",
+        "oracle_text": "When this creature enters, destroy all artifacts and enchantments. Put a +1/+1 counter on this creature for each permanent destroyed this way.",
+        "mana_cost": "{4}{G}{G}",
+        "power": "2",
+        "toughness": "2",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/3/e/3ea495ff-33df-406b-98e3-5579e2158bbc.jpg?1610161688",
+          "normal": "https://cards.scryfall.io/normal/front/3/e/3ea495ff-33df-406b-98e3-5579e2158bbc.jpg?1610161688",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/3/e/3ea495ff-33df-406b-98e3-5579e2158bbc.jpg?1610161688"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "daf4bcd2-3ae4-4803-9ea1-3bcc3de5ca59_mio6vbs8_jh_fae10d71",
+        "name": "Beast Whisperer",
+        "type_line": "Creature — Elf Druid",
+        "oracle_text": "Whenever you cast a creature spell, draw a card.",
+        "mana_cost": "{2}{G}{G}",
+        "power": "2",
+        "toughness": "3",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/d/a/daf4bcd2-3ae4-4803-9ea1-3bcc3de5ca59.jpg?1706240020",
+          "normal": "https://cards.scryfall.io/normal/front/d/a/daf4bcd2-3ae4-4803-9ea1-3bcc3de5ca59.jpg?1706240020",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/d/a/daf4bcd2-3ae4-4803-9ea1-3bcc3de5ca59.jpg?1706240020"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "861361bc-b357-4ff8-931b-a48d08817191_mio6vbs8_ji_be3c5b32",
+        "name": "Bighorner Rancher",
+        "type_line": "Creature — Human Ranger",
+        "oracle_text": "Vigilance\n{T}: Add an amount of {G} equal to the greatest power among creatures you control.\nSacrifice this creature: You gain life equal to the greatest toughness among other creatures you control.",
+        "mana_cost": "{4}{G}",
+        "power": "2",
+        "toughness": "5",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/8/6/861361bc-b357-4ff8-931b-a48d08817191.jpg?1708742265",
+          "normal": "https://cards.scryfall.io/normal/front/8/6/861361bc-b357-4ff8-931b-a48d08817191.jpg?1708742265",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/8/6/861361bc-b357-4ff8-931b-a48d08817191.jpg?1708742265"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "10e0a9a3-f63a-4f92-a083-9d181580e498_mio6vbs8_jj_3f457306",
+        "name": "Bloomvine Regent // Claim Territory",
+        "type_line": "Creature — Dragon // Sorcery — Omen",
+        "mana_cost": "{3}{G}{G} // {2}{G}",
+        "power": "4",
+        "toughness": "5",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/1/0/10e0a9a3-f63a-4f92-a083-9d181580e498.jpg?1754359377",
+          "normal": "https://cards.scryfall.io/normal/front/1/0/10e0a9a3-f63a-4f92-a083-9d181580e498.jpg?1754359377",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/1/0/10e0a9a3-f63a-4f92-a083-9d181580e498.jpg?1754359377"
+        },
+        "card_faces": [
+          {
+            "name": "Bloomvine Regent",
+            "mana_cost": "{3}{G}{G}",
+            "type_line": "Creature — Dragon",
+            "oracle_text": "Flying\nWhenever this creature or another Dragon you control enters, you gain 3 life.",
+            "power": "4",
+            "toughness": "5"
+          },
+          {
+            "name": "Claim Territory",
+            "mana_cost": "{2}{G}",
+            "type_line": "Sorcery — Omen",
+            "oracle_text": "Search your library for up to two basic Forest cards, reveal them, put one onto the battlefield tapped and the other into your hand, then shuffle. (Also shuffle this card.)"
+          }
+        ],
+        "layout": "adventure"
+      },
+      {
+        "id": "8a6439a6-288d-427e-b14b-a99e8ef8c5cd_mio6vbs8_jk_137c1605",
+        "name": "Brotherhood Regalia",
+        "type_line": "Artifact — Equipment",
+        "oracle_text": "Equipped creature has ward {2}, is an Assassin in addition to its other types, and can't be blocked.\nEquip legendary creature {1}\nEquip {3} ({3}: Attach to target creature you control. Equip only as a sorcery.)",
+        "mana_cost": "{2}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/8/a/8a6439a6-288d-427e-b14b-a99e8ef8c5cd.jpg?1721424191",
+          "normal": "https://cards.scryfall.io/normal/front/8/a/8a6439a6-288d-427e-b14b-a99e8ef8c5cd.jpg?1721424191",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/8/a/8a6439a6-288d-427e-b14b-a99e8ef8c5cd.jpg?1721424191"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "0929a1bd-e35c-4ca5-8c8c-dd304cf4b830_mio6vbs8_jl_5690ae2a",
+        "name": "Case of the Locked Hothouse",
+        "type_line": "Enchantment — Case",
+        "oracle_text": "You may play an additional land on each of your turns.\nTo solve — You control seven or more lands. (If unsolved, solve at the beginning of your end step.)\nSolved — You may look at the top card of your library any time, and you may play lands and cast creature and enchantment spells from the top of your library.",
+        "mana_cost": "{3}{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/0/9/0929a1bd-e35c-4ca5-8c8c-dd304cf4b830.jpg?1706241956",
+          "normal": "https://cards.scryfall.io/normal/front/0/9/0929a1bd-e35c-4ca5-8c8c-dd304cf4b830.jpg?1706241956",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/0/9/0929a1bd-e35c-4ca5-8c8c-dd304cf4b830.jpg?1706241956"
+        },
+        "layout": "case"
+      },
+      {
+        "id": "e3c2c66c-f7f0-41d5-a805-a129aeaf1b75_mio6vbs8_jm_6881f64e",
+        "name": "Castle Garenbrig",
+        "type_line": "Land",
+        "oracle_text": "This land enters tapped unless you control a Forest.\n{T}: Add {G}.\n{2}{G}{G}, {T}: Add six {G}. Spend this mana only to cast creature spells or activate abilities of creatures.",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/e/3/e3c2c66c-f7f0-41d5-a805-a129aeaf1b75.jpg?1572491176",
+          "normal": "https://cards.scryfall.io/normal/front/e/3/e3c2c66c-f7f0-41d5-a805-a129aeaf1b75.jpg?1572491176",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/e/3/e3c2c66c-f7f0-41d5-a805-a129aeaf1b75.jpg?1572491176"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "cfa7b456-7e83-4587-a875-9b35fde318c2_mio6vbs8_jn_f87ef96f",
+        "name": "Collected Company",
+        "type_line": "Instant",
+        "oracle_text": "Look at the top six cards of your library. Put up to two creature cards with mana value 3 or less from among them onto the battlefield. Put the rest on the bottom of your library in any order.",
+        "mana_cost": "{3}{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/c/f/cfa7b456-7e83-4587-a875-9b35fde318c2.jpg?1582117536",
+          "normal": "https://cards.scryfall.io/normal/front/c/f/cfa7b456-7e83-4587-a875-9b35fde318c2.jpg?1582117536",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/c/f/cfa7b456-7e83-4587-a875-9b35fde318c2.jpg?1582117536"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "85eb4b03-305b-45a4-82e5-5fcd586cc744_mio6vbs8_jo_eb96734d",
+        "name": "Command Tower",
+        "type_line": "Land",
+        "oracle_text": "{T}: Add one mana of any color in your commander's color identity.",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/8/5/85eb4b03-305b-45a4-82e5-5fcd586cc744.jpg?1755356081",
+          "normal": "https://cards.scryfall.io/normal/front/8/5/85eb4b03-305b-45a4-82e5-5fcd586cc744.jpg?1755356081",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/8/5/85eb4b03-305b-45a4-82e5-5fcd586cc744.jpg?1755356081"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "7ee610ee-7711-4a6b-b441-d6c73e6ef2b4_mio6vbs8_jp_b40e65f7",
+        "name": "Cultivate",
+        "type_line": "Sorcery",
+        "oracle_text": "Search your library for up to two basic land cards, reveal those cards, put one onto the battlefield tapped and the other into your hand, then shuffle.",
+        "mana_cost": "{2}{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/7/e/7ee610ee-7711-4a6b-b441-d6c73e6ef2b4.jpg?1752944789",
+          "normal": "https://cards.scryfall.io/normal/front/7/e/7ee610ee-7711-4a6b-b441-d6c73e6ef2b4.jpg?1752944789",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/7/e/7ee610ee-7711-4a6b-b441-d6c73e6ef2b4.jpg?1752944789"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "dfdabdda-bd46-4ea2-8b37-5d7f6cec6aff_mio6vbs8_jq_b27647d7",
+        "name": "Eladamri, Korvecdal",
+        "type_line": "Legendary Creature — Elf Warrior",
+        "oracle_text": "You may look at the top card of your library any time.\nYou may cast creature spells from the top of your library.\n{G}, {T}, Tap two untapped creatures you control: Reveal a card from your hand or the top card of your library. If you reveal a creature card this way, put it onto the battlefield. Activate only during your turn.",
+        "mana_cost": "{1}{G}{G}",
+        "power": "3",
+        "toughness": "3",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/d/f/dfdabdda-bd46-4ea2-8b37-5d7f6cec6aff.jpg?1717012423",
+          "normal": "https://cards.scryfall.io/normal/front/d/f/dfdabdda-bd46-4ea2-8b37-5d7f6cec6aff.jpg?1717012423",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/d/f/dfdabdda-bd46-4ea2-8b37-5d7f6cec6aff.jpg?1717012423"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "d8531643-5657-44b6-89d1-9cdf67ed09c4_mio6vbs8_jr_8c739ad6",
+        "name": "Eladamri's Vineyard",
+        "type_line": "Enchantment",
+        "oracle_text": "At the beginning of each player's first main phase, that player adds {G}{G}.",
+        "mana_cost": "{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/d/8/d8531643-5657-44b6-89d1-9cdf67ed09c4.jpg?1562056878",
+          "normal": "https://cards.scryfall.io/normal/front/d/8/d8531643-5657-44b6-89d1-9cdf67ed09c4.jpg?1562056878",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/d/8/d8531643-5657-44b6-89d1-9cdf67ed09c4.jpg?1562056878"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "341da856-7414-403b-b2e3-4bebd58a5aa4_mio6vbs8_js_823b53e6",
+        "name": "Elvish Archdruid",
+        "type_line": "Creature — Elf Druid",
+        "oracle_text": "Other Elf creatures you control get +1/+1.\n{T}: Add {G} for each Elf you control.",
+        "mana_cost": "{1}{G}{G}",
+        "power": "2",
+        "toughness": "2",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/3/4/341da856-7414-403b-b2e3-4bebd58a5aa4.jpg?1730489413",
+          "normal": "https://cards.scryfall.io/normal/front/3/4/341da856-7414-403b-b2e3-4bebd58a5aa4.jpg?1730489413",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/3/4/341da856-7414-403b-b2e3-4bebd58a5aa4.jpg?1730489413"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "75918859-c93f-41b4-9ad0-a4a96c389f0d_mio6vbs8_jt_332948ab",
+        "name": "Elvish Mystic",
+        "type_line": "Creature — Elf Druid",
+        "oracle_text": "{T}: Add {G}.",
+        "mana_cost": "{G}",
+        "power": "1",
+        "toughness": "1",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/7/5/75918859-c93f-41b4-9ad0-a4a96c389f0d.jpg?1689998466",
+          "normal": "https://cards.scryfall.io/normal/front/7/5/75918859-c93f-41b4-9ad0-a4a96c389f0d.jpg?1689998466",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/7/5/75918859-c93f-41b4-9ad0-a4a96c389f0d.jpg?1689998466"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "5eac1616-d764-4e62-9fc6-939c28b75f52_mio6vbs8_ju_a28b9634",
+        "name": "Elvish Ranger",
+        "type_line": "Creature — Elf Ranger",
+        "oracle_text": "",
+        "mana_cost": "{2}{G}",
+        "power": "4",
+        "toughness": "1",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/5/e/5eac1616-d764-4e62-9fc6-939c28b75f52.jpg?1562869017",
+          "normal": "https://cards.scryfall.io/normal/front/5/e/5eac1616-d764-4e62-9fc6-939c28b75f52.jpg?1562869017",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/5/e/5eac1616-d764-4e62-9fc6-939c28b75f52.jpg?1562869017"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "28a1dd7f-2e42-4062-a941-b489b98a49fc_mio6vbs8_jv_9e1ac391",
+        "name": "Fierce Empath",
+        "type_line": "Creature — Elf",
+        "oracle_text": "When this creature enters, you may search your library for a creature card with mana value 6 or greater, reveal it, put it into your hand, then shuffle.",
+        "mana_cost": "{2}{G}",
+        "power": "1",
+        "toughness": "1",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/2/8/28a1dd7f-2e42-4062-a941-b489b98a49fc.jpg?1730491011",
+          "normal": "https://cards.scryfall.io/normal/front/2/8/28a1dd7f-2e42-4062-a941-b489b98a49fc.jpg?1730491011",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/2/8/28a1dd7f-2e42-4062-a941-b489b98a49fc.jpg?1730491011"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a305e44f-4253-4754-b83f-1e34103d77b0_mio6vbs8_jw_aeb91f34",
+        "name": "Forest",
+        "type_line": "Basic Land — Forest",
+        "oracle_text": "({T}: Add {G}.)",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "normal": "https://cards.scryfall.io/normal/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a305e44f-4253-4754-b83f-1e34103d77b0_mio6vbs8_jx_6409b9eb",
+        "name": "Forest",
+        "type_line": "Basic Land — Forest",
+        "oracle_text": "({T}: Add {G}.)",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "normal": "https://cards.scryfall.io/normal/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a305e44f-4253-4754-b83f-1e34103d77b0_mio6vbs8_jy_55f0eb81",
+        "name": "Forest",
+        "type_line": "Basic Land — Forest",
+        "oracle_text": "({T}: Add {G}.)",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "normal": "https://cards.scryfall.io/normal/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a305e44f-4253-4754-b83f-1e34103d77b0_mio6vbs8_jz_084a7de0",
+        "name": "Forest",
+        "type_line": "Basic Land — Forest",
+        "oracle_text": "({T}: Add {G}.)",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "normal": "https://cards.scryfall.io/normal/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a305e44f-4253-4754-b83f-1e34103d77b0_mio6vbs8_k0_92f32adc",
+        "name": "Forest",
+        "type_line": "Basic Land — Forest",
+        "oracle_text": "({T}: Add {G}.)",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "normal": "https://cards.scryfall.io/normal/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a305e44f-4253-4754-b83f-1e34103d77b0_mio6vbs8_k1_70e9be44",
+        "name": "Forest",
+        "type_line": "Basic Land — Forest",
+        "oracle_text": "({T}: Add {G}.)",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "normal": "https://cards.scryfall.io/normal/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a305e44f-4253-4754-b83f-1e34103d77b0_mio6vbs8_k2_fd2b7e9d",
+        "name": "Forest",
+        "type_line": "Basic Land — Forest",
+        "oracle_text": "({T}: Add {G}.)",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "normal": "https://cards.scryfall.io/normal/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a305e44f-4253-4754-b83f-1e34103d77b0_mio6vbs8_k3_3230ef6b",
+        "name": "Forest",
+        "type_line": "Basic Land — Forest",
+        "oracle_text": "({T}: Add {G}.)",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "normal": "https://cards.scryfall.io/normal/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a305e44f-4253-4754-b83f-1e34103d77b0_mio6vbs8_k4_595b7def",
+        "name": "Forest",
+        "type_line": "Basic Land — Forest",
+        "oracle_text": "({T}: Add {G}.)",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "normal": "https://cards.scryfall.io/normal/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a305e44f-4253-4754-b83f-1e34103d77b0_mio6vbs8_k5_cdb62ee3",
+        "name": "Forest",
+        "type_line": "Basic Land — Forest",
+        "oracle_text": "({T}: Add {G}.)",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "normal": "https://cards.scryfall.io/normal/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a305e44f-4253-4754-b83f-1e34103d77b0_mio6vbs8_k6_0230d7a5",
+        "name": "Forest",
+        "type_line": "Basic Land — Forest",
+        "oracle_text": "({T}: Add {G}.)",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "normal": "https://cards.scryfall.io/normal/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a305e44f-4253-4754-b83f-1e34103d77b0_mio6vbs8_k7_2429e0d1",
+        "name": "Forest",
+        "type_line": "Basic Land — Forest",
+        "oracle_text": "({T}: Add {G}.)",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "normal": "https://cards.scryfall.io/normal/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a305e44f-4253-4754-b83f-1e34103d77b0_mio6vbs8_k8_842484a7",
+        "name": "Forest",
+        "type_line": "Basic Land — Forest",
+        "oracle_text": "({T}: Add {G}.)",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "normal": "https://cards.scryfall.io/normal/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a305e44f-4253-4754-b83f-1e34103d77b0_mio6vbs8_k9_04a3f9f1",
+        "name": "Forest",
+        "type_line": "Basic Land — Forest",
+        "oracle_text": "({T}: Add {G}.)",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "normal": "https://cards.scryfall.io/normal/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a305e44f-4253-4754-b83f-1e34103d77b0_mio6vbs8_ka_6bcd8c39",
+        "name": "Forest",
+        "type_line": "Basic Land — Forest",
+        "oracle_text": "({T}: Add {G}.)",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "normal": "https://cards.scryfall.io/normal/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a305e44f-4253-4754-b83f-1e34103d77b0_mio6vbs8_kb_e0c74e63",
+        "name": "Forest",
+        "type_line": "Basic Land — Forest",
+        "oracle_text": "({T}: Add {G}.)",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "normal": "https://cards.scryfall.io/normal/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a305e44f-4253-4754-b83f-1e34103d77b0_mio6vbs8_kc_1d56fa66",
+        "name": "Forest",
+        "type_line": "Basic Land — Forest",
+        "oracle_text": "({T}: Add {G}.)",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "normal": "https://cards.scryfall.io/normal/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a305e44f-4253-4754-b83f-1e34103d77b0_mio6vbs8_kd_df3c550e",
+        "name": "Forest",
+        "type_line": "Basic Land — Forest",
+        "oracle_text": "({T}: Add {G}.)",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "normal": "https://cards.scryfall.io/normal/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a305e44f-4253-4754-b83f-1e34103d77b0_mio6vbs8_ke_0a581a4b",
+        "name": "Forest",
+        "type_line": "Basic Land — Forest",
+        "oracle_text": "({T}: Add {G}.)",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "normal": "https://cards.scryfall.io/normal/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a305e44f-4253-4754-b83f-1e34103d77b0_mio6vbs8_kf_8190a013",
+        "name": "Forest",
+        "type_line": "Basic Land — Forest",
+        "oracle_text": "({T}: Add {G}.)",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "normal": "https://cards.scryfall.io/normal/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a305e44f-4253-4754-b83f-1e34103d77b0_mio6vbs8_kg_7bef9d74",
+        "name": "Forest",
+        "type_line": "Basic Land — Forest",
+        "oracle_text": "({T}: Add {G}.)",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "normal": "https://cards.scryfall.io/normal/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a305e44f-4253-4754-b83f-1e34103d77b0_mio6vbs8_kh_0c72567d",
+        "name": "Forest",
+        "type_line": "Basic Land — Forest",
+        "oracle_text": "({T}: Add {G}.)",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "normal": "https://cards.scryfall.io/normal/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a305e44f-4253-4754-b83f-1e34103d77b0_mio6vbs8_ki_5cecefdc",
+        "name": "Forest",
+        "type_line": "Basic Land — Forest",
+        "oracle_text": "({T}: Add {G}.)",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "normal": "https://cards.scryfall.io/normal/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a305e44f-4253-4754-b83f-1e34103d77b0_mio6vbs8_kj_2924198d",
+        "name": "Forest",
+        "type_line": "Basic Land — Forest",
+        "oracle_text": "({T}: Add {G}.)",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "normal": "https://cards.scryfall.io/normal/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a305e44f-4253-4754-b83f-1e34103d77b0_mio6vbs8_kk_e9546b1b",
+        "name": "Forest",
+        "type_line": "Basic Land — Forest",
+        "oracle_text": "({T}: Add {G}.)",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "normal": "https://cards.scryfall.io/normal/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/3/a305e44f-4253-4754-b83f-1e34103d77b0.jpg?1764122074"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "d571c367-c786-41f9-9cdb-cb02594fa413_mio6vbs8_kl_1a2f2131",
+        "name": "Casal, Lurkwood Pathfinder // Casal, Pathbreaker Owlbear",
+        "type_line": "Legendary Creature — Tiefling Druid // Legendary Creature — Bird Bear",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/d/5/d571c367-c786-41f9-9cdb-cb02594fa413.jpg?1738584900",
+          "normal": "https://cards.scryfall.io/normal/front/d/5/d571c367-c786-41f9-9cdb-cb02594fa413.jpg?1738584900",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/d/5/d571c367-c786-41f9-9cdb-cb02594fa413.jpg?1738584900"
+        },
+        "card_faces": [
+          {
+            "name": "Casal, Lurkwood Pathfinder",
+            "mana_cost": "{3}{G}",
+            "type_line": "Legendary Creature — Tiefling Druid",
+            "oracle_text": "Vigilance\nWhen Casal enters, search your library for a Forest card, put it onto the battlefield tapped, then shuffle.\nWhenever Casal attacks, you may pay {1}{G}. If you do, transform her.",
+            "image_uris": {
+              "small": "https://cards.scryfall.io/small/front/d/5/d571c367-c786-41f9-9cdb-cb02594fa413.jpg?1738584900",
+              "normal": "https://cards.scryfall.io/normal/front/d/5/d571c367-c786-41f9-9cdb-cb02594fa413.jpg?1738584900",
+              "art_crop": "https://cards.scryfall.io/art_crop/front/d/5/d571c367-c786-41f9-9cdb-cb02594fa413.jpg?1738584900"
+            },
+            "power": "3",
+            "toughness": "3"
+          },
+          {
+            "name": "Casal, Pathbreaker Owlbear",
+            "mana_cost": "",
+            "type_line": "Legendary Creature — Bird Bear",
+            "oracle_text": "Vigilance, trample\nWhen this creature transforms into Casal, Pathbreaker Owlbear, other legendary creatures you control get +2/+2 and gain trample until end of turn.\nAt the beginning of your upkeep, transform Casal.",
+            "image_uris": {
+              "small": "https://cards.scryfall.io/small/back/d/5/d571c367-c786-41f9-9cdb-cb02594fa413.jpg?1738584900",
+              "normal": "https://cards.scryfall.io/normal/back/d/5/d571c367-c786-41f9-9cdb-cb02594fa413.jpg?1738584900",
+              "art_crop": "https://cards.scryfall.io/art_crop/back/d/5/d571c367-c786-41f9-9cdb-cb02594fa413.jpg?1738584900"
+            },
+            "power": "6",
+            "toughness": "6"
+          }
+        ],
+        "layout": "transform"
+      },
+      {
+        "id": "ea7047d8-8d32-48a3-829b-7eb5427ed53a_mio6vbs8_km_05f9aecd",
+        "name": "Vigor",
+        "type_line": "Creature — Elemental Incarnation",
+        "oracle_text": "Trample\nIf damage would be dealt to another creature you control, prevent that damage. Put a +1/+1 counter on that creature for each 1 damage prevented this way.\nWhen Vigor is put into a graveyard from anywhere, shuffle it into its owner's library.",
+        "mana_cost": "{3}{G}{G}{G}",
+        "power": "6",
+        "toughness": "6",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/e/a/ea7047d8-8d32-48a3-829b-7eb5427ed53a.jpg?1562942114",
+          "normal": "https://cards.scryfall.io/normal/front/e/a/ea7047d8-8d32-48a3-829b-7eb5427ed53a.jpg?1562942114",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/e/a/ea7047d8-8d32-48a3-829b-7eb5427ed53a.jpg?1562942114"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "d24b6640-ef2f-4c92-beb3-afdf78f9c2d5_mio6vbs8_kn_2b62ca46",
+        "name": "Nature's Claim",
+        "type_line": "Instant",
+        "oracle_text": "Destroy target artifact or enchantment. Its controller gains 4 life.",
+        "mana_cost": "{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/d/2/d24b6640-ef2f-4c92-beb3-afdf78f9c2d5.jpg?1562854212",
+          "normal": "https://cards.scryfall.io/normal/front/d/2/d24b6640-ef2f-4c92-beb3-afdf78f9c2d5.jpg?1562854212",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/d/2/d24b6640-ef2f-4c92-beb3-afdf78f9c2d5.jpg?1562854212"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "52311be7-b484-4b14-a091-904c6b0c83d1_mio6vbs8_ko_3b702c9e",
+        "name": "Freyalise, Llanowar's Fury",
+        "type_line": "Legendary Planeswalker — Freyalise",
+        "oracle_text": "+2: Create a 1/1 green Elf Druid creature token with \"{T}: Add {G}.\"\n−2: Destroy target artifact or enchantment.\n−6: Draw a card for each green creature you control.\nFreyalise, Llanowar's Fury can be your commander.",
+        "mana_cost": "{3}{G}{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/5/2/52311be7-b484-4b14-a091-904c6b0c83d1.jpg?1689998532",
+          "normal": "https://cards.scryfall.io/normal/front/5/2/52311be7-b484-4b14-a091-904c6b0c83d1.jpg?1689998532",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/5/2/52311be7-b484-4b14-a091-904c6b0c83d1.jpg?1689998532"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "450744cf-7eba-491b-97b0-ca80c6368bbb_mio6vbs8_kp_91be41c5",
+        "name": "Fyndhorn Elves",
+        "type_line": "Creature — Elf Druid",
+        "oracle_text": "{T}: Add {G}.",
+        "mana_cost": "{G}",
+        "power": "1",
+        "toughness": "1",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/4/5/450744cf-7eba-491b-97b0-ca80c6368bbb.jpg?1608910653",
+          "normal": "https://cards.scryfall.io/normal/front/4/5/450744cf-7eba-491b-97b0-ca80c6368bbb.jpg?1608910653",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/4/5/450744cf-7eba-491b-97b0-ca80c6368bbb.jpg?1608910653"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "d1ac1534-ce78-467d-abf4-67a2e11cfac5_mio6vbs8_kq_6784f0b7",
+        "name": "Galadhrim Brigade",
+        "type_line": "Creature — Elf Soldier",
+        "oracle_text": "Squad {1}{G} (As an additional cost to cast this spell, you may pay {1}{G} any number of times. When this creature enters, create that many tokens that are copies of it.)\nOther Elves you control get +1/+1.",
+        "mana_cost": "{2}{G}",
+        "power": "2",
+        "toughness": "2",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/d/1/d1ac1534-ce78-467d-abf4-67a2e11cfac5.jpg?1695814406",
+          "normal": "https://cards.scryfall.io/normal/front/d/1/d1ac1534-ce78-467d-abf4-67a2e11cfac5.jpg?1695814406",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/d/1/d1ac1534-ce78-467d-abf4-67a2e11cfac5.jpg?1695814406"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "d46f7ddb-f986-4f1f-b096-ae1a02d0bdc8_mio6vbs8_kr_fc0b530e",
+        "name": "Genesis Wave",
+        "type_line": "Sorcery",
+        "oracle_text": "Reveal the top X cards of your library. You may put any number of permanent cards with mana value X or less from among them onto the battlefield. Then put all cards revealed this way that weren't put onto the battlefield into your graveyard.",
+        "mana_cost": "{X}{G}{G}{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/d/4/d46f7ddb-f986-4f1f-b096-ae1a02d0bdc8.jpg?1730489421",
+          "normal": "https://cards.scryfall.io/normal/front/d/4/d46f7ddb-f986-4f1f-b096-ae1a02d0bdc8.jpg?1730489421",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/d/4/d46f7ddb-f986-4f1f-b096-ae1a02d0bdc8.jpg?1730489421"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a2caf73e-c3eb-4fa8-996a-d3d18b2ffaeb_mio6vbs8_ks_6a0ccfe2",
+        "name": "Glorious Sunrise",
+        "type_line": "Enchantment",
+        "oracle_text": "At the beginning of combat on your turn, choose one —\n• Creatures you control get +1/+1 and gain trample until end of turn.\n• Target land gains \"{T}: Add {G}{G}{G}\" until end of turn.\n• Draw a card if you control a creature with power 3 or greater.\n• You gain 3 life.",
+        "mana_cost": "{3}{G}{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/2/a2caf73e-c3eb-4fa8-996a-d3d18b2ffaeb.jpg?1643592660",
+          "normal": "https://cards.scryfall.io/normal/front/a/2/a2caf73e-c3eb-4fa8-996a-d3d18b2ffaeb.jpg?1643592660",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/2/a2caf73e-c3eb-4fa8-996a-d3d18b2ffaeb.jpg?1643592660"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "4c73ca01-d8ea-4cd2-af60-b260030967b2_mio6vbs8_kt_4265c96b",
+        "name": "Greater Good",
+        "type_line": "Enchantment",
+        "oracle_text": "Sacrifice a creature: Draw cards equal to the sacrificed creature's power, then discard three cards.",
+        "mana_cost": "{2}{G}{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/4/c/4c73ca01-d8ea-4cd2-af60-b260030967b2.jpg?1631587954",
+          "normal": "https://cards.scryfall.io/normal/front/4/c/4c73ca01-d8ea-4cd2-af60-b260030967b2.jpg?1631587954",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/4/c/4c73ca01-d8ea-4cd2-af60-b260030967b2.jpg?1631587954"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "004524bf-b249-4dac-9c10-44d57143feb9_mio6vbs8_ku_9fad64b5",
+        "name": "Growing Rites of Itlimoc // Itlimoc, Cradle of the Sun",
+        "type_line": "Legendary Enchantment // Legendary Land",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/0/0/004524bf-b249-4dac-9c10-44d57143feb9.jpg?1699044409",
+          "normal": "https://cards.scryfall.io/normal/front/0/0/004524bf-b249-4dac-9c10-44d57143feb9.jpg?1699044409",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/0/0/004524bf-b249-4dac-9c10-44d57143feb9.jpg?1699044409"
+        },
+        "card_faces": [
+          {
+            "name": "Growing Rites of Itlimoc",
+            "mana_cost": "{2}{G}",
+            "type_line": "Legendary Enchantment",
+            "oracle_text": "When Growing Rites of Itlimoc enters, look at the top four cards of your library. You may reveal a creature card from among them and put it into your hand. Put the rest on the bottom of your library in any order.\nAt the beginning of your end step, if you control four or more creatures, transform Growing Rites of Itlimoc.",
+            "image_uris": {
+              "small": "https://cards.scryfall.io/small/front/0/0/004524bf-b249-4dac-9c10-44d57143feb9.jpg?1699044409",
+              "normal": "https://cards.scryfall.io/normal/front/0/0/004524bf-b249-4dac-9c10-44d57143feb9.jpg?1699044409",
+              "art_crop": "https://cards.scryfall.io/art_crop/front/0/0/004524bf-b249-4dac-9c10-44d57143feb9.jpg?1699044409"
+            }
+          },
+          {
+            "name": "Itlimoc, Cradle of the Sun",
+            "mana_cost": "",
+            "type_line": "Legendary Land",
+            "oracle_text": "(Transforms from Growing Rites of Itlimoc.)\n{T}: Add {G}.\n{T}: Add {G} for each creature you control.",
+            "image_uris": {
+              "small": "https://cards.scryfall.io/small/back/0/0/004524bf-b249-4dac-9c10-44d57143feb9.jpg?1699044409",
+              "normal": "https://cards.scryfall.io/normal/back/0/0/004524bf-b249-4dac-9c10-44d57143feb9.jpg?1699044409",
+              "art_crop": "https://cards.scryfall.io/art_crop/back/0/0/004524bf-b249-4dac-9c10-44d57143feb9.jpg?1699044409"
+            }
+          }
+        ],
+        "layout": "transform"
+      },
+      {
+        "id": "7ee387b7-18e4-41b7-aefe-f2b5954e3051_mio6vbs8_kv_2193b2f0",
+        "name": "Gwenna, Eyes of Gaea",
+        "type_line": "Legendary Creature — Elf Druid Scout",
+        "oracle_text": "{T}: Add two mana in any combination of colors. Spend this mana only to cast creature spells or activate abilities of creature sources.\nWhenever you cast a creature spell with power 5 or greater, put a +1/+1 counter on Gwenna and untap it.",
+        "mana_cost": "{2}{G}",
+        "power": "2",
+        "toughness": "3",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/7/e/7ee387b7-18e4-41b7-aefe-f2b5954e3051.jpg?1674421589",
+          "normal": "https://cards.scryfall.io/normal/front/7/e/7ee387b7-18e4-41b7-aefe-f2b5954e3051.jpg?1674421589",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/7/e/7ee387b7-18e4-41b7-aefe-f2b5954e3051.jpg?1674421589"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a88c7713-b3a9-4685-b1d3-623d35b62365_mio6vbs8_kw_a06c9a8c",
+        "name": "Herd Heirloom",
+        "type_line": "Artifact",
+        "oracle_text": "{T}: Add one mana of any color. Spend this mana only to cast a creature spell.\n{T}: Until end of turn, target creature you control with power 4 or greater gains trample and \"Whenever this creature deals combat damage to a player, draw a card.\"",
+        "mana_cost": "{1}{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/8/a88c7713-b3a9-4685-b1d3-623d35b62365.jpg?1743204542",
+          "normal": "https://cards.scryfall.io/normal/front/a/8/a88c7713-b3a9-4685-b1d3-623d35b62365.jpg?1743204542",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/8/a88c7713-b3a9-4685-b1d3-623d35b62365.jpg?1743204542"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "e32c67d1-187f-40df-b3b3-6036f5c92834_mio6vbs8_kx_b61d2ad2",
+        "name": "Heroic Intervention",
+        "type_line": "Instant",
+        "oracle_text": "Permanents you control gain hexproof and indestructible until end of turn.",
+        "mana_cost": "{1}{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/e/3/e32c67d1-187f-40df-b3b3-6036f5c92834.jpg?1689998584",
+          "normal": "https://cards.scryfall.io/normal/front/e/3/e32c67d1-187f-40df-b3b3-6036f5c92834.jpg?1689998584",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/e/3/e32c67d1-187f-40df-b3b3-6036f5c92834.jpg?1689998584"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "ca08b369-783d-4fe4-8fc8-9cd595638550_mio6vbs8_ky_02cb8c65",
+        "name": "It That Betrays",
+        "type_line": "Creature — Eldrazi",
+        "oracle_text": "Annihilator 2 (Whenever this creature attacks, defending player sacrifices two permanents of their choice.)\nWhenever an opponent sacrifices a nontoken permanent, put that card onto the battlefield under your control.",
+        "mana_cost": "{12}",
+        "power": "11",
+        "toughness": "11",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/c/a/ca08b369-783d-4fe4-8fc8-9cd595638550.jpg?1690003901",
+          "normal": "https://cards.scryfall.io/normal/front/c/a/ca08b369-783d-4fe4-8fc8-9cd595638550.jpg?1690003901",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/c/a/ca08b369-783d-4fe4-8fc8-9cd595638550.jpg?1690003901"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "feb7ad1b-4466-48f7-b46d-cc83d4e22b51_mio6vbs8_kz_43c49597",
+        "name": "Jaheira, Friend of the Forest",
+        "type_line": "Legendary Creature — Human Elf Druid",
+        "oracle_text": "Tokens you control have \"{T}: Add {G}.\"\nChoose a Background (You can have a Background as a second commander.)",
+        "mana_cost": "{2}{G}",
+        "power": "2",
+        "toughness": "3",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/f/e/feb7ad1b-4466-48f7-b46d-cc83d4e22b51.jpg?1674137153",
+          "normal": "https://cards.scryfall.io/normal/front/f/e/feb7ad1b-4466-48f7-b46d-cc83d4e22b51.jpg?1674137153",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/f/e/feb7ad1b-4466-48f7-b46d-cc83d4e22b51.jpg?1674137153"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "04ce0b01-7b52-4cb9-86ea-13395cf52312_mio6vbs8_l0_29f69038",
+        "name": "Jaheira's Respite",
+        "type_line": "Instant",
+        "oracle_text": "Search your library for up to X basic land cards, where X is the number of creatures attacking you, put those cards onto the battlefield tapped, then shuffle.\nPrevent all combat damage that would be dealt this turn.",
+        "mana_cost": "{4}{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/0/4/04ce0b01-7b52-4cb9-86ea-13395cf52312.jpg?1674137161",
+          "normal": "https://cards.scryfall.io/normal/front/0/4/04ce0b01-7b52-4cb9-86ea-13395cf52312.jpg?1674137161",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/0/4/04ce0b01-7b52-4cb9-86ea-13395cf52312.jpg?1674137161"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "8cf33d80-0704-4dc4-8e8d-1dcbcbc35add_mio6vbs8_l1_d432fbd9",
+        "name": "Keen-Eyed Curator",
+        "type_line": "Creature — Raccoon Scout",
+        "oracle_text": "As long as there are four or more card types among cards exiled with this creature, it gets +4/+4 and has trample.\n{1}: Exile target card from a graveyard.",
+        "mana_cost": "{G}{G}",
+        "power": "3",
+        "toughness": "3",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/8/c/8cf33d80-0704-4dc4-8e8d-1dcbcbc35add.jpg?1721426856",
+          "normal": "https://cards.scryfall.io/normal/front/8/c/8cf33d80-0704-4dc4-8e8d-1dcbcbc35add.jpg?1721426856",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/8/c/8cf33d80-0704-4dc4-8e8d-1dcbcbc35add.jpg?1721426856"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "b670bb0f-680f-4036-bdb6-ac73e866a398_mio6vbs8_l2_12d9ef26",
+        "name": "Lair of the Hydra",
+        "type_line": "Land",
+        "oracle_text": "If you control two or more other lands, this land enters tapped.\n{T}: Add {G}.\n{X}{G}: Until end of turn, this land becomes an X/X green Hydra creature. It's still a land. X can't be 0.",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/b/6/b670bb0f-680f-4036-bdb6-ac73e866a398.jpg?1627710336",
+          "normal": "https://cards.scryfall.io/normal/front/b/6/b670bb0f-680f-4036-bdb6-ac73e866a398.jpg?1627710336",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/b/6/b670bb0f-680f-4036-bdb6-ac73e866a398.jpg?1627710336"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "8b59b12c-fde5-4f19-a357-e09f06f490cc_mio6vbs8_l3_b7a13f9f",
+        "name": "Lightning Greaves",
+        "type_line": "Artifact — Equipment",
+        "oracle_text": "Equipped creature has haste and shroud. (It can't be the target of spells or abilities.)\nEquip {0}",
+        "mana_cost": "{2}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/8/b/8b59b12c-fde5-4f19-a357-e09f06f490cc.jpg?1743206077",
+          "normal": "https://cards.scryfall.io/normal/front/8/b/8b59b12c-fde5-4f19-a357-e09f06f490cc.jpg?1743206077",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/8/b/8b59b12c-fde5-4f19-a357-e09f06f490cc.jpg?1743206077"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "6a0b230b-d391-4998-a3f7-7b158a0ec2cd_mio6vbs8_l4_e5146e90",
+        "name": "Llanowar Elves",
+        "type_line": "Creature — Elf Druid",
+        "oracle_text": "{T}: Add {G}.",
+        "mana_cost": "{G}",
+        "power": "1",
+        "toughness": "1",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/6/a/6a0b230b-d391-4998-a3f7-7b158a0ec2cd.jpg?1731652605",
+          "normal": "https://cards.scryfall.io/normal/front/6/a/6a0b230b-d391-4998-a3f7-7b158a0ec2cd.jpg?1731652605",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/6/a/6a0b230b-d391-4998-a3f7-7b158a0ec2cd.jpg?1731652605"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "81e0d739-990f-4ba5-b456-165c033014cf_mio6vbs8_l5_5de9bad1",
+        "name": "Mana Reflection",
+        "type_line": "Enchantment",
+        "oracle_text": "If you tap a permanent for mana, it produces twice as much of that mana instead.",
+        "mana_cost": "{4}{G}{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/8/1/81e0d739-990f-4ba5-b456-165c033014cf.jpg?1599707370",
+          "normal": "https://cards.scryfall.io/normal/front/8/1/81e0d739-990f-4ba5-b456-165c033014cf.jpg?1599707370",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/8/1/81e0d739-990f-4ba5-b456-165c033014cf.jpg?1599707370"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "aad61d99-5c8e-47b7-ab1a-e70905f59205_mio6vbs8_l6_334d05fb",
+        "name": "Marwyn, the Nurturer",
+        "type_line": "Legendary Creature — Elf Druid",
+        "oracle_text": "Whenever another Elf you control enters, put a +1/+1 counter on Marwyn.\n{T}: Add an amount of {G} equal to Marwyn's power.",
+        "mana_cost": "{2}{G}",
+        "power": "1",
+        "toughness": "1",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/a/aad61d99-5c8e-47b7-ab1a-e70905f59205.jpg?1631235039",
+          "normal": "https://cards.scryfall.io/normal/front/a/a/aad61d99-5c8e-47b7-ab1a-e70905f59205.jpg?1631235039",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/a/aad61d99-5c8e-47b7-ab1a-e70905f59205.jpg?1631235039"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "dfa8757b-ef7d-44b8-ae80-45c436e85c1e_mio6vbs8_l7_2e3ff45b",
+        "name": "Mimic Vat",
+        "type_line": "Artifact",
+        "oracle_text": "Imprint — Whenever a nontoken creature dies, you may exile that card. If you do, return each other card exiled with this artifact to its owner's graveyard.\n{3}, {T}: Create a token that's a copy of a card exiled with this artifact. It gains haste. Exile it at the beginning of the next end step.",
+        "mana_cost": "{3}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/d/f/dfa8757b-ef7d-44b8-ae80-45c436e85c1e.jpg?1673485399",
+          "normal": "https://cards.scryfall.io/normal/front/d/f/dfa8757b-ef7d-44b8-ae80-45c436e85c1e.jpg?1673485399",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/d/f/dfa8757b-ef7d-44b8-ae80-45c436e85c1e.jpg?1673485399"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "7054a0d7-396f-40b4-ab24-db591c3b08f0_mio6vbs8_l8_960d02e6",
+        "name": "Mossborn Hydra",
+        "type_line": "Creature — Elemental Hydra",
+        "oracle_text": "Trample (This creature can deal excess combat damage to the player or planeswalker it's attacking.)\nThis creature enters with a +1/+1 counter on it.\nLandfall — Whenever a land you control enters, double the number of +1/+1 counters on this creature.",
+        "mana_cost": "{2}{G}",
+        "power": "0",
+        "toughness": "0",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/7/0/7054a0d7-396f-40b4-ab24-db591c3b08f0.jpg?1730488992",
+          "normal": "https://cards.scryfall.io/normal/front/7/0/7054a0d7-396f-40b4-ab24-db591c3b08f0.jpg?1730488992",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/7/0/7054a0d7-396f-40b4-ab24-db591c3b08f0.jpg?1730488992"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a0e2098f-1d94-491a-a7e9-a45a9f69e3a8_mio6vbs8_l9_aae4af33",
+        "name": "Myriad Landscape",
+        "type_line": "Land",
+        "oracle_text": "This land enters tapped.\n{T}: Add {C}.\n{2}, {T}, Sacrifice this land: Search your library for up to two basic land cards that share a land type, put them onto the battlefield tapped, then shuffle.",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/0/a0e2098f-1d94-491a-a7e9-a45a9f69e3a8.jpg?1752945395",
+          "normal": "https://cards.scryfall.io/normal/front/a/0/a0e2098f-1d94-491a-a7e9-a45a9f69e3a8.jpg?1752945395",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/0/a0e2098f-1d94-491a-a7e9-a45a9f69e3a8.jpg?1752945395"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "75a291a0-db0d-4ccc-b7ae-240cafa41883_mio6vbs8_la_600a22b6",
+        "name": "Nature's Will",
+        "type_line": "Enchantment",
+        "oracle_text": "Whenever one or more creatures you control deal combat damage to a player, tap all lands that player controls and untap all lands you control.",
+        "mana_cost": "{2}{G}{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/7/5/75a291a0-db0d-4ccc-b7ae-240cafa41883.jpg?1562761547",
+          "normal": "https://cards.scryfall.io/normal/front/7/5/75a291a0-db0d-4ccc-b7ae-240cafa41883.jpg?1562761547",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/7/5/75a291a0-db0d-4ccc-b7ae-240cafa41883.jpg?1562761547"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "7f1d8a22-e730-4344-bba9-7c495500f065_mio6vbs8_lb_72eedf1b",
+        "name": "Nesting Grounds",
+        "type_line": "Land",
+        "oracle_text": "{T}: Add {C}.\n{1}, {T}: Move a counter from target permanent you control onto another target permanent. Activate only as a sorcery.",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/7/f/7f1d8a22-e730-4344-bba9-7c495500f065.jpg?1717104213",
+          "normal": "https://cards.scryfall.io/normal/front/7/f/7f1d8a22-e730-4344-bba9-7c495500f065.jpg?1717104213",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/7/f/7f1d8a22-e730-4344-bba9-7c495500f065.jpg?1717104213"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "f857bbe4-5619-4733-a0c7-69700f2ef4f3_mio6vbs8_lc_06a17cb5",
+        "name": "Nissa, Who Shakes the World",
+        "type_line": "Legendary Planeswalker — Nissa",
+        "oracle_text": "Whenever you tap a Forest for mana, add an additional {G}.\n+1: Put three +1/+1 counters on up to one target noncreature land you control. Untap it. It becomes a 0/0 Elemental creature with vigilance and haste that's still a land.\n−8: You get an emblem with \"Lands you control have indestructible.\" Search your library for any number of Forest cards, put them onto the battlefield tapped, then shuffle.",
+        "mana_cost": "{3}{G}{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/f/8/f857bbe4-5619-4733-a0c7-69700f2ef4f3.jpg?1618426283",
+          "normal": "https://cards.scryfall.io/normal/front/f/8/f857bbe4-5619-4733-a0c7-69700f2ef4f3.jpg?1618426283",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/f/8/f857bbe4-5619-4733-a0c7-69700f2ef4f3.jpg?1618426283"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "d18ce39e-211d-460b-a200-a26c17aeeb12_mio6vbs8_ld_6705984c",
+        "name": "Not of This World",
+        "type_line": "Kindred Instant — Eldrazi",
+        "oracle_text": "Counter target spell or ability that targets a permanent you control.\nThis spell costs {7} less to cast if it targets a spell or ability that targets a creature you control with power 7 or greater.",
+        "mana_cost": "{7}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/d/1/d18ce39e-211d-460b-a200-a26c17aeeb12.jpg?1690003928",
+          "normal": "https://cards.scryfall.io/normal/front/d/1/d18ce39e-211d-460b-a200-a26c17aeeb12.jpg?1690003928",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/d/1/d18ce39e-211d-460b-a200-a26c17aeeb12.jpg?1690003928"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "187d5819-6a63-4e4f-98c4-18191c03f164_mio6vbs8_le_5a5da73c",
+        "name": "Paradise Druid",
+        "type_line": "Creature — Elf Druid",
+        "oracle_text": "This creature has hexproof as long as it's untapped. (It can't be the target of spells or abilities your opponents control.)\n{T}: Add one mana of any color.",
+        "mana_cost": "{1}{G}",
+        "power": "2",
+        "toughness": "1",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/1/8/187d5819-6a63-4e4f-98c4-18191c03f164.jpg?1631588057",
+          "normal": "https://cards.scryfall.io/normal/front/1/8/187d5819-6a63-4e4f-98c4-18191c03f164.jpg?1631588057",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/1/8/187d5819-6a63-4e4f-98c4-18191c03f164.jpg?1631588057"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "99add821-568b-4931-8525-a673e6cc8f65_mio6vbs8_lf_a1a81fe9",
+        "name": "Pest Infestation",
+        "type_line": "Sorcery",
+        "oracle_text": "Destroy up to X target artifacts and/or enchantments. Create twice X 1/1 black and green Pest creature tokens with \"When this token dies, you gain 1 life.\"",
+        "mana_cost": "{X}{X}{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/9/9/99add821-568b-4931-8525-a673e6cc8f65.jpg?1752944854",
+          "normal": "https://cards.scryfall.io/normal/front/9/9/99add821-568b-4931-8525-a673e6cc8f65.jpg?1752944854",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/9/9/99add821-568b-4931-8525-a673e6cc8f65.jpg?1752944854"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "eb11921b-1b28-483f-a707-4de21a6daa31_mio6vbs8_lg_bd6a8033",
+        "name": "Priest of Titania",
+        "type_line": "Creature — Elf Druid",
+        "oracle_text": "{T}: Add {G} for each Elf on the battlefield.",
+        "mana_cost": "{1}{G}",
+        "power": "1",
+        "toughness": "1",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/e/b/eb11921b-1b28-483f-a707-4de21a6daa31.jpg?1717013714",
+          "normal": "https://cards.scryfall.io/normal/front/e/b/eb11921b-1b28-483f-a707-4de21a6daa31.jpg?1717013714",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/e/b/eb11921b-1b28-483f-a707-4de21a6daa31.jpg?1717013714"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "86d6b411-4a31-4bfc-8dd6-e19f553bb29b_mio6vbs8_lh_eb1fc311",
+        "name": "Rancor",
+        "type_line": "Enchantment — Aura",
+        "oracle_text": "Enchant creature\nEnchanted creature gets +2/+0 and has trample.\nWhen this Aura is put into a graveyard from the battlefield, return it to its owner's hand.",
+        "mana_cost": "{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/8/6/86d6b411-4a31-4bfc-8dd6-e19f553bb29b.jpg?1673148169",
+          "normal": "https://cards.scryfall.io/normal/front/8/6/86d6b411-4a31-4bfc-8dd6-e19f553bb29b.jpg?1673148169",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/8/6/86d6b411-4a31-4bfc-8dd6-e19f553bb29b.jpg?1673148169"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "8050afb7-3c16-4456-aa34-4cc999fac7f5_mio6vbs8_li_9518e646",
+        "name": "Saryth, the Viper's Fang",
+        "type_line": "Legendary Creature — Human Warlock",
+        "oracle_text": "Other tapped creatures you control have deathtouch.\nOther untapped creatures you control have hexproof.\n{1}, {T}: Untap another target creature or land you control.",
+        "mana_cost": "{2}{G}{G}",
+        "power": "3",
+        "toughness": "4",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/8/0/8050afb7-3c16-4456-aa34-4cc999fac7f5.jpg?1706240929",
+          "normal": "https://cards.scryfall.io/normal/front/8/0/8050afb7-3c16-4456-aa34-4cc999fac7f5.jpg?1706240929",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/8/0/8050afb7-3c16-4456-aa34-4cc999fac7f5.jpg?1706240929"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "ea630ba1-22f9-4a10-bdc6-0d03128214f4_mio6vbs8_lj_8971162a",
+        "name": "Scute Swarm",
+        "type_line": "Creature — Insect",
+        "oracle_text": "Landfall — Whenever a land you control enters, create a 1/1 green Insect creature token. If you control six or more lands, create a token that's a copy of this creature instead.",
+        "mana_cost": "{2}{G}",
+        "power": "1",
+        "toughness": "1",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/e/a/ea630ba1-22f9-4a10-bdc6-0d03128214f4.jpg?1726285123",
+          "normal": "https://cards.scryfall.io/normal/front/e/a/ea630ba1-22f9-4a10-bdc6-0d03128214f4.jpg?1726285123",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/e/a/ea630ba1-22f9-4a10-bdc6-0d03128214f4.jpg?1726285123"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "76f58441-5674-4f1e-af9b-94e14ab7e619_mio6vbs8_lk_093f1741",
+        "name": "Seedborn Muse",
+        "type_line": "Creature — Spirit",
+        "oracle_text": "Untap all permanents you control during each other player's untap step.",
+        "mana_cost": "{3}{G}{G}",
+        "power": "2",
+        "toughness": "4",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/7/6/76f58441-5674-4f1e-af9b-94e14ab7e619.jpg?1761042058",
+          "normal": "https://cards.scryfall.io/normal/front/7/6/76f58441-5674-4f1e-af9b-94e14ab7e619.jpg?1761042058",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/7/6/76f58441-5674-4f1e-af9b-94e14ab7e619.jpg?1761042058"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "7d711cb2-4f34-4792-90d7-2be5d329a347_mio6vbs8_ll_66030381",
+        "name": "Selvala, Heart of the Wilds",
+        "type_line": "Legendary Creature — Elf Scout",
+        "oracle_text": "Whenever another creature enters, its controller may draw a card if its power is greater than each other creature's power.\n{G}, {T}: Add X mana in any combination of colors, where X is the greatest power among creatures you control.",
+        "mana_cost": "{1}{G}{G}",
+        "power": "2",
+        "toughness": "3",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/7/d/7d711cb2-4f34-4792-90d7-2be5d329a347.jpg?1689998846",
+          "normal": "https://cards.scryfall.io/normal/front/7/d/7d711cb2-4f34-4792-90d7-2be5d329a347.jpg?1689998846",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/7/d/7d711cb2-4f34-4792-90d7-2be5d329a347.jpg?1689998846"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "2b2dcafd-eb72-4f3a-9c1c-ba17fe30bf0f_mio6vbs8_lm_e15a82ae",
+        "name": "Skarrg Goliath",
+        "type_line": "Creature — Beast",
+        "oracle_text": "Trample\nBloodrush — {5}{G}{G}, Discard this card: Target attacking creature gets +9/+9 and gains trample until end of turn.",
+        "mana_cost": "{6}{G}{G}",
+        "power": "9",
+        "toughness": "9",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/2/b/2b2dcafd-eb72-4f3a-9c1c-ba17fe30bf0f.jpg?1561820572",
+          "normal": "https://cards.scryfall.io/normal/front/2/b/2b2dcafd-eb72-4f3a-9c1c-ba17fe30bf0f.jpg?1561820572",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/2/b/2b2dcafd-eb72-4f3a-9c1c-ba17fe30bf0f.jpg?1561820572"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "e7fbb489-e2b5-4278-8162-86802cf124d8_mio6vbs8_ln_e0bd16e5",
+        "name": "Smuggler's Surprise",
+        "type_line": "Instant",
+        "oracle_text": "Spree (Choose one or more additional costs.)\n+ {2} — Mill four cards. You may put up to two creature and/or land cards from among the milled cards into your hand.\n+ {4}{G} — You may put up to two creature cards from your hand onto the battlefield.\n+ {1} — Creatures you control with power 4 or greater gain hexproof and indestructible until end of turn.",
+        "mana_cost": "{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/e/7/e7fbb489-e2b5-4278-8162-86802cf124d8.jpg?1712860610",
+          "normal": "https://cards.scryfall.io/normal/front/e/7/e7fbb489-e2b5-4278-8162-86802cf124d8.jpg?1712860610",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/e/7/e7fbb489-e2b5-4278-8162-86802cf124d8.jpg?1712860610"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "a3d2c692-7566-468e-9c86-47a9f768fde2_mio6vbs8_lo_17a449ee",
+        "name": "Snakeskin Veil",
+        "type_line": "Instant",
+        "oracle_text": "Put a +1/+1 counter on target creature you control. It gains hexproof until end of turn. (It can't be the target of spells or abilities your opponents control.)",
+        "mana_cost": "{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/a/3/a3d2c692-7566-468e-9c86-47a9f768fde2.jpg?1743204601",
+          "normal": "https://cards.scryfall.io/normal/front/a/3/a3d2c692-7566-468e-9c86-47a9f768fde2.jpg?1743204601",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/a/3/a3d2c692-7566-468e-9c86-47a9f768fde2.jpg?1743204601"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "ee6e5a35-fe21-4dee-b0ef-a8f2841511ad_mio6vbs8_lp_7169eb23",
+        "name": "Sol Ring",
+        "type_line": "Artifact",
+        "oracle_text": "{T}: Add {C}{C}.",
+        "mana_cost": "{1}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/e/e/ee6e5a35-fe21-4dee-b0ef-a8f2841511ad.jpg?1764180059",
+          "normal": "https://cards.scryfall.io/normal/front/e/e/ee6e5a35-fe21-4dee-b0ef-a8f2841511ad.jpg?1764180059",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/e/e/ee6e5a35-fe21-4dee-b0ef-a8f2841511ad.jpg?1764180059"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "fde838c8-2f32-4e7d-a236-0bc42dd7abd9_mio6vbs8_lq_d4695f8f",
+        "name": "Staff of Domination",
+        "type_line": "Artifact",
+        "oracle_text": "{1}: Untap this artifact.\n{2}, {T}: You gain 1 life.\n{3}, {T}: Untap target creature.\n{4}, {T}: Tap target creature.\n{5}, {T}: Draw a card.",
+        "mana_cost": "{3}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/f/d/fde838c8-2f32-4e7d-a236-0bc42dd7abd9.jpg?1608911729",
+          "normal": "https://cards.scryfall.io/normal/front/f/d/fde838c8-2f32-4e7d-a236-0bc42dd7abd9.jpg?1608911729",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/f/d/fde838c8-2f32-4e7d-a236-0bc42dd7abd9.jpg?1608911729"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "d9fda3fc-569d-49f8-a2ed-e0b1d6668426_mio6vbs8_lr_ea300930",
+        "name": "Summoner's Grimoire",
+        "type_line": "Artifact — Equipment",
+        "oracle_text": "Job select\nEquipped creature is a Shaman in addition to its other types and has \"Whenever this creature attacks, you may put a creature card from your hand onto the battlefield. If that card is an enchantment card, it enters tapped and attacking.\"\nAbraxas — Equip {3}",
+        "mana_cost": "{3}{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/d/9/d9fda3fc-569d-49f8-a2ed-e0b1d6668426.jpg?1748706528",
+          "normal": "https://cards.scryfall.io/normal/front/d/9/d9fda3fc-569d-49f8-a2ed-e0b1d6668426.jpg?1748706528",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/d/9/d9fda3fc-569d-49f8-a2ed-e0b1d6668426.jpg?1748706528"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "1969b151-3192-4d35-80ca-c4e180601ec8_mio6vbs8_ls_46d6403a",
+        "name": "Swiftfoot Boots",
+        "type_line": "Artifact — Equipment",
+        "oracle_text": "Equipped creature has hexproof and haste. (It can't be the target of spells or abilities your opponents control. It can attack and {T} no matter when it came under your control.)\nEquip {1} ({1}: Attach to target creature you control. Equip only as a sorcery.)",
+        "mana_cost": "{2}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/1/9/1969b151-3192-4d35-80ca-c4e180601ec8.jpg?1743207367",
+          "normal": "https://cards.scryfall.io/normal/front/1/9/1969b151-3192-4d35-80ca-c4e180601ec8.jpg?1743207367",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/1/9/1969b151-3192-4d35-80ca-c4e180601ec8.jpg?1743207367"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "6ada256f-2e55-4c1f-b4d3-d7b10b498956_mio6vbs8_lt_c51b3a4a",
+        "name": "Sylvan Library",
+        "type_line": "Enchantment",
+        "oracle_text": "At the beginning of your draw step, you may draw two additional cards. If you do, choose two cards in your hand drawn this turn. For each of those cards, pay 4 life or put the card on top of your library.",
+        "mana_cost": "{1}{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/6/a/6ada256f-2e55-4c1f-b4d3-d7b10b498956.jpg?1675200566",
+          "normal": "https://cards.scryfall.io/normal/front/6/a/6ada256f-2e55-4c1f-b4d3-d7b10b498956.jpg?1675200566",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/6/a/6ada256f-2e55-4c1f-b4d3-d7b10b498956.jpg?1675200566"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "fd4b7ee2-de65-4288-872d-486065a4f226_mio6vbs8_lu_5a2f3b02",
+        "name": "Tamiyo's Safekeeping",
+        "type_line": "Instant",
+        "oracle_text": "Target permanent you control gains hexproof and indestructible until end of turn. You gain 2 life. (A permanent with hexproof and indestructible can't be the target of spells or abilities your opponents control. Damage and effects that say \"destroy\" don't destroy it.)",
+        "mana_cost": "{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/f/d/fd4b7ee2-de65-4288-872d-486065a4f226.jpg?1654568357",
+          "normal": "https://cards.scryfall.io/normal/front/f/d/fd4b7ee2-de65-4288-872d-486065a4f226.jpg?1654568357",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/f/d/fd4b7ee2-de65-4288-872d-486065a4f226.jpg?1654568357"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "d5178a1b-588b-4414-a370-ac6eed51187a_mio6vbs8_lv_af010235",
+        "name": "The Shire",
+        "type_line": "Legendary Land",
+        "oracle_text": "The Shire enters tapped unless you control a legendary creature.\n{T}: Add {G}.\n{1}{G}, {T}, Tap an untapped creature you control: Create a Food token.",
+        "mana_cost": "",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/d/5/d5178a1b-588b-4414-a370-ac6eed51187a.jpg?1686970405",
+          "normal": "https://cards.scryfall.io/normal/front/d/5/d5178a1b-588b-4414-a370-ac6eed51187a.jpg?1686970405",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/d/5/d5178a1b-588b-4414-a370-ac6eed51187a.jpg?1686970405"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "ef192364-713a-42ff-8249-69a73ae61bd8_mio6vbs8_lw_c4bb3f04",
+        "name": "Traverse the Outlands",
+        "type_line": "Sorcery",
+        "oracle_text": "Search your library for up to X basic land cards, where X is the greatest power among creatures you control. Put those cards onto the battlefield tapped, then shuffle.",
+        "mana_cost": "{4}{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/e/f/ef192364-713a-42ff-8249-69a73ae61bd8.jpg?1674137335",
+          "normal": "https://cards.scryfall.io/normal/front/e/f/ef192364-713a-42ff-8249-69a73ae61bd8.jpg?1674137335",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/e/f/ef192364-713a-42ff-8249-69a73ae61bd8.jpg?1674137335"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "c7b362a5-382a-4016-b4f2-aa7b683354c4_mio6vbs8_lx_7abf1100",
+        "name": "Tyvar's Stand",
+        "type_line": "Instant",
+        "oracle_text": "Target creature you control gets +X/+X and gains hexproof and indestructible until end of turn. (A creature with hexproof and indestructible can't be the target of spells or abilities your opponents control. Damage and effects that say \"destroy\" don't destroy it.)",
+        "mana_cost": "{X}{G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/c/7/c7b362a5-382a-4016-b4f2-aa7b683354c4.jpg?1675957174",
+          "normal": "https://cards.scryfall.io/normal/front/c/7/c7b362a5-382a-4016-b4f2-aa7b683354c4.jpg?1675957174",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/c/7/c7b362a5-382a-4016-b4f2-aa7b683354c4.jpg?1675957174"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "5fdf5fc4-69c8-4a59-9095-c2feefb64371_mio6vbs8_ly_e021330f",
+        "name": "Ulvenwald Oddity // Ulvenwald Behemoth",
+        "type_line": "Creature — Beast // Creature — Beast Horror",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/5/f/5fdf5fc4-69c8-4a59-9095-c2feefb64371.jpg?1643593558",
+          "normal": "https://cards.scryfall.io/normal/front/5/f/5fdf5fc4-69c8-4a59-9095-c2feefb64371.jpg?1643593558",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/5/f/5fdf5fc4-69c8-4a59-9095-c2feefb64371.jpg?1643593558"
+        },
+        "card_faces": [
+          {
+            "name": "Ulvenwald Oddity",
+            "mana_cost": "{2}{G}{G}",
+            "type_line": "Creature — Beast",
+            "oracle_text": "Trample, haste\n{5}{G}{G}: Transform this creature.",
+            "image_uris": {
+              "small": "https://cards.scryfall.io/small/front/5/f/5fdf5fc4-69c8-4a59-9095-c2feefb64371.jpg?1643593558",
+              "normal": "https://cards.scryfall.io/normal/front/5/f/5fdf5fc4-69c8-4a59-9095-c2feefb64371.jpg?1643593558",
+              "art_crop": "https://cards.scryfall.io/art_crop/front/5/f/5fdf5fc4-69c8-4a59-9095-c2feefb64371.jpg?1643593558"
+            },
+            "power": "4",
+            "toughness": "4"
+          },
+          {
+            "name": "Ulvenwald Behemoth",
+            "mana_cost": "",
+            "type_line": "Creature — Beast Horror",
+            "oracle_text": "Trample, haste\nOther creatures you control get +1/+1 and have trample and haste.",
+            "image_uris": {
+              "small": "https://cards.scryfall.io/small/back/5/f/5fdf5fc4-69c8-4a59-9095-c2feefb64371.jpg?1643593558",
+              "normal": "https://cards.scryfall.io/normal/back/5/f/5fdf5fc4-69c8-4a59-9095-c2feefb64371.jpg?1643593558",
+              "art_crop": "https://cards.scryfall.io/art_crop/back/5/f/5fdf5fc4-69c8-4a59-9095-c2feefb64371.jpg?1643593558"
+            },
+            "power": "8",
+            "toughness": "8"
+          }
+        ],
+        "layout": "transform"
+      },
+      {
+        "id": "10e35711-aec9-4024-a2a6-9efff8c71df2_mio6vbs8_lz_cfcdec99",
+        "name": "Umbral Mantle",
+        "type_line": "Artifact — Equipment",
+        "oracle_text": "Equipped creature has \"{3}, {Q}: This creature gets +2/+2 until end of turn.\" ({Q} is the untap symbol.)\nEquip {0}",
+        "mana_cost": "{3}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/1/0/10e35711-aec9-4024-a2a6-9efff8c71df2.jpg?1562826882",
+          "normal": "https://cards.scryfall.io/normal/front/1/0/10e35711-aec9-4024-a2a6-9efff8c71df2.jpg?1562826882",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/1/0/10e35711-aec9-4024-a2a6-9efff8c71df2.jpg?1562826882"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "ff857d41-767d-4e99-83cc-444738341b92_mio6vbs8_m0_cf55053e",
+        "name": "Virtue of Strength // Garenbrig Growth",
+        "type_line": "Enchantment // Sorcery — Adventure",
+        "mana_cost": "{5}{G}{G} // {G}",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/f/f/ff857d41-767d-4e99-83cc-444738341b92.jpg?1692939213",
+          "normal": "https://cards.scryfall.io/normal/front/f/f/ff857d41-767d-4e99-83cc-444738341b92.jpg?1692939213",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/f/f/ff857d41-767d-4e99-83cc-444738341b92.jpg?1692939213"
+        },
+        "card_faces": [
+          {
+            "name": "Virtue of Strength",
+            "mana_cost": "{5}{G}{G}",
+            "type_line": "Enchantment",
+            "oracle_text": "If you tap a basic land for mana, it produces three times as much of that mana instead."
+          },
+          {
+            "name": "Garenbrig Growth",
+            "mana_cost": "{G}",
+            "type_line": "Sorcery — Adventure",
+            "oracle_text": "Return target creature or land card from your graveyard to your hand. (Then exile this card. You may cast the enchantment later from exile.)"
+          }
+        ],
+        "layout": "adventure"
+      },
+      {
+        "id": "92613468-205e-488b-930d-11908477e9f8_mio6vbs8_m1_814f45ed",
+        "name": "Vorinclex, Monstrous Raider",
+        "type_line": "Legendary Creature — Phyrexian Praetor",
+        "oracle_text": "Trample, haste\nIf you would put one or more counters on a permanent or player, put twice that many of each of those kinds of counters on that permanent or player instead.\nIf an opponent would put one or more counters on a permanent or player, they put half that many of each of those kinds of counters on that permanent or player instead, rounded down.",
+        "mana_cost": "{4}{G}{G}",
+        "power": "6",
+        "toughness": "6",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/9/2/92613468-205e-488b-930d-11908477e9f8.jpg?1631051073",
+          "normal": "https://cards.scryfall.io/normal/front/9/2/92613468-205e-488b-930d-11908477e9f8.jpg?1631051073",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/9/2/92613468-205e-488b-930d-11908477e9f8.jpg?1631051073"
+        },
+        "layout": "normal"
+      },
+      {
+        "id": "67ff9ba3-cd2b-4970-b4da-22104b10a4a4_mio6vbs8_m2_0734c646",
+        "name": "Yeva, Nature's Herald",
+        "type_line": "Legendary Creature — Elf Shaman",
+        "oracle_text": "Flash (You may cast this spell any time you could cast an instant.)\nYou may cast green creature spells as though they had flash.",
+        "mana_cost": "{2}{G}{G}",
+        "power": "4",
+        "toughness": "4",
+        "image_uris": {
+          "small": "https://cards.scryfall.io/small/front/6/7/67ff9ba3-cd2b-4970-b4da-22104b10a4a4.jpg?1702429596",
+          "normal": "https://cards.scryfall.io/normal/front/6/7/67ff9ba3-cd2b-4970-b4da-22104b10a4a4.jpg?1702429596",
+          "art_crop": "https://cards.scryfall.io/art_crop/front/6/7/67ff9ba3-cd2b-4970-b4da-22104b10a4a4.jpg?1702429596"
+        },
+        "layout": "normal"
+      }
+    ]
