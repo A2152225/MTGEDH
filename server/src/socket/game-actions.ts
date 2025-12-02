@@ -1299,9 +1299,9 @@ export function registerGameActions(io: Server, socket: Socket) {
           socket.emit("mdfcFaceSelectionRequest", {
             gameId,
             cardId,
-            cardName: cardInHand.name,
+            cardName: cardName,
             title: `Choose which side to play`,
-            description: `${cardInHand.name} is a Modal Double-Faced Card. Choose which land to play.`,
+            description: `${cardName} is a Modal Double-Faced Card. Choose which land to play.`,
             faces: [
               {
                 index: 0,
@@ -1323,7 +1323,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             effectId: `mdfc_${cardId}_${Date.now()}`,
           });
           
-          console.log(`[playLand] Requesting MDFC face selection for ${cardInHand.name}`);
+          console.log(`[playLand] Requesting MDFC face selection for ${cardName}`);
           return; // Wait for face selection
         } else {
           // Neither face is a land - shouldn't happen in playLand flow
