@@ -33,6 +33,8 @@ import { MoxDiamondModal } from "./components/MoxDiamondModal";
 import { SplitCardChoiceModal, type CardFaceOption } from "./components/SplitCardChoiceModal";
 import { CreatureTypeSelectModal } from "./components/CreatureTypeSelectModal";
 import { AppearanceSettingsModal } from "./components/AppearanceSettingsModal";
+import { LifePaymentModal } from "./components/LifePaymentModal";
+import { MDFCFaceSelectionModal, type CardFace } from "./components/MDFCFaceSelectionModal";
 import { GraveyardViewModal } from "./components/GraveyardViewModal";
 import { JoinForcesModal, type JoinForcesRequest } from "./components/JoinForcesModal";
 import { TemptingOfferModal, type TemptingOfferRequest } from "./components/TemptingOfferModal";
@@ -468,6 +470,30 @@ export function App() {
   // Priority Modal state - shows when player receives priority on step changes
   const [priorityModalOpen, setPriorityModalOpen] = useState(false);
   const lastPriorityStep = React.useRef<string | null>(null);
+  
+  // Life Payment Modal state - for spells like Toxic Deluge that require paying X life
+  const [lifePaymentModalOpen, setLifePaymentModalOpen] = useState(false);
+  const [lifePaymentModalData, setLifePaymentModalData] = useState<{
+    cardId: string;
+    cardName: string;
+    description: string;
+    imageUrl?: string;
+    currentLife: number;
+    minPayment: number;
+    maxPayment: number;
+    effectId?: string;
+  } | null>(null);
+  
+  // MDFC Face Selection Modal state - for Modal Double-Faced Cards like Blightstep Pathway
+  const [mdfcFaceModalOpen, setMdfcFaceModalOpen] = useState(false);
+  const [mdfcFaceModalData, setMdfcFaceModalData] = useState<{
+    cardId: string;
+    cardName: string;
+    title?: string;
+    description?: string;
+    faces: CardFace[];
+    effectId?: string;
+  } | null>(null);
   
   // Auto-pass steps - which steps to automatically pass priority on
   const [autoPassSteps, setAutoPassSteps] = useState<Set<string>>(() => {
@@ -1068,6 +1094,114 @@ export function App() {
     socket.on("creatureTypeSelectionRequest", handler);
     return () => {
       socket.off("creatureTypeSelectionRequest", handler);
+    };
+  }, [safeView?.id]);
+
+  // Life payment request listener (for Toxic Deluge, Hatred, etc.)
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      cardId: string;
+      cardName: string;
+      description: string;
+      imageUrl?: string;
+      currentLife: number;
+      minPayment: number;
+      maxPayment: number;
+      effectId?: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        setLifePaymentModalData({
+          cardId: payload.cardId,
+          cardName: payload.cardName,
+          description: payload.description,
+          imageUrl: payload.imageUrl,
+          currentLife: payload.currentLife,
+          minPayment: payload.minPayment,
+          maxPayment: payload.maxPayment,
+          effectId: payload.effectId,
+        });
+        setLifePaymentModalOpen(true);
+      }
+    };
+    socket.on("lifePaymentRequest", handler);
+    return () => {
+      socket.off("lifePaymentRequest", handler);
+    };
+  }, [safeView?.id]);
+
+  // Life payment complete listener - re-trigger spell cast with life payment info
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      cardId: string;
+      lifePayment: number;
+      effectId?: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        // Continue the spell cast with the life payment info
+        socket.emit("castSpellFromHand", {
+          gameId: safeView.id,
+          cardId: payload.cardId,
+          payment: [{ lifePayment: payload.lifePayment }],
+        });
+      }
+    };
+    socket.on("lifePaymentComplete", handler);
+    return () => {
+      socket.off("lifePaymentComplete", handler);
+    };
+  }, [safeView?.id]);
+
+  // MDFC face selection request listener (for Blightstep Pathway, etc.)
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      cardId: string;
+      cardName: string;
+      title?: string;
+      description?: string;
+      faces: CardFace[];
+      effectId?: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        setMdfcFaceModalData({
+          cardId: payload.cardId,
+          cardName: payload.cardName,
+          title: payload.title,
+          description: payload.description,
+          faces: payload.faces,
+          effectId: payload.effectId,
+        });
+        setMdfcFaceModalOpen(true);
+      }
+    };
+    socket.on("mdfcFaceSelectionRequest", handler);
+    return () => {
+      socket.off("mdfcFaceSelectionRequest", handler);
+    };
+  }, [safeView?.id]);
+
+  // MDFC face selection complete listener - continue playing the land
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      cardId: string;
+      selectedFace: number;
+      effectId?: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        // Re-emit playLand with the selected face
+        socket.emit("playLand", {
+          gameId: safeView.id,
+          cardId: payload.cardId,
+          selectedFace: payload.selectedFace,
+        });
+      }
+    };
+    socket.on("mdfcFaceSelectionComplete", handler);
+    return () => {
+      socket.off("mdfcFaceSelectionComplete", handler);
     };
   }, [safeView?.id]);
 
@@ -4074,6 +4208,58 @@ export function App() {
             setAbilitySacrificeModalOpen(false);
             setAbilitySacrificeData(null);
           }
+        }}
+      />
+
+      {/* Life Payment Modal (Toxic Deluge, Hatred, etc.) */}
+      <LifePaymentModal
+        open={lifePaymentModalOpen}
+        cardName={lifePaymentModalData?.cardName || ''}
+        description={lifePaymentModalData?.description || ''}
+        cardImageUrl={lifePaymentModalData?.imageUrl}
+        currentLife={lifePaymentModalData?.currentLife || 40}
+        minPayment={lifePaymentModalData?.minPayment || 0}
+        maxPayment={lifePaymentModalData?.maxPayment || 0}
+        onConfirm={(lifePayment) => {
+          if (safeView?.id && lifePaymentModalData) {
+            socket.emit("lifePaymentConfirm", {
+              gameId: safeView.id,
+              cardId: lifePaymentModalData.cardId,
+              lifePayment,
+              effectId: lifePaymentModalData.effectId,
+            });
+            setLifePaymentModalOpen(false);
+            setLifePaymentModalData(null);
+          }
+        }}
+        onCancel={() => {
+          setLifePaymentModalOpen(false);
+          setLifePaymentModalData(null);
+        }}
+      />
+
+      {/* MDFC Face Selection Modal (Blightstep Pathway, etc.) */}
+      <MDFCFaceSelectionModal
+        open={mdfcFaceModalOpen}
+        cardName={mdfcFaceModalData?.cardName || ''}
+        title={mdfcFaceModalData?.title}
+        description={mdfcFaceModalData?.description}
+        faces={mdfcFaceModalData?.faces || []}
+        onConfirm={(selectedFace) => {
+          if (safeView?.id && mdfcFaceModalData) {
+            socket.emit("mdfcFaceSelectionConfirm", {
+              gameId: safeView.id,
+              cardId: mdfcFaceModalData.cardId,
+              selectedFace,
+              effectId: mdfcFaceModalData.effectId,
+            });
+            setMdfcFaceModalOpen(false);
+            setMdfcFaceModalData(null);
+          }
+        }}
+        onCancel={() => {
+          setMdfcFaceModalOpen(false);
+          setMdfcFaceModalData(null);
         }}
       />
 

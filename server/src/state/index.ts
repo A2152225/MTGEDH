@@ -39,6 +39,7 @@ import {
   createToken,
   removePermanent,
   movePermanentToExile,
+  movePermanentToGraveyard,
   applyEngineEffects,
   runSBA,
 } from "./modules/counters_tokens";

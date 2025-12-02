@@ -44,7 +44,7 @@ export interface UpkeepTrigger {
 /**
  * Common upkeep trigger patterns and their effects
  */
-const KNOWN_UPKEEP_CARDS: Record<string, { effect: string; mandatory: boolean; requiresChoice?: boolean; requiresSacrifice?: boolean; anyPlayerTrigger?: boolean; endStepTrigger?: boolean }> = {
+const KNOWN_UPKEEP_CARDS: Record<string, { effect: string; mandatory: boolean; requiresChoice?: boolean; requiresSacrifice?: boolean; anyPlayerTrigger?: boolean; endStepTrigger?: boolean; modalChoices?: string[] }> = {
   // Draw/Life effects
   "phyrexian arena": { effect: "Draw a card, you lose 1 life", mandatory: true },
   "dark confidant": { effect: "Reveal top card, put in hand, lose life equal to its mana value", mandatory: true },
@@ -56,6 +56,23 @@ const KNOWN_UPKEEP_CARDS: Record<string, { effect: string; mandatory: boolean; r
   "venser's journal": { effect: "Gain life equal to cards in hand", mandatory: true },
   "ivory tower": { effect: "Gain 1 life for each card in hand above 4", mandatory: true },
   "well of lost dreams": { effect: "Whenever you gain life, you may pay {X} to draw X cards", mandatory: false, requiresChoice: true },
+  
+  // Modal choice upkeep triggers
+  "black market connections": { 
+    effect: "Choose any number: Sell Contraband (create Treasure, lose 1 life), Buy Information (draw a card, lose 2 life), Hire a Mercenary (create 3/2 Shapeshifter with changeling, lose 3 life)", 
+    mandatory: false, 
+    requiresChoice: true,
+    modalChoices: [
+      "Sell Contraband: Create a Treasure token, lose 1 life",
+      "Buy Information: Draw a card, lose 2 life", 
+      "Hire a Mercenary: Create a 3/2 Shapeshifter with changeling, lose 3 life"
+    ]
+  },
+  "court of grace": { effect: "Create a 1/1 Spirit or 4/4 Angel (if Monarch)", mandatory: true, requiresChoice: true },
+  "court of cunning": { effect: "Mill 2 or 10 (if Monarch)", mandatory: true },
+  "court of ambition": { effect: "Each opponent loses 3 life or discards (if Monarch)", mandatory: true },
+  "court of bounty": { effect: "Put land or creature from hand (if Monarch)", mandatory: false, requiresChoice: true },
+  "court of ire": { effect: "Deal 2 or 7 damage (if Monarch)", mandatory: true, requiresChoice: true },
   
   // Resource generation
   "smothering tithe": { effect: "When opponent draws, they pay {2} or you create Treasure", mandatory: true },

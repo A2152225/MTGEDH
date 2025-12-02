@@ -206,6 +206,104 @@ const KNOWN_UNTAP_TRIGGERS: Record<string, {
 };
 
 /**
+ * Known cards with "whenever ~ attacks" triggers
+ * These create tokens, add counters, draw cards, etc. when the creature attacks
+ */
+const KNOWN_ATTACK_TRIGGERS: Record<string, {
+  effect: string;
+  createsToken?: boolean;
+  tokenDetails?: { power: number; toughness: number; types: string[]; colors: string[]; abilities?: string[]; tappedAndAttacking?: boolean };
+  addsCounters?: { type: string; count: number };
+  drawsCards?: number;
+  addsMana?: string;
+  mentor?: boolean;
+  annihilator?: number;
+}> = {
+  // Token creation on attack
+  "brimaz, king of oreskos": {
+    effect: "Create a 1/1 white Cat Soldier creature token with vigilance",
+    createsToken: true,
+    tokenDetails: { power: 1, toughness: 1, types: ["Cat", "Soldier"], colors: ["W"], abilities: ["Vigilance"] },
+  },
+  "hero of bladehold": {
+    effect: "Battle cry - Create two 1/1 white Soldier creature tokens tapped and attacking",
+    createsToken: true,
+    tokenDetails: { power: 1, toughness: 1, types: ["Soldier"], colors: ["W"], tappedAndAttacking: true },
+  },
+  "hanweir garrison": {
+    effect: "Create two 1/1 red Human creature tokens tapped and attacking",
+    createsToken: true,
+    tokenDetails: { power: 1, toughness: 1, types: ["Human"], colors: ["R"], tappedAndAttacking: true },
+  },
+  "adeline, resplendent cathar": {
+    effect: "Create a 1/1 white Human creature token tapped and attacking",
+    createsToken: true,
+    tokenDetails: { power: 1, toughness: 1, types: ["Human"], colors: ["W"], tappedAndAttacking: true },
+  },
+  "najeela, the blade-blossom": {
+    effect: "Create a 1/1 white Warrior creature token tapped and attacking",
+    createsToken: true,
+    tokenDetails: { power: 1, toughness: 1, types: ["Warrior"], colors: ["W"], tappedAndAttacking: true },
+  },
+  "krenko, tin street kingpin": {
+    effect: "Put a +1/+1 counter on Krenko. Create X 1/1 red Goblin creature tokens, where X is Krenko's power",
+    createsToken: true,
+    addsCounters: { type: "+1/+1", count: 1 },
+  },
+  // Mentor creatures
+  "aurelia, exemplar of justice": {
+    effect: "Mentor - Put a +1/+1 counter on attacking creature with lesser power",
+    mentor: true,
+  },
+  "legion warboss": {
+    effect: "Mentor - Put a +1/+1 counter on attacking creature with lesser power",
+    mentor: true,
+  },
+  // Annihilator
+  "emrakul, the aeons torn": {
+    effect: "Annihilator 6 - Defending player sacrifices 6 permanents",
+    annihilator: 6,
+  },
+  "ulamog, the infinite gyre": {
+    effect: "Annihilator 4 - Defending player sacrifices 4 permanents",
+    annihilator: 4,
+  },
+  "kozilek, butcher of truth": {
+    effect: "Annihilator 4 - Defending player sacrifices 4 permanents",
+    annihilator: 4,
+  },
+  "it that betrays": {
+    effect: "Annihilator 2 - Defending player sacrifices 2 permanents",
+    annihilator: 2,
+  },
+  "pathrazer of ulamog": {
+    effect: "Annihilator 3 - Defending player sacrifices 3 permanents",
+    annihilator: 3,
+  },
+  // Draw/card advantage on attack
+  "edric, spymaster of trest": {
+    effect: "Whenever a creature deals combat damage to one of your opponents, its controller draws a card",
+    drawsCards: 1,
+  },
+  "toski, bearer of secrets": {
+    effect: "Draw a card when this creature deals combat damage to a player",
+    drawsCards: 1,
+  },
+  "ohran frostfang": {
+    effect: "Attacking creatures you control have deathtouch. Draw a card when they deal combat damage",
+    drawsCards: 1,
+  },
+  // Mana on attack
+  "savage ventmaw": {
+    effect: "Add {R}{R}{R}{G}{G}{G} whenever this creature attacks",
+    addsMana: "RRRGGG",
+  },
+  "grand warlord radha": {
+    effect: "Add mana equal to attacking creatures when you attack",
+  },
+};
+
+/**
  * Known cards with "whenever you cast a [type] spell" triggers
  * Merrow Reejerey, Goblin Warchief, etc.
  */
@@ -1446,26 +1544,44 @@ export interface BeginningOfCombatTrigger {
 /**
  * Known cards with beginning of combat triggers
  */
-const KNOWN_BEGINNING_COMBAT_TRIGGERS: Record<string, { effect: string; requiresChoice?: boolean }> = {
+const KNOWN_BEGINNING_COMBAT_TRIGGERS: Record<string, { effect: string; requiresChoice?: boolean; createsToken?: boolean; tokenCopy?: boolean }> = {
   "hakbal of the surging soul": { effect: "Reveal the top card of your library. If it's a land, put it onto the battlefield tapped. Otherwise, put a +1/+1 counter on Hakbal." },
   "etali, primal storm": { effect: "Exile cards from each opponent's library and cast them without paying mana costs" },
   "marisi, breaker of the coil": { effect: "Goaded creatures can't block" },
   "aurelia, the warleader": { effect: "Untap all creatures, additional combat phase (first combat each turn)" },
   "gisela, blade of goldnight": { effect: "Damage dealt to opponents is doubled; damage dealt to you is halved" },
   "iroas, god of victory": { effect: "Creatures you control have menace and prevent damage that would be dealt to them" },
-  "xenagos, god of revels": { effect: "Choose target creature you control. It gains haste and gets +X/+X" },
+  "xenagos, god of revels": { effect: "Choose target creature you control. It gains haste and gets +X/+X", requiresChoice: true },
   "combat celebrant": { effect: "You may exert for additional combat phase" },
   "grand warlord radha": { effect: "Add mana equal to attacking creatures at beginning of combat" },
   "saskia the unyielding": { effect: "Damage to chosen player is dealt to them again" },
-  "najeela, the blade-blossom": { effect: "Create 1/1 Warrior token when attacking" },
+  "najeela, the blade-blossom": { effect: "Create 1/1 Warrior token when attacking", createsToken: true },
   "grand arbiter augustin iv": { effect: "Your spells cost less; opponent spells cost more" },
-  // Added triggers
-  "legion warboss": { effect: "Create a 1/1 red Goblin creature token with haste. That token attacks this combat if able." },
-  "hanweir garrison": { effect: "Create two 1/1 red Human creature tokens tapped and attacking" },
-  "hero of bladehold": { effect: "Create two 1/1 white Soldier creature tokens tapped and attacking" },
-  "brimaz, king of oreskos": { effect: "Create a 1/1 white Cat Soldier creature token with vigilance" },
-  "rabble rousing": { effect: "Create X 1/1 green and white Citizen creature tokens, where X is the number of creatures attacking" },
-  "adeline, resplendent cathar": { effect: "Create a 1/1 white Human creature token tapped and attacking" },
+  // Token creation triggers
+  "legion warboss": { effect: "Create a 1/1 red Goblin creature token with haste. That token attacks this combat if able.", createsToken: true },
+  "hanweir garrison": { effect: "Create two 1/1 red Human creature tokens tapped and attacking", createsToken: true },
+  "hero of bladehold": { effect: "Create two 1/1 white Soldier creature tokens tapped and attacking", createsToken: true },
+  "brimaz, king of oreskos": { effect: "Create a 1/1 white Cat Soldier creature token with vigilance", createsToken: true },
+  "rabble rousing": { effect: "Create X 1/1 green and white Citizen creature tokens, where X is the number of creatures attacking", createsToken: true },
+  "adeline, resplendent cathar": { effect: "Create a 1/1 white Human creature token tapped and attacking", createsToken: true },
+  "goblin rabblemaster": { effect: "Create a 1/1 red Goblin creature token with haste", createsToken: true },
+  "krenko, tin street kingpin": { effect: "Put a +1/+1 counter on Krenko. Create X 1/1 red Goblin tokens where X is Krenko's power", createsToken: true },
+  "tilonalli's summoner": { effect: "Create X 1/1 red Elemental tokens tapped and attacking, exile at end of combat", createsToken: true },
+  "tendershoot dryad": { effect: "Create a 1/1 green Saproling creature token" },
+  "captain of the watch": { effect: "Soldier creatures you control get +1/+1 and have vigilance" },
+  // Equipment triggers
+  "helm of the host": { effect: "Create a token that's a copy of equipped creature, except it's not legendary and has haste", tokenCopy: true, createsToken: true },
+  "blade of selves": { effect: "Myriad - create token copies attacking each opponent", tokenCopy: true, createsToken: true },
+  // Combat phase triggers
+  "reconnaissance": { effect: "Remove attacking creature from combat and untap it" },
+  "aggravated assault": { effect: "Pay to untap creatures and get additional combat phase" },
+  "hellkite charger": { effect: "Pay to get additional combat phase" },
+  "moraug, fury of akoum": { effect: "Landfall - additional combat phase, untap creatures" },
+  "breath of fury": { effect: "Sacrifice creature for additional combat phase" },
+  "world at war": { effect: "Additional combat phase this turn, rebound" },
+  "savage beating": { effect: "Double strike or additional combat phase" },
+  // Mentor/training triggers (when attacking)
+  "legion warboss": { effect: "Create a 1/1 red Goblin creature token with haste. That token attacks this combat if able.", createsToken: true },
 };
 
 /**

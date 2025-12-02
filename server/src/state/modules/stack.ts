@@ -4,7 +4,7 @@ import { uid, parsePT } from "../utils.js";
 import { recalculatePlayerEffects } from "./game-state-effects.js";
 import { categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
 import { getETBTriggersForPermanent, type TriggeredAbility } from "./triggered-abilities.js";
-import { addExtraTurn } from "./turn.js";
+import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone } from "./zones.js";
 
 /**
@@ -247,6 +247,105 @@ function isPermanentTypeLine(typeLine?: string): boolean {
   if (/\binstant\b/.test(tl) || /\bsorcery\b/.test(tl)) return false;
   // Everything else that can be cast is a permanent (creature, artifact, enchantment, planeswalker, battle)
   return /\b(creature|artifact|enchantment|planeswalker|battle)\b/.test(tl);
+}
+
+/**
+ * Check for ETB triggers from other permanents when a token enters the battlefield.
+ * This handles effects like Cathars' Crusade, Soul Warden, etc. that trigger
+ * when creatures enter the battlefield (including tokens).
+ * 
+ * @param ctx - Game context
+ * @param token - The token permanent that just entered
+ * @param controller - Controller of the token
+ */
+function triggerETBEffectsForToken(
+  ctx: GameContext,
+  token: any,
+  controller: PlayerID
+): void {
+  const state = (ctx as any).state;
+  if (!state?.battlefield) return;
+  
+  const isCreature = (token.card?.type_line || '').toLowerCase().includes('creature');
+  const isToken = true; // By definition, this is a token
+  
+  // Check all other permanents for triggers that fire when creatures/permanents enter
+  for (const perm of state.battlefield) {
+    if (!perm || perm.id === token.id) continue;
+    
+    const otherTriggers = getETBTriggersForPermanent(perm.card, perm);
+    for (const trigger of otherTriggers) {
+      // creature_etb triggers (Cathars' Crusade, Soul Warden, etc.)
+      if (trigger.triggerType === 'creature_etb' && isCreature) {
+        // Check if this trigger requires nontoken creatures (e.g., Guardian Project)
+        if ((trigger as any).nontokenOnly && isToken) {
+          continue; // Skip - this trigger only fires for nontoken creatures
+        }
+        
+        // Determine trigger controller
+        const triggerController = perm.controller || controller;
+        
+        // Push trigger onto the stack
+        state.stack = state.stack || [];
+        const triggerId = uid("trigger");
+        
+        state.stack.push({
+          id: triggerId,
+          type: 'triggered_ability',
+          controller: triggerController,
+          source: perm.id,
+          sourceName: trigger.cardName,
+          description: trigger.description,
+          triggerType: trigger.triggerType,
+          mandatory: trigger.mandatory,
+        } as any);
+        
+        console.log(`[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s triggered ability for token: ${trigger.description}`);
+      }
+      
+      // another_permanent_etb triggers
+      if (trigger.triggerType === 'another_permanent_etb') {
+        const triggerController = perm.controller || controller;
+        
+        state.stack = state.stack || [];
+        const triggerId = uid("trigger");
+        
+        state.stack.push({
+          id: triggerId,
+          type: 'triggered_ability',
+          controller: triggerController,
+          source: perm.id,
+          sourceName: trigger.cardName,
+          description: trigger.description,
+          triggerType: trigger.triggerType,
+          mandatory: trigger.mandatory,
+        } as any);
+        
+        console.log(`[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s triggered ability for token: ${trigger.description}`);
+      }
+      
+      // permanent_etb triggers (Altar of the Brood style - triggers on ANY permanent)
+      if (trigger.triggerType === 'permanent_etb') {
+        const triggerController = perm.controller || controller;
+        
+        state.stack = state.stack || [];
+        const triggerId = uid("trigger");
+        
+        state.stack.push({
+          id: triggerId,
+          type: 'triggered_ability',
+          controller: triggerController,
+          source: perm.id,
+          sourceName: trigger.cardName,
+          description: trigger.description,
+          triggerType: trigger.triggerType,
+          mandatory: trigger.mandatory,
+        } as any);
+        
+        console.log(`[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s triggered ability for token: ${trigger.description}`);
+      }
+    }
+  }
 }
 
 /**
@@ -655,6 +754,9 @@ function executeTriggerEffect(
       
       state.battlefield.push(token);
       console.log(`[executeTriggerEffect] Created ${power}/${toughness} ${tokenName} token for ${controller}${isTappedAndAttacking ? ' (tapped and attacking)' : ''}`);
+      
+      // Trigger ETB effects from other permanents (Cathars' Crusade, Soul Warden, etc.)
+      triggerETBEffectsForToken(ctx, token, controller);
     }
     return;
   }
@@ -965,6 +1067,52 @@ function executeTriggerEffect(
       const color = manaMatch[1].toUpperCase();
       if (state.manaPool[targetPlayer][color] !== undefined) {
         state.manaPool[targetPlayer][color]++;
+      }
+    }
+    return;
+  }
+  
+  // Pattern: "Additional combat phase" or "extra combat phase" (Aurelia, Combat Celebrant, etc.)
+  if (desc.includes('additional combat phase') || desc.includes('extra combat phase')) {
+    const sourceNameLower = sourceName.toLowerCase();
+    
+    // Check if this is a "first attack each turn" condition (Aurelia)
+    const isFirstAttackOnly = desc.includes('first attack') || desc.includes('first combat');
+    
+    // Check if we should untap creatures (Aurelia does this)
+    const shouldUntap = desc.includes('untap all creatures') || sourceNameLower.includes('aurelia');
+    
+    // Check if this trigger has already fired this turn (for "once per turn" effects)
+    const extraCombatKey = `extraCombat_${sourceName}_${state.turnNumber || 0}`;
+    if (isFirstAttackOnly && state.usedOncePerTurn?.[extraCombatKey]) {
+      console.log(`[executeTriggerEffect] ${sourceName} extra combat already used this turn, skipping`);
+      return;
+    }
+    
+    // Mark as used for "once per turn" effects
+    if (isFirstAttackOnly) {
+      state.usedOncePerTurn = state.usedOncePerTurn || {};
+      state.usedOncePerTurn[extraCombatKey] = true;
+    }
+    
+    // Add the extra combat phase
+    addExtraCombat(ctx, sourceName, shouldUntap);
+    console.log(`[executeTriggerEffect] ${sourceName}: Added extra combat phase (untap: ${shouldUntap})`);
+    return;
+  }
+  
+  // Pattern: "untap all creatures you control" without extra combat
+  if (desc.includes('untap all creatures you control') && !desc.includes('combat phase')) {
+    const battlefield = state.battlefield || [];
+    for (const perm of battlefield) {
+      if (!perm) continue;
+      if (perm.controller !== controller) continue;
+      const permTypeLine = (perm.card?.type_line || '').toLowerCase();
+      if (!permTypeLine.includes('creature')) continue;
+      
+      if (perm.tapped) {
+        perm.tapped = false;
+        console.log(`[executeTriggerEffect] Untapped ${perm.card?.name || perm.id}`);
       }
     }
     return;

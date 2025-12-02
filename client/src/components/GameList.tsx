@@ -142,6 +142,7 @@ export default function GameList(props: GameListProps) {
             <tr style={{ textAlign: "left", borderBottom: "1px solid #eee" }}>
               <th style={{ padding: "6px 8px" }}>Game</th>
               <th style={{ padding: "6px 8px" }}>Players</th>
+              <th style={{ padding: "6px 8px" }}>Active</th>
               <th style={{ padding: "6px 8px" }}>Turn</th>
               <th style={{ padding: "6px 8px" }}>Phase</th>
               <th style={{ padding: "6px 8px" }}>Status</th>
@@ -153,6 +154,7 @@ export default function GameList(props: GameListProps) {
               <tr key={g.id} style={{ borderBottom: "1px solid #fafafa" }}>
                 <td style={{ padding: "6px 8px", fontFamily: "monospace" }}>{(g.id || "").slice(0, 8)}</td>
                 <td style={{ padding: "6px 8px" }}>{g.playersCount}</td>
+                <td style={{ padding: "6px 8px" }}>{g.activeConnectionsCount}</td>
                 <td style={{ padding: "6px 8px" }}>{g.turn ?? "-"}</td>
                 <td style={{ padding: "6px 8px" }}>{g.phase ?? "-"}</td>
                 <td style={{ padding: "6px 8px" }}>{g.status ?? "-"}</td>

@@ -3,6 +3,7 @@ import type { GameContext } from "../context";
 import { applyStateBasedActions, evaluateAction } from "../../rules-engine";
 import { uid } from "../utils";
 import { recalculatePlayerEffects } from "./game-state-effects.js";
+import { getDeathTriggers } from "./triggered-abilities.js";
 
 export function updateCounters(ctx: GameContext, permanentId: string, deltas: Record<string, number>) {
   const { state, bumpSeq } = ctx;
@@ -49,6 +50,116 @@ export function createToken(
   runSBA(ctx);
 }
 
+/**
+ * Move a permanent from battlefield to graveyard.
+ * Rule 111.7: Tokens cease to exist when they leave the battlefield - they don't go to graveyard.
+ * Rule 700.4: Both tokens and non-tokens "die" and trigger death effects.
+ * 
+ * @param ctx - Game context
+ * @param permanentId - ID of the permanent to move
+ * @param triggerDeathEffects - Whether to trigger death effects (for creatures)
+ * @returns true if the permanent was moved/removed, false if not found
+ */
+export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, triggerDeathEffects = true): boolean {
+  const { state, bumpSeq, commandZone } = ctx;
+  const zones = state.zones = state.zones || {};
+  const idx = state.battlefield.findIndex(p => p.id === permanentId);
+  if (idx < 0) return false;
+  
+  const perm = state.battlefield.splice(idx, 1)[0];
+  const owner = (perm as any).owner || (perm as any).controller;
+  const controller = (perm as any).controller || owner;
+  const card = (perm as any).card;
+  const isToken = (perm as any).isToken === true;
+  const isCreature = (card?.type_line || '').toLowerCase().includes('creature');
+  
+  // Fire death triggers BEFORE the creature leaves (for both tokens and non-tokens)
+  // Rule 700.4: "Dies" means "is put into a graveyard from the battlefield"
+  // Tokens still "die" even though they don't end up in the graveyard
+  if (triggerDeathEffects && isCreature) {
+    try {
+      const deathTriggers = getDeathTriggers(ctx, perm, controller);
+      if (deathTriggers.length > 0) {
+        console.log(`[movePermanentToGraveyard] Found ${deathTriggers.length} death trigger(s) for ${isToken ? 'token ' : ''}${card?.name || perm.id}`);
+        
+        // Push death triggers onto the stack
+        state.stack = state.stack || [];
+        for (const trigger of deathTriggers) {
+          const triggerId = uid("trigger");
+          state.stack.push({
+            id: triggerId,
+            type: 'triggered_ability',
+            controller: trigger.source.controllerId,
+            source: trigger.source.permanentId,
+            sourceName: trigger.source.cardName,
+            description: trigger.effect,
+            triggerType: 'creature_dies',
+            mandatory: true,
+          } as any);
+        }
+      }
+    } catch (err) {
+      console.warn(`[movePermanentToGraveyard] Error processing death triggers:`, err);
+    }
+  }
+  
+  // Rule 111.7: Tokens cease to exist when in any zone other than battlefield
+  if (isToken) {
+    console.log(`[movePermanentToGraveyard] Token ${card?.name || perm.id} ceased to exist (left battlefield)`);
+    bumpSeq();
+    return true; // Token ceased to exist (death triggers already fired above)
+  }
+  
+  // Commander Replacement Effect (Rule 903.9a):
+  // If a commander would be put into graveyard from anywhere, its owner may put it into
+  // the command zone instead.
+  const commanderInfo = commandZone?.[owner];
+  const commanderIds = commanderInfo?.commanderIds || [];
+  const isCommander = card?.id && commanderIds.includes(card.id);
+  
+  if (isCommander) {
+    (state as any).pendingCommanderZoneChoice = (state as any).pendingCommanderZoneChoice || {};
+    (state as any).pendingCommanderZoneChoice[owner] = (state as any).pendingCommanderZoneChoice[owner] || [];
+    (state as any).pendingCommanderZoneChoice[owner].push({
+      commanderId: card.id,
+      commanderName: card.name,
+      destinationZone: 'graveyard',
+      card: {
+        id: card.id,
+        name: card.name,
+        type_line: card.type_line,
+        oracle_text: card.oracle_text,
+        image_uris: card.image_uris,
+        mana_cost: card.mana_cost,
+        power: card.power,
+        toughness: card.toughness,
+      },
+    });
+    console.log(`[movePermanentToGraveyard] Commander ${card.name} would go to graveyard - owner can choose command zone instead`);
+  }
+  
+  // Move to owner's graveyard
+  if (owner) {
+    const ownerZone = zones[owner] = zones[owner] || { hand: [], graveyard: [], handCount: 0, graveyardCount: 0, libraryCount: 0 };
+    (ownerZone as any).graveyard = (ownerZone as any).graveyard || [];
+    if (card) {
+      (ownerZone as any).graveyard.push({ ...card, zone: "graveyard" });
+      (ownerZone as any).graveyardCount = (ownerZone as any).graveyard.length;
+    }
+  }
+  
+  bumpSeq();
+  
+  // Recalculate player effects when permanents leave
+  try {
+    recalculatePlayerEffects(ctx);
+  } catch (err) {
+    console.warn('[movePermanentToGraveyard] Failed to recalculate player effects:', err);
+  }
+  
+  return true;
+}
+
 export function removePermanent(ctx: GameContext, permanentId: string) {
   const { state, bumpSeq } = ctx;
   const idx = state.battlefield.findIndex(p => p.id === permanentId);
@@ -74,6 +185,15 @@ export function movePermanentToExile(ctx: GameContext, permanentId: string) {
   const perm = state.battlefield.splice(idx,1)[0];
   const owner = perm.owner as PlayerID;
   const card = perm.card as any;
+  
+  // Rule 111.7: A token that's in a zone other than the battlefield ceases to exist.
+  // Tokens don't go to exile - they cease to exist as a state-based action.
+  const isToken = (perm as any).isToken === true;
+  if (isToken) {
+    console.log(`[movePermanentToExile] Token ${card?.name || perm.id} ceased to exist (left battlefield for exile)`);
+    bumpSeq();
+    return; // Token ceases to exist, don't add to exile
+  }
   
   // Commander Replacement Effect (Rule 903.9a):
   // If a commander would be put into exile from anywhere, its owner may put it into
@@ -123,6 +243,19 @@ export function movePermanentToExile(ctx: GameContext, permanentId: string) {
   bumpSeq();
 }
 
+/**
+ * Run state-based actions (SBA) per MTG rules.
+ * 
+ * This handles creatures dying due to:
+ * - 0 or less toughness (from -1/-1 counters, effects, etc.)
+ * - Lethal damage marked
+ * - Deathtouch damage
+ * 
+ * Note: This does NOT double-trigger with movePermanentToGraveyard() because:
+ * - applyStateBasedActions() only checks creatures CURRENTLY on the battlefield
+ * - If a creature was already removed by sacrifice/destroy spell, it won't be found here
+ * - Each creature dies exactly once through exactly one code path
+ */
 export function runSBA(ctx: GameContext) {
   const { state, bumpSeq } = ctx;
   const res = applyStateBasedActions(state);
@@ -142,7 +275,49 @@ export function runSBA(ctx: GameContext) {
       const idx = state.battlefield.findIndex(b => b.id === id);
       if (idx >= 0) { 
         const destroyed = state.battlefield.splice(idx, 1)[0];
-        // Move to owner's graveyard (SBA - creatures die)
+        const isToken = (destroyed as any).isToken === true;
+        const isCreature = ((destroyed as any).card?.type_line || '').toLowerCase().includes('creature');
+        const controller = (destroyed as any).controller || (destroyed as any).owner;
+        
+        // Fire death triggers for ALL creatures (including tokens) BEFORE they leave/cease to exist
+        // Rule 700.4: The term "dies" means "is put into a graveyard from the battlefield"
+        // Even though tokens don't actually go to the graveyard, they still "die" and trigger death effects
+        if (isCreature) {
+          try {
+            const deathTriggers = getDeathTriggers(ctx, destroyed, controller);
+            if (deathTriggers.length > 0) {
+              console.log(`[runSBA] Found ${deathTriggers.length} death trigger(s) for ${isToken ? 'token ' : ''}${(destroyed as any).card?.name || destroyed.id}`);
+              
+              // Push death triggers onto the stack
+              state.stack = state.stack || [];
+              for (const trigger of deathTriggers) {
+                const triggerId = uid("trigger");
+                state.stack.push({
+                  id: triggerId,
+                  type: 'triggered_ability',
+                  controller: trigger.source.controllerId,
+                  source: trigger.source.permanentId,
+                  sourceName: trigger.source.cardName,
+                  description: trigger.effect,
+                  triggerType: 'creature_dies',
+                  mandatory: true,
+                } as any);
+              }
+            }
+          } catch (err) {
+            console.warn(`[runSBA] Error processing death triggers:`, err);
+          }
+        }
+        
+        // Rule 111.7: A token that's in a zone other than the battlefield ceases to exist.
+        // Tokens don't go to the graveyard - they cease to exist as a state-based action.
+        if (isToken) {
+          console.log(`[runSBA] Token ${(destroyed as any).card?.name || destroyed.id} ceased to exist (left battlefield)`);
+          changed = true;
+          continue; // Token ceases to exist, don't add to graveyard
+        }
+        
+        // Move non-token to owner's graveyard (SBA - creatures die)
         const owner = (destroyed as any).owner || (destroyed as any).controller;
         if (owner) {
           const ownerZone = zones[owner] = zones[owner] || { hand: [], graveyard: [], handCount: 0, graveyardCount: 0, libraryCount: 0 };

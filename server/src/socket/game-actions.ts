@@ -9,6 +9,7 @@ import { emitSacrificeUnlessPayPrompt } from "./triggers";
 import { detectSpellCastTriggers, type SpellCastTrigger } from "../state/modules/triggered-abilities";
 import { categorizeSpell, evaluateTargeting } from "../rules-engine/targeting";
 import { recalculatePlayerEffects } from "../state/modules/game-state-effects";
+import { PAY_X_LIFE_CARDS, getMaxPayableLife, validateLifePayment } from "../state/utils";
 
 /** Shock lands and similar "pay life or enter tapped" lands */
 const SHOCK_LANDS = new Set([
@@ -162,6 +163,20 @@ function evaluateConditionalLandETB(
       reason: shouldTap 
         ? `Enters tapped (you control only ${controlledLandCount} other land${controlledLandCount !== 1 ? 's' : ''})` 
         : `Enters untapped (you control ${controlledLandCount} other lands)`,
+    };
+  }
+  
+  // AFR Creature Lands / Lair lands (Den of the Bugbear, Hive of the Eye Tyrant, etc.)
+  // "If you control two or more other lands, ~ enters the battlefield tapped"
+  // This is the INVERSE of slow lands - enters tapped if you have 2+ other lands
+  const lairLandMatch = text.match(/if you control two or more other lands,.*enters the battlefield tapped/i);
+  if (lairLandMatch) {
+    const shouldTap = controlledLandCount >= 2;
+    return {
+      shouldEnterTapped: shouldTap,
+      reason: shouldTap 
+        ? `Enters tapped (you control ${controlledLandCount} other lands)` 
+        : `Enters untapped (you control only ${controlledLandCount} other land${controlledLandCount !== 1 ? 's' : ''})`,
     };
   }
   
@@ -1224,7 +1239,7 @@ function checkAndPromptMiracle(
 
 export function registerGameActions(io: Server, socket: Socket) {
   // Play land from hand
-  socket.on("playLand", ({ gameId, cardId }: { gameId: string; cardId: string }) => {
+  socket.on("playLand", ({ gameId, cardId, selectedFace }: { gameId: string; cardId: string; selectedFace?: number }) => {
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
@@ -1257,6 +1272,84 @@ export function registerGameActions(io: Server, socket: Socket) {
           message: "Card not found in hand. It may have already been played or moved.",
         });
         return;
+      }
+      
+      // Check if this is a Modal Double-Faced Card (MDFC) like Blightstep Pathway
+      const layout = (cardInHand as any)?.layout;
+      const cardFaces = (cardInHand as any)?.card_faces;
+      const isMDFC = layout === 'modal_dfc' && Array.isArray(cardFaces) && cardFaces.length >= 2;
+      
+      // If MDFC and no face selected yet, prompt the player to choose
+      if (isMDFC && selectedFace === undefined) {
+        // Check if both faces are lands (some MDFCs have spell on one side)
+        const face0 = cardFaces[0];
+        const face1 = cardFaces[1];
+        const face0IsLand = /\bland\b/i.test(face0?.type_line || '');
+        const face1IsLand = /\bland\b/i.test(face1?.type_line || '');
+        
+        // If only one face is a land, auto-select it
+        if (face0IsLand && !face1IsLand) {
+          // Use front face (it's a land)
+          (cardInHand as any).selectedMDFCFace = 0;
+        } else if (!face0IsLand && face1IsLand) {
+          // Use back face (it's a land)
+          (cardInHand as any).selectedMDFCFace = 1;
+        } else if (face0IsLand && face1IsLand) {
+          // Both are lands - prompt user to choose
+          socket.emit("mdfcFaceSelectionRequest", {
+            gameId,
+            cardId,
+            cardName: cardInHand.name,
+            title: `Choose which side to play`,
+            description: `${cardInHand.name} is a Modal Double-Faced Card. Choose which land to play.`,
+            faces: [
+              {
+                index: 0,
+                name: face0.name,
+                typeLine: face0.type_line,
+                oracleText: face0.oracle_text,
+                manaCost: face0.mana_cost,
+                imageUrl: face0.image_uris?.small || face0.image_uris?.normal,
+              },
+              {
+                index: 1,
+                name: face1.name,
+                typeLine: face1.type_line,
+                oracleText: face1.oracle_text,
+                manaCost: face1.mana_cost,
+                imageUrl: face1.image_uris?.small || face1.image_uris?.normal,
+              },
+            ],
+            effectId: `mdfc_${cardId}_${Date.now()}`,
+          });
+          
+          console.log(`[playLand] Requesting MDFC face selection for ${cardInHand.name}`);
+          return; // Wait for face selection
+        } else {
+          // Neither face is a land - shouldn't happen in playLand flow
+          socket.emit("error", {
+            code: "NOT_A_LAND",
+            message: `Neither side of ${cardName} is a land.`,
+          });
+          return;
+        }
+      }
+      
+      // If a face was selected for MDFC, apply that face's properties
+      if (isMDFC && selectedFace !== undefined) {
+        const selectedCardFace = cardFaces[selectedFace];
+        if (selectedCardFace) {
+          // Update the card to use the selected face's properties
+          (cardInHand as any).name = selectedCardFace.name;
+          (cardInHand as any).type_line = selectedCardFace.type_line;
+          (cardInHand as any).oracle_text = selectedCardFace.oracle_text;
+          (cardInHand as any).mana_cost = selectedCardFace.mana_cost;
+          if (selectedCardFace.image_uris) {
+            (cardInHand as any).image_uris = selectedCardFace.image_uris;
+          }
+          (cardInHand as any).selectedMDFCFace = selectedFace;
+          console.log(`[playLand] Playing MDFC ${cardName} as ${selectedCardFace.name} (face ${selectedFace})`);
+        }
       }
       
       // Validate that the card is actually a land (check type_line)
@@ -1642,6 +1735,60 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         console.log(`[castSpellFromHand] Requesting overload mode selection for ${cardInHand.name}`);
         return; // Wait for mode selection
+      }
+
+      // Check if this spell requires paying X life (Toxic Deluge, Hatred, etc.)
+      // If the player hasn't specified the life payment amount, prompt for it
+      const cardNameLower = (cardInHand.name || '').toLowerCase();
+      const payXLifeInfo = PAY_X_LIFE_CARDS[cardNameLower];
+      const lifePaymentProvided = (payment as any[])?.some((p: any) => typeof p.lifePayment === 'number') ||
+                                   (targets as any)?.lifePayment !== undefined;
+      
+      if (payXLifeInfo && !lifePaymentProvided) {
+        // Get the player's current life to determine max payment
+        const startingLife = game.state.startingLife || 40;
+        const currentLife = game.state.life?.[playerId] ?? startingLife;
+        const maxPayable = getMaxPayableLife(currentLife);
+        const minPayment = payXLifeInfo.minX || 0;
+        
+        // Emit a life payment request to the player
+        socket.emit("lifePaymentRequest", {
+          gameId,
+          cardId,
+          cardName: cardInHand.name,
+          source: cardInHand.name,
+          title: `Choose life to pay for ${cardInHand.name}`,
+          description: payXLifeInfo.effect,
+          imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+          currentLife,
+          minPayment,
+          maxPayment: maxPayable,
+          effectId: `lifepay_${cardId}_${Date.now()}`,
+        });
+        
+        console.log(`[castSpellFromHand] Requesting life payment (${minPayment}-${maxPayable}) for ${cardInHand.name}`);
+        return; // Wait for life payment selection
+      }
+      
+      // If life payment was provided, validate it
+      if (payXLifeInfo && lifePaymentProvided) {
+        const lifePayment = (payment as any[])?.find((p: any) => typeof p.lifePayment === 'number')?.lifePayment ||
+                            (targets as any)?.lifePayment || 0;
+        const startingLife = game.state.startingLife || 40;
+        const currentLife = game.state.life?.[playerId] ?? startingLife;
+        
+        const validationError = validateLifePayment(currentLife, lifePayment, cardInHand.name);
+        if (validationError) {
+          socket.emit("error", {
+            code: "INVALID_LIFE_PAYMENT",
+            message: validationError,
+          });
+          return;
+        }
+        
+        // Store the life payment on the card for later resolution
+        (cardInHand as any).lifePaymentAmount = lifePayment;
+        console.log(`[castSpellFromHand] Life payment of ${lifePayment} validated for ${cardInHand.name}`);
       }
 
       // Check if this spell requires targets (oracleText is already defined above)
@@ -4723,6 +4870,163 @@ export function registerGameActions(io: Server, socket: Socket) {
     } catch (err: any) {
       console.error(`modeSelectionConfirm error:`, err);
       socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "Mode selection failed" });
+    }
+  });
+
+  /**
+   * Handle life payment confirmation for spells like Toxic Deluge, Hatred, etc.
+   * Player chooses how much life to pay (X) as part of the spell's additional cost.
+   */
+  socket.on("lifePaymentConfirm", async ({ gameId, cardId, lifePayment, effectId }: {
+    gameId: string;
+    cardId: string;
+    lifePayment: number;
+    effectId?: string;
+  }) => {
+    try {
+      const playerId = socket.data.playerId as string | undefined;
+      if (!playerId) {
+        socket.emit("error", { code: "NOT_JOINED", message: "You must join the game first" });
+        return;
+      }
+
+      const game = ensureGame(gameId);
+      if (!game) {
+        socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+        return;
+      }
+
+      // Validate the life payment
+      const startingLife = game.state.startingLife || 40;
+      const currentLife = game.state.life?.[playerId] ?? startingLife;
+      
+      const validationError = validateLifePayment(currentLife, lifePayment);
+      if (validationError) {
+        socket.emit("error", { code: "INVALID_LIFE_PAYMENT", message: validationError });
+        return;
+      }
+
+      // Find the card in hand
+      const zones = game.state.zones?.[playerId];
+      if (!zones || !Array.isArray(zones.hand)) {
+        socket.emit("error", { code: "NO_HAND", message: "Hand not found" });
+        return;
+      }
+
+      const cardInHand = (zones.hand as any[]).find((c: any) => c && c.id === cardId);
+      if (!cardInHand) {
+        socket.emit("error", { code: "CARD_NOT_IN_HAND", message: "Card not found in hand" });
+        return;
+      }
+
+      console.log(`[lifePaymentConfirm] Player ${playerId} paying ${lifePayment} life for ${cardInHand.name}`);
+
+      // Store the life payment amount on the card for resolution
+      (cardInHand as any).lifePaymentAmount = lifePayment;
+      
+      // Pay the life immediately (additional costs are paid when casting)
+      game.state.life = game.state.life || {};
+      game.state.life[playerId] = currentLife - lifePayment;
+      
+      // Sync to player object
+      const player = (game.state.players || []).find((p: any) => p.id === playerId);
+      if (player) {
+        player.life = game.state.life[playerId];
+      }
+
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, playerId)} pays ${lifePayment} life for ${cardInHand.name}. (${currentLife} → ${game.state.life[playerId]})`,
+        ts: Date.now(),
+      });
+
+      // Continue with casting - emit an event to continue the cast with life payment info
+      socket.emit("lifePaymentComplete", {
+        gameId,
+        cardId,
+        lifePayment,
+        effectId,
+      });
+
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+      broadcastGame(io, game, gameId);
+      
+    } catch (err: any) {
+      console.error(`lifePaymentConfirm error:`, err);
+      socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "Life payment failed" });
+    }
+  });
+
+  /**
+   * Handle MDFC (Modal Double-Faced Card) face selection for lands like Blightstep Pathway.
+   * Player chooses which face of the card to play as a land.
+   */
+  socket.on("mdfcFaceSelectionConfirm", async ({ gameId, cardId, selectedFace, effectId }: {
+    gameId: string;
+    cardId: string;
+    selectedFace: number;
+    effectId?: string;
+  }) => {
+    try {
+      const playerId = socket.data.playerId as string | undefined;
+      if (!playerId) {
+        socket.emit("error", { code: "NOT_JOINED", message: "You must join the game first" });
+        return;
+      }
+
+      const game = ensureGame(gameId);
+      if (!game) {
+        socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+        return;
+      }
+
+      // Find the card in hand
+      const zones = game.state.zones?.[playerId];
+      if (!zones || !Array.isArray(zones.hand)) {
+        socket.emit("error", { code: "NO_HAND", message: "Hand not found" });
+        return;
+      }
+
+      const cardInHand = (zones.hand as any[]).find((c: any) => c && c.id === cardId);
+      if (!cardInHand) {
+        socket.emit("error", { code: "CARD_NOT_IN_HAND", message: "Card not found in hand" });
+        return;
+      }
+
+      // Validate the selected face
+      const cardFaces = cardInHand.card_faces;
+      if (!Array.isArray(cardFaces) || selectedFace < 0 || selectedFace >= cardFaces.length) {
+        socket.emit("error", { code: "INVALID_FACE", message: "Invalid card face selection" });
+        return;
+      }
+
+      const selectedCardFace = cardFaces[selectedFace];
+      console.log(`[mdfcFaceSelectionConfirm] Player ${playerId} selected face ${selectedFace} (${selectedCardFace.name}) for ${cardInHand.name}`);
+
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, playerId)} plays ${selectedCardFace.name} (from ${cardInHand.name}).`,
+        ts: Date.now(),
+      });
+
+      // Continue playing the land with the selected face
+      // Re-emit playLand with the selected face
+      socket.emit("mdfcFaceSelectionComplete", {
+        gameId,
+        cardId,
+        selectedFace,
+        effectId,
+      });
+
+    } catch (err: any) {
+      console.error(`mdfcFaceSelectionConfirm error:`, err);
+      socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "MDFC face selection failed" });
     }
   });
 
