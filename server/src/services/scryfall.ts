@@ -691,21 +691,7 @@ export async function fetchDeckFromMoxfield(urlOrId: string): Promise<{
     }
   }
   
-  // Add companion if present (for Companion mechanic)
-  for (const entry of Object.values(data.companions || {})) {
-    if (entry.card?.name) {
-      const normalizedName = entry.card.name.toLowerCase();
-      if (!seenCards.has(normalizedName)) {
-        cards.push({
-          name: entry.card.name,
-          count: entry.quantity || 1,
-        });
-        seenCards.add(normalizedName);
-      }
-    }
-  }
-  
-  // Add mainboard cards (skipping any already added as commanders/companions)
+  // Add mainboard cards (skipping any already added as commanders)
   for (const entry of Object.values(data.mainboard || {})) {
     if (entry.card?.name) {
       const normalizedName = entry.card.name.toLowerCase();
@@ -717,7 +703,7 @@ export async function fetchDeckFromMoxfield(urlOrId: string): Promise<{
         seenCards.add(normalizedName);
       } else {
         // Card already exists (commander in mainboard), don't add duplicate
-        console.log(`[fetchDeckFromMoxfield] Skipping duplicate: ${entry.card.name} (already added as commander/companion)`);
+        console.log(`[fetchDeckFromMoxfield] Skipping duplicate: ${entry.card.name} (already added as commander)`);
       }
     }
   }
