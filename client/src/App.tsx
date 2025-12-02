@@ -3815,7 +3815,6 @@ export function App() {
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 10000,
-            animation: 'fadeIn 0.3s ease-out',
           }}
         >
           <div
@@ -3823,7 +3822,8 @@ export function App() {
               textAlign: 'center',
               color: gameOverData.type === 'victory' ? '#ffd700' : 
                      gameOverData.type === 'draw' ? '#60a5fa' : '#ef4444',
-              animation: 'scaleIn 0.5s ease-out',
+              transform: 'scale(1)',
+              opacity: 1,
             }}
           >
             <div
