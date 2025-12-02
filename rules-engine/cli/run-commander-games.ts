@@ -544,7 +544,41 @@ class CommanderGameSimulator {
         });
       }
     }
+    
+    // Process Psychosis Crawler-like effects (whenever you draw a card, each opponent loses life)
+    if (state && drawn.length > 0) {
+      this.processDrawTriggers(player, state, drawn.length);
+    }
+    
     return drawn;
+  }
+
+  /**
+   * Process triggers that fire when a player draws cards.
+   * Handles cards like Psychosis Crawler: "Whenever you draw a card, each opponent loses 1 life"
+   */
+  processDrawTriggers(player: PlayerState, state: SimulatedGameState, cardsDrawn: number): void {
+    const playerId = this.getPlayerIdFromName(state, player.name);
+    const opponents = this.getOpponents(state, playerId);
+    
+    for (const perm of player.battlefield) {
+      const card = this.getCard(perm.card);
+      const oracle = card?.oracle_text?.toLowerCase() || '';
+      
+      // Check for "whenever you draw a card, each opponent loses life" effects
+      if (oracle.includes('whenever you draw') && oracle.includes('loses') && oracle.includes('life')) {
+        for (const opponent of opponents) {
+          opponent.life -= cardsDrawn;
+        }
+        state.events.push({
+          turn: state.turn,
+          player: player.name,
+          action: 'trigger',
+          card: perm.card,
+          details: `All opponents lost ${cardsDrawn} life from card draws`
+        });
+      }
+    }
   }
 
   playLand(player: PlayerState, landName: string, state?: SimulatedGameState): boolean {
@@ -705,7 +739,7 @@ class CommanderGameSimulator {
       if (permOracle.includes('whenever a creature you control') && permOracle.includes('enters') && permOracle.includes('draw')) {
         // Simplified: draw a card when a creature enters
         if (typeLine.includes('creature')) {
-          this.drawCards(player, 1);
+          this.drawCards(player, 1, state, perm.card);
           state.events.push({
             turn: state.turn,
             player: player.name,
@@ -1298,9 +1332,6 @@ class CommanderGameSimulator {
   }
 
   handleUpkeepTriggers(player: PlayerState, state: SimulatedGameState): void {
-    const playerId = this.getPlayerIdFromName(state, player.name);
-    const opponents = this.getOpponents(state, playerId);
-    
     // Check for Howling Mine effects across all players
     let hasUntappedHowlingMine = false;
     for (let i = 1; i <= state.playerCount; i++) {
@@ -1315,7 +1346,7 @@ class CommanderGameSimulator {
     }
     
     if (hasUntappedHowlingMine) {
-      this.drawCards(player, 1);
+      this.drawCards(player, 1, state, 'Howling Mine');
       state.events.push({
         turn: state.turn,
         player: player.name,
@@ -1325,25 +1356,8 @@ class CommanderGameSimulator {
       });
     }
     
-    // Check for Psychosis Crawler-like effects (damage opponents on draw)
-    for (const perm of player.battlefield) {
-      const card = this.getCard(perm.card);
-      const oracle = card?.oracle_text?.toLowerCase() || '';
-      if (oracle.includes('whenever you draw') && oracle.includes('loses') && oracle.includes('life')) {
-        if (player.cardsDrawnThisTurn > 0) {
-          for (const opponent of opponents) {
-            opponent.life -= player.cardsDrawnThisTurn;
-          }
-          state.events.push({
-            turn: state.turn,
-            player: player.name,
-            action: 'trigger',
-            card: perm.card,
-            details: `All opponents lost ${player.cardsDrawnThisTurn} life from card draws`
-          });
-        }
-      }
-    }
+    // Note: Psychosis Crawler-like effects are now handled in processDrawTriggers,
+    // which is called from drawCards when cards are actually drawn.
   }
 
   handleEndStepTriggers(player: PlayerState, state: SimulatedGameState): void {
@@ -1356,7 +1370,7 @@ class CommanderGameSimulator {
       
       // Check for "at the beginning of your end step, draw a card" effects
       if (oracle.includes('beginning of your end step') && oracle.includes('draw a card')) {
-        this.drawCards(player, 1);
+        this.drawCards(player, 1, state, perm.card);
         state.events.push({
           turn: state.turn,
           player: player.name,
@@ -1419,7 +1433,7 @@ class CommanderGameSimulator {
     
     // Draw (skip turn 1 for player 1 in first round)
     if (state.turn > state.playerCount || activePlayerId !== 1) {
-      this.drawCards(player, 1);
+      this.drawCards(player, 1, state, 'draw step');
     }
     
     // Pre-combat main
@@ -1508,7 +1522,7 @@ class CommanderGameSimulator {
     
     // Draw initial hands for all players
     for (let i = 1; i <= this.playerCount; i++) {
-      this.drawCards(state.players[i], 7);
+      this.drawCards(state.players[i], 7, state, 'opening hand');
       this.log(`Player ${i} opening hand: ${state.players[i].hand.join(', ')}`);
     }
     
@@ -1527,7 +1541,7 @@ class CommanderGameSimulator {
         player.library.push(...player.hand);
         player.hand = [];
         player.library = this.shuffle(player.library);
-        this.drawCards(player, handSize);
+        this.drawCards(player, handSize, state, 'mulligan');
         mulligans++;
         
         state.events.push({
@@ -1773,7 +1787,13 @@ class CommanderGameSimulator {
         const oracle = card?.oracle_text?.toLowerCase() || '';
         
         // Check for triggered abilities that have conditions that were likely met
-        if (oracle.includes('whenever') && oracle.includes('enters')) {
+        // Use regex to properly match "whenever...enters" patterns, excluding creature lands 
+        // that have "whenever this creature attacks" and "this land enters tapped" separately
+        const hasWheneverEntersTrigger = 
+          /whenever.*enters the battlefield/i.test(oracle) ||
+          /when.*enters the battlefield/i.test(oracle);
+        
+        if (hasWheneverEntersTrigger) {
           // Check if a creature ever entered but this trigger didn't fire
           const enterEvents = state.events.filter(e => 
             e.player === player.name && 
