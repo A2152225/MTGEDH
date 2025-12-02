@@ -83,6 +83,13 @@ interface GameEvent {
   stackPosition?: number;
 }
 
+interface PlayerResult {
+  playerName: string;
+  position: number;  // 1st, 2nd, 3rd, etc.
+  turnEliminated: number | null;  // null if winner
+  eliminationReason: string | null;  // null if winner
+}
+
 interface GameSummary {
   gameNumber: number;
   winner: string;
@@ -95,6 +102,7 @@ interface GameSummary {
   expectedBehaviorsNotOccurred: string[];
   cardsNotFunctioningAsIntended: string[];
   seed: number;
+  playerResults: PlayerResult[];  // Player positions and elimination info
 }
 
 interface PlayerState {
@@ -126,6 +134,8 @@ interface PermanentState {
   isToken?: boolean;
   parsedAbilities?: ParsedAbility[];
   triggeredAbilities?: TriggeredAbility[];
+  chosenCreatureType?: string;  // For cards that choose a creature type on ETB
+  tokenType?: string;           // For tokens - their creature type (e.g., 'Merfolk')
 }
 
 /** Loaded deck with card data */
@@ -133,6 +143,13 @@ interface LoadedDeck {
   name: string;
   commander: CardData;
   cards: CardData[];
+}
+
+interface EliminationRecord {
+  playerId: number;
+  playerName: string;
+  turn: number;
+  reason: string;
 }
 
 interface SimulatedGameState {
@@ -146,6 +163,7 @@ interface SimulatedGameState {
   cardsPlayed: Map<string, string[]>;
   winner: number | null;
   winCondition: string | null;
+  eliminations: EliminationRecord[];  // Track elimination order
 }
 
 // ============================================================================
@@ -354,7 +372,155 @@ class CommanderGameSimulator {
    */
   hasCreatureType(cardName: string, type: string): boolean {
     const card = this.getCard(cardName);
-    return card?.type_line?.toLowerCase().includes(type.toLowerCase()) ?? false;
+    const typeLine = card?.type_line?.toLowerCase() || '';
+    // Also check for Changeling (is every creature type)
+    if (typeLine.includes('changeling') || card?.oracle_text?.toLowerCase().includes('changeling')) {
+      return true;
+    }
+    return typeLine.includes(type.toLowerCase());
+  }
+
+  /**
+   * Determine the primary creature type for a deck based on the most common type.
+   * Used for cards that "choose a creature type" - the AI picks the optimal type.
+   */
+  getDeckPrimaryCreatureType(player: PlayerState): string {
+    const typeCounts = new Map<string, number>();
+    const commonTypes = ['merfolk', 'goblin', 'elf', 'zombie', 'soldier', 'wizard', 
+                         'human', 'dragon', 'vampire', 'angel', 'demon', 'beast',
+                         'elemental', 'spirit', 'horror', 'sliver', 'cat', 'bird'];
+    
+    // Count creature types in library, hand, and battlefield
+    const allCards = [...player.library, ...player.hand, ...player.battlefield.map(p => p.card)];
+    
+    for (const cardName of allCards) {
+      const card = this.getCard(cardName);
+      const typeLine = card?.type_line?.toLowerCase() || '';
+      
+      for (const type of commonTypes) {
+        if (typeLine.includes(type)) {
+          typeCounts.set(type, (typeCounts.get(type) || 0) + 1);
+        }
+      }
+    }
+    
+    // Find the most common type
+    let maxCount = 0;
+    let primaryType = 'creature'; // Default fallback
+    for (const [type, count] of typeCounts) {
+      if (count > maxCount) {
+        maxCount = count;
+        primaryType = type;
+      }
+    }
+    
+    // Capitalize first letter
+    return primaryType.charAt(0).toUpperCase() + primaryType.slice(1);
+  }
+
+  /**
+   * Get creature types from a card's type line.
+   * Returns an array of creature subtypes (e.g., ['Merfolk', 'Wizard'])
+   */
+  getCreatureTypes(cardName: string): string[] {
+    const card = this.getCard(cardName);
+    const typeLine = card?.type_line || '';
+    const oracle = card?.oracle_text?.toLowerCase() || '';
+    
+    // Check for Changeling (is every creature type)
+    if (typeLine.toLowerCase().includes('changeling') || oracle.includes('changeling')) {
+      return ['Changeling']; // Special marker that matches all types
+    }
+    
+    // Extract subtypes after the dash
+    const dashIndex = typeLine.indexOf('—');
+    if (dashIndex === -1) return [];
+    
+    const subtypes = typeLine.substring(dashIndex + 1).trim();
+    return subtypes.split(/\s+/).filter(t => t.length > 0);
+  }
+
+  /**
+   * Check if a card matches a chosen creature type.
+   * Handles Changeling which matches all types.
+   */
+  matchesCreatureType(cardName: string, chosenType: string): boolean {
+    const types = this.getCreatureTypes(cardName);
+    if (types.includes('Changeling')) return true;
+    return types.some(t => t.toLowerCase() === chosenType.toLowerCase());
+  }
+
+  /**
+   * Calculate effective mana cost considering cost reductions.
+   * Checks for Morophon, Urza's Incubator, and similar effects.
+   */
+  getEffectiveCost(cardName: string, player: PlayerState): number {
+    const baseCost = this.getCMC(cardName);
+    const card = this.getCard(cardName);
+    const typeLine = card?.type_line?.toLowerCase() || '';
+    
+    // Only creatures can benefit from tribal cost reductions
+    if (!typeLine.includes('creature')) return baseCost;
+    
+    let reduction = 0;
+    const cardTypes = this.getCreatureTypes(cardName);
+    const isChangeling = cardTypes.includes('Changeling');
+    
+    for (const perm of player.battlefield) {
+      const permCard = this.getCard(perm.card);
+      const permOracle = permCard?.oracle_text?.toLowerCase() || '';
+      const chosenType = perm.chosenCreatureType?.toLowerCase();
+      
+      // Morophon, the Boundless: "Spells of the chosen type you cast cost {W}{U}{B}{R}{G} less to cast"
+      // This reduces colored mana by 5 (one of each color)
+      if (perm.card.includes('Morophon') && chosenType) {
+        if (isChangeling || cardTypes.some(t => t.toLowerCase() === chosenType)) {
+          // WUBRG reduction - effectively reduces cost by 5 colored mana
+          reduction += 5;
+        }
+      }
+      
+      // Urza's Incubator: "Creature spells of the chosen type cost {2} less to cast"
+      if (permOracle.includes('creature spells of the chosen type cost') && 
+          permOracle.includes('less to cast') && chosenType) {
+        if (isChangeling || cardTypes.some(t => t.toLowerCase() === chosenType)) {
+          reduction += 2;
+        }
+      }
+      
+      // Herald's Horn: "Creature spells of the chosen type cost {1} less to cast"
+      if (permOracle.includes('creature spells') && 
+          permOracle.includes('cost {1} less') && chosenType) {
+        if (isChangeling || cardTypes.some(t => t.toLowerCase() === chosenType)) {
+          reduction += 1;
+        }
+      }
+    }
+    
+    // Check for Jodah + Morophon combo (or Fist of Suns)
+    // Jodah: "You may pay WUBRG rather than pay the mana cost for spells you cast"
+    // With Morophon reducing WUBRG, the creature is free!
+    const hasJodahEffect = player.battlefield.some(p => {
+      const o = this.getCard(p.card)?.oracle_text?.toLowerCase() || '';
+      return o.includes('pay {w}{u}{b}{r}{g}') && o.includes('rather than pay');
+    });
+    
+    const hasFistOfSuns = player.battlefield.some(p => 
+      p.card.toLowerCase().includes('fist of suns')
+    );
+    
+    const hasMorophon = player.battlefield.some(p => 
+      p.card.includes('Morophon') && 
+      p.chosenCreatureType && 
+      (isChangeling || cardTypes.some(t => t.toLowerCase() === p.chosenCreatureType?.toLowerCase()))
+    );
+    
+    // Jodah/Fist + Morophon = free creature spells of chosen type
+    if ((hasJodahEffect || hasFistOfSuns) && hasMorophon) {
+      return 0;
+    }
+    
+    return Math.max(0, baseCost - reduction);
   }
 
   getCMC(cardName: string): number {
@@ -614,16 +780,23 @@ class CommanderGameSimulator {
   }
 
   castSpell(player: PlayerState, cardName: string, state: SimulatedGameState, tappedForMana?: string[]): boolean {
-    const cost = this.getCMC(cardName);
-    if (!this.canPayMana(player, cost)) return false;
+    // Use effective cost which considers tribal cost reductions (Morophon, Urza's Incubator, etc.)
+    const baseCost = this.getCMC(cardName);
+    const effectiveCost = this.getEffectiveCost(cardName, player);
+    
+    if (!this.canPayMana(player, effectiveCost)) return false;
     
     const handIndex = player.hand.indexOf(cardName);
     if (handIndex === -1) return false;
     
     // Get mana pool state before paying
     const manaPoolBefore = this.formatManaPool(player.manaPool);
-    const manaSpentDesc = this.payMana(player, cost);
+    const manaSpentDesc = this.payMana(player, effectiveCost);
     player.hand.splice(handIndex, 1);
+    
+    // Log cost reduction if applicable
+    const costReduction = baseCost - effectiveCost;
+    const costReductionStr = costReduction > 0 ? ` (reduced from ${baseCost} by ${costReduction})` : '';
     
     const card = this.getCard(cardName);
     const typeLine = card?.type_line?.toLowerCase() || '';
@@ -638,15 +811,30 @@ class CommanderGameSimulator {
         typeLine.includes('enchantment') || typeLine.includes('planeswalker')) {
       const power = parseInt(card?.power || '0', 10);
       const toughness = parseInt(card?.toughness || '0', 10);
+      const oracle = card?.oracle_text?.toLowerCase() || '';
       
-      player.battlefield.push({
+      // Check if this card needs to choose a creature type
+      let chosenCreatureType: string | undefined;
+      if (oracle.includes('choose a creature type') || oracle.includes('as this') && oracle.includes('enters')) {
+        if (oracle.includes('choose a creature type')) {
+          chosenCreatureType = this.getDeckPrimaryCreatureType(player);
+        }
+      }
+      
+      const newPermanent: PermanentState = {
         card: cardName,
         tapped: false,
         summoningSickness: typeLine.includes('creature'),
         power,
         toughness,
         counters: {},
-      });
+      };
+      
+      if (chosenCreatureType) {
+        newPermanent.chosenCreatureType = chosenCreatureType;
+      }
+      
+      player.battlefield.push(newPermanent);
       
       // Track cards played per player
       const playerKey = player.name;
@@ -656,6 +844,7 @@ class CommanderGameSimulator {
       
       // Log detailed cast event for permanents
       if (this.analysisMode) {
+        const chosenTypeStr = chosenCreatureType ? `, Chose type: ${chosenCreatureType}` : '';
         state.events.push({
           turn: state.turn,
           player: player.name,
@@ -663,8 +852,8 @@ class CommanderGameSimulator {
           card: cardName,
           fromZone: 'hand',
           toZone: 'stack → battlefield',
-          manaSpent: cost,
-          details: `Cast ${cardName} ${manaCostStr} (${typeLine})${power || toughness ? `, P/T: ${power}/${toughness}` : ''}`,
+          manaSpent: effectiveCost,
+          details: `Cast ${cardName} ${manaCostStr} (${typeLine})${power || toughness ? `, P/T: ${power}/${toughness}` : ''}${chosenTypeStr}${costReductionStr}`,
           reasoning: tappedInfo ? `${tappedInfo}, Spent: ${manaSpentDesc}` : `Spent: ${manaSpentDesc} from pool`,
           result: 'Resolved successfully, entered battlefield',
         });
@@ -681,8 +870,8 @@ class CommanderGameSimulator {
           card: cardName,
           fromZone: 'hand',
           toZone: 'stack → graveyard',
-          manaSpent: cost,
-          details: `Cast ${cardName} ${manaCostStr} (${typeLine})`,
+          manaSpent: effectiveCost,
+          details: `Cast ${cardName} ${manaCostStr} (${typeLine})${costReductionStr}`,
           reasoning: tappedInfo ? `${tappedInfo}, Spent: ${manaSpentDesc}` : `Spent: ${manaSpentDesc} from pool`,
         });
       }
@@ -731,44 +920,116 @@ class CommanderGameSimulator {
     
     // Check for tribal/type-based triggers
     const typeLine = card?.type_line?.toLowerCase() || '';
+    const cardCreatureTypes = this.getCreatureTypes(cardName);
+    
     for (const perm of player.battlefield) {
       const permCard = this.getCard(perm.card);
       const permOracle = permCard?.oracle_text?.toLowerCase() || '';
       
       // Kindred Discovery-like effect: draw when creature of chosen type enters
-      if (permOracle.includes('whenever a creature you control') && permOracle.includes('enters') && permOracle.includes('draw')) {
-        // Simplified: draw a card when a creature enters
-        if (typeLine.includes('creature')) {
+      // "As this enchantment enters, choose a creature type. Whenever a creature you control of the chosen type enters or attacks, draw a card."
+      if (permOracle.includes('choose a creature type') && 
+          permOracle.includes('whenever') && 
+          permOracle.includes('enters') && 
+          permOracle.includes('draw')) {
+        const chosenType = perm.chosenCreatureType?.toLowerCase();
+        // Check if the entering creature matches the chosen type
+        if (typeLine.includes('creature') && 
+            (cardCreatureTypes.some(t => t.toLowerCase() === chosenType) || 
+             typeLine.includes('changeling') || 
+             oracle.includes('changeling'))) {
           this.drawCards(player, 1, state, perm.card);
           state.events.push({
             turn: state.turn,
             player: player.name,
-            action: 'draw',
+            action: 'trigger',
             card: perm.card,
-            details: `Draw from creature entering (${cardName})`
+            details: `Drew card: ${perm.chosenCreatureType} creature entered (${cardName})`
           });
         }
       }
       
-      // Token creation on creature spell cast (like Deeproot Waters)
-      if (permOracle.includes('whenever you cast') && permOracle.includes('create') && permOracle.includes('token')) {
-        // Create a token
-        player.battlefield.push({
-          card: 'Creature Token',
-          tapped: false,
-          summoningSickness: true,
-          power: 1,
-          toughness: 1,
-          counters: {},
-          isToken: true,
-        });
-        state.events.push({
-          turn: state.turn,
-          player: player.name,
-          action: 'trigger',
-          card: perm.card,
-          details: 'Created token from cast trigger'
-        });
+      // Merfolk-specific: Deeproot Waters - "Whenever you cast a Merfolk spell, create a 1/1 blue Merfolk creature token with hexproof"
+      if (permOracle.includes('whenever you cast a merfolk') && permOracle.includes('create') && permOracle.includes('merfolk')) {
+        if (typeLine.includes('merfolk') || typeLine.includes('changeling') || oracle.includes('changeling')) {
+          player.battlefield.push({
+            card: 'Merfolk Token',
+            tapped: false,
+            summoningSickness: true,
+            power: 1,
+            toughness: 1,
+            counters: {},
+            isToken: true,
+            tokenType: 'Merfolk',
+          });
+          state.events.push({
+            turn: state.turn,
+            player: player.name,
+            action: 'trigger',
+            card: perm.card,
+            details: `Created 1/1 Merfolk token (cast ${cardName})`
+          });
+        }
+      }
+      // Generic token creation for other tribal effects - check for chosen type
+      else if (permOracle.includes('choose a creature type') && 
+               permOracle.includes('whenever you cast') && 
+               permOracle.includes('create') && 
+               permOracle.includes('token')) {
+        const chosenType = perm.chosenCreatureType?.toLowerCase();
+        if (typeLine.includes('creature') && 
+            (cardCreatureTypes.some(t => t.toLowerCase() === chosenType) ||
+             typeLine.includes('changeling') || 
+             oracle.includes('changeling'))) {
+          player.battlefield.push({
+            card: `${perm.chosenCreatureType} Token`,
+            tapped: false,
+            summoningSickness: true,
+            power: 1,
+            toughness: 1,
+            counters: {},
+            isToken: true,
+            tokenType: perm.chosenCreatureType,
+          });
+          state.events.push({
+            turn: state.turn,
+            player: player.name,
+            action: 'trigger',
+            card: perm.card,
+            details: `Created ${perm.chosenCreatureType} token from cast trigger`
+          });
+        }
+      }
+      // Reflections of Littjara - copy creature spells of the chosen type
+      else if (permOracle.includes('choose a creature type') && 
+               permOracle.includes('whenever you cast a spell of the chosen type') && 
+               permOracle.includes('copy')) {
+        const chosenType = perm.chosenCreatureType?.toLowerCase();
+        if (typeLine.includes('creature') && 
+            (cardCreatureTypes.some(t => t.toLowerCase() === chosenType) ||
+             typeLine.includes('changeling') || 
+             oracle.includes('changeling'))) {
+          // Create a token copy of the creature
+          const power = parseInt(card?.power || '0', 10);
+          const toughness = parseInt(card?.toughness || '0', 10);
+          player.battlefield.push({
+            card: `${cardName} (Copy)`,
+            tapped: false,
+            summoningSickness: true,
+            power,
+            toughness,
+            counters: {},
+            isToken: true,
+            tokenType: perm.chosenCreatureType,
+          });
+          state.events.push({
+            turn: state.turn,
+            player: player.name,
+            action: 'trigger',
+            card: perm.card,
+            details: `Copied ${cardName} (${perm.chosenCreatureType} spell)`
+          });
+        }
       }
     }
   }
@@ -1003,13 +1264,24 @@ class CommanderGameSimulator {
       const player = state.players[playerId];
       if (!player) continue;
       
+      // Skip already eliminated players
+      if (player.life === -999) continue;
+      
       // Check for player elimination
       if (player.life <= 0) {
+        const reason = `Life total reduced to ${player.life}`;
         state.events.push({
           turn: state.turn,
           player: player.name,
           action: 'eliminated',
-          details: `Life total reduced to ${player.life}`
+          details: reason
+        });
+        // Track elimination order
+        state.eliminations.push({
+          playerId,
+          playerName: player.name,
+          turn: state.turn,
+          reason
         });
         // Mark as eliminated by setting life to a very negative number
         player.life = -999;
@@ -1018,11 +1290,19 @@ class CommanderGameSimulator {
       }
       
       if (player.poisonCounters >= 10) {
+        const reason = `Received ${player.poisonCounters} poison counters`;
         state.events.push({
           turn: state.turn,
           player: player.name,
           action: 'eliminated',
-          details: `Received ${player.poisonCounters} poison counters`
+          details: reason
+        });
+        // Track elimination order
+        state.eliminations.push({
+          playerId,
+          playerName: player.name,
+          turn: state.turn,
+          reason
         });
         player.life = -999;
         changed = true;
@@ -1176,13 +1456,18 @@ class CommanderGameSimulator {
     
     let totalDamage = 0;
     let infect = false;
+    const attackerDetails: string[] = [];
     
     for (const creature of affordableAttackers) {
       creature.tapped = true;
       if (hasGhostlyPrison) {
         this.payMana(attacker, 2);
       }
-      totalDamage += creature.power || 0;
+      const creaturePower = creature.power || 0;
+      totalDamage += creaturePower;
+      
+      // Build attacker description with power/toughness
+      attackerDetails.push(`${creature.card} (${creaturePower}/${creature.toughness || 0})`);
       
       const card = this.getCard(creature.card);
       if (card?.oracle_text?.toLowerCase().includes('infect')) {
@@ -1190,13 +1475,19 @@ class CommanderGameSimulator {
       }
     }
     
+    // Format attackers list for event details
+    const attackersStr = attackerDetails.length <= 3 
+      ? attackerDetails.join(', ')
+      : `${attackerDetails.slice(0, 3).join(', ')} and ${attackerDetails.length - 3} more`;
+    
     if (infect) {
       defender.poisonCounters += totalDamage;
       state.events.push({
         turn: state.turn,
         player: attacker.name,
         action: 'combat',
-        details: `Dealt ${totalDamage} infect damage to ${defender.name} (${defender.poisonCounters}/10 poison)`
+        card: attackerDetails.length === 1 ? affordableAttackers[0].card : undefined,
+        details: `Attacked ${defender.name} with ${attackerDetails.length} creature(s): ${attackersStr}. Dealt ${totalDamage} infect damage (${defender.poisonCounters}/10 poison)`
       });
     } else {
       defender.life -= totalDamage;
@@ -1204,7 +1495,8 @@ class CommanderGameSimulator {
         turn: state.turn,
         player: attacker.name,
         action: 'combat',
-        details: `Dealt ${totalDamage} damage to ${defender.name} (at ${defender.life} life)`
+        card: attackerDetails.length === 1 ? affordableAttackers[0].card : undefined,
+        details: `Attacked ${defender.name} with ${attackerDetails.length} creature(s): ${attackersStr}. Dealt ${totalDamage} damage (${defender.name} at ${defender.life} life)`
       });
     }
   }
@@ -1496,6 +1788,7 @@ class CommanderGameSimulator {
       cardsPlayed: new Map(),
       winner: null,
       winCondition: null,
+      eliminations: [],
     };
   }
 
@@ -1610,6 +1903,9 @@ class CommanderGameSimulator {
       this.printDetailedReplay(state);
     }
     
+    // Build player results with positions and elimination info
+    const playerResults = this.buildPlayerResults(state, winnerName);
+    
     return {
       gameNumber,
       winner: winnerName,
@@ -1622,7 +1918,71 @@ class CommanderGameSimulator {
       expectedBehaviorsNotOccurred: expectedNotOccurred,
       cardsNotFunctioningAsIntended,
       seed: gameSeed,
+      playerResults,
     };
+  }
+
+  /**
+   * Build player results with positions and elimination information.
+   * Position 1 is the winner, subsequent positions are based on elimination order (last eliminated = 2nd, etc.)
+   */
+  private buildPlayerResults(state: SimulatedGameState, winnerName: string): PlayerResult[] {
+    const results: PlayerResult[] = [];
+    
+    // Winner gets position 1
+    if (state.winner && state.winner > 0 && state.players[state.winner]) {
+      results.push({
+        playerName: state.players[state.winner].name,
+        position: 1,
+        turnEliminated: null,
+        eliminationReason: null,
+      });
+    }
+    
+    // Eliminated players get positions based on reverse elimination order
+    // (last eliminated = 2nd place, first eliminated = last place)
+    const eliminatedPlayers = [...state.eliminations].reverse();
+    let position = 2;
+    for (const elim of eliminatedPlayers) {
+      results.push({
+        playerName: elim.playerName,
+        position,
+        turnEliminated: elim.turn,
+        eliminationReason: elim.reason,
+      });
+      position++;
+    }
+    
+    // Handle players who weren't eliminated but also didn't win (e.g., game timeout)
+    for (let playerId = 1; playerId <= state.playerCount; playerId++) {
+      const player = state.players[playerId];
+      if (!player) continue;
+      
+      const alreadyIncluded = results.some(r => r.playerName === player.name);
+      if (!alreadyIncluded) {
+        results.push({
+          playerName: player.name,
+          position,
+          turnEliminated: null,
+          eliminationReason: 'Game ended without elimination',
+        });
+        position++;
+      }
+    }
+    
+    // Sort by position
+    results.sort((a, b) => a.position - b.position);
+    
+    return results;
+  }
+
+  /**
+   * Get ordinal string for a position (1st, 2nd, 3rd, etc.)
+   */
+  private getOrdinal(n: number): string {
+    const s = ['th', 'st', 'nd', 'rd'];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
   }
 
   private printDetailedReplay(state: SimulatedGameState): void {
@@ -1842,6 +2202,21 @@ class CommanderGameSimulator {
       console.log(`  Game ${summary.gameNumber} (Seed: ${summary.seed}): ${summary.winner}`);
       console.log(`    Win Condition: ${summary.winCondition}`);
       console.log(`    Total Turns: ${summary.totalTurns}`);
+      
+      // Print player positions and elimination info
+      if (summary.playerResults && summary.playerResults.length > 0) {
+        console.log('    Player Results:');
+        for (const result of summary.playerResults) {
+          const positionStr = this.getOrdinal(result.position);
+          if (result.turnEliminated !== null) {
+            console.log(`      ${positionStr}: ${result.playerName} - Eliminated turn ${result.turnEliminated} (${result.eliminationReason})`);
+          } else if (result.position === 1) {
+            console.log(`      ${positionStr}: ${result.playerName} - WINNER`);
+          } else {
+            console.log(`      ${positionStr}: ${result.playerName} - ${result.eliminationReason || 'Survived'}`);
+          }
+        }
+      }
     }
     console.log('');
     
