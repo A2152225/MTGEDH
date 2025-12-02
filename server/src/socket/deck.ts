@@ -4,7 +4,6 @@ import {
   parseDecklist,
   fetchCardsByExactNamesBatch,
   fetchCardByExactNameStrict,
-  fetchCardsFromSetByColorIdentity,
   validateDeck,
   normalizeName,
   shouldSkipDeckLine,
@@ -2782,58 +2781,10 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           }
         }
 
-        // Fallback: If Moxfield fetch failed and we have set/color info, try fetching from set
-        // This is a fallback that gets ALL matching cards from the set (not ideal, but better than nothing)
-        if (!fetchedFullDeck && preconSetCode && preconColorIdentity) {
-          try {
-            io.to(gameId).emit("chat", {
-              id: `m_${Date.now()}`,
-              gameId,
-              from: "system",
-              message: `📦 Fetching cards from set ${preconSetCode} with color identity ${preconColorIdentity}...`,
-              ts: Date.now(),
-            });
-
-            const setCards = await fetchCardsFromSetByColorIdentity(preconSetCode, preconColorIdentity);
-            
-            if (setCards.length > 0) {
-              // Filter to exclude commanders (already added) and format the cards
-              const commanderNamesSet = new Set(resolvedCommanders.map(c => c.name.toLowerCase()));
-              
-              for (const card of setCards) {
-                if (!commanderNamesSet.has(card.name.toLowerCase())) {
-                  // Generate unique instance ID to avoid duplicate ID issues
-                  // with multiple copies of the same card (e.g., basic lands)
-                  resolvedCards.push({
-                    id: generateUniqueCardInstanceId(card.id),
-                    name: card.name,
-                    type_line: card.type_line,
-                    oracle_text: card.oracle_text,
-                    image_uris: card.image_uris,
-                    mana_cost: (card as any).mana_cost,
-                    power: (card as any).power,
-                    toughness: (card as any).toughness,
-                    card_faces: (card as any).card_faces,
-                    layout: (card as any).layout,
-                  });
-                }
-              }
-              
-              // Consider it a partial deck if we have more than 10 cards (commanders + some deck cards)
-              fetchedFullDeck = resolvedCards.length > 10;
-              
-              console.info("[deck] importPreconDeck fetched cards from set (fallback)", {
-                gameId,
-                deckName,
-                setCode: preconSetCode,
-                colorIdentity: preconColorIdentity,
-                cardCount: resolvedCards.length,
-              });
-            }
-          } catch (e) {
-            console.warn("importPreconDeck: failed to fetch set cards", e);
-          }
-        }
+        // Note: We no longer use fetchCardsFromSetByColorIdentity as a fallback because
+        // it returns ALL cards from the set matching the color identity, not the actual
+        // precon deck cards. This resulted in importing wrong cards from other precons.
+        // If Moxfield fetch fails, users should import manually.
 
         // Truncate to 100 cards if we have more (Commander format deck size limit)
         const MAX_COMMANDER_DECK_SIZE = 100;
