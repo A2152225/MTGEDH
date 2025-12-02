@@ -2835,6 +2835,14 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           }
         }
 
+        // Truncate to 100 cards if we have more (Commander format deck size limit)
+        const MAX_COMMANDER_DECK_SIZE = 100;
+        if (resolvedCards.length > MAX_COMMANDER_DECK_SIZE) {
+          const originalCount = resolvedCards.length;
+          resolvedCards = resolvedCards.slice(0, MAX_COMMANDER_DECK_SIZE);
+          console.info("[deck] importPreconDeck truncated deck from", originalCount, "to", resolvedCards.length, "cards");
+        }
+
         // Emit status message
         const commanderNames = resolvedCommanders.map(c => c.name).join(', ');
         if (fetchedFullDeck) {
