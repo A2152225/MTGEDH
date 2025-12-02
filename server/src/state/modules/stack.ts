@@ -1,7 +1,7 @@
 import type { PlayerID } from "../../../../shared/src/index.js";
 import type { GameContext } from "../context.js";
 import { uid, parsePT } from "../utils.js";
-import { recalculatePlayerEffects } from "./game-state-effects.js";
+import { recalculatePlayerEffects, hasMetalcraft, countArtifacts } from "./game-state-effects.js";
 import { categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
 import { getETBTriggersForPermanent, type TriggeredAbility } from "./triggered-abilities.js";
 import { addExtraTurn, addExtraCombat } from "./turn.js";
@@ -95,6 +95,130 @@ function detectEntersWithCounters(card: any): Record<string, number> {
   // Tribute N - opponent may put counters (handled interactively)
   
   return counters;
+}
+
+/**
+ * Handle Dispatch and similar metalcraft-conditional spells.
+ * Dispatch: "Tap target creature. Metalcraft — If you control three or more artifacts, exile that creature instead."
+ * 
+ * @returns true if the spell was handled
+ */
+function handleDispatch(
+  ctx: GameContext, 
+  card: any, 
+  controller: PlayerID, 
+  targets: any[], 
+  state: any
+): boolean {
+  const oracleText = (card.oracle_text || '').toLowerCase();
+  const cardName = (card.name || '').toLowerCase();
+  
+  // Check for Dispatch specifically or similar patterns
+  // Pattern: "Tap target creature. Metalcraft — ... exile that creature instead"
+  const isDispatchPattern = 
+    cardName.includes('dispatch') ||
+    (oracleText.includes('tap target creature') && 
+     oracleText.includes('metalcraft') && 
+     oracleText.includes('exile'));
+  
+  if (!isDispatchPattern || targets.length === 0) {
+    return false;
+  }
+  
+  const battlefield = state.battlefield || [];
+  const targetPerm = battlefield.find((p: any) => p?.id === targets[0] || p?.id === targets[0]?.id);
+  
+  if (!targetPerm) {
+    console.log(`[handleDispatch] Target not found on battlefield`);
+    return false;
+  }
+  
+  // Check metalcraft using the centralized function
+  const metalcraftActive = hasMetalcraft(ctx, controller);
+  
+  if (metalcraftActive) {
+    // Exile the creature instead of tapping
+    const permIndex = battlefield.indexOf(targetPerm);
+    if (permIndex !== -1) {
+      battlefield.splice(permIndex, 1);
+      
+      // Move to exile zone
+      const owner = targetPerm.owner || targetPerm.controller;
+      const zones = state.zones || {};
+      zones[owner] = zones[owner] || { hand: [], graveyard: [], exile: [] };
+      zones[owner].exile = zones[owner].exile || [];
+      zones[owner].exile.push({ ...targetPerm.card, zone: 'exile' });
+      zones[owner].exileCount = zones[owner].exile.length;
+      
+      console.log(`[handleDispatch] Metalcraft active (${countArtifacts(ctx, controller)} artifacts) - exiled ${targetPerm.card?.name || targetPerm.id}`);
+    }
+  } else {
+    // Just tap the creature
+    targetPerm.tapped = true;
+    console.log(`[handleDispatch] Metalcraft inactive (${countArtifacts(ctx, controller)} artifacts) - tapped ${targetPerm.card?.name || targetPerm.id}`);
+  }
+  
+  return true;
+}
+
+/**
+ * Check if a card's metalcraft ability is active and apply appropriate effects.
+ * This handles both spells and permanents with metalcraft.
+ * Uses the centralized hasMetalcraft/countArtifacts from game-state-effects.
+ * 
+ * @param ctx - The game context
+ * @param oracleText - The card's oracle text
+ * @param controllerId - The controller's ID
+ * @returns Object with metalcraft status and any special effects
+ */
+function evaluateMetalcraft(
+  ctx: GameContext,
+  oracleText: string, 
+  controllerId: string
+): { isActive: boolean; artifactCount: number; effects: string[] } {
+  const text = oracleText.toLowerCase();
+  
+  // Check if the card even has metalcraft
+  if (!text.includes('metalcraft')) {
+    return { isActive: false, artifactCount: 0, effects: [] };
+  }
+  
+  const artifactCount = countArtifacts(ctx, controllerId);
+  const isActive = hasMetalcraft(ctx, controllerId);
+  const effects: string[] = [];
+  
+  if (isActive) {
+    // Parse metalcraft effects
+    // Common patterns:
+    // "Metalcraft — [effect]" or "Metalcraft — As long as you control three or more artifacts, [effect]"
+    
+    // Equipment equip cost reduction (Puresteel Paladin)
+    if (text.includes('equip costs') && (text.includes('{0}') || text.includes('cost {0}'))) {
+      effects.push('equip_cost_zero');
+    }
+    
+    // Draw on artifact ETB (Puresteel Paladin)
+    if (text.includes('whenever an equipment enters') && text.includes('draw a card')) {
+      effects.push('draw_on_equipment_etb');
+    }
+    
+    // Indestructible (Darksteel Juggernaut has no metalcraft but similar)
+    if (text.includes('indestructible')) {
+      effects.push('indestructible');
+    }
+    
+    // +2/+2 bonus (Carapace Forger)
+    if (text.match(/gets?\s+\+(\d+)\/\+(\d+)/)) {
+      effects.push('power_toughness_bonus');
+    }
+    
+    // Exile instead of other effect (Dispatch)
+    if (text.includes('exile') && text.includes('instead')) {
+      effects.push('exile_instead');
+    }
+  }
+  
+  return { isActive, artifactCount, effects };
 }
 
 /**
@@ -1526,6 +1650,10 @@ export function resolveTopOfStack(ctx: GameContext) {
         }
       }
     }
+    
+    // Handle Dispatch and similar metalcraft spells
+    // Dispatch: "Tap target creature. Metalcraft — If you control three or more artifacts, exile that creature instead."
+    const dispatchHandled = handleDispatch(ctx, card, controller, targets, state);
     
     // Handle token creation spells (where the caster creates tokens)
     // Patterns: "create X 1/1 tokens", "create two 1/1 tokens", etc.
