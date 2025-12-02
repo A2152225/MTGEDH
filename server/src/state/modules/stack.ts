@@ -970,6 +970,52 @@ function executeTriggerEffect(
     return;
   }
   
+  // Pattern: "Additional combat phase" or "extra combat phase" (Aurelia, Combat Celebrant, etc.)
+  if (desc.includes('additional combat phase') || desc.includes('extra combat phase')) {
+    const sourceNameLower = sourceName.toLowerCase();
+    
+    // Check if this is a "first attack each turn" condition (Aurelia)
+    const isFirstAttackOnly = desc.includes('first attack') || desc.includes('first combat');
+    
+    // Check if we should untap creatures (Aurelia does this)
+    const shouldUntap = desc.includes('untap all creatures') || sourceNameLower.includes('aurelia');
+    
+    // Check if this trigger has already fired this turn (for "once per turn" effects)
+    const extraCombatKey = `extraCombat_${sourceName}_${state.turnNumber || 0}`;
+    if (isFirstAttackOnly && state.usedOncePerTurn?.[extraCombatKey]) {
+      console.log(`[executeTriggerEffect] ${sourceName} extra combat already used this turn, skipping`);
+      return;
+    }
+    
+    // Mark as used for "once per turn" effects
+    if (isFirstAttackOnly) {
+      state.usedOncePerTurn = state.usedOncePerTurn || {};
+      state.usedOncePerTurn[extraCombatKey] = true;
+    }
+    
+    // Add the extra combat phase
+    addExtraCombat(ctx, sourceName, shouldUntap);
+    console.log(`[executeTriggerEffect] ${sourceName}: Added extra combat phase (untap: ${shouldUntap})`);
+    return;
+  }
+  
+  // Pattern: "untap all creatures you control" without extra combat
+  if (desc.includes('untap all creatures you control') && !desc.includes('combat phase')) {
+    const battlefield = state.battlefield || [];
+    for (const perm of battlefield) {
+      if (!perm) continue;
+      if (perm.controller !== controller) continue;
+      const permTypeLine = (perm.card?.type_line || '').toLowerCase();
+      if (!permTypeLine.includes('creature')) continue;
+      
+      if (perm.tapped) {
+        perm.tapped = false;
+        console.log(`[executeTriggerEffect] Untapped ${perm.card?.name || perm.id}`);
+      }
+    }
+    return;
+  }
+  
   // Log unhandled triggers for future implementation
   console.log(`[executeTriggerEffect] Unhandled trigger effect: "${description}" from ${sourceName}`);
 }
