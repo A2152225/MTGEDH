@@ -804,6 +804,16 @@ function endTemporaryEffects(ctx: GameContext) {
       if (permanent.blockedThisTurn) {
         delete permanent.blockedThisTurn;
       }
+      
+      // Clear crewed status from vehicles (they stop being creatures at end of turn)
+      if (permanent.crewed) {
+        delete permanent.crewed;
+        // Remove granted Creature type from crew effect
+        if (permanent.grantedTypes && Array.isArray(permanent.grantedTypes)) {
+          permanent.grantedTypes = permanent.grantedTypes.filter((t: string) => t !== 'Creature');
+        }
+        endedCount++;
+      }
     }
     
     // Clear game-level temporary effects

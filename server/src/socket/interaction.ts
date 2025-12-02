@@ -1709,6 +1709,161 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
+    // Handle equip abilities (equipment cards)
+    // Check if this is an equip ability - abilityId contains "equip" or it's an equipment with equip cost
+    const isEquipment = typeLine.includes("equipment");
+    const isEquipAbility = abilityId.includes("equip") || (isEquipment && oracleText.includes("equip"));
+    if (isEquipAbility) {
+      // Get valid target creatures
+      const validTargets = battlefield.filter((p: any) => {
+        if (p.controller !== pid) return false;
+        const pTypeLine = (p.card?.type_line || "").toLowerCase();
+        return pTypeLine.includes("creature");
+      });
+
+      if (validTargets.length === 0) {
+        socket.emit("error", {
+          code: "NO_VALID_TARGETS",
+          message: "You have no creatures to equip",
+        });
+        return;
+      }
+
+      // Parse equip cost from oracle text
+      const equipCostMatch = oracleText.match(/equip\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+      const equipCost = equipCostMatch ? equipCostMatch[1] : "{0}";
+      
+      // Send target selection prompt
+      socket.emit("selectEquipTarget", {
+        gameId,
+        equipmentId: permanentId,
+        equipmentName: cardName,
+        equipCost,
+        imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+        validTargets: validTargets.map((c: any) => ({
+          id: c.id,
+          name: c.card?.name || "Creature",
+          power: c.card?.power || c.basePower || "0",
+          toughness: c.card?.toughness || c.baseToughness || "0",
+          imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
+        })),
+      });
+      
+      console.log(`[activateBattlefieldAbility] Equip ability on ${cardName}: prompting for target selection`);
+      return;
+    }
+    
+    // Handle Crew abilities (Vehicle cards)
+    // Crew N: Tap creatures with total power N or more to make this Vehicle an artifact creature
+    const isVehicle = typeLine.includes("vehicle");
+    const isCrewAbility = abilityId.includes("crew") || (isVehicle && oracleText.includes("crew"));
+    if (isCrewAbility) {
+      // Parse crew power requirement from oracle text
+      const crewMatch = oracleText.match(/crew\s*(\d+)/i);
+      const crewPower = crewMatch ? parseInt(crewMatch[1], 10) : 0;
+      
+      // Get valid creatures that can crew (untapped creatures the player controls)
+      const validCrewers = battlefield.filter((p: any) => {
+        if (p.controller !== pid) return false;
+        if (p.id === permanentId) return false; // Can't crew itself
+        const pTypeLine = (p.card?.type_line || "").toLowerCase();
+        if (!pTypeLine.includes("creature")) return false;
+        if (p.tapped) return false; // Must be untapped
+        return true;
+      });
+
+      if (validCrewers.length === 0) {
+        socket.emit("error", {
+          code: "NO_VALID_CREWERS",
+          message: "You have no untapped creatures to crew with",
+        });
+        return;
+      }
+
+      // Calculate total available power
+      const totalAvailablePower = validCrewers.reduce((sum: number, c: any) => {
+        const power = parseInt(c.card?.power || c.basePower || "0", 10) || 0;
+        return sum + Math.max(0, power);
+      }, 0);
+
+      if (totalAvailablePower < crewPower) {
+        socket.emit("error", {
+          code: "INSUFFICIENT_POWER",
+          message: `You need creatures with total power ${crewPower}+ to crew ${cardName}. Available: ${totalAvailablePower}`,
+        });
+        return;
+      }
+      
+      // Send crew selection prompt
+      socket.emit("selectCrewCreatures", {
+        gameId,
+        vehicleId: permanentId,
+        vehicleName: cardName,
+        crewPower,
+        imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+        validCrewers: validCrewers.map((c: any) => ({
+          id: c.id,
+          name: c.card?.name || "Creature",
+          power: parseInt(c.card?.power || c.basePower || "0", 10) || 0,
+          toughness: c.card?.toughness || c.baseToughness || "0",
+          imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
+        })),
+      });
+      
+      console.log(`[activateBattlefieldAbility] Crew ability on ${cardName}: prompting for creature selection (need power ${crewPower})`);
+      return;
+    }
+    
+    // Handle Station abilities (Spacecraft cards)
+    // Station N: Add charge counters, becomes creature when threshold is met
+    const isSpacecraft = typeLine.includes("spacecraft");
+    const isStationAbility = abilityId.includes("station") || (isSpacecraft && oracleText.includes("station"));
+    if (isStationAbility) {
+      // Parse station threshold from oracle text
+      const stationMatch = oracleText.match(/station\s*(\d+)/i);
+      const stationThreshold = stationMatch ? parseInt(stationMatch[1], 10) : 0;
+      
+      // Add a charge counter
+      (permanent as any).counters = (permanent as any).counters || {};
+      const currentCounters = (permanent as any).counters.charge || 0;
+      (permanent as any).counters.charge = currentCounters + 1;
+      
+      const newCounterCount = (permanent as any).counters.charge;
+      
+      // Check if threshold is met
+      if (stationThreshold > 0 && newCounterCount >= stationThreshold) {
+        // Mark as stationed (becomes a creature)
+        (permanent as any).stationed = true;
+        (permanent as any).grantedTypes = (permanent as any).grantedTypes || [];
+        if (!(permanent as any).grantedTypes.includes('Creature')) {
+          (permanent as any).grantedTypes.push('Creature');
+        }
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `🚀 ${cardName} is now stationed! (${newCounterCount}/${stationThreshold} charge counters) It becomes an artifact creature.`,
+          ts: Date.now(),
+        });
+      } else {
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `⚡ ${getPlayerName(game, pid)} added a charge counter to ${cardName}. (${newCounterCount}/${stationThreshold})`,
+          ts: Date.now(),
+        });
+      }
+      
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+      
+      broadcastGame(io, game, gameId);
+      return;
+    }
+    
     // Handle mana abilities (tap-mana-*)
     if (abilityId.startsWith("tap-mana")) {
       // Validate: permanent must not be tapped
@@ -2838,6 +2993,131 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       ts: Date.now(),
     });
     
+    broadcastGame(io, game, gameId);
+  });
+
+  // ============================================================================
+  // Crew Ability Confirmation (for Vehicles)
+  // ============================================================================
+
+  /**
+   * Handle crew selection confirmation for vehicles
+   * Player selects creatures to tap with total power >= crew requirement
+   */
+  socket.on("crewConfirm", ({
+    gameId,
+    vehicleId,
+    creatureIds,
+  }: {
+    gameId: string;
+    vehicleId: string;
+    creatureIds: string[];
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit("error", {
+        code: "GAME_NOT_FOUND",
+        message: "Game not found",
+      });
+      return;
+    }
+
+    const battlefield = game.state.battlefield || [];
+    
+    // Find the vehicle
+    const vehicle = battlefield.find((p: any) => p.id === vehicleId && p.controller === pid);
+    if (!vehicle) {
+      socket.emit("error", {
+        code: "VEHICLE_NOT_FOUND",
+        message: "Vehicle not found",
+      });
+      return;
+    }
+
+    const vehicleName = (vehicle as any).card?.name || "Vehicle";
+    const oracleText = ((vehicle as any).card?.oracle_text || "").toLowerCase();
+    
+    // Parse crew power requirement
+    const crewMatch = oracleText.match(/crew\s*(\d+)/i);
+    const crewPower = crewMatch ? parseInt(crewMatch[1], 10) : 0;
+
+    // Find and validate selected creatures
+    let totalPower = 0;
+    const crewingCreatures: any[] = [];
+    
+    for (const creatureId of creatureIds) {
+      const creature = battlefield.find((p: any) => 
+        p.id === creatureId && p.controller === pid
+      );
+      
+      if (!creature) {
+        socket.emit("error", {
+          code: "CREATURE_NOT_FOUND",
+          message: "One or more selected creatures not found",
+        });
+        return;
+      }
+      
+      const typeLine = ((creature as any).card?.type_line || "").toLowerCase();
+      if (!typeLine.includes("creature")) {
+        socket.emit("error", {
+          code: "NOT_A_CREATURE",
+          message: `${(creature as any).card?.name} is not a creature`,
+        });
+        return;
+      }
+      
+      if ((creature as any).tapped) {
+        socket.emit("error", {
+          code: "CREATURE_TAPPED",
+          message: `${(creature as any).card?.name} is already tapped`,
+        });
+        return;
+      }
+      
+      const power = parseInt((creature as any).card?.power || (creature as any).basePower || "0", 10) || 0;
+      totalPower += Math.max(0, power);
+      crewingCreatures.push(creature);
+    }
+
+    // Validate total power meets requirement
+    if (totalPower < crewPower) {
+      socket.emit("error", {
+        code: "INSUFFICIENT_POWER",
+        message: `Total power ${totalPower} is less than crew requirement ${crewPower}`,
+      });
+      return;
+    }
+
+    // Tap all crewing creatures
+    const creatureNames: string[] = [];
+    for (const creature of crewingCreatures) {
+      (creature as any).tapped = true;
+      creatureNames.push((creature as any).card?.name || "Creature");
+    }
+
+    // Mark vehicle as crewed (becomes a creature until end of turn)
+    (vehicle as any).crewed = true;
+    (vehicle as any).grantedTypes = (vehicle as any).grantedTypes || [];
+    if (!(vehicle as any).grantedTypes.includes('Creature')) {
+      (vehicle as any).grantedTypes.push('Creature');
+    }
+
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `🚗 ${getPlayerName(game, pid)} crewed ${vehicleName} with ${creatureNames.join(', ')} (total power: ${totalPower}). ${vehicleName} is now a creature until end of turn.`,
+      ts: Date.now(),
+    });
+
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+
     broadcastGame(io, game, gameId);
   });
 

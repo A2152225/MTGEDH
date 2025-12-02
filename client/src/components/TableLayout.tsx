@@ -64,6 +64,32 @@ function isManaSource(perm: BattlefieldPermanent): boolean {
     'deathrite shaman', 'sylvan caryatid', 'paradise druid', 'incubation druid',
   ];
   
+  // Cards that are NOT mana sources even though they mention mana/tokens
+  // These create tokens or have triggered abilities, not tap abilities
+  const notManaSources = [
+    'skullport merchant',   // Creates treasure on ETB, has sacrifice ability
+    'tireless provisioner', // Landfall creates food/treasure tokens
+    'feldon of the third path', // Creates token copies, not mana
+    'treasure nabber',      // Steals treasures, doesn't produce mana itself
+    'dockside extortionist', // ETB creates treasures, not a tap ability
+    'smothering tithe',     // Creates treasures on opponent draw
+    'pitiless plunderer',   // Creates treasures when creatures die
+    'revel in riches',      // Creates treasures when opponents' creatures die
+    'goldspan dragon',      // Creates treasures on attack/targeting
+    'professional face-breaker', // Creates treasures on combat damage
+    'monologue tax',        // Creates treasures when opponent casts 2nd spell
+    'ruthless technomancer', // ETB creates treasures
+    'storm-kiln artist',    // Creates treasures on casting spells
+    'academy manufactor',   // Multiplies food/clue/treasure creation
+    'westvale abbey',       // Land that transforms, not a mana source
+    'chitterspitter',       // Creates tokens, has activated ability
+  ];
+  
+  // Check if this is in the exclusion list
+  for (const excluded of notManaSources) {
+    if (name.includes(excluded)) return false;
+  }
+  
   // Check by name
   for (const pattern of manaArtifacts) {
     if (name.includes(pattern)) return true;
@@ -74,16 +100,28 @@ function isManaSource(perm: BattlefieldPermanent): boolean {
   
   // Check oracle text for mana production abilities (only for artifacts and creatures)
   if ((typeLine.includes('artifact') || typeLine.includes('creature'))) {
-    // Look for "{T}: Add" mana ability patterns
-    if (oracleText.includes('{t}: add') || (oracleText.includes('{t}, sacrifice') && oracleText.includes('add'))) {
+    // Look for "{T}: Add" mana ability patterns - the key pattern for mana abilities
+    // This must be a direct tap ability, not a triggered or activated ability with other costs
+    if (oracleText.match(/\{t\}:\s*add\s*\{/i) || oracleText.match(/\{t\}:\s*add\s+one\s+mana/i)) {
       // Exclude equipment and vehicles
+      if (!typeLine.includes('equipment') && !typeLine.includes('vehicle')) {
+        // Also exclude if the text mentions "sacrifice" before "add" (e.g., Ashnod's Altar)
+        // Those require sacrifice as a cost, making them different from pure mana sources
+        if (!oracleText.match(/sacrifice.*:\s*add/i)) {
+          return true;
+        }
+      }
+    }
+    
+    // Specifically check for "{T}, Sacrifice": patterns that add mana
+    // These are altar-style cards that sacrifice for mana
+    // While technically mana sources, they behave differently
+    // Include them only if explicitly tap and sacrifice
+    if (oracleText.includes('{t}, sacrifice') && oracleText.match(/:\s*add\s*\{/i)) {
+      // Include as mana source - these are like Chromatic Sphere
       if (!typeLine.includes('equipment') && !typeLine.includes('vehicle')) {
         return true;
       }
-    }
-    // Check for "add one mana of any color" or similar
-    if (oracleText.includes('add one mana') || oracleText.includes('add {')) {
-      return true;
     }
   }
   

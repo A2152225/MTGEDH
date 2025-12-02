@@ -805,6 +805,129 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
       });
     }
   });
+
+  /**
+   * Handle reveal land ETB choice (Furycalm Snarl, etc.)
+   * Player can reveal a matching card from hand to have the land enter untapped
+   */
+  socket.on("revealLandChoice", async ({
+    gameId,
+    permanentId,
+    revealCardId,
+  }: {
+    gameId: string;
+    permanentId: string;
+    revealCardId: string | null; // null means don't reveal, land enters tapped
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId as PlayerID | undefined;
+      
+      if (!game || !playerId) {
+        socket.emit("error", {
+          code: "REVEAL_LAND_ERROR",
+          message: "Game not found or player not identified",
+        });
+        return;
+      }
+
+      // Ensure game state exists
+      game.state = (game.state || {}) as any;
+      game.state.battlefield = game.state.battlefield || [];
+      
+      // Find the permanent
+      const battlefield = game.state.battlefield;
+      const permanent = battlefield.find((p: any) => 
+        p.id === permanentId && p.controller === playerId
+      );
+      
+      if (!permanent) {
+        socket.emit("error", {
+          code: "PERMANENT_NOT_FOUND",
+          message: "Land not found on battlefield",
+        });
+        return;
+      }
+
+      const cardName = (permanent as any).card?.name || "Land";
+
+      if (revealCardId) {
+        // Player chose to reveal - find the card in hand
+        const zones = game.state?.zones?.[playerId];
+        if (!zones || !Array.isArray(zones.hand)) {
+          socket.emit("error", {
+            code: "NO_HAND",
+            message: "Hand not found",
+          });
+          return;
+        }
+        
+        const revealedCard = (zones.hand as any[]).find((c: any) => c?.id === revealCardId);
+        if (!revealedCard) {
+          socket.emit("error", {
+            code: "CARD_NOT_IN_HAND",
+            message: "Card to reveal not found in hand",
+          });
+          return;
+        }
+        
+        const revealedName = revealedCard.name || "card";
+        
+        // Land enters untapped
+        (permanent as any).tapped = false;
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} reveals ${revealedName}. ${cardName} enters untapped.`,
+          ts: Date.now(),
+        });
+        
+        console.log(`[triggers] ${playerId} revealed ${revealedName} for ${cardName} to enter untapped`);
+        
+      } else {
+        // Player chose not to reveal - land enters tapped
+        (permanent as any).tapped = true;
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)}'s ${cardName} enters tapped (didn't reveal a card).`,
+          ts: Date.now(),
+        });
+        
+        console.log(`[triggers] ${cardName} enters tapped for ${playerId} (no reveal)`);
+      }
+
+      // Persist the event
+      try {
+        await appendEvent(gameId, (game as any).seq || 0, "revealLandChoice", {
+          playerId,
+          permanentId,
+          revealCardId,
+          cardName,
+        });
+      } catch (e) {
+        console.warn("[triggers] Failed to persist revealLandChoice event:", e);
+      }
+
+      // Bump sequence and broadcast
+      if (typeof (game as any).bumpSeq === "function") {
+        (game as any).bumpSeq();
+      }
+
+      broadcastGame(io, game, gameId);
+      
+    } catch (err: any) {
+      console.error(`[triggers] revealLandChoice error:`, err);
+      socket.emit("error", {
+        code: "REVEAL_LAND_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
 }
 
 /**

@@ -123,6 +123,172 @@ function detectETBTappedPattern(oracleText: string): 'always' | 'conditional' | 
 }
 
 /**
+ * Evaluate conditional ETB tapped lands and determine if they should enter tapped.
+ * Returns the result and any required prompts for the player.
+ * 
+ * Handles:
+ * - Slow lands: "unless you control two or more other lands" (Stormcarved Coast)
+ * - Fast lands: "unless you control two or fewer other lands"
+ * - Check lands: "unless you control a [type]" (Castle Locthwain, Dragonskull Summit)
+ * - Reveal lands: "you may reveal a [type] card from your hand" (Furycalm Snarl)
+ * 
+ * @param oracleText - The oracle text of the land
+ * @param controlledLandCount - Number of OTHER lands the player controls (not counting this one)
+ * @param controlledLandTypes - Array of land subtypes the player controls
+ * @param cardsInHand - Player's hand (for reveal land checks)
+ * @returns Object with shouldEnterTapped, reason, and optional prompt for reveal lands
+ */
+function evaluateConditionalLandETB(
+  oracleText: string,
+  controlledLandCount: number,
+  controlledLandTypes: string[],
+  cardsInHand?: any[]
+): { 
+  shouldEnterTapped: boolean; 
+  reason: string; 
+  requiresRevealPrompt?: boolean;
+  revealTypes?: string[];
+  canReveal?: boolean;
+} {
+  const text = (oracleText || '').toLowerCase();
+  
+  // Slow lands (Stormcarved Coast, Haunted Ridge, etc.)
+  // "enters the battlefield tapped unless you control two or more other lands"
+  const slowLandMatch = text.match(/enters the battlefield tapped unless you control two or more other lands/i);
+  if (slowLandMatch) {
+    const shouldTap = controlledLandCount < 2;
+    return {
+      shouldEnterTapped: shouldTap,
+      reason: shouldTap 
+        ? `Enters tapped (you control only ${controlledLandCount} other land${controlledLandCount !== 1 ? 's' : ''})` 
+        : `Enters untapped (you control ${controlledLandCount} other lands)`,
+    };
+  }
+  
+  // Fast lands (Blooming Marsh, Botanical Sanctum, etc.)
+  // "enters the battlefield tapped unless you control two or fewer other lands"
+  const fastLandMatch = text.match(/enters the battlefield tapped unless you control two or fewer other lands/i);
+  if (fastLandMatch) {
+    const shouldTap = controlledLandCount > 2;
+    return {
+      shouldEnterTapped: shouldTap,
+      reason: shouldTap 
+        ? `Enters tapped (you control ${controlledLandCount} other lands)` 
+        : `Enters untapped (you control only ${controlledLandCount} other land${controlledLandCount !== 1 ? 's' : ''})`,
+    };
+  }
+  
+  // Check lands with single type (Castle Locthwain - Swamp, Castle Garenbrig - Forest, etc.)
+  // "enters the battlefield tapped unless you control a [Type]"
+  const singleCheckMatch = text.match(/enters the battlefield tapped unless you control (?:a|an) ([\w]+)/i);
+  if (singleCheckMatch && !text.includes(' or ')) {
+    const requiredType = singleCheckMatch[1].toLowerCase();
+    const hasRequiredType = controlledLandTypes.some(t => t.toLowerCase().includes(requiredType));
+    return {
+      shouldEnterTapped: !hasRequiredType,
+      reason: hasRequiredType 
+        ? `Enters untapped (you control a ${requiredType})` 
+        : `Enters tapped (no ${requiredType} controlled)`,
+    };
+  }
+  
+  // Check lands with "or" condition (Dragonskull Summit - Swamp or Mountain, etc.)
+  // "enters the battlefield tapped unless you control a [Type] or [Type]"
+  const dualCheckMatch = text.match(/enters the battlefield tapped unless you control (?:a|an) ([\w]+) or ([\w]+)/i);
+  if (dualCheckMatch) {
+    const type1 = dualCheckMatch[1].toLowerCase();
+    const type2 = dualCheckMatch[2].toLowerCase();
+    const hasEitherType = controlledLandTypes.some(t => {
+      const lower = t.toLowerCase();
+      return lower.includes(type1) || lower.includes(type2);
+    });
+    return {
+      shouldEnterTapped: !hasEitherType,
+      reason: hasEitherType 
+        ? `Enters untapped (you control a ${type1} or ${type2})` 
+        : `Enters tapped (no ${type1} or ${type2} controlled)`,
+    };
+  }
+  
+  // Reveal lands (Furycalm Snarl, Vineglimmer Snarl, etc.)
+  // "you may reveal a [Type] or [Type] card from your hand. If you don't, ~ enters the battlefield tapped"
+  const revealMatch = text.match(/you may reveal (?:a|an) ([\w]+) or ([\w]+) card from your hand/i);
+  if (revealMatch) {
+    const type1 = revealMatch[1].toLowerCase();
+    const type2 = revealMatch[2].toLowerCase();
+    const revealTypes = [type1, type2];
+    
+    // Check if player has any matching cards in hand
+    let canReveal = false;
+    if (cardsInHand && cardsInHand.length > 0) {
+      canReveal = cardsInHand.some(card => {
+        const cardTypeLine = (card.type_line || '').toLowerCase();
+        return revealTypes.some(rtype => cardTypeLine.includes(rtype));
+      });
+    }
+    
+    return {
+      shouldEnterTapped: true, // Default to tapped, player chooses
+      reason: canReveal 
+        ? `May reveal a ${type1} or ${type2} to enter untapped`
+        : `Enters tapped (no ${type1} or ${type2} in hand to reveal)`,
+      requiresRevealPrompt: canReveal,
+      revealTypes,
+      canReveal,
+    };
+  }
+  
+  // Reveal lands with single type (some old lands)
+  const singleRevealMatch = text.match(/you may reveal (?:a|an) ([\w]+) card from your hand/i);
+  if (singleRevealMatch) {
+    const revealType = singleRevealMatch[1].toLowerCase();
+    
+    // Check if player has any matching cards in hand
+    let canReveal = false;
+    if (cardsInHand && cardsInHand.length > 0) {
+      canReveal = cardsInHand.some(card => {
+        const cardTypeLine = (card.type_line || '').toLowerCase();
+        return cardTypeLine.includes(revealType);
+      });
+    }
+    
+    return {
+      shouldEnterTapped: true, // Default to tapped, player chooses
+      reason: canReveal 
+        ? `May reveal a ${revealType} to enter untapped`
+        : `Enters tapped (no ${revealType} in hand to reveal)`,
+      requiresRevealPrompt: canReveal,
+      revealTypes: [revealType],
+      canReveal,
+    };
+  }
+  
+  // Default for unrecognized patterns - enter tapped for safety
+  return {
+    shouldEnterTapped: true,
+    reason: 'Enters tapped (conditional ETB pattern)',
+  };
+}
+
+/**
+ * Get the land subtypes from a permanent's type line
+ * Returns basic land types: Plains, Island, Swamp, Mountain, Forest
+ */
+function getLandSubtypes(typeLine: string): string[] {
+  const subtypes: string[] = [];
+  const lowerType = (typeLine || '').toLowerCase();
+  
+  const basicTypes = ['plains', 'island', 'swamp', 'mountain', 'forest'];
+  for (const type of basicTypes) {
+    if (lowerType.includes(type)) {
+      subtypes.push(type);
+    }
+  }
+  
+  return subtypes;
+}
+
+/**
  * Get the maximum hand size for a player, considering:
  * 1. Permanent effects that grant "no maximum hand size" (Reliquary Tower, Thought Vessel, Spellbook)
  * 2. Spell effects that give "no maximum hand size for the rest of the game" (Praetor's Counsel)
@@ -1235,19 +1401,70 @@ export function registerGameActions(io: Server, socket: Socket) {
         const oracleText = (cardInHand as any)?.oracle_text || '';
         const etbPattern = detectETBTappedPattern(oracleText);
         
-        if (etbPattern === 'always') {
-          // Find the permanent that was just played by its unique card ID (not by name)
-          // This ensures we find the correct permanent when multiple copies of the same card exist
-          const battlefield = game.state?.battlefield || [];
-          const permanent = battlefield.find((p: any) => 
-            p.card?.id === cardId && 
-            p.controller === playerId &&
-            !p.tapped // Only tap if not already tapped
+        // Find the permanent that was just played
+        const battlefield = game.state?.battlefield || [];
+        const permanent = battlefield.find((p: any) => 
+          p.card?.id === cardId && 
+          p.controller === playerId
+        );
+        
+        if (etbPattern === 'always' && permanent && !permanent.tapped) {
+          permanent.tapped = true;
+          console.log(`[playLand] ${cardName} enters tapped (ETB-tapped pattern detected)`);
+        } else if (etbPattern === 'conditional' && permanent) {
+          // Evaluate the conditional ETB tapped pattern
+          // Count OTHER lands (not including this one)
+          const otherLandCount = battlefield.filter((p: any) => {
+            if (p.id === permanent.id) return false; // Exclude this land
+            if (p.controller !== playerId) return false;
+            const typeLine = (p.card?.type_line || '').toLowerCase();
+            return typeLine.includes('land');
+          }).length;
+          
+          // Get controlled land types from other lands
+          const controlledLandTypes: string[] = [];
+          for (const p of battlefield) {
+            if (p.id === permanent.id) continue; // Exclude this land
+            if (p.controller !== playerId) continue;
+            const subtypes = getLandSubtypes(p.card?.type_line || '');
+            controlledLandTypes.push(...subtypes);
+          }
+          
+          // Get player's hand for reveal land checks
+          const playerHand = Array.isArray(zones?.hand) ? zones.hand : [];
+          
+          // Evaluate the conditional ETB
+          const evaluation = evaluateConditionalLandETB(
+            oracleText,
+            otherLandCount,
+            controlledLandTypes,
+            playerHand
           );
           
-          if (permanent) {
+          console.log(`[playLand] ${cardName} conditional ETB: ${evaluation.reason}`);
+          
+          if (evaluation.requiresRevealPrompt && evaluation.canReveal) {
+            // Land can be revealed - prompt the player
+            emitToPlayer(io, playerId as string, "revealLandPrompt", {
+              gameId,
+              permanentId: permanent.id,
+              cardName,
+              imageUrl: cardImageUrl,
+              revealTypes: evaluation.revealTypes,
+              message: `You may reveal a ${evaluation.revealTypes?.join(' or ')} card from your hand. If you don't, ${cardName} enters tapped.`,
+            });
+          } else if (evaluation.shouldEnterTapped && !permanent.tapped) {
+            // Land should enter tapped based on condition check
             permanent.tapped = true;
-            console.log(`[playLand] ${cardName} enters tapped (ETB-tapped pattern detected)`);
+            
+            // Send chat message about the land entering tapped
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `${getPlayerName(game, playerId)}'s ${cardName} enters tapped. (${evaluation.reason})`,
+              ts: Date.now(),
+            });
           }
         }
       }
@@ -3942,6 +4159,60 @@ export function registerGameActions(io: Server, socket: Socket) {
       });
 
       console.log(`[setLife] ${targetName}'s life set to ${life} (was ${currentLife}) in game ${gameId}`);
+
+      // Check for player defeat (life <= 0)
+      if (life <= 0) {
+        const players = game.state.players || [];
+        const activePlayers = players.filter((p: any) => !p.hasLost && !p.eliminated);
+        
+        // Mark player as eliminated
+        const targetPlayer = players.find((p: any) => p.id === targetPid) as any;
+        if (targetPlayer) {
+          targetPlayer.hasLost = true;
+          targetPlayer.eliminated = true;
+          targetPlayer.lossReason = "Life total is 0 or less";
+        }
+        
+        // Emit elimination event
+        io.to(gameId).emit("playerEliminated", {
+          gameId,
+          playerId: targetPid,
+          playerName: targetName,
+          reason: "Life total is 0 or less",
+        });
+        
+        // Check if game is over (only 1 or 0 players remaining)
+        const remainingPlayers = activePlayers.filter((p: any) => p.id !== targetPid);
+        
+        if (remainingPlayers.length === 1) {
+          // One player left - they win!
+          const winner = remainingPlayers[0];
+          const winnerName = getPlayerName(game, winner.id);
+          
+          io.to(gameId).emit("gameOver", {
+            gameId,
+            type: 'victory',
+            winnerId: winner.id,
+            winnerName,
+            loserId: targetPid,
+            loserName: targetName,
+            message: "You've Won!",
+          });
+          
+          // Mark game as over
+          (game.state as any).gameOver = true;
+          (game.state as any).winner = winner.id;
+        } else if (remainingPlayers.length === 0) {
+          // No players left - draw
+          io.to(gameId).emit("gameOver", {
+            gameId,
+            type: 'draw',
+            message: "Draw!",
+          });
+          
+          (game.state as any).gameOver = true;
+        }
+      }
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {

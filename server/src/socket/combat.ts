@@ -167,6 +167,70 @@ function isCurrentlyCreature(permanent: any): boolean {
     if (permanent.grantedTypes.includes('Creature')) return true;
   }
   
+  // Handle Gods - they are only creatures if devotion threshold is met
+  // Theros gods like Purphoros require devotion to their color(s) >= a threshold
+  // Oracle text pattern: "As long as your devotion to [color] is less than [N], ~ isn't a creature"
+  if (typeLine.includes('god') && typeLine.includes('creature')) {
+    // Check if this is a Theros-style god with devotion requirement
+    const devotionMatch = oracleText.match(/devotion to (\w+)(?:\s+and\s+(\w+))? is less than (\d+)/i);
+    if (devotionMatch) {
+      const color1 = devotionMatch[1].toLowerCase();
+      const color2 = devotionMatch[2]?.toLowerCase();
+      const threshold = parseInt(devotionMatch[3], 10);
+      
+      // Calculate devotion from permanents in the same context
+      // If we have access to battlefield through permanent.battlefield or similar
+      const playerPerms = permanent.controllerBattlefield || [];
+      let devotion = 0;
+      
+      // Map color words to mana symbols
+      const colorToSymbol: Record<string, string> = {
+        'white': 'W', 'blue': 'U', 'black': 'B', 'red': 'R', 'green': 'G'
+      };
+      const symbol1 = colorToSymbol[color1] || color1.charAt(0).toUpperCase();
+      const symbol2 = color2 ? (colorToSymbol[color2] || color2.charAt(0).toUpperCase()) : null;
+      
+      for (const perm of playerPerms) {
+        const manaCost = perm.card?.mana_cost || '';
+        // Count occurrences of the color symbol(s)
+        const regex1 = new RegExp(`\\{${symbol1}\\}`, 'gi');
+        const matches1 = manaCost.match(regex1);
+        if (matches1) devotion += matches1.length;
+        
+        if (symbol2) {
+          const regex2 = new RegExp(`\\{${symbol2}\\}`, 'gi');
+          const matches2 = manaCost.match(regex2);
+          if (matches2) devotion += matches2.length;
+        }
+        
+        // Also check hybrid mana symbols
+        const hybridRegex = /\{([WUBRG])\/([WUBRG])\}/gi;
+        let hybridMatch;
+        while ((hybridMatch = hybridRegex.exec(manaCost)) !== null) {
+          if (hybridMatch[1] === symbol1 || hybridMatch[2] === symbol1) devotion++;
+          if (symbol2 && (hybridMatch[1] === symbol2 || hybridMatch[2] === symbol2)) devotion++;
+        }
+      }
+      
+      // Check if there's a stored devotion value on the permanent (from game state)
+      if (permanent.calculatedDevotion !== undefined) {
+        devotion = permanent.calculatedDevotion;
+      }
+      
+      // Check the notCreature flag set by game state
+      if (permanent.notCreature === true) {
+        return false;
+      }
+      
+      // If devotion is less than threshold, it's not a creature
+      if (devotion < threshold) {
+        return false;
+      }
+      // Devotion met - it IS a creature
+      return true;
+    }
+  }
+  
   // Check if the base type line includes creature
   if (typeLine.includes('creature')) {
     return true;
@@ -195,6 +259,192 @@ interface CombatControlEffect {
  */
 function getCombatControl(game: any): CombatControlEffect | undefined {
   return game?.state?.combat?.combatControl as CombatControlEffect | undefined;
+}
+
+/**
+ * Check if a permanent effectively has a specific ability.
+ * This considers:
+ * - Base oracle text keywords
+ * - Keywords array from card data
+ * - Granted abilities from effects (grantedAbilities array)
+ * - Removed abilities from effects (removedAbilities array)
+ * - "As though" effects from other permanents
+ * 
+ * @param permanent - The permanent to check
+ * @param ability - The ability to check for (lowercase, e.g., 'flying', 'reach', 'defender')
+ * @param battlefield - All permanents on the battlefield (for checking global effects)
+ * @param controllerId - The controller's player ID (for checking "you control" effects)
+ * @returns Object with hasAbility flag and whether it's granted/removed
+ */
+function hasEffectiveAbility(
+  permanent: any,
+  ability: string,
+  battlefield: any[] = [],
+  controllerId?: string
+): { hasAbility: boolean; isGranted: boolean; isRemoved: boolean; asThough: boolean } {
+  const lowerAbility = ability.toLowerCase();
+  const oracleText = (permanent?.card?.oracle_text || '').toLowerCase();
+  const rawKeywords = permanent?.card?.keywords;
+  const keywords = Array.isArray(rawKeywords) ? rawKeywords : [];
+  const grantedAbilities = Array.isArray(permanent?.grantedAbilities) ? permanent.grantedAbilities : [];
+  const removedAbilities = Array.isArray(permanent?.removedAbilities) ? permanent.removedAbilities : [];
+  
+  // Check if ability is explicitly removed
+  const isRemoved = removedAbilities.some((a: string) => a.toLowerCase() === lowerAbility);
+  
+  // Check if ability is in base keywords or oracle text
+  const hasInKeywords = keywords.some((k: string) => k.toLowerCase() === lowerAbility);
+  const hasInOracleText = oracleText.includes(lowerAbility);
+  const hasBaseAbility = hasInKeywords || hasInOracleText;
+  
+  // Check if ability is granted by effects
+  const isGranted = grantedAbilities.some((a: string) => a.toLowerCase() === lowerAbility);
+  
+  // Check for "as though it had [ability]" effects from other permanents
+  let asThough = false;
+  if (battlefield.length > 0) {
+    for (const perm of battlefield) {
+      if (!perm.card?.oracle_text) continue;
+      const permOracle = perm.card.oracle_text.toLowerCase();
+      const permController = perm.controller;
+      
+      // Pattern: "as though they had [ability]" or "as though it had [ability]"
+      // Examples: 
+      // - Bower Passage: "Creatures you control can't be blocked by creatures with flying."
+      // - Archetype of Courage: "Creatures you control have first strike. Creatures your opponents control lose first strike and can't have or gain first strike."
+      // - Behind the Scenes: "Creatures you control have skulk."
+      
+      // Check for "as though" granting this specific ability
+      const asThoughPattern = new RegExp(`as though (?:it|they) had ${lowerAbility}`, 'i');
+      if (asThoughPattern.test(permOracle)) {
+        // Check if this effect applies to this permanent
+        // Most "as though" effects are for "creatures you control"
+        if (permOracle.includes('you control') && permController === controllerId) {
+          asThough = true;
+        } else if (!permOracle.includes('you control') && !permOracle.includes('opponents control')) {
+          asThough = true; // Global effect
+        }
+      }
+      
+      // Also check for ability-granting effects: "[Type] creatures have [ability]"
+      const grantPattern = new RegExp(`creatures?\\s+(?:you\\s+control\\s+)?have\\s+${lowerAbility}`, 'i');
+      if (grantPattern.test(permOracle) && permController === controllerId) {
+        // This permanent grants the ability
+        // Check if our permanent matches the filter (simplified - assumes creature)
+        const permTypeLine = (permanent?.card?.type_line || '').toLowerCase();
+        if (permTypeLine.includes('creature')) {
+          asThough = true;
+        }
+      }
+    }
+  }
+  
+  // Final determination
+  if (isRemoved) {
+    // If explicitly removed, check if there's an "as though" override
+    return { hasAbility: asThough, isGranted: false, isRemoved: true, asThough };
+  }
+  
+  const hasAbility = hasBaseAbility || isGranted || asThough;
+  return { hasAbility, isGranted, isRemoved: false, asThough };
+}
+
+/**
+ * Check if a permanent can attack (checking for defender and "as though it didn't have defender" effects)
+ * 
+ * @param permanent - The permanent to check
+ * @param battlefield - All permanents on the battlefield
+ * @param controllerId - The controller's player ID
+ * @returns Object with canAttack flag and reason if blocked
+ */
+function canPermanentAttack(
+  permanent: any,
+  battlefield: any[] = [],
+  controllerId?: string
+): { canAttack: boolean; reason?: string } {
+  // Check for defender
+  const defenderCheck = hasEffectiveAbility(permanent, 'defender', battlefield, controllerId);
+  
+  if (defenderCheck.hasAbility) {
+    // Check if there's an "as though it didn't have defender" effect
+    let canAttackDespiteDefender = false;
+    
+    // Check grantedAbilities for "can attack as though it didn't have defender"
+    const grantedAbilities = Array.isArray(permanent?.grantedAbilities) ? permanent.grantedAbilities : [];
+    if (grantedAbilities.some((a: string) => a.toLowerCase().includes('can attack'))) {
+      canAttackDespiteDefender = true;
+    }
+    
+    // Check for Assault Formation-style effects on battlefield
+    for (const perm of battlefield) {
+      if (!perm.card?.oracle_text) continue;
+      const permOracle = perm.card.oracle_text.toLowerCase();
+      const permController = perm.controller;
+      
+      // Pattern: "creatures you control can attack as though they didn't have defender"
+      // Assault Formation: "Each creature you control assigns combat damage equal to its toughness rather than its power."
+      // and has activated ability for "Creatures you control can attack as though they didn't have defender"
+      if (permOracle.includes("as though they didn't have defender") ||
+          permOracle.includes("as though it didn't have defender")) {
+        if (permOracle.includes('you control') && permController === controllerId) {
+          canAttackDespiteDefender = true;
+          break;
+        }
+      }
+    }
+    
+    if (!canAttackDespiteDefender) {
+      return { canAttack: false, reason: 'Has defender' };
+    }
+  }
+  
+  return { canAttack: true };
+}
+
+/**
+ * Check if a blocker can block a specific attacker considering evasion and "as though" effects
+ * 
+ * @param blocker - The potential blocking permanent
+ * @param attacker - The attacking permanent
+ * @param battlefield - All permanents on the battlefield
+ * @returns Object with canBlock flag and reason if blocked
+ */
+function canBlockAttacker(
+  blocker: any,
+  attacker: any,
+  battlefield: any[] = [],
+  blockerControllerId?: string
+): { canBlock: boolean; reason?: string } {
+  // Check flying - can only be blocked by flying or reach
+  const attackerFlying = hasEffectiveAbility(attacker, 'flying', battlefield, attacker.controller);
+  if (attackerFlying.hasAbility) {
+    const blockerFlying = hasEffectiveAbility(blocker, 'flying', battlefield, blockerControllerId);
+    const blockerReach = hasEffectiveAbility(blocker, 'reach', battlefield, blockerControllerId);
+    if (!blockerFlying.hasAbility && !blockerReach.hasAbility) {
+      return { canBlock: false, reason: 'Attacker has flying' };
+    }
+  }
+  
+  // Check shadow - shadow can only be blocked by shadow
+  const attackerShadow = hasEffectiveAbility(attacker, 'shadow', battlefield, attacker.controller);
+  const blockerShadow = hasEffectiveAbility(blocker, 'shadow', battlefield, blockerControllerId);
+  if (attackerShadow.hasAbility && !blockerShadow.hasAbility) {
+    return { canBlock: false, reason: 'Attacker has shadow' };
+  }
+  if (blockerShadow.hasAbility && !attackerShadow.hasAbility) {
+    return { canBlock: false, reason: 'Blocker has shadow and can only block shadow' };
+  }
+  
+  // Check horsemanship
+  const attackerHorsemanship = hasEffectiveAbility(attacker, 'horsemanship', battlefield, attacker.controller);
+  if (attackerHorsemanship.hasAbility) {
+    const blockerHorsemanship = hasEffectiveAbility(blocker, 'horsemanship', battlefield, blockerControllerId);
+    if (!blockerHorsemanship.hasAbility) {
+      return { canBlock: false, reason: 'Attacker has horsemanship' };
+    }
+  }
+  
+  return { canBlock: true };
 }
 
 /**
@@ -287,6 +537,16 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
           socket.emit("error", {
             code: "NOT_A_CREATURE",
             message: `${(creature as any).card?.name || "This permanent"} is not a creature and cannot attack`,
+          });
+          return;
+        }
+
+        // Check for defender and "as though it didn't have defender" effects (Rule 508.1c)
+        const canAttackCheck = canPermanentAttack(creature, battlefield, playerId);
+        if (!canAttackCheck.canAttack) {
+          socket.emit("error", {
+            code: "CANT_ATTACK",
+            message: `${(creature as any).card?.name || "Creature"} can't attack (${canAttackCheck.reason})`,
           });
           return;
         }
@@ -574,64 +834,21 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
           return;
         }
 
-        // Check evasion abilities (flying, shadow, horsemanship, fear, intimidate, skulk)
+        // Use the comprehensive evasion check that considers granted abilities and "as though" effects
+        const blockCheck = canBlockAttacker(blockerCreature, attackerCreature, battlefield, playerId);
+        if (!blockCheck.canBlock) {
+          socket.emit("error", {
+            code: "CANT_BLOCK",
+            message: `${(blockerCreature as any).card?.name} can't block ${(attackerCreature as any).card?.name} (${blockCheck.reason})`,
+          });
+          return;
+        }
+
+        // Additional evasion checks not covered by canBlockAttacker (fear, intimidate, skulk, menace)
         const attackerText = ((attackerCreature as any).card?.oracle_text || "").toLowerCase();
         const blockerText = ((blockerCreature as any).card?.oracle_text || "").toLowerCase();
         const attackerKeywords = (attackerCreature as any).card?.keywords || [];
         const blockerKeywords = (blockerCreature as any).card?.keywords || [];
-        
-        // Flying: can only be blocked by flying or reach
-        const attackerHasFlying = attackerText.includes("flying") || 
-          attackerKeywords.some((k: string) => k.toLowerCase() === 'flying');
-        if (attackerHasFlying) {
-          const blockerHasFlying = blockerText.includes("flying") || 
-            blockerKeywords.some((k: string) => k.toLowerCase() === 'flying');
-          const blockerHasReach = blockerText.includes("reach") ||
-            blockerKeywords.some((k: string) => k.toLowerCase() === 'reach');
-          if (!blockerHasFlying && !blockerHasReach) {
-            socket.emit("error", {
-              code: "CANT_BLOCK_FLYING",
-              message: `${(blockerCreature as any).card?.name} can't block ${(attackerCreature as any).card?.name} (flying)`,
-            });
-            return;
-          }
-        }
-        
-        // Shadow: can only be blocked by shadow, and shadow creatures can only block shadow
-        const attackerHasShadow = attackerText.includes("shadow") || 
-          attackerKeywords.some((k: string) => k.toLowerCase() === 'shadow');
-        const blockerHasShadow = blockerText.includes("shadow") || 
-          blockerKeywords.some((k: string) => k.toLowerCase() === 'shadow');
-        if (attackerHasShadow && !blockerHasShadow) {
-          socket.emit("error", {
-            code: "CANT_BLOCK_SHADOW",
-            message: `${(blockerCreature as any).card?.name} can't block ${(attackerCreature as any).card?.name} (shadow)`,
-          });
-          return;
-        }
-        // Shadow creatures can only block shadow creatures (Rule 702.28a)
-        if (blockerHasShadow && !attackerHasShadow) {
-          socket.emit("error", {
-            code: "SHADOW_CANT_BLOCK_NON_SHADOW",
-            message: `${(blockerCreature as any).card?.name} has shadow and can only block creatures with shadow`,
-          });
-          return;
-        }
-        
-        // Horsemanship: can only be blocked by horsemanship
-        const attackerHasHorsemanship = attackerText.includes("horsemanship") || 
-          attackerKeywords.some((k: string) => k.toLowerCase() === 'horsemanship');
-        if (attackerHasHorsemanship) {
-          const blockerHasHorsemanship = blockerText.includes("horsemanship") || 
-            blockerKeywords.some((k: string) => k.toLowerCase() === 'horsemanship');
-          if (!blockerHasHorsemanship) {
-            socket.emit("error", {
-              code: "CANT_BLOCK_HORSEMANSHIP",
-              message: `${(blockerCreature as any).card?.name} can't block ${(attackerCreature as any).card?.name} (horsemanship)`,
-            });
-            return;
-          }
-        }
         
         // Fear: can only be blocked by artifact creatures or black creatures
         const attackerHasFear = attackerText.includes("fear") || 

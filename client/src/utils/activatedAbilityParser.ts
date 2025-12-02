@@ -40,6 +40,10 @@ export interface ParsedActivatedAbility {
   isLoyaltyAbility: boolean;
   isFetchAbility: boolean;
   isMillAbility?: boolean;  // Mill abilities (target player mills cards)
+  isCrewAbility?: boolean;  // Crew abilities for vehicles
+  isStationAbility?: boolean;  // Station abilities for spacecraft
+  crewPower?: number;  // Power required to crew
+  stationThreshold?: number;  // Charge counters needed to become creature
   // Activation restrictions
   timingRestriction?: 'sorcery' | 'instant';
   oncePerTurn?: boolean;
@@ -695,6 +699,56 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
         timingRestriction: 'sorcery',
         requiresTarget: true,
         targetDescription: 'creature you control',
+      });
+    }
+  }
+  
+  // ======== CREW ABILITIES (Vehicles) ========
+  // Crew N: Tap any number of creatures you control with total power N or more
+  if (typeLine.includes('vehicle')) {
+    const crewMatch = oracleText.match(/crew\s*(\d+)/i);
+    if (crewMatch) {
+      const crewPower = parseInt(crewMatch[1], 10);
+      abilities.push({
+        id: `${card.id}-crew-${abilityIndex++}`,
+        label: `Crew ${crewPower}`,
+        description: `Tap creatures with total power ${crewPower}+ to make this a creature`,
+        cost: '',
+        effect: `This Vehicle becomes an artifact creature until end of turn`,
+        requiresTap: false,
+        requiresUntap: false,
+        requiresSacrifice: false,
+        isManaAbility: false,
+        isLoyaltyAbility: false,
+        isFetchAbility: false,
+        isCrewAbility: true,
+        crewPower,
+        timingRestriction: undefined, // Can crew at instant speed
+      });
+    }
+  }
+  
+  // ======== STATION ABILITIES (Spacecraft) ========
+  // Station N: Put N charge counters on this, becomes creature when threshold met
+  if (typeLine.includes('spacecraft') || lowerOracle.includes('station')) {
+    const stationMatch = oracleText.match(/station\s*(\d+)/i);
+    if (stationMatch) {
+      const stationThreshold = parseInt(stationMatch[1], 10);
+      abilities.push({
+        id: `${card.id}-station-${abilityIndex++}`,
+        label: `Station ${stationThreshold}`,
+        description: `Add charge counters. Becomes creature at ${stationThreshold} counters`,
+        cost: '',
+        effect: `Put a charge counter on this. When it has ${stationThreshold}+ counters, it becomes a creature`,
+        requiresTap: false,
+        requiresUntap: false,
+        requiresSacrifice: false,
+        isManaAbility: false,
+        isLoyaltyAbility: false,
+        isFetchAbility: false,
+        isStationAbility: true,
+        stationThreshold,
+        timingRestriction: undefined, // Can use station at instant speed
       });
     }
   }

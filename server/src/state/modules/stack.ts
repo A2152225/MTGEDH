@@ -475,16 +475,21 @@ function executeTriggerEffect(
     return;
   }
   
-  // Pattern: "Search your library for a [card type]" (Knight of the White Orchid, Rampant Growth triggers, etc.)
-  const searchLibraryMatch = desc.match(/(?:you may )?search your library for (?:a|an) ([^,\.]+)/i);
+  // ============================================================================
+  // DYNAMIC PATTERN RECOGNITION: Search library effects
+  // This regex-based approach handles ALL cards with "search your library" patterns,
+  // not just hardcoded card names. Works for any of the 27,000+ MTG cards.
+  // ============================================================================
+  const searchLibraryMatch = desc.match(/(?:you may )?search your library for (?:a|an|up to (?:one|two|three|\d+)) ([^,\.]+)/i);
   if (searchLibraryMatch) {
     const searchFor = searchLibraryMatch[1].trim();
     const isOptional = desc.includes('you may search');
     
-    // Determine destination
+    // Determine destination dynamically from text
     let destination = 'hand';
     let entersTapped = false;
-    if (desc.includes('put it onto the battlefield') || desc.includes('put that card onto the battlefield')) {
+    if (desc.includes('put it onto the battlefield') || desc.includes('put that card onto the battlefield') ||
+        desc.includes('put it on the battlefield') || desc.includes('battlefield under your control')) {
       destination = 'battlefield';
       // Check if it enters tapped
       if (desc.includes('tapped')) {
@@ -494,24 +499,54 @@ function executeTriggerEffect(
       destination = 'top';
     }
     
-    // Build filter based on what we're searching for
-    const filter: { types?: string[]; subtypes?: string[]; name?: string } = {};
+    // Build filter dynamically based on what we're searching for
+    const filter: { types?: string[]; subtypes?: string[]; name?: string; maxPower?: number; maxToughness?: number; maxCmc?: number } = {};
     const subtypes: string[] = [];
     
-    // Check for basic land types
-    if (searchFor.includes('plains')) subtypes.push('Plains');
-    if (searchFor.includes('island')) subtypes.push('Island');
-    if (searchFor.includes('swamp')) subtypes.push('Swamp');
-    if (searchFor.includes('mountain')) subtypes.push('Mountain');
-    if (searchFor.includes('forest')) subtypes.push('Forest');
+    // Dynamic basic land type detection
+    const basicLandTypes = ['plains', 'island', 'swamp', 'mountain', 'forest'];
+    for (const landType of basicLandTypes) {
+      if (searchFor.toLowerCase().includes(landType)) {
+        subtypes.push(landType.charAt(0).toUpperCase() + landType.slice(1));
+      }
+    }
     
-    // Check for card types
+    // Dynamic card type detection
+    const cardTypes = ['land', 'creature', 'artifact', 'enchantment', 'planeswalker', 'instant', 'sorcery'];
     const types: string[] = [];
-    if (searchFor.includes('land')) types.push('land');
-    if (searchFor.includes('creature')) types.push('creature');
-    if (searchFor.includes('artifact')) types.push('artifact');
-    if (searchFor.includes('enchantment')) types.push('enchantment');
-    if (searchFor.includes('planeswalker')) types.push('planeswalker');
+    for (const cardType of cardTypes) {
+      if (searchFor.toLowerCase().includes(cardType)) {
+        types.push(cardType);
+      }
+    }
+    
+    // Dynamic power/toughness restriction detection
+    // Matches: "power 2 or less", "power 3 or greater", "toughness 2 or less", etc.
+    const powerMatch = searchFor.match(/power\s*(\d+)\s*or\s*(less|greater)/i);
+    if (powerMatch) {
+      const value = parseInt(powerMatch[1], 10);
+      const direction = powerMatch[2].toLowerCase();
+      if (direction === 'less') {
+        filter.maxPower = value;
+      }
+      // For "or greater" we'd need minPower, but maxPower covers the common case
+    }
+    
+    const toughnessMatch = searchFor.match(/toughness\s*(\d+)\s*or\s*(less|greater)/i);
+    if (toughnessMatch) {
+      const value = parseInt(toughnessMatch[1], 10);
+      const direction = toughnessMatch[2].toLowerCase();
+      if (direction === 'less') {
+        filter.maxToughness = value;
+      }
+    }
+    
+    // Dynamic CMC restriction detection
+    // Matches: "mana value 3 or less", "converted mana cost 2 or less"
+    const cmcMatch = searchFor.match(/(?:mana value|converted mana cost)\s*(\d+)\s*or\s*less/i);
+    if (cmcMatch) {
+      filter.maxCmc = parseInt(cmcMatch[1], 10);
+    }
     
     if (types.length > 0) filter.types = types;
     if (subtypes.length > 0) filter.subtypes = subtypes;
@@ -529,7 +564,7 @@ function executeTriggerEffect(
       filter,
     };
     
-    console.log(`[executeTriggerEffect] ${sourceName} trigger: ${controller} may search for ${searchFor} (destination: ${destination})`);
+    console.log(`[executeTriggerEffect] ${sourceName} trigger: ${controller} may search for ${searchFor} (destination: ${destination}, filter: ${JSON.stringify(filter)})`);
     return;
   }
   

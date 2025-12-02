@@ -21,6 +21,7 @@ import { CombatSelectionModal, type AttackerSelection, type BlockerSelection } f
 import { ShockLandChoiceModal } from "./components/ShockLandChoiceModal";
 import { BounceLandChoiceModal } from "./components/BounceLandChoiceModal";
 import { SacrificeUnlessPayModal } from "./components/SacrificeUnlessPayModal";
+import { CardSelectionModal } from "./components/CardSelectionModal";
 import { TriggeredAbilityModal, type TriggerPromptData } from "./components/TriggeredAbilityModal";
 import { MulliganBottomModal } from "./components/MulliganBottomModal";
 import { DiscardSelectionModal } from "./components/DiscardSelectionModal";
@@ -271,6 +272,36 @@ export function App() {
     imageUrl?: string;
   } | null>(null);
   
+  // Reveal land modal state (Furycalm Snarl, etc.)
+  const [revealLandModalOpen, setRevealLandModalOpen] = useState(false);
+  const [revealLandData, setRevealLandData] = useState<{
+    permanentId: string;
+    cardName: string;
+    imageUrl?: string;
+    revealTypes: string[];
+    message: string;
+  } | null>(null);
+
+  // Equip target selection modal state
+  const [equipTargetModalOpen, setEquipTargetModalOpen] = useState(false);
+  const [equipTargetData, setEquipTargetData] = useState<{
+    equipmentId: string;
+    equipmentName: string;
+    equipCost: string;
+    imageUrl?: string;
+    validTargets: { id: string; name: string; power: string; toughness: string; imageUrl?: string }[];
+  } | null>(null);
+
+  // Crew selection modal state (for Vehicles)
+  const [crewModalOpen, setCrewModalOpen] = useState(false);
+  const [crewData, setCrewData] = useState<{
+    vehicleId: string;
+    vehicleName: string;
+    crewPower: number;
+    imageUrl?: string;
+    validCrewers: { id: string; name: string; power: number; toughness: string; imageUrl?: string }[];
+  } | null>(null);
+  
   // Triggered ability modal state
   const [triggerModalOpen, setTriggerModalOpen] = useState(false);
   const [pendingTriggers, setPendingTriggers] = useState<TriggerPromptData[]>([]);
@@ -291,6 +322,15 @@ export function App() {
   const [discardModalOpen, setDiscardModalOpen] = useState(false);
   const [discardCount, setDiscardCount] = useState(0);
   const [discardMaxHandSize, setDiscardMaxHandSize] = useState(7);
+  
+  // Game over notification state
+  const [gameOverModalOpen, setGameOverModalOpen] = useState(false);
+  const [gameOverData, setGameOverData] = useState<{
+    type: 'victory' | 'defeat' | 'eliminated' | 'draw';
+    message: string;
+    winnerId?: string;
+    winnerName?: string;
+  } | null>(null);
   
   // Opening hand actions modal state (Leylines)
   const [openingHandActionsModalOpen, setOpeningHandActionsModalOpen] = useState(false);
@@ -797,6 +837,66 @@ export function App() {
     };
   }, [safeView?.id]);
 
+  // Reveal land prompt listener (Furycalm Snarl, etc.)
+  React.useEffect(() => {
+    const handler = (payload: any) => {
+      if (payload.gameId === safeView?.id) {
+        setRevealLandData({
+          permanentId: payload.permanentId,
+          cardName: payload.cardName,
+          imageUrl: payload.imageUrl,
+          revealTypes: payload.revealTypes || [],
+          message: payload.message || 'Reveal a card to enter untapped',
+        });
+        setRevealLandModalOpen(true);
+      }
+    };
+    socket.on("revealLandPrompt", handler);
+    return () => {
+      socket.off("revealLandPrompt", handler);
+    };
+  }, [safeView?.id]);
+
+  // Equip target selection listener
+  React.useEffect(() => {
+    const handler = (payload: any) => {
+      if (payload.gameId === safeView?.id) {
+        setEquipTargetData({
+          equipmentId: payload.equipmentId,
+          equipmentName: payload.equipmentName,
+          equipCost: payload.equipCost,
+          imageUrl: payload.imageUrl,
+          validTargets: payload.validTargets || [],
+        });
+        setEquipTargetModalOpen(true);
+      }
+    };
+    socket.on("selectEquipTarget", handler);
+    return () => {
+      socket.off("selectEquipTarget", handler);
+    };
+  }, [safeView?.id]);
+
+  // Crew selection prompt listener (for Vehicles)
+  React.useEffect(() => {
+    const handler = (payload: any) => {
+      if (payload.gameId === safeView?.id) {
+        setCrewData({
+          vehicleId: payload.vehicleId,
+          vehicleName: payload.vehicleName,
+          crewPower: payload.crewPower,
+          imageUrl: payload.imageUrl,
+          validCrewers: payload.validCrewers || [],
+        });
+        setCrewModalOpen(true);
+      }
+    };
+    socket.on("selectCrewCreatures", handler);
+    return () => {
+      socket.off("selectCrewCreatures", handler);
+    };
+  }, [safeView?.id]);
+
   // Mulligan bottom selection prompt listener (London Mulligan)
   React.useEffect(() => {
     const handler = (payload: any) => {
@@ -1264,6 +1364,86 @@ export function App() {
       socket.off("surveilPeek", handleSurveilPeek);
     };
   }, [safeView?.id]);
+
+  // Game over notification listener
+  useEffect(() => {
+    const handleGameOver = (data: { 
+      gameId: string; 
+      type: 'victory' | 'defeat' | 'eliminated' | 'draw';
+      winnerId?: string;
+      winnerName?: string;
+      loserId?: string;
+      loserName?: string;
+      message?: string;
+    }) => {
+      if (!safeView || data.gameId !== safeView.id) return;
+      
+      let notificationType: 'victory' | 'defeat' | 'eliminated' | 'draw' = data.type;
+      let message = data.message || '';
+      
+      // Determine notification type based on who we are
+      if (data.type === 'victory' && data.winnerId === you) {
+        notificationType = 'victory';
+        message = message || "You've Won!";
+      } else if (data.type === 'defeat' && data.loserId === you) {
+        notificationType = 'defeat';
+        message = message || "Defeated";
+      } else if (data.type === 'eliminated' && data.loserId === you) {
+        notificationType = 'eliminated';
+        message = message || "Eliminated";
+      } else if (data.type === 'draw') {
+        notificationType = 'draw';
+        message = message || "Draw!";
+      } else if (data.winnerId && data.winnerId !== you) {
+        // Someone else won
+        notificationType = 'defeat';
+        message = `${data.winnerName || 'Opponent'} has won the game`;
+      }
+      
+      setGameOverData({
+        type: notificationType,
+        message,
+        winnerId: data.winnerId,
+        winnerName: data.winnerName,
+      });
+      setGameOverModalOpen(true);
+      
+      // Auto-close after 3 seconds
+      setTimeout(() => {
+        setGameOverModalOpen(false);
+        setGameOverData(null);
+      }, 3000);
+    };
+
+    const handlePlayerEliminated = (data: { 
+      gameId: string; 
+      playerId: string;
+      playerName: string;
+      reason?: string;
+    }) => {
+      if (!safeView || data.gameId !== safeView.id) return;
+      
+      if (data.playerId === you) {
+        setGameOverData({
+          type: 'eliminated',
+          message: 'Eliminated',
+        });
+        setGameOverModalOpen(true);
+        
+        setTimeout(() => {
+          setGameOverModalOpen(false);
+          setGameOverData(null);
+        }, 3000);
+      }
+    };
+
+    socket.on("gameOver", handleGameOver);
+    socket.on("playerEliminated", handlePlayerEliminated);
+    return () => {
+      socket.off("gameOver", handleGameOver);
+      socket.off("playerEliminated", handlePlayerEliminated);
+    };
+  }, [safeView?.id, you]);
 
   const isTable = layout === "table";
   const canPass = !!safeView && !!you && safeView.priority === you;
@@ -1960,6 +2140,46 @@ export function App() {
     });
     setSacrificeUnlessPayModalOpen(false);
     setSacrificeUnlessPayData(null);
+  };
+
+  // Reveal land handlers (Furycalm Snarl, etc.)
+  const handleRevealLand = (cardId: string | null) => {
+    if (!safeView || !revealLandData) return;
+    socket.emit("revealLandChoice", {
+      gameId: safeView.id,
+      permanentId: revealLandData.permanentId,
+      revealCardId: cardId,
+    });
+    setRevealLandModalOpen(false);
+    setRevealLandData(null);
+  };
+
+  // Equip target handlers
+  const handleEquipTarget = (targetId: string | null) => {
+    if (!safeView || !equipTargetData) return;
+    if (targetId) {
+      socket.emit("equipAbility", {
+        gameId: safeView.id,
+        equipmentId: equipTargetData.equipmentId,
+        targetCreatureId: targetId,
+      });
+    }
+    setEquipTargetModalOpen(false);
+    setEquipTargetData(null);
+  };
+
+  // Crew selection handlers (for Vehicles)
+  const handleCrewConfirm = (selectedCreatureIds: string[]) => {
+    if (!safeView || !crewData) return;
+    if (selectedCreatureIds.length > 0) {
+      socket.emit("crewConfirm", {
+        gameId: safeView.id,
+        vehicleId: crewData.vehicleId,
+        creatureIds: selectedCreatureIds,
+      });
+    }
+    setCrewModalOpen(false);
+    setCrewData(null);
   };
 
   // Trigger handlers
@@ -3500,6 +3720,151 @@ export function App() {
         onPayMana={handleSacrificeUnlessPayMana}
         onSacrifice={handleSacrificeUnlessPaySacrifice}
       />
+
+      {/* Reveal Land Modal (Furycalm Snarl, etc.) */}
+      <CardSelectionModal
+        open={revealLandModalOpen}
+        title={`Reveal for ${revealLandData?.cardName || 'Land'}`}
+        subtitle={revealLandData?.message}
+        sourceCardName={revealLandData?.cardName}
+        sourceCardImageUrl={revealLandData?.imageUrl}
+        options={useMemo(() => {
+          if (!safeView || !you || !revealLandData) return [];
+          const zones = safeView.zones?.[you];
+          const hand = zones?.hand || [];
+          const revealTypes = revealLandData.revealTypes.map(t => t.toLowerCase());
+          return hand
+            .filter((c: any) => {
+              if (!c?.type_line) return false;
+              const typeLine = c.type_line.toLowerCase();
+              return revealTypes.some(t => typeLine.includes(t));
+            })
+            .map((c: any) => ({
+              id: c.id,
+              name: c.name || 'Card',
+              imageUrl: c.image_uris?.small || c.image_uris?.normal,
+            }));
+        }, [safeView, you, revealLandData])}
+        minSelections={0}
+        maxSelections={1}
+        canCancel={true}
+        confirmButtonText="Reveal"
+        cancelButtonText="Don't Reveal (Enter Tapped)"
+        onConfirm={(selectedIds) => handleRevealLand(selectedIds[0] || null)}
+        onCancel={() => handleRevealLand(null)}
+      />
+
+      {/* Equip Target Selection Modal */}
+      <CardSelectionModal
+        open={equipTargetModalOpen}
+        title={`Equip ${equipTargetData?.equipmentName || 'Equipment'}`}
+        subtitle={`Pay ${equipTargetData?.equipCost || '{0}'} to attach to target creature`}
+        sourceCardName={equipTargetData?.equipmentName}
+        sourceCardImageUrl={equipTargetData?.imageUrl}
+        options={(equipTargetData?.validTargets || []).map(t => ({
+          id: t.id,
+          name: `${t.name} (${t.power}/${t.toughness})`,
+          imageUrl: t.imageUrl,
+        }))}
+        minSelections={1}
+        maxSelections={1}
+        canCancel={true}
+        confirmButtonText="Equip"
+        cancelButtonText="Cancel"
+        onConfirm={(selectedIds) => handleEquipTarget(selectedIds[0])}
+        onCancel={() => handleEquipTarget(null)}
+      />
+
+      {/* Crew Selection Modal (for Vehicles) */}
+      <CardSelectionModal
+        open={crewModalOpen}
+        title={`Crew ${crewData?.vehicleName || 'Vehicle'}`}
+        subtitle={`Tap creatures with total power ${crewData?.crewPower || 0}+ to crew`}
+        sourceCardName={crewData?.vehicleName}
+        sourceCardImageUrl={crewData?.imageUrl}
+        options={useMemo(() => {
+          if (!crewData) return [];
+          const sorted = [...(crewData.validCrewers || [])].sort((a, b) => b.power - a.power);
+          return sorted.map(c => ({
+            id: c.id,
+            name: `${c.name} (Power: ${c.power})`,
+            imageUrl: c.imageUrl,
+            description: `Toughness: ${c.toughness}`,
+          }));
+        }, [crewData])}
+        minSelections={1}
+        maxSelections={crewData?.validCrewers?.length || 10}
+        canCancel={true}
+        confirmButtonText="Crew"
+        cancelButtonText="Cancel"
+        onConfirm={(selectedIds) => handleCrewConfirm(selectedIds)}
+        onCancel={() => { setCrewModalOpen(false); setCrewData(null); }}
+      />
+
+      {/* Game Over Overlay */}
+      {gameOverModalOpen && gameOverData && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+          }}
+        >
+          <div
+            style={{
+              textAlign: 'center',
+              color: gameOverData.type === 'victory' ? '#ffd700' : 
+                     gameOverData.type === 'draw' ? '#60a5fa' : '#ef4444',
+              transform: 'scale(1)',
+              opacity: 1,
+            }}
+          >
+            <div
+              style={{
+                fontSize: gameOverData.type === 'victory' ? '5rem' : '4rem',
+                fontWeight: 'bold',
+                textShadow: gameOverData.type === 'victory' 
+                  ? '0 0 30px rgba(255, 215, 0, 0.8), 0 0 60px rgba(255, 215, 0, 0.4)'
+                  : gameOverData.type === 'draw'
+                  ? '0 0 30px rgba(96, 165, 250, 0.8)'
+                  : '0 0 30px rgba(239, 68, 68, 0.8)',
+                marginBottom: '1rem',
+              }}
+            >
+              {gameOverData.type === 'victory' ? '🏆' : 
+               gameOverData.type === 'draw' ? '🤝' : '💀'}
+            </div>
+            <div
+              style={{
+                fontSize: '3rem',
+                fontWeight: 'bold',
+                letterSpacing: '0.1em',
+                textTransform: 'uppercase',
+              }}
+            >
+              {gameOverData.message}
+            </div>
+            {gameOverData.winnerName && gameOverData.type !== 'victory' && (
+              <div
+                style={{
+                  fontSize: '1.5rem',
+                  marginTop: '1rem',
+                  opacity: 0.8,
+                }}
+              >
+                Winner: {gameOverData.winnerName}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Triggered Ability Modal */}
       <TriggeredAbilityModal
