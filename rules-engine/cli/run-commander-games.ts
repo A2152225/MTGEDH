@@ -145,6 +145,28 @@ interface LoadedDeck {
   cards: CardData[];
 }
 
+/** Represents a combo or synergy identified in a deck */
+interface DeckCombo {
+  name: string;
+  cards: string[];  // Card names involved in the combo
+  description: string;
+  priority: number;  // Higher = more important to assemble
+  type: 'infinite' | 'value' | 'wincon' | 'ramp' | 'protection';
+}
+
+/** Analysis of a deck's strategy and combos */
+interface DeckAnalysis {
+  deckName: string;
+  primaryType: string;  // Primary creature type for tribal
+  combos: DeckCombo[];
+  keyCards: string[];   // Cards that should be prioritized
+  strategy: 'aggro' | 'combo' | 'control' | 'midrange' | 'tribal';
+  manaAccelerators: string[];
+  winConditions: string[];
+  tokenGenerators: string[];
+  lords: string[];  // Cards that buff creature types
+}
+
 interface EliminationRecord {
   playerId: number;
   playerName: string;
@@ -281,6 +303,7 @@ class CommanderGameSimulator {
   private maxTurns: number;
   private loadedDecks: LoadedDeck[] = [];
   private cardDatabase: Map<string, CardData> = new Map();
+  private deckAnalyses: Map<string, DeckAnalysis> = new Map();  // Deck name -> analysis
   
   constructor(
     seed?: number, 
@@ -342,6 +365,238 @@ class CommanderGameSimulator {
       console.warn(`Warning: Only ${this.loadedDecks.length} decks available, adjusting player count`);
       this.playerCount = this.loadedDecks.length;
     }
+    
+    // Analyze each deck for combos and synergies
+    this.analyzeAllDecks();
+  }
+
+  /**
+   * Analyze all loaded decks to identify combos, synergies, and key cards.
+   */
+  private analyzeAllDecks(): void {
+    console.log('\nAnalyzing deck strategies and combos...');
+    
+    for (const deck of this.loadedDecks) {
+      const analysis = this.analyzeDeck(deck);
+      this.deckAnalyses.set(deck.name, analysis);
+      
+      console.log(`  ${deck.name}:`);
+      console.log(`    Strategy: ${analysis.strategy}, Primary Type: ${analysis.primaryType}`);
+      console.log(`    Combos found: ${analysis.combos.length}`);
+      for (const combo of analysis.combos.slice(0, 3)) {
+        console.log(`      - ${combo.name}: ${combo.cards.join(' + ')}`);
+      }
+    }
+  }
+
+  /**
+   * Analyze a single deck for combos, synergies, and strategy.
+   */
+  private analyzeDeck(deck: LoadedDeck): DeckAnalysis {
+    const cardNames = deck.cards.map(c => c.name);
+    const combos: DeckCombo[] = [];
+    const keyCards: string[] = [];
+    const manaAccelerators: string[] = [];
+    const winConditions: string[] = [];
+    const tokenGenerators: string[] = [];
+    const lords: string[] = [];
+    
+    // Determine primary creature type
+    const typeCounts = new Map<string, number>();
+    const commonTypes = ['merfolk', 'goblin', 'elf', 'zombie', 'soldier', 'wizard', 
+                         'human', 'dragon', 'vampire', 'angel', 'demon', 'beast',
+                         'elemental', 'spirit', 'horror', 'sliver', 'cat', 'bird'];
+    
+    for (const card of deck.cards) {
+      const typeLine = card.type_line?.toLowerCase() || '';
+      const oracle = card.oracle_text?.toLowerCase() || '';
+      
+      // Count creature types
+      for (const type of commonTypes) {
+        if (typeLine.includes(type)) {
+          typeCounts.set(type, (typeCounts.get(type) || 0) + 1);
+        }
+      }
+      
+      // Identify mana accelerators
+      if (oracle.includes('add {') || oracle.includes('add one mana') || 
+          oracle.includes('add two mana') || oracle.includes('mana of any')) {
+        manaAccelerators.push(card.name);
+      }
+      
+      // Identify win conditions
+      if (oracle.includes('you win the game') || oracle.includes('loses the game') ||
+          oracle.includes('infinite') || card.name.includes('Lab Man')) {
+        winConditions.push(card.name);
+        keyCards.push(card.name);
+      }
+      
+      // Identify token generators
+      if (oracle.includes('create') && oracle.includes('token')) {
+        tokenGenerators.push(card.name);
+      }
+      
+      // Identify lords (cards that buff creature types)
+      if (oracle.includes('get +') && (oracle.includes('you control') || oracle.includes('other'))) {
+        lords.push(card.name);
+        keyCards.push(card.name);
+      }
+    }
+    
+    // Find primary creature type
+    let primaryType = 'creature';
+    let maxCount = 0;
+    for (const [type, count] of typeCounts) {
+      if (count > maxCount) {
+        maxCount = count;
+        primaryType = type.charAt(0).toUpperCase() + type.slice(1);
+      }
+    }
+    
+    // Detect specific combos based on card presence
+    this.detectCombos(deck, cardNames, combos, primaryType);
+    
+    // Determine strategy based on deck composition
+    let strategy: DeckAnalysis['strategy'] = 'midrange';
+    if (maxCount >= 15) {
+      strategy = 'tribal';
+    } else if (combos.some(c => c.type === 'infinite')) {
+      strategy = 'combo';
+    } else if (deck.cards.filter(c => c.type_line?.includes('Creature')).length > 35) {
+      strategy = 'aggro';
+    } else if (deck.cards.filter(c => 
+      c.oracle_text?.toLowerCase().includes('counter') || 
+      c.oracle_text?.toLowerCase().includes('destroy')
+    ).length > 15) {
+      strategy = 'control';
+    }
+    
+    return {
+      deckName: deck.name,
+      primaryType,
+      combos,
+      keyCards: [...new Set(keyCards)],
+      strategy,
+      manaAccelerators,
+      winConditions,
+      tokenGenerators,
+      lords,
+    };
+  }
+
+  /**
+   * Detect specific combos based on cards present in the deck.
+   */
+  private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[], primaryType: string): void {
+    const hasCard = (name: string) => cardNames.some(c => c.toLowerCase().includes(name.toLowerCase()));
+    const hasOracle = (text: string) => deck.cards.some(c => c.oracle_text?.toLowerCase().includes(text.toLowerCase()));
+    
+    // Merfolk combos
+    if (primaryType.toLowerCase() === 'merfolk') {
+      // Summon the School + Merrow Reejerey + 4 Merfolk = infinite tokens
+      if (hasCard('Summon the School') && hasCard('Merrow Reejerey')) {
+        combos.push({
+          name: 'Summon the School Loop',
+          cards: ['Summon the School', 'Merrow Reejerey', '4+ Merfolk'],
+          description: 'Cast Summon, untap lands with Reejerey, tap 4 Merfolk to return Summon, repeat',
+          priority: 10,
+          type: 'infinite'
+        });
+      }
+      
+      // Drowner of Secrets + many Merfolk = mill win
+      if (hasCard('Drowner of Secrets')) {
+        combos.push({
+          name: 'Merfolk Mill',
+          cards: ['Drowner of Secrets', 'Many Merfolk tokens'],
+          description: 'Tap Merfolk to mill opponents out',
+          priority: 8,
+          type: 'wincon'
+        });
+      }
+      
+      // Deeproot Waters + token doublers
+      if (hasCard('Deeproot Waters') && (hasCard('Parallel Lives') || hasCard('Anointed Procession') || hasCard('Adrix and Nev'))) {
+        combos.push({
+          name: 'Merfolk Token Flood',
+          cards: ['Deeproot Waters', 'Token Doubler', 'Merfolk spells'],
+          description: 'Each Merfolk spell creates multiple tokens',
+          priority: 7,
+          type: 'value'
+        });
+      }
+    }
+    
+    // Morophon + Jodah/Fist of Suns = free creatures
+    if (hasCard('Morophon') && (hasCard('Jodah') || hasCard('Fist of Suns'))) {
+      combos.push({
+        name: 'Free Tribal Creatures',
+        cards: ['Morophon, the Boundless', 'Jodah/Fist of Suns'],
+        description: `Cast ${primaryType} creatures for free`,
+        priority: 10,
+        type: 'value'
+      });
+    }
+    
+    // Kindred Discovery + creature spam = massive draw
+    if (hasCard('Kindred Discovery')) {
+      combos.push({
+        name: 'Kindred Discovery Engine',
+        cards: ['Kindred Discovery', `${primaryType} creatures`],
+        description: `Draw cards whenever ${primaryType} enter or attack`,
+        priority: 8,
+        type: 'value'
+      });
+    }
+    
+    // Token doublers + token generators
+    const tokenDoublers = ['Parallel Lives', 'Anointed Procession', 'Doubling Season', 'Adrix and Nev'];
+    const foundDoublers = tokenDoublers.filter(d => hasCard(d));
+    if (foundDoublers.length > 0 && hasOracle('create') && hasOracle('token')) {
+      combos.push({
+        name: 'Token Multiplication',
+        cards: [...foundDoublers, 'Token generators'],
+        description: 'Double or quadruple token production',
+        priority: 7,
+        type: 'value'
+      });
+    }
+    
+    // Ashnod's Altar + token generation = infinite mana potential
+    if (hasCard("Ashnod's Altar") && hasOracle('create') && hasOracle('token')) {
+      combos.push({
+        name: "Ashnod's Altar Engine",
+        cards: ["Ashnod's Altar", 'Token generators'],
+        description: 'Sacrifice tokens for mana, potentially infinite with recursion',
+        priority: 9,
+        type: 'infinite'
+      });
+    }
+    
+    // Roaming Throne doubles tribal triggers
+    if (hasCard('Roaming Throne')) {
+      combos.push({
+        name: 'Doubled Tribal Triggers',
+        cards: ['Roaming Throne', `${primaryType} creatures with triggers`],
+        description: `All ${primaryType} triggered abilities trigger twice`,
+        priority: 8,
+        type: 'value'
+      });
+    }
+    
+    // Reflections of Littjara copies spells
+    if (hasCard('Reflections of Littjara')) {
+      combos.push({
+        name: 'Spell Copying',
+        cards: ['Reflections of Littjara', `${primaryType} creature spells`],
+        description: `Copy every ${primaryType} creature spell`,
+        priority: 8,
+        type: 'value'
+      });
+    }
+    
+    // Sort combos by priority
+    combos.sort((a, b) => b.priority - a.priority);
   }
 
   shuffle<T>(array: T[]): T[] {
@@ -1502,6 +1757,10 @@ class CommanderGameSimulator {
   }
 
   simulateMainPhase(player: PlayerState, state: SimulatedGameState): void {
+    // Get deck analysis for this player
+    const deckName = player.name.match(/\(([^)]+)\)/)?.[1] || '';
+    const analysis = this.deckAnalyses.get(deckName);
+    
     // Play a land if possible
     const lands = player.hand.filter(c => this.isLand(c));
     if (lands.length > 0 && player.landsPlayedThisTurn < 1) {
@@ -1522,56 +1781,25 @@ class CommanderGameSimulator {
     // Tap lands for mana and track which lands were tapped
     const tappedLands = this.tapLandsForMana(player, state);
     
-    // Cast spells prioritizing by importance
+    // Cast spells prioritizing by importance, using deck analysis
     const castable = player.hand
       .filter(c => !this.isLand(c))
-      .filter(c => this.canPayMana(player, this.getCMC(c)))
-      .sort((a, b) => {
-        const aCard = this.getCard(a);
-        const bCard = this.getCard(b);
-        
-        // Win conditions first
-        const aOracle = aCard?.oracle_text?.toLowerCase() || '';
-        const bOracle = bCard?.oracle_text?.toLowerCase() || '';
-        if (aOracle.includes('you win the game')) return -1;
-        if (bOracle.includes('you win the game')) return 1;
-        
-        // Mana rocks/acceleration next
-        if (aOracle.includes('add {c}{c}') || aOracle.includes('add two mana')) return -1;
-        if (bOracle.includes('add {c}{c}') || bOracle.includes('add two mana')) return 1;
-        
-        // Then by CMC (cheaper first)
-        return this.getCMC(a) - this.getCMC(b);
-      });
+      .filter(c => this.canPayMana(player, this.getEffectiveCost(c, player)))
+      .sort((a, b) => this.compareSpellPriority(a, b, player, analysis));
     
     let spellsCast = 0;
     for (const spell of castable) {
       if (spellsCast >= 3) break;
       
-      // Determine reasoning for casting this spell
-      const cardData = this.getCard(spell);
-      const typeLine = cardData?.type_line || '';
-      let reasoning = '';
-      
-      if (cardData?.oracle_text?.toLowerCase().includes('add {c}{c}')) {
-        reasoning = 'Mana acceleration - provides additional mana for future turns';
-      } else if (cardData?.oracle_text?.toLowerCase().includes('you win the game')) {
-        reasoning = 'Win condition card';
-      } else if (typeLine.includes('Creature')) {
-        reasoning = `Creature for board presence (${cardData.power}/${cardData.toughness})`;
-      } else if (typeLine.includes('Enchantment')) {
-        reasoning = 'Enchantment for ongoing value';
-      } else if (typeLine.includes('Artifact')) {
-        reasoning = 'Artifact for utility';
-      } else {
-        const ORACLE_TEXT_PREVIEW_LENGTH = 50;
-        reasoning = `Cast for its effect: ${cardData?.oracle_text?.substring(0, ORACLE_TEXT_PREVIEW_LENGTH) || 'unknown'}...`;
-      }
+      // Determine reasoning for casting this spell using deck analysis
+      const reasoning = this.getSpellReasoning(spell, player, analysis);
       
       // Pass the list of tapped lands to castSpell for tracking
       if (this.castSpell(player, spell, state, tappedLands)) {
         spellsCast++;
         
+        const cardData = this.getCard(spell);
+        const typeLine = cardData?.type_line || '';
         const isPermanent = typeLine.toLowerCase().includes('creature') || 
                            typeLine.toLowerCase().includes('artifact') || 
                            typeLine.toLowerCase().includes('enchantment') || 
@@ -1596,6 +1824,139 @@ class CommanderGameSimulator {
         this.log(`  Result: ${result}`);
       }
     }
+  }
+
+  /**
+   * Compare two spells for casting priority based on deck analysis.
+   */
+  private compareSpellPriority(a: string, b: string, player: PlayerState, analysis?: DeckAnalysis): number {
+    const aCard = this.getCard(a);
+    const bCard = this.getCard(b);
+    const aOracle = aCard?.oracle_text?.toLowerCase() || '';
+    const bOracle = bCard?.oracle_text?.toLowerCase() || '';
+    
+    // Win conditions always first
+    if (aOracle.includes('you win the game')) return -1;
+    if (bOracle.includes('you win the game')) return 1;
+    
+    if (analysis) {
+      // Check if cards are part of combos
+      const aInCombo = analysis.combos.some(c => c.cards.some(cc => a.toLowerCase().includes(cc.toLowerCase()) || cc.toLowerCase().includes(a.toLowerCase())));
+      const bInCombo = analysis.combos.some(c => c.cards.some(cc => b.toLowerCase().includes(cc.toLowerCase()) || cc.toLowerCase().includes(b.toLowerCase())));
+      
+      // Check if cards are key cards
+      const aIsKey = analysis.keyCards.includes(a);
+      const bIsKey = analysis.keyCards.includes(b);
+      
+      // Prioritize combo pieces and key cards
+      if (aInCombo && !bInCombo) return -1;
+      if (bInCombo && !aInCombo) return 1;
+      if (aIsKey && !bIsKey) return -1;
+      if (bIsKey && !aIsKey) return 1;
+      
+      // For tribal decks, prioritize lords early
+      if (analysis.strategy === 'tribal') {
+        const aIsLord = analysis.lords.includes(a);
+        const bIsLord = analysis.lords.includes(b);
+        if (aIsLord && !bIsLord) return -1;
+        if (bIsLord && !aIsLord) return 1;
+        
+        // Prioritize creatures of the primary type
+        const aMatchesType = this.matchesCreatureType(a, analysis.primaryType);
+        const bMatchesType = this.matchesCreatureType(b, analysis.primaryType);
+        if (aMatchesType && !bMatchesType) return -1;
+        if (bMatchesType && !aMatchesType) return 1;
+      }
+      
+      // Prioritize mana accelerators early game
+      const totalMana = this.countLandsOnBattlefield(player);
+      if (totalMana < 5) {
+        const aIsMana = analysis.manaAccelerators.includes(a);
+        const bIsMana = analysis.manaAccelerators.includes(b);
+        if (aIsMana && !bIsMana) return -1;
+        if (bIsMana && !aIsMana) return 1;
+      }
+      
+      // Prioritize token generators if we have doublers
+      const hasDoublers = player.battlefield.some(p => {
+        const o = this.getCard(p.card)?.oracle_text?.toLowerCase() || '';
+        return o.includes('twice that many') || o.includes('double');
+      });
+      if (hasDoublers) {
+        const aIsTokenGen = analysis.tokenGenerators.includes(a);
+        const bIsTokenGen = analysis.tokenGenerators.includes(b);
+        if (aIsTokenGen && !bIsTokenGen) return -1;
+        if (bIsTokenGen && !aIsTokenGen) return 1;
+      }
+    }
+    
+    // Mana rocks/acceleration next
+    if (aOracle.includes('add {c}{c}') || aOracle.includes('add two mana')) return -1;
+    if (bOracle.includes('add {c}{c}') || bOracle.includes('add two mana')) return 1;
+    
+    // Then by effective cost (cheaper first, considering reductions)
+    return this.getEffectiveCost(a, player) - this.getEffectiveCost(b, player);
+  }
+
+  /**
+   * Get reasoning for why we're casting a spell based on deck analysis.
+   */
+  private getSpellReasoning(spell: string, player: PlayerState, analysis?: DeckAnalysis): string {
+    const cardData = this.getCard(spell);
+    const typeLine = cardData?.type_line || '';
+    const oracle = cardData?.oracle_text?.toLowerCase() || '';
+    
+    if (analysis) {
+      // Check if part of a combo
+      for (const combo of analysis.combos) {
+        if (combo.cards.some(c => spell.toLowerCase().includes(c.toLowerCase()) || c.toLowerCase().includes(spell.toLowerCase()))) {
+          return `Combo piece for "${combo.name}": ${combo.description}`;
+        }
+      }
+      
+      // Check if it's a key card
+      if (analysis.keyCards.includes(spell)) {
+        return `Key card for ${analysis.strategy} strategy`;
+      }
+      
+      // Check if it's a lord
+      if (analysis.lords.includes(spell)) {
+        return `Lord - buffs ${analysis.primaryType} creatures`;
+      }
+      
+      // Check if it matches tribal type
+      if (this.matchesCreatureType(spell, analysis.primaryType)) {
+        const effectiveCost = this.getEffectiveCost(spell, player);
+        const baseCost = this.getCMC(spell);
+        if (effectiveCost < baseCost) {
+          return `${analysis.primaryType} creature with cost reduction (${baseCost} → ${effectiveCost})`;
+        }
+        return `${analysis.primaryType} creature for tribal synergy`;
+      }
+    }
+    
+    // Fallback to basic reasoning
+    if (oracle.includes('add {c}{c}') || oracle.includes('add two mana')) {
+      return 'Mana acceleration - provides additional mana for future turns';
+    } else if (oracle.includes('you win the game')) {
+      return 'Win condition card';
+    } else if (typeLine.includes('Creature')) {
+      return `Creature for board presence (${cardData?.power}/${cardData?.toughness})`;
+    } else if (typeLine.includes('Enchantment')) {
+      return 'Enchantment for ongoing value';
+    } else if (typeLine.includes('Artifact')) {
+      return 'Artifact for utility';
+    }
+    
+    const ORACLE_TEXT_PREVIEW_LENGTH = 50;
+    return `Cast for its effect: ${oracle.substring(0, ORACLE_TEXT_PREVIEW_LENGTH) || 'unknown'}...`;
+  }
+
+  /**
+   * Count lands on the battlefield for a player.
+   */
+  private countLandsOnBattlefield(player: PlayerState): number {
+    return player.battlefield.filter(p => this.isLand(p.card)).length;
   }
 
   /**
