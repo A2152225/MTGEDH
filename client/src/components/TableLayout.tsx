@@ -706,12 +706,13 @@ export function TableLayout(props: {
   }, [chatMessages, chatUserScrolledUp]);
   
   // Handle chat scroll: detect if user scrolled up or back to bottom
+  const SCROLL_BOTTOM_THRESHOLD = 10; // Pixels from bottom to consider "at bottom"
   const handleChatScroll = () => {
     const container = chatContainerRef.current;
     if (!container) return;
     
     // Check if user is at the bottom (with a small threshold for rounding errors)
-    const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 10;
+    const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < SCROLL_BOTTOM_THRESHOLD;
     
     // If user scrolls back to bottom, resume auto-scroll
     if (isAtBottom && chatUserScrolledUp) {
