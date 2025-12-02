@@ -9,6 +9,7 @@ import { emitSacrificeUnlessPayPrompt } from "./triggers";
 import { detectSpellCastTriggers, type SpellCastTrigger } from "../state/modules/triggered-abilities";
 import { categorizeSpell, evaluateTargeting } from "../rules-engine/targeting";
 import { recalculatePlayerEffects } from "../state/modules/game-state-effects";
+import { PAY_X_LIFE_CARDS, getMaxPayableLife, validateLifePayment } from "../state/utils";
 
 /** Shock lands and similar "pay life or enter tapped" lands */
 const SHOCK_LANDS = new Set([
@@ -1656,6 +1657,60 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         console.log(`[castSpellFromHand] Requesting overload mode selection for ${cardInHand.name}`);
         return; // Wait for mode selection
+      }
+
+      // Check if this spell requires paying X life (Toxic Deluge, Hatred, etc.)
+      // If the player hasn't specified the life payment amount, prompt for it
+      const cardNameLower = (cardInHand.name || '').toLowerCase();
+      const payXLifeInfo = PAY_X_LIFE_CARDS[cardNameLower];
+      const lifePaymentProvided = (payment as any[])?.some((p: any) => typeof p.lifePayment === 'number') ||
+                                   (targets as any)?.lifePayment !== undefined;
+      
+      if (payXLifeInfo && !lifePaymentProvided) {
+        // Get the player's current life to determine max payment
+        const startingLife = game.state.startingLife || 40;
+        const currentLife = game.state.life?.[playerId] ?? startingLife;
+        const maxPayable = getMaxPayableLife(currentLife);
+        const minPayment = payXLifeInfo.minX || 0;
+        
+        // Emit a life payment request to the player
+        socket.emit("lifePaymentRequest", {
+          gameId,
+          cardId,
+          cardName: cardInHand.name,
+          source: cardInHand.name,
+          title: `Choose life to pay for ${cardInHand.name}`,
+          description: payXLifeInfo.effect,
+          imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+          currentLife,
+          minPayment,
+          maxPayment: maxPayable,
+          effectId: `lifepay_${cardId}_${Date.now()}`,
+        });
+        
+        console.log(`[castSpellFromHand] Requesting life payment (${minPayment}-${maxPayable}) for ${cardInHand.name}`);
+        return; // Wait for life payment selection
+      }
+      
+      // If life payment was provided, validate it
+      if (payXLifeInfo && lifePaymentProvided) {
+        const lifePayment = (payment as any[])?.find((p: any) => typeof p.lifePayment === 'number')?.lifePayment ||
+                            (targets as any)?.lifePayment || 0;
+        const startingLife = game.state.startingLife || 40;
+        const currentLife = game.state.life?.[playerId] ?? startingLife;
+        
+        const validationError = validateLifePayment(currentLife, lifePayment, cardInHand.name);
+        if (validationError) {
+          socket.emit("error", {
+            code: "INVALID_LIFE_PAYMENT",
+            message: validationError,
+          });
+          return;
+        }
+        
+        // Store the life payment on the card for later resolution
+        (cardInHand as any).lifePaymentAmount = lifePayment;
+        console.log(`[castSpellFromHand] Life payment of ${lifePayment} validated for ${cardInHand.name}`);
       }
 
       // Check if this spell requires targets (oracleText is already defined above)
@@ -4737,6 +4792,94 @@ export function registerGameActions(io: Server, socket: Socket) {
     } catch (err: any) {
       console.error(`modeSelectionConfirm error:`, err);
       socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "Mode selection failed" });
+    }
+  });
+
+  /**
+   * Handle life payment confirmation for spells like Toxic Deluge, Hatred, etc.
+   * Player chooses how much life to pay (X) as part of the spell's additional cost.
+   */
+  socket.on("lifePaymentConfirm", async ({ gameId, cardId, lifePayment, effectId }: {
+    gameId: string;
+    cardId: string;
+    lifePayment: number;
+    effectId?: string;
+  }) => {
+    try {
+      const playerId = socket.data.playerId as string | undefined;
+      if (!playerId) {
+        socket.emit("error", { code: "NOT_JOINED", message: "You must join the game first" });
+        return;
+      }
+
+      const game = ensureGame(gameId);
+      if (!game) {
+        socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+        return;
+      }
+
+      // Validate the life payment
+      const startingLife = game.state.startingLife || 40;
+      const currentLife = game.state.life?.[playerId] ?? startingLife;
+      
+      const validationError = validateLifePayment(currentLife, lifePayment);
+      if (validationError) {
+        socket.emit("error", { code: "INVALID_LIFE_PAYMENT", message: validationError });
+        return;
+      }
+
+      // Find the card in hand
+      const zones = game.state.zones?.[playerId];
+      if (!zones || !Array.isArray(zones.hand)) {
+        socket.emit("error", { code: "NO_HAND", message: "Hand not found" });
+        return;
+      }
+
+      const cardInHand = (zones.hand as any[]).find((c: any) => c && c.id === cardId);
+      if (!cardInHand) {
+        socket.emit("error", { code: "CARD_NOT_IN_HAND", message: "Card not found in hand" });
+        return;
+      }
+
+      console.log(`[lifePaymentConfirm] Player ${playerId} paying ${lifePayment} life for ${cardInHand.name}`);
+
+      // Store the life payment amount on the card for resolution
+      (cardInHand as any).lifePaymentAmount = lifePayment;
+      
+      // Pay the life immediately (additional costs are paid when casting)
+      game.state.life = game.state.life || {};
+      game.state.life[playerId] = currentLife - lifePayment;
+      
+      // Sync to player object
+      const player = (game.state.players || []).find((p: any) => p.id === playerId);
+      if (player) {
+        player.life = game.state.life[playerId];
+      }
+
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, playerId)} pays ${lifePayment} life for ${cardInHand.name}. (${currentLife} → ${game.state.life[playerId]})`,
+        ts: Date.now(),
+      });
+
+      // Continue with casting - emit an event to continue the cast with life payment info
+      socket.emit("lifePaymentComplete", {
+        gameId,
+        cardId,
+        lifePayment,
+        effectId,
+      });
+
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+      broadcastGame(io, game, gameId);
+      
+    } catch (err: any) {
+      console.error(`lifePaymentConfirm error:`, err);
+      socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "Life payment failed" });
     }
   });
 

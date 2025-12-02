@@ -33,6 +33,7 @@ import { MoxDiamondModal } from "./components/MoxDiamondModal";
 import { SplitCardChoiceModal, type CardFaceOption } from "./components/SplitCardChoiceModal";
 import { CreatureTypeSelectModal } from "./components/CreatureTypeSelectModal";
 import { AppearanceSettingsModal } from "./components/AppearanceSettingsModal";
+import { LifePaymentModal } from "./components/LifePaymentModal";
 import { GraveyardViewModal } from "./components/GraveyardViewModal";
 import { JoinForcesModal, type JoinForcesRequest } from "./components/JoinForcesModal";
 import { TemptingOfferModal, type TemptingOfferRequest } from "./components/TemptingOfferModal";
@@ -468,6 +469,19 @@ export function App() {
   // Priority Modal state - shows when player receives priority on step changes
   const [priorityModalOpen, setPriorityModalOpen] = useState(false);
   const lastPriorityStep = React.useRef<string | null>(null);
+  
+  // Life Payment Modal state - for spells like Toxic Deluge that require paying X life
+  const [lifePaymentModalOpen, setLifePaymentModalOpen] = useState(false);
+  const [lifePaymentModalData, setLifePaymentModalData] = useState<{
+    cardId: string;
+    cardName: string;
+    description: string;
+    imageUrl?: string;
+    currentLife: number;
+    minPayment: number;
+    maxPayment: number;
+    effectId?: string;
+  } | null>(null);
   
   // Auto-pass steps - which steps to automatically pass priority on
   const [autoPassSteps, setAutoPassSteps] = useState<Set<string>>(() => {
@@ -1068,6 +1082,39 @@ export function App() {
     socket.on("creatureTypeSelectionRequest", handler);
     return () => {
       socket.off("creatureTypeSelectionRequest", handler);
+    };
+  }, [safeView?.id]);
+
+  // Life payment request listener (for Toxic Deluge, Hatred, etc.)
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      cardId: string;
+      cardName: string;
+      description: string;
+      imageUrl?: string;
+      currentLife: number;
+      minPayment: number;
+      maxPayment: number;
+      effectId?: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        setLifePaymentModalData({
+          cardId: payload.cardId,
+          cardName: payload.cardName,
+          description: payload.description,
+          imageUrl: payload.imageUrl,
+          currentLife: payload.currentLife,
+          minPayment: payload.minPayment,
+          maxPayment: payload.maxPayment,
+          effectId: payload.effectId,
+        });
+        setLifePaymentModalOpen(true);
+      }
+    };
+    socket.on("lifePaymentRequest", handler);
+    return () => {
+      socket.off("lifePaymentRequest", handler);
     };
   }, [safeView?.id]);
 
@@ -4074,6 +4121,33 @@ export function App() {
             setAbilitySacrificeModalOpen(false);
             setAbilitySacrificeData(null);
           }
+        }}
+      />
+
+      {/* Life Payment Modal (Toxic Deluge, Hatred, etc.) */}
+      <LifePaymentModal
+        open={lifePaymentModalOpen}
+        cardName={lifePaymentModalData?.cardName || ''}
+        description={lifePaymentModalData?.description || ''}
+        cardImageUrl={lifePaymentModalData?.imageUrl}
+        currentLife={lifePaymentModalData?.currentLife || 40}
+        minPayment={lifePaymentModalData?.minPayment || 0}
+        maxPayment={lifePaymentModalData?.maxPayment || 0}
+        onConfirm={(lifePayment) => {
+          if (safeView?.id && lifePaymentModalData) {
+            socket.emit("lifePaymentConfirm", {
+              gameId: safeView.id,
+              cardId: lifePaymentModalData.cardId,
+              lifePayment,
+              effectId: lifePaymentModalData.effectId,
+            });
+            setLifePaymentModalOpen(false);
+            setLifePaymentModalData(null);
+          }
+        }}
+        onCancel={() => {
+          setLifePaymentModalOpen(false);
+          setLifePaymentModalData(null);
         }}
       />
 
