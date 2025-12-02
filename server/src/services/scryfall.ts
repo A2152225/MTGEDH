@@ -647,8 +647,6 @@ export async function fetchDeckFromMoxfield(urlOrId: string): Promise<{
   // Moxfield API endpoint
   const apiUrl = `https://api2.moxfield.com/v2/decks/all/${encodeURIComponent(deckId)}`;
   
-  console.log(`[fetchDeckFromMoxfield] Fetching deck from: ${apiUrl}`);
-  
   const f = ensureFetch();
   
   let data: MoxfieldDeckResponse;
@@ -660,15 +658,12 @@ export async function fetchDeckFromMoxfield(urlOrId: string): Promise<{
       },
     });
     
-    console.log(`[fetchDeckFromMoxfield] Response status: ${response.status}`);
-    
     if (!response.ok) {
       if (response.status === 404) {
         throw new Error(`Moxfield deck not found: ${deckId}`);
       }
       if (response.status === 403) {
-        // Cloudflare protection or rate limiting
-        console.error(`[fetchDeckFromMoxfield] Access denied (403). This is likely Cloudflare protection. The Moxfield API may require browser-based access.`);
+        // Cloudflare protection or rate limiting - provide helpful error message
         throw new Error(`Moxfield API access denied (403). The deck may be private or Moxfield is blocking automated requests. Try importing manually by copying the decklist.`);
       }
       throw new Error(`Moxfield API error: ${response.status}`);
@@ -679,7 +674,6 @@ export async function fetchDeckFromMoxfield(urlOrId: string): Promise<{
     if (err instanceof Error && err.message.includes('Moxfield')) {
       throw err;
     }
-    console.error(`[fetchDeckFromMoxfield] Fetch failed:`, err);
     throw new Error(`Failed to fetch deck from Moxfield: ${err instanceof Error ? err.message : String(err)}`);
   }
   
