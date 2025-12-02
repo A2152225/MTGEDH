@@ -293,4 +293,91 @@ describe('Game Advancement', () => {
     
     expect(result.next.priorityPlayerIndex).toBe(1);
   });
+
+  it('should reset priority to active player when advancing from draw step to main phase', () => {
+    const gameStates = new Map<string, GameState>();
+    const state: GameState = {
+      players: [
+        { id: 'player1', name: 'Player 1', life: 40, battlefield: [], library: [{ id: 'c1' }], hand: [] },
+        { id: 'player2', name: 'Player 2', life: 40, battlefield: [], library: [], hand: [] },
+        { id: 'player3', name: 'Player 3', life: 40, battlefield: [], library: [], hand: [] },
+        { id: 'player4', name: 'Player 4', life: 40, battlefield: [], library: [], hand: [] },
+      ],
+      phase: GamePhase.BEGINNING,
+      step: GameStep.DRAW,
+      activePlayerIndex: 0,
+      priorityPlayerIndex: 3, // Non-active player has priority (simulating all players passed)
+      turn: 1,
+      stack: [],
+      battlefield: [],
+    } as any;
+    gameStates.set('test-game', state);
+    const context = createMockContext(gameStates);
+
+    // Advance from draw step - priority should be reset to active player
+    const result = advanceGame('test-game', context);
+    
+    expect(result.next.phase).toBe(GamePhase.PRECOMBAT_MAIN);
+    expect(result.next.step).toBe(GameStep.MAIN1);
+    // Priority should be reset to active player (index 0) when entering main phase
+    expect(result.next.priorityPlayerIndex).toBe(0);
+    // Priority passes should be reset
+    expect((result.next as any).priorityPasses).toBe(0);
+  });
+
+  it('should reset priority passes when entering any new step', () => {
+    const gameStates = new Map<string, GameState>();
+    const state: GameState = {
+      players: [
+        { id: 'player1', name: 'Player 1', life: 40, battlefield: [], library: [{ id: 'c1' }], hand: [] },
+        { id: 'player2', name: 'Player 2', life: 40, battlefield: [], library: [], hand: [] },
+      ],
+      phase: GamePhase.BEGINNING,
+      step: GameStep.UPKEEP,
+      activePlayerIndex: 0,
+      priorityPlayerIndex: 1,
+      priorityPasses: 2, // Both players have passed
+      turn: 1,
+      stack: [],
+      battlefield: [],
+    } as any;
+    gameStates.set('test-game', state);
+    const context = createMockContext(gameStates);
+
+    const result = advanceGame('test-game', context);
+    
+    expect(result.next.step).toBe(GameStep.DRAW);
+    // Priority passes should be reset
+    expect((result.next as any).priorityPasses).toBe(0);
+    // Priority should be given to active player for draw step
+    expect(result.next.priorityPlayerIndex).toBe(0);
+  });
+
+  it('should not grant priority for untap step', () => {
+    const gameStates = new Map<string, GameState>();
+    const state: GameState = {
+      players: [
+        { id: 'player1', name: 'Player 1', life: 40, battlefield: [], library: [{ id: 'c1' }], hand: [] },
+        { id: 'player2', name: 'Player 2', life: 40, battlefield: [], library: [], hand: [] },
+      ],
+      phase: GamePhase.ENDING,
+      step: GameStep.CLEANUP,
+      activePlayerIndex: 0,
+      priorityPlayerIndex: 1, // Some other player had priority
+      turn: 1,
+      stack: [],
+      battlefield: [],
+    } as any;
+    gameStates.set('test-game', state);
+    const context = createMockContext(gameStates);
+
+    // Advance from cleanup to new turn (untap step)
+    const result = advanceGame('test-game', context);
+    
+    expect(result.next.step).toBe(GameStep.UNTAP);
+    // Priority should NOT be reset for untap step (no priority in untap step)
+    expect(result.next.priorityPlayerIndex).toBe(1);
+    // Priority passes should still be reset
+    expect((result.next as any).priorityPasses).toBe(0);
+  });
 });
