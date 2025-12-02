@@ -158,12 +158,27 @@ interface SimulatedGameState {
  */
 function loadDeck(filename: string): LoadedDeck {
   const filePath = path.join(DECKS_PATH, filename);
-  const rawContent = fs.readFileSync(filePath, 'utf-8');
+  const rawContent = fs.readFileSync(filePath, 'utf-8').trim();
   
   // Deck files are JSON fragments starting with "cards": [...]
   // We need to wrap them in braces to make valid JSON
+  // Validate the format before wrapping
+  if (!rawContent.startsWith('"cards"')) {
+    throw new Error(`Invalid deck file format: ${filename} - expected to start with "cards"`);
+  }
+  
   const jsonContent = '{' + rawContent + '}';
-  const data = JSON.parse(jsonContent) as { cards: CardData[] };
+  let data: { cards: CardData[] };
+  
+  try {
+    data = JSON.parse(jsonContent) as { cards: CardData[] };
+  } catch (parseError) {
+    throw new Error(`Failed to parse deck file ${filename}: ${parseError}`);
+  }
+  
+  if (!data.cards || !Array.isArray(data.cards) || data.cards.length === 0) {
+    throw new Error(`Deck file ${filename} has no cards`);
+  }
   
   // First card is the commander (legendary creature)
   const commander = data.cards[0];
@@ -183,8 +198,8 @@ function getAvailableDeckFiles(): string[] {
   try {
     const files = fs.readdirSync(DECKS_PATH);
     return files.filter(f => f.startsWith('Deck') && f.endsWith('.json'));
-  } catch {
-    console.error(`Warning: Could not read deck files from ${DECKS_PATH}`);
+  } catch (err) {
+    console.error(`Warning: Could not read deck files from ${DECKS_PATH}: ${err}`);
     return DECK_FILES;
   }
 }
@@ -1943,7 +1958,8 @@ function parseArg(args: string[], flag: string, shortFlag?: string): string | un
   // Check for --flag=value format
   const longMatch = args.find(a => a.startsWith(`--${flag}=`));
   if (longMatch) {
-    return longMatch.split('=')[1];
+    const value = longMatch.split('=')[1];
+    return value !== undefined && value !== '' ? value : undefined;
   }
   
   // Check for -flag value format
@@ -1959,21 +1975,32 @@ function parseArg(args: string[], flag: string, shortFlag?: string): string | un
   return undefined;
 }
 
+/**
+ * Safely parse an integer with a default value
+ */
+function safeParseInt(value: string | undefined, defaultValue: number): number {
+  if (value === undefined) return defaultValue;
+  const parsed = parseInt(value, 10);
+  return isNaN(parsed) ? defaultValue : parsed;
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const analysisMode = args.includes('--analysis') || args.includes('-a');
   
-  // Parse seed
+  // Parse seed with validation
   const seedArg = parseArg(args, 'seed', 's');
-  const seed = seedArg ? parseInt(seedArg, 10) : 42;
+  const seed = safeParseInt(seedArg, 42);
   
-  // Parse player count (2-8)
+  // Parse player count (2-8) with validation
   const playersArg = parseArg(args, 'players', 'p');
-  const playerCount = playersArg ? Math.max(2, Math.min(8, parseInt(playersArg, 10))) : 2;
+  const rawPlayerCount = safeParseInt(playersArg, 2);
+  const playerCount = Math.max(2, Math.min(8, rawPlayerCount));
   
-  // Parse max turns
+  // Parse max turns with validation
   const turnsArg = parseArg(args, 'turns', 't');
-  const maxTurns = turnsArg ? Math.max(1, parseInt(turnsArg, 10)) : 25;
+  const rawMaxTurns = safeParseInt(turnsArg, 25);
+  const maxTurns = Math.max(1, rawMaxTurns);
   
   if (args.includes('--help') || args.includes('-h')) {
     console.log('Commander Game Simulator');
