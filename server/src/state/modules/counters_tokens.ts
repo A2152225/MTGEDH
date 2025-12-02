@@ -243,6 +243,19 @@ export function movePermanentToExile(ctx: GameContext, permanentId: string) {
   bumpSeq();
 }
 
+/**
+ * Run state-based actions (SBA) per MTG rules.
+ * 
+ * This handles creatures dying due to:
+ * - 0 or less toughness (from -1/-1 counters, effects, etc.)
+ * - Lethal damage marked
+ * - Deathtouch damage
+ * 
+ * Note: This does NOT double-trigger with movePermanentToGraveyard() because:
+ * - applyStateBasedActions() only checks creatures CURRENTLY on the battlefield
+ * - If a creature was already removed by sacrifice/destroy spell, it won't be found here
+ * - Each creature dies exactly once through exactly one code path
+ */
 export function runSBA(ctx: GameContext) {
   const { state, bumpSeq } = ctx;
   const res = applyStateBasedActions(state);
