@@ -34,6 +34,7 @@ import { SplitCardChoiceModal, type CardFaceOption } from "./components/SplitCar
 import { CreatureTypeSelectModal } from "./components/CreatureTypeSelectModal";
 import { AppearanceSettingsModal } from "./components/AppearanceSettingsModal";
 import { LifePaymentModal } from "./components/LifePaymentModal";
+import { MDFCFaceSelectionModal, type CardFace } from "./components/MDFCFaceSelectionModal";
 import { GraveyardViewModal } from "./components/GraveyardViewModal";
 import { JoinForcesModal, type JoinForcesRequest } from "./components/JoinForcesModal";
 import { TemptingOfferModal, type TemptingOfferRequest } from "./components/TemptingOfferModal";
@@ -480,6 +481,17 @@ export function App() {
     currentLife: number;
     minPayment: number;
     maxPayment: number;
+    effectId?: string;
+  } | null>(null);
+  
+  // MDFC Face Selection Modal state - for Modal Double-Faced Cards like Blightstep Pathway
+  const [mdfcFaceModalOpen, setMdfcFaceModalOpen] = useState(false);
+  const [mdfcFaceModalData, setMdfcFaceModalData] = useState<{
+    cardId: string;
+    cardName: string;
+    title?: string;
+    description?: string;
+    faces: CardFace[];
     effectId?: string;
   } | null>(null);
   
@@ -1115,6 +1127,81 @@ export function App() {
     socket.on("lifePaymentRequest", handler);
     return () => {
       socket.off("lifePaymentRequest", handler);
+    };
+  }, [safeView?.id]);
+
+  // Life payment complete listener - re-trigger spell cast with life payment info
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      cardId: string;
+      lifePayment: number;
+      effectId?: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        // Continue the spell cast with the life payment info
+        socket.emit("castSpellFromHand", {
+          gameId: safeView.id,
+          cardId: payload.cardId,
+          payment: [{ lifePayment: payload.lifePayment }],
+        });
+      }
+    };
+    socket.on("lifePaymentComplete", handler);
+    return () => {
+      socket.off("lifePaymentComplete", handler);
+    };
+  }, [safeView?.id]);
+
+  // MDFC face selection request listener (for Blightstep Pathway, etc.)
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      cardId: string;
+      cardName: string;
+      title?: string;
+      description?: string;
+      faces: CardFace[];
+      effectId?: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        setMdfcFaceModalData({
+          cardId: payload.cardId,
+          cardName: payload.cardName,
+          title: payload.title,
+          description: payload.description,
+          faces: payload.faces,
+          effectId: payload.effectId,
+        });
+        setMdfcFaceModalOpen(true);
+      }
+    };
+    socket.on("mdfcFaceSelectionRequest", handler);
+    return () => {
+      socket.off("mdfcFaceSelectionRequest", handler);
+    };
+  }, [safeView?.id]);
+
+  // MDFC face selection complete listener - continue playing the land
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      cardId: string;
+      selectedFace: number;
+      effectId?: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        // Re-emit playLand with the selected face
+        socket.emit("playLand", {
+          gameId: safeView.id,
+          cardId: payload.cardId,
+          selectedFace: payload.selectedFace,
+        });
+      }
+    };
+    socket.on("mdfcFaceSelectionComplete", handler);
+    return () => {
+      socket.off("mdfcFaceSelectionComplete", handler);
     };
   }, [safeView?.id]);
 
@@ -4148,6 +4235,31 @@ export function App() {
         onCancel={() => {
           setLifePaymentModalOpen(false);
           setLifePaymentModalData(null);
+        }}
+      />
+
+      {/* MDFC Face Selection Modal (Blightstep Pathway, etc.) */}
+      <MDFCFaceSelectionModal
+        open={mdfcFaceModalOpen}
+        cardName={mdfcFaceModalData?.cardName || ''}
+        title={mdfcFaceModalData?.title}
+        description={mdfcFaceModalData?.description}
+        faces={mdfcFaceModalData?.faces || []}
+        onConfirm={(selectedFace) => {
+          if (safeView?.id && mdfcFaceModalData) {
+            socket.emit("mdfcFaceSelectionConfirm", {
+              gameId: safeView.id,
+              cardId: mdfcFaceModalData.cardId,
+              selectedFace,
+              effectId: mdfcFaceModalData.effectId,
+            });
+            setMdfcFaceModalOpen(false);
+            setMdfcFaceModalData(null);
+          }
+        }}
+        onCancel={() => {
+          setMdfcFaceModalOpen(false);
+          setMdfcFaceModalData(null);
         }}
       />
 
