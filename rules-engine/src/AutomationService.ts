@@ -19,6 +19,9 @@
 
 import type { GameState, BattlefieldPermanent, StackItem, PlayerRef, ManaPool } from '../../shared/src';
 
+/** Type for mana color keys (subset of ManaPool that are numeric) */
+type ManaColorKey = 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+
 /**
  * Types of decisions that require player input
  */
@@ -560,7 +563,7 @@ export function autoTapForMana(
       const producedColor = getManaColor(land);
       if (producedColor.includes(color as any)) {
         tappedPermanents.push(land.id);
-        manaProduced[color as keyof ManaPool] = (manaProduced[color as keyof ManaPool] || 0) + 1;
+        manaProduced[color as ManaColorKey] = (manaProduced[color as ManaColorKey] || 0) + 1;
         remaining--;
       }
     }
@@ -583,7 +586,7 @@ export function autoTapForMana(
     
     tappedPermanents.push(land.id);
     const producedColor = getManaColor(land)[0] || 'colorless';
-    manaProduced[producedColor as keyof ManaPool] = (manaProduced[producedColor as keyof ManaPool] || 0) + 1;
+    manaProduced[producedColor as ManaColorKey] = (manaProduced[producedColor as ManaColorKey] || 0) + 1;
     genericRemaining--;
   }
   

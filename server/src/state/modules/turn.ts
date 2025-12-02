@@ -1156,6 +1156,10 @@ export function nextTurn(ctx: GameContext) {
 /**
  * Clear the mana pool for all players.
  * Called when phases change, as mana empties from pools at the end of each step/phase.
+ * 
+ * Rule 106.4: Unless a player has an effect preventing mana from emptying (like
+ * Horizon Stone, Omnath Locus of Mana, or Kruphix God of Horizons), all unspent
+ * mana empties from the pool at the end of each step and phase.
  */
 function clearManaPool(ctx: GameContext) {
   try {
@@ -1170,17 +1174,53 @@ function clearManaPool(ctx: GameContext) {
     (ctx as any).state.manaPool = (ctx as any).state.manaPool || {};
     
     for (const pid of players) {
-      (ctx as any).state.manaPool[pid] = {
-        white: 0,
-        blue: 0,
-        black: 0,
-        red: 0,
-        green: 0,
-        colorless: 0,
-      };
+      const currentPool = (ctx as any).state.manaPool[pid] || {};
+      
+      // Check if this player has a "doesn't empty" effect
+      if (currentPool.doesNotEmpty) {
+        // Check if mana should convert to colorless (e.g., Kruphix)
+        if (currentPool.convertsToColorless) {
+          const totalColored = (currentPool.white || 0) + (currentPool.blue || 0) + 
+                               (currentPool.black || 0) + (currentPool.red || 0) + 
+                               (currentPool.green || 0);
+          
+          (ctx as any).state.manaPool[pid] = {
+            white: 0,
+            blue: 0,
+            black: 0,
+            red: 0,
+            green: 0,
+            colorless: (currentPool.colorless || 0) + totalColored,
+            doesNotEmpty: currentPool.doesNotEmpty,
+            convertsToColorless: currentPool.convertsToColorless,
+            noEmptySourceIds: currentPool.noEmptySourceIds,
+            // Restricted mana also converts to colorless - update both type and color for compatibility
+            restricted: currentPool.restricted?.map((entry: any) => ({
+              ...entry,
+              type: 'colorless',
+              color: 'colorless'
+            })),
+          };
+          
+          console.log(`${ts()} [clearManaPool] Player ${pid}: Converted ${totalColored} colored mana to colorless (Kruphix effect)`);
+        } else {
+          // Mana doesn't empty at all (e.g., Omnath for green, Horizon Stone for all)
+          console.log(`${ts()} [clearManaPool] Player ${pid}: Mana pool preserved (doesn't empty effect)`);
+        }
+      } else {
+        // Normal case: empty the pool
+        (ctx as any).state.manaPool[pid] = {
+          white: 0,
+          blue: 0,
+          black: 0,
+          red: 0,
+          green: 0,
+          colorless: 0,
+        };
+      }
     }
     
-    console.log(`${ts()} [clearManaPool] Cleared mana pools for all players`);
+    console.log(`${ts()} [clearManaPool] Processed mana pools for all players`);
   } catch (err) {
     console.warn(`${ts()} clearManaPool failed:`, err);
   }
