@@ -56,7 +56,7 @@ export function advanceGame(
   const logs: string[] = [`Advanced to ${nextPhase} - ${nextStep}`];
   
   if (shouldResetPriority) {
-    logs.push(`Priority given to active player: ${state.players[activePlayerIndex]?.name}`);
+    logs.push(`Priority given to active player: ${updatedState.players[activePlayerIndex]?.name}`);
   }
   
   // If new turn, advance active player
@@ -68,7 +68,7 @@ export function advanceGame(
       landsPlayedThisTurn: {}, // Reset lands played
     };
     
-    logs.push(`Turn ${updatedState.turn} - ${state.players[activePlayerIndex]?.name}`);
+    logs.push(`Turn ${updatedState.turn} - ${updatedState.players[activePlayerIndex]?.name}`);
     
     context.emit({
       type: RulesEngineEvent.TURN_STARTED,
@@ -76,7 +76,7 @@ export function advanceGame(
       gameId,
       data: { 
         turn: updatedState.turn,
-        activePlayer: state.players[activePlayerIndex]?.id,
+        activePlayer: updatedState.players[activePlayerIndex]?.id,
       },
     });
   }
