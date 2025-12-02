@@ -1709,6 +1709,50 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
+    // Handle equip abilities (equipment cards)
+    // Check if this is an equip ability - abilityId contains "equip" or it's an equipment with equip cost
+    const isEquipment = typeLine.includes("equipment");
+    const isEquipAbility = abilityId.includes("equip") || (isEquipment && oracleText.includes("equip"));
+    if (isEquipAbility) {
+      // Get valid target creatures
+      const validTargets = battlefield.filter((p: any) => {
+        if (p.controller !== pid) return false;
+        const pTypeLine = (p.card?.type_line || "").toLowerCase();
+        return pTypeLine.includes("creature");
+      });
+
+      if (validTargets.length === 0) {
+        socket.emit("error", {
+          code: "NO_VALID_TARGETS",
+          message: "You have no creatures to equip",
+        });
+        return;
+      }
+
+      // Parse equip cost from oracle text
+      const equipCostMatch = oracleText.match(/equip\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+      const equipCost = equipCostMatch ? equipCostMatch[1] : "{0}";
+      
+      // Send target selection prompt
+      socket.emit("selectEquipTarget", {
+        gameId,
+        equipmentId: permanentId,
+        equipmentName: cardName,
+        equipCost,
+        imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+        validTargets: validTargets.map((c: any) => ({
+          id: c.id,
+          name: c.card?.name || "Creature",
+          power: c.card?.power || c.basePower || "0",
+          toughness: c.card?.toughness || c.baseToughness || "0",
+          imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
+        })),
+      });
+      
+      console.log(`[activateBattlefieldAbility] Equip ability on ${cardName}: prompting for target selection`);
+      return;
+    }
+    
     // Handle mana abilities (tap-mana-*)
     if (abilityId.startsWith("tap-mana")) {
       // Validate: permanent must not be tapped
