@@ -5692,10 +5692,12 @@ export function registerGameActions(io: Server, socket: Socket) {
   });
 
   // Handle equip ability - prompts player to select creature to attach equipment to
-  socket.on("equipAbility", ({ gameId, equipmentId, targetCreatureId }: { 
+  // Flow: selectTarget -> promptManaPayment -> confirmPayment -> attach
+  socket.on("equipAbility", ({ gameId, equipmentId, targetCreatureId, paymentConfirmed }: { 
     gameId: string; 
     equipmentId: string; 
     targetCreatureId?: string;
+    paymentConfirmed?: boolean;
   }) => {
     try {
       const game = ensureGame(gameId);
@@ -5726,8 +5728,35 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
 
       // Parse equip cost from oracle text
+      // Supports patterns like: "Equip {2}", "Equip {1}{W}", "Equip—Pay 3 life"
       const equipCostMatch = oracleText.match(/equip\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
-      const equipCost = equipCostMatch ? equipCostMatch[1] : "{0}";
+      let equipCost = equipCostMatch ? equipCostMatch[1] : "{0}";
+      
+      // Check for Puresteel Paladin metalcraft effect (equip costs {0})
+      // Import from game-state-effects if needed
+      const hasMetalcraftEquipReduction = battlefield.some((p: any) => {
+        if (p.controller !== playerId) return false;
+        const pOracle = (p.card?.oracle_text || '').toLowerCase();
+        // Puresteel Paladin: "Metalcraft — Equipment you control have equip {0}"
+        return pOracle.includes('metalcraft') && 
+               pOracle.includes('equipment') && 
+               pOracle.includes('equip') && 
+               pOracle.includes('{0}');
+      });
+      
+      if (hasMetalcraftEquipReduction) {
+        // Check if metalcraft is active (3+ artifacts)
+        const artifactCount = battlefield.filter((p: any) => {
+          if (p.controller !== playerId) return false;
+          const pTypeLine = (p.card?.type_line || '').toLowerCase();
+          return pTypeLine.includes('artifact');
+        }).length;
+        
+        if (artifactCount >= 3) {
+          equipCost = '{0}';
+          console.log(`[equipAbility] Metalcraft active - equip cost reduced to {0}`);
+        }
+      }
 
       if (!targetCreatureId) {
         // No target specified - send list of valid targets
@@ -5753,7 +5782,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
-      // Target specified - attach equipment
+      // Target specified - check if we need to prompt for payment
       const targetCreature = battlefield.find((p: any) => p.id === targetCreatureId);
       if (!targetCreature) {
         socket.emit("error", { code: "TARGET_NOT_FOUND", message: "Target creature not found" });
@@ -5772,6 +5801,37 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
+      // Check if payment is required and not yet confirmed
+      const parsedCost = parseManaCost(equipCost);
+      const totalManaCost = parsedCost.generic + Object.values(parsedCost.colors).reduce((a: number, b: number) => a + b, 0);
+      
+      if (totalManaCost > 0 && !paymentConfirmed) {
+        // Store pending equip action and prompt for mana payment
+        (game.state as any).pendingEquipPayment = (game.state as any).pendingEquipPayment || {};
+        (game.state as any).pendingEquipPayment[playerId] = {
+          equipmentId,
+          targetCreatureId,
+          equipCost,
+          equipmentName: equipment.card?.name || "Equipment",
+          targetName: targetCreature.card?.name || "Creature",
+        };
+        
+        // Emit payment prompt
+        socket.emit("equipPaymentPrompt", {
+          gameId,
+          equipmentId,
+          targetCreatureId,
+          equipmentName: equipment.card?.name || "Equipment",
+          targetName: targetCreature.card?.name || "Creature",
+          equipCost,
+          parsedCost,
+        });
+        
+        console.log(`[equipAbility] Prompted ${playerId} to pay ${equipCost} to equip ${equipment.card?.name} to ${targetCreature.card?.name}`);
+        return;
+      }
+
+      // Payment confirmed (or cost is 0) - proceed with equipping
       // Detach from previous creature if attached
       if (equipment.attachedTo) {
         const prevCreature = battlefield.find((p: any) => p.id === equipment.attachedTo);
@@ -5785,6 +5845,11 @@ export function registerGameActions(io: Server, socket: Socket) {
       (targetCreature as any).attachedEquipment = (targetCreature as any).attachedEquipment || [];
       if (!(targetCreature as any).attachedEquipment.includes(equipmentId)) {
         (targetCreature as any).attachedEquipment.push(equipmentId);
+      }
+      
+      // Clear pending payment
+      if ((game.state as any).pendingEquipPayment?.[playerId]) {
+        delete (game.state as any).pendingEquipPayment[playerId];
       }
 
       console.log(`[equipAbility] ${equipment.card?.name} equipped to ${targetCreature.card?.name} by ${playerId}`);
@@ -5801,6 +5866,84 @@ export function registerGameActions(io: Server, socket: Socket) {
     } catch (err: any) {
       console.error(`equipAbility error for game ${gameId}:`, err);
       socket.emit("error", { code: "EQUIP_ERROR", message: err?.message ?? String(err) });
+    }
+  });
+  
+  // Handle equip payment confirmation - player has paid the mana cost
+  socket.on("confirmEquipPayment", ({ gameId, equipmentId, targetCreatureId }: {
+    gameId: string;
+    equipmentId: string;
+    targetCreatureId: string;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+      
+      const pending = (game.state as any).pendingEquipPayment?.[playerId];
+      if (!pending || pending.equipmentId !== equipmentId || pending.targetCreatureId !== targetCreatureId) {
+        socket.emit("error", { code: "NO_PENDING", message: "No pending equip payment found" });
+        return;
+      }
+      
+      // Parse the cost and consume mana from pool
+      const parsedCost = parseManaCost(pending.equipCost);
+      const pool = getOrInitManaPool(game.state, playerId);
+      const totalAvailable = calculateTotalAvailableMana(pool, []);
+      
+      // Validate payment
+      const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+      if (validationError) {
+        socket.emit("error", { code: "INSUFFICIENT_MANA", message: validationError });
+        return;
+      }
+      
+      // Consume mana
+      consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[confirmEquipPayment]');
+      
+      // Now re-call equipAbility with paymentConfirmed
+      // (We call the same handler logic inline to avoid event loop issues)
+      const battlefield = game.state?.battlefield || [];
+      const equipment = battlefield.find((p: any) => p.id === equipmentId);
+      const targetCreature = battlefield.find((p: any) => p.id === targetCreatureId);
+      
+      if (!equipment || !targetCreature) {
+        socket.emit("error", { code: "NOT_FOUND", message: "Equipment or target not found" });
+        return;
+      }
+      
+      // Detach from previous creature if attached
+      if (equipment.attachedTo) {
+        const prevCreature = battlefield.find((p: any) => p.id === equipment.attachedTo);
+        if (prevCreature) {
+          (prevCreature as any).attachedEquipment = ((prevCreature as any).attachedEquipment || []).filter((id: string) => id !== equipmentId);
+        }
+      }
+
+      // Attach to new creature
+      equipment.attachedTo = targetCreatureId;
+      (targetCreature as any).attachedEquipment = (targetCreature as any).attachedEquipment || [];
+      if (!(targetCreature as any).attachedEquipment.includes(equipmentId)) {
+        (targetCreature as any).attachedEquipment.push(equipmentId);
+      }
+      
+      // Clear pending payment
+      delete (game.state as any).pendingEquipPayment[playerId];
+
+      console.log(`[confirmEquipPayment] ${equipment.card?.name} equipped to ${targetCreature.card?.name} by ${playerId} (paid ${pending.equipCost})`);
+
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `⚔️ ${getPlayerName(game, playerId)} pays ${pending.equipCost} and equips ${equipment.card?.name || "Equipment"} to ${targetCreature.card?.name || "Creature"}`,
+        ts: Date.now(),
+      });
+
+      broadcastGame(io, game, gameId);
+    } catch (err: any) {
+      console.error(`confirmEquipPayment error for game ${gameId}:`, err);
+      socket.emit("error", { code: "EQUIP_PAYMENT_ERROR", message: err?.message ?? String(err) });
     }
   });
 }
