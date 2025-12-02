@@ -250,6 +250,105 @@ function isPermanentTypeLine(typeLine?: string): boolean {
 }
 
 /**
+ * Check for ETB triggers from other permanents when a token enters the battlefield.
+ * This handles effects like Cathars' Crusade, Soul Warden, etc. that trigger
+ * when creatures enter the battlefield (including tokens).
+ * 
+ * @param ctx - Game context
+ * @param token - The token permanent that just entered
+ * @param controller - Controller of the token
+ */
+function triggerETBEffectsForToken(
+  ctx: GameContext,
+  token: any,
+  controller: PlayerID
+): void {
+  const state = (ctx as any).state;
+  if (!state?.battlefield) return;
+  
+  const isCreature = (token.card?.type_line || '').toLowerCase().includes('creature');
+  const isToken = true; // By definition, this is a token
+  
+  // Check all other permanents for triggers that fire when creatures/permanents enter
+  for (const perm of state.battlefield) {
+    if (!perm || perm.id === token.id) continue;
+    
+    const otherTriggers = getETBTriggersForPermanent(perm.card, perm);
+    for (const trigger of otherTriggers) {
+      // creature_etb triggers (Cathars' Crusade, Soul Warden, etc.)
+      if (trigger.triggerType === 'creature_etb' && isCreature) {
+        // Check if this trigger requires nontoken creatures (e.g., Guardian Project)
+        if ((trigger as any).nontokenOnly && isToken) {
+          continue; // Skip - this trigger only fires for nontoken creatures
+        }
+        
+        // Determine trigger controller
+        const triggerController = perm.controller || controller;
+        
+        // Push trigger onto the stack
+        state.stack = state.stack || [];
+        const triggerId = uid("trigger");
+        
+        state.stack.push({
+          id: triggerId,
+          type: 'triggered_ability',
+          controller: triggerController,
+          source: perm.id,
+          sourceName: trigger.cardName,
+          description: trigger.description,
+          triggerType: trigger.triggerType,
+          mandatory: trigger.mandatory,
+        } as any);
+        
+        console.log(`[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s triggered ability for token: ${trigger.description}`);
+      }
+      
+      // another_permanent_etb triggers
+      if (trigger.triggerType === 'another_permanent_etb') {
+        const triggerController = perm.controller || controller;
+        
+        state.stack = state.stack || [];
+        const triggerId = uid("trigger");
+        
+        state.stack.push({
+          id: triggerId,
+          type: 'triggered_ability',
+          controller: triggerController,
+          source: perm.id,
+          sourceName: trigger.cardName,
+          description: trigger.description,
+          triggerType: trigger.triggerType,
+          mandatory: trigger.mandatory,
+        } as any);
+        
+        console.log(`[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s triggered ability for token: ${trigger.description}`);
+      }
+      
+      // permanent_etb triggers (Altar of the Brood style - triggers on ANY permanent)
+      if (trigger.triggerType === 'permanent_etb') {
+        const triggerController = perm.controller || controller;
+        
+        state.stack = state.stack || [];
+        const triggerId = uid("trigger");
+        
+        state.stack.push({
+          id: triggerId,
+          type: 'triggered_ability',
+          controller: triggerController,
+          source: perm.id,
+          sourceName: trigger.cardName,
+          description: trigger.description,
+          triggerType: trigger.triggerType,
+          mandatory: trigger.mandatory,
+        } as any);
+        
+        console.log(`[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s triggered ability for token: ${trigger.description}`);
+      }
+    }
+  }
+}
+
+/**
  * Execute a triggered ability effect based on its description.
  * Handles common trigger effects like life gain/loss, counters, draw, etc.
  */
@@ -655,6 +754,9 @@ function executeTriggerEffect(
       
       state.battlefield.push(token);
       console.log(`[executeTriggerEffect] Created ${power}/${toughness} ${tokenName} token for ${controller}${isTappedAndAttacking ? ' (tapped and attacking)' : ''}`);
+      
+      // Trigger ETB effects from other permanents (Cathars' Crusade, Soul Warden, etc.)
+      triggerETBEffectsForToken(ctx, token, controller);
     }
     return;
   }

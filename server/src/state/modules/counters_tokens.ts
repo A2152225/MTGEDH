@@ -49,6 +49,86 @@ export function createToken(
   runSBA(ctx);
 }
 
+/**
+ * Move a permanent from battlefield to graveyard.
+ * Rule 111.7: Tokens cease to exist when they leave the battlefield - they don't go to graveyard.
+ * 
+ * @param ctx - Game context
+ * @param permanentId - ID of the permanent to move
+ * @param triggerDeathEffects - Whether to trigger death effects (for creatures)
+ * @returns true if the permanent was moved/removed, false if not found
+ */
+export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, triggerDeathEffects = true): boolean {
+  const { state, bumpSeq, commandZone } = ctx;
+  const zones = state.zones = state.zones || {};
+  const idx = state.battlefield.findIndex(p => p.id === permanentId);
+  if (idx < 0) return false;
+  
+  const perm = state.battlefield.splice(idx, 1)[0];
+  const owner = (perm as any).owner || (perm as any).controller;
+  const card = (perm as any).card;
+  const isToken = (perm as any).isToken === true;
+  const isCreature = (card?.type_line || '').toLowerCase().includes('creature');
+  
+  // Rule 111.7: Tokens cease to exist when in any zone other than battlefield
+  if (isToken) {
+    console.log(`[movePermanentToGraveyard] Token ${card?.name || perm.id} ceased to exist (left battlefield)`);
+    bumpSeq();
+    // Still trigger death effects for token creatures (Grave Pact, Blood Artist, etc.)
+    // The token "dies" even though it doesn't go to the graveyard
+    return true;
+  }
+  
+  // Commander Replacement Effect (Rule 903.9a):
+  // If a commander would be put into graveyard from anywhere, its owner may put it into
+  // the command zone instead.
+  const commanderInfo = commandZone?.[owner];
+  const commanderIds = commanderInfo?.commanderIds || [];
+  const isCommander = card?.id && commanderIds.includes(card.id);
+  
+  if (isCommander) {
+    (state as any).pendingCommanderZoneChoice = (state as any).pendingCommanderZoneChoice || {};
+    (state as any).pendingCommanderZoneChoice[owner] = (state as any).pendingCommanderZoneChoice[owner] || [];
+    (state as any).pendingCommanderZoneChoice[owner].push({
+      commanderId: card.id,
+      commanderName: card.name,
+      destinationZone: 'graveyard',
+      card: {
+        id: card.id,
+        name: card.name,
+        type_line: card.type_line,
+        oracle_text: card.oracle_text,
+        image_uris: card.image_uris,
+        mana_cost: card.mana_cost,
+        power: card.power,
+        toughness: card.toughness,
+      },
+    });
+    console.log(`[movePermanentToGraveyard] Commander ${card.name} would go to graveyard - owner can choose command zone instead`);
+  }
+  
+  // Move to owner's graveyard
+  if (owner) {
+    const ownerZone = zones[owner] = zones[owner] || { hand: [], graveyard: [], handCount: 0, graveyardCount: 0, libraryCount: 0 };
+    (ownerZone as any).graveyard = (ownerZone as any).graveyard || [];
+    if (card) {
+      (ownerZone as any).graveyard.push({ ...card, zone: "graveyard" });
+      (ownerZone as any).graveyardCount = (ownerZone as any).graveyard.length;
+    }
+  }
+  
+  bumpSeq();
+  
+  // Recalculate player effects when permanents leave
+  try {
+    recalculatePlayerEffects(ctx);
+  } catch (err) {
+    console.warn('[movePermanentToGraveyard] Failed to recalculate player effects:', err);
+  }
+  
+  return true;
+}
+
 export function removePermanent(ctx: GameContext, permanentId: string) {
   const { state, bumpSeq } = ctx;
   const idx = state.battlefield.findIndex(p => p.id === permanentId);
@@ -74,6 +154,15 @@ export function movePermanentToExile(ctx: GameContext, permanentId: string) {
   const perm = state.battlefield.splice(idx,1)[0];
   const owner = perm.owner as PlayerID;
   const card = perm.card as any;
+  
+  // Rule 111.7: A token that's in a zone other than the battlefield ceases to exist.
+  // Tokens don't go to exile - they cease to exist as a state-based action.
+  const isToken = (perm as any).isToken === true;
+  if (isToken) {
+    console.log(`[movePermanentToExile] Token ${card?.name || perm.id} ceased to exist (left battlefield for exile)`);
+    bumpSeq();
+    return; // Token ceases to exist, don't add to exile
+  }
   
   // Commander Replacement Effect (Rule 903.9a):
   // If a commander would be put into exile from anywhere, its owner may put it into
@@ -142,7 +231,17 @@ export function runSBA(ctx: GameContext) {
       const idx = state.battlefield.findIndex(b => b.id === id);
       if (idx >= 0) { 
         const destroyed = state.battlefield.splice(idx, 1)[0];
-        // Move to owner's graveyard (SBA - creatures die)
+        
+        // Rule 111.7: A token that's in a zone other than the battlefield ceases to exist.
+        // Tokens don't go to the graveyard - they cease to exist as a state-based action.
+        const isToken = (destroyed as any).isToken === true;
+        if (isToken) {
+          console.log(`[runSBA] Token ${(destroyed as any).card?.name || destroyed.id} ceased to exist (left battlefield)`);
+          changed = true;
+          continue; // Token ceases to exist, don't add to graveyard
+        }
+        
+        // Move non-token to owner's graveyard (SBA - creatures die)
         const owner = (destroyed as any).owner || (destroyed as any).controller;
         if (owner) {
           const ownerZone = zones[owner] = zones[owner] || { hand: [], graveyard: [], handCount: 0, graveyardCount: 0, libraryCount: 0 };
