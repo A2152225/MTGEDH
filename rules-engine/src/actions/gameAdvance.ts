@@ -8,7 +8,7 @@
 import type { GameState, BattlefieldPermanent, StackItem } from '../../../shared/src';
 import type { EngineResult, ActionContext } from '../core/types';
 import { RulesEngineEvent } from '../core/events';
-import { GamePhase, GameStep, getNextGameStep } from './gamePhases';
+import { GamePhase, GameStep, getNextGameStep, doesStepReceivePriority } from './gamePhases';
 import { executeTurnBasedAction } from './turnActions';
 import { performStateBasedActions, checkWinConditions } from './stateBasedActionsHandler';
 
@@ -35,25 +35,40 @@ export function advanceGame(
   // Get next step
   const { phase: nextPhase, step: nextStep, isNewTurn } = getNextGameStep(currentPhase, currentStep);
   
+  // Get the active player index (may be updated if new turn)
+  const activePlayerIndex = isNewTurn 
+    ? ((state.activePlayerIndex || 0) + 1) % state.players.length
+    : (state.activePlayerIndex || 0);
+
+  // Rule 116.3a: At the beginning of most phases and steps, the active player gets priority.
+  // Reset priority to active player when entering a new step that receives priority.
+  const shouldResetPriority = doesStepReceivePriority(nextStep);
+  
   let updatedState: GameState = {
     ...state,
     phase: nextPhase,
     step: nextStep,
-  };
+    // Reset priority to active player and clear priority passes when entering a new step
+    priorityPlayerIndex: shouldResetPriority ? activePlayerIndex : state.priorityPlayerIndex,
+    priorityPasses: 0,
+  } as GameState;
   
   const logs: string[] = [`Advanced to ${nextPhase} - ${nextStep}`];
   
+  if (shouldResetPriority) {
+    logs.push(`Priority given to active player: ${updatedState.players[activePlayerIndex]?.name}`);
+  }
+  
   // If new turn, advance active player
   if (isNewTurn) {
-    const nextActiveIndex = ((state.activePlayerIndex || 0) + 1) % state.players.length;
     updatedState = {
       ...updatedState,
-      activePlayerIndex: nextActiveIndex,
+      activePlayerIndex: activePlayerIndex, // Use pre-calculated value
       turn: (state.turn || 0) + 1,
       landsPlayedThisTurn: {}, // Reset lands played
     };
     
-    logs.push(`Turn ${updatedState.turn} - ${state.players[nextActiveIndex]?.name}`);
+    logs.push(`Turn ${updatedState.turn} - ${updatedState.players[activePlayerIndex]?.name}`);
     
     context.emit({
       type: RulesEngineEvent.TURN_STARTED,
@@ -61,7 +76,7 @@ export function advanceGame(
       gameId,
       data: { 
         turn: updatedState.turn,
-        activePlayer: state.players[nextActiveIndex]?.id,
+        activePlayer: updatedState.players[activePlayerIndex]?.id,
       },
     });
   }
