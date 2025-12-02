@@ -2656,20 +2656,20 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         // Find the precon data from our database
         let preconSetCode = setCode;
         let preconColorIdentity = colorIdentity;
+        let preconDecklistUrl: string | undefined;
         
-        if (!preconSetCode || !preconColorIdentity) {
-          // Look up the precon in our data
-          for (const yearData of COMMANDER_PRECONS) {
-            if (yearData.year === year) {
-              for (const set of yearData.sets) {
-                if (set.name === setName || set.code === setCode) {
-                  preconSetCode = set.code;
-                  const deck = set.decks.find(d => d.name === deckName);
-                  if (deck) {
-                    preconColorIdentity = deck.colorIdentity;
-                  }
-                  break;
+        // Look up the precon in our data to get decklistUrl and other info
+        for (const yearData of COMMANDER_PRECONS) {
+          if (yearData.year === year) {
+            for (const set of yearData.sets) {
+              if (set.name === setName || set.code === setCode) {
+                if (!preconSetCode) preconSetCode = set.code;
+                const deck = set.decks.find(d => d.name === deckName);
+                if (deck) {
+                  if (!preconColorIdentity) preconColorIdentity = deck.colorIdentity;
+                  preconDecklistUrl = deck.decklistUrl;
                 }
+                break;
               }
             }
           }
@@ -2716,11 +2716,75 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           return;
         }
 
-        // Try to fetch the full decklist from Scryfall using set code and color identity
+        // Try to fetch the full decklist from Moxfield first (if decklistUrl is available)
+        // Fall back to fetching all matching cards from the set if Moxfield fails
         let resolvedCards: any[] = [...resolvedCommanders];
         let fetchedFullDeck = false;
 
-        if (preconSetCode && preconColorIdentity) {
+        if (preconDecklistUrl) {
+          try {
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `📦 Fetching decklist from Moxfield...`,
+              ts: Date.now(),
+            });
+
+            const moxfieldDeck = await fetchDeckFromMoxfield(preconDecklistUrl);
+            
+            if (moxfieldDeck && moxfieldDeck.cards && moxfieldDeck.cards.length > 0) {
+              // Already have commanders, now resolve the rest of the cards
+              const commanderNamesSet = new Set(resolvedCommanders.map(c => c.name.toLowerCase()));
+              
+              for (const parsedCard of moxfieldDeck.cards) {
+                // Skip commanders (already added)
+                if (commanderNamesSet.has(parsedCard.name.toLowerCase())) {
+                  continue;
+                }
+                
+                // Fetch card data from Scryfall for each card
+                try {
+                  const card = await fetchCardByExactNameStrict(parsedCard.name);
+                  if (card) {
+                    // Add multiple copies if count > 1
+                    for (let i = 0; i < parsedCard.count; i++) {
+                      resolvedCards.push({
+                        id: generateUniqueCardInstanceId(card.id),
+                        name: card.name,
+                        type_line: card.type_line,
+                        oracle_text: card.oracle_text,
+                        image_uris: card.image_uris,
+                        mana_cost: (card as any).mana_cost,
+                        power: (card as any).power,
+                        toughness: (card as any).toughness,
+                        card_faces: (card as any).card_faces,
+                        layout: (card as any).layout,
+                      });
+                    }
+                  }
+                } catch (e) {
+                  console.warn(`Failed to fetch card "${parsedCard.name}":`, e);
+                }
+              }
+              
+              fetchedFullDeck = resolvedCards.length > 10;
+              
+              console.info("[deck] importPreconDeck fetched cards from Moxfield", {
+                gameId,
+                deckName,
+                moxfieldUrl: preconDecklistUrl,
+                cardCount: resolvedCards.length,
+              });
+            }
+          } catch (e) {
+            console.warn("importPreconDeck: failed to fetch from Moxfield, falling back to set cards", e);
+          }
+        }
+
+        // Fallback: If Moxfield fetch failed and we have set/color info, try fetching from set
+        // This is a fallback that gets ALL matching cards from the set (not ideal, but better than nothing)
+        if (!fetchedFullDeck && preconSetCode && preconColorIdentity) {
           try {
             io.to(gameId).emit("chat", {
               id: `m_${Date.now()}`,
@@ -2734,10 +2798,10 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             
             if (setCards.length > 0) {
               // Filter to exclude commanders (already added) and format the cards
-              const commanderNames = new Set(resolvedCommanders.map(c => c.name.toLowerCase()));
+              const commanderNamesSet = new Set(resolvedCommanders.map(c => c.name.toLowerCase()));
               
               for (const card of setCards) {
-                if (!commanderNames.has(card.name.toLowerCase())) {
+                if (!commanderNamesSet.has(card.name.toLowerCase())) {
                   // Generate unique instance ID to avoid duplicate ID issues
                   // with multiple copies of the same card (e.g., basic lands)
                   resolvedCards.push({
@@ -2758,7 +2822,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
               // Consider it a partial deck if we have more than 10 cards (commanders + some deck cards)
               fetchedFullDeck = resolvedCards.length > 10;
               
-              console.info("[deck] importPreconDeck fetched cards from set", {
+              console.info("[deck] importPreconDeck fetched cards from set (fallback)", {
                 gameId,
                 deckName,
                 setCode: preconSetCode,
