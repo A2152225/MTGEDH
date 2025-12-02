@@ -1840,6 +1840,57 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
       }
       
+      // Check if this spell is a modal spell (Choose one/two/three - e.g., Austere Command, Cryptic Command)
+      // Pattern: "Choose two —" or "Choose one —" followed by bullet points
+      const modalSpellMatch = oracleText.match(/choose\s+(one|two|three|four|any number)\s*(?:—|[-])/i);
+      const modesAlreadySelected = (cardInHand as any).selectedModes || (targets as any)?.selectedModes;
+      
+      if (modalSpellMatch && !modesAlreadySelected) {
+        const modeCount = modalSpellMatch[1].toLowerCase();
+        const modeCountMap: Record<string, number> = { 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'any number': -1 };
+        const numModes = modeCountMap[modeCount] ?? -1;
+        
+        // Extract the mode options (bullet points after "Choose X —")
+        // Pattern: "• Mode text" repeated
+        const modeOptionsMatch = oracleText.match(/(?:choose\s+(?:one|two|three|four|any number)\s*(?:—|[-]))\s*((?:•[^•]+)+)/i);
+        const modeOptions: { id: string; name: string; description: string }[] = [];
+        
+        if (modeOptionsMatch) {
+          const optionsText = modeOptionsMatch[1];
+          const bullets = optionsText.split('•').filter(s => s.trim().length > 0);
+          
+          for (let i = 0; i < bullets.length; i++) {
+            const modeText = bullets[i].trim();
+            modeOptions.push({
+              id: `mode_${i + 1}`,
+              name: `Mode ${i + 1}`,
+              description: modeText,
+            });
+          }
+        }
+        
+        // Modal spells need at least 1 mode option (for "choose one") or 2+ (for "choose two" etc.)
+        if (modeOptions.length >= numModes || (numModes === -1 && modeOptions.length > 0)) {
+          // Prompt for mode selection
+          socket.emit("modalSpellRequest", {
+            gameId,
+            cardId,
+            cardName: cardInHand.name,
+            source: cardInHand.name,
+            title: `Choose ${modeCount} for ${cardInHand.name}`,
+            description: oracleText,
+            imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            modeCount: numModes,
+            canChooseAny: modeCount === 'any number',
+            modes: modeOptions,
+            effectId: `modal_${cardId}_${Date.now()}`,
+          });
+          
+          console.log(`[castSpellFromHand] Requesting modal selection (choose ${modeCount}) for ${cardInHand.name}`);
+          return; // Wait for mode selection
+        }
+      }
+      
       // Check if this spell has overload (e.g., Cyclonic Rift)
       // If it does, and player hasn't specified which mode to use, prompt for mode selection
       const hasOverload = oracleText.includes('overload');
@@ -5304,6 +5355,82 @@ export function registerGameActions(io: Server, socket: Socket) {
     } catch (err: any) {
       console.error(`modeSelectionConfirm error:`, err);
       socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "Mode selection failed" });
+    }
+  });
+
+  /**
+   * Handle modal spell selection confirmation (Austere Command, Cryptic Command, etc.)
+   * Player chooses one/two/three modes from the available options.
+   */
+  socket.on("modalSpellConfirm", async ({ gameId, cardId, selectedModes, effectId }: {
+    gameId: string;
+    cardId: string;
+    selectedModes: string[];
+    effectId?: string;
+  }) => {
+    try {
+      const playerId = socket.data.playerId as string | undefined;
+      if (!playerId) {
+        socket.emit("error", { code: "NOT_JOINED", message: "You must join the game first" });
+        return;
+      }
+
+      const game = ensureGame(gameId);
+      if (!game) {
+        socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+        return;
+      }
+
+      // Find the card in hand
+      const zones = game.state.zones?.[playerId];
+      if (!zones || !Array.isArray(zones.hand)) {
+        socket.emit("error", { code: "NO_HAND", message: "Hand not found" });
+        return;
+      }
+
+      const cardInHand = (zones.hand as any[]).find((c: any) => c && c.id === cardId);
+      if (!cardInHand) {
+        socket.emit("error", { code: "CARD_NOT_IN_HAND", message: "Card not found in hand" });
+        return;
+      }
+
+      console.log(`[modalSpellConfirm] Player ${playerId} selected modes [${selectedModes.join(', ')}] for ${cardInHand.name}`);
+
+      // Store the selected modes on the card
+      (cardInHand as any).selectedModes = selectedModes;
+
+      // Format mode descriptions for chat message
+      // Mode IDs are like "mode_1", "mode_2" - extract the descriptions from oracle text
+      const oracleText = cardInHand.oracle_text || '';
+      const modeDescriptions = selectedModes.map((modeId: string) => {
+        const modeNum = parseInt(modeId.replace('mode_', ''), 10);
+        // Try to extract the mode text from bullet points
+        const modeOptionsMatch = oracleText.match(/(?:choose\s+(?:one|two|three|four|any number)\s*(?:—|[-]))\s*((?:•[^•]+)+)/i);
+        if (modeOptionsMatch) {
+          const bullets = modeOptionsMatch[1].split('•').filter((s: string) => s.trim().length > 0);
+          if (bullets[modeNum - 1]) {
+            return bullets[modeNum - 1].trim().substring(0, 50) + (bullets[modeNum - 1].trim().length > 50 ? '...' : '');
+          }
+        }
+        return `Mode ${modeNum}`;
+      });
+
+      // Announce mode selection
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, playerId)} chose modes for ${cardInHand.name}: ${modeDescriptions.join(' and ')}`,
+        ts: Date.now(),
+      });
+
+      // Continue with normal spell casting flow
+      // The selected modes will be processed when the spell resolves
+      broadcastGame(io, game, gameId);
+      
+    } catch (err: any) {
+      console.error(`modalSpellConfirm error:`, err);
+      socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "Modal spell selection failed" });
     }
   });
 

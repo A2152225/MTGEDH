@@ -353,6 +353,8 @@ export interface TriggeredAbility {
     | 'etb'
     | 'etb_sacrifice_unless_pay' // Transguild Promenade, Gateway Plaza, Rupture Spire
     | 'creature_etb'
+    | 'equipment_etb'     // Whenever an Equipment enters under your control (Puresteel Paladin)
+    | 'equipment_cast'    // Whenever you cast an Equipment spell (Barret)
     | 'permanent_etb'     // Altar of the Brood style - whenever ANY permanent enters
     | 'another_permanent_etb' // Whenever ANOTHER permanent enters under your control
     | 'deals_damage'
@@ -363,6 +365,7 @@ export interface TriggeredAbility {
     | 'exalted'
     | 'upkeep_create_copy'  // Progenitor Mimic style - create token copy at upkeep
     | 'end_step_resource'   // Kynaios & Tiro style - draw/land resource at end step
+    | 'end_step_effect'     // Generic end step trigger
     | 'cast_creature_type'  // Merrow Reejerey style - trigger when casting a spell of a type
     | 'tap_untap_target';   // Tap or untap target permanent
   description: string;
@@ -873,6 +876,11 @@ const KNOWN_ETB_TRIGGERS: Record<string, {
     effect: "As an additional cost, reveal a Merfolk card from your hand or pay {3}",
     triggerOn: 'self',
   },
+  // Equipment with legendary creature triggers
+  "hero's blade": {
+    effect: "Whenever a legendary creature enters the battlefield under your control, you may attach Hero's Blade to it",
+    triggerOn: 'creature',
+  },
 };
 
 /**
@@ -1226,6 +1234,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[] {
   const triggers: TriggeredAbility[] = [];
   const oracleText = (card?.oracle_text || "");
+  const lowerOracle = oracleText.toLowerCase();
   const cardName = card?.name || "Unknown";
   const lowerName = cardName.toLowerCase();
   const permanentId = permanent?.id || "";
@@ -1314,6 +1323,32 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       effect: creatureETBMatch[1].trim(),
       mandatory: true,
       nontokenOnly: isNontokenOnly,
+    });
+  }
+  
+  // "Whenever an Equipment enters the battlefield under your control" (Puresteel Paladin, Barret, etc.)
+  const equipmentETBMatch = oracleText.match(/whenever (?:a|an) equipment enters the battlefield under your control,?\s*([^.]+)/i);
+  if (equipmentETBMatch && !triggers.some(t => t.triggerType === 'equipment_etb')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'equipment_etb',
+      description: equipmentETBMatch[1].trim(),
+      effect: equipmentETBMatch[1].trim(),
+      mandatory: !lowerOracle.includes('you may'),
+    });
+  }
+  
+  // "Whenever you cast an Equipment spell" (for cast triggers vs ETB)
+  const equipmentCastMatch = oracleText.match(/whenever you (?:cast|play) (?:a|an) equipment(?: spell)?,?\s*([^.]+)/i);
+  if (equipmentCastMatch && !triggers.some(t => t.triggerType === 'equipment_cast')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'equipment_cast',
+      description: equipmentCastMatch[1].trim(),
+      effect: equipmentCastMatch[1].trim(),
+      mandatory: !lowerOracle.includes('you may'),
     });
   }
   
@@ -1790,6 +1825,9 @@ const KNOWN_BEGINNING_COMBAT_TRIGGERS: Record<string, { effect: string; requires
   "breath of fury": { effect: "Sacrifice creature for additional combat phase" },
   "world at war": { effect: "Additional combat phase this turn, rebound" },
   "savage beating": { effect: "Double strike or additional combat phase" },
+  // FF7 cards
+  "heidegger, shinra executive": { effect: "Create 1/1 white Soldier creature token for each Soldier you control", createsToken: true },
+  "cait sith, fortune teller": { effect: "Roll a die and trigger based on result", requiresChoice: false },
 };
 
 /**
@@ -2110,6 +2148,16 @@ const KNOWN_END_STEP_TRIGGERS: Record<string, {
     effect: "Exile the top card of your library. You may play that card this turn.",
     mandatory: true,
   },
+  // Furious Rise - At the beginning of your end step, if you control a creature with power 4 or greater,
+  // exile the top card of your library. You may play that card until you exile another card with Furious Rise.
+  "furious rise": {
+    effect: "Exile the top card of your library if you control a creature with power 4+. You may play that card.",
+    mandatory: true,
+    requiresChoice: false,
+  },
+  // Outpost Siege (Khans mode) - At the beginning of your upkeep, exile the top card of your library.
+  // You may play that card this turn.
+  // Note: Dragons mode is already listed above
 };
 
 /**
