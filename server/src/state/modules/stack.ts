@@ -1718,6 +1718,38 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
     }
     
+    // Handle simple "Draw X cards" spells (Harmonize, Concentrate, Jace's Ingenuity, etc.)
+    // Pattern: "Draw three cards." or "Draw four cards." 
+    // This is the imperative form without "you" and catches cards like Harmonize
+    // Must NOT match other patterns we've already handled
+    if (!eachPlayerDrawsMatch && !youDrawMatch && !drawThenDiscardMatch && !drawAndTreasureMatch) {
+      // First try exact match for simple draw spells (e.g., "Draw three cards.")
+      // Then try to find "draw X cards" anywhere in the text if it's the main effect
+      const simpleDrawMatch = oracleTextLower.match(/^draw\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?\.?$/i) ||
+                              oracleTextLower.match(/^draw\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?\s*$/i);
+      
+      // Also handle cards where "Draw X cards" is at the start but may have a period
+      const altDrawMatch = !simpleDrawMatch && oracleTextLower.startsWith('draw ') ?
+        oracleTextLower.match(/^draw\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?/i) : null;
+      
+      const matchToUse = simpleDrawMatch || altDrawMatch;
+      
+      if (matchToUse) {
+        const wordToNumber: Record<string, number> = { 
+          'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+          'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10
+        };
+        const drawCount = wordToNumber[matchToUse[1].toLowerCase()] || parseInt(matchToUse[1], 10) || 1;
+        
+        try {
+          const drawn = drawCardsFromZone(ctx, controller, drawCount);
+          console.log(`[resolveTopOfStack] ${card.name}: ${controller} drew ${drawn.length} card(s) (simple draw spell)`);
+        } catch (err) {
+          console.warn(`[resolveTopOfStack] Failed to draw cards for ${controller}:`, err);
+        }
+      }
+    }
+    
     // Handle tutor spells (Demonic Tutor, Vampiric Tutor, Diabolic Tutor, Kodama's Reach, Cultivate, etc.)
     // These need to trigger a library search prompt for the player
     const tutorInfo = detectTutorSpell(oracleText);

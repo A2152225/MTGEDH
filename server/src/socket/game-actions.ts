@@ -6,7 +6,8 @@ import type { PaymentItem } from "../../../shared/src";
 import { requiresCreatureTypeSelection, requestCreatureTypeSelection } from "./creature-type";
 import { checkAndPromptOpeningHandActions } from "./opening-hand";
 import { emitSacrificeUnlessPayPrompt } from "./triggers";
-import { detectSpellCastTriggers, type SpellCastTrigger } from "../state/modules/triggered-abilities";
+import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, type SpellCastTrigger } from "../state/modules/triggered-abilities";
+import { getUpkeepTriggersForPlayer } from "../state/modules/upkeep-triggers";
 import { categorizeSpell, evaluateTargeting, requiresTargeting, parseTargetRequirements } from "../rules-engine/targeting";
 import { recalculatePlayerEffects } from "../state/modules/game-state-effects";
 import { PAY_X_LIFE_CARDS, getMaxPayableLife, validateLifePayment } from "../state/utils";
@@ -3556,6 +3557,124 @@ export function registerGameActions(io: Server, socket: Socket) {
           }
         } catch (err) {
           console.warn(`[skipToPhase] Failed to draw card:`, err);
+        }
+      }
+
+      // ========================================================================
+      // CRITICAL: Process triggers for phases we're skipping through
+      // When using skipToPhase, we must still fire all triggers that would have
+      // occurred during the skipped phases. Per MTG rules, triggers should always
+      // go on the stack, and the active player gets priority to respond.
+      // ========================================================================
+      
+      if (turnPlayer) {
+        try {
+          // Determine which phases we're skipping and process their triggers
+          const currentPhaseOrder = ['untap', 'upkeep', 'draw', 'main1', 'begin_combat', 'declare_attackers', 
+                                     'declare_blockers', 'combat_damage', 'end_combat', 'main2', 'end_step', 'cleanup'];
+          const currentIdx = currentPhaseOrder.indexOf(currentStep.toLowerCase().replace('_', ''));
+          const targetIdx = currentPhaseOrder.indexOf(targetStepUpper.toLowerCase().replace('_', ''));
+          
+          // Process UPKEEP triggers if we're skipping past upkeep
+          const skipsPastUpkeep = (currentStep === '' || currentStep.toLowerCase() === 'untap') && 
+                                   targetIdx > currentPhaseOrder.indexOf('upkeep');
+          if (skipsPastUpkeep) {
+            const upkeepTriggers = getUpkeepTriggersForPlayer(game as any, turnPlayer);
+            if (upkeepTriggers.length > 0) {
+              console.log(`[skipToPhase] Processing ${upkeepTriggers.length} upkeep trigger(s) that were skipped`);
+              (game.state as any).stack = (game.state as any).stack || [];
+              const battlefield = (game.state as any).battlefield || [];
+              
+              for (const trigger of upkeepTriggers) {
+                if (trigger.mandatory) {
+                  const triggerId = `upkeep_skip_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                  // Get controller from the permanent on the battlefield
+                  const sourcePerm = battlefield.find((p: any) => p?.id === trigger.permanentId);
+                  const controller = sourcePerm?.controller || turnPlayer;
+                  (game.state as any).stack.push({
+                    id: triggerId,
+                    type: 'triggered_ability',
+                    controller,
+                    source: trigger.permanentId,
+                    sourceName: trigger.cardName,
+                    description: trigger.description,
+                    triggerType: 'upkeep_effect',
+                    mandatory: true,
+                    effect: trigger.effect,
+                  });
+                  console.log(`[skipToPhase] ⚡ Pushed skipped upkeep trigger: ${trigger.cardName} - ${trigger.description}`);
+                }
+              }
+            }
+          }
+          
+          // Process BEGIN COMBAT triggers if we're entering or passing through combat
+          const targetIsCombatOrLater = targetIdx >= currentPhaseOrder.indexOf('begin_combat') || 
+                                         targetStepUpper === 'BEGIN_COMBAT';
+          const wasBeforeCombat = currentIdx < currentPhaseOrder.indexOf('begin_combat');
+          if (targetIsCombatOrLater && wasBeforeCombat) {
+            const combatTriggers = getBeginningOfCombatTriggers(game as any, turnPlayer);
+            if (combatTriggers.length > 0) {
+              console.log(`[skipToPhase] Processing ${combatTriggers.length} beginning of combat trigger(s)`);
+              (game.state as any).stack = (game.state as any).stack || [];
+              
+              for (const trigger of combatTriggers) {
+                if (trigger.mandatory) {
+                  const triggerId = `combat_skip_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                  const controller = trigger.controllerId || turnPlayer;
+                  (game.state as any).stack.push({
+                    id: triggerId,
+                    type: 'triggered_ability',
+                    controller,
+                    source: trigger.permanentId,
+                    sourceName: trigger.cardName,
+                    description: trigger.description,
+                    triggerType: 'begin_combat',
+                    mandatory: true,
+                    effect: trigger.effect,
+                  });
+                  console.log(`[skipToPhase] ⚡ Pushed beginning of combat trigger: ${trigger.cardName} - ${trigger.description}`);
+                }
+              }
+            }
+          }
+          
+          // Process END STEP triggers if we're entering end step
+          if (targetStepUpper === 'END_STEP' || targetStepUpper === 'END') {
+            const endTriggers = getEndStepTriggers(game as any, turnPlayer);
+            if (endTriggers.length > 0) {
+              console.log(`[skipToPhase] Processing ${endTriggers.length} end step trigger(s)`);
+              (game.state as any).stack = (game.state as any).stack || [];
+              
+              for (const trigger of endTriggers) {
+                if (trigger.mandatory) {
+                  const triggerId = `end_skip_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                  const controller = trigger.controllerId || turnPlayer;
+                  (game.state as any).stack.push({
+                    id: triggerId,
+                    type: 'triggered_ability',
+                    controller,
+                    source: trigger.permanentId,
+                    sourceName: trigger.cardName,
+                    description: trigger.description,
+                    triggerType: 'end_step',
+                    mandatory: true,
+                    effect: trigger.effect,
+                  });
+                  console.log(`[skipToPhase] ⚡ Pushed end step trigger: ${trigger.cardName} - ${trigger.description}`);
+                }
+              }
+            }
+          }
+          
+          // If we added any triggers to the stack, ensure active player gets priority
+          if ((game.state as any).stack && (game.state as any).stack.length > 0) {
+            (game.state as any).priority = turnPlayer;
+            console.log(`[skipToPhase] Stack has ${(game.state as any).stack.length} item(s), priority to active player ${turnPlayer}`);
+          }
+          
+        } catch (err) {
+          console.warn(`[skipToPhase] Failed to process skipped phase triggers:`, err);
         }
       }
 
