@@ -485,119 +485,170 @@ class CommanderGameSimulator {
   }
 
   /**
-   * Detect specific combos based on cards present in the deck.
-   */
-  private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[], primaryType: string): void {
+ * Detect specific combos based on cards present in the deck.
+ */
+private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[], primaryType: string): void {
     const hasCard = (name: string) => cardNames.some(c => c.toLowerCase().includes(name.toLowerCase()));
     const hasOracle = (text: string) => deck.cards.some(c => c.oracle_text?.toLowerCase().includes(text.toLowerCase()));
     
+    // Define token doublers and counter doublers found in the deck for cleaner logic
+    const tokenDoublers = ['Parallel Lives', 'Anointed Procession', 'Doubling Season', 'Adrix and Nev, Twincasters','Elspeth, Storm Slayer','Exalted Sunborn'];
+    const counterDoublers = ['Deepglow Skate', 'Gilder Bairn', 'Vorel of the Hull Clade'];
+    const foundDoublers = tokenDoublers.filter(d => hasCard(d));
+    const foundCounterDoublers = counterDoublers.filter(d => hasCard(d));
+
     // Merfolk combos
     if (primaryType.toLowerCase() === 'merfolk') {
-      // Summon the School + Merrow Reejerey + 4 Merfolk = infinite tokens
-      if (hasCard('Summon the School') && hasCard('Merrow Reejerey')) {
+
+        // 1. TRUE INFINITE Merfolk / Mill / Mana Loop
+        // Combination of Merrow Reejerey, Summon the School, and Intruder Alarm
+        if (hasCard('Summon the School') && hasCard('Merrow Reejerey') && hasCard('Intruder Alarm')) {
+            combos.push({
+                name: 'Infinite Merfolk/Mill/Mana Loop',
+                cards: ['Intruder Alarm', 'Merrow Reejerey', 'Summon the School', 'Any Mill/Tap outlet (e.g., Drowner of Secrets)'],
+                description: 'Cast Summon the School, Merrow Reejerey untaps lands, Intruder Alarm untaps creatures, use 4 Merfolk to return Summon, repeat infinitely for infinite creatures, mill, or mana with Ashnod\'s Altar.',
+                priority: 10,
+                type: 'infinite'
+            });
+        }
+        
+        // Removed the original (flawed/redundant) Summon the School Loop check.
+        
+        // 2. Merfolk Mill/Life Win Engine
+        if (hasCard('Drowner of Secrets')) {
+            // Check for the strong mill synergy with lifegain
+            if (hasCard('Judge of Currents') && hasCard('Hope Estheim')) {
+                combos.push({
+                    name: 'Merfolk Mill/Life Engine',
+                    cards: ['Drowner of Secrets', 'Judge of Currents', 'Hope Estheim', 'Tapping Merfolk'],
+                    description: 'Tap Merfolk to mill (Drowner), gain life (Judge), and then mill for the life gained (Hope Estheim).',
+                    priority: 9,
+                    type: 'wincon'
+                });
+            } else {
+                // Keep simple mill win-con as a fallback
+                combos.push({
+                    name: 'Merfolk Mill',
+                    cards: ['Drowner of Secrets', 'Many Merfolk tokens/creatures'],
+                    description: 'Tap Merfolk to mill opponents out.',
+                    priority: 8,
+                    type: 'wincon'
+                });
+            }
+        }
+        
+        // 3. Merfolk Token Flood (Refined)
+        // Check includes Summon the School (present) and at least one Token Doubler (Adrix and Nev, Exalted Sunborn are present)
+        if ((hasCard('Deeproot Waters') || hasCard('Summon the School')) && foundDoublers.length > 0) {
+            combos.push({
+                name: 'Merfolk Token Flood',
+                cards: ['Summon the School/Deeproot Waters', foundDoublers.join(' / '), 'Merfolk spells'],
+                description: 'Each Merfolk spell creates multiple tokens for massive board presence.',
+                priority: 7,
+                type: 'value'
+            });
+        }
+        
+        // Removed the specific, flawed Darting Merfolk token condition.
+        
+        // 4. Double Token Triggers (Specific Merfolk Synergy)
+        if (hasCard('Starfield Vocalist') && hasCard('Emperor Mihail II')) {
+             combos.push({
+                name: 'Doubled Merfolk Token Triggers',
+                cards: ['Starfield Vocalist', 'Emperor Mihail II'],
+                description: 'Starfield Vocalist causes Emperor Mihail II\'s ability to create two Merfolk tokens (instead of one) for each Merfolk spell cast, before token doublers apply.',
+                priority: 8,
+                type: 'value'
+            });
+        }
+    }
+
+
+    // --- Generic Combos (Regardless of primaryType) ---
+
+    // 5. Morophon Free Creature Combo (Fixed)
+    // The card 'Leyline of Muttion' does not exist; corrected the check.
+    if ( hasCard('Morophon, the Boundless') && ( hasCard('Jodah, Archmage Eternal') || hasCard('Fist of Suns') )) {
         combos.push({
-          name: 'Summon the School Loop',
-          cards: ['Summon the School', 'Merrow Reejerey', '4+ Merfolk'],
-          description: 'Cast Summon, untap lands with Reejerey, tap 4 Merfolk to return Summon, repeat',
-          priority: 10,
-          type: 'infinite'
+            name: 'Free Tribal Creatures',
+            cards: ['Morophon, the Boundless', 'Jodah, Archmage Eternal/Fist of Suns'],
+            description: `Cast ${primaryType} creatures for free by reducing the colored mana cost to zero.`,
+            priority: 10,
+            type: 'value'
         });
-      }
-      
-      // Drowner of Secrets + many Merfolk = mill win
-      if (hasCard('Drowner of Secrets')) {
+    }
+
+    // 6. Exponential Counter Growth Engine (New)
+    // Uses the three counter doublers found in the card list: Deepglow Skate, Gilder Bairn, and Vorel of the Hull Clade.
+    if (foundCounterDoublers.length >= 2) {
         combos.push({
-          name: 'Merfolk Mill',
-          cards: ['Drowner of Secrets', 'Many Merfolk tokens'],
-          description: 'Tap Merfolk to mill opponents out',
-          priority: 8,
-          type: 'wincon'
+            name: 'Exponential Counter Growth',
+            cards: foundCounterDoublers,
+            description: 'Chaining counter doublers (e.g., Deepglow Skate ETB, Vorel activation, Gilder Bairn activation) to create massive +1/+1 or loyalty counts (e.g., from Hakbal exploring).',
+            priority: 9,
+            type: 'value'
         });
-      }
-      
-      // Deeproot Waters + token doublers
-      if (hasCard('Deeproot Waters') && (hasCard('Parallel Lives') || hasCard('Anointed Procession') || hasCard('Adrix and Nev'))) {
-        combos.push({
-          name: 'Merfolk Token Flood',
-          cards: ['Deeproot Waters', 'Token Doubler', 'Merfolk spells'],
-          description: 'Each Merfolk spell creates multiple tokens',
-          priority: 7,
-          type: 'value'
-        });
-      }
     }
     
-    // Morophon + Jodah/Fist of Suns = free creatures
-    if (hasCard('Morophon') && (hasCard('Jodah') || hasCard('Fist of Suns'))) {
-      combos.push({
-        name: 'Free Tribal Creatures',
-        cards: ['Morophon, the Boundless', 'Jodah/Fist of Suns'],
-        description: `Cast ${primaryType} creatures for free`,
-        priority: 10,
-        type: 'value'
-      });
-    }
-    
-    // Kindred Discovery + creature spam = massive draw
+    // 7. Kindred Discovery + creature spam = massive draw
     if (hasCard('Kindred Discovery')) {
-      combos.push({
-        name: 'Kindred Discovery Engine',
-        cards: ['Kindred Discovery', `${primaryType} creatures`],
-        description: `Draw cards whenever ${primaryType} enter or attack`,
-        priority: 8,
-        type: 'value'
-      });
+        combos.push({
+            name: 'Kindred Discovery Engine',
+            cards: ['Kindred Discovery', `${primaryType} creatures`],
+            description: `Draw cards whenever ${primaryType} enter or attack`,
+            priority: 8,
+            type: 'value'
+        });
     }
     
-    // Token doublers + token generators
-    const tokenDoublers = ['Parallel Lives', 'Anointed Procession', 'Doubling Season', 'Adrix and Nev'];
-    const foundDoublers = tokenDoublers.filter(d => hasCard(d));
+    // 8. Token doublers + token generators
     if (foundDoublers.length > 0 && hasOracle('create') && hasOracle('token')) {
-      combos.push({
-        name: 'Token Multiplication',
-        cards: [...foundDoublers, 'Token generators'],
-        description: 'Double or quadruple token production',
-        priority: 7,
-        type: 'value'
-      });
+        combos.push({
+            name: 'Token Multiplication',
+            cards: [...foundDoublers, 'Token generators (e.g., Emperor Mihail II, Summon the School)'],
+            description: 'Double or quadruple token production from various sources.',
+            priority: 7,
+            type: 'value'
+        });
     }
     
-    // Ashnod's Altar + token generation = infinite mana potential
+    // 9. Ashnod's Altar + token generation = infinite mana potential
     if (hasCard("Ashnod's Altar") && hasOracle('create') && hasOracle('token')) {
-      combos.push({
-        name: "Ashnod's Altar Engine",
-        cards: ["Ashnod's Altar", 'Token generators'],
-        description: 'Sacrifice tokens for mana, potentially infinite with recursion',
-        priority: 9,
-        type: 'infinite'
-      });
+        combos.push({
+            name: "Ashnod's Altar Engine",
+            cards: ["Ashnod's Altar", 'Token generators'],
+            description: 'Sacrifice tokens for mana, potentially infinite when combined with Intruder Alarm and a token-generating Merfolk.',
+            priority: 9,
+            type: 'infinite'
+        });
     }
     
-    // Roaming Throne doubles tribal triggers
+    // 10. Roaming Throne doubles tribal triggers
+    // Added detail to the description to reference specific Merfolk.
     if (hasCard('Roaming Throne')) {
-      combos.push({
-        name: 'Doubled Tribal Triggers',
-        cards: ['Roaming Throne', `${primaryType} creatures with triggers`],
-        description: `All ${primaryType} triggered abilities trigger twice`,
-        priority: 8,
-        type: 'value'
-      });
+        combos.push({
+            name: 'Doubled Tribal Triggers',
+            cards: ['Roaming Throne', `${primaryType} creatures with triggers (e.g., Hakbal, Emperor Mihail II)`],
+            description: `All ${primaryType} triggered abilities (like Hakbal's Explore or Mihail's token creation) trigger twice.`,
+            priority: 8,
+            type: 'value'
+        });
     }
     
-    // Reflections of Littjara copies spells
+    // 11. Reflections of Littjara copies spells
     if (hasCard('Reflections of Littjara')) {
-      combos.push({
-        name: 'Spell Copying',
-        cards: ['Reflections of Littjara', `${primaryType} creature spells`],
-        description: `Copy every ${primaryType} creature spell`,
-        priority: 8,
-        type: 'value'
-      });
+        combos.push({
+            name: 'Spell Copying',
+            cards: ['Reflections of Littjara', `${primaryType} creature spells`,'Summon the School'],
+            description: `Copy every ${primaryType} creature spell for double the effect.`,
+            priority: 8,
+            type: 'value'
+        });
     }
     
     // Sort combos by priority
     combos.sort((a, b) => b.priority - a.priority);
-  }
+}
 
   shuffle<T>(array: T[]): T[] {
     const result = [...array];
@@ -1948,7 +1999,7 @@ class CommanderGameSimulator {
       return 'Artifact for utility';
     }
     
-    const ORACLE_TEXT_PREVIEW_LENGTH = 50;
+    const ORACLE_TEXT_PREVIEW_LENGTH = 120;
     return `Cast for its effect: ${oracle.substring(0, ORACLE_TEXT_PREVIEW_LENGTH) || 'unknown'}...`;
   }
 
@@ -2694,7 +2745,7 @@ class CommanderGameSimulator {
     
     const summaries: GameSummary[] = [];
     
-    for (let i = 1; i <= 5; i++) {
+    for (let i = 1; i <= 25; i++) {
       const summary = await this.runGame(i);
       summaries.push(summary);
     }
