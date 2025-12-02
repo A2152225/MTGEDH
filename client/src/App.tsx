@@ -291,6 +291,16 @@ export function App() {
     imageUrl?: string;
     validTargets: { id: string; name: string; power: string; toughness: string; imageUrl?: string }[];
   } | null>(null);
+
+  // Crew selection modal state (for Vehicles)
+  const [crewModalOpen, setCrewModalOpen] = useState(false);
+  const [crewData, setCrewData] = useState<{
+    vehicleId: string;
+    vehicleName: string;
+    crewPower: number;
+    imageUrl?: string;
+    validCrewers: { id: string; name: string; power: number; toughness: string; imageUrl?: string }[];
+  } | null>(null);
   
   // Triggered ability modal state
   const [triggerModalOpen, setTriggerModalOpen] = useState(false);
@@ -855,6 +865,26 @@ export function App() {
     socket.on("selectEquipTarget", handler);
     return () => {
       socket.off("selectEquipTarget", handler);
+    };
+  }, [safeView?.id]);
+
+  // Crew selection prompt listener (for Vehicles)
+  React.useEffect(() => {
+    const handler = (payload: any) => {
+      if (payload.gameId === safeView?.id) {
+        setCrewData({
+          vehicleId: payload.vehicleId,
+          vehicleName: payload.vehicleName,
+          crewPower: payload.crewPower,
+          imageUrl: payload.imageUrl,
+          validCrewers: payload.validCrewers || [],
+        });
+        setCrewModalOpen(true);
+      }
+    };
+    socket.on("selectCrewCreatures", handler);
+    return () => {
+      socket.off("selectCrewCreatures", handler);
     };
   }, [safeView?.id]);
 
@@ -2047,6 +2077,20 @@ export function App() {
     }
     setEquipTargetModalOpen(false);
     setEquipTargetData(null);
+  };
+
+  // Crew selection handlers (for Vehicles)
+  const handleCrewConfirm = (selectedCreatureIds: string[]) => {
+    if (!safeView || !crewData) return;
+    if (selectedCreatureIds.length > 0) {
+      socket.emit("crewConfirm", {
+        gameId: safeView.id,
+        vehicleId: crewData.vehicleId,
+        creatureIds: selectedCreatureIds,
+      });
+    }
+    setCrewModalOpen(false);
+    setCrewData(null);
   };
 
   // Trigger handlers
@@ -3640,6 +3684,32 @@ export function App() {
         cancelButtonText="Cancel"
         onConfirm={(selectedIds) => handleEquipTarget(selectedIds[0])}
         onCancel={() => handleEquipTarget(null)}
+      />
+
+      {/* Crew Selection Modal (for Vehicles) */}
+      <CardSelectionModal
+        open={crewModalOpen}
+        title={`Crew ${crewData?.vehicleName || 'Vehicle'}`}
+        subtitle={`Tap creatures with total power ${crewData?.crewPower || 0}+ to crew`}
+        sourceCardName={crewData?.vehicleName}
+        sourceCardImageUrl={crewData?.imageUrl}
+        options={useMemo(() => {
+          if (!crewData) return [];
+          const sorted = [...(crewData.validCrewers || [])].sort((a, b) => b.power - a.power);
+          return sorted.map(c => ({
+            id: c.id,
+            name: `${c.name} (Power: ${c.power})`,
+            imageUrl: c.imageUrl,
+            description: `Toughness: ${c.toughness}`,
+          }));
+        }, [crewData])}
+        minSelections={1}
+        maxSelections={crewData?.validCrewers?.length || 10}
+        canCancel={true}
+        confirmButtonText="Crew"
+        cancelButtonText="Cancel"
+        onConfirm={(selectedIds) => handleCrewConfirm(selectedIds)}
+        onCancel={() => { setCrewModalOpen(false); setCrewData(null); }}
       />
 
       {/* Triggered Ability Modal */}
