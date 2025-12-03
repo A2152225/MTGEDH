@@ -411,7 +411,8 @@ export interface TriggeredAbility {
     | 'end_step_resource'   // Kynaios & Tiro style - draw/land resource at end step
     | 'end_step_effect'     // Generic end step trigger
     | 'cast_creature_type'  // Merrow Reejerey style - trigger when casting a spell of a type
-    | 'tap_untap_target';   // Tap or untap target permanent
+    | 'tap_untap_target'    // Tap or untap target permanent
+    | 'join_forces_attack'; // Mana-Charged Dragon - Join Forces when attacking
   description: string;
   effect?: string;
   value?: number | Record<string, any>; // For Annihilator N, or complex effect data
@@ -694,6 +695,24 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
       description: creatureAttacksMatch[1].trim(),
       effect: creatureAttacksMatch[1].trim(),
       mandatory: true,
+    });
+  }
+  
+  // Join Forces attack trigger (Mana-Charged Dragon)
+  // "Whenever ~ attacks, starting with you, each player may pay any amount of mana"
+  if (lowerOracle.includes('join forces') && 
+      lowerOracle.includes('whenever') && 
+      lowerOracle.includes('attacks')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'join_forces_attack',
+      description: 'Join forces - each player may pay any amount of mana',
+      effect: oracleText,
+      mandatory: true,
+      value: {
+        isJoinForces: true,
+      },
     });
   }
   

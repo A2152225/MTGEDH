@@ -1149,12 +1149,15 @@ function parseSearchFilter(criteria: string): { types?: string[]; subtypes?: str
 export function handlePendingJoinForces(io: Server, game: any, gameId: string): void {
   try {
     const pendingArray = game.state?.pendingJoinForces;
+    console.log(`[handlePendingJoinForces] Checking for pending Join Forces effects (count: ${pendingArray?.length || 0})`);
     if (!pendingArray || !Array.isArray(pendingArray) || pendingArray.length === 0) return;
     
     // Get all non-spectator players
     const players = (game.state?.players || [])
       .filter((p: any) => p && !p.spectator)
       .map((p: any) => p.id);
+    
+    console.log(`[handlePendingJoinForces] Players available for Join Forces: ${players.join(', ')}`);
     
     if (players.length === 0) {
       // No players to participate
@@ -1166,6 +1169,8 @@ export function handlePendingJoinForces(io: Server, game: any, gameId: string): 
       if (!jf) continue;
       
       const { id, controller, cardName, effectDescription, imageUrl } = jf;
+      
+      console.log(`[handlePendingJoinForces] Emitting joinForcesRequest for ${cardName} (id: ${id}) to gameId: ${gameId}`);
       
       // Emit Join Forces request to all players
       io.to(gameId).emit("joinForcesRequest", {

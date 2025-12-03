@@ -1006,22 +1006,40 @@ const ADDITIONAL_LAND_PLAY_CARDS: Record<string, { lands: number; affectsAll?: b
 /**
  * Parse oracle text to detect additional land play effects dynamically
  * This handles cards not in the known list
+ * 
+ * Key distinction:
+ * - "You may play" - affects only the controller of the permanent
+ * - "Each player may play" / "player may play" - affects ALL players (Ghirapur Orrery, Rites of Flourishing)
+ * 
+ * Detects patterns like:
+ * - "You may play an additional land on each of your turns" (Exploration, Azusa)
+ * - "You may play two additional lands on each of your turns" (Azusa)
+ * - "Each player may play an additional land on each of their turns" (Ghirapur Orrery)
+ * - "Each player may play an additional land during each of their turns" (Rites of Flourishing)
  */
-function detectAdditionalLandPlayFromOracle(oracleText: string): number {
+function detectAdditionalLandPlayFromOracle(oracleText: string): { lands: number; affectsAll: boolean } {
   const lowerText = (oracleText || "").toLowerCase();
   
-  // "You may play an additional land on each of your turns" / "during each of your turns"
+  // Check for "each player" or "player may play" patterns (Ghirapur Orrery, Rites of Flourishing)
+  // These affect ALL players, not just the controller
+  const affectsAll = lowerText.includes("each player may play") || 
+                     lowerText.includes("each player can play") ||
+                     lowerText.includes("player may play an additional land") ||
+                     lowerText.includes("players may play an additional land");
+  
+  // Check for additional land patterns
+  // "play an additional land" / "play one additional land"
   if (lowerText.includes("play an additional land") || 
       lowerText.includes("play one additional land")) {
     // Check if it's "two additional lands"
     if (lowerText.includes("two additional land")) {
-      return 2;
+      return { lands: 2, affectsAll };
     }
     // Check if it's "three additional lands"
     if (lowerText.includes("three additional land")) {
-      return 3;
+      return { lands: 3, affectsAll };
     }
-    return 1;
+    return { lands: 1, affectsAll };
   }
   
   // "You may play X additional lands each turn"
@@ -1031,10 +1049,10 @@ function detectAdditionalLandPlayFromOracle(oracleText: string): number {
     const wordToNum: Record<string, number> = {
       'one': 1, 'two': 2, 'three': 3, 'four': 4, 'an': 1, 'a': 1
     };
-    return wordToNum[countWord] || 1;
+    return { lands: wordToNum[countWord] || 1, affectsAll };
   }
   
-  return 0;
+  return { lands: 0, affectsAll: false };
 }
 
 /**
@@ -1067,6 +1085,10 @@ const ADDITIONAL_DRAW_CARDS: Record<string, { draws: number; affectsAll?: boolea
 /**
  * Calculate the maximum number of lands a player can play this turn
  * based on battlefield permanents AND temporary spell effects
+ * 
+ * This handles:
+ * - Cards that affect only their controller ("You may play")
+ * - Cards that affect all players ("Each player may play") like Ghirapur Orrery
  */
 export function calculateMaxLandsPerTurn(ctx: GameContext, playerId: string): number {
   let maxLands = 1; // Base: 1 land per turn
@@ -1079,29 +1101,35 @@ export function calculateMaxLandsPerTurn(ctx: GameContext, playerId: string): nu
     
     const cardName = (perm.card?.name || "").toLowerCase();
     const oracleText = (perm.card?.oracle_text || "");
+    const isController = perm.controller === playerId;
     let foundInKnownList = false;
     
     // First check known cards list
     for (const [knownName, effect] of Object.entries(ADDITIONAL_LAND_PLAY_CARDS)) {
       if (cardName.includes(knownName) && effect.lands > 0) {
         // Check if this effect applies to this player
-        const isController = perm.controller === playerId;
+        // Effect applies if: player controls it OR effect affects all players
         if (isController || effect.affectsAll) {
           maxLands += effect.lands;
           checkedPermanentIds.add(perm.id);
           foundInKnownList = true;
+          console.log(`[calculateMaxLandsPerTurn] ${perm.card?.name} grants +${effect.lands} lands to ${playerId} (controller: ${perm.controller}, affectsAll: ${effect.affectsAll})`);
           break; // Only count once per permanent
         }
       }
     }
     
     // If not in known list, try dynamic oracle text parsing
-    if (!foundInKnownList && perm.controller === playerId) {
-      const dynamicLands = detectAdditionalLandPlayFromOracle(oracleText);
-      if (dynamicLands > 0) {
-        maxLands += dynamicLands;
-        checkedPermanentIds.add(perm.id);
-        console.log(`[calculateMaxLandsPerTurn] Detected +${dynamicLands} lands from ${perm.card?.name} via oracle text`);
+    // This handles both controller-only and all-player effects dynamically
+    if (!foundInKnownList) {
+      const dynamicResult = detectAdditionalLandPlayFromOracle(oracleText);
+      if (dynamicResult.lands > 0) {
+        // Apply if: player controls it OR effect affects all players
+        if (isController || dynamicResult.affectsAll) {
+          maxLands += dynamicResult.lands;
+          checkedPermanentIds.add(perm.id);
+          console.log(`[calculateMaxLandsPerTurn] Detected +${dynamicResult.lands} lands from ${perm.card?.name} via oracle text (controller: ${perm.controller}, affectsAll: ${dynamicResult.affectsAll})`);
+        }
       }
     }
   }
