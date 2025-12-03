@@ -1893,8 +1893,78 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // Check timing restrictions for sorcery-speed spells
       const oracleText = (cardInHand.oracle_text || "").toLowerCase();
-      const hasFlash = oracleText.includes("flash");
+      let hasFlash = oracleText.includes("flash");
       const isInstant = typeLine.includes("instant");
+      
+      // Check for "flash grant" effects from battlefield permanents
+      // Yeva, Nature's Herald: "You may cast green creature cards as though they had flash."
+      // Vedalken Orrery: "You may cast spells as though they had flash."
+      // Leyline of Anticipation: "You may cast spells as though they had flash."
+      // Vivien, Champion of the Wilds: "You may cast creature spells as though they had flash."
+      // Emergence Zone: "You may cast spells this turn as though they had flash."
+      if (!hasFlash && !isInstant) {
+        const battlefield = game.state?.battlefield || [];
+        const cardColors = (cardInHand.colors || cardInHand.color_identity || []).map((c: string) => c.toLowerCase());
+        const isGreenCard = cardColors.includes('g') || cardColors.includes('green');
+        const isCreature = typeLine.includes('creature');
+        
+        for (const perm of battlefield) {
+          if ((perm as any).controller !== playerId) continue;
+          
+          const permName = ((perm as any).card?.name || '').toLowerCase();
+          const permOracle = ((perm as any).card?.oracle_text || '').toLowerCase();
+          
+          // Yeva, Nature's Herald - green creature cards have flash
+          if (permName.includes('yeva') && isGreenCard && isCreature) {
+            hasFlash = true;
+            console.log(`[castSpellFromHand] ${cardInHand.name} has flash via Yeva, Nature's Herald`);
+            break;
+          }
+          
+          // Vivien, Champion of the Wilds - creature spells have flash
+          if (permName.includes('vivien, champion of the wilds') && isCreature) {
+            hasFlash = true;
+            console.log(`[castSpellFromHand] ${cardInHand.name} has flash via Vivien, Champion of the Wilds`);
+            break;
+          }
+          
+          // Vedalken Orrery, Leyline of Anticipation - all spells have flash
+          if (permName.includes('vedalken orrery') || permName.includes('leyline of anticipation')) {
+            hasFlash = true;
+            console.log(`[castSpellFromHand] ${cardInHand.name} has flash via ${(perm as any).card?.name}`);
+            break;
+          }
+          
+          // Emergence Zone (activated ability, check if active this turn)
+          if (permName.includes('emergence zone') && (perm as any).flashGrantedThisTurn) {
+            hasFlash = true;
+            console.log(`[castSpellFromHand] ${cardInHand.name} has flash via Emergence Zone`);
+            break;
+          }
+          
+          // Generic detection: "cast ... as though they had flash"
+          if (permOracle.includes('as though') && permOracle.includes('had flash')) {
+            // Check if it applies to this card type
+            if (permOracle.includes('creature') && isCreature) {
+              hasFlash = true;
+              console.log(`[castSpellFromHand] ${cardInHand.name} has flash via ${(perm as any).card?.name}`);
+              break;
+            }
+            if (permOracle.includes('green') && isGreenCard && isCreature) {
+              hasFlash = true;
+              console.log(`[castSpellFromHand] ${cardInHand.name} has flash via ${(perm as any).card?.name}`);
+              break;
+            }
+            if (permOracle.includes('spells') && !permOracle.includes('creature')) {
+              // "You may cast spells as though they had flash" - applies to all
+              hasFlash = true;
+              console.log(`[castSpellFromHand] ${cardInHand.name} has flash via ${(perm as any).card?.name}`);
+              break;
+            }
+          }
+        }
+      }
+      
       const isSorcerySpeed = !isInstant && !hasFlash;
       
       if (isSorcerySpeed) {
