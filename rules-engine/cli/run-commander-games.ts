@@ -2,11 +2,19 @@
 /**
  * run-commander-games.ts
  * 
- * Runs Commander games using deck files from the precon_json folder.
+ * Commander game simulation CLI that integrates with the shared Rules Engine.
  * Supports 2-8 players with configurable turn limits.
- * Tracks gameplay metrics and generates a summary report.
  * 
- * Uses oracleTextParser and triggeredAbilities for ability parsing and detection.
+ * Purpose: Quick testing of cards and interactions to find and fix gaps in the rules engine.
+ * Can also be used to playtest decks and analyze performance.
+ * 
+ * Integrates with:
+ * - oracleTextParser: For parsing card abilities
+ * - triggeredAbilities: For trigger detection
+ * - stateBasedActions: For SBA checking (life, poison, commander damage)
+ * - staticAbilities: For continuous effects
+ * - winEffectCards: For win condition detection
+ * - activatedAbilities: For activated ability parsing
  */
 
 import * as fs from 'fs';
@@ -15,6 +23,20 @@ import { fileURLToPath } from 'url';
 import type { ManaPool } from '../../shared/src';
 import { parseOracleText, parseTriggeredAbility, type ParsedAbility, AbilityType } from '../src/oracleTextParser';
 import { parseTriggeredAbilitiesFromText, TriggerEvent, type TriggeredAbility } from '../src/triggeredAbilities';
+import { 
+  checkPlayerLife, 
+  checkPoisonCounters, 
+  checkCommanderDamage,
+  StateBasedActionType 
+} from '../src/stateBasedActions';
+import { 
+  detectWinEffect, 
+  playerHasCantLoseEffect,
+  checkEmptyLibraryDrawWin,
+  WinEffectType
+} from '../src/winEffectCards';
+import { parseStaticAbilities } from '../src/staticAbilities';
+import { parseActivatedAbilitiesFromText } from '../src/activatedAbilities';
 
 // ES module compatibility for __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -131,6 +153,7 @@ interface PlayerState {
   cardsDrawnThisTurn: number;
   failedToDraw: boolean;  // True if player attempted to draw from empty library (loses as SBA)
   lastMillSource?: { attackerPlayerId: number; card: string };  // Track who milled us
+  commanderDamage: Record<string, number>;  // Track commander damage received from each commander
 }
 
 interface PermanentState {
@@ -1974,6 +1997,63 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
         continue;
       }
       
+      // Check for commander damage (Rule 704.6c: 21+ combat damage from a single commander)
+      // Use the rules engine's checkCommanderDamage function
+      if (Object.keys(player.commanderDamage).length > 0) {
+        const commanderDamageMap = new Map(Object.entries(player.commanderDamage));
+        const commanderCheck = checkCommanderDamage(String(playerId), commanderDamageMap);
+        
+        if (commanderCheck) {
+          // Find which commander dealt lethal damage
+          let killerCommanderId: string | undefined;
+          let killerDamage = 0;
+          for (const [cmdKey, dmg] of Object.entries(player.commanderDamage)) {
+            if (dmg >= 21) {
+              killerCommanderId = cmdKey;
+              killerDamage = dmg;
+              break;
+            }
+          }
+          
+          // Extract killer player ID from the key (format: "playerId-commanderName")
+          const killerPlayerId = killerCommanderId ? parseInt(killerCommanderId.split('-')[0], 10) : undefined;
+          const killerCommander = killerCommanderId ? killerCommanderId.substring(killerCommanderId.indexOf('-') + 1) : undefined;
+          const killer = killerPlayerId ? state.players[killerPlayerId] : undefined;
+          
+          const reason = `Received ${killerDamage} commander damage from ${killerCommander || 'a commander'}`;
+          
+          const eliminationRecord: EliminationRecord = {
+            playerId,
+            playerName: player.name,
+            turn: state.turn,
+            reason,
+            eliminatedLibrarySize: player.library.length,
+            eliminatedHandSize: player.hand.length,
+            damageType: 'combat',
+          };
+          
+          if (killer && killerPlayerId) {
+            eliminationRecord.killerPlayerId = killerPlayerId;
+            eliminationRecord.killerPlayerName = killer.name;
+            eliminationRecord.killerCard = killerCommander;
+            eliminationRecord.killerLibrarySize = killer.library.length;
+            eliminationRecord.killerHandSize = killer.hand.length;
+          }
+          
+          state.events.push({
+            turn: state.turn,
+            player: player.name,
+            action: 'eliminated',
+            details: `${reason} - Killed by commander damage`
+          });
+          
+          state.eliminations.push(eliminationRecord);
+          player.life = -999;
+          changed = true;
+          continue;
+        }
+      }
+      
       // Player is still alive
       if (player.life > 0) {
         alivePlayers.push(playerId);
@@ -2191,8 +2271,27 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
       });
     } else {
       defender.life -= totalDamage;
-      // Track the damage source for elimination tracking
+      
+      // Track commander damage (Rule 704.6c)
       const defenderId = this.getPlayerIdFromName(state, defender.name);
+      for (const creature of affordableAttackers) {
+        if (creature.card === attacker.commander) {
+          // This is commander combat damage
+          const creaturePower = creature.power || 0;
+          const commanderKey = `${attackingPlayerId}-${attacker.commander}`;
+          defender.commanderDamage[commanderKey] = (defender.commanderDamage[commanderKey] || 0) + creaturePower;
+          
+          state.events.push({
+            turn: state.turn,
+            player: attacker.name,
+            action: 'commander damage',
+            card: attacker.commander,
+            details: `Dealt ${creaturePower} commander damage to ${defender.name} (total: ${defender.commanderDamage[commanderKey]}/21)`
+          });
+        }
+      }
+      
+      // Track the damage source for elimination tracking
       const attackerCardsSummary = affordableAttackers.length === 1 
         ? affordableAttackers[0].card 
         : `${affordableAttackers.length} creatures (${affordableAttackers[0].card}, etc.)`;
@@ -2613,6 +2712,7 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
         poisonCounters: 0,
         cardsDrawnThisTurn: 0,
         failedToDraw: false,
+        commanderDamage: {},  // Track commander damage from each opponent's commander
       };
     }
     
