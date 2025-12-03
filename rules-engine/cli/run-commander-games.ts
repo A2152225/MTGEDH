@@ -153,7 +153,7 @@ interface PlayerState {
   cardsDrawnThisTurn: number;
   failedToDraw: boolean;  // True if player attempted to draw from empty library (loses as SBA)
   lastMillSource?: { attackerPlayerId: number; card: string };  // Track who milled us
-  commanderDamage: Record<string, number>;  // Track commander damage received from each commander
+  commanderDamage: Record<string, number>;  // Track commander damage received (key format: "{attackerPlayerId}-{commanderName}")
 }
 
 interface PermanentState {
@@ -2273,6 +2273,7 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
       defender.life -= totalDamage;
       
       // Track commander damage (Rule 704.6c)
+      // defenderId is used for both commander damage tracking and general damage source tracking
       const defenderId = this.getPlayerIdFromName(state, defender.name);
       for (const creature of affordableAttackers) {
         if (creature.card === attacker.commander) {
