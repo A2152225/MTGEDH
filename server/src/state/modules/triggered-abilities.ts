@@ -7227,6 +7227,8 @@ export function checkChainVeilEndStepTrigger(gameState: any, playerId: string): 
  * - Zero cost abilities
  * - The Chain Veil effect (additional loyalty activation)
  * - Oath of Teferi effect (activate loyalty twice per turn)
+ * - Eidolon of Obstruction (loyalty abilities cost {1} more for opponents)
+ * - Teferi's Talent emblem (instant speed loyalty activation)
  */
 export function canActivateLoyaltyAbility(
   permanent: any,
@@ -7234,7 +7236,7 @@ export function canActivateLoyaltyAbility(
   gameState: any,
   playerId: string,
   xValue?: number // For -X abilities, what X value the player wants to use
-): { canActivate: boolean; reason?: string; maxX?: number } {
+): { canActivate: boolean; reason?: string; maxX?: number; additionalManaCost?: number } {
   // Check controller
   if (permanent?.controller !== playerId) {
     return { canActivate: false, reason: "Not your planeswalker" };
@@ -7258,6 +7260,9 @@ export function canActivateLoyaltyAbility(
   
   const ability = abilities.abilities[abilityIndex];
   
+  // Calculate additional mana cost from effects like Eidolon of Obstruction
+  const additionalManaCost = getLoyaltyAdditionalCost(gameState, playerId, permanent);
+  
   // Handle variable X cost abilities
   if (ability.cost === 'X' || ability.isVariableCost) {
     // -X abilities can be activated with any X from 0 to current loyalty
@@ -7267,37 +7272,173 @@ export function canActivateLoyaltyAbility(
     if (xValue !== undefined) {
       // Validate the chosen X value
       if (xValue < 0) {
-        return { canActivate: false, reason: "X cannot be negative", maxX };
+        return { canActivate: false, reason: "X cannot be negative", maxX, additionalManaCost };
       }
       if (xValue > currentLoyalty) {
-        return { canActivate: false, reason: `X cannot exceed current loyalty (${currentLoyalty})`, maxX };
+        return { canActivate: false, reason: `X cannot exceed current loyalty (${currentLoyalty})`, maxX, additionalManaCost };
       }
     }
     
     // Can activate -X ability as long as we have any loyalty
     // (X can be 0 in some cases)
-    return { canActivate: true, maxX };
+    return { canActivate: true, maxX, additionalManaCost };
   }
   
   // For minus abilities with fixed cost, check if we have enough loyalty
   if (typeof ability.cost === 'number' && ability.cost < 0 && currentLoyalty < Math.abs(ability.cost)) {
-    return { canActivate: false, reason: `Not enough loyalty (have ${currentLoyalty}, need ${Math.abs(ability.cost)})` };
+    return { canActivate: false, reason: `Not enough loyalty (have ${currentLoyalty}, need ${Math.abs(ability.cost)})`, additionalManaCost };
   }
   
-  // Check sorcery speed (main phase, stack empty, have priority)
+  // Check timing restrictions
+  const canActivateAtInstantSpeed = canActivateLoyaltyAtInstantSpeed(gameState, playerId);
   const phase = gameState?.phase || '';
   const stack = gameState?.stack || [];
   const activePlayer = gameState?.activePlayer;
   
-  if (!phase.includes('main') || stack.length > 0) {
-    return { canActivate: false, reason: "Can only activate at sorcery speed" };
+  if (!canActivateAtInstantSpeed) {
+    // Normal sorcery speed check (main phase, stack empty, have priority)
+    if (!phase.includes('main') || stack.length > 0) {
+      return { canActivate: false, reason: "Can only activate at sorcery speed", additionalManaCost };
+    }
+    
+    if (activePlayer !== playerId) {
+      return { canActivate: false, reason: "Not your turn", additionalManaCost };
+    }
+  }
+  // If instant speed is allowed, skip the sorcery speed checks
+  
+  return { canActivate: true, additionalManaCost };
+}
+
+/**
+ * Get additional mana cost for activating loyalty abilities
+ * 
+ * Effects that increase loyalty ability costs:
+ * - Eidolon of Obstruction: "Loyalty abilities of planeswalkers your opponents control cost {1} more to activate"
+ * - Suppression Field: "Activated abilities cost {2} more to activate" (includes loyalty abilities)
+ */
+export function getLoyaltyAdditionalCost(gameState: any, playerId: string, planeswalker: any): number {
+  let additionalCost = 0;
+  const battlefield = gameState?.battlefield || [];
+  
+  for (const permanent of battlefield) {
+    if (!permanent) continue;
+    
+    const cardName = (permanent.card?.name || "").toLowerCase();
+    const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
+    const controller = permanent.controller;
+    
+    // Eidolon of Obstruction - affects opponents' planeswalkers
+    if (cardName === "eidolon of obstruction" && controller !== playerId) {
+      // The planeswalker's controller is playerId, and Eidolon is controlled by opponent
+      // So this makes playerId's loyalty abilities cost more
+      additionalCost += 1;
+    }
+    
+    // Also check for generic "loyalty abilities...cost...more" patterns
+    // This handles similar future cards
+    if (controller !== playerId && 
+        oracleText.includes("loyalty abilities") && 
+        oracleText.includes("opponents control") &&
+        oracleText.includes("cost") && 
+        oracleText.includes("more")) {
+      // Try to extract the amount
+      const costMatch = oracleText.match(/cost\s*\{(\d+)\}\s*more/);
+      if (costMatch) {
+        additionalCost += parseInt(costMatch[1], 10);
+      }
+    }
+    
+    // Suppression Field affects all activated abilities
+    if (cardName === "suppression field") {
+      additionalCost += 2;
+    }
+    
+    // Aura Shards and similar - "Activated abilities...cost {N} more"
+    if (oracleText.includes("activated abilities") && 
+        oracleText.includes("cost") && 
+        oracleText.includes("more")) {
+      const costMatch = oracleText.match(/cost\s*\{(\d+)\}\s*more/);
+      if (costMatch) {
+        additionalCost += parseInt(costMatch[1], 10);
+      }
+    }
   }
   
-  if (activePlayer !== playerId) {
-    return { canActivate: false, reason: "Not your turn" };
+  return additionalCost;
+}
+
+/**
+ * Check if a player can activate loyalty abilities at instant speed
+ * 
+ * Effects that grant instant speed activation:
+ * - Teferi's Talent emblem: "You may activate loyalty abilities of planeswalkers you control 
+ *   on any player's turn any time you could cast an instant"
+ * - Teferi, Temporal Archmage emblem (similar effect)
+ * - The Peregrine Dynamo (can copy at instant speed, but not activate)
+ */
+export function canActivateLoyaltyAtInstantSpeed(gameState: any, playerId: string): boolean {
+  // Check emblems
+  const emblems = gameState?.emblems || [];
+  for (const emblem of emblems) {
+    if (!emblem || emblem.controller !== playerId) continue;
+    
+    const effect = (emblem.effect || "").toLowerCase();
+    
+    // Teferi's Talent emblem
+    if (effect.includes("loyalty abilities") && 
+        effect.includes("any player's turn") &&
+        effect.includes("instant")) {
+      return true;
+    }
+    
+    // Teferi, Temporal Archmage emblem
+    if (effect.includes("loyalty abilities") && 
+        effect.includes("any time you could cast an instant")) {
+      return true;
+    }
   }
   
-  return { canActivate: true };
+  // Check battlefield for permanents that grant this ability
+  const battlefield = gameState?.battlefield || [];
+  for (const permanent of battlefield) {
+    if (!permanent || permanent.controller !== playerId) continue;
+    
+    const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
+    
+    // Generic check for instant speed loyalty activation
+    if (oracleText.includes("loyalty abilities") && 
+        oracleText.includes("any time") &&
+        oracleText.includes("instant")) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * Handle Teferi's Talent draw trigger - add loyalty counter to enchanted planeswalker
+ * Returns the planeswalker that should receive a loyalty counter, if any
+ */
+export function getTeferisTalentDrawTrigger(gameState: any, playerId: string): string | null {
+  const battlefield = gameState?.battlefield || [];
+  
+  for (const permanent of battlefield) {
+    if (!permanent || permanent.controller !== playerId) continue;
+    
+    const cardName = (permanent.card?.name || "").toLowerCase();
+    
+    if (cardName === "teferi's talent") {
+      // Find the enchanted planeswalker
+      const attachedTo = permanent.attachedTo;
+      if (attachedTo) {
+        return attachedTo;
+      }
+    }
+  }
+  
+  return null;
 }
 
 /**
