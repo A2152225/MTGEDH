@@ -354,7 +354,7 @@ export function CentralStack({
                     <span style={{ color:'#9ca3af' }}>→</span>
                     <span style={{ fontWeight:'500' }}>
                       {/* Use targetDetails if available (includes names), otherwise fall back to targets */}
-                      {(it.targetDetails || it.targets).map((target: any, idx: number) => {
+                      {(it.targetDetails || it.targets).map((target: any) => {
                         // Handle both string and object targets
                         if (typeof target === 'string') {
                           // Try to find the permanent name for this ID
