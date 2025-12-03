@@ -466,7 +466,18 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           defender: false, cantAttack: false, cantBlock: false,
         };
       }
-      const attackerPower = parseInt(String(attacker.basePower ?? card.power ?? '0'), 10) || 0;
+      
+      // Calculate effective power including +1/+1 counters and modifiers
+      let attackerPower: number;
+      if (typeof attacker.effectivePower === 'number') {
+        attackerPower = attacker.effectivePower;
+      } else {
+        const basePower = parseInt(String(attacker.basePower ?? card.power ?? '0'), 10) || 0;
+        const plusCounters = attacker.counters?.['+1/+1'] || 0;
+        const minusCounters = attacker.counters?.['-1/-1'] || 0;
+        attackerPower = Math.max(0, basePower + plusCounters - minusCounters);
+      }
+      
       const attackerController = attacker.controller;
       const defendingTarget = attacker.attacking; // Player ID or planeswalker ID
       
@@ -663,7 +674,17 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               defender: false, cantAttack: false, cantBlock: false,
             };
           }
-          const blockerPower = parseInt(String(blocker.basePower ?? blockerCard.power ?? '0'), 10) || 0;
+          
+          // Calculate effective blocker power including +1/+1 counters and modifiers
+          let blockerPower: number;
+          if (typeof blocker.effectivePower === 'number') {
+            blockerPower = blocker.effectivePower;
+          } else {
+            const basePower = parseInt(String(blocker.basePower ?? blockerCard.power ?? '0'), 10) || 0;
+            const plusCounters = blocker.counters?.['+1/+1'] || 0;
+            const minusCounters = blocker.counters?.['-1/-1'] || 0;
+            blockerPower = Math.max(0, basePower + plusCounters - minusCounters);
+          }
           console.log(`${ts()} [COMBAT_DAMAGE] Blocker ${blockerCard.name || blockerId} has power ${blockerPower}`);
           
           // Check if this blocker should deal damage in this phase based on first strike rules
