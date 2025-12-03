@@ -232,6 +232,9 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
     return savedDecks.filter(d => d.name.toLowerCase().includes(q));
   }, [savedDecks, aiDeckFilter]);
 
+  // Check if we've reached the maximum number of AI opponents
+  const isAtMaxAiCapacity = aiOpponents.length >= MAX_AI_OPPONENTS;
+
   /**
    * Sanitize game ID to only allow alphanumeric, underscore, and hyphen
    */
@@ -544,14 +547,14 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
               <button
                 type="button"
                 onClick={addAiOpponent}
-                disabled={aiOpponents.length >= MAX_AI_OPPONENTS}
+                disabled={isAtMaxAiCapacity}
                 style={{
                   padding: '6px 12px',
                   borderRadius: 4,
                   border: 'none',
-                  backgroundColor: aiOpponents.length >= MAX_AI_OPPONENTS ? '#9ca3af' : '#3b82f6',
+                  backgroundColor: isAtMaxAiCapacity ? '#9ca3af' : '#3b82f6',
                   color: '#fff',
-                  cursor: aiOpponents.length >= MAX_AI_OPPONENTS ? 'not-allowed' : 'pointer',
+                  cursor: isAtMaxAiCapacity ? 'not-allowed' : 'pointer',
                   fontSize: 12,
                   fontWeight: 500,
                 }}
@@ -566,7 +569,7 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
               </div>
             )}
 
-            {aiOpponents.length >= MAX_AI_OPPONENTS && (
+            {isAtMaxAiCapacity && (
               <div style={{ fontSize: 12, color: '#f59e0b', marginTop: 8 }}>
                 Maximum of {MAX_AI_OPPONENTS} AI opponents reached.
               </div>
