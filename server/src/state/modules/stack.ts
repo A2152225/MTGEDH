@@ -2259,6 +2259,24 @@ export function resolveTopOfStack(ctx: GameContext) {
       console.log(`[resolveTopOfStack] ${card.name} is NOT a Join Forces spell (name: "${cardNameLower}", has 'join forces': ${oracleTextLower.includes('join forces')})`);
     }
     
+    // Handle Tempting Offer spells (Tempt with Discovery, Tempt with Glory, etc.)
+    // These require each opponent to choose whether to accept the offer
+    console.log(`[resolveTopOfStack] Checking if ${card.name} is a Tempting Offer spell...`);
+    if (isTemptingOfferSpell(card.name, oracleTextLower)) {
+      // Set up pending tempting offer - this signals to the socket layer to initiate the offer phase
+      (state as any).pendingTemptingOffer = (state as any).pendingTemptingOffer || [];
+      (state as any).pendingTemptingOffer.push({
+        id: uid("tempt"),
+        controller,
+        cardName: card.name || 'Tempting Offer Spell',
+        effectDescription: oracleText,
+        imageUrl: card.image_uris?.normal || card.image_uris?.small,
+      });
+      console.log(`[resolveTopOfStack] Tempting Offer spell ${card.name} waiting for opponent responses (pendingTemptingOffer count: ${(state as any).pendingTemptingOffer.length})`);
+    } else {
+      console.log(`[resolveTopOfStack] ${card.name} is NOT a Tempting Offer spell`);
+    }
+    
     // Handle Approach of the Second Sun - goes 7th from top of library, not graveyard
     // Also track that it was cast for win condition checking
     const isApproach = (card.name || '').toLowerCase().includes('approach of the second sun') ||
@@ -2527,6 +2545,44 @@ function isJoinForcesSpell(cardName: string, oracleTextLower: string): boolean {
   if (oracleTextLower.includes('join forces') &&
       oracleTextLower.includes('starting with you') && 
       oracleTextLower.includes('each player may pay')) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Check if a spell is a Tempting Offer spell
+ * 
+ * Tempting Offer cards (as of current sets):
+ * - Tempt with Discovery (search for land)
+ * - Tempt with Glory (+1/+1 counters)
+ * - Tempt with Immortality (reanimate)
+ * - Tempt with Reflections (clone)
+ * - Tempt with Vengeance (create tokens)
+ * 
+ * Tempting Offer pattern: "Tempting offer — [effect]. Each opponent may [accept]. 
+ * For each opponent who does, [bonus for caster]"
+ */
+function isTemptingOfferSpell(cardName: string, oracleTextLower: string): boolean {
+  const nameLower = (cardName || '').toLowerCase();
+  
+  // Known Tempting Offer spell names
+  const temptingOfferSpells = new Set([
+    "tempt with discovery",
+    "tempt with glory",
+    "tempt with immortality",
+    "tempt with reflections",
+    "tempt with vengeance",
+  ]);
+  
+  if (temptingOfferSpells.has(nameLower)) {
+    return true;
+  }
+  
+  // Generic detection via oracle text
+  // "Tempting offer" is the keyword ability
+  if (oracleTextLower.includes('tempting offer')) {
     return true;
   }
   

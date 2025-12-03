@@ -51,70 +51,291 @@ function generateJoinForcesId(): string {
  * Calculate AI contribution for Join Forces
  * AI will contribute based on strategy and available mana
  */
+/**
+ * Calculate AI contribution for Join Forces effects.
+ * Uses game-state reasoning to make intelligent decisions:
+ * - Minds Aglow: Consider hand size, cards needed to fill hand
+ * - Collective Voyage: Consider land count vs opponents, ramp value
+ * - Alliance of Arms: Token value based on board state
+ * - Shared Trauma: Mill value based on graveyard strategies
+ */
 function calculateAIJoinForcesContribution(game: any, aiPlayerId: string, cardName: string): number {
-  // Get AI's available mana (simplified - count untapped lands)
   const battlefield = game.state?.battlefield || [];
+  const zones = game.state?.zones || {};
+  const players = game.state?.players || [];
+  
+  // Get AI's available mana (count untapped lands)
   const aiLands = battlefield.filter((p: any) => 
     p.controller === aiPlayerId && 
     !p.tapped &&
     (p.card?.type_line || '').toLowerCase().includes('land')
   );
-  
   const availableMana = aiLands.length;
   
-  // AI strategy for contribution:
-  // - For beneficial effects (draw, ramp), contribute more
-  // - Random factor for unpredictability
-  const lowerCardName = cardName.toLowerCase();
-  let contributionFactor = 0.3; // Default: contribute ~30% of available mana
-  
-  if (lowerCardName.includes('minds aglow') || lowerCardName.includes('draw')) {
-    contributionFactor = 0.5; // More willing to draw cards
-  } else if (lowerCardName.includes('collective voyage') || lowerCardName.includes('land')) {
-    contributionFactor = 0.4; // Ramp is valuable
-  }
-  
-  // Add some randomness (0.8x to 1.2x)
-  const randomFactor = 0.8 + Math.random() * 0.4;
-  
-  const contribution = Math.floor(availableMana * contributionFactor * randomFactor);
-  
-  // Sometimes AI contributes 0 (especially if low on mana)
-  if (availableMana <= 2 && Math.random() < 0.5) {
+  // If no mana available, can't contribute
+  if (availableMana === 0) {
+    console.log(`[AI JoinForces] ${aiPlayerId} has no untapped lands, contributing 0`);
     return 0;
   }
   
-  return Math.min(contribution, availableMana);
+  // Get AI's game state
+  const aiZones = zones[aiPlayerId] || {};
+  const aiHandSize = aiZones.handCount || (aiZones.hand?.length || 0);
+  const aiTotalLands = battlefield.filter((p: any) => 
+    p.controller === aiPlayerId && 
+    (p.card?.type_line || '').toLowerCase().includes('land')
+  ).length;
+  const aiLibrarySize = aiZones.libraryCount || 0;
+  const aiGraveyardSize = aiZones.graveyardCount || (aiZones.graveyard?.length || 0);
+  
+  // Get opponent info for comparison
+  const opponents = players.filter((p: any) => p.id !== aiPlayerId && !p.hasLost);
+  const avgOpponentLands = opponents.length > 0 
+    ? battlefield.filter((p: any) => 
+        opponents.some((o: any) => o.id === p.controller) && 
+        (p.card?.type_line || '').toLowerCase().includes('land')
+      ).length / opponents.length
+    : 0;
+  
+  const lowerCardName = cardName.toLowerCase();
+  let desiredContribution = 0;
+  let reasoning = '';
+  
+  // ===== MINDS AGLOW - Draw cards =====
+  // Consider: hand size, max hand size (7), cards needed
+  if (lowerCardName.includes('minds aglow') || lowerCardName.includes('draw')) {
+    const maxHandSize = 7;
+    const cardsNeeded = Math.max(0, maxHandSize - aiHandSize);
+    
+    if (aiHandSize >= maxHandSize) {
+      // Hand is full, no need to draw more
+      desiredContribution = 0;
+      reasoning = `hand full (${aiHandSize}/${maxHandSize})`;
+    } else if (cardsNeeded >= 3) {
+      // Really need cards, contribute more
+      desiredContribution = Math.min(cardsNeeded, Math.ceil(availableMana * 0.6));
+      reasoning = `needs cards (${aiHandSize}/${maxHandSize})`;
+    } else {
+      // Could use a few cards
+      desiredContribution = Math.min(cardsNeeded, Math.ceil(availableMana * 0.4));
+      reasoning = `could use cards (${aiHandSize}/${maxHandSize})`;
+    }
+  }
+  
+  // ===== COLLECTIVE VOYAGE - Ramp/Lands =====
+  // Consider: land count vs opponents, stage of game
+  else if (lowerCardName.includes('collective voyage') || lowerCardName.includes('voyage')) {
+    const landDeficit = avgOpponentLands - aiTotalLands;
+    
+    if (aiTotalLands < 4) {
+      // Early game, ramp is very valuable
+      desiredContribution = Math.ceil(availableMana * 0.7);
+      reasoning = `early game ramp (${aiTotalLands} lands)`;
+    } else if (landDeficit > 2) {
+      // Behind on lands, catch up
+      desiredContribution = Math.ceil(availableMana * 0.6);
+      reasoning = `behind on lands (${aiTotalLands} vs avg ${avgOpponentLands.toFixed(1)})`;
+    } else if (aiTotalLands >= 8) {
+      // Has plenty of lands, less valuable
+      desiredContribution = Math.floor(availableMana * 0.2);
+      reasoning = `land-rich (${aiTotalLands} lands)`;
+    } else {
+      // Average situation
+      desiredContribution = Math.ceil(availableMana * 0.4);
+      reasoning = `moderate ramp value`;
+    }
+  }
+  
+  // ===== ALLIANCE OF ARMS - Create tokens =====
+  // Consider: board presence, creature count
+  else if (lowerCardName.includes('alliance of arms') || lowerCardName.includes('soldier')) {
+    const aiCreatures = battlefield.filter((p: any) => 
+      p.controller === aiPlayerId && 
+      (p.card?.type_line || '').toLowerCase().includes('creature')
+    ).length;
+    
+    if (aiCreatures < 3) {
+      // Need board presence
+      desiredContribution = Math.ceil(availableMana * 0.5);
+      reasoning = `needs creatures (${aiCreatures} on board)`;
+    } else if (aiCreatures >= 6) {
+      // Already has board presence
+      desiredContribution = Math.floor(availableMana * 0.2);
+      reasoning = `has board presence (${aiCreatures} creatures)`;
+    } else {
+      desiredContribution = Math.ceil(availableMana * 0.35);
+      reasoning = `moderate token value`;
+    }
+  }
+  
+  // ===== SHARED TRAUMA - Mill =====
+  // Consider: graveyard synergies, library size
+  else if (lowerCardName.includes('shared trauma') || lowerCardName.includes('mill')) {
+    // Check if AI has graveyard synergies (reanimation, flashback, etc.)
+    const hasGraveyardSynergy = battlefield.some((p: any) => {
+      const oracle = (p.card?.oracle_text || '').toLowerCase();
+      return p.controller === aiPlayerId && (
+        oracle.includes('from your graveyard') ||
+        oracle.includes('flashback') ||
+        oracle.includes('escape') ||
+        oracle.includes('unearth')
+      );
+    });
+    
+    if (hasGraveyardSynergy) {
+      // Mill helps us
+      desiredContribution = Math.ceil(availableMana * 0.5);
+      reasoning = `has graveyard synergy`;
+    } else if (aiLibrarySize < 20) {
+      // Don't want to mill ourselves too much
+      desiredContribution = 0;
+      reasoning = `library too small (${aiLibrarySize})`;
+    } else {
+      // Neutral on mill
+      desiredContribution = Math.floor(availableMana * 0.15);
+      reasoning = `neutral on mill`;
+    }
+  }
+  
+  // ===== DEFAULT - Unknown Join Forces =====
+  else {
+    desiredContribution = Math.ceil(availableMana * 0.3);
+    reasoning = 'default contribution';
+  }
+  
+  // Ensure we don't exceed available mana
+  const finalContribution = Math.min(desiredContribution, availableMana);
+  
+  console.log(`[AI JoinForces] ${aiPlayerId} for ${cardName}: contributing ${finalContribution}/${availableMana} (${reasoning})`);
+  
+  return finalContribution;
 }
 
 /**
- * Calculate AI decision for Tempting Offer
- * AI will accept based on how beneficial the offer is
+ * Calculate AI decision for Tempting Offer effects.
+ * Uses game-state reasoning to decide whether to accept:
+ * - Tempt with Discovery: Land search value
+ * - Tempt with Vengeance: Token value
+ * - Tempt with Reflections: Clone value
+ * - Tempt with Immortality: Reanimation value
+ * - Tempt with Glory: +1/+1 counters value
  */
 function shouldAIAcceptTemptingOffer(game: any, aiPlayerId: string, cardName: string): boolean {
+  const battlefield = game.state?.battlefield || [];
+  const zones = game.state?.zones || {};
   const lowerCardName = cardName.toLowerCase();
   
-  // AI decision factors
-  let acceptChance = 0.4; // Default 40% chance to accept
+  // Get AI's game state
+  const aiZones = zones[aiPlayerId] || {};
+  const aiTotalLands = battlefield.filter((p: any) => 
+    p.controller === aiPlayerId && 
+    (p.card?.type_line || '').toLowerCase().includes('land')
+  ).length;
+  const aiCreatures = battlefield.filter((p: any) => 
+    p.controller === aiPlayerId && 
+    (p.card?.type_line || '').toLowerCase().includes('creature')
+  );
+  const aiGraveyard = aiZones.graveyard || [];
+  const aiGraveyardCreatures = aiGraveyard.filter((c: any) => 
+    (c.type_line || '').toLowerCase().includes('creature')
+  );
   
-  // Tempt with Discovery - searching for lands is usually good
-  if (lowerCardName.includes('discovery') || lowerCardName.includes('land')) {
-    acceptChance = 0.7;
-  }
-  // Tempt with Vengeance - tokens are good but helps opponent too
-  else if (lowerCardName.includes('vengeance') || lowerCardName.includes('token')) {
-    acceptChance = 0.5;
-  }
-  // Tempt with Reflections - cloning is very situational
-  else if (lowerCardName.includes('reflection') || lowerCardName.includes('copy')) {
-    acceptChance = 0.3;
-  }
-  // Tempt with Immortality - reanimation is powerful
-  else if (lowerCardName.includes('immortality') || lowerCardName.includes('graveyard')) {
-    acceptChance = 0.6;
+  let shouldAccept = false;
+  let reasoning = '';
+  
+  // ===== TEMPT WITH DISCOVERY - Search for land =====
+  if (lowerCardName.includes('discovery')) {
+    if (aiTotalLands < 5) {
+      // Early/mid game, land is valuable
+      shouldAccept = true;
+      reasoning = `needs lands (${aiTotalLands})`;
+    } else if (aiTotalLands < 8) {
+      // Moderate value
+      shouldAccept = Math.random() < 0.6;
+      reasoning = `moderate land value`;
+    } else {
+      // Late game, less valuable
+      shouldAccept = Math.random() < 0.3;
+      reasoning = `has enough lands`;
+    }
   }
   
-  return Math.random() < acceptChance;
+  // ===== TEMPT WITH VENGEANCE - Create tokens =====
+  else if (lowerCardName.includes('vengeance')) {
+    // Tokens with haste are always useful for aggression
+    if (aiCreatures.length < 4) {
+      shouldAccept = true;
+      reasoning = `needs board presence`;
+    } else {
+      shouldAccept = Math.random() < 0.5;
+      reasoning = `moderate token value`;
+    }
+  }
+  
+  // ===== TEMPT WITH REFLECTIONS - Clone a creature =====
+  else if (lowerCardName.includes('reflection')) {
+    // Check if we have a good creature to clone
+    const hasPowerfulCreature = aiCreatures.some((c: any) => {
+      const power = parseInt(c.card?.power || '0', 10);
+      return power >= 4 || (c.card?.oracle_text || '').length > 100; // Complex abilities
+    });
+    
+    if (hasPowerfulCreature) {
+      shouldAccept = true;
+      reasoning = `has powerful creature to clone`;
+    } else if (aiCreatures.length > 0) {
+      shouldAccept = Math.random() < 0.4;
+      reasoning = `has creatures but none special`;
+    } else {
+      shouldAccept = false;
+      reasoning = `no creatures to clone`;
+    }
+  }
+  
+  // ===== TEMPT WITH IMMORTALITY - Reanimate =====
+  else if (lowerCardName.includes('immortality')) {
+    // Check graveyard for good targets
+    const hasPowerfulGraveyardCreature = aiGraveyardCreatures.some((c: any) => {
+      const power = parseInt(c.power || '0', 10);
+      return power >= 4;
+    });
+    
+    if (hasPowerfulGraveyardCreature) {
+      shouldAccept = true;
+      reasoning = `has powerful creature in graveyard`;
+    } else if (aiGraveyardCreatures.length > 0) {
+      shouldAccept = Math.random() < 0.5;
+      reasoning = `has creatures in graveyard`;
+    } else {
+      shouldAccept = false;
+      reasoning = `no creatures in graveyard`;
+    }
+  }
+  
+  // ===== TEMPT WITH GLORY - +1/+1 counters =====
+  else if (lowerCardName.includes('glory')) {
+    if (aiCreatures.length >= 3) {
+      shouldAccept = true;
+      reasoning = `has many creatures to buff`;
+    } else if (aiCreatures.length > 0) {
+      shouldAccept = Math.random() < 0.5;
+      reasoning = `has some creatures`;
+    } else {
+      shouldAccept = false;
+      reasoning = `no creatures to buff`;
+    }
+  }
+  
+  // ===== DEFAULT - Unknown Tempting Offer =====
+  else {
+    // Default to 40% acceptance
+    shouldAccept = Math.random() < 0.4;
+    reasoning = 'default decision';
+  }
+  
+  console.log(`[AI TemptingOffer] ${aiPlayerId} for ${cardName}: ${shouldAccept ? 'ACCEPTS' : 'DECLINES'} (${reasoning})`);
+  
+  return shouldAccept;
 }
 
 /**
@@ -312,6 +533,168 @@ function completeJoinForces(io: Server, pending: PendingJoinForces): void {
     }
   } catch (e) {
     console.warn("appendEvent(joinForcesComplete) failed:", e);
+  }
+}
+
+/**
+ * Register and process a Join Forces effect from stack resolution.
+ * This is called from handlePendingJoinForces in util.ts.
+ * 
+ * It properly registers the pending effect and triggers AI responses.
+ */
+export function registerPendingJoinForces(
+  io: Server,
+  gameId: string,
+  effectId: string,
+  initiator: string,
+  cardName: string,
+  effectDescription: string,
+  players: string[],
+  cardImageUrl?: string
+): void {
+  try {
+    const game = ensureGame(gameId);
+    if (!game) return;
+    
+    const pending: PendingJoinForces = {
+      id: effectId,
+      gameId,
+      initiator,
+      cardName,
+      effectDescription,
+      contributions: {},
+      responded: new Set(),
+      players,
+      createdAt: Date.now(),
+    };
+    
+    // Initialize contributions to 0
+    for (const pid of players) {
+      pending.contributions[pid] = 0;
+    }
+    
+    // Set timeout for auto-completion
+    pending.timeout = setTimeout(() => {
+      console.log(`[joinForces] Timeout for ${effectId} - completing with partial responses`);
+      const currentPending = pendingJoinForces.get(effectId);
+      if (currentPending) {
+        completeJoinForces(io, currentPending);
+      }
+    }, CONTRIBUTION_TIMEOUT_MS);
+    
+    // Register the pending effect
+    pendingJoinForces.set(effectId, pending);
+    
+    console.log(`[joinForces] Registered pending Join Forces ${effectId} for ${cardName}`);
+    
+    // Emit to all players
+    io.to(gameId).emit("joinForcesRequest", {
+      id: effectId,
+      gameId,
+      initiator,
+      initiatorName: getPlayerName(game, initiator),
+      cardName,
+      effectDescription,
+      cardImageUrl,
+      players,
+      timeoutMs: CONTRIBUTION_TIMEOUT_MS,
+    });
+    
+    // Process AI player responses automatically
+    processAIJoinForcesResponses(io, pending, game);
+    
+  } catch (err) {
+    console.error(`[joinForces] Error registering pending effect:`, err);
+  }
+}
+
+/**
+ * Register and process a Tempting Offer effect from stack resolution.
+ * This is called from handlePendingTemptingOffer in util.ts.
+ */
+export function registerPendingTemptingOffer(
+  io: Server,
+  gameId: string,
+  effectId: string,
+  initiator: string,
+  cardName: string,
+  effectDescription: string,
+  opponents: string[],
+  cardImageUrl?: string,
+  pendingTemptingOffersMap?: Map<string, any>
+): void {
+  try {
+    const game = ensureGame(gameId);
+    if (!game) return;
+    
+    // If no opponents, complete immediately with initiator getting effect once
+    if (opponents.length === 0) {
+      io.to(gameId).emit("temptingOfferComplete", {
+        gameId,
+        id: effectId,
+        cardName,
+        acceptedBy: [],
+        initiator,
+        initiatorBonusCount: 1,
+      });
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `🎁 ${cardName} resolved - ${getPlayerName(game, initiator)} gets the effect once (no opponents).`,
+        ts: Date.now(),
+      });
+      return;
+    }
+    
+    const pending = {
+      id: effectId,
+      gameId,
+      initiator,
+      cardName,
+      effectDescription,
+      acceptedBy: new Set<string>(),
+      responded: new Set<string>(),
+      opponents,
+      createdAt: Date.now(),
+    };
+    
+    // Store in provided map or we won't have access to it
+    if (pendingTemptingOffersMap) {
+      pendingTemptingOffersMap.set(effectId, pending);
+    }
+    
+    console.log(`[temptingOffer] Registered pending Tempting Offer ${effectId} for ${cardName}`);
+    
+    // Emit to all players
+    io.to(gameId).emit("temptingOfferRequest", {
+      id: effectId,
+      gameId,
+      initiator,
+      initiatorName: getPlayerName(game, initiator),
+      cardName,
+      effectDescription,
+      cardImageUrl,
+      opponents,
+      timeoutMs: CONTRIBUTION_TIMEOUT_MS,
+    });
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `🎁 ${getPlayerName(game, initiator)} casts ${cardName} - each opponent may accept the offer!`,
+      ts: Date.now(),
+    });
+    
+    // Process AI responses
+    if (pendingTemptingOffersMap) {
+      processAITemptingOfferResponses(io, pending, game, pendingTemptingOffersMap);
+    }
+    
+  } catch (err) {
+    console.error(`[temptingOffer] Error registering pending effect:`, err);
   }
 }
 
