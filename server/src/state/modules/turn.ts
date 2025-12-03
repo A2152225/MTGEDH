@@ -1652,7 +1652,31 @@ export function nextStep(ctx: GameContext) {
             const drawTriggers = getDrawStepTriggers(ctx, turnPlayer);
             if (drawTriggers.length > 0) {
               console.log(`${ts()} [nextStep] Found ${drawTriggers.length} draw step triggers`);
-              (ctx as any).state.pendingDrawStepTriggers = drawTriggers;
+              
+              // Push draw step triggers onto the stack
+              (ctx as any).state.stack = (ctx as any).state.stack || [];
+              
+              for (const trigger of drawTriggers) {
+                const controller = trigger.controllerId || turnPlayer;
+                const triggerId = `drawstep_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                (ctx as any).state.stack.push({
+                  id: triggerId,
+                  type: 'triggered_ability',
+                  controller,
+                  source: trigger.permanentId,
+                  sourceName: trigger.cardName,
+                  description: trigger.description || trigger.effect,
+                  triggerType: 'draw_step',
+                  mandatory: trigger.mandatory !== false,
+                  effect: trigger.effect,
+                });
+                console.log(`${ts()} [nextStep] ⚡ Pushed draw step trigger onto stack: ${trigger.cardName} - ${trigger.description || trigger.effect}`);
+              }
+              
+              // Give priority to active player to respond to triggers
+              if ((ctx as any).state.stack.length > 0) {
+                (ctx as any).state.priority = turnPlayer;
+              }
             }
           }
         }
@@ -1665,7 +1689,7 @@ export function nextStep(ctx: GameContext) {
       nextPhase = "combat";
       nextStep = "BEGIN_COMBAT";
       
-      // Process beginning of combat triggers (e.g., Hakbal of the Surging Soul)
+      // Process beginning of combat triggers (e.g., Hakbal of the Surging Soul, Ouroboroid)
       // Skip during replay - triggers should be handled by replayed events
       if (!isReplaying) {
         const turnPlayer = (ctx as any).state?.turnPlayer;
@@ -1673,8 +1697,48 @@ export function nextStep(ctx: GameContext) {
           const combatTriggers = getBeginningOfCombatTriggers(ctx, turnPlayer);
           if (combatTriggers.length > 0) {
             console.log(`${ts()} [nextStep] Found ${combatTriggers.length} beginning of combat triggers`);
-            // Store pending triggers on the game state for the socket layer to process
-            (ctx as any).state.pendingCombatTriggers = combatTriggers;
+            
+            // Push ALL beginning of combat triggers onto the stack immediately
+            // This ensures they fire BEFORE the game advances to declare attackers
+            (ctx as any).state.stack = (ctx as any).state.stack || [];
+            
+            // Group by controller for proper APNAP ordering
+            const triggersByController = new Map<string, typeof combatTriggers>();
+            for (const trigger of combatTriggers) {
+              const controller = trigger.controllerId || turnPlayer;
+              const existing = triggersByController.get(controller) || [];
+              existing.push(trigger);
+              triggersByController.set(controller, existing);
+            }
+            
+            // Get player order for APNAP
+            const players = Array.isArray((ctx as any).state.players) ? (ctx as any).state.players.map((p: any) => p.id) : [];
+            const orderedPlayers = [turnPlayer, ...players.filter((p: string) => p !== turnPlayer)];
+            
+            // Push triggers in APNAP order (active player's triggers first, then others)
+            for (const playerId of orderedPlayers) {
+              const playerTriggers = triggersByController.get(playerId) || [];
+              for (const trigger of playerTriggers) {
+                const triggerId = `combat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                (ctx as any).state.stack.push({
+                  id: triggerId,
+                  type: 'triggered_ability',
+                  controller: playerId,
+                  source: trigger.permanentId,
+                  sourceName: trigger.cardName,
+                  description: trigger.description || trigger.effect,
+                  triggerType: 'begin_combat',
+                  mandatory: trigger.mandatory !== false,
+                  effect: trigger.effect,
+                });
+                console.log(`${ts()} [nextStep] ⚡ Pushed beginning of combat trigger onto stack: ${trigger.cardName} - ${trigger.description || trigger.effect}`);
+              }
+            }
+            
+            // Give priority to active player to respond to triggers
+            if ((ctx as any).state.stack.length > 0) {
+              (ctx as any).state.priority = turnPlayer;
+            }
           }
         }
       }
@@ -1759,7 +1823,47 @@ export function nextStep(ctx: GameContext) {
             const endCombatTriggers = getEndOfCombatTriggers(ctx, turnPlayer);
             if (endCombatTriggers.length > 0) {
               console.log(`${ts()} [nextStep] Found ${endCombatTriggers.length} end of combat triggers`);
-              (ctx as any).state.pendingEndOfCombatTriggers = endCombatTriggers;
+              
+              // Push end of combat triggers onto the stack
+              (ctx as any).state.stack = (ctx as any).state.stack || [];
+              
+              // Group by controller for proper APNAP ordering
+              const triggersByController = new Map<string, typeof endCombatTriggers>();
+              for (const trigger of endCombatTriggers) {
+                const controller = trigger.controllerId || turnPlayer;
+                const existing = triggersByController.get(controller) || [];
+                existing.push(trigger);
+                triggersByController.set(controller, existing);
+              }
+              
+              // Get player order for APNAP
+              const players = Array.isArray((ctx as any).state.players) ? (ctx as any).state.players.map((p: any) => p.id) : [];
+              const orderedPlayers = [turnPlayer, ...players.filter((p: string) => p !== turnPlayer)];
+              
+              // Push triggers in APNAP order
+              for (const playerId of orderedPlayers) {
+                const playerTriggers = triggersByController.get(playerId) || [];
+                for (const trigger of playerTriggers) {
+                  const triggerId = `endcombat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                  (ctx as any).state.stack.push({
+                    id: triggerId,
+                    type: 'triggered_ability',
+                    controller: playerId,
+                    source: trigger.permanentId,
+                    sourceName: trigger.cardName,
+                    description: trigger.description || trigger.effect,
+                    triggerType: 'end_combat',
+                    mandatory: trigger.mandatory !== false,
+                    effect: trigger.effect,
+                  });
+                  console.log(`${ts()} [nextStep] ⚡ Pushed end of combat trigger onto stack: ${trigger.cardName} - ${trigger.description || trigger.effect}`);
+                }
+              }
+              
+              // Give priority to active player to respond to triggers
+              if ((ctx as any).state.stack.length > 0) {
+                (ctx as any).state.priority = turnPlayer;
+              }
             }
           }
         }
@@ -1798,7 +1902,7 @@ export function nextStep(ctx: GameContext) {
       nextPhase = "ending";
       nextStep = "END";
       
-      // Process beginning of end step triggers (e.g., Kynaios and Tiro, Meren, Atraxa)
+      // Process beginning of end step triggers (e.g., Kynaios and Tiro, Meren, Atraxa, Case of the Locked Hothouse)
       // Skip during replay - triggers should be handled by replayed events
       if (!isReplaying) {
         const turnPlayer = (ctx as any).state?.turnPlayer;
@@ -1806,8 +1910,47 @@ export function nextStep(ctx: GameContext) {
           const endStepTriggers = getEndStepTriggers(ctx, turnPlayer);
           if (endStepTriggers.length > 0) {
             console.log(`${ts()} [nextStep] Found ${endStepTriggers.length} end step triggers`);
-            // Store pending triggers on the game state for the socket layer to process
-            (ctx as any).state.pendingEndStepTriggers = endStepTriggers;
+            
+            // Push ALL end step triggers onto the stack immediately
+            (ctx as any).state.stack = (ctx as any).state.stack || [];
+            
+            // Group by controller for proper APNAP ordering
+            const triggersByController = new Map<string, typeof endStepTriggers>();
+            for (const trigger of endStepTriggers) {
+              const controller = trigger.controllerId || turnPlayer;
+              const existing = triggersByController.get(controller) || [];
+              existing.push(trigger);
+              triggersByController.set(controller, existing);
+            }
+            
+            // Get player order for APNAP
+            const players = Array.isArray((ctx as any).state.players) ? (ctx as any).state.players.map((p: any) => p.id) : [];
+            const orderedPlayers = [turnPlayer, ...players.filter((p: string) => p !== turnPlayer)];
+            
+            // Push triggers in APNAP order (active player's triggers first, then others)
+            for (const playerId of orderedPlayers) {
+              const playerTriggers = triggersByController.get(playerId) || [];
+              for (const trigger of playerTriggers) {
+                const triggerId = `endstep_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                (ctx as any).state.stack.push({
+                  id: triggerId,
+                  type: 'triggered_ability',
+                  controller: playerId,
+                  source: trigger.permanentId,
+                  sourceName: trigger.cardName,
+                  description: trigger.description || trigger.effect,
+                  triggerType: 'end_step',
+                  mandatory: trigger.mandatory !== false,
+                  effect: trigger.effect,
+                });
+                console.log(`${ts()} [nextStep] ⚡ Pushed end step trigger onto stack: ${trigger.cardName} - ${trigger.description || trigger.effect}`);
+              }
+            }
+            
+            // Give priority to active player to respond to triggers
+            if ((ctx as any).state.stack.length > 0) {
+              (ctx as any).state.priority = turnPlayer;
+            }
           }
         }
       }

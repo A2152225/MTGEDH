@@ -6,7 +6,7 @@ import type { PaymentItem } from "../../../shared/src";
 import { requiresCreatureTypeSelection, requestCreatureTypeSelection } from "./creature-type";
 import { checkAndPromptOpeningHandActions } from "./opening-hand";
 import { emitSacrificeUnlessPayPrompt } from "./triggers";
-import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, type SpellCastTrigger } from "../state/modules/triggered-abilities";
+import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, getLandfallTriggers, type SpellCastTrigger } from "../state/modules/triggered-abilities";
 import { getUpkeepTriggersForPlayer } from "../state/modules/upkeep-triggers";
 import { categorizeSpell, evaluateTargeting, requiresTargeting, parseTargetRequirements } from "../rules-engine/targeting";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts } from "../state/modules/game-state-effects";
@@ -1736,6 +1736,54 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Check for creature type selection requirements (e.g., Cavern of Souls, Unclaimed Territory)
       checkCreatureTypeSelectionForNewPermanents(io, game, gameId);
+
+      // ========================================================================
+      // LANDFALL TRIGGERS: Check for and process landfall triggers
+      // This is CRITICAL - landfall triggers should fire when a land ETBs
+      // ========================================================================
+      try {
+        const landfallTriggers = getLandfallTriggers(game as any, playerId as string);
+        if (landfallTriggers.length > 0) {
+          console.log(`[playLand] Found ${landfallTriggers.length} landfall trigger(s) for player ${playerId}`);
+          
+          // Initialize stack if needed
+          (game.state as any).stack = (game.state as any).stack || [];
+          
+          // Push each landfall trigger onto the stack
+          for (const trigger of landfallTriggers) {
+            const triggerId = `landfall_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            (game.state as any).stack.push({
+              id: triggerId,
+              type: 'triggered_ability',
+              controller: playerId,
+              source: trigger.permanentId,
+              sourceName: trigger.cardName,
+              description: `Landfall - ${trigger.effect}`,
+              triggerType: 'landfall',
+              mandatory: trigger.mandatory,
+              effect: trigger.effect,
+              requiresChoice: trigger.requiresChoice,
+            });
+            console.log(`[playLand] ⚡ Pushed landfall trigger onto stack: ${trigger.cardName} - ${trigger.effect}`);
+            
+            // Emit chat message about the trigger
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `${trigger.cardName}'s landfall ability triggers!`,
+              ts: Date.now(),
+            });
+          }
+          
+          // Give priority to active player to respond to triggers
+          if ((game.state as any).stack.length > 0) {
+            (game.state as any).priority = (game.state as any).turnPlayer || playerId;
+          }
+        }
+      } catch (err) {
+        console.warn(`[playLand] Failed to process landfall triggers:`, err);
+      }
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {
