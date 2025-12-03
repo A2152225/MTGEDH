@@ -10,6 +10,7 @@
  * The triggers are organized into the following sub-modules:
  * - types.ts: All shared types and interfaces
  * - registry.ts: Trigger registration and management
+ * - card-data-tables.ts: Known card lookup tables for optimization
  * - combat.ts: Combat-related triggers
  * - turn-phases.ts: Turn phase triggers (upkeep, draw step, end step, untap step)
  * - zone-changes.ts: Zone change triggers (ETB, death, LTB)
@@ -27,6 +28,9 @@
 
 // Export all types
 export * from "./types.js";
+
+// Export card data tables for optimization lookups
+export * from "./card-data-tables.js";
 
 // Export registry functions
 export {
