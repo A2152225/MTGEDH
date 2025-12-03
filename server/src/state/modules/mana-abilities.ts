@@ -454,3 +454,222 @@ export function getExtraManaProduction(
   
   return extra;
 }
+
+// ============================================================================
+// Devotion-Based Mana Abilities
+// ============================================================================
+
+/**
+ * Known cards with devotion-based mana abilities
+ */
+const KNOWN_DEVOTION_MANA_CARDS: Record<string, { 
+  color: 'W' | 'U' | 'B' | 'R' | 'G';
+  producedColor: string;
+  minDevotion?: number;
+}> = {
+  "karametra's acolyte": { color: 'G', producedColor: 'G' },
+  "nykthos, shrine to nyx": { color: 'W', producedColor: 'any' }, // Actually needs color choice
+  "nyx lotus": { color: 'W', producedColor: 'any', minDevotion: 0 }, // Taps for devotion to chosen color
+  "altar of the pantheon": { color: 'W', producedColor: 'any', minDevotion: 0 }, // Add one of any color, +1 devotion
+  "crypt ghast": { color: 'B', producedColor: 'B' }, // Actually doubles swamp mana, not devotion
+};
+
+/**
+ * Calculate devotion to a specific color
+ * Devotion = count of mana symbols of that color in mana costs of permanents you control
+ */
+export function calculateDevotion(
+  gameState: any,
+  playerId: string,
+  color: 'W' | 'U' | 'B' | 'R' | 'G'
+): number {
+  const battlefield = gameState?.battlefield || [];
+  let devotion = 0;
+  
+  for (const permanent of battlefield) {
+    if (!permanent || permanent.controller !== playerId) continue;
+    
+    const manaCost = permanent.card?.mana_cost || "";
+    
+    // Count occurrences of the color symbol
+    // Format: {W}, {U}, {B}, {R}, {G}
+    // Also count hybrid: {W/U}, {W/B}, etc. and Phyrexian: {W/P}
+    const colorSymbol = color;
+    
+    // Count regular mana symbols: {W}, {U}, etc.
+    const singleColorRegex = new RegExp(`\\{${colorSymbol}\\}`, 'gi');
+    const singleMatches = manaCost.match(singleColorRegex) || [];
+    devotion += singleMatches.length;
+    
+    // Count hybrid mana symbols: {W/U}, {R/G}, etc. - each counts as 1 devotion to BOTH colors
+    const hybridRegex = new RegExp(`\\{${colorSymbol}\\/[WUBRGP]\\}|\\{[WUBRG]\\/${colorSymbol}\\}`, 'gi');
+    const hybridMatches = manaCost.match(hybridRegex) || [];
+    devotion += hybridMatches.length;
+    
+    // Count 2-brid symbols: {2/W} etc.
+    const twobrideRegex = new RegExp(`\\{2\\/${colorSymbol}\\}`, 'gi');
+    const twobrideMatches = manaCost.match(twobrideRegex) || [];
+    devotion += twobrideMatches.length;
+  }
+  
+  return devotion;
+}
+
+/**
+ * Check if a permanent has a devotion-based mana ability
+ * Returns the amount of mana it would produce if activated
+ */
+export function getDevotionManaAmount(
+  gameState: any,
+  permanent: any,
+  playerId: string
+): { color: string; amount: number } | null {
+  const cardName = (permanent?.card?.name || "").toLowerCase();
+  const oracleText = (permanent?.card?.oracle_text || "").toLowerCase();
+  
+  // Check known devotion mana cards
+  for (const [knownName, info] of Object.entries(KNOWN_DEVOTION_MANA_CARDS)) {
+    if (cardName.includes(knownName)) {
+      const devotion = calculateDevotion(gameState, playerId, info.color);
+      return {
+        color: info.producedColor,
+        amount: Math.max(info.minDevotion ?? 1, devotion),
+      };
+    }
+  }
+  
+  // Dynamic detection: "Add an amount of {G} equal to your devotion to green"
+  const devotionManaMatch = oracleText.match(
+    /add (?:an amount of )?(\{[wubrgc]\})(?:[^.]*?)equal to your devotion to (\w+)/i
+  );
+  
+  if (devotionManaMatch) {
+    const manaSymbol = devotionManaMatch[1].toUpperCase();
+    const colorName = devotionManaMatch[2].toLowerCase();
+    
+    let colorCode: 'W' | 'U' | 'B' | 'R' | 'G' = 'G';
+    switch (colorName) {
+      case 'white': colorCode = 'W'; break;
+      case 'blue': colorCode = 'U'; break;
+      case 'black': colorCode = 'B'; break;
+      case 'red': colorCode = 'R'; break;
+      case 'green': colorCode = 'G'; break;
+    }
+    
+    const devotion = calculateDevotion(gameState, playerId, colorCode);
+    const producedColor = manaSymbol.replace(/[{}]/g, '');
+    
+    return {
+      color: producedColor,
+      amount: Math.max(1, devotion), // Always at least 1
+    };
+  }
+  
+  return null;
+}
+
+/**
+ * Check if a permanent has a creature-count-based mana ability
+ * (Priest of Titania, Elvish Archdruid, etc.)
+ */
+export function getCreatureCountManaAmount(
+  gameState: any,
+  permanent: any,
+  playerId: string
+): { color: string; amount: number } | null {
+  const cardName = (permanent?.card?.name || "").toLowerCase();
+  const oracleText = (permanent?.card?.oracle_text || "").toLowerCase();
+  
+  // Priest of Titania: "Add {G} for each Elf on the battlefield"
+  if (cardName.includes("priest of titania")) {
+    const battlefield = gameState?.battlefield || [];
+    const elfCount = battlefield.filter((p: any) => {
+      if (!p) return false;
+      const typeLine = (p.card?.type_line || "").toLowerCase();
+      const creatureTypes = (p.card?.type_line || "").split("—")[1] || "";
+      return typeLine.includes("creature") && 
+             (creatureTypes.toLowerCase().includes("elf") || typeLine.includes("elf"));
+    }).length;
+    
+    return { color: 'G', amount: Math.max(1, elfCount) };
+  }
+  
+  // Elvish Archdruid: "Add {G} for each Elf you control"
+  if (cardName.includes("elvish archdruid")) {
+    const battlefield = gameState?.battlefield || [];
+    const elfCount = battlefield.filter((p: any) => {
+      if (!p || p.controller !== playerId) return false;
+      const typeLine = (p.card?.type_line || "").toLowerCase();
+      const creatureTypes = (p.card?.type_line || "").split("—")[1] || "";
+      return typeLine.includes("creature") && 
+             (creatureTypes.toLowerCase().includes("elf") || typeLine.includes("elf"));
+    }).length;
+    
+    return { color: 'G', amount: Math.max(1, elfCount) };
+  }
+  
+  // Gaea's Cradle: Add {G} for each creature you control
+  if (cardName.includes("gaea's cradle") || cardName.includes("cradle of growth")) {
+    const battlefield = gameState?.battlefield || [];
+    const creatureCount = battlefield.filter((p: any) => {
+      if (!p || p.controller !== playerId) return false;
+      const typeLine = (p.card?.type_line || "").toLowerCase();
+      return typeLine.includes("creature");
+    }).length;
+    
+    return { color: 'G', amount: Math.max(0, creatureCount) };
+  }
+  
+  // Serra's Sanctum: Add {W} for each enchantment you control
+  if (cardName.includes("serra's sanctum")) {
+    const battlefield = gameState?.battlefield || [];
+    const enchantmentCount = battlefield.filter((p: any) => {
+      if (!p || p.controller !== playerId) return false;
+      const typeLine = (p.card?.type_line || "").toLowerCase();
+      return typeLine.includes("enchantment");
+    }).length;
+    
+    return { color: 'W', amount: Math.max(0, enchantmentCount) };
+  }
+  
+  // Tolarian Academy: Add {U} for each artifact you control
+  if (cardName.includes("tolarian academy")) {
+    const battlefield = gameState?.battlefield || [];
+    const artifactCount = battlefield.filter((p: any) => {
+      if (!p || p.controller !== playerId) return false;
+      const typeLine = (p.card?.type_line || "").toLowerCase();
+      return typeLine.includes("artifact");
+    }).length;
+    
+    return { color: 'U', amount: Math.max(0, artifactCount) };
+  }
+  
+  // Dynamic detection: "Add {X} for each Y you control"
+  const countManaMatch = oracleText.match(
+    /add\s+\{([wubrgc])\}\s+for each\s+(\w+)(?:\s+(?:you control|on the battlefield))?/i
+  );
+  
+  if (countManaMatch) {
+    const manaColor = countManaMatch[1].toUpperCase();
+    const permanentType = countManaMatch[2].toLowerCase();
+    
+    const battlefield = gameState?.battlefield || [];
+    const matchingCount = battlefield.filter((p: any) => {
+      if (!p) return false;
+      // Check if "you control" is in the text
+      const youControl = oracleText.includes("you control");
+      if (youControl && p.controller !== playerId) return false;
+      
+      const typeLine = (p.card?.type_line || "").toLowerCase();
+      const creatureTypes = (p.card?.type_line || "").split("—")[1] || "";
+      
+      // Match by type or creature subtype
+      return typeLine.includes(permanentType) || 
+             creatureTypes.toLowerCase().includes(permanentType);
+    }).length;
+    
+    return { color: manaColor, amount: Math.max(0, matchingCount) };
+  }
+  
+  return null;
+}

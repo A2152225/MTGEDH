@@ -3609,3 +3609,998 @@ export function getCardDrawTriggers(
   return triggers;
 }
 
+// ============================================================================
+// Mimic Vat and Imprint Triggers
+// ============================================================================
+
+export interface MimicVatTrigger {
+  permanentId: string;
+  cardName: string;
+  controllerId: string;
+  effect: string;
+  dyingCreatureId: string;
+  dyingCreatureName: string;
+  dyingCreatureCard: any;
+}
+
+/**
+ * Known cards with imprint-on-death triggers like Mimic Vat
+ */
+const KNOWN_IMPRINT_ON_DEATH_CARDS: Record<string, { effect: string; canExile: boolean }> = {
+  "mimic vat": { 
+    effect: "You may exile the dying creature. If you do, exile any card imprinted on Mimic Vat. Then you may pay {3} and tap to create a token copy with haste.", 
+    canExile: true 
+  },
+  "soul foundry": {
+    effect: "Imprint a creature card from your hand",
+    canExile: false // Soul Foundry imprints from hand, not from dying creatures
+  },
+  "prototype portal": {
+    effect: "Imprint an artifact card from your hand",
+    canExile: false
+  },
+};
+
+/**
+ * Detect Mimic Vat-style imprint triggers from a permanent's oracle text
+ * Pattern: "Whenever a nontoken creature dies, you may exile that card"
+ */
+export function detectMimicVatTriggers(card: any, permanent: any): boolean {
+  const oracleText = (card?.oracle_text || "").toLowerCase();
+  const cardName = (card?.name || "").toLowerCase();
+  
+  // Check known cards
+  for (const [knownName, info] of Object.entries(KNOWN_IMPRINT_ON_DEATH_CARDS)) {
+    if (cardName.includes(knownName) && info.canExile) {
+      return true;
+    }
+  }
+  
+  // Generic pattern: "Whenever a nontoken creature dies, you may exile that card"
+  // or "Whenever a creature dies, you may exile it"
+  if (oracleText.includes('whenever') && 
+      oracleText.includes('creature dies') && 
+      oracleText.includes('you may exile')) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Get all Mimic Vat-style triggers when a creature dies
+ * @param ctx Game context
+ * @param dyingCreature The creature that died
+ * @param isToken Whether the dying creature is a token
+ * @returns Array of triggers that can exile the dying creature
+ */
+export function getMimicVatTriggers(
+  ctx: GameContext,
+  dyingCreature: any,
+  isToken: boolean
+): MimicVatTrigger[] {
+  const triggers: MimicVatTrigger[] = [];
+  
+  // Mimic Vat only works on nontoken creatures
+  if (isToken) return triggers;
+  
+  const battlefield = ctx.state?.battlefield || [];
+  
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+    
+    const hasMimicVatTrigger = detectMimicVatTriggers(permanent.card, permanent);
+    
+    if (hasMimicVatTrigger) {
+      const cardName = (permanent.card.name || "").toLowerCase();
+      const knownInfo = Object.entries(KNOWN_IMPRINT_ON_DEATH_CARDS)
+        .find(([name]) => cardName.includes(name));
+      
+      triggers.push({
+        permanentId: permanent.id,
+        cardName: permanent.card.name,
+        controllerId: permanent.controller,
+        effect: knownInfo ? knownInfo[1].effect : "Exile the dying creature and imprint it",
+        dyingCreatureId: dyingCreature.id,
+        dyingCreatureName: dyingCreature.card?.name || "Unknown",
+        dyingCreatureCard: dyingCreature.card,
+      });
+    }
+  }
+  
+  return triggers;
+}
+
+// ============================================================================
+// Kroxa-style ETB Auto-Sacrifice Triggers
+// ============================================================================
+
+/**
+ * Known cards that sacrifice themselves on ETB unless cast with an alternate cost (Escape, etc.)
+ */
+const KNOWN_ETB_SACRIFICE_UNLESS: Record<string, { 
+  effect: string; 
+  alternateCostKeyword: string; 
+  checkCondition: (permanent: any) => boolean;
+}> = {
+  "kroxa, titan of death's hunger": {
+    effect: "When Kroxa enters the battlefield, sacrifice it unless it escaped.",
+    alternateCostKeyword: "escape",
+    checkCondition: (perm) => !perm.escapedFrom,
+  },
+  "uro, titan of nature's wrath": {
+    effect: "When Uro enters the battlefield, sacrifice it unless it escaped.",
+    alternateCostKeyword: "escape",
+    checkCondition: (perm) => !perm.escapedFrom,
+  },
+  "ox of agonas": {
+    effect: "When Ox of Agonas enters the battlefield, discard your hand, then draw three cards.",
+    alternateCostKeyword: "escape",
+    checkCondition: () => false, // Ox doesn't sacrifice, it has a different ETB
+  },
+  // Blitz creatures also have this pattern
+  "jaxis, the troublemaker": {
+    effect: "Sacrifice at end of turn if it entered with blitz",
+    alternateCostKeyword: "blitz",
+    checkCondition: (perm) => perm.blitzed === true,
+  },
+  // Ball Lightning style creatures
+  "ball lightning": {
+    effect: "At the beginning of the end step, sacrifice Ball Lightning.",
+    alternateCostKeyword: "",
+    checkCondition: () => true, // Always sacrifices at end step
+  },
+  "groundbreaker": {
+    effect: "At the beginning of the end step, sacrifice Groundbreaker.",
+    alternateCostKeyword: "",
+    checkCondition: () => true,
+  },
+  "spark elemental": {
+    effect: "At the beginning of the end step, sacrifice Spark Elemental.",
+    alternateCostKeyword: "",
+    checkCondition: () => true,
+  },
+};
+
+/**
+ * Check if a permanent should auto-sacrifice on ETB
+ * Returns sacrifice info or null if it shouldn't sacrifice
+ */
+export function checkETBAutoSacrifice(card: any, permanent: any): { 
+  shouldSacrifice: boolean; 
+  reason: string;
+  timing: 'immediate' | 'end_step';
+} | null {
+  const cardName = (card?.name || "").toLowerCase();
+  const oracleText = (card?.oracle_text || "").toLowerCase();
+  
+  // Check known cards
+  for (const [knownName, info] of Object.entries(KNOWN_ETB_SACRIFICE_UNLESS)) {
+    if (cardName.includes(knownName)) {
+      if (info.checkCondition(permanent)) {
+        // Determine timing
+        let timing: 'immediate' | 'end_step' = 'immediate';
+        if (oracleText.includes('at the beginning of the end step') || 
+            oracleText.includes('end of turn')) {
+          timing = 'end_step';
+        }
+        
+        return {
+          shouldSacrifice: true,
+          reason: info.effect,
+          timing,
+        };
+      }
+      return null; // Condition not met (e.g., escaped)
+    }
+  }
+  
+  // Generic pattern: "When ~ enters the battlefield, sacrifice it unless"
+  const sacrificeUnlessMatch = oracleText.match(
+    /when (?:~|this creature) enters the battlefield,?\s*sacrifice (?:~|it) unless ([^.]+)/i
+  );
+  if (sacrificeUnlessMatch) {
+    // Check if the condition is met (e.g., "unless it escaped")
+    const condition = sacrificeUnlessMatch[1].toLowerCase();
+    
+    if (condition.includes('escaped') && !permanent.escapedFrom) {
+      return {
+        shouldSacrifice: true,
+        reason: `Sacrifice unless it escaped`,
+        timing: 'immediate',
+      };
+    }
+    
+    // Other conditions would need specific checking
+  }
+  
+  // Pattern: "At the beginning of the end step, sacrifice ~"
+  const endStepSacrificeMatch = oracleText.match(
+    /at the beginning of (?:the )?end step,?\s*sacrifice (?:~|this creature)/i
+  );
+  if (endStepSacrificeMatch) {
+    return {
+      shouldSacrifice: true,
+      reason: "Sacrifice at end of turn",
+      timing: 'end_step',
+    };
+  }
+  
+  return null;
+}
+
+// ============================================================================
+// Modal Spell Support
+// ============================================================================
+
+export interface ModalSpellMode {
+  index: number;
+  text: string;
+  effect: string;
+  requiresTarget?: boolean;
+  targetType?: string;
+}
+
+export interface ModalSpellInfo {
+  isModal: boolean;
+  modeCount: number | 'any'; // 1, 2, 3, 'any'
+  modes: ModalSpellMode[];
+  isSpree: boolean;
+  spreeCosts?: { modeIndex: number; cost: string }[];
+}
+
+/**
+ * Parse modal spell options from oracle text
+ * Handles:
+ * - "Choose one —" / "Choose two —" / "Choose three —"
+ * - "Choose any number —"
+ * - Spree cards: "Spree (Choose one or more additional costs.)"
+ * - Entwine: "You may choose both if you pay entwine cost"
+ */
+export function parseModalSpellOptions(card: any): ModalSpellInfo {
+  const oracleText = card?.oracle_text || "";
+  const lowerOracle = oracleText.toLowerCase();
+  
+  const result: ModalSpellInfo = {
+    isModal: false,
+    modeCount: 1,
+    modes: [],
+    isSpree: false,
+  };
+  
+  // Check for Spree keyword
+  if (lowerOracle.includes('spree')) {
+    result.isModal = true;
+    result.isSpree = true;
+    result.modeCount = 'any';
+    
+    // Parse spree costs: "+ {cost} — Effect"
+    const spreePattern = /\+\s*(\{[^}]+\})\s*[—-]\s*([^+]+?)(?=\+\s*\{|$)/gi;
+    let match;
+    let index = 0;
+    while ((match = spreePattern.exec(oracleText)) !== null) {
+      const cost = match[1];
+      const effect = match[2].trim();
+      
+      result.modes.push({
+        index,
+        text: `Pay ${cost}: ${effect}`,
+        effect,
+        requiresTarget: effect.toLowerCase().includes('target'),
+        targetType: detectTargetType(effect),
+      });
+      
+      result.spreeCosts = result.spreeCosts || [];
+      result.spreeCosts.push({ modeIndex: index, cost });
+      index++;
+    }
+    
+    return result;
+  }
+  
+  // Check for standard modal patterns
+  const chooseMatch = lowerOracle.match(/choose\s+(one|two|three|four|any number)\s*[—-]/i);
+  if (chooseMatch) {
+    result.isModal = true;
+    const countWord = chooseMatch[1].toLowerCase();
+    
+    switch (countWord) {
+      case 'one': result.modeCount = 1; break;
+      case 'two': result.modeCount = 2; break;
+      case 'three': result.modeCount = 3; break;
+      case 'four': result.modeCount = 4; break;
+      case 'any number': result.modeCount = 'any'; break;
+      default: result.modeCount = 1;
+    }
+    
+    // Parse individual modes (marked by • or numbered)
+    // Pattern: "• Effect text" or lines after "Choose X —"
+    const modePattern = /[•·]\s*([^•·]+?)(?=[•·]|$)/g;
+    let modeMatch;
+    let index = 0;
+    
+    // Find the modes section (after "Choose X —")
+    const dashIndex = oracleText.search(/[—-]/);
+    const modesSection = dashIndex >= 0 ? oracleText.slice(dashIndex + 1) : oracleText;
+    
+    while ((modeMatch = modePattern.exec(modesSection)) !== null) {
+      const modeText = modeMatch[1].trim();
+      if (modeText.length > 0) {
+        result.modes.push({
+          index,
+          text: modeText,
+          effect: modeText,
+          requiresTarget: modeText.toLowerCase().includes('target'),
+          targetType: detectTargetType(modeText),
+        });
+        index++;
+      }
+    }
+    
+    // Fallback: if no bullet points found, try to parse by sentence structure
+    if (result.modes.length === 0) {
+      // Some cards use newlines or semicolons to separate modes
+      const altModes = modesSection.split(/[;\n]/).filter(m => m.trim().length > 0);
+      for (const modeText of altModes) {
+        const cleanMode = modeText.trim();
+        if (cleanMode.length > 5) { // Avoid tiny fragments
+          result.modes.push({
+            index,
+            text: cleanMode,
+            effect: cleanMode,
+            requiresTarget: cleanMode.toLowerCase().includes('target'),
+            targetType: detectTargetType(cleanMode),
+          });
+          index++;
+        }
+      }
+    }
+  }
+  
+  // Check for Entwine
+  if (lowerOracle.includes('entwine')) {
+    const entwineMatch = lowerOracle.match(/entwine\s+(\{[^}]+\})/i);
+    if (entwineMatch) {
+      // Mark that both modes can be chosen with entwine cost
+      (result as any).hasEntwine = true;
+      (result as any).entwineCost = entwineMatch[1];
+    }
+  }
+  
+  return result;
+}
+
+/**
+ * Helper to detect target type from effect text
+ */
+function detectTargetType(effectText: string): string | undefined {
+  const lower = effectText.toLowerCase();
+  
+  if (lower.includes('target creature')) return 'creature';
+  if (lower.includes('target player')) return 'player';
+  if (lower.includes('target permanent')) return 'permanent';
+  if (lower.includes('target spell')) return 'spell';
+  if (lower.includes('target artifact')) return 'artifact';
+  if (lower.includes('target enchantment')) return 'enchantment';
+  if (lower.includes('target land')) return 'land';
+  if (lower.includes('any target')) return 'any';
+  
+  return undefined;
+}
+
+// ============================================================================
+// Devotion Mana Calculation
+// ============================================================================
+
+/**
+ * Calculate devotion to a color for a player
+ * Devotion = count of mana symbols of that color in mana costs of permanents you control
+ */
+export function calculateDevotion(
+  gameState: any,
+  playerId: string,
+  color: 'W' | 'U' | 'B' | 'R' | 'G'
+): number {
+  const battlefield = gameState?.battlefield || [];
+  let devotion = 0;
+  
+  for (const permanent of battlefield) {
+    if (!permanent || permanent.controller !== playerId) continue;
+    
+    const manaCost = permanent.card?.mana_cost || "";
+    
+    // Count occurrences of the color symbol
+    // Format: {W}, {U}, {B}, {R}, {G}
+    // Also count hybrid: {W/U}, {W/B}, etc.
+    const colorSymbol = `{${color}}`;
+    const regex = new RegExp(`\\{${color}(?:\\/[WUBRG])?\\}|\\{[WUBRG]\\/${color}\\}`, 'gi');
+    const matches = manaCost.match(regex) || [];
+    devotion += matches.length;
+  }
+  
+  return devotion;
+}
+
+/**
+ * Get the amount of mana produced by a devotion-based ability
+ * Cards like Karametra's Acolyte, Nykthos
+ */
+export function getDevotionManaAmount(
+  card: any,
+  gameState: any,
+  controllerId: string
+): { color: string; amount: number }[] {
+  const oracleText = (card?.oracle_text || "").toLowerCase();
+  const results: { color: string; amount: number }[] = [];
+  
+  // Pattern: "Add an amount of {G} equal to your devotion to green"
+  const devotionManaMatch = oracleText.match(
+    /add (?:an amount of )?(\{[WUBRGC]\})(?:[^.]*?)equal to your devotion to (\w+)/i
+  );
+  
+  if (devotionManaMatch) {
+    const manaSymbol = devotionManaMatch[1].toUpperCase();
+    const colorName = devotionManaMatch[2].toLowerCase();
+    
+    let colorCode: 'W' | 'U' | 'B' | 'R' | 'G' = 'G';
+    switch (colorName) {
+      case 'white': colorCode = 'W'; break;
+      case 'blue': colorCode = 'U'; break;
+      case 'black': colorCode = 'B'; break;
+      case 'red': colorCode = 'R'; break;
+      case 'green': colorCode = 'G'; break;
+    }
+    
+    const amount = calculateDevotion(gameState, controllerId, colorCode);
+    
+    // Extract color from mana symbol
+    const color = manaSymbol.replace(/[{}]/g, '');
+    
+    results.push({ color, amount: Math.max(1, amount) });
+  }
+  
+  // Nykthos pattern: "Add X mana in any combination of colors..."
+  if (oracleText.includes('nykthos') || 
+      (oracleText.includes('devotion') && oracleText.includes('any combination'))) {
+    // Nykthos requires choosing a color and getting devotion to that color
+    // This would need UI interaction, so we return a placeholder
+    results.push({ color: 'devotion_choice', amount: 0 });
+  }
+  
+  return results;
+}
+
+// ============================================================================
+// Win/Loss Condition Detection
+// ============================================================================
+
+export interface WinCondition {
+  type: 'life_zero' | 'poison' | 'commander_damage' | 'card_effect' | 'empty_library_draw';
+  playerId: string;
+  winnerId?: string;
+  loserId?: string;
+  reason: string;
+}
+
+/**
+ * Check for game-ending conditions
+ * Rule 104.3: A player loses the game if:
+ * - Their life total is 0 or less
+ * - They have 10+ poison counters
+ * - They've been dealt 21+ combat damage by a single commander
+ * - They attempt to draw from an empty library
+ * - A card effect says they lose
+ */
+export function checkWinConditions(ctx: GameContext): WinCondition[] {
+  const conditions: WinCondition[] = [];
+  const players = ctx.state?.players || [];
+  const life = (ctx as any).life || {};
+  const poison = (ctx as any).poison || {};
+  const commanderDamage = (ctx.state as any)?.commanderDamage || {};
+  
+  for (const player of players) {
+    if (!player || (player as any).spectator || (player as any).isSpectator) continue;
+    const playerId = player.id;
+    
+    // Check life total (Rule 104.3b)
+    const playerLife = life[playerId] ?? 40;
+    if (playerLife <= 0) {
+      conditions.push({
+        type: 'life_zero',
+        playerId,
+        loserId: playerId,
+        reason: `${player.name || playerId} has 0 or less life (${playerLife})`,
+      });
+    }
+    
+    // Check poison counters (Rule 104.3d) - 10 in regular, but Commander uses 10 as well
+    const playerPoison = poison[playerId] ?? 0;
+    if (playerPoison >= 10) {
+      conditions.push({
+        type: 'poison',
+        playerId,
+        loserId: playerId,
+        reason: `${player.name || playerId} has ${playerPoison} poison counters`,
+      });
+    }
+    
+    // Check commander damage (21+ from a single commander)
+    const playerCmdrDamage = commanderDamage[playerId] || {};
+    for (const [commanderId, damage] of Object.entries(playerCmdrDamage)) {
+      if (typeof damage === 'number' && damage >= 21) {
+        conditions.push({
+          type: 'commander_damage',
+          playerId,
+          loserId: playerId,
+          reason: `${player.name || playerId} has taken ${damage} commander damage from a single commander`,
+        });
+        break; // Only need to report once per player
+      }
+    }
+  }
+  
+  // Check for card-based win conditions on the battlefield
+  const battlefield = ctx.state?.battlefield || [];
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+    
+    const cardName = (permanent.card.name || "").toLowerCase();
+    const oracleText = (permanent.card.oracle_text || "").toLowerCase();
+    const controllerId = permanent.controller;
+    const controller = players.find((p: any) => p.id === controllerId);
+    
+    // Felidar Sovereign: "At the beginning of your upkeep, if you have 40 or more life, you win the game."
+    if (cardName.includes('felidar sovereign') && (life[controllerId] ?? 40) >= 40) {
+      conditions.push({
+        type: 'card_effect',
+        playerId: controllerId,
+        winnerId: controllerId,
+        reason: `${controller?.name || controllerId} wins with Felidar Sovereign (40+ life at upkeep)`,
+      });
+    }
+    
+    // Test of Endurance: "At the beginning of your upkeep, if you have 50 or more life, you win the game."
+    if (cardName.includes('test of endurance') && (life[controllerId] ?? 40) >= 50) {
+      conditions.push({
+        type: 'card_effect',
+        playerId: controllerId,
+        winnerId: controllerId,
+        reason: `${controller?.name || controllerId} wins with Test of Endurance (50+ life at upkeep)`,
+      });
+    }
+    
+    // Thassa's Oracle: Win condition is checked on ETB/resolution
+    // Jace, Wielder of Mysteries: Similar to Lab Man
+    // Laboratory Maniac: Replacement effect for drawing from empty library
+    // These are handled in the draw logic
+  }
+  
+  return conditions;
+}
+
+/**
+ * Check for alternate win condition triggers at upkeep
+ */
+export function checkUpkeepWinConditions(
+  ctx: GameContext,
+  activePlayerId: string
+): WinCondition | null {
+  const life = (ctx as any).life || {};
+  const playerLife = life[activePlayerId] ?? 40;
+  const battlefield = ctx.state?.battlefield || [];
+  const players = ctx.state?.players || [];
+  const player = players.find((p: any) => p.id === activePlayerId);
+  
+  for (const permanent of battlefield) {
+    if (!permanent || permanent.controller !== activePlayerId) continue;
+    
+    const cardName = (permanent.card?.name || "").toLowerCase();
+    
+    // Felidar Sovereign
+    if (cardName.includes('felidar sovereign') && playerLife >= 40) {
+      return {
+        type: 'card_effect',
+        playerId: activePlayerId,
+        winnerId: activePlayerId,
+        reason: `${player?.name || activePlayerId} wins with Felidar Sovereign (40+ life at upkeep)`,
+      };
+    }
+    
+    // Test of Endurance
+    if (cardName.includes('test of endurance') && playerLife >= 50) {
+      return {
+        type: 'card_effect',
+        playerId: activePlayerId,
+        winnerId: activePlayerId,
+        reason: `${player?.name || activePlayerId} wins with Test of Endurance (50+ life at upkeep)`,
+      };
+    }
+    
+    // Chance Encounter (with 10+ luck counters)
+    if (cardName.includes('chance encounter')) {
+      const counters = permanent.counters || {};
+      if ((counters.luck || 0) >= 10) {
+        return {
+          type: 'card_effect',
+          playerId: activePlayerId,
+          winnerId: activePlayerId,
+          reason: `${player?.name || activePlayerId} wins with Chance Encounter (10+ luck counters)`,
+        };
+      }
+    }
+    
+    // Helix Pinnacle (with 100+ tower counters)
+    if (cardName.includes('helix pinnacle')) {
+      const counters = permanent.counters || {};
+      if ((counters.tower || 0) >= 100) {
+        return {
+          type: 'card_effect',
+          playerId: activePlayerId,
+          winnerId: activePlayerId,
+          reason: `${player?.name || activePlayerId} wins with Helix Pinnacle (100+ tower counters)`,
+        };
+      }
+    }
+    
+    // Epic Struggle (20+ creatures at upkeep)
+    if (cardName.includes('epic struggle')) {
+      const creatureCount = battlefield.filter((p: any) => 
+        p.controller === activePlayerId && 
+        (p.card?.type_line || '').toLowerCase().includes('creature')
+      ).length;
+      
+      if (creatureCount >= 20) {
+        return {
+          type: 'card_effect',
+          playerId: activePlayerId,
+          winnerId: activePlayerId,
+          reason: `${player?.name || activePlayerId} wins with Epic Struggle (20+ creatures)`,
+        };
+      }
+    }
+    
+    // Mortal Combat (20+ creatures in graveyard)
+    if (cardName.includes('mortal combat')) {
+      const zones = ctx.state?.zones?.[activePlayerId];
+      const graveyard = zones?.graveyard || [];
+      const creatureCount = graveyard.filter((c: any) => 
+        (c.type_line || '').toLowerCase().includes('creature')
+      ).length;
+      
+      if (creatureCount >= 20) {
+        return {
+          type: 'card_effect',
+          playerId: activePlayerId,
+          winnerId: activePlayerId,
+          reason: `${player?.name || activePlayerId} wins with Mortal Combat (20+ creatures in graveyard)`,
+        };
+      }
+    }
+  }
+  
+  return null;
+}
+
+// ============================================================================
+// Transform/Flip Triggers
+// ============================================================================
+
+export interface TransformCheckResult {
+  permanentId: string;
+  cardName: string;
+  shouldTransform: boolean;
+  reason: string;
+  newFace?: any;
+}
+
+/**
+ * Check if a permanent should transform at end of turn
+ * Handles cards like Growing Rites of Itlimoc, Legion's Landing, etc.
+ */
+export function checkEndOfTurnTransforms(
+  ctx: GameContext,
+  activePlayerId: string
+): TransformCheckResult[] {
+  const results: TransformCheckResult[] = [];
+  const battlefield = ctx.state?.battlefield || [];
+  
+  for (const permanent of battlefield) {
+    if (!permanent || permanent.controller !== activePlayerId) continue;
+    if (!permanent.card) continue;
+    
+    const cardName = (permanent.card.name || "").toLowerCase();
+    const oracleText = ((permanent.card as any).oracle_text || "").toLowerCase();
+    const layout = (permanent.card as any).layout;
+    const cardFaces = (permanent.card as any).card_faces;
+    
+    // Only check transformable cards
+    if (layout !== 'transform' && layout !== 'double_faced_token') continue;
+    if (!Array.isArray(cardFaces) || cardFaces.length < 2) continue;
+    
+    // Skip already transformed cards (back face is showing)
+    if ((permanent as any).transformed) continue;
+    
+    // Growing Rites of Itlimoc: Transform at end of turn if you control 4+ creatures
+    if (cardName.includes('growing rites of itlimoc')) {
+      const creatureCount = battlefield.filter((p: any) => 
+        p.controller === activePlayerId && 
+        (p.card?.type_line || '').toLowerCase().includes('creature')
+      ).length;
+      
+      if (creatureCount >= 4) {
+        results.push({
+          permanentId: permanent.id,
+          cardName: permanent.card.name,
+          shouldTransform: true,
+          reason: `Control ${creatureCount} creatures (4+ required)`,
+          newFace: cardFaces[1],
+        });
+      }
+    }
+    
+    // Legion's Landing: Transform when you attack with 3+ creatures
+    // (This is actually checked during declare attackers, but including for completeness)
+    
+    // Arguel's Blood Fast: Transform at end of turn if you have 5 or less life
+    if (cardName.includes("arguel's blood fast")) {
+      const life = (ctx as any).life?.[activePlayerId] ?? 40;
+      if (life <= 5) {
+        results.push({
+          permanentId: permanent.id,
+          cardName: permanent.card.name,
+          shouldTransform: true,
+          reason: `Life total is ${life} (5 or less required)`,
+          newFace: cardFaces[1],
+        });
+      }
+    }
+    
+    // Dowsing Dagger: Transform when creature deals combat damage
+    // (Checked during combat damage resolution)
+    
+    // Treasure Map: Transform when it has 3+ landmark counters
+    if (cardName.includes('treasure map')) {
+      const counters = permanent.counters || {};
+      if ((counters.landmark || 0) >= 3) {
+        results.push({
+          permanentId: permanent.id,
+          cardName: permanent.card.name,
+          shouldTransform: true,
+          reason: `Has ${counters.landmark} landmark counters (3+ required)`,
+          newFace: cardFaces[1],
+        });
+      }
+    }
+    
+    // Generic pattern: "At the beginning of your end step, if [condition], transform ~"
+    const endStepTransformMatch = oracleText.match(
+      /at the beginning of (?:your )?end step,?\s*if ([^,]+),?\s*transform/i
+    );
+    if (endStepTransformMatch) {
+      // We found a transform trigger - would need to evaluate the condition
+      // For now, mark it for UI to handle
+      results.push({
+        permanentId: permanent.id,
+        cardName: permanent.card.name,
+        shouldTransform: false, // UI needs to confirm
+        reason: `Condition: ${endStepTransformMatch[1]}`,
+        newFace: cardFaces[1],
+      });
+    }
+  }
+  
+  return results;
+}
+
+// ============================================================================
+// Landfall Triggers
+// ============================================================================
+
+export interface LandfallTrigger {
+  permanentId: string;
+  cardName: string;
+  controllerId: string;
+  effect: string;
+  mandatory: boolean;
+  requiresChoice?: boolean;
+}
+
+/**
+ * Detect landfall triggers from a permanent's oracle text
+ */
+export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigger[] {
+  const triggers: LandfallTrigger[] = [];
+  const oracleText = (card?.oracle_text || "");
+  const lowerOracle = oracleText.toLowerCase();
+  const cardName = card?.name || "Unknown";
+  const permanentId = permanent?.id || "";
+  const controllerId = permanent?.controller || "";
+  
+  // Pattern: "Landfall — Whenever a land enters the battlefield under your control,"
+  const landfallMatch = oracleText.match(
+    /landfall\s*[—-]\s*whenever a land enters the battlefield under your control,?\s*([^.]+)/i
+  );
+  if (landfallMatch) {
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      effect: landfallMatch[1].trim(),
+      mandatory: !landfallMatch[1].toLowerCase().includes('you may'),
+      requiresChoice: landfallMatch[1].toLowerCase().includes('you may'),
+    });
+  }
+  
+  // Also check for non-keyworded landfall: "Whenever a land enters the battlefield under your control"
+  const genericLandfallMatch = oracleText.match(
+    /whenever a land enters the battlefield under your control,?\s*([^.]+)/i
+  );
+  if (genericLandfallMatch && !landfallMatch) {
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      effect: genericLandfallMatch[1].trim(),
+      mandatory: !genericLandfallMatch[1].toLowerCase().includes('you may'),
+      requiresChoice: genericLandfallMatch[1].toLowerCase().includes('you may'),
+    });
+  }
+  
+  return triggers;
+}
+
+/**
+ * Get all landfall triggers when a land enters the battlefield
+ */
+export function getLandfallTriggers(
+  ctx: GameContext,
+  landController: string
+): LandfallTrigger[] {
+  const triggers: LandfallTrigger[] = [];
+  const battlefield = ctx.state?.battlefield || [];
+  
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+    // Landfall triggers only fire for the controller
+    if (permanent.controller !== landController) continue;
+    
+    const permTriggers = detectLandfallTriggers(permanent.card, permanent);
+    triggers.push(...permTriggers);
+  }
+  
+  return triggers;
+}
+
+// ============================================================================
+// Static Abilities and Keywords
+// ============================================================================
+
+/**
+ * Check if a permanent has Split Second (can't be responded to)
+ */
+export function hasSplitSecond(card: any): boolean {
+  const oracleText = (card?.oracle_text || "").toLowerCase();
+  const keywords = card?.keywords || [];
+  
+  return keywords.some((k: string) => k.toLowerCase() === 'split second') ||
+         oracleText.includes('split second');
+}
+
+/**
+ * Check if a player has hexproof (Leyline of Sanctity, Shalai, etc.)
+ */
+export function playerHasHexproof(
+  gameState: any,
+  playerId: string
+): boolean {
+  const battlefield = gameState?.battlefield || [];
+  
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+    
+    const oracleText = (permanent.card.oracle_text || "").toLowerCase();
+    const cardName = (permanent.card.name || "").toLowerCase();
+    
+    // Leyline of Sanctity: "You have hexproof"
+    if (cardName.includes('leyline of sanctity') && permanent.controller === playerId) {
+      return true;
+    }
+    
+    // Shalai, Voice of Plenty: "You and permanents you control have hexproof"
+    if (cardName.includes('shalai') && oracleText.includes('you') && 
+        oracleText.includes('hexproof') && permanent.controller === playerId) {
+      return true;
+    }
+    
+    // Aegis of the Gods: "You have hexproof"
+    if (cardName.includes('aegis of the gods') && permanent.controller === playerId) {
+      return true;
+    }
+    
+    // Teyo, the Shieldmage: "You have hexproof"
+    if (cardName.includes('teyo') && oracleText.includes('you have hexproof') && 
+        permanent.controller === playerId) {
+      return true;
+    }
+    
+    // Orbs of Warding: "You have hexproof"
+    if (cardName.includes('orbs of warding') && permanent.controller === playerId) {
+      return true;
+    }
+    
+    // Imperial Mask: "You have hexproof"
+    if (cardName.includes('imperial mask') && permanent.controller === playerId) {
+      return true;
+    }
+    
+    // Generic pattern: "You have hexproof"
+    if (oracleText.includes('you have hexproof') && permanent.controller === playerId) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * Get creatures with specific keywords in graveyard (Brawn, Anger, Wonder, Filth, Genesis)
+ */
+export function getGraveyardKeywordGranters(
+  gameState: any,
+  playerId: string
+): { keyword: string; cardName: string; condition?: string }[] {
+  const granters: { keyword: string; cardName: string; condition?: string }[] = [];
+  const zones = gameState?.zones?.[playerId];
+  const graveyard = zones?.graveyard || [];
+  const battlefield = gameState?.battlefield || [];
+  
+  // Check if player controls a land of the required type
+  const controlsForest = battlefield.some((p: any) => 
+    p.controller === playerId && 
+    (p.card?.type_line || '').toLowerCase().includes('forest')
+  );
+  const controlsIsland = battlefield.some((p: any) => 
+    p.controller === playerId && 
+    (p.card?.type_line || '').toLowerCase().includes('island')
+  );
+  const controlsMountain = battlefield.some((p: any) => 
+    p.controller === playerId && 
+    (p.card?.type_line || '').toLowerCase().includes('mountain')
+  );
+  const controlsSwamp = battlefield.some((p: any) => 
+    p.controller === playerId && 
+    (p.card?.type_line || '').toLowerCase().includes('swamp')
+  );
+  
+  for (const card of graveyard) {
+    const cardName = (card.name || "").toLowerCase();
+    
+    // Brawn: Creatures you control have trample (if you control a Forest)
+    if (cardName.includes('brawn') && controlsForest) {
+      granters.push({ keyword: 'trample', cardName: 'Brawn', condition: 'Control a Forest' });
+    }
+    
+    // Anger: Creatures you control have haste (if you control a Mountain)
+    if (cardName.includes('anger') && controlsMountain) {
+      granters.push({ keyword: 'haste', cardName: 'Anger', condition: 'Control a Mountain' });
+    }
+    
+    // Wonder: Creatures you control have flying (if you control an Island)
+    if (cardName.includes('wonder') && controlsIsland) {
+      granters.push({ keyword: 'flying', cardName: 'Wonder', condition: 'Control an Island' });
+    }
+    
+    // Filth: Creatures you control have swampwalk (if you control a Swamp)
+    if (cardName.includes('filth') && controlsSwamp) {
+      granters.push({ keyword: 'swampwalk', cardName: 'Filth', condition: 'Control a Swamp' });
+    }
+    
+    // Genesis: Return creature from graveyard at upkeep (if you control a Forest)
+    if (cardName.includes('genesis') && controlsForest) {
+      granters.push({ keyword: 'return_creature', cardName: 'Genesis', condition: 'Control a Forest' });
+    }
+  }
+  
+  return granters;
+}
+

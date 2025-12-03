@@ -996,3 +996,80 @@ export function emitSacrificeUnlessPayPrompt(
     imageUrl,
   });
 }
+
+/**
+ * Emit Mimic Vat trigger prompt to a player
+ * When a nontoken creature dies, the Mimic Vat controller can exile it
+ */
+export function emitMimicVatPrompt(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  mimicVatId: string,
+  mimicVatName: string,
+  dyingCreatureId: string,
+  dyingCreatureName: string,
+  dyingCreatureCard: any,
+  imageUrl?: string
+): void {
+  emitToPlayer(io, playerId, "mimicVatTrigger", {
+    gameId,
+    mimicVatId,
+    mimicVatName,
+    dyingCreatureId,
+    dyingCreatureName,
+    dyingCreatureCard,
+    imageUrl: dyingCreatureCard?.image_uris?.small || dyingCreatureCard?.image_uris?.normal || imageUrl,
+    description: `${dyingCreatureName} died. You may exile it imprinted on ${mimicVatName}.`,
+  });
+}
+
+/**
+ * Emit Kroxa-style auto-sacrifice prompt
+ * When a creature enters without its alternate cost (Escape), it sacrifices itself
+ */
+export function emitAutoSacrificeTrigger(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  permanentId: string,
+  cardName: string,
+  reason: string,
+  timing: 'immediate' | 'end_step',
+  imageUrl?: string
+): void {
+  emitToPlayer(io, playerId, "autoSacrificeTrigger", {
+    gameId,
+    permanentId,
+    cardName,
+    reason,
+    timing,
+    imageUrl,
+  });
+}
+
+/**
+ * Emit devotion mana prompt
+ * For cards like Karametra's Acolyte that add mana based on devotion
+ */
+export function emitDevotionManaPrompt(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  permanentId: string,
+  cardName: string,
+  devotionCount: number,
+  manaColor: string,
+  imageUrl?: string
+): void {
+  emitToPlayer(io, playerId, "devotionManaActivated", {
+    gameId,
+    permanentId,
+    cardName,
+    devotionCount,
+    manaColor,
+    manaAdded: devotionCount,
+    imageUrl,
+    message: `${cardName} adds ${devotionCount} ${manaColor} mana (devotion)`,
+  });
+}
