@@ -1343,8 +1343,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // If so, add the produced mana to the player's mana pool
     const card = (permanent as any).card;
     const cardName = card?.name || "Unknown";
-    const typeLine = (card?.type_line || "").toLowerCase();
-    const isCreature = typeLine.includes("creature");
     
     // Get mana abilities for this permanent (includes granted abilities from Cryptolith Rite, etc.)
     const manaAbilities = getManaAbilitiesForPermanent(game.state, permanent, pid);
@@ -1357,8 +1355,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
       };
       
-      // For simplicity, use the first mana ability's production
-      // Most creatures with granted abilities produce one type of mana
+      // Use the first mana ability's production
+      // Note: If a permanent has multiple mana abilities (e.g., inherent + granted),
+      // we use the first one. In practice, most permanents only have one active mana ability
+      // when tapped directly. For more complex cases, players should use activateBattlefieldAbility.
       const ability = manaAbilities[0];
       const produces = ability.produces || [];
       
@@ -1373,15 +1373,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           'C': 'colorless',
         };
         
-        // If produces multiple colors (like "any color"), prompt user or add first
+        // If produces multiple colors (like "any color"), prompt user for choice
         // For granted abilities like Cryptolith Rite (any color), we'll emit a color choice prompt
-        if (produces.length > 1 || produces[0] === 'any') {
+        if (produces.length > 1) {
           // Multi-color production - emit choice to player
           socket.emit("manaColorChoice", {
             gameId,
             permanentId,
             cardName,
-            availableColors: produces.length > 1 ? produces : ['W', 'U', 'B', 'R', 'G'],
+            availableColors: produces,
             grantedBy: ability.isGranted ? ability.grantedBy : undefined,
           });
           
