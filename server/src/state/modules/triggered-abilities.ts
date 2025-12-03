@@ -27,9 +27,25 @@
  * - Firebreathing: "{R}: +1/+0"
  * - Shade: "{B}: +1/+1"
  * - Flying/evasion abilities
+ * 
+ * NOTE: This file is being modularized. New code should be added to the 
+ * appropriate submodule in the triggers/ directory instead.
  */
 
 import type { GameContext } from "../context.js";
+
+// Re-export from modularized submodules
+export { calculateDevotion, getDevotionManaAmount } from "./triggers/devotion.js";
+export { 
+  checkWinConditions, 
+  checkUpkeepWinConditions,
+  type WinCondition,
+} from "./triggers/win-conditions.js";
+export {
+  detectLandfallTriggers,
+  getLandfallTriggers,
+  type LandfallTrigger,
+} from "./triggers/landfall.js";
 
 /**
  * Trigger timing - when the trigger should fire
@@ -3989,299 +4005,12 @@ function detectTargetType(effectText: string): string | undefined {
 }
 
 // ============================================================================
-// Devotion Mana Calculation
+// Devotion Mana Calculation - MOVED to ./triggers/devotion.ts
 // ============================================================================
 
-/**
- * Calculate devotion to a color for a player
- * Devotion = count of mana symbols of that color in mana costs of permanents you control
- */
-export function calculateDevotion(
-  gameState: any,
-  playerId: string,
-  color: 'W' | 'U' | 'B' | 'R' | 'G'
-): number {
-  const battlefield = gameState?.battlefield || [];
-  let devotion = 0;
-  
-  for (const permanent of battlefield) {
-    if (!permanent || permanent.controller !== playerId) continue;
-    
-    const manaCost = permanent.card?.mana_cost || "";
-    
-    // Count occurrences of the color symbol
-    // Format: {W}, {U}, {B}, {R}, {G}
-    // Also count hybrid: {W/U}, {W/B}, etc.
-    const colorSymbol = `{${color}}`;
-    const regex = new RegExp(`\\{${color}(?:\\/[WUBRG])?\\}|\\{[WUBRG]\\/${color}\\}`, 'gi');
-    const matches = manaCost.match(regex) || [];
-    devotion += matches.length;
-  }
-  
-  return devotion;
-}
-
-/**
- * Get the amount of mana produced by a devotion-based ability
- * Cards like Karametra's Acolyte, Nykthos
- */
-export function getDevotionManaAmount(
-  card: any,
-  gameState: any,
-  controllerId: string
-): { color: string; amount: number }[] {
-  const oracleText = (card?.oracle_text || "").toLowerCase();
-  const results: { color: string; amount: number }[] = [];
-  
-  // Pattern: "Add an amount of {G} equal to your devotion to green"
-  const devotionManaMatch = oracleText.match(
-    /add (?:an amount of )?(\{[WUBRGC]\})(?:[^.]*?)equal to your devotion to (\w+)/i
-  );
-  
-  if (devotionManaMatch) {
-    const manaSymbol = devotionManaMatch[1].toUpperCase();
-    const colorName = devotionManaMatch[2].toLowerCase();
-    
-    let colorCode: 'W' | 'U' | 'B' | 'R' | 'G' = 'G';
-    switch (colorName) {
-      case 'white': colorCode = 'W'; break;
-      case 'blue': colorCode = 'U'; break;
-      case 'black': colorCode = 'B'; break;
-      case 'red': colorCode = 'R'; break;
-      case 'green': colorCode = 'G'; break;
-    }
-    
-    const amount = calculateDevotion(gameState, controllerId, colorCode);
-    
-    // Extract color from mana symbol
-    const color = manaSymbol.replace(/[{}]/g, '');
-    
-    // Note: Devotion-based mana abilities should produce 0 if devotion is 0
-    // Do not use Math.max(1, amount) as that would be incorrect
-    results.push({ color, amount });
-  }
-  
-  // Nykthos pattern: "Add X mana in any combination of colors..."
-  if (oracleText.includes('nykthos') || 
-      (oracleText.includes('devotion') && oracleText.includes('any combination'))) {
-    // Nykthos requires choosing a color and getting devotion to that color
-    // This would need UI interaction, so we return a placeholder
-    results.push({ color: 'devotion_choice', amount: 0 });
-  }
-  
-  return results;
-}
-
 // ============================================================================
-// Win/Loss Condition Detection
+// Win/Loss Condition Detection - MOVED to ./triggers/win-conditions.ts
 // ============================================================================
-
-export interface WinCondition {
-  type: 'life_zero' | 'poison' | 'commander_damage' | 'card_effect' | 'empty_library_draw';
-  playerId: string;
-  winnerId?: string;
-  loserId?: string;
-  reason: string;
-}
-
-/**
- * Check for game-ending conditions
- * Rule 104.3: A player loses the game if:
- * - Their life total is 0 or less
- * - They have 10+ poison counters
- * - They've been dealt 21+ combat damage by a single commander
- * - They attempt to draw from an empty library
- * - A card effect says they lose
- */
-export function checkWinConditions(ctx: GameContext): WinCondition[] {
-  const conditions: WinCondition[] = [];
-  const players = ctx.state?.players || [];
-  const life = (ctx as any).life || {};
-  const poison = (ctx as any).poison || {};
-  const commanderDamage = (ctx.state as any)?.commanderDamage || {};
-  
-  for (const player of players) {
-    if (!player || (player as any).spectator || (player as any).isSpectator) continue;
-    const playerId = player.id;
-    
-    // Check life total (Rule 104.3b)
-    const playerLife = life[playerId] ?? 40;
-    if (playerLife <= 0) {
-      conditions.push({
-        type: 'life_zero',
-        playerId,
-        loserId: playerId,
-        reason: `${player.name || playerId} has 0 or less life (${playerLife})`,
-      });
-    }
-    
-    // Check poison counters (Rule 104.3d) - 10 in regular, but Commander uses 10 as well
-    const playerPoison = poison[playerId] ?? 0;
-    if (playerPoison >= 10) {
-      conditions.push({
-        type: 'poison',
-        playerId,
-        loserId: playerId,
-        reason: `${player.name || playerId} has ${playerPoison} poison counters`,
-      });
-    }
-    
-    // Check commander damage (21+ from a single commander)
-    const playerCmdrDamage = commanderDamage[playerId] || {};
-    for (const [commanderId, damage] of Object.entries(playerCmdrDamage)) {
-      if (typeof damage === 'number' && damage >= 21) {
-        conditions.push({
-          type: 'commander_damage',
-          playerId,
-          loserId: playerId,
-          reason: `${player.name || playerId} has taken ${damage} commander damage from a single commander`,
-        });
-        break; // Only need to report once per player
-      }
-    }
-  }
-  
-  // Check for card-based win conditions on the battlefield
-  const battlefield = ctx.state?.battlefield || [];
-  for (const permanent of battlefield) {
-    if (!permanent || !permanent.card) continue;
-    
-    const cardName = (permanent.card.name || "").toLowerCase();
-    const oracleText = (permanent.card.oracle_text || "").toLowerCase();
-    const controllerId = permanent.controller;
-    const controller = players.find((p: any) => p.id === controllerId);
-    
-    // Felidar Sovereign: "At the beginning of your upkeep, if you have 40 or more life, you win the game."
-    if (cardName.includes('felidar sovereign') && (life[controllerId] ?? 40) >= 40) {
-      conditions.push({
-        type: 'card_effect',
-        playerId: controllerId,
-        winnerId: controllerId,
-        reason: `${controller?.name || controllerId} wins with Felidar Sovereign (40+ life at upkeep)`,
-      });
-    }
-    
-    // Test of Endurance: "At the beginning of your upkeep, if you have 50 or more life, you win the game."
-    if (cardName.includes('test of endurance') && (life[controllerId] ?? 40) >= 50) {
-      conditions.push({
-        type: 'card_effect',
-        playerId: controllerId,
-        winnerId: controllerId,
-        reason: `${controller?.name || controllerId} wins with Test of Endurance (50+ life at upkeep)`,
-      });
-    }
-    
-    // Thassa's Oracle: Win condition is checked on ETB/resolution
-    // Jace, Wielder of Mysteries: Similar to Lab Man
-    // Laboratory Maniac: Replacement effect for drawing from empty library
-    // These are handled in the draw logic
-  }
-  
-  return conditions;
-}
-
-/**
- * Check for alternate win condition triggers at upkeep
- */
-export function checkUpkeepWinConditions(
-  ctx: GameContext,
-  activePlayerId: string
-): WinCondition | null {
-  const life = (ctx as any).life || {};
-  const playerLife = life[activePlayerId] ?? 40;
-  const battlefield = ctx.state?.battlefield || [];
-  const players = ctx.state?.players || [];
-  const player = players.find((p: any) => p.id === activePlayerId);
-  
-  for (const permanent of battlefield) {
-    if (!permanent || permanent.controller !== activePlayerId) continue;
-    
-    const cardName = (permanent.card?.name || "").toLowerCase();
-    
-    // Felidar Sovereign
-    if (cardName.includes('felidar sovereign') && playerLife >= 40) {
-      return {
-        type: 'card_effect',
-        playerId: activePlayerId,
-        winnerId: activePlayerId,
-        reason: `${player?.name || activePlayerId} wins with Felidar Sovereign (40+ life at upkeep)`,
-      };
-    }
-    
-    // Test of Endurance
-    if (cardName.includes('test of endurance') && playerLife >= 50) {
-      return {
-        type: 'card_effect',
-        playerId: activePlayerId,
-        winnerId: activePlayerId,
-        reason: `${player?.name || activePlayerId} wins with Test of Endurance (50+ life at upkeep)`,
-      };
-    }
-    
-    // Chance Encounter (with 10+ luck counters)
-    if (cardName.includes('chance encounter')) {
-      const counters = permanent.counters || {};
-      if ((counters.luck || 0) >= 10) {
-        return {
-          type: 'card_effect',
-          playerId: activePlayerId,
-          winnerId: activePlayerId,
-          reason: `${player?.name || activePlayerId} wins with Chance Encounter (10+ luck counters)`,
-        };
-      }
-    }
-    
-    // Helix Pinnacle (with 100+ tower counters)
-    if (cardName.includes('helix pinnacle')) {
-      const counters = permanent.counters || {};
-      if ((counters.tower || 0) >= 100) {
-        return {
-          type: 'card_effect',
-          playerId: activePlayerId,
-          winnerId: activePlayerId,
-          reason: `${player?.name || activePlayerId} wins with Helix Pinnacle (100+ tower counters)`,
-        };
-      }
-    }
-    
-    // Epic Struggle (20+ creatures at upkeep)
-    if (cardName.includes('epic struggle')) {
-      const creatureCount = battlefield.filter((p: any) => 
-        p.controller === activePlayerId && 
-        (p.card?.type_line || '').toLowerCase().includes('creature')
-      ).length;
-      
-      if (creatureCount >= 20) {
-        return {
-          type: 'card_effect',
-          playerId: activePlayerId,
-          winnerId: activePlayerId,
-          reason: `${player?.name || activePlayerId} wins with Epic Struggle (20+ creatures)`,
-        };
-      }
-    }
-    
-    // Mortal Combat (20+ creatures in graveyard)
-    if (cardName.includes('mortal combat')) {
-      const zones = ctx.state?.zones?.[activePlayerId];
-      const graveyard = zones?.graveyard || [];
-      const creatureCount = graveyard.filter((c: any) => 
-        (c.type_line || '').toLowerCase().includes('creature')
-      ).length;
-      
-      if (creatureCount >= 20) {
-        return {
-          type: 'card_effect',
-          playerId: activePlayerId,
-          winnerId: activePlayerId,
-          reason: `${player?.name || activePlayerId} wins with Mortal Combat (20+ creatures in graveyard)`,
-        };
-      }
-    }
-  }
-  
-  return null;
-}
 
 // ============================================================================
 // Transform/Flip Triggers
@@ -4395,83 +4124,8 @@ export function checkEndOfTurnTransforms(
 }
 
 // ============================================================================
-// Landfall Triggers
+// Landfall Triggers - MOVED to ./triggers/landfall.ts
 // ============================================================================
-
-export interface LandfallTrigger {
-  permanentId: string;
-  cardName: string;
-  controllerId: string;
-  effect: string;
-  mandatory: boolean;
-  requiresChoice?: boolean;
-}
-
-/**
- * Detect landfall triggers from a permanent's oracle text
- */
-export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigger[] {
-  const triggers: LandfallTrigger[] = [];
-  const oracleText = (card?.oracle_text || "");
-  const lowerOracle = oracleText.toLowerCase();
-  const cardName = card?.name || "Unknown";
-  const permanentId = permanent?.id || "";
-  const controllerId = permanent?.controller || "";
-  
-  // Pattern: "Landfall — Whenever a land enters the battlefield under your control,"
-  const landfallMatch = oracleText.match(
-    /landfall\s*[—-]\s*whenever a land enters the battlefield under your control,?\s*([^.]+)/i
-  );
-  if (landfallMatch) {
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      effect: landfallMatch[1].trim(),
-      mandatory: !landfallMatch[1].toLowerCase().includes('you may'),
-      requiresChoice: landfallMatch[1].toLowerCase().includes('you may'),
-    });
-  }
-  
-  // Also check for non-keyworded landfall: "Whenever a land enters the battlefield under your control"
-  const genericLandfallMatch = oracleText.match(
-    /whenever a land enters the battlefield under your control,?\s*([^.]+)/i
-  );
-  if (genericLandfallMatch && !landfallMatch) {
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      effect: genericLandfallMatch[1].trim(),
-      mandatory: !genericLandfallMatch[1].toLowerCase().includes('you may'),
-      requiresChoice: genericLandfallMatch[1].toLowerCase().includes('you may'),
-    });
-  }
-  
-  return triggers;
-}
-
-/**
- * Get all landfall triggers when a land enters the battlefield
- */
-export function getLandfallTriggers(
-  ctx: GameContext,
-  landController: string
-): LandfallTrigger[] {
-  const triggers: LandfallTrigger[] = [];
-  const battlefield = ctx.state?.battlefield || [];
-  
-  for (const permanent of battlefield) {
-    if (!permanent || !permanent.card) continue;
-    // Landfall triggers only fire for the controller
-    if (permanent.controller !== landController) continue;
-    
-    const permTriggers = detectLandfallTriggers(permanent.card, permanent);
-    triggers.push(...permTriggers);
-  }
-  
-  return triggers;
-}
 
 // ============================================================================
 // Static Abilities and Keywords
