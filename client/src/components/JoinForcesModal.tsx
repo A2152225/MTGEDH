@@ -287,7 +287,6 @@ export function JoinForcesModal({
             <button
               type="button"
               onClick={() => onContribute(selectedAmount)}
-              disabled={false}
               style={{
                 flex: 1,
                 padding: '12px 20px',

@@ -1659,9 +1659,10 @@ export function resolveTopOfStack(ctx: GameContext) {
               
               state.battlefield.push(tokenPermanent);
               
-              // Attach the equipment to the token
+              // Attach the equipment to the token (validate it's actually an equipment)
               const equipment = state.battlefield.find((p: any) => p.id === newPermId);
-              if (equipment) {
+              const isEquipment = equipment && (equipment.card?.type_line || '').toLowerCase().includes('equipment');
+              if (equipment && isEquipment) {
                 (equipment as any).attachedTo = tokenId;
                 (tokenPermanent as any).attachedEquipment = (tokenPermanent as any).attachedEquipment || [];
                 (tokenPermanent as any).attachedEquipment.push(newPermId);
