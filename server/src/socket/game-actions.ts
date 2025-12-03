@@ -1196,17 +1196,24 @@ function creatureHasHaste(permanent: any, battlefield: any[], controller: string
     
     // 3. Check attached equipment for haste grants (e.g., Lightning Greaves, Swiftfoot Boots)
     // Pattern: "Equipped creature has haste" or "Equipped creature has shroud and haste"
+    
+    // Helper function to detect if equipment/aura grants haste
+    const equipmentGrantsHaste = (equipOracle: string): boolean => {
+      if (!equipOracle.includes('equipped creature') && !equipOracle.includes('enchanted creature')) {
+        return false;
+      }
+      return equipOracle.includes('has haste') || 
+             equipOracle.includes('have haste') ||
+             equipOracle.includes('gains haste') ||
+             /(?:equipped|enchanted) creature has (?:[\w\s,]+\s+and\s+)?haste/i.test(equipOracle);
+    };
+    
     const attachedEquipment = permanent?.attachedEquipment || [];
     for (const equipId of attachedEquipment) {
       const equipment = battlefield.find((p: any) => p.id === equipId);
       if (equipment && equipment.card) {
         const equipOracle = (equipment.card.oracle_text || "").toLowerCase();
-        // Check for patterns like "equipped creature has haste" or "equipped creature has ... and haste"
-        if (equipOracle.includes('equipped creature') && 
-            (equipOracle.includes('has haste') || 
-             equipOracle.includes('have haste') ||
-             equipOracle.includes('gains haste') ||
-             /equipped creature has (?:[\w\s,]+\s+and\s+)?haste/i.test(equipOracle))) {
+        if (equipmentGrantsHaste(equipOracle)) {
           return true;
         }
       }
@@ -1217,15 +1224,11 @@ function creatureHasHaste(permanent: any, battlefield: any[], controller: string
       for (const equip of battlefield) {
         if (!equip || !equip.card) continue;
         const equipTypeLine = (equip.card.type_line || "").toLowerCase();
-        if (!equipTypeLine.includes('equipment')) continue;
+        if (!equipTypeLine.includes('equipment') && !equipTypeLine.includes('aura')) continue;
         if (equip.attachedTo !== permanent.id) continue;
         
         const equipOracle = (equip.card.oracle_text || "").toLowerCase();
-        if (equipOracle.includes('equipped creature') && 
-            (equipOracle.includes('has haste') || 
-             equipOracle.includes('have haste') ||
-             equipOracle.includes('gains haste') ||
-             /equipped creature has (?:[\w\s,]+\s+and\s+)?haste/i.test(equipOracle))) {
+        if (equipmentGrantsHaste(equipOracle)) {
           return true;
         }
       }
