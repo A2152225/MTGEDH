@@ -3,6 +3,9 @@
  * 
  * Tests for optional house rules that can be enabled during pregame.
  * These rules are commonly used in casual Commander games.
+ * 
+ * Note: Free first mulligan in multiplayer is now BASELINE behavior (always enabled),
+ * not a house rule option. The freeFirstMulligan flag is kept for backward compatibility.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -47,7 +50,8 @@ function handHasNoLandsOrAllLands(hand: KnownCardRef[]): boolean {
   return landCount === 0 || landCount === hand.length;
 }
 
-// Helper to calculate effective mulligan count
+// Helper to calculate effective mulligan count with BASELINE free first mulligan in multiplayer
+// This reflects the new behavior where free first mulligan is always enabled for multiplayer games
 function calculateEffectiveMulliganCount(
   actualMulligans: number,
   houseRules: HouseRules,
@@ -58,8 +62,9 @@ function calculateEffectiveMulliganCount(
   
   let effectiveCount = actualMulligans;
   
-  // Free first mulligan in multiplayer
-  if (houseRules.freeFirstMulligan && isMultiplayer && actualMulligans >= 1) {
+  // Free first mulligan in multiplayer - NOW BASELINE (always enabled for multiplayer)
+  // The freeFirstMulligan flag is kept for backward compatibility but is no longer required
+  if (isMultiplayer && actualMulligans >= 1) {
     effectiveCount = Math.max(0, actualMulligans - 1);
   }
   
@@ -103,35 +108,35 @@ describe('House Rules', () => {
     });
   });
   
-  describe('Free First Mulligan in Multiplayer', () => {
-    it('gives free first mulligan in 4-player game', () => {
-      const houseRules: HouseRules = { freeFirstMulligan: true };
+  describe('Free First Mulligan in Multiplayer (Baseline)', () => {
+    it('gives free first mulligan in 4-player game (baseline behavior)', () => {
+      const houseRules: HouseRules = {}; // No rules needed - baseline behavior
       const result = calculateEffectiveMulliganCount(1, houseRules, true, false);
       expect(result).toBe(0); // First mulligan is free
     });
     
     it('second mulligan costs 1 card in multiplayer', () => {
-      const houseRules: HouseRules = { freeFirstMulligan: true };
+      const houseRules: HouseRules = {};
       const result = calculateEffectiveMulliganCount(2, houseRules, true, false);
       expect(result).toBe(1); // 2 - 1 = 1
     });
     
     it('third mulligan costs 2 cards in multiplayer', () => {
-      const houseRules: HouseRules = { freeFirstMulligan: true };
+      const houseRules: HouseRules = {};
       const result = calculateEffectiveMulliganCount(3, houseRules, true, false);
       expect(result).toBe(2); // 3 - 1 = 2
     });
     
     it('does not give free mulligan in 2-player game', () => {
-      const houseRules: HouseRules = { freeFirstMulligan: true };
+      const houseRules: HouseRules = {};
       const result = calculateEffectiveMulliganCount(1, houseRules, false, false);
       expect(result).toBe(1); // No free mulligan in 2-player
     });
     
-    it('no effect when rule is disabled', () => {
-      const houseRules: HouseRules = { freeFirstMulligan: false };
+    it('works even with freeFirstMulligan flag set (backward compatibility)', () => {
+      const houseRules: HouseRules = { freeFirstMulligan: true };
       const result = calculateEffectiveMulliganCount(1, houseRules, true, false);
-      expect(result).toBe(1);
+      expect(result).toBe(0); // First mulligan is free
     });
   });
   
@@ -139,28 +144,26 @@ describe('House Rules', () => {
     it('gives discount when all human players mulligan', () => {
       const houseRules: HouseRules = { groupMulliganDiscount: true };
       const result = calculateEffectiveMulliganCount(2, houseRules, true, true);
-      expect(result).toBe(1); // 2 - 1 = 1
+      expect(result).toBe(0); // 2 - 1 (baseline) - 1 (group) = 0
     });
     
     it('no discount when not all humans mulligan', () => {
       const houseRules: HouseRules = { groupMulliganDiscount: true };
       const result = calculateEffectiveMulliganCount(2, houseRules, true, false);
-      expect(result).toBe(2);
+      expect(result).toBe(1); // 2 - 1 (baseline) = 1
     });
     
-    it('stacks with free first mulligan', () => {
+    it('stacks with baseline free first mulligan', () => {
       const houseRules: HouseRules = { 
-        freeFirstMulligan: true, 
         groupMulliganDiscount: true 
       };
-      // 2 mulligans: -1 for free first, -1 for group = 0 cards to put back
+      // 2 mulligans: -1 for baseline free first, -1 for group = 0 cards to put back
       const result = calculateEffectiveMulliganCount(2, houseRules, true, true);
       expect(result).toBe(0);
     });
     
     it('cannot go below 0', () => {
       const houseRules: HouseRules = { 
-        freeFirstMulligan: true, 
         groupMulliganDiscount: true 
       };
       const result = calculateEffectiveMulliganCount(1, houseRules, true, true);
@@ -171,7 +174,7 @@ describe('House Rules', () => {
   describe('Multiple Rules Enabled', () => {
     it('allows all mulligan rules to be enabled simultaneously', () => {
       const houseRules: HouseRules = {
-        freeFirstMulligan: true,
+        freeFirstMulligan: true, // Backward compatibility flag
         freeMulliganNoLandsOrAllLands: true,
         groupMulliganDiscount: true,
       };
@@ -210,7 +213,7 @@ describe('House Rules', () => {
       const gameState: Partial<GameState> = {
         id: 'test_game',
         houseRules: {
-          freeFirstMulligan: true,
+          freeFirstMulligan: true, // Backward compatibility
           freeMulliganNoLandsOrAllLands: true,
         },
       };
