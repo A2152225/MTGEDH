@@ -655,6 +655,18 @@ function doAutoPass(
   try {
     const playerId = game.state.priority;
     if (!playerId) return;
+    
+    // IMPORTANT: Don't auto-pass during DECLARE_BLOCKERS step for defending players
+    // Per Rule 509, the defending player must be given the opportunity to declare blockers
+    // This is a turn-based action that doesn't use the stack
+    const currentStep = (game.state.step || '').toString().toUpperCase();
+    const turnPlayer = game.state.turnPlayer;
+    const isDefendingPlayer = playerId !== turnPlayer;
+    
+    if ((currentStep === 'DECLARE_BLOCKERS' || currentStep.includes('BLOCKERS')) && isDefendingPlayer) {
+      console.log(`[doAutoPass] Skipping auto-pass for ${playerId} during DECLARE_BLOCKERS step - must allow blocker declaration`);
+      return;
+    }
 
     // game.passPriority may not exist on some wrappers; call defensively
     let res: any = null;

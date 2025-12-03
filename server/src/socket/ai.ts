@@ -1170,11 +1170,19 @@ export async function handleAIPriority(
         
         if (!alreadyDeclaredBlockers) {
           // AI needs to declare blockers
+          // Get the attacking creatures from the battlefield
+          const attackingCreatures = battlefield.filter((perm: any) => 
+            perm.attacking === true
+          );
+          
           const context: AIDecisionContext = {
             gameState: game.state as any,
             playerId,
             decisionType: AIDecisionType.DECLARE_BLOCKERS,
             options: [],
+            constraints: {
+              attackers: attackingCreatures,
+            },
           };
           
           const decision = await aiEngine.makeDecision(context);
@@ -1306,11 +1314,19 @@ export async function handleAIPriority(
           return;
         }
         
+        // Get the attacking creatures from the battlefield
+        const attackingCreatures = battlefield.filter((perm: any) => 
+          perm.attacking === true
+        );
+        
         const context: AIDecisionContext = {
           gameState: game.state as any,
           playerId,
           decisionType: AIDecisionType.DECLARE_BLOCKERS,
           options: [],
+          constraints: {
+            attackers: attackingCreatures,
+          },
         };
         
         const decision = await aiEngine.makeDecision(context);
