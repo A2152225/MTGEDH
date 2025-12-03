@@ -6,6 +6,7 @@ import { categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from
 import { getETBTriggersForPermanent, type TriggeredAbility } from "./triggered-abilities.js";
 import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone } from "./zones.js";
+import { runSBA } from "./counters_tokens.js";
 
 /**
  * Detect "enters with counters" patterns from a card's oracle text.
@@ -2249,6 +2250,15 @@ export function resolveTopOfStack(ctx: GameContext) {
       z.graveyardCount = (z.graveyard as any[]).length;
       console.log(`[resolveTopOfStack] Spell ${card.name || 'unnamed'} resolved and moved to graveyard for ${controller}`);
     }
+  }
+  
+  // Run state-based actions after spell resolution
+  // This catches creatures that should die from damage (Blasphemous Act, etc.)
+  // or from 0 toughness from -1/-1 effects
+  try {
+    runSBA(ctx);
+  } catch (err) {
+    console.warn('[resolveTopOfStack] Error running SBA:', err);
   }
   
   bumpSeq();
