@@ -55,17 +55,8 @@ const DEFAULT_CONFIG = {
 // Types
 // ============================================================================
 
-interface CardData {
-  name: string;
-  mana_cost: string;
-  cmc?: number;
-  type_line: string;
-  oracle_text?: string;
-  power?: string;
-  toughness?: string;
-  loyalty?: string;
-  id: string;
-}
+// Import CardData from GameSimulator for consistency
+import type { CardData } from '../src/GameSimulator';
 
 interface LoadedDeck {
   name: string;
@@ -217,6 +208,14 @@ class EnhancedSimulator {
   ): Promise<SimulationSummary> {
     const gameId = `sim-${Date.now()}-${Math.random().toString(36).substring(7)}`;
     
+    // Build card database from deck cards
+    const cardDatabase = new Map<string, CardData>();
+    for (const deck of decks) {
+      for (const card of deck.cards) {
+        cardDatabase.set(card.name, card);
+      }
+    }
+    
     // Create player configurations
     const players: SimulationPlayer[] = decks.map((deck, index) => ({
       id: `player-${index + 1}` as PlayerID,
@@ -224,6 +223,7 @@ class EnhancedSimulator {
       type: PlayerType.AI,
       aiStrategy: AIStrategy.AGGRESSIVE,
       deckList: deck.cards.map(c => c.name),
+      commander: deck.commander.name,
     }));
     
     const simConfig: SimulationConfig = {
@@ -235,6 +235,7 @@ class EnhancedSimulator {
       rngSeed: config.seed,
       verbose: config.verbose,
       headless: true,
+      cardDatabase,
     };
     
     // Reset tracking
@@ -246,6 +247,18 @@ class EnhancedSimulator {
     // Run simulation
     const startTime = Date.now();
     const result = await this.simulator.runSimulation(simConfig);
+    
+    // Use eliminations from the result
+    for (const elim of (result as any).eliminations || []) {
+      this.eliminationEvents.push({
+        playerName: elim.playerName,
+        turn: elim.turn,
+        reason: elim.reason,
+        killedBy: elim.killerPlayerId, // The player who caused the elimination
+        killingCard: elim.killerCard,  // The card used
+        damageType: elim.damageType,
+      });
+    }
     
     // Analyze events
     this.analyzeEvents(result.events);
