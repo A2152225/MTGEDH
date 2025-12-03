@@ -2050,6 +2050,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         game.bumpSeq();
       }
       
+      // Broadcast mana pool update to ensure client sees the new floating mana
+      broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`);
+      
       appendEvent(gameId, (game as any).seq ?? 0, "activateManaAbility", { playerId: pid, permanentId, abilityId, manaColor });
       
       broadcastGame(io, game, gameId);

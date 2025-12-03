@@ -1,5 +1,5 @@
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, handlePendingLibrarySearch, handlePendingJoinForces } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, handlePendingLibrarySearch, handlePendingJoinForces, broadcastManaPoolUpdate } from "./util";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem } from "../../../shared/src";
@@ -258,10 +258,11 @@ function evaluateConditionalLandETB(
     };
   }
   
-  // AFR Creature Lands / Lair lands (Den of the Bugbear, Hive of the Eye Tyrant, etc.)
-  // "If you control two or more other lands, ~ enters the battlefield tapped"
+  // AFR Creature Lands / Lair lands (Den of the Bugbear, Hive of the Eye Tyrant, Lair of the Hydra, etc.)
+  // Oracle text: "If you control two or more other lands, this land enters tapped."
   // This is the INVERSE of slow lands - enters tapped if you have 2+ other lands
-  const lairLandMatch = text.match(/if you control two or more other lands,.*enters the battlefield tapped/i);
+  // Note: The oracle text says "this land enters tapped" NOT "enters the battlefield tapped"
+  const lairLandMatch = text.match(/if you control two or more other lands,.*(?:this land )?enters(?: the battlefield)? tapped/i);
   if (lairLandMatch) {
     const shouldTap = controlledLandCount >= 2;
     return {
