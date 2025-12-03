@@ -8,6 +8,15 @@
 import type { GameContext, RegisteredTrigger, TriggerTiming } from "./types.js";
 
 /**
+ * Determines if a trigger effect is mandatory based on its text.
+ * Optional triggers contain phrases like "you may" or "may choose".
+ */
+function isMandatoryEffect(effectText: string): boolean {
+  const lowerEffect = effectText.toLowerCase();
+  return !lowerEffect.includes('you may') && !lowerEffect.includes('may choose');
+}
+
+/**
  * Analyze a card and return all triggers it has.
  * This is called when a permanent enters the battlefield to register its triggers.
  */
@@ -19,34 +28,37 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
   // Upkeep triggers (text is already lowercased, no need for /i flag)
   const upkeepMatch = oracleText.match(/at the beginning of (?:your )?upkeep,?\s*([^.]+)/);
   if (upkeepMatch) {
+    const effect = upkeepMatch[1].trim();
     triggers.push({
       id: `${permanentId}_upkeep`,
       permanentId,
       controllerId,
       cardName,
       timing: 'upkeep',
-      effect: upkeepMatch[1].trim(),
-      mandatory: !upkeepMatch[1].includes('you may'),
+      effect,
+      mandatory: isMandatoryEffect(effect),
     });
   }
   
   // End step triggers
   const endStepMatch = oracleText.match(/at the beginning of (?:your |each )?end step,?\s*([^.]+)/);
   if (endStepMatch) {
+    const effect = endStepMatch[1].trim();
     triggers.push({
       id: `${permanentId}_end_step`,
       permanentId,
       controllerId,
       cardName,
       timing: 'end_step',
-      effect: endStepMatch[1].trim(),
-      mandatory: !endStepMatch[1].includes('you may'),
+      effect,
+      mandatory: isMandatoryEffect(effect),
     });
   }
   
   // ETB triggers (self) - text is already lowercased
   const etbSelfMatch = oracleText.match(/when (?:~|this creature|this permanent|this enchantment) enters the battlefield,?\s*([^.]+)/);
   if (etbSelfMatch) {
+    const effect = etbSelfMatch[1].trim();
     triggers.push({
       id: `${permanentId}_etb_self`,
       permanentId,
@@ -54,14 +66,15 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       cardName,
       timing: 'etb',
       condition: 'self',
-      effect: etbSelfMatch[1].trim(),
-      mandatory: !etbSelfMatch[1].includes('you may'),
+      effect,
+      mandatory: isMandatoryEffect(effect),
     });
   }
   
   // ETB triggers (other creatures)
   const etbCreatureMatch = oracleText.match(/whenever (?:a|another) (?:nontoken )?creature enters the battlefield(?: under your control)?,?\s*([^.]+)/);
   if (etbCreatureMatch) {
+    const effect = etbCreatureMatch[1].trim();
     triggers.push({
       id: `${permanentId}_etb_creature`,
       permanentId,
@@ -69,42 +82,45 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       cardName,
       timing: 'etb',
       condition: 'creature',
-      effect: etbCreatureMatch[1].trim(),
-      mandatory: !etbCreatureMatch[1].includes('you may'),
+      effect,
+      mandatory: isMandatoryEffect(effect),
     });
   }
   
   // Attack triggers
   const attackMatch = oracleText.match(/whenever (?:~|this creature) attacks,?\s*([^.]+)/);
   if (attackMatch) {
+    const effect = attackMatch[1].trim();
     triggers.push({
       id: `${permanentId}_attack`,
       permanentId,
       controllerId,
       cardName,
       timing: 'declare_attackers',
-      effect: attackMatch[1].trim(),
-      mandatory: !attackMatch[1].includes('you may'),
+      effect,
+      mandatory: isMandatoryEffect(effect),
     });
   }
   
   // Combat damage triggers
   const combatDamageMatch = oracleText.match(/whenever (?:~|this creature) deals combat damage to (?:a player|an opponent),?\s*([^.]+)/);
   if (combatDamageMatch) {
+    const effect = combatDamageMatch[1].trim();
     triggers.push({
       id: `${permanentId}_combat_damage`,
       permanentId,
       controllerId,
       cardName,
       timing: 'combat_damage',
-      effect: combatDamageMatch[1].trim(),
-      mandatory: !combatDamageMatch[1].includes('you may'),
+      effect,
+      mandatory: isMandatoryEffect(effect),
     });
   }
   
   // Death triggers
   const deathMatch = oracleText.match(/when (?:~|this creature) dies,?\s*([^.]+)/);
   if (deathMatch) {
+    const effect = deathMatch[1].trim();
     triggers.push({
       id: `${permanentId}_dies`,
       permanentId,
@@ -112,14 +128,15 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       cardName,
       timing: 'dies',
       condition: 'self',
-      effect: deathMatch[1].trim(),
-      mandatory: !deathMatch[1].includes('you may'),
+      effect,
+      mandatory: isMandatoryEffect(effect),
     });
   }
   
   // Whenever a creature you control dies
   const creatureDiesMatch = oracleText.match(/whenever (?:a|another) creature you control dies,?\s*([^.]+)/);
   if (creatureDiesMatch) {
+    const effect = creatureDiesMatch[1].trim();
     triggers.push({
       id: `${permanentId}_creature_dies`,
       permanentId,
@@ -127,51 +144,55 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       cardName,
       timing: 'dies',
       condition: 'controlled_creature',
-      effect: creatureDiesMatch[1].trim(),
-      mandatory: !creatureDiesMatch[1].includes('you may'),
+      effect,
+      mandatory: isMandatoryEffect(effect),
     });
   }
   
   // Tap triggers
   const tapMatch = oracleText.match(/whenever (?:~|this creature) becomes tapped,?\s*([^.]+)/);
   if (tapMatch) {
+    const effect = tapMatch[1].trim();
     triggers.push({
       id: `${permanentId}_tap`,
       permanentId,
       controllerId,
       cardName,
       timing: 'tap',
-      effect: tapMatch[1].trim(),
-      mandatory: !tapMatch[1].includes('you may'),
+      effect,
+      mandatory: isMandatoryEffect(effect),
     });
   }
   
   // Draw triggers
   const drawMatch = oracleText.match(/whenever (?:you|a player|an opponent) draws? (?:a card|cards),?\s*([^.]+)/);
   if (drawMatch) {
+    const effect = drawMatch[1].trim();
     triggers.push({
       id: `${permanentId}_draw`,
       permanentId,
       controllerId,
       cardName,
       timing: 'draw',
-      effect: drawMatch[1].trim(),
-      mandatory: !drawMatch[1].includes('you may'),
+      effect,
+      mandatory: isMandatoryEffect(effect),
     });
   }
   
-  // Cast triggers
+  // Cast triggers - handle optional spell type
   const castMatch = oracleText.match(/whenever you cast (?:a |an )?(\w+)?\s*spell,?\s*([^.]+)/);
   if (castMatch) {
+    const spellType = castMatch[1] || 'any';
+    const effect = castMatch[2].trim();
     triggers.push({
       id: `${permanentId}_cast`,
       permanentId,
       controllerId,
       cardName,
       timing: 'cast',
-      condition: castMatch[1] || 'any',
-      effect: castMatch[2].trim(),
-      mandatory: !castMatch[2].includes('you may'),
+      condition: spellType,
+      effect,
+      mandatory: isMandatoryEffect(effect),
     });
   }
   
