@@ -1575,111 +1575,12 @@ export function nextStep(ctx: GameContext) {
         nextPhase = "beginning";
         nextStep = "UPKEEP";
         shouldUntap = !isReplaying; // Untap all permanents when leaving UNTAP step (skip during replay)
-        
-        // Process beginning of upkeep triggers (e.g., Phyrexian Arena, Progenitor Mimic, cumulative upkeep)
-        // Skip trigger processing during replay - triggers should be handled by replayed events
-        if (!isReplaying) {
-          const turnPlayer = (ctx as any).state?.turnPlayer;
-          if (turnPlayer) {
-            const upkeepTriggers = getUpkeepTriggersForPlayer(ctx, turnPlayer);
-            if (upkeepTriggers.length > 0) {
-              console.log(`${ts()} [nextStep] Found ${upkeepTriggers.length} upkeep triggers`);
-              // Store pending triggers on the game state for the socket layer to process
-              (ctx as any).state.pendingUpkeepTriggers = upkeepTriggers;
-              
-              // Group triggers by controller for APNAP ordering
-              const triggersByController = new Map<string, typeof upkeepTriggers>();
-              for (const trigger of upkeepTriggers) {
-                if (trigger.mandatory && trigger.triggerType === 'upkeep_effect') {
-                  const controller = trigger.permanentId ? 
-                    ((ctx as any).state.battlefield || []).find((p: any) => p?.id === trigger.permanentId)?.controller || turnPlayer 
-                    : turnPlayer;
-                  const existing = triggersByController.get(controller) || [];
-                  existing.push(trigger);
-                  triggersByController.set(controller, existing);
-                }
-              }
-              
-              // If a player has multiple triggers, they need to choose the order (APNAP rule)
-              // For now, if a player has 2+ triggers, set a flag for the socket layer to handle ordering
-              for (const [controller, triggers] of triggersByController.entries()) {
-                if (triggers.length > 1) {
-                  // Store pending trigger ordering request
-                  (ctx as any).state.pendingTriggerOrdering = (ctx as any).state.pendingTriggerOrdering || {};
-                  (ctx as any).state.pendingTriggerOrdering[controller] = {
-                    timing: 'upkeep',
-                    triggers: triggers.map(t => ({
-                      id: `upkeep_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-                      cardName: t.cardName,
-                      description: t.description,
-                      permanentId: t.permanentId,
-                      effect: t.effect,
-                    })),
-                  };
-                  console.log(`${ts()} [nextStep] ${controller} has ${triggers.length} upkeep triggers to order`);
-                } else if (triggers.length === 1) {
-                  // Single trigger, just push to stack
-                  const trigger = triggers[0];
-                  const triggerId = `upkeep_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-                  (ctx as any).state.stack = (ctx as any).state.stack || [];
-                  (ctx as any).state.stack.push({
-                    id: triggerId,
-                    type: 'triggered_ability',
-                    controller,
-                    source: trigger.permanentId,
-                    sourceName: trigger.cardName,
-                    description: trigger.description,
-                    triggerType: 'upkeep_effect',
-                    mandatory: true,
-                    effect: trigger.effect,
-                  });
-                  console.log(`${ts()} [nextStep] ⚡ Pushed upkeep trigger onto stack: ${trigger.cardName} - ${trigger.description}`);
-                }
-              }
-            }
-          }
-        }
+        // NOTE: Upkeep triggers will be pushed AFTER phase/step update below
       } else if (currentStep === "upkeep" || currentStep === "UPKEEP") {
         nextPhase = "beginning";
         nextStep = "DRAW";
         shouldDraw = !isReplaying; // Draw a card when entering draw step (skip during replay)
-        
-        // Process draw step triggers (rare, but some cards have them)
-        // Skip during replay - triggers should be handled by replayed events
-        if (!isReplaying) {
-          const turnPlayer = (ctx as any).state?.turnPlayer;
-          if (turnPlayer) {
-            const drawTriggers = getDrawStepTriggers(ctx, turnPlayer);
-            if (drawTriggers.length > 0) {
-              console.log(`${ts()} [nextStep] Found ${drawTriggers.length} draw step triggers`);
-              
-              // Push draw step triggers onto the stack
-              (ctx as any).state.stack = (ctx as any).state.stack || [];
-              
-              for (const trigger of drawTriggers) {
-                const controller = trigger.controllerId || turnPlayer;
-                const triggerId = `drawstep_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-                (ctx as any).state.stack.push({
-                  id: triggerId,
-                  type: 'triggered_ability',
-                  controller,
-                  source: trigger.permanentId,
-                  sourceName: trigger.cardName,
-                  description: trigger.description || trigger.effect,
-                  triggerType: 'draw_step',
-                  mandatory: trigger.mandatory !== false,
-                  effect: trigger.effect,
-                });
-                console.log(`${ts()} [nextStep] ⚡ Pushed draw step trigger onto stack: ${trigger.cardName} - ${trigger.description || trigger.effect}`);
-              }
-              
-              // Give priority to active player to respond to triggers
-              if ((ctx as any).state.stack.length > 0) {
-                (ctx as any).state.priority = turnPlayer;
-              }
-            }
-          }
-        }
+        // NOTE: Draw step triggers will be pushed AFTER phase/step update below
       } else {
         // After draw, go to precombatMain
         nextPhase = "precombatMain";
@@ -1688,60 +1589,7 @@ export function nextStep(ctx: GameContext) {
     } else if (currentPhase === "precombatMain" || currentPhase === "main1") {
       nextPhase = "combat";
       nextStep = "BEGIN_COMBAT";
-      
-      // Process beginning of combat triggers (e.g., Hakbal of the Surging Soul, Ouroboroid)
-      // Skip during replay - triggers should be handled by replayed events
-      if (!isReplaying) {
-        const turnPlayer = (ctx as any).state?.turnPlayer;
-        if (turnPlayer) {
-          const combatTriggers = getBeginningOfCombatTriggers(ctx, turnPlayer);
-          if (combatTriggers.length > 0) {
-            console.log(`${ts()} [nextStep] Found ${combatTriggers.length} beginning of combat triggers`);
-            
-            // Push ALL beginning of combat triggers onto the stack immediately
-            // This ensures they fire BEFORE the game advances to declare attackers
-            (ctx as any).state.stack = (ctx as any).state.stack || [];
-            
-            // Group by controller for proper APNAP ordering
-            const triggersByController = new Map<string, typeof combatTriggers>();
-            for (const trigger of combatTriggers) {
-              const controller = trigger.controllerId || turnPlayer;
-              const existing = triggersByController.get(controller) || [];
-              existing.push(trigger);
-              triggersByController.set(controller, existing);
-            }
-            
-            // Get player order for APNAP
-            const players = Array.isArray((ctx as any).state.players) ? (ctx as any).state.players.map((p: any) => p.id) : [];
-            const orderedPlayers = [turnPlayer, ...players.filter((p: string) => p !== turnPlayer)];
-            
-            // Push triggers in APNAP order (active player's triggers first, then others)
-            for (const playerId of orderedPlayers) {
-              const playerTriggers = triggersByController.get(playerId) || [];
-              for (const trigger of playerTriggers) {
-                const triggerId = `combat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-                (ctx as any).state.stack.push({
-                  id: triggerId,
-                  type: 'triggered_ability',
-                  controller: playerId,
-                  source: trigger.permanentId,
-                  sourceName: trigger.cardName,
-                  description: trigger.description || trigger.effect,
-                  triggerType: 'begin_combat',
-                  mandatory: trigger.mandatory !== false,
-                  effect: trigger.effect,
-                });
-                console.log(`${ts()} [nextStep] ⚡ Pushed beginning of combat trigger onto stack: ${trigger.cardName} - ${trigger.description || trigger.effect}`);
-              }
-            }
-            
-            // Give priority to active player to respond to triggers
-            if ((ctx as any).state.stack.length > 0) {
-              (ctx as any).state.priority = turnPlayer;
-            }
-          }
-        }
-      }
+      // NOTE: Beginning of combat triggers will be pushed AFTER phase/step update below
     } else if (currentPhase === "combat") {
       if (currentStep === "beginCombat" || currentStep === "BEGIN_COMBAT") {
         nextStep = "DECLARE_ATTACKERS";
@@ -1815,58 +1663,7 @@ export function nextStep(ctx: GameContext) {
         }
       } else if (currentStep === "combatDamage" || currentStep === "DAMAGE") {
         nextStep = "END_COMBAT";
-        
-        // Process end of combat triggers - skip during replay
-        if (!isReplaying) {
-          const turnPlayer = (ctx as any).state?.turnPlayer;
-          if (turnPlayer) {
-            const endCombatTriggers = getEndOfCombatTriggers(ctx, turnPlayer);
-            if (endCombatTriggers.length > 0) {
-              console.log(`${ts()} [nextStep] Found ${endCombatTriggers.length} end of combat triggers`);
-              
-              // Push end of combat triggers onto the stack
-              (ctx as any).state.stack = (ctx as any).state.stack || [];
-              
-              // Group by controller for proper APNAP ordering
-              const triggersByController = new Map<string, typeof endCombatTriggers>();
-              for (const trigger of endCombatTriggers) {
-                const controller = trigger.controllerId || turnPlayer;
-                const existing = triggersByController.get(controller) || [];
-                existing.push(trigger);
-                triggersByController.set(controller, existing);
-              }
-              
-              // Get player order for APNAP
-              const players = Array.isArray((ctx as any).state.players) ? (ctx as any).state.players.map((p: any) => p.id) : [];
-              const orderedPlayers = [turnPlayer, ...players.filter((p: string) => p !== turnPlayer)];
-              
-              // Push triggers in APNAP order
-              for (const playerId of orderedPlayers) {
-                const playerTriggers = triggersByController.get(playerId) || [];
-                for (const trigger of playerTriggers) {
-                  const triggerId = `endcombat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-                  (ctx as any).state.stack.push({
-                    id: triggerId,
-                    type: 'triggered_ability',
-                    controller: playerId,
-                    source: trigger.permanentId,
-                    sourceName: trigger.cardName,
-                    description: trigger.description || trigger.effect,
-                    triggerType: 'end_combat',
-                    mandatory: trigger.mandatory !== false,
-                    effect: trigger.effect,
-                  });
-                  console.log(`${ts()} [nextStep] ⚡ Pushed end of combat trigger onto stack: ${trigger.cardName} - ${trigger.description || trigger.effect}`);
-                }
-              }
-              
-              // Give priority to active player to respond to triggers
-              if ((ctx as any).state.stack.length > 0) {
-                (ctx as any).state.priority = turnPlayer;
-              }
-            }
-          }
-        }
+        // NOTE: End of combat triggers will be pushed AFTER phase/step update below
       } else {
         // After endCombat, check for extra combat phases before going to postcombatMain
         // Skip extra combat processing during replay - should be handled by replayed events
@@ -1901,59 +1698,7 @@ export function nextStep(ctx: GameContext) {
     } else if (currentPhase === "postcombatMain" || currentPhase === "main2") {
       nextPhase = "ending";
       nextStep = "END";
-      
-      // Process beginning of end step triggers (e.g., Kynaios and Tiro, Meren, Atraxa, Case of the Locked Hothouse)
-      // Skip during replay - triggers should be handled by replayed events
-      if (!isReplaying) {
-        const turnPlayer = (ctx as any).state?.turnPlayer;
-        if (turnPlayer) {
-          const endStepTriggers = getEndStepTriggers(ctx, turnPlayer);
-          if (endStepTriggers.length > 0) {
-            console.log(`${ts()} [nextStep] Found ${endStepTriggers.length} end step triggers`);
-            
-            // Push ALL end step triggers onto the stack immediately
-            (ctx as any).state.stack = (ctx as any).state.stack || [];
-            
-            // Group by controller for proper APNAP ordering
-            const triggersByController = new Map<string, typeof endStepTriggers>();
-            for (const trigger of endStepTriggers) {
-              const controller = trigger.controllerId || turnPlayer;
-              const existing = triggersByController.get(controller) || [];
-              existing.push(trigger);
-              triggersByController.set(controller, existing);
-            }
-            
-            // Get player order for APNAP
-            const players = Array.isArray((ctx as any).state.players) ? (ctx as any).state.players.map((p: any) => p.id) : [];
-            const orderedPlayers = [turnPlayer, ...players.filter((p: string) => p !== turnPlayer)];
-            
-            // Push triggers in APNAP order (active player's triggers first, then others)
-            for (const playerId of orderedPlayers) {
-              const playerTriggers = triggersByController.get(playerId) || [];
-              for (const trigger of playerTriggers) {
-                const triggerId = `endstep_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-                (ctx as any).state.stack.push({
-                  id: triggerId,
-                  type: 'triggered_ability',
-                  controller: playerId,
-                  source: trigger.permanentId,
-                  sourceName: trigger.cardName,
-                  description: trigger.description || trigger.effect,
-                  triggerType: 'end_step',
-                  mandatory: trigger.mandatory !== false,
-                  effect: trigger.effect,
-                });
-                console.log(`${ts()} [nextStep] ⚡ Pushed end step trigger onto stack: ${trigger.cardName} - ${trigger.description || trigger.effect}`);
-              }
-            }
-            
-            // Give priority to active player to respond to triggers
-            if ((ctx as any).state.stack.length > 0) {
-              (ctx as any).state.priority = turnPlayer;
-            }
-          }
-        }
-      }
+      // NOTE: End step triggers will be pushed AFTER phase/step update below
     } else if (currentPhase === "ending") {
       if (currentStep === "endStep" || currentStep === "end" || currentStep === "END") {
         nextStep = "CLEANUP";
@@ -1991,6 +1736,109 @@ export function nextStep(ctx: GameContext) {
     console.log(
       `${ts()} [nextStep] Advanced to phase=${nextPhase}, step=${nextStep}`
     );
+
+    // ========================================================================
+    // STEP-ENTRY TRIGGER PROCESSING (Per MTG Rules 503-514)
+    // 
+    // Per Rule 116.2a: Triggered abilities go on the stack the next time a 
+    // player would receive priority. When entering a new step/phase, all 
+    // "at the beginning of [X]" triggers are put on the stack BEFORE any 
+    // player receives priority.
+    //
+    // This section processes triggers for the NEW step we just entered.
+    // The order is:
+    // 1. Phase/Step is updated (done above)
+    // 2. Triggers for the new step are detected and pushed to stack
+    // 3. Active player receives priority (done at end of nextStep or in socket layer)
+    // ========================================================================
+    if (!isReplaying) {
+      const turnPlayer = (ctx as any).state?.turnPlayer;
+      if (turnPlayer) {
+        (ctx as any).state.stack = (ctx as any).state.stack || [];
+        
+        // Helper function to push triggers in APNAP order
+        const pushTriggersToStack = (triggers: any[], triggerType: string, idPrefix: string) => {
+          if (triggers.length === 0) return;
+          
+          console.log(`${ts()} [nextStep] Found ${triggers.length} ${triggerType} trigger(s)`);
+          
+          // Group by controller for proper APNAP ordering (Rule 101.4)
+          const triggersByController = new Map<string, typeof triggers>();
+          for (const trigger of triggers) {
+            const controller = trigger.controllerId || turnPlayer;
+            const existing = triggersByController.get(controller) || [];
+            existing.push(trigger);
+            triggersByController.set(controller, existing);
+          }
+          
+          // Get player order for APNAP
+          const players = Array.isArray((ctx as any).state.players) 
+            ? (ctx as any).state.players.map((p: any) => p.id) 
+            : [];
+          const orderedPlayers = [turnPlayer, ...players.filter((p: string) => p !== turnPlayer)];
+          
+          // Push triggers in APNAP order (active player's triggers first)
+          for (const playerId of orderedPlayers) {
+            const playerTriggers = triggersByController.get(playerId) || [];
+            for (const trigger of playerTriggers) {
+              const triggerId = `${idPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+              (ctx as any).state.stack.push({
+                id: triggerId,
+                type: 'triggered_ability',
+                controller: playerId,
+                source: trigger.permanentId,
+                sourceName: trigger.cardName,
+                description: trigger.description || trigger.effect,
+                triggerType,
+                mandatory: trigger.mandatory !== false,
+                effect: trigger.effect,
+              });
+              console.log(`${ts()} [nextStep] ⚡ Pushed ${triggerType} trigger: ${trigger.cardName} - ${trigger.description || trigger.effect}`);
+            }
+          }
+        };
+        
+        // Rule 504.1: Upkeep step - "at the beginning of your upkeep" triggers
+        if (nextStep === "UPKEEP") {
+          const upkeepTriggers = getUpkeepTriggersForPlayer(ctx, turnPlayer);
+          pushTriggersToStack(upkeepTriggers, 'upkeep', 'upkeep');
+        }
+        
+        // Rule 504.1 (Draw): "at the beginning of your draw step" triggers
+        else if (nextStep === "DRAW") {
+          const drawTriggers = getDrawStepTriggers(ctx, turnPlayer);
+          pushTriggersToStack(drawTriggers, 'draw_step', 'draw');
+        }
+        
+        // Rule 507.1: Beginning of combat - "at the beginning of combat" triggers
+        // CRITICAL: These MUST fire before players can declare attackers
+        // This includes cards like Ouroboroid, Hakbal, Delina that create tokens with haste
+        else if (nextStep === "BEGIN_COMBAT") {
+          const combatTriggers = getBeginningOfCombatTriggers(ctx, turnPlayer);
+          pushTriggersToStack(combatTriggers, 'begin_combat', 'combat');
+        }
+        
+        // Rule 511.1: End of combat - "at end of combat" triggers
+        else if (nextStep === "END_COMBAT") {
+          const endCombatTriggers = getEndOfCombatTriggers(ctx, turnPlayer);
+          pushTriggersToStack(endCombatTriggers, 'end_combat', 'endcombat');
+        }
+        
+        // Rule 513.1: End step - "at the beginning of your end step" triggers
+        // This includes cards like Case of the Locked Hothouse, Meren, Atraxa
+        else if (nextStep === "END") {
+          const endStepTriggers = getEndStepTriggers(ctx, turnPlayer);
+          pushTriggersToStack(endStepTriggers, 'end_step', 'endstep');
+        }
+        
+        // Give priority to active player if there are triggers on the stack
+        // Per Rule 116.3a: Active player receives priority after triggers are placed
+        if ((ctx as any).state.stack.length > 0) {
+          (ctx as any).state.priority = turnPlayer;
+          console.log(`${ts()} [nextStep] Triggers on stack, priority to active player ${turnPlayer}`);
+        }
+      }
+    }
 
     // If we should advance to next turn, call nextTurn instead
     if (shouldAdvanceTurn) {
