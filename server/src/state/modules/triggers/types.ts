@@ -731,3 +731,108 @@ export interface TargetingProtection {
   condition?: string;
   description: string;
 }
+
+/**
+ * Transform check result
+ */
+export interface TransformCheckResult {
+  permanentId: string;
+  cardName: string;
+  shouldTransform: boolean;
+  reason: string;
+  newFace?: any;
+}
+
+/**
+ * Hideaway ability
+ */
+export interface HideawayAbility {
+  hideawayCount: number;
+  condition: string;
+  permanentId: string;
+  exiledCardId?: string;
+}
+
+/**
+ * Damage redirection effect
+ */
+export interface DamageRedirection {
+  permanentId: string;
+  cardName: string;
+  from: 'controller' | 'chosen_player';
+  to: 'this_creature' | 'enchanted_creature' | 'equipped_creature' | 'chosen_player';
+  chosenPlayerId?: string;
+}
+
+/**
+ * Mana ability granter (Chromatic Lantern, Cryptolith Rite, etc.)
+ */
+export interface ManaAbilityGranter {
+  permanentId: string;
+  cardName: string;
+  grantsTo: 'lands' | 'creatures' | 'all_permanents';
+  manaType: 'any_color' | 'specific_color';
+  specificColor?: string;
+}
+
+/**
+ * Mass power/toughness boost effect (Craterhoof Behemoth, etc.)
+ */
+export interface MassBoostEffect {
+  permanentId: string;
+  cardName: string;
+  boostType: 'creature_count' | 'greatest_power' | 'fixed' | 'conditional';
+  fixedBoost?: { power: number; toughness: number };
+  grantsKeywords?: string[];
+  condition?: string;
+  duration: 'until_eot' | 'static';
+}
+
+/**
+ * Modal spell mode
+ */
+export interface ModalSpellMode {
+  index: number;
+  text: string;
+  effect: string;
+}
+
+/**
+ * Modal spell info
+ */
+export interface ModalSpellInfo {
+  isModal: boolean;
+  modes: ModalSpellMode[];
+  minModes: number;
+  maxModes: number;
+}
+
+/**
+ * Storm trigger
+ */
+export interface StormTrigger {
+  permanentId: string;
+  cardName: string;
+  stormCount: number;
+}
+
+/**
+ * Empires bonus (Crown, Scepter, Throne of Empires)
+ */
+export interface EmpiresBonus {
+  hasCrown: boolean;
+  hasScepter: boolean;
+  hasThrone: boolean;
+  hasAll: boolean;
+}
+
+/**
+ * Mimic Vat trigger
+ */
+export interface MimicVatTrigger {
+  permanentId: string;
+  cardName: string;
+  controllerId: string;
+  imprintedCardId?: string;
+  imprintedCard?: any;
+}

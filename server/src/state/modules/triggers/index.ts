@@ -6,6 +6,23 @@
  * 
  * This file serves as the public API for the triggers module.
  * Imports from "../triggered-abilities" should be migrated to use this module.
+ * 
+ * The triggers are organized into the following sub-modules:
+ * - types.ts: All shared types and interfaces
+ * - registry.ts: Trigger registration and management
+ * - combat.ts: Combat-related triggers
+ * - turn-phases.ts: Turn phase triggers (upkeep, draw step, end step, untap step)
+ * - zone-changes.ts: Zone change triggers (ETB, death, LTB)
+ * - spell-cast.ts: Spell cast triggers and storm
+ * - tap-untap.ts: Tap/untap triggers
+ * - card-draw.ts: Card draw triggers
+ * - landfall.ts: Landfall triggers
+ * - planeswalker.ts: Planeswalker loyalty abilities
+ * - static-effects.ts: Static abilities (evasion, protection, etc.)
+ * - special-cards.ts: Special card effects (equipment, eldrazi, etc.)
+ * - win-conditions.ts: Win condition detection
+ * - devotion.ts: Devotion calculation
+ * - transform.ts: Transform/flip triggers
  */
 
 // Export all types
@@ -20,258 +37,17 @@ export {
   groupTriggersByController,
 } from "./registry.js";
 
-// Re-export the legacy module for anything not yet migrated
-// This will be removed once full migration is complete
-export {
-  // Types (interfaces are exported from types.ts, but we also re-export from triggered-abilities for compat)
-  type TriggerTiming,
-  type RegisteredTrigger,
-  type TriggeredAbility,
-  type BeginningOfCombatTrigger,
-  type DeathTriggerResult,
-  type EndStepTrigger,
-  type DrawStepTrigger,
-  type EndOfCombatTrigger,
-  type UntapStepEffect,
-  type ETBUntapEffect,
-  type SpellCastUntapEffect,
-  type SpellCastTrigger,
-  type TapTrigger,
-  type DoesntUntapEffect,
-  type CardDrawTrigger,
-  type UntapTrigger,
-  type ModalSpellMode,
-  type ModalSpellInfo,
-  type WinCondition,
-  type TransformCheckResult,
-  type LandfallTrigger,
-  type StormTrigger,
-  type HideawayAbility,
-  type DamageRedirection,
-  type EmpiresBonus,
-  type ManaAbilityGranter,
-  type MassBoostEffect,
-  type MustBlockEffect,
-  type TargetingProtection,
-  type DynamicPowerToughness,
-  type MassMillEffect,
-  type QuestCounter,
-  type UtilityLandAbility,
-  type EquipmentEffect,
-  type TotemArmorEffect,
-  type EldraziEffect,
-  type ControlChangeEffect,
-  type InfectGrantEffect,
-  type GroupDrawEffect,
-  type MultiTargetLandSearch,
-  type ConditionalETBTapped,
-  type MultiModeActivatedAbility,
-  type LibraryRevealPlayEffect,
-  type ReanimateEffect,
-  type TopCardViewEffect,
-  type PowerBasedLandSearch,
-  type ChargeCounterAbility,
-  type SpecialCardEffect,
-  type LoyaltyAbility,
-  type PlaneswalkerAbilities,
-  type MimicVatTrigger,
-  
-  // Combat triggers
-  detectBeginningOfCombatTriggers,
-  getBeginningOfCombatTriggers,
-  detectEndOfCombatTriggers,
-  getEndOfCombatTriggers,
-  detectCombatDamageTriggers,
-  getCombatDamageTriggersForCreature,
-  detectAttackTriggers,
-  getAttackTriggersForCreatures,
-  
-  // Death triggers
-  detectDeathTriggers,
-  getDeathTriggers,
-  getDeathTriggersForCreature,
-  getPlayersWhoMustSacrifice,
-  processUndyingPersist,
-  
-  // End step triggers
-  detectEndStepTriggers,
-  getEndStepTriggers,
-  
-  // Draw step triggers
-  detectDrawStepTriggers,
-  getDrawStepTriggers,
-  
-  // ETB triggers
-  detectETBTriggers,
-  getETBTriggersForPermanent,
-  
-  // Untap step effects
-  detectUntapStepEffects,
-  getUntapStepEffects,
-  applyUntapStepEffect,
-  isPermanentPreventedFromUntapping,
-  
-  // ETB untap effects
-  detectETBUntapEffects,
-  getETBUntapEffects,
-  applyETBUntapEffect,
-  
-  // Spell-cast untap effects
-  detectSpellCastUntapEffects,
-  getSpellCastUntapEffects,
-  applySpellCastUntapEffect,
-  
-  // Spell-cast triggers
-  detectSpellCastTriggers,
-  getSpellCastTriggers,
-  
-  // Tap/untap triggers
-  detectTapTriggers,
-  getTapTriggers,
-  detectUntapTriggers,
-  getAttackUntapTriggers,
-  getCombatDamageUntapTriggers,
-  executeUntapTrigger,
-  
-  // Doesn't untap effects
-  detectDoesntUntapEffects,
-  
-  // Card draw triggers
-  detectCardDrawTriggers,
-  getCardDrawTriggers,
-  
-  // Mimic Vat / Imprint effects
-  detectMimicVatTriggers,
-  getMimicVatTriggers,
-  
-  // Auto-sacrifice ETB (Kroxa, etc.)
-  checkETBAutoSacrifice,
-  
-  // Modal spell support
-  parseModalSpellOptions,
-  
-  // Devotion
-  calculateDevotion,
-  getDevotionManaAmount,
-  
-  // Win conditions
-  checkWinConditions,
-  checkUpkeepWinConditions,
-  
-  // Transform/flip
-  checkEndOfTurnTransforms,
-  
-  // Landfall
-  detectLandfallTriggers,
-  getLandfallTriggers,
-  
-  // Static abilities / keywords
-  hasSplitSecond,
-  playerHasHexproof,
-  getGraveyardKeywordGranters,
-  
-  // Storm
-  detectStormAbility,
-  getStormCount,
-  
-  // Hideaway
-  detectHideawayAbility,
-  
-  // Damage redirection
-  detectDamageRedirection,
-  
-  // Empire artifacts
-  checkEmpiresSet,
-  getEmpiresEffect,
-  
-  // Mana fixing
-  detectManaAbilityGranter,
-  
-  // Power/toughness boost
-  detectMassBoostEffect,
-  calculateMassBoost,
-  
-  // Dynamic P/T
-  detectDynamicPT,
-  calculateDynamicPT,
-  
-  // Mill effects
-  detectMassMillEffect,
-  
-  // Quest counters
-  detectQuestCounter,
-  
-  // Utility lands
-  detectUtilityLandAbility,
-  
-  // Equipment
-  detectEquipmentEffect,
-  
-  // Totem armor
-  detectUmbraEffect,
-  
-  // Eldrazi
-  detectEldraziEffect,
-  
-  // Control change
-  detectControlChangeEffect,
-  
-  // Infect
-  detectInfectGrantEffect,
-  
-  // Group draw
-  detectGroupDrawEffect,
-  
-  // Multi-target land search
-  detectMultiTargetLandSearch,
-  validateSharedLandType,
-  
-  // Conditional ETB tapped
-  detectConditionalETBTapped,
-  checkConditionalETBMet,
-  
-  // Multi-mode abilities
-  detectMultiModeAbility,
-  
-  // Library reveal/play
-  detectLibraryRevealPlayEffect,
-  
-  // Reanimate
-  detectReanimateEffect,
-  
-  // Top card view
-  detectTopCardViewEffect,
-  
-  // Power-based land search
-  detectPowerBasedLandSearch,
-  calculateLandSearchCount,
-  
-  // Charge counters
-  detectChargeCounterAbility,
-  
-  // Special cards
-  detectSpecialCardEffect,
-  
-  // Planeswalker support
-  parsePlaneswalkerAbilities,
-  getLoyaltyActivationLimit,
-  checkChainVeilEndStepTrigger,
-  canActivateLoyaltyAbility,
-  getLoyaltyAdditionalCost,
-  canActivateLoyaltyAtInstantSpeed,
-  getTeferisTalentDrawTrigger,
-  calculateLoyaltyChange,
-  getAvailableLoyaltyAbilities,
-  
-  // Must block
-  detectMustBlockEffect,
-  
-  // Targeting protection
-  detectTargetingProtection,
-  
-  // Evasion
-  hasEvasionAbility,
-  
-  // Pump abilities
-  detectPumpAbilities,
-} from "../triggered-abilities.js";
+// Export from sub-modules (these re-export from triggered-abilities.ts)
+export * from "./combat.js";
+export * from "./turn-phases.js";
+export * from "./zone-changes.js";
+export * from "./spell-cast.js";
+export * from "./tap-untap.js";
+export * from "./card-draw.js";
+export * from "./landfall.js";
+export * from "./planeswalker.js";
+export * from "./static-effects.js";
+export * from "./special-cards.js";
+export * from "./win-conditions.js";
+export * from "./devotion.js";
+export * from "./transform.js";
