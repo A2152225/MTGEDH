@@ -571,9 +571,8 @@ function completeJoinForces(io: Server, pending: PendingJoinForces): void {
       // Minds Aglow: Each player draws X cards where X is the total mana paid
       if (cardNameLower.includes('minds aglow')) {
         for (const playerId of pending.players) {
-          // Draw cards for each player
-          const playerContribution = pending.contributions[playerId] || 0;
-          const totalDraw = total; // All players draw total amount
+          // Draw cards for each player - all players draw total amount
+          const totalDraw = total;
           
           if (typeof (game as any).drawCards === 'function') {
             (game as any).drawCards(playerId, totalDraw);

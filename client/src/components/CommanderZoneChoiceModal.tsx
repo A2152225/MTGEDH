@@ -108,8 +108,8 @@ export function CommanderZoneChoiceModal({
           color: '#c4b5fd',
           fontSize: 12,
         }}>
-          <strong>Note:</strong> Moving your commander to the command zone will increase the commander tax 
-          (additional {'{2}'} for each time cast from the command zone).
+          <strong>Note:</strong> Each time you cast your commander from the command zone, it costs {'{2}'} more 
+          than the previous time (cumulative commander tax).
         </div>
 
         {/* Action Buttons */}

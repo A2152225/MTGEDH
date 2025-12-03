@@ -16,7 +16,7 @@
  */
 
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, emitStateToSocket, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment } from "./util";
+import { ensureGame, broadcastGame, emitStateToSocket, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName } from "./util";
 import { appendEvent } from "../db";
 import { fetchCardByExactNameStrict } from "../services/scryfall";
 import type { PlayerID } from "../../../shared/src";
@@ -894,11 +894,12 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           }
         }
         
+        const playerName = getPlayerName(game, pid);
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
           gameId,
           from: "system",
-          message: `${pid} moved ${commanderName} to the command zone instead of ${destinationZone}.`,
+          message: `${playerName} moved ${commanderName} to the command zone instead of ${destinationZone}.`,
           ts: Date.now(),
         });
         
