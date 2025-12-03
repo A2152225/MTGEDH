@@ -88,6 +88,15 @@ interface PlayerResult {
   position: number;  // 1st, 2nd, 3rd, etc.
   turnEliminated: number | null;  // null if winner
   eliminationReason: string | null;  // null if winner
+  // Enhanced tracking for elimination details
+  killerPlayerId?: number;
+  killerPlayerName?: string;
+  killerCard?: string;
+  killerLibrarySize?: number;
+  killerHandSize?: number;
+  damageType?: 'combat' | 'ability' | 'effect' | 'triggered' | 'mill' | 'poison';
+  eliminatedLibrarySize?: number;
+  eliminatedHandSize?: number;
 }
 
 interface GameSummary {
@@ -1064,6 +1073,109 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
     return maxHandSize;
   }
 
+  /**
+   * Get the maximum number of lands a player can play this turn.
+   * Considers effects like Exploration, Rites of Flourishing, Azusa, etc.
+   * Default is 1 land per turn.
+   */
+  getMaxLandsPerTurn(player: PlayerState, state: SimulatedGameState): number {
+    let maxLands = 1;  // Default is 1 land per turn
+    
+    // Check all permanents controlled by the player for land drop increases
+    for (const perm of player.battlefield) {
+      const card = this.getCard(perm.card);
+      const oracle = card?.oracle_text?.toLowerCase() || '';
+      
+      // Exploration: "You may play an additional land on each of your turns."
+      if (oracle.includes('you may play an additional land') || 
+          oracle.includes('play an additional land on each of your turns')) {
+        maxLands += 1;
+      }
+      
+      // Azusa, Lost but Seeking: "You may play two additional lands on each of your turns."
+      if (oracle.includes('you may play two additional lands')) {
+        maxLands += 2;
+      }
+      
+      // Oracle of Mul Daya: "You may play an additional land on each of your turns."
+      // (Already covered by the first pattern)
+      
+      // Dryad of the Ilysian Grove: "You may play an additional land on each of your turns."
+      // (Already covered by the first pattern)
+    }
+    
+    // Check global effects that apply to all players
+    for (let i = 1; i <= state.playerCount; i++) {
+      const p = state.players[i];
+      if (!p) continue;
+      
+      for (const perm of p.battlefield) {
+        const card = this.getCard(perm.card);
+        const oracle = card?.oracle_text?.toLowerCase() || '';
+        
+        // Rites of Flourishing: "Each player may play an additional land on each of their turns."
+        if (oracle.includes('each player may play an additional land')) {
+          maxLands += 1;
+        }
+      }
+    }
+    
+    return maxLands;
+  }
+
+  /**
+   * Get the number of additional cards to draw at draw step from global effects.
+   * Handles Howling Mine, Font of Mythos, Rites of Flourishing, etc.
+   */
+  getAdditionalDrawsAtDrawStep(player: PlayerState, state: SimulatedGameState): { count: number; sources: string[] } {
+    let additionalDraws = 0;
+    const sources: string[] = [];
+    
+    // Check all permanents on the battlefield for draw effects
+    for (let i = 1; i <= state.playerCount; i++) {
+      const p = state.players[i];
+      if (!p) continue;
+      
+      for (const perm of p.battlefield) {
+        const card = this.getCard(perm.card);
+        const oracle = card?.oracle_text?.toLowerCase() || '';
+        const cardName = card?.name || perm.card;
+        
+        // Skip tapped Howling Mine (it has a tap condition)
+        if (cardName.toLowerCase().includes('howling mine') && perm.tapped) {
+          continue;
+        }
+        
+        // Howling Mine: "At the beginning of each player's draw step, if Howling Mine is untapped, that player draws an additional card."
+        if (oracle.includes('each player') && oracle.includes('draws an additional card') && !perm.tapped) {
+          additionalDraws += 1;
+          sources.push(cardName);
+        }
+        
+        // Font of Mythos: "At the beginning of each player's draw step, that player draws two additional cards."
+        if (oracle.includes('each player') && oracle.includes('draws two additional cards')) {
+          additionalDraws += 2;
+          sources.push(`${cardName} (x2)`);
+        }
+        
+        // Temple Bell-like effects could be added here (activated ability, not automatic)
+        
+        // Rites of Flourishing: "At the beginning of each player's draw step, that player draws an additional card."
+        // Note: Also allows additional lands (handled in getMaxLandsPerTurn)
+        if (oracle.includes('each player') && oracle.includes('draw step') && 
+            oracle.includes('draws an additional card') && !sources.includes(cardName)) {
+          additionalDraws += 1;
+          sources.push(cardName);
+        }
+      }
+    }
+    
+    // Check player-specific draw effects (e.g., Phyrexian Arena which is upkeep, not draw step)
+    // These are typically upkeep triggers, handled separately
+    
+    return { count: additionalDraws, sources };
+  }
+
   untapAll(player: PlayerState): void {
     for (const perm of player.battlefield) {
       perm.tapped = false;
@@ -1148,8 +1260,11 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
     }
   }
 
-  playLand(player: PlayerState, landName: string, state?: SimulatedGameState): boolean {
-    if (player.landsPlayedThisTurn >= 1) return false;
+  playLand(player: PlayerState, landName: string, state: SimulatedGameState): boolean {
+    // Check if we can play another land this turn
+    const maxLands = this.getMaxLandsPerTurn(player, state);
+    if (player.landsPlayedThisTurn >= maxLands) return false;
+    
     const handIndex = player.hand.indexOf(landName);
     if (handIndex === -1) return false;
     
@@ -1165,7 +1280,7 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
     player.landsPlayedThisTurn++;
     
     // Log detailed land play event
-    if (state && this.analysisMode) {
+    if (this.analysisMode) {
       state.events.push({
         turn: state.turn,
         player: player.name,
@@ -1173,11 +1288,72 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
         card: landName,
         fromZone: 'hand',
         toZone: 'battlefield',
-        details: `Played land (${player.landsPlayedThisTurn}/1 for turn)`,
+        details: `Played land (${player.landsPlayedThisTurn}/${maxLands} for turn)`,
       });
     }
     
+    // Process landfall triggers
+    this.processLandfallTriggers(player, state, landName);
+    
     return true;
+  }
+
+  /**
+   * Process landfall triggers when a land enters the battlefield.
+   */
+  processLandfallTriggers(player: PlayerState, state: SimulatedGameState, landName: string): void {
+    const playerId = this.getPlayerIdFromName(state, player.name);
+    
+    for (const perm of player.battlefield) {
+      const card = this.getCard(perm.card);
+      const oracle = card?.oracle_text?.toLowerCase() || '';
+      
+      // Check for landfall triggers
+      // "Whenever a land enters the battlefield under your control"
+      // "Landfall — Whenever a land enters the battlefield under your control"
+      if ((oracle.includes('landfall') || 
+           (oracle.includes('whenever a land') && oracle.includes('enters'))) && 
+          oracle.includes('under your control')) {
+        
+        state.events.push({
+          turn: state.turn,
+          player: player.name,
+          action: 'trigger',
+          card: perm.card,
+          details: `Landfall triggered from ${landName}`,
+        });
+        
+        // Handle common landfall effects
+        // +2/+2 until end of turn
+        if (oracle.includes('+2/+2') || oracle.includes('get +2/+2')) {
+          // Buff creatures (simplified - just log for now)
+        }
+        
+        // Draw a card
+        if (oracle.includes('draw a card')) {
+          this.drawCards(player, 1, state, `${perm.card} landfall`);
+        }
+        
+        // Gain life
+        const lifeGainMatch = oracle.match(/gain (\d+) life/);
+        if (lifeGainMatch) {
+          const lifeGained = parseInt(lifeGainMatch[1], 10);
+          player.life += lifeGained;
+          state.events.push({
+            turn: state.turn,
+            player: player.name,
+            action: 'trigger',
+            card: perm.card,
+            details: `Gained ${lifeGained} life from landfall`,
+          });
+        }
+        
+        // Create token(s)
+        if (oracle.includes('create') && oracle.includes('token')) {
+          // Token creation would go here
+        }
+      }
+    }
   }
 
   castSpell(player: PlayerState, cardName: string, state: SimulatedGameState, tappedForMana?: string[]): boolean {
@@ -2359,9 +2535,22 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
     // Upkeep
     this.handleUpkeepTriggers(player, state);
     
-    // Draw (skip turn 1 for player 1 in first round)
+    // Draw step (skip turn 1 for player 1 in first round)
     if (state.turn > state.playerCount || activePlayerId !== 1) {
+      // Normal draw
       this.drawCards(player, 1, state, 'draw step');
+      
+      // Additional draws from Howling Mine, Font of Mythos, Rites of Flourishing, etc.
+      const additionalDraws = this.getAdditionalDrawsAtDrawStep(player, state);
+      if (additionalDraws.count > 0) {
+        this.drawCards(player, additionalDraws.count, state, additionalDraws.sources.join(', '));
+        state.events.push({
+          turn: state.turn,
+          player: player.name,
+          action: 'draw',
+          details: `Drew ${additionalDraws.count} additional card(s) from: ${additionalDraws.sources.join(', ')}`,
+        });
+      }
     }
     
     // Pre-combat main
@@ -2423,6 +2612,7 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
         landsPlayedThisTurn: 0,
         poisonCounters: 0,
         cardsDrawnThisTurn: 0,
+        failedToDraw: false,
       };
     }
     
@@ -2599,6 +2789,15 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
         position,
         turnEliminated: elim.turn,
         eliminationReason: elim.reason,
+        // Include killer information from elimination record
+        killerPlayerId: elim.killerPlayerId,
+        killerPlayerName: elim.killerPlayerName,
+        killerCard: elim.killerCard,
+        killerLibrarySize: elim.killerLibrarySize,
+        killerHandSize: elim.killerHandSize,
+        damageType: elim.damageType,
+        eliminatedLibrarySize: elim.eliminatedLibrarySize,
+        eliminatedHandSize: elim.eliminatedHandSize,
       });
       position++;
     }
@@ -2859,7 +3058,30 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
         for (const result of summary.playerResults) {
           const positionStr = this.getOrdinal(result.position);
           if (result.turnEliminated !== null) {
-            console.log(`      ${positionStr}: ${result.playerName} - Eliminated turn ${result.turnEliminated} (${result.eliminationReason})`);
+            let elimInfo = `${positionStr}: ${result.playerName} - Eliminated turn ${result.turnEliminated}`;
+            elimInfo += `\n        Reason: ${result.eliminationReason}`;
+            
+            // Show killer information if available
+            if (result.killerPlayerName) {
+              elimInfo += `\n        Killed by: ${result.killerPlayerName}`;
+              if (result.killerCard) {
+                elimInfo += ` with ${result.killerCard}`;
+              }
+              if (result.damageType) {
+                elimInfo += ` (${result.damageType})`;
+              }
+              // Show killer's library and hand size at time of kill
+              if (result.killerLibrarySize !== undefined || result.killerHandSize !== undefined) {
+                elimInfo += `\n        Killer state: Library=${result.killerLibrarySize ?? '?'}, Hand=${result.killerHandSize ?? '?'}`;
+              }
+            }
+            
+            // Show eliminated player's library and hand size at time of defeat
+            if (result.eliminatedLibrarySize !== undefined || result.eliminatedHandSize !== undefined) {
+              elimInfo += `\n        Defeated state: Library=${result.eliminatedLibrarySize ?? '?'}, Hand=${result.eliminatedHandSize ?? '?'}`;
+            }
+            
+            console.log(`      ${elimInfo}`);
           } else if (result.position === 1) {
             console.log(`      ${positionStr}: ${result.playerName} - WINNER`);
           } else {
