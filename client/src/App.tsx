@@ -2111,13 +2111,21 @@ export function App() {
         }
         
         // Check for mana-producing artifacts/creatures
-        // Must have a tap ability that produces mana: "{T}: Add" pattern
+        // Must have a tap ability that produces mana: "{T}: Add {X}" or "{T}: Add one mana"
         // Be careful not to match "in addition" or "add a counter" or "add it to your hand"
         const hasTapManaAbility = (
-          // Standard pattern: {t}: add {X} or {t}: add one mana
-          (oracleText.match(/\{t\}:\s*add\s*\{[wubrgc]\}/i) ||
-           oracleText.match(/\{t\}:\s*add\s+one\s+mana/i) ||
-           oracleText.match(/\{t\}:\s*add\s+\{[wubrgc]\}\{[wubrgc]\}/i)) // For Sol Ring style {C}{C}
+          // Pattern 1: {t}: add {X} where X is a mana symbol (single or multiple)
+          oracleText.match(/\{t\}:\s*add\s+\{[wubrgc]\}/i) ||
+          // Pattern 2: {t}: add {X}{Y} for multi-mana like Sol Ring {C}{C}
+          oracleText.match(/\{t\}:\s*add\s+\{[wubrgc]\}\{[wubrgc]\}/i) ||
+          // Pattern 3: {t}: add one mana of any color
+          oracleText.match(/\{t\}:\s*add\s+one\s+mana/i) ||
+          // Pattern 4: {t}: add X mana (for variable amounts)
+          oracleText.match(/\{t\}:\s*add\s+\w+\s+mana/i) ||
+          // Pattern 5: {t}: add an amount of {X} (Bighorner Rancher, Karametra's Acolyte)
+          oracleText.match(/\{t\}:\s*add\s+an\s+amount\s+of\s+\{[wubrgc]\}/i) ||
+          // Pattern 6: {t}, sacrifice: add (for treasure-like effects)
+          oracleText.match(/\{t\},\s*sacrifice[^:]*:\s*add\s+/i)
         );
         
         if (hasTapManaAbility) {

@@ -139,6 +139,13 @@ const KNOWN_MANA_MODIFIERS: Record<string, Omit<ManaModifier, 'permanentId' | 'c
     multiplier: 3,
   },
   
+  // Triple mana from BASIC lands only
+  "virtue of strength": {
+    type: 'mana_multiplier',
+    affects: 'basic_lands', // Only basic lands
+    multiplier: 3,
+  },
+  
   // Lands produce extra mana
   "zendikar resurgent": {
     type: 'extra_mana',
@@ -449,68 +456,48 @@ export function getManaAbilitiesForPermanent(
   
   // Check if this is a mana-producing tap ability (not a utility ability)
   const hasManaProducingTapAbility = (text: string): boolean => {
-    // Look for pattern: "{t}: add" at the start of a sentence/ability
-    // Should match: "{t}: add {g}", "{t}: add one mana of any color"
+    // Look for pattern: "{t}: add {X}" or "{t}: add one mana" or "{t}: add X mana"
+    // Should match: "{t}: add {g}", "{t}: add one mana of any color", "{t}: add {c}{c}"
+    // Should match: "{t}: add an amount of {g}" (Bighorner Rancher pattern)
     // Should NOT match: "{t}: look at the top card...add it to your hand"
     // Should NOT match: "{2}, {t}: search your library..."
-    // Should NOT match: "add a +1/+1 counter"
+    // Should NOT match: "add a +1/+1 counter", "in addition to"
     
-    // First check: does the text contain "{t}:" followed shortly by "add {" or "add one mana"?
-    // This is a simple heuristic that works for most mana-producing abilities
+    // Pattern for mana abilities - must have "{t}:" followed by "add" and then a mana indicator
+    const manaPatterns = [
+      /\{t\}:\s*add\s+\{[wubrgc]\}/i,              // {t}: add {G}
+      /\{t\}:\s*add\s+\{[wubrgc]\}\{[wubrgc]\}/i,  // {t}: add {C}{C}
+      /\{t\}:\s*add\s+one\s+mana/i,                // {t}: add one mana of any color
+      /\{t\}:\s*add\s+\w+\s+mana/i,                // {t}: add X mana, add two mana, etc.
+      /\{t\}:\s*add\s+an\s+amount\s+of\s+\{[wubrgc]\}/i, // {t}: add an amount of {G} (Bighorner Rancher)
+      /\{t\},\s*sacrifice[^:]*:\s*add\s+/i,        // {t}, sacrifice: add (treasure-like)
+    ];
     
-    // Pattern for simple mana abilities: {T}: Add {X} or {T}: Add one mana
-    const simpleManaPattern = /\{t\}:\s*add\s*(?:\{[wubrgc]\}|one\s+mana)/i;
-    if (!simpleManaPattern.test(text)) {
-      return false;
-    }
-    
-    // Find all "{t}:" abilities and verify they're mana-producing
-    const tapAbilityMatches = text.match(/\{t\}:\s*[^.\n]+/gi);
-    if (!tapAbilityMatches) return false;
-    
-    for (const ability of tapAbilityMatches) {
-      const abilityLower = ability.toLowerCase();
-      
-      // Check if this specific ability is a mana ability
-      if (abilityLower.match(/\{t\}:\s*add\s*\{[wubrgc]\}/i) ||
-          abilityLower.match(/\{t\}:\s*add\s+one\s+mana/i)) {
-        
-        // Verify it's not a complex ability by checking the text after "add"
-        const afterAdd = abilityLower.split(/add\s*/i)[1] || '';
-        const first50Chars = afterAdd.substring(0, 50);
-        
-        // If the text after "add" contains non-mana patterns, skip this ability
-        const hasNonManaPattern = nonManaProducerPatterns.some(pattern => 
-          first50Chars.includes(pattern)
-        );
-        
-        // Also check for "add a" or "add X" patterns that aren't mana
-        // e.g., "add a +1/+1 counter" or "add it to your hand"
-        const isNonManaAdd = /^(?:a\s+(?:\+|counter|card)|it\s+to|them?\s+to)/i.test(afterAdd.trim());
-        
-        if (!hasNonManaPattern && !isNonManaAdd) {
-          return true;
-        }
+    for (const pattern of manaPatterns) {
+      if (pattern.test(text)) {
+        return true;
       }
     }
+    
     return false;
   };
   
   if (!isLand && oracleText.includes("{t}:") && hasManaProducingTapAbility(oracleText)) {
     // Check for each colored mana - more strict matching
-    if (oracleText.match(/\{t\}:\s*add\s*\{w\}/i)) {
+    // Include "add an amount of {X}" pattern for cards like Bighorner Rancher
+    if (oracleText.match(/\{t\}:\s*add\s+(?:an\s+amount\s+of\s+)?\{w\}/i)) {
       abilities.push({ id: 'native_w', cost: '{T}', produces: ['W'] });
     }
-    if (oracleText.match(/\{t\}:\s*add\s*\{u\}/i)) {
+    if (oracleText.match(/\{t\}:\s*add\s+(?:an\s+amount\s+of\s+)?\{u\}/i)) {
       abilities.push({ id: 'native_u', cost: '{T}', produces: ['U'] });
     }
-    if (oracleText.match(/\{t\}:\s*add\s*\{b\}/i)) {
+    if (oracleText.match(/\{t\}:\s*add\s+(?:an\s+amount\s+of\s+)?\{b\}/i)) {
       abilities.push({ id: 'native_b', cost: '{T}', produces: ['B'] });
     }
-    if (oracleText.match(/\{t\}:\s*add\s*\{r\}/i)) {
+    if (oracleText.match(/\{t\}:\s*add\s+(?:an\s+amount\s+of\s+)?\{r\}/i)) {
       abilities.push({ id: 'native_r', cost: '{T}', produces: ['R'] });
     }
-    if (oracleText.match(/\{t\}:\s*add\s*\{g\}/i)) {
+    if (oracleText.match(/\{t\}:\s*add\s+(?:an\s+amount\s+of\s+)?\{g\}/i)) {
       abilities.push({ id: 'native_g', cost: '{T}', produces: ['G'] });
     }
     // Check for colorless mana
@@ -640,10 +627,13 @@ const KNOWN_DEVOTION_MANA_CARDS: Record<string, {
   minDevotion?: number;
 }> = {
   "karametra's acolyte": { color: 'G', producedColor: 'G' },
-  "nykthos, shrine to nyx": { color: 'W', producedColor: 'any' }, // Actually needs color choice
-  "nyx lotus": { color: 'W', producedColor: 'any', minDevotion: 0 }, // Taps for devotion to chosen color
-  "altar of the pantheon": { color: 'W', producedColor: 'any', minDevotion: 0 }, // Add one of any color, +1 devotion
-  "crypt ghast": { color: 'B', producedColor: 'B' }, // Actually doubles swamp mana, not devotion
+  // Note: Nykthos and Nyx Lotus require color choice - the 'color' field here is a placeholder
+  // In practice, these cards need UI interaction to choose which color devotion to count
+  "nykthos, shrine to nyx": { color: 'G', producedColor: 'any' }, // Placeholder - needs color choice
+  "nyx lotus": { color: 'G', producedColor: 'any', minDevotion: 0 }, // Placeholder - needs color choice
+  "altar of the pantheon": { color: 'G', producedColor: 'any', minDevotion: 0 }, // Add one of any color, +1 devotion
+  // Note: Crypt Ghast is NOT a devotion card - it doubles swamp mana via extort-style effect
+  // It's already handled in the extra mana section, not here
 };
 
 /**
@@ -814,6 +804,233 @@ export function getCreatureCountManaAmount(
     }).length;
     
     return { color: 'U', amount: Math.max(0, artifactCount) };
+  }
+  
+  // ==========================================================================
+  // Generic "Add an amount of {X} equal to..." pattern
+  // Full list from Scryfall search (oracle:"add an amount"):
+  // - Alena, Kessig Trapper: greatest power among creatures that entered this turn
+  // - Bighorner Rancher: greatest power among creatures you control
+  // - Cradle Clearcutter: this creature's power
+  // - Energy Tap: target creature's mana value
+  // - Fire Lord Ozai: sacrificed creature's power
+  // - Furgul, Quag Nurturer: sacrificed creature's power
+  // - Illuminor Szeras: sacrificed creature's mana value
+  // - Karametra's Acolyte: devotion to green
+  // - Kyren Toy: X plus one (charge counters)
+  // - Mana Drain: spell's mana value
+  // - Mana Echoes: creatures that share a type
+  // - Marwyn, the Nurturer: Marwyn's power
+  // - Nykthos, Shrine to Nyx: devotion to chosen color
+  // - Nyx Lotus: devotion to chosen color
+  // - Priest of Yawgmoth: sacrificed artifact's mana value
+  // - Pygmy Hippo: mana from opponent's lands
+  // - Rainveil Rejuvenator: this creature's power
+  // - Rotating Fireplace: time counters
+  // - Sacrifice: sacrificed creature's mana value
+  // - Scattering Stroke: spell's mana value
+  // - Slobad, Iron Goblin: sacrificed artifact's mana value
+  // - Soldevi Adnate: sacrificed creature's mana value
+  // - Tanuki Transplanter: equipped creature's power
+  // - Three Tree City: creatures of chosen type
+  // - Vhal, Candlekeep Researcher: Vhal's toughness
+  // - Viridian Joiner: this creature's power
+  // ==========================================================================
+  
+  const amountOfMatch = oracleText.match(
+    /add\s+an\s+amount\s+of\s+\{([wubrgc])\}\s+equal\s+to\s+(.+?)(?:\.|,|$)/i
+  );
+  
+  if (amountOfMatch) {
+    const manaColor = amountOfMatch[1].toUpperCase();
+    const condition = amountOfMatch[2].toLowerCase().trim();
+    const battlefield = gameState?.battlefield || [];
+    
+    let amount = 0;
+    
+    // ========== POWER-BASED ==========
+    
+    // "the greatest power among creatures you control" (Bighorner Rancher)
+    // "the greatest power among creatures you control that entered this turn" (Alena)
+    if (condition.includes('greatest power') && condition.includes('creature')) {
+      for (const p of battlefield) {
+        if (!p || p.controller !== playerId) continue;
+        const typeLine = (p.card?.type_line || "").toLowerCase();
+        if (!typeLine.includes("creature")) continue;
+        
+        // If "entered this turn" check for that flag
+        if (condition.includes('entered this turn') && !p.enteredThisTurn) continue;
+        
+        const power = p.basePower ?? p.card?.power ?? 0;
+        const numPower = typeof power === 'string' ? parseInt(power, 10) || 0 : power;
+        if (numPower > amount) {
+          amount = numPower;
+        }
+      }
+    }
+    // "this creature's power" or "its power" (Viridian Joiner, Cradle Clearcutter, Rainveil)
+    else if (condition.includes("this creature's power") || 
+             condition.includes('its power')) {
+      const power = permanent?.basePower ?? permanent?.card?.power ?? 0;
+      amount = typeof power === 'string' ? parseInt(power, 10) || 0 : power;
+    }
+    // "Marwyn's power" or "[CardName]'s power" pattern
+    else if (condition.match(/\w+'s\s+power/)) {
+      const power = permanent?.basePower ?? permanent?.card?.power ?? 0;
+      amount = typeof power === 'string' ? parseInt(power, 10) || 0 : power;
+    }
+    // "the sacrificed creature's power" (Fire Lord Ozai, Furgul)
+    else if (condition.includes('sacrificed creature') && condition.includes('power')) {
+      // This needs context from the sacrifice action - default to 0
+      // The actual amount should be calculated when the sacrifice happens
+      amount = 0;
+    }
+    
+    // ========== TOUGHNESS-BASED ==========
+    
+    // "Vhal's toughness" or "[CardName]'s toughness"
+    else if (condition.match(/\w+'s\s+toughness/) || condition.includes('its toughness')) {
+      const toughness = permanent?.baseToughness ?? permanent?.card?.toughness ?? 0;
+      amount = typeof toughness === 'string' ? parseInt(toughness, 10) || 0 : toughness;
+    }
+    
+    // ========== MANA VALUE / CMC BASED ==========
+    
+    // "that creature's mana value" or "sacrificed creature's mana value" (Energy Tap, Soldevi Adnate)
+    else if (condition.includes('mana value') || condition.includes('converted mana cost')) {
+      // This needs context from what was targeted/sacrificed
+      // For self-referencing, use the permanent's own mana value
+      if (condition.includes('this') || condition.includes('its')) {
+        amount = permanent?.card?.cmc ?? 0;
+      } else {
+        // For targeted/sacrificed, this needs special handling
+        amount = 0;
+      }
+    }
+    
+    // ========== DEVOTION-BASED ==========
+    
+    // "your devotion to green" (Karametra's Acolyte)
+    // Note: Nykthos and Nyx Lotus use "that color" which needs UI choice
+    else if (condition.includes('devotion to')) {
+      let devotionColor: 'W' | 'U' | 'B' | 'R' | 'G' = 'G';
+      if (condition.includes('white')) devotionColor = 'W';
+      else if (condition.includes('blue')) devotionColor = 'U';
+      else if (condition.includes('black')) devotionColor = 'B';
+      else if (condition.includes('red')) devotionColor = 'R';
+      else if (condition.includes('green')) devotionColor = 'G';
+      
+      amount = calculateDevotion(gameState, playerId, devotionColor);
+    }
+    
+    // ========== COUNTER-BASED ==========
+    
+    // "X plus one" where X is charge counters (Kyren Toy)
+    else if (condition.includes('plus one') || condition.includes('+ 1')) {
+      const counters = permanent?.counters || {};
+      const chargeCounters = counters['charge'] || 0;
+      amount = chargeCounters + 1;
+    }
+    // "time counters on this artifact" (Rotating Fireplace)
+    else if (condition.includes('time counter')) {
+      const counters = permanent?.counters || {};
+      amount = counters['time'] || 0;
+    }
+    // Generic "+1/+1 counters on it"
+    else if (condition.includes('+1/+1 counter')) {
+      const counters = permanent?.counters || {};
+      amount = counters['+1/+1'] || counters['p1p1'] || counters['plus1plus1'] || 0;
+    }
+    
+    // ========== CREATURE TYPE COUNT ==========
+    
+    // "number of creatures you control that share a creature type with it" (Mana Echoes)
+    else if (condition.includes('share a creature type') || condition.includes('share creature type')) {
+      // This needs context from the entering creature - complex to calculate
+      amount = 1; // Default to 1 for the entering creature itself
+    }
+    // "creatures you control of the chosen type" (Three Tree City)
+    else if (condition.includes('of the chosen type') || condition.includes('chosen type')) {
+      // This needs to track the chosen type - for now estimate
+      amount = battlefield.filter((p: any) => {
+        if (!p || p.controller !== playerId) return false;
+        const typeLine = (p.card?.type_line || "").toLowerCase();
+        return typeLine.includes("creature");
+      }).length;
+    }
+    
+    // ========== COUNT-BASED (PERMANENTS) ==========
+    
+    // "the number of creatures you control"
+    else if (condition.includes('creatures you control') || condition.includes('number of creatures')) {
+      amount = battlefield.filter((p: any) => {
+        if (!p || p.controller !== playerId) return false;
+        const typeLine = (p.card?.type_line || "").toLowerCase();
+        return typeLine.includes("creature");
+      }).length;
+    }
+    // "the number of Elves you control"
+    else if (condition.includes('elf') || condition.includes('elves')) {
+      amount = battlefield.filter((p: any) => {
+        if (!p || p.controller !== playerId) return false;
+        const typeLine = (p.card?.type_line || "").toLowerCase();
+        const subTypes = (p.card?.type_line || "").split("—")[1] || "";
+        return typeLine.includes("elf") || subTypes.toLowerCase().includes("elf");
+      }).length;
+    }
+    // "the number of lands you control"
+    else if (condition.includes('lands')) {
+      amount = battlefield.filter((p: any) => {
+        if (!p || p.controller !== playerId) return false;
+        const typeLine = (p.card?.type_line || "").toLowerCase();
+        return typeLine.includes("land");
+      }).length;
+    }
+    // "the number of artifacts you control"
+    else if (condition.includes('artifacts')) {
+      amount = battlefield.filter((p: any) => {
+        if (!p || p.controller !== playerId) return false;
+        const typeLine = (p.card?.type_line || "").toLowerCase();
+        return typeLine.includes("artifact");
+      }).length;
+    }
+    // "the number of enchantments you control"
+    else if (condition.includes('enchantments')) {
+      amount = battlefield.filter((p: any) => {
+        if (!p || p.controller !== playerId) return false;
+        const typeLine = (p.card?.type_line || "").toLowerCase();
+        return typeLine.includes("enchantment");
+      }).length;
+    }
+    
+    // ========== CARDS IN ZONES ==========
+    
+    // "the number of cards in your hand"
+    else if (condition.includes('cards in your hand') || condition.includes('cards in hand')) {
+      const zones = gameState?.zones?.[playerId];
+      amount = zones?.hand?.length || 0;
+    }
+    // "the number of cards in your graveyard"
+    else if (condition.includes('graveyard')) {
+      const zones = gameState?.zones?.[playerId];
+      amount = zones?.graveyard?.length || 0;
+    }
+    
+    // ========== LIFE TOTALS ==========
+    
+    // "your life total"
+    else if (condition.includes('life total')) {
+      amount = gameState?.life?.[playerId] || 0;
+    }
+    
+    // ========== GENERIC FALLBACK ==========
+    else {
+      // Log for debugging unknown patterns
+      console.log(`[getCreatureCountManaAmount] Unknown "add an amount of" condition: "${condition}"`);
+      amount = 1; // Default to 1 if we can't determine the amount
+    }
+    
+    return { color: manaColor, amount: Math.max(0, amount) };
   }
   
   // Dynamic detection: "Add {X} for each Y you control"

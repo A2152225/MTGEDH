@@ -4056,7 +4056,9 @@ export function getDevotionManaAmount(
     // Extract color from mana symbol
     const color = manaSymbol.replace(/[{}]/g, '');
     
-    results.push({ color, amount: Math.max(1, amount) });
+    // Note: Devotion-based mana abilities should produce 0 if devotion is 0
+    // Do not use Math.max(1, amount) as that would be incorrect
+    results.push({ color, amount });
   }
   
   // Nykthos pattern: "Add X mana in any combination of colors..."
