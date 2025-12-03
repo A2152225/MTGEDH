@@ -2111,7 +2111,16 @@ export function App() {
         }
         
         // Check for mana-producing artifacts/creatures
-        if (oracleText.includes('add') && (oracleText.includes('mana') || oracleText.includes('{'))) {
+        // Must have a tap ability that produces mana: "{T}: Add" pattern
+        // Be careful not to match "in addition" or "add a counter" or "add it to your hand"
+        const hasTapManaAbility = (
+          // Standard pattern: {t}: add {X} or {t}: add one mana
+          (oracleText.match(/\{t\}:\s*add\s*\{[wubrgc]\}/i) ||
+           oracleText.match(/\{t\}:\s*add\s+one\s+mana/i) ||
+           oracleText.match(/\{t\}:\s*add\s+\{[wubrgc]\}\{[wubrgc]\}/i)) // For Sol Ring style {C}{C}
+        );
+        
+        if (hasTapManaAbility) {
           // Check for Metalcraft requirement in oracle text (e.g., Mox Opal)
           // Metalcraft - "as long as you control three or more artifacts"
           if (oracleText.includes('metalcraft') || 

@@ -42,6 +42,11 @@ export interface ManaModifier {
   multiplier?: number; // For mana doubling (2 = double, 3 = triple)
   extraMana?: { colors: string[]; amount: number }; // For "add one additional mana"
   overridesExisting?: boolean; // Blood Moon style - replaces other abilities
+  requiresColorChoice?: boolean; // For Caged Sun - needs color selection at ETB
+  landTypeRequired?: string; // Only applies to lands with this type (e.g., 'swamp' for Crypt Ghast)
+  requiresImprintedLandType?: boolean; // For Extraplanar Lens
+  affectsAllPlayers?: boolean; // For symmetric effects like Mana Flare
+  untilEndOfTurn?: boolean; // For effects that only last until end of turn
 }
 
 /**
@@ -146,6 +151,112 @@ const KNOWN_MANA_MODIFIERS: Record<string, Omit<ManaModifier, 'permanentId' | 'c
     type: 'extra_mana',
     affects: 'lands',
     extraMana: { colors: ['same'], amount: 1 },
+  },
+  
+  // Caged Sun - Whenever you tap a land for mana of the chosen color, add one additional mana of that color
+  // Note: Caged Sun requires a color choice when it enters; we'll handle it with dynamic detection
+  "caged sun": {
+    type: 'extra_mana',
+    affects: 'lands',
+    extraMana: { colors: ['chosen'], amount: 1 }, // Chosen color
+    requiresColorChoice: true,
+  },
+  
+  // Gauntlet of Power - Same as Caged Sun but also affects basics that tap for the chosen color
+  "gauntlet of power": {
+    type: 'extra_mana',
+    affects: 'lands',
+    extraMana: { colors: ['chosen'], amount: 1 },
+    requiresColorChoice: true,
+  },
+  
+  // Gauntlet of Might - Red creatures get +1/+1, Mountains produce extra {R}
+  "gauntlet of might": {
+    type: 'extra_mana',
+    affects: 'lands',
+    extraMana: { colors: ['R'], amount: 1 },
+    landTypeRequired: 'mountain',
+  },
+  
+  // Extraplanar Lens - When tapping an imprinted land type, add one mana of any type that land could produce
+  "extraplanar lens": {
+    type: 'extra_mana',
+    affects: 'lands',
+    extraMana: { colors: ['same'], amount: 1 },
+    requiresImprintedLandType: true,
+  },
+  
+  // Nirkana Revenant - Swamps produce extra {B}
+  "nirkana revenant": {
+    type: 'extra_mana',
+    affects: 'lands',
+    extraMana: { colors: ['B'], amount: 1 },
+    landTypeRequired: 'swamp',
+  },
+  
+  // Crypt Ghast - Swamps produce extra {B}
+  "crypt ghast": {
+    type: 'extra_mana',
+    affects: 'lands',
+    extraMana: { colors: ['B'], amount: 1 },
+    landTypeRequired: 'swamp',
+  },
+  
+  // Vorinclex, Voice of Hunger - Lands produce double mana
+  "vorinclex, voice of hunger": {
+    type: 'mana_multiplier',
+    affects: 'lands',
+    multiplier: 2,
+  },
+  
+  // High Tide - Islands produce extra {U} (until end of turn, but we treat it as continuous for simplicity)
+  "high tide": {
+    type: 'extra_mana',
+    affects: 'lands',
+    extraMana: { colors: ['U'], amount: 1 },
+    landTypeRequired: 'island',
+    untilEndOfTurn: true,
+  },
+  
+  // Bubbling Muck - Swamps produce extra {B} (until end of turn)
+  "bubbling muck": {
+    type: 'extra_mana',
+    affects: 'lands',
+    extraMana: { colors: ['B'], amount: 1 },
+    landTypeRequired: 'swamp',
+    untilEndOfTurn: true,
+  },
+  
+  // Heartbeat of Spring - All lands produce extra mana (affects all players)
+  "heartbeat of spring": {
+    type: 'extra_mana',
+    affects: 'all_lands',
+    extraMana: { colors: ['same'], amount: 1 },
+    affectsAllPlayers: true,
+  },
+  
+  // Mana Flare - All lands produce extra mana (affects all players)
+  "mana flare": {
+    type: 'extra_mana',
+    affects: 'all_lands',
+    extraMana: { colors: ['same'], amount: 1 },
+    affectsAllPlayers: true,
+  },
+  
+  // Dictate of Karametra - All lands produce extra mana (affects all players)
+  "dictate of karametra": {
+    type: 'extra_mana',
+    affects: 'all_lands',
+    extraMana: { colors: ['same'], amount: 1 },
+    affectsAllPlayers: true,
+  },
+  
+  // Keeper of Progenitus - Lands that could produce {R}, {G}, or {W} produce extra
+  "keeper of progenitus": {
+    type: 'extra_mana',
+    affects: 'all_lands',
+    extraMana: { colors: ['R', 'G', 'W'], amount: 1 },
+    affectsAllPlayers: true,
   },
   
   // Creatures tap for mana equal to power
@@ -312,41 +423,102 @@ export function getManaAbilitiesForPermanent(
   }
   
   // "Add one mana of any color" (like City of Brass, Mana Confluence, Command Tower)
-  if (oracleText.includes("add one mana of any color") || oracleText.includes("add {c}")) {
+  // Only match if this is a tap ability for lands or it's explicitly a mana ability
+  if (isLand && oracleText.includes("{t}:") && oracleText.includes("add one mana of any color")) {
     abilities.push({ id: 'native_any', cost: '{T}', produces: ['W', 'U', 'B', 'R', 'G'] });
   }
   
-  // Colorless mana producers
-  if (oracleText.includes("add {c}") || oracleText.includes("add one colorless")) {
+  // Colorless mana producers (lands with explicit colorless production)
+  if (isLand && oracleText.match(/\{t\}:\s*add\s*\{c\}/i)) {
     abilities.push({ id: 'native_c', cost: '{T}', produces: ['C'] });
   }
   
   // Check for creatures/artifacts with explicit tap-for-mana abilities in oracle text
   // Pattern: "{T}: Add {X}" where X is a mana symbol
   // This handles creatures like Llanowar Elves, Birds of Paradise, mana rocks, etc.
-  if (!isLand && oracleText.includes("{t}:")) {
-    // Check for each colored mana
-    if (oracleText.includes("{t}: add {w}") || oracleText.match(/\{t\}[^.]*add \{w\}/)) {
+  // IMPORTANT: Only detect mana abilities if the ability is a simple "{T}: Add" pattern
+  // Avoid false positives for cards with complex abilities that happen to include "add" text
+  
+  // List of card patterns that should NOT be considered mana producers
+  const nonManaProducerPatterns = [
+    'draw', 'search', 'look at', 'reveal', 'exile', 'put a', 'create', 'target', 
+    'counter', 'destroy', 'return', 'mill', 'scry', 'surveil',
+    'sacrifice', 'discard', 'copy', 'choose', 'gain', 'lose', 'prevent',
+    'deals', 'damage', 'life', 'graveyard', 'library', 'hand'
+  ];
+  
+  // Check if this is a mana-producing tap ability (not a utility ability)
+  const hasManaProducingTapAbility = (text: string): boolean => {
+    // Look for pattern: "{t}: add" at the start of a sentence/ability
+    // Should match: "{t}: add {g}", "{t}: add one mana of any color"
+    // Should NOT match: "{t}: look at the top card...add it to your hand"
+    // Should NOT match: "{2}, {t}: search your library..."
+    // Should NOT match: "add a +1/+1 counter"
+    
+    // First check: does the text contain "{t}:" followed shortly by "add {" or "add one mana"?
+    // This is a simple heuristic that works for most mana-producing abilities
+    
+    // Pattern for simple mana abilities: {T}: Add {X} or {T}: Add one mana
+    const simpleManaPattern = /\{t\}:\s*add\s*(?:\{[wubrgc]\}|one\s+mana)/i;
+    if (!simpleManaPattern.test(text)) {
+      return false;
+    }
+    
+    // Find all "{t}:" abilities and verify they're mana-producing
+    const tapAbilityMatches = text.match(/\{t\}:\s*[^.\n]+/gi);
+    if (!tapAbilityMatches) return false;
+    
+    for (const ability of tapAbilityMatches) {
+      const abilityLower = ability.toLowerCase();
+      
+      // Check if this specific ability is a mana ability
+      if (abilityLower.match(/\{t\}:\s*add\s*\{[wubrgc]\}/i) ||
+          abilityLower.match(/\{t\}:\s*add\s+one\s+mana/i)) {
+        
+        // Verify it's not a complex ability by checking the text after "add"
+        const afterAdd = abilityLower.split(/add\s*/i)[1] || '';
+        const first50Chars = afterAdd.substring(0, 50);
+        
+        // If the text after "add" contains non-mana patterns, skip this ability
+        const hasNonManaPattern = nonManaProducerPatterns.some(pattern => 
+          first50Chars.includes(pattern)
+        );
+        
+        // Also check for "add a" or "add X" patterns that aren't mana
+        // e.g., "add a +1/+1 counter" or "add it to your hand"
+        const isNonManaAdd = /^(?:a\s+(?:\+|counter|card)|it\s+to|them?\s+to)/i.test(afterAdd.trim());
+        
+        if (!hasNonManaPattern && !isNonManaAdd) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+  
+  if (!isLand && oracleText.includes("{t}:") && hasManaProducingTapAbility(oracleText)) {
+    // Check for each colored mana - more strict matching
+    if (oracleText.match(/\{t\}:\s*add\s*\{w\}/i)) {
       abilities.push({ id: 'native_w', cost: '{T}', produces: ['W'] });
     }
-    if (oracleText.includes("{t}: add {u}") || oracleText.match(/\{t\}[^.]*add \{u\}/)) {
+    if (oracleText.match(/\{t\}:\s*add\s*\{u\}/i)) {
       abilities.push({ id: 'native_u', cost: '{T}', produces: ['U'] });
     }
-    if (oracleText.includes("{t}: add {b}") || oracleText.match(/\{t\}[^.]*add \{b\}/)) {
+    if (oracleText.match(/\{t\}:\s*add\s*\{b\}/i)) {
       abilities.push({ id: 'native_b', cost: '{T}', produces: ['B'] });
     }
-    if (oracleText.includes("{t}: add {r}") || oracleText.match(/\{t\}[^.]*add \{r\}/)) {
+    if (oracleText.match(/\{t\}:\s*add\s*\{r\}/i)) {
       abilities.push({ id: 'native_r', cost: '{T}', produces: ['R'] });
     }
-    if (oracleText.includes("{t}: add {g}") || oracleText.match(/\{t\}[^.]*add \{g\}/)) {
+    if (oracleText.match(/\{t\}:\s*add\s*\{g\}/i)) {
       abilities.push({ id: 'native_g', cost: '{T}', produces: ['G'] });
     }
     // Check for colorless mana
-    if (oracleText.includes("{t}: add {c}") || oracleText.match(/\{t\}[^.]*add \{c\}/)) {
+    if (oracleText.match(/\{t\}:\s*add\s*\{c\}/i)) {
       abilities.push({ id: 'native_c', cost: '{T}', produces: ['C'] });
     }
     // Check for "any color" mana (Birds of Paradise, etc.)
-    if (oracleText.match(/\{t\}[^.]*add one mana of any color/)) {
+    if (oracleText.match(/\{t\}:\s*add\s+one\s+mana\s+of\s+any\s+color/i)) {
       abilities.push({ id: 'native_any', cost: '{T}', produces: ['W', 'U', 'B', 'R', 'G'] });
     }
   }
