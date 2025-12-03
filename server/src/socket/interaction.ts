@@ -1,5 +1,5 @@
 import type { Server, Socket } from "socket.io";
-import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate } from "./util";
+import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness } from "./util";
 import { appendEvent } from "../db";
 import { games } from "./socket";
 import { 
@@ -1875,10 +1875,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
 
-      // Calculate total available power
+      // Calculate total available power (including counters and modifiers)
       const totalAvailablePower = validCrewers.reduce((sum: number, c: any) => {
-        const power = parseInt(c.card?.power || c.basePower || "0", 10) || 0;
-        return sum + Math.max(0, power);
+        return sum + getEffectivePower(c);
       }, 0);
 
       if (totalAvailablePower < crewPower) {
@@ -1899,8 +1898,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         validCrewers: validCrewers.map((c: any) => ({
           id: c.id,
           name: c.card?.name || "Creature",
-          power: parseInt(c.card?.power || c.basePower || "0", 10) || 0,
-          toughness: c.card?.toughness || c.baseToughness || "0",
+          power: getEffectivePower(c),
+          toughness: getEffectiveToughness(c),
           imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
         })),
       });
@@ -3176,8 +3175,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
       
-      const power = parseInt((creature as any).card?.power || (creature as any).basePower || "0", 10) || 0;
-      totalPower += Math.max(0, power);
+      totalPower += getEffectivePower(creature);
       crewingCreatures.push(creature);
     }
 

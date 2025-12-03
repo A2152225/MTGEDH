@@ -6,7 +6,7 @@
  */
 
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, getPlayerName, emitToPlayer } from "./util.js";
+import { ensureGame, broadcastGame, getPlayerName, emitToPlayer, getEffectivePower, getEffectiveToughness } from "./util.js";
 import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 import { getAttackTriggersForCreatures, type TriggeredAbility } from "../state/modules/triggered-abilities.js";
@@ -889,8 +889,8 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         const attackerHasSkulk = attackerText.includes("skulk") || 
           attackerKeywords.some((k: string) => k.toLowerCase() === 'skulk');
         if (attackerHasSkulk) {
-          const blockerPower = parseInt(String((blockerCreature as any).basePower ?? (blockerCreature as any).card?.power ?? '0'), 10) || 0;
-          const attackerPower = parseInt(String((attackerCreature as any).basePower ?? (attackerCreature as any).card?.power ?? '0'), 10) || 0;
+          const blockerPower = getEffectivePower(blockerCreature);
+          const attackerPower = getEffectivePower(attackerCreature);
           if (blockerPower > attackerPower) {
             socket.emit("error", {
               code: "CANT_BLOCK_SKULK",
