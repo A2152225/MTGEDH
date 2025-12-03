@@ -2766,17 +2766,19 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         }
       }
       
-      // Emit success for all AI players
+      // Emit success notification for all AI players
+      // Note: This is an informational event for optional client-side UI feedback.
+      // The actual game state is broadcast via broadcastGame() below.
       socket.emit('multipleAIPlayersCreated', {
         gameId,
         aiPlayers: createdAIPlayers,
       });
       
-      // Broadcast game state
+      // Broadcast game state - this is the authoritative update for all clients
       broadcastGame(io, game, gameId);
       
       // Trigger auto-commander selection for all AI players with decks
-      for (const aiPlayer of createdAIPlayers) {
+      createdAIPlayers.forEach((aiPlayer, index) => {
         if (aiPlayer.deckLoaded) {
           console.info('[AI] Triggering auto-commander selection for:', { gameId, aiPlayerId: aiPlayer.playerId });
           
@@ -2786,9 +2788,9 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
             } catch (e) {
               console.error(`[AI] Error in AI game flow for ${aiPlayer.name}:`, e);
             }
-          }, AI_THINK_TIME_MS * (createdAIPlayers.indexOf(aiPlayer) + 1)); // Stagger delays
+          }, AI_THINK_TIME_MS * (index + 1)); // Stagger delays
         }
-      }
+      });
       
     } catch (error) {
       console.error('[AI] Error creating game with multiple AI opponents:', error);
