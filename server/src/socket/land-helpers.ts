@@ -15,7 +15,15 @@
 // ============================================================================
 
 /**
- * Result of detecting additional spell costs
+ * Result of detecting additional spell costs.
+ * 
+ * Used to describe what extra cost a player must pay when casting certain spells.
+ * Examples include discarding cards (Faithless Looting), sacrificing permanents,
+ * or paying life.
+ * 
+ * @property type - The type of additional cost required ('discard', 'sacrifice', or 'pay_life')
+ * @property amount - How many of the cost type must be paid (e.g., 1 card, 2 life)
+ * @property filter - Optional filter for sacrifice costs (e.g., "creature", "artifact")
  */
 export interface AdditionalCostResult {
   type: 'discard' | 'sacrifice' | 'pay_life';
@@ -219,7 +227,16 @@ export function detectETBTappedPattern(oracleText: string): 'always' | 'conditio
 }
 
 /**
- * Result of evaluating conditional land ETB
+ * Result of evaluating conditional land ETB (Enter the Battlefield) effects.
+ * 
+ * Used to determine whether a land should enter tapped and what prompts
+ * may be needed from the player (e.g., reveal a card from hand).
+ * 
+ * @property shouldEnterTapped - Whether the land should enter tapped based on current board state
+ * @property reason - Human-readable explanation of why the land enters tapped or untapped
+ * @property requiresRevealPrompt - Whether the player needs to be prompted to reveal a card
+ * @property revealTypes - Land types that can be revealed to enter untapped (e.g., ['forest', 'island'])
+ * @property canReveal - Whether the player has a matching card in hand they could reveal
  */
 export interface ConditionalLandETBResult {
   shouldEnterTapped: boolean;
