@@ -2731,7 +2731,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             zones.handCount = handCards.length;
             
             // Build target details for display
-            const targetDetails: Array<{ id: string; type: 'permanent' | 'player'; name?: string }> = [];
+            const targetDetails: Array<{ id: string; type: 'permanent' | 'player'; name?: string; controllerId?: string }> = [];
             if (targets && targets.length > 0) {
               for (const target of targets) {
                 const targetId = typeof target === 'string' ? target : target.id;
@@ -2746,12 +2746,13 @@ export function registerGameActions(io: Server, socket: Socket) {
                     name: player?.name || targetId,
                   });
                 } else {
-                  // Find permanent name
+                  // Find permanent name and controller
                   const perm = (game.state.battlefield || []).find((p: any) => p.id === targetId);
                   targetDetails.push({
                     id: targetId,
                     type: 'permanent',
                     name: perm?.card?.name || targetId,
+                    controllerId: perm?.controller,
                   });
                 }
               }
