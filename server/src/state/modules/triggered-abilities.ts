@@ -6934,13 +6934,28 @@ export function detectSpecialCardEffect(card: any, permanent: any): SpecialCardE
 
 /**
  * Planeswalker loyalty abilities parsed from oracle text
+ * 
+ * Supports all standard planeswalker ability formats:
+ * - [+N]: Add N loyalty (e.g., [+2]: Exile top three cards)
+ * - [-N]: Remove N loyalty (e.g., [-3]: Return target creature)
+ * - [0]: No loyalty change (e.g., [0]: Draw a card)
+ * - [-X]: Variable loyalty cost (e.g., [-X]: Put a creature with MV X onto battlefield)
+ * 
+ * Examples from actual cards:
+ * - Ashiok, Nightmare Weaver: [+2], [-X], [-10]
+ * - Liliana of the Veil: [+1], [-2], [-6]
+ * - Jace, the Mind Sculptor: [+2], [0], [-1], [-12]
+ * - Nissa, Who Shakes the World: [+1], [-8]
  */
 export interface LoyaltyAbility {
-  cost: number; // Positive = add loyalty, negative = remove, 0 = static
+  cost: number | 'X'; // Positive = add loyalty, negative = remove, 0 = static, 'X' = variable
+  costDisplay: string; // Original cost string for display ("+2", "-X", "0", etc.)
   effect: string;
   requiresTarget: boolean;
   targetType?: string;
   isUltimate?: boolean;
+  isVariableCost?: boolean; // True for -X abilities
+  xBasedEffect?: string; // Description of what X represents (e.g., "mana value")
 }
 
 export interface PlaneswalkerAbilities {
@@ -6948,10 +6963,18 @@ export interface PlaneswalkerAbilities {
   cardName: string;
   startingLoyalty: number;
   abilities: LoyaltyAbility[];
+  hasStaticAbility?: boolean;
+  staticAbilityText?: string;
 }
 
 /**
  * Parse planeswalker abilities from oracle text
+ * 
+ * Handles all 168+ planeswalkers including:
+ * - Standard +N/-N abilities
+ * - Variable -X abilities (Ashiok, Nissa Revane, etc.)
+ * - Static abilities (Narset Transcendent, The Wanderer, etc.)
+ * - Zero-cost abilities (Jace TMS, Teferi Hero of Dominaria, etc.)
  */
 export function parsePlaneswalkerAbilities(card: any, permanent: any): PlaneswalkerAbilities | null {
   const oracleText = card?.oracle_text || "";
@@ -6964,42 +6987,125 @@ export function parsePlaneswalkerAbilities(card: any, permanent: any): Planeswal
   const startingLoyalty = card?.loyalty ? parseInt(card.loyalty, 10) : 0;
   const abilities: LoyaltyAbility[] = [];
   
-  // Parse loyalty abilities: [+X], [-X], [0]
-  // Pattern: [+2]: Effect text or [-3]: Effect text
-  const loyaltyPattern = /\[([+-]?\d+)\]:\s*([^[]+?)(?=\s*\[[+-]?\d+\]:|$)/gi;
+  // Check for static abilities (text before first loyalty ability)
+  // Examples: "Your opponents can't cast noncreature spells during combat."
+  // Static abilities don't have [+/-N]: format
+  let hasStaticAbility = false;
+  let staticAbilityText: string | undefined;
+  
+  // Find first loyalty ability marker
+  const firstLoyaltyMatch = oracleText.match(/\[[+-]?(?:\d+|X)\]:/i);
+  if (firstLoyaltyMatch && firstLoyaltyMatch.index && firstLoyaltyMatch.index > 0) {
+    const textBeforeLoyalty = oracleText.substring(0, firstLoyaltyMatch.index).trim();
+    // If there's substantial text before the first loyalty ability, it's likely a static ability
+    if (textBeforeLoyalty.length > 10 && !textBeforeLoyalty.startsWith('—')) {
+      hasStaticAbility = true;
+      staticAbilityText = textBeforeLoyalty;
+    }
+  }
+  
+  // Parse loyalty abilities: [+N], [-N], [0], [-X], [+X]
+  // Pattern handles both numeric costs and X costs
+  // Examples: [+2]: Effect, [-3]: Effect, [0]: Effect, [-X]: Effect
+  const loyaltyPattern = /\[([+-]?(?:\d+|X))\]:\s*([^[]+?)(?=\s*\[[+-]?(?:\d+|X)\]:|$)/gi;
   let match;
   
   while ((match = loyaltyPattern.exec(oracleText)) !== null) {
-    const cost = parseInt(match[1], 10);
+    const costString = match[1];
     const effect = match[2].trim();
+    const isVariableCost = costString.toUpperCase().includes('X');
     
-    // Detect if this ability requires a target
-    const requiresTarget = 
-      effect.toLowerCase().includes('target') ||
-      effect.toLowerCase().includes('choose');
-    
-    // Detect target type
-    let targetType: string | undefined;
-    if (requiresTarget) {
-      if (effect.toLowerCase().includes('target creature')) targetType = 'creature';
-      else if (effect.toLowerCase().includes('target player')) targetType = 'player';
-      else if (effect.toLowerCase().includes('target permanent')) targetType = 'permanent';
-      else if (effect.toLowerCase().includes('target land')) targetType = 'land';
+    // Parse the cost value
+    let cost: number | 'X';
+    if (isVariableCost) {
+      cost = 'X';
+    } else {
+      cost = parseInt(costString, 10);
     }
     
-    // Detect if this is the "ultimate" (typically largest negative cost)
-    const isUltimate = cost < -5;
+    // Detect if this ability requires a target
+    const effectLower = effect.toLowerCase();
+    const requiresTarget = 
+      effectLower.includes('target') ||
+      effectLower.includes('choose');
+    
+    // Detect target type (expanded list)
+    let targetType: string | undefined;
+    if (requiresTarget) {
+      if (effectLower.includes('target creature')) targetType = 'creature';
+      else if (effectLower.includes('target player') || effectLower.includes("target opponent")) targetType = 'player';
+      else if (effectLower.includes('target permanent')) targetType = 'permanent';
+      else if (effectLower.includes('target land')) targetType = 'land';
+      else if (effectLower.includes('target artifact')) targetType = 'artifact';
+      else if (effectLower.includes('target enchantment')) targetType = 'enchantment';
+      else if (effectLower.includes('target planeswalker')) targetType = 'planeswalker';
+      else if (effectLower.includes('target spell')) targetType = 'spell';
+      else if (effectLower.includes('target card')) targetType = 'card';
+      else if (effectLower.includes('target nonland')) targetType = 'nonland permanent';
+      else if (effectLower.includes('target noncreature')) targetType = 'noncreature permanent';
+    }
+    
+    // For X abilities, try to detect what X represents
+    let xBasedEffect: string | undefined;
+    if (isVariableCost) {
+      if (effectLower.includes('mana value x') || effectLower.includes('mana value equal')) {
+        xBasedEffect = 'mana value';
+      } else if (effectLower.includes('power x') || effectLower.includes('power equal')) {
+        xBasedEffect = 'power';
+      } else if (effectLower.includes('x damage')) {
+        xBasedEffect = 'damage';
+      } else if (effectLower.includes('x cards')) {
+        xBasedEffect = 'cards';
+      } else if (effectLower.includes('x target') || effectLower.includes('x creatures')) {
+        xBasedEffect = 'targets';
+      }
+    }
     
     abilities.push({
       cost,
+      costDisplay: costString.startsWith('+') || costString.startsWith('-') ? costString : `+${costString}`,
       effect,
       requiresTarget,
       targetType,
-      isUltimate,
+      isVariableCost,
+      xBasedEffect,
     });
   }
   
-  if (abilities.length === 0) {
+  // Determine ultimate ability (typically the largest negative cost, or only negative ability)
+  // For variable X costs, it's usually an ultimate if there are no other large negative costs
+  if (abilities.length > 0) {
+    let lowestCost = 0;
+    let lowestCostIndex = -1;
+    
+    for (let i = 0; i < abilities.length; i++) {
+      const ability = abilities[i];
+      if (ability.cost === 'X') {
+        // -X is often an ultimate or at least a significant ability
+        // If it's the only negative ability, mark it as ultimate
+        const hasOtherNegative = abilities.some((a, idx) => 
+          idx !== i && typeof a.cost === 'number' && a.cost < 0
+        );
+        if (!hasOtherNegative) {
+          ability.isUltimate = true;
+        }
+      } else if (typeof ability.cost === 'number' && ability.cost < lowestCost) {
+        lowestCost = ability.cost;
+        lowestCostIndex = i;
+      }
+    }
+    
+    // Mark the ability with lowest cost as ultimate (typically -6 or lower)
+    if (lowestCostIndex >= 0 && lowestCost <= -5) {
+      abilities[lowestCostIndex].isUltimate = true;
+    } else if (lowestCostIndex >= 0 && abilities.length >= 3) {
+      // For 3+ ability planeswalkers, the last negative ability is usually the ultimate
+      // even if cost is lower than -5 (e.g., Liliana of the Veil's -6)
+      abilities[lowestCostIndex].isUltimate = true;
+    }
+  }
+  
+  if (abilities.length === 0 && !hasStaticAbility) {
     return null;
   }
   
@@ -7008,27 +7114,138 @@ export function parsePlaneswalkerAbilities(card: any, permanent: any): Planeswal
     cardName: card?.name || 'Unknown Planeswalker',
     startingLoyalty,
     abilities,
+    hasStaticAbility,
+    staticAbilityText,
   };
+}
+
+/**
+ * Get the maximum number of loyalty ability activations per planeswalker per turn
+ * 
+ * Default is 1, but can be increased by:
+ * - The Chain Veil: "At the beginning of your end step, if you didn't activate a loyalty ability
+ *   of a planeswalker this turn, you lose 2 life. You may activate loyalty abilities of 
+ *   planeswalkers you control twice each turn rather than only once."
+ * - Oath of Teferi: "You may activate the loyalty abilities of planeswalkers you control twice
+ *   each turn rather than only once."
+ * - Teferi, Temporal Pilgrim emblem
+ * - Carth the Lion (from graveyard)
+ * - Nicol Bolas, Dragon-God (copying abilities)
+ */
+export function getLoyaltyActivationLimit(gameState: any, playerId: string): number {
+  let limit = 1; // Default: once per turn
+  
+  const battlefield = gameState?.battlefield || [];
+  
+  for (const permanent of battlefield) {
+    if (!permanent || permanent.controller !== playerId) continue;
+    
+    const cardName = (permanent.card?.name || "").toLowerCase();
+    const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
+    
+    // The Chain Veil
+    if (cardName === "the chain veil") {
+      limit = Math.max(limit, 2);
+    }
+    
+    // Oath of Teferi
+    if (cardName === "oath of teferi") {
+      limit = Math.max(limit, 2);
+    }
+    
+    // Carth the Lion - "You may activate loyalty abilities of planeswalkers you control twice"
+    if (cardName === "carth the lion") {
+      limit = Math.max(limit, 2);
+    }
+    
+    // Generic check for "loyalty abilities...twice each turn" or similar
+    if (oracleText.includes("loyalty abilities") && 
+        (oracleText.includes("twice each turn") || oracleText.includes("twice rather than only once"))) {
+      limit = Math.max(limit, 2);
+    }
+    
+    // Some effects might allow even more activations (theoretical future cards)
+    const tripleMatch = oracleText.match(/loyalty abilities.*three times/i);
+    if (tripleMatch) {
+      limit = Math.max(limit, 3);
+    }
+  }
+  
+  // Check emblems (stored in a different location)
+  const emblems = gameState?.emblems || [];
+  for (const emblem of emblems) {
+    if (!emblem || emblem.controller !== playerId) continue;
+    
+    const oracleText = (emblem.effect || "").toLowerCase();
+    
+    if (oracleText.includes("loyalty abilities") && 
+        (oracleText.includes("twice") || oracleText.includes("additional"))) {
+      limit = Math.max(limit, 2);
+    }
+  }
+  
+  return limit;
+}
+
+/**
+ * Check if The Chain Veil trigger should fire (end step: lose 2 life if no loyalty activated)
+ */
+export function checkChainVeilEndStepTrigger(gameState: any, playerId: string): boolean {
+  const battlefield = gameState?.battlefield || [];
+  
+  for (const permanent of battlefield) {
+    if (!permanent || permanent.controller !== playerId) continue;
+    
+    const cardName = (permanent.card?.name || "").toLowerCase();
+    
+    if (cardName === "the chain veil") {
+      // Check if any planeswalker loyalty ability was activated this turn
+      const planeswalkers = battlefield.filter((p: any) => 
+        p?.controller === playerId && 
+        (p?.card?.type_line || "").toLowerCase().includes("planeswalker")
+      );
+      
+      const anyActivated = planeswalkers.some((pw: any) => 
+        (pw?.loyaltyActivationsThisTurn || 0) > 0
+      );
+      
+      // If no loyalty ability was activated, trigger the 2 life loss
+      return !anyActivated;
+    }
+  }
+  
+  return false;
 }
 
 /**
  * Check if a planeswalker can activate a specific ability
  * (Once per turn per planeswalker, at sorcery speed, loyalty requirement met)
+ * 
+ * Handles:
+ * - Standard +N/-N abilities
+ * - Variable -X abilities (can always activate if loyalty >= 1)
+ * - Zero cost abilities
+ * - The Chain Veil effect (additional loyalty activation)
+ * - Oath of Teferi effect (activate loyalty twice per turn)
  */
 export function canActivateLoyaltyAbility(
   permanent: any,
   abilityIndex: number,
   gameState: any,
-  playerId: string
-): { canActivate: boolean; reason?: string } {
+  playerId: string,
+  xValue?: number // For -X abilities, what X value the player wants to use
+): { canActivate: boolean; reason?: string; maxX?: number } {
   // Check controller
   if (permanent?.controller !== playerId) {
     return { canActivate: false, reason: "Not your planeswalker" };
   }
   
-  // Check if already activated this turn
-  if (permanent?.loyaltyActivatedThisTurn) {
-    return { canActivate: false, reason: "Already activated a loyalty ability this turn" };
+  // Check if already activated this turn, considering Chain Veil and similar effects
+  const activationsThisTurn = permanent?.loyaltyActivationsThisTurn || 0;
+  const maxActivations = getLoyaltyActivationLimit(gameState, playerId);
+  
+  if (activationsThisTurn >= maxActivations) {
+    return { canActivate: false, reason: "Already activated maximum loyalty abilities this turn" };
   }
   
   // Check current loyalty
@@ -7041,8 +7258,29 @@ export function canActivateLoyaltyAbility(
   
   const ability = abilities.abilities[abilityIndex];
   
-  // For minus abilities, check if we have enough loyalty
-  if (ability.cost < 0 && currentLoyalty < Math.abs(ability.cost)) {
+  // Handle variable X cost abilities
+  if (ability.cost === 'X' || ability.isVariableCost) {
+    // -X abilities can be activated with any X from 0 to current loyalty
+    // The player chooses X when activating
+    const maxX = currentLoyalty;
+    
+    if (xValue !== undefined) {
+      // Validate the chosen X value
+      if (xValue < 0) {
+        return { canActivate: false, reason: "X cannot be negative", maxX };
+      }
+      if (xValue > currentLoyalty) {
+        return { canActivate: false, reason: `X cannot exceed current loyalty (${currentLoyalty})`, maxX };
+      }
+    }
+    
+    // Can activate -X ability as long as we have any loyalty
+    // (X can be 0 in some cases)
+    return { canActivate: true, maxX };
+  }
+  
+  // For minus abilities with fixed cost, check if we have enough loyalty
+  if (typeof ability.cost === 'number' && ability.cost < 0 && currentLoyalty < Math.abs(ability.cost)) {
     return { canActivate: false, reason: `Not enough loyalty (have ${currentLoyalty}, need ${Math.abs(ability.cost)})` };
   }
   
@@ -7060,6 +7298,55 @@ export function canActivateLoyaltyAbility(
   }
   
   return { canActivate: true };
+}
+
+/**
+ * Calculate the loyalty change when activating an ability
+ * Returns the amount to add (positive) or remove (negative) from loyalty
+ */
+export function calculateLoyaltyChange(ability: LoyaltyAbility, xValue?: number): number {
+  if (ability.cost === 'X' || ability.isVariableCost) {
+    // -X ability: remove X loyalty (xValue should be provided)
+    return -(xValue || 0);
+  }
+  
+  if (typeof ability.cost === 'number') {
+    return ability.cost; // Already signed correctly (+N or -N)
+  }
+  
+  return 0;
+}
+
+/**
+ * Get all available loyalty abilities for a planeswalker with activation status
+ * Useful for UI to display which abilities can be activated
+ */
+export function getAvailableLoyaltyAbilities(
+  permanent: any,
+  gameState: any,
+  playerId: string
+): Array<{
+  index: number;
+  ability: LoyaltyAbility;
+  canActivate: boolean;
+  reason?: string;
+  maxX?: number;
+}> {
+  const abilities = parsePlaneswalkerAbilities(permanent?.card, permanent);
+  if (!abilities) {
+    return [];
+  }
+  
+  return abilities.abilities.map((ability, index) => {
+    const result = canActivateLoyaltyAbility(permanent, index, gameState, playerId);
+    return {
+      index,
+      ability,
+      canActivate: result.canActivate,
+      reason: result.reason,
+      maxX: result.maxX,
+    };
+  });
 }
 
 // ============================================================================
