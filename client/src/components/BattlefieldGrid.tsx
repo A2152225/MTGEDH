@@ -315,19 +315,38 @@ export function BattlefieldGrid(props: {
               </div>
             )}
 
-            {/* Attached badge */}
+            {/* Attached badge - shows what this permanent is attached to */}
             {(p as any).attachedTo && (
               <div style={{
                 position: 'absolute',
                 top: 6,
                 left: 6,
-                background: 'rgba(0,0,0,0.6)',
+                background: 'rgba(138,43,226,0.8)', // Purple for attachments
                 color: '#fff',
-                fontSize: 10,
-                padding: '2px 4px',
-                borderRadius: 4
+                fontSize: 9,
+                padding: '2px 5px',
+                borderRadius: 4,
+                maxWidth: '90%',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                border: '1px solid rgba(255,255,255,0.3)',
               }}>
-                Attached
+                ↗ {(() => {
+                  // Find the permanent this is attached to
+                  const attachedToPerm = perms.find(perm => perm.id === (p as any).attachedTo);
+                  if (!attachedToPerm) return 'Attached';
+                  
+                  // Get the name from the card - handle both KnownCardRef and any card object
+                  const card = attachedToPerm.card;
+                  if (card && typeof card === 'object') {
+                    const cardName = (card as any).name;
+                    if (typeof cardName === 'string' && cardName.length > 0) {
+                      return cardName;
+                    }
+                  }
+                  return 'Attached';
+                })()}
               </div>
             )}
 
