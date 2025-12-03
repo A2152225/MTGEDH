@@ -8,6 +8,7 @@ import {
 } from "../../../shared/src/creatureTypes";
 import { parseSacrificeCost, type SacrificeType } from "../../../shared/src/textUtils";
 import { getDeathTriggers, getPlayersWhoMustSacrifice } from "../state/modules/triggered-abilities";
+import { getManaAbilitiesForPermanent } from "../state/modules/mana-abilities";
 
 // ============================================================================
 // Pre-compiled RegExp patterns for creature type matching
@@ -1337,6 +1338,79 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
     
     (permanent as any).tapped = true;
+    
+    // Check if this permanent has mana abilities (intrinsic or granted by effects like Cryptolith Rite)
+    // If so, add the produced mana to the player's mana pool
+    const card = (permanent as any).card;
+    const cardName = card?.name || "Unknown";
+    
+    // Get mana abilities for this permanent (includes granted abilities from Cryptolith Rite, etc.)
+    const manaAbilities = getManaAbilitiesForPermanent(game.state, permanent, pid);
+    
+    if (manaAbilities.length > 0) {
+      // Permanent has mana abilities - add mana to the pool
+      // Initialize mana pool if needed
+      game.state.manaPool = game.state.manaPool || {};
+      game.state.manaPool[pid] = game.state.manaPool[pid] || {
+        white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+      };
+      
+      // Use the first mana ability's production
+      // Note: If a permanent has multiple mana abilities (e.g., inherent + granted),
+      // we use the first one. In practice, most permanents only have one active mana ability
+      // when tapped directly. For more complex cases, players should use activateBattlefieldAbility.
+      const ability = manaAbilities[0];
+      const produces = ability.produces || [];
+      
+      if (produces.length > 0) {
+        // Map mana color codes to pool keys
+        const colorToPoolKey: Record<string, string> = {
+          'W': 'white',
+          'U': 'blue',
+          'B': 'black',
+          'R': 'red',
+          'G': 'green',
+          'C': 'colorless',
+        };
+        
+        // If produces multiple colors (like "any color"), prompt user for choice
+        // For granted abilities like Cryptolith Rite (any color), we'll emit a color choice prompt
+        if (produces.length > 1) {
+          // Multi-color production - emit choice to player
+          socket.emit("manaColorChoice", {
+            gameId,
+            permanentId,
+            cardName,
+            availableColors: produces,
+            grantedBy: ability.isGranted ? ability.grantedBy : undefined,
+          });
+          
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `${getPlayerName(game, pid)} tapped ${cardName} for mana (choose color).`,
+            ts: Date.now(),
+          });
+        } else {
+          // Single color production
+          const manaColor = produces[0];
+          const poolKey = colorToPoolKey[manaColor] || 'colorless';
+          (game.state.manaPool[pid] as any)[poolKey]++;
+          
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `${getPlayerName(game, pid)} tapped ${cardName} for {${manaColor}} mana.`,
+            ts: Date.now(),
+          });
+          
+          // Broadcast mana pool update
+          broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`);
+        }
+      }
+    }
     
     if (typeof game.bumpSeq === "function") {
       game.bumpSeq();
@@ -3674,6 +3748,78 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     // Bump game sequence
     if (typeof (game as any).bumpSeq === "function") { (game as any).bumpSeq(); }
+
+    broadcastGame(io, game, gameId);
+  });
+
+  // ============================================================================
+  // Mana Color Selection (for creatures with "any color" mana abilities)
+  // ============================================================================
+
+  /**
+   * Handle mana color selection when tapping a creature for mana of any color
+   * This is used when creatures have granted mana abilities like Cryptolith Rite
+   */
+  socket.on("manaColorSelect", ({
+    gameId,
+    permanentId,
+    selectedColor,
+  }: {
+    gameId: string;
+    permanentId: string;
+    selectedColor: 'W' | 'U' | 'B' | 'R' | 'G';
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+      return;
+    }
+
+    // Map color codes to pool keys
+    const colorToPoolKey: Record<string, string> = {
+      'W': 'white',
+      'U': 'blue',
+      'B': 'black',
+      'R': 'red',
+      'G': 'green',
+    };
+
+    const poolKey = colorToPoolKey[selectedColor];
+    if (!poolKey) {
+      socket.emit("error", { code: "INVALID_COLOR", message: "Invalid mana color selected" });
+      return;
+    }
+
+    // Initialize mana pool if needed
+    game.state.manaPool = game.state.manaPool || {};
+    game.state.manaPool[pid] = game.state.manaPool[pid] || {
+      white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+    };
+
+    // Add the selected mana
+    (game.state.manaPool[pid] as any)[poolKey]++;
+
+    // Find the permanent to get its name for the chat message
+    const battlefield = game.state?.battlefield || [];
+    const permanent = battlefield.find((p: any) => p?.id === permanentId);
+    const cardName = permanent?.card?.name || "Unknown";
+
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} added {${selectedColor}} mana from ${cardName}.`,
+      ts: Date.now(),
+    });
+
+    // Bump game sequence
+    if (typeof (game as any).bumpSeq === "function") { (game as any).bumpSeq(); }
+
+    // Broadcast mana pool update
+    broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Selected ${selectedColor} mana`);
 
     broadcastGame(io, game, gameId);
   });
