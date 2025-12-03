@@ -2988,7 +2988,7 @@ export function castSpell(
   }
   
   // Build target details for display
-  const targetDetails: Array<{ id: string; type: 'permanent' | 'player'; name?: string }> = [];
+  const targetDetails: Array<{ id: string; type: 'permanent' | 'player'; name?: string; controllerId?: string; controllerName?: string }> = [];
   if (targets && targets.length > 0) {
     for (const target of targets) {
       const targetId = typeof target === 'string' ? target : target.id;
@@ -3003,12 +3003,22 @@ export function castSpell(
           name: player?.name || targetId,
         });
       } else {
-        // Find permanent name
+        // Find permanent name and controller
         const perm = (state.battlefield || []).find((p: any) => p.id === targetId);
+        // Try to get name from multiple sources (card.name, card_faces[0].name for DFCs)
+        let permName = perm?.card?.name;
+        if (!permName && (perm?.card as any)?.card_faces?.[0]?.name) {
+          permName = (perm.card as any).card_faces[0].name;
+        }
+        // Don't use ID as fallback name - leave it undefined so client can try to look up
+        const controllerId = perm?.controller;
+        const controllerPlayer = controllerId ? (state.players || []).find((p: any) => p.id === controllerId) : undefined;
         targetDetails.push({
           id: targetId,
           type: 'permanent',
-          name: perm?.card?.name || targetId,
+          name: permName,
+          controllerId: controllerId,
+          controllerName: controllerPlayer?.name,
         });
       }
     }

@@ -260,6 +260,10 @@ export interface TargetInfo {
   id: string;
   type: 'permanent' | 'player' | 'spell' | 'ability';
   name?: string;
+  /** For permanent targets, the controller's ID */
+  controllerId?: string;
+  /** For permanent targets, the controller's name */
+  controllerName?: string;
 }
 
 /* Life totals mapping */

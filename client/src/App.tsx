@@ -1562,11 +1562,36 @@ export function App() {
       }
     };
 
+    const handlePlayerConceded = (data: {
+      gameId: string;
+      playerId: string;
+      playerName: string;
+      message?: string;
+    }) => {
+      if (!safeView || data.gameId !== safeView.id) return;
+      
+      // If you conceded, show a brief notification
+      if (data.playerId === you) {
+        setGameOverData({
+          type: 'eliminated',
+          message: 'You Conceded',
+        });
+        setGameOverModalOpen(true);
+        
+        setTimeout(() => {
+          setGameOverModalOpen(false);
+          setGameOverData(null);
+        }, 2000);
+      }
+    };
+
     socket.on("gameOver", handleGameOver);
     socket.on("playerEliminated", handlePlayerEliminated);
+    socket.on("playerConceded", handlePlayerConceded);
     return () => {
       socket.off("gameOver", handleGameOver);
       socket.off("playerEliminated", handlePlayerEliminated);
+      socket.off("playerConceded", handlePlayerConceded);
     };
   }, [safeView?.id, you]);
 
@@ -3029,6 +3054,28 @@ export function App() {
               title="Auto-advance through untap/cleanup phases (reduces manual clicking)"
             >
               {autoAdvancePhases ? '⚡ Auto' : '⚡ Manual'}
+            </button>
+            <button
+              onClick={() => {
+                if (confirm('Are you sure you want to concede? Your permanents will be removed at the start of your next turn.')) {
+                  socket.emit("concede", { gameId: safeView.id });
+                }
+              }}
+              disabled={!isYouPlayer || !safeView || (safeView as any).gameOver}
+              style={{
+                background: isYouPlayer && safeView && !(safeView as any).gameOver ? '#ef4444' : '#6b7280',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 4,
+                padding: '4px 8px',
+                cursor: isYouPlayer && safeView && !(safeView as any).gameOver ? 'pointer' : 'not-allowed',
+                fontSize: 11,
+                marginLeft: 8,
+                opacity: isYouPlayer && safeView && !(safeView as any).gameOver ? 1 : 0.6,
+              }}
+              title="Concede the game. Your permanents will remain until your next turn, then be removed."
+            >
+              🏳️ Concede
             </button>
             <button
               onClick={() => {
