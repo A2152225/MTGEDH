@@ -2770,12 +2770,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   });
 
   // Library search selection (response to librarySearchRequest from tutors)
-  socket.on("librarySearchSelect", ({ gameId, selectedCardIds, moveTo, targetPlayerId, splitAssignments }: { 
+  socket.on("librarySearchSelect", ({ gameId, selectedCardIds, moveTo, targetPlayerId, splitAssignments, filter }: { 
     gameId: string; 
     selectedCardIds: string[]; 
     moveTo: string;
     targetPlayerId?: string; // For searching opponent's library (Gitaxian Probe, etc.)
     splitAssignments?: { toBattlefield: string[]; toHand: string[] }; // For split destination (Cultivate, Kodama's Reach)
+    filter?: { supertypes?: string[]; types?: string[]; subtypes?: string[] }; // Filter to validate selections
   }) => {
     const pid = socket.data.playerId as string | undefined;
     if (!pid || socket.data.spectator) return;
@@ -2792,6 +2793,75 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         message: "Player zones not found",
       });
       return;
+    }
+    
+    // Get library data for validation
+    const libraryData = typeof game.searchLibrary === 'function' 
+      ? game.searchLibrary(libraryOwner, "", 1000) 
+      : [];
+    
+    // Validate selected cards against filter (e.g., basic lands for Cultivate)
+    if (filter && selectedCardIds.length > 0) {
+      const cardDataById = new Map<string, any>();
+      for (const card of libraryData) {
+        cardDataById.set(card.id, card);
+      }
+      
+      for (const cardId of selectedCardIds) {
+        const card = cardDataById.get(cardId);
+        if (!card) continue;
+        
+        const typeLine = ((card as any).type_line || '').toLowerCase();
+        
+        // Check supertypes (e.g., 'basic' for Cultivate/Kodama's Reach)
+        if (filter.supertypes && filter.supertypes.length > 0) {
+          for (const supertype of filter.supertypes) {
+            if (!typeLine.includes(supertype.toLowerCase())) {
+              socket.emit("error", {
+                code: "INVALID_SELECTION",
+                message: `${(card as any).name || 'Selected card'} is not a ${supertype} card. Only ${supertype} cards can be selected.`,
+              });
+              return;
+            }
+          }
+        }
+        
+        // Check card types (e.g., 'land')
+        if (filter.types && filter.types.length > 0) {
+          let matchesType = false;
+          for (const cardType of filter.types) {
+            if (typeLine.includes(cardType.toLowerCase())) {
+              matchesType = true;
+              break;
+            }
+          }
+          if (!matchesType) {
+            socket.emit("error", {
+              code: "INVALID_SELECTION",
+              message: `${(card as any).name || 'Selected card'} is not the required type. Only ${filter.types.join('/')} cards can be selected.`,
+            });
+            return;
+          }
+        }
+        
+        // Check subtypes (e.g., 'forest', 'island')
+        if (filter.subtypes && filter.subtypes.length > 0) {
+          let matchesSubtype = false;
+          for (const subtype of filter.subtypes) {
+            if (typeLine.includes(subtype.toLowerCase())) {
+              matchesSubtype = true;
+              break;
+            }
+          }
+          if (!matchesSubtype) {
+            socket.emit("error", {
+              code: "INVALID_SELECTION",
+              message: `${(card as any).name || 'Selected card'} doesn't have the required subtype. Only ${filter.subtypes.join('/')} cards can be selected.`,
+            });
+            return;
+          }
+        }
+      }
     }
     
     const movedCardNames: string[] = [];
