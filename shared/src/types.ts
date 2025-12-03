@@ -436,7 +436,26 @@ export type ClientGameView = Omit<GameState, 'battlefield' | 'stack' | 'players'
   initiative?: PlayerID | null;
   dayNight?: 'day' | 'night' | null;
   cityBlessing?: Record<PlayerID, boolean>;
+  /** Pending commander zone choice - when a commander would change zones */
+  pendingCommanderZoneChoice?: PendingCommanderZoneChoice[];
 };
+
+/** Pending commander zone choice (Rule 903.9a/903.9b) */
+export interface PendingCommanderZoneChoice {
+  commanderId: string;
+  commanderName: string;
+  destinationZone: 'graveyard' | 'exile';
+  card: {
+    id: string;
+    name: string;
+    type_line?: string;
+    oracle_text?: string;
+    image_uris?: Record<string, string>;
+    mana_cost?: string;
+    power?: string;
+    toughness?: string;
+  };
+}
 
 /* Combat information for display purposes */
 export interface CombatInfo {

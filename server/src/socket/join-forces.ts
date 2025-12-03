@@ -562,6 +562,152 @@ function completeJoinForces(io: Server, pending: PendingJoinForces): void {
     clearTimeout(pending.timeout);
   }
   
+  // Apply the Join Forces effect based on the card
+  try {
+    const game = ensureGame(pending.gameId);
+    if (game && total > 0) {
+      const cardNameLower = pending.cardName.toLowerCase();
+      
+      // Minds Aglow: Each player draws X cards where X is the total mana paid
+      if (cardNameLower.includes('minds aglow')) {
+        for (const playerId of pending.players) {
+          // Draw cards for each player
+          const playerContribution = pending.contributions[playerId] || 0;
+          const totalDraw = total; // All players draw total amount
+          
+          if (typeof (game as any).drawCards === 'function') {
+            (game as any).drawCards(playerId, totalDraw);
+          } else {
+            // Fallback: manually draw cards from library
+            const lib = (game as any).libraries?.get(playerId) || [];
+            const zones = (game.state as any).zones || {};
+            const z = zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+            z.hand = z.hand || [];
+            
+            for (let i = 0; i < totalDraw && lib.length > 0; i++) {
+              const drawn = lib.shift();
+              if (drawn) {
+                (z.hand as any[]).push({ ...drawn, zone: 'hand' });
+              }
+            }
+            z.handCount = (z.hand as any[]).length;
+            z.libraryCount = lib.length;
+          }
+          
+          console.log(`[joinForces] Minds Aglow: ${playerId} draws ${totalDraw} cards`);
+        }
+        
+        io.to(pending.gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId: pending.gameId,
+          from: "system",
+          message: `📚 Minds Aglow: Each player draws ${total} cards!`,
+          ts: Date.now(),
+        });
+      }
+      // Collective Voyage: Search for X basic lands where X is total mana paid
+      else if (cardNameLower.includes('collective voyage')) {
+        // Set up pending library search for each player
+        for (const playerId of pending.players) {
+          (game.state as any).pendingLibrarySearch = (game.state as any).pendingLibrarySearch || {};
+          (game.state as any).pendingLibrarySearch[playerId] = {
+            type: 'join-forces-search',
+            searchFor: `up to ${total} basic land card(s)`,
+            destination: 'battlefield',
+            tapped: true,
+            optional: true,
+            source: 'Collective Voyage',
+            shuffleAfter: true,
+            maxSelections: total,
+            filter: { types: ['land'], subtypes: ['basic'] },
+          };
+        }
+        
+        io.to(pending.gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId: pending.gameId,
+          from: "system",
+          message: `🌲 Collective Voyage: Each player may search for up to ${total} basic land cards!`,
+          ts: Date.now(),
+        });
+      }
+      // Alliance of Arms: Create X 1/1 Soldier tokens where X is total mana paid
+      else if (cardNameLower.includes('alliance of arms')) {
+        for (const playerId of pending.players) {
+          // Create soldier tokens for each player
+          const battlefield = game.state.battlefield = game.state.battlefield || [];
+          for (let i = 0; i < total; i++) {
+            const tokenId = `tok_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${i}`;
+            battlefield.push({
+              id: tokenId,
+              controller: playerId,
+              owner: playerId,
+              tapped: false,
+              counters: {},
+              isToken: true,
+              card: {
+                id: tokenId,
+                name: 'Soldier Token',
+                type_line: 'Token Creature — Soldier',
+                power: '1',
+                toughness: '1',
+                colors: ['W'],
+              },
+            });
+          }
+          console.log(`[joinForces] Alliance of Arms: ${playerId} creates ${total} Soldier tokens`);
+        }
+        
+        io.to(pending.gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId: pending.gameId,
+          from: "system",
+          message: `⚔️ Alliance of Arms: Each player creates ${total} 1/1 white Soldier tokens!`,
+          ts: Date.now(),
+        });
+      }
+      // Shared Trauma: Each player mills X cards where X is total mana paid
+      else if (cardNameLower.includes('shared trauma')) {
+        for (const playerId of pending.players) {
+          const lib = (game as any).libraries?.get(playerId) || [];
+          const zones = (game.state as any).zones || {};
+          const z = zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+          z.graveyard = z.graveyard || [];
+          
+          for (let i = 0; i < total && lib.length > 0; i++) {
+            const milledCard = lib.shift();
+            if (milledCard) {
+              milledCard.zone = 'graveyard';
+              (z.graveyard as any[]).push(milledCard);
+            }
+          }
+          z.libraryCount = lib.length;
+          z.graveyardCount = (z.graveyard as any[]).length;
+          
+          console.log(`[joinForces] Shared Trauma: ${playerId} mills ${total} cards`);
+        }
+        
+        io.to(pending.gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId: pending.gameId,
+          from: "system",
+          message: `💀 Shared Trauma: Each player mills ${total} cards!`,
+          ts: Date.now(),
+        });
+      }
+      
+      // Bump sequence after applying effects
+      if (typeof (game as any).bumpSeq === 'function') {
+        (game as any).bumpSeq();
+      }
+      
+      // Broadcast updated game state
+      broadcastGame(io, game, pending.gameId);
+    }
+  } catch (err) {
+    console.error(`[joinForces] Error applying effect for ${pending.cardName}:`, err);
+  }
+  
   // Notify all players of the result
   io.to(pending.gameId).emit("joinForcesComplete", {
     id: pending.id,

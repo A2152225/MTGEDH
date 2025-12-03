@@ -801,6 +801,163 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
     }
   });
 
+  /**
+   * Handle commander zone choice (Rule 903.9a/903.9b):
+   * When a commander would change zones to graveyard or exile, its owner may 
+   * choose to put it into the command zone instead.
+   * 
+   * This handler processes the player's decision and moves the commander 
+   * to either the chosen destination or the command zone.
+   */
+  socket.on("commanderZoneChoice", (payload: { 
+    gameId: string; 
+    commanderId: string; 
+    moveToCommandZone: boolean;
+  }) => {
+    try {
+      const { gameId, commanderId, moveToCommandZone } = payload;
+      const pid: PlayerID | undefined = socket.data.playerId;
+      const spectator = socket.data.spectator;
+      
+      if (!pid || spectator) {
+        socket.emit("error", {
+          code: "COMMANDER_ZONE_CHOICE_NOT_PLAYER",
+          message: "Spectators cannot make commander zone choices.",
+        });
+        return;
+      }
+      
+      if (!gameId || !commanderId) {
+        socket.emit("error", {
+          code: "COMMANDER_ZONE_CHOICE_INVALID",
+          message: "Missing gameId or commanderId",
+        });
+        return;
+      }
+      
+      const game = ensureGame(gameId);
+      if (!game) {
+        socket.emit("error", {
+          code: "GAME_NOT_FOUND",
+          message: "Game not found",
+        });
+        return;
+      }
+      
+      // Get pending choices for this player
+      const pendingChoices = (game.state as any)?.pendingCommanderZoneChoice?.[pid];
+      if (!pendingChoices || !Array.isArray(pendingChoices) || pendingChoices.length === 0) {
+        socket.emit("error", {
+          code: "NO_PENDING_CHOICE",
+          message: "No pending commander zone choice found",
+        });
+        return;
+      }
+      
+      // Find the specific pending choice for this commander
+      const choiceIndex = pendingChoices.findIndex((c: any) => c.commanderId === commanderId);
+      if (choiceIndex < 0) {
+        socket.emit("error", {
+          code: "INVALID_COMMANDER_CHOICE",
+          message: "No pending choice for this commander",
+        });
+        return;
+      }
+      
+      const choice = pendingChoices[choiceIndex];
+      const commanderName = choice.commanderName || commanderId;
+      const destinationZone = choice.destinationZone; // 'graveyard' or 'exile'
+      const card = choice.card;
+      
+      // Remove this pending choice
+      pendingChoices.splice(choiceIndex, 1);
+      if (pendingChoices.length === 0) {
+        delete (game.state as any).pendingCommanderZoneChoice[pid];
+      }
+      
+      const zones = (game.state as any).zones = (game.state as any).zones || {};
+      const playerZones = zones[pid] = zones[pid] || { 
+        hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, libraryCount: 0 
+      };
+      
+      if (moveToCommandZone) {
+        // Player chose to move commander to command zone
+        const commanderInfo = game.state?.commandZone?.[pid];
+        if (commanderInfo) {
+          const inCommandZone = (commanderInfo as any).inCommandZone as string[] || [];
+          if (!inCommandZone.includes(commanderId)) {
+            inCommandZone.push(commanderId);
+            (commanderInfo as any).inCommandZone = inCommandZone;
+          }
+          if (game.state?.commandZone) {
+            (game.state.commandZone as any)[pid] = commanderInfo;
+          }
+        }
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${pid} moved ${commanderName} to the command zone instead of ${destinationZone}.`,
+          ts: Date.now(),
+        });
+        
+        console.log(`[commanderZoneChoice] ${pid} chose command zone for ${commanderName} (was going to ${destinationZone})`);
+        
+      } else {
+        // Player chose to let commander go to the destination zone
+        if (destinationZone === 'graveyard') {
+          playerZones.graveyard = playerZones.graveyard || [];
+          playerZones.graveyard.push({ ...card, zone: 'graveyard' });
+          playerZones.graveyardCount = (playerZones.graveyard || []).length;
+          
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `${commanderName} was put into ${pid}'s graveyard.`,
+            ts: Date.now(),
+          });
+          
+        } else if (destinationZone === 'exile') {
+          playerZones.exile = playerZones.exile || [];
+          playerZones.exile.push({ ...card, zone: 'exile' });
+          
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `${commanderName} was exiled.`,
+            ts: Date.now(),
+          });
+        }
+        
+        console.log(`[commanderZoneChoice] ${pid} chose to let ${commanderName} go to ${destinationZone}`);
+      }
+      
+      // Bump sequence and broadcast
+      if (typeof (game as any).bumpSeq === "function") {
+        (game as any).bumpSeq();
+      }
+      
+      appendEvent(gameId, game.seq, "commanderZoneChoice", { 
+        playerId: pid, 
+        commanderId, 
+        moveToCommandZone,
+        destinationZone,
+      });
+      
+      broadcastGame(io, game, gameId);
+      
+    } catch (err: any) {
+      console.error(`commanderZoneChoice error:`, err);
+      socket.emit("error", {
+        code: "COMMANDER_ZONE_CHOICE_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
+
   // Debug handler: dumpLibrary - emits player's library with Scryfall data
   socket.on("dumpLibrary", ({ gameId }: { gameId: string }) => {
     try {

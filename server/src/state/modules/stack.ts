@@ -1118,8 +1118,9 @@ function executeTriggerEffect(
             console.log(`[executeTriggerEffect] Milled ${milledCard.name || 'card'} from ${opp.id}'s library`);
           }
         }
-        // Update library count
+        // Update library count and graveyard count
         oppZones.libraryCount = oppZones.library.length;
+        oppZones.graveyardCount = (oppZones.graveyard || []).length;
       }
     }
     return;
@@ -1294,6 +1295,7 @@ function executeTriggerEffect(
             ownerZones.graveyard = ownerZones.graveyard || [];
             targetPerm.card.zone = 'graveyard';
             ownerZones.graveyard.push(targetPerm.card);
+            ownerZones.graveyardCount = (ownerZones.graveyard || []).length;
           }
           console.log(`[executeTriggerEffect] Destroyed ${targetPerm.card?.name || targetPerm.id}`);
         }
@@ -2277,6 +2279,27 @@ export function resolveTopOfStack(ctx: GameContext) {
       console.log(`[resolveTopOfStack] ${card.name} is NOT a Tempting Offer spell`);
     }
     
+    // Handle Ponder-style effects (look at top N, reorder, optionally shuffle, then draw)
+    // Pattern: "Look at the top N cards of your library, then put them back in any order"
+    if (isPonderStyleSpell(card.name, oracleTextLower)) {
+      const ponderConfig = getPonderConfig(card.name, oracleTextLower);
+      
+      // Set up pending ponder - the socket layer will send the peek prompt
+      (state as any).pendingPonder = (state as any).pendingPonder || {};
+      (state as any).pendingPonder[controller] = {
+        effectId: uid("ponder"),
+        cardCount: ponderConfig.cardCount,
+        cardName: card.name || 'Ponder',
+        variant: ponderConfig.variant,
+        canShuffle: ponderConfig.canShuffle,
+        drawAfter: ponderConfig.drawAfter,
+        pickToHand: ponderConfig.pickToHand,
+        targetPlayerId: controller,
+        imageUrl: card.image_uris?.normal || card.image_uris?.small,
+      };
+      console.log(`[resolveTopOfStack] Ponder-style spell ${card.name} set up pending effect (variant: ${ponderConfig.variant}, cards: ${ponderConfig.cardCount})`);
+    }
+    
     // Handle Approach of the Second Sun - goes 7th from top of library, not graveyard
     // Also track that it was cast for win condition checking
     const isApproach = (card.name || '').toLowerCase().includes('approach of the second sun') ||
@@ -2589,6 +2612,153 @@ function isTemptingOfferSpell(cardName: string, oracleTextLower: string): boolea
   }
   
   return false;
+}
+
+/**
+ * Check if a spell is a Ponder-style spell
+ * 
+ * Ponder-style cards (look at top N, reorder, optionally shuffle, then draw):
+ * - Ponder: Look at top 3, put back in any order, may shuffle, draw 1
+ * - Preordain: Scry 2, then draw (different mechanic, not Ponder-style)
+ * - Index: Look at top 5, put back in any order (no shuffle, no draw)
+ * - Sage Owl: ETB look at top 4, put back in any order
+ * - Mystic Speculation: Look at top 3, put back in any order (buyback)
+ * - Telling Time: Look at top 3, put 1 in hand, rest back in any order
+ * - Serum Visions: Draw 1, scry 2 (not Ponder-style)
+ * 
+ * Pattern: "Look at the top N cards of your library" + "put them back in any order"
+ */
+function isPonderStyleSpell(cardName: string, oracleTextLower: string): boolean {
+  const nameLower = (cardName || '').toLowerCase();
+  
+  // Known Ponder-style spell names
+  const ponderStyleSpells = new Set([
+    "ponder",
+    "index",
+    "mystic speculation",
+    "telling time",
+    "sage of epityr",
+    "halimar depths",
+  ]);
+  
+  if (ponderStyleSpells.has(nameLower)) {
+    return true;
+  }
+  
+  // Generic detection via oracle text pattern
+  // Must have both "look at the top" and "put them back in any order"
+  if (oracleTextLower.includes('look at the top') && 
+      oracleTextLower.includes('put them back in any order')) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Get configuration for a Ponder-style effect
+ */
+function getPonderConfig(cardName: string, oracleTextLower: string): {
+  cardCount: number;
+  variant: 'ponder' | 'index' | 'telling_time' | 'brainstorm' | 'architects';
+  canShuffle: boolean;
+  drawAfter: boolean;
+  pickToHand: number;
+} {
+  const nameLower = (cardName || '').toLowerCase();
+  
+  // Type alias for variant
+  type PonderVariant = 'ponder' | 'index' | 'telling_time' | 'brainstorm' | 'architects';
+  
+  // Default config
+  let config: {
+    cardCount: number;
+    variant: PonderVariant;
+    canShuffle: boolean;
+    drawAfter: boolean;
+    pickToHand: number;
+  } = {
+    cardCount: 3,
+    variant: 'ponder',
+    canShuffle: false,
+    drawAfter: false,
+    pickToHand: 0,
+  };
+  
+  // Ponder: Look at top 3, may shuffle, draw 1
+  if (nameLower === 'ponder') {
+    config = {
+      cardCount: 3,
+      variant: 'ponder',
+      canShuffle: true,
+      drawAfter: true,
+      pickToHand: 0,
+    };
+  }
+  // Index: Look at top 5, put back in any order (no shuffle, no draw)
+  else if (nameLower === 'index') {
+    config = {
+      cardCount: 5,
+      variant: 'index',
+      canShuffle: false,
+      drawAfter: false,
+      pickToHand: 0,
+    };
+  }
+  // Telling Time: Look at top 3, put 1 in hand, rest on top
+  else if (nameLower === 'telling time') {
+    config = {
+      cardCount: 3,
+      variant: 'telling_time',
+      canShuffle: false,
+      drawAfter: false,
+      pickToHand: 1,
+    };
+  }
+  // Mystic Speculation: Look at top 3, put back in any order
+  else if (nameLower === 'mystic speculation') {
+    config = {
+      cardCount: 3,
+      variant: 'index',
+      canShuffle: false,
+      drawAfter: false,
+      pickToHand: 0,
+    };
+  }
+  // Halimar Depths: Look at top 3, put back in any order
+  else if (nameLower === 'halimar depths') {
+    config = {
+      cardCount: 3,
+      variant: 'index',
+      canShuffle: false,
+      drawAfter: false,
+      pickToHand: 0,
+    };
+  }
+  // Generic detection
+  else {
+    // Try to extract card count from oracle text
+    const topMatch = oracleTextLower.match(/look at the top (\d+|three|four|five|six|seven)/i);
+    if (topMatch) {
+      const numWords: Record<string, number> = { 
+        'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5, 
+        'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10 
+      };
+      config.cardCount = numWords[topMatch[1].toLowerCase()] || parseInt(topMatch[1], 10) || 3;
+    }
+    
+    // Check for shuffle option
+    if (oracleTextLower.includes('may shuffle')) {
+      config.canShuffle = true;
+    }
+    
+    // Check for draw after
+    if (oracleTextLower.includes('draw a card') || oracleTextLower.includes('draw 1 card')) {
+      config.drawAfter = true;
+    }
+  }
+  
+  return config;
 }
 
 /**

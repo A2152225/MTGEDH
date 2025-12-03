@@ -1486,6 +1486,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   }
                 }
                 zones.libraryCount = zones.library.length;
+                zones.graveyardCount = (zones.graveyard || []).length;
                 console.log(`[applyEvent] ${targetId} milled ${amount} card(s)`);
               }
               break;

@@ -39,11 +39,13 @@ import { MDFCFaceSelectionModal, type CardFace } from "./components/MDFCFaceSele
 import { GraveyardViewModal } from "./components/GraveyardViewModal";
 import { JoinForcesModal, type JoinForcesRequest } from "./components/JoinForcesModal";
 import { TemptingOfferModal, type TemptingOfferRequest } from "./components/TemptingOfferModal";
+import { CommanderZoneChoiceModal } from "./components/CommanderZoneChoiceModal";
+import { PonderModal, type PeekCard, type PonderVariant } from "./components/PonderModal";
 import { ExploreModal, type ExploreCard } from "./components/ExploreModal";
 import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
 import { useGameSocket } from "./hooks/useGameSocket";
-import type { PaymentItem, ManaColor } from "../../shared/src";
+import type { PaymentItem, ManaColor, PendingCommanderZoneChoice } from "../../shared/src";
 import { GameStatusIndicator } from "./components/GameStatusIndicator";
 import { CreateGameModal, type GameCreationConfig } from "./components/CreateGameModal";
 import { PhaseNavigator } from "./components/PhaseNavigator";
@@ -400,6 +402,22 @@ export function App() {
   const [temptingOfferRequest, setTemptingOfferRequest] = useState<TemptingOfferRequest | null>(null);
   const [temptingOfferResponded, setTemptingOfferResponded] = useState<string[]>([]);
   const [temptingOfferAcceptedBy, setTemptingOfferAcceptedBy] = useState<string[]>([]);
+
+  // Ponder Modal state (Ponder, Index, Telling Time, etc.)
+  const [ponderModalOpen, setPonderModalOpen] = useState(false);
+  const [ponderRequest, setPonderRequest] = useState<{
+    effectId: string;
+    cardName: string;
+    cardImageUrl?: string;
+    cards: PeekCard[];
+    variant: PonderVariant;
+    canShuffle: boolean;
+    drawAfter: boolean;
+    pickToHand: number;
+    targetPlayerId?: string;
+    targetPlayerName?: string;
+    isOwnLibrary: boolean;
+  } | null>(null);
 
   // Priority Modal state - shows when player receives priority on step changes
   const [priorityModalOpen, setPriorityModalOpen] = useState(false);
@@ -1445,6 +1463,56 @@ export function App() {
       socket.off("temptingOfferComplete", handleTemptingOfferComplete);
     };
   }, [safeView?.id, temptingOfferRequest?.id]);
+
+  // Ponder socket event handlers
+  React.useEffect(() => {
+    const handlePonderRequest = (payload: {
+      gameId: string;
+      effectId: string;
+      playerId: string;
+      targetPlayerId: string;
+      targetPlayerName?: string;
+      cardName: string;
+      cardImageUrl?: string;
+      cards: PeekCard[];
+      variant: PonderVariant;
+      canShuffle: boolean;
+      drawAfter: boolean;
+      pickToHand: number;
+    }) => {
+      if (payload.gameId === safeView?.id && payload.playerId === you) {
+        setPonderRequest({
+          effectId: payload.effectId,
+          cardName: payload.cardName,
+          cardImageUrl: payload.cardImageUrl,
+          cards: payload.cards,
+          variant: payload.variant,
+          canShuffle: payload.canShuffle,
+          drawAfter: payload.drawAfter,
+          pickToHand: payload.pickToHand,
+          targetPlayerId: payload.targetPlayerId,
+          targetPlayerName: payload.targetPlayerName,
+          isOwnLibrary: payload.playerId === payload.targetPlayerId,
+        });
+        setPonderModalOpen(true);
+      }
+    };
+    
+    const handlePonderComplete = (payload: { effectId: string }) => {
+      if (ponderRequest?.effectId === payload.effectId) {
+        setPonderModalOpen(false);
+        setPonderRequest(null);
+      }
+    };
+    
+    socket.on("ponderRequest", handlePonderRequest);
+    socket.on("ponderComplete", handlePonderComplete);
+    
+    return () => {
+      socket.off("ponderRequest", handlePonderRequest);
+      socket.off("ponderComplete", handlePonderComplete);
+    };
+  }, [safeView?.id, you, ponderRequest?.effectId]);
 
   // Explore prompt handler
   useEffect(() => {
@@ -4387,6 +4455,56 @@ export function App() {
         onRespond={handleTemptingOfferRespond}
         onClose={() => setTemptingOfferModalOpen(false)}
       />
+
+      {/* Commander Zone Choice Modal (Rule 903.9a/903.9b) */}
+      {safeView?.pendingCommanderZoneChoice && safeView.pendingCommanderZoneChoice.length > 0 && (
+        <CommanderZoneChoiceModal
+          choice={safeView.pendingCommanderZoneChoice[0]}
+          onChoice={(moveToCommandZone) => {
+            if (!safeView?.id) return;
+            const choice = safeView.pendingCommanderZoneChoice?.[0];
+            if (!choice) return;
+            socket.emit("commanderZoneChoice", {
+              gameId: safeView.id,
+              commanderId: choice.commanderId,
+              moveToCommandZone,
+            });
+          }}
+        />
+      )}
+
+      {/* Ponder Modal (Ponder, Index, Telling Time, etc.) */}
+      {ponderModalOpen && ponderRequest && (
+        <PonderModal
+          cards={ponderRequest.cards}
+          cardName={ponderRequest.cardName}
+          cardImageUrl={ponderRequest.cardImageUrl}
+          imagePref={appearanceSettings.imagePref}
+          variant={ponderRequest.variant}
+          canShuffle={ponderRequest.canShuffle}
+          drawAfter={ponderRequest.drawAfter}
+          pickToHand={ponderRequest.pickToHand}
+          targetPlayerId={ponderRequest.targetPlayerId}
+          targetPlayerName={ponderRequest.targetPlayerName}
+          isOwnLibrary={ponderRequest.isOwnLibrary}
+          onConfirm={(payload) => {
+            if (!safeView?.id || !ponderRequest) return;
+            socket.emit("confirmPonder", {
+              gameId: safeView.id,
+              effectId: ponderRequest.effectId,
+              newOrder: payload.newOrder,
+              shouldShuffle: payload.shouldShuffle,
+              toHand: payload.toHand,
+            });
+            setPonderModalOpen(false);
+            setPonderRequest(null);
+          }}
+          onCancel={() => {
+            setPonderModalOpen(false);
+            setPonderRequest(null);
+          }}
+        />
+      )}
 
       {/* Deck Validation Status */}
       {deckValidation && !deckValidation.valid && (
