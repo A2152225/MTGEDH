@@ -7143,9 +7143,6 @@ export const AURAS_THAT_RETURN_TO_HAND: Record<string, { effect: string; conditi
   "familiar ground": { 
     effect: "When ~ is put into a graveyard from the battlefield, return ~ to its owner's hand." 
   },
-  "seal of fire": { 
-    effect: "When ~ is put into a graveyard from the battlefield, return ~ to its owner's hand." 
-  },
   "whip silk": { 
     effect: "When ~ is put into a graveyard from the battlefield, return ~ to its owner's hand." 
   },

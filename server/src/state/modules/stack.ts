@@ -2469,8 +2469,18 @@ function createBeastToken(ctx: GameContext, controller: PlayerID, name: string, 
   const creatureType = name.replace(/\s*Token\s*/i, '').trim() || 'Beast';
   const typeLine = `Token Creature — ${creatureType}`;
   
-  // Determine colors array from color string
-  const colorLetters = color ? [color.charAt(0).toUpperCase()] : ['G']; // Default to Green
+  // Map color names to MTG color letters
+  const colorMap: Record<string, string> = {
+    'white': 'W', 'w': 'W',
+    'blue': 'U', 'u': 'U',  // Blue is U, not B!
+    'black': 'B', 'b': 'B',
+    'red': 'R', 'r': 'R',
+    'green': 'G', 'g': 'G',
+    'colorless': 'C', 'c': 'C',
+  };
+  const lowerColor = (color || 'green').toLowerCase();
+  const colorLetter = colorMap[lowerColor] || colorMap[lowerColor.charAt(0)] || 'G';
+  const colorLetters = [colorLetter];
   
   state.battlefield.push({
     id: tokenId,
