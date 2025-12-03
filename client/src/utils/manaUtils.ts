@@ -14,6 +14,7 @@ export interface ParsedManaCost {
   generic: number;
   hybrids: Color[][];
   hasX: boolean;
+  xCount?: number; // Number of X's in the cost (1 for X, 2 for XX, 3 for XXX)
 }
 
 export interface OtherCardInfo {
@@ -32,6 +33,7 @@ export function parseManaCost(manaCost?: string): ParsedManaCost {
     generic: 0,
     hybrids: [],
     hasX: false,
+    xCount: 0, // Track number of X's (1 for X, 2 for XX, 3 for XXX)
   };
   if (!manaCost) return res;
   
@@ -40,6 +42,7 @@ export function parseManaCost(manaCost?: string): ParsedManaCost {
     const sym = t.replace(/[{}]/g, '').toUpperCase();
     if (sym === 'X') {
       res.hasX = true;
+      res.xCount = (res.xCount || 0) + 1; // Count each X
       continue;
     }
     if (/^\d+$/.test(sym)) {

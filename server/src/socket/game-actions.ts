@@ -1846,6 +1846,54 @@ export function registerGameActions(io: Server, socket: Socket) {
       const modalSpellMatch = oracleText.match(/choose\s+(one|two|three|four|any number)\s*(?:—|[-])/i);
       const modesAlreadySelected = (cardInHand as any).selectedModes || (targets as any)?.selectedModes;
       
+      // Check for Spree cards (new mechanic from Outlaws of Thunder Junction)
+      // Pattern: "Spree (Choose one or more additional costs.)" followed by "+ {cost} — Effect"
+      const isSpreeCard = oracleText.includes('spree');
+      const spreeModesSelected = (cardInHand as any).selectedSpreeModes || (targets as any)?.selectedSpreeModes;
+      
+      if (isSpreeCard && !spreeModesSelected) {
+        // Parse spree costs and effects
+        // Pattern: "+ {cost} — Effect text"
+        const spreePattern = /\+\s*(\{[^}]+\})\s*[—-]\s*([^+]+?)(?=\+\s*\{|$)/gi;
+        const spreeModes: { id: string; name: string; description: string; cost: string }[] = [];
+        let match;
+        let index = 0;
+        
+        const originalOracleText = cardInHand.oracle_text || "";
+        while ((match = spreePattern.exec(originalOracleText)) !== null) {
+          const cost = match[1];
+          const effect = match[2].trim().replace(/\n/g, ' ');
+          spreeModes.push({
+            id: `spree_${index}`,
+            name: `Pay ${cost}`,
+            description: effect,
+            cost: cost,
+          });
+          index++;
+        }
+        
+        if (spreeModes.length > 0) {
+          socket.emit("modalSpellRequest", {
+            gameId,
+            cardId,
+            cardName: cardInHand.name,
+            source: cardInHand.name,
+            title: `Choose modes for ${cardInHand.name} (Spree)`,
+            description: originalOracleText,
+            imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            modeCount: -1, // Any number
+            canChooseAny: true,
+            minModes: 1, // Must choose at least one
+            isSpree: true,
+            modes: spreeModes,
+            effectId: `spree_${cardId}_${Date.now()}`,
+          });
+          
+          console.log(`[castSpellFromHand] Requesting Spree mode selection for ${cardInHand.name}`);
+          return; // Wait for mode selection
+        }
+      }
+      
       if (modalSpellMatch && !modesAlreadySelected) {
         const modeCount = modalSpellMatch[1].toLowerCase();
         const modeCountMap: Record<string, number> = { 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'any number': -1 };

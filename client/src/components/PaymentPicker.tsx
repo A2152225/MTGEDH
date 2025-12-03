@@ -118,7 +118,10 @@ export function PaymentPicker(props: PaymentPickerProps) {
   } = props;
 
   const parsed = useMemo(() => parseManaCost(manaCost), [manaCost]);
-  const cost = useMemo(() => ({ colors: parsed.colors, generic: parsed.generic + Math.max(0, Number(xValue || 0) | 0), hybrids: parsed.hybrids }), [parsed, xValue]);
+  // For XX costs, multiply xValue by the number of X's (xCount)
+  // Example: {X}{X}{G} with xValue=7 means you pay 14 generic + G to create 7 tokens
+  const xMultiplier = parsed.xCount || 1;
+  const cost = useMemo(() => ({ colors: parsed.colors, generic: parsed.generic + Math.max(0, Number(xValue || 0) * xMultiplier), hybrids: parsed.hybrids }), [parsed, xValue, xMultiplier]);
   
   // Calculate remaining cost after floating mana
   const { colors: costAfterFloating, generic: genericAfterFloating, hybrids: hybridsAfterFloating } = useMemo(() => 
