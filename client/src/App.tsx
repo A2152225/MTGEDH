@@ -8,6 +8,7 @@ import type {
   BattlefieldPermanent,
   CardRef,
   CardFace,
+  ManaPool,
 } from "../../shared/src";
 import { TableLayout } from "./components/TableLayout";
 import { CardPreviewLayer } from "./components/CardPreviewLayer";
@@ -496,23 +497,7 @@ export function App() {
   } | null>(null);
   
   // Mana Pool state - tracks floating mana for the current player
-  const [manaPool, setManaPool] = useState<{
-    white: number;
-    blue: number;
-    black: number;
-    red: number;
-    green: number;
-    colorless: number;
-    restricted?: Array<{
-      type?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
-      amount: number;
-      restriction: string;
-      restrictedTo?: string;
-      sourceId?: string;
-      sourceName?: string;
-    }>;
-    doesNotEmpty?: boolean;
-  } | null>(null);
+  const [manaPool, setManaPool] = useState<ManaPool | null>(null);
   
   // Auto-pass steps - which steps to automatically pass priority on
   const [autoPassSteps, setAutoPassSteps] = useState<Set<string>>(() => {
@@ -1252,7 +1237,6 @@ export function App() {
       // Only update if this is for the current player
       if (payload.gameId === safeView?.id && payload.playerId === you) {
         setManaPool(payload.manaPool);
-        console.log('[App] Mana pool updated:', payload.reason, payload.manaPool);
       }
     };
     socket.on("manaPoolUpdate", handler);

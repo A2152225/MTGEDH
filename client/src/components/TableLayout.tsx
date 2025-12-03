@@ -15,6 +15,7 @@ import type {
   CardRef,
   ClientGameView,
   ChatMsg,
+  ManaPool,
 } from '../../../shared/src';
 import type { ImagePref } from './BattlefieldGrid';
 import { TokenGroups } from './TokenGroups';
@@ -256,23 +257,7 @@ export function TableLayout(props: {
   onIgnoreTriggerSource?: (sourceId: string, sourceName: string, effect: string, imageUrl?: string) => void;
   onStopIgnoringSource?: (sourceKey: string) => void;
   // Mana pool for displaying floating mana
-  manaPool?: {
-    white: number;
-    blue: number;
-    black: number;
-    red: number;
-    green: number;
-    colorless: number;
-    restricted?: Array<{
-      type?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
-      amount: number;
-      restriction: string;
-      restrictedTo?: string;
-      sourceId?: string;
-      sourceName?: string;
-    }>;
-    doesNotEmpty?: boolean;
-  } | null;
+  manaPool?: ManaPool | null;
   // Legacy 3D/pan-zoom props (kept for backwards compatibility)
   threeD?: any;
   enablePanZoom?: boolean;
