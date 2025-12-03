@@ -673,7 +673,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
               // Push trigger onto the stack
               game.state.stack = game.state.stack || [];
               const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-              game.state.stack.push({
+              const stackItem: any = {
                 id: triggerId,
                 type: 'triggered_ability',
                 controller: playerId,
@@ -681,9 +681,17 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 sourceName: trigger.cardName,
                 description: trigger.description,
                 triggerType: trigger.triggerType,
-                value: trigger.value,
                 mandatory: trigger.mandatory,
-              });
+              };
+              
+              // Add value or effectData based on type
+              if (typeof trigger.value === 'number') {
+                stackItem.value = trigger.value;
+              } else if (typeof trigger.value === 'object') {
+                stackItem.effectData = trigger.value;
+              }
+              
+              game.state.stack.push(stackItem);
               
               // Notify players about the trigger
               io.to(gameId).emit("triggeredAbility", {

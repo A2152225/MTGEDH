@@ -1173,6 +1173,7 @@ function applyCostReduction(
  * - Granted abilities on the permanent (from other effects)
  * - Battlefield permanents that grant haste to creatures (e.g., "creatures you control have haste")
  * - Specific creature type grants (e.g., "Goblin creatures you control have haste")
+ * - Equipment attached to the creature (e.g., "Equipped creature has haste")
  */
 function creatureHasHaste(permanent: any, battlefield: any[], controller: string): boolean {
   try {
@@ -1193,7 +1194,44 @@ function creatureHasHaste(permanent: any, battlefield: any[], controller: string
       return true;
     }
     
-    // 3. Check battlefield for permanents that grant haste
+    // 3. Check attached equipment for haste grants (e.g., Lightning Greaves, Swiftfoot Boots)
+    // Pattern: "Equipped creature has haste" or "Equipped creature has shroud and haste"
+    const attachedEquipment = permanent?.attachedEquipment || [];
+    for (const equipId of attachedEquipment) {
+      const equipment = battlefield.find((p: any) => p.id === equipId);
+      if (equipment && equipment.card) {
+        const equipOracle = (equipment.card.oracle_text || "").toLowerCase();
+        // Check for patterns like "equipped creature has haste" or "equipped creature has ... and haste"
+        if (equipOracle.includes('equipped creature') && 
+            (equipOracle.includes('has haste') || 
+             equipOracle.includes('have haste') ||
+             equipOracle.includes('gains haste') ||
+             /equipped creature has (?:[\w\s,]+\s+and\s+)?haste/i.test(equipOracle))) {
+          return true;
+        }
+      }
+    }
+    
+    // Also check by attachedTo relationship (in case attachedEquipment isn't set)
+    if (permanent.id) {
+      for (const equip of battlefield) {
+        if (!equip || !equip.card) continue;
+        const equipTypeLine = (equip.card.type_line || "").toLowerCase();
+        if (!equipTypeLine.includes('equipment')) continue;
+        if (equip.attachedTo !== permanent.id) continue;
+        
+        const equipOracle = (equip.card.oracle_text || "").toLowerCase();
+        if (equipOracle.includes('equipped creature') && 
+            (equipOracle.includes('has haste') || 
+             equipOracle.includes('have haste') ||
+             equipOracle.includes('gains haste') ||
+             /equipped creature has (?:[\w\s,]+\s+and\s+)?haste/i.test(equipOracle))) {
+          return true;
+        }
+      }
+    }
+    
+    // 4. Check battlefield for permanents that grant haste
     for (const perm of battlefield) {
       if (!perm || !perm.card) continue;
       
