@@ -113,6 +113,11 @@ const FORMAT_NAMES: Record<GameFormat, string> = {
 };
 
 /**
+ * Maximum number of AI opponents allowed
+ */
+const MAX_AI_OPPONENTS = 8;
+
+/**
  * AI Strategy display names and descriptions
  */
 const AI_STRATEGY_INFO: Record<AIStrategy, { name: string; description: string }> = {
@@ -170,9 +175,12 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
   const [customRuleMessage, setCustomRuleMessage] = useState<string | null>(null);
 
   /**
-   * Add a new AI opponent to the list
+   * Add a new AI opponent to the list (up to MAX_AI_OPPONENTS)
    */
   const addAiOpponent = () => {
+    if (aiOpponents.length >= MAX_AI_OPPONENTS) {
+      return; // Limit reached
+    }
     const newId = `ai_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
     const opponentNumber = aiOpponents.length + 1;
     setAiOpponents([...aiOpponents, {
@@ -224,50 +232,14 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
     return savedDecks.filter(d => d.name.toLowerCase().includes(q));
   }, [savedDecks, aiDeckFilter]);
 
+  // Check if we've reached the maximum number of AI opponents
+  const isAtMaxAiCapacity = aiOpponents.length >= MAX_AI_OPPONENTS;
+
   /**
    * Sanitize game ID to only allow alphanumeric, underscore, and hyphen
    */
   const sanitizeGameId = (input: string): string => {
     return input.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 50);
-  };
-
-  /**
-   * Save the imported deck to the server
-   */
-  const handleSaveImportedDeck = async () => {
-    if (!aiDeckText.trim() || !aiDeckName.trim()) return;
-    
-    setSavingDeck(true);
-    setSaveMessage(null);
-    
-    try {
-      const response = await fetch('/api/decks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: aiDeckName.trim(),
-          text: aiDeckText.trim(),
-        }),
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setSaveMessage('✓ Deck saved successfully');
-        // Refresh the deck list
-        if (onRefreshDecks) {
-          onRefreshDecks();
-        }
-        return data.deckId;
-      } else {
-        setSaveMessage('✗ Failed to save deck');
-        return null;
-      }
-    } catch (e) {
-      setSaveMessage('✗ Failed to save deck');
-      return null;
-    } finally {
-      setSavingDeck(false);
-    }
   };
 
   /**
@@ -570,18 +542,19 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
               }}
             >
               <div style={{ fontWeight: 500, fontSize: 14 }}>
-                🤖 AI Opponents ({aiOpponents.length})
+                🤖 AI Opponents ({aiOpponents.length}/{MAX_AI_OPPONENTS})
               </div>
               <button
                 type="button"
                 onClick={addAiOpponent}
+                disabled={isAtMaxAiCapacity}
                 style={{
                   padding: '6px 12px',
                   borderRadius: 4,
                   border: 'none',
-                  backgroundColor: '#3b82f6',
+                  backgroundColor: isAtMaxAiCapacity ? '#9ca3af' : '#3b82f6',
                   color: '#fff',
-                  cursor: 'pointer',
+                  cursor: isAtMaxAiCapacity ? 'not-allowed' : 'pointer',
                   fontSize: 12,
                   fontWeight: 500,
                 }}
@@ -592,7 +565,13 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
 
             {aiOpponents.length === 0 && (
               <div style={{ fontSize: 12, color: '#666', marginTop: 8 }}>
-                Click "Add AI Opponent" to add AI players to your game. You can add multiple AI opponents.
+                Click "Add AI Opponent" to add AI players to your game. You can add up to {MAX_AI_OPPONENTS} AI opponents.
+              </div>
+            )}
+
+            {isAtMaxAiCapacity && (
+              <div style={{ fontSize: 12, color: '#f59e0b', marginTop: 8 }}>
+                Maximum of {MAX_AI_OPPONENTS} AI opponents reached.
               </div>
             )}
 
