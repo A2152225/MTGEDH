@@ -16,6 +16,7 @@ import { createInitialGameState } from "../state/index.js";
 import type { InMemoryGame } from "../state/types.js";
 import { GameManager } from "../GameManager.js";
 import type { GameID, PlayerID } from "../../../shared/src/index.js";
+import { registerPendingJoinForces, registerPendingTemptingOffer } from "./join-forces.js";
 
 // ============================================================================
 // Pre-compiled RegExp patterns for mana color matching in devotion calculations
@@ -1143,18 +1144,21 @@ function parseSearchFilter(criteria: string): { types?: string[]; subtypes?: str
 
 /**
  * Handle pending Join Forces effects after stack resolution.
- * When a Join Forces spell resolves, this emits the joinForcesRequest event
- * to all players so they can contribute mana.
+ * When a Join Forces spell resolves, this registers the effect
+ * and triggers AI responses properly.
  */
 export function handlePendingJoinForces(io: Server, game: any, gameId: string): void {
   try {
     const pendingArray = game.state?.pendingJoinForces;
+    console.log(`[handlePendingJoinForces] Checking for pending Join Forces effects (count: ${pendingArray?.length || 0})`);
     if (!pendingArray || !Array.isArray(pendingArray) || pendingArray.length === 0) return;
     
     // Get all non-spectator players
     const players = (game.state?.players || [])
       .filter((p: any) => p && !p.spectator)
       .map((p: any) => p.id);
+    
+    console.log(`[handlePendingJoinForces] Players available for Join Forces: ${players.join(', ')}`);
     
     if (players.length === 0) {
       // No players to participate
@@ -1167,36 +1171,75 @@ export function handlePendingJoinForces(io: Server, game: any, gameId: string): 
       
       const { id, controller, cardName, effectDescription, imageUrl } = jf;
       
-      // Emit Join Forces request to all players
-      io.to(gameId).emit("joinForcesRequest", {
-        id,
+      console.log(`[handlePendingJoinForces] Registering Join Forces effect for ${cardName} (id: ${id})`);
+      
+      // Use the proper registration function that handles AI responses
+      registerPendingJoinForces(
+        io,
         gameId,
-        initiator: controller,
-        initiatorName: getPlayerName(game, controller),
+        id,
+        controller,
         cardName,
         effectDescription,
-        cardImageUrl: imageUrl,
         players,
-        timeoutMs: 60000, // 60 second timeout
-      });
-      
-      // Chat notification
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `🤝 ${getPlayerName(game, controller)} casts ${cardName} - all players may contribute mana!`,
-        ts: Date.now(),
-      });
-      
-      console.log(`[handlePendingJoinForces] Emitted joinForcesRequest for ${cardName} by ${controller}`);
+        imageUrl
+      );
     }
     
-    // Clear pending Join Forces after emitting
+    // Clear pending Join Forces after registering
     game.state.pendingJoinForces = [];
     
   } catch (err) {
     console.warn('[handlePendingJoinForces] Error:', err);
+  }
+}
+
+/**
+ * Handle pending Tempting Offer effects after stack resolution.
+ * When a Tempting Offer spell resolves, this registers the effect
+ * and triggers AI responses properly.
+ */
+export function handlePendingTemptingOffer(io: Server, game: any, gameId: string): void {
+  try {
+    const pendingArray = game.state?.pendingTemptingOffer;
+    console.log(`[handlePendingTemptingOffer] Checking for pending Tempting Offer effects (count: ${pendingArray?.length || 0})`);
+    if (!pendingArray || !Array.isArray(pendingArray) || pendingArray.length === 0) return;
+    
+    // Get all opponents (non-spectator players)
+    const players = (game.state?.players || [])
+      .filter((p: any) => p && !p.spectator)
+      .map((p: any) => p.id);
+    
+    console.log(`[handlePendingTemptingOffer] Players available: ${players.join(', ')}`);
+    
+    for (const offer of pendingArray) {
+      if (!offer) continue;
+      
+      const { id, controller, cardName, effectDescription, imageUrl } = offer;
+      
+      // Get opponents (everyone except the caster)
+      const opponents = players.filter((pid: string) => pid !== controller);
+      
+      console.log(`[handlePendingTemptingOffer] Registering Tempting Offer effect for ${cardName} (id: ${id}), opponents: ${opponents.join(', ')}`);
+      
+      // Use the proper registration function that handles AI responses
+      registerPendingTemptingOffer(
+        io,
+        gameId,
+        id,
+        controller,
+        cardName,
+        effectDescription,
+        opponents,
+        imageUrl
+      );
+    }
+    
+    // Clear pending Tempting Offer after registering
+    game.state.pendingTemptingOffer = [];
+    
+  } catch (err) {
+    console.warn('[handlePendingTemptingOffer] Error:', err);
   }
 }
 

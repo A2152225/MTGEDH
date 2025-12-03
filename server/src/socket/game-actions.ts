@@ -1,5 +1,5 @@
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, handlePendingLibrarySearch, handlePendingJoinForces, broadcastManaPoolUpdate } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, handlePendingLibrarySearch, handlePendingJoinForces, handlePendingTemptingOffer, broadcastManaPoolUpdate } from "./util";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem } from "../../../shared/src";
@@ -2830,6 +2830,9 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         // Check for pending Join Forces effects (Minds Aglow, Collective Voyage, etc.)
         handlePendingJoinForces(io, game, gameId);
+        
+        // Check for pending Tempting Offer effects (Tempt with Discovery, etc.)
+        handlePendingTemptingOffer(io, game, gameId);
       }
 
       // If all players passed priority with empty stack, advance to next step

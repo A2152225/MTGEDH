@@ -330,6 +330,24 @@ export interface ClientToServerEvents {
   // Confirm surveil result
   confirmSurveil: (payload: { gameId: GameID; toGraveyard: Array<{ id: string }>; keepTopOrder: Array<{ id: string }> }) => void;
 
+  // ===== PONDER-STYLE EFFECTS =====
+  
+  // Confirm Ponder-style effect (look at top N, reorder, optionally shuffle, then draw)
+  confirmPonder: (payload: { 
+    gameId: GameID; 
+    effectId: string;
+    newOrder: string[];  // Card IDs in new order (top first)
+    shouldShuffle: boolean;
+    toHand?: string[];   // Card IDs going to hand (for Telling Time style)
+  }) => void;
+
+  // Confirm Spy Network effect (look at target, then reorder own library)
+  confirmSpyNetwork: (payload: {
+    gameId: GameID;
+    effectId: string;
+    newLibraryOrder: string[];  // Your library cards in new order (top first)
+  }) => void;
+
   // ===== MULLIGAN EVENTS =====
   
   // Put cards to bottom after mulligan
@@ -602,6 +620,63 @@ export interface ServerToClientEvents {
     contributions: Record<PlayerID, number>;
     totalContributions: number;
     initiator: PlayerID;
+  }) => void;
+  
+  // ===== PONDER-STYLE EFFECTS =====
+  
+  // Ponder request - prompts player to look at top N cards, reorder, optionally shuffle, then draw
+  // Supports targeting any player's library (e.g., Architects of Will)
+  ponderRequest: (payload: {
+    gameId: GameID;
+    effectId: string;
+    playerId: PlayerID;           // Player making the decision
+    targetPlayerId: PlayerID;     // Whose library is being manipulated
+    targetPlayerName?: string;    // Display name of target player
+    cardName: string;
+    cardImageUrl?: string;
+    cards: KnownCardRef[];        // Cards in current top-to-bottom order
+    variant: 'ponder' | 'index' | 'telling_time' | 'brainstorm' | 'architects';
+    canShuffle: boolean;          // Whether shuffle option is available
+    drawAfter: boolean;           // Whether to draw after reordering
+    pickToHand: number;           // Number of cards to pick to hand (0 for most effects)
+    timeoutMs?: number;
+  }) => void;
+  
+  // Ponder completed
+  ponderComplete: (payload: {
+    gameId: GameID;
+    effectId: string;
+    playerId: PlayerID;
+    targetPlayerId: PlayerID;
+    cardName: string;
+    shuffled: boolean;
+    drawnCardName?: string;
+  }) => void;
+  
+  // Spy Network request - look at target player's info, then reorder own library
+  spyNetworkRequest: (payload: {
+    gameId: GameID;
+    effectId: string;
+    playerId: PlayerID;           // Player making the decision (caster)
+    targetPlayerId: PlayerID;     // Whose info is being spied on
+    targetPlayerName: string;
+    cardName: string;
+    cardImageUrl?: string;
+    // Target's revealed info
+    targetHand: KnownCardRef[];
+    targetTopCard: KnownCardRef | null;
+    targetFaceDownCreatures: KnownCardRef[];
+    // Caster's cards to reorder
+    yourTopCards: KnownCardRef[];
+    timeoutMs?: number;
+  }) => void;
+  
+  // Spy Network completed
+  spyNetworkComplete: (payload: {
+    gameId: GameID;
+    effectId: string;
+    playerId: PlayerID;
+    cardName: string;
   }) => void;
   
   // Tempting Offer request - prompts opponents to accept or decline

@@ -1006,22 +1006,40 @@ const ADDITIONAL_LAND_PLAY_CARDS: Record<string, { lands: number; affectsAll?: b
 /**
  * Parse oracle text to detect additional land play effects dynamically
  * This handles cards not in the known list
+ * 
+ * Key distinction:
+ * - "You may play" - affects only the controller of the permanent
+ * - "Each player may play" / "player may play" - affects ALL players (Ghirapur Orrery, Rites of Flourishing)
+ * 
+ * Detects patterns like:
+ * - "You may play an additional land on each of your turns" (Exploration, Azusa)
+ * - "You may play two additional lands on each of your turns" (Azusa)
+ * - "Each player may play an additional land on each of their turns" (Ghirapur Orrery)
+ * - "Each player may play an additional land during each of their turns" (Rites of Flourishing)
  */
-function detectAdditionalLandPlayFromOracle(oracleText: string): number {
+function detectAdditionalLandPlayFromOracle(oracleText: string): { lands: number; affectsAll: boolean } {
   const lowerText = (oracleText || "").toLowerCase();
   
-  // "You may play an additional land on each of your turns" / "during each of your turns"
+  // Check for "each player" or "player may play" patterns (Ghirapur Orrery, Rites of Flourishing)
+  // These affect ALL players, not just the controller
+  const affectsAll = lowerText.includes("each player may play") || 
+                     lowerText.includes("each player can play") ||
+                     lowerText.includes("player may play an additional land") ||
+                     lowerText.includes("players may play an additional land");
+  
+  // Check for additional land patterns
+  // "play an additional land" / "play one additional land"
   if (lowerText.includes("play an additional land") || 
       lowerText.includes("play one additional land")) {
     // Check if it's "two additional lands"
     if (lowerText.includes("two additional land")) {
-      return 2;
+      return { lands: 2, affectsAll };
     }
     // Check if it's "three additional lands"
     if (lowerText.includes("three additional land")) {
-      return 3;
+      return { lands: 3, affectsAll };
     }
-    return 1;
+    return { lands: 1, affectsAll };
   }
   
   // "You may play X additional lands each turn"
@@ -1031,10 +1049,10 @@ function detectAdditionalLandPlayFromOracle(oracleText: string): number {
     const wordToNum: Record<string, number> = {
       'one': 1, 'two': 2, 'three': 3, 'four': 4, 'an': 1, 'a': 1
     };
-    return wordToNum[countWord] || 1;
+    return { lands: wordToNum[countWord] || 1, affectsAll };
   }
   
-  return 0;
+  return { lands: 0, affectsAll: false };
 }
 
 /**
@@ -1067,6 +1085,10 @@ const ADDITIONAL_DRAW_CARDS: Record<string, { draws: number; affectsAll?: boolea
 /**
  * Calculate the maximum number of lands a player can play this turn
  * based on battlefield permanents AND temporary spell effects
+ * 
+ * This handles:
+ * - Cards that affect only their controller ("You may play")
+ * - Cards that affect all players ("Each player may play") like Ghirapur Orrery
  */
 export function calculateMaxLandsPerTurn(ctx: GameContext, playerId: string): number {
   let maxLands = 1; // Base: 1 land per turn
@@ -1079,29 +1101,35 @@ export function calculateMaxLandsPerTurn(ctx: GameContext, playerId: string): nu
     
     const cardName = (perm.card?.name || "").toLowerCase();
     const oracleText = (perm.card?.oracle_text || "");
+    const isController = perm.controller === playerId;
     let foundInKnownList = false;
     
     // First check known cards list
     for (const [knownName, effect] of Object.entries(ADDITIONAL_LAND_PLAY_CARDS)) {
       if (cardName.includes(knownName) && effect.lands > 0) {
         // Check if this effect applies to this player
-        const isController = perm.controller === playerId;
+        // Effect applies if: player controls it OR effect affects all players
         if (isController || effect.affectsAll) {
           maxLands += effect.lands;
           checkedPermanentIds.add(perm.id);
           foundInKnownList = true;
+          console.log(`[calculateMaxLandsPerTurn] ${perm.card?.name} grants +${effect.lands} lands to ${playerId} (controller: ${perm.controller}, affectsAll: ${effect.affectsAll})`);
           break; // Only count once per permanent
         }
       }
     }
     
     // If not in known list, try dynamic oracle text parsing
-    if (!foundInKnownList && perm.controller === playerId) {
-      const dynamicLands = detectAdditionalLandPlayFromOracle(oracleText);
-      if (dynamicLands > 0) {
-        maxLands += dynamicLands;
-        checkedPermanentIds.add(perm.id);
-        console.log(`[calculateMaxLandsPerTurn] Detected +${dynamicLands} lands from ${perm.card?.name} via oracle text`);
+    // This handles both controller-only and all-player effects dynamically
+    if (!foundInKnownList) {
+      const dynamicResult = detectAdditionalLandPlayFromOracle(oracleText);
+      if (dynamicResult.lands > 0) {
+        // Apply if: player controls it OR effect affects all players
+        if (isController || dynamicResult.affectsAll) {
+          maxLands += dynamicResult.lands;
+          checkedPermanentIds.add(perm.id);
+          console.log(`[calculateMaxLandsPerTurn] Detected +${dynamicResult.lands} lands from ${perm.card?.name} via oracle text (controller: ${perm.controller}, affectsAll: ${dynamicResult.affectsAll})`);
+        }
       }
     }
   }
@@ -1638,4 +1666,198 @@ export function calculateModifiedDamage(
   
   return { amount: modifiedAmount, modifiers };
 }
+
+/**
+ * Combat damage replacement effects
+ * These effects prevent combat damage and apply a different effect instead
+ * 
+ * Key: lowercase card name (partial match)
+ * Value: replacement effect configuration
+ */
+export interface CombatDamageReplacementEffect {
+  /** Description of the effect */
+  description: string;
+  /** If true, prevents the combat damage from being dealt */
+  preventsDamage: boolean;
+  /** Mill effect: all opponents mill cards equal to damage amount */
+  millAllOpponents?: boolean;
+  /** Damage to player effect: deal damage to target player instead */
+  damageToPlayer?: boolean;
+  /** Only applies when damage would be dealt to a player (not creatures) */
+  onlyToPlayers?: boolean;
+}
+
+const COMBAT_DAMAGE_REPLACEMENT_CARDS: Record<string, CombatDamageReplacementEffect> = {
+  "the mindskinner": {
+    description: "Prevent combat damage, each opponent mills that many cards",
+    preventsDamage: true,
+    millAllOpponents: true,
+    onlyToPlayers: true,
+  },
+  // Szadek, Lord of Secrets - similar effect but only mills defending player
+  "szadek, lord of secrets": {
+    description: "Put +1/+1 counters instead of dealing damage, defending player mills that many",
+    preventsDamage: true, // Damage is replaced with counters
+    onlyToPlayers: true,
+  },
+  // Consuming Aberration - mills when dealing damage (but doesn't prevent)
+  // Not a true replacement, so not included here
+};
+
+/**
+ * Check if a creature has a combat damage replacement effect
+ * Returns the replacement effect if found, null otherwise
+ */
+export function detectCombatDamageReplacement(
+  ctx: GameContext,
+  attackerCard: any,
+  attackerPermanent: any
+): CombatDamageReplacementEffect | null {
+  const cardName = (attackerCard?.name || "").toLowerCase();
+  const oracleText = (attackerCard?.oracle_text || "").toLowerCase();
+  
+  // Check known cards first
+  for (const [knownName, effect] of Object.entries(COMBAT_DAMAGE_REPLACEMENT_CARDS)) {
+    if (cardName.includes(knownName)) {
+      return effect;
+    }
+  }
+  
+  // Dynamic detection via oracle text patterns
+  // Pattern: "If ~ would deal combat damage to a player, prevent that damage"
+  // followed by "mill" or "each opponent mills"
+  if (oracleText.includes('would deal combat damage') && 
+      oracleText.includes('prevent that damage')) {
+    // Check for mill effect
+    if (oracleText.includes('mills') || oracleText.includes('mill cards equal')) {
+      const millsAllOpponents = oracleText.includes('each opponent mills') ||
+                                 oracleText.includes('each opponent mills cards');
+      return {
+        description: 'Prevent combat damage, mill effect',
+        preventsDamage: true,
+        millAllOpponents: millsAllOpponents,
+        onlyToPlayers: true,
+      };
+    }
+    
+    // Other replacement effects could be detected here
+  }
+  
+  return null;
+}
+
+/**
+ * Check if damage prevention is being blocked by an effect
+ * Returns true if damage cannot be prevented
+ */
+export function canDamageBePrevented(
+  ctx: GameContext,
+  damageSource: any,
+  damageTarget: string
+): boolean {
+  const battlefield = getActivePermanents(ctx);
+  const oracleText = (damageSource?.oracle_text || "").toLowerCase();
+  
+  // Check if the source itself says damage can't be prevented
+  if (oracleText.includes("damage can't be prevented") ||
+      oracleText.includes("damage that would be dealt by") && oracleText.includes("can't be prevented")) {
+    return false;
+  }
+  
+  // Check for battlefield effects that prevent damage prevention
+  for (const perm of battlefield) {
+    const permOracle = (perm.card?.oracle_text || "").toLowerCase();
+    const permName = (perm.card?.name || "").toLowerCase();
+    
+    // Leyline of Punishment: "Players can't gain life. Damage can't be prevented."
+    if (permName.includes("leyline of punishment")) {
+      return false;
+    }
+    
+    // Skullcrack effect (instant) - check if there's a persistent effect
+    // Everlasting Torment: "Players can't gain life. Damage can't be prevented."
+    if (permName.includes("everlasting torment")) {
+      return false;
+    }
+    
+    // Stigma Lasher - "Damage can't be prevented" for players it damaged
+    // This would need special tracking
+    
+    // Quakebringer - "Damage... can't be prevented"
+    if (permOracle.includes("damage can't be prevented")) {
+      return false;
+    }
+  }
+  
+  return true;
+}
+
+/**
+ * Apply combat damage replacement effect for The Mindskinner and similar cards
+ * 
+ * @param ctx - Game context
+ * @param attackerCard - The attacking creature's card data
+ * @param attackerPermanent - The attacking creature permanent
+ * @param attackerController - Player ID of the attacker's controller
+ * @param damageAmount - Original damage amount
+ * @param defendingPlayerId - Player who would receive the damage
+ * @returns Object with prevented damage and applied effects
+ */
+export function applyCombatDamageReplacement(
+  ctx: GameContext,
+  attackerCard: any,
+  attackerPermanent: any,
+  attackerController: string,
+  damageAmount: number,
+  defendingPlayerId: string
+): {
+  damageDealt: number;
+  prevented: boolean;
+  effectsApplied: string[];
+  millAmount?: number;
+  millTargets?: string[];
+} {
+  const result = {
+    damageDealt: damageAmount,
+    prevented: false,
+    effectsApplied: [] as string[],
+    millAmount: undefined as number | undefined,
+    millTargets: undefined as string[] | undefined,
+  };
+  
+  const replacement = detectCombatDamageReplacement(ctx, attackerCard, attackerPermanent);
+  if (!replacement) {
+    return result;
+  }
+  
+  // Check if damage can be prevented
+  const canPrevent = canDamageBePrevented(ctx, attackerCard, defendingPlayerId);
+  
+  if (replacement.preventsDamage && canPrevent) {
+    // Prevent the damage
+    result.damageDealt = 0;
+    result.prevented = true;
+    result.effectsApplied.push(`${attackerCard.name || 'Effect'}: combat damage prevented`);
+  } else if (replacement.preventsDamage && !canPrevent) {
+    // Damage cannot be prevented - deal normal damage
+    // But the mill effect should still happen!
+    result.effectsApplied.push(`${attackerCard.name || 'Effect'}: damage could not be prevented`);
+  }
+  
+  // Apply mill effect regardless of whether damage was prevented
+  // (The Mindskinner mills based on damage "that would have been dealt")
+  if (replacement.millAllOpponents && damageAmount > 0) {
+    const players = (ctx.state?.players as any[]) || [];
+    const opponents = players
+      .filter((p: any) => p && p.id !== attackerController && !p.hasLost)
+      .map((p: any) => p.id);
+    
+    result.millAmount = damageAmount;
+    result.millTargets = opponents;
+    result.effectsApplied.push(`Each opponent mills ${damageAmount} cards`);
+  }
+  
+  return result;
+}
+
 

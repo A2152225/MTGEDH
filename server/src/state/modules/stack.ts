@@ -605,6 +605,26 @@ function executeTriggerEffect(
     console.log(`[executeTriggerEffect] ${playerId} ${action} ${amount} life (${currentLife} -> ${state.life[playerId]})`);
   };
   
+  // ===== SPECIAL HANDLERS =====
+  // These need to be checked before general pattern matching
+  
+  // Handle Join Forces triggered abilities (Mana-Charged Dragon)
+  // These require all players to contribute mana
+  if (triggerItem.triggerType === 'join_forces_attack' || 
+      (desc.includes('join forces') && desc.includes('each player may pay'))) {
+    // Set up pending join forces - this signals to the socket layer to initiate the contribution phase
+    (state as any).pendingJoinForces = (state as any).pendingJoinForces || [];
+    (state as any).pendingJoinForces.push({
+      id: uid("jf"),
+      controller,
+      cardName: sourceName || 'Join Forces Ability',
+      effectDescription: description,
+      imageUrl: triggerItem.value?.imageUrl,
+    });
+    console.log(`[executeTriggerEffect] Join Forces attack trigger from ${sourceName} - waiting for player contributions`);
+    return;
+  }
+  
   // ===== COMBINED EFFECT HANDLERS =====
   // These handle triggers with multiple effects in one description (like Phyrexian Arena)
   // Process ALL matching effects, not just the first one
@@ -2222,6 +2242,8 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Handle Join Forces spells (Mind's Aglow, Collective Voyage, etc.)
     // These require all players to have the option to contribute mana
+    const cardNameLower = (card.name || '').toLowerCase();
+    console.log(`[resolveTopOfStack] Checking if ${card.name} is a Join Forces spell...`);
     if (isJoinForcesSpell(card.name, oracleTextLower)) {
       // Set up pending join forces - this signals to the socket layer to initiate the contribution phase
       (state as any).pendingJoinForces = (state as any).pendingJoinForces || [];
@@ -2232,7 +2254,27 @@ export function resolveTopOfStack(ctx: GameContext) {
         effectDescription: oracleText,
         imageUrl: card.image_uris?.normal || card.image_uris?.small,
       });
-      console.log(`[resolveTopOfStack] Join Forces spell ${card.name} waiting for player contributions`);
+      console.log(`[resolveTopOfStack] Join Forces spell ${card.name} waiting for player contributions (pendingJoinForces count: ${(state as any).pendingJoinForces.length})`);
+    } else {
+      console.log(`[resolveTopOfStack] ${card.name} is NOT a Join Forces spell (name: "${cardNameLower}", has 'join forces': ${oracleTextLower.includes('join forces')})`);
+    }
+    
+    // Handle Tempting Offer spells (Tempt with Discovery, Tempt with Glory, etc.)
+    // These require each opponent to choose whether to accept the offer
+    console.log(`[resolveTopOfStack] Checking if ${card.name} is a Tempting Offer spell...`);
+    if (isTemptingOfferSpell(card.name, oracleTextLower)) {
+      // Set up pending tempting offer - this signals to the socket layer to initiate the offer phase
+      (state as any).pendingTemptingOffer = (state as any).pendingTemptingOffer || [];
+      (state as any).pendingTemptingOffer.push({
+        id: uid("tempt"),
+        controller,
+        cardName: card.name || 'Tempting Offer Spell',
+        effectDescription: oracleText,
+        imageUrl: card.image_uris?.normal || card.image_uris?.small,
+      });
+      console.log(`[resolveTopOfStack] Tempting Offer spell ${card.name} waiting for opponent responses (pendingTemptingOffer count: ${(state as any).pendingTemptingOffer.length})`);
+    } else {
+      console.log(`[resolveTopOfStack] ${card.name} is NOT a Tempting Offer spell`);
     }
     
     // Handle Approach of the Second Sun - goes 7th from top of library, not graveyard
@@ -2472,20 +2514,25 @@ function isExtraTurnSpell(cardName: string, oracleTextLower: string): boolean {
 
 /**
  * Check if a spell is a Join Forces spell
- * Handles cards like: Mind's Aglow, Collective Voyage, Collective Blessing, etc.
+ * 
+ * Join Forces cards (as of current sets):
+ * - Alliance of Arms
+ * - Collective Voyage  
+ * - Mana-Charged Dragon (triggered ability when attacking, not a spell)
+ * - Minds Aglow
+ * - Shared Trauma
+ * 
  * Join Forces spells have "Join forces — Starting with you, each player may pay any amount of mana"
  */
 function isJoinForcesSpell(cardName: string, oracleTextLower: string): boolean {
   const nameLower = (cardName || '').toLowerCase();
   
-  // Known Join Forces spell names
+  // Known Join Forces spell names (excluding Mana-Charged Dragon which is a triggered ability, not a spell effect)
   const joinForcesSpells = new Set([
     "minds aglow",
-    "mind's aglow",
     "collective voyage",
-    "collective blessing",
     "alliance of arms",
-    "mana-charged dragon",
+    "shared trauma",
   ]);
   
   if (joinForcesSpells.has(nameLower)) {
@@ -2494,9 +2541,50 @@ function isJoinForcesSpell(cardName: string, oracleTextLower: string): boolean {
   
   // Generic detection via oracle text
   // "Join forces" is the keyword ability
-  if (oracleTextLower.includes('join forces') ||
-      (oracleTextLower.includes('starting with you') && 
-       oracleTextLower.includes('each player may pay'))) {
+  // Pattern: "Join forces — Starting with you, each player may pay any amount of mana"
+  if (oracleTextLower.includes('join forces') &&
+      oracleTextLower.includes('starting with you') && 
+      oracleTextLower.includes('each player may pay')) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Check if a spell is a Tempting Offer spell
+ * 
+ * Tempting Offer cards (as of current sets):
+ * - Tempt with Discovery (search for land)
+ * - Tempt with Glory (+1/+1 counters)
+ * - Tempt with Immortality (reanimate)
+ * - Tempt with Reflections (clone)
+ * - Tempt with Vengeance (create tokens)
+ * 
+ * Tempting Offer pattern: "Tempting offer — [effect]. Each opponent may [accept]. 
+ * For each opponent who does, [bonus for caster]"
+ */
+function isTemptingOfferSpell(cardName: string, oracleTextLower: string): boolean {
+  const nameLower = (cardName || '').toLowerCase();
+  
+  // Known Tempting Offer spell names (all 7 cards)
+  const temptingOfferSpells = new Set([
+    "tempt with bunnies",      // Create rabbit tokens
+    "tempt with discovery",    // Search for land
+    "tempt with glory",        // +1/+1 counters
+    "tempt with immortality",  // Reanimate
+    "tempt with mayhem",       // Deal damage / goad
+    "tempt with reflections",  // Clone
+    "tempt with vengeance",    // Create elemental tokens
+  ]);
+  
+  if (temptingOfferSpells.has(nameLower)) {
+    return true;
+  }
+  
+  // Generic detection via oracle text
+  // "Tempting offer" is the keyword ability
+  if (oracleTextLower.includes('tempting offer')) {
     return true;
   }
   
