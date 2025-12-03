@@ -2544,14 +2544,214 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         ts: Date.now(),
       });
     } else {
-      // Mana ability - handle immediately without stack
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `${getPlayerName(game, pid)} activated ${cardName} for mana.`,
-        ts: Date.now(),
-      });
+      // ========================================================================
+      // MANA ABILITY - Handle immediately without using the stack
+      // Must actually add mana to the pool, accounting for:
+      // - Mana multipliers (Mana Reflection, Nyxbloom Ancient)
+      // - Extra mana effects (Nissa, Crypt Ghast)
+      // - Devotion-based abilities (Karametra's Acolyte)
+      // - Creature-count abilities (Priest of Titania, Elvish Archdruid)
+      // ========================================================================
+      
+      // Initialize mana pool if needed
+      game.state.manaPool = game.state.manaPool || {};
+      game.state.manaPool[pid] = game.state.manaPool[pid] || {
+        white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+      };
+      
+      const colorToPoolKey: Record<string, string> = {
+        'W': 'white',
+        'U': 'blue',
+        'B': 'black',
+        'R': 'red',
+        'G': 'green',
+        'C': 'colorless',
+      };
+      
+      const isLand = typeLine.includes("land");
+      const isBasic = typeLine.includes("basic");
+      
+      // Check for devotion-based mana abilities (Karametra's Acolyte, etc.)
+      const devotionMana = getDevotionManaAmount(game.state, permanent, pid);
+      
+      // Check for creature-count-based mana abilities (Priest of Titania, etc.)
+      const creatureCountMana = getCreatureCountManaAmount(game.state, permanent, pid);
+      
+      // Get mana multiplier
+      const manaMultiplier = getManaMultiplier(game.state, permanent, pid);
+      
+      // Check for Virtue of Strength (only affects basic lands)
+      let effectiveMultiplier = manaMultiplier;
+      if (manaMultiplier > 1 && !isBasic && isLand) {
+        const modifiers = detectManaModifiers(game.state, pid);
+        const virtueModifier = modifiers.find(m => 
+          m.cardName.toLowerCase().includes('virtue of strength') && 
+          m.type === 'mana_multiplier'
+        );
+        if (virtueModifier) {
+          const otherMultiplier = modifiers
+            .filter(m => m.type === 'mana_multiplier' && m.cardName !== virtueModifier.cardName)
+            .reduce((acc, m) => acc * (m.multiplier || 1), 1);
+          effectiveMultiplier = otherMultiplier;
+        }
+      }
+      
+      // Handle devotion-based mana
+      if (devotionMana && devotionMana.amount > 0) {
+        const totalAmount = devotionMana.amount * effectiveMultiplier;
+        const poolKey = colorToPoolKey[devotionMana.color] || 'green';
+        (game.state.manaPool[pid] as any)[poolKey] += totalAmount;
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: effectiveMultiplier > 1 
+            ? `${getPlayerName(game, pid)} tapped ${cardName} for ${totalAmount} {${devotionMana.color}} mana (devotion ${devotionMana.amount} × ${effectiveMultiplier}).`
+            : `${getPlayerName(game, pid)} tapped ${cardName} for ${totalAmount} {${devotionMana.color}} mana (devotion: ${devotionMana.amount}).`,
+          ts: Date.now(),
+        });
+        
+        broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`);
+      }
+      // Handle creature-count-based mana
+      else if (creatureCountMana && creatureCountMana.amount > 0) {
+        const totalAmount = creatureCountMana.amount * effectiveMultiplier;
+        
+        if (creatureCountMana.color === 'any_combination' || creatureCountMana.color.startsWith('combination:')) {
+          socket.emit("manaColorChoice", {
+            gameId,
+            permanentId,
+            cardName,
+            availableColors: ['W', 'U', 'B', 'R', 'G'],
+            totalAmount,
+            isAnyColor: true,
+            message: `Choose how to distribute ${totalAmount} mana`,
+          });
+          
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `${getPlayerName(game, pid)} tapped ${cardName} for ${totalAmount} mana (choose colors).`,
+            ts: Date.now(),
+          });
+        } else {
+          const poolKey = colorToPoolKey[creatureCountMana.color] || 'green';
+          (game.state.manaPool[pid] as any)[poolKey] += totalAmount;
+          
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: effectiveMultiplier > 1 
+              ? `${getPlayerName(game, pid)} tapped ${cardName} for ${totalAmount} {${creatureCountMana.color}} mana (count ${creatureCountMana.amount} × ${effectiveMultiplier}).`
+              : `${getPlayerName(game, pid)} tapped ${cardName} for ${totalAmount} {${creatureCountMana.color}} mana.`,
+            ts: Date.now(),
+          });
+          
+          broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`);
+        }
+      }
+      // Handle standard mana abilities
+      else {
+        // Get mana abilities for this permanent
+        const manaAbilities = getManaAbilitiesForPermanent(game.state, permanent, pid);
+        
+        if (manaAbilities.length > 0) {
+          const ability = manaAbilities[0];
+          const produces = ability.produces || [];
+          
+          if (produces.length > 0) {
+            if (produces.length > 1) {
+              // Multi-color production - emit choice to player
+              const baseAmount = 1;
+              const totalAmount = baseAmount * effectiveMultiplier;
+              
+              // Get extra mana from effects
+              const extraMana = getExtraManaProduction(game.state, permanent, pid, produces[0]);
+              const totalExtra = extraMana.reduce((acc, e) => acc + e.amount, 0);
+              
+              socket.emit("manaColorChoice", {
+                gameId,
+                permanentId,
+                cardName,
+                availableColors: produces,
+                grantedBy: ability.isGranted ? ability.grantedBy : undefined,
+                manaMultiplier: effectiveMultiplier > 1 ? effectiveMultiplier : undefined,
+                extraMana: totalExtra > 0 ? extraMana : undefined,
+                totalAmount: totalAmount + totalExtra,
+              });
+              
+              io.to(gameId).emit("chat", {
+                id: `m_${Date.now()}`,
+                gameId,
+                from: "system",
+                message: `${getPlayerName(game, pid)} tapped ${cardName} for mana (choose color).`,
+                ts: Date.now(),
+              });
+            } else {
+              // Single color production
+              const manaColor = produces[0];
+              const poolKey = colorToPoolKey[manaColor] || 'colorless';
+              
+              const baseAmount = 1;
+              let totalAmount = baseAmount * effectiveMultiplier;
+              
+              // Apply extra mana from effects
+              const extraMana = getExtraManaProduction(game.state, permanent, pid, manaColor);
+              for (const extra of extraMana) {
+                const extraPoolKey = colorToPoolKey[extra.color] || poolKey;
+                (game.state.manaPool[pid] as any)[extraPoolKey] += extra.amount;
+                totalAmount += extra.amount;
+              }
+              
+              // Add the base mana (after multiplier)
+              (game.state.manaPool[pid] as any)[poolKey] += baseAmount * effectiveMultiplier;
+              
+              // Generate descriptive message
+              let message = `${getPlayerName(game, pid)} tapped ${cardName}`;
+              if (effectiveMultiplier > 1 && extraMana.length > 0) {
+                message += ` for ${totalAmount} {${manaColor}} mana (×${effectiveMultiplier} + ${extraMana.length} extra).`;
+              } else if (effectiveMultiplier > 1) {
+                message += ` for ${totalAmount} {${manaColor}} mana (×${effectiveMultiplier}).`;
+              } else if (extraMana.length > 0) {
+                message += ` for ${totalAmount} {${manaColor}} mana (+${extraMana.reduce((a, e) => a + e.amount, 0)} extra).`;
+              } else {
+                message += ` for {${manaColor}} mana.`;
+              }
+              
+              io.to(gameId).emit("chat", {
+                id: `m_${Date.now()}`,
+                gameId,
+                from: "system",
+                message,
+                ts: Date.now(),
+              });
+              
+              broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`);
+            }
+          } else {
+            // No mana production detected - just emit message
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `${getPlayerName(game, pid)} activated ${cardName}'s mana ability.`,
+              ts: Date.now(),
+            });
+          }
+        } else {
+          // Fallback - mana ability detected but couldn't parse production
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `${getPlayerName(game, pid)} activated ${cardName}'s mana ability.`,
+            ts: Date.now(),
+          });
+        }
+      }
     }
     
     if (typeof game.bumpSeq === "function") {
