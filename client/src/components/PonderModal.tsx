@@ -84,13 +84,12 @@ export function PonderModal({
   onCancel,
 }: PonderModalProps) {
   // State: ordered list of card IDs on library (top first)
+  // For pickToHand variants: start with all cards in library, player picks which go to hand
   const [libraryOrder, setLibraryOrder] = useState<string[]>(() => 
-    pickToHand > 0 ? [] : cards.map(c => c.id)
+    cards.map(c => c.id)
   );
   // State: cards going to hand (for Telling Time style)
-  const [handCards, setHandCards] = useState<string[]>(() => 
-    pickToHand > 0 ? cards.map(c => c.id) : []
-  );
+  const [handCards, setHandCards] = useState<string[]>([]);
   const [willShuffle, setWillShuffle] = useState(false);
   
   const cardById = useMemo(() => new Map(cards.map(c => [c.id, c])), [cards]);
@@ -122,13 +121,8 @@ export function PonderModal({
   
   // Reset to original order
   const resetOrder = () => {
-    if (pickToHand > 0) {
-      setLibraryOrder([]);
-      setHandCards(cards.map(c => c.id));
-    } else {
-      setLibraryOrder(cards.map(c => c.id));
-      setHandCards([]);
-    }
+    setLibraryOrder(cards.map(c => c.id));
+    setHandCards([]);
     setWillShuffle(false);
   };
   

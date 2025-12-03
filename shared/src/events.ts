@@ -338,6 +338,14 @@ export interface ClientToServerEvents {
     effectId: string;
     newOrder: string[];  // Card IDs in new order (top first)
     shouldShuffle: boolean;
+    toHand?: string[];   // Card IDs going to hand (for Telling Time style)
+  }) => void;
+
+  // Confirm Spy Network effect (look at target, then reorder own library)
+  confirmSpyNetwork: (payload: {
+    gameId: GameID;
+    effectId: string;
+    newLibraryOrder: string[];  // Your library cards in new order (top first)
   }) => void;
 
   // ===== MULLIGAN EVENTS =====
@@ -643,6 +651,32 @@ export interface ServerToClientEvents {
     cardName: string;
     shuffled: boolean;
     drawnCardName?: string;
+  }) => void;
+  
+  // Spy Network request - look at target player's info, then reorder own library
+  spyNetworkRequest: (payload: {
+    gameId: GameID;
+    effectId: string;
+    playerId: PlayerID;           // Player making the decision (caster)
+    targetPlayerId: PlayerID;     // Whose info is being spied on
+    targetPlayerName: string;
+    cardName: string;
+    cardImageUrl?: string;
+    // Target's revealed info
+    targetHand: KnownCardRef[];
+    targetTopCard: KnownCardRef | null;
+    targetFaceDownCreatures: KnownCardRef[];
+    // Caster's cards to reorder
+    yourTopCards: KnownCardRef[];
+    timeoutMs?: number;
+  }) => void;
+  
+  // Spy Network completed
+  spyNetworkComplete: (payload: {
+    gameId: GameID;
+    effectId: string;
+    playerId: PlayerID;
+    cardName: string;
   }) => void;
   
   // Tempting Offer request - prompts opponents to accept or decline
