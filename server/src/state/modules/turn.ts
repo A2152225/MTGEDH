@@ -17,7 +17,7 @@
 import type { GameContext } from "../context.js";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { drawCards } from "./zones.js";
-import { recalculatePlayerEffects } from "./game-state-effects.js";
+import { recalculatePlayerEffects, applyCombatDamageReplacement } from "./game-state-effects.js";
 import { 
   getBeginningOfCombatTriggers, 
   getEndStepTriggers, 
@@ -519,27 +519,72 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
         const defendingPlayerId = defendingTarget;
         
         if (defendingPlayerId && !defendingPlayerId.startsWith('perm_')) {
-          // Damage to player
-          const currentLife = life[defendingPlayerId] ?? startingLife;
-          life[defendingPlayerId] = currentLife - attackerPower;
+          // Check for combat damage replacement effects (The Mindskinner, etc.)
+          const replacementResult = applyCombatDamageReplacement(
+            ctx, card, attacker, attackerController, attackerPower, defendingPlayerId
+          );
           
-          result.damageToPlayers[defendingPlayerId] = 
-            (result.damageToPlayers[defendingPlayerId] || 0) + attackerPower;
+          const actualDamage = replacementResult.damageDealt;
           
-          console.log(`${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${attackerPower} combat damage to ${defendingPlayerId} (${currentLife} -> ${life[defendingPlayerId]})`);
+          // Log replacement effects
+          for (const effect of replacementResult.effectsApplied) {
+            console.log(`${ts()} [dealCombatDamage] ${effect}`);
+          }
           
-          // Track commander damage (Rule 903.10a)
-          trackCommanderDamage(ctx, attackerController, card, attacker, defendingPlayerId, attackerPower);
+          // Apply mill effect if triggered (The Mindskinner)
+          if (replacementResult.millAmount && replacementResult.millTargets) {
+            const millAmount = replacementResult.millAmount;
+            for (const opponentId of replacementResult.millTargets) {
+              // Mill the opponent
+              const lib = ctx.libraries?.get(opponentId) || [];
+              const milledCards: any[] = [];
+              for (let i = 0; i < millAmount && lib.length > 0; i++) {
+                const milledCard = lib.pop();
+                if (milledCard) {
+                  milledCards.push(milledCard);
+                }
+              }
+              ctx.libraries?.set(opponentId, lib);
+              
+              // Move milled cards to graveyard
+              const zones = (ctx as any).state?.zones || {};
+              const oppZones = zones[opponentId] = zones[opponentId] || { hand: [], graveyard: [], libraryCount: 0 };
+              oppZones.graveyard = oppZones.graveyard || [];
+              for (const milledCard of milledCards) {
+                milledCard.zone = 'graveyard';
+                oppZones.graveyard.push(milledCard);
+              }
+              oppZones.libraryCount = lib.length;
+              
+              console.log(`${ts()} [dealCombatDamage] ${card.name || 'Attacker'} milled ${milledCards.length} cards from ${opponentId}: ${milledCards.map((c: any) => c.name).join(', ')}`);
+            }
+          }
           
-          // Lifelink: Controller gains life equal to damage dealt
-          if (keywords.lifelink) {
-            const controllerLife = life[attackerController] ?? startingLife;
-            life[attackerController] = controllerLife + attackerPower;
+          // Deal actual damage (may be 0 if prevented)
+          if (actualDamage > 0) {
+            const currentLife = life[defendingPlayerId] ?? startingLife;
+            life[defendingPlayerId] = currentLife - actualDamage;
             
-            result.lifeGainForPlayers[attackerController] = 
-              (result.lifeGainForPlayers[attackerController] || 0) + attackerPower;
+            result.damageToPlayers[defendingPlayerId] = 
+              (result.damageToPlayers[defendingPlayerId] || 0) + actualDamage;
             
-            console.log(`${ts()} [dealCombatDamage] ${card.name || 'Attacker'} lifelink: ${attackerController} gained ${attackerPower} life (${controllerLife} -> ${life[attackerController]})`);
+            console.log(`${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${actualDamage} combat damage to ${defendingPlayerId} (${currentLife} -> ${life[defendingPlayerId]})`);
+            
+            // Track commander damage (Rule 903.10a)
+            trackCommanderDamage(ctx, attackerController, card, attacker, defendingPlayerId, actualDamage);
+            
+            // Lifelink: Controller gains life equal to damage dealt
+            if (keywords.lifelink) {
+              const controllerLife = life[attackerController] ?? startingLife;
+              life[attackerController] = controllerLife + actualDamage;
+              
+              result.lifeGainForPlayers[attackerController] = 
+                (result.lifeGainForPlayers[attackerController] || 0) + actualDamage;
+              
+              console.log(`${ts()} [dealCombatDamage] ${card.name || 'Attacker'} lifelink: ${attackerController} gained ${actualDamage} life (${controllerLife} -> ${life[attackerController]})`);
+            }
+          } else if (replacementResult.prevented) {
+            console.log(`${ts()} [dealCombatDamage] ${card.name || 'Attacker'}'s ${attackerPower} combat damage was prevented`);
           }
         }
         // TODO: Handle attacking planeswalkers (defendingTarget starts with 'perm_')

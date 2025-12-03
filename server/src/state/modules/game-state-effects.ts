@@ -1667,3 +1667,197 @@ export function calculateModifiedDamage(
   return { amount: modifiedAmount, modifiers };
 }
 
+/**
+ * Combat damage replacement effects
+ * These effects prevent combat damage and apply a different effect instead
+ * 
+ * Key: lowercase card name (partial match)
+ * Value: replacement effect configuration
+ */
+export interface CombatDamageReplacementEffect {
+  /** Description of the effect */
+  description: string;
+  /** If true, prevents the combat damage from being dealt */
+  preventsDamage: boolean;
+  /** Mill effect: all opponents mill cards equal to damage amount */
+  millAllOpponents?: boolean;
+  /** Damage to player effect: deal damage to target player instead */
+  damageToPlayer?: boolean;
+  /** Only applies when damage would be dealt to a player (not creatures) */
+  onlyToPlayers?: boolean;
+}
+
+const COMBAT_DAMAGE_REPLACEMENT_CARDS: Record<string, CombatDamageReplacementEffect> = {
+  "the mindskinner": {
+    description: "Prevent combat damage, each opponent mills that many cards",
+    preventsDamage: true,
+    millAllOpponents: true,
+    onlyToPlayers: true,
+  },
+  // Szadek, Lord of Secrets - similar effect but only mills defending player
+  "szadek, lord of secrets": {
+    description: "Put +1/+1 counters instead of dealing damage, defending player mills that many",
+    preventsDamage: true, // Damage is replaced with counters
+    onlyToPlayers: true,
+  },
+  // Consuming Aberration - mills when dealing damage (but doesn't prevent)
+  // Not a true replacement, so not included here
+};
+
+/**
+ * Check if a creature has a combat damage replacement effect
+ * Returns the replacement effect if found, null otherwise
+ */
+export function detectCombatDamageReplacement(
+  ctx: GameContext,
+  attackerCard: any,
+  attackerPermanent: any
+): CombatDamageReplacementEffect | null {
+  const cardName = (attackerCard?.name || "").toLowerCase();
+  const oracleText = (attackerCard?.oracle_text || "").toLowerCase();
+  
+  // Check known cards first
+  for (const [knownName, effect] of Object.entries(COMBAT_DAMAGE_REPLACEMENT_CARDS)) {
+    if (cardName.includes(knownName)) {
+      return effect;
+    }
+  }
+  
+  // Dynamic detection via oracle text patterns
+  // Pattern: "If ~ would deal combat damage to a player, prevent that damage"
+  // followed by "mill" or "each opponent mills"
+  if (oracleText.includes('would deal combat damage') && 
+      oracleText.includes('prevent that damage')) {
+    // Check for mill effect
+    if (oracleText.includes('mills') || oracleText.includes('mill cards equal')) {
+      const millsAllOpponents = oracleText.includes('each opponent mills') ||
+                                 oracleText.includes('each opponent mills cards');
+      return {
+        description: 'Prevent combat damage, mill effect',
+        preventsDamage: true,
+        millAllOpponents: millsAllOpponents,
+        onlyToPlayers: true,
+      };
+    }
+    
+    // Other replacement effects could be detected here
+  }
+  
+  return null;
+}
+
+/**
+ * Check if damage prevention is being blocked by an effect
+ * Returns true if damage cannot be prevented
+ */
+export function canDamageBePrevented(
+  ctx: GameContext,
+  damageSource: any,
+  damageTarget: string
+): boolean {
+  const battlefield = getActivePermanents(ctx);
+  const oracleText = (damageSource?.oracle_text || "").toLowerCase();
+  
+  // Check if the source itself says damage can't be prevented
+  if (oracleText.includes("damage can't be prevented") ||
+      oracleText.includes("damage that would be dealt by") && oracleText.includes("can't be prevented")) {
+    return false;
+  }
+  
+  // Check for battlefield effects that prevent damage prevention
+  for (const perm of battlefield) {
+    const permOracle = (perm.card?.oracle_text || "").toLowerCase();
+    const permName = (perm.card?.name || "").toLowerCase();
+    
+    // Leyline of Punishment: "Players can't gain life. Damage can't be prevented."
+    if (permName.includes("leyline of punishment")) {
+      return false;
+    }
+    
+    // Skullcrack effect (instant) - check if there's a persistent effect
+    // Everlasting Torment: "Players can't gain life. Damage can't be prevented."
+    if (permName.includes("everlasting torment")) {
+      return false;
+    }
+    
+    // Stigma Lasher - "Damage can't be prevented" for players it damaged
+    // This would need special tracking
+    
+    // Quakebringer - "Damage... can't be prevented"
+    if (permOracle.includes("damage can't be prevented")) {
+      return false;
+    }
+  }
+  
+  return true;
+}
+
+/**
+ * Apply combat damage replacement effect for The Mindskinner and similar cards
+ * 
+ * @param ctx - Game context
+ * @param attackerCard - The attacking creature's card data
+ * @param attackerPermanent - The attacking creature permanent
+ * @param attackerController - Player ID of the attacker's controller
+ * @param damageAmount - Original damage amount
+ * @param defendingPlayerId - Player who would receive the damage
+ * @returns Object with prevented damage and applied effects
+ */
+export function applyCombatDamageReplacement(
+  ctx: GameContext,
+  attackerCard: any,
+  attackerPermanent: any,
+  attackerController: string,
+  damageAmount: number,
+  defendingPlayerId: string
+): {
+  damageDealt: number;
+  prevented: boolean;
+  effectsApplied: string[];
+  millAmount?: number;
+  millTargets?: string[];
+} {
+  const result = {
+    damageDealt: damageAmount,
+    prevented: false,
+    effectsApplied: [] as string[],
+    millAmount: undefined as number | undefined,
+    millTargets: undefined as string[] | undefined,
+  };
+  
+  const replacement = detectCombatDamageReplacement(ctx, attackerCard, attackerPermanent);
+  if (!replacement) {
+    return result;
+  }
+  
+  // Check if damage can be prevented
+  const canPrevent = canDamageBePrevented(ctx, attackerCard, defendingPlayerId);
+  
+  if (replacement.preventsDamage && canPrevent) {
+    // Prevent the damage
+    result.damageDealt = 0;
+    result.prevented = true;
+    result.effectsApplied.push(`${attackerCard.name || 'Effect'}: combat damage prevented`);
+  } else if (replacement.preventsDamage && !canPrevent) {
+    // Damage cannot be prevented - deal normal damage
+    // But the mill effect should still happen!
+    result.effectsApplied.push(`${attackerCard.name || 'Effect'}: damage could not be prevented`);
+  }
+  
+  // Apply mill effect regardless of whether damage was prevented
+  // (The Mindskinner mills based on damage "that would have been dealt")
+  if (replacement.millAllOpponents && damageAmount > 0) {
+    const players = (ctx.state?.players as any[]) || [];
+    const opponents = players
+      .filter((p: any) => p && p.id !== attackerController && !p.hasLost)
+      .map((p: any) => p.id);
+    
+    result.millAmount = damageAmount;
+    result.millTargets = opponents;
+    result.effectsApplied.push(`Each opponent mills ${damageAmount} cards`);
+  }
+  
+  return result;
+}
+
+
