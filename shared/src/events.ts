@@ -415,6 +415,13 @@ export interface ClientToServerEvents {
   
   // Activate ability on battlefield permanent
   activateBattlefieldAbility: (payload: { gameId: GameID; permanentId: string; abilityId: string }) => void;
+  
+  // Select mana color when tapping a creature for any color mana (e.g., Cryptolith Rite)
+  manaColorSelect: (payload: { 
+    gameId: GameID; 
+    permanentId: string; 
+    selectedColor: 'W' | 'U' | 'B' | 'R' | 'G';
+  }) => void;
 
   // ===== DECK MANAGEMENT EXTENDED =====
   
@@ -755,6 +762,15 @@ export interface ServerToClientEvents {
     totalMana: number;
     /** Reason for the update */
     reason?: string;
+  }) => void;
+  
+  // Mana color choice prompt (for creatures with "any color" mana abilities)
+  manaColorChoice: (payload: {
+    gameId: GameID;
+    permanentId: string;
+    cardName: string;
+    availableColors: string[];
+    grantedBy?: string; // ID of the permanent granting the ability (e.g., Cryptolith Rite)
   }) => void;
 
   // generic pushes from server

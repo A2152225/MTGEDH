@@ -321,6 +321,36 @@ export function getManaAbilitiesForPermanent(
     abilities.push({ id: 'native_c', cost: '{T}', produces: ['C'] });
   }
   
+  // Check for creatures/artifacts with explicit tap-for-mana abilities in oracle text
+  // Pattern: "{T}: Add {X}" where X is a mana symbol
+  // This handles creatures like Llanowar Elves, Birds of Paradise, mana rocks, etc.
+  if (!isLand && oracleText.includes("{t}:")) {
+    // Check for each colored mana
+    if (oracleText.includes("{t}: add {w}") || oracleText.match(/\{t\}[^.]*add \{w\}/)) {
+      abilities.push({ id: 'native_w', cost: '{T}', produces: ['W'] });
+    }
+    if (oracleText.includes("{t}: add {u}") || oracleText.match(/\{t\}[^.]*add \{u\}/)) {
+      abilities.push({ id: 'native_u', cost: '{T}', produces: ['U'] });
+    }
+    if (oracleText.includes("{t}: add {b}") || oracleText.match(/\{t\}[^.]*add \{b\}/)) {
+      abilities.push({ id: 'native_b', cost: '{T}', produces: ['B'] });
+    }
+    if (oracleText.includes("{t}: add {r}") || oracleText.match(/\{t\}[^.]*add \{r\}/)) {
+      abilities.push({ id: 'native_r', cost: '{T}', produces: ['R'] });
+    }
+    if (oracleText.includes("{t}: add {g}") || oracleText.match(/\{t\}[^.]*add \{g\}/)) {
+      abilities.push({ id: 'native_g', cost: '{T}', produces: ['G'] });
+    }
+    // Check for colorless mana
+    if (oracleText.includes("{t}: add {c}") || oracleText.match(/\{t\}[^.]*add \{c\}/)) {
+      abilities.push({ id: 'native_c', cost: '{T}', produces: ['C'] });
+    }
+    // Check for "any color" mana (Birds of Paradise, etc.)
+    if (oracleText.match(/\{t\}[^.]*add one mana of any color/)) {
+      abilities.push({ id: 'native_any', cost: '{T}', produces: ['W', 'U', 'B', 'R', 'G'] });
+    }
+  }
+  
   // Apply granted abilities from modifiers
   for (const modifier of modifiers) {
     if (modifier.type === 'grant_ability' && modifier.grantedAbility) {
