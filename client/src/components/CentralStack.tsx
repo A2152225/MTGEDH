@@ -353,7 +353,18 @@ export function CentralStack({
                   }}>
                     <span style={{ color:'#9ca3af' }}>→</span>
                     <span style={{ fontWeight:'500' }}>
-                      {it.targets.join(', ')}
+                      {it.targets.map((target: any) => {
+                        // Handle both string and object targets
+                        if (typeof target === 'string') {
+                          // Try to find the permanent name for this ID
+                          const perm = battlefield?.find(p => p.id === target);
+                          return perm?.card?.name || target;
+                        } else if (target && typeof target === 'object') {
+                          // Object target - extract name or id
+                          return target.name || target.id || 'Unknown';
+                        }
+                        return String(target);
+                      }).join(', ')}
                     </span>
                   </div>
                 ) : null}

@@ -328,6 +328,56 @@ function syncLifeAndCheckDefeat(ctx: GameContext): string[] {
 }
 
 /**
+ * Track commander damage and check for 21+ damage loss condition (Rule 903.10a)
+ * 
+ * @param ctx Game context
+ * @param attackerController Controller of the attacking commander
+ * @param attackerCard The commander's card data
+ * @param attacker The commander permanent
+ * @param defendingPlayerId The player taking damage
+ * @param damageAmount Amount of combat damage dealt
+ */
+function trackCommanderDamage(
+  ctx: GameContext,
+  attackerController: string,
+  attackerCard: any,
+  attacker: any,
+  defendingPlayerId: string,
+  damageAmount: number
+): void {
+  if (damageAmount <= 0) return;
+  
+  // Check if attacker is a commander
+  const isCommander = attacker.isCommander === true || 
+                     (ctx as any).state?.commandZone?.[attackerController]?.commanderIds?.includes(attackerCard.id);
+  
+  if (!isCommander) return;
+  
+  // Initialize commander damage tracking if needed
+  (ctx as any).state.commanderDamage = (ctx as any).state.commanderDamage || {};
+  (ctx as any).state.commanderDamage[defendingPlayerId] = (ctx as any).state.commanderDamage[defendingPlayerId] || {};
+  
+  // Use the card ID as the commander identifier (consistent across zones)
+  const commanderId = attackerCard.id || attacker.id;
+  const previousDamage = (ctx as any).state.commanderDamage[defendingPlayerId][commanderId] || 0;
+  const totalDamage = previousDamage + damageAmount;
+  (ctx as any).state.commanderDamage[defendingPlayerId][commanderId] = totalDamage;
+  
+  console.log(`${ts()} [dealCombatDamage] COMMANDER DAMAGE: ${attackerCard.name || 'Commander'} dealt ${damageAmount} to ${defendingPlayerId} (total: ${totalDamage}/21)`);
+  
+  // Check for commander damage loss (21+)
+  if (totalDamage >= 21) {
+    console.log(`${ts()} [dealCombatDamage] ⚠️ COMMANDER DAMAGE LETHAL: ${defendingPlayerId} has taken 21+ damage from ${attackerCard.name || 'Commander'}`);
+    const players = (ctx as any).state?.players || [];
+    const defeatedPlayer = players.find((p: any) => p.id === defendingPlayerId);
+    if (defeatedPlayer && !defeatedPlayer.hasLost) {
+      defeatedPlayer.hasLost = true;
+      defeatedPlayer.lossReason = `21 or more combat damage from ${attackerCard.name || 'a commander'}`;
+    }
+  }
+}
+
+/**
  * Deal combat damage during the DAMAGE step.
  * Rule 510: Combat damage is assigned and dealt simultaneously.
  * 
@@ -416,7 +466,18 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           defender: false, cantAttack: false, cantBlock: false,
         };
       }
-      const attackerPower = parseInt(String(attacker.basePower ?? card.power ?? '0'), 10) || 0;
+      
+      // Calculate effective power including +1/+1 counters and modifiers
+      let attackerPower: number;
+      if (typeof attacker.effectivePower === 'number') {
+        attackerPower = attacker.effectivePower;
+      } else {
+        const basePower = parseInt(String(attacker.basePower ?? card.power ?? '0'), 10) || 0;
+        const plusCounters = attacker.counters?.['+1/+1'] || 0;
+        const minusCounters = attacker.counters?.['-1/-1'] || 0;
+        attackerPower = Math.max(0, basePower + plusCounters - minusCounters);
+      }
+      
       const attackerController = attacker.controller;
       const defendingTarget = attacker.attacking; // Player ID or planeswalker ID
       
@@ -466,6 +527,9 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             (result.damageToPlayers[defendingPlayerId] || 0) + attackerPower;
           
           console.log(`${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${attackerPower} combat damage to ${defendingPlayerId} (${currentLife} -> ${life[defendingPlayerId]})`);
+          
+          // Track commander damage (Rule 903.10a)
+          trackCommanderDamage(ctx, attackerController, card, attacker, defendingPlayerId, attackerPower);
           
           // Lifelink: Controller gains life equal to damage dealt
           if (keywords.lifelink) {
@@ -561,6 +625,9 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             
             console.log(`${ts()} [dealCombatDamage] ${card.name || 'Attacker'} trample: dealt ${remainingDamage} excess damage to ${defendingPlayerId}`);
             
+            // Track commander trample damage (Rule 903.10a)
+            trackCommanderDamage(ctx, attackerController, card, attacker, defendingPlayerId, remainingDamage);
+            
             // Lifelink for trample damage
             if (keywords.lifelink) {
               const controllerLife = life[attackerController] ?? startingLife;
@@ -607,7 +674,17 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               defender: false, cantAttack: false, cantBlock: false,
             };
           }
-          const blockerPower = parseInt(String(blocker.basePower ?? blockerCard.power ?? '0'), 10) || 0;
+          
+          // Calculate effective blocker power including +1/+1 counters and modifiers
+          let blockerPower: number;
+          if (typeof blocker.effectivePower === 'number') {
+            blockerPower = blocker.effectivePower;
+          } else {
+            const basePower = parseInt(String(blocker.basePower ?? blockerCard.power ?? '0'), 10) || 0;
+            const plusCounters = blocker.counters?.['+1/+1'] || 0;
+            const minusCounters = blocker.counters?.['-1/-1'] || 0;
+            blockerPower = Math.max(0, basePower + plusCounters - minusCounters);
+          }
           console.log(`${ts()} [COMBAT_DAMAGE] Blocker ${blockerCard.name || blockerId} has power ${blockerPower}`);
           
           // Check if this blocker should deal damage in this phase based on first strike rules

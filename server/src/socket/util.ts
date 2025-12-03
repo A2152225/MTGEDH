@@ -655,6 +655,18 @@ function doAutoPass(
   try {
     const playerId = game.state.priority;
     if (!playerId) return;
+    
+    // IMPORTANT: Don't auto-pass during DECLARE_BLOCKERS step for defending players
+    // Per Rule 509, the defending player must be given the opportunity to declare blockers
+    // This is a turn-based action that doesn't use the stack
+    const currentStep = (game.state.step || '').toString().toUpperCase();
+    const turnPlayer = game.state.turnPlayer;
+    const isDefendingPlayer = playerId !== turnPlayer;
+    
+    if ((currentStep === 'DECLARE_BLOCKERS' || currentStep.includes('BLOCKERS')) && isDefendingPlayer) {
+      console.log(`[doAutoPass] Skipping auto-pass for ${playerId} during DECLARE_BLOCKERS step - must allow blocker declaration`);
+      return;
+    }
 
     // game.passPriority may not exist on some wrappers; call defensively
     let res: any = null;
@@ -2093,6 +2105,120 @@ export function calculateManaProduction(
   }
   
   return result;
+}
+
+/**
+ * Calculate a creature's effective power including:
+ * - Base power (from card data or basePower property)
+ * - +1/+1 and -1/-1 counters
+ * - Other P/T modifying counters (+1/+0, +2/+2, etc.)
+ * - Equipment, auras, anthem effects, and other modifiers
+ * 
+ * @param permanent - The creature permanent to calculate power for
+ * @returns The effective power value
+ */
+export function getEffectivePower(permanent: any): number {
+  // Use pre-calculated effectivePower if available (from view.ts)
+  if (typeof permanent.effectivePower === 'number') {
+    return permanent.effectivePower;
+  }
+  
+  const card = permanent.card;
+  let basePower = permanent.basePower ?? (parseInt(String(card?.power ?? '0'), 10) || 0);
+  
+  // Handle star (*) power - variable power creatures like Tarmogoyf, Morophon
+  if (typeof card?.power === 'string' && card.power.includes('*')) {
+    // If basePower is set, use that as it should have been calculated already
+    if (typeof permanent.basePower === 'number') {
+      basePower = permanent.basePower;
+    }
+  }
+  
+  // Add +1/+1 counters
+  const plusCounters = permanent.counters?.['+1/+1'] || 0;
+  // Subtract -1/-1 counters
+  const minusCounters = permanent.counters?.['-1/-1'] || 0;
+  const counterDelta = plusCounters - minusCounters;
+  
+  // Check for other counter types that affect power
+  // Examples: +1/+0, +2/+2, +1/+2, etc.
+  let otherCounterPower = 0;
+  if (permanent.counters) {
+    for (const [counterType, count] of Object.entries(permanent.counters)) {
+      if (counterType === '+1/+1' || counterType === '-1/-1') continue;
+      // Parse counter types like "+1/+0", "+2/+2", etc.
+      const counterMatch = counterType.match(/^([+-]?\d+)\/([+-]?\d+)$/);
+      if (counterMatch) {
+        const pMod = parseInt(counterMatch[1], 10);
+        otherCounterPower += pMod * (count as number);
+      }
+    }
+  }
+  
+  // Add modifiers from equipment, auras, anthems, lords, etc.
+  let modifierPower = 0;
+  if (permanent.modifiers && Array.isArray(permanent.modifiers)) {
+    for (const mod of permanent.modifiers) {
+      if (mod.type === 'powerToughness' || mod.type === 'POWER_TOUGHNESS') {
+        modifierPower += mod.power || 0;
+      }
+    }
+  }
+  
+  return Math.max(0, basePower + counterDelta + otherCounterPower + modifierPower);
+}
+
+/**
+ * Calculate a creature's effective toughness including counters and modifiers
+ * 
+ * @param permanent - The creature permanent to calculate toughness for
+ * @returns The effective toughness value
+ */
+export function getEffectiveToughness(permanent: any): number {
+  // Use pre-calculated effectiveToughness if available (from view.ts)
+  if (typeof permanent.effectiveToughness === 'number') {
+    return permanent.effectiveToughness;
+  }
+  
+  const card = permanent.card;
+  let baseToughness = permanent.baseToughness ?? (parseInt(String(card?.toughness ?? '0'), 10) || 0);
+  
+  // Handle star (*) toughness
+  if (typeof card?.toughness === 'string' && card.toughness.includes('*')) {
+    if (typeof permanent.baseToughness === 'number') {
+      baseToughness = permanent.baseToughness;
+    }
+  }
+  
+  // Add counters
+  const plusCounters = permanent.counters?.['+1/+1'] || 0;
+  const minusCounters = permanent.counters?.['-1/-1'] || 0;
+  const counterDelta = plusCounters - minusCounters;
+  
+  // Check for other counter types
+  let otherCounterToughness = 0;
+  if (permanent.counters) {
+    for (const [counterType, count] of Object.entries(permanent.counters)) {
+      if (counterType === '+1/+1' || counterType === '-1/-1') continue;
+      const counterMatch = counterType.match(/^([+-]?\d+)\/([+-]?\d+)$/);
+      if (counterMatch) {
+        const tMod = parseInt(counterMatch[2], 10);
+        otherCounterToughness += tMod * (count as number);
+      }
+    }
+  }
+  
+  // Add modifiers
+  let modifierToughness = 0;
+  if (permanent.modifiers && Array.isArray(permanent.modifiers)) {
+    for (const mod of permanent.modifiers) {
+      if (mod.type === 'powerToughness' || mod.type === 'POWER_TOUGHNESS') {
+        modifierToughness += mod.toughness || 0;
+      }
+    }
+  }
+  
+  return Math.max(0, baseToughness + counterDelta + otherCounterToughness + modifierToughness);
 }
 
 /**

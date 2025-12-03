@@ -5,12 +5,184 @@ import { uid } from "../utils";
 import { recalculatePlayerEffects } from "./game-state-effects.js";
 import { getDeathTriggers } from "./triggered-abilities.js";
 
+/**
+ * Counter modification effects that double or halve counters
+ * Examples: Vorinclex, Monstrous Raider; Doubling Season; Hardened Scales
+ */
+interface CounterModifier {
+  permanentId: string;
+  cardName: string;
+  controller: PlayerID;
+  doublesYourCounters: boolean;
+  halvesOpponentCounters: boolean;
+  addsBonusCounter: number; // For Hardened Scales (+1)
+}
+
+/**
+ * Detect counter modification effects on the battlefield
+ * Patterns:
+ * - Vorinclex, Monstrous Raider: "If you would put one or more counters on a permanent or player, put twice that many of each of those kinds of counters on that permanent or player instead. If an opponent would put one or more counters on a permanent or player, they put half that many of each of those kinds of counters on that permanent or player instead, rounded down."
+ * - Doubling Season: "If an effect would put one or more counters on a permanent you control, it puts twice that many of those counters on that permanent instead."
+ * - Hardened Scales: "If one or more +1/+1 counters would be put on a creature you control, that many plus one +1/+1 counters are put on it instead."
+ */
+function detectCounterModifiers(gameState: any, targetPermanentController: PlayerID): CounterModifier[] {
+  const modifiers: CounterModifier[] = [];
+  const battlefield = gameState?.battlefield || [];
+  
+  for (const perm of battlefield) {
+    if (!perm?.card) continue;
+    const cardName = (perm.card.name || '').toLowerCase();
+    const oracleText = (perm.card.oracle_text || '').toLowerCase();
+    const controller = perm.controller;
+    
+    // Vorinclex, Monstrous Raider
+    if (cardName.includes('vorinclex') && (cardName.includes('monstrous raider') || oracleText.includes('put twice that many'))) {
+      modifiers.push({
+        permanentId: perm.id,
+        cardName: perm.card.name,
+        controller,
+        doublesYourCounters: controller === targetPermanentController,
+        halvesOpponentCounters: controller !== targetPermanentController,
+        addsBonusCounter: 0,
+      });
+    }
+    
+    // Doubling Season
+    if (cardName.includes('doubling season') || (oracleText.includes('twice that many') && oracleText.includes('counter') && oracleText.includes('permanent you control'))) {
+      if (controller === targetPermanentController) {
+        modifiers.push({
+          permanentId: perm.id,
+          cardName: perm.card.name,
+          controller,
+          doublesYourCounters: true,
+          halvesOpponentCounters: false,
+          addsBonusCounter: 0,
+        });
+      }
+    }
+    
+    // Hardened Scales (only affects +1/+1 counters on your creatures)
+    if (cardName.includes('hardened scales') || (oracleText.includes('that many plus one') && oracleText.includes('+1/+1 counter'))) {
+      if (controller === targetPermanentController) {
+        modifiers.push({
+          permanentId: perm.id,
+          cardName: perm.card.name,
+          controller,
+          doublesYourCounters: false,
+          halvesOpponentCounters: false,
+          addsBonusCounter: 1,
+        });
+      }
+    }
+    
+    // Branching Evolution
+    if (cardName.includes('branching evolution') || (oracleText.includes('double that amount') && oracleText.includes('+1/+1 counter'))) {
+      if (controller === targetPermanentController) {
+        modifiers.push({
+          permanentId: perm.id,
+          cardName: perm.card.name,
+          controller,
+          doublesYourCounters: true,
+          halvesOpponentCounters: false,
+          addsBonusCounter: 0,
+        });
+      }
+    }
+    
+    // Primal Vigor
+    if (cardName.includes('primal vigor') && oracleText.includes('twice that many')) {
+      // Primal Vigor affects all players' counters equally
+      modifiers.push({
+        permanentId: perm.id,
+        cardName: perm.card.name,
+        controller,
+        doublesYourCounters: true,
+        halvesOpponentCounters: false,
+        addsBonusCounter: 0,
+      });
+    }
+  }
+  
+  return modifiers;
+}
+
+/**
+ * Apply counter modification effects (doubling, halving, bonus counters)
+ * Order of application (per MTG rules):
+ * 1. Halving effects (Vorinclex opponent penalty) - rounded down
+ * 2. Doubling effects (Vorinclex, Doubling Season, etc.)
+ * 3. Bonus counter effects (Hardened Scales +1)
+ * 
+ * Returns modified counter deltas
+ */
+function applyCounterModifications(
+  gameState: any,
+  targetPermanentId: string,
+  deltas: Record<string, number>
+): Record<string, number> {
+  const targetPermanent = (gameState?.battlefield || []).find((p: any) => p.id === targetPermanentId);
+  if (!targetPermanent) return deltas;
+  
+  const targetController = targetPermanent.controller;
+  const modifiers = detectCounterModifiers(gameState, targetController);
+  
+  if (modifiers.length === 0) return deltas;
+  
+  const modified: Record<string, number> = {};
+  
+  for (const [counterType, rawAmount] of Object.entries(deltas)) {
+    let amount = rawAmount;
+    if (amount === 0) continue;
+    
+    // Only apply modifications when adding counters (positive amounts)
+    if (amount > 0) {
+      // STEP 1: Apply all halving effects first (Vorinclex opponent penalty)
+      for (const mod of modifiers) {
+        if (mod.halvesOpponentCounters) {
+          const before = amount;
+          amount = Math.floor(amount / 2);
+          console.log(`[applyCounterModifications] ${mod.cardName} halved counters: ${before} -> ${amount}`);
+        }
+      }
+      
+      // STEP 2: Apply all doubling effects (these compound: 2 doublers = 4x)
+      for (const mod of modifiers) {
+        if (mod.doublesYourCounters) {
+          const before = amount;
+          amount = amount * 2;
+          console.log(`[applyCounterModifications] ${mod.cardName} doubled counters: ${before} -> ${amount}`);
+        }
+      }
+      
+      // STEP 3: Apply bonus counter effects (Hardened Scales +1)
+      // Only applies to +1/+1 counters being placed on creatures
+      if (counterType.includes('+1/+1')) {
+        for (const mod of modifiers) {
+          if (mod.addsBonusCounter > 0) {
+            const before = amount;
+            amount += mod.addsBonusCounter;
+            console.log(`[applyCounterModifications] ${mod.cardName} added bonus: ${before} -> ${amount}`);
+          }
+        }
+      }
+    }
+    
+    modified[counterType] = amount;
+  }
+  
+  return modified;
+}
+
 export function updateCounters(ctx: GameContext, permanentId: string, deltas: Record<string, number>) {
   const { state, bumpSeq } = ctx;
   const p = state.battlefield.find(b => b.id === permanentId);
   if (!p) return;
+  
+  // Apply counter modification effects (Vorinclex, Doubling Season, Hardened Scales, etc.)
+  const modifiedDeltas = applyCounterModifications(state, permanentId, deltas);
+  
   const current: Record<string, number> = { ...(p.counters ?? {}) };
-  for (const [k, vRaw] of Object.entries(deltas)) {
+  for (const [k, vRaw] of Object.entries(modifiedDeltas)) {
     const v = Math.floor(Number(vRaw) || 0);
     if (!v) continue;
     current[k] = (current[k] ?? 0) + v;

@@ -768,6 +768,62 @@ function executeTriggerEffect(
     return;
   }
   
+  // Pattern: "put X +1/+1 counters on each creature you control" where X is based on source's power
+  // Matches: "put X +1/+1 counters on each creature you control, where X is ~'s power"
+  // Also matches: "put a number of +1/+1 counters equal to its power on each creature you control"
+  if ((desc.includes('+1/+1 counter') && desc.includes('each creature you control')) && 
+      (desc.includes('power') || desc.includes('equal to'))) {
+    const sourcePermId = triggerItem?.source || triggerItem?.permanentId;
+    const battlefield = state.battlefield || [];
+    const sourcePerm = battlefield.find((p: any) => p.id === sourcePermId);
+    
+    if (sourcePerm) {
+      // Calculate source's power including counters and modifiers
+      // Use effectivePower if pre-calculated (most efficient)
+      let sourcePower: number;
+      if (typeof sourcePerm.effectivePower === 'number') {
+        sourcePower = sourcePerm.effectivePower;
+      } else {
+        // Fall back to manual calculation
+        sourcePower = sourcePerm.basePower || 0;
+        if (!sourcePower && sourcePerm.card?.power) {
+          sourcePower = parseInt(String(sourcePerm.card.power), 10) || 0;
+        }
+        // Add +1/+1 counters
+        const plusCounters = sourcePerm.counters?.['+1/+1'] || 0;
+        const minusCounters = sourcePerm.counters?.['-1/-1'] || 0;
+        sourcePower += (plusCounters - minusCounters);
+        
+        // Apply modifiers
+        if (sourcePerm.modifiers && Array.isArray(sourcePerm.modifiers)) {
+          for (const mod of sourcePerm.modifiers) {
+            if (mod.type === 'powerToughness' || mod.type === 'POWER_TOUGHNESS') {
+              sourcePower += mod.power || 0;
+            }
+          }
+        }
+      }
+      
+      sourcePower = Math.max(0, sourcePower);
+      
+      console.log(`[executeTriggerEffect] ${sourcePerm.card?.name || 'Unknown'} has power ${sourcePower}, adding counters to all creatures`);
+      
+      // Add counters to each creature controller controls
+      for (const perm of battlefield) {
+        if (!perm) continue;
+        if (perm.controller !== controller) continue;
+        const typeLine = (perm.card?.type_line || '').toLowerCase();
+        if (!typeLine.includes('creature')) continue;
+        
+        // Add X +1/+1 counters
+        perm.counters = perm.counters || {};
+        perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + sourcePower;
+        console.log(`[executeTriggerEffect] Added ${sourcePower} +1/+1 counter(s) to ${perm.card?.name || perm.id}`);
+      }
+    }
+    return;
+  }
+  
   // Pattern: "Draw a card" or "Draw X cards"
   const drawMatch = desc.match(/draw (?:a card|(\d+) cards?)/i);
   if (drawMatch && !desc.includes('each player may put a land')) {
