@@ -693,9 +693,11 @@ export function getDevotionManaAmount(
   for (const [knownName, info] of Object.entries(KNOWN_DEVOTION_MANA_CARDS)) {
     if (cardName.includes(knownName)) {
       const devotion = calculateDevotion(gameState, playerId, info.color);
+      // Devotion-based mana abilities produce 0 if devotion is 0
+      // minDevotion is only used for special cases, default is 0
       return {
         color: info.producedColor,
-        amount: Math.max(info.minDevotion ?? 1, devotion),
+        amount: Math.max(info.minDevotion ?? 0, devotion),
       };
     }
   }
@@ -721,9 +723,10 @@ export function getDevotionManaAmount(
     const devotion = calculateDevotion(gameState, playerId, colorCode);
     const producedColor = manaSymbol.replace(/[{}]/g, '');
     
+    // Devotion-based mana abilities produce 0 if devotion is 0
     return {
       color: producedColor,
-      amount: Math.max(1, devotion), // Always at least 1
+      amount: devotion,
     };
   }
   
@@ -753,7 +756,8 @@ export function getCreatureCountManaAmount(
              (creatureTypes.toLowerCase().includes("elf") || typeLine.includes("elf"));
     }).length;
     
-    return { color: 'G', amount: Math.max(1, elfCount) };
+    // Can produce 0 mana if no Elves on battlefield
+    return { color: 'G', amount: elfCount };
   }
   
   // Elvish Archdruid: "Add {G} for each Elf you control"
@@ -767,7 +771,8 @@ export function getCreatureCountManaAmount(
              (creatureTypes.toLowerCase().includes("elf") || typeLine.includes("elf"));
     }).length;
     
-    return { color: 'G', amount: Math.max(1, elfCount) };
+    // Can produce 0 mana if no Elves you control
+    return { color: 'G', amount: elfCount };
   }
   
   // Gaea's Cradle: Add {G} for each creature you control
@@ -779,7 +784,7 @@ export function getCreatureCountManaAmount(
       return typeLine.includes("creature");
     }).length;
     
-    return { color: 'G', amount: Math.max(0, creatureCount) };
+    return { color: 'G', amount: creatureCount };
   }
   
   // Serra's Sanctum: Add {W} for each enchantment you control

@@ -455,7 +455,9 @@ export function CastSpellModal({
   // Calculate suggested payment for auto-fill (considers floating mana)
   const suggestedPayment = useMemo(() => {
     const parsed = parseManaCost(currentCost?.manaCost || manaCost);
-    const cost = { colors: parsed.colors, generic: parsed.generic + Math.max(0, xValue), hybrids: parsed.hybrids };
+    // For XX costs, multiply xValue by the number of X's (xCount)
+    const xMultiplier = parsed.xCount || 1;
+    const cost = { colors: parsed.colors, generic: parsed.generic + Math.max(0, xValue * xMultiplier), hybrids: parsed.hybrids };
     const colorsToPreserve = computeColorsNeededByOtherCards(otherCardsInHand);
     return calculateSuggestedPayment(cost, availableSources, colorsToPreserve, floatingMana);
   }, [currentCost, manaCost, xValue, availableSources, otherCardsInHand, floatingMana]);
@@ -464,7 +466,9 @@ export function CastSpellModal({
   const floatingManaUsage = useMemo(() => {
     if (!floatingMana) return null;
     const parsed = parseManaCost(currentCost?.manaCost || manaCost);
-    const cost = { colors: parsed.colors, generic: parsed.generic + Math.max(0, xValue), hybrids: parsed.hybrids };
+    // For XX costs, multiply xValue by the number of X's (xCount)
+    const xMultiplier = parsed.xCount || 1;
+    const cost = { colors: parsed.colors, generic: parsed.generic + Math.max(0, xValue * xMultiplier), hybrids: parsed.hybrids };
     const { usedFromPool } = calculateRemainingCostAfterFloatingMana(cost, floatingMana);
     const totalUsed = Object.values(usedFromPool).reduce((a, b) => a + b, 0);
     return totalUsed > 0 ? usedFromPool : null;
