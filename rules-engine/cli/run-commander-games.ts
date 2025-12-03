@@ -120,6 +120,8 @@ interface PlayerState {
   landsPlayedThisTurn: number;
   poisonCounters: number;
   cardsDrawnThisTurn: number;
+  failedToDraw: boolean;  // True if player attempted to draw from empty library (loses as SBA)
+  lastMillSource?: { attackerPlayerId: number; card: string };  // Track who milled us
 }
 
 interface PermanentState {
@@ -167,11 +169,32 @@ interface DeckAnalysis {
   lords: string[];  // Cards that buff creature types
 }
 
+/** Tracks the source of the last damage/poison dealt to a player */
+interface DamageSource {
+  attackerPlayerId: number;
+  attackerPlayerName: string;
+  attackerLibrarySize: number;
+  attackerHandSize: number;
+  card: string;           // The card or effect that dealt the damage
+  damageType: 'combat' | 'ability' | 'effect' | 'triggered' | 'mill' | 'poison';
+  amount: number;
+}
+
 interface EliminationRecord {
   playerId: number;
   playerName: string;
   turn: number;
   reason: string;
+  // Enhanced tracking for who dealt the finishing blow
+  killerPlayerId?: number;
+  killerPlayerName?: string;
+  killerCard?: string;
+  killerLibrarySize?: number;
+  killerHandSize?: number;
+  damageType?: 'combat' | 'ability' | 'effect' | 'triggered' | 'mill' | 'poison';
+  // Track the eliminated player's state at time of defeat
+  eliminatedLibrarySize?: number;
+  eliminatedHandSize?: number;
 }
 
 interface SimulatedGameState {
@@ -186,6 +209,7 @@ interface SimulatedGameState {
   winner: number | null;
   winCondition: string | null;
   eliminations: EliminationRecord[];  // Track elimination order
+  lastDamageSource: Record<number, DamageSource>;  // Track last damage source per player
 }
 
 // ============================================================================
@@ -987,6 +1011,59 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
     player.manaPool = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
   }
 
+  /**
+   * Check if a player has no maximum hand size.
+   * This can be granted by cards like Reliquary Tower, Thought Vessel, 
+   * Spellbook, Library of Leng, Nezahal, etc.
+   */
+  hasNoMaxHandSize(player: PlayerState): boolean {
+    for (const perm of player.battlefield) {
+      const card = this.getCard(perm.card);
+      const oracle = card?.oracle_text?.toLowerCase() || '';
+      
+      // Check for "no maximum hand size" effects
+      if (oracle.includes('no maximum hand size') || 
+          oracle.includes('you have no maximum hand size')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Get the maximum hand size for a player, considering all effects.
+   * Returns Infinity if the player has no maximum hand size.
+   */
+  getMaxHandSize(player: PlayerState): number {
+    // Check for "no maximum hand size" effects first
+    if (this.hasNoMaxHandSize(player)) {
+      return Infinity;
+    }
+    
+    // Default maximum hand size in Magic is 7
+    let maxHandSize = 7;
+    
+    // Check for effects that modify maximum hand size
+    for (const perm of player.battlefield) {
+      const card = this.getCard(perm.card);
+      const oracle = card?.oracle_text?.toLowerCase() || '';
+      
+      // Check for "your maximum hand size is X" effects
+      const setMaxMatch = oracle.match(/your maximum hand size is (\d+)/);
+      if (setMaxMatch) {
+        maxHandSize = Math.max(maxHandSize, parseInt(setMaxMatch[1], 10));
+      }
+      
+      // Check for "+X to maximum hand size" effects
+      const increaseMatch = oracle.match(/maximum hand size is increased by (\d+)/);
+      if (increaseMatch) {
+        maxHandSize += parseInt(increaseMatch[1], 10);
+      }
+    }
+    
+    return maxHandSize;
+  }
+
   untapAll(player: PlayerState): void {
     for (const perm of player.battlefield) {
       perm.tapped = false;
@@ -996,7 +1073,22 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
 
   drawCards(player: PlayerState, count: number, state?: SimulatedGameState, source?: string): string[] {
     const drawn: string[] = [];
-    for (let i = 0; i < count && player.library.length > 0; i++) {
+    for (let i = 0; i < count; i++) {
+      if (player.library.length === 0) {
+        // Player tried to draw from an empty library - this is a state-based loss
+        player.failedToDraw = true;
+        
+        if (state) {
+          state.events.push({
+            turn: state.turn,
+            player: player.name,
+            action: 'failed to draw',
+            details: `Attempted to draw from empty library (${source || 'draw effect'})`,
+          });
+        }
+        break;
+      }
+      
       const card = player.library.shift()!;
       player.hand.push(card);
       drawn.push(card);
@@ -1041,6 +1133,9 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
       if (oracle.includes('whenever you draw') && oracle.includes('loses') && oracle.includes('life')) {
         for (const opponent of opponents) {
           opponent.life -= cardsDrawn;
+          // Track the damage source for elimination tracking
+          const opponentId = this.getPlayerIdFromName(state, opponent.name);
+          this.trackDamageSource(state, opponentId, playerId, perm.card, 'triggered', cardsDrawn);
         }
         state.events.push({
           turn: state.turn,
@@ -1575,20 +1670,41 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
       
       // Check for player elimination
       if (player.life <= 0) {
+        const damageSource = state.lastDamageSource[playerId];
         const reason = `Life total reduced to ${player.life}`;
+        
+        // Build enhanced elimination record with killer info
+        const eliminationRecord: EliminationRecord = {
+          playerId,
+          playerName: player.name,
+          turn: state.turn,
+          reason,
+          eliminatedLibrarySize: player.library.length,
+          eliminatedHandSize: player.hand.length,
+        };
+        
+        // Add killer information if we have a damage source
+        if (damageSource) {
+          eliminationRecord.killerPlayerId = damageSource.attackerPlayerId;
+          eliminationRecord.killerPlayerName = damageSource.attackerPlayerName;
+          eliminationRecord.killerCard = damageSource.card;
+          eliminationRecord.killerLibrarySize = damageSource.attackerLibrarySize;
+          eliminationRecord.killerHandSize = damageSource.attackerHandSize;
+          eliminationRecord.damageType = damageSource.damageType;
+        }
+        
         state.events.push({
           turn: state.turn,
           player: player.name,
           action: 'eliminated',
-          details: reason
+          details: damageSource 
+            ? `${reason} - Killed by ${damageSource.attackerPlayerName} with ${damageSource.card} (${damageSource.damageType})`
+            : reason
         });
+        
         // Track elimination order
-        state.eliminations.push({
-          playerId,
-          playerName: player.name,
-          turn: state.turn,
-          reason
-        });
+        state.eliminations.push(eliminationRecord);
+        
         // Mark as eliminated by setting life to a very negative number
         player.life = -999;
         changed = true;
@@ -1596,21 +1712,88 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
       }
       
       if (player.poisonCounters >= 10) {
+        const damageSource = state.lastDamageSource[playerId];
         const reason = `Received ${player.poisonCounters} poison counters`;
+        
+        // Build enhanced elimination record with killer info
+        const eliminationRecord: EliminationRecord = {
+          playerId,
+          playerName: player.name,
+          turn: state.turn,
+          reason,
+          eliminatedLibrarySize: player.library.length,
+          eliminatedHandSize: player.hand.length,
+        };
+        
+        // Add killer information if we have a damage source
+        if (damageSource) {
+          eliminationRecord.killerPlayerId = damageSource.attackerPlayerId;
+          eliminationRecord.killerPlayerName = damageSource.attackerPlayerName;
+          eliminationRecord.killerCard = damageSource.card;
+          eliminationRecord.killerLibrarySize = damageSource.attackerLibrarySize;
+          eliminationRecord.killerHandSize = damageSource.attackerHandSize;
+          eliminationRecord.damageType = damageSource.damageType;
+        }
+        
         state.events.push({
           turn: state.turn,
           player: player.name,
           action: 'eliminated',
-          details: reason
+          details: damageSource 
+            ? `${reason} - Killed by ${damageSource.attackerPlayerName} with ${damageSource.card} (${damageSource.damageType})`
+            : reason
         });
+        
         // Track elimination order
-        state.eliminations.push({
+        state.eliminations.push(eliminationRecord);
+        
+        player.life = -999;
+        changed = true;
+        continue;
+      }
+      
+      // Check for mill (attempted to draw from empty library)
+      if (player.failedToDraw) {
+        const millSource = player.lastMillSource;
+        const reason = 'Attempted to draw from empty library';
+        
+        // Build enhanced elimination record with killer info
+        const eliminationRecord: EliminationRecord = {
           playerId,
           playerName: player.name,
           turn: state.turn,
-          reason
+          reason,
+          eliminatedLibrarySize: 0,  // Library is empty
+          eliminatedHandSize: player.hand.length,
+          damageType: 'mill',
+        };
+        
+        // Add killer information if we have a mill source
+        if (millSource) {
+          const killer = state.players[millSource.attackerPlayerId];
+          if (killer) {
+            eliminationRecord.killerPlayerId = millSource.attackerPlayerId;
+            eliminationRecord.killerPlayerName = killer.name;
+            eliminationRecord.killerCard = millSource.card;
+            eliminationRecord.killerLibrarySize = killer.library.length;
+            eliminationRecord.killerHandSize = killer.hand.length;
+          }
+        }
+        
+        state.events.push({
+          turn: state.turn,
+          player: player.name,
+          action: 'eliminated',
+          details: millSource 
+            ? `${reason} - Milled out by ${state.players[millSource.attackerPlayerId]?.name || 'unknown'} with ${millSource.card}`
+            : reason
         });
+        
+        // Track elimination order
+        state.eliminations.push(eliminationRecord);
+        
         player.life = -999;
+        player.failedToDraw = false;  // Reset the flag
         changed = true;
         continue;
       }
@@ -1655,6 +1838,9 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
           if (opponent) {
             player.life -= 50;
             opponent.life -= 50;
+            // Track the damage source for elimination tracking
+            const opponentId = this.getPlayerIdFromName(state, opponent.name);
+            this.trackDamageSource(state, opponentId, playerId, perm.card, 'ability', 50);
             state.events.push({
               turn: state.turn,
               player: player.name,
@@ -1707,6 +1893,32 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
     
     const targetIndex = Math.floor(this.rng() * livingOpponents.length);
     return state.players[livingOpponents[targetIndex]];
+  }
+
+  /**
+   * Track the source of damage or life loss dealt to a player.
+   * This is used to determine who dealt the "finishing blow" when a player is eliminated.
+   */
+  trackDamageSource(
+    state: SimulatedGameState,
+    targetPlayerId: number,
+    attackerPlayerId: number,
+    card: string,
+    damageType: 'combat' | 'ability' | 'effect' | 'triggered' | 'mill' | 'poison',
+    amount: number
+  ): void {
+    const attacker = state.players[attackerPlayerId];
+    if (!attacker) return;
+    
+    state.lastDamageSource[targetPlayerId] = {
+      attackerPlayerId,
+      attackerPlayerName: attacker.name,
+      attackerLibrarySize: attacker.library.length,
+      attackerHandSize: attacker.hand.length,
+      card,
+      damageType,
+      amount,
+    };
   }
 
   simulateCombat(state: SimulatedGameState, attackingPlayerId: number): void {
@@ -1788,6 +2000,12 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
     
     if (infect) {
       defender.poisonCounters += totalDamage;
+      // Track the damage source for elimination tracking
+      const defenderId = this.getPlayerIdFromName(state, defender.name);
+      const attackerCardsSummary = affordableAttackers.length === 1 
+        ? affordableAttackers[0].card 
+        : `${affordableAttackers.length} creatures (${affordableAttackers[0].card}, etc.)`;
+      this.trackDamageSource(state, defenderId, attackingPlayerId, attackerCardsSummary, 'poison', totalDamage);
       state.events.push({
         turn: state.turn,
         player: attacker.name,
@@ -1797,6 +2015,12 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
       });
     } else {
       defender.life -= totalDamage;
+      // Track the damage source for elimination tracking
+      const defenderId = this.getPlayerIdFromName(state, defender.name);
+      const attackerCardsSummary = affordableAttackers.length === 1 
+        ? affordableAttackers[0].card 
+        : `${affordableAttackers.length} creatures (${affordableAttackers[0].card}, etc.)`;
+      this.trackDamageSource(state, defenderId, attackingPlayerId, attackerCardsSummary, 'combat', totalDamage);
       state.events.push({
         turn: state.turn,
         player: attacker.name,
@@ -2151,10 +2375,23 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
     // End step
     this.handleEndStepTriggers(player, state);
     
-    // Cleanup
-    while (player.hand.length > 7) {
+    // Cleanup - discard down to maximum hand size
+    const maxHandSize = this.getMaxHandSize(player);
+    while (player.hand.length > maxHandSize) {
       const discarded = player.hand.pop()!;
       player.graveyard.push(discarded);
+      
+      if (this.analysisMode) {
+        state.events.push({
+          turn: state.turn,
+          player: player.name,
+          action: 'discard',
+          card: discarded,
+          fromZone: 'hand',
+          toZone: 'graveyard',
+          details: `Discarded to max hand size (${maxHandSize})`,
+        });
+      }
     }
     
     this.emptyManaPool(player);
@@ -2201,6 +2438,7 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
       winner: null,
       winCondition: null,
       eliminations: [],
+      lastDamageSource: {},
     };
   }
 
