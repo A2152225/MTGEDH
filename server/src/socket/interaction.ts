@@ -2812,11 +2812,16 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         if (!card) continue;
         
         const typeLine = ((card as any).type_line || '').toLowerCase();
+        // Split type line into words for exact matching
+        const typeLineWords = typeLine.split(/[\s—-]+/);
         
         // Check supertypes (e.g., 'basic' for Cultivate/Kodama's Reach)
+        // Use word boundary matching to avoid false positives
         if (filter.supertypes && filter.supertypes.length > 0) {
           for (const supertype of filter.supertypes) {
-            if (!typeLine.includes(supertype.toLowerCase())) {
+            const lowerSupertype = supertype.toLowerCase();
+            // Check if supertype appears as a standalone word in the type line
+            if (!typeLineWords.includes(lowerSupertype)) {
               socket.emit("error", {
                 code: "INVALID_SELECTION",
                 message: `${(card as any).name || 'Selected card'} is not a ${supertype} card. Only ${supertype} cards can be selected.`,

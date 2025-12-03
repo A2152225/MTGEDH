@@ -1915,21 +1915,22 @@ export function registerGameActions(io: Server, socket: Socket) {
           const permOracle = ((perm as any).card?.oracle_text || '').toLowerCase();
           
           // Yeva, Nature's Herald - green creature cards have flash
-          if (permName.includes('yeva') && isGreenCard && isCreature) {
+          // Use exact match to avoid false positives
+          if ((permName === 'yeva, nature\'s herald' || permName.startsWith('yeva, nature')) && isGreenCard && isCreature) {
             hasFlash = true;
             console.log(`[castSpellFromHand] ${cardInHand.name} has flash via Yeva, Nature's Herald`);
             break;
           }
           
           // Vivien, Champion of the Wilds - creature spells have flash
-          if (permName.includes('vivien, champion of the wilds') && isCreature) {
+          if ((permName === 'vivien, champion of the wilds' || permName.startsWith('vivien, champion')) && isCreature) {
             hasFlash = true;
             console.log(`[castSpellFromHand] ${cardInHand.name} has flash via Vivien, Champion of the Wilds`);
             break;
           }
           
           // Vedalken Orrery, Leyline of Anticipation - all spells have flash
-          if (permName.includes('vedalken orrery') || permName.includes('leyline of anticipation')) {
+          if (permName === 'vedalken orrery' || permName === 'leyline of anticipation') {
             hasFlash = true;
             console.log(`[castSpellFromHand] ${cardInHand.name} has flash via ${(perm as any).card?.name}`);
             break;
