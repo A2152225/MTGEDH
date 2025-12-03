@@ -2581,6 +2581,220 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       socket.emit('error', { code: 'AI_CREATE_FAILED', message: 'Failed to create AI opponent' });
     }
   });
+
+  // Create game with multiple AI opponents
+  socket.on('createGameWithMultipleAI', async ({
+    gameId,
+    playerName,
+    format,
+    startingLife,
+    aiOpponents,
+  }: {
+    gameId: string;
+    playerName: string;
+    format?: string;
+    startingLife?: number;
+    aiOpponents: Array<{
+      name: string;
+      strategy: string;
+      deckId?: string;
+      deckText?: string;
+      deckName?: string;
+    }>;
+  }) => {
+    try {
+      console.info('[AI] Creating game with multiple AI opponents:', { 
+        gameId, 
+        playerName, 
+        aiCount: aiOpponents.length,
+        aiNames: aiOpponents.map(ai => ai.name),
+      });
+      
+      const creatorSocketId = socket.id;
+      
+      // Ensure game exists
+      const game = ensureGame(gameId, { 
+        createdBySocketId: creatorSocketId 
+      });
+      if (!game) {
+        socket.emit('error', { code: 'GAME_NOT_FOUND', message: 'Failed to create game' });
+        return;
+      }
+      
+      // Set format and starting life
+      game.state = (game.state || {}) as any;
+      (game.state as any).format = format || 'commander';
+      (game.state as any).startingLife = startingLife || (format === 'commander' ? 40 : 20);
+      game.state.players = game.state.players || [];
+      
+      const createdAIPlayers: Array<{ playerId: string; name: string; strategy: string; deckLoaded: boolean }> = [];
+      
+      // Create each AI opponent
+      for (let i = 0; i < aiOpponents.length; i++) {
+        const aiConfig = aiOpponents[i];
+        const aiPlayerId = `ai_${Date.now().toString(36)}_${i}`;
+        const strategy = (aiConfig.strategy as AIStrategy) || AIStrategy.BASIC;
+        const aiName = aiConfig.name || `AI Opponent ${i + 1}`;
+        
+        // Add AI to game state
+        const aiPlayer: any = {
+          id: aiPlayerId,
+          name: aiName,
+          life: (game.state as any).startingLife,
+          isAI: true,
+          hand: [],
+          library: [],
+          graveyard: [],
+          exile: [],
+        };
+        
+        // Load deck for AI
+        let deckLoaded = false;
+        let deckEntries: Array<{ name: string; count: number }> = [];
+        let finalDeckName: string | undefined;
+        
+        // Priority 1: Use deckText if provided (import mode)
+        if (aiConfig.deckText && aiConfig.deckText.trim()) {
+          try {
+            deckEntries = parseDecklist(aiConfig.deckText);
+            finalDeckName = aiConfig.deckName || 'Imported Deck';
+            console.info(`[AI] Using imported deck text for ${aiName}:`, { deckName: finalDeckName, entryCount: deckEntries.length });
+          } catch (e) {
+            console.warn(`[AI] Failed to parse deck text for ${aiName}:`, e);
+          }
+        }
+        // Priority 2: Use deckId if provided (select mode)
+        else if (aiConfig.deckId) {
+          try {
+            const deck = getDeck(aiConfig.deckId);
+            if (deck && deck.entries && deck.entries.length > 0) {
+              deckEntries = deck.entries;
+              finalDeckName = deck.name;
+              console.info(`[AI] Loading deck for ${aiName}:`, { deckId: aiConfig.deckId, deckName: deck.name });
+            } else {
+              console.warn(`[AI] Deck not found for ${aiName}:`, { deckId: aiConfig.deckId });
+            }
+          } catch (e) {
+            console.error(`[AI] Error loading deck for ${aiName}:`, { deckId: aiConfig.deckId, error: e });
+          }
+        }
+        
+        // Resolve deck entries if we have any
+        if (deckEntries.length > 0) {
+          const requestedNames = deckEntries.map((e: any) => e.name);
+          let byName: Map<string, any> | null = null;
+          
+          try {
+            byName = await fetchCardsByExactNamesBatch(requestedNames);
+          } catch (e) {
+            console.warn(`[AI] Failed to fetch cards from Scryfall for ${aiName}:`, e);
+          }
+          
+          const resolvedCards: any[] = [];
+          
+          if (byName) {
+            for (const { name, count } of deckEntries) {
+              const key = normalizeName(name).toLowerCase();
+              const card = byName.get(key);
+              if (!card) continue;
+              for (let j = 0; j < (count || 1); j++) {
+                resolvedCards.push({
+                  id: generateId(`card_${card.id}`),
+                  name: card.name,
+                  type_line: card.type_line,
+                  oracle_text: card.oracle_text,
+                  image_uris: card.image_uris,
+                  mana_cost: card.mana_cost,
+                  power: card.power,
+                  toughness: card.toughness,
+                  color_identity: card.color_identity,
+                  zone: 'library',
+                });
+              }
+            }
+          }
+          
+          if (resolvedCards.length > 0) {
+            aiPlayer.deckName = finalDeckName;
+            aiPlayer.deckId = aiConfig.deckId || (aiConfig.deckText ? `imported_${Date.now().toString(36)}_${i}` : null);
+            deckLoaded = true;
+            
+            if (typeof (game as any).importDeckResolved === 'function') {
+              (game as any).importDeckResolved(aiPlayerId, resolvedCards);
+              console.info(`[AI] Deck imported for ${aiName}:`, { 
+                aiPlayerId, 
+                deckName: finalDeckName, 
+                resolvedCount: resolvedCards.length,
+              });
+            } else {
+              console.warn(`[AI] importDeckResolved not available for ${aiName}, using fallback`);
+              game.state.zones = game.state.zones || {};
+              (game.state.zones as any)[aiPlayerId] = {
+                hand: [],
+                handCount: 0,
+                libraryCount: resolvedCards.length,
+                graveyard: [],
+                graveyardCount: 0,
+              };
+            }
+          }
+        }
+        
+        game.state.players.push(aiPlayer);
+        
+        // Register with AI engine
+        registerAIPlayer(gameId, aiPlayerId, aiName, strategy);
+        
+        createdAIPlayers.push({
+          playerId: aiPlayerId,
+          name: aiName,
+          strategy,
+          deckLoaded,
+        });
+        
+        // Persist AI join event
+        try {
+          await appendEvent(gameId, (game as any).seq || 0, 'aiJoin', {
+            playerId: aiPlayerId,
+            name: aiName,
+            strategy,
+            deckId: aiConfig.deckId,
+            deckLoaded,
+          });
+        } catch (e) {
+          console.warn(`[AI] Failed to persist AI join event for ${aiName}:`, e);
+        }
+      }
+      
+      // Emit success for all AI players
+      socket.emit('multipleAIPlayersCreated', {
+        gameId,
+        aiPlayers: createdAIPlayers,
+      });
+      
+      // Broadcast game state
+      broadcastGame(io, game, gameId);
+      
+      // Trigger auto-commander selection for all AI players with decks
+      for (const aiPlayer of createdAIPlayers) {
+        if (aiPlayer.deckLoaded) {
+          console.info('[AI] Triggering auto-commander selection for:', { gameId, aiPlayerId: aiPlayer.playerId });
+          
+          setTimeout(async () => {
+            try {
+              await handleAIGameFlow(io, gameId, aiPlayer.playerId);
+            } catch (e) {
+              console.error(`[AI] Error in AI game flow for ${aiPlayer.name}:`, e);
+            }
+          }, AI_THINK_TIME_MS * (createdAIPlayers.indexOf(aiPlayer) + 1)); // Stagger delays
+        }
+      }
+      
+    } catch (error) {
+      console.error('[AI] Error creating game with multiple AI opponents:', error);
+      socket.emit('error', { code: 'AI_CREATE_FAILED', message: 'Failed to create AI opponents' });
+    }
+  });
   
   // Add AI to existing game
   socket.on('addAIToGame', async ({

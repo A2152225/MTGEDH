@@ -35,9 +35,12 @@ interface CreateGameModalProps {
 /**
  * House rules configuration for optional game variants.
  * Multiple rules can be enabled simultaneously (default: all off).
+ * 
+ * Note: Free first mulligan is now BASELINE for multiplayer games (3+ players)
+ * as per official Commander rules (rule 103.5a). It is no longer a house rule option.
  */
 export interface HouseRulesConfig {
-  /** First mulligan in multiplayer is free (official Commander rule) */
+  /** @deprecated Free first mulligan is now baseline for multiplayer. This flag is kept for backward compatibility. */
   freeFirstMulligan: boolean;
   /** Free mulligan if opening hand has no lands or all lands */
   freeMulliganNoLandsOrAllLands: boolean;
@@ -54,6 +57,17 @@ export interface HouseRulesConfig {
 }
 
 /**
+ * Configuration for a single AI opponent
+ */
+export interface AIOpponentConfig {
+  name: string;
+  strategy: AIStrategy;
+  deckId?: string;
+  deckText?: string;
+  deckName?: string;
+}
+
+/**
  * Configuration for creating a new game
  */
 export interface GameCreationConfig {
@@ -61,12 +75,13 @@ export interface GameCreationConfig {
   playerName: string;
   format: GameFormat;
   startingLife: number;
-  // AI opponent settings
+  // AI opponent settings - support multiple AI opponents
   includeAI: boolean;
+  aiOpponents?: AIOpponentConfig[];
+  // Legacy single AI opponent fields (for backward compatibility)
   aiName?: string;
   aiStrategy?: AIStrategy;
   aiDeckId?: string;
-  // New: AI deck text for import
   aiDeckText?: string;
   aiDeckName?: string;
   // House rules configuration
@@ -126,23 +141,25 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
   const [format, setFormat] = useState<GameFormat>('commander');
   const [startingLife, setStartingLife] = useState(40);
   
-  // AI opponent settings
-  const [includeAI, setIncludeAI] = useState(false);
-  const [aiName, setAiName] = useState('AI Opponent');
-  const [aiStrategy, setAiStrategy] = useState<AIStrategy>('basic');
-  const [aiDeckId, setAiDeckId] = useState<string>('');
+  // AI opponent settings - now supports multiple AI opponents
+  const [aiOpponents, setAiOpponents] = useState<Array<{
+    id: string;
+    name: string;
+    strategy: AIStrategy;
+    deckId: string;
+    deckMode: 'select' | 'import';
+    deckText: string;
+    deckName: string;
+    expanded: boolean;
+  }>>([]);
   
-  // AI deck import mode
-  const [aiDeckMode, setAiDeckMode] = useState<'select' | 'import'>('select');
-  const [aiDeckText, setAiDeckText] = useState('');
-  const [aiDeckName, setAiDeckName] = useState('');
+  // Deck filter for AI deck selection
   const [aiDeckFilter, setAiDeckFilter] = useState('');
   const [savingDeck, setSavingDeck] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
-  // House rules state (all default to off)
+  // House rules state (freeFirstMulligan removed - now baseline for multiplayer)
   const [showHouseRules, setShowHouseRules] = useState(false);
-  const [freeFirstMulligan, setFreeFirstMulligan] = useState(false);
   const [freeMulliganNoLandsOrAllLands, setFreeMulliganNoLandsOrAllLands] = useState(false);
   const [anyCommanderDamageCountsAsCommanderDamage, setAnyCommanderDamageCountsAsCommanderDamage] = useState(false);
   const [groupMulliganDiscount, setGroupMulliganDiscount] = useState(false);
@@ -151,6 +168,40 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
   const [customRuleSuggestion, setCustomRuleSuggestion] = useState('');
   const [submittingCustomRule, setSubmittingCustomRule] = useState(false);
   const [customRuleMessage, setCustomRuleMessage] = useState<string | null>(null);
+
+  /**
+   * Add a new AI opponent to the list
+   */
+  const addAiOpponent = () => {
+    const newId = `ai_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+    const opponentNumber = aiOpponents.length + 1;
+    setAiOpponents([...aiOpponents, {
+      id: newId,
+      name: `AI Opponent ${opponentNumber}`,
+      strategy: 'basic' as AIStrategy,
+      deckId: '',
+      deckMode: 'select',
+      deckText: '',
+      deckName: '',
+      expanded: true, // Start expanded for new opponents
+    }]);
+  };
+
+  /**
+   * Remove an AI opponent from the list
+   */
+  const removeAiOpponent = (id: string) => {
+    setAiOpponents(aiOpponents.filter(ai => ai.id !== id));
+  };
+
+  /**
+   * Update a specific AI opponent's configuration
+   */
+  const updateAiOpponent = (id: string, updates: Partial<typeof aiOpponents[0]>) => {
+    setAiOpponents(aiOpponents.map(ai => 
+      ai.id === id ? { ...ai, ...updates } : ai
+    ));
+  };
 
   // Update starting life when format changes
   useEffect(() => {
@@ -202,16 +253,56 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
       if (response.ok) {
         const data = await response.json();
         setSaveMessage('✓ Deck saved successfully');
-        // Refresh the deck list and wait a bit for it to complete
+        // Refresh the deck list
         if (onRefreshDecks) {
           onRefreshDecks();
         }
-        // Switch to select mode and select the new deck after a short delay
-        // to allow the deck list to refresh
+        return data.deckId;
+      } else {
+        setSaveMessage('✗ Failed to save deck');
+        return null;
+      }
+    } catch (e) {
+      setSaveMessage('✗ Failed to save deck');
+      return null;
+    } finally {
+      setSavingDeck(false);
+    }
+  };
+
+  /**
+   * Save an AI opponent's imported deck to the server
+   */
+  const handleSaveAiDeck = async (aiId: string) => {
+    const ai = aiOpponents.find(a => a.id === aiId);
+    if (!ai || !ai.deckText.trim() || !ai.deckName.trim()) return;
+    
+    setSavingDeck(true);
+    setSaveMessage(null);
+    
+    try {
+      const response = await fetch('/api/decks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: ai.deckName.trim(),
+          text: ai.deckText.trim(),
+        }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setSaveMessage('✓ Deck saved successfully');
+        if (onRefreshDecks) {
+          onRefreshDecks();
+        }
+        // Update this AI to use the saved deck
         if (data.deckId) {
           setTimeout(() => {
-            setAiDeckId(data.deckId);
-            setAiDeckMode('select');
+            updateAiOpponent(aiId, { 
+              deckId: data.deckId, 
+              deckMode: 'select' 
+            });
           }, 100);
         }
       } else {
@@ -271,25 +362,39 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
     }
 
     // Build house rules config (only include enabled rules)
+    // Note: freeFirstMulligan is now baseline for multiplayer, so we don't include it here
     const houseRules: Partial<HouseRulesConfig> = {};
-    if (freeFirstMulligan) houseRules.freeFirstMulligan = true;
     if (freeMulliganNoLandsOrAllLands) houseRules.freeMulliganNoLandsOrAllLands = true;
     if (anyCommanderDamageCountsAsCommanderDamage) houseRules.anyCommanderDamageCountsAsCommanderDamage = true;
     if (groupMulliganDiscount) houseRules.groupMulliganDiscount = true;
     if (enableArchenemy) houseRules.enableArchenemy = true;
     if (enablePlanechase) houseRules.enablePlanechase = true;
     
+    // Build AI opponents configuration
+    const aiOpponentsConfig: AIOpponentConfig[] = aiOpponents.map(ai => ({
+      name: ai.name.trim() || 'AI Opponent',
+      strategy: ai.strategy,
+      deckId: ai.deckMode === 'select' && ai.deckId ? ai.deckId : undefined,
+      deckText: ai.deckMode === 'import' && ai.deckText.trim() ? ai.deckText.trim() : undefined,
+      deckName: ai.deckMode === 'import' && ai.deckName.trim() ? ai.deckName.trim() : undefined,
+    }));
+    
+    const hasAI = aiOpponents.length > 0;
+    
+    // For backward compatibility, also include legacy single AI fields if only one AI
     const config: GameCreationConfig = {
       gameId: sanitizedGameId,
       playerName: finalPlayerName,
       format,
       startingLife,
-      includeAI,
-      aiName: includeAI ? aiName.trim() || 'AI Opponent' : undefined,
-      aiStrategy: includeAI ? aiStrategy : undefined,
-      aiDeckId: includeAI && aiDeckMode === 'select' && aiDeckId ? aiDeckId : undefined,
-      aiDeckText: includeAI && aiDeckMode === 'import' && aiDeckText.trim() ? aiDeckText.trim() : undefined,
-      aiDeckName: includeAI && aiDeckMode === 'import' && aiDeckName.trim() ? aiDeckName.trim() : undefined,
+      includeAI: hasAI,
+      aiOpponents: hasAI ? aiOpponentsConfig : undefined,
+      // Legacy fields for backward compatibility with single AI
+      aiName: hasAI && aiOpponents.length === 1 ? aiOpponentsConfig[0].name : undefined,
+      aiStrategy: hasAI && aiOpponents.length === 1 ? aiOpponentsConfig[0].strategy : undefined,
+      aiDeckId: hasAI && aiOpponents.length === 1 ? aiOpponentsConfig[0].deckId : undefined,
+      aiDeckText: hasAI && aiOpponents.length === 1 ? aiOpponentsConfig[0].deckText : undefined,
+      aiDeckName: hasAI && aiOpponents.length === 1 ? aiOpponentsConfig[0].deckName : undefined,
       // Include house rules only if any are enabled
       houseRules: Object.keys(houseRules).length > 0 ? houseRules : undefined,
     };
@@ -446,258 +551,287 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
             />
           </div>
 
-          {/* AI Opponent Section */}
+          {/* AI Opponents Section */}
           <div
             style={{
               marginBottom: 16,
               padding: 16,
-              backgroundColor: includeAI ? '#f0f7ff' : '#f9f9f9',
+              backgroundColor: aiOpponents.length > 0 ? '#f0f7ff' : '#f9f9f9',
               borderRadius: 6,
-              border: includeAI ? '1px solid #3b82f6' : '1px solid #eee',
+              border: aiOpponents.length > 0 ? '1px solid #3b82f6' : '1px solid #eee',
             }}
           >
-            <label
+            <div
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: 8,
-                cursor: 'pointer',
-                fontWeight: 500,
-                fontSize: 14,
+                justifyContent: 'space-between',
+                marginBottom: aiOpponents.length > 0 ? 16 : 0,
               }}
             >
-              <input
-                type="checkbox"
-                checked={includeAI}
-                onChange={(e) => setIncludeAI(e.target.checked)}
-                style={{ width: 18, height: 18 }}
-              />
-              <span>🤖 Add AI Opponent</span>
-            </label>
+              <div style={{ fontWeight: 500, fontSize: 14 }}>
+                🤖 AI Opponents ({aiOpponents.length})
+              </div>
+              <button
+                type="button"
+                onClick={addAiOpponent}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 4,
+                  border: 'none',
+                  backgroundColor: '#3b82f6',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 500,
+                }}
+              >
+                + Add AI Opponent
+              </button>
+            </div>
 
-            {includeAI && (
-              <div style={{ marginTop: 16 }}>
-                {/* AI Name */}
-                <div style={{ marginBottom: 12 }}>
-                  <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: '#444' }}>
-                    AI Name
-                  </label>
-                  <input
-                    type="text"
-                    value={aiName}
-                    onChange={(e) => setAiName(e.target.value)}
-                    placeholder="AI Opponent"
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: 4,
-                      border: '1px solid #ddd',
-                      fontSize: 14,
-                      boxSizing: 'border-box',
+            {aiOpponents.length === 0 && (
+              <div style={{ fontSize: 12, color: '#666', marginTop: 8 }}>
+                Click "Add AI Opponent" to add AI players to your game. You can add multiple AI opponents.
+              </div>
+            )}
+
+            {aiOpponents.map((ai, index) => (
+              <div
+                key={ai.id}
+                style={{
+                  marginBottom: index < aiOpponents.length - 1 ? 12 : 0,
+                  padding: 12,
+                  backgroundColor: '#fff',
+                  borderRadius: 6,
+                  border: '1px solid #e5e7eb',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => updateAiOpponent(ai.id, { expanded: !ai.expanded })}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 500 }}>
+                      {ai.expanded ? '▼' : '▶'} {ai.name || `AI Opponent ${index + 1}`}
+                    </span>
+                    <span style={{ fontSize: 11, color: '#888' }}>
+                      ({AI_STRATEGY_INFO[ai.strategy].name})
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeAiOpponent(ai.id);
                     }}
-                  />
-                </div>
-
-                {/* AI Strategy */}
-                <div style={{ marginBottom: 12 }}>
-                  <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: '#444' }}>
-                    AI Strategy
-                  </label>
-                  <select
-                    value={aiStrategy}
-                    onChange={(e) => setAiStrategy(e.target.value as AIStrategy)}
                     style={{
-                      width: '100%',
-                      padding: '8px 12px',
+                      padding: '4px 8px',
                       borderRadius: 4,
-                      border: '1px solid #ddd',
-                      fontSize: 14,
-                      boxSizing: 'border-box',
-                      backgroundColor: '#fff',
+                      border: 'none',
+                      backgroundColor: '#ef4444',
+                      color: '#fff',
+                      cursor: 'pointer',
+                      fontSize: 11,
                     }}
                   >
-                    {Object.entries(AI_STRATEGY_INFO).map(([key, info]) => (
-                      <option key={key} value={key}>
-                        {info.name}
-                      </option>
-                    ))}
-                  </select>
-                  <div style={{ marginTop: 4, fontSize: 12, color: '#666' }}>
-                    {AI_STRATEGY_INFO[aiStrategy].description}
-                  </div>
+                    Remove
+                  </button>
                 </div>
 
-                {/* AI Deck Selection */}
-                <div>
-                  <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: '#444' }}>
-                    AI Deck
-                  </label>
-                  
-                  {/* Mode Toggle */}
-                  <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                    <button
-                      type="button"
-                      onClick={() => setAiDeckMode('select')}
-                      style={{
-                        padding: '6px 12px',
-                        borderRadius: 4,
-                        border: aiDeckMode === 'select' ? '2px solid #3b82f6' : '1px solid #ddd',
-                        backgroundColor: aiDeckMode === 'select' ? '#eff6ff' : '#fff',
-                        cursor: 'pointer',
-                        fontSize: 12,
-                        fontWeight: aiDeckMode === 'select' ? 500 : 400,
-                      }}
-                    >
-                      📁 Select Saved Deck
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAiDeckMode('import')}
-                      style={{
-                        padding: '6px 12px',
-                        borderRadius: 4,
-                        border: aiDeckMode === 'import' ? '2px solid #3b82f6' : '1px solid #ddd',
-                        backgroundColor: aiDeckMode === 'import' ? '#eff6ff' : '#fff',
-                        cursor: 'pointer',
-                        fontSize: 12,
-                        fontWeight: aiDeckMode === 'import' ? 500 : 400,
-                      }}
-                    >
-                      📝 Import Deck
-                    </button>
-                  </div>
-
-                  {/* Select Saved Deck Mode */}
-                  {aiDeckMode === 'select' && (
-                    <div>
+                {ai.expanded && (
+                  <div style={{ marginTop: 12 }}>
+                    {/* AI Name */}
+                    <div style={{ marginBottom: 10 }}>
+                      <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#444' }}>
+                        Name
+                      </label>
                       <input
                         type="text"
-                        value={aiDeckFilter}
-                        onChange={(e) => setAiDeckFilter(e.target.value)}
-                        placeholder="Filter decks..."
+                        value={ai.name}
+                        onChange={(e) => updateAiOpponent(ai.id, { name: e.target.value })}
+                        placeholder={`AI Opponent ${index + 1}`}
                         style={{
                           width: '100%',
                           padding: '6px 10px',
                           borderRadius: 4,
                           border: '1px solid #ddd',
-                          fontSize: 12,
+                          fontSize: 13,
                           boxSizing: 'border-box',
-                          marginBottom: 6,
                         }}
                       />
+                    </div>
+
+                    {/* AI Strategy */}
+                    <div style={{ marginBottom: 10 }}>
+                      <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#444' }}>
+                        Strategy
+                      </label>
                       <select
-                        value={aiDeckId}
-                        onChange={(e) => setAiDeckId(e.target.value)}
+                        value={ai.strategy}
+                        onChange={(e) => updateAiOpponent(ai.id, { strategy: e.target.value as AIStrategy })}
                         style={{
                           width: '100%',
-                          padding: '8px 12px',
+                          padding: '6px 10px',
                           borderRadius: 4,
                           border: '1px solid #ddd',
-                          fontSize: 14,
+                          fontSize: 13,
                           boxSizing: 'border-box',
                           backgroundColor: '#fff',
                         }}
                       >
-                        <option value="">-- Select a saved deck --</option>
-                        {filteredDecks.map((deck) => (
-                          <option key={deck.id} value={deck.id}>
-                            {deck.name} ({deck.card_count} cards)
+                        {Object.entries(AI_STRATEGY_INFO).map(([key, info]) => (
+                          <option key={key} value={key}>
+                            {info.name} - {info.description}
                           </option>
                         ))}
                       </select>
-                      {savedDecks.length === 0 && (
-                        <div style={{ marginTop: 4, fontSize: 12, color: '#f59e0b' }}>
-                          ⚠️ No saved decks available. Use "Import Deck" to add one.
-                        </div>
-                      )}
-                      {savedDecks.length > 0 && filteredDecks.length === 0 && aiDeckFilter && (
-                        <div style={{ marginTop: 4, fontSize: 12, color: '#888' }}>
-                          No decks match your filter.
-                        </div>
-                      )}
                     </div>
-                  )}
 
-                  {/* Import Deck Mode */}
-                  {aiDeckMode === 'import' && (
+                    {/* AI Deck Selection */}
                     <div>
-                      <input
-                        type="text"
-                        value={aiDeckName}
-                        onChange={(e) => setAiDeckName(e.target.value)}
-                        placeholder="Deck name"
-                        style={{
-                          width: '100%',
-                          padding: '8px 12px',
-                          borderRadius: 4,
-                          border: '1px solid #ddd',
-                          fontSize: 14,
-                          boxSizing: 'border-box',
-                          marginBottom: 6,
-                        }}
-                      />
-                      <textarea
-                        value={aiDeckText}
-                        onChange={(e) => setAiDeckText(e.target.value)}
-                        placeholder="Paste decklist here (e.g., '4 Lightning Bolt', '1 Sol Ring')"
-                        style={{
-                          width: '100%',
-                          height: 120,
-                          padding: '8px 12px',
-                          borderRadius: 4,
-                          border: '1px solid #ddd',
-                          fontSize: 12,
-                          boxSizing: 'border-box',
-                          resize: 'vertical',
-                          fontFamily: 'monospace',
-                        }}
-                      />
-                      <div style={{ display: 'flex', gap: 8, marginTop: 6, alignItems: 'center' }}>
-                        <input
-                          type="file"
-                          accept=".txt,text/plain"
-                          onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-                            const content = await file.text();
-                            setAiDeckText(content);
-                            // Use filename as deck name if not set
-                            if (!aiDeckName) {
-                              setAiDeckName(file.name.replace(/\.txt$/i, ''));
-                            }
-                          }}
-                          style={{ fontSize: 11 }}
-                        />
+                      <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#444' }}>
+                        Deck
+                      </label>
+                      
+                      {/* Mode Toggle */}
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
                         <button
                           type="button"
-                          onClick={handleSaveImportedDeck}
-                          disabled={!aiDeckText.trim() || !aiDeckName.trim() || savingDeck}
+                          onClick={() => updateAiOpponent(ai.id, { deckMode: 'select' })}
                           style={{
-                            padding: '6px 12px',
+                            padding: '4px 10px',
                             borderRadius: 4,
-                            border: 'none',
-                            backgroundColor: (!aiDeckText.trim() || !aiDeckName.trim() || savingDeck) ? '#ccc' : '#10b981',
-                            color: '#fff',
-                            cursor: (!aiDeckText.trim() || !aiDeckName.trim() || savingDeck) ? 'not-allowed' : 'pointer',
-                            fontSize: 12,
+                            border: ai.deckMode === 'select' ? '2px solid #3b82f6' : '1px solid #ddd',
+                            backgroundColor: ai.deckMode === 'select' ? '#eff6ff' : '#fff',
+                            cursor: 'pointer',
+                            fontSize: 11,
+                            fontWeight: ai.deckMode === 'select' ? 500 : 400,
                           }}
                         >
-                          {savingDeck ? 'Saving...' : 'Save to Server'}
+                          📁 Select Saved
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateAiOpponent(ai.id, { deckMode: 'import' })}
+                          style={{
+                            padding: '4px 10px',
+                            borderRadius: 4,
+                            border: ai.deckMode === 'import' ? '2px solid #3b82f6' : '1px solid #ddd',
+                            backgroundColor: ai.deckMode === 'import' ? '#eff6ff' : '#fff',
+                            cursor: 'pointer',
+                            fontSize: 11,
+                            fontWeight: ai.deckMode === 'import' ? 500 : 400,
+                          }}
+                        >
+                          📝 Import
                         </button>
                       </div>
-                      {saveMessage && (
-                        <div style={{ marginTop: 4, fontSize: 12, color: saveMessage.startsWith('✓') ? '#10b981' : '#ef4444' }}>
-                          {saveMessage}
+
+                      {/* Select Saved Deck Mode */}
+                      {ai.deckMode === 'select' && (
+                        <div>
+                          <select
+                            value={ai.deckId}
+                            onChange={(e) => updateAiOpponent(ai.id, { deckId: e.target.value })}
+                            style={{
+                              width: '100%',
+                              padding: '6px 10px',
+                              borderRadius: 4,
+                              border: '1px solid #ddd',
+                              fontSize: 12,
+                              boxSizing: 'border-box',
+                              backgroundColor: '#fff',
+                            }}
+                          >
+                            <option value="">-- Select a deck --</option>
+                            {filteredDecks.map((deck) => (
+                              <option key={deck.id} value={deck.id}>
+                                {deck.name} ({deck.card_count} cards)
+                              </option>
+                            ))}
+                          </select>
+                          {savedDecks.length === 0 && (
+                            <div style={{ marginTop: 4, fontSize: 11, color: '#f59e0b' }}>
+                              No saved decks. Use "Import" to add one.
+                            </div>
+                          )}
                         </div>
                       )}
-                      {aiDeckText.trim() && (
-                        <div style={{ marginTop: 4, fontSize: 12, color: '#666' }}>
-                          📋 Deck will be imported when the game starts
+
+                      {/* Import Deck Mode */}
+                      {ai.deckMode === 'import' && (
+                        <div>
+                          <input
+                            type="text"
+                            value={ai.deckName}
+                            onChange={(e) => updateAiOpponent(ai.id, { deckName: e.target.value })}
+                            placeholder="Deck name"
+                            style={{
+                              width: '100%',
+                              padding: '6px 10px',
+                              borderRadius: 4,
+                              border: '1px solid #ddd',
+                              fontSize: 12,
+                              boxSizing: 'border-box',
+                              marginBottom: 4,
+                            }}
+                          />
+                          <textarea
+                            value={ai.deckText}
+                            onChange={(e) => updateAiOpponent(ai.id, { deckText: e.target.value })}
+                            placeholder="Paste decklist here..."
+                            style={{
+                              width: '100%',
+                              height: 80,
+                              padding: '6px 10px',
+                              borderRadius: 4,
+                              border: '1px solid #ddd',
+                              fontSize: 11,
+                              boxSizing: 'border-box',
+                              resize: 'vertical',
+                              fontFamily: 'monospace',
+                            }}
+                          />
+                          <div style={{ display: 'flex', gap: 6, marginTop: 4, alignItems: 'center' }}>
+                            <button
+                              type="button"
+                              onClick={() => handleSaveAiDeck(ai.id)}
+                              disabled={!ai.deckText.trim() || !ai.deckName.trim() || savingDeck}
+                              style={{
+                                padding: '4px 10px',
+                                borderRadius: 4,
+                                border: 'none',
+                                backgroundColor: (!ai.deckText.trim() || !ai.deckName.trim() || savingDeck) ? '#ccc' : '#10b981',
+                                color: '#fff',
+                                cursor: (!ai.deckText.trim() || !ai.deckName.trim() || savingDeck) ? 'not-allowed' : 'pointer',
+                                fontSize: 11,
+                              }}
+                            >
+                              {savingDeck ? 'Saving...' : 'Save'}
+                            </button>
+                            {ai.deckText.trim() && (
+                              <span style={{ fontSize: 10, color: '#666' }}>
+                                Will import on game start
+                              </span>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
+              </div>
+            ))}
+            
+            {saveMessage && (
+              <div style={{ marginTop: 8, fontSize: 12, color: saveMessage.startsWith('✓') ? '#10b981' : '#ef4444' }}>
+                {saveMessage}
               </div>
             )}
           </div>
@@ -742,20 +876,25 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
                     Mulligan Rules
                   </div>
                   
-                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', marginBottom: 8 }}>
-                    <input
-                      type="checkbox"
-                      checked={freeFirstMulligan}
-                      onChange={(e) => setFreeFirstMulligan(e.target.checked)}
-                      style={{ width: 16, height: 16, marginTop: 2 }}
-                    />
+                  {/* Free First Mulligan - Now Baseline */}
+                  <div style={{ 
+                    display: 'flex', 
+                    alignItems: 'flex-start', 
+                    gap: 8, 
+                    marginBottom: 8,
+                    padding: 8,
+                    backgroundColor: '#d1fae5',
+                    borderRadius: 4,
+                    border: '1px solid #10b981',
+                  }}>
+                    <span style={{ fontSize: 14 }}>✓</span>
                     <div>
-                      <div style={{ fontSize: 13 }}>Free First Mulligan</div>
-                      <div style={{ fontSize: 11, color: '#666' }}>
-                        First mulligan in multiplayer is free (official Commander rule 103.5a)
+                      <div style={{ fontSize: 13, fontWeight: 500, color: '#065f46' }}>Free First Mulligan (Always Enabled)</div>
+                      <div style={{ fontSize: 11, color: '#047857' }}>
+                        First mulligan in multiplayer games (3+ players) is always free per official Commander rule 103.5a
                       </div>
                     </div>
-                  </label>
+                  </div>
                   
                   <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', marginBottom: 8 }}>
                     <input

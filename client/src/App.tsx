@@ -522,8 +522,17 @@ export function App() {
 
   // Handle game creation
   const handleCreateGame = (config: GameCreationConfig) => {
-    if (config.includeAI) {
-      // Create game with AI opponent
+    if (config.includeAI && config.aiOpponents && config.aiOpponents.length > 0) {
+      // Create game with multiple AI opponents
+      socket.emit('createGameWithMultipleAI' as any, {
+        gameId: config.gameId,
+        playerName: config.playerName,
+        format: config.format,
+        startingLife: config.startingLife,
+        aiOpponents: config.aiOpponents,
+      });
+    } else if (config.includeAI) {
+      // Legacy: Create game with single AI opponent
       socket.emit('createGameWithAI' as any, {
         gameId: config.gameId,
         playerName: config.playerName,
@@ -532,7 +541,6 @@ export function App() {
         aiName: config.aiName,
         aiStrategy: config.aiStrategy,
         aiDeckId: config.aiDeckId,
-        // New: support importing deck text directly
         aiDeckText: config.aiDeckText,
         aiDeckName: config.aiDeckName,
       });

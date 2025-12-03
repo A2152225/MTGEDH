@@ -157,8 +157,11 @@ function checkAllHumanPlayersMulliganed(game: any): boolean {
 }
 
 /**
- * Calculate the effective mulligan count for a player based on house rules.
+ * Calculate the effective mulligan count for a player based on game rules.
  * This determines how many cards they need to put back when keeping their hand.
+ * 
+ * In multiplayer games (3+ players), the first mulligan is always free per 
+ * official Commander/multiplayer rules (rule 103.5a). This is now baseline behavior.
  * 
  * @param actualMulligans - The actual number of mulligans taken
  * @param game - The game state
@@ -179,9 +182,11 @@ function calculateEffectiveMulliganCount(
   let effectiveCount = actualMulligans;
   
   // Free first mulligan in multiplayer (Commander rule 103.5a)
-  if (houseRules.freeFirstMulligan && isMultiplayer && actualMulligans >= 1) {
+  // This is now BASELINE behavior for multiplayer games - always enabled
+  // The house rule flag is kept for backward compatibility but is no longer required
+  if (isMultiplayer && actualMulligans >= 1) {
     effectiveCount = Math.max(0, actualMulligans - 1);
-    console.log(`[mulligan] Free first mulligan applied for ${playerId}: ${actualMulligans} -> ${effectiveCount}`);
+    console.log(`[mulligan] Free first mulligan applied for ${playerId} (multiplayer baseline): ${actualMulligans} -> ${effectiveCount}`);
   }
   
   // Group mulligan discount: if enabled and all human players mulliganed, reduce by 1
