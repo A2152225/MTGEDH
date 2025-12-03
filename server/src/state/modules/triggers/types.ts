@@ -242,19 +242,7 @@ export interface DoesntUntapEffect {
   isTemporary?: boolean;
 }
 
-/**
- * Card draw trigger
- */
-export interface CardDrawTrigger {
-  permanentId: string;
-  cardName: string;
-  controllerId: string;
-  triggerType: 'on_draw' | 'on_each_draw' | 'draw_replacement' | 'draw_for_opponents';
-  affectsPlayer?: 'controller' | 'all_players' | 'opponents';
-  additionalEffect?: string;
-  description: string;
-  mandatory: boolean;
-}
+// CardDrawTrigger is defined in card-draw.ts
 
 /**
  * Imprint effect (for Mimic Vat, etc.)
@@ -713,16 +701,7 @@ export interface TargetingProtection {
   description: string;
 }
 
-/**
- * Transform check result
- */
-export interface TransformCheckResult {
-  permanentId: string;
-  cardName: string;
-  shouldTransform: boolean;
-  reason: string;
-  newFace?: any;
-}
+// TransformCheckResult is defined in transform.ts
 
 /**
  * Hideaway ability
