@@ -6012,4 +6012,1305 @@ export function detectGroupDrawEffect(card: any, permanent: any): GroupDrawEffec
   return null;
 }
 
+// ============================================================================
+// Myriad Landscape and Multi-Target Land Search
+// ============================================================================
+
+/**
+ * Lands that search for multiple lands with a shared type:
+ * - Myriad Landscape: Search for 2 basic lands that share a land type
+ * - Blighted Woodland: Search for 2 basic lands
+ * - Krosan Verge: Search for a Forest and a Plains
+ */
+export interface MultiTargetLandSearch {
+  permanentId: string;
+  cardName: string;
+  cost: string;
+  searchCount: number;
+  landTypeRestriction: 'share_type' | 'basic' | 'specific_types';
+  specificTypes?: string[];
+  putOntoTapped: boolean;
+  requiresSacrifice: boolean;
+}
+
+const KNOWN_MULTI_TARGET_LAND_SEARCH: Record<string, Omit<MultiTargetLandSearch, 'permanentId' | 'cardName'>> = {
+  "myriad landscape": {
+    cost: "{2}, {T}, Sacrifice ~",
+    searchCount: 2,
+    landTypeRestriction: 'share_type',
+    putOntoTapped: true,
+    requiresSacrifice: true,
+  },
+  "blighted woodland": {
+    cost: "{3}{G}, {T}, Sacrifice ~",
+    searchCount: 2,
+    landTypeRestriction: 'basic',
+    putOntoTapped: true,
+    requiresSacrifice: true,
+  },
+  "krosan verge": {
+    cost: "{2}, {T}, Sacrifice ~",
+    searchCount: 2,
+    landTypeRestriction: 'specific_types',
+    specificTypes: ['forest', 'plains'],
+    putOntoTapped: true,
+    requiresSacrifice: true,
+  },
+  "terminal moraine": {
+    cost: "{2}, {T}, Sacrifice ~",
+    searchCount: 1,
+    landTypeRestriction: 'basic',
+    putOntoTapped: false,
+    requiresSacrifice: true,
+  },
+  "warped landscape": {
+    cost: "{1}, {T}, Sacrifice ~",
+    searchCount: 1,
+    landTypeRestriction: 'basic',
+    putOntoTapped: true,
+    requiresSacrifice: true,
+  },
+};
+
+export function detectMultiTargetLandSearch(card: any, permanent: any): MultiTargetLandSearch | null {
+  const cardName = (card?.name || "").toLowerCase();
+  
+  for (const [knownName, searchInfo] of Object.entries(KNOWN_MULTI_TARGET_LAND_SEARCH)) {
+    if (cardName.includes(knownName)) {
+      return {
+        permanentId: permanent?.id || '',
+        cardName: card?.name || knownName,
+        ...searchInfo,
+      };
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Validate that lands share a basic land type for Myriad Landscape
+ */
+export function validateSharedLandType(land1: any, land2: any): boolean {
+  const typeLine1 = (land1?.card?.type_line || "").toLowerCase();
+  const typeLine2 = (land2?.card?.type_line || "").toLowerCase();
+  
+  const basicTypes = ['plains', 'island', 'swamp', 'mountain', 'forest'];
+  
+  for (const basicType of basicTypes) {
+    if (typeLine1.includes(basicType) && typeLine2.includes(basicType)) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+// ============================================================================
+// Castle Garenbrig and Conditional ETB Tapped
+// ============================================================================
+
+/**
+ * Lands that enter tapped unless a condition is met:
+ * - Castle Garenbrig: Unless you control a Forest
+ * - Castle Vantress: Unless you control an Island
+ * - Castle Locthwain: Unless you control a Swamp
+ * - Castle Embereth: Unless you control a Mountain
+ * - Castle Ardenvale: Unless you control a Plains
+ * - Checklands (Dragonskull Summit, etc.): Unless you control a [type]
+ */
+export interface ConditionalETBTapped {
+  cardName: string;
+  condition: string;
+  requiredLandType?: string;
+  requiredLandTypes?: string[];
+  alternateCondition?: string;
+}
+
+const KNOWN_CONDITIONAL_ETB_TAPPED: Record<string, ConditionalETBTapped> = {
+  // Castle lands (Eldraine)
+  "castle garenbrig": {
+    cardName: "Castle Garenbrig",
+    condition: "Unless you control a Forest",
+    requiredLandType: 'forest',
+  },
+  "castle vantress": {
+    cardName: "Castle Vantress",
+    condition: "Unless you control an Island",
+    requiredLandType: 'island',
+  },
+  "castle locthwain": {
+    cardName: "Castle Locthwain",
+    condition: "Unless you control a Swamp",
+    requiredLandType: 'swamp',
+  },
+  "castle embereth": {
+    cardName: "Castle Embereth",
+    condition: "Unless you control a Mountain",
+    requiredLandType: 'mountain',
+  },
+  "castle ardenvale": {
+    cardName: "Castle Ardenvale",
+    condition: "Unless you control a Plains",
+    requiredLandType: 'plains',
+  },
+  // Checklands (M10/Innistrad)
+  "dragonskull summit": {
+    cardName: "Dragonskull Summit",
+    condition: "Unless you control a Swamp or a Mountain",
+    requiredLandTypes: ['swamp', 'mountain'],
+  },
+  "drowned catacomb": {
+    cardName: "Drowned Catacomb",
+    condition: "Unless you control an Island or a Swamp",
+    requiredLandTypes: ['island', 'swamp'],
+  },
+  "glacial fortress": {
+    cardName: "Glacial Fortress",
+    condition: "Unless you control a Plains or an Island",
+    requiredLandTypes: ['plains', 'island'],
+  },
+  "rootbound crag": {
+    cardName: "Rootbound Crag",
+    condition: "Unless you control a Mountain or a Forest",
+    requiredLandTypes: ['mountain', 'forest'],
+  },
+  "sunpetal grove": {
+    cardName: "Sunpetal Grove",
+    condition: "Unless you control a Forest or a Plains",
+    requiredLandTypes: ['forest', 'plains'],
+  },
+  "clifftop retreat": {
+    cardName: "Clifftop Retreat",
+    condition: "Unless you control a Mountain or a Plains",
+    requiredLandTypes: ['mountain', 'plains'],
+  },
+  "hinterland harbor": {
+    cardName: "Hinterland Harbor",
+    condition: "Unless you control a Forest or an Island",
+    requiredLandTypes: ['forest', 'island'],
+  },
+  "isolated chapel": {
+    cardName: "Isolated Chapel",
+    condition: "Unless you control a Plains or a Swamp",
+    requiredLandTypes: ['plains', 'swamp'],
+  },
+  "sulfur falls": {
+    cardName: "Sulfur Falls",
+    condition: "Unless you control an Island or a Mountain",
+    requiredLandTypes: ['island', 'mountain'],
+  },
+  "woodland cemetery": {
+    cardName: "Woodland Cemetery",
+    condition: "Unless you control a Swamp or a Forest",
+    requiredLandTypes: ['swamp', 'forest'],
+  },
+};
+
+export function detectConditionalETBTapped(card: any): ConditionalETBTapped | null {
+  const cardName = (card?.name || "").toLowerCase();
+  
+  for (const [knownName, condition] of Object.entries(KNOWN_CONDITIONAL_ETB_TAPPED)) {
+    if (cardName.includes(knownName)) {
+      return condition;
+    }
+  }
+  
+  // Dynamic detection from oracle text
+  const oracleText = (card?.oracle_text || "").toLowerCase();
+  
+  // Pattern: "enters the battlefield tapped unless you control a [land type]"
+  const unlessControlMatch = oracleText.match(
+    /enters the battlefield tapped unless you control (?:a|an) (\w+)(?: or (?:a|an) (\w+))?/i
+  );
+  
+  if (unlessControlMatch) {
+    const type1 = unlessControlMatch[1];
+    const type2 = unlessControlMatch[2];
+    
+    if (type2) {
+      return {
+        cardName: card?.name || 'Unknown',
+        condition: `Unless you control a ${type1} or a ${type2}`,
+        requiredLandTypes: [type1, type2],
+      };
+    } else {
+      return {
+        cardName: card?.name || 'Unknown',
+        condition: `Unless you control a ${type1}`,
+        requiredLandType: type1,
+      };
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Check if the conditional ETB tapped condition is met (enters untapped)
+ */
+export function checkConditionalETBMet(
+  condition: ConditionalETBTapped,
+  gameState: any,
+  playerId: string
+): boolean {
+  const battlefield = gameState?.battlefield || [];
+  
+  // Check if player controls the required land type(s)
+  const controlledLands = battlefield.filter((p: any) => 
+    p?.controller === playerId &&
+    (p.card?.type_line || '').toLowerCase().includes('land')
+  );
+  
+  if (condition.requiredLandType) {
+    return controlledLands.some((land: any) => 
+      (land.card?.type_line || '').toLowerCase().includes(condition.requiredLandType!)
+    );
+  }
+  
+  if (condition.requiredLandTypes) {
+    return controlledLands.some((land: any) => {
+      const typeLine = (land.card?.type_line || '').toLowerCase();
+      return condition.requiredLandTypes!.some(type => typeLine.includes(type));
+    });
+  }
+  
+  return false;
+}
+
+// ============================================================================
+// Staff of Domination Multi-Mode Abilities
+// ============================================================================
+
+/**
+ * Cards with multiple activated abilities (modal artifacts):
+ * - Staff of Domination: Multiple tap abilities with different costs
+ * - Birthing Pod: Multiple activation options
+ * - Nevinyrral's Disk: Single but important activated ability
+ */
+export interface MultiModeActivatedAbility {
+  permanentId: string;
+  cardName: string;
+  modes: {
+    name: string;
+    cost: string;
+    effect: string;
+    requiresTarget: boolean;
+    targetType?: string;
+  }[];
+}
+
+const KNOWN_MULTI_MODE_ABILITIES: Record<string, { modes: MultiModeActivatedAbility['modes'] }> = {
+  "staff of domination": {
+    modes: [
+      { name: "Untap Staff", cost: "{1}", effect: "Untap Staff of Domination", requiresTarget: false },
+      { name: "Draw Card", cost: "{5}, {T}", effect: "Draw a card", requiresTarget: false },
+      { name: "Gain 1 Life", cost: "{3}, {T}", effect: "You gain 1 life", requiresTarget: false },
+      { name: "Untap Creature", cost: "{4}, {T}", effect: "Untap target creature", requiresTarget: true, targetType: 'creature' },
+      { name: "Tap Creature", cost: "{2}, {T}", effect: "Tap target creature", requiresTarget: true, targetType: 'creature' },
+    ],
+  },
+  "trading post": {
+    modes: [
+      { name: "Discard, Gain Life", cost: "{1}, {T}, Discard a card", effect: "You gain 4 life", requiresTarget: false },
+      { name: "Pay Life, Draw", cost: "{1}, {T}, Pay 1 life", effect: "Put the top card of your library into your graveyard, then draw a card", requiresTarget: false },
+      { name: "Sacrifice Creature, Return Artifact", cost: "{1}, {T}, Sacrifice a creature", effect: "Return target artifact card from your graveyard to your hand", requiresTarget: true, targetType: 'artifact_in_graveyard' },
+      { name: "Sacrifice Artifact, Create Goat", cost: "{1}, {T}, Sacrifice an artifact", effect: "Create a 0/1 white Goat creature token", requiresTarget: false },
+    ],
+  },
+  "mind stone": {
+    modes: [
+      { name: "Tap for Mana", cost: "{T}", effect: "Add {C}", requiresTarget: false },
+      { name: "Sacrifice for Card", cost: "{1}, {T}, Sacrifice ~", effect: "Draw a card", requiresTarget: false },
+    ],
+  },
+  "commander's sphere": {
+    modes: [
+      { name: "Tap for Mana", cost: "{T}", effect: "Add one mana of any color in your commander's color identity", requiresTarget: false },
+      { name: "Sacrifice for Card", cost: "Sacrifice ~", effect: "Draw a card", requiresTarget: false },
+    ],
+  },
+};
+
+export function detectMultiModeAbility(card: any, permanent: any): MultiModeActivatedAbility | null {
+  const cardName = (card?.name || "").toLowerCase();
+  
+  for (const [knownName, abilityInfo] of Object.entries(KNOWN_MULTI_MODE_ABILITIES)) {
+    if (cardName.includes(knownName)) {
+      return {
+        permanentId: permanent?.id || '',
+        cardName: card?.name || knownName,
+        modes: abilityInfo.modes,
+      };
+    }
+  }
+  
+  return null;
+}
+
+// ============================================================================
+// Genesis Wave and Library Reveal/Play Effects
+// ============================================================================
+
+/**
+ * Cards that reveal cards from library and put them onto battlefield:
+ * - Genesis Wave: Reveal X cards, put permanents with MV X or less onto battlefield
+ * - Collected Company: Look at top 6, put 2 creatures (MV 3 or less) onto battlefield
+ * - Finale of Devastation: Search for creature, put onto battlefield
+ * - Chord of Calling: Search for creature with MV X or less
+ * - Green Sun's Zenith: Search for green creature with MV X or less
+ */
+export interface LibraryRevealPlayEffect {
+  cardName: string;
+  revealCount: number | 'X';
+  xMultiplier?: number;
+  filterType: 'permanent_mv' | 'creature_mv' | 'land' | 'any';
+  maxMV?: number | 'X';
+  destination: 'battlefield' | 'hand' | 'graveyard' | 'bottom';
+  additionalEffect?: string;
+}
+
+const KNOWN_LIBRARY_REVEAL_PLAY: Record<string, LibraryRevealPlayEffect> = {
+  "genesis wave": {
+    cardName: "Genesis Wave",
+    revealCount: 'X',
+    filterType: 'permanent_mv',
+    maxMV: 'X',
+    destination: 'battlefield',
+    additionalEffect: "Put the rest on the bottom of your library in any order",
+  },
+  "collected company": {
+    cardName: "Collected Company",
+    revealCount: 6,
+    filterType: 'creature_mv',
+    maxMV: 3,
+    destination: 'battlefield',
+    additionalEffect: "Put up to 2 creatures onto the battlefield",
+  },
+  "finale of devastation": {
+    cardName: "Finale of Devastation",
+    revealCount: 'X',
+    filterType: 'creature_mv',
+    maxMV: 'X',
+    destination: 'battlefield',
+    additionalEffect: "If X is 10 or more, creatures get +X/+X and haste",
+  },
+  "chord of calling": {
+    cardName: "Chord of Calling",
+    revealCount: 0, // Searches directly, doesn't reveal
+    filterType: 'creature_mv',
+    maxMV: 'X',
+    destination: 'battlefield',
+  },
+  "green sun's zenith": {
+    cardName: "Green Sun's Zenith",
+    revealCount: 0, // Searches directly
+    filterType: 'creature_mv', // Green creature specifically
+    maxMV: 'X',
+    destination: 'battlefield',
+    additionalEffect: "Shuffle this card into your library",
+  },
+  "natural order": {
+    cardName: "Natural Order",
+    revealCount: 0, // Searches directly
+    filterType: 'creature_mv', // Green creature specifically
+    destination: 'battlefield',
+    additionalEffect: "Sacrifice a green creature as additional cost",
+  },
+  "see the unwritten": {
+    cardName: "See the Unwritten",
+    revealCount: 8,
+    filterType: 'creature_mv',
+    destination: 'battlefield',
+    additionalEffect: "Ferocious: Put 2 creatures if you control creature with power 4+",
+  },
+};
+
+export function detectLibraryRevealPlayEffect(card: any): LibraryRevealPlayEffect | null {
+  const cardName = (card?.name || "").toLowerCase();
+  
+  for (const [knownName, effectInfo] of Object.entries(KNOWN_LIBRARY_REVEAL_PLAY)) {
+    if (cardName.includes(knownName)) {
+      return effectInfo;
+    }
+  }
+  
+  return null;
+}
+
+// ============================================================================
+// Reanimate and Graveyard to Battlefield Effects
+// ============================================================================
+
+/**
+ * Cards that return creatures from graveyard to battlefield:
+ * - Reanimate: Return target creature, lose life equal to MV
+ * - Animate Dead: Enchant creature in graveyard, bring to battlefield
+ * - Living Death: Swap creatures in graveyards with battlefield
+ * - Victimize: Sacrifice, return 2 creatures
+ */
+export interface ReanimateEffect {
+  cardName: string;
+  targetType: 'creature' | 'permanent' | 'any_graveyard';
+  targetCount: number | 'all';
+  fromGraveyard: 'any' | 'opponent' | 'yours';
+  lifeCost?: 'mv' | 'fixed';
+  lifeCostAmount?: number;
+  additionalCost?: string;
+  entersState?: 'tapped' | 'normal';
+  additionalEffect?: string;
+}
+
+const KNOWN_REANIMATE_EFFECTS: Record<string, ReanimateEffect> = {
+  "reanimate": {
+    cardName: "Reanimate",
+    targetType: 'creature',
+    targetCount: 1,
+    fromGraveyard: 'any',
+    lifeCost: 'mv',
+    entersState: 'normal',
+  },
+  "animate dead": {
+    cardName: "Animate Dead",
+    targetType: 'creature',
+    targetCount: 1,
+    fromGraveyard: 'any',
+    entersState: 'normal',
+    additionalEffect: "Creature gets -1/-0",
+  },
+  "exhume": {
+    cardName: "Exhume",
+    targetType: 'creature',
+    targetCount: 1,
+    fromGraveyard: 'any', // Each player returns one
+    entersState: 'normal',
+    additionalEffect: "Each player returns a creature",
+  },
+  "living death": {
+    cardName: "Living Death",
+    targetType: 'creature',
+    targetCount: 'all',
+    fromGraveyard: 'any',
+    entersState: 'normal',
+    additionalEffect: "Exile all creatures on battlefield, return all creatures from graveyards",
+  },
+  "victimize": {
+    cardName: "Victimize",
+    targetType: 'creature',
+    targetCount: 2,
+    fromGraveyard: 'yours',
+    entersState: 'tapped',
+    additionalCost: "Sacrifice a creature",
+  },
+  "zombify": {
+    cardName: "Zombify",
+    targetType: 'creature',
+    targetCount: 1,
+    fromGraveyard: 'yours',
+    entersState: 'normal',
+  },
+  "unburial rites": {
+    cardName: "Unburial Rites",
+    targetType: 'creature',
+    targetCount: 1,
+    fromGraveyard: 'yours',
+    entersState: 'normal',
+    additionalEffect: "Has flashback",
+  },
+  "dread return": {
+    cardName: "Dread Return",
+    targetType: 'creature',
+    targetCount: 1,
+    fromGraveyard: 'yours',
+    entersState: 'normal',
+    additionalEffect: "Has flashback (sacrifice 3 creatures)",
+  },
+  "beacon of unrest": {
+    cardName: "Beacon of Unrest",
+    targetType: 'creature',
+    targetCount: 1,
+    fromGraveyard: 'any',
+    entersState: 'normal',
+    additionalEffect: "Can also return artifacts, shuffle into library",
+  },
+  "karmic guide": {
+    cardName: "Karmic Guide",
+    targetType: 'creature',
+    targetCount: 1,
+    fromGraveyard: 'yours',
+    entersState: 'normal',
+    additionalEffect: "ETB trigger",
+  },
+  "reveillark": {
+    cardName: "Reveillark",
+    targetType: 'creature',
+    targetCount: 2,
+    fromGraveyard: 'yours',
+    entersState: 'normal',
+    additionalEffect: "Power 2 or less, LTB trigger",
+  },
+  "sun titan": {
+    cardName: "Sun Titan",
+    targetType: 'permanent',
+    targetCount: 1,
+    fromGraveyard: 'yours',
+    entersState: 'normal',
+    additionalEffect: "MV 3 or less, ETB and attack trigger",
+  },
+};
+
+export function detectReanimateEffect(card: any): ReanimateEffect | null {
+  const cardName = (card?.name || "").toLowerCase();
+  
+  for (const [knownName, effectInfo] of Object.entries(KNOWN_REANIMATE_EFFECTS)) {
+    if (cardName.includes(knownName)) {
+      return effectInfo;
+    }
+  }
+  
+  return null;
+}
+
+// ============================================================================
+// Eladamri and Top Card Viewing Effects
+// ============================================================================
+
+/**
+ * Cards that let you look at the top card(s) of your library:
+ * - Eladamri, Lord of Leaves: Look at top card, may play forests
+ * - Courser of Kruphix: Play lands from top
+ * - Oracle of Mul Daya: Play lands from top, additional land drop
+ * - Vizier of the Menagerie: Cast creatures from top
+ * - Future Sight: Play cards from top
+ */
+export interface TopCardViewEffect {
+  permanentId: string;
+  cardName: string;
+  viewCount: number;
+  revealToAll: boolean;
+  canPlayTypes?: string[];
+  additionalLandDrop?: boolean;
+}
+
+const KNOWN_TOP_CARD_VIEW: Record<string, Omit<TopCardViewEffect, 'permanentId' | 'cardName'>> = {
+  "courser of kruphix": {
+    viewCount: 1,
+    revealToAll: true,
+    canPlayTypes: ['land'],
+  },
+  "oracle of mul daya": {
+    viewCount: 1,
+    revealToAll: true,
+    canPlayTypes: ['land'],
+    additionalLandDrop: true,
+  },
+  "vizier of the menagerie": {
+    viewCount: 1,
+    revealToAll: false, // Can look, but only revealed when you cast
+    canPlayTypes: ['creature'],
+  },
+  "future sight": {
+    viewCount: 1,
+    revealToAll: true,
+    canPlayTypes: ['land', 'creature', 'artifact', 'enchantment', 'planeswalker', 'instant', 'sorcery'],
+  },
+  "precognition field": {
+    viewCount: 1,
+    revealToAll: false,
+    canPlayTypes: ['instant', 'sorcery'],
+  },
+  "bolas's citadel": {
+    viewCount: 1,
+    revealToAll: true,
+    canPlayTypes: ['land', 'creature', 'artifact', 'enchantment', 'planeswalker', 'instant', 'sorcery'],
+    // Note: Pays life equal to MV instead of mana cost
+  },
+  "experimental frenzy": {
+    viewCount: 1,
+    revealToAll: true,
+    canPlayTypes: ['land', 'creature', 'artifact', 'enchantment', 'planeswalker', 'instant', 'sorcery'],
+    // Note: Can't play cards from hand
+  },
+  "radha, heart of keld": {
+    viewCount: 1,
+    revealToAll: false,
+    canPlayTypes: ['land'],
+  },
+  "garruk's horde": {
+    viewCount: 1,
+    revealToAll: true,
+    canPlayTypes: ['creature'],
+  },
+};
+
+export function detectTopCardViewEffect(card: any, permanent: any): TopCardViewEffect | null {
+  const cardName = (card?.name || "").toLowerCase();
+  
+  for (const [knownName, effectInfo] of Object.entries(KNOWN_TOP_CARD_VIEW)) {
+    if (cardName.includes(knownName)) {
+      return {
+        permanentId: permanent?.id || '',
+        cardName: card?.name || knownName,
+        ...effectInfo,
+      };
+    }
+  }
+  
+  return null;
+}
+
+// ============================================================================
+// Traverse the Outlands and Power-Based Land Search
+// ============================================================================
+
+/**
+ * Cards that search for lands based on creature power or other variable:
+ * - Traverse the Outlands: Search for X basic lands where X = greatest power
+ * - Boundless Realms: Search for basic lands up to number you control
+ * - Reshape the Earth: Search for any 10 lands
+ */
+export interface PowerBasedLandSearch {
+  cardName: string;
+  searchBasis: 'greatest_power' | 'lands_controlled' | 'fixed';
+  landType: 'basic' | 'any';
+  fixedCount?: number;
+  entersTapped: boolean;
+}
+
+const KNOWN_POWER_BASED_LAND_SEARCH: Record<string, PowerBasedLandSearch> = {
+  "traverse the outlands": {
+    cardName: "Traverse the Outlands",
+    searchBasis: 'greatest_power',
+    landType: 'basic',
+    entersTapped: true,
+  },
+  "boundless realms": {
+    cardName: "Boundless Realms",
+    searchBasis: 'lands_controlled',
+    landType: 'basic',
+    entersTapped: true,
+  },
+  "reshape the earth": {
+    cardName: "Reshape the Earth",
+    searchBasis: 'fixed',
+    landType: 'any',
+    fixedCount: 10,
+    entersTapped: true,
+  },
+  "scapeshift": {
+    cardName: "Scapeshift",
+    searchBasis: 'lands_controlled', // Sacrifice any number, search that many
+    landType: 'any',
+    entersTapped: false,
+  },
+};
+
+export function detectPowerBasedLandSearch(card: any): PowerBasedLandSearch | null {
+  const cardName = (card?.name || "").toLowerCase();
+  
+  for (const [knownName, searchInfo] of Object.entries(KNOWN_POWER_BASED_LAND_SEARCH)) {
+    if (cardName.includes(knownName)) {
+      return searchInfo;
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Calculate the number of lands to search for based on game state
+ */
+export function calculateLandSearchCount(
+  effect: PowerBasedLandSearch,
+  gameState: any,
+  playerId: string
+): number {
+  const battlefield = gameState?.battlefield || [];
+  
+  if (effect.searchBasis === 'fixed' && effect.fixedCount) {
+    return effect.fixedCount;
+  }
+  
+  if (effect.searchBasis === 'greatest_power') {
+    let greatestPower = 0;
+    for (const perm of battlefield) {
+      if (!perm || perm.controller !== playerId) continue;
+      const typeLine = (perm.card?.type_line || '').toLowerCase();
+      if (!typeLine.includes('creature')) continue;
+      
+      const power = perm.basePower ?? perm.card?.power ?? 0;
+      const numPower = typeof power === 'string' ? parseInt(power, 10) || 0 : power;
+      if (numPower > greatestPower) greatestPower = numPower;
+    }
+    return greatestPower;
+  }
+  
+  if (effect.searchBasis === 'lands_controlled') {
+    return battlefield.filter((p: any) =>
+      p?.controller === playerId &&
+      (p.card?.type_line || '').toLowerCase().includes('land')
+    ).length;
+  }
+  
+  return 0;
+}
+
+// ============================================================================
+// Charge Counter Support (Everflowing Chalice, Evendo, etc.)
+// ============================================================================
+
+/**
+ * Permanents that use charge counters for effects:
+ * - Everflowing Chalice: Add {C} for each charge counter
+ * - Astral Cornucopia: Add mana equal to charge counters
+ * - Lux Cannon: Remove 3 counters to destroy permanent
+ * - Titan Forge: Remove 3 counters to create 9/9 Golem
+ */
+export interface ChargeCounterAbility {
+  permanentId: string;
+  cardName: string;
+  addCounterCost?: string;
+  useCountersCost?: string;
+  useCountersAmount?: number;
+  effect: string;
+  effectType: 'mana_per_counter' | 'threshold_effect' | 'per_counter_effect';
+}
+
+const KNOWN_CHARGE_COUNTER_ABILITIES: Record<string, Omit<ChargeCounterAbility, 'permanentId' | 'cardName'>> = {
+  "everflowing chalice": {
+    effect: "Add {C} for each charge counter",
+    effectType: 'mana_per_counter',
+  },
+  "astral cornucopia": {
+    effect: "Add X mana of any one color where X is charge counters",
+    effectType: 'mana_per_counter',
+  },
+  "lux cannon": {
+    addCounterCost: "{T}",
+    useCountersCost: "{T}, Remove 3 charge counters",
+    useCountersAmount: 3,
+    effect: "Destroy target permanent",
+    effectType: 'threshold_effect',
+  },
+  "titan forge": {
+    addCounterCost: "{3}, {T}",
+    useCountersCost: "{T}, Remove 3 charge counters",
+    useCountersAmount: 3,
+    effect: "Create a 9/9 colorless Golem artifact creature token",
+    effectType: 'threshold_effect',
+  },
+  "gemstone array": {
+    addCounterCost: "{2}",
+    useCountersCost: "Remove a charge counter",
+    useCountersAmount: 1,
+    effect: "Add one mana of any color",
+    effectType: 'per_counter_effect',
+  },
+  "surge node": {
+    addCounterCost: "{1}, {T}",
+    useCountersCost: "{1}, {T}, Remove a charge counter",
+    useCountersAmount: 1,
+    effect: "Put a charge counter on target artifact",
+    effectType: 'per_counter_effect',
+  },
+};
+
+export function detectChargeCounterAbility(card: any, permanent: any): ChargeCounterAbility | null {
+  const cardName = (card?.name || "").toLowerCase();
+  
+  for (const [knownName, abilityInfo] of Object.entries(KNOWN_CHARGE_COUNTER_ABILITIES)) {
+    if (cardName.includes(knownName)) {
+      return {
+        permanentId: permanent?.id || '',
+        cardName: card?.name || knownName,
+        ...abilityInfo,
+      };
+    }
+  }
+  
+  return null;
+}
+
+// ============================================================================
+// Special Cards: Chameleon Colossus, March of the World Ooze, etc.
+// ============================================================================
+
+/**
+ * Cards with unique activated or triggered abilities that need special handling:
+ * - Chameleon Colossus: Double power/toughness activated ability
+ * - March of the Ooze: Token creation based on counters
+ * - Tale of Katara and Toph: Saga with unique effects
+ * - The Seriema: Transform conditions
+ */
+export interface SpecialCardEffect {
+  permanentId: string;
+  cardName: string;
+  effectType: 'double_pt' | 'counter_based_tokens' | 'saga' | 'transform' | 'protection_from_all' | 'changeling';
+  activatedAbilityCost?: string;
+  effect: string;
+  additionalInfo?: Record<string, any>;
+}
+
+const KNOWN_SPECIAL_CARDS: Record<string, Omit<SpecialCardEffect, 'permanentId' | 'cardName'>> = {
+  "chameleon colossus": {
+    effectType: 'double_pt',
+    activatedAbilityCost: "{2}{G}{G}",
+    effect: "Chameleon Colossus gets +X/+X until end of turn, where X is its power",
+    additionalInfo: {
+      hasChangeling: true,
+      hasProtectionFromBlack: true,
+    },
+  },
+  "progenitus": {
+    effectType: 'protection_from_all',
+    effect: "Protection from everything",
+    additionalInfo: {
+      shuffleWhenToGraveyard: true,
+    },
+  },
+  "mistform ultimus": {
+    effectType: 'changeling',
+    effect: "Is every creature type",
+  },
+  "morophon, the boundless": {
+    effectType: 'changeling',
+    effect: "Is every creature type, chosen type spells cost WUBRG less",
+  },
+};
+
+export function detectSpecialCardEffect(card: any, permanent: any): SpecialCardEffect | null {
+  const cardName = (card?.name || "").toLowerCase();
+  const oracleText = (card?.oracle_text || "").toLowerCase();
+  
+  for (const [knownName, effectInfo] of Object.entries(KNOWN_SPECIAL_CARDS)) {
+    if (cardName.includes(knownName)) {
+      return {
+        permanentId: permanent?.id || '',
+        cardName: card?.name || knownName,
+        ...effectInfo,
+      };
+    }
+  }
+  
+  // Dynamic detection for changeling
+  if (oracleText.includes('changeling') || 
+      (card?.keywords || []).some((k: string) => k.toLowerCase() === 'changeling')) {
+    return {
+      permanentId: permanent?.id || '',
+      cardName: card?.name || 'Unknown',
+      effectType: 'changeling',
+      effect: "Is every creature type",
+    };
+  }
+  
+  // Dynamic detection for protection from everything
+  if (oracleText.includes('protection from everything')) {
+    return {
+      permanentId: permanent?.id || '',
+      cardName: card?.name || 'Unknown',
+      effectType: 'protection_from_all',
+      effect: "Protection from everything",
+    };
+  }
+  
+  // Dynamic detection for double power/toughness
+  if (oracleText.match(/gets?\s+\+x\/\+x.*where\s+x\s+is\s+its\s+power/i)) {
+    const costMatch = oracleText.match(/(\{[^}]+\}(?:\{[^}]+\})*)\s*:/);
+    return {
+      permanentId: permanent?.id || '',
+      cardName: card?.name || 'Unknown',
+      effectType: 'double_pt',
+      activatedAbilityCost: costMatch ? costMatch[1] : undefined,
+      effect: "Gets +X/+X where X is its power",
+    };
+  }
+  
+  return null;
+}
+
+// ============================================================================
+// Planeswalker Loyalty Ability Support
+// ============================================================================
+
+/**
+ * Planeswalker loyalty abilities parsed from oracle text
+ */
+export interface LoyaltyAbility {
+  cost: number; // Positive = add loyalty, negative = remove, 0 = static
+  effect: string;
+  requiresTarget: boolean;
+  targetType?: string;
+  isUltimate?: boolean;
+}
+
+export interface PlaneswalkerAbilities {
+  permanentId: string;
+  cardName: string;
+  startingLoyalty: number;
+  abilities: LoyaltyAbility[];
+}
+
+/**
+ * Parse planeswalker abilities from oracle text
+ */
+export function parsePlaneswalkerAbilities(card: any, permanent: any): PlaneswalkerAbilities | null {
+  const oracleText = card?.oracle_text || "";
+  const typeLine = (card?.type_line || "").toLowerCase();
+  
+  if (!typeLine.includes('planeswalker')) {
+    return null;
+  }
+  
+  const startingLoyalty = card?.loyalty ? parseInt(card.loyalty, 10) : 0;
+  const abilities: LoyaltyAbility[] = [];
+  
+  // Parse loyalty abilities: [+X], [-X], [0]
+  // Pattern: [+2]: Effect text or [-3]: Effect text
+  const loyaltyPattern = /\[([+-]?\d+)\]:\s*([^[]+?)(?=\s*\[[+-]?\d+\]:|$)/gi;
+  let match;
+  
+  while ((match = loyaltyPattern.exec(oracleText)) !== null) {
+    const cost = parseInt(match[1], 10);
+    const effect = match[2].trim();
+    
+    // Detect if this ability requires a target
+    const requiresTarget = 
+      effect.toLowerCase().includes('target') ||
+      effect.toLowerCase().includes('choose');
+    
+    // Detect target type
+    let targetType: string | undefined;
+    if (requiresTarget) {
+      if (effect.toLowerCase().includes('target creature')) targetType = 'creature';
+      else if (effect.toLowerCase().includes('target player')) targetType = 'player';
+      else if (effect.toLowerCase().includes('target permanent')) targetType = 'permanent';
+      else if (effect.toLowerCase().includes('target land')) targetType = 'land';
+    }
+    
+    // Detect if this is the "ultimate" (typically largest negative cost)
+    const isUltimate = cost < -5;
+    
+    abilities.push({
+      cost,
+      effect,
+      requiresTarget,
+      targetType,
+      isUltimate,
+    });
+  }
+  
+  if (abilities.length === 0) {
+    return null;
+  }
+  
+  return {
+    permanentId: permanent?.id || '',
+    cardName: card?.name || 'Unknown Planeswalker',
+    startingLoyalty,
+    abilities,
+  };
+}
+
+/**
+ * Check if a planeswalker can activate a specific ability
+ * (Once per turn per planeswalker, at sorcery speed, loyalty requirement met)
+ */
+export function canActivateLoyaltyAbility(
+  permanent: any,
+  abilityIndex: number,
+  gameState: any,
+  playerId: string
+): { canActivate: boolean; reason?: string } {
+  // Check controller
+  if (permanent?.controller !== playerId) {
+    return { canActivate: false, reason: "Not your planeswalker" };
+  }
+  
+  // Check if already activated this turn
+  if (permanent?.loyaltyActivatedThisTurn) {
+    return { canActivate: false, reason: "Already activated a loyalty ability this turn" };
+  }
+  
+  // Check current loyalty
+  const currentLoyalty = permanent?.counters?.loyalty || permanent?.card?.loyalty || 0;
+  const abilities = parsePlaneswalkerAbilities(permanent?.card, permanent);
+  
+  if (!abilities || abilityIndex >= abilities.abilities.length) {
+    return { canActivate: false, reason: "Invalid ability" };
+  }
+  
+  const ability = abilities.abilities[abilityIndex];
+  
+  // For minus abilities, check if we have enough loyalty
+  if (ability.cost < 0 && currentLoyalty < Math.abs(ability.cost)) {
+    return { canActivate: false, reason: `Not enough loyalty (have ${currentLoyalty}, need ${Math.abs(ability.cost)})` };
+  }
+  
+  // Check sorcery speed (main phase, stack empty, have priority)
+  const phase = gameState?.phase || '';
+  const stack = gameState?.stack || [];
+  const activePlayer = gameState?.activePlayer;
+  
+  if (!phase.includes('main') || stack.length > 0) {
+    return { canActivate: false, reason: "Can only activate at sorcery speed" };
+  }
+  
+  if (activePlayer !== playerId) {
+    return { canActivate: false, reason: "Not your turn" };
+  }
+  
+  return { canActivate: true };
+}
+
+// ============================================================================
+// Beginning of Combat Triggers
+// ============================================================================
+
+/**
+ * Get all beginning of combat triggers for a player
+ */
+export function getBeginningOfCombatTriggers(
+  gameState: any,
+  activePlayerId: string
+): RegisteredTrigger[] {
+  const triggers: RegisteredTrigger[] = [];
+  const battlefield = gameState?.battlefield || [];
+  
+  for (const permanent of battlefield) {
+    if (!permanent) continue;
+    
+    const card = permanent.card;
+    const oracleText = (card?.oracle_text || "").toLowerCase();
+    const cardName = card?.name || "Unknown";
+    const controllerId = permanent.controller;
+    
+    // "At the beginning of combat on your turn"
+    if (controllerId === activePlayerId) {
+      const combatMatch = oracleText.match(
+        /at the beginning of combat on your turn,?\s*([^.]+)/i
+      );
+      
+      if (combatMatch) {
+        triggers.push({
+          id: `${permanent.id}_begin_combat`,
+          permanentId: permanent.id,
+          controllerId,
+          cardName,
+          timing: 'begin_combat',
+          effect: combatMatch[1].trim(),
+          mandatory: !combatMatch[1].includes('you may'),
+        });
+      }
+    }
+    
+    // "At the beginning of each combat" (triggers on all turns)
+    const eachCombatMatch = oracleText.match(
+      /at the beginning of (?:each )?combat,?\s*([^.]+)/i
+    );
+    
+    if (eachCombatMatch && !oracleText.includes('on your turn')) {
+      triggers.push({
+        id: `${permanent.id}_each_combat`,
+        permanentId: permanent.id,
+        controllerId,
+        cardName,
+        timing: 'begin_combat',
+        effect: eachCombatMatch[1].trim(),
+        mandatory: !eachCombatMatch[1].includes('you may'),
+      });
+    }
+  }
+  
+  return triggers;
+}
+
+// ============================================================================
+// End Step Triggers
+// ============================================================================
+
+/**
+ * Get all end step triggers for the current turn
+ */
+export function getEndStepTriggers(
+  gameState: any,
+  activePlayerId: string
+): RegisteredTrigger[] {
+  const triggers: RegisteredTrigger[] = [];
+  const battlefield = gameState?.battlefield || [];
+  
+  for (const permanent of battlefield) {
+    if (!permanent) continue;
+    
+    const card = permanent.card;
+    const oracleText = (card?.oracle_text || "").toLowerCase();
+    const cardName = card?.name || "Unknown";
+    const controllerId = permanent.controller;
+    
+    // "At the beginning of your end step"
+    if (controllerId === activePlayerId) {
+      const endStepMatch = oracleText.match(
+        /at the beginning of your end step,?\s*([^.]+)/i
+      );
+      
+      if (endStepMatch) {
+        triggers.push({
+          id: `${permanent.id}_your_end_step`,
+          permanentId: permanent.id,
+          controllerId,
+          cardName,
+          timing: 'end_step',
+          effect: endStepMatch[1].trim(),
+          mandatory: !endStepMatch[1].includes('you may'),
+        });
+      }
+    }
+    
+    // "At the beginning of each end step" (triggers on all turns)
+    const eachEndStepMatch = oracleText.match(
+      /at the beginning of (?:each (?:player's )?)?end step,?\s*([^.]+)/i
+    );
+    
+    if (eachEndStepMatch && !oracleText.includes('your end step')) {
+      triggers.push({
+        id: `${permanent.id}_each_end_step`,
+        permanentId: permanent.id,
+        controllerId,
+        cardName,
+        timing: 'end_step',
+        effect: eachEndStepMatch[1].trim(),
+        mandatory: !eachEndStepMatch[1].includes('you may'),
+      });
+    }
+    
+    // "At the beginning of the next end step" (delayed triggers)
+    // These are typically created by other effects and stored separately
+  }
+  
+  return triggers;
+}
+
+// ============================================================================
+// Detect Spell Cast Triggers
+// ============================================================================
+
+/**
+ * Trigger that fires when a spell is cast
+ */
+export interface SpellCastTrigger {
+  permanentId: string;
+  cardName: string;
+  controllerId: string;
+  triggerCondition: 'any_spell' | 'creature_spell' | 'noncreature_spell' | 'instant_or_sorcery' | 'specific_type';
+  specificType?: string;
+  effect: string;
+  mandatory: boolean;
+}
+
+/**
+ * Get spell cast triggers for the battlefield
+ */
+export function detectSpellCastTriggers(
+  gameState: any,
+  castingPlayerId: string,
+  spellCard: any
+): SpellCastTrigger[] {
+  const triggers: SpellCastTrigger[] = [];
+  const battlefield = gameState?.battlefield || [];
+  const spellTypeLine = (spellCard?.type_line || "").toLowerCase();
+  
+  for (const permanent of battlefield) {
+    if (!permanent) continue;
+    
+    const card = permanent.card;
+    const oracleText = (card?.oracle_text || "").toLowerCase();
+    const cardName = card?.name || "Unknown";
+    const controllerId = permanent.controller;
+    
+    // "Whenever you cast a spell"
+    if (controllerId === castingPlayerId) {
+      const castSpellMatch = oracleText.match(
+        /whenever you cast (?:a|an) (\w+(?:\s+or\s+\w+)?)\s*spell,?\s*([^.]+)/i
+      );
+      
+      if (castSpellMatch) {
+        const spellType = castSpellMatch[1].toLowerCase();
+        const effect = castSpellMatch[2].trim();
+        
+        // Check if the spell matches the trigger condition
+        let matches = false;
+        if (spellType === 'creature' && spellTypeLine.includes('creature')) matches = true;
+        else if (spellType === 'noncreature' && !spellTypeLine.includes('creature')) matches = true;
+        else if (spellType === 'instant' && spellTypeLine.includes('instant')) matches = true;
+        else if (spellType === 'sorcery' && spellTypeLine.includes('sorcery')) matches = true;
+        else if (spellType === 'instant or sorcery' && 
+                 (spellTypeLine.includes('instant') || spellTypeLine.includes('sorcery'))) matches = true;
+        else if (spellType === 'spell' || !spellType) matches = true; // Any spell
+        
+        if (matches) {
+          triggers.push({
+            permanentId: permanent.id,
+            cardName,
+            controllerId,
+            triggerCondition: spellType === 'creature' ? 'creature_spell' : 
+                             spellType === 'noncreature' ? 'noncreature_spell' :
+                             (spellType === 'instant' || spellType === 'sorcery') ? 'instant_or_sorcery' :
+                             'any_spell',
+            specificType: spellType !== 'spell' ? spellType : undefined,
+            effect,
+            mandatory: !effect.includes('you may'),
+          });
+        }
+      }
+      
+      // "Whenever you cast a spell" without type restriction
+      const anySpellMatch = oracleText.match(
+        /whenever you cast a spell,?\s*([^.]+)/i
+      );
+      
+      if (anySpellMatch && !castSpellMatch) {
+        triggers.push({
+          permanentId: permanent.id,
+          cardName,
+          controllerId,
+          triggerCondition: 'any_spell',
+          effect: anySpellMatch[1].trim(),
+          mandatory: !anySpellMatch[1].includes('you may'),
+        });
+      }
+    }
+    
+    // "Whenever an opponent casts a spell"
+    if (controllerId !== castingPlayerId) {
+      const opponentCastMatch = oracleText.match(
+        /whenever an opponent casts (?:a|an) (\w+(?:\s+or\s+\w+)?)\s*spell,?\s*([^.]+)/i
+      );
+      
+      if (opponentCastMatch) {
+        const spellType = opponentCastMatch[1].toLowerCase();
+        const effect = opponentCastMatch[2].trim();
+        
+        // Check if the spell matches
+        let matches = false;
+        if (spellType === 'creature' && spellTypeLine.includes('creature')) matches = true;
+        else if (spellType === 'noncreature' && !spellTypeLine.includes('creature')) matches = true;
+        else if (spellType === 'spell' || !spellType) matches = true;
+        
+        if (matches) {
+          triggers.push({
+            permanentId: permanent.id,
+            cardName,
+            controllerId,
+            triggerCondition: spellType === 'creature' ? 'creature_spell' : 
+                             spellType === 'noncreature' ? 'noncreature_spell' : 'any_spell',
+            effect,
+            mandatory: !effect.includes('you may'),
+          });
+        }
+      }
+    }
+  }
+  
+  return triggers;
+}
+
 
