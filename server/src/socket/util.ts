@@ -518,10 +518,59 @@ export function broadcastGame(
   // After broadcasting, check if the current priority holder is an AI player
   // This ensures AI responds to game state changes
   checkAndTriggerAI(io, game, gameId);
+  
+  // Check for pending trigger ordering and emit prompts
+  checkAndEmitTriggerOrderingPrompts(io, game, gameId);
 }
 
 /** AI reaction delay - matches timing in ai.ts */
 const AI_REACTION_DELAY_MS = 300;
+
+/**
+ * Check if any player needs to order multiple simultaneous triggers
+ * and emit the appropriate prompts
+ */
+function checkAndEmitTriggerOrderingPrompts(io: Server, game: InMemoryGame, gameId: string): void {
+  try {
+    const triggerQueue = (game.state as any)?.triggerQueue || [];
+    if (triggerQueue.length === 0) return;
+    
+    // Group triggers by controller
+    const triggersByController = new Map<string, any[]>();
+    for (const trigger of triggerQueue) {
+      const controller = trigger.controllerId || trigger.controller;
+      if (!controller) continue;
+      
+      const existing = triggersByController.get(controller) || [];
+      existing.push(trigger);
+      triggersByController.set(controller, existing);
+    }
+    
+    // For each controller with 2+ triggers, emit a prompt to order them
+    for (const [playerId, playerTriggers] of triggersByController.entries()) {
+      if (playerTriggers.length >= 2 && playerTriggers.every(t => t.type === 'order')) {
+        console.log(`[util] Emitting trigger ordering prompt to ${playerId} for ${playerTriggers.length} triggers`);
+        
+        // Emit all the order-type triggers to the player
+        for (const trigger of playerTriggers) {
+          emitToPlayer(io, playerId, "triggerPrompt", {
+            gameId,
+            trigger: {
+              id: trigger.id,
+              sourceId: trigger.sourceId,
+              sourceName: trigger.sourceName,
+              effect: trigger.effect,
+              type: 'order',
+              imageUrl: trigger.imageUrl,
+            },
+          });
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[util] checkAndEmitTriggerOrderingPrompts error:', e);
+  }
+}
 
 /**
  * Check if the current priority holder is an AI and trigger their turn

@@ -1756,7 +1756,9 @@ export function nextStep(ctx: GameContext) {
       if (turnPlayer) {
         (ctx as any).state.stack = (ctx as any).state.stack || [];
         
-        // Helper function to push triggers in APNAP order
+        // Helper function to process triggers with APNAP ordering
+        // Per MTG Rule 101.4: When multiple triggered abilities controlled by the same player
+        // trigger at the same time, that player chooses the order to put them on the stack.
         const pushTriggersToStack = (triggers: any[], triggerType: string, idPrefix: string) => {
           if (triggers.length === 0) return;
           
@@ -1777,10 +1779,49 @@ export function nextStep(ctx: GameContext) {
             : [];
           const orderedPlayers = [turnPlayer, ...players.filter((p: string) => p !== turnPlayer)];
           
-          // Push triggers in APNAP order (active player's triggers first)
+          // Process triggers in APNAP order (active player's triggers first)
           for (const playerId of orderedPlayers) {
             const playerTriggers = triggersByController.get(playerId) || [];
-            for (const trigger of playerTriggers) {
+            
+            if (playerTriggers.length === 0) {
+              continue;
+            }
+            
+            // If player has multiple triggers, store them for ordering
+            // They will be added to triggerQueue for the socket layer to handle
+            if (playerTriggers.length > 1) {
+              console.log(`${ts()} [nextStep] Player ${playerId} has ${playerTriggers.length} triggers to order`);
+              
+              // Initialize trigger queue if needed
+              (ctx as any).state.triggerQueue = (ctx as any).state.triggerQueue || [];
+              
+              // Add triggers to the queue with 'order' type
+              // The socket layer will prompt the player to order them
+              for (const trigger of playerTriggers) {
+                const triggerId = `${idPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                (ctx as any).state.triggerQueue.push({
+                  id: triggerId,
+                  sourceId: trigger.permanentId,
+                  sourceName: trigger.cardName,
+                  effect: trigger.description || trigger.effect,
+                  type: 'order', // This will show the ordering UI
+                  controllerId: playerId,
+                  triggerType,
+                  mandatory: trigger.mandatory !== false,
+                  imageUrl: trigger.imageUrl,
+                });
+                console.log(`${ts()} [nextStep] 📋 Queued trigger for ordering: ${trigger.cardName}`);
+              }
+              
+              // Store pending ordering request for the socket layer to detect
+              (ctx as any).state.pendingTriggerOrdering = (ctx as any).state.pendingTriggerOrdering || {};
+              (ctx as any).state.pendingTriggerOrdering[playerId] = {
+                timing: triggerType,
+                count: playerTriggers.length,
+              };
+            } else {
+              // Single trigger - push directly to stack (no ordering needed)
+              const trigger = playerTriggers[0];
               const triggerId = `${idPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
               (ctx as any).state.stack.push({
                 id: triggerId,
