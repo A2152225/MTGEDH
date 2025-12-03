@@ -209,6 +209,15 @@ const KNOWN_MANA_MODIFIERS: Record<string, Omit<ManaModifier, 'permanentId' | 'c
     landTypeRequired: 'swamp',
   },
   
+  // Nissa, Who Shakes the World - Forests produce extra {G}
+  // "Whenever you tap a Forest for mana, add an additional {G}."
+  "nissa, who shakes the world": {
+    type: 'extra_mana',
+    affects: 'lands',
+    extraMana: { colors: ['G'], amount: 1 },
+    landTypeRequired: 'forest',
+  },
+  
   // Vorinclex, Voice of Hunger - Lands produce double mana
   "vorinclex, voice of hunger": {
     type: 'mana_multiplier',
@@ -581,6 +590,11 @@ export function getManaMultiplier(
 
 /**
  * Get extra mana produced when tapping a permanent
+ * Handles effects like:
+ * - Nissa, Who Shakes the World (Forests produce extra {G})
+ * - Crypt Ghast (Swamps produce extra {B})
+ * - Zendikar Resurgent (Lands produce extra mana of same color)
+ * - Caged Sun (Lands produce extra mana of chosen color)
  */
 export function getExtraManaProduction(
   gameState: any,
@@ -594,17 +608,65 @@ export function getExtraManaProduction(
   const typeLine = (permanent?.card?.type_line || "").toLowerCase();
   const isLand = typeLine.includes("land");
   
+  // Check if land has specific land types (for Nissa, Crypt Ghast, etc.)
+  const hasForest = typeLine.includes("forest");
+  const hasSwamp = typeLine.includes("swamp");
+  const hasIsland = typeLine.includes("island");
+  const hasMountain = typeLine.includes("mountain");
+  const hasPlains = typeLine.includes("plains");
+  
+  // Build a map of land types for the permanent
+  const landTypes = new Set<string>();
+  if (hasForest) landTypes.add('forest');
+  if (hasSwamp) landTypes.add('swamp');
+  if (hasIsland) landTypes.add('island');
+  if (hasMountain) landTypes.add('mountain');
+  if (hasPlains) landTypes.add('plains');
+  
   for (const modifier of modifiers) {
     if (modifier.type === 'extra_mana' && modifier.extraMana) {
-      const shouldApply = 
-        (modifier.affects === 'lands' && isLand && permanent.controller === playerId);
+      // Check basic applicability
+      let shouldApply = false;
+      
+      if (modifier.affects === 'lands' && isLand && permanent.controller === playerId) {
+        // Check if there's a land type requirement
+        if (modifier.landTypeRequired) {
+          // Only apply if the land has the required type
+          shouldApply = landTypes.has(modifier.landTypeRequired);
+        } else {
+          // No type requirement - applies to all lands
+          shouldApply = true;
+        }
+      } else if (modifier.affects === 'all_lands' && isLand) {
+        // Global effect (like Mana Flare) - applies to all lands
+        if (modifier.landTypeRequired) {
+          shouldApply = landTypes.has(modifier.landTypeRequired);
+        } else {
+          shouldApply = true;
+        }
+      }
       
       if (shouldApply) {
-        const colors = modifier.extraMana.colors.includes('same') 
-          ? [producedColor] 
-          : modifier.extraMana.colors;
+        // Determine what color mana to add
+        let colorsToAdd: string[] = [];
         
-        for (const color of colors) {
+        if (modifier.extraMana.colors.includes('same')) {
+          // Add same color as produced
+          colorsToAdd = [producedColor];
+        } else if (modifier.extraMana.colors.includes('chosen')) {
+          // Caged Sun / Gauntlet of Power - requires a chosen color
+          // Check if the permanent has a stored chosen color
+          const chosenColor = (permanent as any).chosenColor || 
+                             gameState?.cagedSunColor?.[modifier.permanentId];
+          if (chosenColor && producedColor === chosenColor) {
+            colorsToAdd = [chosenColor];
+          }
+        } else {
+          // Specific colors (like 'B' for Crypt Ghast)
+          colorsToAdd = modifier.extraMana.colors;
+        }
+        
+        for (const color of colorsToAdd) {
           extra.push({ color, amount: modifier.extraMana.amount });
         }
       }

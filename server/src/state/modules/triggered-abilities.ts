@@ -380,6 +380,12 @@ export interface TriggeredAbility {
     | 'creature_etb'
     | 'equipment_etb'     // Whenever an Equipment enters under your control (Puresteel Paladin)
     | 'equipment_cast'    // Whenever you cast an Equipment spell (Barret)
+    | 'equipment_attack'  // Whenever equipped creature attacks (Sword of the Animist)
+    | 'aura_attack'       // Whenever enchanted creature attacks
+    | 'equipment_combat_damage' // Whenever equipped creature deals combat damage
+    | 'aura_combat_damage'      // Whenever enchanted creature deals combat damage
+    | 'job_select'        // Final Fantasy - create 1/1 Hero token and attach equipment
+    | 'living_weapon'     // Phyrexia - create 0/0 Phyrexian Germ token and attach equipment
     | 'permanent_etb'     // Altar of the Brood style - whenever ANY permanent enters
     | 'another_permanent_etb' // Whenever ANOTHER permanent enters under your control
     | 'deals_damage'
@@ -395,7 +401,7 @@ export interface TriggeredAbility {
     | 'tap_untap_target';   // Tap or untap target permanent
   description: string;
   effect?: string;
-  value?: number; // For Annihilator N, etc.
+  value?: number | Record<string, any>; // For Annihilator N, or complex effect data
   millAmount?: number; // For mill triggers like Altar of the Brood
   manaCost?: string; // For "sacrifice unless you pay" triggers
   mandatory: boolean;
@@ -1425,6 +1431,52 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     } as any);
   }
   
+  // Job Select (Final Fantasy set) - When this Equipment enters, create a 1/1 colorless Hero creature token, then attach this to it.
+  // Pattern: "Job select" or "job select" (keyword)
+  const hasJobSelect = lowerOracle.includes('job select') || 
+    (lowerOracle.includes('create') && lowerOracle.includes('hero') && lowerOracle.includes('token') && lowerOracle.includes('attach'));
+  if (hasJobSelect && !triggers.some(t => t.triggerType === 'job_select')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'job_select',
+      description: 'Create a 1/1 colorless Hero creature token, then attach this Equipment to it.',
+      effect: 'create_hero_token_and_attach',
+      mandatory: true,
+      tokenInfo: {
+        name: 'Hero',
+        power: 1,
+        toughness: 1,
+        types: ['Creature'],
+        subtypes: ['Hero'],
+        colors: [], // colorless
+      },
+    } as any);
+  }
+  
+  // Living Weapon (Phyrexia) - When this Equipment enters, create a 0/0 black Phyrexian Germ creature token, then attach this to it.
+  // Pattern: "Living weapon" (keyword)
+  const hasLivingWeapon = lowerOracle.includes('living weapon') ||
+    (lowerOracle.includes('create') && lowerOracle.includes('germ') && lowerOracle.includes('token') && lowerOracle.includes('attach'));
+  if (hasLivingWeapon && !triggers.some(t => t.triggerType === 'living_weapon')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'living_weapon',
+      description: 'Create a 0/0 black Phyrexian Germ creature token, then attach this Equipment to it.',
+      effect: 'create_germ_token_and_attach',
+      mandatory: true,
+      tokenInfo: {
+        name: 'Phyrexian Germ',
+        power: 0,
+        toughness: 0,
+        types: ['Creature'],
+        subtypes: ['Phyrexian', 'Germ'],
+        colors: ['B'], // black
+      },
+    } as any);
+  }
+  
   return triggers;
 }
 
@@ -1521,6 +1573,191 @@ export function detectUntapTriggers(card: any, permanent: any): UntapTrigger[] {
       untapType: 'lands',
       effect: 'Untap all lands you control',
     });
+  }
+  
+  return triggers;
+}
+
+/**
+ * Interface for equipment/aura attack triggers
+ */
+export interface AttachmentAttackTrigger {
+  permanentId: string;
+  cardName: string;
+  controllerId: string;
+  attachedToId: string;
+  triggerType: 'attack' | 'combat_damage' | 'damage_to_player';
+  effect: string;
+  mandatory: boolean;
+  // Specific effects
+  searchesLibrary?: boolean;
+  searchType?: 'basic_land' | 'land' | 'creature' | 'any';
+  causesDiscard?: boolean;
+  untapsLands?: boolean;
+  drawsCards?: boolean;
+  exilesCards?: boolean;
+  createsToken?: boolean;
+}
+
+/**
+ * Detect attack/combat damage triggers from equipment and auras
+ * This handles cards like Sword of the Animist, Sword of Feast and Famine, etc.
+ */
+export function detectAttachmentAttackTriggers(card: any, permanent: any): AttachmentAttackTrigger[] {
+  const triggers: AttachmentAttackTrigger[] = [];
+  const oracleText = (card?.oracle_text || "").toLowerCase();
+  const cardName = card?.name || "Unknown";
+  const lowerName = cardName.toLowerCase();
+  const permanentId = permanent?.id || "";
+  const controllerId = permanent?.controller || "";
+  const attachedToId = permanent?.attachedTo || "";
+  
+  // Skip if not attached to anything
+  if (!attachedToId) return triggers;
+  
+  // Pattern: "Whenever equipped creature attacks, ..."
+  const equipAttackMatch = oracleText.match(/whenever equipped creature attacks,?\s*([^.]+)/i);
+  if (equipAttackMatch) {
+    const effectText = equipAttackMatch[1].trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      attachedToId,
+      triggerType: 'attack',
+      effect: effectText,
+      mandatory: !effectText.includes('you may'),
+      searchesLibrary: effectText.includes('search') && effectText.includes('library'),
+      searchType: effectText.includes('basic land') ? 'basic_land' : 
+                  effectText.includes('land') ? 'land' : undefined,
+      createsToken: effectText.includes('create') && effectText.includes('token'),
+    });
+  }
+  
+  // Pattern: "Whenever enchanted creature attacks, ..."
+  const auraAttackMatch = oracleText.match(/whenever enchanted creature attacks,?\s*([^.]+)/i);
+  if (auraAttackMatch) {
+    const effectText = auraAttackMatch[1].trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      attachedToId,
+      triggerType: 'attack',
+      effect: effectText,
+      mandatory: !effectText.includes('you may'),
+      searchesLibrary: effectText.includes('search') && effectText.includes('library'),
+      createsToken: effectText.includes('create') && effectText.includes('token'),
+    });
+  }
+  
+  // Pattern: "Whenever equipped creature deals combat damage to a player, ..."
+  const equipDamageMatch = oracleText.match(/whenever equipped creature deals combat damage to (?:a player|an opponent),?\s*([^.]+)/i);
+  if (equipDamageMatch) {
+    const effectText = equipDamageMatch[1].trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      attachedToId,
+      triggerType: 'combat_damage',
+      effect: effectText,
+      mandatory: !effectText.includes('you may'),
+      causesDiscard: effectText.includes('discard'),
+      untapsLands: effectText.includes('untap') && effectText.includes('land'),
+      drawsCards: effectText.includes('draw'),
+      exilesCards: effectText.includes('exile'),
+    });
+  }
+  
+  // Pattern: "Whenever enchanted creature deals combat damage to a player, ..."
+  const auraDamageMatch = oracleText.match(/whenever enchanted creature deals combat damage to (?:a player|an opponent),?\s*([^.]+)/i);
+  if (auraDamageMatch) {
+    const effectText = auraDamageMatch[1].trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      attachedToId,
+      triggerType: 'combat_damage',
+      effect: effectText,
+      mandatory: !effectText.includes('you may'),
+      causesDiscard: effectText.includes('discard'),
+      drawsCards: effectText.includes('draw'),
+      exilesCards: effectText.includes('exile'),
+    });
+  }
+  
+  return triggers;
+}
+
+/**
+ * Get all equipment/aura triggers that fire when an equipped/enchanted creature attacks
+ */
+export function getAttachmentAttackTriggers(
+  ctx: GameContext,
+  attackingCreature: any,
+  attackingController: string
+): AttachmentAttackTrigger[] {
+  const triggers: AttachmentAttackTrigger[] = [];
+  const battlefield = ctx.state?.battlefield || [];
+  
+  // Find all equipment/auras attached to the attacking creature
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+    
+    const typeLine = (permanent.card.type_line || '').toLowerCase();
+    const isEquipment = typeLine.includes('equipment');
+    const isAura = typeLine.includes('aura');
+    
+    if (!isEquipment && !isAura) continue;
+    
+    // Check if attached to the attacking creature
+    if (permanent.attachedTo !== attackingCreature.id) continue;
+    
+    // Detect triggers from this equipment/aura
+    const attachmentTriggers = detectAttachmentAttackTriggers(permanent.card, permanent);
+    for (const trigger of attachmentTriggers) {
+      if (trigger.triggerType === 'attack') {
+        triggers.push(trigger);
+      }
+    }
+  }
+  
+  return triggers;
+}
+
+/**
+ * Get all equipment/aura triggers that fire when equipped creature deals combat damage
+ */
+export function getAttachmentCombatDamageTriggers(
+  ctx: GameContext,
+  attackingCreature: any,
+  attackingController: string
+): AttachmentAttackTrigger[] {
+  const triggers: AttachmentAttackTrigger[] = [];
+  const battlefield = ctx.state?.battlefield || [];
+  
+  // Find all equipment/auras attached to the attacking creature
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+    
+    const typeLine = (permanent.card.type_line || '').toLowerCase();
+    const isEquipment = typeLine.includes('equipment');
+    const isAura = typeLine.includes('aura');
+    
+    if (!isEquipment && !isAura) continue;
+    
+    // Check if attached to the attacking creature
+    if (permanent.attachedTo !== attackingCreature.id) continue;
+    
+    // Detect triggers from this equipment/aura
+    const attachmentTriggers = detectAttachmentAttackTriggers(permanent.card, permanent);
+    for (const trigger of attachmentTriggers) {
+      if (trigger.triggerType === 'combat_damage' || trigger.triggerType === 'damage_to_player') {
+        triggers.push(trigger);
+      }
+    }
   }
   
   return triggers;
@@ -1765,6 +2002,27 @@ export function getAttackTriggersForCreatures(
         // Exalted only triggers when attacking alone
         triggers.push(trigger);
       }
+    }
+  }
+  
+  // Check for equipment/aura attack triggers on each attacking creature
+  for (const attacker of attackingCreatures) {
+    const attachmentTriggers = getAttachmentAttackTriggers(ctx, attacker, attackingPlayer);
+    for (const attachTrigger of attachmentTriggers) {
+      // Convert attachment trigger to TriggeredAbility format
+      triggers.push({
+        permanentId: attachTrigger.permanentId,
+        cardName: attachTrigger.cardName,
+        description: attachTrigger.effect,
+        triggerType: 'equipment_attack',
+        mandatory: attachTrigger.mandatory,
+        value: {
+          attachedToId: attachTrigger.attachedToId,
+          searchesLibrary: attachTrigger.searchesLibrary,
+          searchType: attachTrigger.searchType,
+          createsToken: attachTrigger.createsToken,
+        },
+      });
     }
   }
   
@@ -6905,6 +7163,80 @@ export function calculateLoyaltyChange(ability: LoyaltyAbility, xValue?: number)
   return 0;
 }
 
+// ============================================================================
+// Aura Graveyard Triggers (Rancor, Spirit Loop, etc.)
+// ============================================================================
+
+/**
+ * Known auras that return to owner's hand when put into graveyard from battlefield
+ * These have effects like: "When Rancor is put into a graveyard from the battlefield, return Rancor to its owner's hand."
+ */
+export const AURAS_THAT_RETURN_TO_HAND: Record<string, { effect: string; condition?: string }> = {
+  "rancor": { 
+    effect: "When ~ is put into a graveyard from the battlefield, return ~ to its owner's hand." 
+  },
+  "spirit loop": { 
+    effect: "When ~ is put into a graveyard from the battlefield, return ~ to its owner's hand." 
+  },
+  "feather of flight": { 
+    effect: "When ~ is put into a graveyard from the battlefield, return ~ to its owner's hand." 
+  },
+  "briar shield": { 
+    effect: "When ~ is put into a graveyard from the battlefield, return ~ to its owner's hand.",
+    condition: "sacrifice"
+  },
+  "fortitude": { 
+    effect: "When ~ is put into a graveyard from the battlefield, return ~ to its owner's hand." 
+  },
+  "familiar ground": { 
+    effect: "When ~ is put into a graveyard from the battlefield, return ~ to its owner's hand." 
+  },
+  "whip silk": { 
+    effect: "When ~ is put into a graveyard from the battlefield, return ~ to its owner's hand." 
+  },
+  "jolrael's favor": { 
+    effect: "When ~ is put into a graveyard from the battlefield, return ~ to its owner's hand." 
+  },
+  "mark of fury": { 
+    effect: "When ~ is put into a graveyard from the battlefield, return ~ to its owner's hand." 
+  },
+  "fallen ideal": { 
+    effect: "When ~ is put into a graveyard from the battlefield, return ~ to its owner's hand." 
+  },
+  "kaya's ghostform": { 
+    effect: "When enchanted permanent dies or is put into exile, return that card to the battlefield and return Kaya's Ghostform to its owner's hand." 
+  },
+};
+
+/**
+ * Check if an aura should return to its owner's hand when put into graveyard from battlefield
+ * @param card The aura card
+ * @returns Object with shouldReturn and the effect description
+ */
+export function checkAuraGraveyardReturn(card: any): { shouldReturn: boolean; effect?: string } {
+  if (!card) return { shouldReturn: false };
+  
+  const cardName = (card.name || '').toLowerCase();
+  const oracleText = (card.oracle_text || '').toLowerCase();
+  
+  // Check known auras first
+  for (const [knownName, info] of Object.entries(AURAS_THAT_RETURN_TO_HAND)) {
+    if (cardName.includes(knownName)) {
+      return { shouldReturn: true, effect: info.effect };
+    }
+  }
+  
+  // Generic detection via oracle text
+  // Pattern: "When ~ is put into a graveyard from the battlefield, return ~ to its owner's hand"
+  if (oracleText.includes('put into a graveyard from the battlefield') && 
+      oracleText.includes('return') && 
+      oracleText.includes('hand')) {
+    return { shouldReturn: true, effect: 'Return to owner\'s hand' };
+  }
+  
+  return { shouldReturn: false };
+}
+
 /**
  * Get all available loyalty abilities for a planeswalker with activation status
  * Useful for UI to display which abilities can be activated
@@ -6936,5 +7268,6 @@ export function getAvailableLoyaltyAbilities(
     };
   });
 }
+
 
 

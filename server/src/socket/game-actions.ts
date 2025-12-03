@@ -6,7 +6,7 @@ import type { PaymentItem } from "../../../shared/src";
 import { requiresCreatureTypeSelection, requestCreatureTypeSelection } from "./creature-type";
 import { checkAndPromptOpeningHandActions } from "./opening-hand";
 import { emitSacrificeUnlessPayPrompt } from "./triggers";
-import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, type SpellCastTrigger } from "../state/modules/triggered-abilities";
+import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, getLandfallTriggers, type SpellCastTrigger } from "../state/modules/triggered-abilities";
 import { getUpkeepTriggersForPlayer } from "../state/modules/upkeep-triggers";
 import { categorizeSpell, evaluateTargeting, requiresTargeting, parseTargetRequirements } from "../rules-engine/targeting";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts } from "../state/modules/game-state-effects";
@@ -1173,6 +1173,7 @@ function applyCostReduction(
  * - Granted abilities on the permanent (from other effects)
  * - Battlefield permanents that grant haste to creatures (e.g., "creatures you control have haste")
  * - Specific creature type grants (e.g., "Goblin creatures you control have haste")
+ * - Equipment attached to the creature (e.g., "Equipped creature has haste")
  */
 function creatureHasHaste(permanent: any, battlefield: any[], controller: string): boolean {
   try {
@@ -1193,7 +1194,47 @@ function creatureHasHaste(permanent: any, battlefield: any[], controller: string
       return true;
     }
     
-    // 3. Check battlefield for permanents that grant haste
+    // 3. Check attached equipment for haste grants (e.g., Lightning Greaves, Swiftfoot Boots)
+    // Pattern: "Equipped creature has haste" or "Equipped creature has shroud and haste"
+    
+    // Helper function to detect if equipment/aura grants haste
+    const equipmentGrantsHaste = (equipOracle: string): boolean => {
+      if (!equipOracle.includes('equipped creature') && !equipOracle.includes('enchanted creature')) {
+        return false;
+      }
+      return equipOracle.includes('has haste') || 
+             equipOracle.includes('have haste') ||
+             equipOracle.includes('gains haste') ||
+             /(?:equipped|enchanted) creature has (?:[\w\s,]+\s+and\s+)?haste/i.test(equipOracle);
+    };
+    
+    const attachedEquipment = permanent?.attachedEquipment || [];
+    for (const equipId of attachedEquipment) {
+      const equipment = battlefield.find((p: any) => p.id === equipId);
+      if (equipment && equipment.card) {
+        const equipOracle = (equipment.card.oracle_text || "").toLowerCase();
+        if (equipmentGrantsHaste(equipOracle)) {
+          return true;
+        }
+      }
+    }
+    
+    // Also check by attachedTo relationship (in case attachedEquipment isn't set)
+    if (permanent.id) {
+      for (const equip of battlefield) {
+        if (!equip || !equip.card) continue;
+        const equipTypeLine = (equip.card.type_line || "").toLowerCase();
+        if (!equipTypeLine.includes('equipment') && !equipTypeLine.includes('aura')) continue;
+        if (equip.attachedTo !== permanent.id) continue;
+        
+        const equipOracle = (equip.card.oracle_text || "").toLowerCase();
+        if (equipmentGrantsHaste(equipOracle)) {
+          return true;
+        }
+      }
+    }
+    
+    // 4. Check battlefield for permanents that grant haste
     for (const perm of battlefield) {
       if (!perm || !perm.card) continue;
       
@@ -1737,6 +1778,54 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Check for creature type selection requirements (e.g., Cavern of Souls, Unclaimed Territory)
       checkCreatureTypeSelectionForNewPermanents(io, game, gameId);
 
+      // ========================================================================
+      // LANDFALL TRIGGERS: Check for and process landfall triggers
+      // This is CRITICAL - landfall triggers should fire when a land ETBs
+      // ========================================================================
+      try {
+        const landfallTriggers = getLandfallTriggers(game as any, playerId as string);
+        if (landfallTriggers.length > 0) {
+          console.log(`[playLand] Found ${landfallTriggers.length} landfall trigger(s) for player ${playerId}`);
+          
+          // Initialize stack if needed
+          (game.state as any).stack = (game.state as any).stack || [];
+          
+          // Push each landfall trigger onto the stack
+          for (const trigger of landfallTriggers) {
+            const triggerId = `landfall_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            (game.state as any).stack.push({
+              id: triggerId,
+              type: 'triggered_ability',
+              controller: playerId,
+              source: trigger.permanentId,
+              sourceName: trigger.cardName,
+              description: `Landfall - ${trigger.effect}`,
+              triggerType: 'landfall',
+              mandatory: trigger.mandatory,
+              effect: trigger.effect,
+              requiresChoice: trigger.requiresChoice,
+            });
+            console.log(`[playLand] ⚡ Pushed landfall trigger onto stack: ${trigger.cardName} - ${trigger.effect}`);
+            
+            // Emit chat message about the trigger
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `${trigger.cardName}'s landfall ability triggers!`,
+              ts: Date.now(),
+            });
+          }
+          
+          // Give priority to active player to respond to triggers
+          if ((game.state as any).stack.length > 0) {
+            (game.state as any).priority = (game.state as any).turnPlayer || playerId;
+          }
+        }
+      } catch (err) {
+        console.warn(`[playLand] Failed to process landfall triggers:`, err);
+      }
+
       broadcastGame(io, game, gameId);
     } catch (err: any) {
       console.error(`playLand error for game ${gameId}:`, err);
@@ -1804,8 +1893,79 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // Check timing restrictions for sorcery-speed spells
       const oracleText = (cardInHand.oracle_text || "").toLowerCase();
-      const hasFlash = oracleText.includes("flash");
+      let hasFlash = oracleText.includes("flash");
       const isInstant = typeLine.includes("instant");
+      
+      // Check for "flash grant" effects from battlefield permanents
+      // Yeva, Nature's Herald: "You may cast green creature cards as though they had flash."
+      // Vedalken Orrery: "You may cast spells as though they had flash."
+      // Leyline of Anticipation: "You may cast spells as though they had flash."
+      // Vivien, Champion of the Wilds: "You may cast creature spells as though they had flash."
+      // Emergence Zone: "You may cast spells this turn as though they had flash."
+      if (!hasFlash && !isInstant) {
+        const battlefield = game.state?.battlefield || [];
+        const cardColors = (cardInHand.colors || cardInHand.color_identity || []).map((c: string) => c.toLowerCase());
+        const isGreenCard = cardColors.includes('g') || cardColors.includes('green');
+        const isCreature = typeLine.includes('creature');
+        
+        for (const perm of battlefield) {
+          if ((perm as any).controller !== playerId) continue;
+          
+          const permName = ((perm as any).card?.name || '').toLowerCase();
+          const permOracle = ((perm as any).card?.oracle_text || '').toLowerCase();
+          
+          // Yeva, Nature's Herald - green creature cards have flash
+          // Use exact match to avoid false positives
+          if ((permName === 'yeva, nature\'s herald' || permName.startsWith('yeva, nature')) && isGreenCard && isCreature) {
+            hasFlash = true;
+            console.log(`[castSpellFromHand] ${cardInHand.name} has flash via Yeva, Nature's Herald`);
+            break;
+          }
+          
+          // Vivien, Champion of the Wilds - creature spells have flash
+          if ((permName === 'vivien, champion of the wilds' || permName.startsWith('vivien, champion')) && isCreature) {
+            hasFlash = true;
+            console.log(`[castSpellFromHand] ${cardInHand.name} has flash via Vivien, Champion of the Wilds`);
+            break;
+          }
+          
+          // Vedalken Orrery, Leyline of Anticipation - all spells have flash
+          if (permName === 'vedalken orrery' || permName === 'leyline of anticipation') {
+            hasFlash = true;
+            console.log(`[castSpellFromHand] ${cardInHand.name} has flash via ${(perm as any).card?.name}`);
+            break;
+          }
+          
+          // Emergence Zone (activated ability, check if active this turn)
+          if (permName.includes('emergence zone') && (perm as any).flashGrantedThisTurn) {
+            hasFlash = true;
+            console.log(`[castSpellFromHand] ${cardInHand.name} has flash via Emergence Zone`);
+            break;
+          }
+          
+          // Generic detection: "cast ... as though they had flash"
+          if (permOracle.includes('as though') && permOracle.includes('had flash')) {
+            // Check if it applies to this card type
+            if (permOracle.includes('creature') && isCreature) {
+              hasFlash = true;
+              console.log(`[castSpellFromHand] ${cardInHand.name} has flash via ${(perm as any).card?.name}`);
+              break;
+            }
+            if (permOracle.includes('green') && isGreenCard && isCreature) {
+              hasFlash = true;
+              console.log(`[castSpellFromHand] ${cardInHand.name} has flash via ${(perm as any).card?.name}`);
+              break;
+            }
+            if (permOracle.includes('spells') && !permOracle.includes('creature')) {
+              // "You may cast spells as though they had flash" - applies to all
+              hasFlash = true;
+              console.log(`[castSpellFromHand] ${cardInHand.name} has flash via ${(perm as any).card?.name}`);
+              break;
+            }
+          }
+        }
+      }
+      
       const isSorcerySpeed = !isInstant && !hasFlash;
       
       if (isSorcerySpeed) {
@@ -1839,6 +1999,43 @@ export function registerGameActions(io: Server, socket: Socket) {
           });
           return;
         }
+      }
+      
+      // Check for Abundant Harvest type spells (Choose land or nonland, then reveal until finding one)
+      // Pattern: "Choose land or nonland. Reveal cards from the top of your library until you reveal a card of the chosen kind."
+      const abundantHarvestMatch = oracleText.match(/choose\s+land\s+or\s+nonland/i);
+      const abundantChoiceSelected = (cardInHand as any).abundantChoice || (targets as any)?.abundantChoice;
+      
+      if (abundantHarvestMatch && !abundantChoiceSelected) {
+        // Prompt the player to choose land or nonland
+        socket.emit("modeSelectionRequest", {
+          gameId,
+          cardId,
+          cardName: cardInHand.name,
+          source: cardInHand.name,
+          title: `Choose type for ${cardInHand.name}`,
+          description: cardInHand.oracle_text || oracleText,
+          imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+          modes: [
+            {
+              id: 'land',
+              name: 'Land',
+              description: 'Reveal cards until you reveal a land card, then put that card into your hand and the rest on the bottom of your library.',
+              cost: null,
+            },
+            {
+              id: 'nonland',
+              name: 'Nonland',
+              description: 'Reveal cards until you reveal a nonland card, then put that card into your hand and the rest on the bottom of your library.',
+              cost: null,
+            },
+          ],
+          effectId: `abundant_${cardId}_${Date.now()}`,
+          selectionType: 'abundantChoice', // Custom type for handling
+        });
+        
+        console.log(`[castSpellFromHand] Requesting land/nonland choice for ${cardInHand.name} (Abundant Harvest style)`);
+        return; // Wait for choice selection
       }
       
       // Check if this spell is a modal spell (Choose one/two/three - e.g., Austere Command, Cryptic Command)
@@ -2683,7 +2880,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             zones.handCount = handCards.length;
             
             // Build target details for display
-            const targetDetails: Array<{ id: string; type: 'permanent' | 'player'; name?: string }> = [];
+            const targetDetails: Array<{ id: string; type: 'permanent' | 'player'; name?: string; controllerId?: string }> = [];
             if (targets && targets.length > 0) {
               for (const target of targets) {
                 const targetId = typeof target === 'string' ? target : target.id;
@@ -2698,12 +2895,13 @@ export function registerGameActions(io: Server, socket: Socket) {
                     name: player?.name || targetId,
                   });
                 } else {
-                  // Find permanent name
+                  // Find permanent name and controller
                   const perm = (game.state.battlefield || []).find((p: any) => p.id === targetId);
                   targetDetails.push({
                     id: targetId,
                     type: 'permanent',
                     name: perm?.card?.name || targetId,
+                    controllerId: perm?.controller,
                   });
                 }
               }

@@ -353,15 +353,31 @@ export function CentralStack({
                   }}>
                     <span style={{ color:'#9ca3af' }}>→</span>
                     <span style={{ fontWeight:'500' }}>
-                      {it.targets.map((target: any) => {
+                      {/* Use targetDetails if available (includes names), otherwise fall back to targets */}
+                      {(it.targetDetails || it.targets).map((target: any) => {
                         // Handle both string and object targets
                         if (typeof target === 'string') {
                           // Try to find the permanent name for this ID
                           const perm = battlefield?.find(p => p.id === target);
-                          return perm?.card?.name || target;
+                          if (perm?.card?.name) {
+                            // Also add controller info for clarity
+                            const controller = perm.controller;
+                            const ownerName = controller ? 
+                              ((it as any).players?.find((p: any) => p.id === controller)?.name || 
+                               (controller === you ? 'your' : "opponent's")) : '';
+                            return `${perm.card.name}${ownerName ? ` (${ownerName})` : ''}`;
+                          }
+                          return target;
                         } else if (target && typeof target === 'object') {
                           // Object target - extract name or id
-                          return target.name || target.id || 'Unknown';
+                          const name = target.name || target.id || 'Unknown';
+                          // Add controller info if available
+                          if (target.controllerId || target.controller) {
+                            const controllerId = target.controllerId || target.controller;
+                            const ownerLabel = controllerId === you ? 'your' : "opponent's";
+                            return `${name} (${ownerLabel})`;
+                          }
+                          return name;
                         }
                         return String(target);
                       }).join(', ')}

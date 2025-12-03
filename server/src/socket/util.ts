@@ -518,10 +518,59 @@ export function broadcastGame(
   // After broadcasting, check if the current priority holder is an AI player
   // This ensures AI responds to game state changes
   checkAndTriggerAI(io, game, gameId);
+  
+  // Check for pending trigger ordering and emit prompts
+  checkAndEmitTriggerOrderingPrompts(io, game, gameId);
 }
 
 /** AI reaction delay - matches timing in ai.ts */
 const AI_REACTION_DELAY_MS = 300;
+
+/**
+ * Check if any player needs to order multiple simultaneous triggers
+ * and emit the appropriate prompts
+ */
+function checkAndEmitTriggerOrderingPrompts(io: Server, game: InMemoryGame, gameId: string): void {
+  try {
+    const triggerQueue = (game.state as any)?.triggerQueue || [];
+    if (triggerQueue.length === 0) return;
+    
+    // Group triggers by controller
+    const triggersByController = new Map<string, any[]>();
+    for (const trigger of triggerQueue) {
+      const controller = trigger.controllerId || trigger.controller;
+      if (!controller) continue;
+      
+      const existing = triggersByController.get(controller) || [];
+      existing.push(trigger);
+      triggersByController.set(controller, existing);
+    }
+    
+    // For each controller with 2+ triggers, emit a prompt to order them
+    for (const [playerId, playerTriggers] of triggersByController.entries()) {
+      if (playerTriggers.length >= 2 && playerTriggers.every(t => t.type === 'order')) {
+        console.log(`[util] Emitting trigger ordering prompt to ${playerId} for ${playerTriggers.length} triggers`);
+        
+        // Emit all the order-type triggers to the player
+        for (const trigger of playerTriggers) {
+          emitToPlayer(io, playerId, "triggerPrompt", {
+            gameId,
+            trigger: {
+              id: trigger.id,
+              sourceId: trigger.sourceId,
+              sourceName: trigger.sourceName,
+              effect: trigger.effect,
+              type: 'order',
+              imageUrl: trigger.imageUrl,
+            },
+          });
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[util] checkAndEmitTriggerOrderingPrompts error:', e);
+  }
+}
 
 /**
  * Check if the current priority holder is an AI and trigger their turn
@@ -1787,6 +1836,50 @@ export function calculateManaProduction(
     }
   }
   
+  // Karametra's Acolyte - "Add an amount of {G} equal to your devotion to green"
+  // This is a key devotion-based mana ability that needs proper support
+  if (cardName.includes("karametra's acolyte") || 
+      (oracleText.includes('devotion to green') && oracleText.includes('add'))) {
+    let devotion = 0;
+    
+    for (const perm of battlefield) {
+      if (perm && perm.controller === playerId) {
+        const manaCost = (perm.card?.mana_cost || '').toUpperCase();
+        // Count {G} symbols using pre-compiled pattern
+        const pattern = DEVOTION_COLOR_PATTERNS['G'];
+        if (pattern) {
+          const matches = manaCost.match(pattern) || [];
+          devotion += matches.length;
+        }
+        
+        // Also count hybrid mana that includes green
+        const hybridMatches = manaCost.match(/\{[WUBRG]\/[WUBRG]\}/gi) || [];
+        for (const hybrid of hybridMatches) {
+          if (hybrid.toUpperCase().includes('G')) {
+            devotion += 1;
+          }
+        }
+      }
+    }
+    
+    result.isDynamic = true;
+    result.baseAmount = devotion;
+    result.dynamicDescription = `{G} for devotion to green (${devotion})`;
+    result.colors = ['G'];
+  }
+  
+  // Elvish Archdruid - "Add {G} for each Elf you control"
+  if (cardName.includes('elvish archdruid')) {
+    const elfCount = battlefield.filter((p: any) =>
+      p && p.controller === playerId &&
+      (p.card?.type_line || '').toLowerCase().includes('elf')
+    ).length;
+    result.isDynamic = true;
+    result.baseAmount = elfCount;
+    result.dynamicDescription = `{G} for each Elf you control (${elfCount})`;
+    result.colors = ['G'];
+  }
+  
   // Wirewood Channeler, Priest of Titania style - "Add {G} for each Elf"
   if (oracleText.includes('for each elf') || 
       (cardName.includes('priest of titania')) ||
@@ -1941,6 +2034,238 @@ export function calculateManaProduction(
     if (chosenColor) result.colors = [chosenColor];
   }
   
+  // ===== POWER-BASED MANA ABILITIES =====
+  
+  // Selvala, Heart of the Wilds - "Add mana equal to the greatest power among creatures you control"
+  if (cardName.includes('selvala, heart of the wilds') ||
+      (oracleText.includes('greatest power') && oracleText.includes('among creatures'))) {
+    let greatestPower = 0;
+    for (const perm of battlefield) {
+      if (!perm || perm.controller !== playerId) continue;
+      const permTypeLine = (perm.card?.type_line || '').toLowerCase();
+      if (!permTypeLine.includes('creature')) continue;
+      
+      // Get effective power (base + counters + buffs)
+      let power = (perm.basePower ?? parseInt(perm.card?.power, 10)) || 0;
+      if (perm.counters) {
+        power += (perm.counters['+1/+1'] || 0) + (perm.counters['p1p1'] || 0);
+        power -= (perm.counters['-1/-1'] || 0) + (perm.counters['m1m1'] || 0);
+      }
+      if (power > greatestPower) greatestPower = power;
+    }
+    result.isDynamic = true;
+    result.baseAmount = greatestPower;
+    result.dynamicDescription = `Mana equal to greatest power (${greatestPower})`;
+    result.colors = ['W', 'U', 'B', 'R', 'G'];
+    if (chosenColor) result.colors = [chosenColor];
+  }
+  
+  // Marwyn, the Nurturer - "Add an amount of {G} equal to Marwyn's power"
+  if (cardName.includes('marwyn') || 
+      (oracleText.includes("equal to") && oracleText.includes("power") && oracleText.includes("{g}"))) {
+    let power = (permanent.basePower ?? parseInt(card.power, 10)) || 0;
+    if (permanent.counters) {
+      power += (permanent.counters['+1/+1'] || 0) + (permanent.counters['p1p1'] || 0);
+      power -= (permanent.counters['-1/-1'] || 0) + (permanent.counters['m1m1'] || 0);
+    }
+    result.isDynamic = true;
+    result.baseAmount = Math.max(0, power);
+    result.dynamicDescription = `{G} equal to Marwyn's power (${power})`;
+    result.colors = ['G'];
+  }
+  
+  // Viridian Joiner - "Add an amount of {G} equal to Viridian Joiner's power"
+  if (cardName.includes('viridian joiner')) {
+    let power = (permanent.basePower ?? parseInt(card.power, 10)) || 0;
+    if (permanent.counters) {
+      power += (permanent.counters['+1/+1'] || 0) + (permanent.counters['p1p1'] || 0);
+      power -= (permanent.counters['-1/-1'] || 0) + (permanent.counters['m1m1'] || 0);
+    }
+    result.isDynamic = true;
+    result.baseAmount = Math.max(0, power);
+    result.dynamicDescription = `{G} equal to power (${power})`;
+    result.colors = ['G'];
+  }
+  
+  // Cradle Clearcutter - "Add an amount of {G} equal to this creature's power"
+  if (cardName.includes('cradle clearcutter')) {
+    let power = (permanent.basePower ?? parseInt(card.power, 10)) || 0;
+    if (permanent.counters) {
+      power += (permanent.counters['+1/+1'] || 0) + (permanent.counters['p1p1'] || 0);
+      power -= (permanent.counters['-1/-1'] || 0) + (permanent.counters['m1m1'] || 0);
+    }
+    result.isDynamic = true;
+    result.baseAmount = Math.max(0, power);
+    result.dynamicDescription = `{G} equal to power (${power})`;
+    result.colors = ['G'];
+  }
+  
+  // Bighorner Rancher - "Add an amount of {G} equal to the greatest power among creatures you control"
+  if (cardName.includes('bighorner rancher')) {
+    let greatestPower = 0;
+    for (const perm of battlefield) {
+      if (!perm || perm.controller !== playerId) continue;
+      const permTypeLine = (perm.card?.type_line || '').toLowerCase();
+      if (!permTypeLine.includes('creature')) continue;
+      
+      let power = (perm.basePower ?? parseInt(perm.card?.power, 10)) || 0;
+      if (perm.counters) {
+        power += (perm.counters['+1/+1'] || 0) + (perm.counters['p1p1'] || 0);
+        power -= (perm.counters['-1/-1'] || 0) + (perm.counters['m1m1'] || 0);
+      }
+      if (power > greatestPower) greatestPower = power;
+    }
+    result.isDynamic = true;
+    result.baseAmount = greatestPower;
+    result.dynamicDescription = `{G} equal to greatest power (${greatestPower})`;
+    result.colors = ['G'];
+  }
+  
+  // Tanuki Transplanter - "Add an amount of {G} equal to equipped creature's power"
+  if (cardName.includes('tanuki transplanter')) {
+    const attachedTo = (permanent as any).attachedTo;
+    let power = 0;
+    if (attachedTo) {
+      const equippedCreature = battlefield.find((p: any) => p.id === attachedTo);
+      if (equippedCreature) {
+        power = (equippedCreature.basePower ?? parseInt(equippedCreature.card?.power, 10)) || 0;
+        if (equippedCreature.counters) {
+          power += (equippedCreature.counters['+1/+1'] || 0) + (equippedCreature.counters['p1p1'] || 0);
+          power -= (equippedCreature.counters['-1/-1'] || 0) + (equippedCreature.counters['m1m1'] || 0);
+        }
+      }
+    }
+    result.isDynamic = true;
+    result.baseAmount = Math.max(0, power);
+    result.dynamicDescription = `{G} equal to equipped creature's power (${power})`;
+    result.colors = ['G'];
+  }
+  
+  // Vhal, Candlekeep Researcher - "Add an amount of {U} equal to Vhal's toughness"
+  if (cardName.includes('vhal')) {
+    let toughness = (permanent.baseToughness ?? parseInt(card.toughness, 10)) || 0;
+    if (permanent.counters) {
+      toughness += (permanent.counters['+1/+1'] || 0) + (permanent.counters['p1p1'] || 0);
+      toughness -= (permanent.counters['-1/-1'] || 0) + (permanent.counters['m1m1'] || 0);
+    }
+    result.isDynamic = true;
+    result.baseAmount = Math.max(0, toughness);
+    result.dynamicDescription = `{U} equal to toughness (${toughness})`;
+    result.colors = ['U'];
+  }
+  
+  // ===== STORAGE COUNTER BASED MANA ABILITIES =====
+  
+  // Mage-Ring Network, Rushwood Grove, etc. - Storage lands
+  // "Remove any number of storage counters from ~: Add {C} for each storage counter removed this way"
+  if (oracleText.includes('storage counter') && oracleText.includes('remove')) {
+    const storageCounters = permanent?.counters?.storage || permanent?.counters?.['storage'] || 0;
+    result.isDynamic = true;
+    result.baseAmount = storageCounters;
+    result.dynamicDescription = `{C} for each storage counter removed (${storageCounters} available)`;
+    result.colors = ['C'];
+    // If the card produces colored mana, detect it
+    if (oracleText.includes('add {g}') || cardName.includes('rushwood grove')) {
+      result.colors = ['G'];
+    } else if (oracleText.includes('add {w}') || cardName.includes('saprazzan cove')) {
+      result.colors = ['W'];
+    } else if (oracleText.includes('add {u}') || cardName.includes('fountain of cho')) {
+      result.colors = ['U'];
+    } else if (oracleText.includes('add {b}') || cardName.includes('subterranean hangar')) {
+      result.colors = ['B'];
+    } else if (oracleText.includes('add {r}') || cardName.includes('mercadian bazaar')) {
+      result.colors = ['R'];
+    }
+  }
+  
+  // Kyren Toy - "Remove X charge counters: Add X mana plus one"
+  if (cardName.includes('kyren toy')) {
+    const chargeCounters = permanent?.counters?.charge || 0;
+    result.isDynamic = true;
+    result.baseAmount = chargeCounters + 1; // X plus one
+    result.dynamicDescription = `{C} = charge counters + 1 (${chargeCounters + 1})`;
+    result.colors = ['C'];
+  }
+  
+  // Gemstone Caverns - Has a luck counter when starting in hand
+  if (cardName.includes('gemstone caverns')) {
+    const hasLuckCounter = (permanent?.counters?.luck || 0) > 0;
+    if (hasLuckCounter) {
+      result.colors = ['W', 'U', 'B', 'R', 'G'];
+      if (chosenColor) result.colors = [chosenColor];
+    } else {
+      result.colors = ['C'];
+    }
+    result.baseAmount = 1;
+  }
+  
+  // Crystalline Crawler - Uses +1/+1 counters for mana
+  // "Remove a +1/+1 counter from Crystalline Crawler: Add one mana of any color"
+  if (cardName.includes('crystalline crawler')) {
+    const p1p1Counters = (permanent?.counters?.['+1/+1'] || 0) + (permanent?.counters?.p1p1 || 0);
+    result.isDynamic = true;
+    result.baseAmount = 1; // Removes one at a time
+    result.dynamicDescription = `Any color mana (${p1p1Counters} +1/+1 counters available)`;
+    result.colors = ['W', 'U', 'B', 'R', 'G'];
+    if (chosenColor) result.colors = [chosenColor];
+  }
+  
+  // Gemstone Array - Based on charge counters
+  // "{2}, Remove a charge counter: Add one mana of any color"
+  if (cardName.includes('gemstone array')) {
+    const chargeCounters = permanent?.counters?.charge || 0;
+    if (chargeCounters > 0) {
+      result.isDynamic = true;
+      result.baseAmount = 1;
+      result.dynamicDescription = `Any color (${chargeCounters} charge counters available)`;
+      result.colors = ['W', 'U', 'B', 'R', 'G'];
+      if (chosenColor) result.colors = [chosenColor];
+    }
+  }
+  
+  // Coalition Relic - Uses charge counters for mana
+  if (cardName.includes('coalition relic')) {
+    const chargeCounters = permanent?.counters?.charge || 0;
+    // At the beginning of precombat main phase, remove all charge counters and add that much mana
+    result.baseAmount = 1 + chargeCounters;
+    if (chargeCounters > 0) {
+      result.isDynamic = true;
+      result.dynamicDescription = `Any color + charge counters (${chargeCounters})`;
+    }
+    result.colors = ['W', 'U', 'B', 'R', 'G'];
+    if (chosenColor) result.colors = [chosenColor];
+  }
+  
+  // Mana Bloom - Uses charge counters
+  if (cardName.includes('mana bloom')) {
+    const chargeCounters = permanent?.counters?.charge || 0;
+    if (chargeCounters > 0) {
+      result.baseAmount = 1;
+      result.dynamicDescription = `Any color (${chargeCounters} charge counters remain)`;
+      result.colors = ['W', 'U', 'B', 'R', 'G'];
+      if (chosenColor) result.colors = [chosenColor];
+    }
+  }
+  
+  // Pentad Prism - Sunburst with charge counters
+  // "Remove a charge counter: Add one mana of any color"
+  if (cardName.includes('pentad prism')) {
+    const chargeCounters = permanent?.counters?.charge || 0;
+    result.baseAmount = 1;
+    result.dynamicDescription = `Any color (${chargeCounters} charge counters available)`;
+    result.colors = ['W', 'U', 'B', 'R', 'G'];
+    if (chosenColor) result.colors = [chosenColor];
+  }
+  
+  // Sphere of the Suns - Uses charge counters
+  if (cardName.includes('sphere of the suns')) {
+    const chargeCounters = permanent?.counters?.charge || 0;
+    result.baseAmount = 1;
+    result.dynamicDescription = `Any color (${chargeCounters} charge counters remain)`;
+    result.colors = ['W', 'U', 'B', 'R', 'G'];
+    if (chosenColor) result.colors = [chosenColor];
+  }
+
   // ===== STEP 3: Check for aura enchantments on this permanent (Wild Growth, etc.) =====
   
   // Find auras attached to this permanent

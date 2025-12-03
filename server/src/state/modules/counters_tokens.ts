@@ -285,11 +285,13 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
   // Commander Replacement Effect (Rule 903.9a):
   // If a commander would be put into graveyard from anywhere, its owner may put it into
   // the command zone instead.
+  // IMPORTANT: We must defer the zone change until the player chooses!
   const commanderInfo = commandZone?.[owner];
   const commanderIds = commanderInfo?.commanderIds || [];
   const isCommander = card?.id && commanderIds.includes(card.id);
   
   if (isCommander) {
+    // Set up pending choice - DO NOT move to graveyard yet
     (state as any).pendingCommanderZoneChoice = (state as any).pendingCommanderZoneChoice || {};
     (state as any).pendingCommanderZoneChoice[owner] = (state as any).pendingCommanderZoneChoice[owner] || [];
     (state as any).pendingCommanderZoneChoice[owner].push({
@@ -307,10 +309,22 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
         toughness: card.toughness,
       },
     });
-    console.log(`[movePermanentToGraveyard] Commander ${card.name} would go to graveyard - owner can choose command zone instead`);
+    console.log(`[movePermanentToGraveyard] Commander ${card.name} would go to graveyard - DEFERRING zone change for player choice`);
+    
+    // Remove from battlefield but DON'T add to graveyard yet - wait for player choice
+    bumpSeq();
+    
+    // Recalculate player effects when permanents leave
+    try {
+      recalculatePlayerEffects(ctx);
+    } catch (err) {
+      console.warn('[movePermanentToGraveyard] Failed to recalculate player effects:', err);
+    }
+    
+    return true; // Zone change deferred for commander
   }
   
-  // Move to owner's graveyard
+  // Move to owner's graveyard (non-commander cards)
   if (owner) {
     const ownerZone = zones[owner] = zones[owner] || { hand: [], graveyard: [], handCount: 0, graveyardCount: 0, libraryCount: 0 };
     (ownerZone as any).graveyard = (ownerZone as any).graveyard || [];
@@ -370,6 +384,7 @@ export function movePermanentToExile(ctx: GameContext, permanentId: string) {
   // Commander Replacement Effect (Rule 903.9a):
   // If a commander would be put into exile from anywhere, its owner may put it into
   // the command zone instead.
+  // IMPORTANT: We must defer the zone change until the player chooses!
   const commanderInfo = commandZone?.[owner];
   const commanderIds = commanderInfo?.commanderIds || [];
   const isCommander = commanderIds.includes(card.id);
@@ -377,6 +392,7 @@ export function movePermanentToExile(ctx: GameContext, permanentId: string) {
   if (isCommander) {
     // Add to pending commander zone choices for the owner to decide
     // The player will be prompted to choose whether to move to command zone or exile
+    // DO NOT move to exile yet - wait for player choice
     (state as any).pendingCommanderZoneChoice = (state as any).pendingCommanderZoneChoice || {};
     (state as any).pendingCommanderZoneChoice[owner] = (state as any).pendingCommanderZoneChoice[owner] || [];
     (state as any).pendingCommanderZoneChoice[owner].push({
@@ -394,10 +410,12 @@ export function movePermanentToExile(ctx: GameContext, permanentId: string) {
         toughness: card.toughness,
       },
     });
-    console.log(`[movePermanentToExile] Commander ${card.name} would go to exile - owner can choose command zone instead`);
+    console.log(`[movePermanentToExile] Commander ${card.name} would go to exile - DEFERRING zone change for player choice`);
+    bumpSeq();
+    return; // Zone change deferred for commander - don't add to exile yet
   }
   
-  // Move to exile zone (can be undone if player chooses command zone)
+  // Move to exile zone (non-commander cards)
   const z = zones[owner] || (zones[owner] = { hand:[], handCount:0, libraryCount:0, graveyard:[], graveyardCount:0, exile:[] } as any);
   const kc = {
     id: card.id,

@@ -228,12 +228,13 @@ export function JoinForcesModal({
                 {selectedAmount}
               </span>
             </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
               <button
+                type="button"
                 onClick={() => setSelectedAmount(0)}
                 style={{
                   padding: '8px 16px',
-                  backgroundColor: '#374151',
+                  backgroundColor: selectedAmount === 0 ? '#8b5cf6' : '#374151',
                   color: '#fff',
                   border: 'none',
                   borderRadius: 6,
@@ -243,8 +244,9 @@ export function JoinForcesModal({
               >
                 0
               </button>
-              {[1, 2, 3, 5].filter(n => n <= availableMana).map(n => (
+              {[1, 2, 3, 5, 8, 10].filter(n => n <= availableMana).map(n => (
                 <button
+                  type="button"
                   key={n}
                   onClick={() => setSelectedAmount(n)}
                   style={{
@@ -261,6 +263,7 @@ export function JoinForcesModal({
                 </button>
               ))}
               <button
+                type="button"
                 onClick={() => setSelectedAmount(availableMana)}
                 style={{
                   padding: '8px 16px',
@@ -272,7 +275,7 @@ export function JoinForcesModal({
                   fontSize: 13,
                 }}
               >
-                Max
+                Max ({availableMana})
               </button>
             </div>
           </div>
@@ -282,6 +285,7 @@ export function JoinForcesModal({
         <div style={{ display: 'flex', gap: 12 }}>
           {!hasResponded ? (
             <button
+              type="button"
               onClick={() => onContribute(selectedAmount)}
               style={{
                 flex: 1,
@@ -293,7 +297,10 @@ export function JoinForcesModal({
                 cursor: 'pointer',
                 fontSize: 15,
                 fontWeight: 600,
+                transition: 'background-color 0.2s',
               }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#7c3aed'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#8b5cf6'}
             >
               Contribute {selectedAmount} Mana
             </button>

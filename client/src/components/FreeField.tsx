@@ -269,6 +269,8 @@ export function FreeField(props: {
       loyalty?: number;
       targetedBy?: string[];
       temporaryEffects?: readonly { id: string; description: string; icon?: string; expiresAt?: string; sourceName?: string }[];
+      attachedTo?: string;
+      attachedToName?: string;
     }> = [];
 
     const gap = 10;
@@ -314,6 +316,19 @@ export function FreeField(props: {
       // Temporary effects
       const temporaryEffects = (p as any).temporaryEffects;
 
+      // Attachment info
+      const attachedTo = p.attachedTo;
+      let attachedToName: string | undefined;
+      if (attachedTo) {
+        const attachedPerm = perms.find(perm => perm.id === attachedTo);
+        if (attachedPerm && attachedPerm.card) {
+          const attachedCard = attachedPerm.card as any;
+          if (typeof attachedCard.name === 'string') {
+            attachedToName = attachedCard.name;
+          }
+        }
+      }
+
       const counters = p.counters || {};
       const existing = (p as any).pos || null;
       const pos = existing ? { ...existing } : nextAuto();
@@ -340,6 +355,8 @@ export function FreeField(props: {
         loyalty,
         targetedBy,
         temporaryEffects,
+        attachedTo,
+        attachedToName,
       });
     }
     return placed;
@@ -399,7 +416,7 @@ export function FreeField(props: {
         overflow: 'visible' // Allow attack indicators to overflow
       }}
     >
-      {items.map(({ id, name, img, pos, tapped, isCreature, isPlaneswalker, counters, baseP, baseT, raw, effP, effT, abilities, attacking, blocking, blockedBy, baseLoyalty, loyalty, targetedBy, temporaryEffects }) => {
+      {items.map(({ id, name, img, pos, tapped, isCreature, isPlaneswalker, counters, baseP, baseT, raw, effP, effT, abilities, attacking, blocking, blockedBy, baseLoyalty, loyalty, targetedBy, temporaryEffects, attachedTo, attachedToName }) => {
         const x = clamp(pos?.x ?? 0, 0, Math.max(0, widthPx - tileWidth));
         const y = clamp(pos?.y ?? 0, 0, Math.max(0, heightPx - tileH));
         const z = pos?.z ?? 0;
@@ -410,6 +427,7 @@ export function FreeField(props: {
         const isBlocking = blocking && blocking.length > 0;
         const isTargeted = targetedBy && targetedBy.length > 0;
         const hasTemporaryEffects = temporaryEffects && temporaryEffects.length > 0;
+        const isAttached = !!attachedTo;
 
         // Border color based on state
         let borderColor = '#2b2b2b';
@@ -418,6 +436,7 @@ export function FreeField(props: {
         else if (isAttacking) borderColor = '#ef4444';
         else if (isBlocking) borderColor = '#3b82f6';
         else if (isTargeted) borderColor = '#f59e0b';
+        else if (isAttached) borderColor = '#8b5cf6'; // Purple for attached
 
         // Decide display PT
         let pDisp: number | undefined = effP;
@@ -685,6 +704,40 @@ export function FreeField(props: {
                   color: '#fff',
                 }}>
                   {temporaryEffects!.length} Effect{temporaryEffects!.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+            )}
+
+            {/* Attached to indicator - shows what this aura/equipment is attached to */}
+            {isAttached && attachedToName && (
+              <div 
+                style={{
+                  position: 'absolute',
+                  left: Math.round(4 * scale),
+                  top: Math.round(4 * scale),
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: Math.round(3 * scale),
+                  padding: `${Math.round(2 * scale)}px ${Math.round(5 * scale)}px`,
+                  borderRadius: Math.round(4 * scale),
+                  background: 'rgba(139,92,246,0.85)',
+                  border: '1px solid rgba(196,181,253,0.6)',
+                  boxShadow: '0 2px 6px rgba(139,92,246,0.4)',
+                  zIndex: 17,
+                  maxWidth: '90%',
+                  overflow: 'hidden',
+                }}
+                title={`Attached to: ${attachedToName}`}
+              >
+                <span style={{ 
+                  fontSize: Math.round(9 * scale),
+                  fontWeight: 600,
+                  color: '#fff',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}>
+                  ↗ {attachedToName}
                 </span>
               </div>
             )}

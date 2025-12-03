@@ -517,6 +517,99 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       const battlefield = game.state?.battlefield || [];
       const attackerIds: string[] = [];
       
+      // Check for Ghostly Prison, Windborn Muse, Propaganda, etc. effects
+      // These require payment per attacking creature
+      const attackCostPerDefender: Map<string, { cost: number; sources: string[] }> = new Map();
+      
+      for (const perm of battlefield) {
+        const permController = (perm as any).controller;
+        if (permController === playerId) continue; // Only opponents' effects matter
+        
+        const oracleText = ((perm as any).card?.oracle_text || "").toLowerCase();
+        const cardName = ((perm as any).card?.name || "").toLowerCase();
+        
+        // Pattern: "Creatures can't attack you unless their controller pays {X} for each creature"
+        // Ghostly Prison: "{2}"
+        // Propaganda: "{2}"
+        // Windborn Muse: "{2}"
+        // Sphere of Safety: "{1} for each enchantment you control"
+        // Norn's Annex: "{W/P}"
+        // Baird, Steward of Argive: "{1}"
+        
+        let attackCost = 0;
+        const costMatch = oracleText.match(/creatures can't attack you (?:or a planeswalker you control )?unless their controller pays \{(\d+)\}/i);
+        
+        if (costMatch) {
+          attackCost = parseInt(costMatch[1], 10);
+        } else if (cardName.includes('ghostly prison') || cardName.includes('propaganda')) {
+          attackCost = 2; // Default for these known cards
+        } else if (cardName.includes('windborn muse')) {
+          attackCost = 2;
+        } else if (cardName.includes('sphere of safety')) {
+          // Count enchantments controlled by that player
+          const enchantmentCount = battlefield.filter((p: any) => 
+            p.controller === permController && 
+            ((p.card?.type_line || '').toLowerCase().includes('enchantment'))
+          ).length;
+          attackCost = enchantmentCount;
+        } else if (cardName.includes('baird, steward of argive')) {
+          attackCost = 1;
+        } else if (cardName.includes('norn\'s annex')) {
+          attackCost = 2; // Or pay 2 life with Phyrexian mana
+        } else if (cardName.includes('archangel of tithes')) {
+          // {1} for each creature attacking you if Archangel is untapped
+          if (!(perm as any).tapped) {
+            attackCost = 1;
+          }
+        } else if (cardName.includes('war tax') || cardName.includes('pendrell mists') ||
+                   (oracleText.includes("can't attack") && oracleText.includes("unless") && oracleText.includes("pays"))) {
+          // Generic detection for other pillowfort effects
+          const genericCostMatch = oracleText.match(/pays?\s*\{(\d+)\}/);
+          if (genericCostMatch) {
+            attackCost = parseInt(genericCostMatch[1], 10);
+          }
+        }
+        
+        if (attackCost > 0) {
+          const existingCost = attackCostPerDefender.get(permController) || { cost: 0, sources: [] };
+          existingCost.cost += attackCost;
+          existingCost.sources.push((perm as any).card?.name || 'Unknown');
+          attackCostPerDefender.set(permController, existingCost);
+        }
+      }
+      
+      // Calculate total attack cost based on which players are being attacked
+      let totalAttackCostRequired = 0;
+      const attackCostBreakdown: { playerId: string; cost: number; sources: string[] }[] = [];
+      
+      for (const attacker of attackers) {
+        const targetPlayerId = attacker.targetPlayerId;
+        if (targetPlayerId && attackCostPerDefender.has(targetPlayerId)) {
+          const costInfo = attackCostPerDefender.get(targetPlayerId)!;
+          totalAttackCostRequired += costInfo.cost;
+          attackCostBreakdown.push({
+            playerId: targetPlayerId,
+            cost: costInfo.cost,
+            sources: costInfo.sources,
+          });
+        }
+      }
+      
+      // If there's an attack cost, prompt the player or check if they can pay
+      if (totalAttackCostRequired > 0) {
+        // For now, emit a warning/prompt about the attack cost
+        // The proper implementation would require a payment flow
+        console.log(`[combat] Attack cost required: ${totalAttackCostRequired} mana for attacking (${attackCostBreakdown.map(b => b.sources.join(', ')).join('; ')})`);
+        
+        // Emit event to notify player about attack costs
+        socket.emit("attackCostRequired", {
+          gameId,
+          totalCost: totalAttackCostRequired,
+          breakdown: attackCostBreakdown,
+          attackerCount: attackers.length,
+        });
+      }
+      
       for (const attacker of attackers) {
         const creature = battlefield.find((perm: any) => 
           perm.id === attacker.creatureId && 
@@ -673,7 +766,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
               // Push trigger onto the stack
               game.state.stack = game.state.stack || [];
               const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-              game.state.stack.push({
+              const stackItem: any = {
                 id: triggerId,
                 type: 'triggered_ability',
                 controller: playerId,
@@ -681,9 +774,17 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 sourceName: trigger.cardName,
                 description: trigger.description,
                 triggerType: trigger.triggerType,
-                value: trigger.value,
                 mandatory: trigger.mandatory,
-              });
+              };
+              
+              // Add value or effectData based on type
+              if (typeof trigger.value === 'number') {
+                stackItem.value = trigger.value;
+              } else if (typeof trigger.value === 'object') {
+                stackItem.effectData = trigger.value;
+              }
+              
+              game.state.stack.push(stackItem);
               
               // Notify players about the trigger
               io.to(gameId).emit("triggeredAbility", {
