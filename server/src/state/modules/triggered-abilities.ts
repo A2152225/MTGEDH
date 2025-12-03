@@ -384,6 +384,8 @@ export interface TriggeredAbility {
     | 'aura_attack'       // Whenever enchanted creature attacks
     | 'equipment_combat_damage' // Whenever equipped creature deals combat damage
     | 'aura_combat_damage'      // Whenever enchanted creature deals combat damage
+    | 'job_select'        // Final Fantasy - create 1/1 Hero token and attach equipment
+    | 'living_weapon'     // Phyrexia - create 0/0 Phyrexian Germ token and attach equipment
     | 'permanent_etb'     // Altar of the Brood style - whenever ANY permanent enters
     | 'another_permanent_etb' // Whenever ANOTHER permanent enters under your control
     | 'deals_damage'
@@ -1426,6 +1428,52 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       mandatory: true,
       requiresChoice: true,
       modalOptions: options,
+    } as any);
+  }
+  
+  // Job Select (Final Fantasy set) - When this Equipment enters, create a 1/1 colorless Hero creature token, then attach this to it.
+  // Pattern: "Job select" or "job select" (keyword)
+  const hasJobSelect = lowerOracle.includes('job select') || 
+    (lowerOracle.includes('create') && lowerOracle.includes('hero') && lowerOracle.includes('token') && lowerOracle.includes('attach'));
+  if (hasJobSelect && !triggers.some(t => t.triggerType === 'job_select')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'job_select',
+      description: 'Create a 1/1 colorless Hero creature token, then attach this Equipment to it.',
+      effect: 'create_hero_token_and_attach',
+      mandatory: true,
+      tokenInfo: {
+        name: 'Hero',
+        power: 1,
+        toughness: 1,
+        types: ['Creature'],
+        subtypes: ['Hero'],
+        colors: [], // colorless
+      },
+    } as any);
+  }
+  
+  // Living Weapon (Phyrexia) - When this Equipment enters, create a 0/0 black Phyrexian Germ creature token, then attach this to it.
+  // Pattern: "Living weapon" (keyword)
+  const hasLivingWeapon = lowerOracle.includes('living weapon') ||
+    (lowerOracle.includes('create') && lowerOracle.includes('germ') && lowerOracle.includes('token') && lowerOracle.includes('attach'));
+  if (hasLivingWeapon && !triggers.some(t => t.triggerType === 'living_weapon')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'living_weapon',
+      description: 'Create a 0/0 black Phyrexian Germ creature token, then attach this Equipment to it.',
+      effect: 'create_germ_token_and_attach',
+      mandatory: true,
+      tokenInfo: {
+        name: 'Phyrexian Germ',
+        power: 0,
+        toughness: 0,
+        types: ['Creature'],
+        subtypes: ['Phyrexian', 'Germ'],
+        colors: ['B'], // black
+      },
     } as any);
   }
   

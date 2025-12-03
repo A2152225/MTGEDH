@@ -2001,6 +2001,43 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
       }
       
+      // Check for Abundant Harvest type spells (Choose land or nonland, then reveal until finding one)
+      // Pattern: "Choose land or nonland. Reveal cards from the top of your library until you reveal a card of the chosen kind."
+      const abundantHarvestMatch = oracleText.match(/choose\s+land\s+or\s+nonland/i);
+      const abundantChoiceSelected = (cardInHand as any).abundantChoice || (targets as any)?.abundantChoice;
+      
+      if (abundantHarvestMatch && !abundantChoiceSelected) {
+        // Prompt the player to choose land or nonland
+        socket.emit("modeSelectionRequest", {
+          gameId,
+          cardId,
+          cardName: cardInHand.name,
+          source: cardInHand.name,
+          title: `Choose type for ${cardInHand.name}`,
+          description: cardInHand.oracle_text || oracleText,
+          imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+          modes: [
+            {
+              id: 'land',
+              name: 'Land',
+              description: 'Reveal cards until you reveal a land card, then put that card into your hand and the rest on the bottom of your library.',
+              cost: null,
+            },
+            {
+              id: 'nonland',
+              name: 'Nonland',
+              description: 'Reveal cards until you reveal a nonland card, then put that card into your hand and the rest on the bottom of your library.',
+              cost: null,
+            },
+          ],
+          effectId: `abundant_${cardId}_${Date.now()}`,
+          selectionType: 'abundantChoice', // Custom type for handling
+        });
+        
+        console.log(`[castSpellFromHand] Requesting land/nonland choice for ${cardInHand.name} (Abundant Harvest style)`);
+        return; // Wait for choice selection
+      }
+      
       // Check if this spell is a modal spell (Choose one/two/three - e.g., Austere Command, Cryptic Command)
       // Pattern: "Choose two —" or "Choose one —" followed by bullet points
       const modalSpellMatch = oracleText.match(/choose\s+(one|two|three|four|any number)\s*(?:—|[-])/i);

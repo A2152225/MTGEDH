@@ -1629,6 +1629,52 @@ export function resolveTopOfStack(ctx: GameContext) {
         console.log(`[resolveTopOfStack] Found ${etbTriggers.length} ETB trigger(s) for ${card.name || 'permanent'}`);
         
         for (const trigger of etbTriggers) {
+          // Handle Job Select and Living Weapon immediately (they don't go on stack - they're part of ETB)
+          // These create tokens and attach the equipment as a single action
+          if (trigger.triggerType === 'job_select' || trigger.triggerType === 'living_weapon') {
+            const tokenInfo = (trigger as any).tokenInfo;
+            if (tokenInfo) {
+              // Create the token
+              const tokenId = uid("token");
+              const tokenCard = {
+                id: `card_${tokenId}`,
+                name: tokenInfo.name || (trigger.triggerType === 'job_select' ? 'Hero' : 'Phyrexian Germ'),
+                type_line: `Token Creature — ${tokenInfo.subtypes?.join(' ') || (trigger.triggerType === 'job_select' ? 'Hero' : 'Phyrexian Germ')}`,
+                colors: tokenInfo.colors || [],
+                isToken: true,
+              };
+              
+              const tokenPermanent = {
+                id: tokenId,
+                controller,
+                owner: controller,
+                tapped: false,
+                counters: {},
+                basePower: tokenInfo.power ?? (trigger.triggerType === 'job_select' ? 1 : 0),
+                baseToughness: tokenInfo.toughness ?? (trigger.triggerType === 'job_select' ? 1 : 0),
+                summoningSickness: true,
+                isToken: true,
+                card: { ...tokenCard, zone: 'battlefield' },
+              } as any;
+              
+              state.battlefield.push(tokenPermanent);
+              
+              // Attach the equipment to the token
+              const equipment = state.battlefield.find((p: any) => p.id === newPermId);
+              if (equipment) {
+                (equipment as any).attachedTo = tokenId;
+                (tokenPermanent as any).attachedEquipment = (tokenPermanent as any).attachedEquipment || [];
+                (tokenPermanent as any).attachedEquipment.push(newPermId);
+                
+                console.log(`[resolveTopOfStack] ${trigger.triggerType === 'job_select' ? 'Job Select' : 'Living Weapon'}: Created ${tokenCard.name} token and attached ${card.name}`);
+              }
+              
+              // Trigger ETB effects for the token
+              triggerETBEffectsForToken(ctx, tokenPermanent, controller);
+            }
+            continue; // Don't push to stack, already handled
+          }
+          
           // Push trigger onto the stack
           state.stack = state.stack || [];
           const triggerId = uid("trigger");
