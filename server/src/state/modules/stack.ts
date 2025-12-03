@@ -1681,6 +1681,18 @@ export function resolveTopOfStack(ctx: GameContext) {
         return t;
       });
       
+      // IMPORTANT: Capture target permanent info BEFORE destruction for "its controller creates" effects
+      // Beast Within, Rapid Hybridization, Pongify, etc. need to know who controlled the target
+      let targetControllerForTokenCreation: PlayerID | null = null;
+      const oracleTextLower = oracleText.toLowerCase();
+      if (oracleTextLower.includes('its controller creates') && targetRefs.length > 0) {
+        const targetPerm = state.battlefield?.find((p: any) => p.id === targetRefs[0]?.id);
+        if (targetPerm) {
+          targetControllerForTokenCreation = targetPerm.controller as PlayerID;
+          console.log(`[resolveTopOfStack] Captured target controller ${targetControllerForTokenCreation} for token creation`);
+        }
+      }
+      
       // Generate effects based on spell type and targets
       const effects = resolveSpell(spellSpec, targetRefs, state as any);
       
@@ -1691,18 +1703,24 @@ export function resolveTopOfStack(ctx: GameContext) {
       
       // Handle special spell effects not covered by the base system
       // Beast Within: "Destroy target permanent. Its controller creates a 3/3 green Beast creature token."
-      if (oracleText.toLowerCase().includes('its controller creates') && targetRefs.length > 0) {
-        const targetPerm = state.battlefield?.find((p: any) => p.id === targetRefs[0]?.id);
-        if (targetPerm) {
-          const tokenController = targetPerm.controller as PlayerID;
-          // Check for token creation patterns
-          const tokenMatch = oracleText.match(/creates?\s+(?:a\s+)?(\d+)\/(\d+)\s+(\w+)\s+(\w+)/i);
-          if (tokenMatch) {
-            const power = parseInt(tokenMatch[1], 10);
-            const toughness = parseInt(tokenMatch[2], 10);
-            const tokenName = `${tokenMatch[4]} Token`;
-            createBeastToken(ctx, tokenController, tokenName, power, toughness);
-          }
+      // Rapid Hybridization: "Destroy target creature. Its controller creates a 3/3 green Frog Lizard creature token."
+      // Pongify: "Destroy target creature. Its controller creates a 3/3 green Ape creature token."
+      if (targetControllerForTokenCreation) {
+        // Check for token creation patterns
+        // Pattern: "creates a X/Y [color] [type] creature token"
+        const tokenMatch = oracleText.match(/creates?\s+(?:a\s+)?(\d+)\/(\d+)\s+(\w+)\s+(?:(\w+)\s+)?(?:(\w+)\s+)?creature\s+token/i);
+        if (tokenMatch) {
+          const power = parseInt(tokenMatch[1], 10);
+          const toughness = parseInt(tokenMatch[2], 10);
+          // Determine token type - the last non-null match before "creature token"
+          const color = tokenMatch[3]?.toLowerCase() || 'green';
+          const type1 = tokenMatch[4] || '';
+          const type2 = tokenMatch[5] || '';
+          const tokenType = type2 || type1 || 'Beast';
+          const tokenName = `${tokenType} Token`;
+          
+          createBeastToken(ctx, targetControllerForTokenCreation, tokenName, power, toughness, color);
+          console.log(`[resolveTopOfStack] ${card.name} created ${power}/${toughness} ${tokenName} for ${targetControllerForTokenCreation}`);
         }
       }
     }
@@ -2431,11 +2449,19 @@ function isJoinForcesSpell(cardName: string, oracleTextLower: string): boolean {
 /**
  * Create a token creature (helper for Beast Within and similar)
  */
-function createBeastToken(ctx: GameContext, controller: PlayerID, name: string, power: number, toughness: number): void {
+function createBeastToken(ctx: GameContext, controller: PlayerID, name: string, power: number, toughness: number, color?: string): void {
   const { state, bumpSeq } = ctx;
   
   state.battlefield = state.battlefield || [];
   const tokenId = uid("token");
+  
+  // Determine creature type from name (e.g., "Beast Token" -> "Beast")
+  const creatureType = name.replace(/\s*Token\s*/i, '').trim() || 'Beast';
+  const typeLine = `Token Creature — ${creatureType}`;
+  
+  // Determine colors array from color string
+  const colorLetters = color ? [color.charAt(0).toUpperCase()] : ['G']; // Default to Green
+  
   state.battlefield.push({
     id: tokenId,
     controller,
@@ -2449,14 +2475,15 @@ function createBeastToken(ctx: GameContext, controller: PlayerID, name: string, 
     card: {
       id: tokenId,
       name,
-      type_line: "Token Creature — Beast",
+      type_line: typeLine,
       power: String(power),
       toughness: String(toughness),
       zone: "battlefield",
+      colors: colorLetters,
     },
   } as any);
   
-  console.log(`[resolveSpell] Created ${power}/${toughness} ${name} token for ${controller}`);
+  console.log(`[resolveSpell] Created ${power}/${toughness} ${color || 'green'} ${name} token for ${controller}`);
 }
 
 /**
