@@ -1984,6 +1984,51 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
     }
     
+    // Handle Swords to Plowshares - "Exile target creature. Its controller gains life equal to its power."
+    // Also handles similar patterns like Condemn (toughness-based) and other exile+life spells
+    const isSwordsToPlowshares = card.name?.toLowerCase().includes('swords to plowshares') || 
+        (oracleTextLower.includes('exile target creature') && 
+         oracleTextLower.includes('gains life equal to'));
+    
+    if (isSwordsToPlowshares && targets.length > 0) {
+      const targetId = targets[0]?.id || targets[0];
+      const targetPerm = state.battlefield?.find((p: any) => p.id === targetId);
+      if (targetPerm) {
+        const creatureController = targetPerm.controller as PlayerID;
+        
+        // Get the creature's power for life gain
+        // Use effective power if available, otherwise base power
+        let powerValue = 0;
+        if (typeof targetPerm.effectivePower === 'number') {
+          powerValue = targetPerm.effectivePower;
+        } else if (typeof targetPerm.basePower === 'number') {
+          powerValue = targetPerm.basePower;
+        } else if (targetPerm.card?.power) {
+          const parsed = parseInt(String(targetPerm.card.power), 10);
+          if (!isNaN(parsed)) {
+            powerValue = parsed;
+          }
+        }
+        
+        // Add +1/+1 and -1/-1 counter adjustments
+        if (targetPerm.counters) {
+          const plusCounters = targetPerm.counters['+1/+1'] || 0;
+          const minusCounters = targetPerm.counters['-1/-1'] || 0;
+          powerValue += plusCounters - minusCounters;
+        }
+        
+        // Gain the life
+        if (powerValue > 0) {
+          const players = (state as any).players || [];
+          const player = players.find((p: any) => p?.id === creatureController);
+          if (player) {
+            player.life = (player.life || 40) + powerValue;
+            console.log(`[resolveTopOfStack] Swords to Plowshares: ${creatureController} gains ${powerValue} life (creature power)`);
+          }
+        }
+      }
+    }
+    
     // Handle Entrapment Maneuver - "Target player sacrifices an attacking creature. 
     // You create X 1/1 white Soldier creature tokens, where X is that creature's toughness."
     const isEntrapmentManeuver = card.name?.toLowerCase().includes('entrapment maneuver') ||
