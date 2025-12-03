@@ -108,6 +108,11 @@ function detectCounterModifiers(gameState: any, targetPermanentController: Playe
 
 /**
  * Apply counter modification effects (doubling, halving, bonus counters)
+ * Order of application (per MTG rules):
+ * 1. Halving effects (Vorinclex opponent penalty) - rounded down
+ * 2. Doubling effects (Vorinclex, Doubling Season, etc.)
+ * 3. Bonus counter effects (Hardened Scales +1)
+ * 
  * Returns modified counter deltas
  */
 function applyCounterModifications(
@@ -131,23 +136,33 @@ function applyCounterModifications(
     
     // Only apply modifications when adding counters (positive amounts)
     if (amount > 0) {
+      // STEP 1: Apply all halving effects first (Vorinclex opponent penalty)
       for (const mod of modifiers) {
-        // Vorinclex-style halving for opponents
         if (mod.halvesOpponentCounters) {
+          const before = amount;
           amount = Math.floor(amount / 2);
-          console.log(`[applyCounterModifications] ${mod.cardName} halved counters: ${rawAmount} -> ${amount}`);
+          console.log(`[applyCounterModifications] ${mod.cardName} halved counters: ${before} -> ${amount}`);
         }
-        
-        // Doubling effects
+      }
+      
+      // STEP 2: Apply all doubling effects (these compound: 2 doublers = 4x)
+      for (const mod of modifiers) {
         if (mod.doublesYourCounters) {
+          const before = amount;
           amount = amount * 2;
-          console.log(`[applyCounterModifications] ${mod.cardName} doubled counters: ${rawAmount} -> ${amount}`);
+          console.log(`[applyCounterModifications] ${mod.cardName} doubled counters: ${before} -> ${amount}`);
         }
-        
-        // Bonus counter (Hardened Scales)
-        if (mod.addsBonusCounter > 0 && counterType.includes('+1/+1')) {
-          amount += mod.addsBonusCounter;
-          console.log(`[applyCounterModifications] ${mod.cardName} added bonus: ${rawAmount} -> ${amount}`);
+      }
+      
+      // STEP 3: Apply bonus counter effects (Hardened Scales +1)
+      // Only applies to +1/+1 counters being placed on creatures
+      if (counterType.includes('+1/+1')) {
+        for (const mod of modifiers) {
+          if (mod.addsBonusCounter > 0) {
+            const before = amount;
+            amount += mod.addsBonusCounter;
+            console.log(`[applyCounterModifications] ${mod.cardName} added bonus: ${before} -> ${amount}`);
+          }
         }
       }
     }

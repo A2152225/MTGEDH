@@ -422,6 +422,37 @@ export function getTotalCreaturePower(ctx: GameContext, playerId: string): numbe
 }
 
 /**
+ * Check if coven is active for a player (controls 3+ creatures with different powers).
+ * Coven abilities only function if controller has 3+ creatures with different powers.
+ * 
+ * Examples:
+ * - Augur of Autumn: Can cast creature spells from top of library if coven active
+ * - Sigarda's Summons: Gives creatures +1/+1 and flying if coven active
+ */
+export function hasCoven(ctx: GameContext, playerId: string): boolean {
+  const permanents = getActiveControlledPermanents(ctx, playerId);
+  const uniquePowers = new Set<number>();
+  
+  for (const perm of permanents) {
+    const typeLine = (perm.card?.type_line || '').toLowerCase();
+    if (!typeLine.includes('creature')) continue;
+    
+    const basePower = parseInt(perm.card?.power || '0', 10) || 0;
+    const counterBonus = (perm.counters?.['+1/+1'] || 0) - (perm.counters?.['-1/-1'] || 0);
+    const effectivePower = basePower + counterBonus;
+    
+    uniquePowers.add(effectivePower);
+    
+    // Early exit if we already have 3 different powers
+    if (uniquePowers.size >= 3) {
+      return true;
+    }
+  }
+  
+  return uniquePowers.size >= 3;
+}
+
+/**
  * Check all ability state conditions for a player and return active ones
  */
 export function getActiveAbilityConditions(ctx: GameContext, playerId: string): Record<string, boolean> {
@@ -432,6 +463,7 @@ export function getActiveAbilityConditions(ctx: GameContext, playerId: string): 
     spellMastery: hasSpellMastery(ctx, playerId),
     ferocious: hasFerocious(ctx, playerId),
     formidable: hasFormidable(ctx, playerId),
+    coven: hasCoven(ctx, playerId),
   };
 }
 
@@ -1040,8 +1072,269 @@ export function calculateAdditionalDraws(ctx: GameContext, playerId: string): nu
   return additionalDraws;
 }
 
+// =============================================================================
+// TOP OF LIBRARY EFFECTS
+// =============================================================================
+// Cards that let you look at and/or play cards from the top of your library
+
 /**
- * Update player's maxLandsPerTurn and additionalDrawsPerTurn based on battlefield state
+ * Configuration for cards that reveal/play from top of library
+ */
+interface TopOfLibraryEffect {
+  lookAtTop: boolean;           // Can look at top card at any time
+  playLandsFromTop?: boolean;   // Can play lands from top of library
+  castFromTop?: boolean;        // Can cast spells from top of library
+  castTypes?: string[];         // Only these types can be cast (e.g., ['creature'])
+  creatureTypeFilter?: string;  // Only creatures of this type (e.g., 'Goblin')
+  conditionCheck?: string;      // Condition to cast (e.g., 'coven' for Augur of Autumn)
+}
+
+/**
+ * Cards that grant top of library effects
+ * Key: lowercase card name (partial match)
+ */
+const TOP_OF_LIBRARY_CARDS: Record<string, TopOfLibraryEffect> = {
+  // Oracle of Mul Daya - "You may play lands from the top of your library" + reveal top
+  "oracle of mul daya": {
+    lookAtTop: true,
+    playLandsFromTop: true,
+  },
+  // Courser of Kruphix - "Play lands from the top of your library" + reveal top
+  "courser of kruphix": {
+    lookAtTop: true,
+    playLandsFromTop: true,
+  },
+  // Future Sight - "You may play the top card of your library"
+  "future sight": {
+    lookAtTop: true,
+    castFromTop: true,
+    playLandsFromTop: true,
+  },
+  // Experimental Frenzy - "You may play the top card of your library" (can't play from hand)
+  "experimental frenzy": {
+    lookAtTop: true,
+    castFromTop: true,
+    playLandsFromTop: true,
+  },
+  // Augur of Autumn - "You may look at the top card of your library" + "You may play lands from the top"
+  // With coven: "You may cast creature spells from the top of your library"
+  "augur of autumn": {
+    lookAtTop: true,
+    playLandsFromTop: true,
+    castFromTop: true,
+    castTypes: ['creature'],
+    conditionCheck: 'coven',
+  },
+  // Conspicuous Snoop - "You may look at the top card of your library any time"
+  // + "You may cast Goblin spells from the top of your library"
+  "conspicuous snoop": {
+    lookAtTop: true,
+    castFromTop: true,
+    castTypes: ['creature'],
+    creatureTypeFilter: 'goblin',
+  },
+  // Eladamri, Korvecdal - "Look at the top card of your library any time"
+  // + "You may cast creature spells from the top of your library"
+  "eladamri, korvecdal": {
+    lookAtTop: true,
+    castFromTop: true,
+    castTypes: ['creature'],
+  },
+  // Radha, Heart of Keld - "You may look at the top card of your library any time"
+  // + "You may play lands from the top of your library"
+  "radha, heart of keld": {
+    lookAtTop: true,
+    playLandsFromTop: true,
+  },
+  // Vizier of the Menagerie - "You may look at the top card of your library any time"
+  // + "You may cast creature spells from the top of your library"
+  "vizier of the menagerie": {
+    lookAtTop: true,
+    castFromTop: true,
+    castTypes: ['creature'],
+  },
+  // Garruk's Horde - "You may look at the top card of your library any time"
+  // + "You may cast creature spells from the top of your library"
+  "garruk's horde": {
+    lookAtTop: true,
+    castFromTop: true,
+    castTypes: ['creature'],
+  },
+  // Melek, Izzet Paragon - "You may look at the top card of your library any time"
+  // + "You may cast instant and sorcery spells from the top of your library"
+  "melek, izzet paragon": {
+    lookAtTop: true,
+    castFromTop: true,
+    castTypes: ['instant', 'sorcery'],
+  },
+  // Bolas's Citadel - "You may look at the top card of your library any time"
+  // + "You may play the top card of your library" (pay life equal to CMC)
+  "bolas's citadel": {
+    lookAtTop: true,
+    castFromTop: true,
+    playLandsFromTop: true,
+  },
+  // Mystic Forge - "You may look at the top card of your library any time"
+  // + "You may cast the top card of your library if it's an artifact card or a colorless nonland card"
+  "mystic forge": {
+    lookAtTop: true,
+    castFromTop: true,
+    castTypes: ['artifact'],
+  },
+  // Magus of the Future - Same as Future Sight
+  "magus of the future": {
+    lookAtTop: true,
+    castFromTop: true,
+    playLandsFromTop: true,
+  },
+  // Vance's Blasting Cannons - "At the beginning of your upkeep, exile the top card of your library. If it's a nonland card, you may cast it this turn"
+  // Different mechanic - not continuous, so not included
+  
+  // The Gitrog Monster - Doesn't reveal top, but can play lands from graveyard
+  // Different mechanic - not included
+  
+  // Elsha of the Infinite - "You may look at the top card of your library any time"
+  // + "You may cast noncreature spells from the top of your library"
+  "elsha of the infinite": {
+    lookAtTop: true,
+    castFromTop: true,
+    castTypes: ['instant', 'sorcery', 'artifact', 'enchantment', 'planeswalker'],
+  },
+};
+
+/**
+ * Check if a player can look at the top card of their library
+ * Returns the source permanent if they can
+ */
+export function canLookAtTopOfLibrary(ctx: GameContext, playerId: string): { canLook: boolean; sources: string[] } {
+  const sources: string[] = [];
+  const battlefield = getActivePermanents(ctx);
+  
+  for (const perm of battlefield) {
+    if (perm.controller !== playerId) continue;
+    
+    const cardName = (perm.card?.name || "").toLowerCase();
+    
+    for (const [knownName, effect] of Object.entries(TOP_OF_LIBRARY_CARDS)) {
+      if (cardName.includes(knownName) && effect.lookAtTop) {
+        sources.push(perm.card?.name || knownName);
+        break;
+      }
+    }
+  }
+  
+  return { canLook: sources.length > 0, sources };
+}
+
+/**
+ * Check if a player can play lands from the top of their library
+ */
+export function canPlayLandsFromTop(ctx: GameContext, playerId: string): { canPlay: boolean; sources: string[] } {
+  const sources: string[] = [];
+  const battlefield = getActivePermanents(ctx);
+  
+  for (const perm of battlefield) {
+    if (perm.controller !== playerId) continue;
+    
+    const cardName = (perm.card?.name || "").toLowerCase();
+    
+    for (const [knownName, effect] of Object.entries(TOP_OF_LIBRARY_CARDS)) {
+      if (cardName.includes(knownName) && effect.playLandsFromTop) {
+        sources.push(perm.card?.name || knownName);
+        break;
+      }
+    }
+  }
+  
+  return { canPlay: sources.length > 0, sources };
+}
+
+/**
+ * Check if a player can cast a specific card type from the top of their library
+ */
+export function canCastFromTop(
+  ctx: GameContext, 
+  playerId: string, 
+  cardTypeLine?: string
+): { canCast: boolean; sources: string[]; restrictions: string[] } {
+  const sources: string[] = [];
+  const restrictions: string[] = [];
+  const battlefield = getActivePermanents(ctx);
+  
+  const typeLine = (cardTypeLine || '').toLowerCase();
+  
+  for (const perm of battlefield) {
+    if (perm.controller !== playerId) continue;
+    
+    const cardName = (perm.card?.name || "").toLowerCase();
+    
+    for (const [knownName, effect] of Object.entries(TOP_OF_LIBRARY_CARDS)) {
+      if (cardName.includes(knownName) && effect.castFromTop) {
+        // Check type restrictions
+        if (effect.castTypes && effect.castTypes.length > 0) {
+          const typeMatches = effect.castTypes.some(t => typeLine.includes(t));
+          if (!typeMatches) {
+            restrictions.push(`${perm.card?.name || knownName} only allows: ${effect.castTypes.join(', ')}`);
+            continue;
+          }
+        }
+        
+        // Check creature type filter (e.g., Conspicuous Snoop for Goblins)
+        if (effect.creatureTypeFilter && typeLine.includes('creature')) {
+          if (!typeLine.includes(effect.creatureTypeFilter)) {
+            restrictions.push(`${perm.card?.name || knownName} only allows ${effect.creatureTypeFilter} creatures`);
+            continue;
+          }
+        }
+        
+        // Check condition (e.g., coven for Augur of Autumn)
+        if (effect.conditionCheck === 'coven') {
+          if (!hasCoven(ctx, playerId)) {
+            restrictions.push(`${perm.card?.name || knownName} requires coven (3 creatures with different powers)`);
+            continue;
+          }
+        }
+        
+        sources.push(perm.card?.name || knownName);
+        break;
+      }
+    }
+  }
+  
+  return { canCast: sources.length > 0, sources, restrictions };
+}
+
+/**
+ * Get the top card of a player's library (if they can see it)
+ */
+export function getTopCardForPlayer(ctx: GameContext, playerId: string): { 
+  card: any | null; 
+  canSee: boolean; 
+  sources: string[];
+} {
+  const { canLook, sources } = canLookAtTopOfLibrary(ctx, playerId);
+  
+  if (!canLook) {
+    return { card: null, canSee: false, sources: [] };
+  }
+  
+  // Get the top card from player's library
+  const zones = ctx.state?.zones as any;
+  const playerZone = zones?.[playerId];
+  const library = playerZone?.library || [];
+  
+  if (library.length === 0) {
+    return { card: null, canSee: true, sources };
+  }
+  
+  // Library is typically stored bottom-to-top, so last element is top
+  const topCard = library[library.length - 1];
+  
+  return { card: topCard, canSee: true, sources };
+}
+
+/**
+ * Update player's top-of-library effects based on battlefield state
  * This should be called after permanents ETB or leave the battlefield
  */
 export function recalculatePlayerEffects(ctx: GameContext, playerId?: string): void {
@@ -1072,6 +1365,23 @@ export function recalculatePlayerEffects(ctx: GameContext, playerId?: string): v
     if (ctx.state) {
       (ctx.state as any).additionalDrawsPerTurn = (ctx.state as any).additionalDrawsPerTurn || {};
       (ctx.state as any).additionalDrawsPerTurn[pid] = additionalDraws;
+    }
+    
+    // Calculate and set top-of-library effects
+    const topOfLibraryLook = canLookAtTopOfLibrary(ctx, pid);
+    const topOfLibraryPlayLands = canPlayLandsFromTop(ctx, pid);
+    const topOfLibraryCast = canCastFromTop(ctx, pid);
+    
+    if (ctx.state) {
+      (ctx.state as any).topOfLibraryEffects = (ctx.state as any).topOfLibraryEffects || {};
+      (ctx.state as any).topOfLibraryEffects[pid] = {
+        canLook: topOfLibraryLook.canLook,
+        lookSources: topOfLibraryLook.sources,
+        canPlayLands: topOfLibraryPlayLands.canPlay,
+        playLandSources: topOfLibraryPlayLands.sources,
+        canCast: topOfLibraryCast.canCast,
+        castSources: topOfLibraryCast.sources,
+      };
     }
   }
 }

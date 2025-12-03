@@ -779,27 +779,29 @@ function executeTriggerEffect(
     
     if (sourcePerm) {
       // Calculate source's power including counters and modifiers
-      let sourcePower = sourcePerm.basePower || 0;
-      if (!sourcePower && sourcePerm.card?.power) {
-        sourcePower = parseInt(String(sourcePerm.card.power), 10) || 0;
-      }
-      // Add +1/+1 counters
-      const plusCounters = sourcePerm.counters?.['+1/+1'] || 0;
-      const minusCounters = sourcePerm.counters?.['-1/-1'] || 0;
-      sourcePower += (plusCounters - minusCounters);
-      
-      // Apply modifiers
-      if (sourcePerm.modifiers && Array.isArray(sourcePerm.modifiers)) {
-        for (const mod of sourcePerm.modifiers) {
-          if (mod.type === 'powerToughness' || mod.type === 'POWER_TOUGHNESS') {
-            sourcePower += mod.power || 0;
-          }
-        }
-      }
-      
-      // Use effectivePower if pre-calculated
+      // Use effectivePower if pre-calculated (most efficient)
+      let sourcePower: number;
       if (typeof sourcePerm.effectivePower === 'number') {
         sourcePower = sourcePerm.effectivePower;
+      } else {
+        // Fall back to manual calculation
+        sourcePower = sourcePerm.basePower || 0;
+        if (!sourcePower && sourcePerm.card?.power) {
+          sourcePower = parseInt(String(sourcePerm.card.power), 10) || 0;
+        }
+        // Add +1/+1 counters
+        const plusCounters = sourcePerm.counters?.['+1/+1'] || 0;
+        const minusCounters = sourcePerm.counters?.['-1/-1'] || 0;
+        sourcePower += (plusCounters - minusCounters);
+        
+        // Apply modifiers
+        if (sourcePerm.modifiers && Array.isArray(sourcePerm.modifiers)) {
+          for (const mod of sourcePerm.modifiers) {
+            if (mod.type === 'powerToughness' || mod.type === 'POWER_TOUGHNESS') {
+              sourcePower += mod.power || 0;
+            }
+          }
+        }
       }
       
       sourcePower = Math.max(0, sourcePower);
