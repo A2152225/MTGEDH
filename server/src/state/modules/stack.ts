@@ -2567,13 +2567,15 @@ function isJoinForcesSpell(cardName: string, oracleTextLower: string): boolean {
 function isTemptingOfferSpell(cardName: string, oracleTextLower: string): boolean {
   const nameLower = (cardName || '').toLowerCase();
   
-  // Known Tempting Offer spell names
+  // Known Tempting Offer spell names (all 7 cards)
   const temptingOfferSpells = new Set([
-    "tempt with discovery",
-    "tempt with glory",
-    "tempt with immortality",
-    "tempt with reflections",
-    "tempt with vengeance",
+    "tempt with bunnies",      // Create rabbit tokens
+    "tempt with discovery",    // Search for land
+    "tempt with glory",        // +1/+1 counters
+    "tempt with immortality",  // Reanimate
+    "tempt with mayhem",       // Deal damage / goad
+    "tempt with reflections",  // Clone
+    "tempt with vengeance",    // Create elemental tokens
   ]);
   
   if (temptingOfferSpells.has(nameLower)) {

@@ -30,8 +30,27 @@ interface PendingJoinForces {
   createdAt: number;
 }
 
+/**
+ * Pending Tempting Offer effect waiting for player responses
+ */
+interface PendingTemptingOffer {
+  id: string;
+  gameId: string;
+  initiator: string;
+  cardName: string;
+  effectDescription: string;
+  acceptedBy: Set<string>;
+  responded: Set<string>;
+  opponents: string[];
+  timeout?: NodeJS.Timeout;
+  createdAt: number;
+}
+
 // Store pending Join Forces effects by ID
 const pendingJoinForces = new Map<string, PendingJoinForces>();
+
+// Store pending Tempting Offer effects by ID (module-level for proper tracking)
+const pendingTemptingOffers = new Map<string, PendingTemptingOffer>();
 
 // Timeout for contributions (60 seconds)
 const CONTRIBUTION_TIMEOUT_MS = 60000;
@@ -213,12 +232,16 @@ function calculateAIJoinForcesContribution(game: any, aiPlayerId: string, cardNa
 
 /**
  * Calculate AI decision for Tempting Offer effects.
- * Uses game-state reasoning to decide whether to accept:
+ * Uses game-state reasoning to decide whether to accept.
+ * 
+ * All 7 Tempting Offer cards:
+ * - Tempt with Bunnies: Create rabbit tokens
  * - Tempt with Discovery: Land search value
- * - Tempt with Vengeance: Token value
- * - Tempt with Reflections: Clone value
- * - Tempt with Immortality: Reanimation value
  * - Tempt with Glory: +1/+1 counters value
+ * - Tempt with Immortality: Reanimation value
+ * - Tempt with Mayhem: Deal damage / goad value
+ * - Tempt with Reflections: Clone value
+ * - Tempt with Vengeance: Elemental token value
  */
 function shouldAIAcceptTemptingOffer(game: any, aiPlayerId: string, cardName: string): boolean {
   const battlefield = game.state?.battlefield || [];
@@ -323,6 +346,47 @@ function shouldAIAcceptTemptingOffer(game: any, aiPlayerId: string, cardName: st
     } else {
       shouldAccept = false;
       reasoning = `no creatures to buff`;
+    }
+  }
+  
+  // ===== TEMPT WITH BUNNIES - Create rabbit tokens =====
+  else if (lowerCardName.includes('bunnies')) {
+    // Bunnies are cute 1/1 tokens - similar logic to vengeance but less aggressive
+    if (aiCreatures.length < 3) {
+      shouldAccept = true;
+      reasoning = `needs board presence (${aiCreatures.length} creatures)`;
+    } else if (aiCreatures.length < 6) {
+      shouldAccept = Math.random() < 0.6;
+      reasoning = `could use more creatures`;
+    } else {
+      // Already has good board
+      shouldAccept = Math.random() < 0.3;
+      reasoning = `has enough creatures`;
+    }
+  }
+  
+  // ===== TEMPT WITH MAYHEM - Deal damage / goad =====
+  else if (lowerCardName.includes('mayhem')) {
+    // Mayhem goads creatures and deals damage - good for aggressive strategies
+    // Get opponent creature count to see if goad is valuable
+    const players = game.state?.players || [];
+    const opponents = players.filter((p: any) => p.id !== aiPlayerId && !p.hasLost);
+    const opponentCreatures = battlefield.filter((p: any) => 
+      opponents.some((o: any) => o.id === p.controller) && 
+      (p.card?.type_line || '').toLowerCase().includes('creature')
+    );
+    
+    if (opponentCreatures.length >= 3) {
+      // Lots of opponent creatures to goad - very valuable
+      shouldAccept = true;
+      reasoning = `opponents have ${opponentCreatures.length} creatures to goad`;
+    } else if (opponentCreatures.length > 0) {
+      shouldAccept = Math.random() < 0.5;
+      reasoning = `some opponent creatures to affect`;
+    } else {
+      // No creatures to goad, less valuable
+      shouldAccept = Math.random() < 0.3;
+      reasoning = `no opponent creatures to goad`;
     }
   }
   
@@ -466,8 +530,8 @@ function processAITemptingOfferResponses(
       
       // Check if all opponents have responded
       if (currentPending.opponents.every((pid: string) => currentPending.responded.has(pid))) {
-        // Complete function is defined inside registerJoinForcesHandlers, so we emit an event
-        io.to(pending.gameId).emit("_temptingOfferAllResponded", { id: pending.id });
+        console.log(`[temptingOffer] All opponents responded - completing effect`);
+        completeTemptingOffer(io, currentPending);
       }
     }, delay);
   }
@@ -611,6 +675,7 @@ export function registerPendingJoinForces(
 /**
  * Register and process a Tempting Offer effect from stack resolution.
  * This is called from handlePendingTemptingOffer in util.ts.
+ * Uses module-level pendingTemptingOffers map for proper tracking.
  */
 export function registerPendingTemptingOffer(
   io: Server,
@@ -620,8 +685,7 @@ export function registerPendingTemptingOffer(
   cardName: string,
   effectDescription: string,
   opponents: string[],
-  cardImageUrl?: string,
-  pendingTemptingOffersMap?: Map<string, any>
+  cardImageUrl?: string
 ): void {
   try {
     const game = ensureGame(gameId);
@@ -648,7 +712,7 @@ export function registerPendingTemptingOffer(
       return;
     }
     
-    const pending = {
+    const pending: PendingTemptingOffer = {
       id: effectId,
       gameId,
       initiator,
@@ -660,12 +724,19 @@ export function registerPendingTemptingOffer(
       createdAt: Date.now(),
     };
     
-    // Store in provided map or we won't have access to it
-    if (pendingTemptingOffersMap) {
-      pendingTemptingOffersMap.set(effectId, pending);
-    }
+    // Set timeout for auto-completion
+    pending.timeout = setTimeout(() => {
+      console.log(`[temptingOffer] Timeout for ${effectId} - completing with partial responses`);
+      const currentPending = pendingTemptingOffers.get(effectId);
+      if (currentPending) {
+        completeTemptingOffer(io, currentPending);
+      }
+    }, CONTRIBUTION_TIMEOUT_MS);
     
-    console.log(`[temptingOffer] Registered pending Tempting Offer ${effectId} for ${cardName}`);
+    // Store in module-level map for proper tracking
+    pendingTemptingOffers.set(effectId, pending);
+    
+    console.log(`[temptingOffer] Registered pending Tempting Offer ${effectId} for ${cardName}, opponents: ${opponents.join(', ')}`);
     
     // Emit to all players
     io.to(gameId).emit("temptingOfferRequest", {
@@ -688,14 +759,51 @@ export function registerPendingTemptingOffer(
       ts: Date.now(),
     });
     
-    // Process AI responses
-    if (pendingTemptingOffersMap) {
-      processAITemptingOfferResponses(io, pending, game, pendingTemptingOffersMap);
-    }
+    // Process AI responses using the module-level map
+    processAITemptingOfferResponses(io, pending, game, pendingTemptingOffers);
     
   } catch (err) {
     console.error(`[temptingOffer] Error registering pending effect:`, err);
   }
+}
+
+/**
+ * Complete a Tempting Offer effect and clean up
+ */
+function completeTemptingOffer(io: Server, pending: PendingTemptingOffer): void {
+  // Clear timeout if exists
+  if (pending.timeout) {
+    clearTimeout(pending.timeout);
+  }
+  
+  const acceptedByArray = Array.from(pending.acceptedBy);
+  const initiatorBonusCount = 1 + acceptedByArray.length; // Initiator gets effect once plus for each acceptor
+  
+  console.log(`[temptingOffer] Completing ${pending.id}: ${acceptedByArray.length} accepted, initiator gets ${initiatorBonusCount}x`);
+  
+  // Notify all players
+  io.to(pending.gameId).emit("temptingOfferComplete", {
+    gameId: pending.gameId,
+    id: pending.id,
+    cardName: pending.cardName,
+    acceptedBy: acceptedByArray,
+    initiator: pending.initiator,
+    initiatorBonusCount,
+  });
+  
+  const game = ensureGame(pending.gameId);
+  io.to(pending.gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId: pending.gameId,
+    from: "system",
+    message: acceptedByArray.length > 0
+      ? `🎁 ${pending.cardName} resolved - ${acceptedByArray.length} opponent(s) accepted. ${getPlayerName(game, pending.initiator)} gets the effect ${initiatorBonusCount} time(s)!`
+      : `🎁 ${pending.cardName} resolved - no opponents accepted. ${getPlayerName(game, pending.initiator)} gets the effect once.`,
+    ts: Date.now(),
+  });
+  
+  // Clean up
+  pendingTemptingOffers.delete(pending.id);
 }
 
 export function registerJoinForcesHandlers(io: Server, socket: Socket) {
