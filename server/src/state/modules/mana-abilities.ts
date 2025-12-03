@@ -1038,6 +1038,76 @@ export function getCreatureCountManaAmount(
     return { color: manaColor, amount: Math.max(0, amount) };
   }
   
+  // ==========================================================================
+  // Selvala pattern: "Add X mana in any combination of colors"
+  // Pattern: "{G}, {T}: Add X mana in any combination of colors, where X is the greatest power among creatures you control."
+  // Also handles: "mana in any combination of colors" patterns
+  // Cards: Selvala Heart of the Wilds, Nykthos, Nyx Lotus, etc.
+  // ==========================================================================
+  
+  // Pattern 1: "Add X mana in any combination of colors, where X is..."
+  const anyCombinationMatch = oracleText.match(
+    /add\s+(?:x|an amount of)?\s*mana\s+in\s+any\s+combination\s+of\s+colors[^.]*(?:where\s+x\s+is\s+)?(.+?)(?:\.|$)/i
+  );
+  
+  if (anyCombinationMatch) {
+    const condition = anyCombinationMatch[1].toLowerCase().trim();
+    const battlefield = gameState?.battlefield || [];
+    let amount = 0;
+    
+    // "the greatest power among creatures you control" (Selvala, Heart of the Wilds)
+    if (condition.includes('greatest power') && condition.includes('creature')) {
+      for (const p of battlefield) {
+        if (!p || p.controller !== playerId) continue;
+        const typeLine = (p.card?.type_line || "").toLowerCase();
+        if (!typeLine.includes("creature")) continue;
+        
+        const power = p.basePower ?? p.card?.power ?? 0;
+        const numPower = typeof power === 'string' ? parseInt(power, 10) || 0 : power;
+        if (numPower > amount) {
+          amount = numPower;
+        }
+      }
+    }
+    // "your devotion to that color" (Nykthos, Nyx Lotus)
+    else if (condition.includes('devotion')) {
+      // This requires color choice - return a marker for the UI
+      // The actual devotion will be calculated when the player chooses a color
+      amount = 0; // Will be calculated dynamically
+    }
+    // "the number of creatures you control" 
+    else if (condition.includes('creature') && condition.includes('control')) {
+      amount = battlefield.filter((p: any) => 
+        p?.controller === playerId && 
+        (p.card?.type_line || '').toLowerCase().includes('creature')
+      ).length;
+    }
+    
+    // Return 'any_combination' to indicate player can choose any combination of colors
+    return { color: 'any_combination', amount: Math.max(0, amount) };
+  }
+  
+  // Pattern 2: "mana in any combination of {W}, {U}, {B}, {R}, and/or {G}"
+  // For cards that produce specific colors in any combination
+  const specificCombinationMatch = oracleText.match(
+    /mana\s+in\s+any\s+combination\s+of\s+(\{[wubrg]\}(?:\s*,?\s*(?:and\/or)?\s*\{[wubrg]\})*)/i
+  );
+  
+  if (specificCombinationMatch) {
+    // Extract which colors are available
+    const colorMatches = specificCombinationMatch[1].match(/\{([wubrg])\}/gi) || [];
+    const availableColors = colorMatches.map(c => c.replace(/[{}]/g, '').toUpperCase());
+    
+    // Look for the amount
+    const amountMatch = oracleText.match(/add\s+(\d+)\s+mana/i);
+    const amount = amountMatch ? parseInt(amountMatch[1], 10) : 1;
+    
+    return { 
+      color: `combination:${availableColors.join(',')}`, 
+      amount: Math.max(0, amount) 
+    };
+  }
+  
   // Dynamic detection: "Add {X} for each Y you control"
   const countManaMatch = oracleText.match(
     /add\s+\{([wubrgc])\}\s+for each\s+(\w+)(?:\s+(?:you control|on the battlefield))?/i

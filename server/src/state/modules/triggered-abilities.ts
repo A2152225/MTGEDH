@@ -5469,3 +5469,547 @@ export function detectQuestCounter(card: any, permanent: any): QuestCounter | nu
   return null;
 }
 
+// ============================================================================
+// Utility Land Activated Abilities
+// ============================================================================
+
+/**
+ * Lands with non-mana activated abilities:
+ * - Ghost Quarter: Destroy target land. Its controller may search for a basic
+ * - Homeward Path: Each player gains control of all creatures they own
+ * - Rogue's Passage: Target creature can't be blocked this turn
+ * - Nesting Grounds: Move a counter from one permanent to another
+ * - Field of Ruin: Destroy target nonbasic land, each player searches for basic
+ * - Detection Tower: Remove hexproof from opponent creatures
+ * - Prahv, Spires of Order: Prevent all damage by target attacking/blocking creature
+ */
+export interface UtilityLandAbility {
+  permanentId: string;
+  cardName: string;
+  cost: string;
+  requiresTap: boolean;
+  effect: string;
+  targetType?: 'land' | 'nonbasic_land' | 'creature' | 'permanent' | 'counter';
+  targetController?: 'any' | 'opponent' | 'you';
+  additionalEffects?: string[];
+}
+
+const KNOWN_UTILITY_LANDS: Record<string, Omit<UtilityLandAbility, 'permanentId' | 'cardName'>> = {
+  "ghost quarter": {
+    cost: "{T}, Sacrifice ~",
+    requiresTap: true,
+    effect: "Destroy target land. Its controller may search for a basic land and put it onto the battlefield",
+    targetType: 'land',
+    targetController: 'any',
+  },
+  "homeward path": {
+    cost: "{T}",
+    requiresTap: true,
+    effect: "Each player gains control of all creatures they own",
+  },
+  "rogue's passage": {
+    cost: "{4}, {T}",
+    requiresTap: true,
+    effect: "Target creature can't be blocked this turn",
+    targetType: 'creature',
+    targetController: 'you',
+  },
+  "nesting grounds": {
+    cost: "{1}, {T}",
+    requiresTap: true,
+    effect: "Move a counter from target permanent you control onto another target permanent",
+    targetType: 'counter',
+    targetController: 'you',
+    additionalEffects: ["Requires two targets", "Counter types must match"],
+  },
+  "field of ruin": {
+    cost: "{2}, {T}, Sacrifice ~",
+    requiresTap: true,
+    effect: "Destroy target nonbasic land. Each player searches for a basic land and puts it onto the battlefield",
+    targetType: 'nonbasic_land',
+    targetController: 'any',
+  },
+  "detection tower": {
+    cost: "{1}, {T}",
+    requiresTap: true,
+    effect: "Until end of turn, creatures your opponents control lose hexproof and shroud",
+  },
+  "prahv, spires of order": {
+    cost: "{4}{W}{U}, {T}",
+    requiresTap: true,
+    effect: "Prevent all damage that would be dealt by target attacking or blocking creature this turn",
+    targetType: 'creature',
+    targetController: 'any',
+  },
+  "maze of ith": {
+    cost: "{T}",
+    requiresTap: true,
+    effect: "Untap target attacking creature. Prevent all combat damage dealt to and dealt by that creature this turn",
+    targetType: 'creature',
+    targetController: 'any',
+  },
+  "mystifying maze": {
+    cost: "{4}, {T}",
+    requiresTap: true,
+    effect: "Exile target attacking creature. At end of combat, return it tapped",
+    targetType: 'creature',
+    targetController: 'any',
+  },
+  "thespian's stage": {
+    cost: "{2}, {T}",
+    requiresTap: true,
+    effect: "This land becomes a copy of target land, except it has this ability",
+    targetType: 'land',
+    targetController: 'any',
+  },
+  "kessig wolf run": {
+    cost: "{X}{R}{G}, {T}",
+    requiresTap: true,
+    effect: "Target creature gets +X/+0 and gains trample until end of turn",
+    targetType: 'creature',
+    targetController: 'you',
+  },
+  "alchemist's refuge": {
+    cost: "{G}{U}, {T}",
+    requiresTap: true,
+    effect: "You may cast spells this turn as though they had flash",
+  },
+  "gavony township": {
+    cost: "{2}{G}{W}, {T}",
+    requiresTap: true,
+    effect: "Put a +1/+1 counter on each creature you control",
+  },
+  "vault of the archangel": {
+    cost: "{2}{W}{B}, {T}",
+    requiresTap: true,
+    effect: "Creatures you control gain deathtouch and lifelink until end of turn",
+  },
+  "slayers' stronghold": {
+    cost: "{R}{W}, {T}",
+    requiresTap: true,
+    effect: "Target creature gets +2/+0 and gains vigilance and haste until end of turn",
+    targetType: 'creature',
+    targetController: 'you',
+  },
+};
+
+export function detectUtilityLandAbility(card: any, permanent: any): UtilityLandAbility | null {
+  const cardName = (card?.name || "").toLowerCase();
+  
+  for (const [knownName, abilityInfo] of Object.entries(KNOWN_UTILITY_LANDS)) {
+    if (cardName.includes(knownName)) {
+      return {
+        permanentId: permanent?.id || '',
+        cardName: card?.name || knownName,
+        ...abilityInfo,
+      };
+    }
+  }
+  
+  return null;
+}
+
+// ============================================================================
+// Equipment Effects (Grafted Exoskeleton, Assault Suit, Umbral Mantle, Bear Umbra)
+// ============================================================================
+
+export interface EquipmentEffect {
+  permanentId: string;
+  cardName: string;
+  equipCost: string;
+  grantedKeywords?: string[];
+  grantedPTBoost?: { power: number; toughness: number };
+  grantedAbilities?: string[];
+  specialEffect?: string;
+  triggers?: string[];
+  restrictions?: string[];
+}
+
+const KNOWN_EQUIPMENT_EFFECTS: Record<string, Omit<EquipmentEffect, 'permanentId' | 'cardName'>> = {
+  "grafted exoskeleton": {
+    equipCost: "{2}",
+    grantedPTBoost: { power: 2, toughness: 2 },
+    grantedKeywords: ['infect'],
+    restrictions: ["When equipment becomes unattached, sacrifice creature"],
+  },
+  "assault suit": {
+    equipCost: "{3}",
+    grantedPTBoost: { power: 2, toughness: 2 },
+    grantedKeywords: ['haste'],
+    specialEffect: "At each opponent's upkeep, you may have them gain control of equipped creature until end of turn. It can't attack you or be sacrificed",
+    restrictions: ["Equipped creature can't be sacrificed"],
+  },
+  "umbral mantle": {
+    equipCost: "{0}",
+    grantedPTBoost: { power: 2, toughness: 2 },
+    grantedAbilities: ["{3}, Untap: This creature gets +2/+2 until end of turn"],
+    specialEffect: "Equipped creature has '{3}, {Q}: This creature gets +2/+2 until end of turn'",
+  },
+  "sword of the animist": {
+    equipCost: "{2}",
+    grantedPTBoost: { power: 1, toughness: 1 },
+    triggers: ["Whenever equipped creature attacks, search for a basic land and put it onto the battlefield tapped"],
+  },
+  "sword of feast and famine": {
+    equipCost: "{2}",
+    grantedPTBoost: { power: 2, toughness: 2 },
+    grantedKeywords: ['protection from black', 'protection from green'],
+    triggers: ["Whenever equipped creature deals combat damage to a player, that player discards a card and you untap all lands you control"],
+  },
+  "skullclamp": {
+    equipCost: "{1}",
+    grantedPTBoost: { power: 1, toughness: -1 },
+    triggers: ["When equipped creature dies, draw two cards"],
+  },
+  "lightning greaves": {
+    equipCost: "{0}",
+    grantedKeywords: ['shroud', 'haste'],
+  },
+  "swiftfoot boots": {
+    equipCost: "{1}",
+    grantedKeywords: ['hexproof', 'haste'],
+  },
+  "helm of the host": {
+    equipCost: "{5}",
+    triggers: ["At the beginning of combat on your turn, create a token copy of equipped creature, except it's not legendary"],
+  },
+};
+
+export function detectEquipmentEffect(card: any, permanent: any): EquipmentEffect | null {
+  const cardName = (card?.name || "").toLowerCase();
+  
+  for (const [knownName, effectInfo] of Object.entries(KNOWN_EQUIPMENT_EFFECTS)) {
+    if (cardName.includes(knownName)) {
+      return {
+        permanentId: permanent?.id || '',
+        cardName: card?.name || knownName,
+        ...effectInfo,
+      };
+    }
+  }
+  
+  return null;
+}
+
+// ============================================================================
+// Aura Umbra Effects (Totem Armor)
+// ============================================================================
+
+export interface TotemArmorEffect {
+  permanentId: string;
+  cardName: string;
+  grantedKeywords?: string[];
+  grantedPTBoost?: { power: number; toughness: number };
+  triggers?: string[];
+}
+
+const KNOWN_UMBRA_EFFECTS: Record<string, Omit<TotemArmorEffect, 'permanentId' | 'cardName'>> = {
+  "bear umbra": {
+    grantedPTBoost: { power: 2, toughness: 2 },
+    triggers: ["Whenever enchanted creature attacks, untap all lands you control"],
+  },
+  "snake umbra": {
+    grantedPTBoost: { power: 1, toughness: 1 },
+    triggers: ["Whenever enchanted creature deals damage to a player, you may draw a card"],
+  },
+  "spider umbra": {
+    grantedPTBoost: { power: 1, toughness: 1 },
+    grantedKeywords: ['reach'],
+  },
+  "boar umbra": {
+    grantedPTBoost: { power: 3, toughness: 3 },
+  },
+  "mammoth umbra": {
+    grantedPTBoost: { power: 3, toughness: 3 },
+    grantedKeywords: ['vigilance'],
+  },
+  "hyena umbra": {
+    grantedPTBoost: { power: 1, toughness: 1 },
+    grantedKeywords: ['first strike'],
+  },
+  "drake umbra": {
+    grantedPTBoost: { power: 3, toughness: 3 },
+    grantedKeywords: ['flying'],
+  },
+  "eel umbra": {
+    grantedPTBoost: { power: 1, toughness: 1 },
+    // Also has flash
+  },
+  "felidar umbra": {
+    grantedPTBoost: { power: 1, toughness: 1 },
+    grantedKeywords: ['lifelink'],
+  },
+};
+
+export function detectUmbraEffect(card: any, permanent: any): TotemArmorEffect | null {
+  const cardName = (card?.name || "").toLowerCase();
+  const oracleText = (card?.oracle_text || "").toLowerCase();
+  
+  // Check if it has totem armor
+  const hasTotemArmor = oracleText.includes('totem armor') || 
+                        card?.keywords?.some((k: string) => k.toLowerCase() === 'totem armor');
+  
+  for (const [knownName, effectInfo] of Object.entries(KNOWN_UMBRA_EFFECTS)) {
+    if (cardName.includes(knownName)) {
+      return {
+        permanentId: permanent?.id || '',
+        cardName: card?.name || knownName,
+        ...effectInfo,
+      };
+    }
+  }
+  
+  // Generic umbra detection
+  if (hasTotemArmor || cardName.includes('umbra')) {
+    return {
+      permanentId: permanent?.id || '',
+      cardName: card?.name || 'Unknown Umbra',
+    };
+  }
+  
+  return null;
+}
+
+// ============================================================================
+// Eldrazi Effects (Ulamog, Annihilator, etc.)
+// ============================================================================
+
+export interface EldraziEffect {
+  permanentId: string;
+  cardName: string;
+  annihilator?: number;
+  castTrigger?: string;
+  attackTrigger?: string;
+  specialAbility?: string;
+  indestructible?: boolean;
+}
+
+const KNOWN_ELDRAZI_EFFECTS: Record<string, Omit<EldraziEffect, 'permanentId' | 'cardName'>> = {
+  "ulamog, the defiler": {
+    castTrigger: "When you cast this spell, target opponent exiles half their library",
+    annihilator: 0, // Has special annihilator based on opponents exiled cards
+    specialAbility: "Ward - Sacrifice two permanents",
+    indestructible: true,
+  },
+  "ulamog, the ceaseless hunger": {
+    castTrigger: "When you cast this spell, exile two target permanents",
+    attackTrigger: "Whenever this creature attacks, defending player exiles the top 20 cards of their library",
+    indestructible: true,
+  },
+  "ulamog, the infinite gyre": {
+    castTrigger: "When you cast this spell, destroy target permanent",
+    annihilator: 4,
+    indestructible: true,
+    specialAbility: "When put into graveyard from anywhere, shuffle graveyard into library",
+  },
+  "kozilek, butcher of truth": {
+    castTrigger: "When you cast this spell, draw four cards",
+    annihilator: 4,
+    specialAbility: "When put into graveyard from anywhere, shuffle graveyard into library",
+  },
+  "emrakul, the aeons torn": {
+    castTrigger: "This spell can't be countered. Take an extra turn after this one",
+    annihilator: 6,
+    specialAbility: "Flying, protection from spells that are one or more colors. When put into graveyard from anywhere, shuffle graveyard into library",
+  },
+  "emrakul, the promised end": {
+    castTrigger: "When you cast this spell, you gain control of target opponent during that player's next turn",
+    specialAbility: "Flying, trample, protection from instants",
+  },
+};
+
+export function detectEldraziEffect(card: any, permanent: any): EldraziEffect | null {
+  const cardName = (card?.name || "").toLowerCase();
+  
+  for (const [knownName, effectInfo] of Object.entries(KNOWN_ELDRAZI_EFFECTS)) {
+    if (cardName.includes(knownName)) {
+      return {
+        permanentId: permanent?.id || '',
+        cardName: card?.name || knownName,
+        ...effectInfo,
+      };
+    }
+  }
+  
+  return null;
+}
+
+// ============================================================================
+// Control Change Effects (Reins of Power, Humble Defector, etc.)
+// ============================================================================
+
+export interface ControlChangeEffect {
+  cardName: string;
+  effectType: 'exchange_creatures' | 'give_control' | 'steal_control' | 'donate';
+  duration: 'until_eot' | 'permanent' | 'until_condition';
+  targets?: string;
+  restrictions?: string[];
+}
+
+const KNOWN_CONTROL_CHANGE_EFFECTS: Record<string, ControlChangeEffect> = {
+  "reins of power": {
+    cardName: "Reins of Power",
+    effectType: 'exchange_creatures',
+    duration: 'until_eot',
+    targets: "You and target opponent exchange control of all creatures",
+    restrictions: ["Untap all creatures", "Creatures gain haste until end of turn"],
+  },
+  "humble defector": {
+    cardName: "Humble Defector",
+    effectType: 'give_control',
+    duration: 'permanent',
+    targets: "Target opponent gains control of Humble Defector",
+    restrictions: ["Activate only as a sorcery", "Draw two cards first"],
+  },
+  "act of treason": {
+    cardName: "Act of Treason",
+    effectType: 'steal_control',
+    duration: 'until_eot',
+    targets: "Target creature",
+    restrictions: ["Untap that creature", "It gains haste"],
+  },
+  "threaten": {
+    cardName: "Threaten",
+    effectType: 'steal_control',
+    duration: 'until_eot',
+    targets: "Target creature",
+    restrictions: ["Untap that creature", "It gains haste"],
+  },
+  "dominate": {
+    cardName: "Dominate",
+    effectType: 'steal_control',
+    duration: 'permanent',
+    targets: "Target creature with mana value X or less",
+  },
+};
+
+export function detectControlChangeEffect(card: any): ControlChangeEffect | null {
+  const cardName = (card?.name || "").toLowerCase();
+  
+  for (const [knownName, effectInfo] of Object.entries(KNOWN_CONTROL_CHANGE_EFFECTS)) {
+    if (cardName.includes(knownName)) {
+      return effectInfo;
+    }
+  }
+  
+  return null;
+}
+
+// ============================================================================
+// Infect and Poison Effects (Triumph of the Hordes, etc.)
+// ============================================================================
+
+export interface InfectGrantEffect {
+  cardName: string;
+  grantsTo: 'all_creatures' | 'target_creature' | 'equipped_creature';
+  duration: 'until_eot' | 'permanent';
+  additionalBoost?: { power: number; toughness: number };
+  additionalKeywords?: string[];
+}
+
+const KNOWN_INFECT_GRANTS: Record<string, InfectGrantEffect> = {
+  "triumph of the hordes": {
+    cardName: "Triumph of the Hordes",
+    grantsTo: 'all_creatures',
+    duration: 'until_eot',
+    additionalBoost: { power: 1, toughness: 1 },
+    additionalKeywords: ['trample', 'infect'],
+  },
+  "tainted strike": {
+    cardName: "Tainted Strike",
+    grantsTo: 'target_creature',
+    duration: 'until_eot',
+    additionalBoost: { power: 1, toughness: 0 },
+    additionalKeywords: ['infect'],
+  },
+  "grafted exoskeleton": {
+    cardName: "Grafted Exoskeleton",
+    grantsTo: 'equipped_creature',
+    duration: 'permanent',
+    additionalBoost: { power: 2, toughness: 2 },
+    additionalKeywords: ['infect'],
+  },
+  "phyresis": {
+    cardName: "Phyresis",
+    grantsTo: 'equipped_creature', // Actually enchanted
+    duration: 'permanent',
+    additionalKeywords: ['infect'],
+  },
+};
+
+export function detectInfectGrantEffect(card: any): InfectGrantEffect | null {
+  const cardName = (card?.name || "").toLowerCase();
+  
+  for (const [knownName, effectInfo] of Object.entries(KNOWN_INFECT_GRANTS)) {
+    if (cardName.includes(knownName)) {
+      return effectInfo;
+    }
+  }
+  
+  return null;
+}
+
+// ============================================================================
+// Temple Bell and Group Draw Effects
+// ============================================================================
+
+export interface GroupDrawEffect {
+  permanentId: string;
+  cardName: string;
+  cost: string;
+  drawAmount: number;
+  affectedPlayers: 'all' | 'each_opponent' | 'you' | 'target_player';
+  additionalEffects?: string[];
+}
+
+const KNOWN_GROUP_DRAW_EFFECTS: Record<string, Omit<GroupDrawEffect, 'permanentId' | 'cardName'>> = {
+  "temple bell": {
+    cost: "{T}",
+    drawAmount: 1,
+    affectedPlayers: 'all',
+  },
+  "howling mine": {
+    cost: "Static (at draw step)",
+    drawAmount: 1,
+    affectedPlayers: 'all',
+  },
+  "font of mythos": {
+    cost: "Static (at draw step)",
+    drawAmount: 2,
+    affectedPlayers: 'all',
+  },
+  "seizan, perverter of truth": {
+    cost: "Static (at upkeep)",
+    drawAmount: 2,
+    affectedPlayers: 'all',
+    additionalEffects: ["Each player loses 2 life"],
+  },
+  "master of the feast": {
+    cost: "Static (at your upkeep)",
+    drawAmount: 1,
+    affectedPlayers: 'each_opponent',
+  },
+  "kami of the crescent moon": {
+    cost: "Static (at draw step)",
+    drawAmount: 1,
+    affectedPlayers: 'all',
+  },
+};
+
+export function detectGroupDrawEffect(card: any, permanent: any): GroupDrawEffect | null {
+  const cardName = (card?.name || "").toLowerCase();
+  
+  for (const [knownName, effectInfo] of Object.entries(KNOWN_GROUP_DRAW_EFFECTS)) {
+    if (cardName.includes(knownName)) {
+      return {
+        permanentId: permanent?.id || '',
+        cardName: card?.name || knownName,
+        ...effectInfo,
+      };
+    }
+  }
+  
+  return null;
+}
+
+
