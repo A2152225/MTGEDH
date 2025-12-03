@@ -2519,7 +2519,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             zones.handCount = handCards.length;
             
             // Build target details for display
-            const targetDetails: Array<{ id: string; type: 'permanent' | 'player'; name?: string; controllerId?: string }> = [];
+            const targetDetails: Array<{ id: string; type: 'permanent' | 'player'; name?: string; controllerId?: string; controllerName?: string }> = [];
             if (targets && targets.length > 0) {
               for (const target of targets) {
                 const targetId = typeof target === 'string' ? target : target.id;
@@ -2536,11 +2536,20 @@ export function registerGameActions(io: Server, socket: Socket) {
                 } else {
                   // Find permanent name and controller
                   const perm = (game.state.battlefield || []).find((p: any) => p.id === targetId);
+                  // Try to get name from multiple sources (card.name, card_faces[0].name for DFCs)
+                  let permName = perm?.card?.name;
+                  if (!permName && (perm?.card as any)?.card_faces?.[0]?.name) {
+                    permName = (perm.card as any).card_faces[0].name;
+                  }
+                  // Don't use ID as fallback name - leave it undefined so client can try to look up
+                  const controllerId = perm?.controller;
+                  const controllerPlayer = controllerId ? (game.state.players || []).find((p: any) => p.id === controllerId) : undefined;
                   targetDetails.push({
                     id: targetId,
                     type: 'permanent',
-                    name: perm?.card?.name || targetId,
-                    controllerId: perm?.controller,
+                    name: permName,
+                    controllerId: controllerId,
+                    controllerName: controllerPlayer?.name,
                   });
                 }
               }
@@ -3109,6 +3118,62 @@ export function registerGameActions(io: Server, socket: Socket) {
           message: String(e),
         });
         return;
+      }
+
+      // Handle conceded player cleanup when their turn would start
+      // If the new turn player has conceded, clean up their field and skip to next player
+      const newTurnPlayer = game.state.turnPlayer;
+      const players = game.state.players || [];
+      const concededPlayer = players.find((p: any) => 
+        p.id === newTurnPlayer && p.conceded && !p.eliminated
+      );
+      
+      if (concededPlayer) {
+        const concededPlayerName = concededPlayer.name || newTurnPlayer;
+        
+        // Clean up conceded player's permanents (exile them)
+        const battlefield = game.state.battlefield || [];
+        const concededPermanents = battlefield.filter((p: any) => p.controller === newTurnPlayer);
+        
+        if (concededPermanents.length > 0) {
+          // Move all their permanents to exile
+          const zones = (game.state as any).zones = (game.state as any).zones || {};
+          const playerZones = zones[newTurnPlayer] = zones[newTurnPlayer] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+          (playerZones as any).exile = (playerZones as any).exile || [];
+          
+          for (const perm of concededPermanents) {
+            (playerZones as any).exile.push({
+              id: perm.id,
+              ...perm.card,
+              zone: 'exile',
+            });
+          }
+          
+          // Remove from battlefield
+          game.state.battlefield = battlefield.filter((p: any) => p.controller !== newTurnPlayer);
+          
+          console.log(`[nextTurn] Removed ${concededPermanents.length} permanents from conceded player ${concededPlayerName}`);
+        }
+        
+        // Mark player as fully eliminated now
+        (concededPlayer as any).hasLost = true;
+        (concededPlayer as any).eliminated = true;
+        (concededPlayer as any).lossReason = "Conceded";
+        
+        // Emit that their field was cleaned up
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `🏳️ ${concededPlayerName}'s permanents have been removed from the game.`,
+          ts: Date.now(),
+        });
+        
+        // Skip to next player's turn
+        if (typeof (game as any).nextTurn === "function") {
+          await (game as any).nextTurn();
+          console.log(`[nextTurn] Skipped conceded player ${concededPlayerName}, advancing to next player`);
+        }
       }
 
       // Persist event without re-applying it in-memory (avoid double-advance)
@@ -6432,6 +6497,126 @@ export function registerGameActions(io: Server, socket: Socket) {
     } catch (err: any) {
       console.error(`requestSacrificeSelection error for game ${gameId}:`, err);
       socket.emit("error", { code: "SACRIFICE_REQUEST_ERROR", message: err?.message ?? String(err) });
+    }
+  });
+
+  /**
+   * Handle player conceding the game.
+   * 
+   * When a player concedes:
+   * 1. They are marked as eliminated/conceded immediately
+   * 2. Their permanents remain on the battlefield until their next turn would begin
+   * 3. On their next turn, all their permanents are exiled and their turn is skipped
+   * 4. If only one player remains, that player wins
+   */
+  socket.on("concede", ({ gameId }: { gameId: string }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      const players = game.state?.players || [];
+      const player = players.find((p: any) => p.id === playerId);
+      
+      if (!player) {
+        socket.emit("error", { code: "CONCEDE_ERROR", message: "Player not found" });
+        return;
+      }
+
+      // Check if player already conceded or is eliminated
+      if ((player as any).hasLost || (player as any).eliminated) {
+        socket.emit("error", { code: "CONCEDE_ERROR", message: "You have already left the game" });
+        return;
+      }
+
+      const playerName = player.name || playerId;
+
+      // Mark player as conceded - field cleanup happens on their next turn
+      (player as any).conceded = true;
+      (player as any).concededAt = Date.now();
+      // Note: We do NOT set hasLost or eliminated yet - that happens when their turn would start
+      // This allows their permanents to remain on the field for other players to interact with
+
+      // Emit concede event
+      io.to(gameId).emit("playerConceded", {
+        gameId,
+        playerId,
+        playerName,
+        message: `${playerName} has conceded the game. Their permanents will be removed at the start of their next turn.`,
+      });
+
+      // Notify via chat
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `🏳️ ${playerName} has conceded the game.`,
+        ts: Date.now(),
+      });
+
+      // Check the remaining player count (excluding conceded players)
+      const activePlayers = players.filter((p: any) => 
+        !p.hasLost && !p.eliminated && !p.conceded && !p.isSpectator
+      );
+
+      // If the conceding player currently has priority, pass it to the next player
+      if (game.state.priority === playerId) {
+        const turnOrder = game.state.turnOrder || players.filter((p: any) => !p.isSpectator).map((p: any) => p.id);
+        const currentIndex = turnOrder.indexOf(playerId);
+        
+        // Find next active player in turn order
+        for (let i = 1; i < turnOrder.length; i++) {
+          const nextIndex = (currentIndex + i) % turnOrder.length;
+          const nextPlayerId = turnOrder[nextIndex];
+          const nextPlayer = players.find((p: any) => p.id === nextPlayerId);
+          if (nextPlayer && !(nextPlayer as any).hasLost && !(nextPlayer as any).eliminated && !(nextPlayer as any).conceded && !(nextPlayer as any).isSpectator) {
+            game.state.priority = nextPlayerId;
+            break;
+          }
+        }
+      }
+
+      // If only one active player remains, they win
+      if (activePlayers.length === 1) {
+        const winner = activePlayers[0];
+        const winnerName = winner.name || winner.id;
+
+        io.to(gameId).emit("gameOver", {
+          gameId,
+          type: 'victory',
+          winnerId: winner.id,
+          winnerName,
+          loserId: playerId,
+          loserName: playerName,
+          message: `${winnerName} wins! All opponents have conceded.`,
+        });
+
+        (game.state as any).gameOver = true;
+        (game.state as any).winner = winner.id;
+      } else if (activePlayers.length === 0) {
+        // All players conceded - draw
+        io.to(gameId).emit("gameOver", {
+          gameId,
+          type: 'draw',
+          message: "All players have conceded. The game is a draw.",
+        });
+
+        (game.state as any).gameOver = true;
+      }
+
+      // Persist the concede event
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, "concede", { playerId, playerName });
+      } catch (e) {
+        console.warn("appendEvent(concede) failed:", e);
+      }
+
+      broadcastGame(io, game, gameId);
+
+      console.log(`[concede] Player ${playerName} (${playerId}) conceded in game ${gameId}`);
+    } catch (err: any) {
+      console.error(`concede error for game ${gameId}:`, err);
+      socket.emit("error", { code: "CONCEDE_ERROR", message: err?.message ?? String(err) });
     }
   });
 }

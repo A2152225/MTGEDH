@@ -125,10 +125,14 @@ function processAIJoinForcesResponses(
   pending: PendingJoinForces, 
   game: any
 ): void {
+  let aiPlayerCount = 0;
+  
   for (const playerId of pending.players) {
     // Skip if already responded or not an AI
     if (pending.responded.has(playerId)) continue;
     if (!isAIPlayer(pending.gameId, playerId)) continue;
+    
+    aiPlayerCount++;
     
     // Calculate AI contribution
     const contribution = calculateAIJoinForcesContribution(game, playerId, pending.cardName);
@@ -136,14 +140,25 @@ function processAIJoinForcesResponses(
     // Delay AI response for natural feel
     const delay = AI_RESPONSE_MIN_MS + Math.random() * (AI_RESPONSE_MAX_MS - AI_RESPONSE_MIN_MS);
     
+    console.log(`[joinForces] AI player ${playerId} will respond in ${Math.round(delay)}ms with contribution ${contribution}`);
+    
     setTimeout(() => {
       // Check if effect still pending
       const currentPending = pendingJoinForces.get(pending.id);
-      if (!currentPending || currentPending.responded.has(playerId)) return;
+      if (!currentPending) {
+        console.log(`[joinForces] AI ${playerId} response skipped - effect no longer pending`);
+        return;
+      }
+      if (currentPending.responded.has(playerId)) {
+        console.log(`[joinForces] AI ${playerId} response skipped - already responded`);
+        return;
+      }
       
       // Record AI contribution
       currentPending.contributions[playerId] = contribution;
       currentPending.responded.add(playerId);
+      
+      console.log(`[joinForces] AI ${playerId} contributed ${contribution} mana. Responded: ${currentPending.responded.size}/${currentPending.players.length}`);
       
       // Notify all players
       io.to(pending.gameId).emit("joinForcesUpdate", {
@@ -167,10 +182,13 @@ function processAIJoinForcesResponses(
       
       // Check if all players have responded
       if (allPlayersResponded(currentPending)) {
+        console.log(`[joinForces] All players responded - completing effect`);
         completeJoinForces(io, currentPending);
       }
     }, delay);
   }
+  
+  console.log(`[joinForces] Scheduled ${aiPlayerCount} AI responses for effect ${pending.id}`);
 }
 
 /**

@@ -50,6 +50,66 @@ export function CentralStack({
     return perm?.card as KnownCardRef | undefined;
   };
   
+  // Helper to find permanent name from battlefield (fallback when targetDetails.name is missing)
+  const findPermanentName = (targetId: string): { name: string; controllerName?: string } | undefined => {
+    if (!battlefield) return undefined;
+    const perm = battlefield.find(p => p.id === targetId);
+    if (!perm) return undefined;
+    
+    // Try to get name from card or card_faces
+    let name = (perm.card as KnownCardRef)?.name;
+    if (!name) {
+      const faces = (perm.card as any)?.card_faces;
+      if (faces && faces[0]?.name) {
+        name = faces[0].name;
+      }
+    }
+    if (!name) return undefined;
+    
+    // Get controller name
+    const controllerName = perm.controller ? getPlayerName(perm.controller) : undefined;
+    return { name, controllerName };
+  };
+  
+  // Helper to format target display with controller info
+  const formatTargetDisplay = (
+    name: string | undefined, 
+    controllerId: string | undefined, 
+    controllerName: string | undefined,
+    targetId: string
+  ): string => {
+    // If name is missing or looks like a perm_ ID, try to look up from battlefield
+    let displayName = name;
+    let displayControllerName = controllerName;
+    
+    if (!displayName || displayName.startsWith('perm_') || displayName.startsWith('stack_')) {
+      const lookup = findPermanentName(targetId);
+      if (lookup) {
+        displayName = lookup.name;
+        displayControllerName = displayControllerName || lookup.controllerName;
+      }
+    }
+    
+    // If still no name, use a fallback
+    if (!displayName) {
+      displayName = 'Unknown Permanent';
+    }
+    
+    // Add controller info if available
+    if (displayControllerName) {
+      return `${displayName} (${displayControllerName}'s)`;
+    } else if (controllerId) {
+      // Try to look up controller name from players
+      const ctrlName = getPlayerName(controllerId);
+      if (ctrlName && ctrlName !== controllerId) {
+        return `${displayName} (${ctrlName}'s)`;
+      }
+    }
+    
+    return displayName;
+  };
+
+  
   // Drag handlers
   const handleMouseDown = (e: React.MouseEvent) => {
     // Only start drag on the header area
@@ -294,6 +354,8 @@ export function CentralStack({
                     <span style={{ fontWeight:'500' }}>
                       {it.targetDetails.map((t, i) => {
                         const targetCard = t.type === 'permanent' ? findTargetCard(t.id) : undefined;
+                        // Access extended target info properties
+                        const extendedTarget = t as { id: string; type: string; name?: string; controllerId?: string; controllerName?: string };
                         
                         if (t.type === 'player') {
                           // Player target - just show name (like declare attackers)
@@ -309,7 +371,13 @@ export function CentralStack({
                             </span>
                           );
                         } else {
-                          // Permanent target - add hover preview
+                          // Permanent target - format with controller info and add hover preview
+                          const displayText = formatTargetDisplay(
+                            extendedTarget.name, 
+                            extendedTarget.controllerId, 
+                            extendedTarget.controllerName,
+                            t.id
+                          );
                           return (
                             <span 
                               key={t.id}
@@ -334,7 +402,7 @@ export function CentralStack({
                                 textDecoration: targetCard ? 'underline dotted' : 'none',
                                 textUnderlineOffset: '2px'
                               }}>
-                                {t.name || t.id}
+                                {displayText}
                               </span>
                             </span>
                           );
@@ -353,31 +421,20 @@ export function CentralStack({
                   }}>
                     <span style={{ color:'#9ca3af' }}>→</span>
                     <span style={{ fontWeight:'500' }}>
-                      {/* Use targetDetails if available (includes names), otherwise fall back to targets */}
-                      {(it.targetDetails || it.targets).map((target: any) => {
+                      {/* Fall back to targets array when targetDetails not available */}
+                      {it.targets.map((target: any) => {
                         // Handle both string and object targets
                         if (typeof target === 'string') {
-                          // Try to find the permanent name for this ID
-                          const perm = battlefield?.find(p => p.id === target);
-                          if (perm?.card?.name) {
-                            // Also add controller info for clarity
-                            const controller = perm.controller;
-                            const ownerName = controller ? 
-                              ((it as any).players?.find((p: any) => p.id === controller)?.name || 
-                               (controller === you ? 'your' : "opponent's")) : '';
-                            return `${perm.card.name}${ownerName ? ` (${ownerName})` : ''}`;
-                          }
-                          return target;
+                          // Use the formatTargetDisplay helper for consistent formatting
+                          return formatTargetDisplay(undefined, undefined, undefined, target);
                         } else if (target && typeof target === 'object') {
-                          // Object target - extract name or id
-                          const name = target.name || target.id || 'Unknown';
-                          // Add controller info if available
-                          if (target.controllerId || target.controller) {
-                            const controllerId = target.controllerId || target.controller;
-                            const ownerLabel = controllerId === you ? 'your' : "opponent's";
-                            return `${name} (${ownerLabel})`;
-                          }
-                          return name;
+                          // Object target - use formatTargetDisplay helper
+                          return formatTargetDisplay(
+                            target.name,
+                            target.controllerId || target.controller,
+                            target.controllerName,
+                            target.id || ''
+                          );
                         }
                         return String(target);
                       }).join(', ')}

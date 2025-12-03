@@ -282,7 +282,7 @@ export function JoinForcesModal({
         )}
 
         {/* Action Buttons */}
-        <div style={{ display: 'flex', gap: 12 }}>
+        <div style={{ display: 'flex', gap: 12, flexDirection: 'column' }}>
           {!hasResponded ? (
             <button
               type="button"
@@ -317,6 +317,51 @@ export function JoinForcesModal({
             }}>
               ✓ You contributed {contributions[currentPlayerId] || 0} mana
             </div>
+          )}
+          {/* Show waiting message when player has responded but others haven't */}
+          {hasResponded && responded.length < request.players.length && (
+            <div style={{
+              padding: '8px 12px',
+              backgroundColor: 'rgba(59,130,246,0.1)',
+              color: '#60a5fa',
+              borderRadius: 6,
+              fontSize: 13,
+              textAlign: 'center',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+            }}>
+              <span style={{ animation: 'pulse 1.5s infinite' }}>⏳</span>
+              Waiting for {request.players.length - responded.length} other player(s)...
+            </div>
+          )}
+          {/* Close button - only show after player has responded (as fallback if modal gets stuck) */}
+          {hasResponded && (
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: 'transparent',
+                color: '#9ca3af',
+                border: '1px solid #4b5563',
+                borderRadius: 6,
+                cursor: 'pointer',
+                fontSize: 13,
+                marginTop: 8,
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = '#6b7280';
+                e.currentTarget.style.color = '#d1d5db';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = '#4b5563';
+                e.currentTarget.style.color = '#9ca3af';
+              }}
+            >
+              Close (effect will still resolve)
+            </button>
           )}
         </div>
       </div>
