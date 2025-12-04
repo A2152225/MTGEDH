@@ -18,6 +18,13 @@ export type PermanentFilter = 'ANY' | 'CREATURE' | 'PLANESWALKER' | 'PERMANENT' 
 // Spell type filter for counterspells
 export type SpellTypeFilter = 'ANY_SPELL' | 'INSTANT_SORCERY' | 'NONCREATURE' | 'CREATURE_SPELL';
 
+// Power/toughness requirement for targeted creatures
+export interface StatRequirement {
+  stat: 'power' | 'toughness';
+  comparison: '<=' | '>=' | '<' | '>' | '=';
+  value: number;
+}
+
 export type SpellSpec = {
   op: SpellOp;
   filter: PermanentFilter;
@@ -27,6 +34,7 @@ export type SpellSpec = {
   spellTypeFilter?: SpellTypeFilter; // For counterspells that only counter certain spell types
   targetDescription?: string; // Human-readable description of what can be targeted
   returnDelay?: 'immediate' | 'end_of_turn' | 'end_of_combat'; // For flicker effects
+  statRequirement?: StatRequirement; // For spells like Repel Calamity (toughness 4 or greater)
 };
 
 /**
@@ -236,6 +244,44 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
     };
   }
 
+  // Check for toughness/power requirements in target descriptions
+  // Pattern: "target creature with toughness 4 or greater" (Repel Calamity)
+  // Pattern: "target creature with power 2 or less" (Ulcerate)
+  const toughnessMatch = t.match(/target (?:attacking or blocking )?creature with toughness (\d+) or (greater|less)/i);
+  const powerMatch = t.match(/target (?:attacking or blocking )?creature with power (\d+) or (greater|less)/i);
+  
+  if (toughnessMatch) {
+    const value = parseInt(toughnessMatch[1], 10);
+    const comparison = toughnessMatch[2] === 'greater' ? '>=' : '<=';
+    const statReq: StatRequirement = { stat: 'toughness', comparison, value };
+    
+    // Determine the operation
+    if (/exile target/.test(t)) {
+      return { op: 'EXILE_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, statRequirement: statReq };
+    }
+    if (/destroy target/.test(t)) {
+      return { op: 'DESTROY_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, statRequirement: statReq };
+    }
+    // Default to target creature action
+    return { op: 'TARGET_CREATURE', filter: 'CREATURE', minTargets: 1, maxTargets: 1, statRequirement: statReq };
+  }
+  
+  if (powerMatch) {
+    const value = parseInt(powerMatch[1], 10);
+    const comparison = powerMatch[2] === 'greater' ? '>=' : '<=';
+    const statReq: StatRequirement = { stat: 'power', comparison, value };
+    
+    // Determine the operation
+    if (/exile target/.test(t)) {
+      return { op: 'EXILE_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, statRequirement: statReq };
+    }
+    if (/destroy target/.test(t)) {
+      return { op: 'DESTROY_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, statRequirement: statReq };
+    }
+    // Default to target creature action
+    return { op: 'TARGET_CREATURE', filter: 'CREATURE', minTargets: 1, maxTargets: 1, statRequirement: statReq };
+  }
+
   if (/exile target/.test(t)) return { op: 'EXILE_TARGET', filter, minTargets: 1, maxTargets: 1 };
   if (/destroy target/.test(t)) return { op: 'DESTROY_TARGET', filter, minTargets: 1, maxTargets: 1 };
   
@@ -389,6 +435,31 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
     if (spec.filter === 'ANY' && !(isCreature(p) || isPlaneswalker(p))) continue;
     // For 'PERMANENT' filter, all permanents are valid targets
     if (hasHexproofOrShroud(p, state) && p.controller !== caster) continue;
+    
+    // Check stat requirement (power/toughness restrictions)
+    if (spec.statRequirement && isCreature(p)) {
+      const { stat, comparison, value } = spec.statRequirement;
+      // Get effective power/toughness
+      const card = p.card as any;
+      let statValue: number;
+      if (stat === 'power') {
+        statValue = p.effectivePower ?? (typeof card?.power === 'string' ? parseInt(card.power, 10) : card?.power) ?? 0;
+      } else {
+        statValue = p.effectiveToughness ?? (typeof card?.toughness === 'string' ? parseInt(card.toughness, 10) : card?.toughness) ?? 0;
+      }
+      
+      // Check comparison
+      let passes = false;
+      switch (comparison) {
+        case '>=': passes = statValue >= value; break;
+        case '<=': passes = statValue <= value; break;
+        case '>': passes = statValue > value; break;
+        case '<': passes = statValue < value; break;
+        case '=': passes = statValue === value; break;
+      }
+      if (!passes) continue;
+    }
+    
     out.push({ kind: 'permanent', id: p.id });
   }
   if (spec.op === 'ANY_TARGET_DAMAGE') {
