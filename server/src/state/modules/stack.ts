@@ -4126,13 +4126,38 @@ export function castSpell(
   }
   
   // Add to stack
-  const stackItem = {
+  const stackItem: any = {
     id: uid("stack"),
     controller: playerId,
     card: { ...card, zone: "stack" },
     targets: targets || [],
     targetDetails: targetDetails.length > 0 ? targetDetails : undefined,
   };
+  
+  // Include selected modes if this is a modal spell (for stack display)
+  // This allows players to see which mode was chosen (e.g., flicker vs destroy for Getaway Glamer)
+  if (card.selectedModes && Array.isArray(card.selectedModes)) {
+    stackItem.selectedModes = card.selectedModes;
+    
+    // Also extract mode descriptions for display
+    const oracleText = card.oracle_text || '';
+    const modeOptionsMatch = oracleText.toLowerCase().match(/(?:choose\s+(?:one|two|three|four|any number)\s*(?:—|[-]))\s*((?:•[^•]+)+)/i);
+    if (modeOptionsMatch) {
+      const bullets = modeOptionsMatch[1].split('•').filter((s: string) => s.trim().length > 0);
+      stackItem.selectedModeDescriptions = card.selectedModes.map((modeId: string) => {
+        const modeNum = parseInt(modeId.replace('mode_', ''), 10);
+        if (bullets[modeNum - 1]) {
+          return bullets[modeNum - 1].trim();
+        }
+        return `Mode ${modeNum}`;
+      });
+    }
+  }
+  
+  // Include selected spree modes if this is a spree spell
+  if (card.selectedSpreeModes && Array.isArray(card.selectedSpreeModes)) {
+    stackItem.selectedSpreeModes = card.selectedSpreeModes;
+  }
   
   state.stack = state.stack || [];
   state.stack.push(stackItem as any);

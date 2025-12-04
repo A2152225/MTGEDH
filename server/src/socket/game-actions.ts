@@ -1965,11 +1965,22 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // For Auras, determine valid targets based on "Enchant X" text
       // Common patterns: "Enchant creature", "Enchant player", "Enchant opponent", "Enchant permanent"
+      // Also handles: "Enchant creature you control", "Enchant creature an opponent controls", etc.
       let auraTargetType: 'creature' | 'player' | 'opponent' | 'permanent' | 'artifact' | 'land' | null = null;
+      let auraControllerRestriction: 'you_control' | 'opponent_controls' | 'any' = 'any';
       if (isAura) {
-        const enchantMatch = oracleText.match(/enchant\s+(creature|player|opponent|permanent|artifact|land|enchantment)/i);
+        const enchantMatch = oracleText.match(/enchant\s+(creature|player|opponent|permanent|artifact|land|enchantment)(?:\s+(you control|an opponent controls))?/i);
         if (enchantMatch) {
           auraTargetType = enchantMatch[1].toLowerCase() as typeof auraTargetType;
+          // Check for controller restriction
+          if (enchantMatch[2]) {
+            const restriction = enchantMatch[2].toLowerCase();
+            if (restriction === 'you control') {
+              auraControllerRestriction = 'you_control';
+            } else if (restriction === 'an opponent controls') {
+              auraControllerRestriction = 'opponent_controls';
+            }
+          }
         }
       }
       
@@ -2008,10 +2019,17 @@ export function registerGameActions(io: Server, socket: Socket) {
             }));
         } else if (auraTargetType === 'creature') {
           // Enchant creature - target creatures on battlefield
+          // Apply controller restriction if present ("you control" or "an opponent controls")
           validTargets = (game.state.battlefield || [])
             .filter((p: any) => {
               const tl = (p.card?.type_line || '').toLowerCase();
-              return tl.includes('creature');
+              if (!tl.includes('creature')) return false;
+              
+              // Apply controller restriction
+              if (auraControllerRestriction === 'you_control' && p.controller !== playerId) return false;
+              if (auraControllerRestriction === 'opponent_controls' && p.controller === playerId) return false;
+              
+              return true;
             })
             .map((p: any) => ({
               id: p.id,

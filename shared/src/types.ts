@@ -728,6 +728,7 @@ export type TriggerShortcutType =
   | 'never_pay'       // Never pay the cost (for opponent-pays triggers)
   | 'always_yes'      // Always choose "yes" for may abilities
   | 'always_no'       // Always choose "no" for may abilities
+  | 'always_resolve'  // Always auto-resolve mandatory triggers without prompting (Soul Warden, etc.)
   | 'ask_each_time';  // Default: prompt each time
 
 /**
@@ -750,7 +751,7 @@ export interface TriggerShortcut {
  */
 export const SHORTCUT_ELIGIBLE_TRIGGERS: Record<string, {
   description: string;
-  type: 'opponent_pays' | 'may_ability';
+  type: 'opponent_pays' | 'may_ability' | 'mandatory';
   defaultPreference: TriggerShortcutType;
 }> = {
   'smothering tithe': {
@@ -789,18 +790,48 @@ export const SHORTCUT_ELIGIBLE_TRIGGERS: Record<string, {
     defaultPreference: 'ask_each_time'
   },
   'soul warden': {
-    description: 'You may gain 1 life',
-    type: 'may_ability',
-    defaultPreference: 'always_yes'
+    description: 'Gain 1 life when another creature enters',
+    type: 'mandatory',
+    defaultPreference: 'always_resolve'
   },
   "soul's attendant": {
-    description: 'You may gain 1 life',
+    description: 'You may gain 1 life when another creature enters',
     type: 'may_ability',
     defaultPreference: 'always_yes'
   },
   'essence warden': {
-    description: 'You may gain 1 life',
-    type: 'may_ability',
-    defaultPreference: 'always_yes'
+    description: 'Gain 1 life when another creature enters',
+    type: 'mandatory',
+    defaultPreference: 'always_resolve'
+  },
+  'suture priest': {
+    description: 'Gain 1 life when a creature enters under your control',
+    type: 'mandatory',
+    defaultPreference: 'always_resolve'
+  },
+  'ajani\'s welcome': {
+    description: 'Gain 1 life when a creature enters under your control',
+    type: 'mandatory',
+    defaultPreference: 'always_resolve'
+  },
+  'impassioned orator': {
+    description: 'Gain 1 life when a creature enters under your control',
+    type: 'mandatory',
+    defaultPreference: 'always_resolve'
+  },
+  'altar of the brood': {
+    description: 'Each opponent mills 1 when a permanent enters',
+    type: 'mandatory',
+    defaultPreference: 'always_resolve'
+  },
+  'impact tremors': {
+    description: 'Deal 1 damage to each opponent when a creature enters',
+    type: 'mandatory',
+    defaultPreference: 'always_resolve'
+  },
+  'purphoros, god of the forge': {
+    description: 'Deal 2 damage to each opponent when a creature enters',
+    type: 'mandatory',
+    defaultPreference: 'always_resolve'
   }
 };
