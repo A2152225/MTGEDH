@@ -112,6 +112,60 @@ export const KNOWN_LIFEGAIN_TRIGGERS: Record<string, {
     isMayAbility: false,
     oncePerTurn: true,
   },
+  // MJ, Rising Star - same as Ajani's Pridemate
+  "mj, rising star": {
+    effect: 'Put a +1/+1 counter on MJ, Rising Star',
+    effectType: 'add_counter',
+    isMayAbility: false,
+  },
+  // Bloodbond Vampire
+  "bloodbond vampire": {
+    effect: 'Put a +1/+1 counter on Bloodbond Vampire',
+    effectType: 'add_counter',
+    isMayAbility: false,
+  },
+  // Gideon's Company
+  "gideon's company": {
+    effect: 'Put two +1/+1 counters on Gideon\'s Company',
+    effectType: 'add_counter',
+    isMayAbility: false,
+  },
+  // Cradle of Vitality
+  "cradle of vitality": {
+    effect: 'You may pay {1}{W}. If you do, put +1/+1 counters equal to life gained on target creature',
+    effectType: 'add_counter',
+    isMayAbility: true,
+  },
+  // Celestial Unicorn
+  "celestial unicorn": {
+    effect: 'Put a +1/+1 counter on Celestial Unicorn',
+    effectType: 'add_counter',
+    isMayAbility: false,
+  },
+  // Epicure of Blood (damage, not counters)
+  "epicure of blood": {
+    effect: 'Each opponent loses 1 life',
+    effectType: 'custom',
+    isMayAbility: false,
+  },
+  // Marauding Blight-Priest
+  "marauding blight-priest": {
+    effect: 'Each opponent loses 1 life',
+    effectType: 'custom',
+    isMayAbility: false,
+  },
+  // Vito, Thorn of the Dusk Rose
+  "vito, thorn of the dusk rose": {
+    effect: 'Target opponent loses that much life',
+    effectType: 'custom',
+    isMayAbility: false,
+  },
+  // Sanguine Bond (enchantment, same effect as Vito)
+  "sanguine bond": {
+    effect: 'Target opponent loses that much life',
+    effectType: 'custom',
+    isMayAbility: false,
+  },
   
   // Token creators
   "dawn of hope": {

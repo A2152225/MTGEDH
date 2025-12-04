@@ -25,6 +25,22 @@ export interface StatRequirement {
   value: number;
 }
 
+// Target restriction - "that..." clauses after "target X"
+// These define additional criteria that valid targets must meet
+export type TargetRestrictionType = 
+  | 'dealt_damage_to_you_this_turn'     // Reciprocate: "target creature that dealt damage to you this turn"
+  | 'dealt_combat_damage_to_you_this_turn' // Similar but combat-only
+  | 'attacked_this_turn'                 // "target creature that attacked this turn"
+  | 'blocked_this_turn'                  // "target creature that blocked this turn"
+  | 'entered_this_turn'                  // "target creature that entered the battlefield this turn"
+  | 'tapped'                             // "target tapped creature"
+  | 'untapped';                          // "target untapped creature"
+
+export interface TargetRestriction {
+  type: TargetRestrictionType;
+  description: string;  // Human-readable description like "that dealt damage to you this turn"
+}
+
 export type SpellSpec = {
   op: SpellOp;
   filter: PermanentFilter;
@@ -35,6 +51,7 @@ export type SpellSpec = {
   targetDescription?: string; // Human-readable description of what can be targeted
   returnDelay?: 'immediate' | 'end_of_turn' | 'end_of_combat'; // For flicker effects
   statRequirement?: StatRequirement; // For spells like Repel Calamity (toughness 4 or greater)
+  targetRestriction?: TargetRestriction; // For "target X that..." clauses (Reciprocate, etc.)
 };
 
 /**
@@ -282,6 +299,131 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
     return { op: 'TARGET_CREATURE', filter: 'CREATURE', minTargets: 1, maxTargets: 1, statRequirement: statReq };
   }
 
+  // ==========================================================================
+  // TARGET RESTRICTIONS: "target X that..." patterns
+  // These are defining criteria that restrict what can be targeted beyond just type.
+  // Examples:
+  // - Reciprocate: "Exile target creature that dealt damage to you this turn."
+  // - Condemn: "Put target attacking creature on the bottom of its owner's library."
+  // - Wing Snare: "Destroy target creature with flying."
+  // ==========================================================================
+  
+  // Pattern: "target creature that dealt damage to you this turn" (Reciprocate)
+  // Also handles: "target creature that dealt combat damage to you this turn"
+  const dealtDamageToYouMatch = t.match(/target creature that dealt (?:combat )?damage to you this turn/i);
+  if (dealtDamageToYouMatch) {
+    const isCombatOnly = t.includes('combat damage to you');
+    const restrictionType: TargetRestrictionType = isCombatOnly 
+      ? 'dealt_combat_damage_to_you_this_turn' 
+      : 'dealt_damage_to_you_this_turn';
+    const restriction: TargetRestriction = {
+      type: restrictionType,
+      description: isCombatOnly ? 'that dealt combat damage to you this turn' : 'that dealt damage to you this turn',
+    };
+    
+    // Determine the operation
+    if (/exile target/.test(t)) {
+      return { 
+        op: 'EXILE_TARGET', 
+        filter: 'CREATURE', 
+        minTargets: 1, 
+        maxTargets: 1, 
+        targetRestriction: restriction,
+        targetDescription: `creature ${restriction.description}`,
+      };
+    }
+    if (/destroy target/.test(t)) {
+      return { 
+        op: 'DESTROY_TARGET', 
+        filter: 'CREATURE', 
+        minTargets: 1, 
+        maxTargets: 1, 
+        targetRestriction: restriction,
+        targetDescription: `creature ${restriction.description}`,
+      };
+    }
+    return { 
+      op: 'TARGET_CREATURE', 
+      filter: 'CREATURE', 
+      minTargets: 1, 
+      maxTargets: 1, 
+      targetRestriction: restriction,
+      targetDescription: `creature ${restriction.description}`,
+    };
+  }
+  
+  // Pattern: "target attacking creature" (Condemn, Divine Verdict, etc.)
+  const attackingCreatureMatch = t.match(/target attacking creature/i);
+  if (attackingCreatureMatch) {
+    const restriction: TargetRestriction = {
+      type: 'attacked_this_turn',
+      description: 'that is attacking',
+    };
+    
+    if (/exile target/.test(t)) {
+      return { op: 'EXILE_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'attacking creature' };
+    }
+    if (/destroy target/.test(t)) {
+      return { op: 'DESTROY_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'attacking creature' };
+    }
+    // Some spells like Condemn put on bottom of library - treat as destroy for now
+    if (/put target attacking creature/.test(t) || /on the bottom/.test(t)) {
+      return { op: 'DESTROY_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'attacking creature' };
+    }
+    return { op: 'TARGET_CREATURE', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'attacking creature' };
+  }
+  
+  // Pattern: "target blocking creature"
+  const blockingCreatureMatch = t.match(/target blocking creature/i);
+  if (blockingCreatureMatch) {
+    const restriction: TargetRestriction = {
+      type: 'blocked_this_turn',
+      description: 'that is blocking',
+    };
+    
+    if (/exile target/.test(t)) {
+      return { op: 'EXILE_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'blocking creature' };
+    }
+    if (/destroy target/.test(t)) {
+      return { op: 'DESTROY_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'blocking creature' };
+    }
+    return { op: 'TARGET_CREATURE', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'blocking creature' };
+  }
+  
+  // Pattern: "target tapped creature"
+  const tappedCreatureMatch = t.match(/target tapped creature/i);
+  if (tappedCreatureMatch) {
+    const restriction: TargetRestriction = {
+      type: 'tapped',
+      description: 'that is tapped',
+    };
+    
+    if (/exile target/.test(t)) {
+      return { op: 'EXILE_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'tapped creature' };
+    }
+    if (/destroy target/.test(t)) {
+      return { op: 'DESTROY_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'tapped creature' };
+    }
+    return { op: 'TARGET_CREATURE', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'tapped creature' };
+  }
+  
+  // Pattern: "target untapped creature"
+  const untappedCreatureMatch = t.match(/target untapped creature/i);
+  if (untappedCreatureMatch) {
+    const restriction: TargetRestriction = {
+      type: 'untapped',
+      description: 'that is untapped',
+    };
+    
+    if (/exile target/.test(t)) {
+      return { op: 'EXILE_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'untapped creature' };
+    }
+    if (/destroy target/.test(t)) {
+      return { op: 'DESTROY_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'untapped creature' };
+    }
+    return { op: 'TARGET_CREATURE', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'untapped creature' };
+  }
+
   if (/exile target/.test(t)) return { op: 'EXILE_TARGET', filter, minTargets: 1, maxTargets: 1 };
   if (/destroy target/.test(t)) return { op: 'DESTROY_TARGET', filter, minTargets: 1, maxTargets: 1 };
   
@@ -458,6 +600,64 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
         case '=': passes = statValue === value; break;
       }
       if (!passes) continue;
+    }
+    
+    // Check target restriction ("target X that..." clauses)
+    // These are defining criteria like "that dealt damage to you this turn" (Reciprocate)
+    if (spec.targetRestriction) {
+      const restriction = spec.targetRestriction;
+      let meetsRestriction = false;
+      
+      switch (restriction.type) {
+        case 'dealt_damage_to_you_this_turn':
+        case 'dealt_combat_damage_to_you_this_turn': {
+          // Check if this creature dealt damage to the caster this turn
+          // The damage tracking is stored in state.creaturesThatDealtDamageToPlayer
+          const damageTracker = (state as any).creaturesThatDealtDamageToPlayer?.[caster];
+          if (damageTracker && damageTracker[p.id]) {
+            meetsRestriction = true;
+          }
+          break;
+        }
+        
+        case 'attacked_this_turn': {
+          // Check if the creature is currently attacking or attacked this turn
+          // During combat, 'attacking' is set on the permanent
+          meetsRestriction = !!(p as any).attacking || !!(p as any).attackedThisTurn;
+          break;
+        }
+        
+        case 'blocked_this_turn': {
+          // Check if the creature is currently blocking or blocked this turn
+          meetsRestriction = !!(p as any).blocking || !!(p as any).blockedThisTurn;
+          break;
+        }
+        
+        case 'entered_this_turn': {
+          // Check if the creature entered the battlefield this turn
+          meetsRestriction = !!(p as any).enteredThisTurn;
+          break;
+        }
+        
+        case 'tapped': {
+          // Check if the creature is tapped
+          meetsRestriction = !!(p as any).tapped;
+          break;
+        }
+        
+        case 'untapped': {
+          // Check if the creature is untapped
+          meetsRestriction = !(p as any).tapped;
+          break;
+        }
+        
+        default:
+          // Unknown restriction type - allow targeting (fail open)
+          meetsRestriction = true;
+          break;
+      }
+      
+      if (!meetsRestriction) continue;
     }
     
     out.push({ kind: 'permanent', id: p.id });

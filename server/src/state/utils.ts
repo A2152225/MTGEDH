@@ -596,10 +596,40 @@ export function triggerLifeGainEffects(
     // Check for "whenever you gain life" patterns
     if (!oracleText.includes('whenever you gain life')) continue;
     
-    // Ajani's Pridemate, Bloodbond Vampire, etc.: Put a +1/+1 counter on this creature
-    // Pattern: "Whenever you gain life, put a +1/+1 counter on ~"
-    if (oracleText.includes('put a +1/+1 counter on') && 
-        (oracleText.includes('on ~') || oracleText.includes('on this') || cardName.includes('pridemate') || cardName.includes('bloodbond'))) {
+    // Ajani's Pridemate, Bloodbond Vampire, MJ Rising Star, Voice of the Blessed, etc.: Put a +1/+1 counter on this creature
+    // Pattern: "Whenever you gain life, put a +1/+1 counter on ~" or "...on this creature"
+    // This should match any card with "whenever you gain life" + "put a +1/+1 counter" where the counter goes on itself
+    // Common patterns:
+    // - "put a +1/+1 counter on ~" (using ~ to reference card name)
+    // - "put a +1/+1 counter on [card name]"
+    // - "put a +1/+1 counter on this creature"
+    // We detect this by checking if the text mentions putting a counter but NOT "on each" (that's Archangel of Thune)
+    // and NOT "that many" (that's Aerith/Sunbond style)
+    const putsSingleCounter = oracleText.includes('put a +1/+1 counter on') && 
+                              !oracleText.includes('on each') && 
+                              !oracleText.includes('that many');
+    
+    // Check if the counter goes on this permanent (not another target)
+    // It goes on self if:
+    // - Text contains "on ~" (card name reference)
+    // - Text contains the card's own name after "counter on"
+    // - Text doesn't require choosing a target (no "target creature")
+    // - OR it's a known card name (pridemate patterns)
+    const counterGoesOnSelf = putsSingleCounter && (
+      oracleText.includes('on ~') ||
+      oracleText.includes('on this') ||
+      oracleText.includes(`on ${cardName}`) ||
+      cardName.includes('pridemate') ||
+      cardName.includes('bloodbond') ||
+      cardName.includes('rising star') ||  // MJ, Rising Star
+      cardName.includes('voice of the blessed') ||
+      cardName.includes('celestial unicorn') ||
+      cardName.includes('trelasarra') ||
+      // Generic check: if it says "put a +1/+1 counter on" without saying "target", it likely goes on itself
+      (!oracleText.includes('target creature') && !oracleText.includes('target enchantment'))
+    );
+    
+    if (counterGoesOnSelf) {
       perm.counters = perm.counters || {};
       perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + 1;
       triggered.push({ 
@@ -607,6 +637,7 @@ export function triggerLifeGainEffects(
         effect: `Added +1/+1 counter (${perm.counters['+1/+1']} total)` 
       });
       console.log(`[triggerLifeGainEffects] ${perm.card.name || perm.id} gained a +1/+1 counter from life gain`);
+      continue; // Don't double-trigger
     }
     
     // Aerith Gainsborough, Light of Promise/Sunbond: Put THAT MANY +1/+1 counters
@@ -620,6 +651,7 @@ export function triggerLifeGainEffects(
         effect: `Added ${amountGained} +1/+1 counter(s) (${perm.counters['+1/+1']} total)` 
       });
       console.log(`[triggerLifeGainEffects] ${perm.card.name || perm.id} gained ${amountGained} +1/+1 counter(s) from life gain`);
+      continue;
     }
     
     // Archangel of Thune: Put a +1/+1 counter on EACH creature you control
@@ -638,6 +670,7 @@ export function triggerLifeGainEffects(
         effect: 'Added +1/+1 counter to each creature you control' 
       });
       console.log(`[triggerLifeGainEffects] ${perm.card.name || perm.id} added +1/+1 counters to all creatures`);
+      continue;
     }
     
     // Epicure of Blood, Marauding Blight-Priest: Each opponent loses 1 life
@@ -657,6 +690,7 @@ export function triggerLifeGainEffects(
         effect: 'Each opponent lost 1 life' 
       });
       console.log(`[triggerLifeGainEffects] ${perm.card.name || perm.id} caused each opponent to lose 1 life`);
+      continue;
     }
     
     // Sanguine Bond, Defiant Bloodlord, Vito: Target opponent loses THAT MUCH life
@@ -677,6 +711,7 @@ export function triggerLifeGainEffects(
         });
         console.log(`[triggerLifeGainEffects] ${perm.card.name || perm.id} caused opponent to lose ${amountGained} life`);
       }
+      continue;
     }
     
     // Heliod, Sun-Crowned: Put a +1/+1 counter on target creature or enchantment
