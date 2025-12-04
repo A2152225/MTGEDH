@@ -177,6 +177,8 @@ export function executeWindCrystalAbility(
  * Execute The Fire Crystal's ability
  * Create a token that's a copy of target creature you control.
  * Sacrifice it at the beginning of the next end step.
+ * Note: Uses delayed trigger that only fires once. Sundial of the Infinite can skip
+ * the end step to keep the token permanently.
  */
 export function executeFireCrystalAbility(
   ctx: GameContext,
@@ -199,14 +201,22 @@ export function executeFireCrystalAbility(
     return { success: false, error: 'Target must be a creature' };
   }
   
-  // Create token copy
+  // Get current turn number to set up delayed trigger for the NEXT end step
+  const currentTurn = (ctx.state as any)?.turn || 1;
+  
+  // Create token copy with delayed sacrifice trigger
+  // The token will be sacrificed at the beginning of the NEXT end step only
+  // This is a one-time delayed trigger, not a recurring effect
   const tokenId = `token_fire_crystal_${Date.now()}`;
   const tokenCopy = {
     id: tokenId,
     controller: controllerId,
     owner: controllerId,
     isToken: true,
-    sacrificeAtEndStep: true,
+    // Delayed trigger: sacrifice at the NEXT end step (current turn's end step)
+    // If Sundial of the Infinite ends the turn before end step, this trigger never fires
+    sacrificeAtNextEndStep: true,
+    sacrificeTriggerTurn: currentTurn,  // Track which turn's end step triggers the sacrifice
     card: {
       ...(targetCreature.card as any),
       id: tokenId,
@@ -218,9 +228,10 @@ export function executeFireCrystalAbility(
     grantedAbilities: [...((targetCreature as any).grantedAbilities || [])],
     temporaryEffects: [{
       id: `fire_crystal_sacrifice_${Date.now()}`,
-      description: 'Will be sacrificed at end of turn',
+      description: 'Will be sacrificed at beginning of next end step (can be avoided with Sundial of the Infinite)',
       icon: '🔥',
-      expiresAt: 'end_of_turn',
+      expiresAt: 'next_end_step',
+      triggerTurn: currentTurn,
       sourceId: 'the_fire_crystal',
       sourceName: 'The Fire Crystal',
     }],
