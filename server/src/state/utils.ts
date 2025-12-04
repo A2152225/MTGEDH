@@ -1700,6 +1700,367 @@ export function calculateAllPTBonuses(
 }
 
 /**
+ * Source of a P/T bonus for display in tooltips
+ */
+export interface PTBonusSource {
+  name: string;           // Name of the source (card name, "Counters", etc.)
+  power: number;          // Power bonus from this source
+  toughness: number;      // Toughness bonus from this source
+  type: 'equipment' | 'aura' | 'enchantment' | 'creature' | 'artifact' | 'counter' | 'modifier' | 'emblem' | 'other';
+}
+
+/**
+ * Extended result from P/T calculation that includes source tracking
+ */
+export interface PTBonusResult {
+  power: number;
+  toughness: number;
+  sources: PTBonusSource[];
+}
+
+/**
+ * Calculate all P/T bonuses for a creature with source tracking for tooltips.
+ * This extended version returns information about what is contributing to the P/T calculation.
+ * 
+ * @param creaturePerm - The creature permanent
+ * @param gameState - Full game state including battlefield, zones, etc.
+ * @returns { power, toughness, sources } total bonus from all sources with details
+ */
+export function calculateAllPTBonusesWithSources(
+  creaturePerm: any,
+  gameState: any
+): PTBonusResult {
+  const sources: PTBonusSource[] = [];
+  
+  if (!creaturePerm || !gameState) {
+    return { power: 0, toughness: 0, sources: [] };
+  }
+  
+  const battlefield = gameState.battlefield || [];
+  const controllerId = creaturePerm.controller;
+  const creatureTypeLine = (creaturePerm.card?.type_line || '').toLowerCase();
+  
+  // 1. Equipment and Aura bonuses (attached to this creature)
+  const equipSources = calculateEquipmentBonusWithSources(creaturePerm, battlefield, gameState);
+  sources.push(...equipSources.sources);
+  
+  // 2. Global enchantment bonuses
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    const typeLine = (perm.card.type_line || '').toLowerCase();
+    
+    if (!typeLine.includes('enchantment')) continue;
+    
+    const cardName = (perm.card.name || '').toLowerCase();
+    const enchantBonus = GLOBAL_ENCHANTMENT_BONUSES[cardName];
+    
+    if (enchantBonus && perm.controller === controllerId) {
+      if (!enchantBonus.condition || enchantBonus.condition(creaturePerm, controllerId, gameState)) {
+        if (enchantBonus.power !== 0 || enchantBonus.toughness !== 0) {
+          sources.push({
+            name: perm.card.name || 'Enchantment',
+            power: enchantBonus.power,
+            toughness: enchantBonus.toughness,
+            type: 'enchantment',
+          });
+        }
+      }
+    }
+    
+    // Parse generic "creatures you control get +X/+Y" or "-X/-Y" from oracle text
+    if (perm.controller === controllerId && !enchantBonus) {
+      const oracleText = perm.card.oracle_text || '';
+      const anthemMatch = oracleText.match(/creatures you control get ([+-]?\d+)\/([+-]?\d+)/i);
+      if (anthemMatch) {
+        const p = parseInt(anthemMatch[1], 10);
+        const t = parseInt(anthemMatch[2], 10);
+        if (p !== 0 || t !== 0) {
+          sources.push({
+            name: perm.card.name || 'Enchantment',
+            power: p,
+            toughness: t,
+            type: 'enchantment',
+          });
+        }
+      }
+    }
+  }
+  
+  // 3. Lord/tribal bonuses from other creatures
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    if (perm.id === creaturePerm.id) continue;
+    if (perm.controller !== controllerId) continue;
+    
+    const typeLine = (perm.card.type_line || '').toLowerCase();
+    if (!typeLine.includes('creature')) continue;
+    
+    const cardName = (perm.card.name || '').toLowerCase();
+    const lordBonus = LORD_BONUSES[cardName];
+    
+    if (lordBonus) {
+      let applies = false;
+      if (lordBonus.creatureType && creatureTypeLine.includes(lordBonus.creatureType)) {
+        applies = true;
+      } else if (lordBonus.condition && lordBonus.condition(creaturePerm, perm)) {
+        applies = true;
+      }
+      
+      if (applies && (lordBonus.power !== 0 || lordBonus.toughness !== 0)) {
+        sources.push({
+          name: perm.card.name || 'Lord',
+          power: lordBonus.power,
+          toughness: lordBonus.toughness,
+          type: 'creature',
+        });
+      }
+    }
+    
+    // Parse generic lord patterns
+    const oracleText = perm.card.oracle_text || '';
+    if (!lordBonus) {
+      const lordMatch = oracleText.match(/other (\w+) creatures you control get \+(\d+)\/\+(\d+)/i);
+      if (lordMatch) {
+        const targetType = lordMatch[1].toLowerCase();
+        if (creatureTypeLine.includes(targetType)) {
+          const p = parseInt(lordMatch[2], 10);
+          const t = parseInt(lordMatch[3], 10);
+          sources.push({
+            name: perm.card.name || 'Lord',
+            power: p,
+            toughness: t,
+            type: 'creature',
+          });
+        }
+      }
+      
+      const genericLordMatch = oracleText.match(/other creatures you control get \+(\d+)\/\+(\d+)/i);
+      if (genericLordMatch) {
+        const p = parseInt(genericLordMatch[1], 10);
+        const t = parseInt(genericLordMatch[2], 10);
+        sources.push({
+          name: perm.card.name || 'Lord',
+          power: p,
+          toughness: t,
+          type: 'creature',
+        });
+      }
+    }
+  }
+  
+  // 4. Artifact bonuses (non-equipment)
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    if (perm.controller !== controllerId) continue;
+    
+    const typeLine = (perm.card.type_line || '').toLowerCase();
+    if (!typeLine.includes('artifact') || typeLine.includes('equipment')) continue;
+    
+    const oracleText = perm.card.oracle_text || '';
+    const artifactAnthemMatch = oracleText.match(/creatures you control get \+(\d+)\/\+(\d+)/i);
+    if (artifactAnthemMatch) {
+      const p = parseInt(artifactAnthemMatch[1], 10);
+      const t = parseInt(artifactAnthemMatch[2], 10);
+      sources.push({
+        name: perm.card.name || 'Artifact',
+        power: p,
+        toughness: t,
+        type: 'artifact',
+      });
+    }
+  }
+  
+  // 5. Temporary pump effects (modifiers)
+  if (creaturePerm.modifiers && Array.isArray(creaturePerm.modifiers)) {
+    for (const mod of creaturePerm.modifiers) {
+      if (mod.type === 'pump' || mod.type === 'PUMP' || 
+          mod.type === 'ptBoost' || mod.type === 'PT_BOOST' ||
+          mod.type === 'temporary_pump' || mod.type === 'TEMPORARY_PUMP' ||
+          mod.type === 'giantGrowth' || mod.type === 'GIANT_GROWTH') {
+        const p = mod.power || mod.powerBonus || 0;
+        const t = mod.toughness || mod.toughnessBonus || 0;
+        if (p !== 0 || t !== 0) {
+          sources.push({
+            name: mod.sourceName || 'Pump effect',
+            power: p,
+            toughness: t,
+            type: 'modifier',
+          });
+        }
+      }
+    }
+  }
+  
+  // 6. Pump effects array
+  if (creaturePerm.pumpEffects && Array.isArray(creaturePerm.pumpEffects)) {
+    for (const pump of creaturePerm.pumpEffects) {
+      const p = pump.power || pump.powerBonus || 0;
+      const t = pump.toughness || pump.toughnessBonus || 0;
+      if (p !== 0 || t !== 0) {
+        sources.push({
+          name: pump.sourceName || 'Pump effect',
+          power: p,
+          toughness: t,
+          type: 'modifier',
+        });
+      }
+    }
+  }
+  
+  // 7/8. Temporary and direct boost fields
+  const tempPower = (creaturePerm.temporaryPowerBoost || 0) + (creaturePerm.powerBoost || 0);
+  const tempToughness = (creaturePerm.temporaryToughnessBoost || 0) + (creaturePerm.toughnessBoost || 0);
+  if (tempPower !== 0 || tempToughness !== 0) {
+    sources.push({
+      name: 'Temporary boost',
+      power: tempPower,
+      toughness: tempToughness,
+      type: 'modifier',
+    });
+  }
+  
+  // 9. Emblem effects
+  const emblems = gameState.emblems || [];
+  for (const emblem of emblems) {
+    if (!emblem || emblem.controller !== controllerId) continue;
+    
+    const text = (emblem.text || emblem.effect || '').toLowerCase();
+    const emblemMatch = text.match(/creatures you control get \+(\d+)\/\+(\d+)/i);
+    if (emblemMatch) {
+      const p = parseInt(emblemMatch[1], 10);
+      const t = parseInt(emblemMatch[2], 10);
+      sources.push({
+        name: emblem.name || 'Emblem',
+        power: p,
+        toughness: t,
+        type: 'emblem',
+      });
+    }
+  }
+  
+  // Calculate totals
+  let totalPower = 0;
+  let totalToughness = 0;
+  for (const source of sources) {
+    totalPower += source.power;
+    totalToughness += source.toughness;
+  }
+  
+  return { power: totalPower, toughness: totalToughness, sources };
+}
+
+/**
+ * Calculate equipment/aura bonus with source tracking.
+ */
+export function calculateEquipmentBonusWithSources(
+  creaturePerm: any,
+  battlefield: any[],
+  gameState?: any
+): PTBonusResult {
+  const sources: PTBonusSource[] = [];
+  
+  if (!creaturePerm || !Array.isArray(battlefield)) {
+    return { power: 0, toughness: 0, sources: [] };
+  }
+  
+  const controllerId = creaturePerm.controller;
+  const zones = gameState?.zones || {};
+  
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    
+    const typeLine = (perm.card.type_line || '').toLowerCase();
+    const isEquipment = typeLine.includes('equipment');
+    const isAura = typeLine.includes('aura') && typeLine.includes('enchantment');
+    
+    if (!isEquipment && !isAura) continue;
+    
+    const isAttached = 
+      perm.attachedTo === creaturePerm.id || 
+      (creaturePerm.attachedEquipment && creaturePerm.attachedEquipment.includes(perm.id));
+    
+    if (!isAttached) continue;
+    
+    const cardName = (perm.card.name || '').toLowerCase();
+    const oracleText = (perm.card.oracle_text || '').toLowerCase();
+    const sourceType: 'equipment' | 'aura' = isEquipment ? 'equipment' : 'aura';
+    
+    // Variable equipment
+    if (cardName.includes('cranial plating')) {
+      const artifacts = battlefield.filter((p: any) => 
+        p.controller === controllerId && 
+        (p.card?.type_line || '').toLowerCase().includes('artifact')
+      );
+      sources.push({ name: perm.card.name, power: artifacts.length, toughness: 0, type: sourceType });
+      continue;
+    }
+    
+    if (cardName.includes('nettlecyst')) {
+      const count = battlefield.filter((p: any) => {
+        if (p.controller !== controllerId) return false;
+        const tl = (p.card?.type_line || '').toLowerCase();
+        return tl.includes('artifact') || tl.includes('enchantment');
+      }).length;
+      sources.push({ name: perm.card.name, power: count, toughness: count, type: sourceType });
+      continue;
+    }
+    
+    if (cardName.includes('blackblade reforged')) {
+      const lands = battlefield.filter((p: any) => 
+        p.controller === controllerId && 
+        (p.card?.type_line || '').toLowerCase().includes('land')
+      );
+      sources.push({ name: perm.card.name, power: lands.length, toughness: lands.length, type: sourceType });
+      continue;
+    }
+    
+    // Known static equipment/aura bonuses
+    if (EQUIPMENT_BONUSES[cardName]) {
+      const bonus = EQUIPMENT_BONUSES[cardName];
+      if (bonus.power !== 0 || bonus.toughness !== 0) {
+        sources.push({ name: perm.card.name, power: bonus.power, toughness: bonus.toughness, type: sourceType });
+      }
+      continue;
+    }
+    
+    if (AURA_BONUSES[cardName]) {
+      const bonus = AURA_BONUSES[cardName];
+      if (bonus.power !== 0 || bonus.toughness !== 0) {
+        sources.push({ name: perm.card.name, power: bonus.power, toughness: bonus.toughness, type: sourceType });
+      }
+      continue;
+    }
+    
+    // Parse from oracle text
+    const bonusMatch = oracleText.match(/equipped creature gets? \+(\d+)\/\+(\d+)/i);
+    if (bonusMatch) {
+      sources.push({ name: perm.card.name, power: parseInt(bonusMatch[1], 10), toughness: parseInt(bonusMatch[2], 10), type: sourceType });
+      continue;
+    }
+    
+    const negativeToughnessMatch = oracleText.match(/equipped creature gets? \+(\d+)\/(-\d+)/i);
+    if (negativeToughnessMatch) {
+      sources.push({ name: perm.card.name, power: parseInt(negativeToughnessMatch[1], 10), toughness: parseInt(negativeToughnessMatch[2], 10), type: sourceType });
+      continue;
+    }
+    
+    const auraMatch = oracleText.match(/enchanted creature gets? \+(\d+)\/\+(\d+)/i);
+    if (auraMatch) {
+      sources.push({ name: perm.card.name, power: parseInt(auraMatch[1], 10), toughness: parseInt(auraMatch[2], 10), type: sourceType });
+    }
+  }
+  
+  let totalPower = 0;
+  let totalToughness = 0;
+  for (const source of sources) {
+    totalPower += source.power;
+    totalToughness += source.toughness;
+  }
+  
+  return { power: totalPower, toughness: totalToughness, sources };
+}
+
+/**
  * Calculate total equipment/aura bonus for a creature
  * Looks at all attached equipment and auras and sums their P/T bonuses
  * Includes variable equipment like Cranial Plating, Blackblade Reforged, Trepanation Blade

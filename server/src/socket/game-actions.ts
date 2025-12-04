@@ -2,7 +2,7 @@ import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, handlePendingLibrarySearch, handlePendingJoinForces, handlePendingTemptingOffer, handlePendingPonder, broadcastManaPoolUpdate } from "./util";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
-import type { PaymentItem, TriggerShortcut } from "../../../shared/src";
+import type { PaymentItem, TriggerShortcut, PlayerID } from "../../../shared/src";
 import { requiresCreatureTypeSelection, requestCreatureTypeSelection } from "./creature-type";
 import { checkAndPromptOpeningHandActions } from "./opening-hand";
 import { emitSacrificeUnlessPayPrompt } from "./triggers";
@@ -4693,7 +4693,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   /**
    * Adjust a player's life total by a delta (positive for gain, negative for loss)
    */
-  socket.on("adjustLife", ({ gameId, delta, targetPlayerId }: { 
+  socket.on("adjustLife", async ({ gameId, delta, targetPlayerId }: { 
     gameId: string; 
     delta: number; 
     targetPlayerId?: string;
@@ -4757,6 +4757,48 @@ export function registerGameActions(io: Server, socket: Socket) {
       });
 
       console.log(`[adjustLife] ${targetName} ${actionType} ${actionAmount} life (${currentLife} → ${newLife}) in game ${gameId}`);
+
+      // Check for lifegain triggers (Ratchet, Ajani's Pridemate, etc.)
+      if (delta > 0) {
+        try {
+          const { detectLifegainTriggers } = await import("../state/modules/triggers/lifegain.js");
+          const lifegainTriggers = detectLifegainTriggers(game as any, targetPid, delta);
+          
+          if (lifegainTriggers.length > 0) {
+            // Add triggers to pending triggers queue
+            const state = game.state as any;
+            if (!state.pendingTriggers) {
+              state.pendingTriggers = [];
+            }
+            
+            for (const trigger of lifegainTriggers) {
+              state.pendingTriggers.push({
+                id: `lifegain_${trigger.permanentId}_${Date.now()}`,
+                type: 'lifegain',
+                controllerId: trigger.controllerId,
+                sourceId: trigger.permanentId,
+                sourceName: trigger.cardName,
+                effect: trigger.effect,
+                effectType: trigger.effectType,
+                isMayAbility: trigger.isMayAbility,
+                lifeGained: delta,
+                maxArtifactMV: trigger.maxArtifactMV,
+              });
+              
+              // Emit trigger notification
+              io.to(gameId).emit("chat", {
+                id: `m_${Date.now()}_trigger`,
+                gameId,
+                from: "system",
+                message: `🎯 Lifegain trigger: ${trigger.cardName} - ${trigger.effect}`,
+                ts: Date.now(),
+              });
+            }
+          }
+        } catch (triggerErr) {
+          console.warn("Error detecting lifegain triggers:", triggerErr);
+        }
+      }
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {

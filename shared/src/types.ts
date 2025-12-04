@@ -177,6 +177,17 @@ export interface PermanentModifier {
   readonly duration?: 'permanent' | 'end_of_turn' | 'end_of_combat';
 }
 
+/**
+ * Source of a P/T bonus for display in tooltips.
+ * Used to show players where their creature's stats come from.
+ */
+export interface PTBonusSource {
+  name: string;           // Name of the source (card name, "Counters", etc.)
+  power: number;          // Power bonus from this source
+  toughness: number;      // Toughness bonus from this source
+  type: 'equipment' | 'aura' | 'enchantment' | 'creature' | 'artifact' | 'counter' | 'modifier' | 'emblem' | 'other';
+}
+
 /* Battlefield permanent shape */
 export interface BattlefieldPermanent {
   id: string;
@@ -191,6 +202,8 @@ export interface BattlefieldPermanent {
   modifiers?: readonly PermanentModifier[]; // Power/toughness and other modifiers from effects
   effectivePower?: number;
   effectiveToughness?: number;
+  /** Sources contributing to P/T bonuses, for tooltip display */
+  ptSources?: PTBonusSource[];
   isCommander?: boolean;
   grantedAbilities?: string[];
   posX?: number;

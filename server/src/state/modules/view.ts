@@ -8,7 +8,7 @@ import type {
   BattlefieldPermanent,
 } from "../../../../shared/src/index.js";
 import type { GameContext } from "../context.js";
-import { parsePT, calculateVariablePT, calculateAllPTBonuses } from "../utils.js";
+import { parsePT, calculateVariablePT, calculateAllPTBonuses, calculateAllPTBonusesWithSources, type PTBonusSource } from "../utils.js";
 
 /**
  * Determine if `viewer` can see `owner`'s hidden zones (hand, library top, etc.)
@@ -93,11 +93,28 @@ export function viewFor(
           }
         }
         
-        // Calculate ALL other bonuses (equipment, auras, anthems, lords, emblems, etc.)
-        const allBonuses = calculateAllPTBonuses(perm, state);
+        // Calculate ALL other bonuses with source tracking (equipment, auras, anthems, lords, emblems, etc.)
+        const allBonusesResult = calculateAllPTBonusesWithSources(perm, state);
         
-        effectivePower = baseP + counterDelta + otherCounterPower + allBonuses.power;
-        effectiveToughness = baseT + counterDelta + otherCounterToughness + allBonuses.toughness;
+        effectivePower = baseP + counterDelta + otherCounterPower + allBonusesResult.power;
+        effectiveToughness = baseT + counterDelta + otherCounterToughness + allBonusesResult.toughness;
+        
+        // Build P/T sources array for tooltip display
+        const ptSources: PTBonusSource[] = [];
+        
+        // Add counters as a source if they modify P/T
+        if (counterDelta !== 0) {
+          ptSources.push({ name: '+1/+1 counters', power: counterDelta, toughness: counterDelta, type: 'counter' });
+        }
+        if (otherCounterPower !== 0 || otherCounterToughness !== 0) {
+          ptSources.push({ name: 'Other counters', power: otherCounterPower, toughness: otherCounterToughness, type: 'counter' });
+        }
+        
+        // Add all other sources
+        ptSources.push(...allBonusesResult.sources);
+        
+        // Store ptSources on the permanent for client use
+        (perm as any).ptSources = ptSources;
       }
     }
     const cz = state.commandZone[perm.controller];
@@ -113,6 +130,7 @@ export function viewFor(
         ? { effectivePower, effectiveToughness }
         : {}),
       ...(isCommander ? { isCommander: true } : {}),
+      ...((perm as any).ptSources?.length > 0 ? { ptSources: (perm as any).ptSources } : {}),
     };
   });
 
