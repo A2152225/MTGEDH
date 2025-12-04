@@ -141,7 +141,7 @@ export function TokenGroups(props: {
       const attached = attachedToSet?.has(t.id) ?? false;
       const imageUrl = getTokenImageUrl(t);
       const tapped = t.tapped ?? false;
-      const summoningSick = (t as any).summoningSick ?? false;
+      const summoningSick = t.summoningSickness ?? false;
 
       let key = name;
       if (groupMode.includes('pt')) key += `|pt:${pt}`;

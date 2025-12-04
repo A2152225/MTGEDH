@@ -444,7 +444,9 @@ export type ClientGameView = Omit<GameState, 'battlefield' | 'stack' | 'players'
 export interface PendingCommanderZoneChoice {
   commanderId: string;
   commanderName: string;
-  destinationZone: 'graveyard' | 'exile';
+  destinationZone: 'graveyard' | 'exile' | 'library' | 'hand';
+  playerId?: string; // Owner who needs to make the choice
+  libraryPosition?: 'top' | 'bottom' | 'shuffle'; // For library zone - where it would go
   card: {
     id: string;
     name: string;
