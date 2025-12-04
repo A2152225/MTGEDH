@@ -2085,6 +2085,72 @@ export function applyDamageReplacementsMaximized(
 }
 
 /**
+ * Apply replacement effects in a CUSTOM order specified by the player.
+ * This allows players to override the default ordering when they want to
+ * maximize or minimize effects for strategic reasons.
+ * 
+ * Use cases:
+ * - Selfless Squire: Player wants to maximize incoming damage to gain counters
+ * - Redirect effects: Player wants damage redirected to maximize the redirect
+ * - Damage to creatures that gain benefits (Stuffy Doll, Brash Taunter)
+ * 
+ * @param baseAmount - Starting amount before any replacements
+ * @param effects - Array of replacement effects to apply (already in desired order)
+ * @returns { finalAmount, appliedEffects } - Result and description of what was applied
+ */
+export function applyReplacementsCustomOrder(
+  baseAmount: number,
+  effects: ReplacementEffect[]
+): { finalAmount: number; appliedEffects: string[] } {
+  const appliedEffects: string[] = [];
+  let amount = baseAmount;
+  
+  // Apply effects in the exact order provided (no sorting)
+  for (const effect of effects) {
+    const before = amount;
+    switch (effect.type) {
+      case 'add_flat':
+        amount += effect.value || 1;
+        appliedEffects.push(`${effect.source}: +${effect.value || 1} (${before} -> ${amount})`);
+        break;
+      case 'double':
+        amount *= 2;
+        appliedEffects.push(`${effect.source}: doubled (${before} -> ${amount})`);
+        break;
+      case 'triple':
+        amount *= 3;
+        appliedEffects.push(`${effect.source}: tripled (${before} -> ${amount})`);
+        break;
+      case 'halve':
+        amount = Math.floor(amount / 2);
+        appliedEffects.push(`${effect.source}: halved (${before} -> ${amount})`);
+        break;
+      case 'halve_round_up':
+        amount = Math.ceil(amount / 2);
+        appliedEffects.push(`${effect.source}: halved rounded up (${before} -> ${amount})`);
+        break;
+      case 'prevent':
+        amount = 0;
+        appliedEffects.push(`${effect.source}: prevented (${before} -> 0)`);
+        break;
+    }
+  }
+  
+  return { finalAmount: Math.max(0, amount), appliedEffects };
+}
+
+/**
+ * Helper structure for storing player's custom replacement effect ordering preference.
+ * This can be stored in game state to persist ordering choices during a game.
+ */
+export interface ReplacementEffectOrderPreference {
+  playerId: string;
+  effectType: 'damage' | 'life_gain' | 'counters' | 'tokens';
+  useCustomOrder: boolean;
+  customOrder?: string[];  // Source names in desired order
+}
+
+/**
  * Detect all damage replacement effects from the battlefield that apply to a specific damage event.
  * 
  * @param ctx - Game context

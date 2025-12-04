@@ -65,6 +65,143 @@ function safeBumpSeq(ctx: any) {
 }
 
 /**
+ * Check if there are any pending interactions that need to be resolved
+ * before the game can advance to the next step/phase.
+ * 
+ * This ensures UI popups, modals, and player choices are fully resolved
+ * before game state transitions, maintaining proper game flow order.
+ * 
+ * @param ctx Game context
+ * @returns Object with hasPending flag and details about what's pending
+ */
+function checkPendingInteractions(ctx: GameContext): {
+  hasPending: boolean;
+  pendingTypes: string[];
+  details: Record<string, any>;
+} {
+  const result = {
+    hasPending: false,
+    pendingTypes: [] as string[],
+    details: {} as Record<string, any>,
+  };
+  
+  try {
+    const state = (ctx as any).state;
+    if (!state) return result;
+    
+    // Check for pending discard selection (cleanup step)
+    if (state.pendingDiscardSelection && Object.keys(state.pendingDiscardSelection).length > 0) {
+      result.hasPending = true;
+      result.pendingTypes.push('discard_selection');
+      result.details.pendingDiscardSelection = state.pendingDiscardSelection;
+    }
+    
+    // Check for pending commander zone choice (destruction/exile)
+    if (state.pendingCommanderZoneChoice && Object.keys(state.pendingCommanderZoneChoice).length > 0) {
+      result.hasPending = true;
+      result.pendingTypes.push('commander_zone_choice');
+      result.details.pendingCommanderZoneChoice = state.pendingCommanderZoneChoice;
+    }
+    
+    // Check for pending trigger ordering (multiple simultaneous triggers)
+    if (state.pendingTriggerOrdering && Object.keys(state.pendingTriggerOrdering).length > 0) {
+      result.hasPending = true;
+      result.pendingTypes.push('trigger_ordering');
+      result.details.pendingTriggerOrdering = state.pendingTriggerOrdering;
+    }
+    
+    // Check for pending ponder/scry-style effects
+    if (state.pendingPonder && Object.keys(state.pendingPonder).length > 0) {
+      result.hasPending = true;
+      result.pendingTypes.push('ponder_effect');
+      result.details.pendingPonder = state.pendingPonder;
+    }
+    
+    // Check for pending sacrifice ability confirmation
+    if (state.pendingSacrificeAbility && Object.keys(state.pendingSacrificeAbility).length > 0) {
+      result.hasPending = true;
+      result.pendingTypes.push('sacrifice_ability');
+      result.details.pendingSacrificeAbility = state.pendingSacrificeAbility;
+    }
+    
+    // Check for pending Entrapment Maneuver selection
+    if (state.pendingEntrapmentManeuver && Object.keys(state.pendingEntrapmentManeuver).length > 0) {
+      result.hasPending = true;
+      result.pendingTypes.push('entrapment_maneuver');
+      result.details.pendingEntrapmentManeuver = state.pendingEntrapmentManeuver;
+    }
+    
+    // Check for pending target selection
+    if (state.pendingTargets && Object.keys(state.pendingTargets).length > 0) {
+      result.hasPending = true;
+      result.pendingTypes.push('target_selection');
+      result.details.pendingTargets = state.pendingTargets;
+    }
+    
+    // Check for pending modal choices (Retreat to Emeria, Abiding Grace, etc.)
+    if (state.pendingModalChoice && Object.keys(state.pendingModalChoice).length > 0) {
+      result.hasPending = true;
+      result.pendingTypes.push('modal_choice');
+      result.details.pendingModalChoice = state.pendingModalChoice;
+    }
+    
+    // Check for pending mana color selection (Cryptolith Rite style)
+    if (state.pendingManaColorSelection && Object.keys(state.pendingManaColorSelection).length > 0) {
+      result.hasPending = true;
+      result.pendingTypes.push('mana_color_selection');
+      result.details.pendingManaColorSelection = state.pendingManaColorSelection;
+    }
+    
+    // Check for pending library search selection
+    if (state.pendingLibrarySearch && Object.keys(state.pendingLibrarySearch).length > 0) {
+      result.hasPending = true;
+      result.pendingTypes.push('library_search');
+      result.details.pendingLibrarySearch = state.pendingLibrarySearch;
+    }
+    
+    // Check for pending creature type selection (Maskwood Nexus, etc.)
+    if (state.pendingCreatureTypeSelection && Object.keys(state.pendingCreatureTypeSelection).length > 0) {
+      result.hasPending = true;
+      result.pendingTypes.push('creature_type_selection');
+      result.details.pendingCreatureTypeSelection = state.pendingCreatureTypeSelection;
+    }
+    
+    // Check for pending flicker returns (end of turn delayed triggers)
+    if (state.pendingFlickerReturns && state.pendingFlickerReturns.length > 0) {
+      result.hasPending = true;
+      result.pendingTypes.push('flicker_returns');
+      result.details.pendingFlickerReturns = state.pendingFlickerReturns;
+    }
+    
+    // Check for pending linked exile returns (Oblivion Ring style)
+    if (state.pendingLinkedExileReturns && state.pendingLinkedExileReturns.length > 0) {
+      result.hasPending = true;
+      result.pendingTypes.push('linked_exile_returns');
+      result.details.pendingLinkedExileReturns = state.pendingLinkedExileReturns;
+    }
+    
+    // Check for non-empty stack (spells/abilities waiting to resolve)
+    // Note: This is a deliberate choice - if the stack has items, players should
+    // explicitly pass priority to advance, not just click "next step"
+    if (Array.isArray(state.stack) && state.stack.length > 0) {
+      result.hasPending = true;
+      result.pendingTypes.push('stack_not_empty');
+      result.details.stackCount = state.stack.length;
+    }
+    
+    // Log pending interactions for debugging
+    if (result.hasPending) {
+      console.log(`${ts()} [checkPendingInteractions] Pending: ${result.pendingTypes.join(', ')}`);
+    }
+    
+  } catch (err) {
+    console.warn(`${ts()} [checkPendingInteractions] Error:`, err);
+  }
+  
+  return result;
+}
+
+/**
  * Utility: get ordered active players (non-inactive) from ctx.state.players
  */
 function activePlayers(ctx: GameContext): string[] {
@@ -1654,6 +1791,39 @@ export function nextStep(ctx: GameContext) {
     // Check if we're in replay mode - if so, skip side effects
     const isReplaying = !!(ctx as any).isReplaying;
 
+    // ========================================================================
+    // PENDING INTERACTION CHECK
+    // 
+    // Before advancing to the next step/phase, ensure all pending UI interactions
+    // are resolved. This prevents game state from advancing while players still
+    // need to make choices (modal selections, target selections, etc.).
+    // 
+    // Skip this check during replay mode since those interactions were already
+    // handled when the events were originally recorded.
+    // ========================================================================
+    if (!isReplaying) {
+      const pendingCheck = checkPendingInteractions(ctx);
+      if (pendingCheck.hasPending) {
+        console.log(`${ts()} [nextStep] BLOCKED: Cannot advance step - pending interactions: ${pendingCheck.pendingTypes.join(', ')}`);
+        
+        // Store the blocking reason in state for UI feedback
+        (ctx as any).state.stepAdvanceBlocked = {
+          blocked: true,
+          reason: pendingCheck.pendingTypes,
+          details: pendingCheck.details,
+          timestamp: Date.now(),
+        };
+        
+        // Don't advance - return early
+        return;
+      }
+      
+      // Clear any previous blocked state since we're now able to advance
+      if ((ctx as any).state.stepAdvanceBlocked) {
+        delete (ctx as any).state.stepAdvanceBlocked;
+      }
+    }
+
     // Simple step progression logic
     // beginning phase: UNTAP -> UPKEEP -> DRAW
     // precombatMain phase: MAIN1
@@ -2293,6 +2463,18 @@ export function skipExtraTurn(ctx: GameContext, playerId: string): boolean {
   }
 }
 
+/**
+ * Public API to check for pending interactions
+ * This is exposed so the socket layer can inform players why step advancement is blocked
+ */
+export function getPendingInteractions(ctx: GameContext): {
+  hasPending: boolean;
+  pendingTypes: string[];
+  details: Record<string, any>;
+} {
+  return checkPendingInteractions(ctx);
+}
+
 export default {
   passPriority,
   setTurnDirection,
@@ -2307,4 +2489,5 @@ export default {
   addExtraTurn,
   getExtraTurns,
   skipExtraTurn,
+  getPendingInteractions,
 };
