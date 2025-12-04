@@ -1653,6 +1653,8 @@ export function TableLayout(props: {
           <button
             type="button"
             onClick={() => {
+              // "Fit All" uses a lower minimum zoom (0.15) than initial fit (MIN_INITIAL_ZOOM)
+              // because the user explicitly wants to see the entire board
               const margin = 24;
               const zx = (container.w / 2 - margin) / (halfW + 40);
               const zy = (container.h / 2 - margin) / (halfH + 40);
