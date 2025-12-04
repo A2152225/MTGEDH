@@ -288,9 +288,10 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
   // IMPORTANT: We must defer the zone change until the player chooses!
   const commanderInfo = commandZone?.[owner];
   const commanderIds = commanderInfo?.commanderIds || [];
-  const isCommander = card?.id && commanderIds.includes(card.id);
+  // Check if this is a commander - check both the card ID and the permanent's isCommander flag
+  const isCommander = (card?.id && commanderIds.includes(card.id)) || (perm as any).isCommander === true;
   
-  if (isCommander) {
+  if (isCommander && card) {
     // Set up pending choice - DO NOT move to graveyard yet
     (state as any).pendingCommanderZoneChoice = (state as any).pendingCommanderZoneChoice || {};
     (state as any).pendingCommanderZoneChoice[owner] = (state as any).pendingCommanderZoneChoice[owner] || [];
@@ -387,9 +388,10 @@ export function movePermanentToExile(ctx: GameContext, permanentId: string) {
   // IMPORTANT: We must defer the zone change until the player chooses!
   const commanderInfo = commandZone?.[owner];
   const commanderIds = commanderInfo?.commanderIds || [];
-  const isCommander = commanderIds.includes(card.id);
+  // Check if this is a commander - check both the card ID and the permanent's isCommander flag
+  const isCommander = (card?.id && commanderIds.includes(card.id)) || (perm as any).isCommander === true;
   
-  if (isCommander) {
+  if (isCommander && card) {
     // Add to pending commander zone choices for the owner to decide
     // The player will be prompted to choose whether to move to command zone or exile
     // DO NOT move to exile yet - wait for player choice

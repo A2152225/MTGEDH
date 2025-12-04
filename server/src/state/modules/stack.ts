@@ -1778,19 +1778,54 @@ function executeTriggerEffect(
     if (targets.length > 0) {
       const targetPerm = (state.battlefield || []).find((p: any) => p?.id === targets[0]);
       if (targetPerm) {
+        const owner = targetPerm.owner;
+        const card = targetPerm.card;
+        
+        // Commander Replacement Effect (Rule 903.9a):
+        // If a commander would be put into its owner's hand from anywhere, 
+        // its owner may put it into the command zone instead.
+        const commandZone = (ctx as any).commandZone || {};
+        const commanderInfo = commandZone[owner];
+        const commanderIds = commanderInfo?.commanderIds || [];
+        const isCommander = (card?.id && commanderIds.includes(card.id)) || targetPerm.isCommander === true;
+        
         // Move to owner's hand
         const permIndex = state.battlefield.indexOf(targetPerm);
         if (permIndex !== -1) {
           const bouncedPermanentId = targetPerm.id;
           state.battlefield.splice(permIndex, 1);
-          const ownerZones = state.zones?.[targetPerm.owner];
-          if (ownerZones) {
-            ownerZones.hand = ownerZones.hand || [];
-            targetPerm.card.zone = 'hand';
-            ownerZones.hand.push(targetPerm.card);
-            ownerZones.handCount = ownerZones.hand.length;
+          
+          if (isCommander && card) {
+            // Defer zone change - let player choose command zone or hand
+            state.pendingCommanderZoneChoice = state.pendingCommanderZoneChoice || {};
+            state.pendingCommanderZoneChoice[owner] = state.pendingCommanderZoneChoice[owner] || [];
+            state.pendingCommanderZoneChoice[owner].push({
+              commanderId: card.id,
+              commanderName: card.name,
+              destinationZone: 'hand',
+              card: {
+                id: card.id,
+                name: card.name,
+                type_line: card.type_line,
+                oracle_text: card.oracle_text,
+                image_uris: card.image_uris,
+                mana_cost: card.mana_cost,
+                power: card.power,
+                toughness: card.toughness,
+              },
+            });
+            console.log(`[executeTriggerEffect] Commander ${card.name} would go to hand - DEFERRING zone change for player choice`);
+          } else {
+            // Non-commander - move directly to hand
+            const ownerZones = state.zones?.[owner];
+            if (ownerZones) {
+              ownerZones.hand = ownerZones.hand || [];
+              card.zone = 'hand';
+              ownerZones.hand.push(card);
+              ownerZones.handCount = ownerZones.hand.length;
+            }
+            console.log(`[executeTriggerEffect] Returned ${card?.name || targetPerm.id} to owner's hand`);
           }
-          console.log(`[executeTriggerEffect] Returned ${targetPerm.card?.name || targetPerm.id} to owner's hand`);
           
           // Process linked exile returns for the removed permanent
           processLinkedExileReturns(ctx, bouncedPermanentId);
@@ -2800,13 +2835,74 @@ export function resolveTopOfStack(ctx: GameContext) {
         const owner = targetPerm.owner as PlayerID;
         const targetCard = targetPerm.card;
         
+        // Commander Replacement Effect (Rule 903.9a):
+        // If a commander would be put into its owner's library from anywhere,
+        // its owner may put it into the command zone instead.
+        const commandZone = ctx.commandZone || {};
+        const commanderInfo = commandZone[owner];
+        const commanderIds = commanderInfo?.commanderIds || [];
+        const isCommander = (targetCard?.id && commanderIds.includes(targetCard.id)) || targetPerm.isCommander === true;
+        
         // Remove permanent from battlefield
         const idx = battlefield.findIndex((p: any) => p.id === targetPermId);
         if (idx !== -1) {
           battlefield.splice(idx, 1);
         }
         
-        // Shuffle into owner's library
+        if (isCommander && targetCard) {
+          // Defer zone change - let player choose command zone or library
+          state.pendingCommanderZoneChoice = state.pendingCommanderZoneChoice || {};
+          state.pendingCommanderZoneChoice[owner] = state.pendingCommanderZoneChoice[owner] || [];
+          state.pendingCommanderZoneChoice[owner].push({
+            commanderId: targetCard.id,
+            commanderName: targetCard.name,
+            destinationZone: 'library',
+            card: {
+              id: targetCard.id,
+              name: targetCard.name,
+              type_line: targetCard.type_line,
+              oracle_text: targetCard.oracle_text,
+              image_uris: targetCard.image_uris,
+              mana_cost: targetCard.mana_cost,
+              power: targetCard.power,
+              toughness: targetCard.toughness,
+            },
+          });
+          console.log(`[resolveTopOfStack] Chaos Warp: Commander ${targetCard.name} would go to library - DEFERRING zone change for player choice`);
+          
+          // Still reveal and potentially put a card onto battlefield
+          // (but the commander choice happens separately)
+          const lib = ctx.libraries?.get(owner) || [];
+          if (lib.length > 0) {
+            const topCard = lib[0];
+            const topTypeLine = (topCard?.type_line || '').toLowerCase();
+            const isPermanent = topTypeLine.includes('creature') || 
+                                topTypeLine.includes('artifact') || 
+                                topTypeLine.includes('enchantment') || 
+                                topTypeLine.includes('land') || 
+                                topTypeLine.includes('planeswalker') ||
+                                topTypeLine.includes('battle');
+            if (isPermanent) {
+              lib.shift();
+              ctx.libraries?.set(owner, lib);
+              const newPerm = {
+                id: `perm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                card: topCard,
+                controller: owner,
+                owner: owner,
+                tapped: false,
+                counters: {},
+              };
+              battlefield.push(newPerm);
+              console.log(`[resolveTopOfStack] Chaos Warp: Revealed and put ${topCard.name} onto battlefield for ${owner}`);
+            }
+          }
+          
+          bumpSeq();
+          return;
+        }
+        
+        // Non-commander - shuffle into owner's library
         const lib = ctx.libraries?.get(owner) || [];
         (lib as any[]).push({ ...targetCard, zone: 'library' });
         
