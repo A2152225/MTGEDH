@@ -63,6 +63,7 @@ import { IgnoredTriggersPanel } from "./components/IgnoredTriggersPanel";
 import { PriorityModal } from "./components/PriorityModal";
 import { AutoPassSettingsPanel } from "./components/AutoPassSettingsPanel";
 import { TriggerShortcutsPanel } from "./components/TriggerShortcutsPanel";
+import { DraggableSettingsPanel } from "./components/DraggableSettingsPanel";
 
 /* App component */
 export function App() {
@@ -3062,7 +3063,7 @@ export function App() {
           )}
         </div>
 
-        {/* GAME STATUS INDICATOR - Shows turn, phase, step, priority, special designations */}
+        {/* GAME STATUS INDICATOR - Shows turn, phase, step, priority, special designations, and control buttons */}
         {safeView && (
           <GameStatusIndicator
             turn={safeView.turn}
@@ -3077,340 +3078,14 @@ export function App() {
             initiative={(safeView as any).initiative}
             dayNight={(safeView as any).dayNight}
             cityBlessing={(safeView as any).cityBlessing}
+            isYouPlayer={isYouPlayer}
+            gameOver={(safeView as any).gameOver}
+            onConcede={() => socket.emit("concede", { gameId: safeView.id })}
+            onLeaveGame={() => leaveGame()}
+            onUndo={(count: number) => handleRequestUndo(count)}
+            availableUndoCount={availableUndoCount}
           />
         )}
-
-        {/* CONTROL BAR JUST ABOVE THE TABLE */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginTop: 8,
-            flexWrap: "wrap",
-            gap: 8,
-          }}
-        >
-          {/* Mulligan buttons - visible when player needs to keep their hand */}
-          {/* Show even after moving past PRE_GAME if hand hasn't been kept */}
-          {showMulliganUI && (
-            <div
-              style={{
-                display: "flex",
-                gap: 8,
-                alignItems: "center",
-                padding: 6,
-                border: !hasKeptHand && !isPreGame ? "2px solid #e53e3e" : "1px solid #c6a6ff",
-                borderRadius: 6,
-                background: !hasKeptHand && !isPreGame ? "#fff5f5" : "#f8f0ff",
-              }}
-            >
-              {hasKeptHand ? (
-                <span style={{ fontSize: 12, color: "#6b46c1", fontWeight: 500 }}>
-                  ✓ Hand kept{mulligansTaken > 0 ? ` (${7 - mulligansTaken} cards)` : ""}
-                </span>
-              ) : pendingBottomCount > 0 ? (
-                <span style={{ fontSize: 12, color: "#d69e2e", fontWeight: 500 }}>
-                  Select {pendingBottomCount} card{pendingBottomCount !== 1 ? 's' : ''} to put on bottom...
-                </span>
-              ) : (
-                <>
-                  {!isPreGame && (
-                    <span style={{ fontSize: 12, color: "#e53e3e", fontWeight: 600 }}>
-                      ⚠️ Keep your hand to continue!
-                    </span>
-                  )}
-                  <span style={{ fontSize: 12, color: "#553c9a" }}>
-                    Mulligans: {mulligansTaken}
-                  </span>
-                  <button
-                    onClick={() => socket.emit("keepHand", { gameId: safeView?.id })}
-                    disabled={!canKeepHand}
-                    style={{
-                      background: "#48bb78",
-                      color: "white",
-                      border: "none",
-                      borderRadius: 4,
-                      padding: "4px 12px",
-                      cursor: canKeepHand ? "pointer" : "not-allowed",
-                      opacity: canKeepHand ? 1 : 0.5,
-                    }}
-                  >
-                    Keep Hand
-                  </button>
-                  <button
-                    onClick={() => socket.emit("mulligan", { gameId: safeView?.id })}
-                    disabled={!canMulligan}
-                    style={{
-                      background: "#ed8936",
-                      color: "white",
-                      border: "none",
-                      borderRadius: 4,
-                      padding: "4px 12px",
-                      cursor: canMulligan ? "pointer" : "not-allowed",
-                      opacity: canMulligan ? 1 : 0.5,
-                    }}
-                  >
-                    Mulligan
-                  </button>
-                  {/* Random starting player button - show during pre-game phase */}
-                  {isPreGame && (
-                    <button
-                      onClick={() => socket.emit("randomizeStartingPlayer", { gameId: safeView?.id })}
-                      style={{
-                        background: "#805ad5",
-                        color: "white",
-                        border: "none",
-                        borderRadius: 4,
-                        padding: "4px 12px",
-                        cursor: "pointer",
-                        marginLeft: 8,
-                      }}
-                      title="Randomly select which player goes first"
-                    >
-                      🎲 Random Start
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-
-          {/* Spacer to push buttons to the right when no mulligan panel */}
-          {!showMulliganUI && <div style={{ flex: 1 }} />}
-
-          {/* Buttons on the right, in a stable group */}
-          <div
-            style={{
-              display: "flex",
-              gap: 8,
-              alignItems: "center",
-              padding: 6,
-              border: "1px solid #eee",
-              borderRadius: 6,
-              background: "#fafafa",
-            }}
-          >
-            <button
-              onClick={() =>
-                safeView && socket.emit("nextStep", { gameId: safeView.id })
-              }
-              disabled={!canAdvanceStep}
-            >
-              Next Step
-            </button>
-            <button
-              onClick={() =>
-                safeView && socket.emit("nextTurn", { gameId: safeView.id })
-              }
-              disabled={!canAdvanceTurn}
-            >
-              Next Turn
-            </button>
-            <button
-              onClick={() =>
-                safeView && you && socket.emit("passPriority", {
-                  gameId: safeView.id,
-                  by: you,
-                })
-              }
-              disabled={!canPass}
-            >
-              Pass Priority
-            </button>
-            <button
-              onClick={handleToggleAutoAdvance}
-              style={{
-                background: autoAdvancePhases ? '#10b981' : '#6b7280',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 4,
-                padding: '4px 8px',
-                cursor: 'pointer',
-                fontSize: 11,
-              }}
-              title="Auto-advance through untap/cleanup phases (reduces manual clicking)"
-            >
-              {autoAdvancePhases ? '⚡ Auto' : '⚡ Manual'}
-            </button>
-            <button
-              onClick={() => {
-                if (confirm('Are you sure you want to concede? Your permanents will be removed at the start of your next turn.')) {
-                  socket.emit("concede", { gameId: safeView.id });
-                }
-              }}
-              disabled={!isYouPlayer || !safeView || (safeView as any).gameOver}
-              style={{
-                background: isYouPlayer && safeView && !(safeView as any).gameOver ? '#ef4444' : '#6b7280',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 4,
-                padding: '4px 8px',
-                cursor: isYouPlayer && safeView && !(safeView as any).gameOver ? 'pointer' : 'not-allowed',
-                fontSize: 11,
-                marginLeft: 8,
-                opacity: isYouPlayer && safeView && !(safeView as any).gameOver ? 1 : 0.6,
-              }}
-              title="Concede the game. Your permanents will remain until your next turn, then be removed."
-            >
-              🏳️ Concede
-            </button>
-            <button
-              onClick={() => {
-                if (confirm('Are you sure you want to leave this game?')) {
-                  leaveGame();
-                }
-              }}
-              style={{
-                background: '#dc2626',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 4,
-                padding: '4px 8px',
-                cursor: 'pointer',
-                fontSize: 11,
-                marginLeft: 8,
-              }}
-              title="Leave this game and return to the lobby"
-            >
-              🚪 Leave Game
-            </button>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 8 }}>
-              {/* Smart Undo Buttons */}
-              <button
-                onClick={() => handleRequestUndo(smartUndoCounts.stepCount)}
-                disabled={!isYouPlayer || smartUndoCounts.stepCount === 0}
-                style={{
-                  background: smartUndoCounts.stepCount > 0 ? '#6366f1' : '#4b5563',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: 4,
-                  padding: '4px 8px',
-                  cursor: isYouPlayer && smartUndoCounts.stepCount > 0 ? 'pointer' : 'not-allowed',
-                  opacity: smartUndoCounts.stepCount > 0 ? 1 : 0.5,
-                  fontSize: 11,
-                }}
-                title={smartUndoCounts.stepCount > 0 
-                  ? `Undo to previous step (${smartUndoCounts.stepCount} action${smartUndoCounts.stepCount > 1 ? 's' : ''})`
-                  : 'No step to undo to'
-                }
-              >
-                ⏪ Step
-              </button>
-              <button
-                onClick={() => handleRequestUndo(smartUndoCounts.phaseCount)}
-                disabled={!isYouPlayer || smartUndoCounts.phaseCount === 0}
-                style={{
-                  background: smartUndoCounts.phaseCount > 0 ? '#8b5cf6' : '#4b5563',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: 4,
-                  padding: '4px 8px',
-                  cursor: isYouPlayer && smartUndoCounts.phaseCount > 0 ? 'pointer' : 'not-allowed',
-                  opacity: smartUndoCounts.phaseCount > 0 ? 1 : 0.5,
-                  fontSize: 11,
-                }}
-                title={smartUndoCounts.phaseCount > 0 
-                  ? `Undo to previous phase (${smartUndoCounts.phaseCount} action${smartUndoCounts.phaseCount > 1 ? 's' : ''})`
-                  : 'No phase to undo to'
-                }
-              >
-                ⏪ Phase
-              </button>
-              <button
-                onClick={() => handleRequestUndo(smartUndoCounts.turnCount)}
-                disabled={!isYouPlayer || smartUndoCounts.turnCount === 0}
-                style={{
-                  background: smartUndoCounts.turnCount > 0 ? '#a855f7' : '#4b5563',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: 4,
-                  padding: '4px 8px',
-                  cursor: isYouPlayer && smartUndoCounts.turnCount > 0 ? 'pointer' : 'not-allowed',
-                  opacity: smartUndoCounts.turnCount > 0 ? 1 : 0.5,
-                  fontSize: 11,
-                }}
-                title={smartUndoCounts.turnCount > 0 
-                  ? `Undo to previous turn (${smartUndoCounts.turnCount} action${smartUndoCounts.turnCount > 1 ? 's' : ''})`
-                  : 'No turn to undo to'
-                }
-              >
-                ⏪ Turn
-              </button>
-              {/* Divider */}
-              <span style={{ color: '#4b5563', fontSize: 10 }}>|</span>
-              {/* Quick undo buttons for small actions (1-4) - useful for wrong card picks */}
-              {[1, 2, 3, 4].map(n => (
-                <button
-                  key={n}
-                  onClick={() => handleRequestUndo(n)}
-                  disabled={!isYouPlayer || availableUndoCount < n}
-                  style={{
-                    background: availableUndoCount >= n ? '#4b5563' : '#374151',
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: 4,
-                    padding: '4px 6px',
-                    cursor: isYouPlayer && availableUndoCount >= n ? 'pointer' : 'not-allowed',
-                    opacity: availableUndoCount >= n ? 1 : 0.4,
-                    fontSize: 10,
-                    minWidth: 24,
-                  }}
-                  title={availableUndoCount >= n 
-                    ? `Undo ${n} action${n > 1 ? 's' : ''} (e.g., wrong card pick)`
-                    : `Not enough actions to undo ${n}`
-                  }
-                >
-                  {n}
-                </button>
-              ))}
-              {/* Custom undo for larger counts */}
-              <select
-                value={undoCount}
-                onChange={(e) => setUndoCount(Number(e.target.value))}
-                disabled={!isYouPlayer || availableUndoCount === 0}
-                style={{
-                  padding: '2px 2px',
-                  borderRadius: 4,
-                  border: '1px solid #4b5563',
-                  background: '#374151',
-                  color: '#fff',
-                  fontSize: 9,
-                  cursor: isYouPlayer && availableUndoCount > 0 ? 'pointer' : 'not-allowed',
-                  width: 40,
-                }}
-                title={availableUndoCount > 0 ? `Custom: select N actions to undo (${availableUndoCount} total)` : 'No actions to undo'}
-              >
-                {availableUndoCount > 0 
-                  ? Array.from({ length: Math.min(availableUndoCount, 50) }, (_, i) => i + 1).map(n => (
-                      <option key={n} value={n}>{n}</option>
-                    ))
-                  : <option value={1}>0</option>
-                }
-              </select>
-              <button
-                onClick={() => handleRequestUndo(undoCount)}
-                disabled={!isYouPlayer || availableUndoCount === 0}
-                style={{
-                  background: availableUndoCount > 0 ? '#6b7280' : '#4b5563',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: 4,
-                  padding: '3px 5px',
-                  cursor: isYouPlayer && availableUndoCount > 0 ? 'pointer' : 'not-allowed',
-                  opacity: availableUndoCount > 0 ? 1 : 0.5,
-                  fontSize: 9,
-                }}
-                title={availableUndoCount > 0 
-                  ? `Undo ${undoCount} action${undoCount > 1 ? 's' : ''}`
-                  : 'No actions to undo'
-                }
-              >
-                ⏪
-              </button>
-            </div>
-          </div>
-        </div>
 
         {/* IMPORT WARNINGS */}
         {missingImport && missingImport.length > 0 && (
@@ -3603,6 +3278,17 @@ export function App() {
               onIgnoreTriggerSource={handleIgnoreTriggerSourceFromStack}
               onStopIgnoringSource={handleStopIgnoringSource}
               manaPool={manaPool}
+              // Mulligan UI props
+              showMulliganUI={showMulliganUI}
+              hasKeptHand={hasKeptHand}
+              mulligansTaken={mulligansTaken}
+              pendingBottomCount={pendingBottomCount}
+              canKeepHand={canKeepHand}
+              canMulligan={canMulligan}
+              isPreGame={isPreGame}
+              onKeepHand={() => socket.emit("keepHand", { gameId: safeView?.id })}
+              onMulligan={() => socket.emit("mulligan", { gameId: safeView?.id })}
+              onRandomizeStart={() => socket.emit("randomizeStartingPlayer", { gameId: safeView?.id })}
             />
           ) : (
             <div style={{ padding: 20, color: "#666" }}>
@@ -4735,15 +4421,9 @@ export function App() {
         onToggleAutoPass={handleToggleAutoPass}
       />
 
-      {/* Auto-Pass Settings Panel - Always visible when in game, positioned in bottom-right */}
+      {/* Auto-Pass Settings Panel & Trigger Shortcuts - Draggable container in bottom-right */}
       {safeView && you && (
-        <div style={{
-          position: 'fixed',
-          bottom: 16,
-          right: 16,
-          zIndex: 50,
-          maxWidth: 280,
-        }}>
+        <DraggableSettingsPanel>
           <AutoPassSettingsPanel
             autoPassSteps={autoPassSteps}
             onToggleAutoPass={handleToggleAutoPass}
@@ -4777,7 +4457,7 @@ export function App() {
           >
             ⚡ Trigger Shortcuts
           </button>
-        </div>
+        </DraggableSettingsPanel>
       )}
 
       {/* Replacement Effect Settings Panel - Allows customizing effect ordering */}
