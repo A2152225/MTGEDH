@@ -2286,7 +2286,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     let targetPowerBeforeRemoval: number = 0;
     
     // Capture target info for removal spells that have "its controller" effects
-    if (targets.length > 0) {
+    if (targets.length > 0 && targets[0] !== undefined) {
       const targetId = typeof targets[0] === 'string' ? targets[0] : targets[0]?.id;
       const targetPerm = state.battlefield?.find((p: any) => p.id === targetId);
       if (targetPerm) {
@@ -2387,7 +2387,6 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Handle token creation spells (where the caster creates tokens)
     // Patterns: "create X 1/1 tokens", "create two 1/1 tokens", etc.
-    // oracleTextLower is already defined above
     const spellXValue = (item as any).xValue;
     const tokenCreationResult = parseTokenCreation(card.name, oracleTextLower, controller, state, spellXValue);
     if (tokenCreationResult) {
