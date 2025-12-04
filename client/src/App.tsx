@@ -58,7 +58,7 @@ import {
   loadAppearanceSettings,
   saveAppearanceSettings,
   getBackgroundStyle,
-  isLightColor,
+  getTextColorsForBackground,
 } from "./utils/appearanceSettings";
 import { prettyPhase, prettyStep, isLandTypeLine } from "./utils/gameDisplayHelpers";
 import { IgnoredTriggersPanel } from "./components/IgnoredTriggersPanel";
@@ -2909,6 +2909,9 @@ export function App() {
     return (safeView.players || []).filter((p: any) => p.id !== you);
   }, [safeView, you]);
 
+  // Get text colors based on current background setting
+  const textColors = getTextColorsForBackground(appearanceSettings.tableBackground);
+
   return (
     <div
       style={{
@@ -2931,8 +2934,8 @@ export function App() {
           }}
         >
           <div>
-            <h1 style={{ margin: 0, color: appearanceSettings.tableBackground.type === 'color' && isLightColor(appearanceSettings.tableBackground.color) ? '#1a1a2e' : '#fff' }}>MTGEDH</h1>
-            <div style={{ fontSize: 12, color: appearanceSettings.tableBackground.type === 'color' && isLightColor(appearanceSettings.tableBackground.color) ? '#555' : '#aaa' }}>
+            <h1 style={{ margin: 0, color: textColors.primary }}>MTGEDH</h1>
+            <div style={{ fontSize: 12, color: textColors.secondary }}>
               Game: {effectiveGameId} • Format:{" "}
               {String(safeView?.format ?? "")}
             </div>
