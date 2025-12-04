@@ -2392,6 +2392,16 @@ export function detectLifeGainReplacementEffects(
       });
     }
     
+    // The Wind Crystal - double life gained
+    // "If you would gain life, you gain twice that much life instead."
+    if (cardName.includes("the wind crystal") && controller === playerId) {
+      effects.push({
+        type: 'double',
+        source: "The Wind Crystal",
+        controllerId: controller,
+      });
+    }
+    
     // Leyline of Hope - +1 life gained
     if (cardName.includes("leyline of hope") && controller === playerId) {
       effects.push({

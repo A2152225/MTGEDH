@@ -37,9 +37,11 @@ export const COST_REDUCTION_CARDS: Record<string, CostReductionConfig> = {
   'the wind crystal': {
     cardName: 'The Wind Crystal',
     affectedTypes: ['all'],
-    genericReduction: 0,
-    colorReduction: { green: 1 },
+    genericReduction: 1,
+    colorReduction: {},
     affectsOnlyCreatures: false,
+    // Note: Reduces white spells by {1}, not green. Also has life doubling and activated ability.
+    spellColorFilter: ['white'],
   },
   "urza's incubator": {
     cardName: "Urza's Incubator",
