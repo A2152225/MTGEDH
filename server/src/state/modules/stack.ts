@@ -1,6 +1,6 @@
 import type { PlayerID } from "../../../../shared/src/index.js";
 import type { GameContext } from "../context.js";
-import { uid, parsePT, addEnergyCounters } from "../utils.js";
+import { uid, parsePT, addEnergyCounters, triggerLifeGainEffects } from "../utils.js";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts } from "./game-state-effects.js";
 import { categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
 import { getETBTriggersForPermanent, processLinkedExileReturns, registerLinkedExile, detectLinkedExileEffect, type TriggeredAbility } from "./triggered-abilities.js";
@@ -2271,7 +2271,74 @@ export function resolveTopOfStack(ctx: GameContext) {
   } else if (card) {
     // Non-permanent spell (instant/sorcery) - execute effects before moving to graveyard
     const oracleText = card.oracle_text || '';
+    const oracleTextLower = oracleText.toLowerCase();
     const spellSpec = categorizeSpell(card.name || '', oracleText);
+    
+    // IMPORTANT: Capture target permanent info BEFORE destruction/exile for effects that need it
+    // This MUST be done before any effects are executed as the target will be removed
+    // - Beast Within, Rapid Hybridization, Pongify: "its controller creates" token effects
+    // - Path to Exile: target's controller may search for basic land
+    // - Swords to Plowshares: target's controller gains life equal to power
+    // - Fateful Absence: target's controller investigates
+    // - Get Lost: target's controller creates Map tokens
+    let targetControllerForTokenCreation: PlayerID | null = null;
+    let targetControllerForRemovalEffects: PlayerID | null = null;
+    let targetPowerBeforeRemoval: number = 0;
+    
+    // Capture target info for removal spells that have "its controller" effects
+    if (targets.length > 0) {
+      const targetId = typeof targets[0] === 'string' ? targets[0] : targets[0]?.id;
+      const targetPerm = state.battlefield?.find((p: any) => p.id === targetId);
+      if (targetPerm) {
+        // For token creation after destroy (Beast Within, etc.)
+        if (oracleTextLower.includes('its controller creates')) {
+          targetControllerForTokenCreation = targetPerm.controller as PlayerID;
+          console.log(`[resolveTopOfStack] Captured target controller ${targetControllerForTokenCreation} for token creation`);
+        }
+        
+        // For effects that affect target's controller after exile/destroy
+        // Path to Exile, Swords to Plowshares, Fateful Absence, Get Lost
+        const isPathToExile = card.name?.toLowerCase().includes('path to exile') || 
+            (oracleTextLower.includes('exile target creature') && 
+             oracleTextLower.includes('search') && 
+             oracleTextLower.includes('basic land'));
+        const isSwordsToPlowshares = card.name?.toLowerCase().includes('swords to plowshares') || 
+            (oracleTextLower.includes('exile target creature') && 
+             oracleTextLower.includes('gains life equal to'));
+        const isFatefulAbsence = card.name?.toLowerCase().includes('fateful absence') ||
+            (oracleTextLower.includes('destroy target creature') && 
+             oracleTextLower.includes('investigates'));
+        const isGetLost = card.name?.toLowerCase().includes('get lost') ||
+            (oracleTextLower.includes('destroy target creature') && 
+             oracleTextLower.includes('map token'));
+             
+        if (isPathToExile || isSwordsToPlowshares || isFatefulAbsence || isGetLost) {
+          targetControllerForRemovalEffects = targetPerm.controller as PlayerID;
+          
+          // Capture power for Swords to Plowshares
+          if (isSwordsToPlowshares) {
+            if (typeof targetPerm.effectivePower === 'number') {
+              targetPowerBeforeRemoval = targetPerm.effectivePower;
+            } else if (typeof targetPerm.basePower === 'number') {
+              targetPowerBeforeRemoval = targetPerm.basePower;
+            } else if (targetPerm.card?.power) {
+              const parsed = parseInt(String(targetPerm.card.power), 10);
+              if (!isNaN(parsed)) {
+                targetPowerBeforeRemoval = parsed;
+              }
+            }
+            // Add +1/+1 and -1/-1 counter adjustments
+            if (targetPerm.counters) {
+              const plusCounters = targetPerm.counters['+1/+1'] || 0;
+              const minusCounters = targetPerm.counters['-1/-1'] || 0;
+              targetPowerBeforeRemoval += plusCounters - minusCounters;
+            }
+          }
+          
+          console.log(`[resolveTopOfStack] Captured target controller ${targetControllerForRemovalEffects} for removal spell effects (power: ${targetPowerBeforeRemoval})`);
+        }
+      }
+    }
     
     if (spellSpec) {
       // Convert targets array to TargetRef format if needed
@@ -2281,18 +2348,6 @@ export function resolveTopOfStack(ctx: GameContext) {
         }
         return t;
       });
-      
-      // IMPORTANT: Capture target permanent info BEFORE destruction for "its controller creates" effects
-      // Beast Within, Rapid Hybridization, Pongify, etc. need to know who controlled the target
-      let targetControllerForTokenCreation: PlayerID | null = null;
-      const oracleTextLower = oracleText.toLowerCase();
-      if (oracleTextLower.includes('its controller creates') && targetRefs.length > 0) {
-        const targetPerm = state.battlefield?.find((p: any) => p.id === targetRefs[0]?.id);
-        if (targetPerm) {
-          targetControllerForTokenCreation = targetPerm.controller as PlayerID;
-          console.log(`[resolveTopOfStack] Captured target controller ${targetControllerForTokenCreation} for token creation`);
-        }
-      }
       
       // Generate effects based on spell type and targets
       const effects = resolveSpell(spellSpec, targetRefs, state as any);
@@ -2332,7 +2387,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Handle token creation spells (where the caster creates tokens)
     // Patterns: "create X 1/1 tokens", "create two 1/1 tokens", etc.
-    const oracleTextLower = oracleText.toLowerCase();
+    // oracleTextLower is already defined above
     const spellXValue = (item as any).xValue;
     const tokenCreationResult = parseTokenCreation(card.name, oracleTextLower, controller, state, spellXValue);
     if (tokenCreationResult) {
@@ -2578,154 +2633,114 @@ export function resolveTopOfStack(ctx: GameContext) {
     }
     
     // Handle Path to Exile - exile target creature, controller may search for basic land
-    if (card.name?.toLowerCase().includes('path to exile') || 
+    // Use captured target info from BEFORE the exile happened
+    const isPathToExile = card.name?.toLowerCase().includes('path to exile') || 
         (oracleTextLower.includes('exile target creature') && 
          oracleTextLower.includes('search') && 
-         oracleTextLower.includes('basic land'))) {
-      // The exile is already handled by the targeting system
-      // The search effect should be triggered for the exiled creature's controller
-      // This requires player interaction, so we'll set up a pending search prompt
-      if (targets.length > 0) {
-        const targetPerm = state.battlefield?.find((p: any) => p.id === targets[0]?.id || p.id === targets[0]);
-        if (targetPerm) {
-          const creatureController = targetPerm.controller as PlayerID;
-          // Set up pending search - the creature's controller may search for a basic land
-          (state as any).pendingLibrarySearch = (state as any).pendingLibrarySearch || {};
-          (state as any).pendingLibrarySearch[creatureController] = {
-            type: 'path_to_exile',
-            searchFor: 'basic land',
-            tapped: true,
-            optional: true,
-            source: card.name || 'Path to Exile',
-          };
-          console.log(`[resolveTopOfStack] Path to Exile: ${creatureController} may search for a basic land`);
-        }
-      }
+         oracleTextLower.includes('basic land'));
+    
+    if (isPathToExile && targetControllerForRemovalEffects) {
+      // Set up pending search - the creature's controller may search for a basic land
+      (state as any).pendingLibrarySearch = (state as any).pendingLibrarySearch || {};
+      (state as any).pendingLibrarySearch[targetControllerForRemovalEffects] = {
+        type: 'path_to_exile',
+        searchFor: 'basic land',
+        destination: 'battlefield',
+        tapped: true,
+        optional: true,
+        source: card.name || 'Path to Exile',
+      };
+      console.log(`[resolveTopOfStack] Path to Exile: ${targetControllerForRemovalEffects} may search for a basic land (tapped)`);
     }
     
     // Handle Swords to Plowshares - "Exile target creature. Its controller gains life equal to its power."
-    // Also handles similar patterns like Condemn (toughness-based) and other exile+life spells
+    // Use captured target info from BEFORE the exile happened
     const isSwordsToPlowshares = card.name?.toLowerCase().includes('swords to plowshares') || 
         (oracleTextLower.includes('exile target creature') && 
          oracleTextLower.includes('gains life equal to'));
     
-    if (isSwordsToPlowshares && targets.length > 0) {
-      const targetId = targets[0]?.id || targets[0];
-      const targetPerm = state.battlefield?.find((p: any) => p.id === targetId);
-      if (targetPerm) {
-        const creatureController = targetPerm.controller as PlayerID;
+    if (isSwordsToPlowshares && targetControllerForRemovalEffects) {
+      // Gain the life using pre-captured power value
+      if (targetPowerBeforeRemoval > 0) {
+        const players = (state as any).players || [];
+        const player = players.find((p: any) => p?.id === targetControllerForRemovalEffects);
         
-        // Get the creature's power for life gain
-        // Use effective power if available, otherwise base power
-        let powerValue = 0;
-        if (typeof targetPerm.effectivePower === 'number') {
-          powerValue = targetPerm.effectivePower;
-        } else if (typeof targetPerm.basePower === 'number') {
-          powerValue = targetPerm.basePower;
-        } else if (targetPerm.card?.power) {
-          const parsed = parseInt(String(targetPerm.card.power), 10);
-          if (!isNaN(parsed)) {
-            powerValue = parsed;
-          }
+        // Update both player.life and state.life to ensure consistency
+        const startingLife = (state as any).startingLife || 40;
+        state.life = state.life || {};
+        const currentLife = state.life[targetControllerForRemovalEffects] ?? player?.life ?? startingLife;
+        state.life[targetControllerForRemovalEffects] = currentLife + targetPowerBeforeRemoval;
+        
+        if (player) {
+          player.life = state.life[targetControllerForRemovalEffects];
+          console.log(`[resolveTopOfStack] Swords to Plowshares: ${targetControllerForRemovalEffects} gains ${targetPowerBeforeRemoval} life (${currentLife} -> ${state.life[targetControllerForRemovalEffects]})`);
         }
         
-        // Add +1/+1 and -1/-1 counter adjustments
-        if (targetPerm.counters) {
-          const plusCounters = targetPerm.counters['+1/+1'] || 0;
-          const minusCounters = targetPerm.counters['-1/-1'] || 0;
-          powerValue += plusCounters - minusCounters;
-        }
-        
-        // Gain the life
-        if (powerValue > 0) {
-          const players = (state as any).players || [];
-          const player = players.find((p: any) => p?.id === creatureController);
-          
-          // Update both player.life and state.life to ensure consistency
-          const startingLife = (state as any).startingLife || 40;
-          state.life = state.life || {};
-          const currentLife = state.life[creatureController] ?? player?.life ?? startingLife;
-          state.life[creatureController] = currentLife + powerValue;
-          
-          if (player) {
-            player.life = state.life[creatureController];
-            console.log(`[resolveTopOfStack] Swords to Plowshares: ${creatureController} gains ${powerValue} life (${currentLife} -> ${state.life[creatureController]})`);
-          }
-        }
+        // Trigger life gain effects (Ajani's Pridemate, etc.)
+        triggerLifeGainEffects(ctx, targetControllerForRemovalEffects, targetPowerBeforeRemoval);
       }
     }
     
     // Handle Fateful Absence - "Destroy target creature or planeswalker. Its controller investigates."
-    // Investigate creates a Clue artifact token with "{2}, Sacrifice this artifact: Draw a card."
+    // Use captured target info from BEFORE the destroy happened
     const isFatefulAbsence = card.name?.toLowerCase().includes('fateful absence') ||
         (oracleTextLower.includes('destroy target creature') && 
          oracleTextLower.includes('investigates'));
     
-    if (isFatefulAbsence && targets.length > 0) {
-      const targetId = targets[0]?.id || targets[0];
-      const targetPerm = state.battlefield?.find((p: any) => p.id === targetId);
-      if (targetPerm) {
-        const creatureController = targetPerm.controller as PlayerID;
-        
-        // Create a Clue token for the creature's controller
-        state.battlefield = state.battlefield || [];
-        const clueId = uid("clue");
-        state.battlefield.push({
+    if (isFatefulAbsence && targetControllerForRemovalEffects) {
+      // Create a Clue token for the creature's controller
+      state.battlefield = state.battlefield || [];
+      const clueId = uid("clue");
+      state.battlefield.push({
+        id: clueId,
+        controller: targetControllerForRemovalEffects,
+        owner: targetControllerForRemovalEffects,
+        tapped: false,
+        counters: {},
+        isToken: true,
+        card: {
           id: clueId,
-          controller: creatureController,
-          owner: creatureController,
-          tapped: false,
-          counters: {},
-          isToken: true,
-          card: {
-            id: clueId,
-            name: "Clue",
-            type_line: "Token Artifact — Clue",
-            oracle_text: "{2}, Sacrifice this artifact: Draw a card.",
-            zone: "battlefield",
-            colors: [],
-          },
-        } as any);
-        
-        console.log(`[resolveTopOfStack] Fateful Absence: Created Clue token for ${creatureController}`);
-      }
+          name: "Clue",
+          type_line: "Token Artifact — Clue",
+          oracle_text: "{2}, Sacrifice this artifact: Draw a card.",
+          zone: "battlefield",
+          colors: [],
+        },
+      } as any);
+      
+      console.log(`[resolveTopOfStack] Fateful Absence: Created Clue token for ${targetControllerForRemovalEffects}`);
     }
     
     // Handle Get Lost - "Destroy target creature, enchantment, or planeswalker. Its controller creates two Map tokens."
+    // Use captured target info from BEFORE the destroy happened
     const isGetLost = card.name?.toLowerCase().includes('get lost') ||
         (oracleTextLower.includes('destroy target creature') && 
          oracleTextLower.includes('map token'));
     
-    if (isGetLost && targets.length > 0) {
-      const targetId = targets[0]?.id || targets[0];
-      const targetPerm = state.battlefield?.find((p: any) => p.id === targetId);
-      if (targetPerm) {
-        const creatureController = targetPerm.controller as PlayerID;
-        
-        // Create two Map tokens for the creature's controller
-        state.battlefield = state.battlefield || [];
-        for (let i = 0; i < 2; i++) {
-          const mapId = uid("map");
-          state.battlefield.push({
+    if (isGetLost && targetControllerForRemovalEffects) {
+      // Create two Map tokens for the creature's controller
+      state.battlefield = state.battlefield || [];
+      for (let i = 0; i < 2; i++) {
+        const mapId = uid("map");
+        state.battlefield.push({
+          id: mapId,
+          controller: targetControllerForRemovalEffects,
+          owner: targetControllerForRemovalEffects,
+          tapped: false,
+          counters: {},
+          isToken: true,
+          card: {
             id: mapId,
-            controller: creatureController,
-            owner: creatureController,
-            tapped: false,
-            counters: {},
-            isToken: true,
-            card: {
-              id: mapId,
-              name: "Map",
-              type_line: "Token Artifact — Map",
-              oracle_text: "{1}, {T}, Sacrifice this artifact: Target creature you control explores. Activate only as a sorcery.",
-              zone: "battlefield",
-              colors: [],
-            },
-          } as any);
-        }
-        
-        console.log(`[resolveTopOfStack] Get Lost: Created 2 Map tokens for ${creatureController}`);
+            name: "Map",
+            type_line: "Token Artifact — Map",
+            oracle_text: "{1}, {T}, Sacrifice this artifact: Target creature you control explores. Activate only as a sorcery.",
+            zone: "battlefield",
+            colors: [],
+          },
+        } as any);
       }
+      
+      console.log(`[resolveTopOfStack] Get Lost: Created 2 Map tokens for ${targetControllerForRemovalEffects}`);
     }
     
     // Handle Entrapment Maneuver - "Target player sacrifices an attacking creature. 

@@ -6823,14 +6823,16 @@ export function processLinkedExileReturns(
     state.battlefield.push(newPermanent);
     
     // Remove from exile zone if present
-    const ownerZones = ctx.state?.zones?.[linked.originalOwner];
+    const ownerZones = ctx.state?.zones?.[linked.originalOwner] as any;
     if (ownerZones?.exile) {
       const exileIdx = ownerZones.exile.findIndex(
         (c: any) => c.id === linked.exiledCard.id || c.name === linked.exiledCardName
       );
       if (exileIdx >= 0) {
         ownerZones.exile.splice(exileIdx, 1);
-        ownerZones.exileCount = ownerZones.exile.length;
+        if (ownerZones.exileCount !== undefined) {
+          ownerZones.exileCount = ownerZones.exile.length;
+        }
       }
     }
     
