@@ -521,7 +521,7 @@ export function TableLayout(props: {
     const margin = 24;
     const zx = (container.w / 2 - margin) / (halfW + 40);
     const zy = (container.h / 2 - margin) / (halfH + 40);
-    const fitZ = clamp(Math.min(zx, zy), 0.2, 2.0);
+    const fitZ = clamp(Math.min(zx, zy), 0.7, 2.0);
     if (!didFit.current || ordered.length !== (didFit as any).lastN) {
       centerOnYou(true);
       setCam(prev => ({ x: prev.x, y: prev.y, z: fitZ }));
