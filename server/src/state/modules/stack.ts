@@ -557,6 +557,48 @@ function popStackItem(ctx: GameContext) {
 /**
  * Check if a card type line represents a permanent (not instant/sorcery)
  */
+/**
+ * Check if a card's colors match a color restriction string.
+ * Used for color-restricted ETB triggers (e.g., "whenever another white or black creature enters")
+ * 
+ * @param restriction - The color restriction text (e.g., "white or black", "red", "nonwhite")
+ * @param cardColors - The entering card's colors array (e.g., ['W', 'B'] or ['white', 'black'])
+ * @returns true if the card matches the color restriction
+ */
+function matchesColorRestriction(restriction: string, cardColors: string[]): boolean {
+  const lowerRestriction = restriction.toLowerCase();
+  const colors = cardColors || [];
+  
+  // Handle "nonX" restrictions first (e.g., "nonwhite", "nonblack")
+  if (lowerRestriction.startsWith('non')) {
+    const excludedColor = lowerRestriction.slice(3);
+    const colorMap: Record<string, string> = { 'white': 'W', 'blue': 'U', 'black': 'B', 'red': 'R', 'green': 'G' };
+    const excludedColorCode = colorMap[excludedColor];
+    return excludedColorCode ? !colors.includes(excludedColorCode) : true;
+  }
+  
+  // Parse color restriction (e.g., "white or black", "red")
+  // Card matches if it has ANY of the mentioned colors
+  let matchesColor = false;
+  if (lowerRestriction.includes('white') && (colors.includes('W') || colors.includes('white'))) {
+    matchesColor = true;
+  }
+  if (lowerRestriction.includes('black') && (colors.includes('B') || colors.includes('black'))) {
+    matchesColor = true;
+  }
+  if (lowerRestriction.includes('blue') && (colors.includes('U') || colors.includes('blue'))) {
+    matchesColor = true;
+  }
+  if (lowerRestriction.includes('red') && (colors.includes('R') || colors.includes('red'))) {
+    matchesColor = true;
+  }
+  if (lowerRestriction.includes('green') && (colors.includes('G') || colors.includes('green'))) {
+    matchesColor = true;
+  }
+  
+  return matchesColor;
+}
+
 function isPermanentTypeLine(typeLine?: string): boolean {
   if (!typeLine) return false;
   const tl = typeLine.toLowerCase();
@@ -1872,67 +1914,18 @@ export function resolveTopOfStack(ctx: GameContext) {
             }
             etbTriggers.push({ ...trigger, permanentId: perm.id });
           } else if (trigger.triggerType === 'another_permanent_etb') {
-            // Check color restriction if any (e.g., "white or black creature" for Auriok Champion)
+            // Check color restriction if any (e.g., "white or black creature")
             if ((trigger as any).colorRestriction) {
-              const restriction = (trigger as any).colorRestriction.toLowerCase();
-              const enteringColors = card.colors || [];
-              
-              // Parse color restriction (e.g., "white or black", "red", "nonwhite")
-              let matchesColor = false;
-              if (restriction.includes('white') && (enteringColors.includes('W') || enteringColors.includes('white'))) {
-                matchesColor = true;
-              }
-              if (restriction.includes('black') && (enteringColors.includes('B') || enteringColors.includes('black'))) {
-                matchesColor = true;
-              }
-              if (restriction.includes('blue') && (enteringColors.includes('U') || enteringColors.includes('blue'))) {
-                matchesColor = true;
-              }
-              if (restriction.includes('red') && (enteringColors.includes('R') || enteringColors.includes('red'))) {
-                matchesColor = true;
-              }
-              if (restriction.includes('green') && (enteringColors.includes('G') || enteringColors.includes('green'))) {
-                matchesColor = true;
-              }
-              
-              // Handle "nonX" restrictions (e.g., "nonwhite", "nonblack")
-              if (restriction.startsWith('non')) {
-                const excludedColor = restriction.slice(3);
-                const colorMap: Record<string, string> = { 'white': 'W', 'blue': 'U', 'black': 'B', 'red': 'R', 'green': 'G' };
-                const excludedColorCode = colorMap[excludedColor];
-                matchesColor = !enteringColors.includes(excludedColorCode);
-              }
-              
-              if (!matchesColor) {
+              if (!matchesColorRestriction((trigger as any).colorRestriction, card.colors || [])) {
                 continue; // Skip - entering creature doesn't match color restriction
               }
             }
             etbTriggers.push({ ...trigger, permanentId: perm.id });
           } else if (trigger.triggerType === 'permanent_etb') {
             // Altar of the Brood style - triggers on ANY permanent entering (not just yours)
-            // Check color restriction if any (e.g., Auriok Champion)
+            // Check color restriction if any
             if ((trigger as any).colorRestriction) {
-              const restriction = (trigger as any).colorRestriction.toLowerCase();
-              const enteringColors = card.colors || [];
-              
-              let matchesColor = false;
-              if (restriction.includes('white') && (enteringColors.includes('W') || enteringColors.includes('white'))) {
-                matchesColor = true;
-              }
-              if (restriction.includes('black') && (enteringColors.includes('B') || enteringColors.includes('black'))) {
-                matchesColor = true;
-              }
-              if (restriction.includes('blue') && (enteringColors.includes('U') || enteringColors.includes('blue'))) {
-                matchesColor = true;
-              }
-              if (restriction.includes('red') && (enteringColors.includes('R') || enteringColors.includes('red'))) {
-                matchesColor = true;
-              }
-              if (restriction.includes('green') && (enteringColors.includes('G') || enteringColors.includes('green'))) {
-                matchesColor = true;
-              }
-              
-              if (!matchesColor) {
+              if (!matchesColorRestriction((trigger as any).colorRestriction, card.colors || [])) {
                 continue; // Skip - entering creature doesn't match color restriction
               }
             }
