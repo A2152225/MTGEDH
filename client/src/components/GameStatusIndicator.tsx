@@ -1,8 +1,8 @@
 // client/src/components/GameStatusIndicator.tsx
 // Visual indicator for game-wide status (turn, phase, step, priority, special designations, etc.)
-// Also includes control buttons (Concede, Leave Game, Undo) in the same row.
+// Also includes control buttons (Concede, Leave Game, Undo) and randomness (Dice, Coin Flip) in the same row.
 
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import type { PlayerRef, PlayerID } from '../../../shared/src';
 
 interface Props {
@@ -29,6 +29,9 @@ interface Props {
   onLeaveGame?: () => void;
   onUndo?: (count: number) => void;
   availableUndoCount?: number;
+  // Randomness handlers
+  onRollDie?: (sides: number) => void;
+  onFlipCoin?: () => void;
 }
 
 // Maps phase values to display names and colors
@@ -63,8 +66,25 @@ const stepConfig: Record<string, { label: string; subColor: string }> = {
 export function GameStatusIndicator({ 
   turn, phase, step, turnPlayer, priority, players, you, combat,
   monarch, initiative, dayNight, cityBlessing,
-  isYouPlayer, gameOver, onConcede, onLeaveGame, onUndo, availableUndoCount = 0
+  isYouPlayer, gameOver, onConcede, onLeaveGame, onUndo, availableUndoCount = 0,
+  onRollDie, onFlipCoin
 }: Props) {
+  const [showDiceMenu, setShowDiceMenu] = useState(false);
+  const diceMenuRef = useRef<HTMLDivElement>(null);
+  
+  // Close dice menu when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (diceMenuRef.current && !diceMenuRef.current.contains(event.target as Node)) {
+        setShowDiceMenu(false);
+      }
+    }
+    if (showDiceMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showDiceMenu]);
+  
   const phaseKey = String(phase || '').toLowerCase();
   const stepKey = String(step || '').toLowerCase();
   
@@ -347,6 +367,109 @@ export function GameStatusIndicator({
             }}>
               {youHaveBlessing ? "City's Blessing ✓" : "City's Blessing"}
             </span>
+          </div>
+        </>
+      )}
+
+      {/* Randomness buttons - Dice & Coin Flip */}
+      {(onRollDie || onFlipCoin) && (
+        <>
+          <div style={{ width: 1, height: 32, background: 'rgba(255,255,255,0.15)' }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            {/* Dice dropdown */}
+            {onRollDie && (
+              <div ref={diceMenuRef} style={{ position: 'relative' }}>
+                <button
+                  onClick={() => setShowDiceMenu(!showDiceMenu)}
+                  style={{
+                    padding: '4px 10px',
+                    fontSize: 12,
+                    background: showDiceMenu ? 'rgba(139, 92, 246, 0.4)' : 'rgba(139, 92, 246, 0.2)',
+                    border: '1px solid rgba(139, 92, 246, 0.4)',
+                    borderRadius: 4,
+                    color: '#c4b5fd',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    fontWeight: 500,
+                  }}
+                  title="Roll dice"
+                >
+                  🎲 Dice ▼
+                </button>
+                {showDiceMenu && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      marginTop: 4,
+                      background: 'rgba(30, 30, 40, 0.98)',
+                      border: '1px solid rgba(139, 92, 246, 0.5)',
+                      borderRadius: 6,
+                      padding: 4,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 2,
+                      zIndex: 1000,
+                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+                      minWidth: 80,
+                    }}
+                  >
+                    {[
+                      { sides: 6, label: 'D6' },
+                      { sides: 20, label: 'D20' },
+                      { sides: 100, label: 'D100' },
+                    ].map(({ sides, label }) => (
+                      <button
+                        key={sides}
+                        onClick={() => {
+                          onRollDie(sides);
+                          setShowDiceMenu(false);
+                        }}
+                        style={{
+                          padding: '6px 12px',
+                          fontSize: 12,
+                          background: 'rgba(139, 92, 246, 0.15)',
+                          border: '1px solid rgba(139, 92, 246, 0.3)',
+                          borderRadius: 4,
+                          color: '#c4b5fd',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          whiteSpace: 'nowrap',
+                        }}
+                        title={`Roll a ${sides}-sided die`}
+                      >
+                        🎲 {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {/* Coin flip button */}
+            {onFlipCoin && (
+              <button
+                onClick={onFlipCoin}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: 12,
+                  background: 'rgba(234, 179, 8, 0.2)',
+                  border: '1px solid rgba(234, 179, 8, 0.4)',
+                  borderRadius: 4,
+                  color: '#fcd34d',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  fontWeight: 500,
+                }}
+                title="Flip a coin"
+              >
+                🪙 Flip
+              </button>
+            )}
           </div>
         </>
       )}

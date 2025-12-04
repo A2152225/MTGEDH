@@ -18,6 +18,7 @@ import { registerUndoHandlers } from "./undo.js";
 import { registerJoinForcesHandlers } from "./join-forces.js";
 import { registerAutomationHandlers } from "./automation.js";
 import { registerGameManagementHandlers } from "./game-management.js";
+import { registerRandomnessHandlers } from "./randomness.js";
 import { GameManager } from "../GameManager.js";
 
 /**
@@ -52,6 +53,7 @@ export function registerSocketHandlers(
     registerJoinForcesHandlers(io, socket);
     registerAutomationHandlers(io, socket);
     registerGameManagementHandlers(io, socket);
+    registerRandomnessHandlers(io, socket);
 
     // Log disconnection reason
     socket.on("disconnect", (reason) => {

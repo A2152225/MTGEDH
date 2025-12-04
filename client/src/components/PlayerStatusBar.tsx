@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { PlayerID, PlayerStatus, ManaPool, RestrictedManaEntry } from '../../../shared/src';
 
 // Mana symbol colors for compact display
@@ -44,6 +44,10 @@ interface Props {
   manaPool?: ManaPoolData;
   /** Callback when player adjusts mana manually */
   onAdjustMana?: (color: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless', delta: number) => void;
+  /** Callback to roll a die */
+  onRollDie?: (sides: number) => void;
+  /** Callback to flip a coin */
+  onFlipCoin?: () => void;
 }
 
 const abilityIconMap: Record<string,string> = {
@@ -65,13 +69,18 @@ export function PlayerStatusBar({
   onAdjustExperience,
   onAdjustEnergy,
   manaPool,
-  onAdjustMana
+  onAdjustMana,
+  onRollDie,
+  onFlipCoin
 }: Props) {
   const poison = status?.poison ?? 0;
   const exp = status?.experience ?? 0;
   const energy = status?.energy ?? 0;
   const hexproof = status?.hexproof;
   const shroud = status?.shroud;
+  
+  // State for showing/hiding dice dropdown
+  const [showDiceMenu, setShowDiceMenu] = useState(false);
   
   // Life color based on value
   const lifeColor = (life ?? 40) <= 10 ? '#ef4444' : (life ?? 40) <= 20 ? '#fbbf24' : '#4ade80';
@@ -298,6 +307,85 @@ export function PlayerStatusBar({
         </>
       )}
       
+      {/* Randomness Section - Dice & Coin Flip */}
+      {isYou && (onRollDie || onFlipCoin) && (
+        <>
+          <div style={{ width:1, height:20, background:'rgba(255,255,255,0.15)' }} />
+          <div 
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: 4,
+              position: 'relative',
+            }}
+          >
+            {/* Dice button with dropdown */}
+            {onRollDie && (
+              <div style={{ position: 'relative' }}>
+                <button
+                  onClick={() => setShowDiceMenu(!showDiceMenu)}
+                  style={{
+                    ...randomnessBtnStyle,
+                    background: showDiceMenu ? 'rgba(139, 92, 246, 0.4)' : 'rgba(139, 92, 246, 0.2)',
+                  }}
+                  title="Roll dice"
+                >
+                  🎲 Dice
+                </button>
+                {showDiceMenu && (
+                  <div 
+                    style={{
+                      position: 'absolute',
+                      bottom: '100%',
+                      left: 0,
+                      marginBottom: 4,
+                      background: 'rgba(30, 30, 40, 0.98)',
+                      border: '1px solid rgba(139, 92, 246, 0.5)',
+                      borderRadius: 6,
+                      padding: 4,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 2,
+                      zIndex: 1000,
+                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+                    }}
+                  >
+                    {[
+                      { sides: 6, label: 'D6' },
+                      { sides: 20, label: 'D20' },
+                      { sides: 100, label: 'D100' },
+                    ].map(({ sides, label }) => (
+                      <button
+                        key={sides}
+                        onClick={() => {
+                          onRollDie(sides);
+                          setShowDiceMenu(false);
+                        }}
+                        style={diceOptionBtnStyle}
+                        title={`Roll a ${sides}-sided die`}
+                      >
+                        🎲 {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {/* Coin flip button */}
+            {onFlipCoin && (
+              <button
+                onClick={onFlipCoin}
+                style={randomnessBtnStyle}
+                title="Flip a coin"
+              >
+                🪙 Flip
+              </button>
+            )}
+          </div>
+        </>
+      )}
+      
       {/* Player protection badges */}
       {(hexproof || shroud) && (
         <div style={{ display:'flex', gap:4, marginLeft:4 }}>
@@ -339,6 +427,34 @@ const manaAdjustBtnStyle: React.CSSProperties = {
   cursor: 'pointer',
   lineHeight: '10px',
   minWidth: 12,
+};
+
+const randomnessBtnStyle: React.CSSProperties = {
+  padding: '3px 8px',
+  fontSize: 11,
+  background: 'rgba(139, 92, 246, 0.2)',
+  border: '1px solid rgba(139, 92, 246, 0.4)',
+  borderRadius: 4,
+  color: '#c4b5fd',
+  cursor: 'pointer',
+  lineHeight: '14px',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 3,
+  transition: 'background 0.15s ease',
+};
+
+const diceOptionBtnStyle: React.CSSProperties = {
+  padding: '4px 10px',
+  fontSize: 11,
+  background: 'rgba(139, 92, 246, 0.15)',
+  border: '1px solid rgba(139, 92, 246, 0.3)',
+  borderRadius: 4,
+  color: '#c4b5fd',
+  cursor: 'pointer',
+  lineHeight: '14px',
+  textAlign: 'left',
+  whiteSpace: 'nowrap',
 };
 
 const badgeStyle:React.CSSProperties={
