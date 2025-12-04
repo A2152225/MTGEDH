@@ -349,6 +349,8 @@ export function TableLayout(props: {
   const FIELD_HEIGHT_PADDING = 160; // Additional height for play field rows
   const BOARD_SIDE_PADDING = 40; // Horizontal margin for board container
   const BOARD_HEIGHT_PADDING = 320; // Additional height for hand area below field
+  // Height offset for play area container to account for header/join section above
+  const PLAY_AREA_TOP_OFFSET = 140;
   
   // Hand row: 7 cards wide + gaps + generous padding for shuffle button header
   const FREE_W = 7 * TILE_W + 6 * GRID_GAP + HAND_EXTRA_PADDING;
@@ -529,6 +531,8 @@ export function TableLayout(props: {
   }, [container.w, container.h, ordered.length, halfW, halfH]);
 
   // Auto-center on player's playfield when `you` prop changes (player joins the game)
+  // Note: centerOnYou is intentionally not in deps - it uses refs/state that don't cause stale closures
+  // and including it would cause unnecessary re-runs since it's not wrapped in useCallback
   const prevYou = useRef<PlayerID | undefined>(undefined);
   useEffect(() => {
     if (you && you !== prevYou.current && container.w && container.h) {
@@ -540,6 +544,7 @@ export function TableLayout(props: {
       return () => clearTimeout(timer);
     }
     prevYou.current = you;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [you, container.w, container.h]);
 
   const attachedToSet = useMemo(() => {
@@ -794,7 +799,7 @@ export function TableLayout(props: {
         }}
         style={{
           width: '100%',
-          height: 'calc(100vh - 140px)',
+          height: `calc(100vh - ${PLAY_AREA_TOP_OFFSET}px)`,
           minHeight: '500px',
           overflow: 'hidden',
           ...tableContainerBg,
