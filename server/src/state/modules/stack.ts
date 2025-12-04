@@ -2666,6 +2666,54 @@ export function resolveTopOfStack(ctx: GameContext) {
       console.log(`[resolveTopOfStack] Tutor spell ${card.name}: ${controller} may search for ${tutorInfo.searchCriteria || 'a card'} (destination: ${tutorInfo.destination}, split: ${tutorInfo.splitDestination || false})`);
     }
     
+    // Handle Gift of Estates - "If an opponent controls more lands than you, 
+    // search your library for up to three Plains cards, reveal them, put them into your hand, then shuffle."
+    const isGiftOfEstates = card.name?.toLowerCase().includes('gift of estates') ||
+        (oracleTextLower.includes('opponent controls more lands') && 
+         oracleTextLower.includes('search') && 
+         oracleTextLower.includes('plains'));
+    
+    if (isGiftOfEstates) {
+      // Check condition: does an opponent control more lands?
+      const battlefield = state.battlefield || [];
+      const players = state.players || [];
+      const myLandCount = battlefield.filter((p: any) => 
+        p.controller === controller && 
+        (p.card?.type_line || '').toLowerCase().includes('land')
+      ).length;
+      
+      const opponentIds = players
+        .filter((p: any) => p.id !== controller && !p.hasLost)
+        .map((p: any) => p.id);
+      
+      const anyOpponentHasMoreLands = opponentIds.some((oppId: string) => {
+        const oppLandCount = battlefield.filter((p: any) => 
+          p.controller === oppId && 
+          (p.card?.type_line || '').toLowerCase().includes('land')
+        ).length;
+        return oppLandCount > myLandCount;
+      });
+      
+      if (anyOpponentHasMoreLands) {
+        // Condition met - set up library search for up to 3 Plains
+        (state as any).pendingLibrarySearch = (state as any).pendingLibrarySearch || {};
+        (state as any).pendingLibrarySearch[controller] = {
+          type: 'gift_of_estates',
+          searchFor: 'Plains cards',
+          destination: 'hand',
+          tapped: false,
+          optional: true,
+          source: card.name || 'Gift of Estates',
+          shuffleAfter: true,
+          maxSelections: 3,
+          filter: { subtypes: ['Plains'] },
+        };
+        console.log(`[resolveTopOfStack] Gift of Estates: Condition met (opponent has more lands) - ${controller} may search for up to 3 Plains`);
+      } else {
+        console.log(`[resolveTopOfStack] Gift of Estates: Condition NOT met - ${controller} has ${myLandCount} lands, no opponent has more`);
+      }
+    }
+    
     // Handle Path to Exile - exile target creature, controller may search for basic land
     // Use captured target info from BEFORE the exile happened
     const isPathToExile = card.name?.toLowerCase().includes('path to exile') || 
