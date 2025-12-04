@@ -3,7 +3,7 @@ import type { GameContext } from "../context.js";
 import { uid, parsePT, addEnergyCounters } from "../utils.js";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts } from "./game-state-effects.js";
 import { categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
-import { getETBTriggersForPermanent, type TriggeredAbility } from "./triggered-abilities.js";
+import { getETBTriggersForPermanent, processLinkedExileReturns, registerLinkedExile, detectLinkedExileEffect, type TriggeredAbility } from "./triggered-abilities.js";
 import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone } from "./zones.js";
 import { runSBA } from "./counters_tokens.js";
@@ -1633,27 +1633,109 @@ function executeTriggerEffect(
     return;
   }
   
-  // Pattern: "exile target creature" or "exile it"
+  // Pattern: "exile target creature/permanent ... until ~ leaves the battlefield" (Oblivion Ring-style)
+  // This is a LINKED exile - the exiled card returns when the source permanent leaves
+  const linkedExileMatch = desc.match(/exile (?:target |that )?([^.]+) until [^.]* leaves the battlefield/i);
+  if (linkedExileMatch) {
+    const targets = triggerItem.targets || [];
+    if (targets.length > 0) {
+      const targetPerm = (state.battlefield || []).find((p: any) => p?.id === targets[0]);
+      if (targetPerm) {
+        const permIndex = state.battlefield.indexOf(targetPerm);
+        if (permIndex !== -1) {
+          const exiledPermanentId = targetPerm.id;
+          const exiledCard = targetPerm.card;
+          const exiledCardName = exiledCard?.name || targetPerm.id;
+          const originalOwner = targetPerm.owner;
+          const originalController = targetPerm.controller;
+          
+          // Remove from battlefield
+          state.battlefield.splice(permIndex, 1);
+          
+          // Tokens cease to exist when they leave the battlefield
+          if (targetPerm.isToken || exiledCard?.isToken) {
+            console.log(`[executeTriggerEffect] ${exiledCardName} token ceases to exist (not added to exile, no return)`);
+          } else {
+            // Add to exile zone
+            const ownerZones = state.zones?.[originalOwner];
+            if (ownerZones) {
+              ownerZones.exile = ownerZones.exile || [];
+              exiledCard.zone = 'exile';
+              ownerZones.exile.push(exiledCard);
+              ownerZones.exileCount = (ownerZones.exile || []).length;
+            }
+            
+            // Register the linked exile so the card returns when source leaves
+            const sourceId = triggerItem.sourceId || triggerItem.permanentId;
+            registerLinkedExile(
+              ctx,
+              sourceId,
+              sourceName,
+              exiledCard,
+              originalOwner,
+              originalController
+            );
+            
+            console.log(`[executeTriggerEffect] ${sourceName} exiled ${exiledCardName} - will return when ${sourceName} leaves the battlefield`);
+          }
+          
+          // Process linked exile returns for the removed permanent
+          processLinkedExileReturns(ctx, exiledPermanentId);
+        }
+      }
+    }
+    return;
+  }
+  
+  // Pattern: "exile target creature" or "exile it" (simple exile, no return)
   const exileMatch = desc.match(/exile (?:target (?:creature|permanent)|it|that creature)/i);
   if (exileMatch) {
     const targets = triggerItem.targets || [];
     if (targets.length > 0) {
       const targetPerm = (state.battlefield || []).find((p: any) => p?.id === targets[0]);
       if (targetPerm) {
+        // Check if the source card has a linked exile effect
+        const sourceCard = triggerItem.card;
+        const linkedEffect = sourceCard ? detectLinkedExileEffect(sourceCard) : null;
+        
         // Move to exile (tokens cease to exist)
         const permIndex = state.battlefield.indexOf(targetPerm);
         if (permIndex !== -1) {
+          const exiledPermanentId = targetPerm.id;
           state.battlefield.splice(permIndex, 1);
           
           // Tokens cease to exist when they leave the battlefield
           if (targetPerm.isToken || targetPerm.card?.isToken) {
             console.log(`[executeTriggerEffect] ${targetPerm.card?.name || targetPerm.id} token ceases to exist (not added to exile)`);
           } else {
-            state.exile = state.exile || [];
-            targetPerm.card.zone = 'exile';
-            state.exile.push(targetPerm);
-            console.log(`[executeTriggerEffect] Exiled ${targetPerm.card?.name || targetPerm.id}`);
+            // Add to exile zone
+            const ownerZones = state.zones?.[targetPerm.owner];
+            if (ownerZones) {
+              ownerZones.exile = ownerZones.exile || [];
+              targetPerm.card.zone = 'exile';
+              ownerZones.exile.push(targetPerm.card);
+              ownerZones.exileCount = (ownerZones.exile || []).length;
+            }
+            
+            // If this is a linked exile effect, register the link
+            if (linkedEffect?.hasLinkedExile) {
+              const sourceId = triggerItem.sourceId || triggerItem.permanentId;
+              registerLinkedExile(
+                ctx,
+                sourceId,
+                sourceName,
+                targetPerm.card,
+                targetPerm.owner,
+                targetPerm.controller
+              );
+              console.log(`[executeTriggerEffect] ${sourceName} exiled ${targetPerm.card?.name || targetPerm.id} (linked - returns when ${sourceName} leaves)`);
+            } else {
+              console.log(`[executeTriggerEffect] Exiled ${targetPerm.card?.name || targetPerm.id}`);
+            }
           }
+          
+          // Process linked exile returns for the removed permanent (in case it was an Oblivion Ring)
+          processLinkedExileReturns(ctx, exiledPermanentId);
         }
       }
     }
@@ -1670,6 +1752,7 @@ function executeTriggerEffect(
         // Move to graveyard
         const permIndex = state.battlefield.indexOf(targetPerm);
         if (permIndex !== -1) {
+          const destroyedPermanentId = targetPerm.id;
           state.battlefield.splice(permIndex, 1);
           const ownerZones = state.zones?.[targetPerm.owner];
           if (ownerZones) {
@@ -1679,6 +1762,9 @@ function executeTriggerEffect(
             ownerZones.graveyardCount = (ownerZones.graveyard || []).length;
           }
           console.log(`[executeTriggerEffect] Destroyed ${targetPerm.card?.name || targetPerm.id}`);
+          
+          // Process linked exile returns for the removed permanent
+          processLinkedExileReturns(ctx, destroyedPermanentId);
         }
       }
     }
@@ -1695,6 +1781,7 @@ function executeTriggerEffect(
         // Move to owner's hand
         const permIndex = state.battlefield.indexOf(targetPerm);
         if (permIndex !== -1) {
+          const bouncedPermanentId = targetPerm.id;
           state.battlefield.splice(permIndex, 1);
           const ownerZones = state.zones?.[targetPerm.owner];
           if (ownerZones) {
@@ -1704,6 +1791,9 @@ function executeTriggerEffect(
             ownerZones.handCount = ownerZones.hand.length;
           }
           console.log(`[executeTriggerEffect] Returned ${targetPerm.card?.name || targetPerm.id} to owner's hand`);
+          
+          // Process linked exile returns for the removed permanent
+          processLinkedExileReturns(ctx, bouncedPermanentId);
         }
       }
     }
@@ -2908,6 +2998,7 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
       const battlefield = state.battlefield || [];
       const idx = battlefield.findIndex((p: any) => p.id === effect.id);
       if (idx !== -1) {
+        const destroyedPermanentId = (battlefield[idx] as any).id;
         const destroyed = battlefield.splice(idx, 1)[0];
         const owner = (destroyed as any).owner || (destroyed as any).controller;
         const zones = ctx.state.zones || {};
@@ -2921,6 +3012,10 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
           }
         }
         console.log(`[resolveSpell] ${spellName} destroyed ${(destroyed as any).card?.name || effect.id}`);
+        
+        // Process linked exile returns - if this was an Oblivion Ring-style card,
+        // return any cards it had exiled
+        processLinkedExileReturns(ctx, destroyedPermanentId);
       }
       break;
     }
@@ -2928,6 +3023,7 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
       const battlefield = state.battlefield || [];
       const idx = battlefield.findIndex((p: any) => p.id === effect.id);
       if (idx !== -1) {
+        const exiledPermanentId = (battlefield[idx] as any).id;
         const exiled = battlefield.splice(idx, 1)[0];
         const owner = (exiled as any).owner || (exiled as any).controller;
         const zones = ctx.state.zones || {};
@@ -2940,6 +3036,10 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
           }
         }
         console.log(`[resolveSpell] ${spellName} exiled ${(exiled as any).card?.name || effect.id}`);
+        
+        // Process linked exile returns - if this was an Oblivion Ring-style card,
+        // return any cards it had exiled
+        processLinkedExileReturns(ctx, exiledPermanentId);
       }
       break;
     }
@@ -2949,11 +3049,16 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
       const battlefield = state.battlefield || [];
       const idx = battlefield.findIndex((p: any) => p.id === effect.id);
       if (idx !== -1) {
+        const flickeredPermanentId = (battlefield[idx] as any).id;
         const flickered = battlefield.splice(idx, 1)[0];
         const flickeredCard = (flickered as any).card;
         const flickeredName = flickeredCard?.name || effect.id;
         const owner = (flickered as any).owner || (flickered as any).controller;
         const isToken = (flickered as any).isToken === true;
+        
+        // Process linked exile returns first - if this was an Oblivion Ring-style card,
+        // return any cards it had exiled before the flicker effect
+        processLinkedExileReturns(ctx, flickeredPermanentId);
         
         // Tokens cease to exist when exiled (Rule 111.7) - they don't return
         if (isToken) {
