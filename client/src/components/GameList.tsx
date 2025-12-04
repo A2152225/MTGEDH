@@ -128,38 +128,72 @@ export default function GameList(props: GameListProps) {
   };
 
   return (
-    <div style={{ border: "1px solid #ddd", borderRadius: 6, padding: 8, maxWidth: 760 }}>
+    <div style={{ 
+      border: "1px solid rgba(255,255,255,0.1)", 
+      borderRadius: 6, 
+      padding: 8, 
+      maxWidth: 760,
+      background: "rgba(0,0,0,0.2)",
+    }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-        <div style={{ fontWeight: 700 }}>Active Games</div>
+        <div style={{ fontWeight: 600, color: "#e5e5e5", fontSize: 12 }}>Active Games</div>
         <div>
-          <button onClick={fetchGames} disabled={loading}>Refresh</button>
+          <button 
+            onClick={fetchGames} 
+            disabled={loading}
+            style={{
+              padding: "3px 10px",
+              borderRadius: 4,
+              border: "1px solid rgba(255,255,255,0.2)",
+              background: "rgba(0,0,0,0.3)",
+              color: "#9ca3af",
+              fontSize: 11,
+              cursor: loading ? "not-allowed" : "pointer",
+            }}
+          >
+            Refresh
+          </button>
         </div>
       </div>
-      <div style={{ maxHeight: 260, overflow: "auto" }}>
-        {games.length === 0 && !loading && <div style={{ color: "#666" }}>No games</div>}
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+      <div style={{ maxHeight: 180, overflow: "auto" }}>
+        {games.length === 0 && !loading && <div style={{ color: "#9ca3af", fontSize: 12 }}>No games</div>}
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, color: "#e5e5e5" }}>
           <thead>
-            <tr style={{ textAlign: "left", borderBottom: "1px solid #eee" }}>
-              <th style={{ padding: "6px 8px" }}>Game</th>
-              <th style={{ padding: "6px 8px" }}>Players</th>
-              <th style={{ padding: "6px 8px" }}>Active</th>
-              <th style={{ padding: "6px 8px" }}>Turn</th>
-              <th style={{ padding: "6px 8px" }}>Phase</th>
-              <th style={{ padding: "6px 8px" }}>Status</th>
-              <th style={{ padding: "6px 8px" }}>Actions</th>
+            <tr style={{ textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+              <th style={{ padding: "4px 6px", color: "#a78bfa", fontWeight: 600 }}>Game</th>
+              <th style={{ padding: "4px 6px", color: "#a78bfa", fontWeight: 600 }}>Players</th>
+              <th style={{ padding: "4px 6px", color: "#a78bfa", fontWeight: 600 }}>Active</th>
+              <th style={{ padding: "4px 6px", color: "#a78bfa", fontWeight: 600 }}>Turn</th>
+              <th style={{ padding: "4px 6px", color: "#a78bfa", fontWeight: 600 }}>Phase</th>
+              <th style={{ padding: "4px 6px", color: "#a78bfa", fontWeight: 600 }}>Status</th>
+              <th style={{ padding: "4px 6px", color: "#a78bfa", fontWeight: 600 }}>Actions</th>
             </tr>
           </thead>
           <tbody>
             {games.map(g => (
-              <tr key={g.id} style={{ borderBottom: "1px solid #fafafa" }}>
-                <td style={{ padding: "6px 8px", fontFamily: "monospace" }}>{(g.id || "").slice(0, 8)}</td>
-                <td style={{ padding: "6px 8px" }}>{g.playersCount}</td>
-                <td style={{ padding: "6px 8px" }}>{g.activeConnectionsCount}</td>
-                <td style={{ padding: "6px 8px" }}>{g.turn ?? "-"}</td>
-                <td style={{ padding: "6px 8px" }}>{g.phase ?? "-"}</td>
-                <td style={{ padding: "6px 8px" }}>{g.status ?? "-"}</td>
-                <td style={{ padding: "6px 8px" }}>
-                  <button onClick={() => handleJoin(g.id)} style={{ marginRight: 8 }}>Join</button>
+              <tr key={g.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                <td style={{ padding: "4px 6px", fontFamily: "monospace", color: "#93c5fd" }}>{(g.id || "").slice(0, 8)}</td>
+                <td style={{ padding: "4px 6px" }}>{g.playersCount}</td>
+                <td style={{ padding: "4px 6px" }}>{g.activeConnectionsCount}</td>
+                <td style={{ padding: "4px 6px" }}>{g.turn ?? "-"}</td>
+                <td style={{ padding: "4px 6px" }}>{g.phase ?? "-"}</td>
+                <td style={{ padding: "4px 6px" }}>{g.status ?? "-"}</td>
+                <td style={{ padding: "4px 6px" }}>
+                  <button 
+                    onClick={() => handleJoin(g.id)} 
+                    style={{ 
+                      marginRight: 6,
+                      padding: "2px 8px",
+                      borderRadius: 4,
+                      border: "1px solid rgba(16, 185, 129, 0.4)",
+                      background: "rgba(16, 185, 129, 0.2)",
+                      color: "#10b981",
+                      fontSize: 10,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Join
+                  </button>
                   {canDelete(g) && (
                     <button 
                       disabled={deleting === g.id} 
@@ -170,6 +204,15 @@ export default function GameList(props: GameListProps) {
                         g.activeConnectionsCount === 0 ? "Delete (no active players)" :
                         "Delete"
                       }
+                      style={{
+                        padding: "2px 8px",
+                        borderRadius: 4,
+                        border: "1px solid rgba(239, 68, 68, 0.4)",
+                        background: "rgba(239, 68, 68, 0.2)",
+                        color: "#ef4444",
+                        fontSize: 10,
+                        cursor: deleting === g.id ? "not-allowed" : "pointer",
+                      }}
                     >
                       {deleting === g.id ? "Deleting…" : "Delete"}
                     </button>
