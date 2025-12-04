@@ -701,6 +701,7 @@ export const KNOWN_END_STEP_TRIGGERS: Record<string, {
   mandatory: boolean; 
   requiresChoice?: boolean;
   affectsAllPlayers?: boolean;
+  modalOptions?: string[];
 }> = {
   "kynaios and tiro of meletis": { 
     effect: "Each player may draw a card or play a land (you draw a card)", 
@@ -768,5 +769,14 @@ export const KNOWN_END_STEP_TRIGGERS: Record<string, {
     effect: "Exile the top card of your library if you control a creature with power 4+. You may play that card.",
     mandatory: true,
     requiresChoice: false,
+  },
+  // Abiding Grace - At the beginning of your end step, choose one —
+  // • You gain 1 life.
+  // • Return target creature card with mana value 1 or less from your graveyard to the battlefield.
+  "abiding grace": {
+    effect: "Choose one: You gain 1 life; or return a creature card with mana value 1 or less from your graveyard to the battlefield.",
+    mandatory: true,
+    requiresChoice: true,
+    modalOptions: ["You gain 1 life", "Return a creature card with mana value 1 or less from your graveyard to the battlefield"],
   },
 };

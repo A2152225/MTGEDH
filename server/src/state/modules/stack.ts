@@ -1,9 +1,9 @@
 import type { PlayerID } from "../../../../shared/src/index.js";
 import type { GameContext } from "../context.js";
-import { uid, parsePT } from "../utils.js";
+import { uid, parsePT, addEnergyCounters, triggerLifeGainEffects } from "../utils.js";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts } from "./game-state-effects.js";
 import { categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
-import { getETBTriggersForPermanent, type TriggeredAbility } from "./triggered-abilities.js";
+import { getETBTriggersForPermanent, processLinkedExileReturns, registerLinkedExile, detectLinkedExileEffect, type TriggeredAbility } from "./triggered-abilities.js";
 import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone } from "./zones.js";
 import { runSBA } from "./counters_tokens.js";
@@ -143,15 +143,20 @@ function handleDispatch(
     if (permIndex !== -1) {
       battlefield.splice(permIndex, 1);
       
-      // Move to exile zone
-      const owner = targetPerm.owner || targetPerm.controller;
-      const zones = state.zones || {};
-      zones[owner] = zones[owner] || { hand: [], graveyard: [], exile: [] };
-      zones[owner].exile = zones[owner].exile || [];
-      zones[owner].exile.push({ ...targetPerm.card, zone: 'exile' });
-      zones[owner].exileCount = zones[owner].exile.length;
-      
-      console.log(`[handleDispatch] Metalcraft active (${countArtifacts(ctx, controller)} artifacts) - exiled ${targetPerm.card?.name || targetPerm.id}`);
+      // Tokens cease to exist when they leave the battlefield - don't add to exile zone
+      if (targetPerm.isToken || targetPerm.card?.isToken) {
+        console.log(`[handleDispatch] Metalcraft active - ${targetPerm.card?.name || targetPerm.id} token ceases to exist (not added to exile)`);
+      } else {
+        // Move non-token to exile zone
+        const owner = targetPerm.owner || targetPerm.controller;
+        const zones = state.zones || {};
+        zones[owner] = zones[owner] || { hand: [], graveyard: [], exile: [] };
+        zones[owner].exile = zones[owner].exile || [];
+        zones[owner].exile.push({ ...targetPerm.card, zone: 'exile' });
+        zones[owner].exileCount = zones[owner].exile.length;
+        
+        console.log(`[handleDispatch] Metalcraft active (${countArtifacts(ctx, controller)} artifacts) - exiled ${targetPerm.card?.name || targetPerm.id}`);
+      }
     }
   } else {
     // Just tap the creature
@@ -429,6 +434,103 @@ function creatureWillHaveHaste(
   }
 }
 
+/**
+ * Check if a creature should enter the battlefield tapped due to effects on the battlefield.
+ * This handles cards like:
+ * - Authority of the Consuls: "Creatures your opponents control enter the battlefield tapped."
+ * - Blind Obedience: "Artifacts and creatures your opponents control enter the battlefield tapped."
+ * - Urabrask the Hidden: "Creatures your opponents control enter the battlefield tapped."
+ * - Imposing Sovereign: "Creatures your opponents control enter the battlefield tapped."
+ * - Thalia, Heretic Cathar: "Creatures and nonbasic lands your opponents control enter the battlefield tapped."
+ * - Frozen Aether: "Permanents your opponents control enter the battlefield tapped."
+ * - Kismet: "Artifacts, creatures, and lands your opponents play come into play tapped."
+ * 
+ * @param battlefield - All permanents on the battlefield
+ * @param creatureController - The player who controls the entering creature
+ * @param creatureCard - The creature card entering
+ * @returns true if the creature should enter tapped
+ */
+function checkCreatureEntersTapped(
+  battlefield: any[],
+  creatureController: string,
+  creatureCard: any
+): boolean {
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    
+    const cardName = (perm.card.name || '').toLowerCase();
+    const oracleText = (perm.card.oracle_text || '').toLowerCase();
+    const permController = perm.controller;
+    
+    // Skip if this is controlled by the same player (these effects affect opponents)
+    if (permController === creatureController) continue;
+    
+    // Authority of the Consuls: "Creatures your opponents control enter the battlefield tapped."
+    if (cardName.includes('authority of the consuls') ||
+        (oracleText.includes('creatures your opponents control enter') && oracleText.includes('tapped'))) {
+      console.log(`[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+      return true;
+    }
+    
+    // Blind Obedience: "Artifacts and creatures your opponents control enter the battlefield tapped."
+    if (cardName.includes('blind obedience') ||
+        (oracleText.includes('artifacts and creatures your opponents control enter') && oracleText.includes('tapped'))) {
+      console.log(`[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+      return true;
+    }
+    
+    // Urabrask the Hidden: "Creatures your opponents control enter the battlefield tapped."
+    if (cardName.includes('urabrask the hidden') ||
+        cardName.includes('urabrask,')) {
+      if (oracleText.includes('creatures your opponents control enter') && oracleText.includes('tapped')) {
+        console.log(`[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+        return true;
+      }
+    }
+    
+    // Imposing Sovereign: "Creatures your opponents control enter the battlefield tapped."
+    if (cardName.includes('imposing sovereign')) {
+      console.log(`[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+      return true;
+    }
+    
+    // Thalia, Heretic Cathar: "Creatures and nonbasic lands your opponents control enter the battlefield tapped."
+    if (cardName.includes('thalia, heretic cathar') ||
+        (oracleText.includes('creatures') && oracleText.includes('your opponents control enter') && oracleText.includes('tapped'))) {
+      console.log(`[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+      return true;
+    }
+    
+    // Frozen Aether: "Permanents your opponents control enter the battlefield tapped."
+    if (cardName.includes('frozen aether') ||
+        (oracleText.includes('permanents your opponents control enter') && oracleText.includes('tapped'))) {
+      console.log(`[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+      return true;
+    }
+    
+    // Kismet: "Artifacts, creatures, and lands your opponents play come into play tapped."
+    if (cardName.includes('kismet') ||
+        (oracleText.includes('creatures') && oracleText.includes('your opponents') && oracleText.includes('play') && oracleText.includes('tapped'))) {
+      console.log(`[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+      return true;
+    }
+    
+    // Generic pattern detection: "creatures your opponents control enter the battlefield tapped"
+    // This catches future cards with similar text
+    if (oracleText.includes('creatures') && 
+        oracleText.includes('opponents') && 
+        oracleText.includes('control') &&
+        oracleText.includes('enter') && 
+        oracleText.includes('battlefield') &&
+        oracleText.includes('tapped')) {
+      console.log(`[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'} (generic pattern)`);
+      return true;
+    }
+  }
+  
+  return false;
+}
+
 /* Push an item onto the stack */
 export function pushStack(
   ctx: GameContext,
@@ -455,6 +557,48 @@ function popStackItem(ctx: GameContext) {
 /**
  * Check if a card type line represents a permanent (not instant/sorcery)
  */
+/**
+ * Check if a card's colors match a color restriction string.
+ * Used for color-restricted ETB triggers (e.g., "whenever another white or black creature enters")
+ * 
+ * @param restriction - The color restriction text (e.g., "white or black", "red", "nonwhite")
+ * @param cardColors - The entering card's colors array (e.g., ['W', 'B'] or ['white', 'black'])
+ * @returns true if the card matches the color restriction
+ */
+function matchesColorRestriction(restriction: string, cardColors: string[]): boolean {
+  const lowerRestriction = restriction.toLowerCase();
+  const colors = cardColors || [];
+  
+  // Handle "nonX" restrictions first (e.g., "nonwhite", "nonblack")
+  if (lowerRestriction.startsWith('non')) {
+    const excludedColor = lowerRestriction.slice(3);
+    const colorMap: Record<string, string> = { 'white': 'W', 'blue': 'U', 'black': 'B', 'red': 'R', 'green': 'G' };
+    const excludedColorCode = colorMap[excludedColor];
+    return excludedColorCode ? !colors.includes(excludedColorCode) : true;
+  }
+  
+  // Parse color restriction (e.g., "white or black", "red")
+  // Card matches if it has ANY of the mentioned colors
+  let matchesColor = false;
+  if (lowerRestriction.includes('white') && (colors.includes('W') || colors.includes('white'))) {
+    matchesColor = true;
+  }
+  if (lowerRestriction.includes('black') && (colors.includes('B') || colors.includes('black'))) {
+    matchesColor = true;
+  }
+  if (lowerRestriction.includes('blue') && (colors.includes('U') || colors.includes('blue'))) {
+    matchesColor = true;
+  }
+  if (lowerRestriction.includes('red') && (colors.includes('R') || colors.includes('red'))) {
+    matchesColor = true;
+  }
+  if (lowerRestriction.includes('green') && (colors.includes('G') || colors.includes('green'))) {
+    matchesColor = true;
+  }
+  
+  return matchesColor;
+}
+
 function isPermanentTypeLine(typeLine?: string): boolean {
   if (!typeLine) return false;
   const tl = typeLine.toLowerCase();
@@ -559,6 +703,120 @@ function triggerETBEffectsForToken(
         
         console.log(`[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s triggered ability for token: ${trigger.description}`);
       }
+    }
+  }
+}
+
+/**
+ * Trigger ETB effects when a permanent enters the battlefield.
+ * This is used for flickered permanents returning, as well as other ETB scenarios.
+ * Note: The permanent's own ETB trigger (if any) is handled separately when the 
+ * permanent resolves from the stack.
+ */
+function triggerETBEffectsForPermanent(
+  ctx: GameContext,
+  permanent: any,
+  controller: PlayerID
+): void {
+  const state = (ctx as any).state;
+  if (!state?.battlefield) return;
+  
+  const isCreature = (permanent.card?.type_line || '').toLowerCase().includes('creature');
+  const isToken = permanent.isToken === true;
+  
+  // Check all other permanents for triggers that fire when creatures/permanents enter
+  for (const perm of state.battlefield) {
+    if (!perm || perm.id === permanent.id) continue;
+    
+    const otherTriggers = getETBTriggersForPermanent(perm.card, perm);
+    for (const trigger of otherTriggers) {
+      // creature_etb triggers (Cathars' Crusade, Soul Warden, etc.)
+      if (trigger.triggerType === 'creature_etb' && isCreature) {
+        // Check if this trigger requires nontoken creatures (e.g., Guardian Project)
+        if ((trigger as any).nontokenOnly && isToken) {
+          continue;
+        }
+        
+        const triggerController = perm.controller || controller;
+        state.stack = state.stack || [];
+        const triggerId = uid("trigger");
+        
+        state.stack.push({
+          id: triggerId,
+          type: 'triggered_ability',
+          controller: triggerController,
+          source: perm.id,
+          sourceName: trigger.cardName,
+          description: trigger.description,
+          triggerType: trigger.triggerType,
+          mandatory: trigger.mandatory,
+        } as any);
+        
+        console.log(`[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
+      }
+      
+      // another_permanent_etb triggers
+      if (trigger.triggerType === 'another_permanent_etb') {
+        const triggerController = perm.controller || controller;
+        state.stack = state.stack || [];
+        const triggerId = uid("trigger");
+        
+        state.stack.push({
+          id: triggerId,
+          type: 'triggered_ability',
+          controller: triggerController,
+          source: perm.id,
+          sourceName: trigger.cardName,
+          description: trigger.description,
+          triggerType: trigger.triggerType,
+          mandatory: trigger.mandatory,
+        } as any);
+        
+        console.log(`[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
+      }
+      
+      // permanent_etb triggers (Altar of the Brood style)
+      if (trigger.triggerType === 'permanent_etb') {
+        const triggerController = perm.controller || controller;
+        state.stack = state.stack || [];
+        const triggerId = uid("trigger");
+        
+        state.stack.push({
+          id: triggerId,
+          type: 'triggered_ability',
+          controller: triggerController,
+          source: perm.id,
+          sourceName: trigger.cardName,
+          description: trigger.description,
+          triggerType: trigger.triggerType,
+          mandatory: trigger.mandatory,
+        } as any);
+        
+        console.log(`[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
+      }
+    }
+  }
+  
+  // Also check if the permanent itself has ETB triggers
+  const selfTriggers = getETBTriggersForPermanent(permanent.card, permanent);
+  for (const trigger of selfTriggers) {
+    if (trigger.triggerType === 'etb') {
+      const triggerController = controller;
+      state.stack = state.stack || [];
+      const triggerId = uid("trigger");
+      
+      state.stack.push({
+        id: triggerId,
+        type: 'triggered_ability',
+        controller: triggerController,
+        source: permanent.id,
+        sourceName: trigger.cardName,
+        description: trigger.description,
+        triggerType: trigger.triggerType,
+        mandatory: trigger.mandatory,
+      } as any);
+      
+      console.log(`[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s own ETB trigger: ${trigger.description}`);
     }
   }
 }
@@ -727,6 +985,46 @@ function executeTriggerEffect(
       modifyLife(triggeringController, -amount);
     }
     return;
+  }
+  
+  // Pattern: "you gain X life and get {E}" - Combined life gain + energy (Guide of Souls)
+  // This must be checked BEFORE separate life/energy patterns
+  const lifeAndEnergyMatch = desc.match(/you gain (\d+) life and get (?:(\d+|one|two|three|four|five) )?(?:\{e\}|energy)/i);
+  if (lifeAndEnergyMatch) {
+    const lifeAmount = parseInt(lifeAndEnergyMatch[1], 10);
+    const wordToNum: Record<string, number> = { 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5 };
+    let energyAmount = 1;
+    if (lifeAndEnergyMatch[2]) {
+      energyAmount = wordToNum[lifeAndEnergyMatch[2].toLowerCase()] || parseInt(lifeAndEnergyMatch[2], 10) || 1;
+    }
+    
+    // Apply life gain
+    modifyLife(controller, lifeAmount);
+    console.log(`[executeTriggerEffect] ${sourceName}: ${controller} gains ${lifeAmount} life`);
+    
+    // Apply energy gain
+    addEnergyCounters(state, controller, energyAmount, sourceName);
+    
+    handled = true;
+    // Don't return - Guide of Souls also has a second ability about paying energy
+  }
+  
+  // Pattern: "you get {E}" or "you get X {E}" - Energy counters (Guide of Souls, etc.)
+  // Matches: "you get {E}", "you get two {E}", "you get 2 {E}"
+  // Skip if already handled by lifeAndEnergyMatch above
+  if (!handled) {
+    const energyMatch = desc.match(/you get (?:(\d+|one|two|three|four|five) )?(?:\{e\}|energy)/i);
+    if (energyMatch) {
+      const wordToNum: Record<string, number> = { 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5 };
+      let amount = 1;
+      if (energyMatch[1]) {
+        amount = wordToNum[energyMatch[1].toLowerCase()] || parseInt(energyMatch[1], 10) || 1;
+      }
+      
+      addEnergyCounters(state, controller, amount, sourceName);
+      handled = true;
+      // Don't return - there might be more effects after energy gain
+    }
   }
   
   // Pattern: "+1/+1 counter on each creature you control" (Cathar's Crusade)
@@ -1001,6 +1299,83 @@ function executeTriggerEffect(
     return;
   }
   
+  // Pattern: "Create a Food/Treasure/Clue/Map token" (predefined artifact tokens)
+  // Food: "{2}, {T}, Sacrifice this artifact: You gain 3 life."
+  // Treasure: "{T}, Sacrifice this artifact: Add one mana of any color."
+  // Clue: "{2}, Sacrifice this artifact: Draw a card."
+  // Map: "{1}, {T}, Sacrifice this artifact: Target creature you control explores. Activate only as a sorcery."
+  // Blood: "{1}, {T}, Discard a card, Sacrifice this artifact: Draw a card."
+  const predefinedTokenTypes: Record<string, { typeLine: string; oracleText: string }> = {
+    'food': {
+      typeLine: 'Token Artifact — Food',
+      oracleText: '{2}, {T}, Sacrifice this artifact: You gain 3 life.',
+    },
+    'treasure': {
+      typeLine: 'Token Artifact — Treasure',
+      oracleText: '{T}, Sacrifice this artifact: Add one mana of any color.',
+    },
+    'clue': {
+      typeLine: 'Token Artifact — Clue',
+      oracleText: '{2}, Sacrifice this artifact: Draw a card.',
+    },
+    'map': {
+      typeLine: 'Token Artifact — Map',
+      oracleText: '{1}, {T}, Sacrifice this artifact: Target creature you control explores. Activate only as a sorcery.',
+    },
+    'blood': {
+      typeLine: 'Token Artifact — Blood',
+      oracleText: '{1}, {T}, Discard a card, Sacrifice this artifact: Draw a card.',
+    },
+    'gold': {
+      typeLine: 'Token Artifact — Gold',
+      oracleText: 'Sacrifice this artifact: Add one mana of any color.',
+    },
+    'powerstone': {
+      typeLine: 'Token Artifact — Powerstone',
+      oracleText: '{T}: Add {C}. This mana can\'t be spent to cast a nonartifact spell.',
+    },
+  };
+  
+  // Match patterns like "create a Food token", "create two Treasure tokens", "create 3 Clue tokens"
+  const predefinedTokenMatch = desc.match(/create (?:a|an|one|two|three|four|five|(\d+)) (food|treasure|clue|map|blood|gold|powerstone) tokens?/i);
+  if (predefinedTokenMatch) {
+    const countWord = desc.match(/create (a|an|one|two|three|four|five|\d+)/i)?.[1]?.toLowerCase() || 'a';
+    const wordToCount: Record<string, number> = {
+      'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5
+    };
+    const tokenCount = wordToCount[countWord] || (predefinedTokenMatch[1] ? parseInt(predefinedTokenMatch[1], 10) : 1);
+    const tokenType = predefinedTokenMatch[2].toLowerCase();
+    const tokenInfo = predefinedTokenTypes[tokenType];
+    
+    if (tokenInfo) {
+      state.battlefield = state.battlefield || [];
+      for (let i = 0; i < tokenCount; i++) {
+        const tokenId = uid("token");
+        const tokenName = tokenType.charAt(0).toUpperCase() + tokenType.slice(1);
+        
+        state.battlefield.push({
+          id: tokenId,
+          controller,
+          owner: controller,
+          tapped: false,
+          counters: {},
+          isToken: true,
+          card: {
+            id: tokenId,
+            name: tokenName,
+            type_line: tokenInfo.typeLine,
+            oracle_text: tokenInfo.oracleText,
+            zone: 'battlefield',
+            colors: [],
+          },
+        } as any);
+        
+        console.log(`[executeTriggerEffect] Created ${tokenName} token for ${controller}`);
+      }
+      return;
+    }
+  }
+  
   // Pattern: "Create a X/Y [creature type] creature token" (various patterns)
   // Matches: "create a 2/2 green Wolf creature token", "create a 1/1 white Soldier creature token with vigilance"
   // Also matches: "create a 0/1 colorless Eldrazi Spawn creature token"
@@ -1258,21 +1633,109 @@ function executeTriggerEffect(
     return;
   }
   
-  // Pattern: "exile target creature" or "exile it"
+  // Pattern: "exile target creature/permanent ... until ~ leaves the battlefield" (Oblivion Ring-style)
+  // This is a LINKED exile - the exiled card returns when the source permanent leaves
+  const linkedExileMatch = desc.match(/exile (?:target |that )?([^.]+) until [^.]* leaves the battlefield/i);
+  if (linkedExileMatch) {
+    const targets = triggerItem.targets || [];
+    if (targets.length > 0) {
+      const targetPerm = (state.battlefield || []).find((p: any) => p?.id === targets[0]);
+      if (targetPerm) {
+        const permIndex = state.battlefield.indexOf(targetPerm);
+        if (permIndex !== -1) {
+          const exiledPermanentId = targetPerm.id;
+          const exiledCard = targetPerm.card;
+          const exiledCardName = exiledCard?.name || targetPerm.id;
+          const originalOwner = targetPerm.owner;
+          const originalController = targetPerm.controller;
+          
+          // Remove from battlefield
+          state.battlefield.splice(permIndex, 1);
+          
+          // Tokens cease to exist when they leave the battlefield
+          if (targetPerm.isToken || exiledCard?.isToken) {
+            console.log(`[executeTriggerEffect] ${exiledCardName} token ceases to exist (not added to exile, no return)`);
+          } else {
+            // Add to exile zone
+            const ownerZones = state.zones?.[originalOwner];
+            if (ownerZones) {
+              ownerZones.exile = ownerZones.exile || [];
+              exiledCard.zone = 'exile';
+              ownerZones.exile.push(exiledCard);
+              ownerZones.exileCount = (ownerZones.exile || []).length;
+            }
+            
+            // Register the linked exile so the card returns when source leaves
+            const sourceId = triggerItem.sourceId || triggerItem.permanentId;
+            registerLinkedExile(
+              ctx,
+              sourceId,
+              sourceName,
+              exiledCard,
+              originalOwner,
+              originalController
+            );
+            
+            console.log(`[executeTriggerEffect] ${sourceName} exiled ${exiledCardName} - will return when ${sourceName} leaves the battlefield`);
+          }
+          
+          // Process linked exile returns for the removed permanent
+          processLinkedExileReturns(ctx, exiledPermanentId);
+        }
+      }
+    }
+    return;
+  }
+  
+  // Pattern: "exile target creature" or "exile it" (simple exile, no return)
   const exileMatch = desc.match(/exile (?:target (?:creature|permanent)|it|that creature)/i);
   if (exileMatch) {
     const targets = triggerItem.targets || [];
     if (targets.length > 0) {
       const targetPerm = (state.battlefield || []).find((p: any) => p?.id === targets[0]);
       if (targetPerm) {
-        // Move to exile
+        // Check if the source card has a linked exile effect
+        const sourceCard = triggerItem.card;
+        const linkedEffect = sourceCard ? detectLinkedExileEffect(sourceCard) : null;
+        
+        // Move to exile (tokens cease to exist)
         const permIndex = state.battlefield.indexOf(targetPerm);
         if (permIndex !== -1) {
+          const exiledPermanentId = targetPerm.id;
           state.battlefield.splice(permIndex, 1);
-          state.exile = state.exile || [];
-          targetPerm.card.zone = 'exile';
-          state.exile.push(targetPerm);
-          console.log(`[executeTriggerEffect] Exiled ${targetPerm.card?.name || targetPerm.id}`);
+          
+          // Tokens cease to exist when they leave the battlefield
+          if (targetPerm.isToken || targetPerm.card?.isToken) {
+            console.log(`[executeTriggerEffect] ${targetPerm.card?.name || targetPerm.id} token ceases to exist (not added to exile)`);
+          } else {
+            // Add to exile zone
+            const ownerZones = state.zones?.[targetPerm.owner];
+            if (ownerZones) {
+              ownerZones.exile = ownerZones.exile || [];
+              targetPerm.card.zone = 'exile';
+              ownerZones.exile.push(targetPerm.card);
+              ownerZones.exileCount = (ownerZones.exile || []).length;
+            }
+            
+            // If this is a linked exile effect, register the link
+            if (linkedEffect?.hasLinkedExile) {
+              const sourceId = triggerItem.sourceId || triggerItem.permanentId;
+              registerLinkedExile(
+                ctx,
+                sourceId,
+                sourceName,
+                targetPerm.card,
+                targetPerm.owner,
+                targetPerm.controller
+              );
+              console.log(`[executeTriggerEffect] ${sourceName} exiled ${targetPerm.card?.name || targetPerm.id} (linked - returns when ${sourceName} leaves)`);
+            } else {
+              console.log(`[executeTriggerEffect] Exiled ${targetPerm.card?.name || targetPerm.id}`);
+            }
+          }
+          
+          // Process linked exile returns for the removed permanent (in case it was an Oblivion Ring)
+          processLinkedExileReturns(ctx, exiledPermanentId);
         }
       }
     }
@@ -1289,6 +1752,7 @@ function executeTriggerEffect(
         // Move to graveyard
         const permIndex = state.battlefield.indexOf(targetPerm);
         if (permIndex !== -1) {
+          const destroyedPermanentId = targetPerm.id;
           state.battlefield.splice(permIndex, 1);
           const ownerZones = state.zones?.[targetPerm.owner];
           if (ownerZones) {
@@ -1298,6 +1762,9 @@ function executeTriggerEffect(
             ownerZones.graveyardCount = (ownerZones.graveyard || []).length;
           }
           console.log(`[executeTriggerEffect] Destroyed ${targetPerm.card?.name || targetPerm.id}`);
+          
+          // Process linked exile returns for the removed permanent
+          processLinkedExileReturns(ctx, destroyedPermanentId);
         }
       }
     }
@@ -1311,18 +1778,57 @@ function executeTriggerEffect(
     if (targets.length > 0) {
       const targetPerm = (state.battlefield || []).find((p: any) => p?.id === targets[0]);
       if (targetPerm) {
+        const owner = targetPerm.owner;
+        const card = targetPerm.card;
+        
+        // Commander Replacement Effect (Rule 903.9a):
+        // If a commander would be put into its owner's hand from anywhere, 
+        // its owner may put it into the command zone instead.
+        const commandZone = (ctx as any).commandZone || {};
+        const commanderInfo = commandZone[owner];
+        const commanderIds = commanderInfo?.commanderIds || [];
+        const isCommander = (card?.id && commanderIds.includes(card.id)) || targetPerm.isCommander === true;
+        
         // Move to owner's hand
         const permIndex = state.battlefield.indexOf(targetPerm);
         if (permIndex !== -1) {
+          const bouncedPermanentId = targetPerm.id;
           state.battlefield.splice(permIndex, 1);
-          const ownerZones = state.zones?.[targetPerm.owner];
-          if (ownerZones) {
-            ownerZones.hand = ownerZones.hand || [];
-            targetPerm.card.zone = 'hand';
-            ownerZones.hand.push(targetPerm.card);
-            ownerZones.handCount = ownerZones.hand.length;
+          
+          if (isCommander && card) {
+            // Defer zone change - let player choose command zone or hand
+            state.pendingCommanderZoneChoice = state.pendingCommanderZoneChoice || {};
+            state.pendingCommanderZoneChoice[owner] = state.pendingCommanderZoneChoice[owner] || [];
+            state.pendingCommanderZoneChoice[owner].push({
+              commanderId: card.id,
+              commanderName: card.name,
+              destinationZone: 'hand',
+              card: {
+                id: card.id,
+                name: card.name,
+                type_line: card.type_line,
+                oracle_text: card.oracle_text,
+                image_uris: card.image_uris,
+                mana_cost: card.mana_cost,
+                power: card.power,
+                toughness: card.toughness,
+              },
+            });
+            console.log(`[executeTriggerEffect] Commander ${card.name} would go to hand - DEFERRING zone change for player choice`);
+          } else {
+            // Non-commander - move directly to hand
+            const ownerZones = state.zones?.[owner];
+            if (ownerZones) {
+              ownerZones.hand = ownerZones.hand || [];
+              card.zone = 'hand';
+              ownerZones.hand.push(card);
+              ownerZones.handCount = ownerZones.hand.length;
+            }
+            console.log(`[executeTriggerEffect] Returned ${card?.name || targetPerm.id} to owner's hand`);
           }
-          console.log(`[executeTriggerEffect] Returned ${targetPerm.card?.name || targetPerm.id} to owner's hand`);
+          
+          // Process linked exile returns for the removed permanent
+          processLinkedExileReturns(ctx, bouncedPermanentId);
         }
       }
     }
@@ -1595,13 +2101,19 @@ export function resolveTopOfStack(ctx: GameContext) {
       console.log(`[resolveTopOfStack] ${card.name} enters with ${count} ${counterType} counter(s)`);
     }
     
+    // Check if this creature should enter tapped due to effects like Authority of the Consuls, Blind Obedience, etc.
+    let shouldEnterTapped = false;
+    if (isCreature) {
+      shouldEnterTapped = checkCreatureEntersTapped(state.battlefield || [], controller, card);
+    }
+    
     state.battlefield = state.battlefield || [];
     const newPermId = uid("perm");
     const newPermanent = {
       id: newPermId,
       controller,
       owner: controller,
-      tapped: false,
+      tapped: shouldEnterTapped,
       counters: Object.keys(initialCounters).length > 0 ? initialCounters : undefined,
       basePower: baseP,
       baseToughness: baseT,
@@ -1612,7 +2124,9 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Build a readable status message for logging
     let statusNote = '';
-    if (hasSummoningSickness) {
+    if (shouldEnterTapped) {
+      statusNote = ' (enters tapped)';
+    } else if (hasSummoningSickness) {
       statusNote = ' (summoning sickness)';
     } else if (hasHaste) {
       statusNote = ' (haste)';
@@ -1621,7 +2135,47 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Check for ETB triggers on this permanent and other permanents
     try {
-      const etbTriggers = getETBTriggersForPermanent(card, newPermanent);
+      const allTriggers = getETBTriggersForPermanent(card, newPermanent);
+      
+      // Filter out triggers that fire when OTHER permanents enter (not when self enters)
+      // These trigger types should only fire for OTHER permanents, not the permanent itself:
+      // - permanent_etb: "Whenever another creature/permanent enters" (Soul Warden, Altar of the Brood)
+      // - creature_etb: "Whenever a creature enters under your control" (Cathars' Crusade)
+      // - another_permanent_etb: "Whenever another permanent enters under your control"
+      // 
+      // Only include triggers that fire when THIS permanent enters:
+      // - etb: "When ~ enters the battlefield" (self ETB)
+      // - etb_modal_choice: "As ~ enters the battlefield, choose"
+      // - job_select, living_weapon: equipment ETB effects
+      // - etb_sacrifice_unless_pay: "When ~ enters, sacrifice unless you pay"
+      const selfETBTriggerTypes = new Set([
+        'etb',                      // Self ETB: "When ~ enters the battlefield"
+        'etb_modal_choice',         // Modal ETB: "As ~ enters, choose"
+        'job_select',               // Equipment: create Hero token and attach
+        'living_weapon',            // Equipment: create Germ token and attach
+        'etb_sacrifice_unless_pay', // ETB sacrifice unless pay
+        'etb_gain_life',            // Self ETB life gain
+        'etb_draw',                 // Self ETB draw
+        'etb_search',               // Self ETB search library
+        'etb_create_token',         // Self ETB token creation
+        'etb_counter',              // Self ETB counter placement
+      ]);
+      
+      const etbTriggers = allTriggers.filter(trigger => {
+        // Keep triggers that fire when THIS permanent enters
+        if (selfETBTriggerTypes.has(trigger.triggerType)) {
+          return true;
+        }
+        // Filter out triggers that fire when OTHER permanents enter
+        // (these will be added from other permanents in the loop below)
+        if (trigger.triggerType === 'permanent_etb' ||
+            trigger.triggerType === 'creature_etb' ||
+            trigger.triggerType === 'another_permanent_etb') {
+          return false;
+        }
+        // Default: keep the trigger (unknown types treated as self-ETB)
+        return true;
+      });
       
       // Also check other permanents for "whenever a creature/permanent enters" triggers
       // Check if the entering permanent is a token
@@ -1639,9 +2193,21 @@ export function resolveTopOfStack(ctx: GameContext) {
             }
             etbTriggers.push({ ...trigger, permanentId: perm.id });
           } else if (trigger.triggerType === 'another_permanent_etb') {
+            // Check color restriction if any (e.g., "white or black creature")
+            if ((trigger as any).colorRestriction) {
+              if (!matchesColorRestriction((trigger as any).colorRestriction, (card as any).colors || [])) {
+                continue; // Skip - entering creature doesn't match color restriction
+              }
+            }
             etbTriggers.push({ ...trigger, permanentId: perm.id });
           } else if (trigger.triggerType === 'permanent_etb') {
             // Altar of the Brood style - triggers on ANY permanent entering (not just yours)
+            // Check color restriction if any
+            if ((trigger as any).colorRestriction) {
+              if (!matchesColorRestriction((trigger as any).colorRestriction, (card as any).colors || [])) {
+                continue; // Skip - entering creature doesn't match color restriction
+              }
+            }
             etbTriggers.push({ ...trigger, permanentId: perm.id });
           }
         }
@@ -1740,7 +2306,74 @@ export function resolveTopOfStack(ctx: GameContext) {
   } else if (card) {
     // Non-permanent spell (instant/sorcery) - execute effects before moving to graveyard
     const oracleText = card.oracle_text || '';
+    const oracleTextLower = oracleText.toLowerCase();
     const spellSpec = categorizeSpell(card.name || '', oracleText);
+    
+    // IMPORTANT: Capture target permanent info BEFORE destruction/exile for effects that need it
+    // This MUST be done before any effects are executed as the target will be removed
+    // - Beast Within, Rapid Hybridization, Pongify: "its controller creates" token effects
+    // - Path to Exile: target's controller may search for basic land
+    // - Swords to Plowshares: target's controller gains life equal to power
+    // - Fateful Absence: target's controller investigates
+    // - Get Lost: target's controller creates Map tokens
+    let targetControllerForTokenCreation: PlayerID | null = null;
+    let targetControllerForRemovalEffects: PlayerID | null = null;
+    let targetPowerBeforeRemoval: number = 0;
+    
+    // Capture target info for removal spells that have "its controller" effects
+    if (targets.length > 0 && targets[0] !== undefined) {
+      const targetId = typeof targets[0] === 'string' ? targets[0] : targets[0]?.id;
+      const targetPerm = state.battlefield?.find((p: any) => p.id === targetId);
+      if (targetPerm) {
+        // For token creation after destroy (Beast Within, etc.)
+        if (oracleTextLower.includes('its controller creates')) {
+          targetControllerForTokenCreation = targetPerm.controller as PlayerID;
+          console.log(`[resolveTopOfStack] Captured target controller ${targetControllerForTokenCreation} for token creation`);
+        }
+        
+        // For effects that affect target's controller after exile/destroy
+        // Path to Exile, Swords to Plowshares, Fateful Absence, Get Lost
+        const isPathToExile = card.name?.toLowerCase().includes('path to exile') || 
+            (oracleTextLower.includes('exile target creature') && 
+             oracleTextLower.includes('search') && 
+             oracleTextLower.includes('basic land'));
+        const isSwordsToPlowshares = card.name?.toLowerCase().includes('swords to plowshares') || 
+            (oracleTextLower.includes('exile target creature') && 
+             oracleTextLower.includes('gains life equal to'));
+        const isFatefulAbsence = card.name?.toLowerCase().includes('fateful absence') ||
+            (oracleTextLower.includes('destroy target creature') && 
+             oracleTextLower.includes('investigates'));
+        const isGetLost = card.name?.toLowerCase().includes('get lost') ||
+            (oracleTextLower.includes('destroy target creature') && 
+             oracleTextLower.includes('map token'));
+             
+        if (isPathToExile || isSwordsToPlowshares || isFatefulAbsence || isGetLost) {
+          targetControllerForRemovalEffects = targetPerm.controller as PlayerID;
+          
+          // Capture power for Swords to Plowshares
+          if (isSwordsToPlowshares) {
+            if (typeof targetPerm.effectivePower === 'number') {
+              targetPowerBeforeRemoval = targetPerm.effectivePower;
+            } else if (typeof targetPerm.basePower === 'number') {
+              targetPowerBeforeRemoval = targetPerm.basePower;
+            } else if (targetPerm.card?.power) {
+              const parsed = parseInt(String(targetPerm.card.power), 10);
+              if (!isNaN(parsed)) {
+                targetPowerBeforeRemoval = parsed;
+              }
+            }
+            // Add +1/+1 and -1/-1 counter adjustments
+            if (targetPerm.counters) {
+              const plusCounters = targetPerm.counters['+1/+1'] || 0;
+              const minusCounters = targetPerm.counters['-1/-1'] || 0;
+              targetPowerBeforeRemoval += plusCounters - minusCounters;
+            }
+          }
+          
+          console.log(`[resolveTopOfStack] Captured target controller ${targetControllerForRemovalEffects} for removal spell effects (power: ${targetPowerBeforeRemoval})`);
+        }
+      }
+    }
     
     if (spellSpec) {
       // Convert targets array to TargetRef format if needed
@@ -1750,18 +2383,6 @@ export function resolveTopOfStack(ctx: GameContext) {
         }
         return t;
       });
-      
-      // IMPORTANT: Capture target permanent info BEFORE destruction for "its controller creates" effects
-      // Beast Within, Rapid Hybridization, Pongify, etc. need to know who controlled the target
-      let targetControllerForTokenCreation: PlayerID | null = null;
-      const oracleTextLower = oracleText.toLowerCase();
-      if (oracleTextLower.includes('its controller creates') && targetRefs.length > 0) {
-        const targetPerm = state.battlefield?.find((p: any) => p.id === targetRefs[0]?.id);
-        if (targetPerm) {
-          targetControllerForTokenCreation = targetPerm.controller as PlayerID;
-          console.log(`[resolveTopOfStack] Captured target controller ${targetControllerForTokenCreation} for token creation`);
-        }
-      }
       
       // Generate effects based on spell type and targets
       const effects = resolveSpell(spellSpec, targetRefs, state as any);
@@ -1801,7 +2422,6 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Handle token creation spells (where the caster creates tokens)
     // Patterns: "create X 1/1 tokens", "create two 1/1 tokens", etc.
-    const oracleTextLower = oracleText.toLowerCase();
     const spellXValue = (item as any).xValue;
     const tokenCreationResult = parseTokenCreation(card.name, oracleTextLower, controller, state, spellXValue);
     if (tokenCreationResult) {
@@ -2046,75 +2666,163 @@ export function resolveTopOfStack(ctx: GameContext) {
       console.log(`[resolveTopOfStack] Tutor spell ${card.name}: ${controller} may search for ${tutorInfo.searchCriteria || 'a card'} (destination: ${tutorInfo.destination}, split: ${tutorInfo.splitDestination || false})`);
     }
     
-    // Handle Path to Exile - exile target creature, controller may search for basic land
-    if (card.name?.toLowerCase().includes('path to exile') || 
-        (oracleTextLower.includes('exile target creature') && 
+    // Handle Gift of Estates - "If an opponent controls more lands than you, 
+    // search your library for up to three Plains cards, reveal them, put them into your hand, then shuffle."
+    const isGiftOfEstates = card.name?.toLowerCase().includes('gift of estates') ||
+        (oracleTextLower.includes('opponent controls more lands') && 
          oracleTextLower.includes('search') && 
-         oracleTextLower.includes('basic land'))) {
-      // The exile is already handled by the targeting system
-      // The search effect should be triggered for the exiled creature's controller
-      // This requires player interaction, so we'll set up a pending search prompt
-      if (targets.length > 0) {
-        const targetPerm = state.battlefield?.find((p: any) => p.id === targets[0]?.id || p.id === targets[0]);
-        if (targetPerm) {
-          const creatureController = targetPerm.controller as PlayerID;
-          // Set up pending search - the creature's controller may search for a basic land
-          (state as any).pendingLibrarySearch = (state as any).pendingLibrarySearch || {};
-          (state as any).pendingLibrarySearch[creatureController] = {
-            type: 'path_to_exile',
-            searchFor: 'basic land',
-            tapped: true,
-            optional: true,
-            source: card.name || 'Path to Exile',
-          };
-          console.log(`[resolveTopOfStack] Path to Exile: ${creatureController} may search for a basic land`);
-        }
+         oracleTextLower.includes('plains'));
+    
+    if (isGiftOfEstates) {
+      // Check condition: does an opponent control more lands?
+      const battlefield = state.battlefield || [];
+      const players = state.players || [];
+      const myLandCount = battlefield.filter((p: any) => 
+        p.controller === controller && 
+        (p.card?.type_line || '').toLowerCase().includes('land')
+      ).length;
+      
+      const opponentIds = players
+        .filter((p: any) => p.id !== controller && !p.hasLost)
+        .map((p: any) => p.id);
+      
+      const anyOpponentHasMoreLands = opponentIds.some((oppId: string) => {
+        const oppLandCount = battlefield.filter((p: any) => 
+          p.controller === oppId && 
+          (p.card?.type_line || '').toLowerCase().includes('land')
+        ).length;
+        return oppLandCount > myLandCount;
+      });
+      
+      if (anyOpponentHasMoreLands) {
+        // Condition met - set up library search for up to 3 Plains
+        (state as any).pendingLibrarySearch = (state as any).pendingLibrarySearch || {};
+        (state as any).pendingLibrarySearch[controller] = {
+          type: 'gift_of_estates',
+          searchFor: 'Plains cards',
+          destination: 'hand',
+          tapped: false,
+          optional: true,
+          source: card.name || 'Gift of Estates',
+          shuffleAfter: true,
+          maxSelections: 3,
+          filter: { subtypes: ['Plains'] },
+        };
+        console.log(`[resolveTopOfStack] Gift of Estates: Condition met (opponent has more lands) - ${controller} may search for up to 3 Plains`);
+      } else {
+        console.log(`[resolveTopOfStack] Gift of Estates: Condition NOT met - ${controller} has ${myLandCount} lands, no opponent has more`);
       }
     }
     
+    // Handle Path to Exile - exile target creature, controller may search for basic land
+    // Use captured target info from BEFORE the exile happened
+    const isPathToExile = card.name?.toLowerCase().includes('path to exile') || 
+        (oracleTextLower.includes('exile target creature') && 
+         oracleTextLower.includes('search') && 
+         oracleTextLower.includes('basic land'));
+    
+    if (isPathToExile && targetControllerForRemovalEffects) {
+      // Set up pending search - the creature's controller may search for a basic land
+      (state as any).pendingLibrarySearch = (state as any).pendingLibrarySearch || {};
+      (state as any).pendingLibrarySearch[targetControllerForRemovalEffects] = {
+        type: 'path_to_exile',
+        searchFor: 'basic land',
+        destination: 'battlefield',
+        tapped: true,
+        optional: true,
+        source: card.name || 'Path to Exile',
+      };
+      console.log(`[resolveTopOfStack] Path to Exile: ${targetControllerForRemovalEffects} may search for a basic land (tapped)`);
+    }
+    
     // Handle Swords to Plowshares - "Exile target creature. Its controller gains life equal to its power."
-    // Also handles similar patterns like Condemn (toughness-based) and other exile+life spells
+    // Use captured target info from BEFORE the exile happened
     const isSwordsToPlowshares = card.name?.toLowerCase().includes('swords to plowshares') || 
         (oracleTextLower.includes('exile target creature') && 
          oracleTextLower.includes('gains life equal to'));
     
-    if (isSwordsToPlowshares && targets.length > 0) {
-      const targetId = targets[0]?.id || targets[0];
-      const targetPerm = state.battlefield?.find((p: any) => p.id === targetId);
-      if (targetPerm) {
-        const creatureController = targetPerm.controller as PlayerID;
+    if (isSwordsToPlowshares && targetControllerForRemovalEffects) {
+      // Gain the life using pre-captured power value
+      if (targetPowerBeforeRemoval > 0) {
+        const players = (state as any).players || [];
+        const player = players.find((p: any) => p?.id === targetControllerForRemovalEffects);
         
-        // Get the creature's power for life gain
-        // Use effective power if available, otherwise base power
-        let powerValue = 0;
-        if (typeof targetPerm.effectivePower === 'number') {
-          powerValue = targetPerm.effectivePower;
-        } else if (typeof targetPerm.basePower === 'number') {
-          powerValue = targetPerm.basePower;
-        } else if (targetPerm.card?.power) {
-          const parsed = parseInt(String(targetPerm.card.power), 10);
-          if (!isNaN(parsed)) {
-            powerValue = parsed;
-          }
+        // Update both player.life and state.life to ensure consistency
+        const startingLife = (state as any).startingLife || 40;
+        state.life = state.life || {};
+        const currentLife = state.life[targetControllerForRemovalEffects] ?? player?.life ?? startingLife;
+        state.life[targetControllerForRemovalEffects] = currentLife + targetPowerBeforeRemoval;
+        
+        if (player) {
+          player.life = state.life[targetControllerForRemovalEffects];
+          console.log(`[resolveTopOfStack] Swords to Plowshares: ${targetControllerForRemovalEffects} gains ${targetPowerBeforeRemoval} life (${currentLife} -> ${state.life[targetControllerForRemovalEffects]})`);
         }
         
-        // Add +1/+1 and -1/-1 counter adjustments
-        if (targetPerm.counters) {
-          const plusCounters = targetPerm.counters['+1/+1'] || 0;
-          const minusCounters = targetPerm.counters['-1/-1'] || 0;
-          powerValue += plusCounters - minusCounters;
-        }
-        
-        // Gain the life
-        if (powerValue > 0) {
-          const players = (state as any).players || [];
-          const player = players.find((p: any) => p?.id === creatureController);
-          if (player) {
-            player.life = (player.life || 40) + powerValue;
-            console.log(`[resolveTopOfStack] Swords to Plowshares: ${creatureController} gains ${powerValue} life (creature power)`);
-          }
-        }
+        // Trigger life gain effects (Ajani's Pridemate, etc.)
+        triggerLifeGainEffects(ctx, targetControllerForRemovalEffects, targetPowerBeforeRemoval);
       }
+    }
+    
+    // Handle Fateful Absence - "Destroy target creature or planeswalker. Its controller investigates."
+    // Use captured target info from BEFORE the destroy happened
+    const isFatefulAbsence = card.name?.toLowerCase().includes('fateful absence') ||
+        (oracleTextLower.includes('destroy target creature') && 
+         oracleTextLower.includes('investigates'));
+    
+    if (isFatefulAbsence && targetControllerForRemovalEffects) {
+      // Create a Clue token for the creature's controller
+      state.battlefield = state.battlefield || [];
+      const clueId = uid("clue");
+      state.battlefield.push({
+        id: clueId,
+        controller: targetControllerForRemovalEffects,
+        owner: targetControllerForRemovalEffects,
+        tapped: false,
+        counters: {},
+        isToken: true,
+        card: {
+          id: clueId,
+          name: "Clue",
+          type_line: "Token Artifact — Clue",
+          oracle_text: "{2}, Sacrifice this artifact: Draw a card.",
+          zone: "battlefield",
+          colors: [],
+        },
+      } as any);
+      
+      console.log(`[resolveTopOfStack] Fateful Absence: Created Clue token for ${targetControllerForRemovalEffects}`);
+    }
+    
+    // Handle Get Lost - "Destroy target creature, enchantment, or planeswalker. Its controller creates two Map tokens."
+    // Use captured target info from BEFORE the destroy happened
+    const isGetLost = card.name?.toLowerCase().includes('get lost') ||
+        (oracleTextLower.includes('destroy target creature') && 
+         oracleTextLower.includes('map token'));
+    
+    if (isGetLost && targetControllerForRemovalEffects) {
+      // Create two Map tokens for the creature's controller
+      state.battlefield = state.battlefield || [];
+      for (let i = 0; i < 2; i++) {
+        const mapId = uid("map");
+        state.battlefield.push({
+          id: mapId,
+          controller: targetControllerForRemovalEffects,
+          owner: targetControllerForRemovalEffects,
+          tapped: false,
+          counters: {},
+          isToken: true,
+          card: {
+            id: mapId,
+            name: "Map",
+            type_line: "Token Artifact — Map",
+            oracle_text: "{1}, {T}, Sacrifice this artifact: Target creature you control explores. Activate only as a sorcery.",
+            zone: "battlefield",
+            colors: [],
+          },
+        } as any);
+      }
+      
+      console.log(`[resolveTopOfStack] Get Lost: Created 2 Map tokens for ${targetControllerForRemovalEffects}`);
     }
     
     // Handle Entrapment Maneuver - "Target player sacrifices an attacking creature. 
@@ -2175,13 +2883,74 @@ export function resolveTopOfStack(ctx: GameContext) {
         const owner = targetPerm.owner as PlayerID;
         const targetCard = targetPerm.card;
         
+        // Commander Replacement Effect (Rule 903.9a):
+        // If a commander would be put into its owner's library from anywhere,
+        // its owner may put it into the command zone instead.
+        const commandZone = ctx.commandZone || {};
+        const commanderInfo = commandZone[owner];
+        const commanderIds = commanderInfo?.commanderIds || [];
+        const isCommander = (targetCard?.id && commanderIds.includes(targetCard.id)) || targetPerm.isCommander === true;
+        
         // Remove permanent from battlefield
         const idx = battlefield.findIndex((p: any) => p.id === targetPermId);
         if (idx !== -1) {
           battlefield.splice(idx, 1);
         }
         
-        // Shuffle into owner's library
+        if (isCommander && targetCard) {
+          // Defer zone change - let player choose command zone or library
+          (state as any).pendingCommanderZoneChoice = (state as any).pendingCommanderZoneChoice || [];
+          ((state as any).pendingCommanderZoneChoice as any[]).push({
+            commanderId: targetCard.id,
+            commanderName: targetCard.name,
+            destinationZone: 'library',
+            playerId: owner,
+            card: {
+              id: targetCard.id,
+              name: targetCard.name,
+              type_line: targetCard.type_line,
+              oracle_text: targetCard.oracle_text,
+              image_uris: targetCard.image_uris,
+              mana_cost: targetCard.mana_cost,
+              power: targetCard.power,
+              toughness: targetCard.toughness,
+            },
+          });
+          console.log(`[resolveTopOfStack] Chaos Warp: Commander ${targetCard.name} would go to library - DEFERRING zone change for player choice`);
+          
+          // Still reveal and potentially put a card onto battlefield
+          // (but the commander choice happens separately)
+          const lib = ctx.libraries?.get(owner) || [];
+          if (lib.length > 0) {
+            const topCard = lib[0];
+            const topTypeLine = (topCard?.type_line || '').toLowerCase();
+            const isPermanent = topTypeLine.includes('creature') || 
+                                topTypeLine.includes('artifact') || 
+                                topTypeLine.includes('enchantment') || 
+                                topTypeLine.includes('land') || 
+                                topTypeLine.includes('planeswalker') ||
+                                topTypeLine.includes('battle');
+            if (isPermanent) {
+              lib.shift();
+              ctx.libraries?.set(owner, lib);
+              const newPerm = {
+                id: `perm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                card: topCard,
+                controller: owner,
+                owner: owner,
+                tapped: false,
+                counters: {},
+              };
+              battlefield.push(newPerm);
+              console.log(`[resolveTopOfStack] Chaos Warp: Revealed and put ${topCard.name} onto battlefield for ${owner}`);
+            }
+          }
+          
+          bumpSeq();
+          return;
+        }
+        
+        // Non-commander - shuffle into owner's library
         const lib = ctx.libraries?.get(owner) || [];
         (lib as any[]).push({ ...targetCard, zone: 'library' });
         
@@ -2387,6 +3156,7 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
       const battlefield = state.battlefield || [];
       const idx = battlefield.findIndex((p: any) => p.id === effect.id);
       if (idx !== -1) {
+        const destroyedPermanentId = (battlefield[idx] as any).id;
         const destroyed = battlefield.splice(idx, 1)[0];
         const owner = (destroyed as any).owner || (destroyed as any).controller;
         const zones = ctx.state.zones || {};
@@ -2400,6 +3170,10 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
           }
         }
         console.log(`[resolveSpell] ${spellName} destroyed ${(destroyed as any).card?.name || effect.id}`);
+        
+        // Process linked exile returns - if this was an Oblivion Ring-style card,
+        // return any cards it had exiled
+        processLinkedExileReturns(ctx, destroyedPermanentId);
       }
       break;
     }
@@ -2407,6 +3181,7 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
       const battlefield = state.battlefield || [];
       const idx = battlefield.findIndex((p: any) => p.id === effect.id);
       if (idx !== -1) {
+        const exiledPermanentId = (battlefield[idx] as any).id;
         const exiled = battlefield.splice(idx, 1)[0];
         const owner = (exiled as any).owner || (exiled as any).controller;
         const zones = ctx.state.zones || {};
@@ -2419,6 +3194,74 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
           }
         }
         console.log(`[resolveSpell] ${spellName} exiled ${(exiled as any).card?.name || effect.id}`);
+        
+        // Process linked exile returns - if this was an Oblivion Ring-style card,
+        // return any cards it had exiled
+        processLinkedExileReturns(ctx, exiledPermanentId);
+      }
+      break;
+    }
+    case 'FlickerPermanent': {
+      // Flicker effect: Exile a permanent and return it to the battlefield
+      // For tokens, they cease to exist when exiled and don't return
+      const battlefield = state.battlefield || [];
+      const idx = battlefield.findIndex((p: any) => p.id === effect.id);
+      if (idx !== -1) {
+        const flickeredPermanentId = (battlefield[idx] as any).id;
+        const flickered = battlefield.splice(idx, 1)[0];
+        const flickeredCard = (flickered as any).card;
+        const flickeredName = flickeredCard?.name || effect.id;
+        const owner = (flickered as any).owner || (flickered as any).controller;
+        const isToken = (flickered as any).isToken === true;
+        
+        // Process linked exile returns first - if this was an Oblivion Ring-style card,
+        // return any cards it had exiled before the flicker effect
+        processLinkedExileReturns(ctx, flickeredPermanentId);
+        
+        // Tokens cease to exist when exiled (Rule 111.7) - they don't return
+        if (isToken) {
+          console.log(`[resolveSpell] ${spellName} exiled token ${flickeredName} - token ceased to exist`);
+          break;
+        }
+        
+        // Determine when to return the permanent
+        const returnDelay = (effect as any).returnDelay || 'immediate';
+        
+        if (returnDelay === 'immediate') {
+          // Return immediately to the battlefield under owner's control
+          // Create a new permanent (new object, no connection to old one)
+          // Detect enters-with-counters
+          const entersWithCounters = detectEntersWithCounters(flickeredCard);
+          
+          const newPermanent = {
+            id: uid('perm'),
+            card: flickeredCard,
+            controller: owner,
+            owner: owner,
+            tapped: false,
+            summoning_sickness: flickeredCard?.type_line?.toLowerCase()?.includes('creature') || false,
+            counters: entersWithCounters && Object.keys(entersWithCounters).length > 0 ? entersWithCounters : {},
+            attachedTo: undefined, // Equipment/Auras are removed
+          };
+          
+          battlefield.push(newPermanent);
+          console.log(`[resolveSpell] ${spellName} flickered ${flickeredName} - returned immediately as new permanent ${newPermanent.id}`);
+          
+          // Trigger ETB effects for the returned permanent
+          triggerETBEffectsForPermanent(ctx, newPermanent, owner);
+          
+        } else {
+          // Set up delayed trigger for end of turn or end of combat
+          const delayedReturns = (state as any).delayedReturns = (state as any).delayedReturns || [];
+          delayedReturns.push({
+            id: uid('delayed'),
+            card: flickeredCard,
+            owner: owner,
+            returnTime: returnDelay, // 'end_of_turn' or 'end_of_combat'
+            source: spellName,
+          });
+          console.log(`[resolveSpell] ${spellName} exiled ${flickeredName} - will return at ${returnDelay}`);
+        }
       }
       break;
     }

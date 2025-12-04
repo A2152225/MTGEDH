@@ -409,6 +409,8 @@ export interface GameState {
   priorityPlayerIndex?: number;
   // House rules configuration (optional game variants)
   houseRules?: HouseRules;
+  // Trigger shortcut preferences per player (for Smothering Tithe, Rhystic Study, etc.)
+  triggerShortcuts?: Record<PlayerID, TriggerShortcut[]>;
 }
 
 /* Player protection state for effects like Teferi's Protection */
@@ -444,7 +446,9 @@ export type ClientGameView = Omit<GameState, 'battlefield' | 'stack' | 'players'
 export interface PendingCommanderZoneChoice {
   commanderId: string;
   commanderName: string;
-  destinationZone: 'graveyard' | 'exile';
+  destinationZone: 'graveyard' | 'exile' | 'library' | 'hand';
+  playerId?: string; // Owner who needs to make the choice
+  libraryPosition?: 'top' | 'bottom' | 'shuffle'; // For library zone - where it would go
   card: {
     id: string;
     name: string;
@@ -695,3 +699,95 @@ export interface InMemoryGame {
   createdAt: number;
   lastActivity: number;
 }
+
+/**
+ * Trigger shortcut preference for optional triggered abilities.
+ * Allows players to set automatic responses for "may" triggers and 
+ * "opponent may pay" triggers to speed up gameplay.
+ * 
+ * Examples:
+ * - Smothering Tithe: opponent can set "never pay" to skip the prompt
+ * - Rhystic Study: opponent can set "never pay" to always decline
+ * - Soul Warden: controller can set "always yes" to auto-trigger life gain
+ */
+export type TriggerShortcutType = 
+  | 'always_pay'      // Always pay the cost (for opponent-pays triggers)
+  | 'never_pay'       // Never pay the cost (for opponent-pays triggers)
+  | 'always_yes'      // Always choose "yes" for may abilities
+  | 'always_no'       // Always choose "no" for may abilities
+  | 'ask_each_time';  // Default: prompt each time
+
+/**
+ * A saved trigger shortcut preference for a specific card/effect.
+ */
+export interface TriggerShortcut {
+  /** Card name that has the trigger (normalized to lowercase) */
+  cardName: string;
+  /** The player who set this preference */
+  playerId: PlayerID;
+  /** The preference for this trigger */
+  preference: TriggerShortcutType;
+  /** Optional: specific trigger description if card has multiple triggers */
+  triggerDescription?: string;
+}
+
+/**
+ * Known triggers that support shortcuts.
+ * Maps card names to their trigger type for UI display.
+ */
+export const SHORTCUT_ELIGIBLE_TRIGGERS: Record<string, {
+  description: string;
+  type: 'opponent_pays' | 'may_ability';
+  defaultPreference: TriggerShortcutType;
+}> = {
+  'smothering tithe': {
+    description: 'Pay {2} or controller creates a Treasure',
+    type: 'opponent_pays',
+    defaultPreference: 'ask_each_time'
+  },
+  'rhystic study': {
+    description: 'Pay {1} or controller draws a card',
+    type: 'opponent_pays',
+    defaultPreference: 'ask_each_time'
+  },
+  'mystic remora': {
+    description: 'Pay {4} or controller draws a card',
+    type: 'opponent_pays',
+    defaultPreference: 'ask_each_time'
+  },
+  'esper sentinel': {
+    description: 'Pay {X} or controller draws a card',
+    type: 'opponent_pays',
+    defaultPreference: 'ask_each_time'
+  },
+  'propaganda': {
+    description: 'Pay {2} per creature to attack',
+    type: 'opponent_pays',
+    defaultPreference: 'ask_each_time'
+  },
+  'ghostly prison': {
+    description: 'Pay {2} per creature to attack',
+    type: 'opponent_pays',
+    defaultPreference: 'ask_each_time'
+  },
+  'sphere of safety': {
+    description: 'Pay {X} per creature to attack (X = enchantments)',
+    type: 'opponent_pays',
+    defaultPreference: 'ask_each_time'
+  },
+  'soul warden': {
+    description: 'You may gain 1 life',
+    type: 'may_ability',
+    defaultPreference: 'always_yes'
+  },
+  "soul's attendant": {
+    description: 'You may gain 1 life',
+    type: 'may_ability',
+    defaultPreference: 'always_yes'
+  },
+  'essence warden': {
+    description: 'You may gain 1 life',
+    type: 'may_ability',
+    defaultPreference: 'always_yes'
+  }
+};

@@ -14,6 +14,9 @@ export interface LandfallTrigger {
   effect: string;
   mandatory: boolean;
   requiresChoice?: boolean;
+  // For modal landfall triggers like Retreat to Emeria
+  isModal?: boolean;
+  modalOptions?: string[];
 }
 
 /**
@@ -29,32 +32,75 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
   
   // Pattern: "Landfall — Whenever a land enters the battlefield under your control,"
   const landfallMatch = oracleText.match(
-    /landfall\s*[—-]\s*whenever a land enters the battlefield under your control,?\s*([^.]+)/i
+    /landfall\s*[—-]\s*whenever a land enters the battlefield under your control,?\s*([^]*?)(?:\n\n|$)/i
   );
   if (landfallMatch) {
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      effect: landfallMatch[1].trim(),
-      mandatory: !landfallMatch[1].toLowerCase().includes('you may'),
-      requiresChoice: landfallMatch[1].toLowerCase().includes('you may'),
-    });
+    const effectText = landfallMatch[1].trim();
+    
+    // Check if this is a modal trigger (has "choose one" or "choose two" etc.)
+    const modalMatch = effectText.match(/choose\s+(one|two|three|four|any number)\s*[—-]\s*((?:•[^•]+)+)/i);
+    
+    if (modalMatch) {
+      // Parse the modal options (split by bullet points)
+      const optionsPart = modalMatch[2];
+      const options = optionsPart.split('•').filter(o => o.trim()).map(o => o.trim());
+      
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        effect: effectText,
+        mandatory: true, // Modal triggers require a choice
+        requiresChoice: true,
+        isModal: true,
+        modalOptions: options,
+      });
+    } else {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+        requiresChoice: effectText.toLowerCase().includes('you may'),
+      });
+    }
   }
   
   // Also check for non-keyworded landfall: "Whenever a land enters the battlefield under your control"
   const genericLandfallMatch = oracleText.match(
-    /whenever a land enters the battlefield under your control,?\s*([^.]+)/i
+    /whenever a land enters the battlefield under your control,?\s*([^]*?)(?:\n\n|$)/i
   );
   if (genericLandfallMatch && !landfallMatch) {
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      effect: genericLandfallMatch[1].trim(),
-      mandatory: !genericLandfallMatch[1].toLowerCase().includes('you may'),
-      requiresChoice: genericLandfallMatch[1].toLowerCase().includes('you may'),
-    });
+    const effectText = genericLandfallMatch[1].trim();
+    
+    // Check if this is a modal trigger
+    const modalMatch = effectText.match(/choose\s+(one|two|three|four|any number)\s*[—-]\s*((?:•[^•]+)+)/i);
+    
+    if (modalMatch) {
+      const optionsPart = modalMatch[2];
+      const options = optionsPart.split('•').filter(o => o.trim()).map(o => o.trim());
+      
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        effect: effectText,
+        mandatory: true,
+        requiresChoice: true,
+        isModal: true,
+        modalOptions: options,
+      });
+    } else {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+        requiresChoice: effectText.toLowerCase().includes('you may'),
+      });
+    }
   }
   
   return triggers;

@@ -931,6 +931,63 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
             message: `${commanderName} was exiled.`,
             ts: Date.now(),
           });
+          
+        } else if (destinationZone === 'hand') {
+          // Commander goes to owner's hand
+          playerZones.hand = playerZones.hand || [];
+          playerZones.hand.push({ ...card, zone: 'hand' });
+          playerZones.handCount = (playerZones.hand || []).length;
+          
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `${commanderName} was returned to ${pid}'s hand.`,
+            ts: Date.now(),
+          });
+          
+        } else if (destinationZone === 'library') {
+          // Commander goes to owner's library
+          const libraryPosition = choice.libraryPosition || 'shuffle'; // 'top', 'bottom', or 'shuffle'
+          const lib = (game as any).libraries?.get(pid) || [];
+          const cardCopy = { ...card, zone: 'library' };
+          
+          if (libraryPosition === 'top') {
+            lib.unshift(cardCopy);
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `${commanderName} was put on top of ${pid}'s library.`,
+              ts: Date.now(),
+            });
+          } else if (libraryPosition === 'bottom') {
+            lib.push(cardCopy);
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `${commanderName} was put on the bottom of ${pid}'s library.`,
+              ts: Date.now(),
+            });
+          } else {
+            // Shuffle into library
+            lib.push(cardCopy);
+            for (let i = lib.length - 1; i > 0; i--) {
+              const j = Math.floor(Math.random() * (i + 1));
+              [lib[i], lib[j]] = [lib[j], lib[i]];
+            }
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `${commanderName} was shuffled into ${pid}'s library.`,
+              ts: Date.now(),
+            });
+          }
+          
+          (game as any).libraries?.set(pid, lib);
+          playerZones.libraryCount = lib.length;
         }
         
         console.log(`[commanderZoneChoice] ${pid} chose to let ${commanderName} go to ${destinationZone}`);

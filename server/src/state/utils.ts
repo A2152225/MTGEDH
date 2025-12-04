@@ -340,6 +340,7 @@ export function checkLifeGainPrevention(
 
 /**
  * Apply life gain to a player, considering prevention and reversal effects.
+ * Also handles "gain that much life plus X" replacement effects like Leyline of Hope.
  * 
  * @param gameState - The current game state (will be modified)
  * @param playerId - The player gaining life
@@ -386,12 +387,37 @@ export function applyLifeGain(
     };
   }
   
-  // Normal life gain
+  // Check for replacement effects that modify the amount of life gained
+  // Uses optimal ordering: +1 effects first, then doublers
+  // This maximizes life gained: (X + 1) * 2 > (X * 2) + 1
+  let modifiedAmount = amount;
+  const appliedReplacements: string[] = [];
+  
+  // Get +1 modifiers (Leyline of Hope, Angel of Vitality)
+  const lifeGainModifiers = checkLifeGainModifiers(gameState, playerId);
+  if (lifeGainModifiers.extraLife > 0) {
+    modifiedAmount += lifeGainModifiers.extraLife;
+    appliedReplacements.push(...lifeGainModifiers.sources.map(s => `${s}: +${lifeGainModifiers.extraLife}`));
+  }
+  
+  // Check for doublers (Boon Reflection, Rhox Faithmender, Alhammarret's Archive)
+  // Apply AFTER +1 effects to maximize life gained
+  const lifeGainDoublers = checkLifeGainDoublers(gameState, playerId);
+  if (lifeGainDoublers.multiplier > 1) {
+    modifiedAmount *= lifeGainDoublers.multiplier;
+    appliedReplacements.push(...lifeGainDoublers.sources.map(s => `${s}: x${lifeGainDoublers.multiplier}`));
+  }
+  
+  if (appliedReplacements.length > 0) {
+    console.log(`[applyLifeGain] Life gain modified by replacements: ${amount} -> ${modifiedAmount} (${appliedReplacements.join(', ')})`);
+  }
+  
+  // Normal life gain (with modifiers applied)
   const startingLife = gameState?.startingLife || 40;
   const currentLife = gameState?.life?.[playerId] ?? startingLife;
   
   if (!gameState.life) gameState.life = {};
-  gameState.life[playerId] = currentLife + amount;
+  gameState.life[playerId] = currentLife + modifiedAmount;
   
   // Sync to player object
   const player = (gameState.players || []).find((p: any) => p.id === playerId);
@@ -399,10 +425,309 @@ export function applyLifeGain(
     player.life = gameState.life[playerId];
   }
   
+  // Trigger "whenever you gain life" effects (Ajani's Pridemate, Sanguine Bond, etc.)
+  try {
+    const lifeGainTriggers = triggerLifeGainEffects(gameState, playerId, modifiedAmount);
+    if (lifeGainTriggers.length > 0) {
+      console.log(`[applyLifeGain] Triggered ${lifeGainTriggers.length} life gain effect(s)`);
+    }
+  } catch (err) {
+    console.warn('[applyLifeGain] Error triggering life gain effects:', err);
+  }
+  
+  if (appliedReplacements.length > 0) {
+    return { 
+      actualChange: modifiedAmount, 
+      message: source 
+        ? `Gained ${modifiedAmount} life from ${source} (${amount} modified by ${appliedReplacements.join(', ')})`
+        : `Gained ${modifiedAmount} life (${amount} modified by ${appliedReplacements.join(', ')})` 
+    };
+  }
+  
   return { 
-    actualChange: amount, 
-    message: source ? `Gained ${amount} life from ${source}` : `Gained ${amount} life` 
+    actualChange: modifiedAmount, 
+    message: source ? `Gained ${modifiedAmount} life from ${source}` : `Gained ${modifiedAmount} life` 
   };
+}
+
+/**
+ * Check for life gain modifier effects on the battlefield.
+ * These are replacement effects that increase the amount of life gained.
+ * 
+ * @param gameState - The current game state
+ * @param playerId - The player who would gain life
+ * @returns { extraLife: number, sources: string[] } - Extra life to gain and sources
+ */
+function checkLifeGainModifiers(
+  gameState: any,
+  playerId: string
+): { extraLife: number; sources: string[] } {
+  const battlefield = gameState?.battlefield || [];
+  let extraLife = 0;
+  const sources: string[] = [];
+  
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    if (perm.controller !== playerId) continue; // Most of these only affect controller
+    
+    const cardName = (perm.card.name || '').toLowerCase();
+    const oracleText = (perm.card.oracle_text || '').toLowerCase();
+    
+    // Leyline of Hope: "If you would gain life, you gain that much life plus 1 instead."
+    if (cardName.includes('leyline of hope') || 
+        (oracleText.includes('would gain life') && oracleText.includes('that much life plus 1'))) {
+      extraLife += 1;
+      sources.push(perm.card.name || 'Leyline of Hope');
+    }
+    
+    // Rhox Faithmender: "If you would gain life, you gain twice that much life instead."
+    // (This is a doubling effect, handled differently - need separate logic)
+    // For now, skip doubling effects as they require different handling
+    
+    // Boon Reflection: "If you would gain life, you gain twice that much life instead."
+    // (Same as Rhox Faithmender - doubling effect)
+    
+    // Trostani Discordant: Doesn't modify life gain amount
+    
+    // Angel of Vitality: "If you would gain life, you gain that much life plus 1 instead."
+    // Only if you have 25 or more life
+    if (cardName.includes('angel of vitality') ||
+        (oracleText.includes('would gain life') && oracleText.includes('25 or more life'))) {
+      const currentLife = gameState?.life?.[playerId] ?? (gameState?.startingLife || 40);
+      if (currentLife >= 25) {
+        extraLife += 1;
+        sources.push(perm.card.name || 'Angel of Vitality');
+      }
+    }
+  }
+  
+  return { extraLife, sources };
+}
+
+/**
+ * Check for life gain doubling effects on the battlefield.
+ * These are replacement effects that double the amount of life gained.
+ * Applied AFTER +1 effects to maximize life gained per MTG optimization rules.
+ * 
+ * @param gameState - The current game state
+ * @param playerId - The player who would gain life
+ * @returns { multiplier: number, sources: string[] } - Multiplier and sources
+ */
+function checkLifeGainDoublers(
+  gameState: any,
+  playerId: string
+): { multiplier: number; sources: string[] } {
+  const battlefield = gameState?.battlefield || [];
+  let multiplier = 1;
+  const sources: string[] = [];
+  
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    if (perm.controller !== playerId) continue; // Most of these only affect controller
+    
+    const cardName = (perm.card.name || '').toLowerCase();
+    const oracleText = (perm.card.oracle_text || '').toLowerCase();
+    
+    // Boon Reflection: "If you would gain life, you gain twice that much life instead."
+    if (cardName.includes('boon reflection') ||
+        (oracleText.includes('would gain life') && oracleText.includes('twice that much'))) {
+      multiplier *= 2;
+      sources.push(perm.card.name || 'Boon Reflection');
+    }
+    
+    // Rhox Faithmender: "If you would gain life, you gain twice that much life instead."
+    if (cardName.includes('rhox faithmender')) {
+      multiplier *= 2;
+      sources.push(perm.card.name || 'Rhox Faithmender');
+    }
+    
+    // Alhammarret's Archive: "If you would gain life, you gain twice that much life instead."
+    if (cardName.includes("alhammarret's archive") ||
+        cardName.includes('alhammarrets archive')) {
+      multiplier *= 2;
+      sources.push(perm.card.name || "Alhammarret's Archive");
+    }
+    
+    // Nykthos Paragon: "Whenever you gain life, ... with that many +1/+1 counters" (not a doubler)
+    
+    // Celestial Mantle: "Whenever enchanted creature deals combat damage, double your life total"
+    // (This doubles your total, not the gain amount - different effect)
+  }
+  
+  return { multiplier, sources };
+}
+
+/**
+ * Check for and trigger "whenever you gain life" triggers on the battlefield.
+ * This handles cards like:
+ * - Ajani's Pridemate: "Whenever you gain life, put a +1/+1 counter on Ajani's Pridemate."
+ * - Aerith Gainsborough: "Whenever you gain life, put that many +1/+1 counters on Aerith Gainsborough."
+ * - Heliod, Sun-Crowned: "Whenever you gain life, put a +1/+1 counter on target creature or enchantment you control."
+ * - Bloodbond Vampire: "Whenever you gain life, put a +1/+1 counter on Bloodbond Vampire."
+ * - Archangel of Thune: "Whenever you gain life, put a +1/+1 counter on each creature you control."
+ * - Epicure of Blood: "Whenever you gain life, each opponent loses 1 life."
+ * - Marauding Blight-Priest: "Whenever you gain life, each opponent loses 1 life."
+ * - Sanguine Bond: "Whenever you gain life, target opponent loses that much life."
+ * - Defiant Bloodlord: "Whenever you gain life, target opponent loses that much life."
+ * - Vito, Thorn of the Dusk Rose: "Whenever you gain life, target opponent loses that much life."
+ * 
+ * @param gameState - The current game state (will be modified for counter additions)
+ * @param playerId - The player who gained life
+ * @param amountGained - The amount of life gained
+ * @returns Array of triggered effects that occurred
+ */
+export function triggerLifeGainEffects(
+  gameState: any,
+  playerId: string,
+  amountGained: number
+): { permanent: string; effect: string }[] {
+  if (amountGained <= 0) return [];
+  
+  const triggered: { permanent: string; effect: string }[] = [];
+  const battlefield = gameState?.battlefield || [];
+  
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    if (perm.controller !== playerId) continue; // Life gain triggers usually affect controller's permanents
+    
+    const cardName = (perm.card.name || '').toLowerCase();
+    const oracleText = (perm.card.oracle_text || '').toLowerCase();
+    
+    // Check for "whenever you gain life" patterns
+    if (!oracleText.includes('whenever you gain life')) continue;
+    
+    // Ajani's Pridemate, Bloodbond Vampire, etc.: Put a +1/+1 counter on this creature
+    // Pattern: "Whenever you gain life, put a +1/+1 counter on ~"
+    if (oracleText.includes('put a +1/+1 counter on') && 
+        (oracleText.includes('on ~') || oracleText.includes('on this') || cardName.includes('pridemate') || cardName.includes('bloodbond'))) {
+      perm.counters = perm.counters || {};
+      perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + 1;
+      triggered.push({ 
+        permanent: perm.card.name || perm.id, 
+        effect: `Added +1/+1 counter (${perm.counters['+1/+1']} total)` 
+      });
+      console.log(`[triggerLifeGainEffects] ${perm.card.name || perm.id} gained a +1/+1 counter from life gain`);
+    }
+    
+    // Aerith Gainsborough, Light of Promise/Sunbond: Put THAT MANY +1/+1 counters
+    // Pattern: "put that many +1/+1 counters on ~"
+    if (oracleText.includes('that many +1/+1 counters') || 
+        oracleText.includes('that many') && oracleText.includes('+1/+1')) {
+      perm.counters = perm.counters || {};
+      perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + amountGained;
+      triggered.push({ 
+        permanent: perm.card.name || perm.id, 
+        effect: `Added ${amountGained} +1/+1 counter(s) (${perm.counters['+1/+1']} total)` 
+      });
+      console.log(`[triggerLifeGainEffects] ${perm.card.name || perm.id} gained ${amountGained} +1/+1 counter(s) from life gain`);
+    }
+    
+    // Archangel of Thune: Put a +1/+1 counter on EACH creature you control
+    if (oracleText.includes('put a +1/+1 counter on each creature you control') ||
+        cardName.includes('archangel of thune')) {
+      for (const otherPerm of battlefield) {
+        if (!otherPerm || otherPerm.controller !== playerId) continue;
+        const typeLine = (otherPerm.card?.type_line || '').toLowerCase();
+        if (!typeLine.includes('creature')) continue;
+        
+        otherPerm.counters = otherPerm.counters || {};
+        otherPerm.counters['+1/+1'] = (otherPerm.counters['+1/+1'] || 0) + 1;
+      }
+      triggered.push({ 
+        permanent: perm.card.name || perm.id, 
+        effect: 'Added +1/+1 counter to each creature you control' 
+      });
+      console.log(`[triggerLifeGainEffects] ${perm.card.name || perm.id} added +1/+1 counters to all creatures`);
+    }
+    
+    // Epicure of Blood, Marauding Blight-Priest: Each opponent loses 1 life
+    if ((oracleText.includes('each opponent loses 1 life') || 
+         oracleText.includes('each opponent loses one life')) &&
+        !oracleText.includes('that much')) {
+      const players = gameState.players || [];
+      for (const player of players) {
+        if (player.id === playerId || player.hasLost) continue;
+        const currentLife = gameState.life?.[player.id] ?? (gameState.startingLife || 40);
+        gameState.life = gameState.life || {};
+        gameState.life[player.id] = currentLife - 1;
+        player.life = gameState.life[player.id];
+      }
+      triggered.push({ 
+        permanent: perm.card.name || perm.id, 
+        effect: 'Each opponent lost 1 life' 
+      });
+      console.log(`[triggerLifeGainEffects] ${perm.card.name || perm.id} caused each opponent to lose 1 life`);
+    }
+    
+    // Sanguine Bond, Defiant Bloodlord, Vito: Target opponent loses THAT MUCH life
+    // Note: This should really be a targeted effect, but for simplicity we'll hit a random opponent
+    if (oracleText.includes('target opponent loses that much life') ||
+        cardName.includes('sanguine bond') || cardName.includes('vito')) {
+      const players = gameState.players || [];
+      const opponents = players.filter((p: any) => p.id !== playerId && !p.hasLost);
+      if (opponents.length > 0) {
+        const targetOpponent = opponents[0]; // In a real implementation, this would be targeted
+        const currentLife = gameState.life?.[targetOpponent.id] ?? (gameState.startingLife || 40);
+        gameState.life = gameState.life || {};
+        gameState.life[targetOpponent.id] = currentLife - amountGained;
+        targetOpponent.life = gameState.life[targetOpponent.id];
+        triggered.push({ 
+          permanent: perm.card.name || perm.id, 
+          effect: `Target opponent lost ${amountGained} life` 
+        });
+        console.log(`[triggerLifeGainEffects] ${perm.card.name || perm.id} caused opponent to lose ${amountGained} life`);
+      }
+    }
+    
+    // Heliod, Sun-Crowned: Put a +1/+1 counter on target creature or enchantment
+    // Note: This should be a targeted effect, for simplicity we put it on Heliod if it's a creature
+    if (cardName.includes('heliod') && oracleText.includes('put a +1/+1 counter on target creature or enchantment')) {
+      const typeLine = (perm.card?.type_line || '').toLowerCase();
+      if (typeLine.includes('creature')) {
+        perm.counters = perm.counters || {};
+        perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + 1;
+        triggered.push({ 
+          permanent: perm.card.name || perm.id, 
+          effect: `Added +1/+1 counter to self` 
+        });
+        console.log(`[triggerLifeGainEffects] ${perm.card.name || perm.id} gained a +1/+1 counter`);
+      }
+    }
+  }
+  
+  // Also check for attached auras that have life gain triggers (Light of Promise, Sunbond)
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    if (perm.controller !== playerId) continue;
+    
+    const typeLine = (perm.card?.type_line || '').toLowerCase();
+    if (!typeLine.includes('creature')) continue;
+    
+    // Check for attached auras
+    const attachedAuras = battlefield.filter((a: any) => 
+      a?.attachedTo === perm.id && 
+      (a.card?.type_line || '').toLowerCase().includes('aura')
+    );
+    
+    for (const aura of attachedAuras) {
+      const auraOracle = (aura.card?.oracle_text || '').toLowerCase();
+      const auraName = (aura.card?.name || '').toLowerCase();
+      
+      // Light of Promise / Sunbond: "Whenever you gain life, put that many +1/+1 counters on enchanted creature."
+      if ((auraName.includes('light of promise') || auraName.includes('sunbond') ||
+           (auraOracle.includes('whenever you gain life') && auraOracle.includes('that many +1/+1 counters')))) {
+        perm.counters = perm.counters || {};
+        perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + amountGained;
+        triggered.push({ 
+          permanent: `${perm.card.name || perm.id} (via ${aura.card.name || 'Aura'})`, 
+          effect: `Added ${amountGained} +1/+1 counter(s)` 
+        });
+        console.log(`[triggerLifeGainEffects] ${perm.card.name || perm.id} gained ${amountGained} +1/+1 counter(s) from ${aura.card.name || 'Aura'}`);
+      }
+    }
+  }
+  
+  return triggered;
 }
 
 /**
@@ -1020,7 +1345,7 @@ const AURA_BONUSES: Record<string, { power: number; toughness: number }> = {
 const GLOBAL_ENCHANTMENT_BONUSES: Record<string, {
   power: number;
   toughness: number;
-  condition?: (creature: any, controller: string) => boolean;
+  condition?: (creature: any, controller: string, gameState?: any) => boolean;
 }> = {
   "glorious anthem": { power: 1, toughness: 1 },
   "honor of the pure": { power: 1, toughness: 1, condition: (c) => (c.card?.colors || []).includes('W') || (c.card?.type_line || '').toLowerCase().includes('white') },
@@ -1037,6 +1362,20 @@ const GLOBAL_ENCHANTMENT_BONUSES: Record<string, {
   "cathars' crusade": { power: 0, toughness: 0 }, // Handled via counters
   "shared animosity": { power: 0, toughness: 0 }, // Variable
   "true conviction": { power: 0, toughness: 0 }, // No P/T bonus, just keywords
+  // Leyline of Hope: "If you have at least 7 life more than your starting life total, 
+  // creatures you control get +2/+2."
+  // In Commander, starting life is typically 40, so you need 47+ life for the bonus.
+  "leyline of hope": { 
+    power: 2, 
+    toughness: 2, 
+    condition: (_c, controllerId, gameState) => {
+      if (!gameState) return false;
+      const startingLife = gameState.startingLife || 40;
+      const currentLife = gameState.life?.[controllerId] ?? startingLife;
+      // Condition: current life >= starting life + 7
+      return currentLife >= startingLife + 7;
+    }
+  },
 };
 
 /**
@@ -1116,8 +1455,8 @@ export function calculateAllPTBonuses(
     const enchantBonus = GLOBAL_ENCHANTMENT_BONUSES[cardName];
     
     if (enchantBonus && perm.controller === controllerId) {
-      // Check condition if any
-      if (!enchantBonus.condition || enchantBonus.condition(creaturePerm, controllerId)) {
+      // Check condition if any (pass gameState for conditions that need it like Leyline of Hope)
+      if (!enchantBonus.condition || enchantBonus.condition(creaturePerm, controllerId, gameState)) {
         powerBonus += enchantBonus.power;
         toughnessBonus += enchantBonus.toughness;
       }
@@ -1608,4 +1947,68 @@ function extractCreatureTypes(typeLine: string): string[] {
   if (dashIndex === -1) return [];
   const subtypes = typeLine.substring(dashIndex + 1).trim();
   return subtypes.split(/\s+/).filter(t => t.length > 0);
+}
+
+/**
+ * Add energy counters to a player.
+ * Energy counters are a resource introduced in Kaladesh block.
+ * 
+ * @param gameState - The game state object
+ * @param playerId - The player gaining energy
+ * @param amount - The number of energy counters to add
+ * @param source - Optional source of the energy gain
+ * @returns The new energy total for the player
+ */
+export function addEnergyCounters(
+  gameState: any,
+  playerId: string,
+  amount: number,
+  source?: string
+): number {
+  if (!gameState || !playerId || amount <= 0) return 0;
+  
+  // Initialize energy if it doesn't exist
+  const energy = gameState.energy = gameState.energy || {};
+  energy[playerId] = (energy[playerId] || 0) + amount;
+  
+  console.log(`[addEnergyCounters] ${playerId} gained ${amount} energy${source ? ` from ${source}` : ''} (total: ${energy[playerId]})`);
+  
+  return energy[playerId];
+}
+
+/**
+ * Remove energy counters from a player (for paying costs).
+ * 
+ * @param gameState - The game state object
+ * @param playerId - The player spending energy
+ * @param amount - The number of energy counters to remove
+ * @returns true if the energy was successfully spent, false if not enough
+ */
+export function spendEnergyCounters(
+  gameState: any,
+  playerId: string,
+  amount: number
+): boolean {
+  if (!gameState || !playerId || amount <= 0) return false;
+  
+  const energy = gameState.energy || {};
+  const currentEnergy = energy[playerId] || 0;
+  
+  if (currentEnergy < amount) {
+    console.log(`[spendEnergyCounters] ${playerId} cannot spend ${amount} energy (only has ${currentEnergy})`);
+    return false;
+  }
+  
+  energy[playerId] = currentEnergy - amount;
+  console.log(`[spendEnergyCounters] ${playerId} spent ${amount} energy (remaining: ${energy[playerId]})`);
+  
+  return true;
+}
+
+/**
+ * Get the current energy count for a player.
+ */
+export function getEnergyCount(gameState: any, playerId: string): number {
+  if (!gameState || !playerId) return 0;
+  return gameState.energy?.[playerId] || 0;
 }

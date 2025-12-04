@@ -623,6 +623,155 @@ export function putCardAtPositionInLibrary(ctx: GameContext, playerId: PlayerID,
   ctx.bumpSeq();
 }
 
+/**
+ * movePermanentToLibrary
+ * Moves a permanent from battlefield to owner's library (top, bottom, or shuffled).
+ * Handles Commander Replacement Effect (Rule 903.9a) - offers choice to put in command zone instead.
+ * 
+ * @param permanentId - ID of the permanent to move
+ * @param position - 'top', 'bottom', or 'shuffle'
+ * @returns true if moved (or deferred for commander choice), false if permanent not found
+ */
+export function movePermanentToLibrary(
+  ctx: GameContext, 
+  permanentId: string, 
+  position: 'top' | 'bottom' | 'shuffle' = 'shuffle'
+): boolean {
+  const { state, bumpSeq, commandZone, libraries } = ctx;
+  const battlefield = state.battlefield || [];
+  
+  const idx = battlefield.findIndex((p: any) => p.id === permanentId);
+  if (idx < 0) return false;
+  
+  const perm = battlefield.splice(idx, 1)[0];
+  const owner = perm.owner as PlayerID;
+  const card = perm.card;
+  
+  // Commander Replacement Effect (Rule 903.9a):
+  // If a commander would be put into its owner's library from anywhere,
+  // its owner may put it into the command zone instead.
+  const commanderInfo = (commandZone as any)?.[owner];
+  const commanderIds = commanderInfo?.commanderIds || [];
+  const isCommander = (card?.id && commanderIds.includes(card.id)) || (perm as any).isCommander === true;
+  
+  if (isCommander && card) {
+    // Cast card as any to access properties safely
+    const cardAny = card as any;
+    // Defer zone change - let player choose command zone or library
+    (state as any).pendingCommanderZoneChoice = (state as any).pendingCommanderZoneChoice || [];
+    ((state as any).pendingCommanderZoneChoice as any[]).push({
+      commanderId: cardAny.id,
+      commanderName: cardAny.name || 'Unknown Commander',
+      destinationZone: 'library',
+      libraryPosition: position, // Store where it would go if player chooses library
+      playerId: owner,
+      card: {
+        id: cardAny.id,
+        name: cardAny.name || 'Unknown Commander',
+        type_line: cardAny.type_line,
+        oracle_text: cardAny.oracle_text,
+        image_uris: cardAny.image_uris,
+        mana_cost: cardAny.mana_cost,
+        power: cardAny.power,
+        toughness: cardAny.toughness,
+      },
+    });
+    console.log(`[movePermanentToLibrary] Commander ${cardAny.name || 'Unknown'} would go to library (${position}) - DEFERRING zone change for player choice`);
+    bumpSeq();
+    return true;
+  }
+  
+  // Non-commander - move directly to library
+  const lib = libraries.get(owner) || [];
+  const cardCopy = { ...(card as any), zone: 'library' };
+  
+  if (position === 'top') {
+    lib.unshift(cardCopy);
+  } else if (position === 'bottom') {
+    lib.push(cardCopy);
+  } else {
+    // Shuffle into library
+    lib.push(cardCopy);
+    for (let i = lib.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [lib[i], lib[j]] = [lib[j], lib[i]];
+    }
+  }
+  
+  libraries.set(owner, lib);
+  
+  // Update library count
+  const zones = state.zones = state.zones || {};
+  const z = zones[owner] || (zones[owner] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 } as any);
+  z.libraryCount = lib.length;
+  
+  console.log(`[movePermanentToLibrary] ${(card as any)?.name || permanentId} put ${position} of ${owner}'s library`);
+  bumpSeq();
+  return true;
+}
+
+/**
+ * movePermanentToHand
+ * Moves a permanent from battlefield to owner's hand (bounce effect).
+ * Handles Commander Replacement Effect (Rule 903.9a) - offers choice to put in command zone instead.
+ * 
+ * @param permanentId - ID of the permanent to move
+ * @returns true if moved (or deferred for commander choice), false if permanent not found
+ */
+export function movePermanentToHand(ctx: GameContext, permanentId: string): boolean {
+  const { state, bumpSeq, commandZone } = ctx;
+  const battlefield = state.battlefield || [];
+  
+  const idx = battlefield.findIndex((p: any) => p.id === permanentId);
+  if (idx < 0) return false;
+  
+  const perm = battlefield.splice(idx, 1)[0];
+  const owner = perm.owner as PlayerID;
+  const card = perm.card;
+  
+  // Commander Replacement Effect (Rule 903.9a):
+  // If a commander would be put into its owner's hand from anywhere,
+  // its owner may put it into the command zone instead.
+  const commanderInfo = (commandZone as any)?.[owner];
+  const commanderIds = commanderInfo?.commanderIds || [];
+  const isCommander = (card?.id && commanderIds.includes(card.id)) || (perm as any).isCommander === true;
+  
+  if (isCommander && card) {
+    // Defer zone change - let player choose command zone or hand
+    (state as any).pendingCommanderZoneChoice = (state as any).pendingCommanderZoneChoice || {};
+    (state as any).pendingCommanderZoneChoice[owner] = (state as any).pendingCommanderZoneChoice[owner] || [];
+    (state as any).pendingCommanderZoneChoice[owner].push({
+      commanderId: card.id,
+      commanderName: card.name,
+      destinationZone: 'hand',
+      card: {
+        id: card.id,
+        name: card.name,
+        type_line: card.type_line,
+        oracle_text: card.oracle_text,
+        image_uris: card.image_uris,
+        mana_cost: card.mana_cost,
+        power: card.power,
+        toughness: card.toughness,
+      },
+    });
+    console.log(`[movePermanentToHand] Commander ${card.name} would go to hand - DEFERRING zone change for player choice`);
+    bumpSeq();
+    return true;
+  }
+  
+  // Non-commander - move directly to hand
+  const zones = state.zones = state.zones || {};
+  const z = zones[owner] || (zones[owner] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 } as any);
+  z.hand = z.hand || [];
+  z.hand.push({ ...card, zone: 'hand' });
+  z.handCount = z.hand.length;
+  
+  console.log(`[movePermanentToHand] ${card?.name || permanentId} returned to ${owner}'s hand`);
+  bumpSeq();
+  return true;
+}
+
 /* ===== consistency helper (exported) ===== */
 
 export function reconcileZonesConsistency(ctx: GameContext, playerId?: PlayerID) {
@@ -718,6 +867,10 @@ export function applyPreGameReset(ctx: GameContext, playerId: PlayerID) {
   life[playerId] = starting;
   poison[playerId] = 0;
   experience[playerId] = 0;
+  
+  // Reset energy counters
+  const energy = (ctx as any).energy = (ctx as any).energy || {};
+  energy[playerId] = 0;
 
   // Ensure commandZone entry exists (create an empty holder instead of deleting)
   if (!commandZone) (ctx as any).commandZone = {};

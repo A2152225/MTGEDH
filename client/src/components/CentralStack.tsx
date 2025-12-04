@@ -9,6 +9,7 @@ interface Props {
   you?: PlayerID;
   priorityPlayer?: PlayerID;
   onPass?: () => void;
+  onResolveAll?: () => void; // Batch resolve all triggers with a single pass
   onIgnoreTriggerSource?: (sourceId: string, sourceName: string, effect: string, imageUrl?: string) => void;
   ignoredSources?: Map<string, { sourceName: string; count: number; effect: string; imageUrl?: string }>;
   onStopIgnoring?: (sourceKey: string) => void;
@@ -21,6 +22,7 @@ export function CentralStack({
   you, 
   priorityPlayer, 
   onPass,
+  onResolveAll,
   onIgnoreTriggerSource,
   ignoredSources,
   onStopIgnoring,
@@ -212,23 +214,48 @@ export function CentralStack({
             {stack.length}
           </span>
         </div>
-        <button 
-          onClick={onPass} 
-          disabled={priorityPlayer!==you} 
-          style={{ 
-            fontSize:12,
-            padding:'6px 16px',
-            borderRadius:6,
-            border:'none',
-            background: priorityPlayer===you ? 'linear-gradient(90deg, #10b981, #059669)' : '#374151',
-            color: priorityPlayer===you ? 'white' : '#9ca3af',
-            cursor: priorityPlayer===you ? 'pointer' : 'not-allowed',
-            fontWeight:'bold',
-            transition:'all 0.2s'
-          }}
-        >
-          Pass Priority
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {/* Resolve All button - only show if multiple items and all are your triggers */}
+          {onResolveAll && stack.length > 1 && stack.every(it => 
+            (it as any).type === 'triggered_ability' && it.controller === you
+          ) && (
+            <button 
+              onClick={onResolveAll} 
+              disabled={priorityPlayer!==you} 
+              style={{ 
+                fontSize:12,
+                padding:'6px 12px',
+                borderRadius:6,
+                border:'none',
+                background: priorityPlayer===you ? 'linear-gradient(90deg, #8b5cf6, #6366f1)' : '#374151',
+                color: priorityPlayer===you ? 'white' : '#9ca3af',
+                cursor: priorityPlayer===you ? 'pointer' : 'not-allowed',
+                fontWeight:'bold',
+                transition:'all 0.2s'
+              }}
+              title="Resolve all your triggers without pausing for priority"
+            >
+              ⚡ Resolve All ({stack.length})
+            </button>
+          )}
+          <button 
+            onClick={onPass} 
+            disabled={priorityPlayer!==you} 
+            style={{ 
+              fontSize:12,
+              padding:'6px 16px',
+              borderRadius:6,
+              border:'none',
+              background: priorityPlayer===you ? 'linear-gradient(90deg, #10b981, #059669)' : '#374151',
+              color: priorityPlayer===you ? 'white' : '#9ca3af',
+              cursor: priorityPlayer===you ? 'pointer' : 'not-allowed',
+              fontWeight:'bold',
+              transition:'all 0.2s'
+            }}
+          >
+            Pass Priority
+          </button>
+        </div>
       </div>
 
       {/* Stack items - show most recent first (top of stack) */}

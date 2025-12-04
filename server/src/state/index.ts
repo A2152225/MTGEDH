@@ -15,6 +15,7 @@ import {
   addExtraTurn,
   getExtraTurns,
   skipExtraTurn,
+  getPendingInteractions,
 } from "./modules/turn";
 import {
   importDeckResolved,
@@ -192,6 +193,9 @@ export function createInitialGameState(gameId: string): InMemoryGame {
     clearScheduledSteps: () => clearScheduledSteps(ctx),
     getScheduledSteps: () => getScheduledSteps(ctx),
     removeScheduledSteps: (steps: any[]) => removeScheduledSteps(ctx, steps),
+
+    // pending interactions check (blocks step advancement until resolved)
+    getPendingInteractions: () => getPendingInteractions(ctx),
 
     // event lifecycle / apply/replay/reset/skip/unskip/remove delegated to module
     applyEvent: (e: GameEvent) => applyEvent(ctx, e),

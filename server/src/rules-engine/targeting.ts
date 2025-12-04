@@ -10,12 +10,20 @@ export type SpellOp =
   | 'DESTROY_EACH' | 'DAMAGE_EACH'
   | 'ANY_TARGET_DAMAGE'
   | 'TARGET_PERMANENT' | 'TARGET_CREATURE' | 'TARGET_PLAYER'
-  | 'COUNTER_TARGET_SPELL' | 'COUNTER_TARGET_ABILITY';
+  | 'COUNTER_TARGET_SPELL' | 'COUNTER_TARGET_ABILITY'
+  | 'FLICKER_TARGET'; // Exile and return to battlefield (Acrobatic Maneuver, Cloudshift, etc.)
 
 export type PermanentFilter = 'ANY' | 'CREATURE' | 'PLANESWALKER' | 'PERMANENT' | 'ARTIFACT' | 'ENCHANTMENT' | 'LAND';
 
 // Spell type filter for counterspells
 export type SpellTypeFilter = 'ANY_SPELL' | 'INSTANT_SORCERY' | 'NONCREATURE' | 'CREATURE_SPELL';
+
+// Power/toughness requirement for targeted creatures
+export interface StatRequirement {
+  stat: 'power' | 'toughness';
+  comparison: '<=' | '>=' | '<' | '>' | '=';
+  value: number;
+}
 
 export type SpellSpec = {
   op: SpellOp;
@@ -25,6 +33,8 @@ export type SpellSpec = {
   amount?: number;
   spellTypeFilter?: SpellTypeFilter; // For counterspells that only counter certain spell types
   targetDescription?: string; // Human-readable description of what can be targeted
+  returnDelay?: 'immediate' | 'end_of_turn' | 'end_of_combat'; // For flicker effects
+  statRequirement?: StatRequirement; // For spells like Repel Calamity (toughness 4 or greater)
 };
 
 /**
@@ -208,6 +218,70 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
     return { op: 'DESTROY_TARGET', filter, minTargets: 0, maxTargets: n };
   }
 
+  // Flicker effects - exile and return to battlefield
+  // Pattern: "exile target creature ... return it/that card to the battlefield"
+  // Cards: Acrobatic Maneuver, Cloudshift, Ephemerate, Flickerwisp, etc.
+  if (/exile target/.test(t) && /return (?:it|that card|that creature) to the battlefield/.test(t)) {
+    // Check for delayed return (end of turn, end of combat)
+    let returnDelay: 'immediate' | 'end_of_turn' | 'end_of_combat' = 'immediate';
+    if (/at (?:the )?(?:beginning of )?(?:the )?(?:next )?end(?:ing)? step|end of turn/.test(t)) {
+      returnDelay = 'end_of_turn';
+    } else if (/end of combat/.test(t)) {
+      returnDelay = 'end_of_combat';
+    }
+    
+    // Check for controller restriction ("creature you control")
+    const controllerRestricted = /target creature you control/.test(t);
+    const targetDesc = controllerRestricted ? 'creature you control' : 'creature';
+    
+    return { 
+      op: 'FLICKER_TARGET', 
+      filter: 'CREATURE', 
+      minTargets: 1, 
+      maxTargets: 1,
+      returnDelay,
+      targetDescription: targetDesc,
+    };
+  }
+
+  // Check for toughness/power requirements in target descriptions
+  // Pattern: "target creature with toughness 4 or greater" (Repel Calamity)
+  // Pattern: "target creature with power 2 or less" (Ulcerate)
+  const toughnessMatch = t.match(/target (?:attacking or blocking )?creature with toughness (\d+) or (greater|less)/i);
+  const powerMatch = t.match(/target (?:attacking or blocking )?creature with power (\d+) or (greater|less)/i);
+  
+  if (toughnessMatch) {
+    const value = parseInt(toughnessMatch[1], 10);
+    const comparison = toughnessMatch[2] === 'greater' ? '>=' : '<=';
+    const statReq: StatRequirement = { stat: 'toughness', comparison, value };
+    
+    // Determine the operation
+    if (/exile target/.test(t)) {
+      return { op: 'EXILE_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, statRequirement: statReq };
+    }
+    if (/destroy target/.test(t)) {
+      return { op: 'DESTROY_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, statRequirement: statReq };
+    }
+    // Default to target creature action
+    return { op: 'TARGET_CREATURE', filter: 'CREATURE', minTargets: 1, maxTargets: 1, statRequirement: statReq };
+  }
+  
+  if (powerMatch) {
+    const value = parseInt(powerMatch[1], 10);
+    const comparison = powerMatch[2] === 'greater' ? '>=' : '<=';
+    const statReq: StatRequirement = { stat: 'power', comparison, value };
+    
+    // Determine the operation
+    if (/exile target/.test(t)) {
+      return { op: 'EXILE_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, statRequirement: statReq };
+    }
+    if (/destroy target/.test(t)) {
+      return { op: 'DESTROY_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, statRequirement: statReq };
+    }
+    // Default to target creature action
+    return { op: 'TARGET_CREATURE', filter: 'CREATURE', minTargets: 1, maxTargets: 1, statRequirement: statReq };
+  }
+
   if (/exile target/.test(t)) return { op: 'EXILE_TARGET', filter, minTargets: 1, maxTargets: 1 };
   if (/destroy target/.test(t)) return { op: 'DESTROY_TARGET', filter, minTargets: 1, maxTargets: 1 };
   
@@ -361,6 +435,31 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
     if (spec.filter === 'ANY' && !(isCreature(p) || isPlaneswalker(p))) continue;
     // For 'PERMANENT' filter, all permanents are valid targets
     if (hasHexproofOrShroud(p, state) && p.controller !== caster) continue;
+    
+    // Check stat requirement (power/toughness restrictions)
+    if (spec.statRequirement && isCreature(p)) {
+      const { stat, comparison, value } = spec.statRequirement;
+      // Get effective power/toughness
+      const card = p.card as any;
+      let statValue: number;
+      if (stat === 'power') {
+        statValue = p.effectivePower ?? (typeof card?.power === 'string' ? parseInt(card.power, 10) : card?.power) ?? 0;
+      } else {
+        statValue = p.effectiveToughness ?? (typeof card?.toughness === 'string' ? parseInt(card.toughness, 10) : card?.toughness) ?? 0;
+      }
+      
+      // Check comparison
+      let passes = false;
+      switch (comparison) {
+        case '>=': passes = statValue >= value; break;
+        case '<=': passes = statValue <= value; break;
+        case '>': passes = statValue > value; break;
+        case '<': passes = statValue < value; break;
+        case '=': passes = statValue === value; break;
+      }
+      if (!passes) continue;
+    }
+    
     out.push({ kind: 'permanent', id: p.id });
   }
   if (spec.op === 'ANY_TARGET_DAMAGE') {
@@ -376,7 +475,41 @@ export type EngineEffect =
   | { kind: 'DamagePlayer'; playerId: PlayerID; amount: number }
   | { kind: 'CounterSpell'; stackItemId: string }
   | { kind: 'CounterAbility'; stackItemId: string }
-  | { kind: 'Broadcast'; message: string };
+  | { kind: 'Broadcast'; message: string }
+  | { kind: 'FlickerPermanent'; id: string; returnDelay: 'immediate' | 'end_of_turn' | 'end_of_combat' };
+
+/**
+ * Check if a permanent meets a stat requirement at resolution time.
+ * This is used to validate targets when a spell resolves, as stats may have
+ * changed since the spell was cast (e.g., -1/-1 effects reducing toughness).
+ * 
+ * MTG Rule 608.2b: "If the spell or ability specifies targets, it checks 
+ * whether the targets are still legal."
+ */
+export function meetsStatRequirement(p: BattlefieldPermanent, req: StatRequirement): boolean {
+  const card = p.card as any;
+  let statValue: number;
+  
+  if (req.stat === 'power') {
+    // Use effective power if calculated, otherwise use base power
+    statValue = p.effectivePower ?? (typeof card?.power === 'string' ? parseInt(card.power, 10) : card?.power) ?? 0;
+  } else {
+    // Use effective toughness if calculated, otherwise use base toughness
+    statValue = p.effectiveToughness ?? (typeof card?.toughness === 'string' ? parseInt(card.toughness, 10) : card?.toughness) ?? 0;
+  }
+  
+  // Handle NaN values (e.g., '*' power/toughness)
+  if (isNaN(statValue)) statValue = 0;
+  
+  switch (req.comparison) {
+    case '>=': return statValue >= req.value;
+    case '<=': return statValue <= req.value;
+    case '>': return statValue > req.value;
+    case '<': return statValue < req.value;
+    case '=': return statValue === req.value;
+    default: return true;
+  }
+}
 
 export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], state: Readonly<GameState>): readonly EngineEffect[] {
   const eff: EngineEffect[] = [];
@@ -390,10 +523,57 @@ export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], stat
 
   switch (spec.op) {
     case 'DESTROY_TARGET':
-      for (const t of chosen) if (t.kind === 'permanent') eff.push({ kind: 'DestroyPermanent', id: t.id });
+      for (const t of chosen) {
+        if (t.kind === 'permanent') {
+          // Check if target is still valid at resolution time
+          const perm = state.battlefield.find(p => p.id === t.id);
+          if (!perm) continue; // Target no longer exists
+          
+          // Check stat requirement at resolution (e.g., toughness 4+ for Repel Calamity)
+          if (spec.statRequirement && isCreature(perm)) {
+            if (!meetsStatRequirement(perm, spec.statRequirement)) {
+              // Target no longer meets requirement - spell fizzles for this target
+              eff.push({ kind: 'Broadcast', message: `Target no longer meets stat requirement (${spec.statRequirement.stat} ${spec.statRequirement.comparison} ${spec.statRequirement.value})` });
+              continue;
+            }
+          }
+          
+          eff.push({ kind: 'DestroyPermanent', id: t.id });
+        }
+      }
       break;
     case 'EXILE_TARGET':
-      for (const t of chosen) if (t.kind === 'permanent') eff.push({ kind: 'MoveToExile', id: t.id });
+      for (const t of chosen) {
+        if (t.kind === 'permanent') {
+          // Check if target is still valid at resolution time
+          const perm = state.battlefield.find(p => p.id === t.id);
+          if (!perm) continue; // Target no longer exists
+          
+          // Check stat requirement at resolution (e.g., toughness 4+ for Repel Calamity)
+          if (spec.statRequirement && isCreature(perm)) {
+            if (!meetsStatRequirement(perm, spec.statRequirement)) {
+              // Target no longer meets requirement - spell fizzles for this target
+              eff.push({ kind: 'Broadcast', message: `Target no longer meets stat requirement (${spec.statRequirement.stat} ${spec.statRequirement.comparison} ${spec.statRequirement.value})` });
+              continue;
+            }
+          }
+          
+          eff.push({ kind: 'MoveToExile', id: t.id });
+        }
+      }
+      break;
+    case 'FLICKER_TARGET':
+      // Flicker: Exile and return to battlefield
+      // The returnDelay determines when the creature returns
+      for (const t of chosen) {
+        if (t.kind === 'permanent') {
+          eff.push({ 
+            kind: 'FlickerPermanent', 
+            id: t.id, 
+            returnDelay: spec.returnDelay || 'immediate' 
+          });
+        }
+      }
       break;
     case 'DESTROY_ALL':
     case 'DESTROY_EACH':

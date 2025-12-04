@@ -36,6 +36,9 @@ import { CreatureTypeSelectModal } from "./components/CreatureTypeSelectModal";
 import { AppearanceSettingsModal } from "./components/AppearanceSettingsModal";
 import { LifePaymentModal } from "./components/LifePaymentModal";
 import { MDFCFaceSelectionModal, type CardFace } from "./components/MDFCFaceSelectionModal";
+import { ModalSpellSelectionModal, type SpellMode } from "./components/ModalSpellSelectionModal";
+import { ReplacementEffectOrderModal, type ReplacementEffectItem, type OrderingMode } from "./components/ReplacementEffectOrderModal";
+import { ReplacementEffectSettingsPanel } from "./components/ReplacementEffectSettingsPanel";
 import { GraveyardViewModal } from "./components/GraveyardViewModal";
 import { JoinForcesModal, type JoinForcesRequest } from "./components/JoinForcesModal";
 import { TemptingOfferModal, type TemptingOfferRequest } from "./components/TemptingOfferModal";
@@ -45,7 +48,7 @@ import { ExploreModal, type ExploreCard } from "./components/ExploreModal";
 import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
 import { useGameSocket } from "./hooks/useGameSocket";
-import type { PaymentItem, ManaColor, PendingCommanderZoneChoice } from "../../shared/src";
+import type { PaymentItem, ManaColor, PendingCommanderZoneChoice, TriggerShortcut } from "../../shared/src";
 import { GameStatusIndicator } from "./components/GameStatusIndicator";
 import { CreateGameModal, type GameCreationConfig } from "./components/CreateGameModal";
 import { PhaseNavigator } from "./components/PhaseNavigator";
@@ -59,6 +62,7 @@ import { prettyPhase, prettyStep, isLandTypeLine } from "./utils/gameDisplayHelp
 import { IgnoredTriggersPanel } from "./components/IgnoredTriggersPanel";
 import { PriorityModal } from "./components/PriorityModal";
 import { AutoPassSettingsPanel } from "./components/AutoPassSettingsPanel";
+import { TriggerShortcutsPanel } from "./components/TriggerShortcutsPanel";
 
 /* App component */
 export function App() {
@@ -447,6 +451,35 @@ export function App() {
     effectId?: string;
   } | null>(null);
   
+  // Modal Spell Selection Modal state - for Spree, Choose One/Two, etc.
+  const [modalSpellModalOpen, setModalSpellModalOpen] = useState(false);
+  const [modalSpellModalData, setModalSpellModalData] = useState<{
+    cardId: string;
+    cardName: string;
+    title?: string;
+    description?: string;
+    imageUrl?: string;
+    modes: SpellMode[];
+    modeCount: number;
+    canChooseAny?: boolean;
+    minModes?: number;
+    isSpree?: boolean;
+    effectId?: string;
+  } | null>(null);
+  
+  // Replacement Effect Order Modal state - for custom ordering of damage/life/counter effects
+  const [replacementEffectModalOpen, setReplacementEffectModalOpen] = useState(false);
+  const [replacementEffectModalData, setReplacementEffectModalData] = useState<{
+    effectType: 'damage' | 'life_gain' | 'counters' | 'tokens';
+    effects: ReplacementEffectItem[];
+    baseAmount: number;
+    initialMode?: OrderingMode;
+    effectId?: string;
+  } | null>(null);
+  
+  // Replacement Effect Settings Panel state
+  const [replacementEffectSettingsOpen, setReplacementEffectSettingsOpen] = useState(false);
+  
   // Mana Pool state - tracks floating mana for the current player
   const [manaPool, setManaPool] = useState<ManaPool | null>(null);
   
@@ -523,6 +556,9 @@ export function App() {
   // Track when PhaseNavigator is actively advancing through phases
   // This prevents auto-advance from interfering with manual phase navigation
   const [phaseNavigatorAdvancing, setPhaseNavigatorAdvancing] = useState(false);
+
+  // Trigger shortcuts panel state
+  const [showTriggerShortcuts, setShowTriggerShortcuts] = useState(false);
 
   // Fetch saved decks when create game modal opens
   const refreshSavedDecks = React.useCallback(() => {
@@ -1142,6 +1178,80 @@ export function App() {
     socket.on("mdfcFaceSelectionRequest", handler);
     return () => {
       socket.off("mdfcFaceSelectionRequest", handler);
+    };
+  }, [safeView?.id]);
+
+  // Modal Spell Selection Request listener - handles Spree cards, Choose One/Two, modal spells
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      cardId: string;
+      cardName: string;
+      source?: string;
+      title?: string;
+      description?: string;
+      imageUrl?: string;
+      modes: Array<{ id: string; name: string; description: string; cost?: string }>;
+      modeCount: number;
+      canChooseAny?: boolean;
+      minModes?: number;
+      isSpree?: boolean;
+      effectId?: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        // Convert modes to SpellMode format
+        const spellModes: SpellMode[] = payload.modes.map(m => ({
+          id: m.id,
+          name: m.name,
+          description: m.description + (m.cost ? ` (${m.cost})` : ''),
+        }));
+        
+        setModalSpellModalData({
+          cardId: payload.cardId,
+          cardName: payload.cardName,
+          title: payload.title,
+          description: payload.description,
+          imageUrl: payload.imageUrl,
+          modes: spellModes,
+          modeCount: payload.modeCount,
+          canChooseAny: payload.canChooseAny,
+          minModes: payload.minModes,
+          isSpree: payload.isSpree,
+          effectId: payload.effectId,
+        });
+        setModalSpellModalOpen(true);
+      }
+    };
+    socket.on("modalSpellRequest", handler);
+    return () => {
+      socket.off("modalSpellRequest", handler);
+    };
+  }, [safeView?.id]);
+
+  // Replacement Effect Order Request listener - allows player to override damage/life effect ordering
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      effectType: 'damage' | 'life_gain' | 'counters' | 'tokens';
+      effects: ReplacementEffectItem[];
+      baseAmount: number;
+      initialMode?: OrderingMode;
+      effectId?: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        setReplacementEffectModalData({
+          effectType: payload.effectType,
+          effects: payload.effects,
+          baseAmount: payload.baseAmount,
+          initialMode: payload.initialMode,
+          effectId: payload.effectId,
+        });
+        setReplacementEffectModalOpen(true);
+      }
+    };
+    socket.on("replacementEffectOrderRequest", handler);
+    return () => {
+      socket.off("replacementEffectOrderRequest", handler);
     };
   }, [safeView?.id]);
 
@@ -4388,6 +4498,60 @@ export function App() {
         }}
       />
 
+      {/* Modal Spell Selection Modal (Spree, Choose One/Two, Charms, etc.) */}
+      <ModalSpellSelectionModal
+        open={modalSpellModalOpen}
+        cardName={modalSpellModalData?.cardName || ''}
+        imageUrl={modalSpellModalData?.imageUrl}
+        description={modalSpellModalData?.description}
+        modes={modalSpellModalData?.modes || []}
+        modeCount={modalSpellModalData?.modeCount || 1}
+        canChooseAny={modalSpellModalData?.canChooseAny || modalSpellModalData?.isSpree}
+        onConfirm={(selectedModeIds) => {
+          if (safeView?.id && modalSpellModalData) {
+            // Use "modalSpellConfirm" event which is already handled by the server
+            socket.emit("modalSpellConfirm", {
+              gameId: safeView.id,
+              cardId: modalSpellModalData.cardId,
+              selectedModes: selectedModeIds,
+              effectId: modalSpellModalData.effectId,
+            });
+            setModalSpellModalOpen(false);
+            setModalSpellModalData(null);
+          }
+        }}
+        onCancel={() => {
+          setModalSpellModalOpen(false);
+          setModalSpellModalData(null);
+        }}
+      />
+
+      {/* Replacement Effect Order Modal (Minimize/Maximize/Custom) */}
+      <ReplacementEffectOrderModal
+        open={replacementEffectModalOpen}
+        effectType={replacementEffectModalData?.effectType || 'damage'}
+        effects={replacementEffectModalData?.effects || []}
+        baseAmount={replacementEffectModalData?.baseAmount || 0}
+        initialMode={replacementEffectModalData?.initialMode}
+        onConfirm={(orderedEffects, mode) => {
+          if (safeView?.id && replacementEffectModalData) {
+            socket.emit("setReplacementEffectOrder", {
+              gameId: safeView.id,
+              effectType: replacementEffectModalData.effectType,
+              effectIds: orderedEffects.map(e => e.id),
+              mode,
+              effectId: replacementEffectModalData.effectId,
+            });
+            setReplacementEffectModalOpen(false);
+            setReplacementEffectModalData(null);
+          }
+        }}
+        onCancel={() => {
+          setReplacementEffectModalOpen(false);
+          setReplacementEffectModalData(null);
+        }}
+      />
+
       {/* Graveyard View Modal */}
       <GraveyardViewModal
         open={graveyardModalOpen}
@@ -4591,7 +4755,52 @@ export function App() {
               (safeView.players || []).filter((p: any) => !p.spectator && !p.inactive).length === 1
             }
           />
+          {/* Trigger Shortcuts Button */}
+          <button
+            onClick={() => setShowTriggerShortcuts(true)}
+            style={{
+              marginTop: 8,
+              width: '100%',
+              padding: '8px 12px',
+              borderRadius: 6,
+              border: '1px solid #444',
+              backgroundColor: '#2a2a2a',
+              color: '#fff',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              fontSize: 13,
+            }}
+            title="Configure auto-responses for Smothering Tithe, Rhystic Study, etc."
+          >
+            ⚡ Trigger Shortcuts
+          </button>
         </div>
+      )}
+
+      {/* Replacement Effect Settings Panel - Allows customizing effect ordering */}
+      {safeView && you && (
+        <ReplacementEffectSettingsPanel
+          gameId={safeView.id}
+          playerId={you}
+          open={replacementEffectSettingsOpen}
+          onClose={() => setReplacementEffectSettingsOpen(false)}
+        />
+      )}
+
+      {/* Trigger Shortcuts Panel - Allows setting auto-responses for Smothering Tithe, etc. */}
+      {safeView && you && (
+        <TriggerShortcutsPanel
+          isOpen={showTriggerShortcuts}
+          onClose={() => setShowTriggerShortcuts(false)}
+          socket={socket}
+          gameId={safeView.id}
+          playerId={you}
+          currentShortcuts={(safeView as any).triggerShortcuts?.[you] || []}
+          activeCards={safeView.battlefield?.map((p: any) => p.card?.name || '').filter(Boolean) || []}
+        />
       )}
     </div>
   );

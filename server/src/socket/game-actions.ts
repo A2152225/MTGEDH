@@ -2,7 +2,7 @@ import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, handlePendingLibrarySearch, handlePendingJoinForces, handlePendingTemptingOffer, handlePendingPonder, broadcastManaPoolUpdate } from "./util";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
-import type { PaymentItem } from "../../../shared/src";
+import type { PaymentItem, TriggerShortcut } from "../../../shared/src";
 import { requiresCreatureTypeSelection, requestCreatureTypeSelection } from "./creature-type";
 import { checkAndPromptOpeningHandActions } from "./opening-hand";
 import { emitSacrificeUnlessPayPrompt } from "./triggers";
@@ -2862,6 +2862,88 @@ export function registerGameActions(io: Server, socket: Socket) {
       console.error(`passPriority error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "PASS_PRIORITY_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
+
+  /**
+   * Batch resolve all triggered abilities on the stack.
+   * This is a convenience feature that resolves all triggers without pausing for priority
+   * between each one. Only works when:
+   * 1. The player has priority
+   * 2. All stack items are triggered abilities controlled by the player
+   */
+  socket.on("resolveAllTriggers", ({ gameId }: { gameId: string }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      const state = game.state;
+      if (!state || state.priority !== playerId) {
+        socket.emit("error", { code: "NOT_PRIORITY", message: "You don't have priority" });
+        return;
+      }
+
+      const stack = state.stack || [];
+      if (stack.length === 0) {
+        socket.emit("error", { code: "EMPTY_STACK", message: "Stack is empty" });
+        return;
+      }
+
+      // Verify all items are triggered abilities controlled by this player
+      const allMyTriggers = stack.every((item: any) => 
+        item.type === 'triggered_ability' && item.controller === playerId
+      );
+
+      if (!allMyTriggers) {
+        socket.emit("error", { 
+          code: "MIXED_STACK", 
+          message: "Cannot batch resolve - stack contains items not controlled by you or non-triggers" 
+        });
+        return;
+      }
+
+      console.log(`[resolveAllTriggers] Batch resolving ${stack.length} triggers for ${playerId}`);
+
+      // Resolve all triggers in sequence (top to bottom)
+      let resolvedCount = 0;
+      while (state.stack && state.stack.length > 0) {
+        if (typeof (game as any).resolveTopOfStack === 'function') {
+          (game as any).resolveTopOfStack();
+          resolvedCount++;
+        } else {
+          break;
+        }
+      }
+
+      // Log the batch resolution
+      appendGameEvent(game, gameId, "resolveAllTriggers", { 
+        by: playerId, 
+        count: resolvedCount 
+      });
+
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, playerId)} resolved ${resolvedCount} triggered abilities.`,
+        ts: Date.now(),
+      });
+
+      // After batch resolution, priority goes back to the active player
+      state.priority = state.turnPlayer as PlayerID;
+      
+      if (typeof game.bumpSeq === 'function') {
+        game.bumpSeq();
+      }
+
+      broadcastGame(io, game, gameId);
+    } catch (err: any) {
+      console.error(`resolveAllTriggers error for game ${gameId}:`, err);
+      socket.emit("error", {
+        code: "RESOLVE_ALL_ERROR",
         message: err?.message ?? String(err),
       });
     }
@@ -6623,6 +6705,145 @@ export function registerGameActions(io: Server, socket: Socket) {
     } catch (err: any) {
       console.error(`concede error for game ${gameId}:`, err);
       socket.emit("error", { code: "CONCEDE_ERROR", message: err?.message ?? String(err) });
+    }
+  });
+
+  /**
+   * Set a trigger shortcut preference for a player.
+   * This allows players to set automatic responses for "may" triggers
+   * and "opponent may pay" triggers like Smothering Tithe.
+   */
+  socket.on("setTriggerShortcut", async ({
+    gameId,
+    cardName,
+    preference,
+    triggerDescription,
+  }: {
+    gameId: string;
+    cardName: string;
+    preference: 'always_pay' | 'never_pay' | 'always_yes' | 'always_no' | 'ask_each_time';
+    triggerDescription?: string;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId as string | undefined;
+
+      if (!game || !playerId) {
+        socket.emit("error", {
+          code: "SET_TRIGGER_SHORTCUT_ERROR",
+          message: "Game not found or player not identified",
+        });
+        return;
+      }
+
+      // Initialize trigger shortcuts if needed
+      game.state.triggerShortcuts = game.state.triggerShortcuts || {};
+      game.state.triggerShortcuts[playerId] = game.state.triggerShortcuts[playerId] || [];
+
+      // Normalize card name for matching
+      const normalizedCardName = cardName.toLowerCase().trim();
+
+      // Find existing shortcut for this card
+      const existingIndex = game.state.triggerShortcuts[playerId].findIndex(
+        (s: TriggerShortcut) => s.cardName === normalizedCardName && 
+                    (!triggerDescription || s.triggerDescription === triggerDescription)
+      );
+
+      if (preference === 'ask_each_time') {
+        // Remove the shortcut if setting to default
+        if (existingIndex >= 0) {
+          game.state.triggerShortcuts[playerId].splice(existingIndex, 1);
+        }
+      } else {
+        // Add or update the shortcut
+        const shortcut = {
+          cardName: normalizedCardName,
+          playerId,
+          preference,
+          triggerDescription,
+        };
+
+        if (existingIndex >= 0) {
+          game.state.triggerShortcuts[playerId][existingIndex] = shortcut;
+        } else {
+          game.state.triggerShortcuts[playerId].push(shortcut);
+        }
+      }
+
+      // Notify the player
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, playerId)} set shortcut for ${cardName}: ${preference.replace(/_/g, ' ')}`,
+        ts: Date.now(),
+      });
+
+      // Persist the event
+      try {
+        await appendEvent(gameId, (game as any).seq || 0, "setTriggerShortcut", {
+          playerId,
+          cardName: normalizedCardName,
+          preference,
+          triggerDescription,
+        });
+      } catch (e) {
+        console.warn("[game-actions] Failed to persist setTriggerShortcut event:", e);
+      }
+
+      // Bump sequence and broadcast
+      if (typeof (game as any).bumpSeq === "function") {
+        (game as any).bumpSeq();
+      }
+
+      broadcastGame(io, game, gameId);
+
+      console.log(`[setTriggerShortcut] Player ${playerId} set ${cardName} preference to ${preference}`);
+
+    } catch (err: any) {
+      console.error(`setTriggerShortcut error for game ${gameId}:`, err);
+      socket.emit("error", { code: "SET_TRIGGER_SHORTCUT_ERROR", message: err?.message ?? String(err) });
+    }
+  });
+
+  /**
+   * Get a player's trigger shortcut for a specific card.
+   * Returns null if no shortcut is set (use default behavior).
+   */
+  socket.on("getTriggerShortcut", ({
+    gameId,
+    cardName,
+    triggerDescription,
+  }: {
+    gameId: string;
+    cardName: string;
+    triggerDescription?: string;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId as string | undefined;
+
+      if (!game || !playerId) {
+        socket.emit("triggerShortcutResponse", { shortcut: null });
+        return;
+      }
+
+      const shortcuts = game.state.triggerShortcuts?.[playerId] || [];
+      const normalizedCardName = cardName.toLowerCase().trim();
+
+      const shortcut = shortcuts.find(
+        (s: any) => s.cardName === normalizedCardName &&
+                    (!triggerDescription || s.triggerDescription === triggerDescription)
+      );
+
+      socket.emit("triggerShortcutResponse", { 
+        shortcut: shortcut || null,
+        cardName: normalizedCardName 
+      });
+
+    } catch (err: any) {
+      console.error(`getTriggerShortcut error:`, err);
+      socket.emit("triggerShortcutResponse", { shortcut: null });
     }
   });
 }

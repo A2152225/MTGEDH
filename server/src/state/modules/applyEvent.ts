@@ -58,12 +58,13 @@ export function reset(ctx: any, preservePlayers = false): void {
   // Prefer specialized reset if present on ctx or a global replayModule
   try {
     // @ts-ignore - global replayModule if present
+    const globalObj = typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : {});
     if (
-      typeof (global as any).replayModule !== "undefined" &&
-      (global as any).replayModule &&
-      typeof (global as any).replayModule.reset === "function"
+      typeof (globalObj as any).replayModule !== "undefined" &&
+      (globalObj as any).replayModule &&
+      typeof (globalObj as any).replayModule.reset === "function"
     ) {
-      (global as any).replayModule.reset(ctx, preservePlayers);
+      (globalObj as any).replayModule.reset(ctx, preservePlayers);
       return;
     }
   } catch {

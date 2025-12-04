@@ -4390,4 +4390,105 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     broadcastGame(io, game, gameId);
   });
+
+  // ============================================================================
+  // Replacement Effect Ordering
+  // ============================================================================
+
+  /**
+   * Set custom replacement effect ordering preference for a player.
+   * This allows players to override the default ordering when they want to
+   * maximize damage taken (e.g., for Selfless Squire, redirect effects).
+   */
+  socket.on("setReplacementEffectOrder", ({
+    gameId,
+    effectType,
+    useCustomOrder,
+    customOrder,
+  }: {
+    gameId: string;
+    effectType: 'damage' | 'life_gain' | 'counters' | 'tokens';
+    useCustomOrder: boolean;
+    customOrder?: string[];  // Source names in desired order
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+      return;
+    }
+
+    // Initialize replacement effect preferences if needed
+    (game.state as any).replacementEffectPreferences = (game.state as any).replacementEffectPreferences || {};
+    (game.state as any).replacementEffectPreferences[pid] = (game.state as any).replacementEffectPreferences[pid] || {};
+    
+    (game.state as any).replacementEffectPreferences[pid][effectType] = {
+      useCustomOrder,
+      customOrder: customOrder || [],
+      updatedAt: Date.now(),
+    };
+
+    // Bump game sequence
+    if (typeof (game as any).bumpSeq === "function") { (game as any).bumpSeq(); }
+
+    const orderDescription = useCustomOrder 
+      ? `custom order: ${(customOrder || []).join(' → ')}`
+      : 'default (optimal) order';
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} set ${effectType} replacement effect ordering to ${orderDescription}.`,
+      ts: Date.now(),
+    });
+
+    // Notify player of the change
+    socket.emit("replacementEffectOrderUpdated", {
+      gameId,
+      effectType,
+      useCustomOrder,
+      customOrder,
+    });
+
+    broadcastGame(io, game, gameId);
+  });
+
+  /**
+   * Get current replacement effect ordering preferences for a player
+   */
+  socket.on("getReplacementEffectOrder", ({
+    gameId,
+    effectType,
+  }: {
+    gameId: string;
+    effectType?: 'damage' | 'life_gain' | 'counters' | 'tokens';
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+      return;
+    }
+
+    const preferences = (game.state as any).replacementEffectPreferences?.[pid] || {};
+    
+    if (effectType) {
+      socket.emit("replacementEffectOrderResponse", {
+        gameId,
+        effectType,
+        preference: preferences[effectType] || { useCustomOrder: false, customOrder: [] },
+      });
+    } else {
+      // Return all preferences
+      socket.emit("replacementEffectOrderResponse", {
+        gameId,
+        preferences,
+      });
+    }
+  });
 }

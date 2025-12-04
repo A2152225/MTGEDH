@@ -34,12 +34,51 @@ export const COST_REDUCTION_CARDS: Record<string, CostReductionConfig> = {
     colorReduction: { red: 1 },
     affectsOnlyCreatures: false,
   },
+  // Final Fantasy Crystals - each reduces its color's spells by {1}
   'the wind crystal': {
     cardName: 'The Wind Crystal',
     affectedTypes: ['all'],
-    genericReduction: 0,
-    colorReduction: { green: 1 },
+    genericReduction: 1,
+    colorReduction: {},
     affectsOnlyCreatures: false,
+    spellColorFilter: ['white'],
+    // Also: Life gain doubled, {4}{W}{W},{T}: Creatures gain flying and lifelink until EOT
+  },
+  'the fire crystal': {
+    cardName: 'The Fire Crystal',
+    affectedTypes: ['all'],
+    genericReduction: 1,
+    colorReduction: {},
+    affectsOnlyCreatures: false,
+    spellColorFilter: ['red'],
+    // Also: Creatures you control have haste, {4}{R}{R},{T}: Create token copy (sacrifice at end step)
+  },
+  'the water crystal': {
+    cardName: 'The Water Crystal',
+    affectedTypes: ['all'],
+    genericReduction: 1,
+    colorReduction: {},
+    affectsOnlyCreatures: false,
+    spellColorFilter: ['blue'],
+    // Also: Opponents mill +4 more, {4}{U}{U},{T}: Each opponent mills cards equal to creatures you control
+  },
+  'the earth crystal': {
+    cardName: 'The Earth Crystal',
+    affectedTypes: ['all'],
+    genericReduction: 1,
+    colorReduction: {},
+    affectsOnlyCreatures: false,
+    spellColorFilter: ['green'],
+    // Also: +1/+1 counters doubled, {4}{G}{G},{T}: Distribute +1/+1 counters equal to greatest power
+  },
+  'the darkness crystal': {
+    cardName: 'The Darkness Crystal',
+    affectedTypes: ['all'],
+    genericReduction: 1,
+    colorReduction: {},
+    affectsOnlyCreatures: false,
+    spellColorFilter: ['black'],
+    // Also: Exile opponent's dying nontoken creatures + gain 2 life, {4}{B}{B},{T}: Return exiled creature
   },
   "urza's incubator": {
     cardName: "Urza's Incubator",
