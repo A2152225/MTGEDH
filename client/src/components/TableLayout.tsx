@@ -34,6 +34,10 @@ import { getPlayAreaGradientStyle, getBackgroundStyle } from '../utils/appearanc
 function clamp(n: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, n)); }
 function isLandTypeLine(tl?: string) { return /\bland\b/i.test(tl || ''); }
 
+// Minimum zoom for initial board fit when joining a game.
+// Higher than manual zoom limits (0.15-0.2) to ensure UI elements are readable.
+const MIN_INITIAL_ZOOM = 0.7;
+
 /**
  * Identifies mana sources (mana rocks and mana dorks).
  * Mana rocks: Artifacts that produce mana (e.g., Sol Ring, Mana Crypt, signets)
@@ -521,7 +525,7 @@ export function TableLayout(props: {
     const margin = 24;
     const zx = (container.w / 2 - margin) / (halfW + 40);
     const zy = (container.h / 2 - margin) / (halfH + 40);
-    const fitZ = clamp(Math.min(zx, zy), 0.7, 2.0);
+    const fitZ = clamp(Math.min(zx, zy), MIN_INITIAL_ZOOM, 2.0);
     if (!didFit.current || ordered.length !== (didFit as any).lastN) {
       centerOnYou(true);
       setCam(prev => ({ x: prev.x, y: prev.y, z: fitZ }));
