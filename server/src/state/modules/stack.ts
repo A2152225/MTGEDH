@@ -2315,11 +2315,91 @@ export function resolveTopOfStack(ctx: GameContext) {
         if (powerValue > 0) {
           const players = (state as any).players || [];
           const player = players.find((p: any) => p?.id === creatureController);
+          
+          // Update both player.life and state.life to ensure consistency
+          const startingLife = (state as any).startingLife || 40;
+          state.life = state.life || {};
+          const currentLife = state.life[creatureController] ?? player?.life ?? startingLife;
+          state.life[creatureController] = currentLife + powerValue;
+          
           if (player) {
-            player.life = (player.life || 40) + powerValue;
-            console.log(`[resolveTopOfStack] Swords to Plowshares: ${creatureController} gains ${powerValue} life (creature power)`);
+            player.life = state.life[creatureController];
+            console.log(`[resolveTopOfStack] Swords to Plowshares: ${creatureController} gains ${powerValue} life (${currentLife} -> ${state.life[creatureController]})`);
           }
         }
+      }
+    }
+    
+    // Handle Fateful Absence - "Destroy target creature or planeswalker. Its controller investigates."
+    // Investigate creates a Clue artifact token with "{2}, Sacrifice this artifact: Draw a card."
+    const isFatefulAbsence = card.name?.toLowerCase().includes('fateful absence') ||
+        (oracleTextLower.includes('destroy target creature') && 
+         oracleTextLower.includes('investigates'));
+    
+    if (isFatefulAbsence && targets.length > 0) {
+      const targetId = targets[0]?.id || targets[0];
+      const targetPerm = state.battlefield?.find((p: any) => p.id === targetId);
+      if (targetPerm) {
+        const creatureController = targetPerm.controller as PlayerID;
+        
+        // Create a Clue token for the creature's controller
+        state.battlefield = state.battlefield || [];
+        const clueId = uid("clue");
+        state.battlefield.push({
+          id: clueId,
+          controller: creatureController,
+          owner: creatureController,
+          tapped: false,
+          counters: {},
+          isToken: true,
+          card: {
+            id: clueId,
+            name: "Clue",
+            type_line: "Token Artifact — Clue",
+            oracle_text: "{2}, Sacrifice this artifact: Draw a card.",
+            zone: "battlefield",
+            colors: [],
+          },
+        } as any);
+        
+        console.log(`[resolveTopOfStack] Fateful Absence: Created Clue token for ${creatureController}`);
+      }
+    }
+    
+    // Handle Get Lost - "Destroy target creature, enchantment, or planeswalker. Its controller creates two Map tokens."
+    const isGetLost = card.name?.toLowerCase().includes('get lost') ||
+        (oracleTextLower.includes('destroy target creature') && 
+         oracleTextLower.includes('map token'));
+    
+    if (isGetLost && targets.length > 0) {
+      const targetId = targets[0]?.id || targets[0];
+      const targetPerm = state.battlefield?.find((p: any) => p.id === targetId);
+      if (targetPerm) {
+        const creatureController = targetPerm.controller as PlayerID;
+        
+        // Create two Map tokens for the creature's controller
+        state.battlefield = state.battlefield || [];
+        for (let i = 0; i < 2; i++) {
+          const mapId = uid("map");
+          state.battlefield.push({
+            id: mapId,
+            controller: creatureController,
+            owner: creatureController,
+            tapped: false,
+            counters: {},
+            isToken: true,
+            card: {
+              id: mapId,
+              name: "Map",
+              type_line: "Token Artifact — Map",
+              oracle_text: "{1}, {T}, Sacrifice this artifact: Target creature you control explores. Activate only as a sorcery.",
+              zone: "battlefield",
+              colors: [],
+            },
+          } as any);
+        }
+        
+        console.log(`[resolveTopOfStack] Get Lost: Created 2 Map tokens for ${creatureController}`);
       }
     }
     

@@ -409,6 +409,16 @@ export function applyLifeGain(
     player.life = gameState.life[playerId];
   }
   
+  // Trigger "whenever you gain life" effects (Ajani's Pridemate, Sanguine Bond, etc.)
+  try {
+    const lifeGainTriggers = triggerLifeGainEffects(gameState, playerId, modifiedAmount);
+    if (lifeGainTriggers.length > 0) {
+      console.log(`[applyLifeGain] Triggered ${lifeGainTriggers.length} life gain effect(s)`);
+    }
+  } catch (err) {
+    console.warn('[applyLifeGain] Error triggering life gain effects:', err);
+  }
+  
   if (lifeGainModifiers.extraLife > 0) {
     return { 
       actualChange: modifiedAmount, 
@@ -476,6 +486,179 @@ function checkLifeGainModifiers(
   }
   
   return { extraLife, sources };
+}
+
+/**
+ * Check for and trigger "whenever you gain life" triggers on the battlefield.
+ * This handles cards like:
+ * - Ajani's Pridemate: "Whenever you gain life, put a +1/+1 counter on Ajani's Pridemate."
+ * - Aerith Gainsborough: "Whenever you gain life, put that many +1/+1 counters on Aerith Gainsborough."
+ * - Heliod, Sun-Crowned: "Whenever you gain life, put a +1/+1 counter on target creature or enchantment you control."
+ * - Bloodbond Vampire: "Whenever you gain life, put a +1/+1 counter on Bloodbond Vampire."
+ * - Archangel of Thune: "Whenever you gain life, put a +1/+1 counter on each creature you control."
+ * - Epicure of Blood: "Whenever you gain life, each opponent loses 1 life."
+ * - Marauding Blight-Priest: "Whenever you gain life, each opponent loses 1 life."
+ * - Sanguine Bond: "Whenever you gain life, target opponent loses that much life."
+ * - Defiant Bloodlord: "Whenever you gain life, target opponent loses that much life."
+ * - Vito, Thorn of the Dusk Rose: "Whenever you gain life, target opponent loses that much life."
+ * 
+ * @param gameState - The current game state (will be modified for counter additions)
+ * @param playerId - The player who gained life
+ * @param amountGained - The amount of life gained
+ * @returns Array of triggered effects that occurred
+ */
+export function triggerLifeGainEffects(
+  gameState: any,
+  playerId: string,
+  amountGained: number
+): { permanent: string; effect: string }[] {
+  if (amountGained <= 0) return [];
+  
+  const triggered: { permanent: string; effect: string }[] = [];
+  const battlefield = gameState?.battlefield || [];
+  
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    if (perm.controller !== playerId) continue; // Life gain triggers usually affect controller's permanents
+    
+    const cardName = (perm.card.name || '').toLowerCase();
+    const oracleText = (perm.card.oracle_text || '').toLowerCase();
+    
+    // Check for "whenever you gain life" patterns
+    if (!oracleText.includes('whenever you gain life')) continue;
+    
+    // Ajani's Pridemate, Bloodbond Vampire, etc.: Put a +1/+1 counter on this creature
+    // Pattern: "Whenever you gain life, put a +1/+1 counter on ~"
+    if (oracleText.includes('put a +1/+1 counter on') && 
+        (oracleText.includes('on ~') || oracleText.includes('on this') || cardName.includes('pridemate') || cardName.includes('bloodbond'))) {
+      perm.counters = perm.counters || {};
+      perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + 1;
+      triggered.push({ 
+        permanent: perm.card.name || perm.id, 
+        effect: `Added +1/+1 counter (${perm.counters['+1/+1']} total)` 
+      });
+      console.log(`[triggerLifeGainEffects] ${perm.card.name || perm.id} gained a +1/+1 counter from life gain`);
+    }
+    
+    // Aerith Gainsborough, Light of Promise/Sunbond: Put THAT MANY +1/+1 counters
+    // Pattern: "put that many +1/+1 counters on ~"
+    if (oracleText.includes('that many +1/+1 counters') || 
+        oracleText.includes('that many') && oracleText.includes('+1/+1')) {
+      perm.counters = perm.counters || {};
+      perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + amountGained;
+      triggered.push({ 
+        permanent: perm.card.name || perm.id, 
+        effect: `Added ${amountGained} +1/+1 counter(s) (${perm.counters['+1/+1']} total)` 
+      });
+      console.log(`[triggerLifeGainEffects] ${perm.card.name || perm.id} gained ${amountGained} +1/+1 counter(s) from life gain`);
+    }
+    
+    // Archangel of Thune: Put a +1/+1 counter on EACH creature you control
+    if (oracleText.includes('put a +1/+1 counter on each creature you control') ||
+        cardName.includes('archangel of thune')) {
+      for (const otherPerm of battlefield) {
+        if (!otherPerm || otherPerm.controller !== playerId) continue;
+        const typeLine = (otherPerm.card?.type_line || '').toLowerCase();
+        if (!typeLine.includes('creature')) continue;
+        
+        otherPerm.counters = otherPerm.counters || {};
+        otherPerm.counters['+1/+1'] = (otherPerm.counters['+1/+1'] || 0) + 1;
+      }
+      triggered.push({ 
+        permanent: perm.card.name || perm.id, 
+        effect: 'Added +1/+1 counter to each creature you control' 
+      });
+      console.log(`[triggerLifeGainEffects] ${perm.card.name || perm.id} added +1/+1 counters to all creatures`);
+    }
+    
+    // Epicure of Blood, Marauding Blight-Priest: Each opponent loses 1 life
+    if ((oracleText.includes('each opponent loses 1 life') || 
+         oracleText.includes('each opponent loses one life')) &&
+        !oracleText.includes('that much')) {
+      const players = gameState.players || [];
+      for (const player of players) {
+        if (player.id === playerId || player.hasLost) continue;
+        const currentLife = gameState.life?.[player.id] ?? (gameState.startingLife || 40);
+        gameState.life = gameState.life || {};
+        gameState.life[player.id] = currentLife - 1;
+        player.life = gameState.life[player.id];
+      }
+      triggered.push({ 
+        permanent: perm.card.name || perm.id, 
+        effect: 'Each opponent lost 1 life' 
+      });
+      console.log(`[triggerLifeGainEffects] ${perm.card.name || perm.id} caused each opponent to lose 1 life`);
+    }
+    
+    // Sanguine Bond, Defiant Bloodlord, Vito: Target opponent loses THAT MUCH life
+    // Note: This should really be a targeted effect, but for simplicity we'll hit a random opponent
+    if (oracleText.includes('target opponent loses that much life') ||
+        cardName.includes('sanguine bond') || cardName.includes('vito')) {
+      const players = gameState.players || [];
+      const opponents = players.filter((p: any) => p.id !== playerId && !p.hasLost);
+      if (opponents.length > 0) {
+        const targetOpponent = opponents[0]; // In a real implementation, this would be targeted
+        const currentLife = gameState.life?.[targetOpponent.id] ?? (gameState.startingLife || 40);
+        gameState.life = gameState.life || {};
+        gameState.life[targetOpponent.id] = currentLife - amountGained;
+        targetOpponent.life = gameState.life[targetOpponent.id];
+        triggered.push({ 
+          permanent: perm.card.name || perm.id, 
+          effect: `Target opponent lost ${amountGained} life` 
+        });
+        console.log(`[triggerLifeGainEffects] ${perm.card.name || perm.id} caused opponent to lose ${amountGained} life`);
+      }
+    }
+    
+    // Heliod, Sun-Crowned: Put a +1/+1 counter on target creature or enchantment
+    // Note: This should be a targeted effect, for simplicity we put it on Heliod if it's a creature
+    if (cardName.includes('heliod') && oracleText.includes('put a +1/+1 counter on target creature or enchantment')) {
+      const typeLine = (perm.card?.type_line || '').toLowerCase();
+      if (typeLine.includes('creature')) {
+        perm.counters = perm.counters || {};
+        perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + 1;
+        triggered.push({ 
+          permanent: perm.card.name || perm.id, 
+          effect: `Added +1/+1 counter to self` 
+        });
+        console.log(`[triggerLifeGainEffects] ${perm.card.name || perm.id} gained a +1/+1 counter`);
+      }
+    }
+  }
+  
+  // Also check for attached auras that have life gain triggers (Light of Promise, Sunbond)
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    if (perm.controller !== playerId) continue;
+    
+    const typeLine = (perm.card?.type_line || '').toLowerCase();
+    if (!typeLine.includes('creature')) continue;
+    
+    // Check for attached auras
+    const attachedAuras = battlefield.filter((a: any) => 
+      a?.attachedTo === perm.id && 
+      (a.card?.type_line || '').toLowerCase().includes('aura')
+    );
+    
+    for (const aura of attachedAuras) {
+      const auraOracle = (aura.card?.oracle_text || '').toLowerCase();
+      const auraName = (aura.card?.name || '').toLowerCase();
+      
+      // Light of Promise / Sunbond: "Whenever you gain life, put that many +1/+1 counters on enchanted creature."
+      if ((auraName.includes('light of promise') || auraName.includes('sunbond') ||
+           (auraOracle.includes('whenever you gain life') && auraOracle.includes('that many +1/+1 counters')))) {
+        perm.counters = perm.counters || {};
+        perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + amountGained;
+        triggered.push({ 
+          permanent: `${perm.card.name || perm.id} (via ${aura.card.name || 'Aura'})`, 
+          effect: `Added ${amountGained} +1/+1 counter(s)` 
+        });
+        console.log(`[triggerLifeGainEffects] ${perm.card.name || perm.id} gained ${amountGained} +1/+1 counter(s) from ${aura.card.name || 'Aura'}`);
+      }
+    }
+  }
+  
+  return triggered;
 }
 
 /**
