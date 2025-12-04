@@ -3,7 +3,6 @@ import { ensureGame, getPlayerName } from "./util";
 
 /**
  * Roll a die with the specified number of sides.
- * Uses cryptographically secure randomness.
  * @param sides Number of sides on the die
  * @returns A random number from 1 to sides (inclusive)
  */
@@ -109,12 +108,11 @@ export function registerRandomnessHandlers(io: Server, socket: Socket) {
       });
       
       // Also send as a chat message for game log
-      const emoji = result === 'heads' ? '🪙' : '🪙';
       io.to(gameId).emit("chat", {
         id: `m_${timestamp}`,
         gameId,
         from: "system",
-        message: `${emoji} ${playerName} flipped a coin: ${result.toUpperCase()}`,
+        message: `🪙 ${playerName} flipped a coin: ${result.toUpperCase()}`,
         ts: timestamp,
       });
       

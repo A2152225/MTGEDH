@@ -192,9 +192,6 @@ export function TableLayout(props: {
   players: PlayerRef[];
   permanentsByPlayer: Map<PlayerID, BattlefieldPermanent[]>;
   imagePref?: ImagePref;
-  players: PlayerRef[];
-  permanentsByPlayer: Map<PlayerID, BattlefieldPermanent[]>;
-  imagePref?: ImagePref;
   isYouPlayer?: boolean;
   splitLands?: boolean;
   enableReorderForYou?: boolean;
