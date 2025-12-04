@@ -429,6 +429,103 @@ function creatureWillHaveHaste(
   }
 }
 
+/**
+ * Check if a creature should enter the battlefield tapped due to effects on the battlefield.
+ * This handles cards like:
+ * - Authority of the Consuls: "Creatures your opponents control enter the battlefield tapped."
+ * - Blind Obedience: "Artifacts and creatures your opponents control enter the battlefield tapped."
+ * - Urabrask the Hidden: "Creatures your opponents control enter the battlefield tapped."
+ * - Imposing Sovereign: "Creatures your opponents control enter the battlefield tapped."
+ * - Thalia, Heretic Cathar: "Creatures and nonbasic lands your opponents control enter the battlefield tapped."
+ * - Frozen Aether: "Permanents your opponents control enter the battlefield tapped."
+ * - Kismet: "Artifacts, creatures, and lands your opponents play come into play tapped."
+ * 
+ * @param battlefield - All permanents on the battlefield
+ * @param creatureController - The player who controls the entering creature
+ * @param creatureCard - The creature card entering
+ * @returns true if the creature should enter tapped
+ */
+function checkCreatureEntersTapped(
+  battlefield: any[],
+  creatureController: string,
+  creatureCard: any
+): boolean {
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    
+    const cardName = (perm.card.name || '').toLowerCase();
+    const oracleText = (perm.card.oracle_text || '').toLowerCase();
+    const permController = perm.controller;
+    
+    // Skip if this is controlled by the same player (these effects affect opponents)
+    if (permController === creatureController) continue;
+    
+    // Authority of the Consuls: "Creatures your opponents control enter the battlefield tapped."
+    if (cardName.includes('authority of the consuls') ||
+        (oracleText.includes('creatures your opponents control enter') && oracleText.includes('tapped'))) {
+      console.log(`[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+      return true;
+    }
+    
+    // Blind Obedience: "Artifacts and creatures your opponents control enter the battlefield tapped."
+    if (cardName.includes('blind obedience') ||
+        (oracleText.includes('artifacts and creatures your opponents control enter') && oracleText.includes('tapped'))) {
+      console.log(`[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+      return true;
+    }
+    
+    // Urabrask the Hidden: "Creatures your opponents control enter the battlefield tapped."
+    if (cardName.includes('urabrask the hidden') ||
+        cardName.includes('urabrask,')) {
+      if (oracleText.includes('creatures your opponents control enter') && oracleText.includes('tapped')) {
+        console.log(`[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+        return true;
+      }
+    }
+    
+    // Imposing Sovereign: "Creatures your opponents control enter the battlefield tapped."
+    if (cardName.includes('imposing sovereign')) {
+      console.log(`[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+      return true;
+    }
+    
+    // Thalia, Heretic Cathar: "Creatures and nonbasic lands your opponents control enter the battlefield tapped."
+    if (cardName.includes('thalia, heretic cathar') ||
+        (oracleText.includes('creatures') && oracleText.includes('your opponents control enter') && oracleText.includes('tapped'))) {
+      console.log(`[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+      return true;
+    }
+    
+    // Frozen Aether: "Permanents your opponents control enter the battlefield tapped."
+    if (cardName.includes('frozen aether') ||
+        (oracleText.includes('permanents your opponents control enter') && oracleText.includes('tapped'))) {
+      console.log(`[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+      return true;
+    }
+    
+    // Kismet: "Artifacts, creatures, and lands your opponents play come into play tapped."
+    if (cardName.includes('kismet') ||
+        (oracleText.includes('creatures') && oracleText.includes('your opponents') && oracleText.includes('play') && oracleText.includes('tapped'))) {
+      console.log(`[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+      return true;
+    }
+    
+    // Generic pattern detection: "creatures your opponents control enter the battlefield tapped"
+    // This catches future cards with similar text
+    if (oracleText.includes('creatures') && 
+        oracleText.includes('opponents') && 
+        oracleText.includes('control') &&
+        oracleText.includes('enter') && 
+        oracleText.includes('battlefield') &&
+        oracleText.includes('tapped')) {
+      console.log(`[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'} (generic pattern)`);
+      return true;
+    }
+  }
+  
+  return false;
+}
+
 /* Push an item onto the stack */
 export function pushStack(
   ctx: GameContext,
@@ -1595,13 +1692,19 @@ export function resolveTopOfStack(ctx: GameContext) {
       console.log(`[resolveTopOfStack] ${card.name} enters with ${count} ${counterType} counter(s)`);
     }
     
+    // Check if this creature should enter tapped due to effects like Authority of the Consuls, Blind Obedience, etc.
+    let shouldEnterTapped = false;
+    if (isCreature) {
+      shouldEnterTapped = checkCreatureEntersTapped(state.battlefield || [], controller, card);
+    }
+    
     state.battlefield = state.battlefield || [];
     const newPermId = uid("perm");
     const newPermanent = {
       id: newPermId,
       controller,
       owner: controller,
-      tapped: false,
+      tapped: shouldEnterTapped,
       counters: Object.keys(initialCounters).length > 0 ? initialCounters : undefined,
       basePower: baseP,
       baseToughness: baseT,
@@ -1612,7 +1715,9 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Build a readable status message for logging
     let statusNote = '';
-    if (hasSummoningSickness) {
+    if (shouldEnterTapped) {
+      statusNote = ' (enters tapped)';
+    } else if (hasSummoningSickness) {
       statusNote = ' (summoning sickness)';
     } else if (hasHaste) {
       statusNote = ' (haste)';
@@ -1679,9 +1784,70 @@ export function resolveTopOfStack(ctx: GameContext) {
             }
             etbTriggers.push({ ...trigger, permanentId: perm.id });
           } else if (trigger.triggerType === 'another_permanent_etb') {
+            // Check color restriction if any (e.g., "white or black creature" for Auriok Champion)
+            if ((trigger as any).colorRestriction) {
+              const restriction = (trigger as any).colorRestriction.toLowerCase();
+              const enteringColors = card.colors || [];
+              
+              // Parse color restriction (e.g., "white or black", "red", "nonwhite")
+              let matchesColor = false;
+              if (restriction.includes('white') && (enteringColors.includes('W') || enteringColors.includes('white'))) {
+                matchesColor = true;
+              }
+              if (restriction.includes('black') && (enteringColors.includes('B') || enteringColors.includes('black'))) {
+                matchesColor = true;
+              }
+              if (restriction.includes('blue') && (enteringColors.includes('U') || enteringColors.includes('blue'))) {
+                matchesColor = true;
+              }
+              if (restriction.includes('red') && (enteringColors.includes('R') || enteringColors.includes('red'))) {
+                matchesColor = true;
+              }
+              if (restriction.includes('green') && (enteringColors.includes('G') || enteringColors.includes('green'))) {
+                matchesColor = true;
+              }
+              
+              // Handle "nonX" restrictions (e.g., "nonwhite", "nonblack")
+              if (restriction.startsWith('non')) {
+                const excludedColor = restriction.slice(3);
+                const colorMap: Record<string, string> = { 'white': 'W', 'blue': 'U', 'black': 'B', 'red': 'R', 'green': 'G' };
+                const excludedColorCode = colorMap[excludedColor];
+                matchesColor = !enteringColors.includes(excludedColorCode);
+              }
+              
+              if (!matchesColor) {
+                continue; // Skip - entering creature doesn't match color restriction
+              }
+            }
             etbTriggers.push({ ...trigger, permanentId: perm.id });
           } else if (trigger.triggerType === 'permanent_etb') {
             // Altar of the Brood style - triggers on ANY permanent entering (not just yours)
+            // Check color restriction if any (e.g., Auriok Champion)
+            if ((trigger as any).colorRestriction) {
+              const restriction = (trigger as any).colorRestriction.toLowerCase();
+              const enteringColors = card.colors || [];
+              
+              let matchesColor = false;
+              if (restriction.includes('white') && (enteringColors.includes('W') || enteringColors.includes('white'))) {
+                matchesColor = true;
+              }
+              if (restriction.includes('black') && (enteringColors.includes('B') || enteringColors.includes('black'))) {
+                matchesColor = true;
+              }
+              if (restriction.includes('blue') && (enteringColors.includes('U') || enteringColors.includes('blue'))) {
+                matchesColor = true;
+              }
+              if (restriction.includes('red') && (enteringColors.includes('R') || enteringColors.includes('red'))) {
+                matchesColor = true;
+              }
+              if (restriction.includes('green') && (enteringColors.includes('G') || enteringColors.includes('green'))) {
+                matchesColor = true;
+              }
+              
+              if (!matchesColor) {
+                continue; // Skip - entering creature doesn't match color restriction
+              }
+            }
             etbTriggers.push({ ...trigger, permanentId: perm.id });
           }
         }

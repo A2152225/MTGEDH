@@ -846,8 +846,14 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   // "Whenever another permanent enters the battlefield" - ANY permanent, not just yours
   // This is the Altar of the Brood pattern: "Whenever another permanent enters the battlefield, each opponent mills a card."
   // Also catches variations like "whenever another creature enters the battlefield"
-  const anotherPermanentAnyETBMatch = oracleText.match(/whenever another (?:creature|permanent) enters the battlefield(?!.*under your control),?\s*([^.]+)/i);
+  // Also catches color-restricted patterns like "whenever another white or black creature enters" (Auriok Champion)
+  // The pattern allows optional color/type modifiers before "creature" or "permanent"
+  const anotherPermanentAnyETBMatch = oracleText.match(/whenever another (?:[\w\s]+)?(?:creature|permanent) enters the battlefield(?!.*under your control),?\s*([^.]+)/i);
   if (anotherPermanentAnyETBMatch && !triggers.some(t => t.triggerType === 'permanent_etb')) {
+    // Extract any color restriction for filtering at trigger evaluation time
+    const colorRestrictionMatch = oracleText.match(/whenever another ([\w\s]+?) (?:creature|permanent) enters/i);
+    const colorRestriction = colorRestrictionMatch ? colorRestrictionMatch[1].trim().toLowerCase() : null;
+    
     triggers.push({
       permanentId,
       cardName,
@@ -855,12 +861,19 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       description: anotherPermanentAnyETBMatch[1].trim(),
       effect: anotherPermanentAnyETBMatch[1].trim(),
       mandatory: true,
-    });
+      // Store color restriction for filtering (e.g., "white or black" for Auriok Champion)
+      colorRestriction: colorRestriction && colorRestriction !== 'another' ? colorRestriction : undefined,
+    } as any);
   }
   
   // "Whenever another permanent enters the battlefield under your control"
-  const anotherPermanentETBMatch = oracleText.match(/whenever another (?:creature|permanent) enters the battlefield under your control,?\s*([^.]+)/i);
+  // Also handles color-restricted patterns
+  const anotherPermanentETBMatch = oracleText.match(/whenever another (?:[\w\s]+)?(?:creature|permanent) enters the battlefield under your control,?\s*([^.]+)/i);
   if (anotherPermanentETBMatch && !triggers.some(t => t.triggerType === 'another_permanent_etb')) {
+    // Extract any color restriction
+    const colorRestrictionMatch = oracleText.match(/whenever another ([\w\s]+?) (?:creature|permanent) enters the battlefield under your control/i);
+    const colorRestriction = colorRestrictionMatch ? colorRestrictionMatch[1].trim().toLowerCase() : null;
+    
     triggers.push({
       permanentId,
       cardName,
@@ -868,7 +881,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       description: anotherPermanentETBMatch[1].trim(),
       effect: anotherPermanentETBMatch[1].trim(),
       mandatory: true,
-    });
+      colorRestriction: colorRestriction && colorRestriction !== 'another' ? colorRestriction : undefined,
+    } as any);
   }
   
   // "As [this] enters the battlefield, choose" - Modal permanents like Outpost Siege
