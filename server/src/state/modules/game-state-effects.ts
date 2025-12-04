@@ -1625,46 +1625,66 @@ export function calculateModifiedDamage(
   damageDealer: string,
   damageReceiver: string
 ): { amount: number; modifiers: string[] } {
-  let modifiedAmount = damageAmount;
-  const modifiers: string[] = [];
+  const isToOpponent = damageDealer !== damageReceiver;
   
-  const battlefield = getActivePermanents(ctx);
+  // Detect all replacement effects that apply
+  const effects = detectDamageReplacementEffects(ctx, damageDealer, damageReceiver, isToOpponent);
   
-  for (const perm of battlefield) {
-    const cardName = (perm.card?.name || "").toLowerCase();
-    const controller = perm.controller;
-    
-    // Check for Gisela, Blade of Goldnight
-    if (cardName.includes("gisela, blade of goldnight")) {
-      // "If a source would deal damage to an opponent of Gisela's controller or to a permanent
-      // an opponent controls, that source deals double that damage to that player or permanent instead."
-      if (controller === damageDealer && controller !== damageReceiver) {
-        modifiedAmount *= 2;
-        modifiers.push("Gisela doubles damage to opponents");
-      }
-      
-      // "If a source would deal damage to you or a permanent you control, 
-      // prevent half that damage, rounded up."
-      if (controller === damageReceiver) {
-        modifiedAmount = Math.floor(modifiedAmount / 2);
-        modifiers.push("Gisela halves damage to controller");
-      }
-    }
-    
-    // Check for Furnace of Rath / Dictate of the Twin Gods
-    if (cardName.includes("furnace of rath") || cardName.includes("dictate of the twin gods")) {
-      modifiedAmount *= 2;
-      modifiers.push(`${perm.card?.name || "Effect"} doubles damage`);
-    }
-    
-    // Check for Fiery Emancipation (triples damage)
-    if (cardName.includes("fiery emancipation") && controller === damageDealer) {
-      modifiedAmount *= 3;
-      modifiers.push("Fiery Emancipation triples damage");
+  if (effects.length === 0) {
+    return { amount: damageAmount, modifiers: [] };
+  }
+  
+  // The attacker wants to MAXIMIZE damage to opponents
+  // The defender wants to MINIMIZE damage received
+  // 
+  // Per MTG rules, the affected player/object's controller chooses order.
+  // For damage to a player, that player chooses (to minimize).
+  // But some effects belong to the attacker (Fiery Emancipation, Torbran).
+  // 
+  // Simplification: 
+  // - Effects owned by attacker (maximize): +1 first, then doublers
+  // - Effects owned by defender (minimize): halve first, then doublers, then +1
+  // - Global effects (Furnace of Rath): just apply them
+  
+  const attackerEffects = effects.filter(e => e.controllerId === damageDealer);
+  const defenderEffects = effects.filter(e => e.controllerId === damageReceiver);
+  const globalEffects = effects.filter(e => 
+    e.controllerId !== damageDealer && e.controllerId !== damageReceiver
+  );
+  
+  let result = damageAmount;
+  const allApplied: string[] = [];
+  
+  // Attacker's effects - applied in beneficial order (maximize damage)
+  if (attackerEffects.length > 0) {
+    const attackerResult = applyDamageReplacementsMaximized(result, attackerEffects);
+    result = attackerResult.finalAmount;
+    allApplied.push(...attackerResult.appliedEffects);
+  }
+  
+  // Global effects (like Furnace of Rath) - just apply doublers
+  for (const effect of globalEffects) {
+    const before = result;
+    if (effect.type === 'double') {
+      result *= 2;
+      allApplied.push(`${effect.source}: doubled (${before} -> ${result})`);
+    } else if (effect.type === 'triple') {
+      result *= 3;
+      allApplied.push(`${effect.source}: tripled (${before} -> ${result})`);
+    } else if (effect.type === 'add_flat') {
+      result += effect.value || 1;
+      allApplied.push(`${effect.source}: +${effect.value || 1} (${before} -> ${result})`);
     }
   }
   
-  return { amount: modifiedAmount, modifiers };
+  // Defender's effects - applied to minimize damage
+  if (defenderEffects.length > 0) {
+    const defenderResult = applyDamageReplacementsMinimized(result, defenderEffects);
+    result = defenderResult.finalAmount;
+    allApplied.push(...defenderResult.appliedEffects);
+  }
+  
+  return { amount: Math.max(0, result), modifiers: allApplied };
 }
 
 /**
@@ -1858,6 +1878,594 @@ export function applyCombatDamageReplacement(
   }
   
   return result;
+}
+
+/**
+ * Replacement Effect Ordering System
+ * 
+ * MTG Rule 616.1: If two or more replacement effects would apply to a single event,
+ * the affected object's controller (or its owner if it has no controller) or
+ * the affected player chooses one to apply first.
+ * 
+ * OPTIMIZATION RULES FOR AUTOMATED ORDERING:
+ * 
+ * For BENEFICIAL effects (gaining life, counters, tokens, creature P/T):
+ * - Apply +1 (singular increase) effects BEFORE doublers
+ * - This maximizes the final value: (X + 1) * 2 > (X * 2) + 1
+ * - Example: 3 life with Leyline of Hope (+1) and Boon Reflection (double)
+ *   - Optimal: (3 + 1) * 2 = 8 life
+ *   - Suboptimal: (3 * 2) + 1 = 7 life
+ * 
+ * For HARMFUL effects (receiving damage):
+ * - The receiver chooses to MINIMIZE damage
+ * - Apply doublers BEFORE +1 effects: (X * 2) + 1 < (X + 1) * 2
+ * - Apply halving effects strategically:
+ *   - If you can reduce to 0 with -1 effects, apply those first
+ *   - Otherwise, halving should typically go first (Gisela)
+ */
+
+export type ReplacementEffectType = 
+  | 'add_flat'      // +1, +2, etc.
+  | 'double'        // *2
+  | 'triple'        // *3
+  | 'halve'         // /2 (rounded down)
+  | 'halve_round_up' // /2 (rounded up, like Gisela's prevention)
+  | 'prevent';      // Set to 0
+
+export interface ReplacementEffect {
+  type: ReplacementEffectType;
+  value?: number;     // For 'add_flat' type
+  source: string;     // Card name that provides this effect
+  controllerId?: string; // Who controls the source
+}
+
+/**
+ * Apply replacement effects in optimal order for BENEFICIAL outcomes.
+ * Used for: life gain, counter gain, token creation, power/toughness buffs.
+ * 
+ * Order: add_flat -> double -> triple
+ * This maximizes the final value.
+ * 
+ * @param baseAmount - Starting amount before any replacements
+ * @param effects - Array of replacement effects to apply
+ * @returns { finalAmount, appliedEffects } - Result and description of what was applied
+ */
+export function applyBeneficialReplacements(
+  baseAmount: number,
+  effects: ReplacementEffect[]
+): { finalAmount: number; appliedEffects: string[] } {
+  const appliedEffects: string[] = [];
+  let amount = baseAmount;
+  
+  // Sort effects: add_flat first, then double, then triple
+  const sortedEffects = [...effects].sort((a, b) => {
+    const order: Record<ReplacementEffectType, number> = {
+      'add_flat': 1,
+      'halve': 2,        // Rarely beneficial, but include for completeness
+      'halve_round_up': 2,
+      'double': 3,
+      'triple': 4,
+      'prevent': 5,
+    };
+    return (order[a.type] || 99) - (order[b.type] || 99);
+  });
+  
+  for (const effect of sortedEffects) {
+    const before = amount;
+    switch (effect.type) {
+      case 'add_flat':
+        amount += effect.value || 1;
+        appliedEffects.push(`${effect.source}: +${effect.value || 1} (${before} -> ${amount})`);
+        break;
+      case 'double':
+        amount *= 2;
+        appliedEffects.push(`${effect.source}: doubled (${before} -> ${amount})`);
+        break;
+      case 'triple':
+        amount *= 3;
+        appliedEffects.push(`${effect.source}: tripled (${before} -> ${amount})`);
+        break;
+      case 'halve':
+        amount = Math.floor(amount / 2);
+        appliedEffects.push(`${effect.source}: halved (${before} -> ${amount})`);
+        break;
+      case 'halve_round_up':
+        amount = Math.ceil(amount / 2);
+        appliedEffects.push(`${effect.source}: halved rounded up (${before} -> ${amount})`);
+        break;
+      case 'prevent':
+        amount = 0;
+        appliedEffects.push(`${effect.source}: prevented (${before} -> 0)`);
+        break;
+    }
+  }
+  
+  return { finalAmount: Math.max(0, amount), appliedEffects };
+}
+
+/**
+ * Apply replacement effects in optimal order for MINIMIZING HARMFUL outcomes.
+ * Used for: damage received by a player.
+ * 
+ * Order strategy to minimize damage:
+ * 1. Check if we can reduce to 0 with prevention or enough -1 effects
+ * 2. Otherwise: halve first -> double -> add_flat -> triple
+ * 
+ * The receiver chooses order to minimize final damage.
+ * 
+ * @param baseAmount - Starting damage amount
+ * @param effects - Array of replacement effects to apply
+ * @returns { finalAmount, appliedEffects } - Result and description of what was applied
+ */
+export function applyDamageReplacementsMinimized(
+  baseAmount: number,
+  effects: ReplacementEffect[]
+): { finalAmount: number; appliedEffects: string[] } {
+  const appliedEffects: string[] = [];
+  let amount = baseAmount;
+  
+  // Check for prevention first
+  const preventEffects = effects.filter(e => e.type === 'prevent');
+  if (preventEffects.length > 0) {
+    appliedEffects.push(`${preventEffects[0].source}: prevented (${amount} -> 0)`);
+    return { finalAmount: 0, appliedEffects };
+  }
+  
+  // Sort effects to minimize damage:
+  // halve/halve_round_up -> double -> add_flat -> triple
+  // Halving early is usually better: halve(10) + 1 = 6, vs halve(10+1) = 5 (halve later is better)
+  // Actually for minimizing: (X + 1) / 2 < X/2 + 1, so add_flat before halve is better
+  // Let's be more careful:
+  // To minimize: we want doublers applied to smallest base
+  // So: halve first, then double (so double applies to halved), then add_flat last
+  const sortedEffects = [...effects].sort((a, b) => {
+    const order: Record<ReplacementEffectType, number> = {
+      'prevent': 0,       // Already handled above
+      'halve_round_up': 1, // Halve first (Gisela's prevention style)
+      'halve': 2,
+      'double': 3,
+      'triple': 4,
+      'add_flat': 5,      // Add last so it's not doubled/tripled
+    };
+    return (order[a.type] || 99) - (order[b.type] || 99);
+  });
+  
+  for (const effect of sortedEffects) {
+    const before = amount;
+    switch (effect.type) {
+      case 'add_flat':
+        amount += effect.value || 1;
+        appliedEffects.push(`${effect.source}: +${effect.value || 1} (${before} -> ${amount})`);
+        break;
+      case 'double':
+        amount *= 2;
+        appliedEffects.push(`${effect.source}: doubled (${before} -> ${amount})`);
+        break;
+      case 'triple':
+        amount *= 3;
+        appliedEffects.push(`${effect.source}: tripled (${before} -> ${amount})`);
+        break;
+      case 'halve':
+        amount = Math.floor(amount / 2);
+        appliedEffects.push(`${effect.source}: halved (${before} -> ${amount})`);
+        break;
+      case 'halve_round_up':
+        amount = Math.ceil(amount / 2);
+        appliedEffects.push(`${effect.source}: halved rounded up (${before} -> ${amount})`);
+        break;
+      case 'prevent':
+        // Already handled above
+        break;
+    }
+  }
+  
+  return { finalAmount: Math.max(0, amount), appliedEffects };
+}
+
+/**
+ * Apply replacement effects in optimal order for MAXIMIZING DAMAGE TO OPPONENTS.
+ * Used for: damage dealt by the attacker to opponents.
+ * 
+ * Order: add_flat -> double -> triple (maximize final damage)
+ * 
+ * @param baseAmount - Starting damage amount
+ * @param effects - Array of replacement effects to apply
+ * @returns { finalAmount, appliedEffects } - Result and description of what was applied
+ */
+export function applyDamageReplacementsMaximized(
+  baseAmount: number,
+  effects: ReplacementEffect[]
+): { finalAmount: number; appliedEffects: string[] } {
+  // For maximizing damage, use the same logic as beneficial replacements
+  return applyBeneficialReplacements(baseAmount, effects);
+}
+
+/**
+ * Detect all damage replacement effects from the battlefield that apply to a specific damage event.
+ * 
+ * @param ctx - Game context
+ * @param damageDealer - Player ID dealing the damage (controller of source)
+ * @param damageReceiver - Player ID receiving the damage
+ * @param isToOpponent - True if damage is being dealt TO an opponent
+ * @returns Array of replacement effects that apply
+ */
+export function detectDamageReplacementEffects(
+  ctx: GameContext,
+  damageDealer: string,
+  damageReceiver: string,
+  isToOpponent: boolean
+): ReplacementEffect[] {
+  const effects: ReplacementEffect[] = [];
+  const battlefield = getActivePermanents(ctx);
+  
+  for (const perm of battlefield) {
+    const cardName = (perm.card?.name || "").toLowerCase();
+    const controller = perm.controller;
+    
+    // Gisela, Blade of Goldnight
+    if (cardName.includes("gisela, blade of goldnight")) {
+      if (controller === damageDealer && isToOpponent) {
+        // Double damage to opponents
+        effects.push({
+          type: 'double',
+          source: "Gisela, Blade of Goldnight (double)",
+          controllerId: controller,
+        });
+      }
+      if (controller === damageReceiver && !isToOpponent) {
+        // Halve damage to self (rounded up = damage rounded down)
+        effects.push({
+          type: 'halve',
+          source: "Gisela, Blade of Goldnight (halve)",
+          controllerId: controller,
+        });
+      }
+    }
+    
+    // Furnace of Rath / Dictate of the Twin Gods - doubles ALL damage
+    if (cardName.includes("furnace of rath") || cardName.includes("dictate of the twin gods")) {
+      effects.push({
+        type: 'double',
+        source: perm.card?.name || "Damage Doubler",
+        controllerId: controller,
+      });
+    }
+    
+    // Fiery Emancipation - triples damage dealt by sources you control
+    if (cardName.includes("fiery emancipation") && controller === damageDealer) {
+      effects.push({
+        type: 'triple',
+        source: "Fiery Emancipation",
+        controllerId: controller,
+      });
+    }
+    
+    // Torbran, Thane of Red Fell - +2 damage from red sources you control
+    if (cardName.includes("torbran, thane of red fell") && controller === damageDealer) {
+      effects.push({
+        type: 'add_flat',
+        value: 2,
+        source: "Torbran, Thane of Red Fell",
+        controllerId: controller,
+      });
+    }
+    
+    // City on Fire - triples damage from sources you control
+    if (cardName.includes("city on fire") && controller === damageDealer) {
+      effects.push({
+        type: 'triple',
+        source: "City on Fire",
+        controllerId: controller,
+      });
+    }
+    
+    // Embermaw Hellion - +1 damage from red sources you control
+    if (cardName.includes("embermaw hellion") && controller === damageDealer) {
+      effects.push({
+        type: 'add_flat',
+        value: 1,
+        source: "Embermaw Hellion",
+        controllerId: controller,
+      });
+    }
+    
+    // Angrath's Marauders - double damage from sources you control
+    if (cardName.includes("angrath's marauders") && controller === damageDealer) {
+      effects.push({
+        type: 'double',
+        source: "Angrath's Marauders",
+        controllerId: controller,
+      });
+    }
+  }
+  
+  return effects;
+}
+
+/**
+ * Detect counter modification effects for "whenever you put counters" replacements.
+ * Used for Doubling Season, Hardened Scales, etc.
+ * 
+ * @param ctx - Game context
+ * @param controllerId - Player putting counters
+ * @param counterType - Type of counter ('+1/+1', 'loyalty', etc.)
+ * @returns Array of replacement effects
+ */
+export function detectCounterReplacementEffects(
+  ctx: GameContext,
+  controllerId: string,
+  counterType: string
+): ReplacementEffect[] {
+  const effects: ReplacementEffect[] = [];
+  const battlefield = getActivePermanents(ctx);
+  
+  for (const perm of battlefield) {
+    const cardName = (perm.card?.name || "").toLowerCase();
+    const oracleText = (perm.card?.oracle_text || "").toLowerCase();
+    const controller = perm.controller;
+    
+    // Doubling Season - doubles counters put on permanents you control
+    if (cardName.includes("doubling season") && controller === controllerId) {
+      effects.push({
+        type: 'double',
+        source: "Doubling Season",
+        controllerId: controller,
+      });
+    }
+    
+    // Hardened Scales - +1 to +1/+1 counters
+    if (cardName.includes("hardened scales") && controller === controllerId && counterType === '+1/+1') {
+      effects.push({
+        type: 'add_flat',
+        value: 1,
+        source: "Hardened Scales",
+        controllerId: controller,
+      });
+    }
+    
+    // Branching Evolution - doubles +1/+1 counters on creatures
+    if (cardName.includes("branching evolution") && controller === controllerId && counterType === '+1/+1') {
+      effects.push({
+        type: 'double',
+        source: "Branching Evolution",
+        controllerId: controller,
+      });
+    }
+    
+    // Vorinclex, Monstrous Raider - doubles counters on your permanents
+    if (cardName.includes("vorinclex, monstrous raider") && controller === controllerId) {
+      effects.push({
+        type: 'double',
+        source: "Vorinclex, Monstrous Raider",
+        controllerId: controller,
+      });
+    }
+    
+    // Winding Constrictor - +1 to counters on permanents you control
+    if (cardName.includes("winding constrictor") && controller === controllerId) {
+      effects.push({
+        type: 'add_flat',
+        value: 1,
+        source: "Winding Constrictor",
+        controllerId: controller,
+      });
+    }
+    
+    // Corpsejack Menace - doubles +1/+1 counters
+    if (cardName.includes("corpsejack menace") && controller === controllerId && counterType === '+1/+1') {
+      effects.push({
+        type: 'double',
+        source: "Corpsejack Menace",
+        controllerId: controller,
+      });
+    }
+    
+    // Pir, Imaginative Rascal - +1 to counters on permanents you control
+    if (cardName.includes("pir, imaginative rascal") && controller === controllerId) {
+      effects.push({
+        type: 'add_flat',
+        value: 1,
+        source: "Pir, Imaginative Rascal",
+        controllerId: controller,
+      });
+    }
+  }
+  
+  return effects;
+}
+
+/**
+ * Detect life gain modification effects.
+ * Used for Boon Reflection, Rhox Faithmender, etc.
+ * 
+ * @param ctx - Game context  
+ * @param playerId - Player gaining life
+ * @returns Array of replacement effects
+ */
+export function detectLifeGainReplacementEffects(
+  ctx: GameContext,
+  playerId: string
+): ReplacementEffect[] {
+  const effects: ReplacementEffect[] = [];
+  const battlefield = getActivePermanents(ctx);
+  
+  for (const perm of battlefield) {
+    const cardName = (perm.card?.name || "").toLowerCase();
+    const controller = perm.controller;
+    
+    // Boon Reflection - double life gained
+    if (cardName.includes("boon reflection") && controller === playerId) {
+      effects.push({
+        type: 'double',
+        source: "Boon Reflection",
+        controllerId: controller,
+      });
+    }
+    
+    // Rhox Faithmender - double life gained  
+    if (cardName.includes("rhox faithmender") && controller === playerId) {
+      effects.push({
+        type: 'double',
+        source: "Rhox Faithmender",
+        controllerId: controller,
+      });
+    }
+    
+    // Trostani, Selesnya's Voice - (actually just has life gain trigger, not replacement)
+    
+    // Alhammarret's Archive - double life gained
+    if (cardName.includes("alhammarret's archive") && controller === playerId) {
+      effects.push({
+        type: 'double',
+        source: "Alhammarret's Archive",
+        controllerId: controller,
+      });
+    }
+    
+    // Leyline of Hope - +1 life gained
+    if (cardName.includes("leyline of hope") && controller === playerId) {
+      effects.push({
+        type: 'add_flat',
+        value: 1,
+        source: "Leyline of Hope",
+        controllerId: controller,
+      });
+    }
+    
+    // Angel of Vitality - +1 life gained if you have 25+ life
+    if (cardName.includes("angel of vitality") && controller === playerId) {
+      const currentLife = (ctx.state as any)?.life?.[playerId] ?? 40;
+      if (currentLife >= 25) {
+        effects.push({
+          type: 'add_flat',
+          value: 1,
+          source: "Angel of Vitality",
+          controllerId: controller,
+        });
+      }
+    }
+  }
+  
+  return effects;
+}
+
+/**
+ * Detect token creation modification effects.
+ * Used for Doubling Season, Parallel Lives, etc.
+ * 
+ * @param ctx - Game context
+ * @param controllerId - Player creating tokens
+ * @returns Array of replacement effects
+ */
+export function detectTokenCreationReplacementEffects(
+  ctx: GameContext,
+  controllerId: string
+): ReplacementEffect[] {
+  const effects: ReplacementEffect[] = [];
+  const battlefield = getActivePermanents(ctx);
+  
+  for (const perm of battlefield) {
+    const cardName = (perm.card?.name || "").toLowerCase();
+    const controller = perm.controller;
+    
+    // Doubling Season - doubles tokens created
+    if (cardName.includes("doubling season") && controller === controllerId) {
+      effects.push({
+        type: 'double',
+        source: "Doubling Season",
+        controllerId: controller,
+      });
+    }
+    
+    // Parallel Lives - doubles tokens created
+    if (cardName.includes("parallel lives") && controller === controllerId) {
+      effects.push({
+        type: 'double',
+        source: "Parallel Lives",
+        controllerId: controller,
+      });
+    }
+    
+    // Anointed Procession - doubles tokens created
+    if (cardName.includes("anointed procession") && controller === controllerId) {
+      effects.push({
+        type: 'double',
+        source: "Anointed Procession",
+        controllerId: controller,
+      });
+    }
+    
+    // Primal Vigor - doubles tokens for all players
+    if (cardName.includes("primal vigor")) {
+      effects.push({
+        type: 'double',
+        source: "Primal Vigor",
+        controllerId: controller,
+      });
+    }
+    
+    // Mondrak, Glory Dominus - doubles tokens created
+    if (cardName.includes("mondrak, glory dominus") && controller === controllerId) {
+      effects.push({
+        type: 'double',
+        source: "Mondrak, Glory Dominus",
+        controllerId: controller,
+      });
+    }
+    
+    // Ojer Taq, Deepest Foundation - triples tokens created
+    if (cardName.includes("ojer taq, deepest foundation") && controller === controllerId) {
+      effects.push({
+        type: 'triple',
+        source: "Ojer Taq, Deepest Foundation",
+        controllerId: controller,
+      });
+    }
+  }
+  
+  return effects;
+}
+
+/**
+ * Apply counter replacement effects in optimal order (beneficial).
+ * Order: +1 effects first, then doublers (maximizes counters).
+ */
+export function applyCounterReplacements(
+  ctx: GameContext,
+  baseCount: number,
+  controllerId: string,
+  counterType: string
+): { finalCount: number; appliedEffects: string[] } {
+  const effects = detectCounterReplacementEffects(ctx, controllerId, counterType);
+  const result = applyBeneficialReplacements(baseCount, effects);
+  return { finalCount: result.finalAmount, appliedEffects: result.appliedEffects };
+}
+
+/**
+ * Apply life gain replacement effects in optimal order (beneficial).
+ * Order: +1 effects first, then doublers (maximizes life gained).
+ */
+export function applyLifeGainReplacements(
+  ctx: GameContext,
+  baseAmount: number,
+  playerId: string
+): { finalAmount: number; appliedEffects: string[] } {
+  const effects = detectLifeGainReplacementEffects(ctx, playerId);
+  return applyBeneficialReplacements(baseAmount, effects);
+}
+
+/**
+ * Apply token creation replacement effects in optimal order (beneficial).
+ * Since there are no +1 token effects currently, this just applies doublers.
+ */
+export function applyTokenCreationReplacements(
+  ctx: GameContext,
+  baseCount: number,
+  controllerId: string
+): { finalCount: number; appliedEffects: string[] } {
+  const effects = detectTokenCreationReplacementEffects(ctx, controllerId);
+  const result = applyBeneficialReplacements(baseCount, effects);
+  return { finalCount: result.finalAmount, appliedEffects: result.appliedEffects };
 }
 
 

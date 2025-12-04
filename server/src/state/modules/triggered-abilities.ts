@@ -1072,6 +1072,8 @@ export interface AttachmentAttackTrigger {
   drawsCards?: boolean;
   exilesCards?: boolean;
   createsToken?: boolean;
+  // For Spirit Loop-style effects that trigger on any damage (not just combat)
+  anyDamage?: boolean;
 }
 
 /**

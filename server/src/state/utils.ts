@@ -387,13 +387,29 @@ export function applyLifeGain(
     };
   }
   
-  // Check for "gain that much plus X" replacement effects
-  // These modify the amount of life gained (e.g., Leyline of Hope: gain X+1 instead)
+  // Check for replacement effects that modify the amount of life gained
+  // Uses optimal ordering: +1 effects first, then doublers
+  // This maximizes life gained: (X + 1) * 2 > (X * 2) + 1
   let modifiedAmount = amount;
+  const appliedReplacements: string[] = [];
+  
+  // Get +1 modifiers (Leyline of Hope, Angel of Vitality)
   const lifeGainModifiers = checkLifeGainModifiers(gameState, playerId);
   if (lifeGainModifiers.extraLife > 0) {
-    modifiedAmount = amount + lifeGainModifiers.extraLife;
-    console.log(`[applyLifeGain] Life gain modified by ${lifeGainModifiers.sources.join(', ')}: ${amount} -> ${modifiedAmount}`);
+    modifiedAmount += lifeGainModifiers.extraLife;
+    appliedReplacements.push(...lifeGainModifiers.sources.map(s => `${s}: +${lifeGainModifiers.extraLife}`));
+  }
+  
+  // Check for doublers (Boon Reflection, Rhox Faithmender, Alhammarret's Archive)
+  // Apply AFTER +1 effects to maximize life gained
+  const lifeGainDoublers = checkLifeGainDoublers(gameState, playerId);
+  if (lifeGainDoublers.multiplier > 1) {
+    modifiedAmount *= lifeGainDoublers.multiplier;
+    appliedReplacements.push(...lifeGainDoublers.sources.map(s => `${s}: x${lifeGainDoublers.multiplier}`));
+  }
+  
+  if (appliedReplacements.length > 0) {
+    console.log(`[applyLifeGain] Life gain modified by replacements: ${amount} -> ${modifiedAmount} (${appliedReplacements.join(', ')})`);
   }
   
   // Normal life gain (with modifiers applied)
@@ -419,12 +435,12 @@ export function applyLifeGain(
     console.warn('[applyLifeGain] Error triggering life gain effects:', err);
   }
   
-  if (lifeGainModifiers.extraLife > 0) {
+  if (appliedReplacements.length > 0) {
     return { 
       actualChange: modifiedAmount, 
       message: source 
-        ? `Gained ${modifiedAmount} life from ${source} (${amount} + ${lifeGainModifiers.extraLife} from ${lifeGainModifiers.sources.join(', ')})`
-        : `Gained ${modifiedAmount} life (${amount} + ${lifeGainModifiers.extraLife} from ${lifeGainModifiers.sources.join(', ')})` 
+        ? `Gained ${modifiedAmount} life from ${source} (${amount} modified by ${appliedReplacements.join(', ')})`
+        : `Gained ${modifiedAmount} life (${amount} modified by ${appliedReplacements.join(', ')})` 
     };
   }
   
@@ -486,6 +502,59 @@ function checkLifeGainModifiers(
   }
   
   return { extraLife, sources };
+}
+
+/**
+ * Check for life gain doubling effects on the battlefield.
+ * These are replacement effects that double the amount of life gained.
+ * Applied AFTER +1 effects to maximize life gained per MTG optimization rules.
+ * 
+ * @param gameState - The current game state
+ * @param playerId - The player who would gain life
+ * @returns { multiplier: number, sources: string[] } - Multiplier and sources
+ */
+function checkLifeGainDoublers(
+  gameState: any,
+  playerId: string
+): { multiplier: number; sources: string[] } {
+  const battlefield = gameState?.battlefield || [];
+  let multiplier = 1;
+  const sources: string[] = [];
+  
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    if (perm.controller !== playerId) continue; // Most of these only affect controller
+    
+    const cardName = (perm.card.name || '').toLowerCase();
+    const oracleText = (perm.card.oracle_text || '').toLowerCase();
+    
+    // Boon Reflection: "If you would gain life, you gain twice that much life instead."
+    if (cardName.includes('boon reflection') ||
+        (oracleText.includes('would gain life') && oracleText.includes('twice that much'))) {
+      multiplier *= 2;
+      sources.push(perm.card.name || 'Boon Reflection');
+    }
+    
+    // Rhox Faithmender: "If you would gain life, you gain twice that much life instead."
+    if (cardName.includes('rhox faithmender')) {
+      multiplier *= 2;
+      sources.push(perm.card.name || 'Rhox Faithmender');
+    }
+    
+    // Alhammarret's Archive: "If you would gain life, you gain twice that much life instead."
+    if (cardName.includes("alhammarret's archive") ||
+        cardName.includes('alhammarrets archive')) {
+      multiplier *= 2;
+      sources.push(perm.card.name || "Alhammarret's Archive");
+    }
+    
+    // Nykthos Paragon: "Whenever you gain life, ... with that many +1/+1 counters" (not a doubler)
+    
+    // Celestial Mantle: "Whenever enchanted creature deals combat damage, double your life total"
+    // (This doubles your total, not the gain amount - different effect)
+  }
+  
+  return { multiplier, sources };
 }
 
 /**

@@ -1916,7 +1916,7 @@ export function resolveTopOfStack(ctx: GameContext) {
           } else if (trigger.triggerType === 'another_permanent_etb') {
             // Check color restriction if any (e.g., "white or black creature")
             if ((trigger as any).colorRestriction) {
-              if (!matchesColorRestriction((trigger as any).colorRestriction, card.colors || [])) {
+              if (!matchesColorRestriction((trigger as any).colorRestriction, (card as any).colors || [])) {
                 continue; // Skip - entering creature doesn't match color restriction
               }
             }
@@ -1925,7 +1925,7 @@ export function resolveTopOfStack(ctx: GameContext) {
             // Altar of the Brood style - triggers on ANY permanent entering (not just yours)
             // Check color restriction if any
             if ((trigger as any).colorRestriction) {
-              if (!matchesColorRestriction((trigger as any).colorRestriction, card.colors || [])) {
+              if (!matchesColorRestriction((trigger as any).colorRestriction, (card as any).colors || [])) {
                 continue; // Skip - entering creature doesn't match color restriction
               }
             }
