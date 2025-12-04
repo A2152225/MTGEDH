@@ -480,7 +480,7 @@ async function processActivateAbility(
     targets?: string[];
     manaPayment?: Array<{ permanentId: string; manaColor: string }>;
   }
-): Promise<{ success: boolean; error?: string; usesStack?: boolean; stack?: any[] }> {
+): Promise<{ success: boolean; error?: string; usesStack?: boolean; stack?: any[]; message?: string }> {
   try {
     const game = games.get(gameId);
     if (!game || !game.state) {
@@ -497,8 +497,89 @@ async function processActivateAbility(
     
     // Check if it's a mana ability (doesn't use stack)
     const card = (perm as any).card;
+    const cardName = (card?.name || '').toLowerCase();
     const oracleText = (card?.oracle_text || '').toLowerCase();
     const isManaAbility = oracleText.includes('add') && oracleText.includes('{t}:');
+    
+    // Import Crystal abilities dynamically to check
+    const { getCrystalAbility, executeWindCrystalAbility, executeFireCrystalAbility, 
+            executeWaterCrystalAbility, executeEarthCrystalAbility, executeDarknessCrystalAbility } = 
+      await import("../state/modules/triggers/crystal-abilities.js");
+    
+    const crystalAbility = getCrystalAbility(cardName);
+    
+    // Handle Crystal abilities
+    if (crystalAbility) {
+      // Check if tapped (Crystals require tap)
+      if (crystalAbility.requiresTap && (perm as any).tapped) {
+        return { success: false, error: "Crystal is already tapped" };
+      }
+      
+      // Tap the crystal
+      (perm as any).tapped = true;
+      
+      // Execute the appropriate Crystal ability
+      let result: { success: boolean; message?: string; error?: string } = { success: false };
+      
+      switch (cardName) {
+        case 'the wind crystal':
+          const windResult = executeWindCrystalAbility(game as any, playerId);
+          result = { 
+            success: windResult.success, 
+            message: `The Wind Crystal: ${windResult.affectedCreatures.length} creatures gained flying and lifelink until end of turn` 
+          };
+          break;
+          
+        case 'the fire crystal':
+          if (!ability.targets || ability.targets.length === 0) {
+            return { success: false, error: "The Fire Crystal requires a target creature you control" };
+          }
+          const fireResult = executeFireCrystalAbility(game as any, playerId, ability.targets[0]);
+          result = fireResult.success 
+            ? { success: true, message: `The Fire Crystal: Created a token copy (will be sacrificed at end step)` }
+            : { success: false, error: fireResult.error };
+          break;
+          
+        case 'the water crystal':
+          if (!ability.targets || ability.targets.length === 0) {
+            return { success: false, error: "The Water Crystal requires a target player" };
+          }
+          const waterResult = executeWaterCrystalAbility(game as any, playerId, ability.targets[0]);
+          result = waterResult.success
+            ? { success: true, message: `The Water Crystal: Target player milled ${waterResult.milledCount} cards` }
+            : { success: false, error: waterResult.error };
+          break;
+          
+        case 'the earth crystal':
+          if (!ability.targets || ability.targets.length === 0) {
+            return { success: false, error: "The Earth Crystal requires a target creature you control" };
+          }
+          const earthResult = executeEarthCrystalAbility(game as any, playerId, ability.targets[0]);
+          result = earthResult.success
+            ? { success: true, message: `The Earth Crystal: Doubled +1/+1 counters to ${earthResult.newCounterCount}` }
+            : { success: false, error: earthResult.error };
+          break;
+          
+        case 'the darkness crystal':
+          const darknessResult = executeDarknessCrystalAbility(game as any, playerId);
+          result = { 
+            success: darknessResult.success, 
+            message: `The Darkness Crystal: Death trigger active until end of turn` 
+          };
+          break;
+          
+        default:
+          return { success: false, error: "Unknown Crystal ability" };
+      }
+      
+      if (!result.success) {
+        // Untap the crystal if activation failed
+        (perm as any).tapped = false;
+        return { success: false, error: result.error || "Crystal ability failed" };
+      }
+      
+      return { success: true, usesStack: false, message: result.message };
+    }
     
     if (isManaAbility) {
       // Tap the permanent

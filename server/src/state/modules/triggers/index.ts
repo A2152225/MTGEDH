@@ -55,3 +55,9 @@ export * from "./special-cards.js";
 export * from "./win-conditions.js";
 export * from "./devotion.js";
 export * from "./transform.js";
+
+// Crystal activated abilities (Final Fantasy set)
+export * from "./crystal-abilities.js";
+
+// Lifegain triggers (Ratchet, Field Medic, Ajani's Pridemate, etc.)
+export * from "./lifegain.js";
