@@ -28,7 +28,8 @@ export interface UpkeepTrigger {
     | 'each_upkeep'
     | 'each_player_upkeep'
     | 'opponent_upkeep'
-    | 'upkeep_create_copy';  // Progenitor Mimic - create token copy at beginning of upkeep
+    | 'upkeep_create_copy'  // Progenitor Mimic - create token copy at beginning of upkeep
+    | 'saga_lore_counter';  // Saga - add lore counter at beginning of your precombat main phase (Rule 714.3b)
   cost?: string;
   description: string;
   effect?: string;
@@ -39,6 +40,10 @@ export interface UpkeepTrigger {
   controllerTrigger: boolean; // True if triggers on controller's upkeep
   anyPlayerTrigger: boolean;  // True if triggers on any player's upkeep
   copySourceId?: string; // For copy effects - the permanent to copy
+  // For sagas
+  chapterAbilities?: { chapter: number; effect: string }[];
+  currentChapter?: number;
+  maxChapter?: number;
 }
 
 /**
@@ -342,7 +347,82 @@ export function detectUpkeepTriggers(card: any, permanent: any): UpkeepTrigger[]
     });
   }
   
+  // ============================================================================
+  // SAGA HANDLING (Rule 714)
+  // ============================================================================
+  // Sagas gain a lore counter at the beginning of controller's precombat main phase
+  // and when they enter the battlefield. Each lore counter triggers the next chapter.
+  // When the final chapter ability has left the stack, sacrifice the Saga.
+  const typeLine = (card?.type_line || '').toLowerCase();
+  if (typeLine.includes('saga')) {
+    const currentLore = counters['lore'] || 1; // Sagas enter with 1 lore counter
+    
+    // Parse chapter abilities from oracle text
+    // Pattern: "I — effect", "II — effect", "III — effect", etc.
+    const chapterAbilities = parseSagaChapters(oracleText);
+    const maxChapter = chapterAbilities.length > 0 
+      ? Math.max(...chapterAbilities.map(c => c.chapter)) 
+      : 3; // Default to 3 chapters if parsing fails
+    
+    // Only add lore counter trigger if saga isn't at final chapter
+    if (currentLore < maxChapter) {
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'saga_lore_counter',
+        description: `Add lore counter to ${cardName} (currently ${currentLore}/${maxChapter})`,
+        effect: 'add_lore_counter',
+        mandatory: true,
+        controllerTrigger: true,
+        anyPlayerTrigger: false,
+        chapterAbilities,
+        currentChapter: currentLore,
+        maxChapter,
+      });
+    }
+  }
+  
   return triggers;
+}
+
+/**
+ * Parse saga chapter abilities from oracle text.
+ * Format: "I — effect", "II, III — effect", "I, II — effect", etc.
+ */
+function parseSagaChapters(oracleText: string): { chapter: number; effect: string }[] {
+  const chapters: { chapter: number; effect: string }[] = [];
+  if (!oracleText) return chapters;
+  
+  // Map Roman numerals to numbers
+  const romanToNum: Record<string, number> = {
+    'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5,
+    'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10
+  };
+  
+  // Pattern to match chapter abilities
+  // Matches: "I — effect", "II, III — effect", "I, II, III — effect"
+  const chapterPattern = /([IVX]+(?:\s*,\s*[IVX]+)*)\s*[—-]\s*([^IVX\n]+?)(?=\n[IVX]+\s*[—-]|$)/gi;
+  
+  let match;
+  while ((match = chapterPattern.exec(oracleText)) !== null) {
+    const chapterNums = match[1];
+    const effect = match[2].trim();
+    
+    // Parse the chapter numbers (may be comma-separated for multi-chapter abilities)
+    const numericChapters = chapterNums
+      .split(/\s*,\s*/)
+      .map(roman => romanToNum[roman.trim()] || 0)
+      .filter(n => n > 0);
+    
+    for (const num of numericChapters) {
+      chapters.push({ chapter: num, effect });
+    }
+  }
+  
+  // Sort by chapter number
+  chapters.sort((a, b) => a.chapter - b.chapter);
+  
+  return chapters;
 }
 
 /**
@@ -472,5 +552,75 @@ export function sacrificePermanent(ctx: GameContext, permanentId: string, player
     return cardName;
   }
   return null;
+}
+
+/**
+ * Add a lore counter to a saga and return the new chapter abilities that should trigger.
+ * Per Rule 714.3b, a lore counter is added at the beginning of controller's precombat main phase.
+ * Per Rule 714.3c, each chapter ability triggers when a lore counter is added if that counter
+ * brings the saga to that chapter number.
+ */
+export function addLoreCounter(ctx: GameContext, permanentId: string): { 
+  newChapter: number; 
+  triggeredAbility: { chapter: number; effect: string } | null;
+  shouldSacrifice: boolean;
+} {
+  const battlefield = ctx.state?.battlefield || [];
+  const permanent = battlefield.find((p: any) => p?.id === permanentId);
+  
+  if (!permanent) {
+    return { newChapter: 0, triggeredAbility: null, shouldSacrifice: false };
+  }
+  
+  const counters = (permanent as any).counters = (permanent as any).counters || {};
+  counters['lore'] = (counters['lore'] || 0) + 1;
+  const newLoreCount = counters['lore'];
+  
+  // Parse chapter abilities
+  const oracleText = permanent.card?.oracle_text || '';
+  const chapters = parseSagaChapters(oracleText);
+  const maxChapter = chapters.length > 0 
+    ? Math.max(...chapters.map(c => c.chapter)) 
+    : 3;
+  
+  // Find the chapter ability that triggers for this lore count
+  const triggeredChapter = chapters.find(c => c.chapter === newLoreCount);
+  
+  // Check if saga should be sacrificed (Rule 714.3d)
+  // Sacrifice when final chapter ability has LEFT the stack (not when counter is added)
+  const shouldSacrifice = false; // Sacrifice happens after chapter ability resolves
+  const atFinalChapter = newLoreCount >= maxChapter;
+  
+  console.log(`[addLoreCounter] ${permanent.card?.name || permanentId} now has ${newLoreCount} lore counter(s)${atFinalChapter ? ' (final chapter)' : ''}`);
+  
+  ctx.bumpSeq();
+  
+  return { 
+    newChapter: newLoreCount, 
+    triggeredAbility: triggeredChapter || null,
+    shouldSacrifice: atFinalChapter // Mark for sacrifice after ability resolves
+  };
+}
+
+/**
+ * Check if a saga should be sacrificed (at final chapter and ability resolved).
+ */
+export function checkSagaSacrifice(ctx: GameContext, permanentId: string): boolean {
+  const battlefield = ctx.state?.battlefield || [];
+  const permanent = battlefield.find((p: any) => p?.id === permanentId);
+  
+  if (!permanent) return false;
+  
+  const typeLine = (permanent.card?.type_line || '').toLowerCase();
+  if (!typeLine.includes('saga')) return false;
+  
+  const loreCounters = permanent.counters?.['lore'] || 0;
+  const oracleText = permanent.card?.oracle_text || '';
+  const chapters = parseSagaChapters(oracleText);
+  const maxChapter = chapters.length > 0 
+    ? Math.max(...chapters.map(c => c.chapter)) 
+    : 3;
+  
+  return loreCounters >= maxChapter;
 }
 
