@@ -143,15 +143,20 @@ function handleDispatch(
     if (permIndex !== -1) {
       battlefield.splice(permIndex, 1);
       
-      // Move to exile zone
-      const owner = targetPerm.owner || targetPerm.controller;
-      const zones = state.zones || {};
-      zones[owner] = zones[owner] || { hand: [], graveyard: [], exile: [] };
-      zones[owner].exile = zones[owner].exile || [];
-      zones[owner].exile.push({ ...targetPerm.card, zone: 'exile' });
-      zones[owner].exileCount = zones[owner].exile.length;
-      
-      console.log(`[handleDispatch] Metalcraft active (${countArtifacts(ctx, controller)} artifacts) - exiled ${targetPerm.card?.name || targetPerm.id}`);
+      // Tokens cease to exist when they leave the battlefield - don't add to exile zone
+      if (targetPerm.isToken || targetPerm.card?.isToken) {
+        console.log(`[handleDispatch] Metalcraft active - ${targetPerm.card?.name || targetPerm.id} token ceases to exist (not added to exile)`);
+      } else {
+        // Move non-token to exile zone
+        const owner = targetPerm.owner || targetPerm.controller;
+        const zones = state.zones || {};
+        zones[owner] = zones[owner] || { hand: [], graveyard: [], exile: [] };
+        zones[owner].exile = zones[owner].exile || [];
+        zones[owner].exile.push({ ...targetPerm.card, zone: 'exile' });
+        zones[owner].exileCount = zones[owner].exile.length;
+        
+        console.log(`[handleDispatch] Metalcraft active (${countArtifacts(ctx, controller)} artifacts) - exiled ${targetPerm.card?.name || targetPerm.id}`);
+      }
     }
   } else {
     // Just tap the creature
@@ -1439,14 +1444,20 @@ function executeTriggerEffect(
     if (targets.length > 0) {
       const targetPerm = (state.battlefield || []).find((p: any) => p?.id === targets[0]);
       if (targetPerm) {
-        // Move to exile
+        // Move to exile (tokens cease to exist)
         const permIndex = state.battlefield.indexOf(targetPerm);
         if (permIndex !== -1) {
           state.battlefield.splice(permIndex, 1);
-          state.exile = state.exile || [];
-          targetPerm.card.zone = 'exile';
-          state.exile.push(targetPerm);
-          console.log(`[executeTriggerEffect] Exiled ${targetPerm.card?.name || targetPerm.id}`);
+          
+          // Tokens cease to exist when they leave the battlefield
+          if (targetPerm.isToken || targetPerm.card?.isToken) {
+            console.log(`[executeTriggerEffect] ${targetPerm.card?.name || targetPerm.id} token ceases to exist (not added to exile)`);
+          } else {
+            state.exile = state.exile || [];
+            targetPerm.card.zone = 'exile';
+            state.exile.push(targetPerm);
+            console.log(`[executeTriggerEffect] Exiled ${targetPerm.card?.name || targetPerm.id}`);
+          }
         }
       }
     }
