@@ -2330,6 +2330,17 @@ export function detectCounterReplacementEffects(
       });
     }
     
+    // The Earth Crystal - doubles +1/+1 counters on creatures you control
+    // "If one or more +1/+1 counters would be put on a creature you control, 
+    // twice that many +1/+1 counters are put on that creature instead."
+    if (cardName.includes("the earth crystal") && controller === controllerId && counterType === '+1/+1') {
+      effects.push({
+        type: 'double',
+        source: "The Earth Crystal",
+        controllerId: controller,
+      });
+    }
+    
     // Pir, Imaginative Rascal - +1 to counters on permanents you control
     if (cardName.includes("pir, imaginative rascal") && controller === controllerId) {
       effects.push({
@@ -2534,6 +2545,69 @@ export function applyLifeGainReplacements(
 ): { finalAmount: number; appliedEffects: string[] } {
   const effects = detectLifeGainReplacementEffects(ctx, playerId);
   return applyBeneficialReplacements(baseAmount, effects);
+}
+
+/**
+ * Detect mill replacement effects.
+ * Used for The Water Crystal, Bruvac the Grandiloquent, etc.
+ * 
+ * @param ctx - Game context
+ * @param millingPlayerId - Player who controls the mill effect
+ * @param targetPlayerId - Player being milled (opponent)
+ * @returns Array of replacement effects
+ */
+export function detectMillReplacementEffects(
+  ctx: GameContext,
+  millingPlayerId: string,
+  targetPlayerId: string
+): ReplacementEffect[] {
+  const effects: ReplacementEffect[] = [];
+  const battlefield = getActivePermanents(ctx);
+  
+  for (const perm of battlefield) {
+    const cardName = (perm.card?.name || "").toLowerCase();
+    const controller = perm.controller;
+    
+    // Bruvac the Grandiloquent - doubles mill for opponents
+    // "If an opponent would mill one or more cards, they mill twice that many cards instead."
+    if (cardName.includes("bruvac") && controller === millingPlayerId && targetPlayerId !== millingPlayerId) {
+      effects.push({
+        type: 'double',
+        source: "Bruvac the Grandiloquent",
+        controllerId: controller,
+      });
+    }
+    
+    // The Water Crystal - opponents mill +4 more
+    // "If an opponent would mill one or more cards, they mill that many cards plus four instead."
+    if (cardName.includes("the water crystal") && controller === millingPlayerId && targetPlayerId !== millingPlayerId) {
+      effects.push({
+        type: 'add_flat',
+        value: 4,
+        source: "The Water Crystal",
+        controllerId: controller,
+      });
+    }
+  }
+  
+  return effects;
+}
+
+/**
+ * Apply mill replacement effects in optimal order (beneficial for the controller).
+ * For mill effects that hurt opponents, we want to MAXIMIZE the mill amount.
+ * Order: +N effects first, then doublers (maximizes mill).
+ */
+export function applyMillReplacements(
+  ctx: GameContext,
+  baseCount: number,
+  millingPlayerId: string,
+  targetPlayerId: string
+): { finalCount: number; appliedEffects: string[] } {
+  const effects = detectMillReplacementEffects(ctx, millingPlayerId, targetPlayerId);
+  // For mill (hurting opponents), we want to maximize, so use beneficial ordering
+  const result = applyBeneficialReplacements(baseCount, effects);
+  return { finalCount: result.finalAmount, appliedEffects: result.appliedEffects };
 }
 
 /**
