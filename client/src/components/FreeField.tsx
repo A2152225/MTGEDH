@@ -271,6 +271,8 @@ export function FreeField(props: {
       temporaryEffects?: readonly { id: string; description: string; icon?: string; expiresAt?: string; sourceName?: string }[];
       attachedTo?: string;
       attachedToName?: string;
+      hasAttachments?: boolean;
+      attachmentNames?: string[];
     }> = [];
 
     const gap = 10;
@@ -329,6 +331,14 @@ export function FreeField(props: {
         }
       }
 
+      // Find equipment/auras attached TO this permanent
+      const attachedEquipment = perms.filter(perm => perm.attachedTo === p.id);
+      const hasAttachments = attachedEquipment.length > 0;
+      const attachmentNames = attachedEquipment.map(eq => {
+        const eqCard = eq.card as any;
+        return typeof eqCard?.name === 'string' ? eqCard.name : 'Equipment';
+      });
+
       const counters = p.counters || {};
       const existing = (p as any).pos || null;
       const pos = existing ? { ...existing } : nextAuto();
@@ -357,6 +367,8 @@ export function FreeField(props: {
         temporaryEffects,
         attachedTo,
         attachedToName,
+        hasAttachments,
+        attachmentNames,
       });
     }
     return placed;
@@ -416,7 +428,7 @@ export function FreeField(props: {
         overflow: 'visible' // Allow attack indicators to overflow
       }}
     >
-      {items.map(({ id, name, img, pos, tapped, isCreature, isPlaneswalker, counters, baseP, baseT, raw, effP, effT, abilities, attacking, blocking, blockedBy, baseLoyalty, loyalty, targetedBy, temporaryEffects, attachedTo, attachedToName }) => {
+      {items.map(({ id, name, img, pos, tapped, isCreature, isPlaneswalker, counters, baseP, baseT, raw, effP, effT, abilities, attacking, blocking, blockedBy, baseLoyalty, loyalty, targetedBy, temporaryEffects, attachedTo, attachedToName, hasAttachments, attachmentNames }) => {
         const x = clamp(pos?.x ?? 0, 0, Math.max(0, widthPx - tileWidth));
         const y = clamp(pos?.y ?? 0, 0, Math.max(0, heightPx - tileH));
         const z = pos?.z ?? 0;
@@ -429,14 +441,27 @@ export function FreeField(props: {
         const hasTemporaryEffects = temporaryEffects && temporaryEffects.length > 0;
         const isAttached = !!attachedTo;
 
+        // Check if this card should be highlighted due to attachment hover
+        // 1. If hovering an equipment/aura, highlight the creature it's attached to
+        // 2. If hovering a creature, highlight equipment/auras attached to it
+        const hoveredItem = hoverId ? items.find(i => i.id === hoverId) : null;
+        const isAttachmentHighlighted = 
+          // This card is the creature that the hovered equipment is attached to
+          (hoveredItem?.attachedTo === id) ||
+          // This card is equipment attached to the hovered creature
+          (attachedTo && attachedTo === hoverId);
+
         // Border color based on state
         let borderColor = '#2b2b2b';
+        let borderWidth = 2;
         if (isSelected) borderColor = '#2b6cb0';
         else if (isHighlight) borderColor = '#38a169';
+        else if (isAttachmentHighlighted) { borderColor = '#a855f7'; borderWidth = 3; } // Bright purple for attachment highlight
         else if (isAttacking) borderColor = '#ef4444';
         else if (isBlocking) borderColor = '#3b82f6';
         else if (isTargeted) borderColor = '#f59e0b';
         else if (isAttached) borderColor = '#8b5cf6'; // Purple for attached
+        else if (hasAttachments) borderColor = '#7c3aed'; // Violet for has attachments
 
         // Decide display PT
         let pDisp: number | undefined = effP;
@@ -484,19 +509,23 @@ export function FreeField(props: {
               touchAction: 'none',
               zIndex: 10 + z + (hovered ? 100 : 0) + (isAttacking ? 50 : 0),
               cursor: draggable ? 'grab' : (onCardClick ? 'pointer' : 'default'),
-              border: `2px solid ${borderColor}`,
+              border: `${borderWidth}px solid ${borderColor}`,
               borderRadius: 6,
               overflow: 'visible', // Allow indicators to overflow
               background: '#0f0f0f',
               transform: tapped ? 'rotate(14deg)' : 'none',
               transformOrigin: '50% 50%',
-              boxShadow: isAttacking 
-                ? '0 0 12px rgba(239,68,68,0.6)' 
-                : isBlocking 
-                  ? '0 0 12px rgba(59,130,246,0.6)' 
-                  : isTargeted 
-                    ? '0 0 8px rgba(245,158,11,0.5)' 
-                    : 'none',
+              boxShadow: isAttachmentHighlighted
+                ? '0 0 16px rgba(168,85,247,0.7)' // Purple glow for attachment highlight
+                : isAttacking 
+                  ? '0 0 12px rgba(239,68,68,0.6)' 
+                  : isBlocking 
+                    ? '0 0 12px rgba(59,130,246,0.6)' 
+                    : isTargeted 
+                      ? '0 0 8px rgba(245,158,11,0.5)' 
+                      : hasAttachments
+                        ? '0 0 6px rgba(139,92,246,0.4)' // Subtle glow for cards with attachments
+                        : 'none',
             }}
             title={name + (tapped ? ' (tapped)' : '')}
           >
@@ -738,6 +767,40 @@ export function FreeField(props: {
                   textOverflow: 'ellipsis',
                 }}>
                   ↗ {attachedToName}
+                </span>
+              </div>
+            )}
+
+            {/* Has Attachments badge - shows on creatures that have equipment/auras attached */}
+            {hasAttachments && attachmentNames && attachmentNames.length > 0 && (
+              <div 
+                style={{
+                  position: 'absolute',
+                  right: Math.round(4 * scale),
+                  bottom: Math.round(28 * scale),
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: Math.round(3 * scale),
+                  padding: `${Math.round(2 * scale)}px ${Math.round(5 * scale)}px`,
+                  borderRadius: Math.round(4 * scale),
+                  background: 'rgba(124,58,237,0.9)',
+                  border: '1px solid rgba(167,139,250,0.6)',
+                  boxShadow: '0 2px 6px rgba(124,58,237,0.5)',
+                  zIndex: 17,
+                  maxWidth: '70%',
+                }}
+                title={`Equipped/Enchanted by: ${attachmentNames.join(', ')}`}
+              >
+                <span style={{ fontSize: Math.round(10 * scale) }}>⚔️</span>
+                <span style={{ 
+                  fontSize: Math.round(8 * scale),
+                  fontWeight: 600,
+                  color: '#fff',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}>
+                  {attachmentNames.length === 1 ? attachmentNames[0] : `${attachmentNames.length} attached`}
                 </span>
               </div>
             )}

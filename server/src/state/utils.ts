@@ -601,7 +601,7 @@ export function triggerLifeGainEffects(
     // This should match any card with "whenever you gain life" + "put a +1/+1 counter" where the counter goes on itself
     // Common patterns:
     // - "put a +1/+1 counter on ~" (using ~ to reference card name)
-    // - "put a +1/+1 counter on [card name]"
+    // - "put a +1/+1 counter on [card name]" or "[card nickname]" (e.g., "on MJ" for "MJ, Rising Star")
     // - "put a +1/+1 counter on this creature"
     // We detect this by checking if the text mentions putting a counter but NOT "on each" (that's Archangel of Thune)
     // and NOT "that many" (that's Aerith/Sunbond style)
@@ -609,16 +609,25 @@ export function triggerLifeGainEffects(
                               !oracleText.includes('on each') && 
                               !oracleText.includes('that many');
     
+    // Check if the oracle text references the card's name or nickname
+    // Cards often use their first name/word as a reference (e.g., "MJ" for "MJ, Rising Star")
+    // or the full name, or "~" symbol
+    const cardNameParts = cardName.split(/[,\s]+/).filter(p => p.length > 0);
+    const firstName = cardNameParts[0] || '';
+    const oracleReferencesCardName = 
+      oracleText.includes(`on ${cardName}`) ||  // Full name match
+      (firstName.length > 1 && oracleText.includes(`on ${firstName}`)) ||  // First name/nickname match (e.g., "on mj")
+      oracleText.includes('on ~');  // Tilde symbol reference
+    
     // Check if the counter goes on this permanent (not another target)
     // It goes on self if:
     // - Text contains "on ~" (card name reference)
-    // - Text contains the card's own name after "counter on"
+    // - Text contains the card's own name (or nickname) after "counter on"
     // - Text doesn't require choosing a target (no "target creature")
     // - OR it's a known card name (pridemate patterns)
     const counterGoesOnSelf = putsSingleCounter && (
-      oracleText.includes('on ~') ||
+      oracleReferencesCardName ||
       oracleText.includes('on this') ||
-      oracleText.includes(`on ${cardName}`) ||
       cardName.includes('pridemate') ||
       cardName.includes('bloodbond') ||
       cardName.includes('rising star') ||  // MJ, Rising Star
