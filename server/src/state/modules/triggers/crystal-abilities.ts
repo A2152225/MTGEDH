@@ -201,22 +201,22 @@ export function executeFireCrystalAbility(
     return { success: false, error: 'Target must be a creature' };
   }
   
-  // Get current turn number to set up delayed trigger for the NEXT end step
-  const currentTurn = (ctx.state as any)?.turn || 1;
-  
   // Create token copy with delayed sacrifice trigger
-  // The token will be sacrificed at the beginning of the NEXT end step only
-  // This is a one-time delayed trigger, not a recurring effect
+  // At the beginning of the next end step, a trigger goes on the stack to sacrifice this token
+  // If Sundial of the Infinite exiles the stack during the end step, the trigger is removed
+  // and the token survives permanently (the delayed trigger only fires once)
   const tokenId = `token_fire_crystal_${Date.now()}`;
   const tokenCopy = {
     id: tokenId,
     controller: controllerId,
     owner: controllerId,
     isToken: true,
-    // Delayed trigger: sacrifice at the NEXT end step (current turn's end step)
-    // If Sundial of the Infinite ends the turn before end step, this trigger never fires
-    sacrificeAtNextEndStep: true,
-    sacrificeTriggerTurn: currentTurn,  // Track which turn's end step triggers the sacrifice
+    // Delayed trigger: At the beginning of the next end step, sacrifice this token
+    // This creates a triggered ability that goes on the stack at beginning of end step
+    // Once it triggers (goes on stack), this flag is cleared - if the trigger is countered/exiled,
+    // the token survives because the trigger only fires once
+    hasDelayedSacrificeTrigger: true,
+    delayedTriggerType: 'sacrifice_at_next_end_step',
     card: {
       ...(targetCreature.card as any),
       id: tokenId,
@@ -228,10 +228,9 @@ export function executeFireCrystalAbility(
     grantedAbilities: [...((targetCreature as any).grantedAbilities || [])],
     temporaryEffects: [{
       id: `fire_crystal_sacrifice_${Date.now()}`,
-      description: 'Will be sacrificed at beginning of next end step (can be avoided with Sundial of the Infinite)',
+      description: 'At beginning of next end step, sacrifice this creature (Sundial of the Infinite can exile the trigger from the stack)',
       icon: '🔥',
       expiresAt: 'next_end_step',
-      triggerTurn: currentTurn,
       sourceId: 'the_fire_crystal',
       sourceName: 'The Fire Crystal',
     }],
