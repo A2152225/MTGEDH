@@ -10,7 +10,8 @@ export type SpellOp =
   | 'DESTROY_EACH' | 'DAMAGE_EACH'
   | 'ANY_TARGET_DAMAGE'
   | 'TARGET_PERMANENT' | 'TARGET_CREATURE' | 'TARGET_PLAYER'
-  | 'COUNTER_TARGET_SPELL' | 'COUNTER_TARGET_ABILITY';
+  | 'COUNTER_TARGET_SPELL' | 'COUNTER_TARGET_ABILITY'
+  | 'FLICKER_TARGET'; // Exile and return to battlefield (Acrobatic Maneuver, Cloudshift, etc.)
 
 export type PermanentFilter = 'ANY' | 'CREATURE' | 'PLANESWALKER' | 'PERMANENT' | 'ARTIFACT' | 'ENCHANTMENT' | 'LAND';
 
@@ -25,6 +26,7 @@ export type SpellSpec = {
   amount?: number;
   spellTypeFilter?: SpellTypeFilter; // For counterspells that only counter certain spell types
   targetDescription?: string; // Human-readable description of what can be targeted
+  returnDelay?: 'immediate' | 'end_of_turn' | 'end_of_combat'; // For flicker effects
 };
 
 /**
@@ -208,6 +210,32 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
     return { op: 'DESTROY_TARGET', filter, minTargets: 0, maxTargets: n };
   }
 
+  // Flicker effects - exile and return to battlefield
+  // Pattern: "exile target creature ... return it/that card to the battlefield"
+  // Cards: Acrobatic Maneuver, Cloudshift, Ephemerate, Flickerwisp, etc.
+  if (/exile target/.test(t) && /return (?:it|that card|that creature) to the battlefield/.test(t)) {
+    // Check for delayed return (end of turn, end of combat)
+    let returnDelay: 'immediate' | 'end_of_turn' | 'end_of_combat' = 'immediate';
+    if (/at (?:the )?(?:beginning of )?(?:the )?(?:next )?end(?:ing)? step|end of turn/.test(t)) {
+      returnDelay = 'end_of_turn';
+    } else if (/end of combat/.test(t)) {
+      returnDelay = 'end_of_combat';
+    }
+    
+    // Check for controller restriction ("creature you control")
+    const controllerRestricted = /target creature you control/.test(t);
+    const targetDesc = controllerRestricted ? 'creature you control' : 'creature';
+    
+    return { 
+      op: 'FLICKER_TARGET', 
+      filter: 'CREATURE', 
+      minTargets: 1, 
+      maxTargets: 1,
+      returnDelay,
+      targetDescription: targetDesc,
+    };
+  }
+
   if (/exile target/.test(t)) return { op: 'EXILE_TARGET', filter, minTargets: 1, maxTargets: 1 };
   if (/destroy target/.test(t)) return { op: 'DESTROY_TARGET', filter, minTargets: 1, maxTargets: 1 };
   
@@ -376,7 +404,8 @@ export type EngineEffect =
   | { kind: 'DamagePlayer'; playerId: PlayerID; amount: number }
   | { kind: 'CounterSpell'; stackItemId: string }
   | { kind: 'CounterAbility'; stackItemId: string }
-  | { kind: 'Broadcast'; message: string };
+  | { kind: 'Broadcast'; message: string }
+  | { kind: 'FlickerPermanent'; id: string; returnDelay: 'immediate' | 'end_of_turn' | 'end_of_combat' };
 
 export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], state: Readonly<GameState>): readonly EngineEffect[] {
   const eff: EngineEffect[] = [];
@@ -394,6 +423,19 @@ export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], stat
       break;
     case 'EXILE_TARGET':
       for (const t of chosen) if (t.kind === 'permanent') eff.push({ kind: 'MoveToExile', id: t.id });
+      break;
+    case 'FLICKER_TARGET':
+      // Flicker: Exile and return to battlefield
+      // The returnDelay determines when the creature returns
+      for (const t of chosen) {
+        if (t.kind === 'permanent') {
+          eff.push({ 
+            kind: 'FlickerPermanent', 
+            id: t.id, 
+            returnDelay: spec.returnDelay || 'immediate' 
+          });
+        }
+      }
       break;
     case 'DESTROY_ALL':
     case 'DESTROY_EACH':

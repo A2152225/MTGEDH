@@ -708,6 +708,120 @@ function triggerETBEffectsForToken(
 }
 
 /**
+ * Trigger ETB effects when a permanent enters the battlefield.
+ * This is used for flickered permanents returning, as well as other ETB scenarios.
+ * Note: The permanent's own ETB trigger (if any) is handled separately when the 
+ * permanent resolves from the stack.
+ */
+function triggerETBEffectsForPermanent(
+  ctx: GameContext,
+  permanent: any,
+  controller: PlayerID
+): void {
+  const state = (ctx as any).state;
+  if (!state?.battlefield) return;
+  
+  const isCreature = (permanent.card?.type_line || '').toLowerCase().includes('creature');
+  const isToken = permanent.isToken === true;
+  
+  // Check all other permanents for triggers that fire when creatures/permanents enter
+  for (const perm of state.battlefield) {
+    if (!perm || perm.id === permanent.id) continue;
+    
+    const otherTriggers = getETBTriggersForPermanent(perm.card, perm);
+    for (const trigger of otherTriggers) {
+      // creature_etb triggers (Cathars' Crusade, Soul Warden, etc.)
+      if (trigger.triggerType === 'creature_etb' && isCreature) {
+        // Check if this trigger requires nontoken creatures (e.g., Guardian Project)
+        if ((trigger as any).nontokenOnly && isToken) {
+          continue;
+        }
+        
+        const triggerController = perm.controller || controller;
+        state.stack = state.stack || [];
+        const triggerId = uid("trigger");
+        
+        state.stack.push({
+          id: triggerId,
+          type: 'triggered_ability',
+          controller: triggerController,
+          source: perm.id,
+          sourceName: trigger.cardName,
+          description: trigger.description,
+          triggerType: trigger.triggerType,
+          mandatory: trigger.mandatory,
+        } as any);
+        
+        console.log(`[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
+      }
+      
+      // another_permanent_etb triggers
+      if (trigger.triggerType === 'another_permanent_etb') {
+        const triggerController = perm.controller || controller;
+        state.stack = state.stack || [];
+        const triggerId = uid("trigger");
+        
+        state.stack.push({
+          id: triggerId,
+          type: 'triggered_ability',
+          controller: triggerController,
+          source: perm.id,
+          sourceName: trigger.cardName,
+          description: trigger.description,
+          triggerType: trigger.triggerType,
+          mandatory: trigger.mandatory,
+        } as any);
+        
+        console.log(`[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
+      }
+      
+      // permanent_etb triggers (Altar of the Brood style)
+      if (trigger.triggerType === 'permanent_etb') {
+        const triggerController = perm.controller || controller;
+        state.stack = state.stack || [];
+        const triggerId = uid("trigger");
+        
+        state.stack.push({
+          id: triggerId,
+          type: 'triggered_ability',
+          controller: triggerController,
+          source: perm.id,
+          sourceName: trigger.cardName,
+          description: trigger.description,
+          triggerType: trigger.triggerType,
+          mandatory: trigger.mandatory,
+        } as any);
+        
+        console.log(`[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
+      }
+    }
+  }
+  
+  // Also check if the permanent itself has ETB triggers
+  const selfTriggers = getETBTriggersForPermanent(permanent.card, permanent);
+  for (const trigger of selfTriggers) {
+    if (trigger.triggerType === 'etb') {
+      const triggerController = controller;
+      state.stack = state.stack || [];
+      const triggerId = uid("trigger");
+      
+      state.stack.push({
+        id: triggerId,
+        type: 'triggered_ability',
+        controller: triggerController,
+        source: permanent.id,
+        sourceName: trigger.cardName,
+        description: trigger.description,
+        triggerType: trigger.triggerType,
+        mandatory: trigger.mandatory,
+      } as any);
+      
+      console.log(`[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s own ETB trigger: ${trigger.description}`);
+    }
+  }
+}
+
+/**
  * Execute a triggered ability effect based on its description.
  * Handles common trigger effects like life gain/loss, counters, draw, etc.
  */
@@ -873,19 +987,44 @@ function executeTriggerEffect(
     return;
   }
   
-  // Pattern: "you get {E}" or "you get X {E}" - Energy counters (Guide of Souls, etc.)
-  // Matches: "you get {E}", "you get two {E}", "you get 2 {E}"
-  const energyMatch = desc.match(/you get (?:(\d+|one|two|three|four|five) )?(?:\{e\}|energy)/i);
-  if (energyMatch) {
+  // Pattern: "you gain X life and get {E}" - Combined life gain + energy (Guide of Souls)
+  // This must be checked BEFORE separate life/energy patterns
+  const lifeAndEnergyMatch = desc.match(/you gain (\d+) life and get (?:(\d+|one|two|three|four|five) )?(?:\{e\}|energy)/i);
+  if (lifeAndEnergyMatch) {
+    const lifeAmount = parseInt(lifeAndEnergyMatch[1], 10);
     const wordToNum: Record<string, number> = { 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5 };
-    let amount = 1;
-    if (energyMatch[1]) {
-      amount = wordToNum[energyMatch[1].toLowerCase()] || parseInt(energyMatch[1], 10) || 1;
+    let energyAmount = 1;
+    if (lifeAndEnergyMatch[2]) {
+      energyAmount = wordToNum[lifeAndEnergyMatch[2].toLowerCase()] || parseInt(lifeAndEnergyMatch[2], 10) || 1;
     }
     
-    addEnergyCounters(state, controller, amount, sourceName);
+    // Apply life gain
+    modifyLife(controller, lifeAmount);
+    console.log(`[executeTriggerEffect] ${sourceName}: ${controller} gains ${lifeAmount} life`);
+    
+    // Apply energy gain
+    addEnergyCounters(state, controller, energyAmount, sourceName);
+    
     handled = true;
-    // Don't return - there might be more effects after energy gain (like Guide of Souls's "you may pay {E}")
+    // Don't return - Guide of Souls also has a second ability about paying energy
+  }
+  
+  // Pattern: "you get {E}" or "you get X {E}" - Energy counters (Guide of Souls, etc.)
+  // Matches: "you get {E}", "you get two {E}", "you get 2 {E}"
+  // Skip if already handled by lifeAndEnergyMatch above
+  if (!handled) {
+    const energyMatch = desc.match(/you get (?:(\d+|one|two|three|four|five) )?(?:\{e\}|energy)/i);
+    if (energyMatch) {
+      const wordToNum: Record<string, number> = { 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5 };
+      let amount = 1;
+      if (energyMatch[1]) {
+        amount = wordToNum[energyMatch[1].toLowerCase()] || parseInt(energyMatch[1], 10) || 1;
+      }
+      
+      addEnergyCounters(state, controller, amount, sourceName);
+      handled = true;
+      // Don't return - there might be more effects after energy gain
+    }
   }
   
   // Pattern: "+1/+1 counter on each creature you control" (Cathar's Crusade)
@@ -2801,6 +2940,64 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
           }
         }
         console.log(`[resolveSpell] ${spellName} exiled ${(exiled as any).card?.name || effect.id}`);
+      }
+      break;
+    }
+    case 'FlickerPermanent': {
+      // Flicker effect: Exile a permanent and return it to the battlefield
+      // For tokens, they cease to exist when exiled and don't return
+      const battlefield = state.battlefield || [];
+      const idx = battlefield.findIndex((p: any) => p.id === effect.id);
+      if (idx !== -1) {
+        const flickered = battlefield.splice(idx, 1)[0];
+        const flickeredCard = (flickered as any).card;
+        const flickeredName = flickeredCard?.name || effect.id;
+        const owner = (flickered as any).owner || (flickered as any).controller;
+        const isToken = (flickered as any).isToken === true;
+        
+        // Tokens cease to exist when exiled (Rule 111.7) - they don't return
+        if (isToken) {
+          console.log(`[resolveSpell] ${spellName} exiled token ${flickeredName} - token ceased to exist`);
+          break;
+        }
+        
+        // Determine when to return the permanent
+        const returnDelay = (effect as any).returnDelay || 'immediate';
+        
+        if (returnDelay === 'immediate') {
+          // Return immediately to the battlefield under owner's control
+          // Create a new permanent (new object, no connection to old one)
+          const newPermanent = {
+            id: uid('perm'),
+            card: flickeredCard,
+            controller: owner,
+            owner: owner,
+            tapped: false,
+            summoning_sickness: flickeredCard?.type_line?.toLowerCase()?.includes('creature') || false,
+            counters: {}, // Counters are removed when flickered
+            attachedTo: undefined, // Equipment/Auras are removed
+            // Detect enters-with-counters
+            ...detectEntersWithCounters(flickeredCard) ? { counters: detectEntersWithCounters(flickeredCard) } : {},
+          };
+          
+          battlefield.push(newPermanent);
+          console.log(`[resolveSpell] ${spellName} flickered ${flickeredName} - returned immediately as new permanent ${newPermanent.id}`);
+          
+          // Trigger ETB effects for the returned permanent
+          triggerETBEffectsForPermanent(ctx, newPermanent, owner);
+          
+        } else {
+          // Set up delayed trigger for end of turn or end of combat
+          const delayedReturns = (state as any).delayedReturns = (state as any).delayedReturns || [];
+          delayedReturns.push({
+            id: uid('delayed'),
+            card: flickeredCard,
+            owner: owner,
+            returnTime: returnDelay, // 'end_of_turn' or 'end_of_combat'
+            source: spellName,
+          });
+          console.log(`[resolveSpell] ${spellName} exiled ${flickeredName} - will return at ${returnDelay}`);
+        }
       }
       break;
     }

@@ -868,11 +868,12 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   }
   
   // "Whenever another permanent enters the battlefield under your control"
+  // Also handles: "whenever another creature you control enters" (Guide of Souls)
   // Also handles color-restricted patterns
-  const anotherPermanentETBMatch = oracleText.match(/whenever another (?:[\w\s]+)?(?:creature|permanent) enters the battlefield under your control,?\s*([^.]+)/i);
+  const anotherPermanentETBMatch = oracleText.match(/whenever another (?:[\w\s]+)?(?:creature|permanent)(?: you control)? enters(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i);
   if (anotherPermanentETBMatch && !triggers.some(t => t.triggerType === 'another_permanent_etb')) {
     // Extract any color restriction
-    const colorRestrictionMatch = oracleText.match(/whenever another ([\w\s]+?) (?:creature|permanent) enters the battlefield under your control/i);
+    const colorRestrictionMatch = oracleText.match(/whenever another ([\w\s]+?) (?:creature|permanent)/i);
     const colorRestriction = colorRestrictionMatch ? colorRestrictionMatch[1].trim().toLowerCase() : null;
     
     triggers.push({
