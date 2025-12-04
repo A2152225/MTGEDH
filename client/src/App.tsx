@@ -3145,6 +3145,8 @@ export function App() {
             onLeaveGame={() => leaveGame()}
             onUndo={(count: number) => handleRequestUndo(count)}
             availableUndoCount={availableUndoCount}
+            onRollDie={(sides: number) => socket.emit("rollDie", { gameId: safeView.id, sides })}
+            onFlipCoin={() => socket.emit("flipCoin", { gameId: safeView.id })}
           />
         )}
 

@@ -79,6 +79,14 @@ export interface ClientToServerEvents {
   shuffleHand: (payload: { gameId: GameID }) => void;
   reorderHand: (payload: { gameId: GameID; order: string[] }) => void;
 
+  // ===== RANDOMNESS EVENTS =====
+  
+  // Roll a die (d6, d20, d100, etc.)
+  rollDie: (payload: { gameId: GameID; sides: number }) => void;
+  
+  // Flip a coin
+  flipCoin: (payload: { gameId: GameID }) => void;
+
   // import confirm responses
   confirmImportResponse: (payload: { gameId: GameID; confirmId: string; accept: boolean }) => void;
 
@@ -499,6 +507,27 @@ export interface ServerToClientEvents {
   deckSaved: (payload: { gameId: GameID; deckId: string }) => void;
   deckRenamed: (payload: { gameId: GameID; deck: any }) => void;
   deckDeleted: (payload: { gameId: GameID; deckId: string }) => void;
+
+  // ===== RANDOMNESS EVENTS =====
+  
+  // Die roll result
+  dieRollResult: (payload: {
+    gameId: GameID;
+    playerId: PlayerID;
+    playerName: string;
+    sides: number;
+    result: number;
+    timestamp: number;
+  }) => void;
+  
+  // Coin flip result
+  coinFlipResult: (payload: {
+    gameId: GameID;
+    playerId: PlayerID;
+    playerName: string;
+    result: 'heads' | 'tails';
+    timestamp: number;
+  }) => void;
 
   // ===== MTG ONLINE-STYLE AUTOMATION EVENTS =====
   
