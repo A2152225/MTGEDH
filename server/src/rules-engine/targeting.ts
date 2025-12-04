@@ -478,6 +478,39 @@ export type EngineEffect =
   | { kind: 'Broadcast'; message: string }
   | { kind: 'FlickerPermanent'; id: string; returnDelay: 'immediate' | 'end_of_turn' | 'end_of_combat' };
 
+/**
+ * Check if a permanent meets a stat requirement at resolution time.
+ * This is used to validate targets when a spell resolves, as stats may have
+ * changed since the spell was cast (e.g., -1/-1 effects reducing toughness).
+ * 
+ * MTG Rule 608.2b: "If the spell or ability specifies targets, it checks 
+ * whether the targets are still legal."
+ */
+function meetsStatRequirement(p: BattlefieldPermanent, req: StatRequirement): boolean {
+  const card = p.card as any;
+  let statValue: number;
+  
+  if (req.stat === 'power') {
+    // Use effective power if calculated, otherwise use base power
+    statValue = p.effectivePower ?? (typeof card?.power === 'string' ? parseInt(card.power, 10) : card?.power) ?? 0;
+  } else {
+    // Use effective toughness if calculated, otherwise use base toughness
+    statValue = p.effectiveToughness ?? (typeof card?.toughness === 'string' ? parseInt(card.toughness, 10) : card?.toughness) ?? 0;
+  }
+  
+  // Handle NaN values (e.g., '*' power/toughness)
+  if (isNaN(statValue)) statValue = 0;
+  
+  switch (req.comparison) {
+    case '>=': return statValue >= req.value;
+    case '<=': return statValue <= req.value;
+    case '>': return statValue > req.value;
+    case '<': return statValue < req.value;
+    case '=': return statValue === req.value;
+    default: return true;
+  }
+}
+
 export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], state: Readonly<GameState>): readonly EngineEffect[] {
   const eff: EngineEffect[] = [];
   const applyAll = (k: 'DestroyPermanent' | 'MoveToExile') => {
@@ -490,10 +523,44 @@ export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], stat
 
   switch (spec.op) {
     case 'DESTROY_TARGET':
-      for (const t of chosen) if (t.kind === 'permanent') eff.push({ kind: 'DestroyPermanent', id: t.id });
+      for (const t of chosen) {
+        if (t.kind === 'permanent') {
+          // Check if target is still valid at resolution time
+          const perm = state.battlefield.find(p => p.id === t.id);
+          if (!perm) continue; // Target no longer exists
+          
+          // Check stat requirement at resolution (e.g., toughness 4+ for Repel Calamity)
+          if (spec.statRequirement && isCreature(perm)) {
+            if (!meetsStatRequirement(perm, spec.statRequirement)) {
+              // Target no longer meets requirement - spell fizzles for this target
+              eff.push({ kind: 'Broadcast', message: `Target no longer meets stat requirement (${spec.statRequirement.stat} ${spec.statRequirement.comparison} ${spec.statRequirement.value})` });
+              continue;
+            }
+          }
+          
+          eff.push({ kind: 'DestroyPermanent', id: t.id });
+        }
+      }
       break;
     case 'EXILE_TARGET':
-      for (const t of chosen) if (t.kind === 'permanent') eff.push({ kind: 'MoveToExile', id: t.id });
+      for (const t of chosen) {
+        if (t.kind === 'permanent') {
+          // Check if target is still valid at resolution time
+          const perm = state.battlefield.find(p => p.id === t.id);
+          if (!perm) continue; // Target no longer exists
+          
+          // Check stat requirement at resolution (e.g., toughness 4+ for Repel Calamity)
+          if (spec.statRequirement && isCreature(perm)) {
+            if (!meetsStatRequirement(perm, spec.statRequirement)) {
+              // Target no longer meets requirement - spell fizzles for this target
+              eff.push({ kind: 'Broadcast', message: `Target no longer meets stat requirement (${spec.statRequirement.stat} ${spec.statRequirement.comparison} ${spec.statRequirement.value})` });
+              continue;
+            }
+          }
+          
+          eff.push({ kind: 'MoveToExile', id: t.id });
+        }
+      }
       break;
     case 'FLICKER_TARGET':
       // Flicker: Exile and return to battlefield
