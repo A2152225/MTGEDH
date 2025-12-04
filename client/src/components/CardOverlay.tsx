@@ -1,8 +1,8 @@
 // client/src/components/CardOverlay.tsx
 // Overlay badges for cards on the battlefield: keywords, P/T, loyalty, attack indicators
 
-import React from 'react';
-import type { BattlefieldPermanent, KnownCardRef, PlayerID } from '../../../shared/src';
+import React, { useState } from 'react';
+import type { BattlefieldPermanent, KnownCardRef, PlayerID, PTBonusSource } from '../../../shared/src';
 
 interface Props {
   perm: BattlefieldPermanent;
@@ -116,6 +116,9 @@ export function CardOverlay({
   // Granted abilities
   const abilities = perm.grantedAbilities || [];
 
+  // P/T bonus sources for tooltip
+  const ptSources = perm.ptSources || [];
+
   // Attack indicator
   const attackingPlayer = perm.attacking;
   const attackingPlayerName = attackingPlayer 
@@ -137,6 +140,33 @@ export function CardOverlay({
   // Minimum scale of 0.7 ensures text remains readable even on small tiles
   const rawScale = tileWidth / 110;
   const scale = Math.max(0.7, rawScale);
+
+  // State for P/T tooltip
+  const [showPTTooltip, setShowPTTooltip] = useState(false);
+
+  // Build P/T tooltip content
+  const buildPTTooltipContent = () => {
+    if (ptSources.length === 0 && baseP === effP && baseT === effT) {
+      return null;
+    }
+    
+    const lines: string[] = [];
+    if (baseP !== undefined && baseT !== undefined) {
+      lines.push(`Base: ${baseP}/${baseT}`);
+    }
+    
+    for (const source of ptSources) {
+      const pStr = source.power >= 0 ? `+${source.power}` : `${source.power}`;
+      const tStr = source.toughness >= 0 ? `+${source.toughness}` : `${source.toughness}`;
+      lines.push(`${source.name}: ${pStr}/${tStr}`);
+    }
+    
+    if (effP !== undefined && effT !== undefined) {
+      lines.push(`Total: ${effP}/${effT}`);
+    }
+    
+    return lines.join('\n');
+  };
 
   return (
     <>
@@ -197,17 +227,21 @@ export function CardOverlay({
         </div>
       )}
 
-      {/* P/T display for creatures */}
+      {/* P/T display for creatures with hover tooltip */}
       {showPT && isCreature && effP !== undefined && effT !== undefined && (
-        <div style={{
-          position: 'absolute',
-          right: Math.round(4 * scale),
-          bottom: Math.round(24 * scale),
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'flex-end',
-          gap: Math.round(1 * scale),
-        }}>
+        <div 
+          style={{
+            position: 'absolute',
+            right: Math.round(4 * scale),
+            bottom: Math.round(24 * scale),
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-end',
+            gap: Math.round(1 * scale),
+          }}
+          onMouseEnter={() => ptSources.length > 0 && setShowPTTooltip(true)}
+          onMouseLeave={() => setShowPTTooltip(false)}
+        >
           <div style={{
             display: 'flex',
             alignItems: 'center',
@@ -215,8 +249,9 @@ export function CardOverlay({
             padding: `${Math.round(2 * scale)}px ${Math.round(6 * scale)}px`,
             borderRadius: Math.round(4 * scale),
             background: 'rgba(0,0,0,0.75)',
-            border: '1px solid rgba(255,255,255,0.2)',
+            border: ptSources.length > 0 ? '1px solid rgba(255,215,0,0.5)' : '1px solid rgba(255,255,255,0.2)',
             boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+            cursor: ptSources.length > 0 ? 'help' : 'default',
           }}>
             <span style={{
               fontSize: Math.round(12 * scale),
@@ -246,6 +281,71 @@ export function CardOverlay({
             }}>
               base {baseP}/{baseT}
             </span>
+          )}
+          
+          {/* P/T Sources Tooltip */}
+          {showPTTooltip && ptSources.length > 0 && (
+            <div style={{
+              position: 'absolute',
+              bottom: '100%',
+              right: 0,
+              marginBottom: 4,
+              padding: '8px 12px',
+              background: 'rgba(0,0,0,0.95)',
+              borderRadius: 6,
+              border: '1px solid rgba(255,215,0,0.3)',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+              zIndex: 1000,
+              minWidth: 150,
+              whiteSpace: 'nowrap',
+            }}>
+              <div style={{ 
+                fontSize: 11, 
+                fontWeight: 600, 
+                color: '#fbbf24', 
+                marginBottom: 6,
+                borderBottom: '1px solid rgba(255,255,255,0.1)',
+                paddingBottom: 4,
+              }}>
+                P/T Breakdown
+              </div>
+              {baseP !== undefined && baseT !== undefined && (
+                <div style={{ 
+                  fontSize: 10, 
+                  color: '#d1d5db',
+                  marginBottom: 4,
+                }}>
+                  Base: {baseP}/{baseT}
+                </div>
+              )}
+              {ptSources.map((source, idx) => (
+                <div key={idx} style={{ 
+                  fontSize: 10, 
+                  color: source.power > 0 || source.toughness > 0 ? '#22c55e' : 
+                         source.power < 0 || source.toughness < 0 ? '#ef4444' : '#9ca3af',
+                  marginBottom: 2,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                }}>
+                  <span style={{ color: '#e5e7eb' }}>{source.name}</span>
+                  <span>
+                    {source.power >= 0 ? '+' : ''}{source.power}/
+                    {source.toughness >= 0 ? '+' : ''}{source.toughness}
+                  </span>
+                </div>
+              ))}
+              <div style={{ 
+                fontSize: 11, 
+                fontWeight: 600, 
+                color: '#fff',
+                marginTop: 6,
+                borderTop: '1px solid rgba(255,255,255,0.1)',
+                paddingTop: 4,
+              }}>
+                Total: {effP}/{effT}
+              </div>
+            </div>
           )}
         </div>
       )}

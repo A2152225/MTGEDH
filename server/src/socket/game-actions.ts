@@ -2,7 +2,7 @@ import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, handlePendingLibrarySearch, handlePendingJoinForces, handlePendingTemptingOffer, handlePendingPonder, broadcastManaPoolUpdate } from "./util";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
-import type { PaymentItem, TriggerShortcut } from "../../../shared/src";
+import type { PaymentItem, TriggerShortcut, PlayerID } from "../../../shared/src";
 import { requiresCreatureTypeSelection, requestCreatureTypeSelection } from "./creature-type";
 import { checkAndPromptOpeningHandActions } from "./opening-hand";
 import { emitSacrificeUnlessPayPrompt } from "./triggers";

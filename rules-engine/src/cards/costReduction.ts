@@ -17,68 +17,61 @@ export interface CostReductionConfig {
   };
   readonly requiresTypeSelection?: boolean;
   readonly affectsOnlyCreatures?: boolean;
+  /** Filter: Only spells of these colors get the reduction */
+  readonly spellColorFilter?: readonly string[];
 }
 
 export const COST_REDUCTION_CARDS: Record<string, CostReductionConfig> = {
-  'the water crystal': {
-    cardName: 'The Water Crystal',
-    affectedTypes: ['all'],
-    genericReduction: 0,
-    colorReduction: { blue: 1 },
-    affectsOnlyCreatures: false,
-  },
-  'the fire crystal': {
-    cardName: 'The Fire Crystal',
-    affectedTypes: ['all'],
-    genericReduction: 0,
-    colorReduction: { red: 1 },
-    affectsOnlyCreatures: false,
-  },
   // Final Fantasy Crystals - each reduces its color's spells by {1}
+  // The Wind Crystal - White spells cost {1} less
+  // Also: Life gain doubled, {4}{W}{W},{T}: Creatures gain flying and lifelink until EOT
   'the wind crystal': {
     cardName: 'The Wind Crystal',
     affectedTypes: ['all'],
     genericReduction: 1,
     colorReduction: {},
     affectsOnlyCreatures: false,
-    spellColorFilter: ['white'],
-    // Also: Life gain doubled, {4}{W}{W},{T}: Creatures gain flying and lifelink until EOT
+    spellColorFilter: ['white', 'W'],
   },
+  // The Fire Crystal - Red spells cost {1} less
+  // Also: Creatures you control have haste, {4}{R}{R},{T}: Create token copy (sacrifice at end step)
   'the fire crystal': {
     cardName: 'The Fire Crystal',
     affectedTypes: ['all'],
     genericReduction: 1,
     colorReduction: {},
     affectsOnlyCreatures: false,
-    spellColorFilter: ['red'],
-    // Also: Creatures you control have haste, {4}{R}{R},{T}: Create token copy (sacrifice at end step)
+    spellColorFilter: ['red', 'R'],
   },
+  // The Water Crystal - Blue spells cost {1} less
+  // Also: Opponents mill +4 more, {4}{U}{U},{T}: Each opponent mills cards equal to creatures you control
   'the water crystal': {
     cardName: 'The Water Crystal',
     affectedTypes: ['all'],
     genericReduction: 1,
     colorReduction: {},
     affectsOnlyCreatures: false,
-    spellColorFilter: ['blue'],
-    // Also: Opponents mill +4 more, {4}{U}{U},{T}: Each opponent mills cards equal to creatures you control
+    spellColorFilter: ['blue', 'U'],
   },
+  // The Earth Crystal - Green spells cost {1} less
+  // Also: +1/+1 counters doubled, {4}{G}{G},{T}: Distribute +1/+1 counters equal to greatest power
   'the earth crystal': {
     cardName: 'The Earth Crystal',
     affectedTypes: ['all'],
     genericReduction: 1,
     colorReduction: {},
     affectsOnlyCreatures: false,
-    spellColorFilter: ['green'],
-    // Also: +1/+1 counters doubled, {4}{G}{G},{T}: Distribute +1/+1 counters equal to greatest power
+    spellColorFilter: ['green', 'G'],
   },
+  // The Darkness Crystal - Black spells cost {1} less
+  // Also: Exile opponent's dying nontoken creatures + gain 2 life, {4}{B}{B},{T}: Return exiled creature
   'the darkness crystal': {
     cardName: 'The Darkness Crystal',
     affectedTypes: ['all'],
     genericReduction: 1,
     colorReduction: {},
     affectsOnlyCreatures: false,
-    spellColorFilter: ['black'],
-    // Also: Exile opponent's dying nontoken creatures + gain 2 life, {4}{B}{B},{T}: Return exiled creature
+    spellColorFilter: ['black', 'B'],
   },
   "urza's incubator": {
     cardName: "Urza's Incubator",
