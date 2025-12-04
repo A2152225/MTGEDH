@@ -38,6 +38,7 @@ import { LifePaymentModal } from "./components/LifePaymentModal";
 import { MDFCFaceSelectionModal, type CardFace } from "./components/MDFCFaceSelectionModal";
 import { ModalSpellSelectionModal, type SpellMode } from "./components/ModalSpellSelectionModal";
 import { ReplacementEffectOrderModal, type ReplacementEffectItem, type OrderingMode } from "./components/ReplacementEffectOrderModal";
+import { ReplacementEffectSettingsPanel } from "./components/ReplacementEffectSettingsPanel";
 import { GraveyardViewModal } from "./components/GraveyardViewModal";
 import { JoinForcesModal, type JoinForcesRequest } from "./components/JoinForcesModal";
 import { TemptingOfferModal, type TemptingOfferRequest } from "./components/TemptingOfferModal";
@@ -474,6 +475,9 @@ export function App() {
     initialMode?: OrderingMode;
     effectId?: string;
   } | null>(null);
+  
+  // Replacement Effect Settings Panel state
+  const [replacementEffectSettingsOpen, setReplacementEffectSettingsOpen] = useState(false);
   
   // Mana Pool state - tracks floating mana for the current player
   const [manaPool, setManaPool] = useState<ManaPool | null>(null);
@@ -4748,6 +4752,16 @@ export function App() {
             }
           />
         </div>
+      )}
+
+      {/* Replacement Effect Settings Panel - Allows customizing effect ordering */}
+      {safeView && you && (
+        <ReplacementEffectSettingsPanel
+          gameId={safeView.id}
+          playerId={you}
+          open={replacementEffectSettingsOpen}
+          onClose={() => setReplacementEffectSettingsOpen(false)}
+        />
       )}
     </div>
   );

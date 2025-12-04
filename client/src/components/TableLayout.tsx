@@ -1727,6 +1727,9 @@ export function TableLayout(props: {
             onPass={() => {
               if (gameId && you) socket.emit('passPriority', { gameId, by: you });
             }}
+            onResolveAll={() => {
+              if (gameId && you) socket.emit('resolveAllTriggers', { gameId });
+            }}
             ignoredSources={ignoredTriggerSources}
             onIgnoreTriggerSource={onIgnoreTriggerSource}
             onStopIgnoring={onStopIgnoringSource}
