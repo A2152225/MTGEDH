@@ -528,6 +528,20 @@ export function TableLayout(props: {
     }
   }, [container.w, container.h, ordered.length, halfW, halfH]);
 
+  // Auto-center on player's playfield when `you` prop changes (player joins the game)
+  const prevYou = useRef<PlayerID | undefined>(undefined);
+  useEffect(() => {
+    if (you && you !== prevYou.current && container.w && container.h) {
+      // Small delay to allow the DOM to update with player's hand area
+      const timer = setTimeout(() => {
+        centerOnYou(true);
+      }, 100);
+      prevYou.current = you;
+      return () => clearTimeout(timer);
+    }
+    prevYou.current = you;
+  }, [you, container.w, container.h]);
+
   const attachedToSet = useMemo(() => {
     const s = new Set<string>();
     for (const arr of permanentsByPlayer.values()) {
@@ -780,7 +794,8 @@ export function TableLayout(props: {
         }}
         style={{
           width: '100%',
-          height: '72vh',
+          height: 'calc(100vh - 140px)',
+          minHeight: '500px',
           overflow: 'hidden',
           ...tableContainerBg,
           border: '1px solid #222',

@@ -2925,30 +2925,15 @@ export function App() {
       }}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {/* HEADER (game id, format) */}
+        {/* JOIN / ACTIVE GAMES (collapsible/accordion) - at very top */}
         <div
           style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <div>
-            <h1 style={{ margin: 0, color: textColors.primary }}>MTGEDH</h1>
-            <div style={{ fontSize: 12, color: textColors.secondary }}>
-              Game: {effectiveGameId} • Format:{" "}
-              {String(safeView?.format ?? "")}
-            </div>
-          </div>
-        </div>
-
-        {/* JOIN / ACTIVE GAMES (collapsible/accordion) */}
-        <div
-          style={{
-            border: "1px solid #ddd",
+            border: "1px solid rgba(255,255,255,0.15)",
             borderRadius: 6,
-            padding: 8,
-            background: "#fafafa",
+            padding: joinCollapsed ? "4px 8px" : 8,
+            background: "rgba(30, 30, 40, 0.95)",
+            backdropFilter: "blur(8px)",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
           }}
         >
           <div
@@ -2960,10 +2945,11 @@ export function App() {
             }}
             onClick={() => setJoinCollapsed((c) => !c)}
           >
-            <div style={{ fontWeight: 600, fontSize: 13 }}>
+            <div style={{ fontWeight: 600, fontSize: 12, color: "#e5e5e5", display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ color: "#a78bfa" }}>🎮</span>
               Join / Active Games
             </div>
-            <div style={{ fontSize: 16 }}>
+            <div style={{ fontSize: 14, color: "#a78bfa" }}>
               {joinCollapsed ? "▸" : "▾"}
             </div>
           </div>
@@ -2983,17 +2969,35 @@ export function App() {
                   value={gameIdInput}
                   onChange={(e) => setGameIdInput(e.target.value as any)}
                   placeholder="Game ID"
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: 4,
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    background: "rgba(0,0,0,0.3)",
+                    color: "#e5e5e5",
+                    fontSize: 12,
+                  }}
                 />
                 <input
                   value={nameInput}
                   onChange={(e) => setNameInput(e.target.value)}
                   placeholder="Name"
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: 4,
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    background: "rgba(0,0,0,0.3)",
+                    color: "#e5e5e5",
+                    fontSize: 12,
+                  }}
                 />
                 <label
                   style={{
                     display: "inline-flex",
                     alignItems: "center",
                     gap: 6,
+                    color: "#c4b5fd",
+                    fontSize: 12,
                   }}
                 >
                   <input
@@ -3003,7 +3007,19 @@ export function App() {
                   />
                   Spectator
                 </label>
-                <button onClick={handleJoin} disabled={!connected}>
+                <button 
+                  onClick={handleJoin} 
+                  disabled={!connected}
+                  style={{
+                    padding: "4px 12px",
+                    borderRadius: 4,
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    background: "rgba(59, 130, 246, 0.3)",
+                    color: "#93c5fd",
+                    fontSize: 12,
+                    cursor: connected ? "pointer" : "not-allowed",
+                  }}
+                >
                   Join
                 </button>
                 <button
@@ -3015,6 +3031,7 @@ export function App() {
                     border: "none",
                     borderRadius: 4,
                     padding: "4px 12px",
+                    fontSize: 12,
                     cursor: connected ? "pointer" : "not-allowed",
                   }}
                 >
@@ -3028,6 +3045,7 @@ export function App() {
                     border: "none",
                     borderRadius: 4,
                     padding: "4px 12px",
+                    fontSize: 12,
                     cursor: "pointer",
                   }}
                 >
@@ -3038,12 +3056,30 @@ export function App() {
                     socket.emit("requestState", { gameId: gameIdInput })
                   }
                   disabled={!connected}
+                  style={{
+                    padding: "4px 12px",
+                    borderRadius: 4,
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    background: "rgba(0,0,0,0.3)",
+                    color: "#9ca3af",
+                    fontSize: 12,
+                    cursor: connected ? "pointer" : "not-allowed",
+                  }}
                 >
                   Refresh
                 </button>
                 <button
                   onClick={() => fetchDebug()}
                   disabled={!connected || !safeView}
+                  style={{
+                    padding: "4px 12px",
+                    borderRadius: 4,
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    background: "rgba(0,0,0,0.3)",
+                    color: "#9ca3af",
+                    fontSize: 12,
+                    cursor: connected && safeView ? "pointer" : "not-allowed",
+                  }}
                 >
                   Debug
                 </button>
@@ -3055,6 +3091,7 @@ export function App() {
                     border: "none",
                     borderRadius: 4,
                     padding: "4px 12px",
+                    fontSize: 12,
                     cursor: "pointer",
                   }}
                   title="Customize table and play area colors"
@@ -3068,6 +3105,23 @@ export function App() {
               </div>
             </>
           )}
+        </div>
+
+        {/* HEADER (game id, format) */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <div>
+            <h1 style={{ margin: 0, color: textColors.primary }}>MTGEDH</h1>
+            <div style={{ fontSize: 12, color: textColors.secondary }}>
+              Game: {effectiveGameId} • Format:{" "}
+              {String(safeView?.format ?? "")}
+            </div>
+          </div>
         </div>
 
         {/* GAME STATUS INDICATOR - Shows turn, phase, step, priority, special designations, and control buttons */}
