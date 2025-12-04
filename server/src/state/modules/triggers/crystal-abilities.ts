@@ -12,14 +12,14 @@
  *   Sacrifice it at the beginning of the next end step.
  * 
  * The Water Crystal (Blue):
- *   {4}{U}{U}, {T}: Target player mills cards equal to the number of cards in your hand.
+ *   {4}{U}{U}, {T}: Each opponent mills cards equal to the number of cards in your hand.
  * 
  * The Earth Crystal (Green):
- *   {4}{G}{G}, {T}: Double the number of +1/+1 counters on target creature you control.
+ *   {4}{G}{G}, {T}: Distribute two +1/+1 counters among one or two target creatures you control.
  * 
  * The Darkness Crystal (Black):
- *   {4}{B}{B}, {T}: Until end of turn, whenever a creature you control dies, 
- *   each opponent loses 2 life and you gain 2 life.
+ *   {4}{B}{B}, {T}: Put target creature card exiled with The Darkness Crystal onto the 
+ *   battlefield tapped under your control with two additional +1/+1 counters on it.
  */
 
 import type { GameContext } from "../../context.js";
@@ -32,9 +32,9 @@ export interface CrystalAbility {
   manaCost: string;
   requiresTap: boolean;
   requiresTarget: boolean;
-  targetType?: 'creature_you_control' | 'player' | 'any_creature';
+  targetType?: 'creature_you_control' | 'creatures_you_control' | 'player' | 'any_creature' | 'exiled_creature';
   effect: string;
-  effectType: 'grant_abilities' | 'create_token_copy' | 'mill' | 'double_counters' | 'setup_trigger';
+  effectType: 'grant_abilities' | 'create_token_copy' | 'mill' | 'distribute_counters' | 'return_from_exile';
 }
 
 /**
@@ -62,9 +62,8 @@ export const CRYSTAL_ABILITIES: Record<string, CrystalAbility> = {
     name: 'The Water Crystal',
     manaCost: '{4}{U}{U}',
     requiresTap: true,
-    requiresTarget: true,
-    targetType: 'player',
-    effect: 'Target player mills cards equal to the number of cards in your hand.',
+    requiresTarget: false,  // Affects each opponent, no targeting needed
+    effect: 'Each opponent mills cards equal to the number of cards in your hand.',
     effectType: 'mill',
   },
   'the earth crystal': {
@@ -72,17 +71,18 @@ export const CRYSTAL_ABILITIES: Record<string, CrystalAbility> = {
     manaCost: '{4}{G}{G}',
     requiresTap: true,
     requiresTarget: true,
-    targetType: 'creature_you_control',
-    effect: 'Double the number of +1/+1 counters on target creature you control.',
-    effectType: 'double_counters',
+    targetType: 'creatures_you_control',  // Can target 1 or 2 creatures
+    effect: 'Distribute two +1/+1 counters among one or two target creatures you control.',
+    effectType: 'distribute_counters',
   },
   'the darkness crystal': {
     name: 'The Darkness Crystal',
     manaCost: '{4}{B}{B}',
     requiresTap: true,
-    requiresTarget: false,
-    effect: 'Until end of turn, whenever a creature you control dies, each opponent loses 2 life and you gain 2 life.',
-    effectType: 'setup_trigger',
+    requiresTarget: true,
+    targetType: 'exiled_creature',  // Targets creature exiled with this Crystal
+    effect: 'Put target creature card exiled with The Darkness Crystal onto the battlefield tapped under your control with two additional +1/+1 counters on it.',
+    effectType: 'return_from_exile',
   },
 };
 
@@ -244,98 +244,219 @@ export function executeFireCrystalAbility(
 
 /**
  * Execute The Water Crystal's ability
- * Target player mills cards equal to the number of cards in your hand.
+ * Each opponent mills cards equal to the number of cards in your hand.
  */
 export function executeWaterCrystalAbility(
   ctx: GameContext,
-  controllerId: string,
-  targetPlayerId: string
-): { success: boolean; milledCount: number; error?: string } {
+  controllerId: string
+): { success: boolean; results: Array<{ playerId: string; milledCount: number }>; error?: string } {
   const zones = (ctx as any).zones || {};
   const controllerZone = zones[controllerId];
-  const targetZone = zones[targetPlayerId];
+  const players = (ctx.state as any)?.players || [];
   
-  if (!controllerZone || !targetZone) {
-    return { success: false, milledCount: 0, error: 'Player zones not found' };
+  if (!controllerZone) {
+    return { success: false, results: [], error: 'Controller zone not found' };
   }
   
   const handCount = controllerZone.handCount || (controllerZone.hand?.length || 0);
+  const results: Array<{ playerId: string; milledCount: number }> = [];
   
-  // Mill target player
-  const library = targetZone.library || [];
-  const graveyard = targetZone.graveyard || [];
+  // Mill each opponent
+  for (const player of players) {
+    const playerId = (player as any).id;
+    
+    // Skip the controller (not an opponent)
+    if (playerId === controllerId) continue;
+    
+    const targetZone = zones[playerId];
+    if (!targetZone) continue;
+    
+    const library = targetZone.library || [];
+    const graveyard = targetZone.graveyard || [];
+    
+    const cardsToMill = Math.min(handCount, library.length);
+    const milledCards = library.splice(0, cardsToMill);
+    graveyard.push(...milledCards);
+    
+    results.push({ playerId, milledCount: cardsToMill });
+  }
   
-  const cardsToMill = Math.min(handCount, library.length);
-  const milledCards = library.splice(0, cardsToMill);
-  graveyard.push(...milledCards);
-  
-  return { success: true, milledCount: cardsToMill };
+  return { success: true, results };
 }
 
 /**
  * Execute The Earth Crystal's ability
- * Double the number of +1/+1 counters on target creature you control.
+ * Distribute two +1/+1 counters among one or two target creatures you control.
+ * 
+ * @param targetCreatureIds - Array of 1 or 2 creature IDs
+ * @param distribution - Optional array specifying how many counters each target gets (must sum to 2)
+ *                       If not provided, counters are distributed evenly (or 2 to single target)
  */
 export function executeEarthCrystalAbility(
   ctx: GameContext,
   controllerId: string,
-  targetCreatureId: string
-): { success: boolean; newCounterCount?: number; error?: string } {
+  targetCreatureIds: string[],
+  distribution?: number[]
+): { success: boolean; results?: Array<{ creatureId: string; countersAdded: number }>; error?: string } {
   const battlefield = ctx.state?.battlefield || [];
-  const targetCreature = battlefield.find((p: any) => p.id === targetCreatureId);
   
-  if (!targetCreature) {
-    return { success: false, error: 'Target creature not found' };
+  if (!targetCreatureIds || targetCreatureIds.length === 0) {
+    return { success: false, error: 'Must target at least one creature' };
   }
   
-  if (targetCreature.controller !== controllerId) {
-    return { success: false, error: 'Can only target creatures you control' };
+  if (targetCreatureIds.length > 2) {
+    return { success: false, error: 'Can only target up to two creatures' };
   }
   
-  const typeLine = ((targetCreature.card as any)?.type_line || '').toLowerCase();
-  if (!typeLine.includes('creature')) {
-    return { success: false, error: 'Target must be a creature' };
+  // Validate all targets first
+  const targets: any[] = [];
+  for (const targetId of targetCreatureIds) {
+    const targetCreature = battlefield.find((p: any) => p.id === targetId);
+    
+    if (!targetCreature) {
+      return { success: false, error: 'Target creature not found' };
+    }
+    
+    if (targetCreature.controller !== controllerId) {
+      return { success: false, error: 'Can only target creatures you control' };
+    }
+    
+    const typeLine = ((targetCreature.card as any)?.type_line || '').toLowerCase();
+    if (!typeLine.includes('creature')) {
+      return { success: false, error: 'Target must be a creature' };
+    }
+    
+    targets.push(targetCreature);
   }
   
-  // Double +1/+1 counters
-  // Note: Doubling 0 counters still results in 0, which is valid per MTG rules
-  // (The Earth Crystal allows targeting a creature without counters, though the effect does nothing)
-  const counters = (targetCreature as any).counters || {};
-  const currentCounters = counters['+1/+1'] || 0;
-  counters['+1/+1'] = currentCounters * 2;
-  (targetCreature as any).counters = counters;
+  // Determine counter distribution
+  let countersToAdd: number[];
+  if (distribution && distribution.length === targets.length) {
+    // Validate distribution sums to 2
+    const total = distribution.reduce((sum, n) => sum + n, 0);
+    if (total !== 2) {
+      return { success: false, error: 'Must distribute exactly 2 counters' };
+    }
+    countersToAdd = distribution;
+  } else if (targets.length === 1) {
+    // Single target gets both counters
+    countersToAdd = [2];
+  } else {
+    // Two targets: 1 counter each by default
+    countersToAdd = [1, 1];
+  }
   
-  return { success: true, newCounterCount: counters['+1/+1'] };
+  // Apply counters
+  const results: Array<{ creatureId: string; countersAdded: number }> = [];
+  for (let i = 0; i < targets.length; i++) {
+    const target = targets[i];
+    const counters = (target as any).counters || {};
+    counters['+1/+1'] = (counters['+1/+1'] || 0) + countersToAdd[i];
+    (target as any).counters = counters;
+    
+    results.push({ creatureId: target.id, countersAdded: countersToAdd[i] });
+  }
+  
+  return { success: true, results };
 }
 
 /**
  * Execute The Darkness Crystal's ability
- * Until end of turn, whenever a creature you control dies, 
- * each opponent loses 2 life and you gain 2 life.
+ * Put target creature card exiled with The Darkness Crystal onto the battlefield 
+ * tapped under your control with two additional +1/+1 counters on it.
+ * 
+ * Note: The Darkness Crystal has a static ability that exiles creatures that die while you control it.
+ * This activated ability lets you return those exiled creatures.
  */
 export function executeDarknessCrystalAbility(
   ctx: GameContext,
-  controllerId: string
-): { success: boolean } {
-  // Set up a temporary trigger that fires when creatures die
-  // This is stored in the game state and checked during death trigger processing
+  controllerId: string,
+  crystalPermanentId: string,
+  targetExiledCardId: string
+): { success: boolean; creatureName?: string; error?: string } {
+  const battlefield = ctx.state?.battlefield || [];
   const state = ctx.state as any;
-  if (!state.temporaryTriggers) {
-    state.temporaryTriggers = [];
+  
+  // Find the Crystal permanent to check its exiled cards
+  const crystalPerm = battlefield.find((p: any) => p.id === crystalPermanentId);
+  if (!crystalPerm) {
+    return { success: false, error: 'The Darkness Crystal not found on battlefield' };
   }
   
-  state.temporaryTriggers.push({
-    id: `darkness_crystal_trigger_${Date.now()}`,
-    type: 'creature_death',
-    controllerId,
-    sourceId: 'the_darkness_crystal',
-    sourceName: 'The Darkness Crystal',
-    condition: (dying: any) => dying.controller === controllerId,
-    effect: 'each_opponent_loses_2_you_gain_2',
-    expiresAt: 'end_of_turn',
+  // Get cards exiled with this specific Crystal
+  const exiledWithCrystal = (crystalPerm as any).exiledCards || [];
+  const targetIdx = exiledWithCrystal.findIndex((c: any) => {
+    const cardId = typeof c === 'string' ? c : c?.id;
+    return cardId === targetExiledCardId;
   });
   
-  return { success: true };
+  if (targetIdx === -1) {
+    return { success: false, error: 'Target creature not found among cards exiled with The Darkness Crystal' };
+  }
+  
+  const targetCard = exiledWithCrystal[targetIdx];
+  const cardData = typeof targetCard === 'string' ? { id: targetCard } : targetCard;
+  const targetTypeLine = (cardData.type_line || '').toLowerCase();
+  
+  if (!targetTypeLine.includes('creature')) {
+    return { success: false, error: 'Target must be a creature card' };
+  }
+  
+  // Remove from exiled cards
+  exiledWithCrystal.splice(targetIdx, 1);
+  
+  // Create the permanent on battlefield - tapped with 2 additional +1/+1 counters
+  const newPermanent = {
+    id: `perm_${cardData.id}_${Date.now()}`,
+    controller: controllerId,
+    owner: controllerId,
+    tapped: true,  // Enters tapped
+    card: cardData,
+    counters: {
+      '+1/+1': 2,  // Two additional +1/+1 counters
+    },
+  };
+  
+  battlefield.push(newPermanent as any);
+  
+  return { 
+    success: true, 
+    creatureName: cardData.name || 'Creature'
+  };
+}
+
+/**
+ * Get creatures exiled with a specific Darkness Crystal
+ * Used for targeting the activated ability
+ */
+export function getExiledWithDarknessCrystal(
+  ctx: GameContext,
+  crystalPermanentId: string
+): Array<{ id: string; name: string; typeLine: string }> {
+  const battlefield = ctx.state?.battlefield || [];
+  const crystalPerm = battlefield.find((p: any) => p.id === crystalPermanentId);
+  
+  if (!crystalPerm) {
+    return [];
+  }
+  
+  const exiledWithCrystal = (crystalPerm as any).exiledCards || [];
+  const creatures: Array<{ id: string; name: string; typeLine: string }> = [];
+  
+  for (const card of exiledWithCrystal) {
+    const cardData = typeof card === 'string' ? { id: card } : card;
+    const typeLine = (cardData.type_line || '').toLowerCase();
+    
+    if (typeLine.includes('creature')) {
+      creatures.push({
+        id: cardData.id,
+        name: cardData.name || 'Unknown Creature',
+        typeLine: cardData.type_line || 'Creature',
+      });
+    }
+  }
+  
+  return creatures;
 }
 
 /**

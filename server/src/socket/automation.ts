@@ -541,31 +541,55 @@ async function processActivateAbility(
           break;
           
         case 'the water crystal':
-          if (!ability.targets || ability.targets.length === 0) {
-            return { success: false, error: "The Water Crystal requires a target player" };
+          // No target needed - affects each opponent
+          const waterResult = executeWaterCrystalAbility(game as any, playerId);
+          if (waterResult.success) {
+            const totalMilled = waterResult.results.reduce((sum, r) => sum + r.milledCount, 0);
+            const opponentCount = waterResult.results.length;
+            result = { 
+              success: true, 
+              message: `The Water Crystal: ${opponentCount} opponent(s) milled ${totalMilled} total cards` 
+            };
+          } else {
+            result = { success: false, error: waterResult.error };
           }
-          const waterResult = executeWaterCrystalAbility(game as any, playerId, ability.targets[0]);
-          result = waterResult.success
-            ? { success: true, message: `The Water Crystal: Target player milled ${waterResult.milledCount} cards` }
-            : { success: false, error: waterResult.error };
           break;
           
         case 'the earth crystal':
           if (!ability.targets || ability.targets.length === 0) {
-            return { success: false, error: "The Earth Crystal requires a target creature you control" };
+            return { success: false, error: "The Earth Crystal requires at least one target creature you control" };
           }
-          const earthResult = executeEarthCrystalAbility(game as any, playerId, ability.targets[0]);
-          result = earthResult.success
-            ? { success: true, message: `The Earth Crystal: Doubled +1/+1 counters to ${earthResult.newCounterCount}` }
-            : { success: false, error: earthResult.error };
+          if (ability.targets.length > 2) {
+            return { success: false, error: "The Earth Crystal can only target up to two creatures" };
+          }
+          // Pass all targets (1 or 2 creatures) and optional distribution
+          const earthResult = executeEarthCrystalAbility(
+            game as any, 
+            playerId, 
+            ability.targets,
+            (ability as any).distribution  // Optional: how to distribute the 2 counters
+          );
+          if (earthResult.success && earthResult.results) {
+            const details = earthResult.results.map(r => `+${r.countersAdded}`).join(', ');
+            result = { success: true, message: `The Earth Crystal: Distributed +1/+1 counters (${details})` };
+          } else {
+            result = { success: false, error: earthResult.error };
+          }
           break;
           
         case 'the darkness crystal':
-          const darknessResult = executeDarknessCrystalAbility(game as any, playerId);
-          result = { 
-            success: darknessResult.success, 
-            message: `The Darkness Crystal: Death trigger active until end of turn` 
-          };
+          if (!ability.targets || ability.targets.length === 0) {
+            return { success: false, error: "The Darkness Crystal requires a target creature exiled with it" };
+          }
+          const darknessResult = executeDarknessCrystalAbility(
+            game as any, 
+            playerId, 
+            ability.permanentId,  // The Crystal's permanent ID
+            ability.targets[0]    // The exiled creature card ID
+          );
+          result = darknessResult.success
+            ? { success: true, message: `The Darkness Crystal: Returned ${darknessResult.creatureName} to battlefield tapped with +2/+2` }
+            : { success: false, error: darknessResult.error };
           break;
           
         default:
