@@ -90,6 +90,9 @@ export interface InMemoryGame {
   getScheduledSteps?: () => { afterCurrent: any[]; endOfTurn: any[] };
   removeScheduledSteps?: (steps: any[]) => void;
 
+  // Pending interactions (blocks step advancement until resolved)
+  getPendingInteractions?: () => any;
+
   // Event lifecycle
   applyEvent?: (e: GameEvent) => void;
   replay?: (events: GameEvent[]) => void;

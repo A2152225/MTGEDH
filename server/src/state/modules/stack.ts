@@ -2851,12 +2851,12 @@ export function resolveTopOfStack(ctx: GameContext) {
         
         if (isCommander && targetCard) {
           // Defer zone change - let player choose command zone or library
-          state.pendingCommanderZoneChoice = state.pendingCommanderZoneChoice || {};
-          state.pendingCommanderZoneChoice[owner] = state.pendingCommanderZoneChoice[owner] || [];
-          state.pendingCommanderZoneChoice[owner].push({
+          (state as any).pendingCommanderZoneChoice = (state as any).pendingCommanderZoneChoice || [];
+          ((state as any).pendingCommanderZoneChoice as any[]).push({
             commanderId: targetCard.id,
             commanderName: targetCard.name,
             destinationZone: 'library',
+            playerId: owner,
             card: {
               id: targetCard.id,
               name: targetCard.name,

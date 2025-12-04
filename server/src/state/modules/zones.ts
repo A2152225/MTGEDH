@@ -655,33 +655,35 @@ export function movePermanentToLibrary(
   const isCommander = (card?.id && commanderIds.includes(card.id)) || (perm as any).isCommander === true;
   
   if (isCommander && card) {
+    // Cast card as any to access properties safely
+    const cardAny = card as any;
     // Defer zone change - let player choose command zone or library
-    (state as any).pendingCommanderZoneChoice = (state as any).pendingCommanderZoneChoice || {};
-    (state as any).pendingCommanderZoneChoice[owner] = (state as any).pendingCommanderZoneChoice[owner] || [];
-    (state as any).pendingCommanderZoneChoice[owner].push({
-      commanderId: card.id,
-      commanderName: card.name,
+    (state as any).pendingCommanderZoneChoice = (state as any).pendingCommanderZoneChoice || [];
+    ((state as any).pendingCommanderZoneChoice as any[]).push({
+      commanderId: cardAny.id,
+      commanderName: cardAny.name || 'Unknown Commander',
       destinationZone: 'library',
       libraryPosition: position, // Store where it would go if player chooses library
+      playerId: owner,
       card: {
-        id: card.id,
-        name: card.name,
-        type_line: card.type_line,
-        oracle_text: card.oracle_text,
-        image_uris: card.image_uris,
-        mana_cost: card.mana_cost,
-        power: card.power,
-        toughness: card.toughness,
+        id: cardAny.id,
+        name: cardAny.name || 'Unknown Commander',
+        type_line: cardAny.type_line,
+        oracle_text: cardAny.oracle_text,
+        image_uris: cardAny.image_uris,
+        mana_cost: cardAny.mana_cost,
+        power: cardAny.power,
+        toughness: cardAny.toughness,
       },
     });
-    console.log(`[movePermanentToLibrary] Commander ${card.name} would go to library (${position}) - DEFERRING zone change for player choice`);
+    console.log(`[movePermanentToLibrary] Commander ${cardAny.name || 'Unknown'} would go to library (${position}) - DEFERRING zone change for player choice`);
     bumpSeq();
     return true;
   }
   
   // Non-commander - move directly to library
   const lib = libraries.get(owner) || [];
-  const cardCopy = { ...card, zone: 'library' };
+  const cardCopy = { ...(card as any), zone: 'library' };
   
   if (position === 'top') {
     lib.unshift(cardCopy);
@@ -703,7 +705,7 @@ export function movePermanentToLibrary(
   const z = zones[owner] || (zones[owner] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 } as any);
   z.libraryCount = lib.length;
   
-  console.log(`[movePermanentToLibrary] ${card?.name || permanentId} put ${position} of ${owner}'s library`);
+  console.log(`[movePermanentToLibrary] ${(card as any)?.name || permanentId} put ${position} of ${owner}'s library`);
   bumpSeq();
   return true;
 }
