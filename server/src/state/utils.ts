@@ -1767,10 +1767,10 @@ export function calculateAllPTBonusesWithSources(
       }
     }
     
-    // Parse generic "creatures you control get +X/+Y" from oracle text
+    // Parse generic "creatures you control get +X/+Y" or "-X/-Y" from oracle text
     if (perm.controller === controllerId && !enchantBonus) {
       const oracleText = perm.card.oracle_text || '';
-      const anthemMatch = oracleText.match(/creatures you control get \+(\d+)\/\+(\d+)/i);
+      const anthemMatch = oracleText.match(/creatures you control get ([+-]?\d+)\/([+-]?\d+)/i);
       if (anthemMatch) {
         const p = parseInt(anthemMatch[1], 10);
         const t = parseInt(anthemMatch[2], 10);

@@ -336,9 +336,8 @@ export function CombatSelectionModal({
   const handleConfirm = () => {
     if (!isInteractive) return; // Don't allow if read-only
     
-    // Check for menace violations before confirming
+    // Menace violations are already displayed in the UI banner - just prevent confirmation
     if (menaceViolations.size > 0) {
-      alert('Invalid blocking: ' + Array.from(menaceViolations.values()).join(', '));
       return;
     }
     
@@ -717,9 +716,14 @@ export function CombatSelectionModal({
                           }}>
                             {pt}
                           </div>
-                          {effectiveToughness !== undefined && (
+                          {effectiveToughness !== undefined && effectiveToughness > 0 && (
                             <div style={{ fontSize: 9, color: '#86efac', marginTop: 2 }}>
                               Can survive {effectiveToughness - 1} damage
+                            </div>
+                          )}
+                          {effectiveToughness !== undefined && effectiveToughness <= 0 && (
+                            <div style={{ fontSize: 9, color: '#ef4444', marginTop: 2 }}>
+                              ⚠️ Will die (0 toughness)
                             </div>
                           )}
                         </div>
