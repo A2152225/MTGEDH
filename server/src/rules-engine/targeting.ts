@@ -486,7 +486,7 @@ export type EngineEffect =
  * MTG Rule 608.2b: "If the spell or ability specifies targets, it checks 
  * whether the targets are still legal."
  */
-function meetsStatRequirement(p: BattlefieldPermanent, req: StatRequirement): boolean {
+export function meetsStatRequirement(p: BattlefieldPermanent, req: StatRequirement): boolean {
   const card = p.card as any;
   let statValue: number;
   

@@ -2,7 +2,7 @@ import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, handlePendingLibrarySearch, handlePendingJoinForces, handlePendingTemptingOffer, handlePendingPonder, broadcastManaPoolUpdate } from "./util";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
-import type { PaymentItem } from "../../../shared/src";
+import type { PaymentItem, TriggerShortcut } from "../../../shared/src";
 import { requiresCreatureTypeSelection, requestCreatureTypeSelection } from "./creature-type";
 import { checkAndPromptOpeningHandActions } from "./opening-hand";
 import { emitSacrificeUnlessPayPrompt } from "./triggers";
@@ -6745,7 +6745,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Find existing shortcut for this card
       const existingIndex = game.state.triggerShortcuts[playerId].findIndex(
-        (s: any) => s.cardName === normalizedCardName && 
+        (s: TriggerShortcut) => s.cardName === normalizedCardName && 
                     (!triggerDescription || s.triggerDescription === triggerDescription)
       );
 
