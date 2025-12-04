@@ -30,6 +30,7 @@ import {
 import { getUpkeepTriggersForPlayer } from "./upkeep-triggers.js";
 import { parseCreatureKeywords } from "./combat-mechanics.js";
 import { runSBA } from "./counters_tokens.js";
+import { calculateAllPTBonuses, parsePT } from "../utils.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -467,15 +468,28 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
         };
       }
       
-      // Calculate effective power including +1/+1 counters and modifiers
+      // Calculate effective power including +1/+1 counters, modifiers, and static effects
+      // This includes anthems, lords, equipment, auras, and enchantments like Leyline of Hope
       let attackerPower: number;
       if (typeof attacker.effectivePower === 'number') {
         attackerPower = attacker.effectivePower;
       } else {
-        const basePower = parseInt(String(attacker.basePower ?? card.power ?? '0'), 10) || 0;
+        // Calculate base power
+        let basePower = typeof attacker.basePower === 'number' 
+          ? attacker.basePower 
+          : parsePT(card?.power) ?? 0;
+        
+        // Add counter bonuses
         const plusCounters = attacker.counters?.['+1/+1'] || 0;
         const minusCounters = attacker.counters?.['-1/-1'] || 0;
-        attackerPower = Math.max(0, basePower + plusCounters - minusCounters);
+        const counterDelta = plusCounters - minusCounters;
+        
+        // Calculate ALL other bonuses (equipment, auras, anthems, lords, Leyline of Hope, etc.)
+        const state = (ctx as any).state;
+        const allBonuses = calculateAllPTBonuses(attacker, state);
+        
+        attackerPower = Math.max(0, basePower + counterDelta + allBonuses.power);
+        console.log(`${ts()} [dealCombatDamage] ${card?.name || attacker.id} power calculation: base=${basePower}, counters=${counterDelta}, bonuses=${allBonuses.power}, total=${attackerPower}`);
       }
       
       const attackerController = attacker.controller;
@@ -721,15 +735,26 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             };
           }
           
-          // Calculate effective blocker power including +1/+1 counters and modifiers
+          // Calculate effective blocker power including +1/+1 counters, modifiers, and static effects
           let blockerPower: number;
           if (typeof blocker.effectivePower === 'number') {
             blockerPower = blocker.effectivePower;
           } else {
-            const basePower = parseInt(String(blocker.basePower ?? blockerCard.power ?? '0'), 10) || 0;
+            // Calculate base power
+            let basePower = typeof blocker.basePower === 'number' 
+              ? blocker.basePower 
+              : parsePT(blockerCard?.power) ?? 0;
+            
+            // Add counter bonuses
             const plusCounters = blocker.counters?.['+1/+1'] || 0;
             const minusCounters = blocker.counters?.['-1/-1'] || 0;
-            blockerPower = Math.max(0, basePower + plusCounters - minusCounters);
+            const counterDelta = plusCounters - minusCounters;
+            
+            // Calculate ALL other bonuses (equipment, auras, anthems, lords, Leyline of Hope, etc.)
+            const state = (ctx as any).state;
+            const allBonuses = calculateAllPTBonuses(blocker, state);
+            
+            blockerPower = Math.max(0, basePower + counterDelta + allBonuses.power);
           }
           console.log(`${ts()} [COMBAT_DAMAGE] Blocker ${blockerCard.name || blockerId} has power ${blockerPower}`);
           
