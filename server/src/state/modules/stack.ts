@@ -1098,6 +1098,83 @@ function executeTriggerEffect(
     return;
   }
   
+  // Pattern: "Create a Food/Treasure/Clue/Map token" (predefined artifact tokens)
+  // Food: "{2}, {T}, Sacrifice this artifact: You gain 3 life."
+  // Treasure: "{T}, Sacrifice this artifact: Add one mana of any color."
+  // Clue: "{2}, Sacrifice this artifact: Draw a card."
+  // Map: "{1}, {T}, Sacrifice this artifact: Target creature you control explores. Activate only as a sorcery."
+  // Blood: "{1}, {T}, Discard a card, Sacrifice this artifact: Draw a card."
+  const predefinedTokenTypes: Record<string, { typeLine: string; oracleText: string }> = {
+    'food': {
+      typeLine: 'Token Artifact — Food',
+      oracleText: '{2}, {T}, Sacrifice this artifact: You gain 3 life.',
+    },
+    'treasure': {
+      typeLine: 'Token Artifact — Treasure',
+      oracleText: '{T}, Sacrifice this artifact: Add one mana of any color.',
+    },
+    'clue': {
+      typeLine: 'Token Artifact — Clue',
+      oracleText: '{2}, Sacrifice this artifact: Draw a card.',
+    },
+    'map': {
+      typeLine: 'Token Artifact — Map',
+      oracleText: '{1}, {T}, Sacrifice this artifact: Target creature you control explores. Activate only as a sorcery.',
+    },
+    'blood': {
+      typeLine: 'Token Artifact — Blood',
+      oracleText: '{1}, {T}, Discard a card, Sacrifice this artifact: Draw a card.',
+    },
+    'gold': {
+      typeLine: 'Token Artifact — Gold',
+      oracleText: 'Sacrifice this artifact: Add one mana of any color.',
+    },
+    'powerstone': {
+      typeLine: 'Token Artifact — Powerstone',
+      oracleText: '{T}: Add {C}. This mana can\'t be spent to cast a nonartifact spell.',
+    },
+  };
+  
+  // Match patterns like "create a Food token", "create two Treasure tokens", "create 3 Clue tokens"
+  const predefinedTokenMatch = desc.match(/create (?:a|an|one|two|three|four|five|(\d+)) (food|treasure|clue|map|blood|gold|powerstone) tokens?/i);
+  if (predefinedTokenMatch) {
+    const countWord = desc.match(/create (a|an|one|two|three|four|five|\d+)/i)?.[1]?.toLowerCase() || 'a';
+    const wordToCount: Record<string, number> = {
+      'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5
+    };
+    const tokenCount = wordToCount[countWord] || (predefinedTokenMatch[1] ? parseInt(predefinedTokenMatch[1], 10) : 1);
+    const tokenType = predefinedTokenMatch[2].toLowerCase();
+    const tokenInfo = predefinedTokenTypes[tokenType];
+    
+    if (tokenInfo) {
+      state.battlefield = state.battlefield || [];
+      for (let i = 0; i < tokenCount; i++) {
+        const tokenId = uid("token");
+        const tokenName = tokenType.charAt(0).toUpperCase() + tokenType.slice(1);
+        
+        state.battlefield.push({
+          id: tokenId,
+          controller,
+          owner: controller,
+          tapped: false,
+          counters: {},
+          isToken: true,
+          card: {
+            id: tokenId,
+            name: tokenName,
+            type_line: tokenInfo.typeLine,
+            oracle_text: tokenInfo.oracleText,
+            zone: 'battlefield',
+            colors: [],
+          },
+        } as any);
+        
+        console.log(`[executeTriggerEffect] Created ${tokenName} token for ${controller}`);
+      }
+      return;
+    }
+  }
+  
   // Pattern: "Create a X/Y [creature type] creature token" (various patterns)
   // Matches: "create a 2/2 green Wolf creature token", "create a 1/1 white Soldier creature token with vigilance"
   // Also matches: "create a 0/1 colorless Eldrazi Spawn creature token"

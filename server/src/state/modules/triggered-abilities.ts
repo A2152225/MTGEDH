@@ -845,8 +845,9 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   
   // "Whenever another permanent enters the battlefield" - ANY permanent, not just yours
   // This is the Altar of the Brood pattern: "Whenever another permanent enters the battlefield, each opponent mills a card."
-  // Also catches variations like "whenever another creature enters the battlefield"
-  // Also catches color-restricted patterns like "whenever another white or black creature enters" (Auriok Champion)
+  // Also catches variations like "whenever another creature enters the battlefield" (Soul Warden, Auriok Champion)
+  // Also catches color-restricted patterns like "whenever another white or black creature enters" (e.g., some tribal cards)
+  // NOTE: Auriok Champion has NO color restriction on its ETB trigger - it triggers on ANY creature
   // The pattern allows optional color/type modifiers before "creature" or "permanent"
   const anotherPermanentAnyETBMatch = oracleText.match(/whenever another (?:[\w\s]+)?(?:creature|permanent) enters the battlefield(?!.*under your control),?\s*([^.]+)/i);
   if (anotherPermanentAnyETBMatch && !triggers.some(t => t.triggerType === 'permanent_etb')) {

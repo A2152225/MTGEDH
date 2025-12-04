@@ -178,11 +178,24 @@ export function parseProtections(card: any): string[] {
   const protections: string[] = [];
   const oracleText = (card?.oracle_text || "");
   
-  // Protection from [color]
+  // Protection from [color] - handles "protection from black", "protection from black and from red", etc.
+  // First try the standard pattern
   const colorProtections = oracleText.match(/protection from (white|blue|black|red|green)/gi);
   if (colorProtections) {
     for (const match of colorProtections) {
       protections.push(match.toLowerCase().replace("protection from ", ""));
+    }
+  }
+  
+  // Handle "and from [color]" pattern (e.g., "protection from black and from red")
+  // This catches the second+ colors in compound protection text
+  const additionalColors = oracleText.match(/and from (white|blue|black|red|green)/gi);
+  if (additionalColors) {
+    for (const match of additionalColors) {
+      const color = match.toLowerCase().replace("and from ", "");
+      if (!protections.includes(color)) {
+        protections.push(color);
+      }
     }
   }
   
