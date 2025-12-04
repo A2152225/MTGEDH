@@ -48,7 +48,7 @@ import { ExploreModal, type ExploreCard } from "./components/ExploreModal";
 import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
 import { useGameSocket } from "./hooks/useGameSocket";
-import type { PaymentItem, ManaColor, PendingCommanderZoneChoice } from "../../shared/src";
+import type { PaymentItem, ManaColor, PendingCommanderZoneChoice, TriggerShortcut } from "../../shared/src";
 import { GameStatusIndicator } from "./components/GameStatusIndicator";
 import { CreateGameModal, type GameCreationConfig } from "./components/CreateGameModal";
 import { PhaseNavigator } from "./components/PhaseNavigator";
@@ -62,6 +62,7 @@ import { prettyPhase, prettyStep, isLandTypeLine } from "./utils/gameDisplayHelp
 import { IgnoredTriggersPanel } from "./components/IgnoredTriggersPanel";
 import { PriorityModal } from "./components/PriorityModal";
 import { AutoPassSettingsPanel } from "./components/AutoPassSettingsPanel";
+import { TriggerShortcutsPanel } from "./components/TriggerShortcutsPanel";
 
 /* App component */
 export function App() {
@@ -555,6 +556,9 @@ export function App() {
   // Track when PhaseNavigator is actively advancing through phases
   // This prevents auto-advance from interfering with manual phase navigation
   const [phaseNavigatorAdvancing, setPhaseNavigatorAdvancing] = useState(false);
+
+  // Trigger shortcuts panel state
+  const [showTriggerShortcuts, setShowTriggerShortcuts] = useState(false);
 
   // Fetch saved decks when create game modal opens
   const refreshSavedDecks = React.useCallback(() => {
@@ -4751,6 +4755,28 @@ export function App() {
               (safeView.players || []).filter((p: any) => !p.spectator && !p.inactive).length === 1
             }
           />
+          {/* Trigger Shortcuts Button */}
+          <button
+            onClick={() => setShowTriggerShortcuts(true)}
+            style={{
+              marginTop: 8,
+              width: '100%',
+              padding: '8px 12px',
+              borderRadius: 6,
+              border: '1px solid #444',
+              backgroundColor: '#2a2a2a',
+              color: '#fff',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              fontSize: 13,
+            }}
+            title="Configure auto-responses for Smothering Tithe, Rhystic Study, etc."
+          >
+            ⚡ Trigger Shortcuts
+          </button>
         </div>
       )}
 
@@ -4761,6 +4787,19 @@ export function App() {
           playerId={you}
           open={replacementEffectSettingsOpen}
           onClose={() => setReplacementEffectSettingsOpen(false)}
+        />
+      )}
+
+      {/* Trigger Shortcuts Panel - Allows setting auto-responses for Smothering Tithe, etc. */}
+      {safeView && you && (
+        <TriggerShortcutsPanel
+          isOpen={showTriggerShortcuts}
+          onClose={() => setShowTriggerShortcuts(false)}
+          socket={socket}
+          gameId={safeView.id}
+          playerId={you}
+          currentShortcuts={(safeView as any).triggerShortcuts?.[you] || []}
+          activeCards={safeView.battlefield?.map((p: any) => p.card?.name || '').filter(Boolean) || []}
         />
       )}
     </div>
