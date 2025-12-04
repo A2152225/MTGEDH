@@ -1,5 +1,6 @@
 // client/src/components/GameStatusIndicator.tsx
 // Visual indicator for game-wide status (turn, phase, step, priority, special designations, etc.)
+// Also includes control buttons (Concede, Leave Game, Undo) in the same row.
 
 import React from 'react';
 import type { PlayerRef, PlayerID } from '../../../shared/src';
@@ -21,6 +22,13 @@ interface Props {
   initiative?: PlayerID | null;
   dayNight?: 'day' | 'night' | null;
   cityBlessing?: Record<PlayerID, boolean>;
+  // Control button handlers
+  isYouPlayer?: boolean;
+  gameOver?: boolean;
+  onConcede?: () => void;
+  onLeaveGame?: () => void;
+  onUndo?: (count: number) => void;
+  availableUndoCount?: number;
 }
 
 // Maps phase values to display names and colors
@@ -54,7 +62,8 @@ const stepConfig: Record<string, { label: string; subColor: string }> = {
 
 export function GameStatusIndicator({ 
   turn, phase, step, turnPlayer, priority, players, you, combat,
-  monarch, initiative, dayNight, cityBlessing
+  monarch, initiative, dayNight, cityBlessing,
+  isYouPlayer, gameOver, onConcede, onLeaveGame, onUndo, availableUndoCount = 0
 }: Props) {
   const phaseKey = String(phase || '').toLowerCase();
   const stepKey = String(step || '').toLowerCase();
@@ -340,6 +349,82 @@ export function GameStatusIndicator({
             </span>
           </div>
         </>
+      )}
+
+      {/* Spacer to push control buttons to the right */}
+      <div style={{ flex: 1, minWidth: 16 }} />
+
+      {/* Control buttons (Concede, Leave, Undo) */}
+      {(onConcede || onLeaveGame || onUndo) && (
+        <div style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: 6,
+        }}>
+          {onConcede && (
+            <button
+              onClick={() => {
+                if (confirm('Are you sure you want to concede? Your permanents will be removed at the start of your next turn.')) {
+                  onConcede();
+                }
+              }}
+              disabled={!isYouPlayer || gameOver}
+              style={{
+                background: isYouPlayer && !gameOver ? '#ef4444' : '#4b5563',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 4,
+                padding: '4px 8px',
+                cursor: isYouPlayer && !gameOver ? 'pointer' : 'not-allowed',
+                fontSize: 11,
+                opacity: isYouPlayer && !gameOver ? 1 : 0.6,
+              }}
+              title="Concede the game"
+            >
+              🏳️ Concede
+            </button>
+          )}
+          {onLeaveGame && (
+            <button
+              onClick={() => {
+                if (confirm('Are you sure you want to leave this game?')) {
+                  onLeaveGame();
+                }
+              }}
+              style={{
+                background: '#dc2626',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 4,
+                padding: '4px 8px',
+                cursor: 'pointer',
+                fontSize: 11,
+              }}
+              title="Leave this game"
+            >
+              🚪 Leave
+            </button>
+          )}
+          {onUndo && availableUndoCount > 0 && (
+            <button
+              onClick={() => onUndo(1)}
+              disabled={!isYouPlayer}
+              style={{
+                background: '#6366f1',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 4,
+                padding: '4px 8px',
+                cursor: isYouPlayer ? 'pointer' : 'not-allowed',
+                fontSize: 11,
+                opacity: isYouPlayer ? 1 : 0.6,
+              }}
+              title={`Undo (${availableUndoCount} available)`}
+            >
+              ⏪ Undo
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
