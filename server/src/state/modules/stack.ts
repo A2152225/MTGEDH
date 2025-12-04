@@ -1621,7 +1621,47 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Check for ETB triggers on this permanent and other permanents
     try {
-      const etbTriggers = getETBTriggersForPermanent(card, newPermanent);
+      const allTriggers = getETBTriggersForPermanent(card, newPermanent);
+      
+      // Filter out triggers that fire when OTHER permanents enter (not when self enters)
+      // These trigger types should only fire for OTHER permanents, not the permanent itself:
+      // - permanent_etb: "Whenever another creature/permanent enters" (Soul Warden, Altar of the Brood)
+      // - creature_etb: "Whenever a creature enters under your control" (Cathars' Crusade)
+      // - another_permanent_etb: "Whenever another permanent enters under your control"
+      // 
+      // Only include triggers that fire when THIS permanent enters:
+      // - etb: "When ~ enters the battlefield" (self ETB)
+      // - etb_modal_choice: "As ~ enters the battlefield, choose"
+      // - job_select, living_weapon: equipment ETB effects
+      // - etb_sacrifice_unless_pay: "When ~ enters, sacrifice unless you pay"
+      const selfETBTriggerTypes = new Set([
+        'etb',                      // Self ETB: "When ~ enters the battlefield"
+        'etb_modal_choice',         // Modal ETB: "As ~ enters, choose"
+        'job_select',               // Equipment: create Hero token and attach
+        'living_weapon',            // Equipment: create Germ token and attach
+        'etb_sacrifice_unless_pay', // ETB sacrifice unless pay
+        'etb_gain_life',            // Self ETB life gain
+        'etb_draw',                 // Self ETB draw
+        'etb_search',               // Self ETB search library
+        'etb_create_token',         // Self ETB token creation
+        'etb_counter',              // Self ETB counter placement
+      ]);
+      
+      const etbTriggers = allTriggers.filter(trigger => {
+        // Keep triggers that fire when THIS permanent enters
+        if (selfETBTriggerTypes.has(trigger.triggerType)) {
+          return true;
+        }
+        // Filter out triggers that fire when OTHER permanents enter
+        // (these will be added from other permanents in the loop below)
+        if (trigger.triggerType === 'permanent_etb' ||
+            trigger.triggerType === 'creature_etb' ||
+            trigger.triggerType === 'another_permanent_etb') {
+          return false;
+        }
+        // Default: keep the trigger (unknown types treated as self-ETB)
+        return true;
+      });
       
       // Also check other permanents for "whenever a creature/permanent enters" triggers
       // Check if the entering permanent is a token

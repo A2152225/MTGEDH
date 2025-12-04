@@ -340,6 +340,7 @@ export function checkLifeGainPrevention(
 
 /**
  * Apply life gain to a player, considering prevention and reversal effects.
+ * Also handles "gain that much life plus X" replacement effects like Leyline of Hope.
  * 
  * @param gameState - The current game state (will be modified)
  * @param playerId - The player gaining life
@@ -386,12 +387,21 @@ export function applyLifeGain(
     };
   }
   
-  // Normal life gain
+  // Check for "gain that much plus X" replacement effects
+  // These modify the amount of life gained (e.g., Leyline of Hope: gain X+1 instead)
+  let modifiedAmount = amount;
+  const lifeGainModifiers = checkLifeGainModifiers(gameState, playerId);
+  if (lifeGainModifiers.extraLife > 0) {
+    modifiedAmount = amount + lifeGainModifiers.extraLife;
+    console.log(`[applyLifeGain] Life gain modified by ${lifeGainModifiers.sources.join(', ')}: ${amount} -> ${modifiedAmount}`);
+  }
+  
+  // Normal life gain (with modifiers applied)
   const startingLife = gameState?.startingLife || 40;
   const currentLife = gameState?.life?.[playerId] ?? startingLife;
   
   if (!gameState.life) gameState.life = {};
-  gameState.life[playerId] = currentLife + amount;
+  gameState.life[playerId] = currentLife + modifiedAmount;
   
   // Sync to player object
   const player = (gameState.players || []).find((p: any) => p.id === playerId);
@@ -399,10 +409,73 @@ export function applyLifeGain(
     player.life = gameState.life[playerId];
   }
   
+  if (lifeGainModifiers.extraLife > 0) {
+    return { 
+      actualChange: modifiedAmount, 
+      message: source 
+        ? `Gained ${modifiedAmount} life from ${source} (${amount} + ${lifeGainModifiers.extraLife} from ${lifeGainModifiers.sources.join(', ')})`
+        : `Gained ${modifiedAmount} life (${amount} + ${lifeGainModifiers.extraLife} from ${lifeGainModifiers.sources.join(', ')})` 
+    };
+  }
+  
   return { 
-    actualChange: amount, 
-    message: source ? `Gained ${amount} life from ${source}` : `Gained ${amount} life` 
+    actualChange: modifiedAmount, 
+    message: source ? `Gained ${modifiedAmount} life from ${source}` : `Gained ${modifiedAmount} life` 
   };
+}
+
+/**
+ * Check for life gain modifier effects on the battlefield.
+ * These are replacement effects that increase the amount of life gained.
+ * 
+ * @param gameState - The current game state
+ * @param playerId - The player who would gain life
+ * @returns { extraLife: number, sources: string[] } - Extra life to gain and sources
+ */
+function checkLifeGainModifiers(
+  gameState: any,
+  playerId: string
+): { extraLife: number; sources: string[] } {
+  const battlefield = gameState?.battlefield || [];
+  let extraLife = 0;
+  const sources: string[] = [];
+  
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    if (perm.controller !== playerId) continue; // Most of these only affect controller
+    
+    const cardName = (perm.card.name || '').toLowerCase();
+    const oracleText = (perm.card.oracle_text || '').toLowerCase();
+    
+    // Leyline of Hope: "If you would gain life, you gain that much life plus 1 instead."
+    if (cardName.includes('leyline of hope') || 
+        (oracleText.includes('would gain life') && oracleText.includes('that much life plus 1'))) {
+      extraLife += 1;
+      sources.push(perm.card.name || 'Leyline of Hope');
+    }
+    
+    // Rhox Faithmender: "If you would gain life, you gain twice that much life instead."
+    // (This is a doubling effect, handled differently - need separate logic)
+    // For now, skip doubling effects as they require different handling
+    
+    // Boon Reflection: "If you would gain life, you gain twice that much life instead."
+    // (Same as Rhox Faithmender - doubling effect)
+    
+    // Trostani Discordant: Doesn't modify life gain amount
+    
+    // Angel of Vitality: "If you would gain life, you gain that much life plus 1 instead."
+    // Only if you have 25 or more life
+    if (cardName.includes('angel of vitality') ||
+        (oracleText.includes('would gain life') && oracleText.includes('25 or more life'))) {
+      const currentLife = gameState?.life?.[playerId] ?? (gameState?.startingLife || 40);
+      if (currentLife >= 25) {
+        extraLife += 1;
+        sources.push(perm.card.name || 'Angel of Vitality');
+      }
+    }
+  }
+  
+  return { extraLife, sources };
 }
 
 /**
@@ -1020,7 +1093,7 @@ const AURA_BONUSES: Record<string, { power: number; toughness: number }> = {
 const GLOBAL_ENCHANTMENT_BONUSES: Record<string, {
   power: number;
   toughness: number;
-  condition?: (creature: any, controller: string) => boolean;
+  condition?: (creature: any, controller: string, gameState?: any) => boolean;
 }> = {
   "glorious anthem": { power: 1, toughness: 1 },
   "honor of the pure": { power: 1, toughness: 1, condition: (c) => (c.card?.colors || []).includes('W') || (c.card?.type_line || '').toLowerCase().includes('white') },
@@ -1037,6 +1110,20 @@ const GLOBAL_ENCHANTMENT_BONUSES: Record<string, {
   "cathars' crusade": { power: 0, toughness: 0 }, // Handled via counters
   "shared animosity": { power: 0, toughness: 0 }, // Variable
   "true conviction": { power: 0, toughness: 0 }, // No P/T bonus, just keywords
+  // Leyline of Hope: "If you have at least 7 life more than your starting life total, 
+  // creatures you control get +2/+2."
+  // In Commander, starting life is typically 40, so you need 47+ life for the bonus.
+  "leyline of hope": { 
+    power: 2, 
+    toughness: 2, 
+    condition: (_c, controllerId, gameState) => {
+      if (!gameState) return false;
+      const startingLife = gameState.startingLife || 40;
+      const currentLife = gameState.life?.[controllerId] ?? startingLife;
+      // Condition: current life >= starting life + 7
+      return currentLife >= startingLife + 7;
+    }
+  },
 };
 
 /**
@@ -1116,8 +1203,8 @@ export function calculateAllPTBonuses(
     const enchantBonus = GLOBAL_ENCHANTMENT_BONUSES[cardName];
     
     if (enchantBonus && perm.controller === controllerId) {
-      // Check condition if any
-      if (!enchantBonus.condition || enchantBonus.condition(creaturePerm, controllerId)) {
+      // Check condition if any (pass gameState for conditions that need it like Leyline of Hope)
+      if (!enchantBonus.condition || enchantBonus.condition(creaturePerm, controllerId, gameState)) {
         powerBonus += enchantBonus.power;
         toughnessBonus += enchantBonus.toughness;
       }
