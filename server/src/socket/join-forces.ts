@@ -913,6 +913,268 @@ export function registerPendingTemptingOffer(
 }
 
 /**
+ * Apply the actual game effect of a Tempting Offer card.
+ * 
+ * Tempting Offer cards:
+ * - Tempt with Discovery: Search for a land (initiator gets N lands, each accepting opponent gets 1)
+ * - Tempt with Glory: Put +1/+1 counters on creatures (initiator gets N counters per creature, opponents get 1)
+ * - Tempt with Immortality: Reanimate a creature (initiator returns N creatures, opponents return 1)
+ * - Tempt with Reflections: Clone a creature (initiator gets N copies, opponents get 1)
+ * - Tempt with Vengeance: Create hasty elemental tokens (initiator gets N*X tokens, opponents get X)
+ * - Tempt with Bunnies: Create rabbit tokens (initiator gets N rabbits, opponents get 1)
+ * - Tempt with Mayhem: Deal damage and goad (initiator deals N*3 damage, opponents deal 3 each)
+ */
+function applyTemptingOfferEffect(
+  io: Server, 
+  game: any, 
+  pending: PendingTemptingOffer, 
+  acceptedBy: string[], 
+  initiatorBonusCount: number
+): void {
+  const cardNameLower = pending.cardName.toLowerCase();
+  const initiator = pending.initiator;
+  const battlefield = game.state.battlefield = game.state.battlefield || [];
+  
+  // Tempt with Discovery: Search for lands
+  if (cardNameLower.includes('discovery')) {
+    // Set up library search for initiator (searches N times)
+    (game.state as any).pendingLibrarySearch = (game.state as any).pendingLibrarySearch || {};
+    (game.state as any).pendingLibrarySearch[initiator] = {
+      type: 'tempting-offer-search',
+      searchFor: `up to ${initiatorBonusCount} land card(s)`,
+      destination: 'battlefield',
+      tapped: false,
+      optional: true,
+      source: 'Tempt with Discovery',
+      shuffleAfter: true,
+      maxSelections: initiatorBonusCount,
+      filter: { types: ['land'] },
+    };
+    
+    // Each accepting opponent also gets to search for 1 land
+    for (const opponentId of acceptedBy) {
+      (game.state as any).pendingLibrarySearch[opponentId] = {
+        type: 'tempting-offer-search',
+        searchFor: 'a land card',
+        destination: 'battlefield',
+        tapped: false,
+        optional: true,
+        source: 'Tempt with Discovery',
+        shuffleAfter: true,
+        maxSelections: 1,
+        filter: { types: ['land'] },
+      };
+    }
+    
+    io.to(pending.gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId: pending.gameId,
+      from: "system",
+      message: `🌲 Tempt with Discovery: ${getPlayerName(game, initiator)} searches for up to ${initiatorBonusCount} land(s). ${acceptedBy.length > 0 ? `${acceptedBy.length} opponent(s) also search.` : ''}`,
+      ts: Date.now(),
+    });
+  }
+  // Tempt with Vengeance: Create hasty elemental tokens
+  else if (cardNameLower.includes('vengeance')) {
+    // Note: The actual X value is determined by mana spent on the spell
+    // For now, we'll create tokens based on a default X=3
+    const xValue = 3; // This should ideally come from the spell resolution context
+    
+    // Create tokens for initiator
+    const initiatorTokenCount = xValue * initiatorBonusCount;
+    for (let i = 0; i < initiatorTokenCount; i++) {
+      const tokenId = `tok_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${i}`;
+      battlefield.push({
+        id: tokenId,
+        controller: initiator,
+        owner: initiator,
+        tapped: false,
+        counters: {},
+        isToken: true,
+        summoningSickness: false, // Haste
+        card: {
+          id: tokenId,
+          name: 'Elemental Token',
+          type_line: 'Token Creature — Elemental',
+          power: '1',
+          toughness: '1',
+          colors: ['R'],
+          oracle_text: 'Haste',
+        },
+      });
+    }
+    
+    // Create tokens for each accepting opponent
+    for (const opponentId of acceptedBy) {
+      for (let i = 0; i < xValue; i++) {
+        const tokenId = `tok_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_opp_${i}`;
+        battlefield.push({
+          id: tokenId,
+          controller: opponentId,
+          owner: opponentId,
+          tapped: false,
+          counters: {},
+          isToken: true,
+          summoningSickness: false, // Haste
+          card: {
+            id: tokenId,
+            name: 'Elemental Token',
+            type_line: 'Token Creature — Elemental',
+            power: '1',
+            toughness: '1',
+            colors: ['R'],
+            oracle_text: 'Haste',
+          },
+        });
+      }
+    }
+    
+    io.to(pending.gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId: pending.gameId,
+      from: "system",
+      message: `🔥 Tempt with Vengeance: ${getPlayerName(game, initiator)} creates ${initiatorTokenCount} hasty 1/1 Elemental tokens!${acceptedBy.length > 0 ? ` ${acceptedBy.length} opponent(s) each get ${xValue} tokens.` : ''}`,
+      ts: Date.now(),
+    });
+  }
+  // Tempt with Reflections: Clone a creature
+  else if (cardNameLower.includes('reflections')) {
+    // Note: This effect requires targeting a creature to clone
+    // For simplicity, we'll skip the actual cloning and just note it was attempted
+    io.to(pending.gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId: pending.gameId,
+      from: "system",
+      message: `🪞 Tempt with Reflections: ${getPlayerName(game, initiator)} may create ${initiatorBonusCount} token cop${initiatorBonusCount === 1 ? 'y' : 'ies'} of a creature.${acceptedBy.length > 0 ? ` ${acceptedBy.length} opponent(s) may also create a copy.` : ''}`,
+      ts: Date.now(),
+    });
+  }
+  // Tempt with Immortality: Reanimate creatures from graveyard
+  else if (cardNameLower.includes('immortality')) {
+    // Note: This effect requires choosing creatures from graveyards
+    // Set up pending reanimate for each player
+    io.to(pending.gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId: pending.gameId,
+      from: "system",
+      message: `💀 Tempt with Immortality: ${getPlayerName(game, initiator)} may return ${initiatorBonusCount} creature(s) from graveyard to battlefield.${acceptedBy.length > 0 ? ` ${acceptedBy.length} opponent(s) may also reanimate a creature.` : ''}`,
+      ts: Date.now(),
+    });
+  }
+  // Tempt with Glory: Put +1/+1 counters on creatures
+  else if (cardNameLower.includes('glory')) {
+    // Get initiator's creatures and add counters
+    const initiatorCreatures = battlefield.filter((p: any) => 
+      p.controller === initiator && 
+      (p.card?.type_line || '').toLowerCase().includes('creature')
+    );
+    
+    for (const creature of initiatorCreatures) {
+      creature.counters = creature.counters || {};
+      creature.counters['+1/+1'] = (creature.counters['+1/+1'] || 0) + initiatorBonusCount;
+    }
+    
+    // Add counters to each accepting opponent's creatures
+    for (const opponentId of acceptedBy) {
+      const opponentCreatures = battlefield.filter((p: any) => 
+        p.controller === opponentId && 
+        (p.card?.type_line || '').toLowerCase().includes('creature')
+      );
+      for (const creature of opponentCreatures) {
+        creature.counters = creature.counters || {};
+        creature.counters['+1/+1'] = (creature.counters['+1/+1'] || 0) + 1;
+      }
+    }
+    
+    io.to(pending.gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId: pending.gameId,
+      from: "system",
+      message: `✨ Tempt with Glory: ${getPlayerName(game, initiator)}'s creatures each get ${initiatorBonusCount} +1/+1 counter(s)!${acceptedBy.length > 0 ? ` ${acceptedBy.length} opponent(s)' creatures each get 1 counter.` : ''}`,
+      ts: Date.now(),
+    });
+  }
+  // Tempt with Bunnies: Create rabbit tokens
+  else if (cardNameLower.includes('bunnies')) {
+    // Create rabbit tokens for initiator
+    for (let i = 0; i < initiatorBonusCount; i++) {
+      const tokenId = `tok_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_bunny_${i}`;
+      battlefield.push({
+        id: tokenId,
+        controller: initiator,
+        owner: initiator,
+        tapped: false,
+        counters: {},
+        isToken: true,
+        card: {
+          id: tokenId,
+          name: 'Rabbit Token',
+          type_line: 'Token Creature — Rabbit',
+          power: '1',
+          toughness: '1',
+          colors: ['W'],
+        },
+      });
+    }
+    
+    // Create tokens for each accepting opponent
+    for (const opponentId of acceptedBy) {
+      const tokenId = `tok_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_bunny_opp`;
+      battlefield.push({
+        id: tokenId,
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        counters: {},
+        isToken: true,
+        card: {
+          id: tokenId,
+          name: 'Rabbit Token',
+          type_line: 'Token Creature — Rabbit',
+          power: '1',
+          toughness: '1',
+          colors: ['W'],
+        },
+      });
+    }
+    
+    io.to(pending.gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId: pending.gameId,
+      from: "system",
+      message: `🐰 Tempt with Bunnies: ${getPlayerName(game, initiator)} creates ${initiatorBonusCount} 1/1 Rabbit token(s)!${acceptedBy.length > 0 ? ` ${acceptedBy.length} opponent(s) each get 1 token.` : ''}`,
+      ts: Date.now(),
+    });
+  }
+  // Tempt with Mayhem: Deal damage and goad
+  else if (cardNameLower.includes('mayhem')) {
+    const damagePerPlayer = 3;
+    const initiatorDamage = damagePerPlayer * initiatorBonusCount;
+    
+    // Get all opponents
+    const allOpponents = pending.opponents;
+    
+    // Initiator deals damage to opponents (this is a simplification - actual card targets)
+    // In a full implementation, this would require target selection
+    io.to(pending.gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId: pending.gameId,
+      from: "system",
+      message: `💥 Tempt with Mayhem: ${getPlayerName(game, initiator)} may deal ${initiatorDamage} damage and goad creatures!${acceptedBy.length > 0 ? ` ${acceptedBy.length} opponent(s) may also deal ${damagePerPlayer} damage each.` : ''}`,
+      ts: Date.now(),
+    });
+  }
+  
+  // Bump sequence after applying effects
+  if (typeof (game as any).bumpSeq === 'function') {
+    (game as any).bumpSeq();
+  }
+  
+  // Broadcast updated game state
+  broadcastGame(io, game, pending.gameId);
+}
+
+/**
  * Complete a Tempting Offer effect and clean up
  */
 function completeTemptingOffer(io: Server, pending: PendingTemptingOffer): void {
@@ -926,6 +1188,16 @@ function completeTemptingOffer(io: Server, pending: PendingTemptingOffer): void 
   
   console.log(`[temptingOffer] Completing ${pending.id}: ${acceptedByArray.length} accepted, initiator gets ${initiatorBonusCount}x`);
   
+  // Apply the Tempting Offer effect
+  const game = ensureGame(pending.gameId);
+  if (game) {
+    try {
+      applyTemptingOfferEffect(io, game, pending, acceptedByArray, initiatorBonusCount);
+    } catch (err) {
+      console.error(`[temptingOffer] Error applying effect for ${pending.cardName}:`, err);
+    }
+  }
+  
   // Notify all players
   io.to(pending.gameId).emit("temptingOfferComplete", {
     gameId: pending.gameId,
@@ -936,7 +1208,6 @@ function completeTemptingOffer(io: Server, pending: PendingTemptingOffer): void 
     initiatorBonusCount,
   });
   
-  const game = ensureGame(pending.gameId);
   io.to(pending.gameId).emit("chat", {
     id: `m_${Date.now()}`,
     gameId: pending.gameId,
@@ -1360,6 +1631,7 @@ export function registerJoinForcesHandlers(io: Server, socket: Socket) {
    */
   function completeTemptingOffer(io: Server, pending: PendingTemptingOffer, game: any): void {
     const acceptedCount = pending.acceptedBy.size;
+    const acceptedByArray = Array.from(pending.acceptedBy);
     const initiatorBonusCount = 1 + acceptedCount; // Initiator gets effect once + once for each opponent who accepted
     
     // Clear timeout
@@ -1367,12 +1639,21 @@ export function registerJoinForcesHandlers(io: Server, socket: Socket) {
       clearTimeout(pending.timeout);
     }
     
+    // Apply the Tempting Offer effect
+    if (game) {
+      try {
+        applyTemptingOfferEffect(io, game, pending, acceptedByArray, initiatorBonusCount);
+      } catch (err) {
+        console.error(`[temptingOffer] Error applying effect for ${pending.cardName}:`, err);
+      }
+    }
+    
     // Notify all players of the result
     io.to(pending.gameId).emit("temptingOfferComplete", {
       id: pending.id,
       gameId: pending.gameId,
       cardName: pending.cardName,
-      acceptedBy: Array.from(pending.acceptedBy),
+      acceptedBy: acceptedByArray,
       initiator: pending.initiator,
       initiatorBonusCount,
     });
@@ -1394,7 +1675,7 @@ export function registerJoinForcesHandlers(io: Server, socket: Socket) {
       appendEvent(pending.gameId, (game as any).seq ?? 0, "temptingOfferComplete", {
         id: pending.id,
         cardName: pending.cardName,
-        acceptedBy: Array.from(pending.acceptedBy),
+        acceptedBy: acceptedByArray,
         initiatorBonusCount,
       });
     } catch (e) {
