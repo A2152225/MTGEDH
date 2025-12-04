@@ -399,8 +399,14 @@ function parseSagaChapters(oracleText: string): { chapter: number; effect: strin
     'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10
   };
   
-  // Pattern to match chapter abilities
-  // Matches: "I — effect", "II, III — effect", "I, II, III — effect"
+  // Regex pattern explanation for saga chapter abilities:
+  // ([IVX]+(?:\s*,\s*[IVX]+)*) - Capture group 1: Chapter numbers
+  //   [IVX]+ - One or more Roman numeral characters (I, II, III, IV, V, etc.)
+  //   (?:\s*,\s*[IVX]+)* - Optionally match comma-separated additional chapters (for multi-chapter abilities like "II, III — effect")
+  // \s*[—-]\s* - Match the separator (em dash or hyphen) with optional whitespace
+  // ([^IVX\n]+?) - Capture group 2: The effect text (non-greedy)
+  //   [^IVX\n]+? - Any characters except Roman numerals or newlines
+  // (?=\n[IVX]+\s*[—-]|$) - Lookahead: Stop at next chapter or end of string
   const chapterPattern = /([IVX]+(?:\s*,\s*[IVX]+)*)\s*[—-]\s*([^IVX\n]+?)(?=\n[IVX]+\s*[—-]|$)/gi;
   
   let match;
@@ -586,9 +592,9 @@ export function addLoreCounter(ctx: GameContext, permanentId: string): {
   // Find the chapter ability that triggers for this lore count
   const triggeredChapter = chapters.find(c => c.chapter === newLoreCount);
   
-  // Check if saga should be sacrificed (Rule 714.3d)
-  // Sacrifice when final chapter ability has LEFT the stack (not when counter is added)
-  const shouldSacrifice = false; // Sacrifice happens after chapter ability resolves
+  // Check if saga has reached final chapter (Rule 714.3d)
+  // Note: Saga is sacrificed when final chapter ability LEAVES the stack (after resolving),
+  // not when the lore counter is added. We return this flag to let the caller handle timing.
   const atFinalChapter = newLoreCount >= maxChapter;
   
   console.log(`[addLoreCounter] ${permanent.card?.name || permanentId} now has ${newLoreCount} lore counter(s)${atFinalChapter ? ' (final chapter)' : ''}`);
@@ -598,7 +604,7 @@ export function addLoreCounter(ctx: GameContext, permanentId: string): {
   return { 
     newChapter: newLoreCount, 
     triggeredAbility: triggeredChapter || null,
-    shouldSacrifice: atFinalChapter // Mark for sacrifice after ability resolves
+    shouldSacrifice: atFinalChapter // True if at final chapter - sacrifice after ability resolves
   };
 }
 

@@ -2967,6 +2967,9 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
         if (returnDelay === 'immediate') {
           // Return immediately to the battlefield under owner's control
           // Create a new permanent (new object, no connection to old one)
+          // Detect enters-with-counters
+          const entersWithCounters = detectEntersWithCounters(flickeredCard);
+          
           const newPermanent = {
             id: uid('perm'),
             card: flickeredCard,
@@ -2974,10 +2977,8 @@ function executeSpellEffect(ctx: GameContext, effect: EngineEffect, caster: Play
             owner: owner,
             tapped: false,
             summoning_sickness: flickeredCard?.type_line?.toLowerCase()?.includes('creature') || false,
-            counters: {}, // Counters are removed when flickered
+            counters: entersWithCounters && Object.keys(entersWithCounters).length > 0 ? entersWithCounters : {},
             attachedTo: undefined, // Equipment/Auras are removed
-            // Detect enters-with-counters
-            ...detectEntersWithCounters(flickeredCard) ? { counters: detectEntersWithCounters(flickeredCard) } : {},
           };
           
           battlefield.push(newPermanent);
