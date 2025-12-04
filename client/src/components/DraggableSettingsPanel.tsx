@@ -16,7 +16,6 @@ export function DraggableSettingsPanel({ children }: Props) {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (typeof parsed.x === 'number' && typeof parsed.y === 'number') {
-          // Validate position is still visible
           return { x: parsed.x, y: parsed.y };
         }
       }
@@ -48,14 +47,25 @@ export function DraggableSettingsPanel({ children }: Props) {
     if (!isDragging) return;
     
     const handleMouseMove = (e: MouseEvent) => {
-      if (!dragRef.current) return;
+      if (!dragRef.current || !panelRef.current) return;
       
       const dx = e.clientX - dragRef.current.startX;
       const dy = e.clientY - dragRef.current.startY;
       
-      // Clamp to window bounds (with some padding)
-      const newX = dragRef.current.initialX + dx;
-      const newY = dragRef.current.initialY + dy;
+      // Calculate new position
+      let newX = dragRef.current.initialX + dx;
+      let newY = dragRef.current.initialY + dy;
+      
+      // Clamp to window bounds to keep panel visible
+      // The panel is positioned from bottom-right, so we need to account for that
+      const panelRect = panelRef.current.getBoundingClientRect();
+      const maxX = window.innerWidth - panelRect.width - 16; // Keep at least 16px from left edge
+      const maxY = window.innerHeight - panelRect.height - 16; // Keep at least 16px from top edge
+      const minX = -(window.innerWidth - 16 - panelRect.width); // Keep at least 16px from right edge
+      const minY = -(window.innerHeight - 16 - panelRect.height); // Keep at least 16px from bottom edge
+      
+      newX = Math.max(minX, Math.min(maxX, newX));
+      newY = Math.max(minY, Math.min(maxY, newY));
       
       setPosition({ x: newX, y: newY });
     };
@@ -63,11 +73,6 @@ export function DraggableSettingsPanel({ children }: Props) {
     const handleMouseUp = () => {
       setIsDragging(false);
       dragRef.current = null;
-      
-      // Save position to localStorage
-      try {
-        localStorage.setItem('mtgedh:settingsPanelPos', JSON.stringify(position));
-      } catch { /* ignore */ }
     };
     
     document.addEventListener('mousemove', handleMouseMove);
@@ -77,16 +82,16 @@ export function DraggableSettingsPanel({ children }: Props) {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDragging, position]);
+  }, [isDragging]);
   
-  // Save position when it changes
+  // Save position to localStorage when dragging ends
   useEffect(() => {
-    if (!isDragging) {
+    if (!isDragging && position.x !== 0 || position.y !== 0) {
       try {
         localStorage.setItem('mtgedh:settingsPanelPos', JSON.stringify(position));
       } catch { /* ignore */ }
     }
-  }, [position, isDragging]);
+  }, [isDragging, position]);
 
   return (
     <div
