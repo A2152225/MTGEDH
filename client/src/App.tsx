@@ -36,6 +36,8 @@ import { CreatureTypeSelectModal } from "./components/CreatureTypeSelectModal";
 import { AppearanceSettingsModal } from "./components/AppearanceSettingsModal";
 import { LifePaymentModal } from "./components/LifePaymentModal";
 import { MDFCFaceSelectionModal, type CardFace } from "./components/MDFCFaceSelectionModal";
+import { ModalSpellSelectionModal, type SpellMode } from "./components/ModalSpellSelectionModal";
+import { ReplacementEffectOrderModal, type ReplacementEffectItem, type OrderingMode } from "./components/ReplacementEffectOrderModal";
 import { GraveyardViewModal } from "./components/GraveyardViewModal";
 import { JoinForcesModal, type JoinForcesRequest } from "./components/JoinForcesModal";
 import { TemptingOfferModal, type TemptingOfferRequest } from "./components/TemptingOfferModal";
@@ -444,6 +446,32 @@ export function App() {
     title?: string;
     description?: string;
     faces: CardFace[];
+    effectId?: string;
+  } | null>(null);
+  
+  // Modal Spell Selection Modal state - for Spree, Choose One/Two, etc.
+  const [modalSpellModalOpen, setModalSpellModalOpen] = useState(false);
+  const [modalSpellModalData, setModalSpellModalData] = useState<{
+    cardId: string;
+    cardName: string;
+    title?: string;
+    description?: string;
+    imageUrl?: string;
+    modes: SpellMode[];
+    modeCount: number;
+    canChooseAny?: boolean;
+    minModes?: number;
+    isSpree?: boolean;
+    effectId?: string;
+  } | null>(null);
+  
+  // Replacement Effect Order Modal state - for custom ordering of damage/life/counter effects
+  const [replacementEffectModalOpen, setReplacementEffectModalOpen] = useState(false);
+  const [replacementEffectModalData, setReplacementEffectModalData] = useState<{
+    effectType: 'damage' | 'life_gain' | 'counters' | 'tokens';
+    effects: ReplacementEffectItem[];
+    baseAmount: number;
+    initialMode?: OrderingMode;
     effectId?: string;
   } | null>(null);
   
@@ -1142,6 +1170,80 @@ export function App() {
     socket.on("mdfcFaceSelectionRequest", handler);
     return () => {
       socket.off("mdfcFaceSelectionRequest", handler);
+    };
+  }, [safeView?.id]);
+
+  // Modal Spell Selection Request listener - handles Spree cards, Choose One/Two, modal spells
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      cardId: string;
+      cardName: string;
+      source?: string;
+      title?: string;
+      description?: string;
+      imageUrl?: string;
+      modes: Array<{ id: string; name: string; description: string; cost?: string }>;
+      modeCount: number;
+      canChooseAny?: boolean;
+      minModes?: number;
+      isSpree?: boolean;
+      effectId?: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        // Convert modes to SpellMode format
+        const spellModes: SpellMode[] = payload.modes.map(m => ({
+          id: m.id,
+          name: m.name,
+          description: m.description + (m.cost ? ` (${m.cost})` : ''),
+        }));
+        
+        setModalSpellModalData({
+          cardId: payload.cardId,
+          cardName: payload.cardName,
+          title: payload.title,
+          description: payload.description,
+          imageUrl: payload.imageUrl,
+          modes: spellModes,
+          modeCount: payload.modeCount,
+          canChooseAny: payload.canChooseAny,
+          minModes: payload.minModes,
+          isSpree: payload.isSpree,
+          effectId: payload.effectId,
+        });
+        setModalSpellModalOpen(true);
+      }
+    };
+    socket.on("modalSpellRequest", handler);
+    return () => {
+      socket.off("modalSpellRequest", handler);
+    };
+  }, [safeView?.id]);
+
+  // Replacement Effect Order Request listener - allows player to override damage/life effect ordering
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      effectType: 'damage' | 'life_gain' | 'counters' | 'tokens';
+      effects: ReplacementEffectItem[];
+      baseAmount: number;
+      initialMode?: OrderingMode;
+      effectId?: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        setReplacementEffectModalData({
+          effectType: payload.effectType,
+          effects: payload.effects,
+          baseAmount: payload.baseAmount,
+          initialMode: payload.initialMode,
+          effectId: payload.effectId,
+        });
+        setReplacementEffectModalOpen(true);
+      }
+    };
+    socket.on("replacementEffectOrderRequest", handler);
+    return () => {
+      socket.off("replacementEffectOrderRequest", handler);
     };
   }, [safeView?.id]);
 
@@ -4385,6 +4487,60 @@ export function App() {
         onCancel={() => {
           setMdfcFaceModalOpen(false);
           setMdfcFaceModalData(null);
+        }}
+      />
+
+      {/* Modal Spell Selection Modal (Spree, Choose One/Two, Charms, etc.) */}
+      <ModalSpellSelectionModal
+        open={modalSpellModalOpen}
+        cardName={modalSpellModalData?.cardName || ''}
+        imageUrl={modalSpellModalData?.imageUrl}
+        description={modalSpellModalData?.description}
+        modes={modalSpellModalData?.modes || []}
+        modeCount={modalSpellModalData?.modeCount || 1}
+        canChooseAny={modalSpellModalData?.canChooseAny || modalSpellModalData?.isSpree}
+        onConfirm={(selectedModeIds) => {
+          if (safeView?.id && modalSpellModalData) {
+            // Use "modalSpellConfirm" event which is already handled by the server
+            socket.emit("modalSpellConfirm", {
+              gameId: safeView.id,
+              cardId: modalSpellModalData.cardId,
+              selectedModes: selectedModeIds,
+              effectId: modalSpellModalData.effectId,
+            });
+            setModalSpellModalOpen(false);
+            setModalSpellModalData(null);
+          }
+        }}
+        onCancel={() => {
+          setModalSpellModalOpen(false);
+          setModalSpellModalData(null);
+        }}
+      />
+
+      {/* Replacement Effect Order Modal (Minimize/Maximize/Custom) */}
+      <ReplacementEffectOrderModal
+        open={replacementEffectModalOpen}
+        effectType={replacementEffectModalData?.effectType || 'damage'}
+        effects={replacementEffectModalData?.effects || []}
+        baseAmount={replacementEffectModalData?.baseAmount || 0}
+        initialMode={replacementEffectModalData?.initialMode}
+        onConfirm={(orderedEffects, mode) => {
+          if (safeView?.id && replacementEffectModalData) {
+            socket.emit("setReplacementEffectOrder", {
+              gameId: safeView.id,
+              effectType: replacementEffectModalData.effectType,
+              effectIds: orderedEffects.map(e => e.id),
+              mode,
+              effectId: replacementEffectModalData.effectId,
+            });
+            setReplacementEffectModalOpen(false);
+            setReplacementEffectModalData(null);
+          }
+        }}
+        onCancel={() => {
+          setReplacementEffectModalOpen(false);
+          setReplacementEffectModalData(null);
         }}
       />
 
