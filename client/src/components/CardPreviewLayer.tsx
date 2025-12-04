@@ -426,11 +426,12 @@ function PreviewScaleSlider({
       style={{
         position: 'fixed',
         bottom: 8,
-        right: 8,
+        left: '50%',
+        transform: 'translateX(-50%)',
         zIndex: 12001,
         display: 'flex',
         flexDirection: 'column',
-        alignItems: 'flex-end',
+        alignItems: 'center',
         gap: 4,
         pointerEvents: 'auto',
       }}

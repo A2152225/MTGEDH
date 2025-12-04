@@ -260,3 +260,56 @@ function adjustColor(color: string, amount: number): string {
   // For non-hex colors, return as-is
   return color;
 }
+
+/**
+ * Determine if a hex color is light (luminance > 0.5).
+ * Used for determining text contrast (dark text on light backgrounds).
+ */
+export function isLightColor(color: string): boolean {
+  // Handle hex colors
+  if (color.startsWith('#')) {
+    const hex = color.slice(1);
+    // Validate hex length - only support 3 or 6 digit hex
+    if (hex.length !== 3 && hex.length !== 6) {
+      return false;
+    }
+    const num = parseInt(hex.length === 3 
+      ? hex.split('').map(c => c + c).join('') 
+      : hex, 16);
+    
+    // Handle invalid hex values
+    if (isNaN(num)) {
+      return false;
+    }
+    
+    const r = (num >> 16) & 0xFF;
+    const g = (num >> 8) & 0xFF;
+    const b = num & 0xFF;
+    
+    // Calculate relative luminance using sRGB formula
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return luminance > 0.5;
+  }
+  
+  // Default to dark for non-hex colors
+  return false;
+}
+
+/**
+ * Get appropriate text colors based on a background setting.
+ * Returns primary and secondary text colors with good contrast.
+ */
+export function getTextColorsForBackground(
+  bg: AppearanceSettings['tableBackground'] | AppearanceSettings['playAreaBackground']
+): { primary: string; secondary: string } {
+  // For image backgrounds, always use light text (assumes most images are dark)
+  if (bg.type === 'image') {
+    return { primary: '#fff', secondary: '#aaa' };
+  }
+  
+  // For color backgrounds, determine based on luminance
+  if (isLightColor(bg.color)) {
+    return { primary: '#1a1a2e', secondary: '#555' };
+  }
+  return { primary: '#fff', secondary: '#aaa' };
+}
