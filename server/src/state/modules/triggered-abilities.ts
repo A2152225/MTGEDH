@@ -1146,7 +1146,8 @@ export function detectAttachmentAttackTriggers(card: any, permanent: any): Attac
   }
   
   // Pattern: "Whenever enchanted creature deals combat damage to a player, ..."
-  const auraDamageMatch = oracleText.match(/whenever enchanted creature deals combat damage to (?:a player|an opponent),?\s*([^.]+)/i);
+  // Also matches "Whenever enchanted creature deals damage to a player, ..." (Spirit Loop)
+  const auraDamageMatch = oracleText.match(/whenever enchanted creature deals (?:combat )?damage to (?:a player|an opponent),?\s*([^.]+)/i);
   if (auraDamageMatch) {
     const effectText = auraDamageMatch[1].trim();
     triggers.push({
@@ -1160,6 +1161,8 @@ export function detectAttachmentAttackTriggers(card: any, permanent: any): Attac
       causesDiscard: effectText.includes('discard'),
       drawsCards: effectText.includes('draw'),
       exilesCards: effectText.includes('exile'),
+      // Track if this is specifically combat damage or any damage
+      anyDamage: !oracleText.toLowerCase().includes('combat damage'),
     });
   }
   

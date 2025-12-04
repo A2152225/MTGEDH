@@ -598,6 +598,32 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               
               console.log(`${ts()} [dealCombatDamage] ${card.name || 'Attacker'} lifelink: ${attackerController} gained ${actualDamage} life (${controllerLife} -> ${life[attackerController]})`);
             }
+            
+            // Check for auras that grant life gain on combat damage (Spirit Loop, etc.)
+            // Pattern: "Whenever enchanted creature deals damage to a player, you gain life equal to that damage."
+            const attachedAuras = battlefield.filter((p: any) => 
+              p?.attachedTo === attacker.id && 
+              (p.card?.type_line || '').toLowerCase().includes('aura')
+            );
+            
+            for (const aura of attachedAuras) {
+              const auraOracle = (aura.card?.oracle_text || '').toLowerCase();
+              const auraName = (aura.card?.name || '').toLowerCase();
+              
+              // Spirit Loop and similar: "Whenever enchanted creature deals damage to a player, you gain life equal to that damage."
+              if ((auraName.includes('spirit loop') || 
+                   (auraOracle.includes('enchanted creature deals') && auraOracle.includes('damage to') && 
+                    auraOracle.includes('gain life equal')))) {
+                const auraController = aura.controller || attackerController;
+                const auraControllerLife = life[auraController] ?? startingLife;
+                life[auraController] = auraControllerLife + actualDamage;
+                
+                result.lifeGainForPlayers[auraController] = 
+                  (result.lifeGainForPlayers[auraController] || 0) + actualDamage;
+                
+                console.log(`${ts()} [dealCombatDamage] ${aura.card?.name || 'Aura'}: ${auraController} gained ${actualDamage} life from enchanted creature dealing damage`);
+              }
+            }
           } else if (replacementResult.prevented) {
             console.log(`${ts()} [dealCombatDamage] ${card.name || 'Attacker'}'s ${attackerPower} combat damage was prevented`);
           }
