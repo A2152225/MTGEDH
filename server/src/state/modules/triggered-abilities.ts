@@ -6682,8 +6682,8 @@ const LINKED_EXILE_CARDS: Record<string, {
   "palace jailer": { targetType: "creature", returnCondition: 'ltb', controllerRestriction: 'opponent', isCreature: true },
   "mangara of corondor": { targetType: "permanent", returnCondition: 'ltb' }, // Special - exiles self too
   
-  // Blue
-  "reality shift": { targetType: "creature", returnCondition: 'ltb', controllerRestriction: 'any' }, // Note: permanent exile
+  // Note: Reality Shift is NOT a linked exile - it permanently exiles
+  // "reality shift" performs permanent exile, so NOT included here
   
   // Black
   "faceless butcher": { targetType: "creature other than Faceless Butcher", returnCondition: 'ltb', isCreature: true },
@@ -6757,7 +6757,7 @@ export function registerLinkedExile(
   const state = (ctx as any).state;
   state.linkedExiles = state.linkedExiles || [];
   
-  const linkId = `linked_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const linkId = `linked_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
   
   const linkedExile: LinkedExile = {
     id: linkId,
@@ -6806,10 +6806,12 @@ export function processLinkedExileReturns(
     console.log(`[processLinkedExileReturns] ${linked.exilingPermanentName} left - returning ${linked.exiledCardName} to battlefield`);
     
     // Return the exiled card to the battlefield under its owner's control
+    // Per Rule 610.3, when a card returns from exile via "until ~ leaves" effect,
+    // it returns under its owner's control
     const newPermanent = {
-      id: `perm_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `perm_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
       card: linked.exiledCard,
-      controller: linked.originalOwner, // Returns under owner's control
+      controller: linked.originalOwner, // Returns under owner's control (Rule 610.3)
       owner: linked.originalOwner,
       tapped: false,
       summoning_sickness: linked.exiledCard.type_line?.toLowerCase().includes('creature') || false,
