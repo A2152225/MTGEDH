@@ -2011,21 +2011,25 @@ export function applyDamageReplacementsMinimized(
     return { finalAmount: 0, appliedEffects };
   }
   
-  // Sort effects to minimize damage:
-  // halve/halve_round_up -> double -> add_flat -> triple
-  // Halving early is usually better: halve(10) + 1 = 6, vs halve(10+1) = 5 (halve later is better)
-  // Actually for minimizing: (X + 1) / 2 < X/2 + 1, so add_flat before halve is better
-  // Let's be more careful:
-  // To minimize: we want doublers applied to smallest base
-  // So: halve first, then double (so double applies to halved), then add_flat last
+  // Sort effects to minimize damage received:
+  // Order: halve_round_up -> halve -> double -> triple -> add_flat
+  // 
+  // Mathematical reasoning for this order:
+  // - Halving first applies to the base damage, then doublers multiply the halved amount
+  //   Example: Base 10, halve then double: (10/2) * 2 = 10
+  //            Base 10, double then halve: (10 * 2) / 2 = 10 (same result)
+  // - Add_flat goes LAST so it's not multiplied by doublers/triplers
+  //   Example: Base 10, +1 then double: (10 + 1) * 2 = 22
+  //            Base 10, double then +1: (10 * 2) + 1 = 21 (better for receiver)
+  // - Therefore: halve -> double/triple -> add_flat minimizes final damage
   const sortedEffects = [...effects].sort((a, b) => {
     const order: Record<ReplacementEffectType, number> = {
-      'prevent': 0,       // Already handled above
-      'halve_round_up': 1, // Halve first (Gisela's prevention style)
-      'halve': 2,
-      'double': 3,
-      'triple': 4,
-      'add_flat': 5,      // Add last so it's not doubled/tripled
+      'prevent': 0,        // Already handled above
+      'halve_round_up': 1, // Halve first (Gisela's prevention style - rounded up means less damage)
+      'halve': 2,          // Standard halving
+      'double': 3,         // Doublers apply to halved amount
+      'triple': 4,         // Triplers apply to halved amount
+      'add_flat': 5,       // Add last so it's not multiplied
     };
     return (order[a.type] || 99) - (order[b.type] || 99);
   });
@@ -2334,7 +2338,8 @@ export function detectLifeGainReplacementEffects(
     
     // Angel of Vitality - +1 life gained if you have 25+ life
     if (cardName.includes("angel of vitality") && controller === playerId) {
-      const currentLife = (ctx.state as any)?.life?.[playerId] ?? 40;
+      const startingLife = (ctx.state as any)?.startingLife || 40;
+      const currentLife = (ctx.state as any)?.life?.[playerId] ?? startingLife;
       if (currentLife >= 25) {
         effects.push({
           type: 'add_flat',
@@ -2395,12 +2400,13 @@ export function detectTokenCreationReplacementEffects(
       });
     }
     
-    // Primal Vigor - doubles tokens for all players
+    // Primal Vigor - doubles tokens for ALL players (global effect)
+    // Note: This affects whoever is creating tokens, not just the controller
     if (cardName.includes("primal vigor")) {
       effects.push({
         type: 'double',
-        source: "Primal Vigor",
-        controllerId: controller,
+        source: "Primal Vigor (global)",
+        // No controllerId check since this affects all players
       });
     }
     
