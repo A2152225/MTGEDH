@@ -57,6 +57,8 @@ import {
   type AppearanceSettings,
   loadAppearanceSettings,
   saveAppearanceSettings,
+  getBackgroundStyle,
+  isLightColor,
 } from "./utils/appearanceSettings";
 import { prettyPhase, prettyStep, isLandTypeLine } from "./utils/gameDisplayHelpers";
 import { IgnoredTriggersPanel } from "./components/IgnoredTriggersPanel";
@@ -2910,14 +2912,16 @@ export function App() {
   return (
     <div
       style={{
-        padding: 12,
+        padding: 8,
         fontFamily: "system-ui",
         display: "grid",
         gridTemplateColumns: isTable ? "1fr" : "1.2fr 380px",
-        gap: 12,
+        gap: 8,
+        minHeight: '100vh',
+        ...getBackgroundStyle(appearanceSettings.tableBackground),
       }}
     >
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {/* HEADER (game id, format) */}
         <div
           style={{
@@ -2927,8 +2931,8 @@ export function App() {
           }}
         >
           <div>
-            <h1 style={{ margin: 0 }}>MTGEDH</h1>
-            <div style={{ fontSize: 12, color: "#666" }}>
+            <h1 style={{ margin: 0, color: appearanceSettings.tableBackground.type === 'color' && isLightColor(appearanceSettings.tableBackground.color) ? '#1a1a2e' : '#fff' }}>MTGEDH</h1>
+            <div style={{ fontSize: 12, color: appearanceSettings.tableBackground.type === 'color' && isLightColor(appearanceSettings.tableBackground.color) ? '#555' : '#aaa' }}>
               Game: {effectiveGameId} • Format:{" "}
               {String(safeView?.format ?? "")}
             </div>
@@ -3112,9 +3116,9 @@ export function App() {
         {/* TABLE / PLAYING FIELD (chat handled as overlay inside TableLayout) */}
         <div
           style={{
-            border: "1px solid #eee",
+            border: "1px solid rgba(255,255,255,0.1)",
             borderRadius: 6,
-            padding: 8,
+            padding: 4,
           }}
         >
           {safeView ? (

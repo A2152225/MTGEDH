@@ -260,3 +260,28 @@ function adjustColor(color: string, amount: number): string {
   // For non-hex colors, return as-is
   return color;
 }
+
+/**
+ * Determine if a hex color is light (luminance > 0.5).
+ * Used for determining text contrast (dark text on light backgrounds).
+ */
+export function isLightColor(color: string): boolean {
+  // Handle hex colors
+  if (color.startsWith('#')) {
+    const hex = color.slice(1);
+    const num = parseInt(hex.length === 3 
+      ? hex.split('').map(c => c + c).join('') 
+      : hex, 16);
+    
+    const r = (num >> 16) & 0xFF;
+    const g = (num >> 8) & 0xFF;
+    const b = num & 0xFF;
+    
+    // Calculate relative luminance using sRGB formula
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return luminance > 0.5;
+  }
+  
+  // Default to dark for non-hex colors
+  return false;
+}
