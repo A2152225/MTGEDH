@@ -548,13 +548,14 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               
               // Move milled cards to graveyard
               const zones = (ctx as any).state?.zones || {};
-              const oppZones = zones[opponentId] = zones[opponentId] || { hand: [], graveyard: [], libraryCount: 0 };
+              const oppZones = zones[opponentId] = zones[opponentId] || { hand: [], graveyard: [], libraryCount: 0, graveyardCount: 0 };
               oppZones.graveyard = oppZones.graveyard || [];
               for (const milledCard of milledCards) {
                 milledCard.zone = 'graveyard';
                 oppZones.graveyard.push(milledCard);
               }
               oppZones.libraryCount = lib.length;
+              oppZones.graveyardCount = (oppZones.graveyard || []).length;
               
               console.log(`${ts()} [dealCombatDamage] ${card.name || 'Attacker'} milled ${milledCards.length} cards from ${opponentId}: ${milledCards.map((c: any) => c.name).join(', ')}`);
             }

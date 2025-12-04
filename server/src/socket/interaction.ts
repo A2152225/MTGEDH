@@ -637,6 +637,152 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     broadcastGame(io, game, gameId);
   });
 
+  // Confirm Ponder-style effect (look at top N, reorder, optionally shuffle, then draw)
+  socket.on("confirmPonder", ({ gameId, effectId, newOrder, shouldShuffle, toHand }: {
+    gameId: string;
+    effectId: string;
+    newOrder: string[];  // Card IDs in new order (top first) - cards staying on library
+    shouldShuffle: boolean;
+    toHand?: string[];   // Card IDs going to hand (for Telling Time style)
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+      return;
+    }
+
+    // Get the pending ponder effect
+    const pendingPonder = (game.state as any).pendingPonder?.[pid];
+    if (!pendingPonder || pendingPonder.effectId !== effectId) {
+      socket.emit("error", { code: "PONDER_NOT_FOUND", message: "No matching pending Ponder effect" });
+      return;
+    }
+
+    const { cardCount, cardName, drawAfter, targetPlayerId, variant } = pendingPonder;
+    const targetPid = targetPlayerId || pid;
+
+    // Get library for the target player
+    const lib = (game as any).libraries?.get(targetPid) || [];
+    
+    // Remove the top N cards that were being reordered
+    const removedCards: any[] = [];
+    for (let i = 0; i < cardCount && lib.length > 0; i++) {
+      removedCards.push(lib.shift());
+    }
+    
+    const cardById = new Map(removedCards.map(c => [c.id, c]));
+    
+    // Move cards to hand if specified (Telling Time style)
+    if (toHand && toHand.length > 0) {
+      const zones = (game.state as any).zones || {};
+      const z = zones[pid] = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+      z.hand = z.hand || [];
+      
+      for (const cardId of toHand) {
+        const card = cardById.get(cardId);
+        if (card) {
+          (z.hand as any[]).push({ ...card, zone: 'hand' });
+          cardById.delete(cardId);
+        }
+      }
+      z.handCount = (z.hand as any[]).length;
+      
+      console.log(`[confirmPonder] ${pid} put ${toHand.length} card(s) to hand`);
+    }
+    
+    if (shouldShuffle) {
+      // Shuffle the remaining cards back into library first
+      for (const card of cardById.values()) {
+        lib.push({ ...card, zone: 'library' });
+      }
+      // Then shuffle the library
+      for (let i = lib.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [lib[i], lib[j]] = [lib[j], lib[i]];
+      }
+      console.log(`[confirmPonder] ${targetPid} shuffled their library`);
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} shuffled their library.`,
+        ts: Date.now(),
+      });
+    } else {
+      // Put cards back in the specified order (newOrder has IDs from top to bottom)
+      for (let i = newOrder.length - 1; i >= 0; i--) {
+        const card = cardById.get(newOrder[i]);
+        if (card) {
+          lib.unshift({ ...card, zone: 'library' });
+        }
+      }
+      console.log(`[confirmPonder] ${targetPid} reordered top ${newOrder.length} cards`);
+    }
+    
+    // Update library count
+    const zones = (game.state as any).zones || {};
+    const targetZones = zones[targetPid] = zones[targetPid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+    targetZones.libraryCount = lib.length;
+    
+    // Draw a card if specified (Ponder draws after reordering/shuffling)
+    let drawnCardName: string | undefined;
+    if (drawAfter && pid === targetPid) {
+      if (lib.length > 0) {
+        const drawnCard = lib.shift();
+        const playerZones = zones[pid] = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+        playerZones.hand = playerZones.hand || [];
+        (playerZones.hand as any[]).push({ ...drawnCard, zone: 'hand' });
+        playerZones.handCount = (playerZones.hand as any[]).length;
+        playerZones.libraryCount = lib.length;
+        drawnCardName = drawnCard.name;
+        
+        console.log(`[confirmPonder] ${pid} drew ${drawnCardName}`);
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, pid)} draws a card.`,
+          ts: Date.now(),
+        });
+      }
+    }
+    
+    // Clear the pending ponder effect
+    delete (game.state as any).pendingPonder[pid];
+    
+    // Bump sequence
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+    
+    // Emit completion event
+    io.to(gameId).emit("ponderComplete", {
+      gameId,
+      effectId,
+      playerId: pid,
+      targetPlayerId: targetPid,
+      cardName,
+      shuffled: shouldShuffle,
+      drawnCardName,
+    });
+    
+    appendEvent(gameId, game.seq, "ponderResolve", { 
+      playerId: pid, 
+      effectId,
+      newOrder, 
+      shouldShuffle, 
+      toHand,
+      drawnCardName,
+    });
+
+    broadcastGame(io, game, gameId);
+  });
+
   // Explore: Reveal top card, if land put in hand, else +1/+1 counter and may put in graveyard
   socket.on("beginExplore", ({ gameId, permanentId }) => {
     const pid = socket.data.playerId as string | undefined;

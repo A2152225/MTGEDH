@@ -34,7 +34,14 @@ export function viewFor(ctx: GameContext, viewer?: PlayerID, spectator = false):
     activePlayerIndex: state.activePlayerIndex,
     landsPlayedThisTurn: state.landsPlayedThisTurn ? { ...state.landsPlayedThisTurn } : undefined,
     manaPool: state.manaPool ? { ...state.manaPool } : undefined,
+    // Include pending commander zone choices for the viewer
+    pendingCommanderZoneChoice: undefined,
   };
+
+  // Add pending commander zone choice for the viewer (only their own pending choices)
+  if (viewer && !spectator && state.pendingCommanderZoneChoice?.[viewer]) {
+    out.pendingCommanderZoneChoice = [...state.pendingCommanderZoneChoice[viewer]];
+  }
 
   const zones = state.zones || {};
   const libraries: Map<string, any[]> = (ctx as any).libraries || new Map();

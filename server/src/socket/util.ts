@@ -1244,6 +1244,79 @@ export function handlePendingTemptingOffer(io: Server, game: any, gameId: string
 }
 
 /**
+ * Handle pending Ponder-style effects after stack resolution.
+ * When a Ponder-style spell resolves, this sends the peek prompt to the player.
+ */
+export function handlePendingPonder(io: Server, game: any, gameId: string): void {
+  try {
+    const pendingPonder = game.state?.pendingPonder;
+    if (!pendingPonder || typeof pendingPonder !== 'object') return;
+    
+    for (const playerId of Object.keys(pendingPonder)) {
+      const ponder = pendingPonder[playerId];
+      if (!ponder) continue;
+      
+      const { effectId, cardCount, cardName, variant, canShuffle, drawAfter, pickToHand, targetPlayerId, imageUrl } = ponder;
+      
+      console.log(`[handlePendingPonder] Processing Ponder effect for ${playerId}: ${cardName} (${cardCount} cards)`);
+      
+      // Get the top N cards from the target player's library
+      const targetPid = targetPlayerId || playerId;
+      let cards: any[] = [];
+      
+      if (typeof game.peekTopN === 'function') {
+        cards = game.peekTopN(targetPid, cardCount);
+      } else {
+        const lib = (game as any).libraries?.get(targetPid) || [];
+        cards = lib.slice(0, cardCount).map((c: any) => ({
+          id: c.id,
+          name: c.name,
+          type_line: c.type_line,
+          oracle_text: c.oracle_text,
+          image_uris: c.image_uris,
+          mana_cost: c.mana_cost,
+          power: c.power,
+          toughness: c.toughness,
+        }));
+      }
+      
+      // Get target player name if different from caster
+      let targetPlayerName: string | undefined;
+      if (targetPid !== playerId) {
+        targetPlayerName = getPlayerName(game, targetPid);
+      }
+      
+      // Find the socket for this player and send the ponder request
+      for (const s of io.sockets.sockets.values()) {
+        if ((s as any).data?.playerId === playerId && !(s as any).data?.spectator) {
+          s.emit("ponderRequest", {
+            gameId,
+            effectId,
+            playerId,
+            targetPlayerId: targetPid,
+            targetPlayerName,
+            cardName,
+            cardImageUrl: imageUrl,
+            cards,
+            variant: variant || 'ponder',
+            canShuffle: canShuffle ?? false,
+            drawAfter: drawAfter ?? false,
+            pickToHand: pickToHand ?? 0,
+            timeoutMs: 120000, // 2 minutes
+          });
+          
+          console.log(`[handlePendingPonder] Sent ponderRequest to ${playerId} for ${cardName}`);
+          break;
+        }
+      }
+    }
+    
+  } catch (err) {
+    console.warn('[handlePendingPonder] Error:', err);
+  }
+}
+
+/**
  * Maps mana color symbols to their human-readable names.
  */
 export const MANA_COLOR_NAMES: Record<string, string> = {
