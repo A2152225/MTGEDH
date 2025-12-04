@@ -1,6 +1,6 @@
 import type { PlayerID } from "../../../../shared/src/index.js";
 import type { GameContext } from "../context.js";
-import { uid, parsePT } from "../utils.js";
+import { uid, parsePT, addEnergyCounters } from "../utils.js";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts } from "./game-state-effects.js";
 import { categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
 import { getETBTriggersForPermanent, type TriggeredAbility } from "./triggered-abilities.js";
@@ -871,6 +871,21 @@ function executeTriggerEffect(
       modifyLife(triggeringController, -amount);
     }
     return;
+  }
+  
+  // Pattern: "you get {E}" or "you get X {E}" - Energy counters (Guide of Souls, etc.)
+  // Matches: "you get {E}", "you get two {E}", "you get 2 {E}"
+  const energyMatch = desc.match(/you get (?:(\d+|one|two|three|four|five) )?(?:\{e\}|energy)/i);
+  if (energyMatch) {
+    const wordToNum: Record<string, number> = { 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5 };
+    let amount = 1;
+    if (energyMatch[1]) {
+      amount = wordToNum[energyMatch[1].toLowerCase()] || parseInt(energyMatch[1], 10) || 1;
+    }
+    
+    addEnergyCounters(state, controller, amount, sourceName);
+    handled = true;
+    // Don't return - there might be more effects after energy gain (like Guide of Souls's "you may pay {E}")
   }
   
   // Pattern: "+1/+1 counter on each creature you control" (Cathar's Crusade)

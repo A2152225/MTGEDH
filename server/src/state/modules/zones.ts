@@ -718,6 +718,10 @@ export function applyPreGameReset(ctx: GameContext, playerId: PlayerID) {
   life[playerId] = starting;
   poison[playerId] = 0;
   experience[playerId] = 0;
+  
+  // Reset energy counters
+  const energy = (ctx as any).energy = (ctx as any).energy || {};
+  energy[playerId] = 0;
 
   // Ensure commandZone entry exists (create an empty holder instead of deleting)
   if (!commandZone) (ctx as any).commandZone = {};

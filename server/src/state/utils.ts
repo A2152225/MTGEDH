@@ -1948,3 +1948,67 @@ function extractCreatureTypes(typeLine: string): string[] {
   const subtypes = typeLine.substring(dashIndex + 1).trim();
   return subtypes.split(/\s+/).filter(t => t.length > 0);
 }
+
+/**
+ * Add energy counters to a player.
+ * Energy counters are a resource introduced in Kaladesh block.
+ * 
+ * @param gameState - The game state object
+ * @param playerId - The player gaining energy
+ * @param amount - The number of energy counters to add
+ * @param source - Optional source of the energy gain
+ * @returns The new energy total for the player
+ */
+export function addEnergyCounters(
+  gameState: any,
+  playerId: string,
+  amount: number,
+  source?: string
+): number {
+  if (!gameState || !playerId || amount <= 0) return 0;
+  
+  // Initialize energy if it doesn't exist
+  const energy = gameState.energy = gameState.energy || {};
+  energy[playerId] = (energy[playerId] || 0) + amount;
+  
+  console.log(`[addEnergyCounters] ${playerId} gained ${amount} energy${source ? ` from ${source}` : ''} (total: ${energy[playerId]})`);
+  
+  return energy[playerId];
+}
+
+/**
+ * Remove energy counters from a player (for paying costs).
+ * 
+ * @param gameState - The game state object
+ * @param playerId - The player spending energy
+ * @param amount - The number of energy counters to remove
+ * @returns true if the energy was successfully spent, false if not enough
+ */
+export function spendEnergyCounters(
+  gameState: any,
+  playerId: string,
+  amount: number
+): boolean {
+  if (!gameState || !playerId || amount <= 0) return false;
+  
+  const energy = gameState.energy || {};
+  const currentEnergy = energy[playerId] || 0;
+  
+  if (currentEnergy < amount) {
+    console.log(`[spendEnergyCounters] ${playerId} cannot spend ${amount} energy (only has ${currentEnergy})`);
+    return false;
+  }
+  
+  energy[playerId] = currentEnergy - amount;
+  console.log(`[spendEnergyCounters] ${playerId} spent ${amount} energy (remaining: ${energy[playerId]})`);
+  
+  return true;
+}
+
+/**
+ * Get the current energy count for a player.
+ */
+export function getEnergyCount(gameState: any, playerId: string): number {
+  if (!gameState || !playerId) return 0;
+  return gameState.energy?.[playerId] || 0;
+}
