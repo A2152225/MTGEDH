@@ -8,6 +8,7 @@ import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone } from "./zones.js";
 import { runSBA } from "./counters_tokens.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
+import { detectETBTappedPattern } from "../../socket/land-helpers.js";
 
 /**
  * Detect "enters with counters" patterns from a card's oracle text.
@@ -665,6 +666,11 @@ export function triggerETBEffectsForToken(
       
       // another_permanent_etb triggers
       if (trigger.triggerType === 'another_permanent_etb') {
+        // Check if this trigger only fires on creatures (creatureOnly flag)
+        if ((trigger as any).creatureOnly && !isCreature) {
+          continue; // Skip - this trigger only fires on creatures
+        }
+        
         const triggerController = perm.controller || controller;
         
         state.stack = state.stack || [];
@@ -703,6 +709,32 @@ export function triggerETBEffectsForToken(
         } as any);
         
         console.log(`[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s triggered ability for token: ${trigger.description}`);
+      }
+      
+      // opponent_creature_etb triggers (Suture Priest, Authority of the Consuls)
+      // These trigger when a creature enters under an OPPONENT's control
+      if (trigger.triggerType === 'opponent_creature_etb' && isCreature) {
+        const triggerController = perm.controller;
+        // Only fire if the entering creature is controlled by an opponent of the trigger controller
+        if (triggerController && triggerController !== controller) {
+          state.stack = state.stack || [];
+          const triggerId = uid("trigger");
+          
+          state.stack.push({
+            id: triggerId,
+            type: 'triggered_ability',
+            controller: triggerController,
+            source: perm.id,
+            sourceName: trigger.cardName,
+            description: trigger.description,
+            triggerType: trigger.triggerType,
+            mandatory: trigger.mandatory,
+            // Store the entering creature's controller for effects like "that player loses 1 life"
+            targetPlayer: controller,
+          } as any);
+          
+          console.log(`[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s opponent creature ETB trigger: ${trigger.description}`);
+        }
       }
     }
   }
@@ -758,6 +790,11 @@ function triggerETBEffectsForPermanent(
       
       // another_permanent_etb triggers
       if (trigger.triggerType === 'another_permanent_etb') {
+        // Check if this trigger only fires on creatures (creatureOnly flag)
+        if ((trigger as any).creatureOnly && !isCreature) {
+          continue; // Skip - this trigger only fires on creatures
+        }
+        
         const triggerController = perm.controller || controller;
         state.stack = state.stack || [];
         const triggerId = uid("trigger");
@@ -794,6 +831,32 @@ function triggerETBEffectsForPermanent(
         } as any);
         
         console.log(`[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
+      }
+      
+      // opponent_creature_etb triggers (Suture Priest, Authority of the Consuls)
+      // These trigger when a creature enters under an OPPONENT's control
+      if (trigger.triggerType === 'opponent_creature_etb' && isCreature) {
+        const triggerController = perm.controller;
+        // Only fire if the entering creature is controlled by an opponent of the trigger controller
+        if (triggerController && triggerController !== controller) {
+          state.stack = state.stack || [];
+          const triggerId = uid("trigger");
+          
+          state.stack.push({
+            id: triggerId,
+            type: 'triggered_ability',
+            controller: triggerController,
+            source: perm.id,
+            sourceName: trigger.cardName,
+            description: trigger.description,
+            triggerType: trigger.triggerType,
+            mandatory: trigger.mandatory,
+            // Store the entering creature's controller for effects like "that player loses 1 life"
+            targetPlayer: controller,
+          } as any);
+          
+          console.log(`[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s opponent creature ETB trigger: ${trigger.description}`);
+        }
       }
     }
   }
@@ -2249,6 +2312,13 @@ export function resolveTopOfStack(ctx: GameContext) {
               }
             }
             etbTriggers.push({ ...trigger, permanentId: perm.id });
+          } else if (trigger.triggerType === 'opponent_creature_etb' && isCreature) {
+            // Suture Priest, Authority of the Consuls style - triggers when OPPONENT's creature enters
+            const triggerController = perm.controller;
+            // Only fire if the entering creature is controlled by an opponent of the trigger controller
+            if (triggerController && triggerController !== controller) {
+              etbTriggers.push({ ...trigger, permanentId: perm.id, targetPlayer: controller });
+            }
           }
         }
       }
@@ -2459,6 +2529,74 @@ export function resolveTopOfStack(ctx: GameContext) {
     // Handle Dispatch and similar metalcraft spells
     // Dispatch: "Tap target creature. Metalcraft — If you control three or more artifacts, exile that creature instead."
     const dispatchHandled = handleDispatch(ctx, card, controller, targets, state);
+    
+    // Handle Fractured Identity: "Exile target nonland permanent. Each player other than its controller creates a token that's a copy of it."
+    // This requires special handling because we need to:
+    // 1. Capture the target permanent's info before exiling
+    // 2. Create token copies for each opponent of the target's controller
+    const isFracturedIdentity = card.name?.toLowerCase().includes('fractured identity') ||
+        (oracleTextLower.includes('exile target') && 
+         oracleTextLower.includes('each player other than its controller') && 
+         oracleTextLower.includes('creates a token') && 
+         oracleTextLower.includes('copy'));
+    
+    if (isFracturedIdentity && targets.length > 0) {
+      const targetId = typeof targets[0] === 'string' ? targets[0] : targets[0]?.id;
+      const targetPerm = state.battlefield?.find((p: any) => p.id === targetId);
+      
+      if (targetPerm && targetPerm.card) {
+        const targetController = targetPerm.controller as PlayerID;
+        const targetCard = targetPerm.card as any;
+        const players = (state as any).players || [];
+        
+        // Get all players EXCEPT the target's controller
+        const copyRecipients = players.filter((p: any) => p && p.id && p.id !== targetController);
+        
+        console.log(`[resolveTopOfStack] Fractured Identity: Creating token copies for ${copyRecipients.length} players (excluding target controller ${targetController})`);
+        
+        // Create token copy for each player other than target's controller
+        for (const recipient of copyRecipients) {
+          try {
+            // Use uid() for robust ID generation instead of Date.now() + Math.random()
+            const tokenId = uid('fi_token');
+            const typeLine = targetCard.type_line || '';
+            const isCreature = typeLine.toLowerCase().includes('creature');
+            
+            const tokenPerm = {
+              id: tokenId,
+              controller: recipient.id as PlayerID,
+              owner: recipient.id as PlayerID,
+              tapped: false,
+              counters: {},
+              basePower: isCreature ? parseInt(String(targetCard.power || '0'), 10) : undefined,
+              baseToughness: isCreature ? parseInt(String(targetCard.toughness || '0'), 10) : undefined,
+              summoningSickness: isCreature,
+              isToken: true,
+              card: {
+                id: tokenId,
+                name: targetCard.name || 'Copy',
+                type_line: typeLine,
+                oracle_text: targetCard.oracle_text || '',
+                mana_cost: targetCard.mana_cost || '',
+                power: targetCard.power,
+                toughness: targetCard.toughness,
+                image_uris: targetCard.image_uris,
+                zone: 'battlefield',
+              },
+            };
+            
+            state.battlefield = state.battlefield || [];
+            state.battlefield.push(tokenPerm as any);
+            
+            console.log(`[resolveTopOfStack] Fractured Identity: Created token copy of ${targetCard.name} for ${recipient.name || recipient.id}`);
+          } catch (err) {
+            console.warn(`[resolveTopOfStack] Failed to create Fractured Identity token for ${recipient.id}:`, err);
+          }
+        }
+        
+        // Note: The exile effect is handled by the spellSpec resolution above (EXILE_TARGET)
+      }
+    }
     
     // Handle token creation spells (where the caster creates tokens)
     // Patterns: "create X 1/1 tokens", "create two 1/1 tokens", etc.
@@ -3982,12 +4120,22 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
   // - If a land becomes a creature later (via animation), it would need to be checked at that time
   const hasSummoningSickness = isCreature && !hasHaste;
   
+  // Check if land enters tapped based on oracle text
+  // This handles lands like Emeria, the Sky Ruin, Temples, Guildgates, etc.
+  const oracleText = card.oracle_text || '';
+  const etbTappedStatus = detectETBTappedPattern(oracleText);
+  const shouldEnterTapped = isLand && etbTappedStatus === 'always';
+  
+  if (shouldEnterTapped) {
+    console.log(`[playLand] ${card.name || 'Land'} enters tapped (ETB-tapped pattern detected)`);
+  }
+  
   state.battlefield = state.battlefield || [];
   state.battlefield.push({
     id: uid("perm"),
     controller: playerId,
     owner: playerId,
-    tapped: false,
+    tapped: shouldEnterTapped,  // ETB tapped lands enter tapped
     counters: {},
     basePower: baseP,
     baseToughness: baseT,

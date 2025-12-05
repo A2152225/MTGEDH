@@ -152,7 +152,9 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
   }
   
   // ETB triggers (self) - text is already lowercased
-  const etbSelfMatch = oracleText.match(/when (?:~|this creature|this permanent|this enchantment) enters the battlefield,?\s*([^.]+)/);
+  // Note: New Bloomburrow template uses "enters" instead of "enters the battlefield"
+  // Matches: "When ~ enters the battlefield", "When this creature enters", etc.
+  const etbSelfMatch = oracleText.match(/when (?:~|this creature|this permanent|this enchantment) enters(?: the battlefield)?,?\s*([^.]+)/);
   if (etbSelfMatch) {
     triggers.push({
       id: `${permanentId}_etb_self`,
@@ -167,7 +169,10 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
   }
   
   // ETB triggers (other creatures)
-  const etbCreatureMatch = oracleText.match(/whenever (?:a|another) (?:nontoken )?creature enters the battlefield(?: under your control)?,?\s*([^.]+)/);
+  // Note: New Bloomburrow template uses "enters" instead of "enters the battlefield"
+  // Also handles plural forms: "creatures enter" (e.g., Satoru, the Infiltrator)
+  // Handles: "a creature enters", "another creature enters", "one or more creatures enter", "other creatures enter"
+  const etbCreatureMatch = oracleText.match(/whenever (?:a|an(?:other)?|one or more(?: other)?|other) (?:nontoken )?creatures? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/);
   if (etbCreatureMatch) {
     triggers.push({
       id: `${permanentId}_etb_creature`,
@@ -391,7 +396,11 @@ export interface TriggeredAbility {
     | 'etb'
     | 'etb_sacrifice_unless_pay' // Transguild Promenade, Gateway Plaza, Rupture Spire
     | 'creature_etb'
+    | 'opponent_creature_etb' // Suture Priest style - when opponent's creature enters
     | 'equipment_etb'     // Whenever an Equipment enters under your control (Puresteel Paladin)
+    | 'artifact_etb'      // Whenever an Artifact enters under your control
+    | 'enchantment_etb'   // Whenever an Enchantment enters under your control
+    | 'land_etb'          // Whenever a Land enters under your control (landfall variant)
     | 'equipment_cast'    // Whenever you cast an Equipment spell (Barret)
     | 'equipment_attack'  // Whenever equipped creature attacks (Sword of the Animist)
     | 'aura_attack'       // Whenever enchanted creature attacks
@@ -771,8 +780,9 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   
   // "When ~ enters the battlefield" or "When [CARDNAME] enters the battlefield"
   // The ~ is used in some oracle text, but the actual card name is also used
+  // Note: New Bloomburrow template uses "enters" instead of "enters the battlefield"
   const cardNameEscaped = cardName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const etbPattern = new RegExp(`when\\s+(?:~|this creature|this permanent|${cardNameEscaped})\\s+enters the battlefield,?\\s*([^.]+)`, 'i');
+  const etbPattern = new RegExp(`when\\s+(?:~|this creature|this permanent|${cardNameEscaped})\\s+enters(?: the battlefield)?,?\\s*([^.]+)`, 'i');
   const etbMatch = oracleText.match(etbPattern);
   if (etbMatch && !triggers.some(t => t.triggerType === 'etb' || t.triggerType === 'etb_sacrifice_unless_pay')) {
     const effectText = etbMatch[1].trim();
@@ -803,9 +813,13 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   }
   
   // "Whenever a creature enters the battlefield under your control" or "Whenever a nontoken creature enters..."
-  const creatureETBMatch = oracleText.match(/whenever a (?:nontoken )?creature enters the battlefield under your control,?\s*([^.]+)/i);
+  // Note: New Bloomburrow template uses "enters" instead of "enters the battlefield"
+  // Also handles "creature you control enters" (new template with "you control" before "enters")
+  // Also handles plural forms: "creatures enter" / "creatures you control enter" (e.g., Satoru)
+  // Handles: "a creature", "another creature", "one or more creatures", "other creatures"
+  const creatureETBMatch = oracleText.match(/whenever (?:a|an(?:other)?|one or more(?: other)?|other) (?:nontoken )?creatures? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i);
   if (creatureETBMatch && !triggers.some(t => t.triggerType === 'creature_etb')) {
-    const isNontokenOnly = oracleText.toLowerCase().includes('nontoken creature enters');
+    const isNontokenOnly = oracleText.includes('nontoken creature');
     triggers.push({
       permanentId,
       cardName,
@@ -818,7 +832,10 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   }
   
   // "Whenever an Equipment enters the battlefield under your control" (Puresteel Paladin, Barret, etc.)
-  const equipmentETBMatch = oracleText.match(/whenever (?:a|an) equipment enters the battlefield under your control,?\s*([^.]+)/i);
+  // Note: New Bloomburrow template uses "enters" instead of "enters the battlefield"
+  // Also handles "equipment you control enters" (new template)
+  // Also handles plural forms and "another"/"other" variants
+  const equipmentETBMatch = oracleText.match(/whenever (?:a|an(?:other)?|one or more(?: other)?|other) equipments? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i);
   if (equipmentETBMatch && !triggers.some(t => t.triggerType === 'equipment_etb')) {
     triggers.push({
       permanentId,
@@ -826,6 +843,34 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       triggerType: 'equipment_etb',
       description: equipmentETBMatch[1].trim(),
       effect: equipmentETBMatch[1].trim(),
+      mandatory: !lowerOracle.includes('you may'),
+    });
+  }
+  
+  // "Whenever an Artifact enters the battlefield under your control"
+  // Also handles plural forms and "another"/"other" variants
+  const artifactETBMatch = oracleText.match(/whenever (?:a|an(?:other)?|one or more(?: other)?|other) (?:nontoken )?artifacts? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i);
+  if (artifactETBMatch && !triggers.some(t => t.triggerType === 'artifact_etb')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'artifact_etb',
+      description: artifactETBMatch[1].trim(),
+      effect: artifactETBMatch[1].trim(),
+      mandatory: !lowerOracle.includes('you may'),
+    });
+  }
+  
+  // "Whenever an Enchantment enters the battlefield under your control"
+  // Also handles plural forms and "another"/"other" variants
+  const enchantmentETBMatch = oracleText.match(/whenever (?:a|an(?:other)?|one or more(?: other)?|other) (?:nontoken )?enchantments? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i);
+  if (enchantmentETBMatch && !triggers.some(t => t.triggerType === 'enchantment_etb')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'enchantment_etb',
+      description: enchantmentETBMatch[1].trim(),
+      effect: enchantmentETBMatch[1].trim(),
       mandatory: !lowerOracle.includes('you may'),
     });
   }
@@ -843,18 +888,37 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     });
   }
   
-  // "Whenever another permanent enters the battlefield" - ANY permanent, not just yours
-  // This is the Altar of the Brood pattern: "Whenever another permanent enters the battlefield, each opponent mills a card."
-  // Also catches variations like "whenever another creature enters the battlefield" (Soul Warden, Auriok Champion)
-  // Also catches color-restricted patterns like "whenever another white or black creature enters" (e.g., some tribal cards)
-  // NOTE: Auriok Champion has NO color restriction on its ETB trigger - it triggers on ANY creature
-  // The pattern allows optional color/type modifiers before "creature" or "permanent"
-  const anotherPermanentAnyETBMatch = oracleText.match(/whenever another (?:[\w\s]+)?(?:creature|permanent) enters the battlefield(?!.*under your control),?\s*([^.]+)/i);
-  if (anotherPermanentAnyETBMatch && !triggers.some(t => t.triggerType === 'permanent_etb')) {
-    // Extract any color restriction for filtering at trigger evaluation time
-    const colorRestrictionMatch = oracleText.match(/whenever another ([\w\s]+?) (?:creature|permanent) enters/i);
+  // "Whenever another creature enters the battlefield" (Soul Warden, Auriok Champion, etc.)
+  // This is CREATURE-ONLY - does NOT trigger on non-creature permanents like artifacts
+  // NOTE: Soul Warden says "Whenever another creature enters the battlefield, you gain 1 life."
+  // This should NOT trigger on artifacts, enchantments, lands, etc.
+  // Supports both old template "enters the battlefield" and new Bloomburrow template "enters"
+  // Also handles plural forms: "creatures enter" and "one or more other creatures enter"
+  const anotherCreatureAnyETBMatch = oracleText.match(/whenever (?:another|one or more(?: other)?) (?:[\w\s]+)?creatures? enters?(?: the battlefield)?(?!.*under your control),?\s*([^.]+)/i);
+  if (anotherCreatureAnyETBMatch && !triggers.some(t => t.triggerType === 'creature_etb')) {
+    // Extract any color restriction for filtering at trigger evaluation time (e.g., "white or black creature")
+    const colorRestrictionMatch = oracleText.match(/whenever (?:another|one or more(?: other)?) ([\w\s]+?) creatures? enters?/i);
     const colorRestriction = colorRestrictionMatch ? colorRestrictionMatch[1].trim().toLowerCase() : null;
     
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'creature_etb', // Use creature_etb so it only fires on creatures
+      description: anotherCreatureAnyETBMatch[1].trim(),
+      effect: anotherCreatureAnyETBMatch[1].trim(),
+      mandatory: true,
+      // Store color restriction for filtering (e.g., "white or black" for Auriok Champion)
+      colorRestriction: colorRestriction && colorRestriction !== 'another' && colorRestriction !== 'one or more' ? colorRestriction : undefined,
+    } as any);
+  }
+  
+  // "Whenever another permanent enters the battlefield" - ANY permanent type
+  // This is the Altar of the Brood pattern: "Whenever another permanent enters the battlefield, each opponent mills a card."
+  // This triggers on ANY permanent (creature, artifact, enchantment, land, planeswalker)
+  // Supports both old template "enters the battlefield" and new Bloomburrow template "enters"
+  // Also handles plural forms
+  const anotherPermanentAnyETBMatch = oracleText.match(/whenever (?:another|one or more(?: other)?) (?:[\w\s]+)?permanents? enters?(?: the battlefield)?(?!.*under your control),?\s*([^.]+)/i);
+  if (anotherPermanentAnyETBMatch && !triggers.some(t => t.triggerType === 'permanent_etb')) {
     triggers.push({
       permanentId,
       cardName,
@@ -862,34 +926,77 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       description: anotherPermanentAnyETBMatch[1].trim(),
       effect: anotherPermanentAnyETBMatch[1].trim(),
       mandatory: true,
-      // Store color restriction for filtering (e.g., "white or black" for Auriok Champion)
-      colorRestriction: colorRestriction && colorRestriction !== 'another' ? colorRestriction : undefined,
     } as any);
   }
   
-  // "Whenever another permanent enters the battlefield under your control"
-  // Also handles: "whenever another creature you control enters" (Guide of Souls)
-  // Also handles color-restricted patterns
-  const anotherPermanentETBMatch = oracleText.match(/whenever another (?:[\w\s]+)?(?:creature|permanent)(?: you control)? enters(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i);
-  if (anotherPermanentETBMatch && !triggers.some(t => t.triggerType === 'another_permanent_etb')) {
+  // "Whenever another creature enters the battlefield under your control" (Guide of Souls, etc.)
+  // Also handles new Bloomburrow template: "another creature you control enters"
+  // This is CREATURE-ONLY, triggers only on creatures YOU control
+  // Also handles plural forms
+  const anotherCreatureControlledETBMatch = oracleText.match(/whenever (?:another|one or more(?: other)?) (?:[\w\s]+)?creatures? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i);
+  // Ensure the pattern requires "under your control" or "you control" (oracleText is already lowercased)
+  // oracleText is already lowercased - check for control restriction
+  // Also handles plural forms
+  const hasControlRestriction = /whenever (?:another|one or more(?: other)?) [\w\s]*creatures? (?:you control|under your control)/.test(oracleText) ||
+                                 /whenever (?:another|one or more(?: other)?) [\w\s]*creatures? (?:you control )?enters?(?: the battlefield)? under your control/.test(oracleText);
+  if (anotherCreatureControlledETBMatch && hasControlRestriction && !triggers.some(t => t.triggerType === 'another_permanent_etb' || t.triggerType === 'creature_etb')) {
     // Extract any color restriction
-    const colorRestrictionMatch = oracleText.match(/whenever another ([\w\s]+?) (?:creature|permanent)/i);
+    const colorRestrictionMatch = oracleText.match(/whenever (?:another|one or more(?: other)?) ([\w\s]+?) creatures?/i);
     const colorRestriction = colorRestrictionMatch ? colorRestrictionMatch[1].trim().toLowerCase() : null;
     
     triggers.push({
       permanentId,
       cardName,
-      triggerType: 'another_permanent_etb',
-      description: anotherPermanentETBMatch[1].trim(),
-      effect: anotherPermanentETBMatch[1].trim(),
+      triggerType: 'another_permanent_etb', // This is controlled creature, so another_permanent_etb is appropriate
+      description: anotherCreatureControlledETBMatch[1].trim(),
+      effect: anotherCreatureControlledETBMatch[1].trim(),
       mandatory: true,
-      colorRestriction: colorRestriction && colorRestriction !== 'another' ? colorRestriction : undefined,
+      colorRestriction: colorRestriction && colorRestriction !== 'another' && colorRestriction !== 'one or more' ? colorRestriction : undefined,
+      creatureOnly: true, // Flag to indicate this only triggers on creatures
+    } as any);
+  }
+  
+  // "Whenever a creature an opponent controls enters" (Suture Priest second ability)
+  // This triggers when OPPONENTS' creatures enter the battlefield
+  // Also handles plural forms
+  const opponentCreatureETBMatch = oracleText.match(/whenever (?:a|another|one or more(?: other)?) (?:[\w\s]+)?creatures? (?:an opponent controls )?enters?(?: the battlefield)?(?: under (?:an opponent's|their) control)?,?\s*([^.]+)/i);
+  // oracleText is already lowercased
+  const hasOpponentRestriction = /creatures? (?:an opponent controls|under an opponent's control)/.test(oracleText) ||
+                                  /creatures? enters?(?: the battlefield)? under (?:an opponent's|their) control/.test(oracleText);
+  if (opponentCreatureETBMatch && hasOpponentRestriction && !triggers.some(t => t.triggerType === 'opponent_creature_etb')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'opponent_creature_etb', // New type for opponent creature ETB
+      description: opponentCreatureETBMatch[1].trim(),
+      effect: opponentCreatureETBMatch[1].trim(),
+      mandatory: !opponentCreatureETBMatch[1].toLowerCase().includes('you may'),
+    } as any);
+  }
+  
+  // "Whenever another permanent enters the battlefield under your control" (non-creature version)
+  // Also handles new Bloomburrow template: "another permanent you control enters"
+  // This triggers on ANY permanent you control
+  // Also handles plural forms
+  const anotherPermanentControlledETBMatch = oracleText.match(/whenever (?:another|one or more(?: other)?) (?:[\w\s]+)?permanents? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i);
+  // oracleText is already lowercased
+  const hasPermanentControlRestriction = /whenever (?:another|one or more(?: other)?) [\w\s]*permanents? (?:you control|under your control)/.test(oracleText) ||
+                                          /whenever (?:another|one or more(?: other)?) [\w\s]*permanents? (?:you control )?enters?(?: the battlefield)? under your control/.test(oracleText);
+  if (anotherPermanentControlledETBMatch && hasPermanentControlRestriction && !triggers.some(t => t.triggerType === 'another_permanent_etb')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'another_permanent_etb',
+      description: anotherPermanentControlledETBMatch[1].trim(),
+      effect: anotherPermanentControlledETBMatch[1].trim(),
+      mandatory: true,
     } as any);
   }
   
   // "As [this] enters the battlefield, choose" - Modal permanents like Outpost Siege
   // Pattern: "As ~ enters the battlefield, choose Khans or Dragons."
-  const modalETBMatch = oracleText.match(/as (?:~|this (?:creature|permanent|enchantment)) enters the battlefield,?\s*choose\s+([^.]+)/i);
+  // Supports both old template "enters the battlefield" and new Bloomburrow template "enters"
+  const modalETBMatch = oracleText.match(/as (?:~|this (?:creature|permanent|enchantment)) enters(?: the battlefield)?,?\s*choose\s+([^.]+)/i);
   if (modalETBMatch) {
     const choiceText = modalETBMatch[1].trim();
     // Parse the options (usually "X or Y" pattern)
