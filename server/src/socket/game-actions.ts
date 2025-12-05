@@ -2922,7 +2922,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   socket.on("completeCastSpell", ({ gameId, cardId, targets, payment, effectId }: { 
     gameId: string; 
     cardId: string; 
-    targets?: string[]; 
+    targets?: any[]; 
     payment?: PaymentItem[];
     effectId?: string;
   }) => {
