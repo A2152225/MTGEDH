@@ -5971,6 +5971,21 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Mark the additional cost as paid and continue casting
       (cardInHand as any).additionalCostPaid = true;
       
+      // Persist event for replay
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, "additionalCostConfirm", {
+          playerId,
+          cardId,
+          costType,
+          selectedCards,
+          effectId,
+          discardedCards: costType === 'discard' ? discardedCards : undefined,
+          sacrificedNames: costType === 'sacrifice' ? sacrificedNames : undefined,
+        });
+      } catch (e) {
+        console.warn('appendEvent(additionalCostConfirm) failed:', e);
+      }
+
       // Emit event to continue the cast
       socket.emit("additionalCostComplete", {
         gameId,
@@ -6329,6 +6344,20 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       console.log(`[equipAbility] ${equipment.card?.name} equipped to ${targetCreature.card?.name} by ${playerId}`);
 
+      // Persist event for replay
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, "equipPermanent", {
+          playerId,
+          equipmentId,
+          targetCreatureId,
+          equipmentName: equipment.card?.name,
+          targetCreatureName: targetCreature.card?.name,
+          previouslyAttachedTo: equipment.attachedTo, // for proper undo tracking
+        });
+      } catch (e) {
+        console.warn('appendEvent(equipPermanent) failed:', e);
+      }
+
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
         gameId,
@@ -6406,6 +6435,20 @@ export function registerGameActions(io: Server, socket: Socket) {
       delete (game.state as any).pendingEquipPayment[playerId];
 
       console.log(`[confirmEquipPayment] ${equipment.card?.name} equipped to ${targetCreature.card?.name} by ${playerId} (paid ${pending.equipCost})`);
+
+      // Persist event for replay
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, "equipPermanent", {
+          playerId,
+          equipmentId,
+          targetCreatureId,
+          equipmentName: equipment.card?.name,
+          targetCreatureName: targetCreature.card?.name,
+          equipCost: pending.equipCost,
+        });
+      } catch (e) {
+        console.warn('appendEvent(equipPermanent) failed:', e);
+      }
 
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
@@ -6485,6 +6528,19 @@ export function registerGameActions(io: Server, socket: Socket) {
       (zones as any).exileCount = (zones.exile as any[]).length;
 
       console.log(`[foretellCard] ${playerId} foretold ${card.name} (foretell cost: ${foretellCost})`);
+
+      // Persist event for replay
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, "foretellCard", {
+          playerId,
+          cardId,
+          cardName: card.name,
+          foretellCost,
+          card: foretoldCard, // Include full card data for reliable replay
+        });
+      } catch (e) {
+        console.warn('appendEvent(foretellCard) failed:', e);
+      }
 
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
@@ -6574,6 +6630,17 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       if (phasedOut.length > 0) {
         console.log(`[phaseOutPermanents] ${playerId} phased out: ${phasedOut.join(', ')}`);
+
+        // Persist event for replay
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, "phaseOutPermanents", {
+            playerId,
+            permanentIds,
+            phasedOutNames: phasedOut,
+          });
+        } catch (e) {
+          console.warn('appendEvent(phaseOutPermanents) failed:', e);
+        }
 
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
@@ -6747,6 +6814,19 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
 
       zones.graveyardCount = zones.graveyard.length;
+
+      // Persist event for replay
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, "confirmGraveyardTargets", {
+          playerId,
+          effectId,
+          selectedCardIds,
+          destination,
+          movedCards,
+        });
+      } catch (e) {
+        console.warn('appendEvent(confirmGraveyardTargets) failed:', e);
+      }
 
       if (movedCards.length > 0) {
         const destName = destination === 'hand' ? 'hand' : 

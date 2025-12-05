@@ -49,6 +49,22 @@ import { mulberry32 } from "../../utils/rng";
 /* -------- Helpers ---------- */
 
 /**
+ * Generate a deterministic ID for permanents during replay.
+ * Uses the game's RNG if available, otherwise uses a counter based on the card ID.
+ * This ensures IDs are consistent across replays with the same RNG seed.
+ */
+function generateDeterministicId(ctx: any, prefix: string, cardId: string): string {
+  // Use the game's RNG if available for deterministic ID generation
+  if (typeof ctx.rng === 'function') {
+    const rngValue = Math.floor(ctx.rng() * 0xFFFFFFFF).toString(36);
+    return `${prefix}_${cardId}_${rngValue}`;
+  }
+  // Fallback: use card ID with a counter (incremented on ctx)
+  ctx._idCounter = (ctx._idCounter || 0) + 1;
+  return `${prefix}_${cardId}_${ctx._idCounter}`;
+}
+
+/**
  * reset(ctx, preservePlayers)
  * Conservative fallback reset used when no specialized engine reset is available.
  */
@@ -508,6 +524,26 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           (e as any).playerId,
           (e as any).commanderId
         );
+        break;
+      }
+
+      case "commanderZoneChoice": {
+        // Handle commander zone choice (e.g., command zone vs graveyard/exile after death)
+        const pid = (e as any).playerId;
+        const commanderId = (e as any).commanderId;
+        const moveToCommandZone = (e as any).moveToCommandZone;
+        
+        try {
+          if (moveToCommandZone) {
+            // Move commander to command zone
+            moveCommanderToCZ(ctx as any, pid, commanderId);
+          }
+          // If not moving to command zone, the commander stays where it was going
+          // (graveyard, exile, etc.) - no additional action needed
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(commanderZoneChoice): failed", err);
+        }
         break;
       }
 
@@ -1496,6 +1532,227 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           console.warn("applyEvent(executeEffect): failed", err);
+        }
+        break;
+      }
+
+      case "foretellCard": {
+        // Foretell: exile a card from hand face-down
+        const pid = (e as any).playerId;
+        const cardId = (e as any).cardId;
+        const foretoldCardData = (e as any).card;
+        
+        try {
+          const zones = ctx.state.zones || {};
+          const z = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 };
+          zones[pid] = z;
+          ctx.state.zones = zones;
+          
+          // Remove card from hand
+          const hand = Array.isArray(z.hand) ? z.hand : [];
+          const cardIndex = hand.findIndex((c: any) => c?.id === cardId);
+          if (cardIndex !== -1) {
+            hand.splice(cardIndex, 1);
+          }
+          z.handCount = hand.length;
+          
+          // Add to exile with foretell data
+          z.exile = z.exile || [];
+          if (foretoldCardData) {
+            (z.exile as any[]).push(foretoldCardData);
+          }
+          (z as any).exileCount = (z.exile as any[]).length;
+          
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(foretellCard): failed", err);
+        }
+        break;
+      }
+
+      case "phaseOutPermanents": {
+        // Phase out multiple permanents
+        const pid = (e as any).playerId;
+        const permanentIds = (e as any).permanentIds as string[] || [];
+        
+        try {
+          const battlefield = ctx.state.battlefield || [];
+          for (const permId of permanentIds) {
+            const permanent = battlefield.find((p: any) => p?.id === permId);
+            if (permanent && permanent.controller === pid && !permanent.phasedOut) {
+              (permanent as any).phasedOut = true;
+              (permanent as any).phaseOutController = pid;
+            }
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(phaseOutPermanents): failed", err);
+        }
+        break;
+      }
+
+      case "equipPermanent": {
+        // Attach equipment to a creature
+        const pid = (e as any).playerId;
+        const equipmentId = (e as any).equipmentId;
+        const targetCreatureId = (e as any).targetCreatureId;
+        
+        try {
+          const battlefield = ctx.state.battlefield || [];
+          const equipment = battlefield.find((p: any) => p?.id === equipmentId);
+          const targetCreature = battlefield.find((p: any) => p?.id === targetCreatureId);
+          
+          if (equipment && targetCreature) {
+            // Detach from previous creature if attached
+            if (equipment.attachedTo) {
+              const prevCreature = battlefield.find((p: any) => p.id === equipment.attachedTo);
+              if (prevCreature) {
+                (prevCreature as any).attachedEquipment = ((prevCreature as any).attachedEquipment || []).filter((id: string) => id !== equipmentId);
+              }
+            }
+            
+            // Attach to new creature
+            equipment.attachedTo = targetCreatureId;
+            (targetCreature as any).attachedEquipment = (targetCreature as any).attachedEquipment || [];
+            if (!(targetCreature as any).attachedEquipment.includes(equipmentId)) {
+              (targetCreature as any).attachedEquipment.push(equipmentId);
+            }
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(equipPermanent): failed", err);
+        }
+        break;
+      }
+
+      case "concede": {
+        // Mark player as having conceded
+        const pid = (e as any).playerId;
+        
+        try {
+          const players = ctx.state.players || [];
+          const player = players.find((p: any) => p.id === pid);
+          
+          if (player) {
+            (player as any).conceded = true;
+            (player as any).concededAt = Date.now();
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(concede): failed", err);
+        }
+        break;
+      }
+
+      case "additionalCostConfirm": {
+        // Handle additional costs (discard, sacrifice) for spell casting
+        const pid = (e as any).playerId;
+        const costType = (e as any).costType;
+        const selectedCards = (e as any).selectedCards as string[] || [];
+        
+        try {
+          const zones = ctx.state.zones || {};
+          const z = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+          zones[pid] = z;
+          ctx.state.zones = zones;
+          
+          if (costType === 'discard') {
+            // Move cards from hand to graveyard
+            for (const cardId of selectedCards) {
+              const hand = Array.isArray(z.hand) ? z.hand : [];
+              const cardIndex = hand.findIndex((c: any) => c?.id === cardId);
+              if (cardIndex !== -1) {
+                const [card] = hand.splice(cardIndex, 1);
+                z.graveyard = z.graveyard || [];
+                (z.graveyard as any[]).push({ ...card, zone: 'graveyard' });
+              }
+            }
+            z.handCount = Array.isArray(z.hand) ? z.hand.length : 0;
+            z.graveyardCount = Array.isArray(z.graveyard) ? z.graveyard.length : 0;
+          } else if (costType === 'sacrifice') {
+            // Move permanents from battlefield to graveyard
+            const battlefield = ctx.state.battlefield || [];
+            for (const permId of selectedCards) {
+              const permIndex = battlefield.findIndex((p: any) => p?.id === permId);
+              if (permIndex !== -1) {
+                const [perm] = battlefield.splice(permIndex, 1);
+                z.graveyard = z.graveyard || [];
+                if (perm && (perm as any).card) {
+                  (z.graveyard as any[]).push({ ...(perm as any).card, zone: 'graveyard' });
+                }
+              }
+            }
+            z.graveyardCount = Array.isArray(z.graveyard) ? z.graveyard.length : 0;
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(additionalCostConfirm): failed", err);
+        }
+        break;
+      }
+
+      case "confirmGraveyardTargets": {
+        // Move cards from graveyard to another zone
+        const pid = (e as any).playerId;
+        const selectedCardIds = (e as any).selectedCardIds as string[] || [];
+        const destination = (e as any).destination;
+        
+        try {
+          const zones = ctx.state.zones || {};
+          const z = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+          zones[pid] = z;
+          ctx.state.zones = zones;
+          
+          z.graveyard = z.graveyard || [];
+          const graveyard = z.graveyard as any[];
+          
+          for (const cardId of selectedCardIds) {
+            const cardIndex = graveyard.findIndex((c: any) => c?.id === cardId);
+            if (cardIndex === -1) continue;
+            
+            const [card] = graveyard.splice(cardIndex, 1);
+            
+            switch (destination) {
+              case 'hand':
+                z.hand = z.hand || [];
+                (z.hand as any[]).push({ ...card, zone: 'hand' });
+                z.handCount = (z.hand as any[]).length;
+                break;
+              case 'battlefield':
+                ctx.state.battlefield = ctx.state.battlefield || [];
+                const typeLine = (card.type_line || '').toLowerCase();
+                const isCreature = typeLine.includes('creature');
+                ctx.state.battlefield.push({
+                  id: generateDeterministicId(ctx, 'perm', cardId),
+                  controller: pid,
+                  owner: pid,
+                  tapped: false,
+                  counters: {},
+                  basePower: isCreature ? parseInt(card.power || '0', 10) : undefined,
+                  baseToughness: isCreature ? parseInt(card.toughness || '0', 10) : undefined,
+                  summoningSickness: isCreature,
+                  card: { ...card, zone: 'battlefield' },
+                } as any);
+                break;
+              case 'library_top':
+                const lib = ctx.libraries.get(pid) || [];
+                lib.unshift({ ...card, zone: 'library' });
+                ctx.libraries.set(pid, lib);
+                z.libraryCount = lib.length;
+                break;
+              case 'library_bottom':
+                const libBottom = ctx.libraries.get(pid) || [];
+                libBottom.push({ ...card, zone: 'library' });
+                ctx.libraries.set(pid, libBottom);
+                z.libraryCount = libBottom.length;
+                break;
+            }
+          }
+          
+          z.graveyardCount = graveyard.length;
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(confirmGraveyardTargets): failed", err);
         }
         break;
       }

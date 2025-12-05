@@ -479,6 +479,33 @@ export interface ClientToServerEvents {
     colorIdentity?: string;
     cacheCards?: boolean;
   }) => void;
+  
+  // ===== REPLAY VIEWER EVENTS =====
+  
+  // Start watching a replay
+  startReplay: (payload: { gameId: GameID }) => void;
+  
+  // Playback controls
+  replayPlay: () => void;
+  replayPause: () => void;
+  replayStepForward: () => void;
+  replayStepBackward: () => void;
+  replayJumpTo: (payload: { eventIndex: number }) => void;
+  
+  // Set playback speed (ms per event)
+  replaySetSpeed: (payload: { speed: number }) => void;
+  
+  // Set focused player for the replay view
+  replaySetFocusPlayer: (payload: { playerId: PlayerID | null }) => void;
+  
+  // Get list of players in replay (for focus selection UI)
+  replayGetPlayers: () => void;
+  
+  // Get event list for scrubber/timeline UI
+  replayGetEvents: () => void;
+  
+  // Stop/close the replay session
+  replayStop: () => void;
 }
 
 // Events sent from server -> client
@@ -900,6 +927,81 @@ export interface ServerToClientEvents {
     cardName: string;
     availableColors: string[];
     grantedBy?: string; // ID of the permanent granting the ability (e.g., Cryptolith Rite)
+  }) => void;
+
+  // ===== REPLAY VIEWER EVENTS (SERVER -> CLIENT) =====
+  
+  // Replay session started
+  replayStarted: (payload: {
+    gameId: GameID;
+    totalEvents: number;
+    playbackSpeed: number;
+    state: any; // Initial game state view for replay
+  }) => void;
+  
+  // Replay state update (sent during playback or after step/jump)
+  replayStateUpdate: (payload: {
+    // Metadata
+    gameId: GameID;
+    isReplay: boolean;
+    eventIndex: number;
+    totalEvents: number;
+    currentEvent: any | null;
+    isPlaying: boolean;
+    playbackSpeed: number;
+    focusedPlayerId: PlayerID | null;
+    
+    // Game state (full visibility in replay mode)
+    phase?: string;
+    step?: string;
+    turn?: number;
+    turnPlayer?: PlayerID;
+    priority?: PlayerID;
+    stack?: any[];
+    battlefield?: any[];
+    players?: any[];
+    life?: Record<PlayerID, number>;
+    zones?: Record<PlayerID, any>;
+    commandZone?: any;
+  }) => void;
+  
+  // Playback state changed
+  replayPlaying: (payload: { isPlaying: boolean }) => void;
+  replayPaused: (payload: { isPlaying: boolean }) => void;
+  
+  // Playback speed changed
+  replaySpeedChanged: (payload: { speed: number }) => void;
+  
+  // Replay completed (reached end of events)
+  replayComplete: (payload: {
+    gameId: GameID;
+    totalEvents: number;
+  }) => void;
+  
+  // Replay session stopped
+  replayStopped: (payload: Record<string, never>) => void;
+  
+  // Player list for focus selection
+  replayPlayers: (payload: {
+    gameId: GameID;
+    players: Array<{
+      id: PlayerID;
+      name: string;
+      isAI: boolean;
+    }>;
+    focusedPlayerId: PlayerID | null;
+  }) => void;
+  
+  // Event list for timeline/scrubber UI
+  replayEventList: (payload: {
+    gameId: GameID;
+    events: Array<{
+      index: number;
+      type: string;
+      playerId?: PlayerID;
+      summary: string;
+    }>;
+    currentEventIndex: number;
   }) => void;
 
   // generic pushes from server
