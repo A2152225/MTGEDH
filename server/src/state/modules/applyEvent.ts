@@ -527,6 +527,26 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "commanderZoneChoice": {
+        // Handle commander zone choice (e.g., command zone vs graveyard/exile after death)
+        const pid = (e as any).playerId;
+        const commanderId = (e as any).commanderId;
+        const moveToCommandZone = (e as any).moveToCommandZone;
+        
+        try {
+          if (moveToCommandZone) {
+            // Move commander to command zone
+            moveCommanderToCZ(ctx as any, pid, commanderId);
+          }
+          // If not moving to command zone, the commander stays where it was going
+          // (graveyard, exile, etc.) - no additional action needed
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(commanderZoneChoice): failed", err);
+        }
+        break;
+      }
+
       case "updateCounters": {
         updateCounters(
           ctx as any,
