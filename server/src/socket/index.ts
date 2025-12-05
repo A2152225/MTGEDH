@@ -19,6 +19,7 @@ import { registerJoinForcesHandlers } from "./join-forces.js";
 import { registerAutomationHandlers } from "./automation.js";
 import { registerGameManagementHandlers } from "./game-management.js";
 import { registerRandomnessHandlers } from "./randomness.js";
+import { registerReplayHandlers } from "./replay.js";
 import { GameManager } from "../GameManager.js";
 
 /**
@@ -54,6 +55,7 @@ export function registerSocketHandlers(
     registerAutomationHandlers(io, socket);
     registerGameManagementHandlers(io, socket);
     registerRandomnessHandlers(io, socket);
+    registerReplayHandlers(io, socket);
 
     // Log disconnection reason
     socket.on("disconnect", (reason) => {

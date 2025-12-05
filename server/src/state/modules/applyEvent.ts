@@ -1500,6 +1500,114 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "foretellCard": {
+        // Foretell: exile a card from hand face-down
+        const pid = (e as any).playerId;
+        const cardId = (e as any).cardId;
+        const foretoldCardData = (e as any).card;
+        
+        try {
+          const zones = ctx.state.zones || {};
+          const z = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 };
+          zones[pid] = z;
+          ctx.state.zones = zones;
+          
+          // Remove card from hand
+          const hand = Array.isArray(z.hand) ? z.hand : [];
+          const cardIndex = hand.findIndex((c: any) => c?.id === cardId);
+          if (cardIndex !== -1) {
+            hand.splice(cardIndex, 1);
+          }
+          z.handCount = hand.length;
+          
+          // Add to exile with foretell data
+          z.exile = z.exile || [];
+          if (foretoldCardData) {
+            (z.exile as any[]).push(foretoldCardData);
+          }
+          (z as any).exileCount = (z.exile as any[]).length;
+          
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(foretellCard): failed", err);
+        }
+        break;
+      }
+
+      case "phaseOutPermanents": {
+        // Phase out multiple permanents
+        const pid = (e as any).playerId;
+        const permanentIds = (e as any).permanentIds as string[] || [];
+        
+        try {
+          const battlefield = ctx.state.battlefield || [];
+          for (const permId of permanentIds) {
+            const permanent = battlefield.find((p: any) => p?.id === permId);
+            if (permanent && permanent.controller === pid && !permanent.phasedOut) {
+              (permanent as any).phasedOut = true;
+              (permanent as any).phaseOutController = pid;
+            }
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(phaseOutPermanents): failed", err);
+        }
+        break;
+      }
+
+      case "equipPermanent": {
+        // Attach equipment to a creature
+        const pid = (e as any).playerId;
+        const equipmentId = (e as any).equipmentId;
+        const targetCreatureId = (e as any).targetCreatureId;
+        
+        try {
+          const battlefield = ctx.state.battlefield || [];
+          const equipment = battlefield.find((p: any) => p?.id === equipmentId);
+          const targetCreature = battlefield.find((p: any) => p?.id === targetCreatureId);
+          
+          if (equipment && targetCreature) {
+            // Detach from previous creature if attached
+            if (equipment.attachedTo) {
+              const prevCreature = battlefield.find((p: any) => p.id === equipment.attachedTo);
+              if (prevCreature) {
+                (prevCreature as any).attachedEquipment = ((prevCreature as any).attachedEquipment || []).filter((id: string) => id !== equipmentId);
+              }
+            }
+            
+            // Attach to new creature
+            equipment.attachedTo = targetCreatureId;
+            (targetCreature as any).attachedEquipment = (targetCreature as any).attachedEquipment || [];
+            if (!(targetCreature as any).attachedEquipment.includes(equipmentId)) {
+              (targetCreature as any).attachedEquipment.push(equipmentId);
+            }
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(equipPermanent): failed", err);
+        }
+        break;
+      }
+
+      case "concede": {
+        // Mark player as having conceded
+        const pid = (e as any).playerId;
+        
+        try {
+          const players = ctx.state.players || [];
+          const player = players.find((p: any) => p.id === pid);
+          
+          if (player) {
+            (player as any).conceded = true;
+            (player as any).concededAt = Date.now();
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(concede): failed", err);
+        }
+        break;
+      }
+
       default: {
         // Log unknown events but don't fail - they may be newer events not yet supported
         // or events that don't affect core game state
