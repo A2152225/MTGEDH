@@ -2472,6 +2472,20 @@ export function registerGameActions(io: Server, socket: Socket) {
           return;
         }
         
+        // Generate effectId for tracking this cast through the workflow
+        const effectId = `cast_${cardId}_${Date.now()}`;
+        
+        // Store pending cast info for after targets are selected (like requestCastSpell does)
+        // This ensures targetSelectionConfirm can find the pending spell and request payment
+        (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
+        (game.state as any).pendingSpellCasts[effectId] = {
+          cardId,
+          cardName: cardInHand.name,
+          manaCost: cardInHand.mana_cost || "",
+          playerId,
+          validTargetIds: validTargets.map((t: any) => t.id),
+        };
+        
         // Emit target selection request for Aura
         socket.emit("targetSelectionRequest", {
           gameId,
@@ -2483,7 +2497,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           targets: validTargets,
           minTargets: 1,
           maxTargets: 1,
-          effectId: `cast_${cardId}_${Date.now()}`,
+          effectId,
         });
         
         console.log(`[castSpellFromHand] Requesting Aura target (enchant ${auraTargetType}) for ${cardInHand.name}`);
@@ -2621,6 +2635,19 @@ export function registerGameActions(io: Server, socket: Socket) {
           
           // Emit target selection request
           const targetDescription = targetReqs?.targetDescription || spellSpec?.targetDescription || 'target';
+          const effectId = `cast_${cardId}_${Date.now()}`;
+          
+          // Store pending cast info for after targets are selected (like requestCastSpell does)
+          // This ensures targetSelectionConfirm can find the pending spell and request payment
+          (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
+          (game.state as any).pendingSpellCasts[effectId] = {
+            cardId,
+            cardName: cardInHand.name,
+            manaCost: cardInHand.mana_cost || "",
+            playerId,
+            validTargetIds: validTargetList.map((t: any) => t.id),
+          };
+          
           socket.emit("targetSelectionRequest", {
             gameId,
             cardId,
@@ -2631,7 +2658,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             targets: validTargetList,
             minTargets: requiredMinTargets,
             maxTargets: requiredMaxTargets,
-            effectId: `cast_${cardId}_${Date.now()}`,
+            effectId,
           });
           
           console.log(`[castSpellFromHand] Requesting ${requiredMinTargets}-${requiredMaxTargets} target(s) for ${cardInHand.name} (${targetDescription})`);
