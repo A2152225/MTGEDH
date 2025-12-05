@@ -415,6 +415,14 @@ export function getCommonToken(tokenType: string): {
       colors: ['R'],
       abilities: ['Flying']
     },
+    'elemental': {
+      name: 'Elemental',
+      type_line: 'Token Creature — Elemental',
+      power: 1,
+      toughness: 1,
+      colors: ['R'],
+      abilities: ['Haste']
+    },
     'devil': {
       name: 'Devil',
       type_line: 'Token Creature — Devil',
