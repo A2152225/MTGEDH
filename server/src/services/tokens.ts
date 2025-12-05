@@ -499,6 +499,14 @@ export function getCommonToken(tokenType: string): {
       colors: [],
       abilities: ['Sacrifice: Add {C}.']
     },
+    'rabbit': {
+      name: 'Rabbit',
+      type_line: 'Token Creature — Rabbit',
+      power: 1,
+      toughness: 1,
+      colors: ['W'],
+      abilities: []
+    },
   };
   
   const preset = commonTokens[tokenLower];
@@ -510,6 +518,111 @@ export function getCommonToken(tokenType: string): {
   return {
     ...preset,
     imageUrl: tokenData?.image_uris?.normal || tokenData?.image_uris?.small,
+  };
+}
+
+/**
+ * Get token image URLs for a given token name or type
+ * Useful for enriching token data with proper Scryfall images
+ * 
+ * @param tokenName - Name like "Rabbit", "Soldier", "Treasure"
+ * @param power - Optional power to help match specific tokens
+ * @param toughness - Optional toughness to help match specific tokens
+ * @param colors - Optional colors to help match specific tokens
+ * @returns Image URLs object or undefined
+ */
+export function getTokenImageUrls(
+  tokenName: string, 
+  power?: number | string, 
+  toughness?: number | string,
+  colors?: string[]
+): { small?: string; normal?: string; large?: string; art_crop?: string } | undefined {
+  loadTokens();
+  
+  const nameLower = tokenName.toLowerCase();
+  const tokens = tokensByName.get(nameLower) || [];
+  
+  if (tokens.length === 0) {
+    // Try searching by type
+    const byType = tokensByType.get(nameLower) || [];
+    if (byType.length > 0) {
+      // Return first match with images
+      const withImage = byType.find(t => t.image_uris?.normal || t.image_uris?.small);
+      return withImage?.image_uris;
+    }
+    return undefined;
+  }
+  
+  // If we have multiple matches, try to find the best one based on P/T and colors
+  if (tokens.length === 1) {
+    return tokens[0].image_uris;
+  }
+  
+  // Score each token for best match
+  let bestMatch = tokens[0];
+  let bestScore = 0;
+  
+  for (const token of tokens) {
+    let score = 0;
+    
+    // Match power/toughness
+    if (power !== undefined && token.power === String(power)) score += 2;
+    if (toughness !== undefined && token.toughness === String(toughness)) score += 2;
+    
+    // Match colors
+    if (colors && colors.length > 0) {
+      const tokenColors = token.colors || [];
+      const colorMatch = colors.every(c => tokenColors.includes(c));
+      if (colorMatch && tokenColors.length === colors.length) score += 3;
+    }
+    
+    // Prefer tokens with images
+    if (token.image_uris?.normal || token.image_uris?.small) score += 1;
+    
+    if (score > bestScore) {
+      bestScore = score;
+      bestMatch = token;
+    }
+  }
+  
+  return bestMatch?.image_uris;
+}
+
+/**
+ * Create a complete token card object with proper images
+ * This is the recommended way to create tokens in game logic
+ * 
+ * @param options - Token creation options
+ * @returns Complete token card object ready for battlefield
+ */
+export function createTokenCard(options: {
+  id: string;
+  name: string;
+  type_line: string;
+  power: number | string;
+  toughness: number | string;
+  colors?: string[];
+  oracle_text?: string;
+  keywords?: string[];
+}): any {
+  const imageUrls = getTokenImageUrls(
+    options.name, 
+    options.power, 
+    options.toughness, 
+    options.colors
+  );
+  
+  return {
+    id: options.id,
+    name: options.name,
+    type_line: options.type_line,
+    power: String(options.power),
+    toughness: String(options.toughness),
+    colors: options.colors || [],
+    oracle_text: options.oracle_text || '',
+    keywords: options.keywords || [],
+    zone: 'battlefield',
+    image_uris: imageUrls || undefined,
   };
 }
 

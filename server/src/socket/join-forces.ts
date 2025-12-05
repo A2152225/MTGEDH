@@ -13,6 +13,7 @@ import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, getPlayerName } from "./util";
 import { appendEvent } from "../db";
 import { isAIPlayer } from "./ai.js";
+import { triggerETBEffectsForToken } from "../state/modules/stack.js";
 
 /**
  * Pending Join Forces effect waiting for player contributions

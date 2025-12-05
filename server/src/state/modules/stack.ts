@@ -617,7 +617,7 @@ function isPermanentTypeLine(typeLine?: string): boolean {
  * @param token - The token permanent that just entered
  * @param controller - Controller of the token
  */
-function triggerETBEffectsForToken(
+export function triggerETBEffectsForToken(
   ctx: GameContext,
   token: any,
   controller: PlayerID
