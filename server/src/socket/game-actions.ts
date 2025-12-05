@@ -1475,6 +1475,236 @@ export function registerGameActions(io: Server, socket: Socket) {
     }
   });
 
+  // =====================================================================
+  // REQUEST CAST SPELL - First step of MTG-compliant spell casting
+  // MTG Rule 601.2: Choose targets (601.2c) before paying costs (601.2h)
+  // This handler checks if targets are needed and requests them first,
+  // then triggers payment after targets are selected.
+  // =====================================================================
+  socket.on("requestCastSpell", ({ gameId, cardId, faceIndex }: { gameId: string; cardId: string; faceIndex?: number }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      // Basic validation (same as castSpellFromHand)
+      const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
+      if (phaseStr === "" || phaseStr === "PRE_GAME") {
+        socket.emit("error", {
+          code: "PREGAME_NO_CAST",
+          message: "Cannot cast spells during pre-game.",
+        });
+        return;
+      }
+
+      if (game.state.priority !== playerId) {
+        socket.emit("error", {
+          code: "NO_PRIORITY",
+          message: "You don't have priority",
+        });
+        return;
+      }
+
+      const zones = game.state.zones?.[playerId];
+      if (!zones || !Array.isArray(zones.hand)) {
+        socket.emit("error", { code: "NO_HAND", message: "Hand not found" });
+        return;
+      }
+
+      const cardInHand = (zones.hand as any[]).find((c: any) => c && c.id === cardId);
+      if (!cardInHand) {
+        socket.emit("error", { code: "CARD_NOT_IN_HAND", message: "Card not found in hand" });
+        return;
+      }
+
+      const typeLine = (cardInHand.type_line || "").toLowerCase();
+      if (typeLine.includes("land")) {
+        socket.emit("error", { code: "CANNOT_CAST_LAND", message: "Lands cannot be cast as spells." });
+        return;
+      }
+
+      // Get oracle text (possibly from card face if split/adventure)
+      let oracleText = (cardInHand.oracle_text || "").toLowerCase();
+      let manaCost = cardInHand.mana_cost || "";
+      let cardName = cardInHand.name || "Card";
+      
+      // Handle split/modal cards
+      const cardFaces = cardInHand.card_faces;
+      if (faceIndex !== undefined && Array.isArray(cardFaces) && cardFaces[faceIndex]) {
+        const face = cardFaces[faceIndex];
+        oracleText = (face.oracle_text || "").toLowerCase();
+        manaCost = face.mana_cost || manaCost;
+        cardName = face.name || cardName;
+      }
+
+      // Check if this spell requires targets
+      const isInstantOrSorcery = typeLine.includes("instant") || typeLine.includes("sorcery");
+      const isAura = typeLine.includes("enchantment") && oracleText.includes("enchant");
+      const spellSpec = (isInstantOrSorcery && !isAura) ? categorizeSpell(cardName, oracleText) : null;
+      const targetReqs = (isInstantOrSorcery && !isAura) ? parseTargetRequirements(oracleText) : null;
+      
+      const needsTargets = (spellSpec && spellSpec.minTargets > 0) || 
+                          (targetReqs && targetReqs.needsTargets) ||
+                          isAura;
+
+      // Generate effectId for tracking this cast through the workflow
+      const effectId = `cast_${cardId}_${Date.now()}`;
+
+      if (needsTargets) {
+        // Build valid target list
+        let validTargetList: { id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string }[] = [];
+        
+        if (isAura) {
+          // Extract aura target type from oracle text
+          const auraMatch = oracleText.match(/enchant\s+(creature|permanent|player|artifact|land|opponent)/i);
+          const auraTargetType = auraMatch ? auraMatch[1].toLowerCase() : 'creature';
+          
+          // Build targets based on aura type
+          if (auraTargetType === 'player' || auraTargetType === 'opponent') {
+            validTargetList = (game.state.players || [])
+              .filter((p: any) => auraTargetType !== 'opponent' || p.id !== playerId)
+              .map((p: any) => ({
+                id: p.id,
+                kind: 'player',
+                name: p.name || p.id,
+                isOpponent: p.id !== playerId,
+              }));
+          } else {
+            validTargetList = (game.state.battlefield || [])
+              .filter((p: any) => {
+                const tl = (p.card?.type_line || '').toLowerCase();
+                if (auraTargetType === 'permanent') return true;
+                return tl.includes(auraTargetType);
+              })
+              .map((p: any) => ({
+                id: p.id,
+                kind: 'permanent',
+                name: p.card?.name || 'Unknown',
+                controller: p.controller,
+                isOpponent: p.controller !== playerId,
+                imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+              }));
+          }
+        } else if (spellSpec) {
+          const validRefs = evaluateTargeting(game.state as any, playerId, spellSpec);
+          validTargetList = validRefs.map((t: any) => {
+            if (t.kind === 'permanent') {
+              const perm = (game.state.battlefield || []).find((p: any) => p.id === t.id);
+              return {
+                id: t.id,
+                kind: t.kind,
+                name: perm?.card?.name || 'Unknown',
+                imageUrl: perm?.card?.image_uris?.small || perm?.card?.image_uris?.normal,
+                controller: perm?.controller,
+                isOpponent: perm?.controller !== playerId,
+              };
+            } else {
+              const player = (game.state.players || []).find((p: any) => p.id === t.id);
+              return {
+                id: t.id,
+                kind: t.kind,
+                name: player?.name || t.id,
+                isOpponent: t.id !== playerId,
+              };
+            }
+          });
+        }
+
+        if (validTargetList.length === 0) {
+          socket.emit("error", {
+            code: "NO_VALID_TARGETS",
+            message: `No valid targets for ${cardName}`,
+          });
+          return;
+        }
+
+        // Store pending cast info for after targets are selected
+        (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
+        (game.state as any).pendingSpellCasts[effectId] = {
+          cardId,
+          cardName,
+          manaCost,
+          playerId,
+          faceIndex,
+        };
+
+        // Request targets FIRST (per MTG Rule 601.2c)
+        const targetDescription = spellSpec?.targetDescription || targetReqs?.targetDescription || 'target';
+        const requiredMinTargets = spellSpec?.minTargets || targetReqs?.minTargets || 1;
+        const requiredMaxTargets = spellSpec?.maxTargets || targetReqs?.maxTargets || 1;
+        
+        socket.emit("targetSelectionRequest", {
+          gameId,
+          cardId,
+          cardName,
+          source: cardName,
+          title: `Choose ${targetDescription} for ${cardName}`,
+          description: oracleText,
+          targets: validTargetList,
+          minTargets: requiredMinTargets,
+          maxTargets: requiredMaxTargets,
+          effectId,
+        });
+        
+        console.log(`[requestCastSpell] Requesting targets for ${cardName} (effectId: ${effectId})`);
+      } else {
+        // No targets needed - go directly to payment
+        socket.emit("paymentRequired", {
+          gameId,
+          cardId,
+          cardName,
+          manaCost,
+          effectId,
+          imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+        });
+        
+        console.log(`[requestCastSpell] No targets needed, requesting payment for ${cardName}`);
+      }
+    } catch (err: any) {
+      console.error(`[requestCastSpell] Error:`, err);
+      socket.emit("error", {
+        code: "REQUEST_CAST_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
+
+  // =====================================================================
+  // COMPLETE CAST SPELL - Final step after targets selected and payment made
+  // Called after both target selection and payment are complete
+  // =====================================================================
+  socket.on("completeCastSpell", ({ gameId, cardId, targets, payment, effectId }: { 
+    gameId: string; 
+    cardId: string; 
+    targets?: string[]; 
+    payment?: PaymentItem[];
+    effectId?: string;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      // Clean up pending cast data
+      if (effectId && (game.state as any).pendingSpellCasts?.[effectId]) {
+        delete (game.state as any).pendingSpellCasts[effectId];
+      }
+
+      console.log(`[completeCastSpell] Completing cast for ${cardId} with targets: ${targets?.join(',') || 'none'}`);
+
+      // Re-use the castSpellFromHand logic by emitting internally
+      // This avoids duplicating all the validation/payment/casting logic
+      socket.emit("castSpellFromHand", { gameId, cardId, targets, payment });
+      
+    } catch (err: any) {
+      console.error(`[completeCastSpell] Error:`, err);
+      socket.emit("error", {
+        code: "COMPLETE_CAST_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
+
   // Cast spell from hand
   socket.on("castSpellFromHand", ({ gameId, cardId, targets, payment }: { gameId: string; cardId: string; targets?: any[]; payment?: PaymentItem[] }) => {
     try {

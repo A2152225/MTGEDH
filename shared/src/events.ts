@@ -220,6 +220,19 @@ export interface ClientToServerEvents {
 
   // ===== GAMEPLAY ACTION EVENTS =====
   
+  // Request to cast a spell - triggers target selection if needed, then payment
+  // MTG Rule 601.2: Choose targets (601.2c) before paying costs (601.2h)
+  requestCastSpell: (payload: { gameId: GameID; cardId: string; faceIndex?: number }) => void;
+  
+  // Complete spell cast with targets and payment (after target selection and payment)
+  completeCastSpell: (payload: { 
+    gameId: GameID; 
+    cardId: string; 
+    targets?: string[]; 
+    payment?: Array<{ permanentId?: string; lifePayment?: number }>; 
+    faceIndex?: number 
+  }) => void;
+  
   // Play a land from hand
   playLand: (payload: { gameId: GameID; cardId: string }) => void;
   
@@ -612,6 +625,18 @@ export interface ServerToClientEvents {
     description: string;
     mandatory: boolean;
     value?: number;
+  }) => void;
+  
+  // Payment required - sent after targets are selected (or if no targets needed)
+  // MTG Rule 601.2h: Pay costs after all other choices are made
+  paymentRequired: (payload: {
+    gameId: GameID;
+    cardId: string;
+    cardName: string;
+    manaCost: string;
+    effectId: string;
+    targets?: string[];  // Targets already selected
+    imageUrl?: string;
   }) => void;
   
   // ===== JOIN FORCES / TEMPTING OFFER EVENTS =====

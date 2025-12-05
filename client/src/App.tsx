@@ -166,6 +166,8 @@ export function App() {
     manaCost?: string; 
     tax?: number;
     isCommander?: boolean;
+    targets?: string[];  // Targets selected via requestCastSpell flow
+    effectId?: string;   // Effect ID for MTG-compliant flow
   } | null>(null);
 
   // Accordion state for Join / Active Games
@@ -1058,6 +1060,35 @@ export function App() {
     socket.on("targetSelectionRequest", handler);
     return () => {
       socket.off("targetSelectionRequest", handler);
+    };
+  }, [safeView?.id]);
+
+  // Payment required listener (for MTG-compliant spell casting: targets first, then payment)
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      cardId: string;
+      cardName: string;
+      manaCost: string;
+      effectId: string;
+      targets?: string[];
+      imageUrl?: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        // Store the pending targets and effectId so we can include them when casting
+        setSpellToCast({
+          cardId: payload.cardId,
+          cardName: payload.cardName,
+          manaCost: payload.manaCost,
+          targets: payload.targets,
+          effectId: payload.effectId,
+        });
+        setCastSpellModalOpen(true);
+      }
+    };
+    socket.on("paymentRequired", handler);
+    return () => {
+      socket.off("paymentRequired", handler);
     };
   }, [safeView?.id]);
 
@@ -2313,8 +2344,18 @@ export function App() {
         commanderNameOrId: spellToCast.cardId,
         payment: payment.length > 0 ? payment : undefined,
       });
+    } else if (spellToCast.effectId) {
+      // MTG-compliant flow: targets were already selected, now completing with payment
+      // Use completeCastSpell to finalize
+      socket.emit("completeCastSpell", {
+        gameId: safeView.id,
+        cardId: spellToCast.cardId,
+        targets: spellToCast.targets,
+        payment: payment.length > 0 ? payment : undefined,
+        effectId: spellToCast.effectId,
+      });
     } else {
-      // Cast spell from hand
+      // Legacy flow: direct cast from hand (will check targets on server)
       socket.emit("castSpellFromHand", {
         gameId: safeView.id,
         cardId: spellToCast.cardId,
@@ -3294,13 +3335,12 @@ export function App() {
                   });
                   setSplitCardModalOpen(true);
                 } else {
-                  // Regular card - go directly to payment modal
-                  setSpellToCast({
+                  // Regular card - use MTG-compliant flow: request targets first, then payment
+                  // Server will check if targets are needed and respond appropriately
+                  socket.emit("requestCastSpell", {
+                    gameId: safeView.id,
                     cardId,
-                    cardName: (card as any).name || 'Card',
-                    manaCost: (card as any).mana_cost,
                   });
-                  setCastSpellModalOpen(true);
                 }
               }}
               onCastCommander={handleCastCommander}
