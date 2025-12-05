@@ -1629,6 +1629,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
 
         // Store pending cast info for after targets are selected
+        // IMPORTANT: Store valid target IDs for server-side validation (Rule 601.2c compliance)
         (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
         (game.state as any).pendingSpellCasts[effectId] = {
           cardId,
@@ -1636,6 +1637,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           manaCost,
           playerId,
           faceIndex,
+          validTargetIds: validTargetList.map((t: any) => t.id), // Store for validation
         };
 
         // Request targets FIRST (per MTG Rule 601.2c)

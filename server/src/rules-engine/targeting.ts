@@ -714,17 +714,38 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
         
         case 'has_keyword': {
           // Check if the creature has the required keyword ability (flying, reach, etc.)
-          // Check oracle text and any abilities granted by other effects
+          // Check both the keywords array and oracle text
           const oracleText = (p.card as any)?.oracle_text || '';
+          const cardKeywords = (p.card as any)?.keywords || [];
           const keyword = restriction.keyword?.toLowerCase() || '';
           
-          // Check if the card's oracle text contains the keyword
-          // We check at word boundary to avoid matching partial words
-          const keywordPattern = new RegExp(`\\b${keyword}\\b`, 'i');
-          meetsRestriction = keywordPattern.test(oracleText);
+          // First check the keywords array (more reliable for most cards)
+          const hasKeywordInArray = Array.isArray(cardKeywords) && 
+            cardKeywords.some((k: string) => typeof k === 'string' && k.toLowerCase() === keyword);
           
-          // TODO: Also check for keywords granted by auras, equipment, or battlefield effects
-          // For now, we only check the card's base text
+          if (hasKeywordInArray) {
+            meetsRestriction = true;
+          } else {
+            // Fallback: Check if the card's oracle text contains the keyword
+            // We check at word boundary to avoid matching partial words
+            const keywordPattern = new RegExp(`\\b${keyword}\\b`, 'i');
+            meetsRestriction = keywordPattern.test(oracleText);
+          }
+          
+          // Also check for keywords granted by auras and equipment attached to this creature
+          if (!meetsRestriction) {
+            const attachments = state.battlefield.filter((att: any) => att.attachedTo === p.id);
+            for (const attachment of attachments) {
+              const attOracle = ((attachment.card as any)?.oracle_text || '').toLowerCase();
+              // Pattern: "Enchanted creature has flying" or "Equipped creature has flying"
+              const grantsKeywordPattern = new RegExp(`(enchanted|equipped)\\s+creature\\s+has\\s+${keyword}`, 'i');
+              if (grantsKeywordPattern.test(attOracle)) {
+                meetsRestriction = true;
+                break;
+              }
+            }
+          }
+          
           break;
         }
         

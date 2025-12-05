@@ -3611,6 +3611,20 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const pendingCast = (game.state as any).pendingSpellCasts?.[effectId];
       
       if (pendingCast) {
+        // MTG Rule 601.2c - Validate that selected targets are in the valid list
+        // This prevents clients from selecting invalid targets
+        const validTargetIds = pendingCast.validTargetIds || [];
+        const invalidTargets = targetIds.filter((t: string) => !validTargetIds.includes(t));
+        
+        if (invalidTargets.length > 0) {
+          console.warn(`[targetSelectionConfirm] Invalid targets selected: ${invalidTargets.join(', ')} for ${pendingCast.cardName}`);
+          socket.emit("error", {
+            code: "INVALID_TARGETS",
+            message: `Invalid targets selected for ${pendingCast.cardName}. The targets don't meet the spell's requirements.`,
+          });
+          return;
+        }
+        
         // MTG Rule 601.2h: After targets chosen, now request payment
         console.log(`[targetSelectionConfirm] Targets selected for ${pendingCast.cardName}, now requesting payment`);
         
