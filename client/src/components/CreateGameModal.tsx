@@ -236,6 +236,15 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
   const isAtMaxAiCapacity = aiOpponents.length >= MAX_AI_OPPONENTS;
 
   /**
+   * Check if an AI opponent has a valid deck configured
+   */
+  const aiHasDeck = (ai: typeof aiOpponents[0]): boolean => {
+    if (ai.deckMode === 'select' && ai.deckId) return true;
+    if (ai.deckMode === 'import' && ai.deckText.trim()) return true;
+    return false;
+  };
+
+  /**
    * Sanitize game ID to only allow alphanumeric, underscore, and hyphen
    */
   const sanitizeGameId = (input: string): string => {
@@ -321,6 +330,19 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validate AI opponents have decks
+    const aiOpponentsWithoutDecks = aiOpponents.filter(ai => {
+      const hasSelectedDeck = ai.deckMode === 'select' && ai.deckId;
+      const hasImportedDeck = ai.deckMode === 'import' && ai.deckText.trim();
+      return !hasSelectedDeck && !hasImportedDeck;
+    });
+    
+    if (aiOpponentsWithoutDecks.length > 0) {
+      const missingNames = aiOpponentsWithoutDecks.map(ai => ai.name || 'AI Opponent').join(', ');
+      alert(`Cannot create game: The following AI opponent(s) need a deck: ${missingNames}\n\nPlease select or import a deck for each AI opponent.`);
+      return;
+    }
     
     // Sanitize and validate game ID
     const sanitizedGameId = sanitizeGameId(gameId.trim()) || `game_${Date.now().toString(36)}`;
@@ -575,15 +597,17 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
               </div>
             )}
 
-            {aiOpponents.map((ai, index) => (
+            {aiOpponents.map((ai, index) => {
+              const hasDeck = aiHasDeck(ai);
+              return (
               <div
                 key={ai.id}
                 style={{
                   marginBottom: index < aiOpponents.length - 1 ? 12 : 0,
                   padding: 12,
-                  backgroundColor: '#fff',
+                  backgroundColor: hasDeck ? '#fff' : '#fef2f2',
                   borderRadius: 6,
-                  border: '1px solid #e5e7eb',
+                  border: hasDeck ? '1px solid #e5e7eb' : '2px solid #ef4444',
                 }}
               >
                 <div
@@ -602,6 +626,11 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
                     <span style={{ fontSize: 11, color: '#888' }}>
                       ({AI_STRATEGY_INFO[ai.strategy].name})
                     </span>
+                    {!hasDeck && (
+                      <span style={{ fontSize: 11, color: '#ef4444', fontWeight: 500 }}>
+                        ⚠️ No deck
+                      </span>
+                    )}
                   </div>
                   <button
                     type="button"
@@ -806,7 +835,8 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
                   </div>
                 )}
               </div>
-            ))}
+            );
+            })}
             
             {saveMessage && (
               <div style={{ marginTop: 8, fontSize: 12, color: saveMessage.startsWith('✓') ? '#10b981' : '#ef4444' }}>

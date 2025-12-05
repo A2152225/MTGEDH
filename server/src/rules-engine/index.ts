@@ -44,11 +44,32 @@ function isNumber(x: unknown): x is number {
 }
 
 function derivedToughness(perm: BattlefieldPermanent): number | undefined {
-  if (!isNumber(perm.baseToughness)) return undefined;
+  // First check if it's a creature by type line
+  const typeLine = ((perm.card as any)?.type_line || '').toLowerCase();
+  if (!typeLine.includes('creature')) return undefined;
+  
+  // Get base toughness - first try baseToughness property, then parse from card data
+  let baseToughness: number | undefined;
+  if (isNumber(perm.baseToughness)) {
+    baseToughness = perm.baseToughness;
+  } else {
+    // Parse from card toughness (e.g., "2" or "1+*" or "*")
+    const cardToughness = (perm.card as any)?.toughness;
+    if (cardToughness !== undefined && cardToughness !== null) {
+      const parsed = parseInt(String(cardToughness), 10);
+      if (isNumber(parsed)) {
+        baseToughness = parsed;
+      }
+    }
+  }
+  
+  // If we still don't have a valid toughness, return undefined (non-creature or invalid data)
+  if (!isNumber(baseToughness)) return undefined;
+  
   const plus = perm.counters?.['+1/+1'] ?? 0;
   const minus = perm.counters?.['-1/-1'] ?? 0;
   const net = plus - minus;
-  const totalToughness = perm.baseToughness + net;
+  const totalToughness = baseToughness + net;
   // Damage reduces effective toughness for SBA purposes
   // Check 'damage', 'markedDamage', and 'damageMarked' for all damage tracking patterns
   // - 'damage' is used by spell effects (Lightning Bolt, etc.)

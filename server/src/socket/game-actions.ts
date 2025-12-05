@@ -782,6 +782,183 @@ function applySpellCastUntapTrigger(game: any, playerId: string): number {
 }
 
 /**
+ * Heroic trigger type definition
+ */
+interface HeroicTrigger {
+  permanentId: string;
+  cardName: string;
+  controllerId: string;
+  effect: string;
+  description: string;
+}
+
+/**
+ * Get heroic triggers for creatures targeted by a spell
+ * Heroic: "Whenever you cast a spell that targets this creature..."
+ * 
+ * @param game The game instance
+ * @param casterId The player who cast the spell
+ * @param targetIds The IDs of permanents targeted by the spell
+ * @returns Array of heroic triggers to fire
+ */
+function getHeroicTriggers(game: any, casterId: string, targetIds: string[]): HeroicTrigger[] {
+  const triggers: HeroicTrigger[] = [];
+  const battlefield = game.state?.battlefield || [];
+  
+  if (!targetIds || targetIds.length === 0) return triggers;
+  
+  for (const targetId of targetIds) {
+    const permanent = battlefield.find((p: any) => p?.id === targetId);
+    if (!permanent || !permanent.card) continue;
+    
+    // Heroic only triggers on creatures you control
+    if (permanent.controller !== casterId) continue;
+    
+    const typeLine = (permanent.card.type_line || '').toLowerCase();
+    if (!typeLine.includes('creature')) continue;
+    
+    const oracleText = (permanent.card.oracle_text || '');
+    const lowerOracle = oracleText.toLowerCase();
+    
+    // Check for heroic pattern: "Heroic — Whenever you cast a spell that targets ~"
+    // Also check for non-keyworded heroic: "Whenever you cast a spell that targets this creature"
+    const hasHeroicKeyword = lowerOracle.includes('heroic');
+    const hasTargetTrigger = lowerOracle.includes('whenever you cast a spell that targets') && 
+                             (lowerOracle.includes('this creature') || lowerOracle.includes('~'));
+    
+    if (hasHeroicKeyword || hasTargetTrigger) {
+      // Extract the effect text
+      let effectText = '';
+      
+      // Try to match heroic pattern with em-dash
+      const heroicMatch = oracleText.match(/heroic\s*[—-]\s*whenever you cast a spell that targets [^,]+,?\s*([^.]+)/i);
+      if (heroicMatch) {
+        effectText = heroicMatch[1].trim();
+      } else {
+        // Try generic pattern
+        const genericMatch = oracleText.match(/whenever you cast a spell that targets (?:this creature|~),?\s*([^.]+)/i);
+        if (genericMatch) {
+          effectText = genericMatch[1].trim();
+        }
+      }
+      
+      if (effectText) {
+        triggers.push({
+          permanentId: permanent.id,
+          cardName: permanent.card.name || 'Unknown',
+          controllerId: permanent.controller,
+          effect: effectText,
+          description: `Heroic — Whenever you cast a spell that targets ${permanent.card.name}, ${effectText}`,
+        });
+      }
+    }
+  }
+  
+  return triggers;
+}
+
+/**
+ * Apply heroic trigger effects
+ * 
+ * @param game The game instance
+ * @param trigger The heroic trigger to apply
+ * @param io Socket.io server instance
+ * @param gameId The game ID
+ */
+function applyHeroicTrigger(game: any, trigger: HeroicTrigger, io: any, gameId: string): void {
+  const effectLower = trigger.effect.toLowerCase();
+  const battlefield = game.state?.battlefield || [];
+  
+  // Find the permanent that has the heroic ability
+  const permanent = battlefield.find((p: any) => p?.id === trigger.permanentId);
+  if (!permanent) return;
+  
+  // Common heroic effects:
+  
+  // "+1/+1 counter" pattern (Favored Hoplite, Hero of Leina Tower, Phalanx Leader, etc.)
+  if (effectLower.includes('+1/+1 counter') || effectLower.includes('put a +1/+1 counter')) {
+    permanent.counters = permanent.counters || {};
+    permanent.counters['+1/+1'] = (permanent.counters['+1/+1'] || 0) + 1;
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${trigger.cardName}'s Heroic triggers! Put a +1/+1 counter on ${trigger.cardName}.`,
+      ts: Date.now(),
+    });
+    return;
+  }
+  
+  // "draw a card" pattern (Sage of Hours, etc.)
+  if (effectLower.includes('draw a card') || effectLower.includes('draw cards')) {
+    if (typeof game.drawCards === 'function') {
+      game.drawCards(trigger.controllerId, 1);
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${trigger.cardName}'s Heroic triggers! ${getPlayerName(game, trigger.controllerId)} draws a card.`,
+        ts: Date.now(),
+      });
+    }
+    return;
+  }
+  
+  // "scry" pattern (Battlewise Hoplite)
+  if (effectLower.includes('scry')) {
+    const scryMatch = effectLower.match(/scry (\d+)/);
+    const scryAmount = scryMatch ? parseInt(scryMatch[1], 10) : 1;
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${trigger.cardName}'s Heroic triggers! ${getPlayerName(game, trigger.controllerId)} may scry ${scryAmount}.`,
+      ts: Date.now(),
+    });
+    // Note: Full scry implementation requires UI interaction
+    return;
+  }
+  
+  // "gains first strike" or "gains [keyword]" until end of turn
+  if (effectLower.includes('gains ') && effectLower.includes('until end of turn')) {
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${trigger.cardName}'s Heroic triggers! ${trigger.effect}`,
+      ts: Date.now(),
+    });
+    // Note: Temporary keyword grants would need more complex tracking
+    return;
+  }
+  
+  // "+X/+X" or "gets +X/+X" until end of turn
+  const pumpMatch = effectLower.match(/gets? \+(\d+)\/\+(\d+)/);
+  if (pumpMatch) {
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${trigger.cardName}'s Heroic triggers! ${trigger.cardName} gets +${pumpMatch[1]}/+${pumpMatch[2]} until end of turn.`,
+      ts: Date.now(),
+    });
+    // Note: Temporary pump effects would need end-of-turn cleanup
+    return;
+  }
+  
+  // Default: just announce the trigger
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message: `${trigger.cardName}'s Heroic triggers! ${trigger.effect}`,
+    ts: Date.now(),
+  });
+}
+
+/**
  * Apply cost reduction to a parsed mana cost
  */
 function applyCostReduction(
@@ -2900,6 +3077,21 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
       } catch (err) {
         console.warn('[castSpellFromHand] Failed to process spell-cast triggers:', err);
+      }
+      
+      // Check for heroic triggers on targeted creatures
+      // Heroic: "Whenever you cast a spell that targets this creature..."
+      try {
+        if (targets && targets.length > 0) {
+          const targetIds = targets.map((t: any) => typeof t === 'string' ? t : t.id);
+          const heroicTriggers = getHeroicTriggers(game, playerId, targetIds);
+          for (const trigger of heroicTriggers) {
+            console.log(`[castSpellFromHand] Heroic triggered: ${trigger.cardName} - ${trigger.description}`);
+            applyHeroicTrigger(game, trigger, io, gameId);
+          }
+        }
+      } catch (err) {
+        console.warn('[castSpellFromHand] Failed to process heroic triggers:', err);
       }
       
       io.to(gameId).emit("chat", {
