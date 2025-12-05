@@ -331,12 +331,8 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Validate AI opponents have decks
-    const aiOpponentsWithoutDecks = aiOpponents.filter(ai => {
-      const hasSelectedDeck = ai.deckMode === 'select' && ai.deckId;
-      const hasImportedDeck = ai.deckMode === 'import' && ai.deckText.trim();
-      return !hasSelectedDeck && !hasImportedDeck;
-    });
+    // Validate AI opponents have decks (using the aiHasDeck helper)
+    const aiOpponentsWithoutDecks = aiOpponents.filter(ai => !aiHasDeck(ai));
     
     if (aiOpponentsWithoutDecks.length > 0) {
       const missingNames = aiOpponentsWithoutDecks.map(ai => ai.name || 'AI Opponent').join(', ');

@@ -821,22 +821,24 @@ function getHeroicTriggers(game: any, casterId: string, targetIds: string[]): He
     const lowerOracle = oracleText.toLowerCase();
     
     // Check for heroic pattern: "Heroic — Whenever you cast a spell that targets ~"
+    // Must match the specific keyword ability format with em-dash or colon
     // Also check for non-keyworded heroic: "Whenever you cast a spell that targets this creature"
-    const hasHeroicKeyword = lowerOracle.includes('heroic');
+    const heroicKeywordMatch = /heroic\s*[—:\-]/i.test(oracleText);
     const hasTargetTrigger = lowerOracle.includes('whenever you cast a spell that targets') && 
                              (lowerOracle.includes('this creature') || lowerOracle.includes('~'));
     
-    if (hasHeroicKeyword || hasTargetTrigger) {
-      // Extract the effect text
+    if (heroicKeywordMatch || hasTargetTrigger) {
+      // Extract the effect text - handle multi-sentence effects by capturing until end of ability
       let effectText = '';
       
-      // Try to match heroic pattern with em-dash
-      const heroicMatch = oracleText.match(/heroic\s*[—-]\s*whenever you cast a spell that targets [^,]+,?\s*([^.]+)/i);
+      // Try to match heroic pattern with em-dash/colon - capture everything after the trigger condition
+      // Use a more permissive pattern that captures until newline or end of text
+      const heroicMatch = oracleText.match(/heroic\s*[—:\-]\s*whenever you cast a spell that targets [^,\n]+,?\s*(.+?)(?:\n|$)/i);
       if (heroicMatch) {
         effectText = heroicMatch[1].trim();
       } else {
-        // Try generic pattern
-        const genericMatch = oracleText.match(/whenever you cast a spell that targets (?:this creature|~),?\s*([^.]+)/i);
+        // Try generic pattern for non-keyworded heroic
+        const genericMatch = oracleText.match(/whenever you cast a spell that targets (?:this creature|~),?\s*(.+?)(?:\n|$)/i);
         if (genericMatch) {
           effectText = genericMatch[1].trim();
         }
