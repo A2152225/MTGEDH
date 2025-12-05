@@ -49,6 +49,22 @@ import { mulberry32 } from "../../utils/rng";
 /* -------- Helpers ---------- */
 
 /**
+ * Generate a deterministic ID for permanents during replay.
+ * Uses the game's RNG if available, otherwise uses a counter based on the card ID.
+ * This ensures IDs are consistent across replays with the same RNG seed.
+ */
+function generateDeterministicId(ctx: any, prefix: string, cardId: string): string {
+  // Use the game's RNG if available for deterministic ID generation
+  if (typeof ctx.rng === 'function') {
+    const rngValue = Math.floor(ctx.rng() * 0xFFFFFFFF).toString(36);
+    return `${prefix}_${cardId}_${rngValue}`;
+  }
+  // Fallback: use card ID with a counter (incremented on ctx)
+  ctx._idCounter = (ctx._idCounter || 0) + 1;
+  return `${prefix}_${cardId}_${ctx._idCounter}`;
+}
+
+/**
  * reset(ctx, preservePlayers)
  * Conservative fallback reset used when no specialized engine reset is available.
  */
@@ -1687,7 +1703,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 const typeLine = (card.type_line || '').toLowerCase();
                 const isCreature = typeLine.includes('creature');
                 ctx.state.battlefield.push({
-                  id: `perm_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
+                  id: generateDeterministicId(ctx, 'perm', cardId),
                   controller: pid,
                   owner: pid,
                   tapped: false,
