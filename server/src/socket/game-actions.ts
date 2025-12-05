@@ -10,7 +10,7 @@ import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTrigge
 import { getUpkeepTriggersForPlayer } from "../state/modules/upkeep-triggers";
 import { categorizeSpell, evaluateTargeting, requiresTargeting, parseTargetRequirements } from "../rules-engine/targeting";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts } from "../state/modules/game-state-effects";
-import { PAY_X_LIFE_CARDS, getMaxPayableLife, validateLifePayment } from "../state/utils";
+import { PAY_X_LIFE_CARDS, getMaxPayableLife, validateLifePayment, uid } from "../state/utils";
 
 // Import land-related helpers from modularized module
 import {
@@ -3957,7 +3957,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 
                 for (const trigger of playerTriggers) {
                   if (!trigger.mandatory) continue;
-                  const triggerId = `${idPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                  const triggerId = uid(`${idPrefix}_trigger`);
                   (game.state as any).triggerQueue.push({
                     id: triggerId,
                     sourceId: trigger.permanentId,
@@ -3981,7 +3981,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 // Single trigger - push directly to stack
                 const trigger = playerTriggers[0];
                 if (!trigger.mandatory) continue;
-                const triggerId = `${idPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                const triggerId = uid(`${idPrefix}_trigger`);
                 (game.state as any).stack.push({
                   id: triggerId,
                   type: 'triggered_ability',

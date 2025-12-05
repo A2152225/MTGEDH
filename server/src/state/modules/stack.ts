@@ -710,6 +710,32 @@ export function triggerETBEffectsForToken(
         
         console.log(`[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s triggered ability for token: ${trigger.description}`);
       }
+      
+      // opponent_creature_etb triggers (Suture Priest, Authority of the Consuls)
+      // These trigger when a creature enters under an OPPONENT's control
+      if (trigger.triggerType === 'opponent_creature_etb' && isCreature) {
+        const triggerController = perm.controller;
+        // Only fire if the entering creature is controlled by an opponent of the trigger controller
+        if (triggerController && triggerController !== controller) {
+          state.stack = state.stack || [];
+          const triggerId = uid("trigger");
+          
+          state.stack.push({
+            id: triggerId,
+            type: 'triggered_ability',
+            controller: triggerController,
+            source: perm.id,
+            sourceName: trigger.cardName,
+            description: trigger.description,
+            triggerType: trigger.triggerType,
+            mandatory: trigger.mandatory,
+            // Store the entering creature's controller for effects like "that player loses 1 life"
+            targetPlayer: controller,
+          } as any);
+          
+          console.log(`[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s opponent creature ETB trigger: ${trigger.description}`);
+        }
+      }
     }
   }
 }
@@ -805,6 +831,32 @@ function triggerETBEffectsForPermanent(
         } as any);
         
         console.log(`[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
+      }
+      
+      // opponent_creature_etb triggers (Suture Priest, Authority of the Consuls)
+      // These trigger when a creature enters under an OPPONENT's control
+      if (trigger.triggerType === 'opponent_creature_etb' && isCreature) {
+        const triggerController = perm.controller;
+        // Only fire if the entering creature is controlled by an opponent of the trigger controller
+        if (triggerController && triggerController !== controller) {
+          state.stack = state.stack || [];
+          const triggerId = uid("trigger");
+          
+          state.stack.push({
+            id: triggerId,
+            type: 'triggered_ability',
+            controller: triggerController,
+            source: perm.id,
+            sourceName: trigger.cardName,
+            description: trigger.description,
+            triggerType: trigger.triggerType,
+            mandatory: trigger.mandatory,
+            // Store the entering creature's controller for effects like "that player loses 1 life"
+            targetPlayer: controller,
+          } as any);
+          
+          console.log(`[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s opponent creature ETB trigger: ${trigger.description}`);
+        }
       }
     }
   }
@@ -2260,6 +2312,13 @@ export function resolveTopOfStack(ctx: GameContext) {
               }
             }
             etbTriggers.push({ ...trigger, permanentId: perm.id });
+          } else if (trigger.triggerType === 'opponent_creature_etb' && isCreature) {
+            // Suture Priest, Authority of the Consuls style - triggers when OPPONENT's creature enters
+            const triggerController = perm.controller;
+            // Only fire if the entering creature is controlled by an opponent of the trigger controller
+            if (triggerController && triggerController !== controller) {
+              etbTriggers.push({ ...trigger, permanentId: perm.id, targetPlayer: controller });
+            }
           }
         }
       }
