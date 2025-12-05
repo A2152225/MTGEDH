@@ -2497,7 +2497,8 @@ export function resolveTopOfStack(ctx: GameContext) {
         // Create token copy for each player other than target's controller
         for (const recipient of copyRecipients) {
           try {
-            const tokenId = `token_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+            // Use uid() for robust ID generation instead of Date.now() + Math.random()
+            const tokenId = uid('fi_token');
             const typeLine = targetCard.type_line || '';
             const isCreature = typeLine.toLowerCase().includes('creature');
             

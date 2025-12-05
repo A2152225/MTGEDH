@@ -3614,7 +3614,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         // MTG Rule 601.2c - Validate that selected targets are in the valid list
         // This prevents clients from selecting invalid targets
         const validTargetIds = pendingCast.validTargetIds || [];
-        const invalidTargets = targetIds.filter((t: string) => !validTargetIds.includes(t));
+        // Use Set for O(1) lookup instead of O(n) with Array.includes
+        const validTargetSet = new Set(validTargetIds);
+        const invalidTargets = targetIds.filter((t: string) => !validTargetSet.has(t));
         
         if (invalidTargets.length > 0) {
           console.warn(`[targetSelectionConfirm] Invalid targets selected: ${invalidTargets.join(', ')} for ${pendingCast.cardName}`);

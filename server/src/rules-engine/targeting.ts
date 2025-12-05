@@ -738,7 +738,9 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
             for (const attachment of attachments) {
               const attOracle = ((attachment.card as any)?.oracle_text || '').toLowerCase();
               // Pattern: "Enchanted creature has flying" or "Equipped creature has flying"
-              const grantsKeywordPattern = new RegExp(`(enchanted|equipped)\\s+creature\\s+has\\s+${keyword}`, 'i');
+              // Escape regex metacharacters in keyword to prevent ReDoS
+              const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              const grantsKeywordPattern = new RegExp(`(enchanted|equipped)\\s+creature\\s+has\\s+${escapedKeyword}`, 'i');
               if (grantsKeywordPattern.test(attOracle)) {
                 meetsRestriction = true;
                 break;
