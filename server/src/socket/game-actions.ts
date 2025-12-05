@@ -3915,10 +3915,89 @@ export function registerGameActions(io: Server, socket: Socket) {
       // When using skipToPhase, we must still fire all triggers that would have
       // occurred during the skipped phases. Per MTG rules, triggers should always
       // go on the stack, and the active player gets priority to respond.
+      // IMPORTANT: Multiple simultaneous triggers must allow player to choose order (Rule 101.4)
       // ========================================================================
       
       if (turnPlayer) {
         try {
+          // Helper to properly queue triggers with APNAP ordering
+          const queueTriggersWithOrdering = (triggers: any[], triggerType: string, idPrefix: string) => {
+            if (triggers.length === 0) return;
+            
+            console.log(`[skipToPhase] Processing ${triggers.length} ${triggerType} trigger(s)`);
+            (game.state as any).stack = (game.state as any).stack || [];
+            const battlefield = (game.state as any).battlefield || [];
+            
+            // Group by controller for proper APNAP ordering
+            const triggersByController = new Map<string, typeof triggers>();
+            for (const trigger of triggers) {
+              const sourcePerm = battlefield.find((p: any) => p?.id === trigger.permanentId);
+              const controller = sourcePerm?.controller || trigger.controllerId || turnPlayer;
+              const existing = triggersByController.get(controller) || [];
+              existing.push({ ...trigger, controller });
+              triggersByController.set(controller, existing);
+            }
+            
+            // Get player order for APNAP
+            const players = Array.isArray((game.state as any).players) 
+              ? (game.state as any).players.map((p: any) => p.id) 
+              : [];
+            const orderedPlayers = [turnPlayer, ...players.filter((p: string) => p !== turnPlayer)];
+            
+            // Process triggers in APNAP order
+            for (const playerId of orderedPlayers) {
+              const playerTriggers = triggersByController.get(playerId) || [];
+              if (playerTriggers.length === 0) continue;
+              
+              // If player has multiple mandatory triggers, add to trigger queue for ordering
+              if (playerTriggers.length > 1) {
+                console.log(`[skipToPhase] Player ${playerId} has ${playerTriggers.length} ${triggerType} triggers to order`);
+                
+                (game.state as any).triggerQueue = (game.state as any).triggerQueue || [];
+                
+                for (const trigger of playerTriggers) {
+                  if (!trigger.mandatory) continue;
+                  const triggerId = `${idPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                  (game.state as any).triggerQueue.push({
+                    id: triggerId,
+                    sourceId: trigger.permanentId,
+                    sourceName: trigger.cardName,
+                    effect: trigger.description || trigger.effect,
+                    type: 'order',
+                    controllerId: playerId,
+                    triggerType: triggerType,
+                    mandatory: true,
+                  });
+                  console.log(`[skipToPhase] 📋 Queued ${triggerType} trigger for ordering: ${trigger.cardName}`);
+                }
+                
+                // Mark pending trigger ordering for this player
+                (game.state as any).pendingTriggerOrdering = (game.state as any).pendingTriggerOrdering || {};
+                (game.state as any).pendingTriggerOrdering[playerId] = {
+                  timing: triggerType,
+                  count: playerTriggers.length,
+                };
+              } else {
+                // Single trigger - push directly to stack
+                const trigger = playerTriggers[0];
+                if (!trigger.mandatory) continue;
+                const triggerId = `${idPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                (game.state as any).stack.push({
+                  id: triggerId,
+                  type: 'triggered_ability',
+                  controller: playerId,
+                  source: trigger.permanentId,
+                  sourceName: trigger.cardName,
+                  description: trigger.description,
+                  triggerType: triggerType,
+                  mandatory: true,
+                  effect: trigger.effect,
+                });
+                console.log(`[skipToPhase] ⚡ Pushed ${triggerType} trigger: ${trigger.cardName} - ${trigger.description}`);
+              }
+            }
+          };
+          
           // Determine which phases we're skipping and process their triggers
           const currentPhaseOrder = ['untap', 'upkeep', 'draw', 'main1', 'begin_combat', 'declare_attackers', 
                                      'declare_blockers', 'combat_damage', 'end_combat', 'main2', 'end_step', 'cleanup'];
@@ -3930,32 +4009,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                                    targetIdx > currentPhaseOrder.indexOf('upkeep');
           if (skipsPastUpkeep) {
             const upkeepTriggers = getUpkeepTriggersForPlayer(game as any, turnPlayer);
-            if (upkeepTriggers.length > 0) {
-              console.log(`[skipToPhase] Processing ${upkeepTriggers.length} upkeep trigger(s) that were skipped`);
-              (game.state as any).stack = (game.state as any).stack || [];
-              const battlefield = (game.state as any).battlefield || [];
-              
-              for (const trigger of upkeepTriggers) {
-                if (trigger.mandatory) {
-                  const triggerId = `upkeep_skip_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-                  // Get controller from the permanent on the battlefield
-                  const sourcePerm = battlefield.find((p: any) => p?.id === trigger.permanentId);
-                  const controller = sourcePerm?.controller || turnPlayer;
-                  (game.state as any).stack.push({
-                    id: triggerId,
-                    type: 'triggered_ability',
-                    controller,
-                    source: trigger.permanentId,
-                    sourceName: trigger.cardName,
-                    description: trigger.description,
-                    triggerType: 'upkeep_effect',
-                    mandatory: true,
-                    effect: trigger.effect,
-                  });
-                  console.log(`[skipToPhase] ⚡ Pushed skipped upkeep trigger: ${trigger.cardName} - ${trigger.description}`);
-                }
-              }
-            }
+            queueTriggersWithOrdering(upkeepTriggers, 'upkeep_effect', 'upkeep_skip');
           }
           
           // Process BEGIN COMBAT triggers if we're entering or passing through combat
@@ -3964,63 +4018,22 @@ export function registerGameActions(io: Server, socket: Socket) {
           const wasBeforeCombat = currentIdx < currentPhaseOrder.indexOf('begin_combat');
           if (targetIsCombatOrLater && wasBeforeCombat) {
             const combatTriggers = getBeginningOfCombatTriggers(game as any, turnPlayer);
-            if (combatTriggers.length > 0) {
-              console.log(`[skipToPhase] Processing ${combatTriggers.length} beginning of combat trigger(s)`);
-              (game.state as any).stack = (game.state as any).stack || [];
-              
-              for (const trigger of combatTriggers) {
-                if (trigger.mandatory) {
-                  const triggerId = `combat_skip_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-                  const controller = trigger.controllerId || turnPlayer;
-                  (game.state as any).stack.push({
-                    id: triggerId,
-                    type: 'triggered_ability',
-                    controller,
-                    source: trigger.permanentId,
-                    sourceName: trigger.cardName,
-                    description: trigger.description,
-                    triggerType: 'begin_combat',
-                    mandatory: true,
-                    effect: trigger.effect,
-                  });
-                  console.log(`[skipToPhase] ⚡ Pushed beginning of combat trigger: ${trigger.cardName} - ${trigger.description}`);
-                }
-              }
-            }
+            queueTriggersWithOrdering(combatTriggers, 'begin_combat', 'combat_skip');
           }
           
           // Process END STEP triggers if we're entering end step
           if (targetStepUpper === 'END_STEP' || targetStepUpper === 'END') {
             const endTriggers = getEndStepTriggers(game as any, turnPlayer);
-            if (endTriggers.length > 0) {
-              console.log(`[skipToPhase] Processing ${endTriggers.length} end step trigger(s)`);
-              (game.state as any).stack = (game.state as any).stack || [];
-              
-              for (const trigger of endTriggers) {
-                if (trigger.mandatory) {
-                  const triggerId = `end_skip_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-                  const controller = trigger.controllerId || turnPlayer;
-                  (game.state as any).stack.push({
-                    id: triggerId,
-                    type: 'triggered_ability',
-                    controller,
-                    source: trigger.permanentId,
-                    sourceName: trigger.cardName,
-                    description: trigger.description,
-                    triggerType: 'end_step',
-                    mandatory: true,
-                    effect: trigger.effect,
-                  });
-                  console.log(`[skipToPhase] ⚡ Pushed end step trigger: ${trigger.cardName} - ${trigger.description}`);
-                }
-              }
-            }
+            queueTriggersWithOrdering(endTriggers, 'end_step', 'end_skip');
           }
           
-          // If we added any triggers to the stack, ensure active player gets priority
-          if ((game.state as any).stack && (game.state as any).stack.length > 0) {
+          // If we added any triggers to the stack or queue, ensure active player gets priority
+          const hasStackItems = (game.state as any).stack && (game.state as any).stack.length > 0;
+          const hasPendingOrdering = (game.state as any).pendingTriggerOrdering && 
+                                      Object.keys((game.state as any).pendingTriggerOrdering).length > 0;
+          if (hasStackItems || hasPendingOrdering) {
             (game.state as any).priority = turnPlayer;
-            console.log(`[skipToPhase] Stack has ${(game.state as any).stack.length} item(s), priority to active player ${turnPlayer}`);
+            console.log(`[skipToPhase] Stack/triggers pending - priority to active player ${turnPlayer}`);
           }
           
         } catch (err) {
