@@ -1530,11 +1530,21 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // Handle split/modal cards
       const cardFaces = cardInHand.card_faces;
-      if (faceIndex !== undefined && Array.isArray(cardFaces) && cardFaces[faceIndex]) {
+      if (faceIndex !== undefined && Array.isArray(cardFaces)) {
+        // Validate faceIndex bounds
+        if (faceIndex < 0 || faceIndex >= cardFaces.length) {
+          socket.emit("error", {
+            code: "INVALID_FACE_INDEX",
+            message: `Invalid face index: ${faceIndex}`,
+          });
+          return;
+        }
         const face = cardFaces[faceIndex];
-        oracleText = (face.oracle_text || "").toLowerCase();
-        manaCost = face.mana_cost || manaCost;
-        cardName = face.name || cardName;
+        if (face) {
+          oracleText = (face.oracle_text || "").toLowerCase();
+          manaCost = face.mana_cost || manaCost;
+          cardName = face.name || cardName;
+        }
       }
 
       // Check if this spell requires targets

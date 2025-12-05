@@ -2785,33 +2785,40 @@ export function App() {
     
     const cardFaces = (card as any).card_faces as CardFace[] | undefined;
     
-    // Determine mana cost based on choice
-    let manaCost: string | undefined;
-    let displayName = splitCardData.cardName;
-    
-    if (fused && cardFaces && cardFaces.length >= 2) {
-      // Fuse: combine both costs
-      manaCost = (cardFaces[0]?.mana_cost || '') + (cardFaces[1]?.mana_cost || '');
-      displayName = `${cardFaces[0]?.name || 'Left'} // ${cardFaces[1]?.name || 'Right'}`;
-    } else if (faceId.startsWith('face_') && cardFaces) {
-      const faceIndex = parseInt(faceId.replace('face_', ''), 10);
-      const chosenFace = cardFaces[faceIndex];
-      if (chosenFace) {
-        manaCost = chosenFace.mana_cost;
-        displayName = chosenFace.name || displayName;
-      }
-    }
-    
-    // Close split card modal and open payment modal
+    // Close split card modal
     setSplitCardModalOpen(false);
     setSplitCardData(null);
     
-    setSpellToCast({
+    // Determine face index for MTG-compliant flow
+    let faceIndex: number | undefined;
+    
+    if (fused && cardFaces && cardFaces.length >= 2) {
+      // Fuse: special case - for now use legacy flow
+      // TODO: Implement fuse handling in requestCastSpell
+      const manaCost = (cardFaces[0]?.mana_cost || '') + (cardFaces[1]?.mana_cost || '');
+      const displayName = `${cardFaces[0]?.name || 'Left'} // ${cardFaces[1]?.name || 'Right'}`;
+      setSpellToCast({
+        cardId: splitCardData.cardId,
+        cardName: displayName,
+        manaCost: manaCost || (card as any).mana_cost,
+      });
+      setCastSpellModalOpen(true);
+      return;
+    } else if (faceId.startsWith('face_') && cardFaces) {
+      faceIndex = parseInt(faceId.replace('face_', ''), 10);
+      // Validate faceIndex bounds
+      if (faceIndex < 0 || faceIndex >= cardFaces.length) {
+        console.error(`[handleSplitCardChoose] Invalid faceIndex: ${faceIndex}`);
+        return;
+      }
+    }
+    
+    // Use MTG-compliant flow: request targets first if needed
+    socket.emit("requestCastSpell", {
+      gameId: safeView.id,
       cardId: splitCardData.cardId,
-      cardName: displayName,
-      manaCost: manaCost || (card as any).mana_cost,
+      faceIndex,
     });
-    setCastSpellModalOpen(true);
   };
 
   const handleSplitCardCancel = () => {
