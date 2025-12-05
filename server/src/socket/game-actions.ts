@@ -5971,6 +5971,21 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Mark the additional cost as paid and continue casting
       (cardInHand as any).additionalCostPaid = true;
       
+      // Persist event for replay
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, "additionalCostConfirm", {
+          playerId,
+          cardId,
+          costType,
+          selectedCards,
+          effectId,
+          discardedCards: costType === 'discard' ? discardedCards : undefined,
+          sacrificedNames: costType === 'sacrifice' ? sacrificedNames : undefined,
+        });
+      } catch (e) {
+        console.warn('appendEvent(additionalCostConfirm) failed:', e);
+      }
+
       // Emit event to continue the cast
       socket.emit("additionalCostComplete", {
         gameId,
@@ -6799,6 +6814,19 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
 
       zones.graveyardCount = zones.graveyard.length;
+
+      // Persist event for replay
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, "confirmGraveyardTargets", {
+          playerId,
+          effectId,
+          selectedCardIds,
+          destination,
+          movedCards,
+        });
+      } catch (e) {
+        console.warn('appendEvent(confirmGraveyardTargets) failed:', e);
+      }
 
       if (movedCards.length > 0) {
         const destName = destination === 'hand' ? 'hand' : 

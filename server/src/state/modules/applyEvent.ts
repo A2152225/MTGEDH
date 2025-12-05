@@ -1608,6 +1608,119 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "additionalCostConfirm": {
+        // Handle additional costs (discard, sacrifice) for spell casting
+        const pid = (e as any).playerId;
+        const costType = (e as any).costType;
+        const selectedCards = (e as any).selectedCards as string[] || [];
+        
+        try {
+          const zones = ctx.state.zones || {};
+          const z = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+          zones[pid] = z;
+          ctx.state.zones = zones;
+          
+          if (costType === 'discard') {
+            // Move cards from hand to graveyard
+            for (const cardId of selectedCards) {
+              const hand = Array.isArray(z.hand) ? z.hand : [];
+              const cardIndex = hand.findIndex((c: any) => c?.id === cardId);
+              if (cardIndex !== -1) {
+                const [card] = hand.splice(cardIndex, 1);
+                z.graveyard = z.graveyard || [];
+                (z.graveyard as any[]).push({ ...card, zone: 'graveyard' });
+              }
+            }
+            z.handCount = Array.isArray(z.hand) ? z.hand.length : 0;
+            z.graveyardCount = Array.isArray(z.graveyard) ? z.graveyard.length : 0;
+          } else if (costType === 'sacrifice') {
+            // Move permanents from battlefield to graveyard
+            const battlefield = ctx.state.battlefield || [];
+            for (const permId of selectedCards) {
+              const permIndex = battlefield.findIndex((p: any) => p?.id === permId);
+              if (permIndex !== -1) {
+                const [perm] = battlefield.splice(permIndex, 1);
+                z.graveyard = z.graveyard || [];
+                if (perm && (perm as any).card) {
+                  (z.graveyard as any[]).push({ ...(perm as any).card, zone: 'graveyard' });
+                }
+              }
+            }
+            z.graveyardCount = Array.isArray(z.graveyard) ? z.graveyard.length : 0;
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(additionalCostConfirm): failed", err);
+        }
+        break;
+      }
+
+      case "confirmGraveyardTargets": {
+        // Move cards from graveyard to another zone
+        const pid = (e as any).playerId;
+        const selectedCardIds = (e as any).selectedCardIds as string[] || [];
+        const destination = (e as any).destination;
+        
+        try {
+          const zones = ctx.state.zones || {};
+          const z = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+          zones[pid] = z;
+          ctx.state.zones = zones;
+          
+          z.graveyard = z.graveyard || [];
+          const graveyard = z.graveyard as any[];
+          
+          for (const cardId of selectedCardIds) {
+            const cardIndex = graveyard.findIndex((c: any) => c?.id === cardId);
+            if (cardIndex === -1) continue;
+            
+            const [card] = graveyard.splice(cardIndex, 1);
+            
+            switch (destination) {
+              case 'hand':
+                z.hand = z.hand || [];
+                (z.hand as any[]).push({ ...card, zone: 'hand' });
+                z.handCount = (z.hand as any[]).length;
+                break;
+              case 'battlefield':
+                ctx.state.battlefield = ctx.state.battlefield || [];
+                const typeLine = (card.type_line || '').toLowerCase();
+                const isCreature = typeLine.includes('creature');
+                ctx.state.battlefield.push({
+                  id: `perm_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
+                  controller: pid,
+                  owner: pid,
+                  tapped: false,
+                  counters: {},
+                  basePower: isCreature ? parseInt(card.power || '0', 10) : undefined,
+                  baseToughness: isCreature ? parseInt(card.toughness || '0', 10) : undefined,
+                  summoningSickness: isCreature,
+                  card: { ...card, zone: 'battlefield' },
+                } as any);
+                break;
+              case 'library_top':
+                const lib = ctx.libraries.get(pid) || [];
+                lib.unshift({ ...card, zone: 'library' });
+                ctx.libraries.set(pid, lib);
+                z.libraryCount = lib.length;
+                break;
+              case 'library_bottom':
+                const libBottom = ctx.libraries.get(pid) || [];
+                libBottom.push({ ...card, zone: 'library' });
+                ctx.libraries.set(pid, libBottom);
+                z.libraryCount = libBottom.length;
+                break;
+            }
+          }
+          
+          z.graveyardCount = graveyard.length;
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(confirmGraveyardTargets): failed", err);
+        }
+        break;
+      }
+
       default: {
         // Log unknown events but don't fail - they may be newer events not yet supported
         // or events that don't affect core game state

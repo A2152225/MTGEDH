@@ -345,5 +345,201 @@ describe('Enhanced Replay System', () => {
       expect(replayEvents[3]).toEqual({ type: 'phaseOutPermanents', playerId: 'p1', permanentIds: ['p1', 'p2'] });
       expect(replayEvents[4]).toEqual({ type: 'concede', playerId: 'p1', playerName: 'Player 1' });
     });
+    
+    it('should correctly transform additional cost events', () => {
+      const dbEvents = [
+        { type: 'additionalCostConfirm', payload: { playerId: 'p1', costType: 'discard', selectedCards: ['card1', 'card2'] } },
+        { type: 'confirmGraveyardTargets', payload: { playerId: 'p1', selectedCardIds: ['c1'], destination: 'hand' } },
+      ];
+      
+      const replayEvents = transformDbEventsForReplay(dbEvents);
+      
+      expect(replayEvents[0]).toEqual({ type: 'additionalCostConfirm', playerId: 'p1', costType: 'discard', selectedCards: ['card1', 'card2'] });
+      expect(replayEvents[1]).toEqual({ type: 'confirmGraveyardTargets', playerId: 'p1', selectedCardIds: ['c1'], destination: 'hand' });
+    });
+  });
+
+  describe('Additional cost events replay', () => {
+    it('should correctly replay discard additional cost', () => {
+      const gameId = 'discard_cost_test';
+      const p1 = 'p_test' as PlayerID;
+      const seed = 777777777;
+
+      const game = createInitialGameState(gameId);
+      game.applyEvent({ type: 'rngSeed', seed });
+      
+      // Set up hand with cards
+      const cards = mkCards(7);
+      (game.state as any).zones = {
+        [p1]: {
+          hand: cards.map(c => ({ ...c, zone: 'hand' })),
+          handCount: 7,
+          libraryCount: 0,
+          graveyard: [],
+          graveyardCount: 0,
+        }
+      };
+      
+      // Apply discard cost event
+      game.applyEvent({
+        type: 'additionalCostConfirm',
+        playerId: p1,
+        costType: 'discard',
+        selectedCards: ['Card_1', 'Card_2'],
+      });
+      
+      // Verify cards moved to graveyard
+      const zones = (game.state as any).zones[p1];
+      expect(zones.handCount).toBe(5);
+      expect(zones.graveyardCount).toBe(2);
+      expect(zones.hand.length).toBe(5);
+      expect(zones.graveyard.length).toBe(2);
+      
+      console.log('Discard cost event replayed successfully');
+    });
+    
+    it('should correctly replay sacrifice additional cost', () => {
+      const gameId = 'sacrifice_cost_test';
+      const p1 = 'p_test' as PlayerID;
+      const seed = 888888888;
+
+      const game = createInitialGameState(gameId);
+      game.applyEvent({ type: 'rngSeed', seed });
+      
+      // Set up battlefield with permanents
+      const perm1 = {
+        id: 'perm_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: mkCreature('perm_1', 'Test Creature 1'),
+      };
+      
+      const perm2 = {
+        id: 'perm_2',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: mkCreature('perm_2', 'Test Creature 2'),
+      };
+      
+      (game.state as any).battlefield = [perm1, perm2];
+      (game.state as any).zones = {
+        [p1]: {
+          hand: [],
+          handCount: 0,
+          libraryCount: 0,
+          graveyard: [],
+          graveyardCount: 0,
+        }
+      };
+      
+      // Apply sacrifice cost event
+      game.applyEvent({
+        type: 'additionalCostConfirm',
+        playerId: p1,
+        costType: 'sacrifice',
+        selectedCards: ['perm_1'],
+      });
+      
+      // Verify permanent moved to graveyard
+      const battlefield = game.state.battlefield as any[];
+      const zones = (game.state as any).zones[p1];
+      
+      expect(battlefield.length).toBe(1);
+      expect(battlefield[0].id).toBe('perm_2');
+      expect(zones.graveyardCount).toBe(1);
+      
+      console.log('Sacrifice cost event replayed successfully');
+    });
+  });
+
+  describe('Graveyard target events replay', () => {
+    it('should correctly replay graveyard to hand movement', () => {
+      const gameId = 'gy_to_hand_test';
+      const p1 = 'p_test' as PlayerID;
+      const seed = 999999999;
+
+      const game = createInitialGameState(gameId);
+      game.applyEvent({ type: 'rngSeed', seed });
+      
+      // Set up zones with cards in graveyard
+      const gyCard = { ...mkCreature('gy_card_1', 'Dead Creature'), zone: 'graveyard' };
+      (game.state as any).zones = {
+        [p1]: {
+          hand: [],
+          handCount: 0,
+          libraryCount: 0,
+          graveyard: [gyCard],
+          graveyardCount: 1,
+        }
+      };
+      
+      // Apply graveyard target event
+      game.applyEvent({
+        type: 'confirmGraveyardTargets',
+        playerId: p1,
+        selectedCardIds: ['gy_card_1'],
+        destination: 'hand',
+      });
+      
+      // Verify card moved to hand
+      const zones = (game.state as any).zones[p1];
+      expect(zones.handCount).toBe(1);
+      expect(zones.graveyardCount).toBe(0);
+      expect(zones.hand[0].name).toBe('Dead Creature');
+      expect(zones.hand[0].zone).toBe('hand');
+      
+      console.log('Graveyard to hand event replayed successfully');
+    });
+    
+    it('should correctly replay graveyard to battlefield movement', () => {
+      const gameId = 'gy_to_bf_test';
+      const p1 = 'p_test' as PlayerID;
+      const seed = 101010101;
+
+      const game = createInitialGameState(gameId);
+      game.applyEvent({ type: 'rngSeed', seed });
+      
+      // Set up zones with cards in graveyard
+      const gyCard = { 
+        ...mkCreature('gy_card_1', 'Reanimate Target'), 
+        zone: 'graveyard',
+        power: '5',
+        toughness: '5',
+      };
+      (game.state as any).zones = {
+        [p1]: {
+          hand: [],
+          handCount: 0,
+          libraryCount: 0,
+          graveyard: [gyCard],
+          graveyardCount: 1,
+        }
+      };
+      (game.state as any).battlefield = [];
+      
+      // Apply graveyard target event
+      game.applyEvent({
+        type: 'confirmGraveyardTargets',
+        playerId: p1,
+        selectedCardIds: ['gy_card_1'],
+        destination: 'battlefield',
+      });
+      
+      // Verify card moved to battlefield
+      const zones = (game.state as any).zones[p1];
+      const battlefield = game.state.battlefield as any[];
+      
+      expect(zones.graveyardCount).toBe(0);
+      expect(battlefield.length).toBe(1);
+      expect(battlefield[0].card.name).toBe('Reanimate Target');
+      expect(battlefield[0].controller).toBe(p1);
+      expect(battlefield[0].summoningSickness).toBe(true);
+      
+      console.log('Graveyard to battlefield event replayed successfully');
+    });
   });
 });
