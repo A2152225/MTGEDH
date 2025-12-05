@@ -296,12 +296,14 @@ export function detectLifegainTriggers(
     
     // Dynamic detection from oracle text
     // Handle both "whenever you gain life" and "for the first time" patterns
-    const hasLifegainTrigger = oracleText.includes('whenever you gain life') || 
-                               (oracleText.includes('gain life') && oracleText.includes('first time'));
+    // More specific regex to avoid false positives with "gain life" in other contexts
+    const hasStandardLifegainTrigger = oracleText.includes('whenever you gain life');
+    const hasFirstTimeLifegainTrigger = /whenever you gain life.*for the first time|for the first time.*you gain life/i.test(oracleText);
+    const hasLifegainTrigger = hasStandardLifegainTrigger || hasFirstTimeLifegainTrigger;
+    
     if (hasLifegainTrigger) {
       // Check if this is a "first time" trigger (once per turn)
-      const isFirstTimeTrigger = oracleText.includes('first time') || 
-                                  oracleText.includes('for the first time');
+      const isFirstTimeTrigger = hasFirstTimeLifegainTrigger;
       
       // Detect effect type from oracle text
       let effectType: LifegainEffectType = 'custom';

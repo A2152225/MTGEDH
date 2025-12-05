@@ -853,7 +853,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   // This is CREATURE-ONLY - does NOT trigger on non-creature permanents like artifacts
   // NOTE: Soul Warden says "Whenever another creature enters the battlefield, you gain 1 life."
   // This should NOT trigger on artifacts, enchantments, lands, etc.
-  const anotherCreatureAnyETBMatch = oracleText.match(/whenever another (?:[\w\s]+)?creature enters the battlefield(?!.*under your control),?\s*([^.]+)/i);
+  // Supports both old template "enters the battlefield" and new Bloomburrow template "enters"
+  const anotherCreatureAnyETBMatch = oracleText.match(/whenever another (?:[\w\s]+)?creature enters(?: the battlefield)?(?!.*under your control),?\s*([^.]+)/i);
   if (anotherCreatureAnyETBMatch && !triggers.some(t => t.triggerType === 'creature_etb')) {
     // Extract any color restriction for filtering at trigger evaluation time (e.g., "white or black creature")
     const colorRestrictionMatch = oracleText.match(/whenever another ([\w\s]+?) creature enters/i);
@@ -874,7 +875,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   // "Whenever another permanent enters the battlefield" - ANY permanent type
   // This is the Altar of the Brood pattern: "Whenever another permanent enters the battlefield, each opponent mills a card."
   // This triggers on ANY permanent (creature, artifact, enchantment, land, planeswalker)
-  const anotherPermanentAnyETBMatch = oracleText.match(/whenever another (?:[\w\s]+)?permanent enters the battlefield(?!.*under your control),?\s*([^.]+)/i);
+  // Supports both old template "enters the battlefield" and new Bloomburrow template "enters"
+  const anotherPermanentAnyETBMatch = oracleText.match(/whenever another (?:[\w\s]+)?permanent enters(?: the battlefield)?(?!.*under your control),?\s*([^.]+)/i);
   if (anotherPermanentAnyETBMatch && !triggers.some(t => t.triggerType === 'permanent_etb')) {
     triggers.push({
       permanentId,
@@ -927,7 +929,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   
   // "As [this] enters the battlefield, choose" - Modal permanents like Outpost Siege
   // Pattern: "As ~ enters the battlefield, choose Khans or Dragons."
-  const modalETBMatch = oracleText.match(/as (?:~|this (?:creature|permanent|enchantment)) enters the battlefield,?\s*choose\s+([^.]+)/i);
+  // Supports both old template "enters the battlefield" and new Bloomburrow template "enters"
+  const modalETBMatch = oracleText.match(/as (?:~|this (?:creature|permanent|enchantment)) enters(?: the battlefield)?,?\s*choose\s+([^.]+)/i);
   if (modalETBMatch) {
     const choiceText = modalETBMatch[1].trim();
     // Parse the options (usually "X or Y" pattern)

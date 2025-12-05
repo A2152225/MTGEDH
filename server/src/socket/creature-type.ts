@@ -193,15 +193,10 @@ export function requiresCreatureTypeSelection(card: any): { required: boolean; r
   }
   
   // Generic detection: look for the exact phrase "as ~ enters the battlefield, choose a creature type"
+  // Supports both old template "enters the battlefield" and new Bloomburrow template "enters"
   // This is more specific than the previous loose matching
-  const entersBattlefieldChoosePattern = /as .+? enters the battlefield,? choose a creature type/i;
+  const entersBattlefieldChoosePattern = /as .+? enters(?: the battlefield)?,? choose a creature type/i;
   if (entersBattlefieldChoosePattern.test(oracleText)) {
-    return { required: true, reason: "Choose a creature type" };
-  }
-  
-  // Also check for "as ~ enters, choose a creature type" (shorter form like Three Tree City)
-  const entersChoosePattern = /as .+? enters,? choose a creature type/i;
-  if (entersChoosePattern.test(oracleText)) {
     return { required: true, reason: "Choose a creature type" };
   }
   
