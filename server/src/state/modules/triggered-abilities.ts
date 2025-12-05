@@ -152,7 +152,9 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
   }
   
   // ETB triggers (self) - text is already lowercased
-  const etbSelfMatch = oracleText.match(/when (?:~|this creature|this permanent|this enchantment) enters the battlefield,?\s*([^.]+)/);
+  // Note: New Bloomburrow template uses "enters" instead of "enters the battlefield"
+  // Matches: "When ~ enters the battlefield", "When this creature enters", etc.
+  const etbSelfMatch = oracleText.match(/when (?:~|this creature|this permanent|this enchantment) enters(?: the battlefield)?,?\s*([^.]+)/);
   if (etbSelfMatch) {
     triggers.push({
       id: `${permanentId}_etb_self`,
@@ -167,7 +169,8 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
   }
   
   // ETB triggers (other creatures)
-  const etbCreatureMatch = oracleText.match(/whenever (?:a|another) (?:nontoken )?creature enters the battlefield(?: under your control)?,?\s*([^.]+)/);
+  // Note: New Bloomburrow template uses "enters" instead of "enters the battlefield"
+  const etbCreatureMatch = oracleText.match(/whenever (?:a|another) (?:nontoken )?creature enters(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/);
   if (etbCreatureMatch) {
     triggers.push({
       id: `${permanentId}_etb_creature`,
@@ -771,8 +774,9 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   
   // "When ~ enters the battlefield" or "When [CARDNAME] enters the battlefield"
   // The ~ is used in some oracle text, but the actual card name is also used
+  // Note: New Bloomburrow template uses "enters" instead of "enters the battlefield"
   const cardNameEscaped = cardName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const etbPattern = new RegExp(`when\\s+(?:~|this creature|this permanent|${cardNameEscaped})\\s+enters the battlefield,?\\s*([^.]+)`, 'i');
+  const etbPattern = new RegExp(`when\\s+(?:~|this creature|this permanent|${cardNameEscaped})\\s+enters(?: the battlefield)?,?\\s*([^.]+)`, 'i');
   const etbMatch = oracleText.match(etbPattern);
   if (etbMatch && !triggers.some(t => t.triggerType === 'etb' || t.triggerType === 'etb_sacrifice_unless_pay')) {
     const effectText = etbMatch[1].trim();
@@ -803,7 +807,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   }
   
   // "Whenever a creature enters the battlefield under your control" or "Whenever a nontoken creature enters..."
-  const creatureETBMatch = oracleText.match(/whenever a (?:nontoken )?creature enters the battlefield under your control,?\s*([^.]+)/i);
+  // Note: New Bloomburrow template uses "enters" instead of "enters the battlefield"
+  const creatureETBMatch = oracleText.match(/whenever a (?:nontoken )?creature enters(?: the battlefield)? under your control,?\s*([^.]+)/i);
   if (creatureETBMatch && !triggers.some(t => t.triggerType === 'creature_etb')) {
     const isNontokenOnly = oracleText.toLowerCase().includes('nontoken creature enters');
     triggers.push({
@@ -818,7 +823,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   }
   
   // "Whenever an Equipment enters the battlefield under your control" (Puresteel Paladin, Barret, etc.)
-  const equipmentETBMatch = oracleText.match(/whenever (?:a|an) equipment enters the battlefield under your control,?\s*([^.]+)/i);
+  // Note: New Bloomburrow template uses "enters" instead of "enters the battlefield"
+  const equipmentETBMatch = oracleText.match(/whenever (?:a|an) equipment enters(?: the battlefield)? under your control,?\s*([^.]+)/i);
   if (equipmentETBMatch && !triggers.some(t => t.triggerType === 'equipment_etb')) {
     triggers.push({
       permanentId,

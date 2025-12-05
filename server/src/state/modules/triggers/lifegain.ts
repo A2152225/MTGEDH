@@ -197,6 +197,13 @@ export const KNOWN_LIFEGAIN_TRIGGERS: Record<string, {
     effectType: 'custom',
     isMayAbility: false,
   },
+  // Cat Collector - "for the first time during each of your turns" trigger
+  "cat collector": {
+    effect: 'Create a 1/1 white Cat creature token',
+    effectType: 'create_token',
+    isMayAbility: false,
+    oncePerTurn: true,  // First time each turn
+  },
   
   // Ratchet, Field Medic (Transformers)
   "ratchet, field medic": {
@@ -288,7 +295,14 @@ export function detectLifegainTriggers(
     }
     
     // Dynamic detection from oracle text
-    if (oracleText.includes('whenever you gain life')) {
+    // Handle both "whenever you gain life" and "for the first time" patterns
+    const hasLifegainTrigger = oracleText.includes('whenever you gain life') || 
+                               (oracleText.includes('gain life') && oracleText.includes('first time'));
+    if (hasLifegainTrigger) {
+      // Check if this is a "first time" trigger (once per turn)
+      const isFirstTimeTrigger = oracleText.includes('first time') || 
+                                  oracleText.includes('for the first time');
+      
       // Detect effect type from oracle text
       let effectType: LifegainEffectType = 'custom';
       let isMayAbility = oracleText.includes('you may');
@@ -310,6 +324,7 @@ export function detectLifegainTriggers(
         effect: 'Triggered by lifegain',
         effectType,
         isMayAbility,
+        oncePerTurn: isFirstTimeTrigger,
       });
     }
   }

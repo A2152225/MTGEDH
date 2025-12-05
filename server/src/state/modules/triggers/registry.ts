@@ -56,7 +56,8 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
   }
   
   // ETB triggers (self) - text is already lowercased
-  const etbSelfMatch = oracleText.match(/when (?:~|this creature|this permanent|this enchantment) enters the battlefield,?\s*([^.]+)/);
+  // Note: New Bloomburrow template uses "enters" instead of "enters the battlefield"
+  const etbSelfMatch = oracleText.match(/when (?:~|this creature|this permanent|this enchantment) enters(?: the battlefield)?,?\s*([^.]+)/);
   if (etbSelfMatch) {
     const effect = etbSelfMatch[1].trim();
     triggers.push({
@@ -72,7 +73,8 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
   }
   
   // ETB triggers (other creatures)
-  const etbCreatureMatch = oracleText.match(/whenever (?:a|another) (?:nontoken )?creature enters the battlefield(?: under your control)?,?\s*([^.]+)/);
+  // Note: New Bloomburrow template uses "enters" instead of "enters the battlefield"
+  const etbCreatureMatch = oracleText.match(/whenever (?:a|another) (?:nontoken )?creature enters(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/);
   if (etbCreatureMatch) {
     const effect = etbCreatureMatch[1].trim();
     triggers.push({
