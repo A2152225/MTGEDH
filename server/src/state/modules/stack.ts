@@ -7,6 +7,7 @@ import { getETBTriggersForPermanent, processLinkedExileReturns, registerLinkedEx
 import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone } from "./zones.js";
 import { runSBA } from "./counters_tokens.js";
+import { getTokenImageUrls } from "../../services/tokens.js";
 
 /**
  * Detect "enters with counters" patterns from a card's oracle text.
@@ -1434,6 +1435,9 @@ function executeTriggerEffect(
       const tokenName = creatureTypes.length > 0 ? creatureTypes.join(' ') : 'Token';
       const typeLine = `Token Creature — ${creatureTypes.join(' ')}`;
       
+      // Get token image from Scryfall data
+      const tokenImageUrls = getTokenImageUrls(tokenName, power, toughness, colors);
+      
       const token = {
         id: tokenId,
         controller,
@@ -1458,6 +1462,7 @@ function executeTriggerEffect(
           oracle_text: abilities.join(', '),
           keywords: abilities,
           zone: 'battlefield',
+          image_uris: tokenImageUrls,
         },
       } as any;
       

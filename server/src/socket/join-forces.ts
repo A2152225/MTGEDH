@@ -14,6 +14,7 @@ import { ensureGame, broadcastGame, getPlayerName } from "./util";
 import { appendEvent } from "../db";
 import { isAIPlayer } from "./ai.js";
 import { triggerETBEffectsForToken } from "../state/modules/stack.js";
+import { getTokenImageUrls } from "../services/tokens.js";
 
 /**
  * Pending Join Forces effect waiting for player contributions
@@ -981,11 +982,18 @@ function applyTemptingOfferEffect(
     // For now, we'll create tokens based on a default X=3
     const xValue = 3; // This should ideally come from the spell resolution context
     
+    // Get elemental token image
+    const elementalImageUrls = getTokenImageUrls('Elemental', 1, 1, ['R']);
+    
+    // Create a mock game context for triggering ETB effects
+    const ctx = { state: game.state };
+    const createdTokens: any[] = [];
+    
     // Create tokens for initiator
     const initiatorTokenCount = xValue * initiatorBonusCount;
     for (let i = 0; i < initiatorTokenCount; i++) {
       const tokenId = `tok_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${i}`;
-      battlefield.push({
+      const token = {
         id: tokenId,
         controller: initiator,
         owner: initiator,
@@ -995,21 +1003,25 @@ function applyTemptingOfferEffect(
         summoningSickness: false, // Haste
         card: {
           id: tokenId,
-          name: 'Elemental Token',
+          name: 'Elemental',
           type_line: 'Token Creature — Elemental',
           power: '1',
           toughness: '1',
           colors: ['R'],
           oracle_text: 'Haste',
+          keywords: ['Haste'],
+          image_uris: elementalImageUrls,
         },
-      });
+      };
+      battlefield.push(token);
+      createdTokens.push({ token, controller: initiator });
     }
     
     // Create tokens for each accepting opponent
     for (const opponentId of acceptedBy) {
       for (let i = 0; i < xValue; i++) {
         const tokenId = `tok_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_opp_${i}`;
-        battlefield.push({
+        const token = {
           id: tokenId,
           controller: opponentId,
           owner: opponentId,
@@ -1019,15 +1031,24 @@ function applyTemptingOfferEffect(
           summoningSickness: false, // Haste
           card: {
             id: tokenId,
-            name: 'Elemental Token',
+            name: 'Elemental',
             type_line: 'Token Creature — Elemental',
             power: '1',
             toughness: '1',
             colors: ['R'],
             oracle_text: 'Haste',
+            keywords: ['Haste'],
+            image_uris: elementalImageUrls,
           },
-        });
+        };
+        battlefield.push(token);
+        createdTokens.push({ token, controller: opponentId });
       }
+    }
+    
+    // Trigger ETB effects for each token (Soul Warden, etc.)
+    for (const { token, controller } of createdTokens) {
+      triggerETBEffectsForToken(ctx as any, token, controller);
     }
     
     io.to(pending.gameId).emit("chat", {
@@ -1097,46 +1118,68 @@ function applyTemptingOfferEffect(
   }
   // Tempt with Bunnies: Create rabbit tokens
   else if (cardNameLower.includes('bunnies')) {
+    // Get rabbit token image
+    const rabbitImageUrls = getTokenImageUrls('Rabbit', 1, 1, ['W']);
+    
+    // Create a mock game context for triggering ETB effects
+    const ctx = { state: game.state };
+    
     // Create rabbit tokens for initiator
+    const createdTokens: any[] = [];
     for (let i = 0; i < initiatorBonusCount; i++) {
       const tokenId = `tok_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_bunny_${i}`;
-      battlefield.push({
+      const token = {
         id: tokenId,
         controller: initiator,
         owner: initiator,
         tapped: false,
         counters: {},
         isToken: true,
+        summoningSickness: true,
         card: {
           id: tokenId,
-          name: 'Rabbit Token',
+          name: 'Rabbit',
           type_line: 'Token Creature — Rabbit',
           power: '1',
           toughness: '1',
           colors: ['W'],
+          oracle_text: '',
+          image_uris: rabbitImageUrls,
         },
-      });
+      };
+      battlefield.push(token);
+      createdTokens.push({ token, controller: initiator });
     }
     
     // Create tokens for each accepting opponent
     for (const opponentId of acceptedBy) {
       const tokenId = `tok_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_bunny_opp`;
-      battlefield.push({
+      const token = {
         id: tokenId,
         controller: opponentId,
         owner: opponentId,
         tapped: false,
         counters: {},
         isToken: true,
+        summoningSickness: true,
         card: {
           id: tokenId,
-          name: 'Rabbit Token',
+          name: 'Rabbit',
           type_line: 'Token Creature — Rabbit',
           power: '1',
           toughness: '1',
           colors: ['W'],
+          oracle_text: '',
+          image_uris: rabbitImageUrls,
         },
-      });
+      };
+      battlefield.push(token);
+      createdTokens.push({ token, controller: opponentId });
+    }
+    
+    // Trigger ETB effects for each token (Soul Warden, etc.)
+    for (const { token, controller } of createdTokens) {
+      triggerETBEffectsForToken(ctx as any, token, controller);
     }
     
     io.to(pending.gameId).emit("chat", {
