@@ -8,6 +8,7 @@ import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone } from "./zones.js";
 import { runSBA } from "./counters_tokens.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
+import { detectETBTappedPattern } from "../../socket/land-helpers.js";
 
 /**
  * Detect "enters with counters" patterns from a card's oracle text.
@@ -4060,12 +4061,22 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
   // - If a land becomes a creature later (via animation), it would need to be checked at that time
   const hasSummoningSickness = isCreature && !hasHaste;
   
+  // Check if land enters tapped based on oracle text
+  // This handles lands like Emeria, the Sky Ruin, Temples, Guildgates, etc.
+  const oracleText = card.oracle_text || '';
+  const etbTappedStatus = detectETBTappedPattern(oracleText);
+  const shouldEnterTapped = isLand && etbTappedStatus === 'always';
+  
+  if (shouldEnterTapped) {
+    console.log(`[playLand] ${card.name || 'Land'} enters tapped (ETB-tapped pattern detected)`);
+  }
+  
   state.battlefield = state.battlefield || [];
   state.battlefield.push({
     id: uid("perm"),
     controller: playerId,
     owner: playerId,
-    tapped: false,
+    tapped: shouldEnterTapped,  // ETB tapped lands enter tapped
     counters: {},
     basePower: baseP,
     baseToughness: baseT,
