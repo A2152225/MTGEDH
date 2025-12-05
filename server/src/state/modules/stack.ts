@@ -665,6 +665,11 @@ export function triggerETBEffectsForToken(
       
       // another_permanent_etb triggers
       if (trigger.triggerType === 'another_permanent_etb') {
+        // Check if this trigger only fires on creatures (creatureOnly flag)
+        if ((trigger as any).creatureOnly && !isCreature) {
+          continue; // Skip - this trigger only fires on creatures
+        }
+        
         const triggerController = perm.controller || controller;
         
         state.stack = state.stack || [];
@@ -758,6 +763,11 @@ function triggerETBEffectsForPermanent(
       
       // another_permanent_etb triggers
       if (trigger.triggerType === 'another_permanent_etb') {
+        // Check if this trigger only fires on creatures (creatureOnly flag)
+        if ((trigger as any).creatureOnly && !isCreature) {
+          continue; // Skip - this trigger only fires on creatures
+        }
+        
         const triggerController = perm.controller || controller;
         state.stack = state.stack || [];
         const triggerId = uid("trigger");

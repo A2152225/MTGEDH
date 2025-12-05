@@ -843,18 +843,33 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     });
   }
   
-  // "Whenever another permanent enters the battlefield" - ANY permanent, not just yours
-  // This is the Altar of the Brood pattern: "Whenever another permanent enters the battlefield, each opponent mills a card."
-  // Also catches variations like "whenever another creature enters the battlefield" (Soul Warden, Auriok Champion)
-  // Also catches color-restricted patterns like "whenever another white or black creature enters" (e.g., some tribal cards)
-  // NOTE: Auriok Champion has NO color restriction on its ETB trigger - it triggers on ANY creature
-  // The pattern allows optional color/type modifiers before "creature" or "permanent"
-  const anotherPermanentAnyETBMatch = oracleText.match(/whenever another (?:[\w\s]+)?(?:creature|permanent) enters the battlefield(?!.*under your control),?\s*([^.]+)/i);
-  if (anotherPermanentAnyETBMatch && !triggers.some(t => t.triggerType === 'permanent_etb')) {
-    // Extract any color restriction for filtering at trigger evaluation time
-    const colorRestrictionMatch = oracleText.match(/whenever another ([\w\s]+?) (?:creature|permanent) enters/i);
+  // "Whenever another creature enters the battlefield" (Soul Warden, Auriok Champion, etc.)
+  // This is CREATURE-ONLY - does NOT trigger on non-creature permanents like artifacts
+  // NOTE: Soul Warden says "Whenever another creature enters the battlefield, you gain 1 life."
+  // This should NOT trigger on artifacts, enchantments, lands, etc.
+  const anotherCreatureAnyETBMatch = oracleText.match(/whenever another (?:[\w\s]+)?creature enters the battlefield(?!.*under your control),?\s*([^.]+)/i);
+  if (anotherCreatureAnyETBMatch && !triggers.some(t => t.triggerType === 'creature_etb')) {
+    // Extract any color restriction for filtering at trigger evaluation time (e.g., "white or black creature")
+    const colorRestrictionMatch = oracleText.match(/whenever another ([\w\s]+?) creature enters/i);
     const colorRestriction = colorRestrictionMatch ? colorRestrictionMatch[1].trim().toLowerCase() : null;
     
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'creature_etb', // Use creature_etb so it only fires on creatures
+      description: anotherCreatureAnyETBMatch[1].trim(),
+      effect: anotherCreatureAnyETBMatch[1].trim(),
+      mandatory: true,
+      // Store color restriction for filtering (e.g., "white or black" for Auriok Champion)
+      colorRestriction: colorRestriction && colorRestriction !== 'another' ? colorRestriction : undefined,
+    } as any);
+  }
+  
+  // "Whenever another permanent enters the battlefield" - ANY permanent type
+  // This is the Altar of the Brood pattern: "Whenever another permanent enters the battlefield, each opponent mills a card."
+  // This triggers on ANY permanent (creature, artifact, enchantment, land, planeswalker)
+  const anotherPermanentAnyETBMatch = oracleText.match(/whenever another (?:[\w\s]+)?permanent enters the battlefield(?!.*under your control),?\s*([^.]+)/i);
+  if (anotherPermanentAnyETBMatch && !triggers.some(t => t.triggerType === 'permanent_etb')) {
     triggers.push({
       permanentId,
       cardName,
@@ -862,28 +877,45 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       description: anotherPermanentAnyETBMatch[1].trim(),
       effect: anotherPermanentAnyETBMatch[1].trim(),
       mandatory: true,
-      // Store color restriction for filtering (e.g., "white or black" for Auriok Champion)
-      colorRestriction: colorRestriction && colorRestriction !== 'another' ? colorRestriction : undefined,
     } as any);
   }
   
-  // "Whenever another permanent enters the battlefield under your control"
-  // Also handles: "whenever another creature you control enters" (Guide of Souls)
-  // Also handles color-restricted patterns
-  const anotherPermanentETBMatch = oracleText.match(/whenever another (?:[\w\s]+)?(?:creature|permanent)(?: you control)? enters(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i);
-  if (anotherPermanentETBMatch && !triggers.some(t => t.triggerType === 'another_permanent_etb')) {
+  // "Whenever another creature enters the battlefield under your control" (Guide of Souls, etc.)
+  // This is CREATURE-ONLY, triggers only on creatures YOU control
+  const anotherCreatureControlledETBMatch = oracleText.match(/whenever another (?:[\w\s]+)?creature(?: you control)? enters(?: the battlefield)?(?: under your control),?\s*([^.]+)/i);
+  // Ensure the pattern requires "under your control" or "you control"
+  const hasControlRestriction = /whenever another [\w\s]*creature (?:you control|under your control)/.test(oracleText.toLowerCase()) ||
+                                 /whenever another [\w\s]*creature enters(?: the battlefield)? under your control/.test(oracleText.toLowerCase());
+  if (anotherCreatureControlledETBMatch && hasControlRestriction && !triggers.some(t => t.triggerType === 'another_permanent_etb' || t.triggerType === 'creature_etb')) {
     // Extract any color restriction
-    const colorRestrictionMatch = oracleText.match(/whenever another ([\w\s]+?) (?:creature|permanent)/i);
+    const colorRestrictionMatch = oracleText.match(/whenever another ([\w\s]+?) creature/i);
     const colorRestriction = colorRestrictionMatch ? colorRestrictionMatch[1].trim().toLowerCase() : null;
     
     triggers.push({
       permanentId,
       cardName,
-      triggerType: 'another_permanent_etb',
-      description: anotherPermanentETBMatch[1].trim(),
-      effect: anotherPermanentETBMatch[1].trim(),
+      triggerType: 'another_permanent_etb', // This is controlled creature, so another_permanent_etb is appropriate
+      description: anotherCreatureControlledETBMatch[1].trim(),
+      effect: anotherCreatureControlledETBMatch[1].trim(),
       mandatory: true,
       colorRestriction: colorRestriction && colorRestriction !== 'another' ? colorRestriction : undefined,
+      creatureOnly: true, // Flag to indicate this only triggers on creatures
+    } as any);
+  }
+  
+  // "Whenever another permanent enters the battlefield under your control" (non-creature version)
+  // This triggers on ANY permanent you control
+  const anotherPermanentControlledETBMatch = oracleText.match(/whenever another (?:[\w\s]+)?permanent(?: you control)? enters(?: the battlefield)?(?: under your control),?\s*([^.]+)/i);
+  const hasPermanentControlRestriction = /whenever another [\w\s]*permanent (?:you control|under your control)/.test(oracleText.toLowerCase()) ||
+                                          /whenever another [\w\s]*permanent enters(?: the battlefield)? under your control/.test(oracleText.toLowerCase());
+  if (anotherPermanentControlledETBMatch && hasPermanentControlRestriction && !triggers.some(t => t.triggerType === 'another_permanent_etb')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'another_permanent_etb',
+      description: anotherPermanentControlledETBMatch[1].trim(),
+      effect: anotherPermanentControlledETBMatch[1].trim(),
+      mandatory: true,
     } as any);
   }
   
