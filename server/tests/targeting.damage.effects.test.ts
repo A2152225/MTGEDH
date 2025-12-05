@@ -50,6 +50,38 @@ describe('Damage effects via resolveSpell (ANY_TARGET_DAMAGE, DAMAGE_EACH)', () 
     expect(g.state.battlefield.find(p => p.id === creatureId)).toBeUndefined();
   });
 
+  it('Lightning Bolt (3 damage) kills a 1/1 creature - simulates AI casting', () => {
+    const g = createInitialGameState('t_lightning_bolt');
+
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+
+    // Create a 1/1 creature (Skrelv-like) under p2's control
+    g.createToken(p2, 'Skrelv, Defector Mite', 1, 1, 1);
+    const creatureId = g.state.battlefield[0].id;
+    
+    // Verify creature is on battlefield with proper baseToughness
+    const creatureBefore = g.state.battlefield.find(p => p.id === creatureId);
+    expect(creatureBefore).toBeDefined();
+    expect(creatureBefore?.baseToughness).toBe(1);
+
+    // p1 (AI) casts Lightning Bolt (3 damage) targeting the creature
+    g.applyEvent({
+      type: 'resolveSpell',
+      caster: p1,
+      cardId: 'lightning_bolt',
+      spec: { op: 'ANY_TARGET_DAMAGE', filter: 'ANY', minTargets: 1, maxTargets: 1, amount: 3 },
+      chosen: [{ kind: 'permanent', id: creatureId } as TargetRef]
+    });
+
+    // The 1/1 creature should be destroyed (3 damage >= 1 toughness)
+    const creatureAfter = g.state.battlefield.find(p => p.id === creatureId);
+    expect(creatureAfter).toBeUndefined();
+  });
+
   it('DAMAGE_EACH applies to all creatures and removes 1-toughness tokens when amount >= toughness', () => {
     const g = createInitialGameState('t_dmg_each');
 

@@ -1901,6 +1901,11 @@ async function executeAICastSpell(
 
 /**
  * Resolve AI's spell from the stack
+ * 
+ * @deprecated This function is not used. Spell resolution happens through
+ * executePassPriority() which calls game.resolveTopOfStack() when all players
+ * pass priority in succession. This function is kept for reference but should
+ * not be called.
  */
 async function resolveAISpell(
   io: Server,
