@@ -4,6 +4,7 @@ import { applyStateBasedActions, evaluateAction } from "../../rules-engine";
 import { uid } from "../utils";
 import { recalculatePlayerEffects } from "./game-state-effects.js";
 import { getDeathTriggers } from "./triggered-abilities.js";
+import { getTokenImageUrls } from "../../services/tokens.js";
 
 /**
  * Counter modification effects that double or halve counters
@@ -206,6 +207,10 @@ export function createToken(
   baseToughness?: number
 ) {
   const { state, bumpSeq } = ctx;
+  
+  // Get token image URLs from the token service
+  const imageUrls = getTokenImageUrls(name, basePower, baseToughness);
+  
   for (let i = 0; i < Math.max(1, count | 0); i++) {
     state.battlefield.push({
       id: uid("tok"),
@@ -215,7 +220,14 @@ export function createToken(
       counters: {},
       basePower,
       baseToughness,
-      card: { id: uid("card"), name, type_line: "Token Creature", zone: "battlefield" }
+      isToken: true,
+      card: { 
+        id: uid("card"), 
+        name, 
+        type_line: "Token Creature", 
+        zone: "battlefield",
+        image_uris: imageUrls,
+      }
     });
   }
   bumpSeq();

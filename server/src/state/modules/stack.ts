@@ -8,7 +8,7 @@ import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone } from "./zones.js";
 import { runSBA } from "./counters_tokens.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
-import { detectETBTappedPattern } from "../../socket/land-helpers.js";
+import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } from "../../socket/land-helpers.js";
 
 /**
  * Detect "enters with counters" patterns from a card's oracle text.
@@ -3809,6 +3809,9 @@ function createBeastToken(ctx: GameContext, controller: PlayerID, name: string, 
   const colorLetter = colorMap[lowerColor] || colorMap[lowerColor.charAt(0)] || 'G';
   const colorLetters = [colorLetter];
   
+  // Get token image URLs from the token service
+  const imageUrls = getTokenImageUrls(creatureType, power, toughness, colorLetters);
+  
   state.battlefield.push({
     id: tokenId,
     controller,
@@ -3827,6 +3830,7 @@ function createBeastToken(ctx: GameContext, controller: PlayerID, name: string, 
       toughness: String(toughness),
       zone: "battlefield",
       colors: colorLetters,
+      image_uris: imageUrls,
     },
   } as any);
   
@@ -3994,6 +3998,10 @@ function createTokenFromSpec(ctx: GameContext, controller: PlayerID, spec: Token
   
   state.battlefield = state.battlefield || [];
   const tokenId = uid("token");
+  
+  // Get token image URLs from the token service
+  const imageUrls = getTokenImageUrls(spec.name, spec.power, spec.toughness, spec.colors);
+  
   state.battlefield.push({
     id: tokenId,
     controller,
@@ -4012,6 +4020,7 @@ function createTokenFromSpec(ctx: GameContext, controller: PlayerID, spec: Token
       toughness: String(spec.toughness),
       zone: "battlefield",
       colors: spec.colors,
+      image_uris: imageUrls,
     },
   } as any);
 }
@@ -4025,6 +4034,10 @@ function createTreasureToken(ctx: GameContext, controller: PlayerID): void {
   
   state.battlefield = state.battlefield || [];
   const tokenId = uid("treasure");
+  
+  // Get token image URLs from the token service
+  const imageUrls = getTokenImageUrls("Treasure");
+  
   state.battlefield.push({
     id: tokenId,
     controller,
@@ -4039,6 +4052,7 @@ function createTreasureToken(ctx: GameContext, controller: PlayerID): void {
       oracle_text: "{T}, Sacrifice this artifact: Add one mana of any color.",
       zone: "battlefield",
       colors: [],
+      image_uris: imageUrls,
     },
   } as any);
 }
@@ -4124,10 +4138,59 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
   // This handles lands like Emeria, the Sky Ruin, Temples, Guildgates, etc.
   const oracleText = card.oracle_text || '';
   const etbTappedStatus = detectETBTappedPattern(oracleText);
-  const shouldEnterTapped = isLand && etbTappedStatus === 'always';
   
-  if (shouldEnterTapped) {
-    console.log(`[playLand] ${card.name || 'Land'} enters tapped (ETB-tapped pattern detected)`);
+  let shouldEnterTapped = false;
+  
+  if (isLand) {
+    if (etbTappedStatus === 'always') {
+      // Unconditional ETB tapped (temples, guildgates, etc.)
+      shouldEnterTapped = true;
+      console.log(`[playLand] ${card.name || 'Land'} enters tapped (ETB-tapped pattern detected)`);
+    } else if (etbTappedStatus === 'conditional') {
+      // Conditional ETB tapped - evaluate based on board state
+      // Count other lands controlled by this player
+      const otherLandCount = battlefield.filter((p: any) => {
+        if (p.controller !== playerId) return false;
+        const typeLine = (p.card?.type_line || '').toLowerCase();
+        return typeLine.includes('land');
+      }).length;
+      
+      // Count BASIC lands specifically for battle lands (BFZ tango lands)
+      // Also track land subtypes for check lands
+      const controlledLandTypes: string[] = [];
+      let basicLandCount = 0;
+      for (const p of battlefield) {
+        if (p.controller !== playerId) continue;
+        const typeLine = (p.card?.type_line || '').toLowerCase();
+        
+        // Check if this is a basic land (has "basic" in the type line)
+        if (typeLine.includes('basic')) {
+          basicLandCount++;
+        }
+        
+        const subtypes = getLandSubtypes(typeLine);
+        controlledLandTypes.push(...subtypes);
+      }
+      
+      // Check oracle text for the specific conditional pattern
+      const oracleTextLower = oracleText.toLowerCase();
+      const hasBattleLandPattern = oracleTextLower.includes('two or more basic lands');
+      
+      if (hasBattleLandPattern) {
+        // Battle land (BFZ tango land) - check basic land count
+        shouldEnterTapped = basicLandCount < 2;
+        console.log(`[playLand] ${card.name || 'Land'} battle land check: ${basicLandCount} basic lands - enters ${shouldEnterTapped ? 'tapped' : 'untapped'}`);
+      } else {
+        // Use general conditional evaluation for check lands, fast lands, etc.
+        const evaluation = evaluateConditionalLandETB(
+          oracleText,
+          otherLandCount,
+          controlledLandTypes
+        );
+        shouldEnterTapped = evaluation.shouldEnterTapped;
+        console.log(`[playLand] ${card.name || 'Land'} conditional ETB: ${evaluation.reason}`);
+      }
+    }
   }
   
   state.battlefield = state.battlefield || [];
