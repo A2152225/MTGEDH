@@ -31,6 +31,7 @@ export type TargetRestrictionType =
   | 'dealt_damage_to_you_this_turn'     // Reciprocate: "target creature that dealt damage to you this turn"
   | 'dealt_combat_damage_to_you_this_turn' // Similar but combat-only
   | 'attacked_this_turn'                 // "target creature that attacked this turn"
+  | 'attacked_or_blocked_this_turn'      // "target attacking or blocking creature" (Repel Calamity)
   | 'blocked_this_turn'                  // "target creature that blocked this turn"
   | 'entered_this_turn'                  // "target creature that entered the battlefield this turn"
   | 'tapped'                             // "target tapped creature"
@@ -280,7 +281,7 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
     // Check if there's an "attacking or blocking" restriction (Repel Calamity)
     const hasAttackingOrBlockingRestriction = /target attacking or blocking creature/i.test(t);
     const targetRestriction = hasAttackingOrBlockingRestriction ? {
-      type: 'attacked_this_turn' as TargetRestrictionType, // Note: need to check for both attacking and blocking at runtime
+      type: 'attacked_or_blocked_this_turn' as TargetRestrictionType,
       description: 'that is attacking or blocking',
     } : undefined;
     const targetDescription = hasAttackingOrBlockingRestriction 
@@ -306,7 +307,7 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
     // Check if there's an "attacking or blocking" restriction
     const hasAttackingOrBlockingRestriction = /target attacking or blocking creature/i.test(t);
     const targetRestriction = hasAttackingOrBlockingRestriction ? {
-      type: 'attacked_this_turn' as TargetRestrictionType,
+      type: 'attacked_or_blocked_this_turn' as TargetRestrictionType,
       description: 'that is attacking or blocking',
     } : undefined;
     const targetDescription = hasAttackingOrBlockingRestriction 
@@ -674,17 +675,16 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
         case 'attacked_this_turn': {
           // Check if the creature is currently attacking or attacked this turn
           // During combat, 'attacking' is set on the permanent
-          // NOTE: For "attacking or blocking" restrictions (like Repel Calamity),
-          // we use the 'attacked_this_turn' type but check the description for "blocking"
+          const isAttacking = !!(p as any).attacking || !!(p as any).attackedThisTurn;
+          meetsRestriction = isAttacking;
+          break;
+        }
+        
+        case 'attacked_or_blocked_this_turn': {
+          // Check if the creature is currently attacking OR blocking (Repel Calamity)
           const isAttacking = !!(p as any).attacking || !!(p as any).attackedThisTurn;
           const isBlocking = !!(p as any).blocking || !!(p as any).blockedThisTurn;
-          
-          // Check if this restriction includes blocking
-          if (restriction.description?.includes('blocking')) {
-            meetsRestriction = isAttacking || isBlocking;
-          } else {
-            meetsRestriction = isAttacking;
-          }
+          meetsRestriction = isAttacking || isBlocking;
           break;
         }
         
