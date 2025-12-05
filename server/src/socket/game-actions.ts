@@ -1704,9 +1704,20 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       console.log(`[completeCastSpell] Completing cast for ${cardId} with targets: ${targets?.join(',') || 'none'}`);
 
-      // Re-use the castSpellFromHand logic by emitting internally
-      // This avoids duplicating all the validation/payment/casting logic
-      socket.emit("castSpellFromHand", { gameId, cardId, targets, payment });
+      // Programmatically invoke the castSpellFromHand handler directly
+      // NOTE: socket.emit() sends to the client, not the server handler!
+      // We use socket.listeners() to get the registered handler and call it directly
+      const castHandlers = socket.listeners("castSpellFromHand");
+      if (castHandlers && castHandlers.length > 0) {
+        // Call the first (and typically only) handler with the spell cast data
+        castHandlers[0]({ gameId, cardId, targets, payment });
+      } else {
+        console.error(`[completeCastSpell] No castSpellFromHand handler found`);
+        socket.emit("error", {
+          code: "COMPLETE_CAST_ERROR",
+          message: "Internal error: spell casting handler not found",
+        });
+      }
       
     } catch (err: any) {
       console.error(`[completeCastSpell] Error:`, err);
