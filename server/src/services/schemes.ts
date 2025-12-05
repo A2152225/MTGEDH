@@ -220,11 +220,6 @@ const KNOWN_SCHEMES: Record<string, { name: string; oracle_text: string; is_ongo
     oracle_text: "When you set this scheme in motion, until your next turn, whenever a player taps a land for mana, that player adds one mana of any type that land produced.",
     is_ongoing: false
   },
-  "b.f.m. (big furry monster, left)": {
-    name: "B.F.M. (Big Furry Monster)",
-    oracle_text: "When you set this scheme in motion, create a 99/99 black B.F.M. creature token named B.F.M. (Big Furry Monster).",
-    is_ongoing: false
-  },
   "into the void, without a trace": {
     name: "Into the Void, Without a Trace",
     oracle_text: "When you set this scheme in motion, exile target nonland permanent, then exile a card from its controller's hand at random.",

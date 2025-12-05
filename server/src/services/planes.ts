@@ -408,8 +408,8 @@ const KNOWN_PLANES: Record<string, { name: string; oracle_text: string; plane_ty
  */
 const KNOWN_PHENOMENA: Record<string, { name: string; oracle_text: string }> = {
   "chaotic aether": {
-    name: "Chaotic Æther",
-    oracle_text: "When you encounter Chaotic Æther, each blank roll of the planar die is a {CHAOS} roll until a player planeswalks away from a plane. (Then planeswalk away from this phenomenon.)"
+    name: "Chaotic Aether",
+    oracle_text: "When you encounter Chaotic Aether, each blank roll of the planar die is a {CHAOS} roll until a player planeswalks away from a plane. (Then planeswalk away from this phenomenon.)"
   },
   "interplanar tunnel": {
     name: "Interplanar Tunnel",

@@ -220,18 +220,6 @@ const KNOWN_EMBLEMS: Record<string, { name: string; oracle_text: string; colors:
     oracle_text: "You may cast nonland cards from your hand without paying their mana costs.",
     colors: ["G", "W", "U"]
   },
-  
-  // Colorless emblems
-  "karn liberated": {
-    name: "Karn Liberated Emblem",
-    oracle_text: "This emblem represents restarting the game. (Not a real emblem - Karn's ultimate restarts the game)",
-    colors: []
-  },
-  "ugin, the spirit dragon": {
-    name: "Ugin, the Spirit Dragon Emblem",
-    oracle_text: "You gain 7 life, draw seven cards, then put up to seven permanent cards from your hand onto the battlefield. (Not a real emblem)",
-    colors: []
-  },
 };
 
 /**
@@ -240,16 +228,23 @@ const KNOWN_EMBLEMS: Record<string, { name: string; oracle_text: string; colors:
  * @returns Emblem data or undefined if not found
  */
 export function getEmblemForPlaneswalker(planeswalkerName: string): { name: string; oracle_text: string; colors: string[] } | undefined {
-  const nameLower = planeswalkerName.toLowerCase();
+  const nameLower = planeswalkerName.toLowerCase().trim();
   
   // Direct lookup
   if (KNOWN_EMBLEMS[nameLower]) {
     return KNOWN_EMBLEMS[nameLower];
   }
   
-  // Partial match (e.g., "Elspeth" matches "elspeth, knight-errant")
+  // Match by first name (before comma) - more precise than includes()
+  // e.g., "Elspeth" matches "elspeth, knight-errant"
   for (const [key, emblem] of Object.entries(KNOWN_EMBLEMS)) {
-    if (key.includes(nameLower) || nameLower.includes(key.split(',')[0])) {
+    const keyFirstName = key.split(',')[0].trim();
+    const searchFirstName = nameLower.split(',')[0].trim();
+    
+    // Match if the first name matches exactly, or if one starts with the other
+    if (keyFirstName === searchFirstName || 
+        keyFirstName.startsWith(searchFirstName) || 
+        searchFirstName.startsWith(keyFirstName)) {
       return emblem;
     }
   }
