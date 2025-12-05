@@ -50,8 +50,11 @@ function derivedToughness(perm: BattlefieldPermanent): number | undefined {
   const net = plus - minus;
   const totalToughness = perm.baseToughness + net;
   // Damage reduces effective toughness for SBA purposes
-  // Check both 'damage' and 'markedDamage' for combat damage tracking
-  const damage = (perm as any).damage ?? (perm as any).markedDamage ?? 0;
+  // Check 'damage', 'markedDamage', and 'damageMarked' for all damage tracking patterns
+  // - 'damage' is used by spell effects (Lightning Bolt, etc.)
+  // - 'markedDamage' is used by combat damage
+  // - 'damageMarked' is used by triggered ability damage
+  const damage = (perm as any).damage ?? (perm as any).markedDamage ?? (perm as any).damageMarked ?? 0;
   return totalToughness - damage;
 }
 
