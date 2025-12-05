@@ -3604,20 +3604,41 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       targetIds: targetIds,
     };
     
-    // Check if this is a spell cast that was waiting for targets
+    // Check if this is a spell cast that was waiting for targets (via requestCastSpell)
     // effectId format is "cast_${cardId}_${timestamp}"
     if (effectId && effectId.startsWith('cast_')) {
-      const parts = effectId.split('_');
-      if (parts.length >= 2) {
-        // cardId can contain underscores, so we join all parts except first and last
-        const cardId = parts.slice(1, -1).join('_');
+      // Check if we have pending spell cast info
+      const pendingCast = (game.state as any).pendingSpellCasts?.[effectId];
+      
+      if (pendingCast) {
+        // MTG Rule 601.2h: After targets chosen, now request payment
+        console.log(`[targetSelectionConfirm] Targets selected for ${pendingCast.cardName}, now requesting payment`);
         
-        console.log(`[targetSelectionConfirm] Spell cast with targets: cardId=${cardId}, targets=${targetIds.join(',')}`);
+        // Store targets with the pending cast
+        pendingCast.targets = targetIds;
         
-        // Now cast the spell with the selected targets
-        if (typeof game.applyEvent === 'function') {
-          game.applyEvent({ type: "castSpell", playerId: pid, cardId, targets: targetIds });
-          console.log(`[targetSelectionConfirm] Spell ${cardId} cast with targets via applyEvent`);
+        // Emit payment required event
+        emitToPlayer(io, pid as string, "paymentRequired", {
+          gameId,
+          cardId: pendingCast.cardId,
+          cardName: pendingCast.cardName,
+          manaCost: pendingCast.manaCost,
+          effectId,
+          targets: targetIds,
+        });
+      } else {
+        // Legacy flow - old-style cast that bypassed requestCastSpell
+        // Keep the old behavior for backward compatibility
+        const parts = effectId.split('_');
+        if (parts.length >= 2) {
+          const cardId = parts.slice(1, -1).join('_');
+          
+          console.log(`[targetSelectionConfirm] Legacy spell cast with targets: cardId=${cardId}, targets=${targetIds.join(',')}`);
+          
+          if (typeof game.applyEvent === 'function') {
+            game.applyEvent({ type: "castSpell", playerId: pid, cardId, targets: targetIds });
+            console.log(`[targetSelectionConfirm] Spell ${cardId} cast with targets via applyEvent (legacy)`);
+          }
         }
       }
     }

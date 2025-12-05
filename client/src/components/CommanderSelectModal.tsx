@@ -101,7 +101,18 @@ export const CommanderSelectModal: React.FC<CommanderSelectModalProps> = ({
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
       const idx = prev.indexOf(id);
-      if (idx >= 0) return prev.filter(x => x !== id);
+      if (idx >= 0) {
+        // Deselecting - also clear the manual name slot if it matches this candidate
+        const deselectedCard = candidates?.find(c => c.id === id);
+        if (deselectedCard?.name) {
+          setManualNames(manualPrev => 
+            manualPrev.map(nm => 
+              normalizeNameLower(nm) === normalizeNameLower(deselectedCard.name) ? '' : nm
+            )
+          );
+        }
+        return prev.filter(x => x !== id);
+      }
       // Add new id at end, but don't auto-add more than max
       const next = [...prev, id].slice(0, max);
       return next;
@@ -109,6 +120,15 @@ export const CommanderSelectModal: React.FC<CommanderSelectModalProps> = ({
   };
 
   const removeSelected = (id: string) => {
+    // Also clear the manual name slot if it matches this candidate
+    const deselectedCard = candidates?.find(c => c.id === id);
+    if (deselectedCard?.name) {
+      setManualNames(manualPrev => 
+        manualPrev.map(nm => 
+          normalizeNameLower(nm) === normalizeNameLower(deselectedCard.name) ? '' : nm
+        )
+      );
+    }
     setSelectedIds(prev => prev.filter(x => x !== id));
   };
 

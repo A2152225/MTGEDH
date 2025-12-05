@@ -7,6 +7,7 @@ import { getETBTriggersForPermanent, processLinkedExileReturns, registerLinkedEx
 import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone } from "./zones.js";
 import { runSBA } from "./counters_tokens.js";
+import { getTokenImageUrls } from "../../services/tokens.js";
 
 /**
  * Detect "enters with counters" patterns from a card's oracle text.
@@ -617,7 +618,7 @@ function isPermanentTypeLine(typeLine?: string): boolean {
  * @param token - The token permanent that just entered
  * @param controller - Controller of the token
  */
-function triggerETBEffectsForToken(
+export function triggerETBEffectsForToken(
   ctx: GameContext,
   token: any,
   controller: PlayerID
@@ -1434,6 +1435,9 @@ function executeTriggerEffect(
       const tokenName = creatureTypes.length > 0 ? creatureTypes.join(' ') : 'Token';
       const typeLine = `Token Creature — ${creatureTypes.join(' ')}`;
       
+      // Get token image from Scryfall data
+      const tokenImageUrls = getTokenImageUrls(tokenName, power, toughness, colors);
+      
       const token = {
         id: tokenId,
         controller,
@@ -1458,6 +1462,7 @@ function executeTriggerEffect(
           oracle_text: abilities.join(', '),
           keywords: abilities,
           zone: 'battlefield',
+          image_uris: tokenImageUrls,
         },
       } as any;
       
@@ -1749,19 +1754,54 @@ function executeTriggerEffect(
     if (targets.length > 0) {
       const targetPerm = (state.battlefield || []).find((p: any) => p?.id === targets[0]);
       if (targetPerm) {
+        const owner = targetPerm.owner;
+        const card = targetPerm.card;
+        
+        // Check if this is a commander (Rule 903.9a)
+        const commandZone = (ctx as any).commandZone || {};
+        const commanderInfo = commandZone[owner];
+        const commanderIds = commanderInfo?.commanderIds || [];
+        const isCommander = (card?.id && commanderIds.includes(card.id)) || targetPerm.isCommander === true;
+        
         // Move to graveyard
         const permIndex = state.battlefield.indexOf(targetPerm);
         if (permIndex !== -1) {
           const destroyedPermanentId = targetPerm.id;
           state.battlefield.splice(permIndex, 1);
-          const ownerZones = state.zones?.[targetPerm.owner];
-          if (ownerZones) {
-            ownerZones.graveyard = ownerZones.graveyard || [];
-            targetPerm.card.zone = 'graveyard';
-            ownerZones.graveyard.push(targetPerm.card);
-            ownerZones.graveyardCount = (ownerZones.graveyard || []).length;
+          
+          if (isCommander && card) {
+            // Commander Replacement Effect (Rule 903.9a):
+            // If a commander would be put into graveyard from anywhere,
+            // its owner may put it into the command zone instead.
+            state.pendingCommanderZoneChoice = state.pendingCommanderZoneChoice || {};
+            state.pendingCommanderZoneChoice[owner] = state.pendingCommanderZoneChoice[owner] || [];
+            state.pendingCommanderZoneChoice[owner].push({
+              commanderId: card.id,
+              commanderName: card.name,
+              destinationZone: 'graveyard',
+              card: {
+                id: card.id,
+                name: card.name,
+                type_line: card.type_line,
+                oracle_text: card.oracle_text,
+                image_uris: card.image_uris,
+                mana_cost: card.mana_cost,
+                power: card.power,
+                toughness: card.toughness,
+              },
+            });
+            console.log(`[executeTriggerEffect] Commander ${card.name} destroyed - DEFERRING zone change for player choice`);
+          } else {
+            // Non-commander - move directly to graveyard
+            const ownerZones = state.zones?.[targetPerm.owner];
+            if (ownerZones) {
+              ownerZones.graveyard = ownerZones.graveyard || [];
+              targetPerm.card.zone = 'graveyard';
+              ownerZones.graveyard.push(targetPerm.card);
+              ownerZones.graveyardCount = (ownerZones.graveyard || []).length;
+            }
+            console.log(`[executeTriggerEffect] Destroyed ${targetPerm.card?.name || targetPerm.id}`);
           }
-          console.log(`[executeTriggerEffect] Destroyed ${targetPerm.card?.name || targetPerm.id}`);
           
           // Process linked exile returns for the removed permanent
           processLinkedExileReturns(ctx, destroyedPermanentId);
@@ -2899,12 +2939,13 @@ export function resolveTopOfStack(ctx: GameContext) {
         
         if (isCommander && targetCard) {
           // Defer zone change - let player choose command zone or library
-          (state as any).pendingCommanderZoneChoice = (state as any).pendingCommanderZoneChoice || [];
-          ((state as any).pendingCommanderZoneChoice as any[]).push({
+          // Use object keyed by player ID for consistency with rest of codebase
+          (state as any).pendingCommanderZoneChoice = (state as any).pendingCommanderZoneChoice || {};
+          (state as any).pendingCommanderZoneChoice[owner] = (state as any).pendingCommanderZoneChoice[owner] || [];
+          (state as any).pendingCommanderZoneChoice[owner].push({
             commanderId: targetCard.id,
             commanderName: targetCard.name,
             destinationZone: 'library',
-            playerId: owner,
             card: {
               id: targetCard.id,
               name: targetCard.name,

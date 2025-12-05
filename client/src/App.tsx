@@ -166,6 +166,8 @@ export function App() {
     manaCost?: string; 
     tax?: number;
     isCommander?: boolean;
+    targets?: string[];  // Targets selected via requestCastSpell flow
+    effectId?: string;   // Effect ID for MTG-compliant flow
   } | null>(null);
 
   // Accordion state for Join / Active Games
@@ -1058,6 +1060,35 @@ export function App() {
     socket.on("targetSelectionRequest", handler);
     return () => {
       socket.off("targetSelectionRequest", handler);
+    };
+  }, [safeView?.id]);
+
+  // Payment required listener (for MTG-compliant spell casting: targets first, then payment)
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      cardId: string;
+      cardName: string;
+      manaCost: string;
+      effectId: string;
+      targets?: string[];
+      imageUrl?: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        // Store the pending targets and effectId so we can include them when casting
+        setSpellToCast({
+          cardId: payload.cardId,
+          cardName: payload.cardName,
+          manaCost: payload.manaCost,
+          targets: payload.targets,
+          effectId: payload.effectId,
+        });
+        setCastSpellModalOpen(true);
+      }
+    };
+    socket.on("paymentRequired", handler);
+    return () => {
+      socket.off("paymentRequired", handler);
     };
   }, [safeView?.id]);
 
@@ -2313,8 +2344,18 @@ export function App() {
         commanderNameOrId: spellToCast.cardId,
         payment: payment.length > 0 ? payment : undefined,
       });
+    } else if (spellToCast.effectId) {
+      // MTG-compliant flow: targets were already selected, now completing with payment
+      // Use completeCastSpell to finalize
+      socket.emit("completeCastSpell", {
+        gameId: safeView.id,
+        cardId: spellToCast.cardId,
+        targets: spellToCast.targets,
+        payment: payment.length > 0 ? payment : undefined,
+        effectId: spellToCast.effectId,
+      });
     } else {
-      // Cast spell from hand
+      // Legacy flow: direct cast from hand (will check targets on server)
       socket.emit("castSpellFromHand", {
         gameId: safeView.id,
         cardId: spellToCast.cardId,
@@ -2744,33 +2785,40 @@ export function App() {
     
     const cardFaces = (card as any).card_faces as CardFace[] | undefined;
     
-    // Determine mana cost based on choice
-    let manaCost: string | undefined;
-    let displayName = splitCardData.cardName;
-    
-    if (fused && cardFaces && cardFaces.length >= 2) {
-      // Fuse: combine both costs
-      manaCost = (cardFaces[0]?.mana_cost || '') + (cardFaces[1]?.mana_cost || '');
-      displayName = `${cardFaces[0]?.name || 'Left'} // ${cardFaces[1]?.name || 'Right'}`;
-    } else if (faceId.startsWith('face_') && cardFaces) {
-      const faceIndex = parseInt(faceId.replace('face_', ''), 10);
-      const chosenFace = cardFaces[faceIndex];
-      if (chosenFace) {
-        manaCost = chosenFace.mana_cost;
-        displayName = chosenFace.name || displayName;
-      }
-    }
-    
-    // Close split card modal and open payment modal
+    // Close split card modal
     setSplitCardModalOpen(false);
     setSplitCardData(null);
     
-    setSpellToCast({
+    // Determine face index for MTG-compliant flow
+    let faceIndex: number | undefined;
+    
+    if (fused && cardFaces && cardFaces.length >= 2) {
+      // Fuse: special case - for now use legacy flow
+      // TODO: Implement fuse handling in requestCastSpell
+      const manaCost = (cardFaces[0]?.mana_cost || '') + (cardFaces[1]?.mana_cost || '');
+      const displayName = `${cardFaces[0]?.name || 'Left'} // ${cardFaces[1]?.name || 'Right'}`;
+      setSpellToCast({
+        cardId: splitCardData.cardId,
+        cardName: displayName,
+        manaCost: manaCost || (card as any).mana_cost,
+      });
+      setCastSpellModalOpen(true);
+      return;
+    } else if (faceId.startsWith('face_') && cardFaces) {
+      faceIndex = parseInt(faceId.replace('face_', ''), 10);
+      // Validate faceIndex bounds
+      if (faceIndex < 0 || faceIndex >= cardFaces.length) {
+        console.error(`[handleSplitCardChoose] Invalid faceIndex: ${faceIndex}`);
+        return;
+      }
+    }
+    
+    // Use MTG-compliant flow: request targets first if needed
+    socket.emit("requestCastSpell", {
+      gameId: safeView.id,
       cardId: splitCardData.cardId,
-      cardName: displayName,
-      manaCost: manaCost || (card as any).mana_cost,
+      faceIndex,
     });
-    setCastSpellModalOpen(true);
   };
 
   const handleSplitCardCancel = () => {
@@ -3294,13 +3342,12 @@ export function App() {
                   });
                   setSplitCardModalOpen(true);
                 } else {
-                  // Regular card - go directly to payment modal
-                  setSpellToCast({
+                  // Regular card - use MTG-compliant flow: request targets first, then payment
+                  // Server will check if targets are needed and respond appropriately
+                  socket.emit("requestCastSpell", {
+                    gameId: safeView.id,
                     cardId,
-                    cardName: (card as any).name || 'Card',
-                    manaCost: (card as any).mana_cost,
                   });
-                  setCastSpellModalOpen(true);
                 }
               }}
               onCastCommander={handleCastCommander}

@@ -18,7 +18,6 @@ import type {
   ManaPool,
 } from '../../../shared/src';
 import type { ImagePref } from './BattlefieldGrid';
-import { TokenGroups } from './TokenGroups';
 import { AttachmentLines } from './AttachmentLines';
 import { HandGallery } from './HandGallery';
 import { LandRow } from './LandRow';
@@ -515,7 +514,10 @@ export function TableLayout(props: {
     const ny = dirY / mag;
     const shift = Math.min(Math.max(halfH * 0.18, 120), 600);
     const cx2 = pos.x + nx * shift;
-    const cy2 = pos.y + ny * shift;
+    // Add a vertical offset to push view down slightly (30px in screen space at zoom ~1)
+    // This prevents the mulligan bar from overlapping the deck import button on join
+    const mulliganBarOffset = 30;
+    const cy2 = pos.y + ny * shift + mulliganBarOffset;
     setCam(c => ({ x: cx2, y: cy2, z: preserveZoom ? c.z : c.z }));
   }
 
@@ -936,16 +938,12 @@ export function TableLayout(props: {
               {ordered.map((pb, i) => {
                 const pos = seatPositions[i];
                 const perms = pb.permanents;
-                // Tokens are identified by the isToken property, not by type_line
-                // Use type guard to safely check for isToken
-                const isTokenPermanent = (x: BattlefieldPermanent): boolean => {
-                  return 'isToken' in x && x.isToken === true;
-                };
-                const tokens = perms.filter(isTokenPermanent);
-                const nonTokens = perms.filter(x => !isTokenPermanent(x));
-                const lands = splitLands ? nonTokens.filter(x => isLandTypeLine((x.card as any)?.type_line)) : [];
+                // Tokens are now shown as regular battlefield cards, not in a separate section
+                // This gives them proper card display with images like other permanents
+                const lands = splitLands ? perms.filter(x => isLandTypeLine((x.card as any)?.type_line)) : [];
                 // Separate mana sources (mana rocks/dorks) from other permanents
-                const nonLands = splitLands ? nonTokens.filter(x => !isLandTypeLine((x.card as any)?.type_line)) : nonTokens;
+                // Include ALL non-land permanents (both tokens and non-tokens)
+                const nonLands = splitLands ? perms.filter(x => !isLandTypeLine((x.card as any)?.type_line)) : perms;
                 const manaSources = nonLands.filter(x => isManaSource(x));
                 const others = nonLands.filter(x => !isManaSource(x));
                 const canTargetPlayer = highlightPlayerTargets?.has(pb.player.id) ?? false;
@@ -1339,22 +1337,6 @@ export function TableLayout(props: {
                               isOwnTurn={!!isOwnTurn}
                               isMainPhase={!!isMainPhase}
                               stackEmpty={stackEmpty}
-                            />
-                          </div>
-                        )}
-
-                        {tokens.length > 0 && (
-                          <div style={{ marginTop: 12 }} data-no-zoom>
-                            <TokenGroups
-                              tokens={tokens}
-                              groupMode="name+pt+attach"
-                              attachedToSet={attachedToSet}
-                              onBulkCounter={(ids, deltas) =>
-                                onBulkCounter?.(ids, deltas)
-                              }
-                              highlightTargets={highlightPermTargets}
-                              selectedTargets={selectedPermTargets}
-                              onTokenClick={onPermanentClick}
                             />
                           </div>
                         )}

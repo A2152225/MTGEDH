@@ -658,13 +658,14 @@ export function movePermanentToLibrary(
     // Cast card as any to access properties safely
     const cardAny = card as any;
     // Defer zone change - let player choose command zone or library
-    (state as any).pendingCommanderZoneChoice = (state as any).pendingCommanderZoneChoice || [];
-    ((state as any).pendingCommanderZoneChoice as any[]).push({
+    // Use object keyed by player ID for consistency
+    (state as any).pendingCommanderZoneChoice = (state as any).pendingCommanderZoneChoice || {};
+    (state as any).pendingCommanderZoneChoice[owner] = (state as any).pendingCommanderZoneChoice[owner] || [];
+    (state as any).pendingCommanderZoneChoice[owner].push({
       commanderId: cardAny.id,
       commanderName: cardAny.name || 'Unknown Commander',
       destinationZone: 'library',
       libraryPosition: position, // Store where it would go if player chooses library
-      playerId: owner,
       card: {
         id: cardAny.id,
         name: cardAny.name || 'Unknown Commander',
