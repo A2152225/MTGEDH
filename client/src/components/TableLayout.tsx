@@ -515,7 +515,10 @@ export function TableLayout(props: {
     const ny = dirY / mag;
     const shift = Math.min(Math.max(halfH * 0.18, 120), 600);
     const cx2 = pos.x + nx * shift;
-    const cy2 = pos.y + ny * shift;
+    // Add a vertical offset to push view down slightly (30px in screen space at zoom ~1)
+    // This prevents the mulligan bar from overlapping the deck import button on join
+    const mulliganBarOffset = 30;
+    const cy2 = pos.y + ny * shift + mulliganBarOffset;
     setCam(c => ({ x: cx2, y: cy2, z: preserveZoom ? c.z : c.z }));
   }
 
