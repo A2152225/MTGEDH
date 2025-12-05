@@ -56,6 +56,7 @@ export type SpellSpec = {
   statRequirement?: StatRequirement; // For spells like Repel Calamity (toughness 4 or greater)
   targetRestriction?: TargetRestriction; // For "target X that..." clauses (Reciprocate, etc.)
   controllerOnly?: boolean; // For "creature you control" patterns (Acrobatic Maneuver, Cloudshift)
+  excludeSource?: boolean; // For "another target" patterns (Skrelv, etc.) - cannot target the source
 };
 
 /**
@@ -574,7 +575,7 @@ function hasHexproofOrShroud(p: BattlefieldPermanent, s: Readonly<GameState>): b
   return false;
 }
 
-export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, spec: SpellSpec): TargetRef[] {
+export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, spec: SpellSpec, sourceId?: string): TargetRef[] {
   const out: TargetRef[] = [];
   
   // Handle counterspells - they target spells on the stack
@@ -629,6 +630,10 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
     
     // Check controller restriction ("creature you control")
     if (spec.controllerOnly && p.controller !== caster) continue;
+    
+    // Check excludeSource restriction ("another target" patterns - cannot target self)
+    // This is used for abilities like Skrelv, Defector Mite that can only target "another" creature
+    if (spec.excludeSource && sourceId && p.id === sourceId) continue;
     
     // Check stat requirement (power/toughness restrictions)
     if (spec.statRequirement && isCreature(p)) {
@@ -918,4 +923,89 @@ export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], stat
     }
   }
   return eff;
+}
+
+/**
+ * Detect if an ability requires "another target" (cannot target the source).
+ * This is used for abilities like Skrelv, Defector Mite:
+ * "Another target creature you control gains hexproof..."
+ * 
+ * @param oracleText - The ability text to check
+ * @returns true if the ability says "another target"
+ */
+export function detectAnotherTargetRestriction(oracleText: string): boolean {
+  if (!oracleText) return false;
+  const text = oracleText.toLowerCase();
+  
+  // Pattern: "another target creature", "another target permanent", etc.
+  return /another target\s+(?:creature|permanent|artifact|enchantment|player|planeswalker)/i.test(text);
+}
+
+/**
+ * Parse targeting restrictions from an activated ability's oracle text.
+ * This extracts information about what can be targeted and any restrictions.
+ * 
+ * @param oracleText - The ability text to parse
+ * @returns Targeting info or null if no targeting detected
+ */
+export function parseAbilityTargeting(oracleText: string): {
+  targetType: 'creature' | 'permanent' | 'player' | 'any';
+  controllerOnly: boolean;
+  excludeSource: boolean;
+  description: string;
+} | null {
+  if (!oracleText) return null;
+  const text = oracleText.toLowerCase();
+  
+  // Check for "another target creature you control" pattern (Skrelv, etc.)
+  if (/another target creature you control/.test(text)) {
+    return {
+      targetType: 'creature',
+      controllerOnly: true,
+      excludeSource: true,
+      description: 'another target creature you control',
+    };
+  }
+  
+  // Check for "another target permanent you control"
+  if (/another target permanent you control/.test(text)) {
+    return {
+      targetType: 'permanent',
+      controllerOnly: true,
+      excludeSource: true,
+      description: 'another target permanent you control',
+    };
+  }
+  
+  // Check for "another target creature"
+  if (/another target creature/.test(text)) {
+    return {
+      targetType: 'creature',
+      controllerOnly: false,
+      excludeSource: true,
+      description: 'another target creature',
+    };
+  }
+  
+  // Check for "target creature you control" (without "another")
+  if (/target creature you control/.test(text) && !/another/.test(text)) {
+    return {
+      targetType: 'creature',
+      controllerOnly: true,
+      excludeSource: false,
+      description: 'target creature you control',
+    };
+  }
+  
+  // Check for "target creature" (without controller restriction)
+  if (/target creature/.test(text)) {
+    return {
+      targetType: 'creature',
+      controllerOnly: false,
+      excludeSource: false,
+      description: 'target creature',
+    };
+  }
+  
+  return null;
 }
