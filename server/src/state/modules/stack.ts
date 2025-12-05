@@ -2147,6 +2147,77 @@ export function resolveTopOfStack(ctx: GameContext) {
       return;
     }
     
+    // Handle creature upgrade ability resolution (Figure of Destiny, Warden of the First Tree, etc.)
+    // IMPORTANT: These are PERMANENT characteristic-changing effects, NOT temporary "until end of turn" effects!
+    // The creature permanently becomes the new type/stats until it leaves the battlefield.
+    // This enables the progression system where each upgrade builds on the previous one.
+    if (abilityType === 'creature-upgrade') {
+      console.log(`[resolveTopOfStack] Resolving creature upgrade ability from ${sourceName} for ${controller}`);
+      
+      const source = (item as any).source;
+      const upgradeData = (item as any).upgradeData || {};
+      
+      // Find the source permanent on the battlefield
+      const battlefield = state.battlefield || [];
+      const sourcePerm = battlefield.find((p: any) => p.id === source);
+      
+      if (!sourcePerm) {
+        console.log(`[resolveTopOfStack] Creature upgrade: source permanent ${source} no longer on battlefield`);
+        bumpSeq();
+        return;
+      }
+      
+      const changes: string[] = [];
+      
+      // Apply new creature types - these PERMANENTLY replace the creature's types
+      // (until the creature leaves the battlefield)
+      if (upgradeData.newTypes && upgradeData.newTypes.length > 0) {
+        (sourcePerm as any).upgradedCreatureTypes = [...upgradeData.newTypes];
+        
+        // Update the type line for display
+        const typeLine = (sourcePerm as any).card?.type_line || 'Creature';
+        const dashIndex = typeLine.indexOf('—');
+        const mainTypes = dashIndex !== -1 ? typeLine.slice(0, dashIndex).trim() : typeLine.trim();
+        (sourcePerm as any).card = (sourcePerm as any).card || {};
+        (sourcePerm as any).card.type_line = `${mainTypes} — ${upgradeData.newTypes.join(' ')}`;
+        
+        changes.push(`became a ${upgradeData.newTypes.join(' ')}`);
+      }
+      
+      // Apply new base power/toughness
+      if (upgradeData.newPower !== undefined) {
+        (sourcePerm as any).basePower = upgradeData.newPower;
+        changes.push(`base power is now ${upgradeData.newPower}`);
+      }
+      if (upgradeData.newToughness !== undefined) {
+        (sourcePerm as any).baseToughness = upgradeData.newToughness;
+        changes.push(`base toughness is now ${upgradeData.newToughness}`);
+      }
+      
+      // Add keywords
+      if (upgradeData.keywords && upgradeData.keywords.length > 0) {
+        (sourcePerm as any).grantedKeywords = (sourcePerm as any).grantedKeywords || [];
+        for (const keyword of upgradeData.keywords) {
+          if (!(sourcePerm as any).grantedKeywords.includes(keyword)) {
+            (sourcePerm as any).grantedKeywords.push(keyword);
+            changes.push(`gained ${keyword}`);
+          }
+        }
+      }
+      
+      // Add counters
+      if (upgradeData.counterCount && upgradeData.counterType) {
+        (sourcePerm as any).counters = (sourcePerm as any).counters || {};
+        (sourcePerm as any).counters[upgradeData.counterType] = 
+          ((sourcePerm as any).counters[upgradeData.counterType] || 0) + upgradeData.counterCount;
+        changes.push(`got ${upgradeData.counterCount} ${upgradeData.counterType} counter(s)`);
+      }
+      
+      console.log(`[resolveTopOfStack] Creature upgrade applied to ${sourceName}: ${changes.join(', ')}`);
+      bumpSeq();
+      return;
+    }
+    
     // Handle other ability types (could be added here in the future)
     console.log(`[resolveTopOfStack] Resolved ability from ${sourceName} for ${controller}`);
     bumpSeq();
@@ -2317,7 +2388,7 @@ export function resolveTopOfStack(ctx: GameContext) {
             const triggerController = perm.controller;
             // Only fire if the entering creature is controlled by an opponent of the trigger controller
             if (triggerController && triggerController !== controller) {
-              etbTriggers.push({ ...trigger, permanentId: perm.id, targetPlayer: controller });
+              etbTriggers.push({ ...trigger, permanentId: perm.id, targetPlayer: controller } as any);
             }
           }
         }

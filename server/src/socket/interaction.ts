@@ -16,6 +16,7 @@ import {
   getCreatureCountManaAmount,
   detectManaModifiers
 } from "../state/modules/mana-abilities";
+import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../rules-engine/src/creatureUpgradeAbilities";
 
 // ============================================================================
 // Pre-compiled RegExp patterns for creature type matching
@@ -388,6 +389,32 @@ function detectTutorEffect(oracleText: string): TutorInfo {
   }
   
   return { isTutor: false };
+}
+
+/**
+ * Get current creature types for a permanent, including upgraded types.
+ * This is used for creature upgrade abilities that have conditions like
+ * "If ~ is a Spirit" (Figure of Destiny).
+ * 
+ * @param permanent - The permanent to get creature types from
+ * @returns Array of creature types
+ */
+function getUpgradedCreatureTypes(permanent: any): string[] {
+  // First check for explicitly upgraded types stored on the permanent
+  if (permanent.upgradedCreatureTypes && Array.isArray(permanent.upgradedCreatureTypes)) {
+    return permanent.upgradedCreatureTypes;
+  }
+  
+  // Fall back to parsing from type line
+  const typeLine = (permanent.card?.type_line || '').toLowerCase();
+  const dashIndex = typeLine.indexOf('—');
+  if (dashIndex === -1) return [];
+  
+  const subtypes = typeLine.slice(dashIndex + 1).trim();
+  return subtypes
+    .split(/\s+/)
+    .filter(t => t.length > 0)
+    .map(t => t.charAt(0).toUpperCase() + t.slice(1));
 }
 
 /**
@@ -2247,6 +2274,109 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       if (typeof game.bumpSeq === "function") {
         game.bumpSeq();
       }
+      
+      broadcastGame(io, game, gameId);
+      return;
+    }
+    
+    // Handle creature upgrade abilities (Figure of Destiny, Warden of the First Tree, etc.)
+    // These are activated abilities that transform or upgrade a creature
+    if (abilityId.startsWith("upgrade-") || abilityId.includes("-becomes-")) {
+      // Parse the upgrade ability from oracle text
+      const upgradeAbilities = parseCreatureUpgradeAbilities(oracleText, cardName);
+      
+      if (upgradeAbilities.length === 0) {
+        socket.emit("error", {
+          code: "NO_UPGRADE_ABILITY",
+          message: `${cardName} does not have any upgrade abilities`,
+        });
+        return;
+      }
+      
+      // Determine which upgrade ability to activate based on abilityId
+      const upgradeIndex = parseInt(abilityId.replace(/^upgrade-|\-becomes-.*$/g, ''), 10) || 0;
+      const upgrade = upgradeAbilities[upgradeIndex < upgradeAbilities.length ? upgradeIndex : 0];
+      
+      if (!upgrade) {
+        socket.emit("error", {
+          code: "INVALID_UPGRADE_ABILITY",
+          message: `Upgrade ability not found on ${cardName}`,
+        });
+        return;
+      }
+      
+      // Check if condition is met (e.g., "If ~ is a Spirit")
+      if (upgrade.requiredTypes && upgrade.requiredTypes.length > 0) {
+        const currentTypes = getUpgradedCreatureTypes(permanent);
+        const meetsCondition = upgrade.requiredTypes.every(reqType => 
+          currentTypes.some(t => t.toLowerCase() === reqType.toLowerCase())
+        );
+        
+        if (!meetsCondition) {
+          socket.emit("error", {
+            code: "UPGRADE_CONDITION_NOT_MET",
+            message: `${cardName} must be a ${upgrade.requiredTypes.join(' ')} to activate this ability`,
+          });
+          return;
+        }
+      }
+      
+      // Put the upgrade ability on the stack
+      const stackItem = {
+        id: `ability_upgrade_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        type: 'ability' as const,
+        controller: pid,
+        source: permanentId,
+        sourceName: cardName,
+        description: upgrade.fullText,
+        abilityType: 'creature-upgrade',
+        upgradeData: {
+          newTypes: upgrade.newTypes,
+          newPower: upgrade.newPower,
+          newToughness: upgrade.newToughness,
+          keywords: upgrade.keywords,
+          counterCount: upgrade.counterCount,
+          counterType: upgrade.counterType,
+        },
+      } as any;
+      
+      game.state.stack = game.state.stack || [];
+      game.state.stack.push(stackItem);
+      
+      // Emit stack update
+      io.to(gameId).emit("stackUpdate", {
+        gameId,
+        stack: (game.state.stack || []).map((s: any) => ({
+          id: s.id,
+          type: s.type,
+          name: s.sourceName || s.card?.name || 'Ability',
+          controller: s.controller,
+          targets: s.targets,
+          source: s.source,
+          sourceName: s.sourceName,
+          description: s.description,
+        })),
+      });
+      
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+      
+      appendEvent(gameId, (game as any).seq ?? 0, "activateUpgradeAbility", { 
+        playerId: pid, 
+        permanentId, 
+        abilityId,
+        cardName,
+        upgradeIndex,
+      });
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `⚡ ${getPlayerName(game, pid)} activated ${cardName}'s upgrade ability. (${upgrade.fullText.slice(0, 80)}...)`,
+        ts: Date.now(),
+      });
       
       broadcastGame(io, game, gameId);
       return;

@@ -2200,7 +2200,12 @@ export function registerGameActions(io: Server, socket: Socket) {
       // If categorizeSpell didn't find a pattern but the spell has "target" in text,
       // use the comprehensive detection
       const targetReqs = (isInstantOrSorcery && !isAura) ? parseTargetRequirements(oracleText) : null;
-      const needsTargetSelection = (spellSpec && spellSpec.minTargets > 0) || 
+      
+      // Only request target selection if:
+      // 1. The spell requires targets (minTargets > 0 OR needsTargets)
+      // 2. AND no targets have been provided yet
+      // This prevents double-targeting when completeCastSpell is called with targets already set
+      const needsTargetSelection = (spellSpec && spellSpec.minTargets > 0 && (!targets || targets.length === 0)) || 
                                    (targetReqs && targetReqs.needsTargets && (!targets || targets.length === 0));
       
       // Handle Aura targeting separately from spell targeting
@@ -5919,9 +5924,12 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       console.log(`[additionalCostConfirm] ${playerId} paying ${costType} cost for ${cardInHand.name} with ${selectedCards.length} selection(s)`);
 
+      // Declare these at outer scope so they can be accessed in the event logging
+      let discardedCards: string[] = [];
+      let sacrificedNames: string[] = [];
+
       if (costType === 'discard') {
         // Discard the selected cards
-        const discardedCards: string[] = [];
         for (const discardId of selectedCards) {
           const discardIndex = (zones.hand as any[]).findIndex((c: any) => c && c.id === discardId);
           if (discardIndex !== -1) {
@@ -5945,7 +5953,6 @@ export function registerGameActions(io: Server, socket: Socket) {
       } else if (costType === 'sacrifice') {
         // Sacrifice the selected permanents
         const battlefield = game.state.battlefield || [];
-        const sacrificedNames: string[] = [];
         
         for (const permId of selectedCards) {
           const permIndex = battlefield.findIndex((p: any) => p && p.id === permId);
