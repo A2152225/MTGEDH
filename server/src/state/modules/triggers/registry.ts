@@ -74,7 +74,9 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
   
   // ETB triggers (other creatures)
   // Note: New Bloomburrow template uses "enters" instead of "enters the battlefield"
-  const etbCreatureMatch = oracleText.match(/whenever (?:a|another) (?:nontoken )?creature enters(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/);
+  // Also handles plural forms: "creatures enter" / "one or more creatures enter"
+  // Handles: "a creature", "another creature", "one or more creatures", "other creatures"
+  const etbCreatureMatch = oracleText.match(/whenever (?:a|an(?:other)?|one or more(?: other)?|other) (?:nontoken )?creatures? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/);
   if (etbCreatureMatch) {
     const effect = etbCreatureMatch[1].trim();
     triggers.push({
@@ -84,6 +86,57 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       cardName,
       timing: 'etb',
       condition: 'creature',
+      effect,
+      mandatory: isMandatoryEffect(effect),
+    });
+  }
+  
+  // ETB triggers (artifacts)
+  // Handles plural forms and "another"/"other" variants
+  const etbArtifactMatch = oracleText.match(/whenever (?:a|an(?:other)?|one or more(?: other)?|other) (?:nontoken )?artifacts? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/);
+  if (etbArtifactMatch) {
+    const effect = etbArtifactMatch[1].trim();
+    triggers.push({
+      id: `${permanentId}_etb_artifact`,
+      permanentId,
+      controllerId,
+      cardName,
+      timing: 'etb',
+      condition: 'artifact',
+      effect,
+      mandatory: isMandatoryEffect(effect),
+    });
+  }
+  
+  // ETB triggers (enchantments)
+  // Handles plural forms and "another"/"other" variants
+  const etbEnchantmentMatch = oracleText.match(/whenever (?:a|an(?:other)?|one or more(?: other)?|other) (?:nontoken )?enchantments? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/);
+  if (etbEnchantmentMatch) {
+    const effect = etbEnchantmentMatch[1].trim();
+    triggers.push({
+      id: `${permanentId}_etb_enchantment`,
+      permanentId,
+      controllerId,
+      cardName,
+      timing: 'etb',
+      condition: 'enchantment',
+      effect,
+      mandatory: isMandatoryEffect(effect),
+    });
+  }
+  
+  // ETB triggers (permanents - any type)
+  // Handles plural forms and "another"/"other" variants
+  const etbPermanentMatch = oracleText.match(/whenever (?:a|an(?:other)?|one or more(?: other)?|other) (?:nontoken )?permanents? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/);
+  if (etbPermanentMatch) {
+    const effect = etbPermanentMatch[1].trim();
+    triggers.push({
+      id: `${permanentId}_etb_permanent`,
+      permanentId,
+      controllerId,
+      cardName,
+      timing: 'etb',
+      condition: 'permanent',
       effect,
       mandatory: isMandatoryEffect(effect),
     });
