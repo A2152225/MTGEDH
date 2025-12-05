@@ -1682,43 +1682,10 @@ export function registerGameActions(io: Server, socket: Socket) {
   });
 
   // =====================================================================
-  // COMPLETE CAST SPELL - Final step after targets selected and payment made
-  // Called after both target selection and payment are complete
+  // CAST SPELL FROM HAND - Core spell casting handler
+  // Defined as a named function so it can be called directly from completeCastSpell
   // =====================================================================
-  socket.on("completeCastSpell", ({ gameId, cardId, targets, payment, effectId }: { 
-    gameId: string; 
-    cardId: string; 
-    targets?: string[]; 
-    payment?: PaymentItem[];
-    effectId?: string;
-  }) => {
-    try {
-      const game = ensureGame(gameId);
-      const playerId = socket.data.playerId;
-      if (!game || !playerId) return;
-
-      // Clean up pending cast data
-      if (effectId && (game.state as any).pendingSpellCasts?.[effectId]) {
-        delete (game.state as any).pendingSpellCasts[effectId];
-      }
-
-      console.log(`[completeCastSpell] Completing cast for ${cardId} with targets: ${targets?.join(',') || 'none'}`);
-
-      // Re-use the castSpellFromHand logic by emitting internally
-      // This avoids duplicating all the validation/payment/casting logic
-      socket.emit("castSpellFromHand", { gameId, cardId, targets, payment });
-      
-    } catch (err: any) {
-      console.error(`[completeCastSpell] Error:`, err);
-      socket.emit("error", {
-        code: "COMPLETE_CAST_ERROR",
-        message: err?.message ?? String(err),
-      });
-    }
-  });
-
-  // Cast spell from hand
-  socket.on("castSpellFromHand", ({ gameId, cardId, targets, payment }: { gameId: string; cardId: string; targets?: any[]; payment?: PaymentItem[] }) => {
+  const handleCastSpellFromHand = ({ gameId, cardId, targets, payment }: { gameId: string; cardId: string; targets?: any[]; payment?: PaymentItem[] }) => {
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
@@ -2946,7 +2913,45 @@ export function registerGameActions(io: Server, socket: Socket) {
         message: err?.message ?? String(err),
       });
     }
+  };
+  
+  // =====================================================================
+  // COMPLETE CAST SPELL - Final step after targets selected and payment made
+  // Called after both target selection and payment are complete
+  // =====================================================================
+  socket.on("completeCastSpell", ({ gameId, cardId, targets, payment, effectId }: { 
+    gameId: string; 
+    cardId: string; 
+    targets?: any[]; 
+    payment?: PaymentItem[];
+    effectId?: string;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      // Clean up pending cast data
+      if (effectId && (game.state as any).pendingSpellCasts?.[effectId]) {
+        delete (game.state as any).pendingSpellCasts[effectId];
+      }
+
+      console.log(`[completeCastSpell] Completing cast for ${cardId} with targets: ${targets?.join(',') || 'none'}`);
+
+      // Call the shared spell casting handler directly
+      handleCastSpellFromHand({ gameId, cardId, targets, payment });
+      
+    } catch (err: any) {
+      console.error(`[completeCastSpell] Error:`, err);
+      socket.emit("error", {
+        code: "COMPLETE_CAST_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
   });
+
+  // Cast spell from hand - registers the socket event handler
+  socket.on("castSpellFromHand", handleCastSpellFromHand);
 
   // Pass priority
   socket.on("passPriority", ({ gameId }: { gameId: string }) => {
