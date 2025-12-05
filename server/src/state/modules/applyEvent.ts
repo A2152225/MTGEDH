@@ -1664,7 +1664,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               if (cardIndex !== -1) {
                 const [card] = hand.splice(cardIndex, 1);
                 z.graveyard = z.graveyard || [];
-                (z.graveyard as any[]).push({ ...card, zone: 'graveyard' });
+                if (card && typeof card === 'object') {
+                  (z.graveyard as any[]).push({ ...card, zone: 'graveyard' });
+                }
               }
             }
             z.handCount = Array.isArray(z.hand) ? z.hand.length : 0;
