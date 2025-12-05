@@ -207,7 +207,19 @@ export function detectETBTappedPattern(oracleText: string): 'always' | 'conditio
     return 'never';
   }
   
-  // Check for conditional patterns (these need player choice or are already handled)
+  // Find the sentence containing "enters the battlefield tapped" to check conditionals
+  // IMPORTANT: Only check for conditionals in the ETB sentence, not the entire oracle text
+  // For example, Emeria, the Sky Ruin has "enters the battlefield tapped." as one sentence
+  // and "if you control seven or more Plains" in a different (upkeep trigger) sentence.
+  // We should NOT consider it conditional just because another sentence has "if you control".
+  const sentences = text.split(/[.!]/);
+  const etbSentence = sentences.find(s => 
+    s.includes('enters the battlefield tapped') ||
+    s.includes('enters tapped') ||
+    s.includes('comes into play tapped')
+  ) || '';
+  
+  // Check for conditional patterns ONLY in the ETB sentence
   const conditionalPatterns = [
     'unless you',           // "unless you control" / "unless you pay"
     'you may pay',          // Shock lands
@@ -217,7 +229,7 @@ export function detectETBTappedPattern(oracleText: string): 'always' | 'conditio
   ];
   
   for (const pattern of conditionalPatterns) {
-    if (text.includes(pattern)) {
+    if (etbSentence.includes(pattern)) {
       return 'conditional';
     }
   }

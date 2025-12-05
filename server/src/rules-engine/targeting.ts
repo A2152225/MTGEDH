@@ -34,11 +34,13 @@ export type TargetRestrictionType =
   | 'blocked_this_turn'                  // "target creature that blocked this turn"
   | 'entered_this_turn'                  // "target creature that entered the battlefield this turn"
   | 'tapped'                             // "target tapped creature"
-  | 'untapped';                          // "target untapped creature"
+  | 'untapped'                           // "target untapped creature"
+  | 'has_keyword';                       // "target creature with flying" (Atraxa's Fall, Wing Snare)
 
 export interface TargetRestriction {
   type: TargetRestrictionType;
   description: string;  // Human-readable description like "that dealt damage to you this turn"
+  keyword?: string;     // For has_keyword type: the keyword ability required (flying, reach, etc.)
 }
 
 export type SpellSpec = {
@@ -52,6 +54,7 @@ export type SpellSpec = {
   returnDelay?: 'immediate' | 'end_of_turn' | 'end_of_combat'; // For flicker effects
   statRequirement?: StatRequirement; // For spells like Repel Calamity (toughness 4 or greater)
   targetRestriction?: TargetRestriction; // For "target X that..." clauses (Reciprocate, etc.)
+  controllerOnly?: boolean; // For "creature you control" patterns (Acrobatic Maneuver, Cloudshift)
 };
 
 /**
@@ -258,12 +261,14 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
       maxTargets: 1,
       returnDelay,
       targetDescription: targetDesc,
+      controllerOnly: controllerRestricted,
     };
   }
 
   // Check for toughness/power requirements in target descriptions
   // Pattern: "target creature with toughness 4 or greater" (Repel Calamity)
   // Pattern: "target creature with power 2 or less" (Ulcerate)
+  // Also handle "target attacking or blocking creature with toughness X" patterns
   const toughnessMatch = t.match(/target (?:attacking or blocking )?creature with toughness (\d+) or (greater|less)/i);
   const powerMatch = t.match(/target (?:attacking or blocking )?creature with power (\d+) or (greater|less)/i);
   
@@ -272,15 +277,25 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
     const comparison = toughnessMatch[2] === 'greater' ? '>=' : '<=';
     const statReq: StatRequirement = { stat: 'toughness', comparison, value };
     
+    // Check if there's an "attacking or blocking" restriction (Repel Calamity)
+    const hasAttackingOrBlockingRestriction = /target attacking or blocking creature/i.test(t);
+    const targetRestriction = hasAttackingOrBlockingRestriction ? {
+      type: 'attacked_this_turn' as TargetRestrictionType, // Note: need to check for both attacking and blocking at runtime
+      description: 'that is attacking or blocking',
+    } : undefined;
+    const targetDescription = hasAttackingOrBlockingRestriction 
+      ? `attacking or blocking creature with toughness ${comparison} ${value}`
+      : `creature with toughness ${comparison} ${value}`;
+    
     // Determine the operation
     if (/exile target/.test(t)) {
-      return { op: 'EXILE_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, statRequirement: statReq };
+      return { op: 'EXILE_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, statRequirement: statReq, targetRestriction, targetDescription };
     }
     if (/destroy target/.test(t)) {
-      return { op: 'DESTROY_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, statRequirement: statReq };
+      return { op: 'DESTROY_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, statRequirement: statReq, targetRestriction, targetDescription };
     }
     // Default to target creature action
-    return { op: 'TARGET_CREATURE', filter: 'CREATURE', minTargets: 1, maxTargets: 1, statRequirement: statReq };
+    return { op: 'TARGET_CREATURE', filter: 'CREATURE', minTargets: 1, maxTargets: 1, statRequirement: statReq, targetRestriction, targetDescription };
   }
   
   if (powerMatch) {
@@ -288,15 +303,25 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
     const comparison = powerMatch[2] === 'greater' ? '>=' : '<=';
     const statReq: StatRequirement = { stat: 'power', comparison, value };
     
+    // Check if there's an "attacking or blocking" restriction
+    const hasAttackingOrBlockingRestriction = /target attacking or blocking creature/i.test(t);
+    const targetRestriction = hasAttackingOrBlockingRestriction ? {
+      type: 'attacked_this_turn' as TargetRestrictionType,
+      description: 'that is attacking or blocking',
+    } : undefined;
+    const targetDescription = hasAttackingOrBlockingRestriction 
+      ? `attacking or blocking creature with power ${comparison} ${value}`
+      : `creature with power ${comparison} ${value}`;
+    
     // Determine the operation
     if (/exile target/.test(t)) {
-      return { op: 'EXILE_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, statRequirement: statReq };
+      return { op: 'EXILE_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, statRequirement: statReq, targetRestriction, targetDescription };
     }
     if (/destroy target/.test(t)) {
-      return { op: 'DESTROY_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, statRequirement: statReq };
+      return { op: 'DESTROY_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, statRequirement: statReq, targetRestriction, targetDescription };
     }
     // Default to target creature action
-    return { op: 'TARGET_CREATURE', filter: 'CREATURE', minTargets: 1, maxTargets: 1, statRequirement: statReq };
+    return { op: 'TARGET_CREATURE', filter: 'CREATURE', minTargets: 1, maxTargets: 1, statRequirement: statReq, targetRestriction, targetDescription };
   }
 
   // ==========================================================================
@@ -422,6 +447,29 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
       return { op: 'DESTROY_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'untapped creature' };
     }
     return { op: 'TARGET_CREATURE', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'untapped creature' };
+  }
+
+  // Pattern: "target creature with [keyword]" (Atraxa's Fall, Wing Snare, Aerial Predation, etc.)
+  // Keywords: flying, reach, deathtouch, lifelink, trample, vigilance, haste, etc.
+  const keywordAbilities = ['flying', 'reach', 'deathtouch', 'lifelink', 'trample', 'vigilance', 'haste', 
+                            'menace', 'hexproof', 'indestructible', 'first strike', 'double strike'];
+  for (const keyword of keywordAbilities) {
+    const keywordPattern = new RegExp(`target creature with ${keyword}`, 'i');
+    if (keywordPattern.test(t)) {
+      const restriction: TargetRestriction = {
+        type: 'has_keyword',
+        description: `with ${keyword}`,
+        keyword,
+      };
+      
+      if (/exile target/.test(t)) {
+        return { op: 'EXILE_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: `creature with ${keyword}` };
+      }
+      if (/destroy target/.test(t)) {
+        return { op: 'DESTROY_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: `creature with ${keyword}` };
+      }
+      return { op: 'TARGET_CREATURE', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: `creature with ${keyword}` };
+    }
   }
 
   if (/exile target/.test(t)) return { op: 'EXILE_TARGET', filter, minTargets: 1, maxTargets: 1 };
@@ -578,6 +626,9 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
     // For 'PERMANENT' filter, all permanents are valid targets
     if (hasHexproofOrShroud(p, state) && p.controller !== caster) continue;
     
+    // Check controller restriction ("creature you control")
+    if (spec.controllerOnly && p.controller !== caster) continue;
+    
     // Check stat requirement (power/toughness restrictions)
     if (spec.statRequirement && isCreature(p)) {
       const { stat, comparison, value } = spec.statRequirement;
@@ -623,7 +674,17 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
         case 'attacked_this_turn': {
           // Check if the creature is currently attacking or attacked this turn
           // During combat, 'attacking' is set on the permanent
-          meetsRestriction = !!(p as any).attacking || !!(p as any).attackedThisTurn;
+          // NOTE: For "attacking or blocking" restrictions (like Repel Calamity),
+          // we use the 'attacked_this_turn' type but check the description for "blocking"
+          const isAttacking = !!(p as any).attacking || !!(p as any).attackedThisTurn;
+          const isBlocking = !!(p as any).blocking || !!(p as any).blockedThisTurn;
+          
+          // Check if this restriction includes blocking
+          if (restriction.description?.includes('blocking')) {
+            meetsRestriction = isAttacking || isBlocking;
+          } else {
+            meetsRestriction = isAttacking;
+          }
           break;
         }
         
@@ -648,6 +709,22 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
         case 'untapped': {
           // Check if the creature is untapped
           meetsRestriction = !(p as any).tapped;
+          break;
+        }
+        
+        case 'has_keyword': {
+          // Check if the creature has the required keyword ability (flying, reach, etc.)
+          // Check oracle text and any abilities granted by other effects
+          const oracleText = (p.card as any)?.oracle_text || '';
+          const keyword = restriction.keyword?.toLowerCase() || '';
+          
+          // Check if the card's oracle text contains the keyword
+          // We check at word boundary to avoid matching partial words
+          const keywordPattern = new RegExp(`\\b${keyword}\\b`, 'i');
+          meetsRestriction = keywordPattern.test(oracleText);
+          
+          // TODO: Also check for keywords granted by auras, equipment, or battlefield effects
+          // For now, we only check the card's base text
           break;
         }
         

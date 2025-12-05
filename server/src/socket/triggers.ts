@@ -657,6 +657,17 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
         game.state.stack.push(stackItem as any);
       }
       
+      // Clear the pending trigger ordering flag for this player
+      // This is CRITICAL to prevent the infinite loop where the AI keeps trying to advance
+      // but is blocked by the (now-resolved) pending trigger ordering check
+      if ((game.state as any).pendingTriggerOrdering) {
+        delete (game.state as any).pendingTriggerOrdering[playerId];
+        // If no more players have pending triggers, remove the entire object
+        if (Object.keys((game.state as any).pendingTriggerOrdering).length === 0) {
+          delete (game.state as any).pendingTriggerOrdering;
+        }
+      }
+      
       // Send chat message about the triggers being put on the stack
       const triggerNames = triggersToStack.map((t: any) => t.sourceName).join(', ');
       io.to(gameId).emit("chat", {
