@@ -812,7 +812,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   // Also handles "creature you control enters" (new template with "you control" before "enters")
   const creatureETBMatch = oracleText.match(/whenever a (?:nontoken )?creature (?:you control )?enters(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i);
   if (creatureETBMatch && !triggers.some(t => t.triggerType === 'creature_etb')) {
-    const isNontokenOnly = oracleText.toLowerCase().includes('nontoken creature');
+    const isNontokenOnly = oracleText.includes('nontoken creature');
     triggers.push({
       permanentId,
       cardName,
@@ -895,9 +895,9 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   // Also handles new Bloomburrow template: "another creature you control enters"
   // This is CREATURE-ONLY, triggers only on creatures YOU control
   const anotherCreatureControlledETBMatch = oracleText.match(/whenever another (?:[\w\s]+)?creature (?:you control )?enters(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i);
-  // Ensure the pattern requires "under your control" or "you control"
-  const hasControlRestriction = /whenever another [\w\s]*creature (?:you control|under your control)/.test(oracleText.toLowerCase()) ||
-                                 /whenever another [\w\s]*creature (?:you control )?enters(?: the battlefield)? under your control/.test(oracleText.toLowerCase());
+  // Ensure the pattern requires "under your control" or "you control" (oracleText is already lowercased)
+  const hasControlRestriction = /whenever another [\w\s]*creature (?:you control|under your control)/.test(oracleText) ||
+                                 /whenever another [\w\s]*creature (?:you control )?enters(?: the battlefield)? under your control/.test(oracleText);
   if (anotherCreatureControlledETBMatch && hasControlRestriction && !triggers.some(t => t.triggerType === 'another_permanent_etb' || t.triggerType === 'creature_etb')) {
     // Extract any color restriction
     const colorRestrictionMatch = oracleText.match(/whenever another ([\w\s]+?) creature/i);
@@ -918,8 +918,9 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   // "Whenever a creature an opponent controls enters" (Suture Priest second ability)
   // This triggers when OPPONENTS' creatures enter the battlefield
   const opponentCreatureETBMatch = oracleText.match(/whenever (?:a|another) (?:[\w\s]+)?creature (?:an opponent controls )?enters(?: the battlefield)?(?: under (?:an opponent's|their) control)?,?\s*([^.]+)/i);
-  const hasOpponentRestriction = /creature (?:an opponent controls|under an opponent's control)/.test(oracleText.toLowerCase()) ||
-                                  /creature enters(?: the battlefield)? under (?:an opponent's|their) control/.test(oracleText.toLowerCase());
+  // oracleText is already lowercased
+  const hasOpponentRestriction = /creature (?:an opponent controls|under an opponent's control)/.test(oracleText) ||
+                                  /creature enters(?: the battlefield)? under (?:an opponent's|their) control/.test(oracleText);
   if (opponentCreatureETBMatch && hasOpponentRestriction && !triggers.some(t => t.triggerType === 'opponent_creature_etb')) {
     triggers.push({
       permanentId,
@@ -935,8 +936,9 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   // Also handles new Bloomburrow template: "another permanent you control enters"
   // This triggers on ANY permanent you control
   const anotherPermanentControlledETBMatch = oracleText.match(/whenever another (?:[\w\s]+)?permanent (?:you control )?enters(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i);
-  const hasPermanentControlRestriction = /whenever another [\w\s]*permanent (?:you control|under your control)/.test(oracleText.toLowerCase()) ||
-                                          /whenever another [\w\s]*permanent (?:you control )?enters(?: the battlefield)? under your control/.test(oracleText.toLowerCase());
+  // oracleText is already lowercased
+  const hasPermanentControlRestriction = /whenever another [\w\s]*permanent (?:you control|under your control)/.test(oracleText) ||
+                                          /whenever another [\w\s]*permanent (?:you control )?enters(?: the battlefield)? under your control/.test(oracleText);
   if (anotherPermanentControlledETBMatch && hasPermanentControlRestriction && !triggers.some(t => t.triggerType === 'another_permanent_etb')) {
     triggers.push({
       permanentId,
