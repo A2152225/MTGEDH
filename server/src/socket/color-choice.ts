@@ -49,9 +49,11 @@ export function requestColorChoice(
 ): string {
   // Check if there's already a pending choice for this card
   for (const [existingConfirmId, pending] of pendingChoices.entries()) {
-    if ((pending.permanentId === permanentId || pending.spellId === spellId) && 
-        pending.gameId === gameId && 
-        (permanentId || spellId)) {
+    // Match if both are for the same permanent or both are for the same spell
+    const matchesPermanent = permanentId && pending.permanentId === permanentId;
+    const matchesSpell = spellId && pending.spellId === spellId;
+    
+    if ((matchesPermanent || matchesSpell) && pending.gameId === gameId) {
       console.log(`[colorChoice] Choice already pending for ${cardName} (${existingConfirmId}), skipping duplicate request`);
       return existingConfirmId;
     }

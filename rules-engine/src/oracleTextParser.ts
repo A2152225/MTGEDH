@@ -310,8 +310,6 @@ function detectChoiceRequirement(
   text: string,
   timing: 'etb' | 'cast' | 'activation' | 'trigger'
 ): ChoiceRequirement | undefined {
-  const lower = text.toLowerCase();
-  
   // "choose a color" pattern
   if (/choose\s+a\s+color/i.test(text)) {
     return {

@@ -1893,6 +1893,20 @@ export function calculateAllPTBonusesWithSources(
   }
   
   // 4. Artifact bonuses (non-equipment)
+  // Helper function to check if creature has the specified color
+  const creatureHasColor = (chosenColor: string): boolean => {
+    const creatureColors = (creaturePerm.card?.colors || []).map((c: string) => c.toLowerCase());
+    const colorMap: Record<string, string> = {
+      'white': 'W',
+      'blue': 'U', 
+      'black': 'B',
+      'red': 'R',
+      'green': 'G'
+    };
+    const chosenColorSymbol = colorMap[chosenColor.toLowerCase()];
+    return chosenColorSymbol ? creatureColors.includes(chosenColorSymbol) : false;
+  };
+  
   for (const perm of battlefield) {
     if (!perm || !perm.card) continue;
     if (perm.controller !== controllerId) continue;
@@ -1904,47 +1918,22 @@ export function calculateAllPTBonusesWithSources(
     const oracleText = perm.card.oracle_text || '';
     
     // Caged Sun - Creatures you control of the chosen color get +1/+1
-    if (cardName.includes('caged sun') && perm.chosenColor) {
-      // Check if creature has the chosen color
-      const creatureColors = (creaturePerm.card?.colors || []).map((c: string) => c.toLowerCase());
-      const colorMap: Record<string, string> = {
-        'white': 'W',
-        'blue': 'U', 
-        'black': 'B',
-        'red': 'R',
-        'green': 'G'
-      };
-      const chosenColorSymbol = colorMap[perm.chosenColor.toLowerCase()];
-      
-      if (chosenColorSymbol && creatureColors.includes(chosenColorSymbol)) {
-        sources.push({
-          name: perm.card.name || 'Caged Sun',
-          power: 1,
-          toughness: 1,
-          type: 'artifact',
-        });
-      }
+    if (cardName.includes('caged sun') && perm.chosenColor && creatureHasColor(perm.chosenColor)) {
+      sources.push({
+        name: perm.card.name || 'Caged Sun',
+        power: 1,
+        toughness: 1,
+        type: 'artifact',
+      });
     }
     // Gauntlet of Power - Creatures you control of the chosen color get +1/+1
-    else if (cardName.includes('gauntlet of power') && perm.chosenColor) {
-      const creatureColors = (creaturePerm.card?.colors || []).map((c: string) => c.toLowerCase());
-      const colorMap: Record<string, string> = {
-        'white': 'W',
-        'blue': 'U',
-        'black': 'B',
-        'red': 'R',
-        'green': 'G'
-      };
-      const chosenColorSymbol = colorMap[perm.chosenColor.toLowerCase()];
-      
-      if (chosenColorSymbol && creatureColors.includes(chosenColorSymbol)) {
-        sources.push({
-          name: perm.card.name || 'Gauntlet of Power',
-          power: 1,
-          toughness: 1,
-          type: 'artifact',
-        });
-      }
+    else if (cardName.includes('gauntlet of power') && perm.chosenColor && creatureHasColor(perm.chosenColor)) {
+      sources.push({
+        name: perm.card.name || 'Gauntlet of Power',
+        power: 1,
+        toughness: 1,
+        type: 'artifact',
+      });
     }
     // Generic artifact anthem detection
     else {
