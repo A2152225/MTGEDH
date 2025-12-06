@@ -2387,13 +2387,14 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           game = GameManager.createGame({ id: gameId });
           console.info('[AI] Created new game via GameManager:', gameId);
         } catch (createErr: any) {
-          // Game might already exist (race condition), try to get it
-          game = GameManager.getGame(gameId) || ensureGame(gameId);
+          // Game might already exist (race condition), try to get it again
+          game = GameManager.getGame(gameId);
           if (!game) {
             console.error('[AI] Failed to create or get game:', createErr);
             socket.emit('error', { code: 'GAME_CREATE_FAILED', message: 'Failed to create game' });
             return;
           }
+          console.info('[AI] Game was created by another request, reusing:', gameId);
         }
       }
       
@@ -2631,13 +2632,14 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           game = GameManager.createGame({ id: gameId });
           console.info('[AI] Created new game via GameManager:', gameId);
         } catch (createErr: any) {
-          // Game might already exist (race condition), try to get it
-          game = GameManager.getGame(gameId) || ensureGame(gameId);
+          // Game might already exist (race condition), try to get it again
+          game = GameManager.getGame(gameId);
           if (!game) {
             console.error('[AI] Failed to create or get game:', createErr);
             socket.emit('error', { code: 'GAME_CREATE_FAILED', message: 'Failed to create game' });
             return;
           }
+          console.info('[AI] Game was created by another request, reusing:', gameId);
         }
       }
       
