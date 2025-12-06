@@ -451,6 +451,92 @@ export function parseDelayedTrigger(text: string): { effect: string; timing: str
 // =============================================================================
 
 /**
+ * Patterns that indicate a sentence is a continuation/modifier of the previous sentence
+ * rather than a new independent effect.
+ * 
+ * These patterns appear at the start of sentences (after a period) and indicate:
+ * - Modifiers or restrictions on the previous sentence
+ * - Sequential actions that follow from the previous effect
+ * - Filters or conditions related to the previous action
+ * 
+ * NOTE: "When" and "Whenever" are NOT included here because they typically 
+ * start new triggered abilities, not continuations.
+ */
+const CONTINUATION_SENTENCE_PATTERNS = [
+  /^then\b/i,          // Sequential action: "Then draw a card"
+  /^you\b/i,           // Continuation of effect on player: "You may...", "You gain..."
+  /^if\b/i,            // Conditional modifier: "If you do..."
+  /^create\b/i,        // Token creation as continuation
+  /^those\b/i,         // Reference to previous objects
+  /^that\b/i,          // Reference to previous object/effect
+  /^return\b/i,        // Return action as continuation
+  /^it\b/i,            // Reference to previous object: "It gains...", "It becomes..."
+  /^until\b/i,         // Duration modifier: "Until end of turn"
+  /^put\b/i,           // Put action as continuation
+  /^activate\b/i,      // Activation restriction
+  /^this\b/i,          // Reference to the card itself as continuation
+  /^for\b/i,           // Purpose/restriction clause
+  /^spend\b/i,         // Mana spending restriction: "Spend this mana only to..."
+  /^they\b/i,          // Reference to previous subjects
+  /^each\b/i,          // Continuation affecting each player/permanent
+  /^otherwise\b/i,     // Alternative clause
+  /^instead\b/i,       // Replacement continuation
+  /^exile\b/i,         // Exile as continuation action
+  /^destroy\b/i,       // Destroy as continuation action
+  /^sacrifice\b/i,     // Sacrifice as continuation action
+  /^draw\b/i,          // Draw as continuation action
+  /^discard\b/i,       // Discard as continuation action
+  /^search\b/i,        // Search as continuation action
+  /^shuffle\b/i,       // Shuffle as continuation action
+  /^reveal\b/i,        // Reveal as continuation action
+  /^choose\b/i,        // Choice as continuation
+  /^target\b/i,        // Targeting as continuation
+];
+
+/**
+ * Check if a sentence is a continuation of the previous sentence
+ * rather than an independent effect.
+ * 
+ * @param sentence The sentence to check (trimmed)
+ * @returns true if this sentence should be merged with the previous one
+ */
+function isContinuationSentence(sentence: string): boolean {
+  const trimmed = sentence.trim();
+  
+  // Check against all continuation patterns
+  return CONTINUATION_SENTENCE_PATTERNS.some(pattern => pattern.test(trimmed));
+}
+
+/**
+ * Merge sentences that are continuations with their preceding sentences.
+ * This handles cases where a period separates what is logically one ability
+ * into multiple sentences for readability.
+ * 
+ * @param sentences Array of sentences split by periods
+ * @returns Array of merged sentences where continuations are combined
+ */
+function mergeContinuationSentences(sentences: string[]): string[] {
+  const merged: string[] = [];
+  
+  for (const sentence of sentences) {
+    const trimmed = sentence.trim();
+    if (!trimmed) continue;
+    
+    // Check if this is a continuation sentence
+    if (merged.length > 0 && isContinuationSentence(trimmed)) {
+      // Merge with the previous sentence
+      // Add a space and the continuation (which starts with lowercase typically)
+      merged[merged.length - 1] = merged[merged.length - 1] + ' ' + trimmed;
+    } else {
+      // This is a new independent sentence
+      merged.push(trimmed);
+    }
+  }
+  
+  return merged;
+}
+
+/**
  * Check if effect text produces mana
  */
 function isManaProducingAbility(effectText: string): boolean {
@@ -579,7 +665,11 @@ export function parseOracleText(oracleText: string, cardName?: string): OracleTe
     : oracleText;
   
   // Split into lines/sentences for parsing
-  const lines = normalizedText.split(/(?<=[.!])\s+|\n+/).filter(l => l.trim());
+  // First split by periods and newlines
+  const rawSentences = normalizedText.split(/(?<=[.!])\s+|\n+/).filter(l => l.trim());
+  
+  // Then merge continuation sentences with their predecessors
+  const lines = mergeContinuationSentences(rawSentences);
   
   for (const line of lines) {
     const trimmed = line.trim();

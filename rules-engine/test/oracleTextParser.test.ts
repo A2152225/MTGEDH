@@ -343,4 +343,161 @@ describe('Oracle Text Parser', () => {
       });
     });
   });
+
+  describe('Continuation Sentence Merging', () => {
+    it('should merge ". Spend" restriction sentences (Altar of the Lost)', () => {
+      const text = '{T}: Add two mana in any combination of colors. Spend this mana only to cast spells with flashback from a graveyard.';
+      const result = parseOracleText(text);
+      
+      // Should have one activated ability with the full effect including the restriction
+      const activatedAbilities = result.abilities.filter(a => a.type === AbilityType.ACTIVATED);
+      expect(activatedAbilities.length).toBeGreaterThanOrEqual(1);
+      
+      // The effect should include both the mana production and the spending restriction
+      const manaAbility = activatedAbilities[0];
+      expect(manaAbility.effect).toContain('Add two mana');
+      expect(manaAbility.effect).toContain('Spend this mana only to cast spells with flashback');
+    });
+
+    it('should merge ". Then" continuation sentences', () => {
+      const text = 'Draw two cards. Then discard a card.';
+      const result = parseOracleText(text);
+      
+      // Should parse as a single static ability with the complete effect
+      const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
+      expect(staticAbilities.length).toBeGreaterThanOrEqual(1);
+      expect(staticAbilities[0].text).toContain('Draw two cards');
+      expect(staticAbilities[0].text).toContain('Then discard a card');
+    });
+
+    it('should merge ". You may" continuation sentences', () => {
+      const text = 'Exile target creature. You may cast it until end of turn.';
+      const result = parseOracleText(text);
+      
+      // Should be a single ability with both parts
+      const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
+      expect(staticAbilities.length).toBeGreaterThanOrEqual(1);
+      expect(staticAbilities[0].text).toContain('Exile target creature');
+      expect(staticAbilities[0].text).toContain('You may cast it');
+    });
+
+    it('should merge ". If you do" continuation sentences', () => {
+      const text = 'Sacrifice a creature. If you do, draw two cards.';
+      const result = parseOracleText(text);
+      
+      const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
+      expect(staticAbilities.length).toBeGreaterThanOrEqual(1);
+      expect(staticAbilities[0].text).toContain('Sacrifice a creature');
+      expect(staticAbilities[0].text).toContain('If you do');
+    });
+
+    it('should merge ". It gains" continuation sentences', () => {
+      const text = 'Target creature gets +2/+0 until end of turn. It gains first strike until end of turn.';
+      const result = parseOracleText(text);
+      
+      const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
+      expect(staticAbilities.length).toBeGreaterThanOrEqual(1);
+      expect(staticAbilities[0].text).toContain('+2/+0');
+      expect(staticAbilities[0].text).toContain('It gains first strike');
+    });
+
+    it('should merge ". Return" continuation sentences', () => {
+      const text = 'Exile target creature. Return it to the battlefield under your control at the beginning of the next end step.';
+      const result = parseOracleText(text);
+      
+      const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
+      expect(staticAbilities.length).toBeGreaterThanOrEqual(1);
+      expect(staticAbilities[0].text).toContain('Exile target creature');
+      expect(staticAbilities[0].text).toContain('Return it to the battlefield');
+    });
+
+    it('should merge ". Until" duration sentences', () => {
+      const text = 'Target creature gains vigilance. Until end of turn, it also gains lifelink.';
+      const result = parseOracleText(text);
+      
+      const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
+      expect(staticAbilities.length).toBeGreaterThanOrEqual(1);
+      expect(staticAbilities[0].text).toContain('vigilance');
+      expect(staticAbilities[0].text).toContain('Until end of turn');
+    });
+
+    it('should merge ". Create" token creation sentences', () => {
+      const text = 'Draw a card. Create a 1/1 white Soldier creature token.';
+      const result = parseOracleText(text);
+      
+      const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
+      expect(staticAbilities.length).toBeGreaterThanOrEqual(1);
+      expect(staticAbilities[0].text).toContain('Draw a card');
+      expect(staticAbilities[0].text).toContain('Create a 1/1');
+    });
+
+    it('should merge ". That" reference sentences', () => {
+      const text = 'Put a +1/+1 counter on target creature. That creature gains trample until end of turn.';
+      const result = parseOracleText(text);
+      
+      const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
+      expect(staticAbilities.length).toBeGreaterThanOrEqual(1);
+      expect(staticAbilities[0].text).toContain('+1/+1 counter');
+      expect(staticAbilities[0].text).toContain('That creature gains trample');
+    });
+
+    it('should merge ". Activate" restriction sentences', () => {
+      const text = '{2}, {T}: Draw a card. Activate only as a sorcery.';
+      const result = parseOracleText(text);
+      
+      const activatedAbilities = result.abilities.filter(a => a.type === AbilityType.ACTIVATED);
+      expect(activatedAbilities.length).toBeGreaterThanOrEqual(1);
+      expect(activatedAbilities[0].effect).toContain('Draw a card');
+      expect(activatedAbilities[0].effect).toContain('Activate only as a sorcery');
+    });
+
+    it('should NOT merge triggered abilities starting with "When"', () => {
+      const text = 'When this creature enters the battlefield, draw a card.\nWhen this creature dies, lose 1 life.';
+      const result = parseOracleText(text);
+      
+      // Should have TWO separate triggered abilities
+      const triggeredAbilities = result.abilities.filter(a => a.type === AbilityType.TRIGGERED);
+      expect(triggeredAbilities.length).toBe(2);
+    });
+
+    it('should NOT merge triggered abilities starting with "Whenever"', () => {
+      const text = 'Whenever a creature enters, scry 1.\nWhenever a creature dies, gain 1 life.';
+      const result = parseOracleText(text);
+      
+      // Should have TWO separate triggered abilities
+      const triggeredAbilities = result.abilities.filter(a => a.type === AbilityType.TRIGGERED);
+      expect(triggeredAbilities.length).toBe(2);
+    });
+
+    it('should merge multiple continuation sentences in sequence', () => {
+      const text = 'Destroy target creature. It can\'t be regenerated. Draw a card.';
+      const result = parseOracleText(text);
+      
+      const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
+      expect(staticAbilities.length).toBeGreaterThanOrEqual(1);
+      expect(staticAbilities[0].text).toContain('Destroy target creature');
+      expect(staticAbilities[0].text).toContain('can\'t be regenerated');
+      expect(staticAbilities[0].text).toContain('Draw a card');
+    });
+
+    it('should handle complex card with multiple abilities', () => {
+      const text = 'Flying\n{T}: Add {U}. Spend this mana only to cast instant or sorcery spells.\nWhenever you cast an instant or sorcery spell, scry 1.';
+      const result = parseOracleText(text);
+      
+      // Should have:
+      // 1. Flying keyword
+      expect(result.keywords).toContain('flying');
+      
+      // 2. One activated ability with merged effect
+      const activatedAbilities = result.abilities.filter(a => a.type === AbilityType.ACTIVATED);
+      expect(activatedAbilities.length).toBeGreaterThanOrEqual(1);
+      const manaAbility = activatedAbilities.find(a => a.effect?.includes('Add {U}'));
+      expect(manaAbility).toBeDefined();
+      expect(manaAbility?.effect).toContain('Spend this mana only to cast');
+      
+      // 3. One triggered ability (should NOT merge with activated ability)
+      const triggeredAbilities = result.abilities.filter(a => a.type === AbilityType.TRIGGERED);
+      expect(triggeredAbilities.length).toBeGreaterThanOrEqual(1);
+    });
+  });
 });
