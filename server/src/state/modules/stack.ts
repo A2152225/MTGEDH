@@ -6,7 +6,7 @@ import { categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from
 import { getETBTriggersForPermanent, processLinkedExileReturns, registerLinkedExile, detectLinkedExileEffect, type TriggeredAbility } from "./triggered-abilities.js";
 import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone } from "./zones.js";
-import { runSBA } from "./counters_tokens.js";
+import { runSBA, applyCounterModifications } from "./counters_tokens.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
 import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } from "../../socket/land-helpers.js";
 
@@ -2275,6 +2275,14 @@ export function resolveTopOfStack(ctx: GameContext) {
       console.log(`[resolveTopOfStack] ${card.name} enters with ${count} ${counterType} counter(s)`);
     }
     
+    // Yuna, Grand Summoner: "When you next cast a creature spell this turn, that creature enters with two additional +1/+1 counters on it."
+    if (isCreature && (state as any).yunaNextCreatureFlags?.[controller]) {
+      initialCounters['+1/+1'] = (initialCounters['+1/+1'] || 0) + 2;
+      console.log(`[resolveTopOfStack] Yuna's Grand Summon: ${card.name} enters with 2 additional +1/+1 counters`);
+      // Clear the flag
+      delete (state as any).yunaNextCreatureFlags[controller];
+    }
+    
     // Check if this creature should enter tapped due to effects like Authority of the Consuls, Blind Obedience, etc.
     let shouldEnterTapped = false;
     if (isCreature) {
@@ -2283,12 +2291,20 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     state.battlefield = state.battlefield || [];
     const newPermId = uid("perm");
+    
+    // Apply counter modifiers (Doubling Season, Vorinclex, etc.) to ETB counters
+    // Need to create a temporary permanent to apply modifiers
+    const tempPerm = { id: newPermId, controller, counters: {} };
+    state.battlefield.push(tempPerm as any);
+    const modifiedCounters = applyCounterModifications(state, newPermId, initialCounters);
+    state.battlefield.pop(); // Remove temp permanent
+    
     const newPermanent = {
       id: newPermId,
       controller,
       owner: controller,
       tapped: shouldEnterTapped,
-      counters: Object.keys(initialCounters).length > 0 ? initialCounters : undefined,
+      counters: Object.keys(modifiedCounters).length > 0 ? modifiedCounters : undefined,
       basePower: baseP,
       baseToughness: baseT,
       summoningSickness: hasSummoningSickness,

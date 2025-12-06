@@ -1073,6 +1073,20 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             const perm = battlefield.find((p: any) => p.id === permId);
             if (perm) {
               (perm as any).tapped = true;
+              
+              // Yuna, Grand Summoner: "Grand Summon — {T}: Add one mana of any color. When you next cast a creature spell this turn, that creature enters with two additional +1/+1 counters on it."
+              const cardName = ((perm as any).card?.name || '').toLowerCase();
+              const oracleText = ((perm as any).card?.oracle_text || '').toLowerCase();
+              if (cardName.includes('yuna') && cardName.includes('grand summoner') ||
+                  (oracleText.includes('add one mana of any color') && 
+                   oracleText.includes('next') && oracleText.includes('creature') && 
+                   oracleText.includes('enters') && oracleText.includes('two additional +1/+1 counter'))) {
+                // Set flag for next creature spell this turn
+                const controllerId = (perm as any).controller;
+                (ctx.state as any).yunaNextCreatureFlags = (ctx.state as any).yunaNextCreatureFlags || {};
+                (ctx.state as any).yunaNextCreatureFlags[controllerId] = true;
+                console.log(`[activateManaAbility] Yuna, Grand Summoner's Grand Summon activated - next creature will enter with +2 counters`);
+              }
             }
           }
           // Mana pool updates are typically ephemeral, but we bump seq for state sync

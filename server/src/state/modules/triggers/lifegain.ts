@@ -142,6 +142,12 @@ export const KNOWN_LIFEGAIN_TRIGGERS: Record<string, {
     effectType: 'add_counter',
     isMayAbility: false,
   },
+  // Aerith Gainsborough (Custom card)
+  "aerith gainsborough": {
+    effect: 'Put a +1/+1 counter on Aerith Gainsborough',
+    effectType: 'add_counter',
+    isMayAbility: false,
+  },
   // Epicure of Blood (damage, not counters)
   "epicure of blood": {
     effect: 'Each opponent loses 1 life',
