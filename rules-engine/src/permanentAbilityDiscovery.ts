@@ -55,6 +55,19 @@ const KNOWN_COUNTER_TYPES = [
 
 /**
  * Discovered ability from a permanent
+ * 
+ * This interface extends the basic ability information with parsed metadata
+ * from the oracle text parser, enabling more sophisticated ability handling.
+ * 
+ * New fields from ParsedAbility (as of improved parser):
+ * - isOptional: Indicates if the ability contains "you may" (player choice)
+ * - modes: Array of mode text for modal abilities (e.g., "Choose one —")
+ * - requiresChoice: Structured info about choice requirements (color, creature type, etc.)
+ * 
+ * These fields enable the UI and game engine to:
+ * - Prompt players for optional ability activation
+ * - Present mode selection for modal spells/abilities
+ * - Handle ETB/cast choice requirements (e.g., "choose a color")
  */
 export interface DiscoveredAbility {
   readonly id: string;
@@ -78,6 +91,16 @@ export interface DiscoveredAbility {
 
 /**
  * Result of ability discovery for a permanent
+ * 
+ * Provides a comprehensive analysis of a permanent's abilities including
+ * convenient boolean flags for quick filtering.
+ * 
+ * New convenience flags (as of improved parser):
+ * - hasModes: True if any ability (activated or otherwise) has modal choices
+ * - hasChoiceRequirements: True if any ability requires a choice (color, creature type, etc.)
+ * 
+ * These flags are calculated from both activated abilities and the full parseResult,
+ * ensuring that replacement effects and other non-activated abilities are also considered.
  */
 export interface AbilityDiscoveryResult {
   readonly permanentId: string;
