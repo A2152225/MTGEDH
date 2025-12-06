@@ -3327,6 +3327,55 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         // Check for pending Ponder-style effects (Ponder, Index, Telling Time, etc.)
         handlePendingPonder(io, game, gameId);
+        
+        // ========================================================================
+        // CRITICAL: Check if there's a pending phase skip that was interrupted
+        // by combat triggers. If stack is now empty and all triggers are resolved,
+        // automatically continue to the originally requested phase.
+        // ========================================================================
+        const pendingSkip = (game.state as any).pendingPhaseSkip;
+        if (pendingSkip && game.state.stack && game.state.stack.length === 0) {
+          const noTriggerQueue = !(game.state as any).triggerQueue || (game.state as any).triggerQueue.length === 0;
+          const noPendingOrdering = !(game.state as any).pendingTriggerOrdering || 
+                                    Object.keys((game.state as any).pendingTriggerOrdering).length === 0;
+          
+          if (noTriggerQueue && noPendingOrdering) {
+            console.log(`[passPriority] Continuing pending phase skip from BEGIN_COMBAT to ${pendingSkip.targetStep}`);
+            
+            // Update phase and step to the originally requested target
+            (game.state as any).phase = pendingSkip.targetPhase;
+            (game.state as any).step = pendingSkip.targetStep;
+            
+            // Clear the pending skip
+            delete (game.state as any).pendingPhaseSkip;
+            
+            // Append event to track this automatic continuation
+            try {
+              appendEvent(gameId, (game as any).seq || 0, "skipToPhase", {
+                playerId: pendingSkip.requestedBy,
+                from: 'BEGIN_COMBAT',
+                to: pendingSkip.targetStep,
+                auto: true,
+                reason: 'combat_triggers_resolved',
+              });
+            } catch (e) {
+              console.warn("appendEvent(skipToPhase auto) failed:", e);
+            }
+            
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `Combat triggers resolved. Continuing to ${pendingSkip.targetStep}.`,
+              ts: Date.now(),
+            });
+            
+            // Bump sequence to reflect phase change
+            if (typeof game.bumpSeq === 'function') {
+              game.bumpSeq();
+            }
+          }
+        }
       }
 
       // If all players passed priority with empty stack, advance to next step
@@ -4012,20 +4061,19 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       const currentPhase = String(game.state?.phase || "").toLowerCase();
       const currentStep = String(game.state?.step || "").toUpperCase();
+      const turnPlayer = game.state.turnPlayer;
 
       // Debug logging
       try {
         console.info(
-          `[skipToPhase] request from player=${playerId} game=${gameId} turnPlayer=${
-            game.state?.turnPlayer
-          } currentPhase=${currentPhase} currentStep=${currentStep} targetPhase=${targetPhase} targetStep=${targetStep}`
+          `[skipToPhase] request from player=${playerId} game=${gameId} turnPlayer=${turnPlayer} currentPhase=${currentPhase} currentStep=${currentStep} targetPhase=${targetPhase} targetStep=${targetStep}`
         );
       } catch {
         /* ignore */
       }
 
       // Only active player may skip phases
-      if (game.state.turnPlayer && game.state.turnPlayer !== playerId) {
+      if (turnPlayer && turnPlayer !== playerId) {
         socket.emit("error", {
           code: "SKIP_TO_PHASE",
           message: "Only the active player can skip to a phase.",
@@ -4041,10 +4089,195 @@ export function registerGameActions(io: Server, socket: Socket) {
         });
         return;
       }
+      
+      // Ensure there are no pending triggers that need to be resolved
+      if ((game.state as any).triggerQueue && (game.state as any).triggerQueue.length > 0) {
+        socket.emit("error", {
+          code: "SKIP_TO_PHASE",
+          message: "Cannot skip phases while there are pending triggers. Resolve or order them first.",
+        });
+        return;
+      }
 
-      // Update phase and step directly
+      // ========================================================================
+      // CRITICAL FIX: Check if we're skipping through phases with triggers.
+      // We must stop at each phase that has triggers, fire them in the correct
+      // phase, and wait for them to resolve before continuing.
+      // This applies to: UPKEEP, BEGIN_COMBAT, and END_STEP
+      // ========================================================================
+      const currentPhaseOrder = ['untap', 'upkeep', 'draw', 'main1', 'begin_combat', 'declare_attackers', 
+                                 'declare_blockers', 'combat_damage', 'end_combat', 'main2', 'end_step', 'cleanup'];
+      const currentStepNormalized = currentStep.toLowerCase().replace(/_/g, '');
+      const targetStepNormalized = targetStep.toLowerCase().replace(/_/g, '');
+      const currentIdx = currentPhaseOrder.indexOf(currentStepNormalized);
+      const targetIdx = currentPhaseOrder.indexOf(targetStepNormalized);
+      
+      // Helper function to stop at a specific phase and process triggers
+      const stopAtPhaseForTriggers = (
+        stopPhase: string,
+        stopStep: string,
+        triggers: any[],
+        triggerType: string
+      ) => {
+        console.log(`[skipToPhase] STOPPING at ${stopStep}: Found ${triggers.length} trigger(s) that must resolve first`);
+        
+        // Stop at this phase instead of going directly to target
+        (game.state as any).phase = stopPhase;
+        (game.state as any).step = stopStep;
+        
+        // Store the intended target so we can continue after triggers resolve
+        (game.state as any).pendingPhaseSkip = {
+          targetPhase,
+          targetStep,
+          requestedBy: playerId,
+        };
+        
+        // Process the triggers
+        (game.state as any).stack = (game.state as any).stack || [];
+        
+        // Group triggers by controller for APNAP ordering
+        const triggersByController = new Map<string, typeof triggers>();
+        for (const trigger of triggers) {
+          const controller = trigger.controllerId || turnPlayer;
+          const existing = triggersByController.get(controller) || [];
+          existing.push(trigger);
+          triggersByController.set(controller, existing);
+        }
+        
+        // Get player order for APNAP
+        const players = Array.isArray((game.state as any).players) 
+          ? (game.state as any).players.map((p: any) => p.id) 
+          : [];
+        const orderedPlayers = [turnPlayer, ...players.filter((p: string) => p !== turnPlayer)];
+        
+        // Process triggers in APNAP order
+        for (const playerId of orderedPlayers) {
+          const playerTriggers = triggersByController.get(playerId) || [];
+          if (playerTriggers.length === 0) continue;
+          
+          // If multiple triggers, add to queue for ordering
+          if (playerTriggers.length > 1) {
+            (game.state as any).triggerQueue = (game.state as any).triggerQueue || [];
+            
+            for (const trigger of playerTriggers) {
+              const triggerId = uid(`${triggerType}_trigger`);
+              (game.state as any).triggerQueue.push({
+                id: triggerId,
+                sourceId: trigger.permanentId,
+                sourceName: trigger.cardName,
+                effect: trigger.description || trigger.effect,
+                type: 'order',
+                controllerId: playerId,
+                triggerType: triggerType,
+                mandatory: trigger.mandatory !== false,
+              });
+            }
+            
+            (game.state as any).pendingTriggerOrdering = (game.state as any).pendingTriggerOrdering || {};
+            (game.state as any).pendingTriggerOrdering[playerId] = {
+              timing: triggerType,
+              count: playerTriggers.length,
+            };
+          } else {
+            // Single trigger - push directly to stack
+            const trigger = playerTriggers[0];
+            const triggerId = uid(`${triggerType}_trigger`);
+            (game.state as any).stack.push({
+              id: triggerId,
+              type: 'triggered_ability',
+              controller: playerId,
+              source: trigger.permanentId,
+              sourceName: trigger.cardName,
+              description: trigger.description || trigger.effect,
+              triggerType: triggerType,
+              mandatory: trigger.mandatory !== false,
+              effect: trigger.effect,
+            });
+          }
+        }
+        
+        // Give priority to active player
+        (game.state as any).priority = turnPlayer;
+        
+        console.log(`[skipToPhase] Set phase to ${stopStep} with ${triggers.length} trigger(s). Will continue to ${targetStep} after resolution.`);
+        
+        // Broadcast the updated game state
+        broadcastGame(io, game, gameId);
+        
+        // Append skipToPhase event
+        try {
+          appendEvent(gameId, (game as any).seq || 0, "skipToPhase", {
+            playerId,
+            from: currentStep,
+            to: stopStep,
+            finalTarget: targetStep,
+          });
+        } catch (e) {
+          console.warn("appendEvent(skipToPhase) failed:", e);
+        }
+      };
+      
+      // Check UPKEEP triggers if we're skipping through upkeep
+      const upkeepIdx = currentPhaseOrder.indexOf('upkeep');
+      const isBeforeUpkeep = currentIdx < upkeepIdx || currentStepNormalized === '';
+      const isTargetAfterUpkeep = targetIdx > upkeepIdx;
+      const isSkippingThroughUpkeep = isBeforeUpkeep && isTargetAfterUpkeep && targetStepNormalized !== 'upkeep';
+      
+      if (isSkippingThroughUpkeep && turnPlayer) {
+        try {
+          const upkeepTriggers = getUpkeepTriggersForPlayer(game as any, turnPlayer);
+          if (upkeepTriggers && upkeepTriggers.length > 0) {
+            stopAtPhaseForTriggers('beginning', 'UPKEEP', upkeepTriggers, 'upkeep');
+            return; // Exit early - triggers must be resolved before continuing
+          }
+        } catch (err) {
+          console.warn(`[skipToPhase] Failed to check upkeep triggers:`, err);
+        }
+      }
+      
+      // Check BEGIN_COMBAT triggers if we're skipping through combat
+      const beginCombatIdx = currentPhaseOrder.indexOf('begin_combat');
+      const isBeforeCombat = currentIdx < beginCombatIdx || currentStepNormalized === '';
+      const isTargetCombatOrLater = targetIdx >= beginCombatIdx;
+      const isSkippingThroughCombat = isBeforeCombat && isTargetCombatOrLater && targetStepNormalized !== 'begincombat';
+      
+      if (isSkippingThroughCombat && turnPlayer) {
+        try {
+          const combatTriggers = getBeginningOfCombatTriggers(game as any, turnPlayer);
+          if (combatTriggers && combatTriggers.length > 0) {
+            stopAtPhaseForTriggers('combat', 'BEGIN_COMBAT', combatTriggers, 'begin_combat');
+            return; // Exit early - triggers must be resolved before continuing
+          }
+        } catch (err) {
+          console.warn(`[skipToPhase] Failed to check combat triggers:`, err);
+        }
+      }
+      
+      // Check END_STEP triggers if we're skipping to end step
+      const endStepIdx = currentPhaseOrder.indexOf('end_step');
+      const isBeforeEndStep = currentIdx < endStepIdx;
+      const isTargetEndStepOrLater = targetIdx >= endStepIdx;
+      const isSkippingToEndStep = isBeforeEndStep && (targetStepNormalized === 'endstep' || targetStepNormalized === 'end');
+      
+      if (isSkippingToEndStep && turnPlayer) {
+        try {
+          const endTriggers = getEndStepTriggers(game as any, turnPlayer);
+          if (endTriggers && endTriggers.length > 0) {
+            stopAtPhaseForTriggers('ending', 'END_STEP', endTriggers, 'end_step');
+            return; // Exit early - triggers must be resolved before continuing
+          }
+        } catch (err) {
+          console.warn(`[skipToPhase] Failed to check end step triggers:`, err);
+        }
+      }
+
+      // If we reach here, either we're not skipping through combat, or there were no triggers
+      // Update phase and step directly to target
       (game.state as any).phase = targetPhase;
       (game.state as any).step = targetStep;
+      
+      // Clear any pending skip since we've reached the target
+      delete (game.state as any).pendingPhaseSkip;
 			// Mark that we just arrived here via skipToPhase so automation/auto-pass
 			// can give the active player one full priority window at this step
 		try {
@@ -4059,7 +4292,6 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Determine if we need to execute turn-based actions when skipping phases
       // This ensures that skipping from early phases to main phases still triggers
       // the appropriate untap and draw actions
-      const turnPlayer = game.state.turnPlayer;
       const targetStepUpper = targetStep.toUpperCase();
       const targetPhaseLower = targetPhase.toLowerCase();
       
@@ -4143,134 +4375,11 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // ========================================================================
       // CRITICAL: Process triggers for phases we're skipping through
-      // When using skipToPhase, we must still fire all triggers that would have
-      // occurred during the skipped phases. Per MTG rules, triggers should always
-      // go on the stack, and the active player gets priority to respond.
-      // IMPORTANT: Multiple simultaneous triggers must allow player to choose order (Rule 101.4)
+      // NOTE: UPKEEP, BEGIN_COMBAT, and END_STEP triggers are now handled EARLIER
+      // in the skipToPhase flow (before the phase is updated) to ensure they fire
+      // in the correct phase rather than the target phase.
+      // See lines ~4100-4230 for the new trigger handling that stops at each phase.
       // ========================================================================
-      
-      if (turnPlayer) {
-        try {
-          // Helper to properly queue triggers with APNAP ordering
-          const queueTriggersWithOrdering = (triggers: any[], triggerType: string, idPrefix: string) => {
-            if (triggers.length === 0) return;
-            
-            console.log(`[skipToPhase] Processing ${triggers.length} ${triggerType} trigger(s)`);
-            (game.state as any).stack = (game.state as any).stack || [];
-            const battlefield = (game.state as any).battlefield || [];
-            
-            // Group by controller for proper APNAP ordering
-            const triggersByController = new Map<string, typeof triggers>();
-            for (const trigger of triggers) {
-              const sourcePerm = battlefield.find((p: any) => p?.id === trigger.permanentId);
-              const controller = sourcePerm?.controller || trigger.controllerId || turnPlayer;
-              const existing = triggersByController.get(controller) || [];
-              existing.push({ ...trigger, controller });
-              triggersByController.set(controller, existing);
-            }
-            
-            // Get player order for APNAP
-            const players = Array.isArray((game.state as any).players) 
-              ? (game.state as any).players.map((p: any) => p.id) 
-              : [];
-            const orderedPlayers = [turnPlayer, ...players.filter((p: string) => p !== turnPlayer)];
-            
-            // Process triggers in APNAP order
-            for (const playerId of orderedPlayers) {
-              const playerTriggers = triggersByController.get(playerId) || [];
-              if (playerTriggers.length === 0) continue;
-              
-              // If player has multiple mandatory triggers, add to trigger queue for ordering
-              if (playerTriggers.length > 1) {
-                console.log(`[skipToPhase] Player ${playerId} has ${playerTriggers.length} ${triggerType} triggers to order`);
-                
-                (game.state as any).triggerQueue = (game.state as any).triggerQueue || [];
-                
-                for (const trigger of playerTriggers) {
-                  if (!trigger.mandatory) continue;
-                  const triggerId = uid(`${idPrefix}_trigger`);
-                  (game.state as any).triggerQueue.push({
-                    id: triggerId,
-                    sourceId: trigger.permanentId,
-                    sourceName: trigger.cardName,
-                    effect: trigger.description || trigger.effect,
-                    type: 'order',
-                    controllerId: playerId,
-                    triggerType: triggerType,
-                    mandatory: true,
-                  });
-                  console.log(`[skipToPhase] 📋 Queued ${triggerType} trigger for ordering: ${trigger.cardName}`);
-                }
-                
-                // Mark pending trigger ordering for this player
-                (game.state as any).pendingTriggerOrdering = (game.state as any).pendingTriggerOrdering || {};
-                (game.state as any).pendingTriggerOrdering[playerId] = {
-                  timing: triggerType,
-                  count: playerTriggers.length,
-                };
-              } else {
-                // Single trigger - push directly to stack
-                const trigger = playerTriggers[0];
-                if (!trigger.mandatory) continue;
-                const triggerId = uid(`${idPrefix}_trigger`);
-                (game.state as any).stack.push({
-                  id: triggerId,
-                  type: 'triggered_ability',
-                  controller: playerId,
-                  source: trigger.permanentId,
-                  sourceName: trigger.cardName,
-                  description: trigger.description,
-                  triggerType: triggerType,
-                  mandatory: true,
-                  effect: trigger.effect,
-                });
-                console.log(`[skipToPhase] ⚡ Pushed ${triggerType} trigger: ${trigger.cardName} - ${trigger.description}`);
-              }
-            }
-          };
-          
-          // Determine which phases we're skipping and process their triggers
-          const currentPhaseOrder = ['untap', 'upkeep', 'draw', 'main1', 'begin_combat', 'declare_attackers', 
-                                     'declare_blockers', 'combat_damage', 'end_combat', 'main2', 'end_step', 'cleanup'];
-          const currentIdx = currentPhaseOrder.indexOf(currentStep.toLowerCase().replace('_', ''));
-          const targetIdx = currentPhaseOrder.indexOf(targetStepUpper.toLowerCase().replace('_', ''));
-          
-          // Process UPKEEP triggers if we're skipping past upkeep
-          const skipsPastUpkeep = (currentStep === '' || currentStep.toLowerCase() === 'untap') && 
-                                   targetIdx > currentPhaseOrder.indexOf('upkeep');
-          if (skipsPastUpkeep) {
-            const upkeepTriggers = getUpkeepTriggersForPlayer(game as any, turnPlayer);
-            queueTriggersWithOrdering(upkeepTriggers, 'upkeep_effect', 'upkeep_skip');
-          }
-          
-          // Process BEGIN COMBAT triggers if we're entering or passing through combat
-          const targetIsCombatOrLater = targetIdx >= currentPhaseOrder.indexOf('begin_combat') || 
-                                         targetStepUpper === 'BEGIN_COMBAT';
-          const wasBeforeCombat = currentIdx < currentPhaseOrder.indexOf('begin_combat');
-          if (targetIsCombatOrLater && wasBeforeCombat) {
-            const combatTriggers = getBeginningOfCombatTriggers(game as any, turnPlayer);
-            queueTriggersWithOrdering(combatTriggers, 'begin_combat', 'combat_skip');
-          }
-          
-          // Process END STEP triggers if we're entering end step
-          if (targetStepUpper === 'END_STEP' || targetStepUpper === 'END') {
-            const endTriggers = getEndStepTriggers(game as any, turnPlayer);
-            queueTriggersWithOrdering(endTriggers, 'end_step', 'end_skip');
-          }
-          
-          // If we added any triggers to the stack or queue, ensure active player gets priority
-          const hasStackItems = (game.state as any).stack && (game.state as any).stack.length > 0;
-          const hasPendingOrdering = (game.state as any).pendingTriggerOrdering && 
-                                      Object.keys((game.state as any).pendingTriggerOrdering).length > 0;
-          if (hasStackItems || hasPendingOrdering) {
-            (game.state as any).priority = turnPlayer;
-            console.log(`[skipToPhase] Stack/triggers pending - priority to active player ${turnPlayer}`);
-          }
-          
-        } catch (err) {
-          console.warn(`[skipToPhase] Failed to process skipped phase triggers:`, err);
-        }
-      }
 
       // Clear any combat state since we're skipping combat
       try {

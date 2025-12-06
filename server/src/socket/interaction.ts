@@ -2382,8 +2382,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
-    // Handle mana abilities (tap-mana-*)
-    if (abilityId.startsWith("tap-mana")) {
+    // Handle mana abilities (tap-mana-* or native_*)
+    if (abilityId.startsWith("tap-mana") || abilityId.startsWith("native_")) {
       // Validate: permanent must not be tapped
       if ((permanent as any).tapped) {
         socket.emit("error", {
@@ -2424,6 +2424,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         "tap-mana-g": "green",
         "tap-mana-any": "any", // Will need to prompt for color choice
         "tap-mana": "colorless",
+        "native_w": "white",
+        "native_u": "blue",
+        "native_b": "black",
+        "native_r": "red",
+        "native_g": "green",
+        "native_c": "colorless",
+        "native_any": "any", // Will need to prompt for color choice
       };
       manaColor = manaColorMap[abilityId] || "colorless";
       

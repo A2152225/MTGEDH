@@ -94,6 +94,7 @@ export function GameStatusIndicator({
     { id: 'aggressive', name: 'Aggressive', description: 'Prioritizes attacking and dealing damage' },
     { id: 'defensive', name: 'Defensive', description: 'Focuses on blocking and survival' },
     { id: 'control', name: 'Control', description: 'Values card advantage and removal' },
+    { id: 'combo', name: 'Combo', description: 'Tries to assemble winning combos' },
   ];
   
   // Close menus when clicking outside
@@ -549,9 +550,9 @@ export function GameStatusIndicator({
               <div
                 style={{
                   position: 'absolute',
-                  bottom: '100%',
+                  top: '100%',
                   right: 0,
-                  marginBottom: 4,
+                  marginTop: 4,
                   background: 'rgba(30, 30, 40, 0.98)',
                   border: '1px solid rgba(139, 92, 246, 0.5)',
                   borderRadius: 8,
