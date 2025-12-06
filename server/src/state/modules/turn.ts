@@ -1570,56 +1570,169 @@ function clearManaPool(ctx: GameContext) {
     
     (ctx as any).state.manaPool = (ctx as any).state.manaPool || {};
     
+    // Detect mana retention effects inline (to avoid circular dependencies)
+    const detectManaRetentionEffectsLocal = (gameState: any, playerId: string) => {
+      const effects: { permanentId: string; cardName: string; type: string; colors?: string[] }[] = [];
+      const battlefield = gameState?.battlefield || [];
+      
+      for (const permanent of battlefield) {
+        if (!permanent || permanent.controller !== playerId) continue;
+        
+        const cardName = (permanent.card?.name || "").toLowerCase();
+        const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
+        
+        // Omnath, Locus of Mana - Green mana doesn't empty
+        if (cardName.includes("omnath, locus of mana") || 
+            (oracleText.includes("green mana") && oracleText.includes("doesn't empty"))) {
+          effects.push({
+            permanentId: permanent.id,
+            cardName: permanent.card?.name || "Omnath",
+            type: 'doesnt_empty',
+            colors: ['green'],
+          });
+        }
+        
+        // Leyline Tyrant - Red mana doesn't empty
+        if (cardName.includes("leyline tyrant") ||
+            (oracleText.includes("red mana") && oracleText.includes("don't lose"))) {
+          effects.push({
+            permanentId: permanent.id,
+            cardName: permanent.card?.name || "Leyline Tyrant",
+            type: 'doesnt_empty',
+            colors: ['red'],
+          });
+        }
+        
+        // Kruphix, God of Horizons / Horizon Stone - Unspent mana becomes colorless
+        if (cardName.includes("kruphix") || cardName.includes("horizon stone") ||
+            oracleText.includes("mana becomes colorless instead")) {
+          effects.push({
+            permanentId: permanent.id,
+            cardName: permanent.card?.name || "Horizon Stone",
+            type: 'becomes_colorless',
+          });
+        }
+        
+        // Upwelling / Eladamri's Vineyard style - All mana doesn't empty
+        if (cardName.includes("upwelling") ||
+            (oracleText.includes("mana pools") && oracleText.includes("don't empty"))) {
+          effects.push({
+            permanentId: permanent.id,
+            cardName: permanent.card?.name || "Upwelling",
+            type: 'all_doesnt_empty',
+          });
+        }
+      }
+      
+      return effects;
+    };
+    
     for (const pid of players) {
       const currentPool = (ctx as any).state.manaPool[pid] || {};
       
-      // Check if this player has a "doesn't empty" effect
+      // Detect mana retention effects from battlefield permanents
+      const retentionEffects = detectManaRetentionEffectsLocal((ctx as any).state, pid);
+      
+      // Collect colors that should be retained
+      const colorsToRetain = new Set<string>();
+      let convertToColorless = false;
+      let retainAllMana = false;
+      
+      for (const effect of retentionEffects) {
+        if (effect.type === 'all_doesnt_empty') {
+          retainAllMana = true;
+        } else if (effect.type === 'becomes_colorless') {
+          convertToColorless = true;
+        } else if (effect.type === 'doesnt_empty' && effect.colors) {
+          for (const color of effect.colors) {
+            colorsToRetain.add(color);
+          }
+        }
+      }
+      
+      // Also check legacy doesNotEmpty flag on the pool itself
       if (currentPool.doesNotEmpty) {
-        // Determine target color for conversion (support both new convertsTo and deprecated convertsToColorless)
         const targetColor = currentPool.convertsTo || (currentPool.convertsToColorless ? 'colorless' : null);
-        
         if (targetColor) {
-          // Convert all other colors to the target color
-          const colorsToConvert = ['white', 'blue', 'black', 'red', 'green', 'colorless'].filter(c => c !== targetColor);
-          let totalConverted = 0;
-          
-          for (const color of colorsToConvert) {
+          convertToColorless = targetColor === 'colorless';
+        } else {
+          retainAllMana = true;
+        }
+      }
+      
+      if (retainAllMana) {
+        // Mana doesn't empty at all (e.g., Upwelling, or legacy doesNotEmpty without convertsTo)
+        console.log(`${ts()} [clearManaPool] Player ${pid}: Mana pool preserved (all mana doesn't empty)`);
+        continue;
+      }
+      
+      if (convertToColorless) {
+        // Convert all mana to colorless instead of emptying (Kruphix, Horizon Stone)
+        const allColors = ['white', 'blue', 'black', 'red', 'green'];
+        let totalConverted = 0;
+        
+        // Sum up all colored mana (except colorless)
+        for (const color of allColors) {
+          if (!colorsToRetain.has(color)) {
             totalConverted += (currentPool[color] || 0);
           }
-          
-          const newPool: any = {
-            white: 0,
-            blue: 0,
-            black: 0,
-            red: 0,
-            green: 0,
-            colorless: 0,
-            doesNotEmpty: currentPool.doesNotEmpty,
-            convertsTo: currentPool.convertsTo,
-            convertsToColorless: currentPool.convertsToColorless,
-            noEmptySourceIds: currentPool.noEmptySourceIds,
-          };
-          
-          // Set the target color to include both existing amount and converted amount
-          newPool[targetColor] = (currentPool[targetColor] || 0) + totalConverted;
-          
-          // Restricted mana also converts to target color
-          if (currentPool.restricted) {
-            newPool.restricted = currentPool.restricted.map((entry: any) => ({
-              ...entry,
-              type: targetColor,
-            }));
-          }
-          
-          (ctx as any).state.manaPool[pid] = newPool;
-          
-          console.log(`${ts()} [clearManaPool] Player ${pid}: Converted ${totalConverted} mana to ${targetColor}`);
-        } else {
-          // Mana doesn't empty at all (e.g., Omnath Locus of Mana for green)
-          console.log(`${ts()} [clearManaPool] Player ${pid}: Mana pool preserved (doesn't empty effect)`);
         }
+        
+        const newPool: any = {
+          white: 0,
+          blue: 0,
+          black: 0,
+          red: 0,
+          green: 0,
+          colorless: (currentPool.colorless || 0) + totalConverted,
+          doesNotEmpty: currentPool.doesNotEmpty,
+          convertsTo: currentPool.convertsTo,
+          convertsToColorless: currentPool.convertsToColorless,
+          noEmptySourceIds: currentPool.noEmptySourceIds,
+        };
+        
+        // Keep any colors that should be retained (e.g., if both Kruphix and Omnath are out)
+        for (const color of colorsToRetain) {
+          newPool[color] = currentPool[color] || 0;
+        }
+        
+        // Keep restricted mana (but convert color)
+        if (currentPool.restricted) {
+          newPool.restricted = currentPool.restricted.map((entry: any) => ({
+            ...entry,
+            type: colorsToRetain.has(entry.type) ? entry.type : 'colorless',
+          }));
+        }
+        
+        (ctx as any).state.manaPool[pid] = newPool;
+        console.log(`${ts()} [clearManaPool] Player ${pid}: Converted ${totalConverted} mana to colorless, retained: ${Array.from(colorsToRetain).join(', ') || 'none'}`);
+        
+      } else if (colorsToRetain.size > 0) {
+        // Some colors are retained (e.g., Omnath for green, Leyline Tyrant for red)
+        const newPool: any = {
+          white: colorsToRetain.has('white') ? (currentPool.white || 0) : 0,
+          blue: colorsToRetain.has('blue') ? (currentPool.blue || 0) : 0,
+          black: colorsToRetain.has('black') ? (currentPool.black || 0) : 0,
+          red: colorsToRetain.has('red') ? (currentPool.red || 0) : 0,
+          green: colorsToRetain.has('green') ? (currentPool.green || 0) : 0,
+          colorless: colorsToRetain.has('colorless') ? (currentPool.colorless || 0) : 0,
+        };
+        
+        // Keep restricted mana of retained colors
+        if (currentPool.restricted) {
+          newPool.restricted = currentPool.restricted.filter((entry: any) => 
+            colorsToRetain.has(entry.type)
+          );
+          if (newPool.restricted.length === 0) delete newPool.restricted;
+        }
+        
+        (ctx as any).state.manaPool[pid] = newPool;
+        
+        const retainedInfo = Array.from(colorsToRetain).map(c => `${c}: ${newPool[c] || 0}`).join(', ');
+        console.log(`${ts()} [clearManaPool] Player ${pid}: Retained mana for colors: ${retainedInfo}`);
+        
       } else {
-        // Normal case: empty the pool
+        // Normal case: empty the pool completely
         (ctx as any).state.manaPool[pid] = {
           white: 0,
           blue: 0,

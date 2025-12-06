@@ -1,9 +1,16 @@
 // client/src/components/GameStatusIndicator.tsx
 // Visual indicator for game-wide status (turn, phase, step, priority, special designations, etc.)
 // Also includes control buttons (Concede, Leave Game, Undo) and randomness (Dice, Coin Flip) in the same row.
+// Also includes AI control toggle for autopilot mode.
 
 import React, { useState, useRef, useEffect } from 'react';
 import type { PlayerRef, PlayerID } from '../../../shared/src';
+
+interface AIStrategy {
+  id: string;
+  name: string;
+  description: string;
+}
 
 interface Props {
   turn?: number;
@@ -32,6 +39,11 @@ interface Props {
   // Randomness handlers
   onRollDie?: (sides: number) => void;
   onFlipCoin?: () => void;
+  // AI control
+  aiControlEnabled?: boolean;
+  aiStrategy?: string;
+  onToggleAIControl?: (enable: boolean, strategy?: string, difficulty?: number) => void;
+  availableAIStrategies?: AIStrategy[];
 }
 
 // Maps phase values to display names and colors
@@ -67,23 +79,38 @@ export function GameStatusIndicator({
   turn, phase, step, turnPlayer, priority, players, you, combat,
   monarch, initiative, dayNight, cityBlessing,
   isYouPlayer, gameOver, onConcede, onLeaveGame, onUndo, availableUndoCount = 0,
-  onRollDie, onFlipCoin
+  onRollDie, onFlipCoin,
+  aiControlEnabled, aiStrategy, onToggleAIControl, availableAIStrategies
 }: Props) {
   const [showDiceMenu, setShowDiceMenu] = useState(false);
+  const [showAIMenu, setShowAIMenu] = useState(false);
+  const [selectedStrategy, setSelectedStrategy] = useState(aiStrategy || 'basic');
   const diceMenuRef = useRef<HTMLDivElement>(null);
+  const aiMenuRef = useRef<HTMLDivElement>(null);
   
-  // Close dice menu when clicking outside
+  // Default strategies if none provided
+  const strategies = availableAIStrategies || [
+    { id: 'basic', name: 'Basic', description: 'Simple decision-making for fast gameplay' },
+    { id: 'aggressive', name: 'Aggressive', description: 'Prioritizes attacking and dealing damage' },
+    { id: 'defensive', name: 'Defensive', description: 'Focuses on blocking and survival' },
+    { id: 'control', name: 'Control', description: 'Values card advantage and removal' },
+  ];
+  
+  // Close menus when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (diceMenuRef.current && !diceMenuRef.current.contains(event.target as Node)) {
         setShowDiceMenu(false);
       }
+      if (aiMenuRef.current && !aiMenuRef.current.contains(event.target as Node)) {
+        setShowAIMenu(false);
+      }
     }
-    if (showDiceMenu) {
+    if (showDiceMenu || showAIMenu) {
       document.addEventListener('mousedown', handleClickOutside);
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
-  }, [showDiceMenu]);
+  }, [showDiceMenu, showAIMenu]);
   
   const phaseKey = String(phase || '').toLowerCase();
   const stepKey = String(step || '').toLowerCase();
@@ -476,6 +503,111 @@ export function GameStatusIndicator({
 
       {/* Spacer to push control buttons to the right */}
       <div style={{ flex: 1, minWidth: 16 }} />
+
+      {/* AI Control toggle */}
+      {onToggleAIControl && isYouPlayer && !gameOver && (
+        <>
+          <div ref={aiMenuRef} style={{ position: 'relative' }}>
+            <button
+              onClick={() => {
+                if (aiControlEnabled) {
+                  // If AI is enabled, disable it directly
+                  onToggleAIControl(false);
+                } else {
+                  // If AI is disabled, show menu to select strategy
+                  setShowAIMenu(!showAIMenu);
+                }
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '4px 10px',
+                borderRadius: 4,
+                border: aiControlEnabled 
+                  ? '1px solid rgba(16, 185, 129, 0.6)' 
+                  : '1px solid rgba(139, 92, 246, 0.4)',
+                background: aiControlEnabled 
+                  ? 'rgba(16, 185, 129, 0.25)' 
+                  : 'rgba(139, 92, 246, 0.2)',
+                color: aiControlEnabled ? '#34d399' : '#c4b5fd',
+                cursor: 'pointer',
+                fontSize: 11,
+                fontWeight: 500,
+              }}
+              title={aiControlEnabled 
+                ? `AI Autopilot ON (${aiStrategy || 'basic'}) - Click to disable` 
+                : 'Enable AI Autopilot to control your turns'}
+            >
+              <span style={{ fontSize: 14 }}>🤖</span>
+              <span>{aiControlEnabled ? 'AI: ON' : 'AI'}</span>
+              {!aiControlEnabled && <span>▼</span>}
+            </button>
+            
+            {/* AI Strategy dropdown menu */}
+            {showAIMenu && !aiControlEnabled && (
+              <div
+                style={{
+                  position: 'absolute',
+                  bottom: '100%',
+                  right: 0,
+                  marginBottom: 4,
+                  background: 'rgba(30, 30, 40, 0.98)',
+                  border: '1px solid rgba(139, 92, 246, 0.5)',
+                  borderRadius: 8,
+                  padding: 8,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 4,
+                  zIndex: 1000,
+                  boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5)',
+                  minWidth: 200,
+                }}
+              >
+                <div style={{ 
+                  fontSize: 11, 
+                  color: '#9ca3af', 
+                  marginBottom: 4,
+                  padding: '2px 4px',
+                  borderBottom: '1px solid rgba(255,255,255,0.1)',
+                }}>
+                  🤖 Select AI Strategy
+                </div>
+                {strategies.map(strategy => (
+                  <button
+                    key={strategy.id}
+                    onClick={() => {
+                      setSelectedStrategy(strategy.id);
+                      onToggleAIControl(true, strategy.id, 0.5);
+                      setShowAIMenu(false);
+                    }}
+                    style={{
+                      padding: '8px 12px',
+                      fontSize: 11,
+                      background: selectedStrategy === strategy.id 
+                        ? 'rgba(139, 92, 246, 0.3)' 
+                        : 'rgba(139, 92, 246, 0.1)',
+                      border: '1px solid rgba(139, 92, 246, 0.3)',
+                      borderRadius: 4,
+                      color: '#e5e7eb',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 2,
+                    }}
+                    title={strategy.description}
+                  >
+                    <span style={{ fontWeight: 600 }}>{strategy.name}</span>
+                    <span style={{ fontSize: 10, color: '#9ca3af' }}>{strategy.description}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div style={{ width: 1, height: 32, background: 'rgba(255,255,255,0.15)' }} />
+        </>
+      )}
 
       {/* Control buttons (Concede, Leave, Undo) */}
       {(onConcede || onLeaveGame || onUndo) && (
