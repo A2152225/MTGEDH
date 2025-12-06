@@ -2357,7 +2357,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[activateBattlefieldAbility:exile-graveyard]');
       
       // Tap the permanent if it has a tap symbol in the cost
-      if (oracleText.match(/\{[^}]*T[^}]*\}:/)) {
+      // Pattern: {T}: or {1}{T}: etc.
+      if (oracleText.match(/\{[^}]*\bT\b[^}]*\}:/)) {
         (permanent as any).tapped = true;
       }
       
