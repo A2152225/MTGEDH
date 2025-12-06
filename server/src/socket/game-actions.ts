@@ -7367,6 +7367,74 @@ export function registerGameActions(io: Server, socket: Socket) {
     }
   });
 
+  /**
+   * Handle graveyard exile target selection (Keen-Eyed Curator, etc.)
+   */
+  socket.on("confirmGraveyardExile", ({ gameId, effectId, targetPlayerId, targetCardId }: {
+    gameId: string;
+    effectId: string;
+    targetPlayerId: string;
+    targetCardId: string;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      const pending = (game.state as any).pendingGraveyardExile?.[effectId];
+      if (!pending) {
+        socket.emit("error", { code: "NO_PENDING_EXILE", message: "No pending graveyard exile action found" });
+        return;
+      }
+
+      const targetZones = game.state.zones?.[targetPlayerId];
+      if (!targetZones || !Array.isArray(targetZones.graveyard)) {
+        socket.emit("error", { code: "NO_GRAVEYARD", message: "Target graveyard not found" });
+        return;
+      }
+
+      const cardIndex = targetZones.graveyard.findIndex((c: any) => c?.id === targetCardId);
+      if (cardIndex === -1) {
+        socket.emit("error", { code: "CARD_NOT_FOUND", message: "Card not found in graveyard" });
+        return;
+      }
+
+      const card = targetZones.graveyard[cardIndex];
+      targetZones.graveyard.splice(cardIndex, 1);
+      targetZones.graveyardCount = targetZones.graveyard.length;
+
+      // Find the permanent that activated this ability
+      const battlefield = game.state.battlefield || [];
+      const permanent = battlefield.find((p: any) => p.id === pending.permanentId);
+      
+      // Add the card to the permanent's exile zone (tracked on the permanent itself for Keen-Eyed Curator)
+      if (permanent) {
+        (permanent as any).exiledCards = (permanent as any).exiledCards || [];
+        (permanent as any).exiledCards.push({ ...(card as any), zone: 'exile', exiledWith: pending.permanentId });
+      }
+
+      // Clean up pending action
+      delete (game.state as any).pendingGraveyardExile[effectId];
+
+      const cardName = (card as any)?.name || 'a card';
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `🚫 ${getPlayerName(game, playerId)} exiled ${cardName} from ${getPlayerName(game, targetPlayerId)}'s graveyard with ${pending.cardName}.`,
+        ts: Date.now(),
+      });
+
+      console.log(`[confirmGraveyardExile] ${playerId} exiled ${cardName} from ${targetPlayerId}'s graveyard with ${pending.cardName}`);
+
+      broadcastGame(io, game, gameId);
+    } catch (err: any) {
+      console.error(`confirmGraveyardExile error for game ${gameId}:`, err);
+      socket.emit("error", { code: "GRAVEYARD_EXILE_ERROR", message: err?.message ?? String(err) });
+    }
+  });
+
   // ==========================================================================
   // OPPONENT SELECTION (Secret Rendezvous, etc.)
   // ==========================================================================
