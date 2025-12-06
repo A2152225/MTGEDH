@@ -777,7 +777,7 @@ export function FreeField(props: {
                 style={{
                   position: 'absolute',
                   right: Math.round(4 * scale),
-                  bottom: Math.round(28 * scale),
+                  bottom: Math.round(56 * scale), // Moved up to not overlap P/T badge (was 28)
                   display: 'flex',
                   alignItems: 'center',
                   gap: Math.round(3 * scale),

@@ -1748,7 +1748,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           ts: Date.now(),
         });
         
-        broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`);
+        broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`, game);
       }
       // ========================================================================
       // Handle creature-count-based mana abilities (Priest of Titania, Elvish Archdruid, etc.)
@@ -1790,7 +1790,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             ts: Date.now(),
           });
           
-          broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`);
+          broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`, game);
         }
       }
       // ========================================================================
@@ -1878,7 +1878,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             });
             
             // Broadcast mana pool update
-            broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`);
+            broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`, game);
           }
         }
       }
@@ -2706,7 +2706,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
       
       // Broadcast mana pool update to ensure client sees the new floating mana
-      broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`);
+      broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`, game);
       
       appendEvent(gameId, (game as any).seq ?? 0, "activateManaAbility", { playerId: pid, permanentId, abilityId, manaColor });
       
@@ -3046,7 +3046,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           ts: Date.now(),
         });
         
-        broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`);
+        broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`, game);
       }
       // Handle creature-count-based mana
       else if (creatureCountMana && creatureCountMana.amount > 0) {
@@ -3084,7 +3084,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             ts: Date.now(),
           });
           
-          broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`);
+          broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`, game);
         }
       }
       // Handle standard mana abilities
@@ -3163,7 +3163,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                 ts: Date.now(),
               });
               
-              broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`);
+              broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`, game);
             }
           } else {
             // No mana production detected - just emit message
@@ -3972,8 +3972,18 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     const game = ensureGame(gameId);
     
-    // Cancel the spell/effect if targets are required but not provided
-    // For now, just log and broadcast
+    // Clean up pending state to prevent loops when casting is cancelled
+    // This fixes the Bear Umbra issue where cancelling kept looping between target and payment
+    if (effectId && (game.state as any).pendingSpellCasts?.[effectId]) {
+      delete (game.state as any).pendingSpellCasts[effectId];
+      console.log(`[targetSelectionCancel] Cleaned up pending spell cast for effectId: ${effectId}`);
+    }
+    
+    // Also clean up pending targets if stored
+    if (effectId && game.state.pendingTargets?.[effectId]) {
+      delete game.state.pendingTargets[effectId];
+    }
+    
     console.log(`[targetSelectionCancel] Player ${pid} cancelled target selection for effect ${effectId}`);
     
     io.to(gameId).emit("chat", {
@@ -4459,7 +4469,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     });
 
     // Emit mana pool update
-    broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, 'Added mana');
+    broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, 'Added mana', game);
     broadcastGame(io, game, gameId);
   });
 
@@ -4534,7 +4544,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     });
 
     // Emit mana pool update
-    broadcastManaPoolUpdate(io, gameId, pid, pool, 'Removed mana');
+    broadcastManaPoolUpdate(io, gameId, pid, pool, 'Removed mana', game);
     broadcastGame(io, game, gameId);
   });
 
@@ -4603,7 +4613,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     });
 
     // Emit mana pool update
-    broadcastManaPoolUpdate(io, gameId, pid, pool, `Doesn't empty (${sourceName})`);
+    broadcastManaPoolUpdate(io, gameId, pid, pool, `Doesn't empty (${sourceName})`, game);
     broadcastGame(io, game, gameId);
   });
 
@@ -4711,7 +4721,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (typeof (game as any).bumpSeq === "function") { (game as any).bumpSeq(); }
 
     // Broadcast mana pool update
-    broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Selected ${selectedColor} mana`);
+    broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Selected ${selectedColor} mana`, game);
 
     broadcastGame(io, game, gameId);
   });

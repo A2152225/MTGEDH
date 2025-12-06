@@ -513,12 +513,18 @@ function hasHexproofOrShroud(p: BattlefieldPermanent, s: Readonly<GameState>): b
   // Check if permanent itself has hexproof/shroud
   if (self.includes('hexproof') || self.includes('shroud')) return true;
   
-  // Check if any attached aura grants hexproof/shroud
-  const hasFromAura = s.battlefield.some(a =>
-    a.attachedTo === p.id &&
-    ((((a.card as any)?.oracle_text) || '').toLowerCase().match(/hexproof|shroud/))
-  );
-  if (hasFromAura) return true;
+  // Check if any attached aura or equipment grants hexproof/shroud
+  // This includes Lightning Greaves ("Equipped creature has shroud and haste")
+  const hasFromAttachment = s.battlefield.some(a => {
+    if (a.attachedTo !== p.id) return false;
+    const attachmentTypeLine = (((a.card as any)?.type_line) || '').toLowerCase();
+    const attachmentOracle = (((a.card as any)?.oracle_text) || '').toLowerCase();
+    // Check if it's an aura or equipment
+    if (!attachmentTypeLine.includes('aura') && !attachmentTypeLine.includes('equipment')) return false;
+    // Check if it grants hexproof or shroud
+    return attachmentOracle.includes('hexproof') || attachmentOracle.includes('shroud');
+  });
+  if (hasFromAttachment) return true;
   
   // Check if any other permanent on the battlefield grants hexproof/shroud to this creature
   // This handles cards like Shalai, Voice of Plenty ("You and other creatures you control have hexproof")

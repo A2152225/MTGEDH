@@ -2947,13 +2947,15 @@ export function canUseRestrictedMana(
 
 /**
  * Broadcast mana pool update to all clients
+ * Also broadcasts full game state to update any P/T that depends on mana pool (e.g., Omnath)
  */
 export function broadcastManaPoolUpdate(
   io: Server,
   gameId: string,
   playerId: string,
   manaPool: EnhancedManaPool,
-  reason?: string
+  reason?: string,
+  game?: any
 ): void {
   try {
     const totalMana = getTotalManaInPool({ manaPool: { [playerId]: manaPool } }, playerId);
@@ -2976,6 +2978,12 @@ export function broadcastManaPoolUpdate(
       totalMana,
       reason,
     });
+    
+    // Also broadcast full game state to update P/T of creatures that depend on mana pool
+    // (e.g., Omnath, Locus of Mana gets +1/+1 for each green mana)
+    if (game) {
+      broadcastGame(io, game, gameId);
+    }
   } catch (err) {
     console.warn(`[util] broadcastManaPoolUpdate failed:`, err);
   }

@@ -2644,6 +2644,13 @@ export function App() {
   };
 
   const handleCastSpellCancel = () => {
+    // Notify server to clean up pending state if this was a MTG-compliant cast with effectId
+    if (safeView && spellToCast?.effectId) {
+      socket.emit("targetSelectionCancel", {
+        gameId: safeView.id,
+        effectId: spellToCast.effectId,
+      });
+    }
     setCastSpellModalOpen(false);
     setSpellToCast(null);
   };
