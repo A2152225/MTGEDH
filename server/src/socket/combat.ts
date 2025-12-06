@@ -10,6 +10,8 @@ import { ensureGame, broadcastGame, getPlayerName, emitToPlayer, getEffectivePow
 import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 import { getAttackTriggersForCreatures, type TriggeredAbility } from "../state/modules/triggered-abilities.js";
+import { creatureHasHaste, permanentHasKeyword } from "./game-actions.js";
+
 
 /**
  * Check if a permanent is currently a creature (Rule 302)
@@ -646,8 +648,8 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
 
         // Check if creature is tapped (can't attack if tapped, unless vigilance)
         if ((creature as any).tapped) {
-          const oracleText = ((creature as any).card?.oracle_text || "").toLowerCase();
-          const hasVigilance = oracleText.includes("vigilance");
+          const battlefield = game.state?.battlefield || [];
+          const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance');
           if (!hasVigilance) {
             socket.emit("error", {
               code: "CREATURE_TAPPED",
@@ -659,22 +661,9 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
 
         // Check for summoning sickness (can't attack unless haste)
         if ((creature as any).summoningSickness) {
-          // More robust haste detection using keyword ability patterns
-          const oracleText = ((creature as any).card?.oracle_text || "").toLowerCase();
-          const rawKeywords = (creature as any).card?.keywords;
-          const keywords = Array.isArray(rawKeywords) ? rawKeywords : [];
-          const rawGrantedAbilities = (creature as any).grantedAbilities;
-          const grantedAbilities = Array.isArray(rawGrantedAbilities) ? rawGrantedAbilities : [];
-          
-          // Check for haste in multiple places:
-          // 1. Keywords array from Scryfall data
-          // 2. Granted abilities from effects
-          // 3. Oracle text (with more specific matching to avoid false positives)
-          const hasHaste = 
-            keywords.some((k: string) => k.toLowerCase() === 'haste') ||
-            grantedAbilities.some((a: string) => a.toLowerCase() === 'haste') ||
-            // Match "haste" as a standalone word or at beginning of ability text
-            /\bhaste\b/i.test(oracleText);
+          // Use comprehensive haste check that includes equipment (Lightning Greaves, etc.)
+          const battlefield = game.state?.battlefield || [];
+          const hasHaste = creatureHasHaste(creature, battlefield, playerId);
           
           if (!hasHaste) {
             socket.emit("error", {
@@ -691,12 +680,8 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         (creature as any).attacking = attacker.targetPlayerId || attacker.targetPermanentId;
         
         // Tap the attacker (unless it has vigilance)
-        const oracleText = ((creature as any).card?.oracle_text || "").toLowerCase();
-        const rawKeywords = (creature as any).card?.keywords;
-        const keywords = Array.isArray(rawKeywords) ? rawKeywords : [];
-        const hasVigilance = 
-          keywords.some((k: string) => k.toLowerCase() === 'vigilance') ||
-          /\bvigilance\b/i.test(oracleText);
+        const battlefield = game.state?.battlefield || [];
+        const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance');
         if (!hasVigilance) {
           (creature as any).tapped = true;
         }
@@ -1330,7 +1315,9 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
 
         // Check summoning sickness
         if ((creature as any).summoningSickness) {
-          const hasHaste = oracleText.includes("haste");
+          // Use comprehensive haste check that includes equipment (Lightning Greaves, etc.)
+          const battlefield = game.state?.battlefield || [];
+          const hasHaste = creatureHasHaste(creature, battlefield, playerId);
           if (!hasHaste) {
             socket.emit("error", {
               code: "SUMMONING_SICKNESS",
@@ -1346,11 +1333,8 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         (creature as any).attacking = attacker.targetPlayerId;
         
         // Tap the attacker (unless it has vigilance)
-        const rawKeywords = (creature as any).card?.keywords;
-        const keywords = Array.isArray(rawKeywords) ? rawKeywords : [];
-        const hasVigilance = 
-          keywords.some((k: string) => k.toLowerCase() === 'vigilance') ||
-          /\bvigilance\b/i.test(oracleText);
+        const battlefield = game.state?.battlefield || [];
+        const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance');
         if (!hasVigilance) {
           (creature as any).tapped = true;
         }

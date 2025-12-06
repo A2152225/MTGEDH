@@ -3972,8 +3972,18 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     const game = ensureGame(gameId);
     
-    // Cancel the spell/effect if targets are required but not provided
-    // For now, just log and broadcast
+    // Clean up pending state to prevent loops when casting is cancelled
+    // This fixes the Bear Umbra issue where cancelling kept looping between target and payment
+    if (effectId && (game.state as any).pendingSpellCasts?.[effectId]) {
+      delete (game.state as any).pendingSpellCasts[effectId];
+      console.log(`[targetSelectionCancel] Cleaned up pending spell cast for effectId: ${effectId}`);
+    }
+    
+    // Also clean up pending targets if stored
+    if (effectId && game.state.pendingTargets?.[effectId]) {
+      delete game.state.pendingTargets[effectId];
+    }
+    
     console.log(`[targetSelectionCancel] Player ${pid} cancelled target selection for effect ${effectId}`);
     
     io.to(gameId).emit("chat", {

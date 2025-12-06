@@ -1033,8 +1033,13 @@ function applyCostReduction(
  * - Battlefield permanents that grant haste to creatures (e.g., "creatures you control have haste")
  * - Specific creature type grants (e.g., "Goblin creatures you control have haste")
  * - Equipment attached to the creature (e.g., "Equipped creature has haste")
+ * 
+ * @param permanent - The creature permanent to check
+ * @param battlefield - Array of all battlefield permanents
+ * @param controller - The controller of the creature
+ * @returns true if the creature has haste
  */
-function creatureHasHaste(permanent: any, battlefield: any[], controller: string): boolean {
+export function creatureHasHaste(permanent: any, battlefield: any[], controller: string): boolean {
   try {
     const permCard = permanent?.card || {};
     const permTypeLine = (permCard.type_line || "").toLowerCase();
@@ -1151,6 +1156,129 @@ function creatureHasHaste(permanent: any, battlefield: any[], controller: string
     return false;
   } catch (err) {
     console.warn('[creatureHasHaste] Error checking haste:', err);
+    return false;
+  }
+}
+
+/**
+ * Check if a permanent has a given keyword ability from any source
+ * This includes:
+ * - The permanent's own oracle text
+ * - Granted abilities array
+ * - Equipment attached to the permanent
+ * - Auras attached to the permanent
+ * - Global effects from other permanents on the battlefield
+ * 
+ * @param permanent - The permanent to check
+ * @param battlefield - Array of all battlefield permanents
+ * @param controller - The controller of the permanent
+ * @param keyword - The keyword to check for (e.g., 'haste', 'vigilance', 'shroud', 'hexproof')
+ * @returns true if the permanent has the keyword ability
+ */
+export function permanentHasKeyword(permanent: any, battlefield: any[], controller: string, keyword: string): boolean {
+  try {
+    const lowerKeyword = keyword.toLowerCase();
+    const permCard = permanent?.card || {};
+    const permTypeLine = (permCard.type_line || "").toLowerCase();
+    const permOracleText = (permCard.oracle_text || "").toLowerCase();
+    
+    // 1. Check permanent's own oracle text
+    const keywordRegex = new RegExp(`\\b${lowerKeyword}\\b`, 'i');
+    if (keywordRegex.test(permOracleText)) {
+      return true;
+    }
+    
+    // 2. Check granted abilities on the permanent
+    const grantedAbilities = permanent?.grantedAbilities || [];
+    if (Array.isArray(grantedAbilities) && grantedAbilities.some((a: string) => 
+      a && a.toLowerCase().includes(lowerKeyword)
+    )) {
+      return true;
+    }
+    
+    // 3. Check attached equipment and auras for keyword grants
+    // Pattern: "Equipped/Enchanted creature has [keyword]" or "Equipped/Enchanted creature has [ability] and [keyword]"
+    const attachmentGrantsKeyword = (attachmentOracle: string): boolean => {
+      if (!attachmentOracle.includes('equipped creature') && !attachmentOracle.includes('enchanted creature')) {
+        return false;
+      }
+      return attachmentOracle.includes(`has ${lowerKeyword}`) || 
+             attachmentOracle.includes(`have ${lowerKeyword}`) ||
+             attachmentOracle.includes(`gains ${lowerKeyword}`) ||
+             new RegExp(`(?:equipped|enchanted) creature has (?:[\\w\\s,]+\\s+and\\s+)?${lowerKeyword}`, 'i').test(attachmentOracle);
+    };
+    
+    // Check attachedEquipment array
+    const attachedEquipment = permanent?.attachedEquipment || [];
+    for (const equipId of attachedEquipment) {
+      const equipment = battlefield.find((p: any) => p.id === equipId);
+      if (equipment && equipment.card) {
+        const equipOracle = (equipment.card.oracle_text || "").toLowerCase();
+        if (attachmentGrantsKeyword(equipOracle)) {
+          return true;
+        }
+      }
+    }
+    
+    // Also check by attachedTo relationship (in case attachedEquipment isn't set)
+    if (permanent.id) {
+      for (const attachment of battlefield) {
+        if (!attachment || !attachment.card) continue;
+        const attachTypeLine = (attachment.card.type_line || "").toLowerCase();
+        if (!attachTypeLine.includes('equipment') && !attachTypeLine.includes('aura')) continue;
+        if (attachment.attachedTo !== permanent.id) continue;
+        
+        const attachOracle = (attachment.card.oracle_text || "").toLowerCase();
+        if (attachmentGrantsKeyword(attachOracle)) {
+          return true;
+        }
+      }
+    }
+    
+    // 4. Check battlefield for permanents that grant the keyword globally
+    for (const perm of battlefield) {
+      if (!perm || !perm.card) continue;
+      
+      const grantorOracle = (perm.card.oracle_text || "").toLowerCase();
+      const grantorController = perm.controller;
+      
+      // Only check permanents controlled by the same player
+      if (grantorController === controller) {
+        // Global grants: "creatures you control have [keyword]"
+        if (grantorOracle.includes(`creatures you control have ${lowerKeyword}`) ||
+            grantorOracle.includes(`other creatures you control have ${lowerKeyword}`)) {
+          return true;
+        }
+        
+        // Check for tribal grants (e.g., "Goblin creatures you control have haste")
+        const creatureTypes = extractCreatureTypes(permTypeLine);
+        for (const creatureType of creatureTypes) {
+          const typeIndex = grantorOracle.indexOf(creatureType);
+          const keywordIndex = grantorOracle.indexOf(`have ${lowerKeyword}`);
+          if (typeIndex !== -1 && keywordIndex !== -1 && typeIndex < keywordIndex) {
+            const textBetween = grantorOracle.slice(typeIndex, keywordIndex);
+            if (!textBetween.includes('.')) {
+              return true;
+            }
+          }
+        }
+        
+        // Check for "all creatures have [keyword]" (rare but exists)
+        if (grantorOracle.includes(`all creatures have ${lowerKeyword}`)) {
+          return true;
+        }
+      }
+      
+      // Check for effects that grant to all creatures (both players)
+      if (grantorOracle.includes(`all creatures have ${lowerKeyword}`) ||
+          grantorOracle.includes(`each creature has ${lowerKeyword}`)) {
+        return true;
+      }
+    }
+    
+    return false;
+  } catch (err) {
+    console.warn(`[permanentHasKeyword] Error checking ${keyword}:`, err);
     return false;
   }
 }
