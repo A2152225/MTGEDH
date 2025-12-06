@@ -454,10 +454,14 @@ export function parseDelayedTrigger(text: string): { effect: string; timing: str
  * Patterns that indicate a sentence is a continuation/modifier of the previous sentence
  * rather than a new independent effect.
  * 
- * These patterns appear at the start of sentences (after a period) and indicate:
+ * These patterns appear at the start of sentences (after ". " - period and space) and indicate:
  * - Modifiers or restrictions on the previous sentence
  * - Sequential actions that follow from the previous effect
  * - Filters or conditions related to the previous action
+ * 
+ * IMPORTANT: These patterns only apply to sentences separated by ". " (period space) within
+ * the same line/ability. Sentences separated by newlines are NOT merged, as newlines indicate
+ * separate abilities in MTG oracle text.
  * 
  * NOTE: "When" and "Whenever" are NOT included here because they typically 
  * start new triggered abilities, not continuations.
@@ -666,11 +670,21 @@ export function parseOracleText(oracleText: string, cardName?: string): OracleTe
     : oracleText;
   
   // Split into lines/sentences for parsing
-  // First split by periods and newlines
-  const rawSentences = normalizedText.split(/(?<=[.!])\s+|\n+/).filter(l => l.trim());
+  // Split by newlines first to preserve ability boundaries, then split sentences within each line
+  const abilityLines = normalizedText.split(/\n+/).filter(l => l.trim());
   
-  // Then merge continuation sentences with their predecessors
-  const lines = mergeContinuationSentences(rawSentences);
+  // For each ability line, split into sentences and merge continuations
+  const lines: string[] = [];
+  for (const abilityLine of abilityLines) {
+    // Split sentences within this ability line
+    const sentences = abilityLine.split(/(?<=[.!])\s+/).filter(s => s.trim());
+    
+    // Merge continuation sentences within this line only
+    const merged = mergeContinuationSentences(sentences);
+    
+    // Add the merged sentences to our final list
+    lines.push(...merged);
+  }
   
   for (const line of lines) {
     const trimmed = line.trim();

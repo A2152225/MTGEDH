@@ -499,5 +499,31 @@ describe('Oracle Text Parser', () => {
       const triggeredAbilities = result.abilities.filter(a => a.type === AbilityType.TRIGGERED);
       expect(triggeredAbilities.length).toBeGreaterThanOrEqual(1);
     });
+
+    it('should only merge when continuation appears after ". " (period space)', () => {
+      // Test that "Spend" at the start of oracle text is NOT treated as continuation
+      const spendAtStart = 'Spend this mana only to cast instant or sorcery spells.';
+      const startResult = parseOracleText(spendAtStart);
+      // Should parse as a static ability, not be ignored
+      expect(startResult.abilities.length).toBeGreaterThanOrEqual(1);
+
+      // Test that "Spend" after ". " IS treated as continuation
+      const spendAfterPeriod = '{T}: Add {U}. Spend this mana only to cast instant or sorcery spells.';
+      const afterResult = parseOracleText(spendAfterPeriod);
+      const activatedAbilities = afterResult.abilities.filter(a => a.type === AbilityType.ACTIVATED);
+      expect(activatedAbilities.length).toBe(1);
+      expect(activatedAbilities[0].effect).toContain('Add {U}');
+      expect(activatedAbilities[0].effect).toContain('Spend this mana');
+    });
+
+    it('should not merge when term appears after newline instead of period', () => {
+      // Newlines separate abilities, so "Then" on a new line should NOT merge
+      const textWithNewline = 'Draw a card.\nThen each opponent loses 1 life.';
+      const result = parseOracleText(textWithNewline);
+      
+      // Should have TWO separate abilities (split by newline)
+      const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
+      expect(staticAbilities.length).toBeGreaterThanOrEqual(2);
+    });
   });
 });
