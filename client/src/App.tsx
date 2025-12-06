@@ -37,6 +37,7 @@ import { AppearanceSettingsModal } from "./components/AppearanceSettingsModal";
 import { LifePaymentModal } from "./components/LifePaymentModal";
 import { ColorChoiceModal } from "./components/ColorChoiceModal";
 import { AdditionalCostModal } from "./components/AdditionalCostModal";
+import { CastingModeSelectionModal, type CastingMode } from "./components/CastingModeSelectionModal";
 import { MDFCFaceSelectionModal, type CardFace } from "./components/MDFCFaceSelectionModal";
 import { ModalSpellSelectionModal, type SpellMode } from "./components/ModalSpellSelectionModal";
 import { ReplacementEffectOrderModal, type ReplacementEffectItem, type OrderingMode } from "./components/ReplacementEffectOrderModal";
@@ -175,7 +176,8 @@ export function App() {
   const [spellToCast, setSpellToCast] = useState<{ 
     cardId: string; 
     cardName: string; 
-    manaCost?: string; 
+    manaCost?: string;
+    oracleText?: string;  // Add oracle text for alternate costs
     tax?: number;
     isCommander?: boolean;
     targets?: string[];  // Targets selected via requestCastSpell flow
@@ -525,6 +527,19 @@ export function App() {
     imageUrl?: string;
     availableCards?: Array<{ id: string; name: string; imageUrl?: string }>;
     availableTargets?: Array<{ id: string; name: string; imageUrl?: string; typeLine?: string }>;
+    effectId?: string;
+  } | null>(null);
+  
+  // Casting Mode Selection Modal state - for overload, abundant harvest, etc.
+  const [castingModeModalOpen, setCastingModeModalOpen] = useState(false);
+  const [castingModeModalData, setCastingModeModalData] = useState<{
+    cardId: string;
+    cardName: string;
+    source?: string;
+    title: string;
+    description: string;
+    imageUrl?: string;
+    modes: CastingMode[];
     effectId?: string;
   } | null>(null);
   
@@ -1413,6 +1428,72 @@ export function App() {
       socket.off("additionalCostRequest", handler);
     };
   }, [safeView?.id]);
+
+  // Casting mode selection request listener - for overload, abundant harvest, etc.
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      cardId: string;
+      cardName: string;
+      source?: string;
+      title: string;
+      description: string;
+      imageUrl?: string;
+      modes: CastingMode[];
+      effectId?: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        setCastingModeModalData({
+          cardId: payload.cardId,
+          cardName: payload.cardName,
+          source: payload.source,
+          title: payload.title,
+          description: payload.description,
+          imageUrl: payload.imageUrl,
+          modes: payload.modes,
+          effectId: payload.effectId,
+        });
+        setCastingModeModalOpen(true);
+      }
+    };
+    socket.on("modeSelectionRequest", handler);
+    return () => {
+      socket.off("modeSelectionRequest", handler);
+    };
+  }, [safeView?.id]);
+
+  // Overload cast request listener - after mode selection, need to pay the overload cost
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      cardId: string;
+      cardName: string;
+      overloadCost: string;
+      effectId?: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        // Open the cast spell modal with the overload cost
+        // Find the card in hand to get full details including oracle text
+        const hand = safeView.hand || [];
+        const cardInHand = hand.find((c: any) => c?.id === payload.cardId);
+        
+        if (cardInHand) {
+          setSpellToCast({
+            cardId: payload.cardId,
+            cardName: payload.cardName,
+            manaCost: cardInHand.mana_cost, // Use the card's normal mana cost
+            oracleText: cardInHand.oracle_text, // Include oracle text so alternate costs are parsed
+            effectId: payload.effectId,
+          });
+          setCastSpellModalOpen(true);
+        }
+      }
+    };
+    socket.on("overloadCastRequest", handler);
+    return () => {
+      socket.off("overloadCastRequest", handler);
+    };
+  }, [safeView?.id, safeView?.hand]);
 
   // MDFC face selection complete listener - continue playing the land
   React.useEffect(() => {
@@ -4040,6 +4121,7 @@ export function App() {
         open={castSpellModalOpen}
         cardName={spellToCast?.cardName || ''}
         manaCost={spellToCast?.manaCost}
+        oracleText={spellToCast?.oracleText}
         availableSources={you ? getAvailableManaSourcesForPlayer(you) : []}
         otherCardsInHand={useMemo(() => {
           if (!safeView || !you || !spellToCast) return [];
@@ -4589,6 +4671,35 @@ export function App() {
         onCancel={() => {
           setAdditionalCostModalOpen(false);
           setAdditionalCostModalData(null);
+        }}
+      />
+
+      {/* Casting Mode Selection Modal (Overload, Abundant Harvest, etc.) */}
+      <CastingModeSelectionModal
+        open={castingModeModalOpen}
+        cardId={castingModeModalData?.cardId || ''}
+        cardName={castingModeModalData?.cardName || ''}
+        source={castingModeModalData?.source}
+        title={castingModeModalData?.title || ''}
+        description={castingModeModalData?.description || ''}
+        imageUrl={castingModeModalData?.imageUrl}
+        modes={castingModeModalData?.modes || []}
+        effectId={castingModeModalData?.effectId}
+        onConfirm={(selectedMode) => {
+          if (safeView?.id && castingModeModalData) {
+            socket.emit("modeSelectionConfirm", {
+              gameId: safeView.id,
+              cardId: castingModeModalData.cardId,
+              selectedMode,
+              effectId: castingModeModalData.effectId,
+            });
+            setCastingModeModalOpen(false);
+            setCastingModeModalData(null);
+          }
+        }}
+        onCancel={() => {
+          setCastingModeModalOpen(false);
+          setCastingModeModalData(null);
         }}
       />
 
