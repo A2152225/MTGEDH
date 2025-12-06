@@ -1157,6 +1157,27 @@ export async function handleAIPriority(
   console.info('[AI] AI has priority, proceeding with action');
   
   try {
+    // CRITICAL: Check for pending trigger ordering BEFORE any other action
+    // This prevents the AI from getting stuck in an infinite loop trying to advance
+    // while trigger ordering is pending
+    const pendingTriggerOrdering = (game.state as any).pendingTriggerOrdering?.[playerId];
+    if (pendingTriggerOrdering) {
+      console.info('[AI] AI has pending trigger ordering, auto-ordering triggers');
+      await executeAITriggerOrdering(io, gameId, playerId);
+      return; // After ordering triggers, we'll get called again via broadcastGame
+    }
+    
+    // Also check for triggers in the trigger queue that need ordering
+    const triggerQueue = (game.state as any).triggerQueue || [];
+    const aiTriggers = triggerQueue.filter((t: any) => 
+      t.controllerId === playerId && t.type === 'order'
+    );
+    if (aiTriggers.length >= 2) {
+      console.info(`[AI] AI has ${aiTriggers.length} triggers to order in queue`);
+      await executeAITriggerOrdering(io, gameId, playerId);
+      return;
+    }
+    
     // If it's not the AI's turn, handle special cases where non-turn player needs to act
     if (!isAITurn) {
       // DECLARE_BLOCKERS step: The defending player (non-turn player) needs to declare blockers
@@ -2140,6 +2161,128 @@ async function executeAIDecision(
     default:
       await executePassPriority(io, gameId, playerId);
       break;
+  }
+}
+
+/**
+ * Execute AI trigger ordering - automatically order triggers on the stack
+ * When an AI player has multiple simultaneous triggers, this function
+ * puts them on the stack in a sensible order (defaults to the order they were created)
+ */
+async function executeAITriggerOrdering(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID
+): Promise<void> {
+  const game = ensureGame(gameId);
+  if (!game) return;
+  
+  console.info('[AI] Executing trigger ordering:', { gameId, playerId });
+  
+  try {
+    // Get triggers from the trigger queue that belong to this player
+    const triggerQueue = (game.state as any).triggerQueue || [];
+    const aiTriggers = triggerQueue.filter((t: any) => 
+      t.controllerId === playerId && t.type === 'order'
+    );
+    
+    if (aiTriggers.length === 0) {
+      console.info('[AI] No triggers to order, clearing pending state');
+      // Clear the pending trigger ordering state
+      if ((game.state as any).pendingTriggerOrdering) {
+        delete (game.state as any).pendingTriggerOrdering[playerId];
+        if (Object.keys((game.state as any).pendingTriggerOrdering).length === 0) {
+          delete (game.state as any).pendingTriggerOrdering;
+        }
+      }
+      broadcastGame(io, game, gameId);
+      return;
+    }
+    
+    console.info(`[AI] Found ${aiTriggers.length} triggers to order`);
+    
+    // Remove triggers from the queue
+    (game.state as any).triggerQueue = triggerQueue.filter((t: any) => 
+      !(t.controllerId === playerId && t.type === 'order')
+    );
+    
+    // Put triggers on the stack in the order they were created
+    // (First trigger goes on stack first, resolves last - this is the default)
+    game.state.stack = game.state.stack || [];
+    
+    const orderedTriggerIds: string[] = [];
+    for (const trigger of aiTriggers) {
+      const stackItem = {
+        id: `stack_trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        type: 'ability',
+        controller: playerId,
+        card: {
+          id: trigger.sourceId,
+          name: `${trigger.sourceName} (trigger)`,
+          type_line: 'Triggered Ability',
+          oracle_text: trigger.effect,
+          image_uris: trigger.imageUrl ? { small: trigger.imageUrl, normal: trigger.imageUrl } : undefined,
+        },
+        targets: trigger.targets || [],
+      };
+      
+      game.state.stack.push(stackItem as any);
+      orderedTriggerIds.push(trigger.id);
+      console.info(`[AI] ⚡ Pushed trigger to stack: ${trigger.sourceName} - ${trigger.effect}`);
+    }
+    
+    // Clear the pending trigger ordering state - CRITICAL to break the loop
+    if ((game.state as any).pendingTriggerOrdering) {
+      delete (game.state as any).pendingTriggerOrdering[playerId];
+      if (Object.keys((game.state as any).pendingTriggerOrdering).length === 0) {
+        delete (game.state as any).pendingTriggerOrdering;
+      }
+    }
+    
+    // Send chat message about the triggers being put on the stack
+    const triggerNames = aiTriggers.map((t: any) => t.sourceName).join(', ');
+    try {
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `AI orders ${aiTriggers.length} triggered abilities on the stack: ${triggerNames}`,
+        ts: Date.now(),
+      });
+    } catch (e) {
+      // Non-critical
+    }
+    
+    // Persist the event
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'orderTriggers', {
+        playerId,
+        orderedTriggerIds,
+        isAI: true,
+      });
+    } catch (e) {
+      console.warn('[AI] Failed to persist orderTriggers event:', e);
+    }
+    
+    // Bump sequence and broadcast
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    
+    broadcastGame(io, game, gameId);
+    
+    console.info(`[AI] Successfully ordered ${aiTriggers.length} triggers onto stack`);
+    
+  } catch (error) {
+    console.error('[AI] Error ordering triggers:', error);
+    // On error, still try to clear the pending state to prevent infinite loop
+    if ((game.state as any).pendingTriggerOrdering) {
+      delete (game.state as any).pendingTriggerOrdering[playerId];
+      if (Object.keys((game.state as any).pendingTriggerOrdering).length === 0) {
+        delete (game.state as any).pendingTriggerOrdering;
+      }
+    }
+    broadcastGame(io, game, gameId);
   }
 }
 
