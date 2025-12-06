@@ -65,6 +65,7 @@ export interface InMemoryGame {
   applyUpdateCountersBulk: (updates: { permanentId: string; deltas: Record<string, number> }[]) => void;
   createToken?: (controller: PlayerID, name: string, count?: number, basePower?: number, baseToughness?: number) => void;
   removePermanent?: (permanentId: string) => void;
+  movePermanentToGraveyard?: (permanentId: string, triggerDeathEffects?: boolean) => boolean;
   movePermanentToExile?: (permanentId: string) => void;
   applyEngineEffects?: (effects: readonly any[]) => void;
   runSBA?: () => void;

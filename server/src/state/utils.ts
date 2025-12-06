@@ -596,6 +596,11 @@ export function triggerLifeGainEffects(
     // Check for "whenever you gain life" patterns
     if (!oracleText.includes('whenever you gain life')) continue;
     
+    // Extract just the lifegain trigger sentence to avoid confusion with other abilities
+    // Match "Whenever you gain life, [effect]" up to the period or newline
+    const lifegainMatch = oracleText.match(/whenever you gain life,?\s*([^.\n]+)/i);
+    const lifegainEffect = lifegainMatch ? lifegainMatch[1].toLowerCase() : '';
+    
     // Ajani's Pridemate, Bloodbond Vampire, MJ Rising Star, Voice of the Blessed, etc.: Put a +1/+1 counter on this creature
     // Pattern: "Whenever you gain life, put a +1/+1 counter on ~" or "...on this creature"
     // This should match any card with "whenever you gain life" + "put a +1/+1 counter" where the counter goes on itself
@@ -603,11 +608,11 @@ export function triggerLifeGainEffects(
     // - "put a +1/+1 counter on ~" (using ~ to reference card name)
     // - "put a +1/+1 counter on [card name]" or "[card nickname]" (e.g., "on MJ" for "MJ, Rising Star")
     // - "put a +1/+1 counter on this creature"
-    // We detect this by checking if the text mentions putting a counter but NOT "on each" (that's Archangel of Thune)
-    // and NOT "that many" (that's Aerith/Sunbond style)
-    const putsSingleCounter = oracleText.includes('put a +1/+1 counter on') && 
-                              !oracleText.includes('on each') && 
-                              !oracleText.includes('that many');
+    // We detect this by checking if the LIFEGAIN EFFECT mentions putting a counter but NOT "on each" (that's Archangel of Thune)
+    // and NOT "that many" (that's Aerith/Sunbond style) - check only the lifegain effect, not the whole oracle text
+    const putsSingleCounter = lifegainEffect.includes('put a +1/+1 counter on') && 
+                              !lifegainEffect.includes('on each') && 
+                              !lifegainEffect.includes('that many');
     
     // Check if the oracle text references the card's name or nickname
     // Cards often use their first name/word as a reference (e.g., "MJ" for "MJ, Rising Star")
@@ -615,9 +620,9 @@ export function triggerLifeGainEffects(
     const cardNameParts = cardName.split(/[,\s]+/).filter(p => p.length > 0);
     const firstName = cardNameParts[0] || '';
     const oracleReferencesCardName = 
-      oracleText.includes(`on ${cardName}`) ||  // Full name match
-      (firstName.length > 1 && oracleText.includes(`on ${firstName}`)) ||  // First name/nickname match (e.g., "on mj")
-      oracleText.includes('on ~');  // Tilde symbol reference
+      lifegainEffect.includes(`on ${cardName}`) ||  // Full name match
+      (firstName.length > 1 && lifegainEffect.includes(`on ${firstName}`)) ||  // First name/nickname match (e.g., "on mj")
+      lifegainEffect.includes('on ~');  // Tilde symbol reference
     
     // Check if the counter goes on this permanent (not another target)
     // It goes on self if:
@@ -627,15 +632,16 @@ export function triggerLifeGainEffects(
     // - OR it's a known card name (pridemate patterns)
     const counterGoesOnSelf = putsSingleCounter && (
       oracleReferencesCardName ||
-      oracleText.includes('on this') ||
+      lifegainEffect.includes('on this') ||
       cardName.includes('pridemate') ||
       cardName.includes('bloodbond') ||
       cardName.includes('rising star') ||  // MJ, Rising Star
       cardName.includes('voice of the blessed') ||
       cardName.includes('celestial unicorn') ||
       cardName.includes('trelasarra') ||
+      cardName.includes('aerith gainsborough') ||  // Aerith Gainsborough
       // Generic check: if it says "put a +1/+1 counter on" without saying "target", it likely goes on itself
-      (!oracleText.includes('target creature') && !oracleText.includes('target enchantment'))
+      (!lifegainEffect.includes('target creature') && !lifegainEffect.includes('target enchantment'))
     );
     
     if (counterGoesOnSelf) {

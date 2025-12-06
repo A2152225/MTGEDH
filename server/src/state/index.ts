@@ -172,6 +172,7 @@ export function createInitialGameState(gameId: string): InMemoryGame {
     createToken: (controller: PlayerID, name: string, count?: number, basePower?: number, baseToughness?: number) =>
       createToken(ctx, controller, name, count, basePower, baseToughness),
     removePermanent: (permanentId: string) => removePermanent(ctx, permanentId),
+    movePermanentToGraveyard: (permanentId: string, triggerDeathEffects?: boolean) => movePermanentToGraveyard(ctx, permanentId, triggerDeathEffects),
     movePermanentToExile: (permanentId: string) => movePermanentToExile(ctx, permanentId),
     applyEngineEffects: (effects: readonly any[]) => applyEngineEffects(ctx, effects),
     runSBA: () => runSBA(ctx),

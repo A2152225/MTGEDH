@@ -275,8 +275,6 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
            oracleText.includes('legendary creature you control'))) {
         const countersOnAerith = (perm as any).counters?.['+1/+1'] || 0;
         if (countersOnAerith > 0) {
-          console.log(`[movePermanentToGraveyard] Aerith Gainsborough dies with ${countersOnAerith} +1/+1 counters`);
-          
           // Apply counters to each legendary creature you control
           const battlefield = state.battlefield || [];
           for (const p of battlefield) {
@@ -293,8 +291,6 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
                 if (current[k] <= 0) delete current[k];
               }
               p.counters = Object.keys(current).length ? current : undefined;
-              
-              console.log(`[movePermanentToGraveyard] Put ${modifiedDeltas['+1/+1']} +1/+1 counters on ${(p.card as any)?.name}`);
             }
           }
           
@@ -336,7 +332,7 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
           totalCountersOnDying += count;
         }
       }
-      const dyingCreaturePower = isCreature ? (parsePT((perm as any).card?.power)?.[0] || 0) : 0;
+      const dyingCreaturePower = isCreature ? (parsePT((perm as any).card?.power) || 0) : 0;
       
       for (const p of battlefield) {
         if (!p || p.controller !== controller) continue;
@@ -349,7 +345,6 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
              permOracleText.includes('graveyard from the battlefield') &&
              permOracleText.includes('if it had one or more counters'))) {
           if (totalCountersOnDying > 0) {
-            console.log(`[movePermanentToGraveyard] Yuna triggered: ${card?.name} had ${totalCountersOnDying} counters`);
             // Create a triggered ability that requires target selection
             state.stack = state.stack || [];
             state.stack.push({
@@ -374,7 +369,6 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
              permOracleText.includes('put x +1/+1 counters') &&
              permOracleText.includes('power of the creature that died')))) {
           if (dyingCreaturePower > 0) {
-            console.log(`[movePermanentToGraveyard] Death's Presence triggered: ${card?.name} had ${dyingCreaturePower} power`);
             // Create a triggered ability that requires target selection
             state.stack = state.stack || [];
             state.stack.push({
