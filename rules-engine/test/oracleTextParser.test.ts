@@ -525,5 +525,29 @@ describe('Oracle Text Parser', () => {
       const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
       expect(staticAbilities.length).toBeGreaterThanOrEqual(2);
     });
+
+    it('should merge ". When you do" reflexive triggers (Electro, Assaulting Battery)', () => {
+      const text = 'When this creature leaves the battlefield, you may pay {X}. When you do, it deals X damage to target player.';
+      const result = parseOracleText(text);
+      
+      // Should have ONE triggered ability with the reflexive trigger merged
+      const triggeredAbilities = result.abilities.filter(a => a.type === AbilityType.TRIGGERED);
+      expect(triggeredAbilities.length).toBe(1);
+      expect(triggeredAbilities[0].text).toContain('you may pay {X}');
+      expect(triggeredAbilities[0].text).toContain('When you do');
+      expect(triggeredAbilities[0].text).toContain('deals X damage');
+    });
+
+    it('should merge ". Whenever you do" reflexive triggers', () => {
+      const text = 'At the beginning of your upkeep, you may sacrifice a creature. Whenever you do, draw a card.';
+      const result = parseOracleText(text);
+      
+      // Should have ONE triggered ability with the reflexive trigger merged
+      const triggeredAbilities = result.abilities.filter(a => a.type === AbilityType.TRIGGERED);
+      expect(triggeredAbilities.length).toBe(1);
+      expect(triggeredAbilities[0].text).toContain('you may sacrifice');
+      expect(triggeredAbilities[0].text).toContain('Whenever you do');
+      expect(triggeredAbilities[0].text).toContain('draw a card');
+    });
   });
 });

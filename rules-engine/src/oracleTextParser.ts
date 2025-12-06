@@ -463,8 +463,10 @@ export function parseDelayedTrigger(text: string): { effect: string; timing: str
  * the same line/ability. Sentences separated by newlines are NOT merged, as newlines indicate
  * separate abilities in MTG oracle text.
  * 
- * NOTE: "When" and "Whenever" are NOT included here because they typically 
- * start new triggered abilities, not continuations.
+ * NOTE: "When" and "Whenever" are generally NOT included because they typically 
+ * start new triggered abilities, not continuations. EXCEPTION: "When you do" and 
+ * "Whenever you do" are reflexive triggers that refer back to the previous action
+ * and should be merged.
  * 
  * NOTE: In MTG oracle text, separate abilities on permanents are separated by newlines,
  * not just periods. When multiple sentences appear on the same line (separated only by
@@ -475,6 +477,8 @@ const CONTINUATION_SENTENCE_PATTERNS = [
   /^then\b/i,          // Sequential action: "Then draw a card"
   /^you\b/i,           // Continuation of effect on player: "You may...", "You gain..."
   /^if\b/i,            // Conditional modifier: "If you do..."
+  /^when\s+you\s+do\b/i,  // Reflexive trigger: "When you do, X happens"
+  /^whenever\s+you\s+do\b/i,  // Reflexive trigger: "Whenever you do, X happens"
   /^create\b/i,        // Token creation as continuation (often follows an effect)
   /^those\b/i,         // Reference to previous objects
   /^that\b/i,          // Reference to previous object/effect: "That creature gains..."
