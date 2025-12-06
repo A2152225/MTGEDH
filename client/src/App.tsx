@@ -35,6 +35,7 @@ import { SplitCardChoiceModal, type CardFaceOption } from "./components/SplitCar
 import { CreatureTypeSelectModal } from "./components/CreatureTypeSelectModal";
 import { AppearanceSettingsModal } from "./components/AppearanceSettingsModal";
 import { LifePaymentModal } from "./components/LifePaymentModal";
+import { ColorChoiceModal } from "./components/ColorChoiceModal";
 import { MDFCFaceSelectionModal, type CardFace } from "./components/MDFCFaceSelectionModal";
 import { ModalSpellSelectionModal, type SpellMode } from "./components/ModalSpellSelectionModal";
 import { ReplacementEffectOrderModal, type ReplacementEffectItem, type OrderingMode } from "./components/ReplacementEffectOrderModal";
@@ -498,6 +499,18 @@ export function App() {
   
   // Replacement Effect Settings Panel state
   const [replacementEffectSettingsOpen, setReplacementEffectSettingsOpen] = useState(false);
+  
+  // Color Choice Modal state - for Caged Sun, Gauntlet of Power, etc.
+  const [colorChoiceModalOpen, setColorChoiceModalOpen] = useState(false);
+  const [colorChoiceModalData, setColorChoiceModalData] = useState<{
+    confirmId: string;
+    permanentId?: string;
+    spellId?: string;
+    cardName: string;
+    reason: string;
+    imageUrl?: string;
+    colors?: ('white' | 'blue' | 'black' | 'red' | 'green')[];
+  } | null>(null);
   
   // Mana Pool state - tracks floating mana for the current player
   const [manaPool, setManaPool] = useState<ManaPool | null>(null);
@@ -1302,6 +1315,50 @@ export function App() {
       socket.off("replacementEffectOrderRequest", handler);
     };
   }, [safeView?.id]);
+
+  // Color choice request listener - for Caged Sun, Gauntlet of Power, etc.
+  React.useEffect(() => {
+    const handler = (payload: {
+      confirmId: string;
+      gameId: string;
+      permanentId?: string;
+      spellId?: string;
+      cardName: string;
+      reason: string;
+      colors?: ('white' | 'blue' | 'black' | 'red' | 'green')[];
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        // Find card image if available
+        let imageUrl: string | undefined;
+        if (payload.permanentId) {
+          const permanent = (safeView.battlefield || []).find((p: BattlefieldPermanent) => p.id === payload.permanentId);
+          if (permanent && (permanent.card as KnownCardRef)?.image_uris?.normal) {
+            imageUrl = (permanent.card as KnownCardRef).image_uris?.normal;
+          }
+        } else if (payload.spellId) {
+          const spell = ((safeView as any).stack || []).find((s: any) => s.id === payload.spellId);
+          if (spell && (spell.card as KnownCardRef)?.image_uris?.normal) {
+            imageUrl = (spell.card as KnownCardRef).image_uris?.normal;
+          }
+        }
+        
+        setColorChoiceModalData({
+          confirmId: payload.confirmId,
+          permanentId: payload.permanentId,
+          spellId: payload.spellId,
+          cardName: payload.cardName,
+          reason: payload.reason,
+          imageUrl,
+          colors: payload.colors,
+        });
+        setColorChoiceModalOpen(true);
+      }
+    };
+    socket.on("colorChoiceRequest", handler);
+    return () => {
+      socket.off("colorChoiceRequest", handler);
+    };
+  }, [safeView?.id, safeView?.battlefield]);
 
   // MDFC face selection complete listener - continue playing the land
   React.useEffect(() => {
@@ -4415,6 +4472,37 @@ export function App() {
         onCancel={() => {
           setLifePaymentModalOpen(false);
           setLifePaymentModalData(null);
+        }}
+      />
+
+      {/* Color Choice Modal (Caged Sun, Gauntlet of Power, etc.) */}
+      <ColorChoiceModal
+        open={colorChoiceModalOpen}
+        confirmId={colorChoiceModalData?.confirmId || ''}
+        cardName={colorChoiceModalData?.cardName || ''}
+        reason={colorChoiceModalData?.reason || ''}
+        cardImageUrl={colorChoiceModalData?.imageUrl}
+        colors={colorChoiceModalData?.colors}
+        onConfirm={(selectedColor) => {
+          if (safeView?.id && colorChoiceModalData) {
+            socket.emit("submitColorChoice", {
+              gameId: safeView.id,
+              confirmId: colorChoiceModalData.confirmId,
+              selectedColor,
+            });
+            setColorChoiceModalOpen(false);
+            setColorChoiceModalData(null);
+          }
+        }}
+        onCancel={() => {
+          if (safeView?.id && colorChoiceModalData) {
+            socket.emit("cancelColorChoice", {
+              gameId: safeView.id,
+              confirmId: colorChoiceModalData.confirmId,
+            });
+          }
+          setColorChoiceModalOpen(false);
+          setColorChoiceModalData(null);
         }}
       />
 
