@@ -11,6 +11,7 @@ import { registerDisconnectHandlers } from "./disconnect.js";
 import { registerJudgeHandlers } from "./judge.js";
 import { registerAIHandlers } from "./ai.js";
 import { registerCreatureTypeHandlers } from "./creature-type.js";
+import { registerColorChoiceHandlers } from "./color-choice.js";
 import { registerCombatHandlers } from "./combat.js";
 import { registerTriggerHandlers } from "./triggers.js";
 import { registerOpeningHandHandlers } from "./opening-hand.js";
@@ -48,6 +49,7 @@ export function registerSocketHandlers(
 	registerJudgeHandlers(io, socket);
     registerAIHandlers(io, socket);
     registerCreatureTypeHandlers(io, socket);
+    registerColorChoiceHandlers(io, socket);
     registerCombatHandlers(io, socket);
     registerTriggerHandlers(io, socket);
     registerOpeningHandHandlers(io, socket);

@@ -4,6 +4,7 @@ import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem, TriggerShortcut, PlayerID } from "../../../shared/src";
 import { requiresCreatureTypeSelection, requestCreatureTypeSelection } from "./creature-type";
+import { requiresColorChoice, requestColorChoice } from "./color-choice";
 import { checkAndPromptOpeningHandActions } from "./opening-hand";
 import { emitSacrificeUnlessPayPrompt } from "./triggers";
 import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, getLandfallTriggers, type SpellCastTrigger } from "../state/modules/triggered-abilities";
@@ -325,6 +326,46 @@ function checkCreatureTypeSelectionForNewPermanents(
       );
       
       console.log(`[game-actions] Requesting creature type selection for ${cardName} (${permanentId}) from ${controller}`);
+    }
+  }
+}
+
+/**
+ * Check newly entered permanents for color choice requirements
+ * and request selection from the player if needed.
+ */
+function checkColorChoiceForNewPermanents(
+  io: Server,
+  game: any,
+  gameId: string
+): void {
+  const battlefield = game.state?.battlefield || [];
+  
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+    
+    // Skip if already has a chosen color
+    if (permanent.chosenColor) continue;
+    
+    // Check if this card requires color choice
+    const { required, reason } = requiresColorChoice(permanent.card);
+    
+    if (required) {
+      const controller = permanent.controller;
+      const cardName = permanent.card.name || "Unknown";
+      const permanentId = permanent.id;
+      
+      // Request color choice from the controller
+      requestColorChoice(
+        io,
+        gameId,
+        controller,
+        cardName,
+        reason,
+        permanentId
+      );
+      
+      console.log(`[game-actions] Requesting color choice for ${cardName} (${permanentId}) from ${controller}`);
     }
   }
 }
@@ -1595,6 +1636,9 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Check for creature type selection requirements (e.g., Cavern of Souls, Unclaimed Territory)
       checkCreatureTypeSelectionForNewPermanents(io, game, gameId);
+      
+      // Check for color choice requirements (e.g., Caged Sun, Gauntlet of Power)
+      checkColorChoiceForNewPermanents(io, game, gameId);
 
       // ========================================================================
       // LANDFALL TRIGGERS: Check for and process landfall triggers
@@ -3244,6 +3288,10 @@ export function registerGameActions(io: Server, socket: Socket) {
           // (e.g., Morophon, Cavern of Souls, Kindred Discovery)
           checkCreatureTypeSelectionForNewPermanents(io, game, gameId);
           
+          // Check for color choice requirements on newly entered permanents
+          // (e.g., Caged Sun, Gauntlet of Power)
+          checkColorChoiceForNewPermanents(io, game, gameId);
+          
           // Check if the resolved spell has a tutor effect (search library)
           if (resolvedCard && resolvedController) {
             const oracleText = (resolvedCard.oracle_text || '').toLowerCase();
@@ -4004,6 +4052,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           console.log(`[nextStep] Stack resolved for game ${gameId}`);
           
           checkCreatureTypeSelectionForNewPermanents(io, game, gameId);
+          checkColorChoiceForNewPermanents(io, game, gameId);
         }
         appendGameEvent(game, gameId, "resolveTopOfStack");
         io.to(gameId).emit("chat", {
