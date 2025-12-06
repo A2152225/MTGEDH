@@ -4041,6 +4041,15 @@ export function registerGameActions(io: Server, socket: Socket) {
         });
         return;
       }
+      
+      // Ensure there are no pending triggers that need to be resolved
+      if ((game.state as any).triggerQueue && (game.state as any).triggerQueue.length > 0) {
+        socket.emit("error", {
+          code: "SKIP_TO_PHASE",
+          message: "Cannot skip phases while there are pending triggers. Resolve or order them first.",
+        });
+        return;
+      }
 
       // Update phase and step directly
       (game.state as any).phase = targetPhase;

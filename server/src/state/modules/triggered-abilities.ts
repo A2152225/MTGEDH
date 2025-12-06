@@ -1724,31 +1724,63 @@ export function getBeginningOfCombatTriggers(
   const triggers: BeginningOfCombatTrigger[] = [];
   const battlefield = ctx.state?.battlefield || [];
   
+  // Safety: Track how many triggers we're adding to prevent infinite loops
+  const MAX_TRIGGERS_PER_STEP = 100;
+  let triggerCount = 0;
+  
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;
+    
+    // Safety check: Don't process more than MAX_TRIGGERS to prevent infinite loops
+    if (triggerCount >= MAX_TRIGGERS_PER_STEP) {
+      console.error(`[getBeginningOfCombatTriggers] SAFETY LIMIT: Stopped after ${MAX_TRIGGERS_PER_STEP} triggers to prevent infinite loop`);
+      break;
+    }
     
     const permTriggers = detectBeginningOfCombatTriggers(permanent.card, permanent);
     
     for (const trigger of permTriggers) {
       const lowerOracle = (permanent.card.oracle_text || '').toLowerCase();
+      const cardName = (permanent.card.name || '').toLowerCase();
       
-      // "At the beginning of combat on your turn" - only for controller
-      if (lowerOracle.includes('on your turn')) {
+      // CRITICAL FIX: Check "on your turn" more strictly
+      // Cards like Hakbal should ONLY trigger on the controller's turn
+      const hasOnYourTurn = lowerOracle.includes('on your turn') || 
+                           lowerOracle.includes('on his or her turn') ||
+                           lowerOracle.includes('on their turn');
+      
+      const hasEachCombat = lowerOracle.includes('each combat') ||
+                           lowerOracle.includes('each player\'s combat') ||
+                           lowerOracle.includes('every combat');
+      
+      // "At the beginning of combat on your turn" - only for controller on their turn
+      if (hasOnYourTurn) {
         if (permanent.controller === activePlayerId) {
           triggers.push(trigger);
+          triggerCount++;
+          console.log(`[getBeginningOfCombatTriggers] ${trigger.cardName}: triggers on YOUR turn (controller=${permanent.controller}, active=${activePlayerId})`);
+        } else {
+          console.log(`[getBeginningOfCombatTriggers] ${trigger.cardName}: SKIPPED - not controller's turn (controller=${permanent.controller}, active=${activePlayerId})`);
         }
       }
       // "At the beginning of each combat" - triggers regardless of whose combat
-      else if (lowerOracle.includes('each combat')) {
+      else if (hasEachCombat) {
         triggers.push(trigger);
+        triggerCount++;
+        console.log(`[getBeginningOfCombatTriggers] ${trigger.cardName}: triggers on EACH combat`);
       }
-      // Default: assume "on your turn" if not specified
+      // Default: if no explicit timing is specified, assume "on your turn"
       else if (permanent.controller === activePlayerId) {
         triggers.push(trigger);
+        triggerCount++;
+        console.log(`[getBeginningOfCombatTriggers] ${trigger.cardName}: triggers (default - controller's turn)`);
+      } else {
+        console.log(`[getBeginningOfCombatTriggers] ${trigger.cardName}: SKIPPED - default assumes 'on your turn' (controller=${permanent.controller}, active=${activePlayerId})`);
       }
     }
   }
   
+  console.log(`[getBeginningOfCombatTriggers] Total triggers for activePlayer=${activePlayerId}: ${triggers.length}`);
   return triggers;
 }
 
