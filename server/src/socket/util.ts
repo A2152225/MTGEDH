@@ -1530,13 +1530,26 @@ export function detectManaRetentionEffects(
     }
     
     // Leyline Tyrant - Red mana doesn't empty
-    if (cardName.includes("leyline tyrant") ||
-        (oracleText.includes("red mana") && oracleText.includes("don't lose"))) {
+    // Electro, Assaulting Battery - Red mana doesn't empty
+    if (cardName.includes("leyline tyrant") || cardName.includes("electro") ||
+        (oracleText.includes("red mana") && oracleText.includes("don't lose")) ||
+        (oracleText.includes("don't lose unspent red mana"))) {
       effects.push({
         permanentId: permanent.id,
         cardName: permanent.card?.name || "Leyline Tyrant",
         type: 'doesnt_empty',
         colors: ['red'],
+      });
+    }
+    
+    // Omnath, Locus of All - Mana becomes black instead of emptying
+    if (cardName.includes("omnath, locus of all") ||
+        (oracleText.includes("mana becomes") && oracleText.includes("instead of emptying"))) {
+      effects.push({
+        permanentId: permanent.id,
+        cardName: permanent.card?.name || "Omnath, Locus of All",
+        type: 'becomes_colorless', // Will be handled specially as 'becomes black'
+        colors: ['black'], // Tag to convert to black
       });
     }
     
@@ -1624,7 +1637,10 @@ export function processManaDrain(gameState: any, playerId: string): {
   }
   
   // Check for "becomes colorless" effect (Kruphix, Horizon Stone)
-  const hasBecomesColorless = effects.some(e => e.type === 'becomes_colorless');
+  const hasBecomesColorless = effects.some(e => e.type === 'becomes_colorless' && !e.colors);
+  
+  // Check for "becomes black" effect (Omnath, Locus of All)
+  const hasBecomesBlack = effects.some(e => e.type === 'becomes_colorless' && e.colors?.includes('black'));
   
   // Check which colors don't empty
   const colorsDoNotEmpty = new Set<string>();
@@ -1644,8 +1660,14 @@ export function processManaDrain(gameState: any, playerId: string): {
     if (colorsDoNotEmpty.has(color)) {
       // This color doesn't empty
       result.retained[color] = amount;
+    } else if (hasBecomesBlack && color !== 'colorless' && color !== 'black') {
+      // Colored mana becomes black (Omnath, Locus of All)
+      result.converted[color] = amount;
+      pool.black = (pool.black || 0) + amount;
+      pool[color] = 0;
+      result.retained.black = (result.retained.black || 0) + amount;
     } else if (hasBecomesColorless && color !== 'colorless') {
-      // Colored mana becomes colorless
+      // Colored mana becomes colorless (Kruphix, Horizon Stone)
       result.converted[color] = amount;
       pool.colorless = (pool.colorless || 0) + amount;
       pool[color] = 0;
