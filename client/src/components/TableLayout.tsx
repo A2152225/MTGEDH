@@ -269,9 +269,11 @@ export function TableLayout(props: {
   canKeepHand?: boolean;
   canMulligan?: boolean;
   isPreGame?: boolean;
+  allPlayersKeptHands?: boolean;
   onKeepHand?: () => void;
   onMulligan?: () => void;
   onRandomizeStart?: () => void;
+  onBeginGame?: () => void;
   // Legacy 3D/pan-zoom props (kept for backwards compatibility)
   threeD?: any;
   enablePanZoom?: boolean;
@@ -303,8 +305,8 @@ export function TableLayout(props: {
     manaPool,
     // Mulligan UI props
     showMulliganUI, hasKeptHand, mulligansTaken = 0, pendingBottomCount = 0,
-    canKeepHand, canMulligan, isPreGame,
-    onKeepHand, onMulligan, onRandomizeStart,
+    canKeepHand, canMulligan, isPreGame, allPlayersKeptHands,
+    onKeepHand, onMulligan, onRandomizeStart, onBeginGame,
   } = props;
 
   // Snapshot debug
@@ -911,6 +913,27 @@ export function TableLayout(props: {
                   title="Randomly select which player goes first"
                 >
                   🎲 Random Start
+                </button>
+              )}
+              {/* Begin Game button - appears when all players have kept hands */}
+              {isPreGame && allPlayersKeptHands && hasKeptHand && onBeginGame && (
+                <button
+                  onClick={onBeginGame}
+                  style={{
+                    background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
+                    color: 'white',
+                    border: '2px solid #15803d',
+                    borderRadius: 6,
+                    padding: '8px 20px',
+                    cursor: 'pointer',
+                    fontSize: 14,
+                    fontWeight: 600,
+                    boxShadow: '0 2px 8px rgba(34, 197, 94, 0.4)',
+                    animation: 'pulse 2s infinite',
+                  }}
+                  title="All players are ready! Click to begin the game."
+                >
+                  ▶️ Begin Game
                 </button>
               )}
             </>

@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { initDb, createGameIfNotExists, deleteGame, gameExistsInDb, listGames } from '../src/db/index';
 import GameManager from '../src/GameManager';
 
-// Helper to clean up test games from the database
-async function cleanupTestGames(gameIds: string[]) {
+// Helper to clean up test games from the database (synchronous operations)
+function cleanupTestGames(gameIds: string[]) {
   for (const gameId of gameIds) {
     try {
       deleteGame(gameId);
@@ -26,9 +26,9 @@ describe('Deleted game persistence', () => {
     }
   });
   
-  afterEach(async () => {
+  afterEach(() => {
     // Clean up any test games created during tests
-    await cleanupTestGames(testGameIds);
+    cleanupTestGames(testGameIds);
     testGameIds.length = 0;
   });
 

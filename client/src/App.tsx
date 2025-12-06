@@ -3396,9 +3396,11 @@ export function App() {
               canKeepHand={canKeepHand}
               canMulligan={canMulligan}
               isPreGame={isPreGame}
+              allPlayersKeptHands={allPlayersKeptHands}
               onKeepHand={() => socket.emit("keepHand", { gameId: safeView?.id })}
               onMulligan={() => socket.emit("mulligan", { gameId: safeView?.id })}
               onRandomizeStart={() => socket.emit("randomizeStartingPlayer", { gameId: safeView?.id })}
+              onBeginGame={() => socket.emit("nextStep", { gameId: safeView?.id })}
             />
           ) : (
             <div style={{ padding: 20, color: "#666" }}>
