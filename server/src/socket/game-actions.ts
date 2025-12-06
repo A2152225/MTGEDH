@@ -6813,37 +6813,29 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
-      // Check if payment is required and not yet confirmed
+      // Check if payment is required
       const parsedCost = parseManaCost(equipCost);
       const totalManaCost = parsedCost.generic + Object.values(parsedCost.colors).reduce((a: number, b: number) => a + b, 0);
       
-      if (totalManaCost > 0 && !paymentConfirmed) {
-        // Store pending equip action and prompt for mana payment
-        (game.state as any).pendingEquipPayment = (game.state as any).pendingEquipPayment || {};
-        (game.state as any).pendingEquipPayment[playerId] = {
-          equipmentId,
-          targetCreatureId,
-          equipCost,
-          equipmentName: equipment.card?.name || "Equipment",
-          targetName: targetCreature.card?.name || "Creature",
-        };
+      if (totalManaCost > 0) {
+        // Validate and pay the equip cost
+        const pool = getOrInitManaPool(game.state, playerId);
+        const totalAvailable = calculateTotalAvailableMana(pool, []);
         
-        // Emit payment prompt
-        socket.emit("equipPaymentPrompt", {
-          gameId,
-          equipmentId,
-          targetCreatureId,
-          equipmentName: equipment.card?.name || "Equipment",
-          targetName: targetCreature.card?.name || "Creature",
-          equipCost,
-          parsedCost,
-        });
+        // Validate payment
+        const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+        if (validationError) {
+          socket.emit("error", { code: "INSUFFICIENT_MANA", message: validationError });
+          return;
+        }
         
-        console.log(`[equipAbility] Prompted ${playerId} to pay ${equipCost} to equip ${equipment.card?.name} to ${targetCreature.card?.name}`);
-        return;
+        // Consume mana
+        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[equipAbility]');
+        
+        console.log(`[equipAbility] ${playerId} paid ${equipCost} to equip ${equipment.card?.name} to ${targetCreature.card?.name}`);
       }
 
-      // Payment confirmed (or cost is 0) - proceed with equipping
+      // Proceed with equipping
       // Detach from previous creature if attached
       if (equipment.attachedTo) {
         const prevCreature = battlefield.find((p: any) => p.id === equipment.attachedTo);
@@ -6884,7 +6876,9 @@ export function registerGameActions(io: Server, socket: Socket) {
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `⚔️ ${getPlayerName(game, playerId)} equips ${equipment.card?.name || "Equipment"} to ${targetCreature.card?.name || "Creature"}`,
+        message: totalManaCost > 0 
+          ? `⚔️ ${getPlayerName(game, playerId)} pays ${equipCost} and equips ${equipment.card?.name || "Equipment"} to ${targetCreature.card?.name || "Creature"}`
+          : `⚔️ ${getPlayerName(game, playerId)} equips ${equipment.card?.name || "Equipment"} to ${targetCreature.card?.name || "Creature"}`,
         ts: Date.now(),
       });
 

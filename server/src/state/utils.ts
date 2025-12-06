@@ -1545,6 +1545,19 @@ export function calculateAllPTBonuses(
   const battlefield = gameState.battlefield || [];
   const controllerId = creaturePerm.controller;
   const creatureTypeLine = (creaturePerm.card?.type_line || '').toLowerCase();
+  const creatureName = (creaturePerm.card?.name || '').toLowerCase();
+  
+  // 0. Special creature-specific P/T bonuses (Omnath, etc.)
+  // Omnath, Locus of Mana - gets +1/+1 for each green mana in your mana pool
+  // Match various name formats: "Omnath, Locus of Mana" or "Omnath Locus of Mana"
+  if (creatureName.includes('omnath') && creatureName.includes('locus of mana')) {
+    const manaPool = gameState?.manaPool?.[controllerId] || {};
+    const greenMana = manaPool.green || 0;
+    if (greenMana > 0) {
+      powerBonus += greenMana;
+      toughnessBonus += greenMana;
+    }
+  }
   
   // 1. Equipment and Aura bonuses (attached to this creature)
   // Pass gameState for variable equipment calculations
