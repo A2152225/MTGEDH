@@ -1316,8 +1316,8 @@ export function getActualPowerToughness(
   const finalToughness = baseToughness + plusOneCounters - minusOneCounters;
   
   return {
-    power: Math.max(0, finalPower), // Power can't be negative (though it can be used in calculations)
-    toughness: finalToughness, // Toughness can be 0 or negative (creature dies)
+    power: Math.max(0, finalPower), // Power is displayed as 0 minimum for UI purposes
+    toughness: finalToughness, // Toughness can be 0 or negative (creature dies to SBA)
   };
 }
 
