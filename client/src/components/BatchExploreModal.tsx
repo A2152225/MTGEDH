@@ -40,13 +40,13 @@ export interface BatchExploreModalProps {
 }
 
 /**
- * Automatically determine the default choice for a non-land explore:
- * - If it's a good card (low CMC, useful), keep on top
- * - Otherwise, put in graveyard
+ * Automatically determine the default choice for a non-land explore.
+ * For most cases, putting the card in the graveyard is the preferred choice
+ * as it helps fill the graveyard for graveyard strategies and provides
+ * the +1/+1 counter benefit.
  */
-function getDefaultChoice(card: BatchExploreCard): boolean {
-  // For now, default to putting in graveyard (most common choice)
-  // This can be enhanced with more logic later
+function getDefaultChoice(_card: BatchExploreCard): boolean {
+  // Always default to graveyard for non-lands
   return true;
 }
 

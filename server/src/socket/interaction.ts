@@ -919,6 +919,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   });
 
   // Batch Explore: Handle multiple creatures exploring at once (e.g., Hakbal triggers)
+  // NOTE: This implementation peeks at the top card multiple times (once in beginBatchExplore
+  // and once in confirmBatchExplore). This is acceptable because peekTopN doesn't modify
+  // the library - it only reveals what's there. The actual card movement happens in the
+  // confirmBatchExplore handler via applyEvent("exploreResolve").
   socket.on("beginBatchExplore", ({ gameId, permanentIds }) => {
     const pid = socket.data.playerId as string | undefined;
     if (!pid || socket.data.spectator) return;
@@ -1028,7 +1032,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         permanentId,
         revealedCardId: revealedCard.id,
         isLand,
-        toGraveyard,
+        toGraveyard: isLand ? false : toGraveyard,  // Match applyEvent behavior
       });
 
       if (isLand) {

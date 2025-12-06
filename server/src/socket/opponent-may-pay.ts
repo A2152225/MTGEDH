@@ -112,7 +112,8 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
 
     // Remove existing shortcut for this card
     game.state.triggerShortcuts[pid] = game.state.triggerShortcuts[pid].filter(
-      (s: any) => s.cardName.toLowerCase() !== sourceName.toLowerCase()
+      (s: { cardName: string; playerId: PlayerID; preference: string }) => 
+        s.cardName.toLowerCase() !== sourceName.toLowerCase()
     );
 
     // Add new shortcut

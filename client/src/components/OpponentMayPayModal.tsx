@@ -315,6 +315,7 @@ export function OpponentMayPayModal({
               boxShadow: canAfford ? '0 4px 12px rgba(34, 197, 94, 0.3)' : 'none',
               opacity: canAfford ? 1 : 0.5,
             }}
+            title={!canAfford ? 'Insufficient mana in pool' : ''}
           >
             ✓ Pay {formattedCost}
           </button>
