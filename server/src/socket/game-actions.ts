@@ -3327,6 +3327,55 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         // Check for pending Ponder-style effects (Ponder, Index, Telling Time, etc.)
         handlePendingPonder(io, game, gameId);
+        
+        // ========================================================================
+        // CRITICAL: Check if there's a pending phase skip that was interrupted
+        // by combat triggers. If stack is now empty and all triggers are resolved,
+        // automatically continue to the originally requested phase.
+        // ========================================================================
+        const pendingSkip = (game.state as any).pendingPhaseSkip;
+        if (pendingSkip && game.state.stack && game.state.stack.length === 0) {
+          const noTriggerQueue = !(game.state as any).triggerQueue || (game.state as any).triggerQueue.length === 0;
+          const noPendingOrdering = !(game.state as any).pendingTriggerOrdering || 
+                                    Object.keys((game.state as any).pendingTriggerOrdering).length === 0;
+          
+          if (noTriggerQueue && noPendingOrdering) {
+            console.log(`[passPriority] Continuing pending phase skip from BEGIN_COMBAT to ${pendingSkip.targetStep}`);
+            
+            // Update phase and step to the originally requested target
+            (game.state as any).phase = pendingSkip.targetPhase;
+            (game.state as any).step = pendingSkip.targetStep;
+            
+            // Clear the pending skip
+            delete (game.state as any).pendingPhaseSkip;
+            
+            // Append event to track this automatic continuation
+            try {
+              appendEvent(gameId, (game as any).seq || 0, "skipToPhase", {
+                playerId: pendingSkip.requestedBy,
+                from: 'BEGIN_COMBAT',
+                to: pendingSkip.targetStep,
+                auto: true,
+                reason: 'combat_triggers_resolved',
+              });
+            } catch (e) {
+              console.warn("appendEvent(skipToPhase auto) failed:", e);
+            }
+            
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `Combat triggers resolved. Continuing to ${pendingSkip.targetStep}.`,
+              ts: Date.now(),
+            });
+            
+            // Bump sequence to reflect phase change
+            if (typeof game.bumpSeq === 'function') {
+              game.bumpSeq();
+            }
+          }
+        }
       }
 
       // If all players passed priority with empty stack, advance to next step
@@ -4012,20 +4061,19 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       const currentPhase = String(game.state?.phase || "").toLowerCase();
       const currentStep = String(game.state?.step || "").toUpperCase();
+      const turnPlayer = game.state.turnPlayer;
 
       // Debug logging
       try {
         console.info(
-          `[skipToPhase] request from player=${playerId} game=${gameId} turnPlayer=${
-            game.state?.turnPlayer
-          } currentPhase=${currentPhase} currentStep=${currentStep} targetPhase=${targetPhase} targetStep=${targetStep}`
+          `[skipToPhase] request from player=${playerId} game=${gameId} turnPlayer=${turnPlayer} currentPhase=${currentPhase} currentStep=${currentStep} targetPhase=${targetPhase} targetStep=${targetStep}`
         );
       } catch {
         /* ignore */
       }
 
       // Only active player may skip phases
-      if (game.state.turnPlayer && game.state.turnPlayer !== playerId) {
+      if (turnPlayer && turnPlayer !== playerId) {
         socket.emit("error", {
           code: "SKIP_TO_PHASE",
           message: "Only the active player can skip to a phase.",
@@ -4051,9 +4099,143 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
-      // Update phase and step directly
+      // ========================================================================
+      // CRITICAL FIX: Check if we're skipping through combat and if there are
+      // beginning of combat triggers. If so, we MUST stop at BEGIN_COMBAT first,
+      // fire the triggers, and wait for them to resolve before continuing.
+      // This prevents triggers from firing in the wrong phase (e.g., in CLEANUP
+      // when they should have fired in BEGIN_COMBAT).
+      // ========================================================================
+      const currentPhaseOrder = ['untap', 'upkeep', 'draw', 'main1', 'begin_combat', 'declare_attackers', 
+                                 'declare_blockers', 'combat_damage', 'end_combat', 'main2', 'end_step', 'cleanup'];
+      const currentStepNormalized = currentStep.toLowerCase().replace(/_/g, '');
+      const targetStepNormalized = targetStep.toLowerCase().replace(/_/g, '');
+      const currentIdx = currentPhaseOrder.indexOf(currentStepNormalized);
+      const targetIdx = currentPhaseOrder.indexOf(targetStepNormalized);
+      const beginCombatIdx = currentPhaseOrder.indexOf('begin_combat');
+      
+      // Check if we're before BEGIN_COMBAT and trying to skip to/past it
+      const isBeforeCombat = currentIdx < beginCombatIdx || currentStepNormalized === '';
+      const isTargetCombatOrLater = targetIdx >= beginCombatIdx;
+      const isSkippingThroughCombat = isBeforeCombat && isTargetCombatOrLater && targetStepNormalized !== 'begincombat';
+      
+      if (isSkippingThroughCombat && turnPlayer) {
+        // Check if there are any beginning of combat triggers
+        try {
+          const combatTriggers = getBeginningOfCombatTriggers(game as any, turnPlayer);
+          
+          if (combatTriggers && combatTriggers.length > 0) {
+            console.log(`[skipToPhase] STOPPING at BEGIN_COMBAT: Found ${combatTriggers.length} trigger(s) that must resolve first`);
+            
+            // Stop at BEGIN_COMBAT instead of going directly to target
+            (game.state as any).phase = 'combat';
+            (game.state as any).step = 'BEGIN_COMBAT';
+            
+            // Store the intended target so we can continue after triggers resolve
+            (game.state as any).pendingPhaseSkip = {
+              targetPhase,
+              targetStep,
+              requestedBy: playerId,
+            };
+            
+            // Process the combat triggers
+            (game.state as any).stack = (game.state as any).stack || [];
+            
+            // Group triggers by controller for APNAP ordering
+            const triggersByController = new Map<string, typeof combatTriggers>();
+            for (const trigger of combatTriggers) {
+              const controller = trigger.controllerId || turnPlayer;
+              const existing = triggersByController.get(controller) || [];
+              existing.push(trigger);
+              triggersByController.set(controller, existing);
+            }
+            
+            // Get player order for APNAP
+            const players = Array.isArray((game.state as any).players) 
+              ? (game.state as any).players.map((p: any) => p.id) 
+              : [];
+            const orderedPlayers = [turnPlayer, ...players.filter((p: string) => p !== turnPlayer)];
+            
+            // Process triggers in APNAP order
+            for (const playerId of orderedPlayers) {
+              const playerTriggers = triggersByController.get(playerId) || [];
+              if (playerTriggers.length === 0) continue;
+              
+              // If multiple triggers, add to queue for ordering
+              if (playerTriggers.length > 1) {
+                (game.state as any).triggerQueue = (game.state as any).triggerQueue || [];
+                
+                for (const trigger of playerTriggers) {
+                  const triggerId = uid('combat_trigger');
+                  (game.state as any).triggerQueue.push({
+                    id: triggerId,
+                    sourceId: trigger.permanentId,
+                    sourceName: trigger.cardName,
+                    effect: trigger.description || trigger.effect,
+                    type: 'order',
+                    controllerId: playerId,
+                    triggerType: 'begin_combat',
+                    mandatory: trigger.mandatory !== false,
+                  });
+                }
+                
+                (game.state as any).pendingTriggerOrdering = (game.state as any).pendingTriggerOrdering || {};
+                (game.state as any).pendingTriggerOrdering[playerId] = {
+                  timing: 'begin_combat',
+                  count: playerTriggers.length,
+                };
+              } else {
+                // Single trigger - push directly to stack
+                const trigger = playerTriggers[0];
+                const triggerId = uid('combat_trigger');
+                (game.state as any).stack.push({
+                  id: triggerId,
+                  type: 'triggered_ability',
+                  controller: playerId,
+                  source: trigger.permanentId,
+                  sourceName: trigger.cardName,
+                  description: trigger.description || trigger.effect,
+                  triggerType: 'begin_combat',
+                  mandatory: trigger.mandatory !== false,
+                  effect: trigger.effect,
+                });
+              }
+            }
+            
+            // Give priority to active player
+            (game.state as any).priority = turnPlayer;
+            
+            console.log(`[skipToPhase] Set phase to BEGIN_COMBAT with ${combatTriggers.length} trigger(s). Will continue to ${targetStep} after resolution.`);
+            
+            // Broadcast the updated game state
+            broadcastGame(io, game, gameId);
+            
+            // Append skipToPhase event to indicate we stopped at BEGIN_COMBAT
+            try {
+              appendEvent(gameId, (game as any).seq || 0, "skipToPhase", {
+                playerId,
+                from: currentStep,
+                to: 'BEGIN_COMBAT',
+                finalTarget: targetStep,
+              });
+            } catch (e) {
+              console.warn("appendEvent(skipToPhase) failed:", e);
+            }
+            
+            return; // Exit early - triggers must be resolved before continuing
+          }
+        } catch (err) {
+          console.warn(`[skipToPhase] Failed to check combat triggers:`, err);
+        }
+      }
+
+      // If we reach here, either we're not skipping through combat, or there were no triggers
+      // Update phase and step directly to target
       (game.state as any).phase = targetPhase;
       (game.state as any).step = targetStep;
+      
+      // Clear any pending skip since we've reached the target
+      delete (game.state as any).pendingPhaseSkip;
 			// Mark that we just arrived here via skipToPhase so automation/auto-pass
 			// can give the active player one full priority window at this step
 		try {
@@ -4068,7 +4250,6 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Determine if we need to execute turn-based actions when skipping phases
       // This ensures that skipping from early phases to main phases still triggers
       // the appropriate untap and draw actions
-      const turnPlayer = game.state.turnPlayer;
       const targetStepUpper = targetStep.toUpperCase();
       const targetPhaseLower = targetPhase.toLowerCase();
       
@@ -4252,14 +4433,9 @@ export function registerGameActions(io: Server, socket: Socket) {
             queueTriggersWithOrdering(upkeepTriggers, 'upkeep_effect', 'upkeep_skip');
           }
           
-          // Process BEGIN COMBAT triggers if we're entering or passing through combat
-          const targetIsCombatOrLater = targetIdx >= currentPhaseOrder.indexOf('begin_combat') || 
-                                         targetStepUpper === 'BEGIN_COMBAT';
-          const wasBeforeCombat = currentIdx < currentPhaseOrder.indexOf('begin_combat');
-          if (targetIsCombatOrLater && wasBeforeCombat) {
-            const combatTriggers = getBeginningOfCombatTriggers(game as any, turnPlayer);
-            queueTriggersWithOrdering(combatTriggers, 'begin_combat', 'combat_skip');
-          }
+          // NOTE: BEGIN COMBAT triggers are now handled earlier in the skipToPhase flow
+          // to ensure they fire in the correct phase (BEGIN_COMBAT) rather than the target phase.
+          // See lines ~4060-4170 for the new combat trigger handling.
           
           // Process END STEP triggers if we're entering end step
           if (targetStepUpper === 'END_STEP' || targetStepUpper === 'END') {
