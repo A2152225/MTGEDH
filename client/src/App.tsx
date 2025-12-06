@@ -36,6 +36,7 @@ import { CreatureTypeSelectModal } from "./components/CreatureTypeSelectModal";
 import { AppearanceSettingsModal } from "./components/AppearanceSettingsModal";
 import { LifePaymentModal } from "./components/LifePaymentModal";
 import { ColorChoiceModal } from "./components/ColorChoiceModal";
+import { AdditionalCostModal } from "./components/AdditionalCostModal";
 import { MDFCFaceSelectionModal, type CardFace } from "./components/MDFCFaceSelectionModal";
 import { ModalSpellSelectionModal, type SpellMode } from "./components/ModalSpellSelectionModal";
 import { ReplacementEffectOrderModal, type ReplacementEffectItem, type OrderingMode } from "./components/ReplacementEffectOrderModal";
@@ -510,6 +511,21 @@ export function App() {
     reason: string;
     imageUrl?: string;
     colors?: ('white' | 'blue' | 'black' | 'red' | 'green')[];
+  } | null>(null);
+  
+  // Additional Cost Modal state - for discard/sacrifice as additional costs
+  const [additionalCostModalOpen, setAdditionalCostModalOpen] = useState(false);
+  const [additionalCostModalData, setAdditionalCostModalData] = useState<{
+    cardId: string;
+    cardName: string;
+    costType: 'discard' | 'sacrifice';
+    amount: number;
+    title: string;
+    description: string;
+    imageUrl?: string;
+    availableCards?: Array<{ id: string; name: string; imageUrl?: string }>;
+    availableTargets?: Array<{ id: string; name: string; imageUrl?: string; typeLine?: string }>;
+    effectId?: string;
   } | null>(null);
   
   // Mana Pool state - tracks floating mana for the current player
@@ -1359,6 +1375,44 @@ export function App() {
       socket.off("colorChoiceRequest", handler);
     };
   }, [safeView?.id, safeView?.battlefield]);
+
+  // Additional cost request listener - for discard/sacrifice as additional costs
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      cardId: string;
+      cardName: string;
+      costType: 'discard' | 'sacrifice';
+      amount: number;
+      filter?: string;
+      title: string;
+      description: string;
+      imageUrl?: string;
+      availableCards?: Array<{ id: string; name: string; imageUrl?: string }>;
+      availableTargets?: Array<{ id: string; name: string; imageUrl?: string; typeLine?: string }>;
+      effectId?: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        setAdditionalCostModalData({
+          cardId: payload.cardId,
+          cardName: payload.cardName,
+          costType: payload.costType,
+          amount: payload.amount,
+          title: payload.title,
+          description: payload.description,
+          imageUrl: payload.imageUrl,
+          availableCards: payload.availableCards,
+          availableTargets: payload.availableTargets,
+          effectId: payload.effectId,
+        });
+        setAdditionalCostModalOpen(true);
+      }
+    };
+    socket.on("additionalCostRequest", handler);
+    return () => {
+      socket.off("additionalCostRequest", handler);
+    };
+  }, [safeView?.id]);
 
   // MDFC face selection complete listener - continue playing the land
   React.useEffect(() => {
@@ -4503,6 +4557,38 @@ export function App() {
           }
           setColorChoiceModalOpen(false);
           setColorChoiceModalData(null);
+        }}
+      />
+
+      {/* Additional Cost Modal (Discard/Sacrifice as additional cost) */}
+      <AdditionalCostModal
+        open={additionalCostModalOpen}
+        cardId={additionalCostModalData?.cardId || ''}
+        cardName={additionalCostModalData?.cardName || ''}
+        costType={additionalCostModalData?.costType || 'discard'}
+        amount={additionalCostModalData?.amount || 0}
+        title={additionalCostModalData?.title || ''}
+        description={additionalCostModalData?.description || ''}
+        imageUrl={additionalCostModalData?.imageUrl}
+        availableCards={additionalCostModalData?.availableCards}
+        availableTargets={additionalCostModalData?.availableTargets}
+        effectId={additionalCostModalData?.effectId}
+        onConfirm={(selectedIds) => {
+          if (safeView?.id && additionalCostModalData) {
+            socket.emit("additionalCostConfirm", {
+              gameId: safeView.id,
+              cardId: additionalCostModalData.cardId,
+              costType: additionalCostModalData.costType,
+              selectedCards: selectedIds,
+              effectId: additionalCostModalData.effectId,
+            });
+            setAdditionalCostModalOpen(false);
+            setAdditionalCostModalData(null);
+          }
+        }}
+        onCancel={() => {
+          setAdditionalCostModalOpen(false);
+          setAdditionalCostModalData(null);
         }}
       />
 
