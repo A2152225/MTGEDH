@@ -1815,7 +1815,7 @@ export interface PTBonusSource {
   name: string;           // Name of the source (card name, "Counters", etc.)
   power: number;          // Power bonus from this source
   toughness: number;      // Toughness bonus from this source
-  type: 'equipment' | 'aura' | 'enchantment' | 'creature' | 'artifact' | 'counter' | 'modifier' | 'emblem' | 'other';
+  type: 'equipment' | 'aura' | 'enchantment' | 'creature' | 'artifact' | 'counter' | 'modifier' | 'emblem' | 'ability' | 'other';
 }
 
 /**
@@ -1848,6 +1848,22 @@ export function calculateAllPTBonusesWithSources(
   const battlefield = gameState.battlefield || [];
   const controllerId = creaturePerm.controller;
   const creatureTypeLine = (creaturePerm.card?.type_line || '').toLowerCase();
+  const creatureName = (creaturePerm.card?.name || '').toLowerCase();
+  
+  // 0. Special creature-specific P/T bonuses (Omnath, etc.)
+  // Omnath, Locus of Mana - gets +1/+1 for each green mana in your mana pool
+  if (creatureName.includes('omnath, locus of mana') || creatureName.includes('omnath locus of mana')) {
+    const manaPool = gameState?.manaPool?.[controllerId] || {};
+    const greenMana = manaPool.G || manaPool.green || 0;
+    if (greenMana > 0) {
+      sources.push({
+        name: 'Green mana in pool',
+        power: greenMana,
+        toughness: greenMana,
+        type: 'ability',
+      });
+    }
+  }
   
   // 1. Equipment and Aura bonuses (attached to this creature)
   const equipSources = calculateEquipmentBonusWithSources(creaturePerm, battlefield, gameState);

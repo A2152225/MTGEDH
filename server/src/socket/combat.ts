@@ -648,7 +648,6 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
 
         // Check if creature is tapped (can't attack if tapped, unless vigilance)
         if ((creature as any).tapped) {
-          const battlefield = game.state?.battlefield || [];
           const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance');
           if (!hasVigilance) {
             socket.emit("error", {
@@ -662,7 +661,6 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         // Check for summoning sickness (can't attack unless haste)
         if ((creature as any).summoningSickness) {
           // Use comprehensive haste check that includes equipment (Lightning Greaves, etc.)
-          const battlefield = game.state?.battlefield || [];
           const hasHaste = creatureHasHaste(creature, battlefield, playerId);
           
           if (!hasHaste) {
@@ -680,7 +678,6 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         (creature as any).attacking = attacker.targetPlayerId || attacker.targetPermanentId;
         
         // Tap the attacker (unless it has vigilance)
-        const battlefield = game.state?.battlefield || [];
         const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance');
         if (!hasVigilance) {
           (creature as any).tapped = true;
@@ -1316,7 +1313,6 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         // Check summoning sickness
         if ((creature as any).summoningSickness) {
           // Use comprehensive haste check that includes equipment (Lightning Greaves, etc.)
-          const battlefield = game.state?.battlefield || [];
           const hasHaste = creatureHasHaste(creature, battlefield, playerId);
           if (!hasHaste) {
             socket.emit("error", {
@@ -1333,7 +1329,6 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         (creature as any).attacking = attacker.targetPlayerId;
         
         // Tap the attacker (unless it has vigilance)
-        const battlefield = game.state?.battlefield || [];
         const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance');
         if (!hasVigilance) {
           (creature as any).tapped = true;
