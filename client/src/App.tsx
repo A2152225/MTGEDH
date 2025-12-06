@@ -177,7 +177,7 @@ export function App() {
     cardId: string; 
     cardName: string; 
     manaCost?: string;
-    oracleText?: string;  // Add oracle text for alternate costs
+    oracleText?: string;  // Oracle text for parsing alternate costs (Overload, Flashback, Surge, etc.)
     tax?: number;
     isCommander?: boolean;
     targets?: string[];  // Targets selected via requestCastSpell flow

@@ -17,6 +17,7 @@ import type { InMemoryGame } from "../state/types.js";
 import { GameManager } from "../GameManager.js";
 import type { GameID, PlayerID } from "../../../shared/src/index.js";
 import { registerPendingJoinForces, registerPendingTemptingOffer } from "./join-forces.js";
+import { getActualPowerToughness } from "../state/utils.js";
 
 // ============================================================================
 // Pre-compiled RegExp patterns for mana color matching in devotion calculations
@@ -2181,12 +2182,8 @@ export function calculateManaProduction(
       const permTypeLine = (perm.card?.type_line || '').toLowerCase();
       if (!permTypeLine.includes('creature')) continue;
       
-      // Get effective power (base + counters + buffs)
-      let power = (perm.basePower ?? parseInt(perm.card?.power, 10)) || 0;
-      if (perm.counters) {
-        power += (perm.counters['+1/+1'] || 0) + (perm.counters['p1p1'] || 0);
-        power -= (perm.counters['-1/-1'] || 0) + (perm.counters['m1m1'] || 0);
-      }
+      // Use canonical power calculation
+      const { power } = getActualPowerToughness(perm, gameState);
       if (power > greatestPower) greatestPower = power;
     }
     result.isDynamic = true;
@@ -2196,59 +2193,28 @@ export function calculateManaProduction(
     if (chosenColor) result.colors = [chosenColor];
   }
   
-  // Marwyn, the Nurturer - "Add an amount of {G} equal to Marwyn's power"
-  if (cardName.includes('marwyn') || 
-      (oracleText.includes("equal to") && oracleText.includes("power") && oracleText.includes("{g}"))) {
-    let power = (permanent.basePower ?? parseInt(card.power, 10)) || 0;
-    if (permanent.counters) {
-      power += (permanent.counters['+1/+1'] || 0) + (permanent.counters['p1p1'] || 0);
-      power -= (permanent.counters['-1/-1'] || 0) + (permanent.counters['m1m1'] || 0);
-    }
+  // Generic pattern: "Add {G} equal to [this creature's / ~'s] power"
+  // Catches: Marwyn, Viridian Joiner, Cradle Clearcutter, Gyre Sage, etc.
+  if (oracleText.includes("equal to") && oracleText.includes("power") && 
+      (oracleText.includes("{g}") || oracleText.includes("green")) &&
+      !oracleText.includes("greatest") && !oracleText.includes("among")) {
+    const { power } = getActualPowerToughness(permanent, gameState);
     result.isDynamic = true;
     result.baseAmount = Math.max(0, power);
-    result.dynamicDescription = `{G} equal to Marwyn's power (${power})`;
+    result.dynamicDescription = `{G} equal to this creature's power (${power})`;
     result.colors = ['G'];
   }
   
-  // Viridian Joiner - "Add an amount of {G} equal to Viridian Joiner's power"
-  if (cardName.includes('viridian joiner')) {
-    let power = (permanent.basePower ?? parseInt(card.power, 10)) || 0;
-    if (permanent.counters) {
-      power += (permanent.counters['+1/+1'] || 0) + (permanent.counters['p1p1'] || 0);
-      power -= (permanent.counters['-1/-1'] || 0) + (permanent.counters['m1m1'] || 0);
-    }
-    result.isDynamic = true;
-    result.baseAmount = Math.max(0, power);
-    result.dynamicDescription = `{G} equal to power (${power})`;
-    result.colors = ['G'];
-  }
-  
-  // Cradle Clearcutter - "Add an amount of {G} equal to this creature's power"
-  if (cardName.includes('cradle clearcutter')) {
-    let power = (permanent.basePower ?? parseInt(card.power, 10)) || 0;
-    if (permanent.counters) {
-      power += (permanent.counters['+1/+1'] || 0) + (permanent.counters['p1p1'] || 0);
-      power -= (permanent.counters['-1/-1'] || 0) + (permanent.counters['m1m1'] || 0);
-    }
-    result.isDynamic = true;
-    result.baseAmount = Math.max(0, power);
-    result.dynamicDescription = `{G} equal to power (${power})`;
-    result.colors = ['G'];
-  }
-  
-  // Bighorner Rancher - "Add an amount of {G} equal to the greatest power among creatures you control"
-  if (cardName.includes('bighorner rancher')) {
+  // Bighorner Rancher and similar - "Add {G} equal to the greatest power among creatures you control"
+  if ((oracleText.includes("greatest power") && oracleText.includes("among creatures")) ||
+      cardName.includes('bighorner rancher')) {
     let greatestPower = 0;
     for (const perm of battlefield) {
       if (!perm || perm.controller !== playerId) continue;
       const permTypeLine = (perm.card?.type_line || '').toLowerCase();
       if (!permTypeLine.includes('creature')) continue;
       
-      let power = (perm.basePower ?? parseInt(perm.card?.power, 10)) || 0;
-      if (perm.counters) {
-        power += (perm.counters['+1/+1'] || 0) + (perm.counters['p1p1'] || 0);
-        power -= (perm.counters['-1/-1'] || 0) + (perm.counters['m1m1'] || 0);
-      }
+      const { power } = getActualPowerToughness(perm, gameState);
       if (power > greatestPower) greatestPower = power;
     }
     result.isDynamic = true;
@@ -2264,11 +2230,8 @@ export function calculateManaProduction(
     if (attachedTo) {
       const equippedCreature = battlefield.find((p: any) => p.id === attachedTo);
       if (equippedCreature) {
-        power = (equippedCreature.basePower ?? parseInt(equippedCreature.card?.power, 10)) || 0;
-        if (equippedCreature.counters) {
-          power += (equippedCreature.counters['+1/+1'] || 0) + (equippedCreature.counters['p1p1'] || 0);
-          power -= (equippedCreature.counters['-1/-1'] || 0) + (equippedCreature.counters['m1m1'] || 0);
-        }
+        const actualPT = getActualPowerToughness(equippedCreature, gameState);
+        power = actualPT.power;
       }
     }
     result.isDynamic = true;

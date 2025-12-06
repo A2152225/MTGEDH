@@ -33,6 +33,7 @@
  */
 
 import type { GameContext } from "../context.js";
+import { calculateVariablePT, getActualPowerToughness } from "../utils.js";
 
 // Import card data tables from modularized submodule
 import {
@@ -5940,9 +5941,9 @@ export function calculateLandSearchCount(
       const typeLine = (perm.card?.type_line || '').toLowerCase();
       if (!typeLine.includes('creature')) continue;
       
-      const power = perm.basePower ?? perm.card?.power ?? 0;
-      const numPower = typeof power === 'string' ? parseInt(power, 10) || 0 : power;
-      if (numPower > greatestPower) greatestPower = numPower;
+      // Use the canonical power calculation function
+      const { power } = getActualPowerToughness(perm, gameState);
+      if (power > greatestPower) greatestPower = power;
     }
     return greatestPower;
   }
