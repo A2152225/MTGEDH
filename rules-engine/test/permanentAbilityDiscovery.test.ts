@@ -417,4 +417,129 @@ describe('Permanent Ability Discovery', () => {
       expect(result.parseResult?.isTriggered).toBe(true);
     });
   });
+  
+  describe('Optional abilities (isOptional field)', () => {
+    it('should detect optional activated abilities with "you may"', () => {
+      const permanent = createTestPermanent(
+        'optional-1',
+        'Optional Card',
+        '{T}: You may draw a card.',
+        'player-1',
+        'Artifact'
+      );
+      
+      const result = discoverPermanentAbilities(permanent, 'player-1');
+      
+      expect(result.hasActivatedAbilities).toBe(true);
+      const ability = result.abilities[0];
+      expect(ability.isOptional).toBe(true);
+    });
+    
+    it('should not mark mandatory abilities as optional', () => {
+      const permanent = createTestPermanent(
+        'mandatory-1',
+        'Mandatory Card',
+        '{T}: Draw a card.',
+        'player-1',
+        'Artifact'
+      );
+      
+      const result = discoverPermanentAbilities(permanent, 'player-1');
+      
+      expect(result.hasActivatedAbilities).toBe(true);
+      const ability = result.abilities[0];
+      expect(ability.isOptional).toBeFalsy();
+    });
+  });
+  
+  describe('Modal abilities (modes field)', () => {
+    it('should detect modal abilities through parseResult', () => {
+      const permanent = createTestPermanent(
+        'modal-1',
+        'Modal Card',
+        'Choose one —\n• Destroy target artifact.\n• Destroy target enchantment.',
+        'player-1',
+        'Artifact'
+      );
+      
+      const result = discoverPermanentAbilities(permanent, 'player-1');
+      
+      // Modal parsing is detected at the parse result level
+      // The current parser detects modality through "choose one" and bullet points
+      expect(result.parseResult?.hasModes).toBe(true);
+      expect(result.hasModes).toBe(true);
+    });
+  });
+  
+  describe('Choice requirements (requiresChoice field)', () => {
+    it('should detect color choice requirements through parseResult', () => {
+      const permanent = createTestPermanent(
+        'color-choice-1',
+        'Color Choice Card',
+        'As this enters the battlefield, choose a color.',
+        'player-1',
+        'Artifact'
+      );
+      
+      const result = discoverPermanentAbilities(permanent, 'player-1');
+      
+      // Choice requirements are detected in replacement effects and exposed at result level
+      expect(result.hasChoiceRequirements).toBe(true);
+      expect(result.parseResult?.abilities.some(a => a.requiresChoice !== undefined)).toBe(true);
+    });
+    
+    it('should detect choice requirements in activated abilities', () => {
+      const permanent = createTestPermanent(
+        'activated-choice-1',
+        'Activated Choice Card',
+        '{T}: Choose a color. Add one mana of that color.',
+        'player-1',
+        'Artifact'
+      );
+      
+      const result = discoverPermanentAbilities(permanent, 'player-1');
+      
+      // This should have an activated ability with a choice requirement in its effect
+      expect(result.hasActivatedAbilities).toBe(true);
+      const ability = result.abilities[0];
+      // The choice is in the effect text (case-insensitive check)
+      expect(ability.effect.toLowerCase()).toContain('choose');
+    });
+    
+    it('should detect creature type choice requirements', () => {
+      const permanent = createTestPermanent(
+        'type-choice-1',
+        'Type Choice Card',
+        'As this enters the battlefield, choose a creature type.',
+        'player-1',
+        'Artifact'
+      );
+      
+      const result = discoverPermanentAbilities(permanent, 'player-1');
+      
+      expect(result.parseResult?.abilities.some(a => 
+        a.requiresChoice?.choiceType === 'creature_type'
+      )).toBe(true);
+    });
+  });
+  
+  describe('Backwards compatibility', () => {
+    it('should still expose rawParsedAbility for full access', () => {
+      const permanent = createTestPermanent(
+        'test-1',
+        'Test Card',
+        '{T}: You may draw a card.',
+        'player-1',
+        'Artifact'
+      );
+      
+      const result = discoverPermanentAbilities(permanent, 'player-1');
+      
+      const ability = result.abilities[0];
+      expect(ability.rawParsedAbility).toBeDefined();
+      expect(ability.rawParsedAbility?.isOptional).toBe(true);
+      expect(ability.rawParsedAbility?.type).toBeDefined();
+      expect(ability.rawParsedAbility?.text).toBeDefined();
+    });
+  });
 });

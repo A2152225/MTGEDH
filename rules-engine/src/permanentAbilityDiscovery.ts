@@ -24,6 +24,7 @@ import {
   AbilityType,
   type ParsedAbility,
   type OracleTextParseResult,
+  type ChoiceRequirement,
 } from './oracleTextParser';
 import type { ActivatedAbility, ActivationRestriction } from './activatedAbilities';
 import {
@@ -54,6 +55,19 @@ const KNOWN_COUNTER_TYPES = [
 
 /**
  * Discovered ability from a permanent
+ * 
+ * This interface extends the basic ability information with parsed metadata
+ * from the oracle text parser, enabling more sophisticated ability handling.
+ * 
+ * New fields from ParsedAbility (as of improved parser):
+ * - isOptional: Indicates if the ability contains "you may" (player choice)
+ * - modes: Array of mode text for modal abilities (e.g., "Choose one —")
+ * - requiresChoice: Structured info about choice requirements (color, creature type, etc.)
+ * 
+ * These fields enable the UI and game engine to:
+ * - Prompt players for optional ability activation
+ * - Present mode selection for modal spells/abilities
+ * - Handle ETB/cast choice requirements (e.g., "choose a color")
  */
 export interface DiscoveredAbility {
   readonly id: string;
@@ -69,11 +83,24 @@ export interface DiscoveredAbility {
   readonly isLoyaltyAbility: boolean;
   readonly isKeywordAbility: boolean;
   readonly targets?: readonly string[];
+  readonly isOptional?: boolean;
+  readonly modes?: readonly string[];
+  readonly requiresChoice?: ChoiceRequirement;
   readonly rawParsedAbility?: ParsedAbility;
 }
 
 /**
  * Result of ability discovery for a permanent
+ * 
+ * Provides a comprehensive analysis of a permanent's abilities including
+ * convenient boolean flags for quick filtering.
+ * 
+ * New convenience flags (as of improved parser):
+ * - hasModes: True if any ability (activated or otherwise) has modal choices
+ * - hasChoiceRequirements: True if any ability requires a choice (color, creature type, etc.)
+ * 
+ * These flags are calculated from both activated abilities and the full parseResult,
+ * ensuring that replacement effects and other non-activated abilities are also considered.
  */
 export interface AbilityDiscoveryResult {
   readonly permanentId: string;
@@ -83,6 +110,8 @@ export interface AbilityDiscoveryResult {
   readonly hasActivatedAbilities: boolean;
   readonly hasManaAbilities: boolean;
   readonly hasLoyaltyAbilities: boolean;
+  readonly hasModes: boolean;
+  readonly hasChoiceRequirements: boolean;
   readonly parseResult?: OracleTextParseResult;
 }
 
@@ -323,12 +352,21 @@ function convertParsedAbility(
     isLoyaltyAbility: parsedAbility.isLoyaltyAbility || false,
     isKeywordAbility: parsedAbility.type === AbilityType.KEYWORD,
     targets: parsedAbility.targets,
+    isOptional: parsedAbility.isOptional,
+    modes: parsedAbility.modes,
+    requiresChoice: parsedAbility.requiresChoice,
     rawParsedAbility: parsedAbility,
   };
 }
 
 /**
  * Convert card-specific config to DiscoveredAbility
+ * 
+ * Note: Config-based abilities are manual overrides for special cases where
+ * the oracle text parser doesn't work correctly. Since we don't have the
+ * original oracle text, the optional fields (isOptional, modes, requiresChoice)
+ * will be undefined. If these fields are needed, the card should be parsed
+ * from oracle text instead of using a manual config.
  */
 function convertConfigToAbility(
   config: ActivatedAbilityConfig,
@@ -351,6 +389,7 @@ function convertConfigToAbility(
       isManaAbility: false,
       isLoyaltyAbility: false,
       isKeywordAbility: false,
+      // isOptional, modes, requiresChoice are undefined for config-based abilities
     });
   }
   
@@ -372,6 +411,7 @@ function convertConfigToAbility(
       isManaAbility: false,
       isLoyaltyAbility: false,
       isKeywordAbility: false,
+      // isOptional, modes, requiresChoice are undefined for config-based abilities
     });
   }
   
@@ -446,6 +486,8 @@ export function discoverPermanentAbilities(
     hasActivatedAbilities: abilities.length > 0,
     hasManaAbilities: abilities.some(a => a.isManaAbility),
     hasLoyaltyAbilities: abilities.some(a => a.isLoyaltyAbility),
+    hasModes: parseResult.hasModes || abilities.some(a => a.modes && a.modes.length > 0),
+    hasChoiceRequirements: parseResult.abilities.some(a => a.requiresChoice !== undefined),
     parseResult,
   };
 }
