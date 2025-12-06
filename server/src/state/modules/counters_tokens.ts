@@ -1,7 +1,7 @@
 import type { PlayerID } from "../../../../shared/src";
 import type { GameContext } from "../context";
 import { applyStateBasedActions, evaluateAction } from "../../rules-engine";
-import { uid } from "../utils";
+import { uid, parsePT } from "../utils";
 import { recalculatePlayerEffects } from "./game-state-effects.js";
 import { getDeathTriggers } from "./triggered-abilities.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
@@ -115,8 +115,10 @@ function detectCounterModifiers(gameState: any, targetPermanentController: Playe
  * 3. Bonus counter effects (Hardened Scales +1)
  * 
  * Returns modified counter deltas
+ * 
+ * EXPORTED for use in stack.ts and other modules where counters are applied during ETB
  */
-function applyCounterModifications(
+export function applyCounterModifications(
   gameState: any,
   targetPermanentId: string,
   deltas: Record<string, number>
@@ -262,6 +264,41 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
   // Tokens still "die" even though they don't end up in the graveyard
   if (triggerDeathEffects && isCreature) {
     try {
+      // Check for self death triggers (Aerith Gainsborough, etc.)
+      const cardName = (card?.name || '').toLowerCase();
+      const oracleText = (card?.oracle_text || '').toLowerCase();
+      
+      // Aerith Gainsborough: "When Aerith Gainsborough dies, put X +1/+1 counters on each legendary creature you control"
+      if (cardName.includes('aerith gainsborough') || 
+          (oracleText.includes('when') && oracleText.includes('dies') && 
+           oracleText.includes('put') && oracleText.includes('+1/+1 counter') && 
+           oracleText.includes('legendary creature you control'))) {
+        const countersOnAerith = (perm as any).counters?.['+1/+1'] || 0;
+        if (countersOnAerith > 0) {
+          // Apply counters to each legendary creature you control
+          const battlefield = state.battlefield || [];
+          for (const p of battlefield) {
+            if (!p || p.controller !== controller) continue;
+            const typeLine = ((p.card as any)?.type_line || '').toLowerCase();
+            if (typeLine.includes('legendary') && typeLine.includes('creature')) {
+              // Apply counter modifiers (Doubling Season, Vorinclex, etc.)
+              const deltas = { '+1/+1': countersOnAerith };
+              const modifiedDeltas = applyCounterModifications(state, p.id, deltas);
+              
+              const current: Record<string, number> = { ...(p.counters ?? {}) };
+              for (const [k, v] of Object.entries(modifiedDeltas)) {
+                current[k] = (current[k] ?? 0) + v;
+                if (current[k] <= 0) delete current[k];
+              }
+              p.counters = Object.keys(current).length ? current : undefined;
+            }
+          }
+          
+          // Run SBA after distributing counters
+          runSBA(ctx);
+        }
+      }
+      
       const deathTriggers = getDeathTriggers(ctx, perm, controller);
       if (deathTriggers.length > 0) {
         console.log(`[movePermanentToGraveyard] Found ${deathTriggers.length} death trigger(s) for ${isToken ? 'token ' : ''}${card?.name || perm.id}`);
@@ -280,6 +317,74 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
             triggerType: 'creature_dies',
             mandatory: true,
           } as any);
+        }
+      }
+      
+      // Yuna, Grand Summoner: "Whenever another permanent you control is put into a graveyard from the battlefield, 
+      // if it had one or more counters on it, you may put that number of +1/+1 counters on target creature."
+      // Death's Presence: "Whenever a creature you control dies, put X +1/+1 counters on target creature you control, 
+      // where X is the power of the creature that died."
+      const battlefield = state.battlefield || [];
+      const dyingPermanentCounters: Record<string, number> = (perm as any).counters || {};
+      let totalCountersOnDying = 0;
+      for (const count of Object.values(dyingPermanentCounters)) {
+        if (typeof count === 'number') {
+          totalCountersOnDying += count;
+        }
+      }
+      const dyingCreaturePower = isCreature ? (parsePT((perm as any).card?.power) || 0) : 0;
+      
+      for (const p of battlefield) {
+        if (!p || p.controller !== controller) continue;
+        const permCardName = ((p.card as any)?.name || '').toLowerCase();
+        const permOracleText = ((p.card as any)?.oracle_text || '').toLowerCase();
+        
+        // Yuna, Grand Summoner trigger
+        if ((permCardName.includes('yuna') && permCardName.includes('grand summoner')) ||
+            (permOracleText.includes('whenever another permanent you control') && 
+             permOracleText.includes('graveyard from the battlefield') &&
+             permOracleText.includes('if it had one or more counters'))) {
+          if (totalCountersOnDying > 0) {
+            // Create a triggered ability that requires target selection
+            state.stack = state.stack || [];
+            state.stack.push({
+              id: uid("trigger"),
+              type: 'triggered_ability',
+              controller: controller,
+              source: p.id,
+              sourceName: (p.card as any)?.name || 'Yuna, Grand Summoner',
+              description: `Put ${totalCountersOnDying} +1/+1 counter(s) on target creature`,
+              triggerType: 'yuna_counter_transfer',
+              countersToAdd: totalCountersOnDying,
+              requiresTarget: true,
+              targetType: 'creature',
+              mandatory: false,
+            } as any);
+          }
+        }
+        
+        // Death's Presence trigger
+        if (isCreature && (permCardName.includes("death's presence") ||
+            (permOracleText.includes('whenever a creature you control dies') &&
+             permOracleText.includes('put x +1/+1 counters') &&
+             permOracleText.includes('power of the creature that died')))) {
+          if (dyingCreaturePower > 0) {
+            // Create a triggered ability that requires target selection
+            state.stack = state.stack || [];
+            state.stack.push({
+              id: uid("trigger"),
+              type: 'triggered_ability',
+              controller: controller,
+              source: p.id,
+              sourceName: (p.card as any)?.name || "Death's Presence",
+              description: `Put ${dyingCreaturePower} +1/+1 counter(s) on target creature you control`,
+              triggerType: 'deaths_presence',
+              countersToAdd: dyingCreaturePower,
+              requiresTarget: true,
+              targetType: 'creature_you_control',
+              mandatory: true,
+            } as any);
+          }
         }
       }
     } catch (err) {
