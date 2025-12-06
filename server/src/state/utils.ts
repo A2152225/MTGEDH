@@ -1852,9 +1852,10 @@ export function calculateAllPTBonusesWithSources(
   
   // 0. Special creature-specific P/T bonuses (Omnath, etc.)
   // Omnath, Locus of Mana - gets +1/+1 for each green mana in your mana pool
-  if (creatureName.includes('omnath, locus of mana') || creatureName.includes('omnath locus of mana')) {
+  // Match various name formats: "Omnath, Locus of Mana" or "Omnath Locus of Mana"
+  if (creatureName.includes('omnath') && creatureName.includes('locus of mana')) {
     const manaPool = gameState?.manaPool?.[controllerId] || {};
-    const greenMana = manaPool.G || manaPool.green || 0;
+    const greenMana = manaPool.green || 0;
     if (greenMana > 0) {
       sources.push({
         name: 'Green mana in pool',

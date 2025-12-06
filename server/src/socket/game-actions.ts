@@ -1198,14 +1198,17 @@ export function permanentHasKeyword(permanent: any, battlefield: any[], controll
     
     // 3. Check attached equipment and auras for keyword grants
     // Pattern: "Equipped/Enchanted creature has [keyword]" or "Equipped/Enchanted creature has [ability] and [keyword]"
+    // Pre-compile regex for efficiency
+    const equipmentKeywordRegex = new RegExp(
+      `(?:equipped|enchanted) creature (?:has|gains?) (?:[\\w\\s,]+\\s+and\\s+)?${lowerKeyword}`,
+      'i'
+    );
+    
     const attachmentGrantsKeyword = (attachmentOracle: string): boolean => {
       if (!attachmentOracle.includes('equipped creature') && !attachmentOracle.includes('enchanted creature')) {
         return false;
       }
-      return attachmentOracle.includes(`has ${lowerKeyword}`) || 
-             attachmentOracle.includes(`have ${lowerKeyword}`) ||
-             attachmentOracle.includes(`gains ${lowerKeyword}`) ||
-             new RegExp(`(?:equipped|enchanted) creature has (?:[\\w\\s,]+\\s+and\\s+)?${lowerKeyword}`, 'i').test(attachmentOracle);
+      return equipmentKeywordRegex.test(attachmentOracle);
     };
     
     // Check attachedEquipment array
