@@ -19,6 +19,7 @@ import { getDeck, listDecks } from "../db/decks.js";
 import { fetchCardsByExactNamesBatch, normalizeName, parseDecklist } from "../services/scryfall.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 import { categorizeSpell, evaluateTargeting, type SpellSpec, type TargetRef } from "../rules-engine/targeting.js";
+import { GameManager } from "../GameManager.js";
 
 /** AI timing delays for more natural behavior */
 const AI_THINK_TIME_MS = 500;
@@ -2377,17 +2378,23 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
     try {
       console.info('[AI] Creating game with AI:', { gameId, playerName, aiName, aiStrategy, hasText: !!aiDeckText });
       
-      // Generate a player ID for the human player (will be set when they join)
-      // The socket.id is used as the creator identifier for now
-      const creatorSocketId = socket.id;
-      
-      // Ensure game exists and track creator
-      const game = ensureGame(gameId, { 
-        createdBySocketId: creatorSocketId 
-      });
+      // Create a NEW game using GameManager.createGame() which handles DB persistence
+      // This is critical - ensureGame() checks if the game exists in DB first,
+      // which fails for NEW games. We must use createGame() for new games.
+      let game = GameManager.getGame(gameId);
       if (!game) {
-        socket.emit('error', { code: 'GAME_NOT_FOUND', message: 'Failed to create game' });
-        return;
+        try {
+          game = GameManager.createGame({ id: gameId });
+          console.info('[AI] Created new game via GameManager:', gameId);
+        } catch (createErr: any) {
+          // Game might already exist (race condition), try to get it
+          game = GameManager.getGame(gameId) || ensureGame(gameId);
+          if (!game) {
+            console.error('[AI] Failed to create or get game:', createErr);
+            socket.emit('error', { code: 'GAME_CREATE_FAILED', message: 'Failed to create game' });
+            return;
+          }
+        }
       }
       
       // Set format and starting life
@@ -2615,15 +2622,23 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         aiNames: aiOpponents.map(ai => ai.name),
       });
       
-      const creatorSocketId = socket.id;
-      
-      // Ensure game exists
-      const game = ensureGame(gameId, { 
-        createdBySocketId: creatorSocketId 
-      });
+      // Create a NEW game using GameManager.createGame() which handles DB persistence
+      // This is critical - ensureGame() checks if the game exists in DB first,
+      // which fails for NEW games. We must use createGame() for new games.
+      let game = GameManager.getGame(gameId);
       if (!game) {
-        socket.emit('error', { code: 'GAME_NOT_FOUND', message: 'Failed to create game' });
-        return;
+        try {
+          game = GameManager.createGame({ id: gameId });
+          console.info('[AI] Created new game via GameManager:', gameId);
+        } catch (createErr: any) {
+          // Game might already exist (race condition), try to get it
+          game = GameManager.getGame(gameId) || ensureGame(gameId);
+          if (!game) {
+            console.error('[AI] Failed to create or get game:', createErr);
+            socket.emit('error', { code: 'GAME_CREATE_FAILED', message: 'Failed to create game' });
+            return;
+          }
+        }
       }
       
       // Set format and starting life
