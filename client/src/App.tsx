@@ -45,6 +45,7 @@ import { TemptingOfferModal, type TemptingOfferRequest } from "./components/Temp
 import { CommanderZoneChoiceModal } from "./components/CommanderZoneChoiceModal";
 import { PonderModal, type PeekCard, type PonderVariant } from "./components/PonderModal";
 import { ExploreModal, type ExploreCard } from "./components/ExploreModal";
+import { BatchExploreModal, type ExploreResult } from "./components/BatchExploreModal";
 import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
 import { useGameSocket } from "./hooks/useGameSocket";
@@ -153,6 +154,11 @@ export function App() {
     permanentName: string;
     revealedCard: ExploreCard;
     isLand: boolean;
+  } | null>(null);
+
+  // Batch explore modal state
+  const [batchExplorePrompt, setBatchExplorePrompt] = useState<{
+    explores: ExploreResult[];
   } | null>(null);
 
   const [showNameInUseModal, setShowNameInUseModal] = useState(false);
@@ -1719,6 +1725,24 @@ export function App() {
     socket.on("explorePrompt", handleExplorePrompt);
     return () => {
       socket.off("explorePrompt", handleExplorePrompt);
+    };
+  }, [safeView?.id]);
+
+  // Batch explore prompt handler
+  useEffect(() => {
+    const handleBatchExplorePrompt = (data: {
+      gameId: string;
+      explores: ExploreResult[];
+    }) => {
+      if (!safeView || data.gameId !== safeView.id) return;
+      setBatchExplorePrompt({
+        explores: data.explores,
+      });
+    };
+
+    socket.on("batchExplorePrompt", handleBatchExplorePrompt);
+    return () => {
+      socket.off("batchExplorePrompt", handleBatchExplorePrompt);
     };
   }, [safeView?.id]);
 
@@ -3761,6 +3785,35 @@ export function App() {
               toGraveyard: result.toGraveyard,
             });
             setExplorePrompt(null);
+          }}
+        />
+      )}
+
+      {/* Batch Explore */}
+      {batchExplorePrompt && view && (
+        <BatchExploreModal
+          explores={batchExplorePrompt.explores}
+          imagePref={imagePref}
+          onResolveAll={(decisions) => {
+            socket.emit("confirmBatchExplore", {
+              gameId: view.id,
+              decisions,
+            });
+            setBatchExplorePrompt(null);
+          }}
+          onResolveIndividually={() => {
+            // Close batch modal and fall back to individual resolves
+            // For now, just send the first explore as individual
+            if (batchExplorePrompt.explores.length > 0) {
+              const firstExplore = batchExplorePrompt.explores[0];
+              setExplorePrompt({
+                permanentId: firstExplore.permanentId,
+                permanentName: firstExplore.permanentName,
+                revealedCard: firstExplore.revealedCard,
+                isLand: firstExplore.isLand,
+              });
+            }
+            setBatchExplorePrompt(null);
           }}
         />
       )}

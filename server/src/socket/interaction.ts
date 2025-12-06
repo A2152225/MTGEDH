@@ -918,6 +918,156 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     broadcastGame(io, game, gameId);
   });
 
+  // Batch Explore: Handle multiple creatures exploring at once (e.g., Hakbal triggers)
+  socket.on("beginBatchExplore", ({ gameId, permanentIds }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    
+    if (!permanentIds || !Array.isArray(permanentIds) || permanentIds.length === 0) {
+      return;
+    }
+
+    const explores: Array<{
+      permanentId: string;
+      permanentName: string;
+      revealedCard: any;
+      isLand: boolean;
+    }> = [];
+
+    // Process each explore
+    for (const permanentId of permanentIds) {
+      const cards = game.peekTopN(pid, 1);
+      
+      if (!cards || cards.length === 0) {
+        // Empty library - skip this explore
+        continue;
+      }
+
+      const revealedCard = cards[0];
+      const typeLine = (revealedCard.type_line || "").toLowerCase();
+      const isLand = typeLine.includes("land");
+
+      // Find the exploring permanent for its name
+      const battlefield = game.state?.battlefield || [];
+      const exploringPerm = battlefield.find((p: any) => p.id === permanentId && p.controller === pid);
+      const exploringName = exploringPerm?.card?.name || "Creature";
+
+      explores.push({
+        permanentId,
+        permanentName: exploringName,
+        revealedCard,
+        isLand,
+      });
+
+      // Move the card from library to a temporary revealed state
+      // (It will be moved to final destination in confirmBatchExplore)
+      // For now, just track it
+    }
+
+    if (explores.length === 0) {
+      // All libraries were empty
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)}'s creatures explore (empty library).`,
+        ts: Date.now(),
+      });
+      return;
+    }
+
+    // Send batch explore prompt to the player
+    socket.emit("batchExplorePrompt", {
+      gameId,
+      explores,
+    });
+
+    // Announce the reveals to all players
+    const revealedNames = explores.map(e => e.revealedCard.name).join(", ");
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)}'s creatures explore, revealing ${revealedNames}.`,
+      ts: Date.now(),
+    });
+  });
+
+  socket.on("confirmBatchExplore", ({ gameId, decisions }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    
+    if (!decisions || !Array.isArray(decisions)) {
+      return;
+    }
+
+    const results: string[] = [];
+
+    // Process each decision
+    for (const decision of decisions) {
+      const { permanentId, toGraveyard } = decision;
+      
+      const cards = game.peekTopN(pid, 1);
+      
+      if (!cards || cards.length === 0) {
+        continue;
+      }
+
+      const revealedCard = cards[0];
+      const typeLine = (revealedCard.type_line || "").toLowerCase();
+      const isLand = typeLine.includes("land");
+
+      // Find the exploring permanent
+      const battlefield = game.state?.battlefield || [];
+      const exploringPerm = battlefield.find((p: any) => p.id === permanentId && p.controller === pid);
+      const exploringName = exploringPerm?.card?.name || "Creature";
+
+      // Apply the explore event
+      game.applyEvent({
+        type: "exploreResolve",
+        playerId: pid,
+        permanentId,
+        revealedCardId: revealedCard.id,
+        isLand,
+        toGraveyard: isLand ? false : toGraveyard,
+      });
+
+      appendEvent(gameId, game.seq, "exploreResolve", {
+        playerId: pid,
+        permanentId,
+        revealedCardId: revealedCard.id,
+        isLand,
+        toGraveyard,
+      });
+
+      // Build result message
+      if (isLand) {
+        results.push(`${exploringName} → ${revealedCard.name} to hand`);
+      } else if (toGraveyard) {
+        results.push(`${exploringName} → +1/+1 counter, ${revealedCard.name} to graveyard`);
+      } else {
+        results.push(`${exploringName} → +1/+1 counter, ${revealedCard.name} on top`);
+      }
+    }
+
+    // Announce the batch results
+    if (results.length > 0) {
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} resolves explores: ${results.join("; ")}.`,
+        ts: Date.now(),
+      });
+    }
+
+    broadcastGame(io, game, gameId);
+  });
+
   // Library search: Query and select cards
   socket.on("searchLibrary", ({ gameId, query, limit }) => {
     const pid = socket.data.playerId as string | undefined;
