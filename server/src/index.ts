@@ -42,6 +42,12 @@ app.use(express.json());
 
 // API: list games (merged view between persisted metadata and in-memory state)
 app.get("/api/games", (req, res) => {
+  // Prevent caching to ensure fresh data (especially through reverse proxies like IIS/ARR)
+  res.set({
+    "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0",
+  });
   try {
     const persisted = dbListGames();
     const enriched = persisted.map((row) => {

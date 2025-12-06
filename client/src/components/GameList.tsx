@@ -33,7 +33,14 @@ export default function GameList(props: GameListProps) {
   const fetchGames = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/games");
+      // Add cache-busting headers to ensure fresh data from server (especially through reverse proxies)
+      const res = await fetch("/api/games", {
+        cache: "no-store",
+        headers: {
+          "Cache-Control": "no-cache",
+          "Pragma": "no-cache",
+        },
+      });
       if (!res.ok) throw new Error("fetch failed");
       const json = await res.json();
       setGames(Array.isArray(json.games) ? json.games : []);
