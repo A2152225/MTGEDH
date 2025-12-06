@@ -479,7 +479,9 @@ export function TableLayout(props: {
           const worldX = camRef.current.x + (sx - container.w / 2) / z;
           const worldY = camRef.current.y + (sy - container.h / 2) / z;
           const targetSX = container.w / 2;
-          const targetSY = Math.round(container.h * 0.72);
+          // Position player field at 92% from top (was 72%) to account for mulligan bar
+          // This moves the view down an extra 20% of screen height
+          const targetSY = Math.round(container.h * 0.92);
           const newCamX = worldX - (targetSX - container.w / 2) / z;
           const newCamY = worldY - (targetSY - container.h / 2) / z;
           setCam(c => ({ x: newCamX, y: newCamY, z: preserveZoom ? c.z : c.z }));
@@ -514,9 +516,9 @@ export function TableLayout(props: {
     const ny = dirY / mag;
     const shift = Math.min(Math.max(halfH * 0.18, 120), 600);
     const cx2 = pos.x + nx * shift;
-    // Add a vertical offset to push view down slightly (30px in screen space at zoom ~1)
+    // Add a vertical offset to push view down 20% of screen height
     // This prevents the mulligan bar from overlapping the deck import button on join
-    const mulliganBarOffset = 30;
+    const mulliganBarOffset = Math.round(container.h * 0.20);
     const cy2 = pos.y + ny * shift + mulliganBarOffset;
     setCam(c => ({ x: cx2, y: cy2, z: preserveZoom ? c.z : c.z }));
   }
