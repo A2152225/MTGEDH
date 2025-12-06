@@ -13,7 +13,7 @@
 
 import { randomUUID } from "crypto";
 import { createInitialGameState } from "./state/index.js";
-import { createGameIfNotExists, getEvents } from "./db"; // NEW: import getEvents for replay
+import { createGameIfNotExists, getEvents, gameExistsInDb } from "./db"; // NEW: import getEvents for replay, gameExistsInDb for deleted game check
 import { createRulesBridge, type RulesBridge } from "./rules-bridge.js";
 
 type PersistOptions = { gameId: string; format?: string; startingLife?: number };
@@ -464,9 +464,19 @@ class GameManagerClass {
     return this.games.get(gameId);
   }
 
-  ensureGame(gameId: string): any {
+  ensureGame(gameId: string): any | undefined {
     let g = this.games.get(gameId);
     if (g) return g;
+
+    // IMPORTANT: Check if the game exists in the database before recreating it.
+    // This prevents re-creating games that were previously deleted.
+    // If the game doesn't exist in the database, don't create a new one.
+    if (!gameExistsInDb(gameId)) {
+      console.info(
+        `[GameManager] ensureGame: game ${gameId} does not exist in database, not recreating (may have been deleted)`
+      );
+      return undefined;
+    }
 
     let game: any = null;
 
@@ -543,32 +553,8 @@ class GameManagerClass {
       }
     }
 
-    // Synchronous persistence so game shows up in /api/games immediately
-    try {
-      const fmt = game.state?.format ?? "commander";
-      const life =
-        typeof game.state?.startingLife === "number"
-          ? game.state.startingLife
-          : 40;
-      createGameIfNotExists(gameId, fmt, life);
-    } catch (e) {
-      console.warn(
-        "[GameManager] ensureGame: createGameIfNotExists failed (non-fatal)",
-        e
-      );
-    }
-
-    // Background persistence remains as an additional safety net
-    try {
-      const fmt = game.state?.format ?? "commander";
-      const life =
-        typeof game.state?.startingLife === "number"
-          ? game.state.startingLife
-          : 40;
-      schedulePersistGamesRow({ gameId, format: fmt, startingLife: life });
-    } catch (e) {
-      /* non-fatal */
-    }
+    // No need to call createGameIfNotExists since we already verified the game exists in DB
+    // The game data is already persisted, we're just restoring the in-memory state
 
     return game;
   }

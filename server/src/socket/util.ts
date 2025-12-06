@@ -11,7 +11,7 @@
 
 import type { Server } from "socket.io";
 import { games, priorityTimers, PRIORITY_TIMEOUT_MS } from "./socket.js";
-import { appendEvent, createGameIfNotExists, getEvents } from "../db/index.js";
+import { appendEvent, createGameIfNotExists, getEvents, gameExistsInDb } from "../db/index.js";
 import { createInitialGameState } from "../state/index.js";
 import type { InMemoryGame } from "../state/types.js";
 import { GameManager } from "../GameManager.js";
@@ -261,7 +261,7 @@ export interface EnsureGameOptions {
  *
  * Returns an InMemoryGame wrapper with a fully-initialized runtime state.
  */
-export function ensureGame(gameId: string, options?: EnsureGameOptions): InMemoryGame {
+export function ensureGame(gameId: string, options?: EnsureGameOptions): InMemoryGame | undefined {
   // Defensive validation: reject invalid/falsy gameId early to prevent creating games with no id.
   if (!gameId || typeof gameId !== "string" || gameId.trim() === "") {
     const msg = `ensureGame called with invalid gameId: ${String(gameId)}`;
@@ -289,6 +289,9 @@ export function ensureGame(gameId: string, options?: EnsureGameOptions): InMemor
           }
           return gmGame as InMemoryGame;
         }
+        // GameManager.ensureGame returned undefined - game doesn't exist in DB (was deleted)
+        // Don't fall through to local recreation
+        return undefined;
       } catch (err) {
         console.warn(
           "ensureGame: GameManager.getGame/ensureGame failed, falling back to local recreation:",
@@ -300,28 +303,23 @@ export function ensureGame(gameId: string, options?: EnsureGameOptions): InMemor
     console.warn("ensureGame: GameManager not usable, falling back:", err);
   }
 
-  // Original fallback behavior
+  // Original fallback behavior - but first check if the game exists in the database
   let game = games.get(gameId) as InMemoryGame | undefined;
 
   if (!game) {
+    // IMPORTANT: Check if the game exists in the database before recreating it.
+    // This prevents re-creating games that were previously deleted.
+    if (!gameExistsInDb(gameId)) {
+      console.info(
+        `[ensureGame] game ${gameId} does not exist in database, not recreating (may have been deleted)`
+      );
+      return undefined;
+    }
+
     game = createInitialGameState(gameId) as InMemoryGame;
 
-    try {
-      const fmt = (game as any).state?.format ?? "commander";
-      const startingLife = (game as any).state?.startingLife ?? 40;
-      createGameIfNotExists(
-        gameId, 
-        String(fmt), 
-        startingLife,
-        options?.createdBySocketId,
-        options?.createdByPlayerId
-      );
-    } catch (err) {
-      console.warn(
-        "ensureGame: createGameIfNotExists failed (continuing):",
-        err
-      );
-    }
+    // No need to call createGameIfNotExists since we already verified the game exists in DB
+    // The game data is already persisted, we're just restoring the in-memory state
 
     try {
       const persisted = getEvents(gameId) || [];

@@ -255,6 +255,25 @@ export function listGames(): {
 }
 
 /**
+ * Check if a game exists in the database.
+ * Used to prevent re-creating games that were previously deleted.
+ * 
+ * @param gameId The game ID to check
+ * @returns true if the game exists in the database, false otherwise
+ */
+export function gameExistsInDb(gameId: string): boolean {
+  ensureDB();
+  try {
+    const stmt = db!.prepare(`SELECT 1 FROM games WHERE game_id = ? LIMIT 1`);
+    const result = stmt.get(gameId);
+    return result !== undefined;
+  } catch (err) {
+    console.error("[DB] gameExistsInDb failed:", (err as Error).message);
+    return false;
+  }
+}
+
+/**
  * Delete persisted events and game metadata for a gameId.
  * Returns true on success.
  */
