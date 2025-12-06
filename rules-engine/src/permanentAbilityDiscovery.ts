@@ -24,6 +24,7 @@ import {
   AbilityType,
   type ParsedAbility,
   type OracleTextParseResult,
+  type ChoiceRequirement,
 } from './oracleTextParser';
 import type { ActivatedAbility, ActivationRestriction } from './activatedAbilities';
 import {
@@ -69,6 +70,9 @@ export interface DiscoveredAbility {
   readonly isLoyaltyAbility: boolean;
   readonly isKeywordAbility: boolean;
   readonly targets?: readonly string[];
+  readonly isOptional?: boolean;
+  readonly modes?: readonly string[];
+  readonly requiresChoice?: ChoiceRequirement;
   readonly rawParsedAbility?: ParsedAbility;
 }
 
@@ -83,6 +87,8 @@ export interface AbilityDiscoveryResult {
   readonly hasActivatedAbilities: boolean;
   readonly hasManaAbilities: boolean;
   readonly hasLoyaltyAbilities: boolean;
+  readonly hasModes: boolean;
+  readonly hasChoiceRequirements: boolean;
   readonly parseResult?: OracleTextParseResult;
 }
 
@@ -323,6 +329,9 @@ function convertParsedAbility(
     isLoyaltyAbility: parsedAbility.isLoyaltyAbility || false,
     isKeywordAbility: parsedAbility.type === AbilityType.KEYWORD,
     targets: parsedAbility.targets,
+    isOptional: parsedAbility.isOptional,
+    modes: parsedAbility.modes,
+    requiresChoice: parsedAbility.requiresChoice,
     rawParsedAbility: parsedAbility,
   };
 }
@@ -446,6 +455,8 @@ export function discoverPermanentAbilities(
     hasActivatedAbilities: abilities.length > 0,
     hasManaAbilities: abilities.some(a => a.isManaAbility),
     hasLoyaltyAbilities: abilities.some(a => a.isLoyaltyAbility),
+    hasModes: parseResult.hasModes || abilities.some(a => a.modes && a.modes.length > 0),
+    hasChoiceRequirements: parseResult.abilities.some(a => a.requiresChoice !== undefined),
     parseResult,
   };
 }
