@@ -13,7 +13,7 @@
  * - Confirms selection via socket event
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 
 export interface ColorChoiceModalProps {
   open: boolean;
@@ -89,7 +89,7 @@ export function ColorChoiceModal({
   const [hoveredColor, setHoveredColor] = useState<'white' | 'blue' | 'black' | 'red' | 'green' | null>(null);
 
   // Reset selection when modal opens
-  React.useEffect(() => {
+  useEffect(() => {
     if (open) {
       setSelectedColor(null);
       setHoveredColor(null);

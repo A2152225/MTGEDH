@@ -11,7 +11,7 @@
  * - Validates selection count matches required amount
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 
 export interface AdditionalCostCard {
   id: string;
@@ -60,7 +60,7 @@ export function AdditionalCostModal({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Reset selection when modal opens
-  React.useEffect(() => {
+  useEffect(() => {
     if (open) {
       setSelectedIds(new Set());
     }
