@@ -1657,12 +1657,23 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
+    // Set tapped on the permanent
     (permanent as any).tapped = true;
+    
+    // Get card info for logging
+    const card = (permanent as any).card;
+    const cardName = card?.name || "Unknown";
+    
+    // Also ensure it's set in the main battlefield array (defensive programming)
+    const battlefieldIndex = battlefield.findIndex((p: any) => p?.id === permanentId);
+    if (battlefieldIndex >= 0) {
+      battlefield[battlefieldIndex].tapped = true;
+    }
+    
+    console.log(`[tapPermanent] Tapped ${cardName} (${permanentId}). Tapped state: ${!!permanent.tapped}`);
     
     // Check if this permanent has mana abilities (intrinsic or granted by effects like Cryptolith Rite)
     // If so, add the produced mana to the player's mana pool
-    const card = (permanent as any).card;
-    const cardName = card?.name || "Unknown";
     const typeLine = (card?.type_line || "").toLowerCase();
     const isLand = typeLine.includes("land");
     const isBasic = typeLine.includes("basic");
