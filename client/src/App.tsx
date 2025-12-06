@@ -367,6 +367,10 @@ export function App() {
     turnCount: number;
   }>({ stepCount: 0, phaseCount: 0, turnCount: 0 });
   
+  // AI control state (for autopilot mode)
+  const [aiControlEnabled, setAiControlEnabled] = useState(false);
+  const [aiStrategy, setAiStrategy] = useState<string>('basic');
+  
   // Split/Adventure card choice modal state
   const [splitCardModalOpen, setSplitCardModalOpen] = useState(false);
   const [splitCardData, setSplitCardData] = useState<{
@@ -1509,6 +1513,42 @@ export function App() {
       socket.off("undoCountUpdate", handleUndoCountUpdate);
       socket.off("smartUndoCountsUpdate", handleSmartUndoCountsUpdate);
     };
+  }, [safeView?.id]);
+
+  // AI control socket event handlers
+  React.useEffect(() => {
+    const handleAiControlToggled = (payload: { 
+      gameId: string; 
+      playerId: string; 
+      enabled: boolean;
+      strategy?: string;
+      difficulty?: number;
+    }) => {
+      if (payload.gameId === safeView?.id && payload.playerId === you) {
+        setAiControlEnabled(payload.enabled);
+        if (payload.strategy) {
+          setAiStrategy(payload.strategy);
+        }
+      }
+    };
+
+    socket.on("aiControlToggled", handleAiControlToggled);
+
+    return () => {
+      socket.off("aiControlToggled", handleAiControlToggled);
+    };
+  }, [safeView?.id, you]);
+
+  // Handler to toggle AI control
+  const handleToggleAIControl = React.useCallback((enable: boolean, strategy?: string, difficulty?: number) => {
+    if (!safeView?.id) return;
+    
+    socket.emit("toggleAIControl", {
+      gameId: safeView.id,
+      enable,
+      strategy: strategy || 'basic',
+      difficulty: difficulty ?? 0.5,
+    });
   }, [safeView?.id]);
 
   // Request undo count on game state changes (no polling to reduce overhead)
@@ -3195,6 +3235,9 @@ export function App() {
             availableUndoCount={availableUndoCount}
             onRollDie={(sides: number) => socket.emit("rollDie", { gameId: safeView.id, sides })}
             onFlipCoin={() => socket.emit("flipCoin", { gameId: safeView.id })}
+            aiControlEnabled={aiControlEnabled}
+            aiStrategy={aiStrategy}
+            onToggleAIControl={handleToggleAIControl}
           />
         )}
 

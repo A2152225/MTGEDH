@@ -3049,6 +3049,127 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       socket.emit('error', { code: 'AI_REMOVE_FAILED', message: 'Failed to remove AI opponent' });
     }
   });
+
+  /**
+   * Toggle AI control for a human player
+   * Allows a player to enable/disable AI autopilot for their seat
+   */
+  socket.on('toggleAIControl', async ({
+    gameId,
+    enable,
+    strategy,
+    difficulty,
+  }: {
+    gameId: string;
+    enable: boolean;
+    strategy?: string;
+    difficulty?: number;
+  }) => {
+    try {
+      const playerId = socket.data.playerId as PlayerID | undefined;
+      if (!playerId || socket.data.spectator) {
+        socket.emit('error', { code: 'NOT_PLAYER', message: 'Only players can toggle AI control' });
+        return;
+      }
+
+      const game = ensureGame(gameId);
+      if (!game) {
+        socket.emit('error', { code: 'GAME_NOT_FOUND', message: 'Game not found' });
+        return;
+      }
+
+      // Check if player is in the game
+      const players = game.state?.players || [];
+      const playerInGame = players.find((p: any) => p.id === playerId);
+      if (!playerInGame) {
+        socket.emit('error', { code: 'NOT_IN_GAME', message: 'You are not in this game' });
+        return;
+      }
+
+      if (enable) {
+        // Enable AI control for this player
+        const aiStrategy = (strategy as AIStrategy) || AIStrategy.BASIC;
+        const aiDifficulty = difficulty ?? 0.5;
+        
+        registerAIPlayer(gameId, playerId, playerInGame.name || 'Player', aiStrategy, aiDifficulty);
+        
+        // Store AI control state on the player (cast to any for dynamic properties)
+        (playerInGame as any).aiControlled = true;
+        (playerInGame as any).aiStrategy = aiStrategy;
+        (playerInGame as any).aiDifficulty = aiDifficulty;
+        
+        console.info('[AI] AI control enabled for player:', { gameId, playerId, strategy: aiStrategy, difficulty: aiDifficulty });
+        
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${playerInGame.name || 'Player'} enabled AI control (${aiStrategy} strategy).`,
+          ts: Date.now(),
+        });
+        
+        // If it's this player's turn or they have priority, trigger AI action
+        const hasPriority = game.state?.priority === playerId;
+        if (hasPriority) {
+          // Delay briefly to allow state to update
+          setTimeout(() => {
+            handleAIPriority(io, gameId, playerId);
+          }, AI_THINK_TIME_MS);
+        }
+      } else {
+        // Disable AI control for this player
+        unregisterAIPlayer(gameId, playerId);
+        
+        (playerInGame as any).aiControlled = false;
+        delete (playerInGame as any).aiStrategy;
+        delete (playerInGame as any).aiDifficulty;
+        
+        console.info('[AI] AI control disabled for player:', { gameId, playerId });
+        
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${playerInGame.name || 'Player'} disabled AI control.`,
+          ts: Date.now(),
+        });
+      }
+
+      // Emit update to the specific player
+      socket.emit('aiControlToggled', { 
+        gameId, 
+        playerId, 
+        enabled: enable,
+        strategy: enable ? (strategy || 'basic') : undefined,
+        difficulty: enable ? (difficulty ?? 0.5) : undefined,
+      });
+      
+      // Bump game sequence and broadcast
+      if (typeof (game as any).bumpSeq === 'function') {
+        (game as any).bumpSeq();
+      }
+      
+      broadcastGame(io, game, gameId);
+      
+    } catch (error) {
+      console.error('[AI] Error toggling AI control:', error);
+      socket.emit('error', { code: 'AI_TOGGLE_FAILED', message: 'Failed to toggle AI control' });
+    }
+  });
+
+  /**
+   * Get available AI strategies for the UI
+   */
+  socket.on('getAIStrategies', () => {
+    socket.emit('aiStrategies', {
+      strategies: [
+        { id: 'basic', name: 'Basic', description: 'Simple decision-making for fast gameplay' },
+        { id: 'aggressive', name: 'Aggressive', description: 'Prioritizes attacking and dealing damage' },
+        { id: 'defensive', name: 'Defensive', description: 'Focuses on blocking and survival' },
+        { id: 'control', name: 'Control', description: 'Values card advantage and removal' },
+      ],
+    });
+  });
 }
 
 /**
