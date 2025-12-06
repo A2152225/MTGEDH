@@ -33,6 +33,16 @@ export interface ParsedAbility {
   readonly isLoyaltyAbility?: boolean;
   readonly targets?: readonly string[];
   readonly modes?: readonly string[];
+  readonly requiresChoice?: ChoiceRequirement;
+}
+
+/**
+ * Choice requirement for cards that need a choice on ETB or cast
+ */
+export interface ChoiceRequirement {
+  readonly choiceType: 'color' | 'creature_type' | 'card_type' | 'player' | 'mode' | 'other';
+  readonly timing: 'etb' | 'cast' | 'activation' | 'trigger';
+  readonly description: string;
 }
 
 /**
@@ -266,12 +276,16 @@ export function parseReplacementEffect(text: string): ParsedAbility | null {
   // Check for "As enters" clause
   const asMatch = text.match(ENTERS_AS_PATTERN);
   if (asMatch) {
+    const effect = asMatch[2].trim();
+    const choiceReq = detectChoiceRequirement(effect, 'etb');
+    
     return {
       type: AbilityType.REPLACEMENT,
       text,
       triggerCondition: `${asMatch[1]} enters the battlefield`,
-      effect: asMatch[2].trim(),
-      isOptional: asMatch[2].toLowerCase().includes('you may'),
+      effect,
+      isOptional: effect.toLowerCase().includes('you may'),
+      requiresChoice: choiceReq,
     };
   }
   
@@ -287,6 +301,61 @@ export function parseReplacementEffect(text: string): ParsedAbility | null {
   }
   
   return null;
+}
+
+/**
+ * Detect if text requires a choice and what type
+ */
+function detectChoiceRequirement(
+  text: string,
+  timing: 'etb' | 'cast' | 'activation' | 'trigger'
+): ChoiceRequirement | undefined {
+  // "choose a color" pattern
+  if (/choose\s+a\s+color/i.test(text)) {
+    return {
+      choiceType: 'color',
+      timing,
+      description: 'Choose a color',
+    };
+  }
+  
+  // "choose a creature type" pattern
+  if (/choose\s+a\s+creature\s+type/i.test(text)) {
+    return {
+      choiceType: 'creature_type',
+      timing,
+      description: 'Choose a creature type',
+    };
+  }
+  
+  // "choose a card type" pattern
+  if (/choose\s+a\s+(?:card|nonland\s+card)\s+type/i.test(text)) {
+    return {
+      choiceType: 'card_type',
+      timing,
+      description: 'Choose a card type',
+    };
+  }
+  
+  // "choose a player" or "choose an opponent" pattern
+  if (/choose\s+(?:a\s+player|an\s+opponent)/i.test(text)) {
+    return {
+      choiceType: 'player',
+      timing,
+      description: text.match(/choose\s+(?:a\s+player|an\s+opponent)/i)?.[0] || 'Choose a player',
+    };
+  }
+  
+  // Modal choice pattern - "choose one" etc.
+  if (/choose\s+(one|two|three|X|up\s+to\s+\w+)/i.test(text)) {
+    return {
+      choiceType: 'mode',
+      timing,
+      description: text.match(/choose\s+(?:one|two|three|X|up\s+to\s+\w+)/i)?.[0] || 'Choose',
+    };
+  }
+  
+  return undefined;
 }
 
 // =============================================================================

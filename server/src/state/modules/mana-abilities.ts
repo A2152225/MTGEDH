@@ -655,9 +655,10 @@ export function getExtraManaProduction(
           colorsToAdd = [producedColor];
         } else if (modifier.extraMana.colors.includes('chosen')) {
           // Caged Sun / Gauntlet of Power - requires a chosen color
-          // Check if the permanent has a stored chosen color
-          const chosenColor = (permanent as any).chosenColor || 
-                             gameState?.cagedSunColor?.[modifier.permanentId];
+          // Find the modifier's permanent to get its chosen color
+          const modifierPerm = gameState?.battlefield?.find((p: any) => p.id === modifier.permanentId);
+          const chosenColor = modifierPerm?.chosenColor;
+          
           if (chosenColor && producedColor === chosenColor) {
             colorsToAdd = [chosenColor];
           }
