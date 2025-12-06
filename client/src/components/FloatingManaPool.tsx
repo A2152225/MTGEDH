@@ -146,8 +146,9 @@ export function FloatingManaPool({ manaPool, playerId, onManaClick, compact = fa
           fontSize: compact ? 10 : 11,
           fontWeight: 'bold',
           color: '#fcd34d',
+          whiteSpace: 'nowrap',
         }}>
-          Total: {totalMana}
+          Total: {totalMana >= 10000 ? (totalMana / 1000).toFixed(1) + 'K' : totalMana.toLocaleString()}
         </div>
       </div>
       
@@ -165,6 +166,11 @@ export function FloatingManaPool({ manaPool, playerId, onManaClick, compact = fa
             
             // For large amounts, show count badge instead of many icons
             if (amount > 3) {
+              // Format large numbers for readability
+              const displayAmount = amount >= 10000 
+                ? (amount / 1000).toFixed(1) + 'K'
+                : amount.toLocaleString();
+              
               return (
                 <div
                   key={colorName}
@@ -180,7 +186,7 @@ export function FloatingManaPool({ manaPool, playerId, onManaClick, compact = fa
                     borderRadius: 12,
                     transition: 'transform 0.1s, box-shadow 0.1s',
                   }}
-                  title={`${amount} ${colorName} mana - Click to use`}
+                  title={`${amount.toLocaleString()} ${colorName} mana - Click to use`}
                   onMouseEnter={(e) => {
                     if (onManaClick) {
                       (e.currentTarget as HTMLElement).style.transform = 'scale(1.1)';
@@ -210,7 +216,7 @@ export function FloatingManaPool({ manaPool, playerId, onManaClick, compact = fa
                     minWidth: 16,
                     textAlign: 'center',
                   }}>
-                    ×{amount}
+                    ×{displayAmount}
                   </span>
                 </div>
               );

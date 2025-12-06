@@ -35,6 +35,9 @@ import { SplitCardChoiceModal, type CardFaceOption } from "./components/SplitCar
 import { CreatureTypeSelectModal } from "./components/CreatureTypeSelectModal";
 import { AppearanceSettingsModal } from "./components/AppearanceSettingsModal";
 import { LifePaymentModal } from "./components/LifePaymentModal";
+import { ColorChoiceModal } from "./components/ColorChoiceModal";
+import { AdditionalCostModal } from "./components/AdditionalCostModal";
+import { CastingModeSelectionModal, type CastingMode } from "./components/CastingModeSelectionModal";
 import { MDFCFaceSelectionModal, type CardFace } from "./components/MDFCFaceSelectionModal";
 import { ModalSpellSelectionModal, type SpellMode } from "./components/ModalSpellSelectionModal";
 import { ReplacementEffectOrderModal, type ReplacementEffectItem, type OrderingMode } from "./components/ReplacementEffectOrderModal";
@@ -173,7 +176,8 @@ export function App() {
   const [spellToCast, setSpellToCast] = useState<{ 
     cardId: string; 
     cardName: string; 
-    manaCost?: string; 
+    manaCost?: string;
+    oracleText?: string;  // Oracle text for parsing alternate costs (Overload, Flashback, Surge, etc.)
     tax?: number;
     isCommander?: boolean;
     targets?: string[];  // Targets selected via requestCastSpell flow
@@ -498,6 +502,46 @@ export function App() {
   
   // Replacement Effect Settings Panel state
   const [replacementEffectSettingsOpen, setReplacementEffectSettingsOpen] = useState(false);
+  
+  // Color Choice Modal state - for Caged Sun, Gauntlet of Power, etc.
+  const [colorChoiceModalOpen, setColorChoiceModalOpen] = useState(false);
+  const [colorChoiceModalData, setColorChoiceModalData] = useState<{
+    confirmId: string;
+    permanentId?: string;
+    spellId?: string;
+    cardName: string;
+    reason: string;
+    imageUrl?: string;
+    colors?: ('white' | 'blue' | 'black' | 'red' | 'green')[];
+  } | null>(null);
+  
+  // Additional Cost Modal state - for discard/sacrifice as additional costs
+  const [additionalCostModalOpen, setAdditionalCostModalOpen] = useState(false);
+  const [additionalCostModalData, setAdditionalCostModalData] = useState<{
+    cardId: string;
+    cardName: string;
+    costType: 'discard' | 'sacrifice';
+    amount: number;
+    title: string;
+    description: string;
+    imageUrl?: string;
+    availableCards?: Array<{ id: string; name: string; imageUrl?: string }>;
+    availableTargets?: Array<{ id: string; name: string; imageUrl?: string; typeLine?: string }>;
+    effectId?: string;
+  } | null>(null);
+  
+  // Casting Mode Selection Modal state - for overload, abundant harvest, etc.
+  const [castingModeModalOpen, setCastingModeModalOpen] = useState(false);
+  const [castingModeModalData, setCastingModeModalData] = useState<{
+    cardId: string;
+    cardName: string;
+    source?: string;
+    title: string;
+    description: string;
+    imageUrl?: string;
+    modes: CastingMode[];
+    effectId?: string;
+  } | null>(null);
   
   // Mana Pool state - tracks floating mana for the current player
   const [manaPool, setManaPool] = useState<ManaPool | null>(null);
@@ -1302,6 +1346,154 @@ export function App() {
       socket.off("replacementEffectOrderRequest", handler);
     };
   }, [safeView?.id]);
+
+  // Color choice request listener - for Caged Sun, Gauntlet of Power, etc.
+  React.useEffect(() => {
+    const handler = (payload: {
+      confirmId: string;
+      gameId: string;
+      permanentId?: string;
+      spellId?: string;
+      cardName: string;
+      reason: string;
+      colors?: ('white' | 'blue' | 'black' | 'red' | 'green')[];
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        // Find card image if available
+        let imageUrl: string | undefined;
+        if (payload.permanentId) {
+          const permanent = (safeView.battlefield || []).find((p: BattlefieldPermanent) => p.id === payload.permanentId);
+          if (permanent && (permanent.card as KnownCardRef)?.image_uris?.normal) {
+            imageUrl = (permanent.card as KnownCardRef).image_uris?.normal;
+          }
+        } else if (payload.spellId) {
+          const spell = ((safeView as any).stack || []).find((s: any) => s.id === payload.spellId);
+          if (spell && (spell.card as KnownCardRef)?.image_uris?.normal) {
+            imageUrl = (spell.card as KnownCardRef).image_uris?.normal;
+          }
+        }
+        
+        setColorChoiceModalData({
+          confirmId: payload.confirmId,
+          permanentId: payload.permanentId,
+          spellId: payload.spellId,
+          cardName: payload.cardName,
+          reason: payload.reason,
+          imageUrl,
+          colors: payload.colors,
+        });
+        setColorChoiceModalOpen(true);
+      }
+    };
+    socket.on("colorChoiceRequest", handler);
+    return () => {
+      socket.off("colorChoiceRequest", handler);
+    };
+  }, [safeView?.id, safeView?.battlefield]);
+
+  // Additional cost request listener - for discard/sacrifice as additional costs
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      cardId: string;
+      cardName: string;
+      costType: 'discard' | 'sacrifice';
+      amount: number;
+      filter?: string;
+      title: string;
+      description: string;
+      imageUrl?: string;
+      availableCards?: Array<{ id: string; name: string; imageUrl?: string }>;
+      availableTargets?: Array<{ id: string; name: string; imageUrl?: string; typeLine?: string }>;
+      effectId?: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        setAdditionalCostModalData({
+          cardId: payload.cardId,
+          cardName: payload.cardName,
+          costType: payload.costType,
+          amount: payload.amount,
+          title: payload.title,
+          description: payload.description,
+          imageUrl: payload.imageUrl,
+          availableCards: payload.availableCards,
+          availableTargets: payload.availableTargets,
+          effectId: payload.effectId,
+        });
+        setAdditionalCostModalOpen(true);
+      }
+    };
+    socket.on("additionalCostRequest", handler);
+    return () => {
+      socket.off("additionalCostRequest", handler);
+    };
+  }, [safeView?.id]);
+
+  // Casting mode selection request listener - for overload, abundant harvest, etc.
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      cardId: string;
+      cardName: string;
+      source?: string;
+      title: string;
+      description: string;
+      imageUrl?: string;
+      modes: CastingMode[];
+      effectId?: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        setCastingModeModalData({
+          cardId: payload.cardId,
+          cardName: payload.cardName,
+          source: payload.source,
+          title: payload.title,
+          description: payload.description,
+          imageUrl: payload.imageUrl,
+          modes: payload.modes,
+          effectId: payload.effectId,
+        });
+        setCastingModeModalOpen(true);
+      }
+    };
+    socket.on("modeSelectionRequest", handler);
+    return () => {
+      socket.off("modeSelectionRequest", handler);
+    };
+  }, [safeView?.id]);
+
+  // Overload cast request listener - after mode selection, need to pay the overload cost
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      cardId: string;
+      cardName: string;
+      overloadCost: string;
+      effectId?: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        // Open the cast spell modal with the overload cost
+        // Find the card in hand to get full details including oracle text
+        const hand = safeView.hand || [];
+        const cardInHand = hand.find((c: any) => c?.id === payload.cardId);
+        
+        if (cardInHand) {
+          setSpellToCast({
+            cardId: payload.cardId,
+            cardName: payload.cardName,
+            manaCost: cardInHand.mana_cost, // Use the card's normal mana cost
+            oracleText: cardInHand.oracle_text, // Include oracle text so alternate costs are parsed
+            effectId: payload.effectId,
+          });
+          setCastSpellModalOpen(true);
+        }
+      }
+    };
+    socket.on("overloadCastRequest", handler);
+    return () => {
+      socket.off("overloadCastRequest", handler);
+    };
+  }, [safeView?.id, safeView?.hand]);
 
   // MDFC face selection complete listener - continue playing the land
   React.useEffect(() => {
@@ -3929,6 +4121,7 @@ export function App() {
         open={castSpellModalOpen}
         cardName={spellToCast?.cardName || ''}
         manaCost={spellToCast?.manaCost}
+        oracleText={spellToCast?.oracleText}
         availableSources={you ? getAvailableManaSourcesForPlayer(you) : []}
         otherCardsInHand={useMemo(() => {
           if (!safeView || !you || !spellToCast) return [];
@@ -4415,6 +4608,98 @@ export function App() {
         onCancel={() => {
           setLifePaymentModalOpen(false);
           setLifePaymentModalData(null);
+        }}
+      />
+
+      {/* Color Choice Modal (Caged Sun, Gauntlet of Power, etc.) */}
+      <ColorChoiceModal
+        open={colorChoiceModalOpen}
+        confirmId={colorChoiceModalData?.confirmId || ''}
+        cardName={colorChoiceModalData?.cardName || ''}
+        reason={colorChoiceModalData?.reason || ''}
+        cardImageUrl={colorChoiceModalData?.imageUrl}
+        colors={colorChoiceModalData?.colors}
+        onConfirm={(selectedColor) => {
+          if (safeView?.id && colorChoiceModalData) {
+            socket.emit("submitColorChoice", {
+              gameId: safeView.id,
+              confirmId: colorChoiceModalData.confirmId,
+              selectedColor,
+            });
+            setColorChoiceModalOpen(false);
+            setColorChoiceModalData(null);
+          }
+        }}
+        onCancel={() => {
+          if (safeView?.id && colorChoiceModalData) {
+            socket.emit("cancelColorChoice", {
+              gameId: safeView.id,
+              confirmId: colorChoiceModalData.confirmId,
+            });
+          }
+          setColorChoiceModalOpen(false);
+          setColorChoiceModalData(null);
+        }}
+      />
+
+      {/* Additional Cost Modal (Discard/Sacrifice as additional cost) */}
+      <AdditionalCostModal
+        open={additionalCostModalOpen}
+        cardId={additionalCostModalData?.cardId || ''}
+        cardName={additionalCostModalData?.cardName || ''}
+        costType={additionalCostModalData?.costType || 'discard'}
+        amount={additionalCostModalData?.amount || 0}
+        title={additionalCostModalData?.title || ''}
+        description={additionalCostModalData?.description || ''}
+        imageUrl={additionalCostModalData?.imageUrl}
+        availableCards={additionalCostModalData?.availableCards}
+        availableTargets={additionalCostModalData?.availableTargets}
+        effectId={additionalCostModalData?.effectId}
+        onConfirm={(selectedIds) => {
+          if (safeView?.id && additionalCostModalData) {
+            socket.emit("additionalCostConfirm", {
+              gameId: safeView.id,
+              cardId: additionalCostModalData.cardId,
+              costType: additionalCostModalData.costType,
+              selectedCards: selectedIds,
+              effectId: additionalCostModalData.effectId,
+            });
+            setAdditionalCostModalOpen(false);
+            setAdditionalCostModalData(null);
+          }
+        }}
+        onCancel={() => {
+          setAdditionalCostModalOpen(false);
+          setAdditionalCostModalData(null);
+        }}
+      />
+
+      {/* Casting Mode Selection Modal (Overload, Abundant Harvest, etc.) */}
+      <CastingModeSelectionModal
+        open={castingModeModalOpen}
+        cardId={castingModeModalData?.cardId || ''}
+        cardName={castingModeModalData?.cardName || ''}
+        source={castingModeModalData?.source}
+        title={castingModeModalData?.title || ''}
+        description={castingModeModalData?.description || ''}
+        imageUrl={castingModeModalData?.imageUrl}
+        modes={castingModeModalData?.modes || []}
+        effectId={castingModeModalData?.effectId}
+        onConfirm={(selectedMode) => {
+          if (safeView?.id && castingModeModalData) {
+            socket.emit("modeSelectionConfirm", {
+              gameId: safeView.id,
+              cardId: castingModeModalData.cardId,
+              selectedMode,
+              effectId: castingModeModalData.effectId,
+            });
+            setCastingModeModalOpen(false);
+            setCastingModeModalData(null);
+          }
+        }}
+        onCancel={() => {
+          setCastingModeModalOpen(false);
+          setCastingModeModalData(null);
         }}
       />
 

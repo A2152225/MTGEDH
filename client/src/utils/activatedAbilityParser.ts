@@ -703,6 +703,53 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
     }
   }
   
+  // ======== RECONFIGURE ABILITIES ========
+  // Reconfigure [cost] - Equipment with reconfigure can attach/unattach at sorcery speed
+  // When attached, it's not a creature. When unattached, it's a creature.
+  // Check for reconfigure keyword in oracle text and Equipment in type line
+  const reconfigureMatch = oracleText.match(/reconfigure\s*(\{[^}]+\}|\d+)/i);
+  if (reconfigureMatch && typeLine.includes('equipment')) {
+    const reconfigureCost = reconfigureMatch[1].startsWith('{') ? reconfigureMatch[1] : `{${reconfigureMatch[1]}}`;
+    
+    // Two abilities: attach and unattach
+    // Attach ability
+    abilities.push({
+      id: `${card.id}-reconfigure-attach-${abilityIndex++}`,
+      label: `Reconfigure ${reconfigureCost} (Attach)`,
+      description: 'Attach to target creature you control (stops being a creature)',
+      cost: reconfigureCost,
+      effect: 'Attach to target creature you control',
+      requiresTap: false,
+      requiresUntap: false,
+      requiresSacrifice: false,
+      manaCost: reconfigureCost,
+      isManaAbility: false,
+      isLoyaltyAbility: false,
+      isFetchAbility: false,
+      timingRestriction: 'sorcery',
+      requiresTarget: true,
+      targetDescription: 'creature you control',
+    });
+    
+    // Unattach ability
+    abilities.push({
+      id: `${card.id}-reconfigure-unattach-${abilityIndex++}`,
+      label: `Reconfigure ${reconfigureCost} (Unattach)`,
+      description: 'Unattach (becomes a creature again)',
+      cost: reconfigureCost,
+      effect: 'Unattach this Equipment',
+      requiresTap: false,
+      requiresUntap: false,
+      requiresSacrifice: false,
+      manaCost: reconfigureCost,
+      isManaAbility: false,
+      isLoyaltyAbility: false,
+      isFetchAbility: false,
+      timingRestriction: 'sorcery',
+      requiresTarget: false,
+    });
+  }
+  
   // ======== CREW ABILITIES (Vehicles) ========
   // Crew N: Tap any number of creatures you control with total power N or more
   if (typeLine.includes('vehicle')) {

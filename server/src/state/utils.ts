@@ -1263,6 +1263,65 @@ export function calculateVariablePT(
 }
 
 /**
+ * Get the actual calculated power and toughness of a creature permanent,
+ * including base P/T, variable P/T (like Omnath, Tarmogoyf), and counters.
+ * 
+ * This is the canonical function that should be used anywhere we need to know
+ * a creature's current power/toughness for game calculations like:
+ * - Traverse the Outlands (greatest power)
+ * - Selvala, Heart of the Wilds (greatest power)  
+ * - Bighorner Rancher (greatest power)
+ * - Combat damage calculations
+ * - Death triggers based on power/toughness
+ * 
+ * @param permanent - The battlefield permanent
+ * @param gameState - Game state for variable P/T calculations
+ * @returns { power, toughness } with all modifiers applied
+ */
+export function getActualPowerToughness(
+  permanent: any,
+  gameState?: any
+): { power: number; toughness: number } {
+  if (!permanent) {
+    return { power: 0, toughness: 0 };
+  }
+
+  const card = permanent.card;
+  
+  // Start with base power/toughness
+  let basePower = permanent.basePower ?? (typeof card?.power === 'string' ? parseInt(card.power, 10) : card?.power) ?? 0;
+  let baseToughness = permanent.baseToughness ?? (typeof card?.toughness === 'string' ? parseInt(card.toughness, 10) : card?.toughness) ?? 0;
+  
+  // Handle special characters in printed P/T
+  if (typeof card?.power === 'string' && card.power.includes('*')) {
+    basePower = 0; // Will be overridden by variable P/T
+  }
+  if (typeof card?.toughness === 'string' && card.toughness.includes('*')) {
+    baseToughness = 0; // Will be overridden by variable P/T
+  }
+  
+  // Check for variable P/T (Omnath, Tarmogoyf, etc.)
+  const variablePT = calculateVariablePT(card, gameState);
+  if (variablePT) {
+    basePower = variablePT.power;
+    baseToughness = variablePT.toughness;
+  }
+  
+  // Apply counters
+  const counters = permanent.counters || {};
+  const plusOneCounters = counters['+1/+1'] || counters['plus_one'] || counters['plusOne'] || counters['p1p1'] || 0;
+  const minusOneCounters = counters['-1/-1'] || counters['minus_one'] || counters['minusOne'] || counters['m1m1'] || 0;
+  
+  const finalPower = basePower + plusOneCounters - minusOneCounters;
+  const finalToughness = baseToughness + plusOneCounters - minusOneCounters;
+  
+  return {
+    power: Math.max(0, finalPower), // Power is displayed as 0 minimum for UI purposes
+    toughness: finalToughness, // Toughness can be 0 or negative (creature dies to SBA)
+  };
+}
+
+/**
  * Known equipment and aura power/toughness bonuses
  * Maps card name (lowercase) to { power, toughness } bonus
  */
