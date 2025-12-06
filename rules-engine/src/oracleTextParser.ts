@@ -451,6 +451,101 @@ export function parseDelayedTrigger(text: string): { effect: string; timing: str
 // =============================================================================
 
 /**
+ * Patterns that indicate a sentence is a continuation/modifier of the previous sentence
+ * rather than a new independent effect.
+ * 
+ * These patterns appear at the start of sentences (after ". " - period and space) and indicate:
+ * - Modifiers or restrictions on the previous sentence
+ * - Sequential actions that follow from the previous effect
+ * - Filters or conditions related to the previous action
+ * 
+ * IMPORTANT: These patterns only apply to sentences separated by ". " (period space) within
+ * the same line/ability. Sentences separated by newlines are NOT merged, as newlines indicate
+ * separate abilities in MTG oracle text.
+ * 
+ * NOTE: "When" and "Whenever" are generally NOT included because they typically 
+ * start new triggered abilities, not continuations. EXCEPTION: "When you do" and 
+ * "Whenever you do" are reflexive triggers that refer back to the previous action
+ * and should be merged.
+ * 
+ * NOTE: In MTG oracle text, separate abilities on permanents are separated by newlines,
+ * not just periods. When multiple sentences appear on the same line (separated only by
+ * periods), they are typically part of the same effect. This is why we include common
+ * action verbs like "Draw", "Exile", etc. as continuation patterns.
+ */
+const CONTINUATION_SENTENCE_PATTERNS = [
+  /^then\b/i,          // Sequential action: "Then draw a card"
+  /^you\b/i,           // Continuation of effect on player: "You may...", "You gain..."
+  /^if\b/i,            // Conditional modifier: "If you do..."
+  /^when\s+you\s+do\b/i,  // Reflexive trigger: "When you do, X happens"
+  /^whenever\s+you\s+do\b/i,  // Reflexive trigger: "Whenever you do, X happens"
+  /^create\b/i,        // Token creation as continuation (often follows an effect)
+  /^those\b/i,         // Reference to previous objects
+  /^that\b/i,          // Reference to previous object/effect: "That creature gains..."
+  /^return\b/i,        // Return action as continuation (often after exile)
+  /^it\b/i,            // Reference to previous object: "It gains...", "It becomes..."
+  /^until\b/i,         // Duration modifier: "Until end of turn"
+  /^put\b/i,           // Put action as continuation (counters, cards in zones)
+  /^activate\b/i,      // Activation restriction: "Activate only as a sorcery"
+  /^this\b/i,          // Reference to the card itself as continuation
+  /^for\b/i,           // Purpose/restriction clause
+  /^spend\b/i,         // Mana spending restriction: "Spend this mana only to..."
+  /^they\b/i,          // Reference to previous subjects
+  /^each\b/i,          // Continuation affecting each player/permanent
+  /^otherwise\b/i,     // Alternative clause
+  /^instead\b/i,       // Replacement continuation
+  /^draw\b/i,          // Draw as continuation: "Destroy X. Draw a card."
+  /^shuffle\b/i,       // Shuffle as continuation: "Search library. Shuffle."
+];
+
+/**
+ * Check if a sentence is a continuation of the previous sentence
+ * rather than an independent effect.
+ * 
+ * @param sentence The sentence to check (trimmed)
+ * @returns true if this sentence should be merged with the previous one
+ */
+function isContinuationSentence(sentence: string): boolean {
+  const trimmed = sentence.trim();
+  
+  // Check against all continuation patterns
+  return CONTINUATION_SENTENCE_PATTERNS.some(pattern => pattern.test(trimmed));
+}
+
+/**
+ * Merge sentences that are continuations with their preceding sentences.
+ * This handles cases where a period separates what is logically one ability
+ * into multiple sentences for readability.
+ * 
+ * Note: Continuation sentences in MTG oracle text maintain proper capitalization
+ * after periods even though they're part of the same ability. We preserve this
+ * by simply concatenating with a space.
+ * 
+ * @param sentences Array of sentences split by periods
+ * @returns Array of merged sentences where continuations are combined
+ */
+function mergeContinuationSentences(sentences: string[]): string[] {
+  const merged: string[] = [];
+  
+  for (const sentence of sentences) {
+    const trimmed = sentence.trim();
+    if (!trimmed) continue;
+    
+    // Check if this is a continuation sentence
+    if (merged.length > 0 && isContinuationSentence(trimmed)) {
+      // Merge with the previous sentence
+      // Preserve original capitalization by concatenating with a space
+      merged[merged.length - 1] = merged[merged.length - 1] + ' ' + trimmed;
+    } else {
+      // This is a new independent sentence
+      merged.push(trimmed);
+    }
+  }
+  
+  return merged;
+}
+
+/**
  * Check if effect text produces mana
  */
 function isManaProducingAbility(effectText: string): boolean {
@@ -579,7 +674,21 @@ export function parseOracleText(oracleText: string, cardName?: string): OracleTe
     : oracleText;
   
   // Split into lines/sentences for parsing
-  const lines = normalizedText.split(/(?<=[.!])\s+|\n+/).filter(l => l.trim());
+  // Split by newlines first to preserve ability boundaries, then split sentences within each line
+  const abilityLines = normalizedText.split(/\n+/).filter(l => l.trim());
+  
+  // For each ability line, split into sentences and merge continuations
+  const lines: string[] = [];
+  for (const abilityLine of abilityLines) {
+    // Split sentences within this ability line
+    const sentences = abilityLine.split(/(?<=[.!])\s+/).filter(s => s.trim());
+    
+    // Merge continuation sentences within this line only
+    const merged = mergeContinuationSentences(sentences);
+    
+    // Add the merged sentences to our final list
+    lines.push(...merged);
+  }
   
   for (const line of lines) {
     const trimmed = line.trim();
