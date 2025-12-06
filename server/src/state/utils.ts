@@ -1900,17 +1900,65 @@ export function calculateAllPTBonusesWithSources(
     const typeLine = (perm.card.type_line || '').toLowerCase();
     if (!typeLine.includes('artifact') || typeLine.includes('equipment')) continue;
     
+    const cardName = (perm.card.name || '').toLowerCase();
     const oracleText = perm.card.oracle_text || '';
-    const artifactAnthemMatch = oracleText.match(/creatures you control get \+(\d+)\/\+(\d+)/i);
-    if (artifactAnthemMatch) {
-      const p = parseInt(artifactAnthemMatch[1], 10);
-      const t = parseInt(artifactAnthemMatch[2], 10);
-      sources.push({
-        name: perm.card.name || 'Artifact',
-        power: p,
-        toughness: t,
-        type: 'artifact',
-      });
+    
+    // Caged Sun - Creatures you control of the chosen color get +1/+1
+    if (cardName.includes('caged sun') && perm.chosenColor) {
+      // Check if creature has the chosen color
+      const creatureColors = (creaturePerm.card?.colors || []).map((c: string) => c.toLowerCase());
+      const colorMap: Record<string, string> = {
+        'white': 'W',
+        'blue': 'U', 
+        'black': 'B',
+        'red': 'R',
+        'green': 'G'
+      };
+      const chosenColorSymbol = colorMap[perm.chosenColor.toLowerCase()];
+      
+      if (chosenColorSymbol && creatureColors.includes(chosenColorSymbol)) {
+        sources.push({
+          name: perm.card.name || 'Caged Sun',
+          power: 1,
+          toughness: 1,
+          type: 'artifact',
+        });
+      }
+    }
+    // Gauntlet of Power - Creatures you control of the chosen color get +1/+1
+    else if (cardName.includes('gauntlet of power') && perm.chosenColor) {
+      const creatureColors = (creaturePerm.card?.colors || []).map((c: string) => c.toLowerCase());
+      const colorMap: Record<string, string> = {
+        'white': 'W',
+        'blue': 'U',
+        'black': 'B',
+        'red': 'R',
+        'green': 'G'
+      };
+      const chosenColorSymbol = colorMap[perm.chosenColor.toLowerCase()];
+      
+      if (chosenColorSymbol && creatureColors.includes(chosenColorSymbol)) {
+        sources.push({
+          name: perm.card.name || 'Gauntlet of Power',
+          power: 1,
+          toughness: 1,
+          type: 'artifact',
+        });
+      }
+    }
+    // Generic artifact anthem detection
+    else {
+      const artifactAnthemMatch = oracleText.match(/creatures you control get \+(\d+)\/\+(\d+)/i);
+      if (artifactAnthemMatch) {
+        const p = parseInt(artifactAnthemMatch[1], 10);
+        const t = parseInt(artifactAnthemMatch[2], 10);
+        sources.push({
+          name: perm.card.name || 'Artifact',
+          power: p,
+          toughness: t,
+          type: 'artifact',
+        });
+      }
     }
   }
   
