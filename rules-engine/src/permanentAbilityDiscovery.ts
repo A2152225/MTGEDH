@@ -361,6 +361,12 @@ function convertParsedAbility(
 
 /**
  * Convert card-specific config to DiscoveredAbility
+ * 
+ * Note: Config-based abilities are manual overrides for special cases where
+ * the oracle text parser doesn't work correctly. Since we don't have the
+ * original oracle text, the optional fields (isOptional, modes, requiresChoice)
+ * will be undefined. If these fields are needed, the card should be parsed
+ * from oracle text instead of using a manual config.
  */
 function convertConfigToAbility(
   config: ActivatedAbilityConfig,
@@ -383,6 +389,7 @@ function convertConfigToAbility(
       isManaAbility: false,
       isLoyaltyAbility: false,
       isKeywordAbility: false,
+      // isOptional, modes, requiresChoice are undefined for config-based abilities
     });
   }
   
@@ -404,6 +411,7 @@ function convertConfigToAbility(
       isManaAbility: false,
       isLoyaltyAbility: false,
       isKeywordAbility: false,
+      // isOptional, modes, requiresChoice are undefined for config-based abilities
     });
   }
   
