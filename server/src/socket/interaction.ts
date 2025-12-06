@@ -936,12 +936,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       isLand: boolean;
     }> = [];
 
-    // Process each explore
     for (const permanentId of permanentIds) {
       const cards = game.peekTopN(pid, 1);
       
       if (!cards || cards.length === 0) {
-        // Empty library - skip this explore
         continue;
       }
 
@@ -949,7 +947,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const typeLine = (revealedCard.type_line || "").toLowerCase();
       const isLand = typeLine.includes("land");
 
-      // Find the exploring permanent for its name
       const battlefield = game.state?.battlefield || [];
       const exploringPerm = battlefield.find((p: any) => p.id === permanentId && p.controller === pid);
       const exploringName = exploringPerm?.card?.name || "Creature";
@@ -960,14 +957,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         revealedCard,
         isLand,
       });
-
-      // Move the card from library to a temporary revealed state
-      // (It will be moved to final destination in confirmBatchExplore)
-      // For now, just track it
     }
 
     if (explores.length === 0) {
-      // All libraries were empty
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
         gameId,
@@ -978,13 +970,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
 
-    // Send batch explore prompt to the player
     socket.emit("batchExplorePrompt", {
       gameId,
       explores,
     });
 
-    // Announce the reveals to all players
     const revealedNames = explores.map(e => e.revealedCard.name).join(", ");
     io.to(gameId).emit("chat", {
       id: `m_${Date.now()}`,
@@ -1007,7 +997,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     const results: string[] = [];
 
-    // Process each decision
     for (const decision of decisions) {
       const { permanentId, toGraveyard } = decision;
       
@@ -1021,12 +1010,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const typeLine = (revealedCard.type_line || "").toLowerCase();
       const isLand = typeLine.includes("land");
 
-      // Find the exploring permanent
       const battlefield = game.state?.battlefield || [];
       const exploringPerm = battlefield.find((p: any) => p.id === permanentId && p.controller === pid);
       const exploringName = exploringPerm?.card?.name || "Creature";
 
-      // Apply the explore event
       game.applyEvent({
         type: "exploreResolve",
         playerId: pid,
@@ -1044,7 +1031,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         toGraveyard,
       });
 
-      // Build result message
       if (isLand) {
         results.push(`${exploringName} → ${revealedCard.name} to hand`);
       } else if (toGraveyard) {
@@ -1054,7 +1040,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
     }
 
-    // Announce the batch results
     if (results.length > 0) {
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
@@ -1067,6 +1052,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     broadcastGame(io, game, gameId);
   });
+
 
   // Library search: Query and select cards
   socket.on("searchLibrary", ({ gameId, query, limit }) => {

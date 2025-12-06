@@ -46,6 +46,7 @@ import { CommanderZoneChoiceModal } from "./components/CommanderZoneChoiceModal"
 import { PonderModal, type PeekCard, type PonderVariant } from "./components/PonderModal";
 import { ExploreModal, type ExploreCard } from "./components/ExploreModal";
 import { BatchExploreModal, type ExploreResult } from "./components/BatchExploreModal";
+import { OpponentMayPayModal, type OpponentMayPayPrompt } from "./components/OpponentMayPayModal";
 import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
 import { useGameSocket } from "./hooks/useGameSocket";
@@ -160,6 +161,9 @@ export function App() {
   const [batchExplorePrompt, setBatchExplorePrompt] = useState<{
     explores: ExploreResult[];
   } | null>(null);
+
+  // Opponent may pay modal state
+  const [opponentMayPayPrompt, setOpponentMayPayPrompt] = useState<OpponentMayPayPrompt | null>(null);
 
   const [showNameInUseModal, setShowNameInUseModal] = useState(false);
   const [nameInUsePayload, setNameInUsePayload] = useState<any | null>(null);
@@ -1745,6 +1749,22 @@ export function App() {
       socket.off("batchExplorePrompt", handleBatchExplorePrompt);
     };
   }, [safeView?.id]);
+
+  // Opponent may pay prompt handler
+  useEffect(() => {
+    const handleOpponentMayPayPrompt = (data: OpponentMayPayPrompt) => {
+      if (!safeView || !you) return;
+      // Only show if we're the deciding player
+      if (data.decidingPlayer === you) {
+        setOpponentMayPayPrompt(data);
+      }
+    };
+
+    socket.on("opponentMayPayPrompt", handleOpponentMayPayPrompt);
+    return () => {
+      socket.off("opponentMayPayPrompt", handleOpponentMayPayPrompt);
+    };
+  }, [safeView?.id, you]);
 
   // Scry/Surveil peek handlers
   useEffect(() => {
@@ -3814,6 +3834,37 @@ export function App() {
               });
             }
             setBatchExplorePrompt(null);
+          }}
+        />
+      )}
+
+      {/* Opponent May Pay */}
+      {opponentMayPayPrompt && view && (
+        <OpponentMayPayModal
+          prompt={opponentMayPayPrompt}
+          onPay={() => {
+            socket.emit("respondToOpponentMayPay", {
+              gameId: view.id,
+              promptId: opponentMayPayPrompt.promptId,
+              willPay: true,
+            });
+            setOpponentMayPayPrompt(null);
+          }}
+          onDecline={() => {
+            socket.emit("respondToOpponentMayPay", {
+              gameId: view.id,
+              promptId: opponentMayPayPrompt.promptId,
+              willPay: false,
+            });
+            setOpponentMayPayPrompt(null);
+          }}
+          onSetShortcut={(preference) => {
+            socket.emit("setOpponentMayPayShortcut", {
+              gameId: view.id,
+              sourceName: opponentMayPayPrompt.sourceName,
+              preference,
+            });
+            setOpponentMayPayPrompt(null);
           }}
         />
       )}
