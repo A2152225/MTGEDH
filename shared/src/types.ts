@@ -427,6 +427,18 @@ export interface GameState {
   houseRules?: HouseRules;
   // Trigger shortcut preferences per player (for Smothering Tithe, Rhystic Study, etc.)
   triggerShortcuts?: Record<PlayerID, TriggerShortcut[]>;
+  /**
+   * Pending "any color" mana activations awaiting player color choice.
+   * Maps activation ID to activation details.
+   * Populated when a player taps a permanent that produces "any color" mana.
+   * Cleaned up when the player confirms their color choice or cancels.
+   */
+  pendingManaActivations?: Record<string, {
+    playerId: PlayerID;
+    permanentId: string;
+    cardName: string;
+    amount: number;
+  }>;
 }
 
 /* Player protection state for effects like Teferi's Protection */

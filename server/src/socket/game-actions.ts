@@ -372,6 +372,87 @@ function checkColorChoiceForNewPermanents(
 }
 
 /**
+ * Check newly entered enchantments for ETB triggers like Growing Rites of Itlimoc
+ * "When ~ enters, look at the top four cards of your library..."
+ */
+function checkEnchantmentETBTriggers(
+  io: Server,
+  game: any,
+  gameId: string
+): void {
+  const battlefield = game.state?.battlefield || [];
+  
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+    
+    // Skip if already processed ETB
+    if (permanent.etbProcessed) continue;
+    
+    const typeLine = (permanent.card.type_line || '').toLowerCase();
+    const cardName = (permanent.card.name || '').toLowerCase();
+    const oracleText = (permanent.card.oracle_text || '').toLowerCase();
+    
+    // Check for enchantments
+    if (typeLine.includes('enchantment')) {
+      // Growing Rites of Itlimoc: "When Growing Rites of Itlimoc enters, look at the top four cards..."
+      if (cardName.includes('growing rites of itlimoc')) {
+        const controller = permanent.controller;
+        permanent.etbProcessed = true;
+        
+        // Get top 4 cards from library
+        const zones = game.state.zones?.[controller];
+        if (!zones || !Array.isArray(zones.library)) continue;
+        
+        const topCards = zones.library.slice(0, 4);
+        
+        // Emit library search request to show top 4, filter for creatures
+        emitToPlayer(io, controller, "librarySearchRequest", {
+          gameId,
+          cards: topCards,
+          title: "Growing Rites of Itlimoc",
+          description: "Look at the top four cards of your library. You may reveal a creature card from among them and put it into your hand. Put the rest on the bottom of your library in any order.",
+          filter: { type: "creature" },
+          maxSelections: 1,
+          moveTo: "hand",
+          shuffleAfter: false,
+          revealSelection: true,
+          putRestOnBottom: true,
+        });
+        
+        console.log(`[game-actions] Growing Rites of Itlimoc ETB trigger for ${controller}`);
+      }
+    }
+    
+    // Check for creatures with ETB triggers
+    if (typeLine.includes('creature')) {
+      // Casal, Lurkwood Pathfinder: "When Casal enters, search your library for a Forest card..."
+      if (cardName.includes('casal') && cardName.includes('pathfinder')) {
+        const controller = permanent.controller;
+        permanent.etbProcessed = true;
+        
+        // Get library
+        const zones = game.state.zones?.[controller];
+        if (!zones || !Array.isArray(zones.library)) continue;
+        
+        // Emit library search request for Forest
+        emitToPlayer(io, controller, "librarySearchRequest", {
+          gameId,
+          cards: zones.library,
+          title: "Casal, Lurkwood Pathfinder",
+          description: "Search your library for a Forest card, put it onto the battlefield tapped, then shuffle.",
+          filter: { subtype: "Forest" },
+          maxSelections: 1,
+          moveTo: "battlefield_tapped",
+          shuffleAfter: true,
+        });
+        
+        console.log(`[game-actions] Casal, Lurkwood Pathfinder ETB trigger for ${controller}`);
+      }
+    }
+  }
+}
+
+/**
  * Calculate cost reduction for a spell based on battlefield effects.
  * Returns an object with the reduction for each color and generic cost.
  * 
@@ -1772,6 +1853,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // Check for color choice requirements (e.g., Caged Sun, Gauntlet of Power)
       checkColorChoiceForNewPermanents(io, game, gameId);
+      
+      // Check for enchantment ETB triggers (e.g., Growing Rites of Itlimoc)
+      checkEnchantmentETBTriggers(io, game, gameId);
 
       // ========================================================================
       // LANDFALL TRIGGERS: Check for and process landfall triggers
@@ -3430,6 +3514,9 @@ export function registerGameActions(io: Server, socket: Socket) {
           // (e.g., Caged Sun, Gauntlet of Power)
           checkColorChoiceForNewPermanents(io, game, gameId);
           
+          // Check for enchantment ETB triggers (e.g., Growing Rites of Itlimoc)
+          checkEnchantmentETBTriggers(io, game, gameId);
+          
           // Check if the resolved spell has a tutor effect (search library)
           if (resolvedCard && resolvedController) {
             const oracleText = resolvedCard.oracle_text || '';
@@ -4190,6 +4277,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           
           checkCreatureTypeSelectionForNewPermanents(io, game, gameId);
           checkColorChoiceForNewPermanents(io, game, gameId);
+          checkEnchantmentETBTriggers(io, game, gameId);
         }
         appendGameEvent(game, gameId, "resolveTopOfStack");
         io.to(gameId).emit("chat", {
@@ -6311,6 +6399,108 @@ export function registerGameActions(io: Server, socket: Socket) {
     } catch (err: any) {
       console.error(`modalSpellConfirm error:`, err);
       socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "Modal spell selection failed" });
+    }
+  });
+
+  /**
+   * Handle Abundant Harvest choice confirmation
+   * Player chooses "land" or "nonland", then we reveal cards until finding one
+   */
+  socket.on("abundantChoiceConfirm", async ({ gameId, cardId, choice, effectId }: {
+    gameId: string;
+    cardId: string;
+    choice: 'land' | 'nonland';
+    effectId?: string;
+  }) => {
+    try {
+      const playerId = socket.data.playerId as string | undefined;
+      if (!playerId) {
+        socket.emit("error", { code: "NOT_JOINED", message: "You must join the game first" });
+        return;
+      }
+
+      const game = ensureGame(gameId);
+      if (!game) {
+        socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+        return;
+      }
+
+      // Find the card in hand
+      const zones = game.state.zones?.[playerId];
+      if (!zones || !Array.isArray(zones.hand)) {
+        socket.emit("error", { code: "NO_HAND", message: "Hand not found" });
+        return;
+      }
+
+      const cardInHand = (zones.hand as any[]).find((c: any) => c && c.id === cardId);
+      if (!cardInHand) {
+        socket.emit("error", { code: "CARD_NOT_IN_HAND", message: "Card not found in hand" });
+        return;
+      }
+
+      console.log(`[abundantChoiceConfirm] Player ${playerId} chose "${choice}" for ${cardInHand.name}`);
+
+      // Store the choice on the card
+      (cardInHand as any).abundantChoice = choice;
+
+      // Reveal cards from library until finding the chosen type
+      const library = (zones as any).library as any[] || [];
+      const revealed: any[] = [];
+      let foundCard: any = null;
+
+      for (const card of library) {
+        revealed.push(card);
+        const typeLine = (card.type_line || '').toLowerCase();
+        const isLand = typeLine.includes('land');
+        
+        if ((choice === 'land' && isLand) || (choice === 'nonland' && !isLand)) {
+          foundCard = card;
+          break;
+        }
+      }
+
+      // Announce the reveal
+      const choiceText = choice === 'land' ? 'land' : 'nonland';
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, playerId)} chose "${choiceText}" for ${cardInHand.name} and revealed ${revealed.length} card(s).`,
+        ts: Date.now(),
+      });
+
+      if (foundCard) {
+        // Move found card to hand
+        (zones as any).library = library.filter((c: any) => c.id !== foundCard.id);
+        zones.hand.push(foundCard);
+        
+        // Put rest on bottom of library in random order
+        const rest = revealed.filter((c: any) => c.id !== foundCard.id);
+        (zones as any).library = (zones as any).library.filter((c: any) => !rest.some((r: any) => r.id === c.id));
+        (zones as any).library.push(...rest);
+
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} found and put ${foundCard.name} into their hand.`,
+          ts: Date.now(),
+        });
+      } else {
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} did not find a ${choiceText} card.`,
+          ts: Date.now(),
+        });
+      }
+
+      broadcastGame(io, game, gameId);
+      
+    } catch (err: any) {
+      console.error(`abundantChoiceConfirm error:`, err);
+      socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "Abundant choice confirmation failed" });
     }
   });
 

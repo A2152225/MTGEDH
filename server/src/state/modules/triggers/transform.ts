@@ -113,3 +113,55 @@ export function checkEndOfTurnTransforms(
   
   return results;
 }
+
+/**
+ * Check for upkeep transform triggers (front to back or back to front)
+ * Called at the beginning of upkeep step
+ */
+export function checkUpkeepTransforms(
+  ctx: GameContext
+): TransformCheckResult[] {
+  const battlefield = ctx.state?.battlefield || [];
+  const activePlayerId = ctx.state?.turnPlayer;
+  const results: TransformCheckResult[] = [];
+  
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+    
+    const cardName = (permanent.card.name || '').toLowerCase();
+    const oracleText = (permanent.card.oracle_text || '').toLowerCase();
+    const cardFaces = (permanent.card as any).card_faces;
+    
+    // Skip if not a transforming card
+    if (!Array.isArray(cardFaces) || cardFaces.length < 2) continue;
+    
+    // Casal, Pathbreaker Owlbear (back face): "At the beginning of your upkeep, transform Casal."
+    // Transform from back to front
+    if (cardName.includes('casal') && cardName.includes('pathbreaker owlbear') && (permanent as any).transformed) {
+      if (permanent.controller === activePlayerId) {
+        results.push({
+          permanentId: permanent.id,
+          cardName: permanent.card.name,
+          shouldTransform: true,
+          reason: "Upkeep transform trigger",
+          newFace: cardFaces[0], // Transform back to front face
+        });
+      }
+    }
+    
+    // Generic pattern: "At the beginning of your upkeep, transform ~"
+    const upkeepTransformMatch = oracleText.match(/at the beginning of (?:your )?upkeep,?\s*transform/i);
+    if (upkeepTransformMatch && permanent.controller === activePlayerId) {
+      const targetFace = (permanent as any).transformed ? cardFaces[0] : cardFaces[1];
+      results.push({
+        permanentId: permanent.id,
+        cardName: permanent.card.name,
+        shouldTransform: true,
+        reason: "Upkeep transform trigger",
+        newFace: targetFace,
+      });
+    }
+  }
+  
+  return results;
+}

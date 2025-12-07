@@ -113,6 +113,11 @@ export const KNOWN_ATTACK_TRIGGERS: Record<string, {
   "quicksilver amulet": { effect: "Put creature from hand onto battlefield" },
   "descendants' path": { effect: "Reveal top card, put creature onto battlefield if shares type" },
   "belbe's portal": { effect: "Put creature of chosen type from hand" },
+  "casal, lurkwood pathfinder": { 
+    effect: "You may pay {1}{G}. If you do, transform her.", 
+    value: 0, // No token creation
+    // Special handling needed for optional payment and transform
+  },
 };
 
 // ============================================================================
@@ -697,6 +702,23 @@ export const KNOWN_BEGINNING_COMBAT_TRIGGERS: Record<string, {
   // FF7 cards
   "heidegger, shinra executive": { effect: "Create 1/1 white Soldier creature token for each Soldier you control", createsToken: true },
   "cait sith, fortune teller": { effect: "Roll a die and trigger based on result", requiresChoice: false },
+};
+
+// ============================================================================
+// Precombat Main Phase Triggers
+// ============================================================================
+
+/**
+ * Known cards with precombat main phase triggered abilities
+ */
+export const KNOWN_PRECOMBAT_MAIN_TRIGGERS: Record<string, { 
+  effect: string;
+  affectsEachPlayer?: boolean;
+}> = {
+  "magus of the vineyard": { 
+    effect: "Each player adds {G}{G}",
+    affectsEachPlayer: true,
+  },
 };
 
 // ============================================================================
