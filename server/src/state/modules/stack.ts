@@ -3559,7 +3559,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     if (z) {
       // Check if this is an adventure spell (layout === 'adventure' and was cast as adventure)
       const layout = (card as any).layout;
-      const wasAdventure = (topOfStack as any).castAsAdventure === true;
+      const wasAdventure = (item as any).castAsAdventure === true;
       
       if (layout === 'adventure' && wasAdventure) {
         // Adventure spells go to exile instead of graveyard (Rule 715.3d)

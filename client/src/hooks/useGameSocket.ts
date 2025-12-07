@@ -70,7 +70,7 @@ export interface UseGameSocketState {
   // actions
   handleJoin: () => void;
   joinFromList: (gameId: string) => void;
-  leaveGame: () => void;
+  leaveGame: (onLeft?: () => void) => void;
   requestImportDeck: (list: string, deckName?: string) => void;
   requestUseSavedDeck: (deckId: string) => void;
   handleLocalImportConfirmChange: (open: boolean) => void;
@@ -758,7 +758,7 @@ export function useGameSocket(): UseGameSocketState {
   );
 
   // Leave the current game and clear session data
-  const leaveGame = useCallback(() => {
+  const leaveGame = useCallback((onLeft?: () => void) => {
     const gameId = safeView?.id || lastJoinRef.current?.gameId;
     // Use the name from lastJoinRef (the name we actually joined with) if available
     // This ensures we clear the correct seatToken
@@ -801,6 +801,11 @@ export function useGameSocket(): UseGameSocketState {
     
     // eslint-disable-next-line no-console
     console.debug("[LEAVE_EMIT] cleared session data for game", gameId);
+    
+    // Call the optional callback (e.g., to re-expand game browser)
+    if (onLeft) {
+      onLeft();
+    }
   }, [safeView]);
 
   const requestImportDeck = useCallback(
