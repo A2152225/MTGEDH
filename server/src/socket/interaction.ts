@@ -2350,7 +2350,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   });
 
   // Activate a battlefield ability (fetch lands, mana abilities, etc.)
-  socket.on("activateBattlefieldAbility", ({ gameId, permanentId, abilityId }) => {
+  socket.on("activateBattlefieldAbility", async ({ gameId, permanentId, abilityId }) => {
     const pid = socket.data.playerId as string | undefined;
     if (!pid || socket.data.spectator) return;
 
@@ -2663,10 +2663,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
       
-      // Parse mana cost from the cost string
-      const manaCostMatch = costStr.match(/\{[^}]+\}/g);
-      const manaCost = manaCostMatch ? manaCostMatch.filter(c => !c.includes('T')).join('') : "";
-      
       if (manaCost) {
         // Validate and consume mana
         const parsedCost = parseManaCost(manaCost);
@@ -2809,10 +2805,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         });
         return;
       }
-      
-      // Parse mana cost from the cost string
-      const manaCostMatch = costStr.match(/\{[^}]+\}/g);
-      const manaCost = manaCostMatch ? manaCostMatch.filter(c => !c.includes('T')).join('') : "";
       
       if (manaCost) {
         // Validate and consume mana
