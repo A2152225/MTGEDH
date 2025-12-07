@@ -1317,7 +1317,15 @@ function executeTriggerEffect(
     }
     
     // Build filter dynamically based on what we're searching for
-    const filter: { types?: string[]; subtypes?: string[]; name?: string; maxPower?: number; maxToughness?: number; maxCmc?: number; minCmc?: number } = {};
+    const filter: { 
+      types?: string[]; 
+      subtypes?: string[]; 
+      name?: string; 
+      maxPower?: number; 
+      maxToughness?: number; 
+      maxCmc?: number; 
+      minCmc?: number;
+    } = {};
     const subtypes: string[] = [];
     
     // Dynamic basic land type detection
@@ -1368,7 +1376,7 @@ function executeTriggerEffect(
     // Matches: "mana value 6 or greater", "converted mana cost 6 or more" (Fierce Empath, etc.)
     const cmcGreaterMatch = searchFor.match(/(?:mana value|converted mana cost|cmc)\s*(\d+)\s*or\s*(?:greater|more)/i);
     if (cmcGreaterMatch) {
-      (filter as any).minCmc = parseInt(cmcGreaterMatch[1], 10);
+      filter.minCmc = parseInt(cmcGreaterMatch[1], 10);
     }
     
     if (types.length > 0) filter.types = types;
