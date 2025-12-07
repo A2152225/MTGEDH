@@ -2991,9 +2991,48 @@ export function resolveTopOfStack(ctx: GameContext) {
         if (perm.controller === controller) {
           const typeLine = (perm.card?.type_line || '').toLowerCase();
           if (typeLine.includes('creature')) {
-            const power = parseInt(String(perm.card?.power || '0'), 10);
-            if (!isNaN(power) && power > greatestPower) {
-              greatestPower = power;
+            // Calculate effective power including counters, modifiers, and base power
+            let basePower = perm.basePower ?? (parseInt(String(perm.card?.power ?? '0'), 10) || 0);
+            
+            // Handle star (*) power - use basePower if set
+            if (typeof perm.card?.power === 'string' && perm.card.power.includes('*')) {
+              if (typeof perm.basePower === 'number') {
+                basePower = perm.basePower;
+              }
+            }
+            
+            // Add +1/+1 counters
+            const plusCounters = perm.counters?.['+1/+1'] || 0;
+            const minusCounters = perm.counters?.['-1/-1'] || 0;
+            const counterDelta = plusCounters - minusCounters;
+            
+            // Check for other counter types that affect power
+            let otherCounterPower = 0;
+            if (perm.counters) {
+              for (const [counterType, count] of Object.entries(perm.counters)) {
+                if (counterType === '+1/+1' || counterType === '-1/-1') continue;
+                const counterMatch = counterType.match(/^([+-]?\d+)\/([+-]?\d+)$/);
+                if (counterMatch) {
+                  const pMod = parseInt(counterMatch[1], 10);
+                  otherCounterPower += pMod * (count as number);
+                }
+              }
+            }
+            
+            // Add modifiers from equipment, auras, anthems, lords, etc.
+            let modifierPower = 0;
+            if (perm.modifiers && Array.isArray(perm.modifiers)) {
+              for (const mod of perm.modifiers) {
+                if (mod.type === 'powerToughness' || mod.type === 'POWER_TOUGHNESS') {
+                  modifierPower += mod.power || 0;
+                }
+              }
+            }
+            
+            const effectivePower = Math.max(0, basePower + counterDelta + otherCounterPower + modifierPower);
+            
+            if (effectivePower > greatestPower) {
+              greatestPower = effectivePower;
             }
           }
         }
@@ -3012,7 +3051,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         maxSelections: greatestPower,
         filter: { types: ['land'], supertypes: ['basic'] },
       };
-      console.log(`[resolveTopOfStack] Traverse the Outlands: ${controller} may search for up to ${greatestPower} basic lands (greatest power)`);
+      console.log(`[resolveTopOfStack] Traverse the Outlands: ${controller} may search for up to ${greatestPower} basic lands (greatest power with counters/modifiers)`);
     }
     
     // Handle Boundless Realms - "Search your library for up to X basic land cards, 

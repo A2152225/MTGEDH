@@ -2243,7 +2243,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // Check if this spell is a modal spell (Choose one/two/three - e.g., Austere Command, Cryptic Command)
       // Pattern: "Choose two —" or "Choose one —" followed by bullet points
-      const modalSpellMatch = oracleText.match(/choose\s+(one|two|three|four|any number)\s*(?:—|[-])/i);
+      // IMPORTANT: Only apply to INSTANTS and SORCERIES, not to permanents with triggered abilities
+      // Permanents like Glorious Sunrise have "At the beginning of combat on your turn, choose one —" which is a TRIGGER, not a modal spell
+      const modalSpellMatch = isInstantOrSorcery ? oracleText.match(/choose\s+(one|two|three|four|any number)\s*(?:—|[-])/i) : null;
       const modesAlreadySelected = (cardInHand as any).selectedModes || (targets as any)?.selectedModes;
       
       // Check for Spree cards (new mechanic from Outlaws of Thunder Junction)
@@ -2524,7 +2526,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       // targets when cast, even if they have activated/triggered abilities with "target" in the text.
       // This includes Equipment (which are artifacts) - they enter unattached and equipping is a separate ability.
       const isAura = typeLine.includes('aura');
-      const isInstantOrSorcery = isInstant || typeLine.includes('sorcery');
+      // Use the isInstantOrSorcery already declared above (line 1906)
       const requiresTargetingCheck = isInstantOrSorcery || isAura;
       
       // For Auras, determine valid targets based on "Enchant X" text

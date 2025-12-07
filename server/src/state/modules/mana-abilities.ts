@@ -24,6 +24,58 @@
  * - Mirari's Wake: Lands add extra mana
  */
 
+/**
+ * Calculate effective power for a permanent (including counters, modifiers, etc.)
+ * This is a simplified version for use in mana ability calculations
+ */
+function getEffectivePowerForMana(permanent: any): number {
+  // Use pre-calculated effectivePower if available
+  if (typeof permanent.effectivePower === 'number') {
+    return permanent.effectivePower;
+  }
+  
+  const card = permanent.card;
+  let basePower = permanent.basePower ?? (parseInt(String(card?.power ?? '0'), 10) || 0);
+  
+  // Handle star (*) power - use basePower if set (should be calculated by game state)
+  if (typeof card?.power === 'string' && card.power.includes('*')) {
+    if (typeof permanent.basePower === 'number') {
+      basePower = permanent.basePower;
+    }
+  }
+  
+  // Add +1/+1 counters
+  const plusCounters = permanent.counters?.['+1/+1'] || 0;
+  const minusCounters = permanent.counters?.['-1/-1'] || 0;
+  const counterDelta = plusCounters - minusCounters;
+  
+  // Check for other counter types that affect power (+1/+0, +2/+2, etc.)
+  let otherCounterPower = 0;
+  if (permanent.counters) {
+    for (const [counterType, count] of Object.entries(permanent.counters)) {
+      if (counterType === '+1/+1' || counterType === '-1/-1') continue;
+      const counterMatch = counterType.match(/^([+-]?\d+)\/([+-]?\d+)$/);
+      if (counterMatch) {
+        const pMod = parseInt(counterMatch[1], 10);
+        otherCounterPower += pMod * (count as number);
+      }
+    }
+  }
+  
+  // Add modifiers from equipment, auras, anthems, lords, etc.
+  let modifierPower = 0;
+  if (permanent.modifiers && Array.isArray(permanent.modifiers)) {
+    for (const mod of permanent.modifiers) {
+      if (mod.type === 'powerToughness' || mod.type === 'POWER_TOUGHNESS') {
+        modifierPower += mod.power || 0;
+      }
+    }
+  }
+  
+  return Math.max(0, basePower + counterDelta + otherCounterPower + modifierPower);
+}
+
+
 export interface ManaAbility {
   id: string;
   cost: string; // Usually "{T}" for tap
@@ -379,6 +431,13 @@ export function getManaAbilitiesForPermanent(
   const isLand = typeLine.includes("land");
   const isCreature = typeLine.includes("creature");
   const isBasic = typeLine.includes("basic");
+  const isPlaneswalker = typeLine.includes("planeswalker");
+  
+  // IMPORTANT: Planeswalkers should NEVER have tap abilities for mana
+  // Even if their text mentions "{T}: Add {G}" (e.g., when creating tokens with that ability)
+  if (isPlaneswalker) {
+    return abilities; // Return empty - planeswalkers don't tap for mana
+  }
   
   // Check for Metalcraft requirement (e.g., Mox Opal)
   // Rule 702.80 - Metalcraft abilities only work if you control 3+ artifacts
@@ -471,6 +530,7 @@ export function getManaAbilitiesForPermanent(
     // Should NOT match: "{t}: look at the top card...add it to your hand"
     // Should NOT match: "{2}, {t}: search your library..."
     // Should NOT match: "add a +1/+1 counter", "in addition to"
+    // Should NOT match: "create a token with...{t}: add {g}" (token creation)
     
     // Pattern for mana abilities - must have "{t}:" followed by "add" and then a mana indicator
     const manaPatterns = [
@@ -484,6 +544,17 @@ export function getManaAbilitiesForPermanent(
     
     for (const pattern of manaPatterns) {
       if (pattern.test(text)) {
+        // Additional check: make sure this isn't part of a "create" clause
+        // Find the match position
+        const match = text.match(pattern);
+        if (match && match.index !== undefined) {
+          // Look backwards from the match to see if "create" appears nearby
+          const beforeMatch = text.substring(Math.max(0, match.index - 100), match.index);
+          if (beforeMatch.includes('create')) {
+            // This is likely a token creation ability, not the permanent's own ability
+            continue;
+          }
+        }
         return true;
       }
     }
@@ -492,30 +563,42 @@ export function getManaAbilitiesForPermanent(
   };
   
   if (!isLand && oracleText.includes("{t}:") && hasManaProducingTapAbility(oracleText)) {
-    // Check for each colored mana - more strict matching
-    // Include "add an amount of {X}" pattern for cards like Bighorner Rancher
-    if (oracleText.match(/\{t\}:\s*add\s+(?:an\s+amount\s+of\s+)?\{w\}/i)) {
-      abilities.push({ id: 'native_w', cost: '{T}', produces: ['W'] });
-    }
-    if (oracleText.match(/\{t\}:\s*add\s+(?:an\s+amount\s+of\s+)?\{u\}/i)) {
-      abilities.push({ id: 'native_u', cost: '{T}', produces: ['U'] });
-    }
-    if (oracleText.match(/\{t\}:\s*add\s+(?:an\s+amount\s+of\s+)?\{b\}/i)) {
-      abilities.push({ id: 'native_b', cost: '{T}', produces: ['B'] });
-    }
-    if (oracleText.match(/\{t\}:\s*add\s+(?:an\s+amount\s+of\s+)?\{r\}/i)) {
-      abilities.push({ id: 'native_r', cost: '{T}', produces: ['R'] });
-    }
-    if (oracleText.match(/\{t\}:\s*add\s+(?:an\s+amount\s+of\s+)?\{g\}/i)) {
-      abilities.push({ id: 'native_g', cost: '{T}', produces: ['G'] });
-    }
-    // Check for colorless mana
-    if (oracleText.match(/\{t\}:\s*add\s*\{c\}/i)) {
-      abilities.push({ id: 'native_c', cost: '{T}', produces: ['C'] });
-    }
-    // Check for "any color" mana (Birds of Paradise, etc.)
-    if (oracleText.match(/\{t\}:\s*add\s+one\s+mana\s+of\s+any\s+color/i)) {
-      abilities.push({ id: 'native_any', cost: '{T}', produces: ['W', 'U', 'B', 'R', 'G'] });
+    // IMPORTANT: Skip cards with "add an amount of", "add X mana in any combination"
+    // or other variable/scaling patterns - those are handled by getDevotionManaAmount 
+    // or getCreatureCountManaAmount functions
+    const hasScalingManaAbility = 
+      oracleText.includes("add an amount of") ||
+      oracleText.includes("add x mana") ||
+      oracleText.includes("mana in any combination") ||
+      oracleText.includes("equal to your devotion") ||
+      oracleText.includes("equal to the greatest power") ||
+      oracleText.includes("for each");
+    
+    if (!hasScalingManaAbility) {
+      // Check for each colored mana - simple fixed-amount abilities only
+      if (oracleText.match(/\{t\}:\s*add\s+\{w\}/i)) {
+        abilities.push({ id: 'native_w', cost: '{T}', produces: ['W'] });
+      }
+      if (oracleText.match(/\{t\}:\s*add\s+\{u\}/i)) {
+        abilities.push({ id: 'native_u', cost: '{T}', produces: ['U'] });
+      }
+      if (oracleText.match(/\{t\}:\s*add\s+\{b\}/i)) {
+        abilities.push({ id: 'native_b', cost: '{T}', produces: ['B'] });
+      }
+      if (oracleText.match(/\{t\}:\s*add\s+\{r\}/i)) {
+        abilities.push({ id: 'native_r', cost: '{T}', produces: ['R'] });
+      }
+      if (oracleText.match(/\{t\}:\s*add\s+\{g\}/i)) {
+        abilities.push({ id: 'native_g', cost: '{T}', produces: ['G'] });
+      }
+      // Check for colorless mana
+      if (oracleText.match(/\{t\}:\s*add\s*\{c\}/i)) {
+        abilities.push({ id: 'native_c', cost: '{T}', produces: ['C'] });
+      }
+      // Check for "any color" mana (Birds of Paradise, etc.) - but not variable amounts
+      if (oracleText.match(/\{t\}:\s*add\s+one\s+mana\s+of\s+any\s+color/i)) {
+        abilities.push({ id: 'native_any', cost: '{T}', produces: ['W', 'U', 'B', 'R', 'G'] });
+      }
     }
   }
   
@@ -955,23 +1038,20 @@ export function getCreatureCountManaAmount(
         // If "entered this turn" check for that flag
         if (condition.includes('entered this turn') && !p.enteredThisTurn) continue;
         
-        const power = p.basePower ?? p.card?.power ?? 0;
-        const numPower = typeof power === 'string' ? parseInt(power, 10) || 0 : power;
-        if (numPower > amount) {
-          amount = numPower;
+        const power = getEffectivePowerForMana(p);
+        if (power > amount) {
+          amount = power;
         }
       }
     }
     // "this creature's power" or "its power" (Viridian Joiner, Cradle Clearcutter, Rainveil)
     else if (condition.includes("this creature's power") || 
              condition.includes('its power')) {
-      const power = permanent?.basePower ?? permanent?.card?.power ?? 0;
-      amount = typeof power === 'string' ? parseInt(power, 10) || 0 : power;
+      amount = getEffectivePowerForMana(permanent);
     }
     // "Marwyn's power" or "[CardName]'s power" pattern
     else if (condition.match(/\w+'s\s+power/)) {
-      const power = permanent?.basePower ?? permanent?.card?.power ?? 0;
-      amount = typeof power === 'string' ? parseInt(power, 10) || 0 : power;
+      amount = getEffectivePowerForMana(permanent);
     }
     // "the sacrificed creature's power" (Fire Lord Ozai, Furgul)
     else if (condition.includes('sacrificed creature') && condition.includes('power')) {
@@ -1151,10 +1231,9 @@ export function getCreatureCountManaAmount(
         const typeLine = (p.card?.type_line || "").toLowerCase();
         if (!typeLine.includes("creature")) continue;
         
-        const power = p.basePower ?? p.card?.power ?? 0;
-        const numPower = typeof power === 'string' ? parseInt(power, 10) || 0 : power;
-        if (numPower > amount) {
-          amount = numPower;
+        const power = getEffectivePowerForMana(p);
+        if (power > amount) {
+          amount = power;
         }
       }
     }
@@ -1176,8 +1255,31 @@ export function getCreatureCountManaAmount(
     return { color: 'any_combination', amount: Math.max(0, amount) };
   }
   
-  // Pattern 2: "mana in any combination of {W}, {U}, {B}, {R}, and/or {G}"
+  // Pattern 2: "Add X mana in any combination of colors" (Gwenna, Eyes of Gaea)
+  // OR "mana in any combination of {W}, {U}, {B}, {R}, and/or {G}"
   // For cards that produce specific colors in any combination
+  
+  // First check for generic "any combination of colors" pattern
+  const genericCombinationMatch = oracleText.match(
+    /add\s+(one|two|three|four|\d+)\s+mana\s+in\s+any\s+combination\s+of\s+colors/i
+  );
+  
+  if (genericCombinationMatch) {
+    const amountWord = genericCombinationMatch[1].toLowerCase();
+    const wordToNumber: Record<string, number> = {
+      'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+      'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10
+    };
+    const amount = wordToNumber[amountWord] || parseInt(amountWord, 10) || 1;
+    
+    // Return 'any_combination' for all five colors
+    return { 
+      color: 'any_combination', 
+      amount: Math.max(0, amount) 
+    };
+  }
+  
+  // Check for specific color combination pattern
   const specificCombinationMatch = oracleText.match(
     /mana\s+in\s+any\s+combination\s+of\s+(\{[wubrg]\}(?:\s*,?\s*(?:and\/or)?\s*\{[wubrg]\})*)/i
   );
@@ -1188,8 +1290,15 @@ export function getCreatureCountManaAmount(
     const availableColors = colorMatches.map(c => c.replace(/[{}]/g, '').toUpperCase());
     
     // Look for the amount
-    const amountMatch = oracleText.match(/add\s+(\d+)\s+mana/i);
-    const amount = amountMatch ? parseInt(amountMatch[1], 10) : 1;
+    const amountMatch = oracleText.match(/add\s+(\d+|one|two|three)\s+mana/i);
+    let amount = 1;
+    if (amountMatch) {
+      const amountWord = amountMatch[1].toLowerCase();
+      const wordToNumber: Record<string, number> = {
+        'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5
+      };
+      amount = wordToNumber[amountWord] || parseInt(amountMatch[1], 10) || 1;
+    }
     
     return { 
       color: `combination:${availableColors.join(',')}`, 
