@@ -268,7 +268,7 @@ function parseAbilityCost(oracleText: string): {
 /**
  * Tutor effect detection result
  */
-interface TutorInfo {
+export interface TutorInfo {
   isTutor: boolean;
   searchCriteria?: string;
   destination?: string;
@@ -297,7 +297,7 @@ interface TutorInfo {
  * Special patterns:
  * - Kodama's Reach/Cultivate: "put one onto the battlefield tapped and the other into your hand"
  */
-function detectTutorEffect(oracleText: string): TutorInfo {
+export function detectTutorEffect(oracleText: string): TutorInfo {
   if (!oracleText) return { isTutor: false };
   
   const text = oracleText.toLowerCase();
@@ -420,7 +420,7 @@ function getUpgradedCreatureTypes(permanent: any): string[] {
 /**
  * Parse search criteria to create a filter object
  */
-function parseSearchCriteria(criteria: string): { supertypes?: string[]; types?: string[]; subtypes?: string[] } {
+export function parseSearchCriteria(criteria: string): { supertypes?: string[]; types?: string[]; subtypes?: string[] } {
   const result: { supertypes?: string[]; types?: string[]; subtypes?: string[] } = {};
   const text = criteria.toLowerCase();
   
