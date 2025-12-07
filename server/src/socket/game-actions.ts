@@ -2098,8 +2098,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       const oracleText = (cardInHand.oracle_text || "").toLowerCase();
       let hasFlash = oracleText.includes("flash");
       const isInstant = typeLine.includes("instant");
-      const isInstantOrSorcery = typeLine.includes("instant") || typeLine.includes("sorcery");
-      
+      const isInstantOrSorcery = isInstant || typeLine.includes("sorcery");
+
       // Check for "flash grant" effects from battlefield permanents
       // Yeva, Nature's Herald: "You may cast green creature cards as though they had flash."
       // Vedalken Orrery: "You may cast spells as though they had flash."
