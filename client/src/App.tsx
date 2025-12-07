@@ -48,6 +48,7 @@ import { GraveyardViewModal } from "./components/GraveyardViewModal";
 import { JoinForcesModal, type JoinForcesRequest } from "./components/JoinForcesModal";
 import { TemptingOfferModal, type TemptingOfferRequest } from "./components/TemptingOfferModal";
 import { CommanderZoneChoiceModal } from "./components/CommanderZoneChoiceModal";
+import { TapUntapTargetModal } from "./components/TapUntapTargetModal";
 import { PonderModal, type PeekCard, type PonderVariant } from "./components/PonderModal";
 import { ExploreModal, type ExploreCard } from "./components/ExploreModal";
 import { BatchExploreModal, type ExploreResult } from "./components/BatchExploreModal";
@@ -525,6 +526,25 @@ export function App() {
     cardName: string;
     amount: number;
     cardImageUrl?: string;
+  } | null>(null);
+  
+  // Tap/Untap Target Modal state - for Saryth, Merrow Reejerey, Argothian Elder, etc.
+  const [tapUntapTargetModalOpen, setTapUntapTargetModalOpen] = useState(false);
+  const [tapUntapTargetModalData, setTapUntapTargetModalData] = useState<{
+    activationId: string;
+    sourceId: string;
+    sourceName: string;
+    sourceImageUrl?: string;
+    action: 'tap' | 'untap' | 'both';
+    targetFilter: {
+      types?: ('creature' | 'land' | 'artifact' | 'enchantment' | 'planeswalker' | 'permanent')[];
+      controller?: 'you' | 'opponent' | 'any';
+      tapStatus?: 'tapped' | 'untapped' | 'any';
+      excludeSource?: boolean;
+    };
+    targetCount: number;
+    title?: string;
+    description?: string;
   } | null>(null);
   
   // Mana Distribution Modal state - for Selvala, Heart of the Wilds, etc.
