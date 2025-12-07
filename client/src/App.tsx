@@ -477,6 +477,7 @@ export function App() {
     cardImageUrl?: string;
     manaCost: string;
     effect: string;
+    description: string;
   } | null>(null);
   
   // MDFC Face Selection Modal state - for Modal Double-Faced Cards like Blightstep Pathway
@@ -1344,6 +1345,7 @@ export function App() {
       cardImageUrl?: string;
       manaCost: string;
       effect: string;
+      description: string;
     }) => {
       if (payload.gameId === safeView?.id) {
         setManaPaymentTriggerModalData({
@@ -1352,6 +1354,7 @@ export function App() {
           cardImageUrl: payload.cardImageUrl,
           manaCost: payload.manaCost,
           effect: payload.effect,
+          description: payload.description,
         });
         setManaPaymentTriggerModalOpen(true);
       }
@@ -4989,6 +4992,7 @@ export function App() {
         cardImageUrl={manaPaymentTriggerModalData?.cardImageUrl}
         manaCost={manaPaymentTriggerModalData?.manaCost || ''}
         effect={manaPaymentTriggerModalData?.effect || ''}
+        description={manaPaymentTriggerModalData?.description || ''}
         onPayMana={() => {
           if (safeView?.id && manaPaymentTriggerModalData) {
             socket.emit("respondAttackTriggerPayment", {

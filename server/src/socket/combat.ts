@@ -948,9 +948,6 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
 
       if (payMana) {
         // Player chose to pay - validate and consume mana
-        const { parseManaCost } = await import("../utils/mana-utils.js");
-        const { getOrInitManaPool, consumeManaFromPool, calculateTotalAvailableMana, validateManaPayment } = await import("./util.js");
-        
         const parsedCost = parseManaCost(manaCost);
         const pool = getOrInitManaPool(game.state, playerId);
         const totalAvailable = calculateTotalAvailableMana(pool, []);
@@ -966,7 +963,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         
         // Consume mana
         consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[attackTriggerPayment:${cardName}]`);
-        broadcastManaPoolUpdate(io, gameId);
+        broadcastManaPoolUpdate(io, gameId, playerId);
         
         // Execute the effect (e.g., transform Casal)
         const battlefield = game.state?.battlefield || [];

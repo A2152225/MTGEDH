@@ -16,6 +16,7 @@ export interface ManaPaymentTriggerModalProps {
   cardImageUrl?: string;
   manaCost: string; // e.g., "{1}{G}"
   effect: string; // e.g., "Transform her"
+  description: string; // Full trigger description from server
   onPayMana: () => void; // Pay the mana and resolve the effect
   onDecline: () => void; // Don't pay, skip the effect
 }
@@ -26,6 +27,7 @@ export function ManaPaymentTriggerModal({
   cardImageUrl,
   manaCost,
   effect,
+  description,
   onPayMana,
   onDecline,
 }: ManaPaymentTriggerModalProps) {
@@ -98,7 +100,7 @@ export function ManaPaymentTriggerModal({
                 lineHeight: 1.6,
               }}
             >
-              Whenever {cardName} attacks, you may pay {manaCost}. If you do, {effect}.
+              {description}
             </div>
           </div>
         </div>
@@ -113,7 +115,7 @@ export function ManaPaymentTriggerModal({
           }}
         >
           <div style={{ fontSize: 14, color: '#10b981', textAlign: 'center', fontWeight: 500 }}>
-            Pay {manaCost} to {effect.toLowerCase()}?
+            Pay {manaCost} to {effect}?
           </div>
         </div>
 

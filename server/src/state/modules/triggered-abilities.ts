@@ -703,7 +703,6 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
   const attacksMatch = oracleText.match(/whenever\s+(?:~|this creature)\s+attacks,?\s*([^.]+)/i);
   if (attacksMatch && !triggers.some(t => t.triggerType === 'attacks')) {
     const effectText = attacksMatch[1].trim();
-    const lowerEffect = effectText.toLowerCase();
     
     // Check if this is an optional mana payment trigger (e.g., Casal)
     // Pattern: "you may pay {X}. If you do, ..."
