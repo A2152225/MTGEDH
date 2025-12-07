@@ -2556,11 +2556,16 @@ export function App() {
     return hasHaste;
   };
 
+  // Color mapping for mana symbols - extracted as constant to avoid recreation
+  const MANA_COLOR_MAP: Record<string, ManaColor> = {
+    'W': 'W', 'U': 'U', 'B': 'B', 'R': 'R', 'G': 'G', 'C': 'C'
+  };
+
   // Get available mana sources (untapped lands and mana-producing artifacts/creatures)
   const getAvailableManaSourcesForPlayer = (playerId: string) => {
     if (!safeView) return [];
     
-    const sources: Array<{ id: string; name: string; options: ManaColor[] }> = [];
+    const sources: Array<{ id: string; name: string; options: ManaColor[]; amount?: number }> = [];
     
     // Get player's battlefield permanents (filter global battlefield by controller)
     const battlefield = (safeView.battlefield || []).filter(perm => perm.controller === playerId);
@@ -2575,6 +2580,10 @@ export function App() {
       const typeLine = (card.type_line || '').toLowerCase();
       const oracleText = ((card as any).oracle_text || '').toLowerCase();
       const name = card.name;
+      
+      // Check if permanent has a special mana amount (from Priest of Titania, Bighorn Rancher, etc.)
+      const manaAmount = (perm as any).manaAmount;
+      const manaColor = (perm as any).manaColor;
       
       // Skip fetch lands and sacrifice-to-search lands - they don't produce mana
       if (typeLine.includes('land') && isFetchLandOrSacrificeSearchLand(oracleText)) {
@@ -2642,12 +2651,18 @@ export function App() {
             }
           }
           
-          const artifactColors = parseManaColorsFromOracleText(oracleText);
-          if (artifactColors.length > 0) {
-            sources.push({ id: perm.id, name, options: artifactColors });
+          // If this permanent has a special mana amount, use that specific color
+          if (manaAmount && manaAmount > 0 && manaColor) {
+            const mappedColor = MANA_COLOR_MAP[manaColor.toUpperCase()] || 'C';
+            sources.push({ id: perm.id, name, options: [mappedColor], amount: manaAmount });
           } else {
-            // Default to colorless for mana artifacts without specific colors
-            sources.push({ id: perm.id, name, options: ['C'] });
+            const artifactColors = parseManaColorsFromOracleText(oracleText);
+            if (artifactColors.length > 0) {
+              sources.push({ id: perm.id, name, options: artifactColors });
+            } else {
+              // Default to colorless for mana artifacts without specific colors
+              sources.push({ id: perm.id, name, options: ['C'] });
+            }
           }
         }
       }
