@@ -778,48 +778,84 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
             console.log(`[combat] Found ${triggers.length} attack trigger(s) for game ${gameId}`);
             
             for (const trigger of triggers) {
-              // Push trigger onto the stack
-              game.state.stack = game.state.stack || [];
-              const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-              const stackItem: any = {
-                id: triggerId,
-                type: 'triggered_ability',
-                controller: playerId,
-                source: trigger.permanentId,
-                sourceName: trigger.cardName,
-                description: trigger.description,
-                triggerType: trigger.triggerType,
-                mandatory: trigger.mandatory,
-              };
-              
-              // Add value or effectData based on type
-              if (typeof trigger.value === 'number') {
-                stackItem.value = trigger.value;
-              } else if (typeof trigger.value === 'object') {
-                stackItem.effectData = trigger.value;
+              // Check if this is an optional mana payment trigger
+              if (trigger.manaCost && !trigger.mandatory) {
+                // Don't auto-push to stack - instead emit a payment prompt
+                const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                
+                // Store pending trigger for later resolution
+                game.state.pendingAttackTriggers = game.state.pendingAttackTriggers || {};
+                game.state.pendingAttackTriggers[triggerId] = {
+                  permanentId: trigger.permanentId,
+                  cardName: trigger.cardName,
+                  effect: trigger.effect,
+                  manaCost: trigger.manaCost,
+                  controller: playerId,
+                  description: trigger.description,
+                };
+                
+                // Get card image for the modal
+                const permanent = battlefield.find((p: any) => p?.id === trigger.permanentId);
+                const cardImageUrl = permanent?.card?.image_uris?.small || 
+                                    permanent?.card?.image_uris?.normal;
+                
+                // Emit payment prompt to the controlling player
+                emitToPlayer(io, gameId, playerId, "attackTriggerManaPaymentPrompt", {
+                  gameId,
+                  triggerId,
+                  permanentId: trigger.permanentId,
+                  cardName: trigger.cardName,
+                  cardImageUrl,
+                  manaCost: trigger.manaCost,
+                  effect: trigger.effect,
+                  description: trigger.description,
+                });
+                
+                console.log(`[combat] Attack trigger with mana payment for ${trigger.cardName}: ${trigger.manaCost} to ${trigger.effect}`);
+              } else {
+                // Regular trigger - push onto stack immediately
+                game.state.stack = game.state.stack || [];
+                const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                const stackItem: any = {
+                  id: triggerId,
+                  type: 'triggered_ability',
+                  controller: playerId,
+                  source: trigger.permanentId,
+                  sourceName: trigger.cardName,
+                  description: trigger.description,
+                  triggerType: trigger.triggerType,
+                  mandatory: trigger.mandatory,
+                };
+                
+                // Add value or effectData based on type
+                if (typeof trigger.value === 'number') {
+                  stackItem.value = trigger.value;
+                } else if (typeof trigger.value === 'object') {
+                  stackItem.effectData = trigger.value;
+                }
+                
+                game.state.stack.push(stackItem);
+                
+                // Notify players about the trigger
+                io.to(gameId).emit("triggeredAbility", {
+                  gameId,
+                  triggerId,
+                  playerId,
+                  sourcePermanentId: trigger.permanentId,
+                  sourceName: trigger.cardName,
+                  triggerType: trigger.triggerType,
+                  description: trigger.description,
+                  mandatory: trigger.mandatory,
+                });
+                
+                io.to(gameId).emit("chat", {
+                  id: `m_${Date.now()}`,
+                  gameId,
+                  from: "system",
+                  message: `⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`,
+                  ts: Date.now(),
+                });
               }
-              
-              game.state.stack.push(stackItem);
-              
-              // Notify players about the trigger
-              io.to(gameId).emit("triggeredAbility", {
-                gameId,
-                triggerId,
-                playerId,
-                sourcePermanentId: trigger.permanentId,
-                sourceName: trigger.cardName,
-                triggerType: trigger.triggerType,
-                description: trigger.description,
-                mandatory: trigger.mandatory,
-              });
-              
-              io.to(gameId).emit("chat", {
-                id: `m_${Date.now()}`,
-                gameId,
-                from: "system",
-                message: `⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`,
-                ts: Date.now(),
-              });
             }
           }
         }
@@ -856,6 +892,178 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       console.error(`[combat] declareAttackers error for game ${gameId}:`, err);
       socket.emit("error", {
         code: "DECLARE_ATTACKERS_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
+
+  /**
+   * Handle attack trigger mana payment response
+   * Player decides whether to pay mana for an optional attack trigger (e.g., Casal)
+   */
+  socket.on("respondAttackTriggerPayment", async ({
+    gameId,
+    triggerId,
+    payMana,
+  }: {
+    gameId: string;
+    triggerId: string;
+    payMana: boolean;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId as PlayerID | undefined;
+      
+      if (!game || !playerId) {
+        socket.emit("error", {
+          code: "PAYMENT_ERROR",
+          message: "Game not found or player not identified",
+        });
+        return;
+      }
+
+      // Retrieve the pending trigger
+      const pendingTrigger = game.state.pendingAttackTriggers?.[triggerId];
+      if (!pendingTrigger) {
+        socket.emit("error", {
+          code: "TRIGGER_NOT_FOUND",
+          message: "Trigger not found or already resolved",
+        });
+        return;
+      }
+
+      // Verify the player controls this trigger
+      if (pendingTrigger.controller !== playerId) {
+        socket.emit("error", {
+          code: "NOT_YOUR_TRIGGER",
+          message: "You don't control this trigger",
+        });
+        return;
+      }
+
+      const { permanentId, cardName, effect, manaCost, description } = pendingTrigger;
+      
+      // Remove from pending
+      delete game.state.pendingAttackTriggers[triggerId];
+
+      if (payMana) {
+        // Player chose to pay - validate and consume mana
+        const parsedCost = parseManaCost(manaCost);
+        const pool = getOrInitManaPool(game.state, playerId);
+        const totalAvailable = calculateTotalAvailableMana(pool, []);
+        
+        const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+        if (validationError) {
+          socket.emit("error", { 
+            code: "INSUFFICIENT_MANA", 
+            message: `Cannot pay ${manaCost}: ${validationError}` 
+          });
+          return;
+        }
+        
+        // Consume mana
+        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[attackTriggerPayment:${cardName}]`);
+        broadcastManaPoolUpdate(io, gameId, playerId);
+        
+        // Execute the effect (e.g., transform Casal)
+        const battlefield = game.state?.battlefield || [];
+        const permanent = battlefield.find((p: any) => p?.id === permanentId);
+        
+        if (permanent && effect && effect.toLowerCase().includes('transform')) {
+          // Handle transform
+          const cardFaces = (permanent.card as any)?.card_faces;
+          if (Array.isArray(cardFaces) && cardFaces.length >= 2) {
+            const wasTransformed = (permanent as any).transformed;
+            (permanent as any).transformed = !wasTransformed;
+            
+            // Get the new face
+            const newFaceIndex = wasTransformed ? 0 : 1;
+            const newFace = cardFaces[newFaceIndex];
+            
+            // Update permanent's visible card data
+            permanent.card = {
+              ...permanent.card,
+              name: newFace.name,
+              type_line: newFace.type_line,
+              oracle_text: newFace.oracle_text,
+              power: newFace.power,
+              toughness: newFace.toughness,
+              mana_cost: newFace.mana_cost,
+              colors: newFace.colors,
+              keywords: newFace.keywords,
+            };
+            
+            // Check if this is Casal transforming to Pathbreaker Owlbear
+            const newName = newFace.name || '';
+            if (newName.toLowerCase().includes('pathbreaker owlbear')) {
+              // Apply the buff: other legendary creatures get +2/+2 and trample until end of turn
+              const legendaryCreatures = battlefield.filter((p: any) => 
+                p?.controller === playerId && 
+                p?.id !== permanentId && // Exclude Casal herself
+                (p?.card?.type_line || '').toLowerCase().includes('legendary') &&
+                (p?.card?.type_line || '').toLowerCase().includes('creature')
+              );
+              
+              for (const creature of legendaryCreatures) {
+                // Add temporary buff modifier
+                creature.modifiers = creature.modifiers || [];
+                creature.modifiers.push({
+                  type: 'pt_buff',
+                  source: permanentId,
+                  sourceName: newName,
+                  power: 2,
+                  toughness: 2,
+                  keywords: ['Trample'],
+                  duration: 'end_of_turn',
+                  appliedAt: Date.now(),
+                });
+              }
+              
+              if (legendaryCreatures.length > 0) {
+                io.to(gameId).emit("chat", {
+                  id: `m_${Date.now()}`,
+                  gameId,
+                  from: "system",
+                  message: `🐻 ${newName}: ${legendaryCreatures.length} legendary creature${legendaryCreatures.length > 1 ? 's' : ''} get +2/+2 and gain trample until end of turn!`,
+                  ts: Date.now(),
+                });
+              }
+            }
+            
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `💰 ${getPlayerName(game, playerId)} paid ${manaCost}. ${cardName} transforms into ${newFace.name}!`,
+              ts: Date.now(),
+            });
+          }
+        }
+        
+        // Bump sequence and broadcast
+        if (typeof (game as any).bumpSeq === "function") {
+          (game as any).bumpSeq();
+        }
+        broadcastGame(io, game, gameId);
+        
+        console.log(`[combat] ${playerId} paid ${manaCost} for ${cardName}'s attack trigger`);
+      } else {
+        // Player chose not to pay
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} declined to pay ${manaCost} for ${cardName}'s trigger.`,
+          ts: Date.now(),
+        });
+        
+        console.log(`[combat] ${playerId} declined to pay for ${cardName}'s attack trigger`);
+      }
+      
+    } catch (err: any) {
+      console.error(`[combat] respondAttackTriggerPayment error:`, err);
+      socket.emit("error", {
+        code: "PAYMENT_ERROR",
         message: err?.message ?? String(err),
       });
     }

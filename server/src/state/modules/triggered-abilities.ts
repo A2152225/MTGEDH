@@ -702,14 +702,34 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
   // Generic "whenever ~ attacks"
   const attacksMatch = oracleText.match(/whenever\s+(?:~|this creature)\s+attacks,?\s*([^.]+)/i);
   if (attacksMatch && !triggers.some(t => t.triggerType === 'attacks')) {
-    triggers.push({
-      permanentId,
-      cardName,
-      triggerType: 'attacks',
-      description: attacksMatch[1].trim(),
-      effect: attacksMatch[1].trim(),
-      mandatory: true,
-    });
+    const effectText = attacksMatch[1].trim();
+    
+    // Check if this is an optional mana payment trigger (e.g., Casal)
+    // Pattern: "you may pay {X}. If you do, ..."
+    const mayPayMatch = effectText.match(/you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*if you do,?\s*(.+)/i);
+    
+    if (mayPayMatch) {
+      // Optional mana payment trigger
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'attacks',
+        description: effectText,
+        effect: mayPayMatch[2].trim(), // The effect after "If you do,"
+        manaCost: mayPayMatch[1], // The mana cost to pay
+        mandatory: false, // Optional because of "may"
+      });
+    } else {
+      // Regular mandatory attack trigger
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'attacks',
+        description: effectText,
+        effect: effectText,
+        mandatory: true,
+      });
+    }
   }
   
   // "Whenever a creature you control attacks"
