@@ -2991,7 +2991,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         if (perm.controller === controller) {
           const typeLine = (perm.card?.type_line || '').toLowerCase();
           if (typeLine.includes('creature')) {
-            const power = parseInt(perm.card?.power || '0', 10);
+            const power = parseInt(String(perm.card?.power || '0'), 10);
             if (!isNaN(power) && power > greatestPower) {
               greatestPower = power;
             }

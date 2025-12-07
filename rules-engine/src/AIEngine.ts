@@ -328,6 +328,8 @@ export class AIEngine {
    * - Must not have defender
    * - Must not have summoning sickness (unless has haste)
    * - Must not have "can't attack" effects (e.g., Pacifism)
+   * 
+   * Now enhanced to prioritize creatures with beneficial death triggers!
    */
   private makeBasicAttackDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
     // Use getLegalAttackers to get all valid attackers
@@ -343,19 +345,65 @@ export class AIEngine {
       };
     }
     
-    // Simple heuristic: attack with all legal creatures
+    // Get the player's battlefield to evaluate creatures
+    const player = context.gameState.players.find(p => p.id === context.playerId);
+    if (!player?.battlefield) {
+      return {
+        type: AIDecisionType.DECLARE_ATTACKERS,
+        playerId: context.playerId,
+        action: { attackers: legalAttackerIds },
+        reasoning: `Attacking with ${legalAttackerIds.length} legal creatures`,
+        confidence: 0.6,
+      };
+    }
+    
+    // Evaluate each legal attacker for combat value
+    const attackerEvaluations = legalAttackerIds.map(id => {
+      const perm = player.battlefield.find((p: BattlefieldPermanent) => p.id === id);
+      if (!perm) return { id, value: 0, wantsToGetKilled: false };
+      
+      const evaluation = this.evaluateCombatValue(perm, true);
+      return {
+        id,
+        value: evaluation.combatValue,
+        wantsToGetKilled: evaluation.wantsToGetKilled,
+        deathBenefit: evaluation.deathBenefit,
+      };
+    });
+    
+    // ALWAYS attack with creatures that have beneficial death triggers
+    const suicideAttackers = attackerEvaluations
+      .filter(e => e.wantsToGetKilled)
+      .map(e => e.id);
+    
+    // Attack with most other creatures too (basic strategy is aggressive)
+    const regularAttackers = attackerEvaluations
+      .filter(e => !e.wantsToGetKilled && e.value > 0)
+      .map(e => e.id);
+    
+    const allAttackers = [...suicideAttackers, ...regularAttackers];
+    
+    let reasoning = `Attacking with ${allAttackers.length} creatures`;
+    if (suicideAttackers.length > 0) {
+      reasoning += ` (including ${suicideAttackers.length} with beneficial death triggers)`;
+    }
+    
     return {
       type: AIDecisionType.DECLARE_ATTACKERS,
       playerId: context.playerId,
-      action: { attackers: legalAttackerIds },
-      reasoning: `Attacking with ${legalAttackerIds.length} legal creatures`,
-      confidence: 0.6,
+      action: { attackers: allAttackers },
+      reasoning,
+      confidence: 0.7,
     };
   }
   
   /**
-   * Basic block decision: block to preserve life
+   * Basic block decision: block to preserve life and trigger beneficial death abilities
    * Uses proper combat validation to ensure only legal blockers are selected
+   * Now enhanced to:
+   * 1. Actually block more aggressively (was too conservative before)
+   * 2. Prioritize using creatures with beneficial death triggers as blockers
+   * 3. Block all dangerous attackers, not just ones we can kill
    */
   private makeBasicBlockDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
     // Use getLegalBlockers to get all valid blockers
@@ -399,8 +447,19 @@ export class AIEngine {
       legalBlockerIds.includes(p.id)
     );
     
-    // Convert to CombatCreatures for analysis
-    const blockerCreatures = blockerPermanents.map((p: BattlefieldPermanent) => createCombatCreature(p));
+    // Evaluate each blocker for combat value and death trigger benefits
+    const blockerEvaluations = blockerPermanents.map((perm: BattlefieldPermanent) => {
+      const evaluation = this.evaluateCombatValue(perm, false);
+      return {
+        perm,
+        creature: createCombatCreature(perm),
+        wantsToGetKilled: evaluation.wantsToGetKilled,
+        deathBenefit: evaluation.deathBenefit,
+        baseValue: this.evaluatePermanentValue(perm),
+      };
+    });
+    
+    // Convert attackers to combat creatures
     const attackerCreatures = attackingCreatures.map((a: any) => {
       if (typeof a === 'object' && a.id) {
         return createCombatCreature(a);
@@ -408,57 +467,117 @@ export class AIEngine {
       return null;
     }).filter(Boolean) as CombatCreature[];
     
-    // Smart blocking: block biggest threats that we can kill without losing valuable creatures
-    const blockAssignments: { blockerId: string; attackerId: string }[] = [];
-    const usedBlockers = new Set<string>();
-    
-    // Sort attackers by threat (power * keywords)
+    // Sort attackers by threat level (power + keywords)
     const sortedAttackers = [...attackerCreatures].sort((a, b) => {
-      const aThreat = a.power + (a.keywords.trample ? 2 : 0) + (a.keywords.deathtouch ? 3 : 0);
-      const bThreat = b.power + (b.keywords.trample ? 2 : 0) + (b.keywords.deathtouch ? 3 : 0);
+      const aThreat = a.power + (a.keywords.trample ? 3 : 0) + (a.keywords.deathtouch ? 4 : 0) + (a.keywords.flying ? 2 : 0);
+      const bThreat = b.power + (b.keywords.trample ? 3 : 0) + (b.keywords.deathtouch ? 4 : 0) + (b.keywords.flying ? 2 : 0);
       return bThreat - aThreat;
     });
     
+    const blockAssignments: { blockerId: string; attackerId: string }[] = [];
+    const usedBlockers = new Set<string>();
+    let blockersWithDeathTriggers = 0;
+    
+    // STRATEGY: Block aggressively, especially with creatures that benefit from dying
     for (const attacker of sortedAttackers) {
-      // Find a blocker that can kill this attacker or trade favorably
-      for (const blocker of blockerCreatures) {
-        if (usedBlockers.has(blocker.id)) continue;
+      let bestBlocker: typeof blockerEvaluations[0] | null = null;
+      let bestScore = -Infinity;
+      
+      // Evaluate each available blocker for this attacker
+      for (const blockerEval of blockerEvaluations) {
+        if (usedBlockers.has(blockerEval.creature.id)) continue;
         
         // Check if blocker can legally block this attacker
-        const validation = canCreatureBlock(blocker, attacker, []);
+        const validation = canCreatureBlock(blockerEval.creature, attacker, []);
         if (!validation.legal) continue;
         
-        // Check if it's a good trade:
-        // 1. Blocker survives and kills attacker
-        // 2. Trade (both die)
-        // 3. Chump block only if attacker has trample or is very threatening
+        // Calculate blocking score
+        let score = 0;
         
-        const blockerSurvives = blocker.toughness > attacker.power;
-        const attackerDies = attacker.toughness <= blocker.power || blocker.keywords.deathtouch;
+        const blockerSurvives = blockerEval.creature.toughness > attacker.power;
+        const attackerDies = attacker.toughness <= blockerEval.creature.power || blockerEval.creature.keywords.deathtouch;
+        const blockerDies = !blockerSurvives;
         
-        if (blockerSurvives || attackerDies || attacker.keywords.trample) {
-          blockAssignments.push({
-            blockerId: blocker.id,
-            attackerId: attacker.id,
-          });
-          usedBlockers.add(blocker.id);
-          break;
+        // STRONG PREFERENCE: Use blockers with beneficial death triggers
+        if (blockerEval.wantsToGetKilled && blockerDies) {
+          score += 50 + blockerEval.deathBenefit * 5; // Massive bonus!
+        }
+        
+        // Good trades: blocker survives and kills attacker
+        if (blockerSurvives && attackerDies) {
+          score += 30;
+        }
+        
+        // Acceptable trades: both die
+        if (attackerDies && blockerDies && !blockerEval.wantsToGetKilled) {
+          score += 15;
+        }
+        
+        // Block trample creatures to prevent damage going through
+        if (attacker.keywords.trample) {
+          score += 20;
+        }
+        
+        // Block flying creatures with flyers
+        if (attacker.keywords.flying && blockerEval.creature.keywords.flying) {
+          score += 10;
+        }
+        
+        // Block deathtouch creatures to prevent them from killing something else
+        if (attacker.keywords.deathtouch) {
+          score += 15;
+        }
+        
+        // Chump block big threats even if blocker dies (prevent life loss)
+        // This is the KEY fix - we should block to preserve life!
+        if (attacker.power >= 4 && blockerDies && !attackerDies) {
+          score += 10; // Worth it to prevent 4+ damage
+        }
+        
+        // Avoid sacrificing valuable creatures without benefit
+        if (blockerDies && !blockerEval.wantsToGetKilled && !attackerDies) {
+          score -= blockerEval.baseValue * 2; // Penalty based on creature value
+        }
+        
+        if (score > bestScore) {
+          bestScore = score;
+          bestBlocker = blockerEval;
         }
       }
+      
+      // Assign the best blocker if score is acceptable
+      // Lower threshold: block if score >= 0 (was too conservative before)
+      if (bestBlocker && bestScore >= 0) {
+        blockAssignments.push({
+          blockerId: bestBlocker.creature.id,
+          attackerId: attacker.id,
+        });
+        usedBlockers.add(bestBlocker.creature.id);
+        
+        if (bestBlocker.wantsToGetKilled) {
+          blockersWithDeathTriggers++;
+        }
+      }
+    }
+    
+    let reasoning = `Blocking ${blockAssignments.length}/${sortedAttackers.length} attackers`;
+    if (blockersWithDeathTriggers > 0) {
+      reasoning += ` (${blockersWithDeathTriggers} with beneficial death triggers!)`;
     }
     
     return {
       type: AIDecisionType.DECLARE_BLOCKERS,
       playerId: context.playerId,
       action: { blockers: blockAssignments },
-      reasoning: `Smart blocking: ${blockAssignments.length} blocks assigned`,
-      confidence: 0.7,
+      reasoning,
+      confidence: 0.8,
     };
   }
   
   /**
    * Basic spell casting decision
    * Evaluates castable spells based on mana efficiency, board state, and timing
+   * ENHANCED: Better hand management - don't dump entire hand, save removal/interaction
    */
   private makeBasicCastDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
     const { gameState, playerId, options } = context;
@@ -495,15 +614,100 @@ export class AIEngine {
       };
     }
     
-    // Evaluate and rank spells by value
-    const evaluatedSpells = castableCards.map((card: any) => ({
-      card,
-      value: this.evaluateSpellValue(card, gameState, playerId),
-    }));
+    const handSize = player.hand.length;
+    const phase = String(gameState.phase || '').toLowerCase();
+    const isMainPhase = phase.includes('main');
     
-    // Sort by value (descending) and pick the best
-    evaluatedSpells.sort((a: any, b: any) => b.value - a.value);
-    const bestSpell = evaluatedSpells[0];
+    // Categorize cards by type for better hand management
+    const categorizedCards = castableCards.map((card: any) => {
+      const typeLine = (card.type_line || '').toLowerCase();
+      const oracleText = (card.oracle_text || '').toLowerCase();
+      const value = this.evaluateSpellValue(card, gameState, playerId);
+      
+      let category = 'other';
+      let shouldHold = false;
+      
+      // Removal spells - hold unless there's a good target
+      if (oracleText.includes('destroy target') || oracleText.includes('exile target')) {
+        category = 'removal';
+        // Check if there are threats worth removing
+        const opponentBoardThreats = this.countOpponentThreats(gameState, playerId);
+        shouldHold = opponentBoardThreats === 0; // Hold removal if no threats yet
+      }
+      
+      // Counterspells - ALWAYS hold these for opponent's turn
+      if (oracleText.includes('counter target')) {
+        category = 'counter';
+        shouldHold = true; // Never maindeck counter spells
+      }
+      
+      // Card draw - good to cast when hand is low
+      if (oracleText.includes('draw') && !oracleText.includes('draw a card')) {
+        category = 'draw';
+        shouldHold = handSize > 5; // Hold if hand is already full
+      }
+      
+      // Creatures - generally good to cast
+      if (typeLine.includes('creature')) {
+        category = 'creature';
+        shouldHold = false;
+      }
+      
+      // Ramp - VERY good early, less good late
+      if (oracleText.includes('search your library') && oracleText.includes('land')) {
+        category = 'ramp';
+        const turn = gameState.turn || 1;
+        shouldHold = turn > 8; // Don't ramp late game
+      }
+      
+      // Mana rocks
+      if (typeLine.includes('artifact') && oracleText.includes('add') && oracleText.includes('mana')) {
+        category = 'mana_rock';
+        const turn = gameState.turn || 1;
+        shouldHold = turn > 6; // Don't play mana rocks late
+      }
+      
+      return {
+        card,
+        value,
+        category,
+        shouldHold,
+        cmc: card.cmc || card.mana_value || 0,
+      };
+    });
+    
+    // Filter out cards we should hold
+    const cardsToConsider = categorizedCards.filter(c => !c.shouldHold);
+    
+    if (cardsToConsider.length === 0) {
+      return {
+        type: AIDecisionType.CAST_SPELL,
+        playerId,
+        action: { spell: null },
+        reasoning: 'Holding cards for better timing',
+        confidence: 0.7,
+      };
+    }
+    
+    // Prioritize cards by category and value
+    const priorities: Record<string, number> = {
+      'ramp': 100,        // Ramp is highest priority early
+      'creature': 80,     // Build board presence
+      'draw': 70,         // Refill hand
+      'removal': 60,      // Remove threats (when they exist)
+      'mana_rock': 50,    // Mana acceleration
+      'other': 40,        // Everything else
+      'counter': 0,       // Don't maindeck counters
+    };
+    
+    // Sort by priority + value
+    cardsToConsider.sort((a, b) => {
+      const aPriority = (priorities[a.category] || 40) + a.value;
+      const bPriority = (priorities[b.category] || 40) + b.value;
+      return bPriority - aPriority;
+    });
+    
+    const bestSpell = cardsToConsider[0];
     
     // Only cast if value is positive (worth casting)
     if (bestSpell.value > 0) {
@@ -511,7 +715,7 @@ export class AIEngine {
         type: AIDecisionType.CAST_SPELL,
         playerId,
         action: { spell: bestSpell.card, targets: [] },
-        reasoning: `Casting ${bestSpell.card.name || 'spell'} (value: ${bestSpell.value})`,
+        reasoning: `Casting ${bestSpell.card.name || 'spell'} [${bestSpell.category}] (value: ${bestSpell.value})`,
         confidence: Math.min(0.9, 0.5 + bestSpell.value / 20),
       };
     }
@@ -520,9 +724,57 @@ export class AIEngine {
       type: AIDecisionType.CAST_SPELL,
       playerId,
       action: { spell: null },
-      reasoning: 'No valuable spells to cast',
+      reasoning: 'No valuable spells to cast right now',
       confidence: 0.6,
     };
+  }
+  
+  /**
+   * Count threatening permanents controlled by opponents
+   */
+  private countOpponentThreats(gameState: GameState, playerId: PlayerID): number {
+    let threatCount = 0;
+    const battlefield = gameState.battlefield || [];
+    
+    for (const perm of battlefield) {
+      if (perm.controller !== playerId) {
+        const typeLine = (perm.card?.type_line || '').toLowerCase();
+        
+        // Creatures are threats
+        if (typeLine.includes('creature')) {
+          const power = getCreaturePower(perm);
+          const toughness = getCreatureToughness(perm);
+          
+          // Big creatures or evasive creatures are bigger threats
+          if (power >= 4 || toughness >= 5) {
+            threatCount += 2;
+          } else if (power >= 2) {
+            threatCount += 1;
+          }
+          
+          // Keywords make them more threatening
+          const keywords = extractCombatKeywords(perm);
+          if (keywords.flying || keywords.trample || keywords.deathtouch) {
+            threatCount += 1;
+          }
+        }
+        
+        // Planeswalkers are threats
+        if (typeLine.includes('planeswalker')) {
+          threatCount += 2;
+        }
+        
+        // Dangerous enchantments/artifacts
+        if (typeLine.includes('enchantment') || typeLine.includes('artifact')) {
+          const oracleText = (perm.card?.oracle_text || '').toLowerCase();
+          if (oracleText.includes('each opponent') || oracleText.includes('damage')) {
+            threatCount += 1;
+          }
+        }
+      }
+    }
+    
+    return threatCount;
   }
   
   // AI Spell Evaluation Constants
@@ -963,7 +1215,7 @@ export class AIEngine {
   
   /**
    * Make a sacrifice decision - choose which permanent to sacrifice
-   * Uses value heuristics to sacrifice least valuable permanents first
+   * NOW IMPROVED: Prefers sacrificing creatures with beneficial death triggers!
    */
   private makeSacrificeDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
     const { playerId, options, constraints } = context;
@@ -994,8 +1246,27 @@ export class AIEngine {
       return true; // 'permanent' = any
     });
     
-    // Sort by value (sacrifice least valuable first)
+    // Sort by sacrifice priority:
+    // 1. Creatures with beneficial death triggers (HIGHEST priority to sacrifice)
+    // 2. Low-value permanents
+    // 3. High-value permanents (LOWEST priority to sacrifice)
     validTargets.sort((a: BattlefieldPermanent, b: BattlefieldPermanent) => {
+      const aCard = a.card as KnownCardRef;
+      const bCard = b.card as KnownCardRef;
+      
+      // Check for death triggers
+      const aDeathBenefit = this.evaluateDeathTrigger(aCard);
+      const bDeathBenefit = this.evaluateDeathTrigger(bCard);
+      
+      // PREFER sacrificing creatures with death triggers!
+      if (aDeathBenefit > 0 && bDeathBenefit === 0) return -1; // a first (sacrifice a)
+      if (bDeathBenefit > 0 && aDeathBenefit === 0) return 1;  // b first (sacrifice b)
+      if (aDeathBenefit > 0 && bDeathBenefit > 0) {
+        // Both have death triggers - sacrifice the one with better benefit
+        return bDeathBenefit - aDeathBenefit; // Higher benefit first
+      }
+      
+      // Neither has death triggers - sacrifice lowest value first
       const aValue = this.evaluatePermanentValue(a);
       const bValue = this.evaluatePermanentValue(b);
       return aValue - bValue; // Ascending - sacrifice lowest value first
@@ -1004,17 +1275,90 @@ export class AIEngine {
     // Select the required number
     const sacrificed = validTargets.slice(0, sacrificeCount).map((p: BattlefieldPermanent) => p.id);
     
+    // Count how many have death triggers for better reasoning
+    const withDeathTriggers = validTargets.slice(0, sacrificeCount).filter((p: BattlefieldPermanent) => {
+      const card = p.card as KnownCardRef;
+      return this.evaluateDeathTrigger(card) > 0;
+    }).length;
+    
+    let reasoning = `Sacrificing ${sacrificed.length} ${permanentType}(s)`;
+    if (withDeathTriggers > 0) {
+      reasoning += ` (${withDeathTriggers} with beneficial death triggers!)`;
+    }
+    
     return {
       type: AIDecisionType.SACRIFICE,
       playerId,
       action: { sacrificed },
-      reasoning: `Sacrificing ${sacrificed.length} least valuable ${permanentType}(s)`,
-      confidence: 0.7,
+      reasoning,
+      confidence: 0.8,
     };
   }
   
   /**
+   * Detect if a card has a beneficial death trigger
+   * Returns the benefit value (positive = beneficial, 0 = none)
+   */
+  private evaluateDeathTrigger(card: KnownCardRef): number {
+    const oracleText = (card?.oracle_text || '').toLowerCase();
+    let benefit = 0;
+    
+    // Check for "when ~ dies" or "when this creature dies" patterns
+    if (!oracleText.includes('when') || !oracleText.includes('dies')) {
+      return 0;
+    }
+    
+    // Beneficial death triggers:
+    
+    // Ramp/land fetch (e.g., Veteran Explorer, Sakura-Tribe Elder)
+    if ((oracleText.includes('search') && oracleText.includes('land')) ||
+        (oracleText.includes('search your library') && oracleText.includes('basic land'))) {
+      benefit += 8; // Very valuable - ramp is crucial
+    }
+    
+    // Card draw
+    if (oracleText.includes('draw')) {
+      const drawMatch = oracleText.match(/draw (\d+)/);
+      benefit += drawMatch ? parseInt(drawMatch[1], 10) * 3 : 3;
+    }
+    
+    // Token creation
+    if (oracleText.includes('create') && (oracleText.includes('token') || oracleText.includes('creature token'))) {
+      benefit += 4;
+    }
+    
+    // Return to hand (recursion)
+    if (oracleText.includes('return') && oracleText.includes('to') && oracleText.includes('hand')) {
+      benefit += 3;
+    }
+    
+    // Damage to opponents
+    if (oracleText.includes('damage') && (oracleText.includes('opponent') || oracleText.includes('each opponent'))) {
+      benefit += 2;
+    }
+    
+    // Life gain
+    if (oracleText.includes('gain') && oracleText.includes('life')) {
+      benefit += 1;
+    }
+    
+    // Tutor effects (search for specific cards)
+    if (oracleText.includes('search your library') && !oracleText.includes('land')) {
+      benefit += 5;
+    }
+    
+    // Beneficial for all players (symmetric effects like Veteran Explorer)
+    // These are still valuable, but slightly less so
+    if (oracleText.includes('each player')) {
+      benefit = Math.max(1, Math.floor(benefit * 0.7));
+    }
+    
+    return benefit;
+  }
+
+  /**
    * Evaluate the value of a permanent for AI decision-making
+   * Now includes triggered ability evaluation
    */
   private evaluatePermanentValue(perm: BattlefieldPermanent): number {
     const card = perm.card as KnownCardRef;
@@ -1022,6 +1366,7 @@ export class AIEngine {
     
     // Base value from card characteristics
     const typeLine = (card?.type_line || '').toLowerCase();
+    const oracleText = (card?.oracle_text || '').toLowerCase();
     
     // Creatures: value based on power + toughness
     if (typeLine.includes('creature')) {
@@ -1037,13 +1382,25 @@ export class AIEngine {
       if (keywords.trample) value += 2;
       if (keywords.indestructible) value += 10;
       if (keywords.doubleStrike) value += 5;
+      
+      // ETB (enters-the-battlefield) triggers add value
+      if (oracleText.includes('when') && oracleText.includes('enters the battlefield')) {
+        if (oracleText.includes('draw')) value += 3;
+        if (oracleText.includes('search')) value += 3;
+        if (oracleText.includes('create')) value += 2;
+        if (oracleText.includes('return') && oracleText.includes('from your graveyard')) value += 3;
+      }
+      
+      // Death triggers - these are special: they DON'T add to the sacrifice value
+      // but they're tracked separately for combat decisions
+      // We don't add them here because we want the creature to be considered low-value
+      // for sacrifice, but high-value for getting killed in combat
     }
     
     // Artifacts: moderate value
     if (typeLine.includes('artifact')) {
       value += 3;
       // Mana artifacts worth more
-      const oracleText = (card?.oracle_text || '').toLowerCase();
       if (oracleText.includes('add') && oracleText.includes('mana')) value += 4;
     }
     
@@ -1063,6 +1420,41 @@ export class AIEngine {
     value += (perm.counters?.['+1/+1'] || 0) * 2;
     
     return Math.max(0, value);
+  }
+  
+  /**
+   * Evaluate combat value of a creature, considering death triggers
+   * This is different from permanent value - it considers the benefit of dying
+   */
+  private evaluateCombatValue(perm: BattlefieldPermanent, isAttacking: boolean): { combatValue: number; wantsToGetKilled: boolean; deathBenefit: number } {
+    const card = perm.card as KnownCardRef;
+    const power = getCreaturePower(perm);
+    const toughness = getCreatureToughness(perm);
+    
+    // Base combat value from stats
+    let combatValue = power + toughness;
+    
+    // Check for death trigger benefit
+    const deathBenefit = this.evaluateDeathTrigger(card);
+    
+    // If this creature has a beneficial death trigger, we WANT it to die
+    const wantsToGetKilled = deathBenefit > 0;
+    
+    // For creatures with beneficial death triggers:
+    // - When attacking: we want them to die, so increase combat value
+    // - When blocking: we want them to die, so increase combat value
+    // - Small creatures with big death triggers are ideal suicide attackers
+    if (wantsToGetKilled) {
+      // Heavily favor attacking/blocking with creatures that benefit from dying
+      combatValue += deathBenefit * 3;
+      
+      // Extra bonus for small creatures with good death triggers (efficient trades)
+      if (power + toughness <= 2 && deathBenefit >= 5) {
+        combatValue += 10; // Strongly encourage using these in combat
+      }
+    }
+    
+    return { combatValue, wantsToGetKilled, deathBenefit };
   }
   
   /**
@@ -1445,30 +1837,87 @@ export class AIEngine {
   
   /**
    * Evaluate the value of a card in hand
+   * ENHANCED: Better evaluation considering card type and abilities
    */
   private evaluateCardValue(card: any): number {
     let value = 0;
-    const types = card.types || [];
+    const typeLine = (card.type_line || '').toLowerCase();
+    const oracleText = (card.oracle_text || '').toLowerCase();
     const cmc = card.cmc || card.mana_value || 0;
     
-    // Lands are generally low value in hand (but needed for mana)
-    if (types.includes('Land')) {
-      value = 2;
+    // Base value by card type
+    if (typeLine.includes('land')) {
+      // Lands are valuable but basic lands less so than non-basics
+      value = typeLine.includes('basic') ? 3 : 6;
     }
-    // Creatures: value based on CMC (proxy for power)
-    else if (types.includes('Creature')) {
-      value = 3 + cmc;
+    else if (typeLine.includes('creature')) {
+      // Creatures: value based on CMC and power/toughness
+      const power = parseInt(card.power || '0', 10);
+      const toughness = parseInt(card.toughness || '0', 10);
+      value = 5 + cmc + (power + toughness) / 2;
+      
+      // Creatures with beneficial death triggers are MORE valuable (keep them!)
+      const deathBenefit = this.evaluateDeathTrigger(card);
+      value += deathBenefit * 2;
     }
-    // Instants/Sorceries: moderate value
-    else if (types.includes('Instant') || types.includes('Sorcery')) {
+    else if (typeLine.includes('instant')) {
+      // Instants are VERY valuable - flexible answers
+      value = 8 + cmc * 1.5;
+      
+      // Removal is extra valuable
+      if (oracleText.includes('destroy') || oracleText.includes('exile')) {
+        value += 5;
+      }
+      
+      // Counters are extremely valuable
+      if (oracleText.includes('counter target')) {
+        value += 8;
+      }
+    }
+    else if (typeLine.includes('sorcery')) {
+      // Sorceries: moderate value
+      value = 5 + cmc;
+      
+      // Card draw is very valuable
+      if (oracleText.includes('draw')) {
+        value += 6;
+      }
+      
+      // Removal is valuable
+      if (oracleText.includes('destroy') || oracleText.includes('exile')) {
+        value += 4;
+      }
+      
+      // Board wipes are EXTREMELY valuable
+      if (oracleText.includes('destroy all') || oracleText.includes('exile all')) {
+        value += 10;
+      }
+    }
+    else if (typeLine.includes('artifact') || typeLine.includes('enchantment')) {
+      // Artifacts and enchantments: permanent value
+      value = 6 + cmc;
+      
+      // Card draw engines are very valuable
+      if (oracleText.includes('draw')) {
+        value += 5;
+      }
+      
+      // Mana rocks are valuable early, less so late
+      if (oracleText.includes('add') && oracleText.includes('mana')) {
+        value += 3;
+      }
+    }
+    else {
+      // Other card types
       value = 4 + cmc;
     }
-    // Other permanents
-    else {
-      value = 3 + cmc;
+    
+    // High CMC cards are harder to cast, slightly reduce value
+    if (cmc >= 7) {
+      value -= 2;
     }
     
-    return value;
+    return Math.max(1, value);
   }
 
   /**

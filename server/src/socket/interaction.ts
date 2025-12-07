@@ -5001,7 +5001,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     
     // Broadcast updated game state
     broadcastGame(io, game, gameId);
-    broadcastManaPoolUpdate(io, game, gameId);
   });
 
   /**
