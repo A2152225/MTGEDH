@@ -2349,18 +2349,27 @@ async function executePassPriority(
     }
     
     // If all players passed priority with empty stack, advance to next step
+    // BUT: Do NOT advance if there are pending library searches (e.g., after Collective Voyage)
+    // Human players need time to complete their library searches
     if (advanceStep) {
-      console.info('[AI] All players passed priority with empty stack, advancing step');
-      if (typeof (game as any).nextStep === 'function') {
-        (game as any).nextStep();
-        console.log(`[AI] Advanced to next step for game ${gameId}`);
-      }
+      const hasPendingLibrarySearch = game.state?.pendingLibrarySearch && 
+                                      Object.keys(game.state.pendingLibrarySearch).length > 0;
       
-      // Persist the step advance event
-      try {
-        await appendEvent(gameId, (game as any).seq || 0, 'nextStep', { playerId, reason: 'allPlayersPassed' });
-      } catch (e) {
-        console.warn('[AI] Failed to persist nextStep event:', e);
+      if (hasPendingLibrarySearch) {
+        console.info('[AI] Cannot advance step - players have pending library searches');
+      } else {
+        console.info('[AI] All players passed priority with empty stack, advancing step');
+        if (typeof (game as any).nextStep === 'function') {
+          (game as any).nextStep();
+          console.log(`[AI] Advanced to next step for game ${gameId}`);
+        }
+        
+        // Persist the step advance event
+        try {
+          await appendEvent(gameId, (game as any).seq || 0, 'nextStep', { playerId, reason: 'allPlayersPassed' });
+        } catch (e) {
+          console.warn('[AI] Failed to persist nextStep event:', e);
+        }
       }
     }
     
