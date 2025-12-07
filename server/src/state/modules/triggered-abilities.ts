@@ -46,6 +46,7 @@ import {
   KNOWN_COMBAT_DAMAGE_TRIGGERS,
   KNOWN_BEGINNING_COMBAT_TRIGGERS,
   KNOWN_END_STEP_TRIGGERS,
+  KNOWN_PRECOMBAT_MAIN_TRIGGERS,
 } from "./triggers/card-data-tables.js";
 
 // Re-export from modularized submodules
@@ -135,6 +136,21 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       timing: 'upkeep',
       effect: upkeepMatch[1].trim(),
       mandatory: !upkeepMatch[1].includes('you may'),
+    });
+  }
+  
+  // Precombat main phase triggers
+  // Pattern: "At the beginning of each player's precombat main phase" (Magus of the Vineyard)
+  const precombatMatch = oracleText.match(/at the beginning of (?:each player's |your )?(?:pre-?combat )?main (?:phase|step),?\s*([^.]+)/i);
+  if (precombatMatch) {
+    triggers.push({
+      id: `${permanentId}_precombat_main`,
+      permanentId,
+      controllerId,
+      cardName,
+      timing: 'precombat_main',
+      effect: precombatMatch[1].trim(),
+      mandatory: !precombatMatch[1].includes('you may'),
     });
   }
   

@@ -700,6 +700,23 @@ export const KNOWN_BEGINNING_COMBAT_TRIGGERS: Record<string, {
 };
 
 // ============================================================================
+// Precombat Main Phase Triggers
+// ============================================================================
+
+/**
+ * Known cards with precombat main phase triggered abilities
+ */
+export const KNOWN_PRECOMBAT_MAIN_TRIGGERS: Record<string, { 
+  effect: string;
+  affectsEachPlayer?: boolean;
+}> = {
+  "magus of the vineyard": { 
+    effect: "Each player adds {G}{G}",
+    affectsEachPlayer: true,
+  },
+};
+
+// ============================================================================
 // End Step Triggers
 // ============================================================================
 
