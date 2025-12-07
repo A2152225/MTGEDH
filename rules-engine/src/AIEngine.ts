@@ -467,6 +467,11 @@ export class AIEngine {
       return null;
     }).filter(Boolean) as CombatCreature[];
     
+    // Calculate total unblocked damage to assess lethality
+    const playerLife = player.life || 40;
+    const totalAttackerDamage = attackerCreatures.reduce((sum, a) => sum + a.power, 0);
+    const isLethalIfUnblocked = totalAttackerDamage >= playerLife;
+    
     // Sort attackers by threat level (power + keywords)
     const sortedAttackers = [...attackerCreatures].sort((a, b) => {
       const aThreat = a.power + (a.keywords.trample ? 3 : 0) + (a.keywords.deathtouch ? 4 : 0) + (a.keywords.flying ? 2 : 0);
@@ -479,6 +484,7 @@ export class AIEngine {
     let blockersWithDeathTriggers = 0;
     
     // STRATEGY: Block aggressively, especially with creatures that benefit from dying
+    // or when facing lethal damage
     for (const attacker of sortedAttackers) {
       let bestBlocker: typeof blockerEvaluations[0] | null = null;
       let bestScore = -Infinity;
@@ -528,14 +534,18 @@ export class AIEngine {
           score += 15;
         }
         
-        // Chump block big threats even if blocker dies (prevent life loss)
-        // This is the KEY fix - we should block to preserve life!
-        if (attacker.power >= 4 && blockerDies && !attackerDies) {
+        // CRITICAL FIX: Block to prevent lethal damage
+        // If attack is lethal, we MUST block to survive
+        if (isLethalIfUnblocked) {
+          score += 100; // Massive bonus when facing lethal - always worth blocking
+        }
+        // Otherwise, chump block big threats even if blocker dies (prevent life loss)
+        else if (attacker.power >= 4 && blockerDies && !attackerDies) {
           score += 10; // Worth it to prevent 4+ damage
         }
         
-        // Avoid sacrificing valuable creatures without benefit
-        if (blockerDies && !blockerEval.wantsToGetKilled && !attackerDies) {
+        // Avoid sacrificing valuable creatures without benefit (unless lethal)
+        if (blockerDies && !blockerEval.wantsToGetKilled && !attackerDies && !isLethalIfUnblocked) {
           score -= blockerEval.baseValue * 2; // Penalty based on creature value
         }
         
@@ -546,8 +556,9 @@ export class AIEngine {
       }
       
       // Assign the best blocker if score is acceptable
-      // Lower threshold: block if score >= 0 (was too conservative before)
-      if (bestBlocker && bestScore >= 0) {
+      // When facing lethal damage, block even with negative scores to survive
+      const minScoreThreshold = isLethalIfUnblocked ? -50 : 0;
+      if (bestBlocker && bestScore >= minScoreThreshold) {
         blockAssignments.push({
           blockerId: bestBlocker.creature.id,
           attackerId: attacker.id,
