@@ -3364,8 +3364,12 @@ async function handlePendingLibrarySearchAfterResolution(
         } else {
           console.log(`[AI] No valid cards found in library for ${info.source || 'tutor'}`);
         }
+        
+        // Clear pending search for this AI player after processing
+        delete game.state.pendingLibrarySearch[playerId];
       } else {
         // Human player: emit library search request
+        // Do NOT clear pendingLibrarySearch[playerId] here - it will be cleared when the player responds
         const socketsByPlayer: Map<string, any> = game.participantSockets || new Map();
         const socket = socketsByPlayer.get(playerId);
         
@@ -3394,8 +3398,9 @@ async function handlePendingLibrarySearchAfterResolution(
       }
     }
     
-    // Clear the pending search
-    game.state.pendingLibrarySearch = {};
+    // NOTE: Do NOT clear entire pendingLibrarySearch here.
+    // AI player entries are cleared immediately after processing above.
+    // Human player entries are cleared when they respond via librarySearchSelect/Cancel handlers.
     
   } catch (err) {
     console.warn('[handlePendingLibrarySearchAfterResolution] Error:', err);
