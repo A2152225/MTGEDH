@@ -57,6 +57,8 @@ export type SpellSpec = {
   targetRestriction?: TargetRestriction; // For "target X that..." clauses (Reciprocate, etc.)
   controllerOnly?: boolean; // For "creature you control" patterns (Acrobatic Maneuver, Cloudshift)
   excludeSource?: boolean; // For "another target" patterns (Skrelv, etc.) - cannot target the source
+  multiFilter?: PermanentFilter[]; // For "artifact or enchantment" patterns (Nature's Claim) - uses OR logic
+  creatureRestriction?: TargetRestriction; // For restrictions that only apply to creatures when multiFilter includes CREATURE (Atraxa's Fall)
 };
 
 /**
@@ -216,15 +218,75 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
     };
   }
 
-  const creature = /\bcreature\b/.test(t) && !/\bplaneswalker\b/.test(t);
-  const walker = /\bplaneswalker\b/.test(t) && !/\bcreature\b/.test(t);
-  const permanent = /\bpermanent\b/.test(t);
-  const filter: PermanentFilter = creature ? 'CREATURE' : walker ? 'PLANESWALKER' : permanent ? 'PERMANENT' : 'ANY';
+  // Detect filter type based on target description
+  // Priority: specific types (artifact, enchantment, land, creature, planeswalker) > permanent > any
+  // Special handling for "X or Y" patterns (e.g., "artifact or enchantment")
+  const hasArtifact = /\bartifact\b/.test(t);
+  const hasEnchantment = /\benchantment\b/.test(t);
+  const hasLand = /\bland\b/.test(t);
+  const hasCreature = /\bcreature\b/.test(t);
+  const hasPlaneswalker = /\bplaneswalker\b/.test(t);
+  const hasBattle = /\bbattle\b/.test(t);
+  const hasPermanent = /\bpermanent\b/.test(t);
+  
+  // Check for multi-type patterns with "or" (Nature's Claim: "target artifact or enchantment")
+  // Atraxa's Fall: "target artifact, battle, enchantment, or creature with flying"
+  let filter: PermanentFilter;
+  let multiFilter: PermanentFilter[] | undefined;
+  let creatureRestriction: TargetRestriction | undefined;
+  
+  // Pattern: "artifact, battle, enchantment, or creature with flying" (Atraxa's Fall)
+  // This is a complex pattern: artifacts/battles/enchantments without restriction, OR creatures with flying
+  if (/artifact,?\s+battle,?\s+enchantment,?\s+or creature with flying/.test(t)) {
+    // All four types, but creatures need flying
+    // Note: Battles use PERMANENT filter since there's no dedicated BATTLE filter type
+    multiFilter = ['ARTIFACT', 'PERMANENT', 'ENCHANTMENT', 'CREATURE'];
+    filter = 'ARTIFACT'; // Primary filter
+    // Add restriction for creatures only - they must have flying
+    creatureRestriction = {
+      type: 'has_keyword',
+      description: 'with flying',
+      keyword: 'flying',
+    };
+  }
+  // Pattern: "artifact or enchantment" (Nature's Claim, Naturalize, etc.)
+  else if (/artifact or enchantment/.test(t)) {
+    filter = 'ARTIFACT'; // Primary filter
+    multiFilter = ['ARTIFACT', 'ENCHANTMENT'];
+  }
+  // Pattern: "artifact, battle, enchantment" or similar multi-type without creature restriction
+  else if (/artifact,?\s+(?:battle,?\s+)?enchantment/.test(t) || /battle,?\s+(?:artifact,?\s+)?enchantment/.test(t)) {
+    // Complex multi-type - parse all types mentioned
+    // Note: Battles use PERMANENT filter since there's no dedicated BATTLE filter type
+    const types: PermanentFilter[] = [];
+    if (hasArtifact) types.push('ARTIFACT');
+    if (hasBattle) types.push('PERMANENT'); // Represents battles
+    if (hasEnchantment) types.push('ENCHANTMENT');
+    if (hasCreature) types.push('CREATURE');
+    filter = types[0] || 'PERMANENT';
+    multiFilter = types.length > 1 ? types : undefined;
+  }
+  // Single type filters
+  else if (hasArtifact && !hasEnchantment && !hasCreature && !hasPlaneswalker) {
+    filter = 'ARTIFACT';
+  } else if (hasEnchantment && !hasArtifact && !hasCreature && !hasPlaneswalker) {
+    filter = 'ENCHANTMENT';
+  } else if (hasLand && !hasCreature && !hasArtifact && !hasEnchantment) {
+    filter = 'LAND';
+  } else if (hasCreature && !hasPlaneswalker) {
+    filter = 'CREATURE';
+  } else if (hasPlaneswalker && !hasCreature) {
+    filter = 'PLANESWALKER';
+  } else if (hasPermanent) {
+    filter = 'PERMANENT';
+  } else {
+    filter = 'ANY';
+  }
 
-  if (/destroy all\b/.test(t)) return { op: 'DESTROY_ALL', filter, minTargets: 0, maxTargets: 0 };
+  if (/destroy all\b/.test(t)) return { op: 'DESTROY_ALL', filter, minTargets: 0, maxTargets: 0, ...(multiFilter && { multiFilter }) };
   // Only match "exile all" if it's targeting permanents (creatures, planeswalkers, etc.), not spells
-  if (/exile all\b/.test(t) && !/exile all\s+(?:other\s+)?spells\b/.test(t)) return { op: 'EXILE_ALL', filter, minTargets: 0, maxTargets: 0 };
-  if (/destroy each\b/.test(t)) return { op: 'DESTROY_EACH', filter, minTargets: 0, maxTargets: 0 };
+  if (/exile all\b/.test(t) && !/exile all\s+(?:other\s+)?spells\b/.test(t)) return { op: 'EXILE_ALL', filter, minTargets: 0, maxTargets: 0, ...(multiFilter && { multiFilter }) };
+  if (/destroy each\b/.test(t)) return { op: 'DESTROY_EACH', filter, minTargets: 0, maxTargets: 0, ...(multiFilter && { multiFilter }) };
 
   if (/each creature/.test(t) && /\bdamage\b/.test(t)) {
     const m = t.match(/(\d+)\s+damage/);
@@ -233,11 +295,11 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
 
   if (/exile up to (\d+)/.test(t)) {
     const n = parseInt(t.match(/exile up to (\d+)/)![1], 10);
-    return { op: 'EXILE_TARGET', filter, minTargets: 0, maxTargets: n };
+    return { op: 'EXILE_TARGET', filter, minTargets: 0, maxTargets: n, ...(multiFilter && { multiFilter }) };
   }
   if (/destroy up to (\d+)/.test(t)) {
     const n = parseInt(t.match(/destroy up to (\d+)/)![1], 10);
-    return { op: 'DESTROY_TARGET', filter, minTargets: 0, maxTargets: n };
+    return { op: 'DESTROY_TARGET', filter, minTargets: 0, maxTargets: n, ...(multiFilter && { multiFilter }) };
   }
 
   // Flicker effects - exile and return to battlefield
@@ -474,8 +536,8 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
     }
   }
 
-  if (/exile target/.test(t)) return { op: 'EXILE_TARGET', filter, minTargets: 1, maxTargets: 1 };
-  if (/destroy target/.test(t)) return { op: 'DESTROY_TARGET', filter, minTargets: 1, maxTargets: 1 };
+  if (/exile target/.test(t)) return { op: 'EXILE_TARGET', filter, minTargets: 1, maxTargets: 1, ...(multiFilter && { multiFilter }), ...(creatureRestriction && { creatureRestriction }) };
+  if (/destroy target/.test(t)) return { op: 'DESTROY_TARGET', filter, minTargets: 1, maxTargets: 1, ...(multiFilter && { multiFilter }), ...(creatureRestriction && { creatureRestriction }) };
   
   // Chaos Warp and similar shuffle effects: "target permanent" or "of target permanent"
   if (/(?:of )?target permanent/.test(t) && /shuffles? it into/.test(t)) {
@@ -506,6 +568,46 @@ function isCreature(p: BattlefieldPermanent) {
 }
 function isPlaneswalker(p: BattlefieldPermanent) {
   return (((p.card as any)?.type_line) || '').toLowerCase().includes('planeswalker');
+}
+function isArtifact(p: BattlefieldPermanent) {
+  return (((p.card as any)?.type_line) || '').toLowerCase().includes('artifact');
+}
+function isEnchantment(p: BattlefieldPermanent) {
+  return (((p.card as any)?.type_line) || '').toLowerCase().includes('enchantment');
+}
+function isLand(p: BattlefieldPermanent) {
+  return (((p.card as any)?.type_line) || '').toLowerCase().includes('land');
+}
+function isBattle(p: BattlefieldPermanent) {
+  return (((p.card as any)?.type_line) || '').toLowerCase().includes('battle');
+}
+
+/**
+ * Check if a permanent matches the given filter.
+ * Handles single filters and ignores multiFilter (which is handled separately).
+ */
+function matchesFilter(p: BattlefieldPermanent, filter: PermanentFilter): boolean {
+  switch (filter) {
+    case 'CREATURE': return isCreature(p);
+    case 'PLANESWALKER': return isPlaneswalker(p);
+    case 'ARTIFACT': return isArtifact(p);
+    case 'ENCHANTMENT': return isEnchantment(p);
+    case 'LAND': return isLand(p);
+    case 'PERMANENT': return true; // All permanents match (including battles, artifacts, creatures, etc.)
+    case 'ANY': return isCreature(p) || isPlaneswalker(p); // "Any target" only includes creatures/planeswalkers/players
+    default: return false;
+  }
+}
+
+/**
+ * Check if a permanent matches any of the filters in a multiFilter array (OR logic).
+ * For example, "artifact or enchantment" matches if the permanent is an artifact OR an enchantment.
+ */
+function matchesMultiFilter(p: BattlefieldPermanent, filters: PermanentFilter[]): boolean {
+  for (const filter of filters) {
+    if (matchesFilter(p, filter)) return true;
+  }
+  return false;
 }
 
 function hasHexproofOrShroud(p: BattlefieldPermanent, s: Readonly<GameState>): boolean {
@@ -627,11 +729,22 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
   
   // Handle battlefield targeting
   for (const p of state.battlefield) {
-    if (spec.filter === 'CREATURE' && !isCreature(p)) continue;
-    if (spec.filter === 'PLANESWALKER' && !isPlaneswalker(p)) continue;
-    // 'PERMANENT' filter allows any permanent; 'ANY' is for "any target" which only includes creatures/planeswalkers/players
-    if (spec.filter === 'ANY' && !(isCreature(p) || isPlaneswalker(p))) continue;
-    // For 'PERMANENT' filter, all permanents are valid targets
+    // Check if permanent matches the filter requirements
+    // If multiFilter is defined, use OR logic (match any of the filters)
+    // Otherwise, use the single filter
+    let matchesFilterRequirement = false;
+    
+    if (spec.multiFilter) {
+      // Multi-filter with OR logic (e.g., "artifact or enchantment")
+      matchesFilterRequirement = matchesMultiFilter(p, spec.multiFilter);
+    } else {
+      // Single filter
+      matchesFilterRequirement = matchesFilter(p, spec.filter);
+    }
+    
+    if (!matchesFilterRequirement) continue;
+    
+    // Check hexproof/shroud (can't target opponent's permanents with hexproof/shroud)
     if (hasHexproofOrShroud(p, state) && p.controller !== caster) continue;
     
     // Check controller restriction ("creature you control")
@@ -771,6 +884,54 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
       if (!meetsRestriction) continue;
     }
     
+    // Check creatureRestriction (for multi-type spells where only creatures have restrictions)
+    // Example: Atraxa's Fall targets "artifact, battle, enchantment, or creature with flying"
+    // Artifacts/battles/enchantments can be targeted normally, but creatures need flying
+    if (spec.creatureRestriction && isCreature(p)) {
+      const restriction = spec.creatureRestriction;
+      let meetsRestriction = false;
+      
+      // For now, only handle has_keyword restriction (the main use case)
+      if (restriction.type === 'has_keyword') {
+        const oracleText = (p.card as any)?.oracle_text || '';
+        const cardKeywords = (p.card as any)?.keywords || [];
+        const keyword = restriction.keyword?.toLowerCase() || '';
+        
+        // First check the keywords array (more reliable for most cards)
+        const hasKeywordInArray = Array.isArray(cardKeywords) && 
+          cardKeywords.some((k: string) => typeof k === 'string' && k.toLowerCase() === keyword);
+        
+        if (hasKeywordInArray) {
+          meetsRestriction = true;
+        } else {
+          // Fallback: Check if the card's oracle text contains the keyword
+          const keywordPattern = new RegExp(`\\b${keyword}\\b`, 'i');
+          meetsRestriction = keywordPattern.test(oracleText);
+        }
+        
+        // Also check for keywords granted by auras and equipment attached to this creature
+        if (!meetsRestriction) {
+          const attachments = state.battlefield.filter((att: any) => att.attachedTo === p.id);
+          // Pre-compile the regex pattern once before the loop
+          const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const grantsKeywordPattern = new RegExp(`(enchanted|equipped)\\s+creature\\s+has\\s+${escapedKeyword}`, 'i');
+          
+          for (const attachment of attachments) {
+            const attOracle = ((attachment.card as any)?.oracle_text || '').toLowerCase();
+            if (grantsKeywordPattern.test(attOracle)) {
+              meetsRestriction = true;
+              break;
+            }
+          }
+        }
+      } else {
+        // For other restriction types, fail open (allow targeting)
+        meetsRestriction = true;
+      }
+      
+      if (!meetsRestriction) continue;
+    }
+    
     out.push({ kind: 'permanent', id: p.id });
   }
   if (spec.op === 'ANY_TARGET_DAMAGE') {
@@ -826,8 +987,19 @@ export function resolveSpell(spec: SpellSpec, chosen: readonly TargetRef[], stat
   const eff: EngineEffect[] = [];
   const applyAll = (k: 'DestroyPermanent' | 'MoveToExile') => {
     for (const p of state.battlefield) {
-      if (spec.filter === 'CREATURE' && !isCreature(p)) continue;
-      if (spec.filter === 'PLANESWALKER' && !isPlaneswalker(p)) continue;
+      // Check if permanent matches the filter requirements
+      let matchesFilterRequirement = false;
+      
+      if (spec.multiFilter) {
+        // Multi-filter with OR logic (e.g., "artifact or enchantment")
+        matchesFilterRequirement = matchesMultiFilter(p, spec.multiFilter);
+      } else {
+        // Single filter
+        matchesFilterRequirement = matchesFilter(p, spec.filter);
+      }
+      
+      if (!matchesFilterRequirement) continue;
+      
       eff.push({ kind: k, id: p.id });
     }
   };
