@@ -16,7 +16,7 @@
  * - Visual feedback for valid targets
  */
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import type { BattlefieldPermanent, KnownCardRef } from '../../../shared/src';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 
@@ -111,7 +111,7 @@ export function TapUntapTargetModal({
   const [chosenAction, setChosenAction] = useState<'tap' | 'untap'>(action === 'both' ? 'untap' : action);
 
   // Reset selection when modal opens
-  React.useEffect(() => {
+  useEffect(() => {
     if (open) {
       setSelectedIds(new Set());
       setChosenAction(action === 'both' ? 'untap' : action);

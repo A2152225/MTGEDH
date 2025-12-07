@@ -2795,7 +2795,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         if (!game.state.pendingManaActivations) {
           game.state.pendingManaActivations = {};
         }
-        const activationId = `mana_any_${permanentId}_${Date.now()}`;
+        // Use crypto.randomUUID() for collision-resistant ID generation
+        const activationId = `mana_any_${crypto.randomUUID()}`;
         game.state.pendingManaActivations[activationId] = {
           playerId: pid,
           permanentId,
