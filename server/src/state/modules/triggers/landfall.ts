@@ -32,8 +32,10 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
   
   // Pattern: "Landfall — Whenever a land enters the battlefield under your control,"
   // Supports both old template "enters the battlefield" and new Bloomburrow template "enters"
+  // Also supports "you control" vs "under your control"
+  // Separates abilities at double newlines or end of string
   const landfallMatch = oracleText.match(
-    /landfall\s*[—-]\s*whenever a land enters(?: the battlefield)? under your control,?\s*([^]*?)(?:\n\n|$)/i
+    /landfall\s*[—-]\s*whenever a land (?:you control enters|enters(?: the battlefield)?(?: under your control)?),?\s*([^]*?)(?:\n\n|$)/i
   );
   if (landfallMatch) {
     const effectText = landfallMatch[1].trim();
@@ -70,8 +72,10 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
   
   // Also check for non-keyworded landfall: "Whenever a land enters the battlefield under your control"
   // Supports both old template "enters the battlefield" and new Bloomburrow template "enters"
+  // Supports "you control" vs "under your control"
+  // Separates abilities at double newlines or end of string
   const genericLandfallMatch = oracleText.match(
-    /whenever a land enters(?: the battlefield)? under your control,?\s*([^]*?)(?:\n\n|$)/i
+    /whenever a land (?:you control enters|enters(?: the battlefield)?(?: under your control)?),?\s*([^]*?)(?:\n\n|$)/i
   );
   if (genericLandfallMatch && !landfallMatch) {
     const effectText = genericLandfallMatch[1].trim();

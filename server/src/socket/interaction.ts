@@ -8,7 +8,7 @@ import {
   findPermanentsWithCreatureType 
 } from "../../../shared/src/creatureTypes";
 import { parseSacrificeCost, type SacrificeType } from "../../../shared/src/textUtils";
-import { getDeathTriggers, getPlayersWhoMustSacrifice } from "../state/modules/triggered-abilities";
+import { getDeathTriggers, getPlayersWhoMustSacrifice, getLandfallTriggers, getETBTriggersForPermanent } from "../state/modules/triggered-abilities";
 import { 
   getManaAbilitiesForPermanent, 
   getManaMultiplier, 
@@ -4127,6 +4127,121 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                 currentLife,
               });
             }
+          }
+          
+          // ========================================================================
+          // ETB TRIGGERS: Check for and process ALL ETB triggers for entered permanents
+          // This includes:
+          // - Landfall triggers (when lands enter)
+          // - ETB triggers on the permanent itself (modal choices, etc.)
+          // - ETB triggers from other permanents (Soul Warden, Cathars' Crusade, etc.)
+          // ========================================================================
+          try {
+            // Collect all ETB triggers from all permanents that entered
+            const allETBTriggers: any[] = [];
+            
+            for (const minimalCard of moved) {
+              const cardId = (minimalCard as any).id;
+              const fullCard = cardDataById.get(cardId) || minimalCard;
+              const typeLine = ((fullCard as any).type_line || '').toLowerCase();
+              const isCreature = typeLine.includes('creature');
+              const isLand = typeLine.includes('land');
+              
+              // Find the permanent that just entered
+              const enteredPermanent = game.state.battlefield.find((p: any) => 
+                p.card?.id === cardId || p.card?.name === (fullCard as any).name
+              );
+              
+              if (!enteredPermanent) continue;
+              
+              // 1. Get ETB triggers from the permanent itself (e.g., modal choices, "When ~ enters")
+              const selfTriggers = getETBTriggersForPermanent(fullCard, enteredPermanent);
+              
+              // Filter to only triggers that fire when THIS permanent enters
+              const selfETBTriggerTypes = new Set([
+                'etb',                      // Self ETB: "When ~ enters the battlefield"
+                'etb_modal_choice',         // Modal ETB: "As ~ enters, choose a color/creature type"
+                'job_select',               // Equipment: create Hero token and attach
+                'living_weapon',            // Equipment: create Germ token and attach
+                'etb_sacrifice_unless_pay', // ETB sacrifice unless pay
+                'etb_gain_life',            // Self ETB life gain
+                'etb_draw',                 // Self ETB draw
+                'etb_search',               // Self ETB search library
+                'etb_create_token',         // Self ETB token creation
+                'etb_counter',              // Self ETB counter placement
+              ]);
+              
+              const selfETBs = selfTriggers.filter(trigger => selfETBTriggerTypes.has(trigger.triggerType));
+              allETBTriggers.push(...selfETBs);
+              
+              // 2. Get triggers from OTHER permanents that fire when this enters
+              for (const perm of game.state.battlefield) {
+                if (perm.id === enteredPermanent.id) continue; // Skip self
+                
+                const otherTriggers = getETBTriggersForPermanent(perm.card, perm);
+                for (const trigger of otherTriggers) {
+                  // creature_etb: "Whenever a creature enters" (Soul Warden, Cathars' Crusade)
+                  if (trigger.triggerType === 'creature_etb' && isCreature) {
+                    allETBTriggers.push({ ...trigger, permanentId: perm.id });
+                  }
+                  // permanent_etb: "Whenever a permanent enters" (Altar of the Brood)
+                  else if (trigger.triggerType === 'permanent_etb') {
+                    allETBTriggers.push({ ...trigger, permanentId: perm.id });
+                  }
+                  // another_permanent_etb: "Whenever another permanent enters under your control"
+                  else if (trigger.triggerType === 'another_permanent_etb' && perm.controller === pid) {
+                    allETBTriggers.push({ ...trigger, permanentId: perm.id });
+                  }
+                  // opponent_creature_etb: "Whenever an opponent's creature enters" (Suture Priest)
+                  else if (trigger.triggerType === 'opponent_creature_etb' && isCreature && perm.controller !== pid) {
+                    allETBTriggers.push({ ...trigger, permanentId: perm.id, targetPlayer: pid });
+                  }
+                }
+              }
+              
+              // 3. Landfall triggers (when lands enter)
+              if (isLand) {
+                const landfallTriggers = getLandfallTriggers(game as any, pid);
+                for (const trigger of landfallTriggers) {
+                  allETBTriggers.push({
+                    ...trigger,
+                    type: 'triggered_ability',
+                    triggerType: 'landfall',
+                    description: `Landfall - ${trigger.effect}`,
+                  });
+                }
+              }
+            }
+            
+            // Push all collected triggers onto the stack
+            if (allETBTriggers.length > 0) {
+              console.log(`[librarySearchSelect] Found ${allETBTriggers.length} ETB trigger(s) for entered permanents`);
+              
+              // Initialize stack if needed
+              (game.state as any).stack = (game.state as any).stack || [];
+              
+              for (const trigger of allETBTriggers) {
+                const triggerId = generateId("trigger");
+                (game.state as any).stack.push({
+                  id: triggerId,
+                  type: 'triggered_ability',
+                  controller: trigger.controllerId || pid,
+                  source: trigger.permanentId,
+                  permanentId: trigger.permanentId,
+                  sourceName: trigger.cardName || trigger.sourceName,
+                  description: trigger.description || trigger.effect,
+                  triggerType: trigger.triggerType,
+                  mandatory: trigger.mandatory,
+                  effect: trigger.effect,
+                  requiresChoice: trigger.requiresChoice,
+                  isModal: trigger.isModal,
+                  modalOptions: trigger.modalOptions,
+                });
+                console.log(`[librarySearchSelect] ⚡ Pushed ETB trigger: ${trigger.cardName || trigger.sourceName} - ${trigger.description || trigger.effect}`);
+              }
+            }
+          } catch (err) {
+            console.warn('[librarySearchSelect] Failed to process ETB triggers:', err);
           }
         } else {
           console.error('[librarySearchSelect] game.selectFromLibrary not available');

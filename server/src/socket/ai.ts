@@ -2349,18 +2349,27 @@ async function executePassPriority(
     }
     
     // If all players passed priority with empty stack, advance to next step
+    // BUT: Do NOT advance if there are pending library searches (e.g., after Collective Voyage)
+    // Human players need time to complete their library searches
     if (advanceStep) {
-      console.info('[AI] All players passed priority with empty stack, advancing step');
-      if (typeof (game as any).nextStep === 'function') {
-        (game as any).nextStep();
-        console.log(`[AI] Advanced to next step for game ${gameId}`);
-      }
+      const hasPendingLibrarySearch = game.state?.pendingLibrarySearch && 
+                                      Object.keys(game.state.pendingLibrarySearch).length > 0;
       
-      // Persist the step advance event
-      try {
-        await appendEvent(gameId, (game as any).seq || 0, 'nextStep', { playerId, reason: 'allPlayersPassed' });
-      } catch (e) {
-        console.warn('[AI] Failed to persist nextStep event:', e);
+      if (hasPendingLibrarySearch) {
+        console.info('[AI] Cannot advance step - players have pending library searches');
+      } else {
+        console.info('[AI] All players passed priority with empty stack, advancing step');
+        if (typeof (game as any).nextStep === 'function') {
+          (game as any).nextStep();
+          console.log(`[AI] Advanced to next step for game ${gameId}`);
+        }
+        
+        // Persist the step advance event
+        try {
+          await appendEvent(gameId, (game as any).seq || 0, 'nextStep', { playerId, reason: 'allPlayersPassed' });
+        } catch (e) {
+          console.warn('[AI] Failed to persist nextStep event:', e);
+        }
       }
     }
     
@@ -3290,7 +3299,6 @@ async function handlePendingLibrarySearchAfterResolution(
           // 1. For lands (e.g., fetch lands): prefer cards that produce multiple colors
           // 2. For creatures: consider power/toughness and keywords
           // 3. For other cards: use CMC as proxy for card quality
-          let selectedCard = validCards[0];
           
           const isLandSearch = searchFor.includes('land');
           
@@ -3340,29 +3348,32 @@ async function handlePendingLibrarySearchAfterResolution(
             });
           }
           
-          selectedCard = validCards[0];
+          // Select multiple cards if maxSelections allows (e.g., Collective Voyage)
+          const maxSelections = info.maxSelections || 1;
+          const selectedCards = validCards.slice(0, Math.min(maxSelections, validCards.length));
+          const selectedCardIds = selectedCards.map((c: any) => c.id);
           
           // Apply the search effect
-          if (typeof game.selectFromLibrary === 'function' && selectedCard?.id) {
-            game.selectFromLibrary(playerId, [selectedCard.id]);
-            
-            // Handle destination
-            if (info.destination === 'hand') {
-              // Already handled by selectFromLibrary for default case
-            } else if (info.destination === 'top') {
-              // Put on top of library - need special handling
-              // This is handled in selectFromLibrary with moveTo param
-            }
+          if (typeof game.selectFromLibrary === 'function' && selectedCardIds.length > 0) {
+            // Pass the destination parameter to selectFromLibrary
+            const destination = info.destination || 'hand';
+            game.selectFromLibrary(playerId, selectedCardIds, destination);
             
             // Shuffle library after search
             if (info.shuffleAfter && typeof game.shuffleLibrary === 'function') {
               game.shuffleLibrary(playerId);
             }
             
-            console.log(`[AI] Selected ${selectedCard.name || selectedCard.id} from library (${info.source || 'tutor'})`);
+            const cardNames = selectedCards.map((c: any) => c.name || c.id).join(', ');
+            console.log(`[AI] Selected ${selectedCards.length} card(s) from library: ${cardNames} (${info.source || 'tutor'})`);
           }
         } else {
           console.log(`[AI] No valid cards found in library for ${info.source || 'tutor'}`);
+          
+          // Even if no cards found, still shuffle if requested
+          if (info.shuffleAfter && typeof game.shuffleLibrary === 'function') {
+            game.shuffleLibrary(playerId);
+          }
         }
         
         // Clear pending search for this AI player after processing

@@ -3,7 +3,7 @@ import type { GameContext } from "../context.js";
 import { uid, parsePT, addEnergyCounters, triggerLifeGainEffects, calculateAllPTBonuses } from "../utils.js";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts } from "./game-state-effects.js";
 import { categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
-import { getETBTriggersForPermanent, processLinkedExileReturns, registerLinkedExile, detectLinkedExileEffect, type TriggeredAbility } from "./triggered-abilities.js";
+import { getETBTriggersForPermanent, processLinkedExileReturns, registerLinkedExile, detectLinkedExileEffect, type TriggeredAbility, getLandfallTriggers } from "./triggered-abilities.js";
 import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone } from "./zones.js";
 import { runSBA, applyCounterModifications } from "./counters_tokens.js";
@@ -28,33 +28,34 @@ function detectEntersWithCounters(card: any): Record<string, number> {
   const oracleText = (card.oracle_text || '').toLowerCase();
   const typeLine = (card.type_line || '').toLowerCase();
   
-  // Pattern 1: "enters the battlefield with N +1/+1 counter(s) on it"
+  // Pattern: "enters the battlefield with N +1/+1 counter(s) on it"
   // Also matches: "~ enters with N +1/+1 counters"
-  const counterPatterns = [
-    // Standard ETB with counters pattern
-    /enters (?:the battlefield )?with (\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s*([+\-\d\/]+|\w+)\s*counters?\s*(?:on it)?/gi,
-    // Planeswalker-style (handled separately for loyalty)
-    // Creature with static counter text
-    /(?:~|this creature) (?:enters|comes into play) with (\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s*([+\-\d\/]+|\w+)\s*counters?/gi,
-  ];
+  // Also matches: "This creature enters with N +1/+1 counter(s)"
+  // Combined pattern to avoid duplicate matches
+  // Note: We already lowercased oracleText, so all text is lowercase
+  const counterPattern = /(?:~|this creature)\s+(?:enters|comes into play)(?: the battlefield)? with (\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s*([+\-\d\/]+|\w+)\s*counters?\s*(?:on it)?/gi;
   
-  for (const pattern of counterPatterns) {
-    let match;
-    pattern.lastIndex = 0;
-    while ((match = pattern.exec(oracleText)) !== null) {
-      let countStr = match[1].toLowerCase();
-      let counterType = match[2].trim();
-      
-      // Convert word numbers to digits
-      const wordToNum: Record<string, number> = {
-        'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
-        'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10
-      };
-      const count = wordToNum[countStr] !== undefined ? wordToNum[countStr] : parseInt(countStr, 10);
-      
-      if (!isNaN(count) && count > 0) {
-        counters[counterType] = (counters[counterType] || 0) + count;
-      }
+  // Track matched positions to avoid duplicates
+  const matchedRanges = new Set<string>();
+  let match;
+  counterPattern.lastIndex = 0;
+  while ((match = counterPattern.exec(oracleText)) !== null) {
+    const matchKey = `${match.index}-${match[0].length}`;
+    if (matchedRanges.has(matchKey)) continue;
+    matchedRanges.add(matchKey);
+    
+    let countStr = match[1].toLowerCase();
+    let counterType = match[2].trim();
+    
+    // Convert word numbers to digits
+    const wordToNum: Record<string, number> = {
+      'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+      'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10
+    };
+    const count = wordToNum[countStr] !== undefined ? wordToNum[countStr] : parseInt(countStr, 10);
+    
+    if (!isNaN(count) && count > 0) {
+      counters[counterType] = (counters[counterType] || 0) + count;
     }
   }
   
@@ -4588,6 +4589,41 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
     }
   } catch (err) {
     console.warn('[playLand] Failed to check ETB triggers:', err);
+  }
+  
+  // ========================================================================
+  // LANDFALL TRIGGERS: Check for and process landfall triggers
+  // This is CRITICAL - landfall triggers should fire when a land ETBs
+  // ========================================================================
+  try {
+    const landfallTriggers = getLandfallTriggers(ctx, playerId);
+    if (landfallTriggers.length > 0) {
+      console.log(`[playLand] Found ${landfallTriggers.length} landfall trigger(s) for player ${playerId}`);
+      
+      // Initialize stack if needed
+      state.stack = state.stack || [];
+      
+      // Push each landfall trigger onto the stack
+      for (const trigger of landfallTriggers) {
+        const triggerId = uid("trigger");
+        state.stack.push({
+          id: triggerId,
+          type: 'triggered_ability',
+          controller: playerId,
+          source: trigger.permanentId,
+          permanentId: trigger.permanentId,
+          sourceName: trigger.cardName,
+          description: `Landfall - ${trigger.effect}`,
+          triggerType: 'landfall',
+          mandatory: trigger.mandatory,
+          effect: trigger.effect,
+          requiresChoice: trigger.requiresChoice,
+        } as any);
+        console.log(`[playLand] ⚡ Pushed landfall trigger onto stack: ${trigger.cardName} - ${trigger.effect}`);
+      }
+    }
+  } catch (err) {
+    console.warn('[playLand] Failed to process landfall triggers:', err);
   }
   
   // Recalculate player effects when lands ETB (some lands might have effects)
