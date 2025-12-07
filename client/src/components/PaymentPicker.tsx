@@ -86,7 +86,7 @@ export interface ConvokeCreature {
 export interface PaymentPickerProps {
   manaCost?: string;
   manaCostDisplay?: string;
-  sources: Array<{ id: string; name: string; options: Color[] }>;
+  sources: Array<{ id: string; name: string; options: Color[]; amount?: number }>;
   chosen: PaymentItem[];
   xValue?: number;
   onChangeX?: (x: number) => void;
@@ -98,6 +98,8 @@ export interface PaymentPickerProps {
   convokeCreatures?: ConvokeCreature[];
   chosenConvokeCreatures?: string[];  // IDs of creatures tapped for convoke
   onConvokeChange?: (creatureIds: string[]) => void;
+  // Floating mana usage state
+  onClearFloatingMana?: () => void;
 }
 
 export function PaymentPicker(props: PaymentPickerProps) {
@@ -115,6 +117,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
     convokeCreatures = [],
     chosenConvokeCreatures = [],
     onConvokeChange,
+    onClearFloatingMana,
   } = props;
 
   const parsed = useMemo(() => parseManaCost(manaCost), [manaCost]);
@@ -124,7 +127,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
   const cost = useMemo(() => ({ colors: parsed.colors, generic: parsed.generic + Math.max(0, Number(xValue || 0) * xMultiplier), hybrids: parsed.hybrids }), [parsed, xValue, xMultiplier]);
   
   // Calculate remaining cost after floating mana
-  const { colors: costAfterFloating, generic: genericAfterFloating, hybrids: hybridsAfterFloating } = useMemo(() => 
+  const { colors: costAfterFloating, generic: genericAfterFloating, hybrids: hybridsAfterFloating, usedFromPool } = useMemo(() => 
     calculateRemainingCostAfterFloatingMana(cost, floatingMana), 
     [cost, floatingMana]
   );
@@ -133,6 +136,11 @@ export function PaymentPicker(props: PaymentPickerProps) {
     generic: genericAfterFloating, 
     hybrids: hybridsAfterFloating 
   }), [costAfterFloating, genericAfterFloating, hybridsAfterFloating]);
+  
+  // Check if floating mana is being used
+  const hasFloatingManaUsed = useMemo(() => {
+    return usedFromPool && Object.values(usedFromPool).some(v => v > 0);
+  }, [usedFromPool]);
   
   const pool = useMemo(() => paymentToPool(chosen), [chosen]);
   const satisfied = useMemo(() => canPayEnhanced(costForPayment, pool), [costForPayment, pool]);
@@ -149,13 +157,16 @@ export function PaymentPicker(props: PaymentPickerProps) {
     return calculateSuggestedPayment(cost, sources, colorsToPreserve, floatingMana);
   }, [cost, sources, colorsToPreserve, chosen.length, floatingMana]);
 
-  // Helper to get mana count for a source
+  // Helper to get mana count for a source - uses amount if specified (for Priest of Titania, etc.)
   // Uses getTotalManaProduction which correctly handles choice sources vs multi-mana sources:
   // - Sol Ring ['C','C'] = 2 mana (duplicates = multi-mana)
   // - Command Tower ['W','U','B','R','G'] = 1 mana (all unique = choice)
+  // - Priest of Titania with amount=7 ['G'] = 7 mana
   const getManaCountForSource = (permanentId: string): number => {
     const source = sources.find(s => s.id === permanentId);
     if (!source) return 1;
+    // Use explicit amount if provided (for devotion/creature-count mana)
+    if (source.amount && source.amount > 0) return source.amount;
     return getTotalManaProduction(source.options);
   };
 
@@ -167,7 +178,14 @@ export function PaymentPicker(props: PaymentPickerProps) {
   const remove = (permanentId: string) => {
     onChange(chosen.filter(p => p.permanentId !== permanentId));
   };
-  const clear = () => onChange([]);
+  
+  // Clear all selections including floating mana
+  const clear = () => {
+    onChange([]);
+    if (onClearFloatingMana) {
+      onClearFloatingMana();
+    }
+  };
 
   const doAutoSelect = () => {
     // Use the suggested payment to auto-fill (considers floating mana)
@@ -247,7 +265,13 @@ export function PaymentPicker(props: PaymentPickerProps) {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <b>Sources:</b>
-        <button onClick={clear} disabled={chosen.length === 0} title="Clear selected payment">Clear</button>
+        <button 
+          onClick={clear} 
+          disabled={chosen.length === 0 && !hasFloatingManaUsed} 
+          title={hasFloatingManaUsed ? "Clear selected payment and floating mana usage" : "Clear selected payment"}
+        >
+          Clear
+        </button>
         <button onClick={doAutoSelect} disabled={sources.length === 0 || satisfied} title="Auto-select mana (considers other cards in hand)">
           Auto-select
         </button>
@@ -259,6 +283,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
           const used = chosenById.has(s.id);
           const suggested = suggestedPayment.get(s.id);
           const isSuggested = suggested !== undefined && !used;
+          const hasAmount = s.amount && s.amount > 1;
           
           return (
             <div 
@@ -282,9 +307,23 @@ export function PaymentPicker(props: PaymentPickerProps) {
                   <span style={{ fontSize: 11, opacity: 0.7 }}>untapped</span>
                 )}
               </div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                {hasAmount && (
+                  <span style={{ 
+                    fontSize: 11, 
+                    fontWeight: 600, 
+                    color: '#2563eb',
+                    padding: '2px 6px',
+                    borderRadius: 4,
+                    backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                    border: '1px solid rgba(37, 99, 235, 0.3)'
+                  }}>
+                    {s.amount}×
+                  </span>
+                )}
                 {s.options.map(opt => {
                   const isSuggestedColor = suggested === opt;
+                  const displayText = hasAmount && s.options.length === 1 ? `{${opt}}` : opt;
                   return (
                     <button
                       key={`${s.id}:${opt}`}
@@ -298,9 +337,9 @@ export function PaymentPicker(props: PaymentPickerProps) {
                         background: isSuggestedColor ? 'rgba(76, 175, 80, 0.15)' : 'transparent',
                         fontWeight: isSuggestedColor ? 600 : 400
                       }}
-                      title={used ? 'Already used' : isSuggestedColor ? `Suggested: Add ${opt}` : `Add ${opt}`}
+                      title={used ? 'Already used' : isSuggestedColor ? `Suggested: Add ${hasAmount ? `${s.amount}×` : ''}${opt}` : `Add ${hasAmount ? `${s.amount}×` : ''}${opt}`}
                     >
-                      {opt}
+                      {displayText}
                     </button>
                   );
                 })}

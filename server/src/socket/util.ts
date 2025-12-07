@@ -174,6 +174,38 @@ function normalizeViewForEmit(rawView: any, game: any) {
       // non-fatal
     }
 
+    // Augment battlefield permanents with mana production amounts for special abilities
+    // This allows the payment picker to show the correct amount (e.g., "7x{G}" for Priest of Titania)
+    try {
+      if (view.battlefield && Array.isArray(view.battlefield) && game && game.state) {
+        const { getDevotionManaAmount, getCreatureCountManaAmount } = require("../state/modules/mana-abilities");
+        
+        for (const perm of view.battlefield) {
+          if (!perm || perm.tapped) continue;
+          
+          const controller = perm.controller;
+          if (!controller) continue;
+          
+          // Check for devotion-based mana (Karametra's Acolyte, etc.)
+          const devotionMana = getDevotionManaAmount(game.state, perm, controller);
+          if (devotionMana && devotionMana.amount > 0) {
+            perm.manaAmount = devotionMana.amount;
+            perm.manaColor = devotionMana.color;
+          }
+          
+          // Check for creature-count-based mana (Priest of Titania, Bighorn Rancher, etc.)
+          const creatureCountMana = getCreatureCountManaAmount(game.state, perm, controller);
+          if (creatureCountMana && creatureCountMana.amount > 0) {
+            perm.manaAmount = creatureCountMana.amount;
+            perm.manaColor = creatureCountMana.color;
+          }
+        }
+      }
+    } catch (e) {
+      // non-fatal - don't break the whole view if mana calculation fails
+      console.warn("Failed to augment mana amounts:", e);
+    }
+
     return view;
   } catch (e) {
     console.warn("normalizeViewForEmit failed:", e);
