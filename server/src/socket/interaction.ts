@@ -4950,7 +4950,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const parsedCost = parseManaCost(equipCost);
     const pool = getOrInitManaPool(game.state, pid);
     
-    if (parsedCost.generic > 0 || parsedCost.colors.length > 0) {
+    const hasColoredMana = Object.values(parsedCost.colors).some(v => v > 0);
+    if (parsedCost.generic > 0 || hasColoredMana) {
       const totalAvailable = calculateTotalAvailableMana(pool, []);
       const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
       
