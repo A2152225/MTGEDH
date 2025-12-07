@@ -2975,6 +2975,109 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
     }
     
+    // Handle Traverse the Outlands - "Search your library for up to X basic land cards, 
+    // where X is the greatest power among creatures you control"
+    const isTraverseOutlands = card.name?.toLowerCase().includes('traverse the outlands') ||
+        (oracleTextLower.includes('search your library') && 
+         oracleTextLower.includes('greatest power') && 
+         oracleTextLower.includes('basic land'));
+    
+    if (isTraverseOutlands) {
+      const battlefield = state.battlefield || [];
+      
+      // Find greatest power among creatures controlled by the caster
+      let greatestPower = 0;
+      for (const perm of battlefield) {
+        if (perm.controller === controller) {
+          const typeLine = (perm.card?.type_line || '').toLowerCase();
+          if (typeLine.includes('creature')) {
+            const power = parseInt(perm.card?.power || '0', 10);
+            if (!isNaN(power) && power > greatestPower) {
+              greatestPower = power;
+            }
+          }
+        }
+      }
+      
+      // Set up library search for up to X basic lands
+      (state as any).pendingLibrarySearch = (state as any).pendingLibrarySearch || {};
+      (state as any).pendingLibrarySearch[controller] = {
+        type: 'traverse_outlands',
+        searchFor: 'basic land cards',
+        destination: 'battlefield',
+        tapped: true,
+        optional: true,
+        source: card.name || 'Traverse the Outlands',
+        shuffleAfter: true,
+        maxSelections: greatestPower,
+        filter: { types: ['land'], supertypes: ['basic'] },
+      };
+      console.log(`[resolveTopOfStack] Traverse the Outlands: ${controller} may search for up to ${greatestPower} basic lands (greatest power)`);
+    }
+    
+    // Handle Boundless Realms - "Search your library for up to X basic land cards, 
+    // where X is the number of lands you control"
+    const isBoundlessRealms = card.name?.toLowerCase().includes('boundless realms') ||
+        (oracleTextLower.includes('search your library') && 
+         oracleTextLower.includes('number of lands you control') && 
+         oracleTextLower.includes('basic land'));
+    
+    if (isBoundlessRealms) {
+      const battlefield = state.battlefield || [];
+      
+      // Count lands controlled by the caster
+      const landCount = battlefield.filter((p: any) => 
+        p.controller === controller && 
+        (p.card?.type_line || '').toLowerCase().includes('land')
+      ).length;
+      
+      // Set up library search for up to X basic lands
+      (state as any).pendingLibrarySearch = (state as any).pendingLibrarySearch || {};
+      (state as any).pendingLibrarySearch[controller] = {
+        type: 'boundless_realms',
+        searchFor: 'basic land cards',
+        destination: 'battlefield',
+        tapped: true,
+        optional: true,
+        source: card.name || 'Boundless Realms',
+        shuffleAfter: true,
+        maxSelections: landCount,
+        filter: { types: ['land'], supertypes: ['basic'] },
+      };
+      console.log(`[resolveTopOfStack] Boundless Realms: ${controller} may search for up to ${landCount} basic lands (lands controlled)`);
+    }
+    
+    // Handle Jaheira's Respite - "Search your library for up to X basic land cards, 
+    // where X is the number of creatures attacking you"
+    const isJaheirasRespite = card.name?.toLowerCase().includes("jaheira's respite") ||
+        (oracleTextLower.includes('search your library') && 
+         oracleTextLower.includes('number of creatures attacking you') && 
+         oracleTextLower.includes('basic land'));
+    
+    if (isJaheirasRespite) {
+      // Count creatures currently attacking the controller
+      // Note: This should be resolved during combat, so we check the combat state
+      const attackers = (state as any).combat?.attackers || [];
+      const attackingController = attackers.filter((atk: any) => 
+        atk.defendingPlayer === controller
+      ).length;
+      
+      // Set up library search for up to X basic lands
+      (state as any).pendingLibrarySearch = (state as any).pendingLibrarySearch || {};
+      (state as any).pendingLibrarySearch[controller] = {
+        type: 'jaherias_respite',
+        searchFor: 'basic land cards',
+        destination: 'battlefield',
+        tapped: true,
+        optional: true,
+        source: card.name || "Jaheira's Respite",
+        shuffleAfter: true,
+        maxSelections: attackingController,
+        filter: { types: ['land'], supertypes: ['basic'] },
+      };
+      console.log(`[resolveTopOfStack] Jaheira's Respite: ${controller} may search for up to ${attackingController} basic lands (creatures attacking)`);
+    }
+    
     // Handle Path to Exile - exile target creature, controller may search for basic land
     // Use captured target info from BEFORE the exile happened
     const isPathToExile = card.name?.toLowerCase().includes('path to exile') || 
