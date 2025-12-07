@@ -1374,6 +1374,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Default max is 1, but effects like Exploration, Azusa, Rites of Flourishing can increase it
       const landsPlayed = (game.state?.landsPlayedThisTurn?.[playerId] || 0);
       const maxLands = ((game as any).maxLandsPerTurn?.[playerId] ?? (game.state as any)?.maxLandsPerTurn?.[playerId]) || 1;
+      console.log(`[playLand] Player ${playerId} has played ${landsPlayed} lands this turn, max is ${maxLands}`);
       if (landsPlayed >= maxLands) {
         socket.emit("error", {
           code: "LAND_LIMIT_REACHED",

@@ -1101,6 +1101,8 @@ export function calculateMaxLandsPerTurn(ctx: GameContext, playerId: string): nu
   const battlefield = getActivePermanents(ctx);
   const checkedPermanentIds = new Set<string>(); // Avoid double-counting
   
+  console.log(`[calculateMaxLandsPerTurn] Calculating for player ${playerId}, battlefield has ${battlefield.length} permanents`);
+  
   for (const perm of battlefield) {
     if (checkedPermanentIds.has(perm.id)) continue;
     
@@ -1147,6 +1149,7 @@ export function calculateMaxLandsPerTurn(ctx: GameContext, playerId: string): nu
     console.log(`[calculateMaxLandsPerTurn] Added +${temporaryBonus} temporary lands for ${playerId} (spell effect)`);
   }
   
+  console.log(`[calculateMaxLandsPerTurn] Final result for ${playerId}: ${maxLands} lands per turn`);
   return maxLands;
 }
 
