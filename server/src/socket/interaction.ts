@@ -2748,6 +2748,93 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
+    // Handle Counter Movement abilities (Nesting Grounds, etc.)
+    // Pattern: "Move a counter from target permanent you control onto another target permanent"
+    const hasCounterMovementAbility = oracleText.includes("move a counter") || 
+      oracleText.includes("move") && oracleText.includes("counter");
+    const isCounterMovementAbility = hasCounterMovementAbility && (
+      abilityId.includes("counter-move") || 
+      abilityId.includes("move-counter") ||
+      cardName.toLowerCase().includes("nesting grounds")
+    );
+    
+    if (isCounterMovementAbility) {
+      // Parse the cost from oracle text
+      const costMatch = oracleText.match(/([^:]+?):\s*move (?:a|one) counter/i);
+      const costStr = costMatch ? costMatch[1].trim() : "";
+      
+      // Check if ability requires tapping
+      const requiresTap = costStr.includes('{t}') || costStr.includes('tap');
+      if (requiresTap && (permanent as any).tapped) {
+        socket.emit("error", {
+          code: "ALREADY_TAPPED",
+          message: `${cardName} is already tapped`,
+        });
+        return;
+      }
+      
+      // Parse mana cost from the cost string
+      const manaCostMatch = costStr.match(/\{[^}]+\}/g);
+      const manaCost = manaCostMatch ? manaCostMatch.filter(c => !c.includes('T')).join('') : "";
+      
+      if (manaCost) {
+        // Validate and consume mana
+        const parsedCost = parseManaCost(manaCost);
+        const pool = getOrInitManaPool(game.state, pid);
+        const totalAvailable = calculateTotalAvailableMana(pool, []);
+        
+        const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+        if (validationError) {
+          socket.emit("error", { code: "INSUFFICIENT_MANA", message: validationError });
+          return;
+        }
+        
+        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[activateBattlefieldAbility:counter-move]');
+      }
+      
+      // Tap the permanent if required
+      if (requiresTap) {
+        (permanent as any).tapped = true;
+      }
+      
+      // Generate activation ID
+      const activationId = `counter_move_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      
+      // Store pending activation
+      if (!game.state.pendingCounterMovements) {
+        game.state.pendingCounterMovements = {};
+      }
+      game.state.pendingCounterMovements[activationId] = {
+        playerId: pid,
+        sourceId: permanentId,
+        sourceName: cardName,
+      };
+      
+      // Emit counter movement request to client
+      socket.emit("counterMovementRequest", {
+        gameId,
+        activationId,
+        source: {
+          id: permanentId,
+          name: cardName,
+          imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+        },
+        sourceFilter: {
+          controller: 'you', // Nesting Grounds requires "you control"
+        },
+        targetFilter: {
+          controller: 'any',
+          excludeSource: false,
+        },
+        title: cardName,
+        description: oracleText,
+      });
+      
+      console.log(`[activateBattlefieldAbility] Counter movement ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for counter selection`);
+      broadcastGame(io, game, gameId);
+      return;
+    }
+    
     // Handle Station abilities (Spacecraft cards)
     // Station N: Add charge counters, becomes creature when threshold is met
     const isSpacecraft = typeLine.includes("spacecraft");
@@ -5661,6 +5748,113 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       type: action === 'tap' ? 'permanent_tapped' : 'permanent_untapped',
       playerId: pid,
       permanentIds: targetIds,
+      source: pending.sourceName,
+      ts: Date.now(),
+    } as any);
+
+    // Broadcast updates
+    broadcastGame(io, game, gameId);
+  });
+
+  /**
+   * Handle counter movement confirmation from CounterMovementModal
+   * Used for abilities like:
+   * - Nesting Grounds: "Move a counter from target permanent you control onto another target permanent"
+   */
+  socket.on("confirmCounterMovement", ({ 
+    gameId, 
+    activationId, 
+    sourcePermanentId, 
+    targetPermanentId, 
+    counterType 
+  }: {
+    gameId: string;
+    activationId: string;
+    sourcePermanentId: string;
+    targetPermanentId: string;
+    counterType: string;
+  }) => {
+    const game = ensureGame(gameId);
+    if (!game || !game.state) return;
+
+    const pid = (socket as any).playerId as PlayerID;
+    if (!pid) {
+      socket.emit("error", { code: "NO_PLAYER_ID", message: "No player ID associated with this socket" });
+      return;
+    }
+
+    // Retrieve pending activation
+    const pending = game.state.pendingCounterMovements?.[activationId];
+    if (!pending) {
+      socket.emit("error", { code: "INVALID_ACTIVATION", message: "Invalid or expired counter movement" });
+      return;
+    }
+
+    // Verify it's the right player
+    if (pending.playerId !== pid) {
+      socket.emit("error", { code: "NOT_YOUR_ACTIVATION", message: "This is not your counter movement" });
+      return;
+    }
+
+    // Find source and target permanents
+    const battlefield = game.state.battlefield || [];
+    const source = battlefield.find((p: any) => p.id === sourcePermanentId);
+    const target = battlefield.find((p: any) => p.id === targetPermanentId);
+
+    if (!source) {
+      socket.emit("error", { code: "SOURCE_NOT_FOUND", message: "Source permanent not found" });
+      return;
+    }
+
+    if (!target) {
+      socket.emit("error", { code: "TARGET_NOT_FOUND", message: "Target permanent not found" });
+      return;
+    }
+
+    // Verify source has the counter
+    const sourceCounters = (source as any).counters || {};
+    if (!sourceCounters[counterType] || sourceCounters[counterType] <= 0) {
+      socket.emit("error", { 
+        code: "NO_COUNTER", 
+        message: `Source permanent has no ${counterType} counters` 
+      });
+      return;
+    }
+
+    // Move one counter from source to target
+    sourceCounters[counterType] = (sourceCounters[counterType] || 0) - 1;
+    if (sourceCounters[counterType] <= 0) {
+      delete sourceCounters[counterType];
+    }
+
+    const targetCounters = (target as any).counters || {};
+    targetCounters[counterType] = (targetCounters[counterType] || 0) + 1;
+    (target as any).counters = targetCounters;
+
+    // Clean up pending activation
+    delete game.state.pendingCounterMovements[activationId];
+
+    // Create chat message
+    const sourceCard = source.card as any;
+    const targetCard = target.card as any;
+    const sourceName = sourceCard?.name || 'permanent';
+    const targetName = targetCard?.name || 'permanent';
+
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} used ${pending.sourceName} to move a ${counterType} counter from ${sourceName} to ${targetName}.`,
+      ts: Date.now(),
+    });
+
+    // Append event to game log
+    appendGameEvent(game, {
+      type: 'counter_moved',
+      playerId: pid,
+      sourcePermanentId,
+      targetPermanentId,
+      counterType,
       source: pending.sourceName,
       ts: Date.now(),
     } as any);

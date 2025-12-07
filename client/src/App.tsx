@@ -49,6 +49,7 @@ import { JoinForcesModal, type JoinForcesRequest } from "./components/JoinForces
 import { TemptingOfferModal, type TemptingOfferRequest } from "./components/TemptingOfferModal";
 import { CommanderZoneChoiceModal } from "./components/CommanderZoneChoiceModal";
 import { TapUntapTargetModal } from "./components/TapUntapTargetModal";
+import { CounterMovementModal } from "./components/CounterMovementModal";
 import { PonderModal, type PeekCard, type PonderVariant } from "./components/PonderModal";
 import { ExploreModal, type ExploreCard } from "./components/ExploreModal";
 import { BatchExploreModal, type ExploreResult } from "./components/BatchExploreModal";
@@ -543,6 +544,24 @@ export function App() {
       excludeSource?: boolean;
     };
     targetCount: number;
+    title?: string;
+    description?: string;
+  } | null>(null);
+  
+  // Counter Movement Modal state - for Nesting Grounds, etc.
+  const [counterMovementModalOpen, setCounterMovementModalOpen] = useState(false);
+  const [counterMovementModalData, setCounterMovementModalData] = useState<{
+    activationId: string;
+    sourceId: string;
+    sourceName: string;
+    sourceImageUrl?: string;
+    sourceFilter?: {
+      controller?: 'you' | 'any';
+    };
+    targetFilter?: {
+      controller?: 'you' | 'any';
+      excludeSource?: boolean;
+    };
     title?: string;
     description?: string;
   } | null>(null);
@@ -2093,9 +2112,40 @@ export function App() {
     };
     socket.on("tapUntapTargetRequest", handleTapUntapTargetRequest);
     
+    // Counter Movement Request handler
+    const handleCounterMovementRequest = (data: {
+      gameId: string;
+      activationId: string;
+      source: { id: string; name: string; imageUrl?: string };
+      sourceFilter?: {
+        controller?: 'you' | 'any';
+      };
+      targetFilter?: {
+        controller?: 'you' | 'any';
+        excludeSource?: boolean;
+      };
+      title?: string;
+      description?: string;
+    }) => {
+      if (!safeView || data.gameId !== safeView.id) return;
+      setCounterMovementModalData({
+        activationId: data.activationId,
+        sourceId: data.source.id,
+        sourceName: data.source.name,
+        sourceImageUrl: data.source.imageUrl,
+        sourceFilter: data.sourceFilter,
+        targetFilter: data.targetFilter,
+        title: data.title,
+        description: data.description,
+      });
+      setCounterMovementModalOpen(true);
+    };
+    socket.on("counterMovementRequest", handleCounterMovementRequest);
+    
     return () => {
       socket.off("opponentMayPayPrompt", handleOpponentMayPayPrompt);
       socket.off("tapUntapTargetRequest", handleTapUntapTargetRequest);
+      socket.off("counterMovementRequest", handleCounterMovementRequest);
     };
   }, [safeView?.id, you]);
 
@@ -4254,6 +4304,39 @@ export function App() {
         onCancel={() => {
           setTapUntapTargetModalOpen(false);
           setTapUntapTargetModalData(null);
+        }}
+      />
+
+      {/* Counter Movement Modal - for Nesting Grounds and similar abilities */}
+      <CounterMovementModal
+        open={counterMovementModalOpen}
+        title={counterMovementModalData?.title || counterMovementModalData?.sourceName || "Move Counter"}
+        description={counterMovementModalData?.description}
+        source={{
+          id: counterMovementModalData?.sourceId || "",
+          name: counterMovementModalData?.sourceName || "",
+          imageUrl: counterMovementModalData?.sourceImageUrl,
+        }}
+        sourceFilter={counterMovementModalData?.sourceFilter}
+        targetFilter={counterMovementModalData?.targetFilter}
+        availablePermanents={safeView?.battlefield || []}
+        playerId={you || ""}
+        onConfirm={(sourcePermanentId, targetPermanentId, counterType) => {
+          if (counterMovementModalData && safeView) {
+            socket.emit("confirmCounterMovement", {
+              gameId: safeView.id,
+              activationId: counterMovementModalData.activationId,
+              sourcePermanentId,
+              targetPermanentId,
+              counterType,
+            });
+            setCounterMovementModalOpen(false);
+            setCounterMovementModalData(null);
+          }
+        }}
+        onCancel={() => {
+          setCounterMovementModalOpen(false);
+          setCounterMovementModalData(null);
         }}
       />
 
