@@ -63,6 +63,7 @@ export {
 } from "./triggers/landfall.js";
 export {
   checkEndOfTurnTransforms,
+  checkUpkeepTransforms,
   type TransformCheckResult,
 } from "./triggers/transform.js";
 export {

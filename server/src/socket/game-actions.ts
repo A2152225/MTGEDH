@@ -389,37 +389,65 @@ function checkEnchantmentETBTriggers(
     if (permanent.etbProcessed) continue;
     
     const typeLine = (permanent.card.type_line || '').toLowerCase();
-    if (!typeLine.includes('enchantment')) continue;
-    
     const cardName = (permanent.card.name || '').toLowerCase();
     const oracleText = (permanent.card.oracle_text || '').toLowerCase();
     
-    // Growing Rites of Itlimoc: "When Growing Rites of Itlimoc enters, look at the top four cards..."
-    if (cardName.includes('growing rites of itlimoc')) {
-      const controller = permanent.controller;
-      permanent.etbProcessed = true;
-      
-      // Get top 4 cards from library
-      const zones = game.state.zones?.[controller];
-      if (!zones || !Array.isArray(zones.library)) continue;
-      
-      const topCards = zones.library.slice(0, 4);
-      
-      // Emit library search request to show top 4, filter for creatures
-      emitToPlayer(io, controller, "librarySearchRequest", {
-        gameId,
-        cards: topCards,
-        title: "Growing Rites of Itlimoc",
-        description: "Look at the top four cards of your library. You may reveal a creature card from among them and put it into your hand. Put the rest on the bottom of your library in any order.",
-        filter: { type: "creature" },
-        maxSelections: 1,
-        moveTo: "hand",
-        shuffleAfter: false,
-        revealSelection: true,
-        putRestOnBottom: true,
-      });
-      
-      console.log(`[game-actions] Growing Rites of Itlimoc ETB trigger for ${controller}`);
+    // Check for enchantments
+    if (typeLine.includes('enchantment')) {
+      // Growing Rites of Itlimoc: "When Growing Rites of Itlimoc enters, look at the top four cards..."
+      if (cardName.includes('growing rites of itlimoc')) {
+        const controller = permanent.controller;
+        permanent.etbProcessed = true;
+        
+        // Get top 4 cards from library
+        const zones = game.state.zones?.[controller];
+        if (!zones || !Array.isArray(zones.library)) continue;
+        
+        const topCards = zones.library.slice(0, 4);
+        
+        // Emit library search request to show top 4, filter for creatures
+        emitToPlayer(io, controller, "librarySearchRequest", {
+          gameId,
+          cards: topCards,
+          title: "Growing Rites of Itlimoc",
+          description: "Look at the top four cards of your library. You may reveal a creature card from among them and put it into your hand. Put the rest on the bottom of your library in any order.",
+          filter: { type: "creature" },
+          maxSelections: 1,
+          moveTo: "hand",
+          shuffleAfter: false,
+          revealSelection: true,
+          putRestOnBottom: true,
+        });
+        
+        console.log(`[game-actions] Growing Rites of Itlimoc ETB trigger for ${controller}`);
+      }
+    }
+    
+    // Check for creatures with ETB triggers
+    if (typeLine.includes('creature')) {
+      // Casal, Lurkwood Pathfinder: "When Casal enters, search your library for a Forest card..."
+      if (cardName.includes('casal') && cardName.includes('pathfinder')) {
+        const controller = permanent.controller;
+        permanent.etbProcessed = true;
+        
+        // Get library
+        const zones = game.state.zones?.[controller];
+        if (!zones || !Array.isArray(zones.library)) continue;
+        
+        // Emit library search request for Forest
+        emitToPlayer(io, controller, "librarySearchRequest", {
+          gameId,
+          cards: zones.library,
+          title: "Casal, Lurkwood Pathfinder",
+          description: "Search your library for a Forest card, put it onto the battlefield tapped, then shuffle.",
+          filter: { subtype: "Forest" },
+          maxSelections: 1,
+          moveTo: "battlefield_tapped",
+          shuffleAfter: true,
+        });
+        
+        console.log(`[game-actions] Casal, Lurkwood Pathfinder ETB trigger for ${controller}`);
+      }
     }
   }
 }

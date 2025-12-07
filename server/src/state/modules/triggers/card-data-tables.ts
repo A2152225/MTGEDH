@@ -113,6 +113,11 @@ export const KNOWN_ATTACK_TRIGGERS: Record<string, {
   "quicksilver amulet": { effect: "Put creature from hand onto battlefield" },
   "descendants' path": { effect: "Reveal top card, put creature onto battlefield if shares type" },
   "belbe's portal": { effect: "Put creature of chosen type from hand" },
+  "casal, lurkwood pathfinder": { 
+    effect: "You may pay {1}{G}. If you do, transform her.", 
+    value: 0, // No token creation
+    // Special handling needed for optional payment and transform
+  },
 };
 
 // ============================================================================
