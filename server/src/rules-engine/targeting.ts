@@ -58,6 +58,7 @@ export type SpellSpec = {
   controllerOnly?: boolean; // For "creature you control" patterns (Acrobatic Maneuver, Cloudshift)
   excludeSource?: boolean; // For "another target" patterns (Skrelv, etc.) - cannot target the source
   multiFilter?: PermanentFilter[]; // For "artifact or enchantment" patterns (Nature's Claim) - uses OR logic
+  creatureRestriction?: TargetRestriction; // For restrictions that only apply to creatures when multiFilter includes CREATURE (Atraxa's Fall)
 };
 
 /**
@@ -232,14 +233,27 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   // Atraxa's Fall: "target artifact, battle, enchantment, or creature with flying"
   let filter: PermanentFilter;
   let multiFilter: PermanentFilter[] | undefined;
+  let creatureRestriction: TargetRestriction | undefined;
   
+  // Pattern: "artifact, battle, enchantment, or creature with flying" (Atraxa's Fall)
+  // This is a complex pattern: artifacts/battles/enchantments without restriction, OR creatures with flying
+  if (/artifact,?\s+battle,?\s+enchantment,?\s+or creature with flying/.test(t)) {
+    // All four types, but creatures need flying
+    multiFilter = ['ARTIFACT', 'PERMANENT', 'ENCHANTMENT', 'CREATURE']; // PERMANENT covers battles
+    filter = 'ARTIFACT'; // Primary filter
+    // Add restriction for creatures only - they must have flying
+    creatureRestriction = {
+      type: 'has_keyword',
+      description: 'with flying',
+      keyword: 'flying',
+    };
+  }
   // Pattern: "artifact or enchantment" (Nature's Claim, Naturalize, etc.)
-  if (/artifact or enchantment/.test(t)) {
+  else if (/artifact or enchantment/.test(t)) {
     filter = 'ARTIFACT'; // Primary filter
     multiFilter = ['ARTIFACT', 'ENCHANTMENT'];
   }
-  // Pattern: "artifact, battle, enchantment, or creature" (Atraxa's Fall)
-  // Note: Atraxa's Fall also has "with flying" restriction for creatures
+  // Pattern: "artifact, battle, enchantment" or similar multi-type without creature restriction
   else if (/artifact,?\s+(?:battle,?\s+)?enchantment/.test(t) || /battle,?\s+(?:artifact,?\s+)?enchantment/.test(t)) {
     // Complex multi-type - need to parse all types
     const types: PermanentFilter[] = [];
@@ -520,8 +534,8 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
     }
   }
 
-  if (/exile target/.test(t)) return { op: 'EXILE_TARGET', filter, minTargets: 1, maxTargets: 1, ...(multiFilter && { multiFilter }) };
-  if (/destroy target/.test(t)) return { op: 'DESTROY_TARGET', filter, minTargets: 1, maxTargets: 1, ...(multiFilter && { multiFilter }) };
+  if (/exile target/.test(t)) return { op: 'EXILE_TARGET', filter, minTargets: 1, maxTargets: 1, ...(multiFilter && { multiFilter }), ...(creatureRestriction && { creatureRestriction }) };
+  if (/destroy target/.test(t)) return { op: 'DESTROY_TARGET', filter, minTargets: 1, maxTargets: 1, ...(multiFilter && { multiFilter }), ...(creatureRestriction && { creatureRestriction }) };
   
   // Chaos Warp and similar shuffle effects: "target permanent" or "of target permanent"
   if (/(?:of )?target permanent/.test(t) && /shuffles? it into/.test(t)) {
@@ -863,6 +877,52 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
           // Unknown restriction type - allow targeting (fail open)
           meetsRestriction = true;
           break;
+      }
+      
+      if (!meetsRestriction) continue;
+    }
+    
+    // Check creatureRestriction (for multi-type spells where only creatures have restrictions)
+    // Example: Atraxa's Fall targets "artifact, battle, enchantment, or creature with flying"
+    // Artifacts/battles/enchantments can be targeted normally, but creatures need flying
+    if (spec.creatureRestriction && isCreature(p)) {
+      const restriction = spec.creatureRestriction;
+      let meetsRestriction = false;
+      
+      // For now, only handle has_keyword restriction (the main use case)
+      if (restriction.type === 'has_keyword') {
+        const oracleText = (p.card as any)?.oracle_text || '';
+        const cardKeywords = (p.card as any)?.keywords || [];
+        const keyword = restriction.keyword?.toLowerCase() || '';
+        
+        // First check the keywords array (more reliable for most cards)
+        const hasKeywordInArray = Array.isArray(cardKeywords) && 
+          cardKeywords.some((k: string) => typeof k === 'string' && k.toLowerCase() === keyword);
+        
+        if (hasKeywordInArray) {
+          meetsRestriction = true;
+        } else {
+          // Fallback: Check if the card's oracle text contains the keyword
+          const keywordPattern = new RegExp(`\\b${keyword}\\b`, 'i');
+          meetsRestriction = keywordPattern.test(oracleText);
+        }
+        
+        // Also check for keywords granted by auras and equipment attached to this creature
+        if (!meetsRestriction) {
+          const attachments = state.battlefield.filter((att: any) => att.attachedTo === p.id);
+          for (const attachment of attachments) {
+            const attOracle = ((attachment.card as any)?.oracle_text || '').toLowerCase();
+            const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const grantsKeywordPattern = new RegExp(`(enchanted|equipped)\\s+creature\\s+has\\s+${escapedKeyword}`, 'i');
+            if (grantsKeywordPattern.test(attOracle)) {
+              meetsRestriction = true;
+              break;
+            }
+          }
+        }
+      } else {
+        // For other restriction types, fail open (allow targeting)
+        meetsRestriction = true;
       }
       
       if (!meetsRestriction) continue;
