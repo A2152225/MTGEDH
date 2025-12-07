@@ -5038,4 +5038,70 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       });
     }
   });
+
+  // Mana distribution confirmation (for cards like Selvala, Heart of the Wilds)
+  socket.on("confirmManaDistribution", ({ gameId, permanentId, distribution }: {
+    gameId: string;
+    permanentId: string;
+    distribution: Record<string, number>; // { W: 2, U: 0, B: 0, R: 1, G: 3 }
+  }) => {
+    const pid = socket.data.playerId;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+      return;
+    }
+
+    // Validate distribution
+    const totalMana = Object.values(distribution).reduce((sum, val) => sum + val, 0);
+    if (totalMana === 0 || !Number.isFinite(totalMana)) {
+      socket.emit("error", {
+        code: "INVALID_DISTRIBUTION",
+        message: "Invalid mana distribution",
+      });
+      return;
+    }
+
+    // Add mana to pool according to distribution
+    const colorToPoolKey: Record<string, string> = {
+      'W': 'white',
+      'U': 'blue',
+      'B': 'black',
+      'R': 'red',
+      'G': 'green',
+      'C': 'colorless',
+    };
+
+    for (const [color, amount] of Object.entries(distribution)) {
+      if (amount > 0) {
+        const poolKey = colorToPoolKey[color];
+        if (poolKey) {
+          (game.state.manaPool[pid] as any)[poolKey] = ((game.state.manaPool[pid] as any)[poolKey] || 0) + amount;
+        }
+      }
+    }
+
+    // Find the permanent to get its name
+    const permanent = (game.state.battlefield || []).find((p: any) => p.id === permanentId);
+    const cardName = permanent?.card?.name || "permanent";
+
+    // Emit chat message
+    const manaString = Object.entries(distribution)
+      .filter(([_, amt]) => amt > 0)
+      .map(([color, amt]) => `${amt} {${color}}`)
+      .join(', ');
+
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} tapped ${cardName} for ${manaString} mana.`,
+      ts: Date.now(),
+    });
+
+    broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`, game);
+    broadcastGame(io, game, gameId);
+  });
 }

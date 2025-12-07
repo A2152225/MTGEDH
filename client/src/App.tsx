@@ -36,6 +36,7 @@ import { CreatureTypeSelectModal } from "./components/CreatureTypeSelectModal";
 import { AppearanceSettingsModal } from "./components/AppearanceSettingsModal";
 import { LifePaymentModal } from "./components/LifePaymentModal";
 import { ColorChoiceModal } from "./components/ColorChoiceModal";
+import { ManaDistributionModal } from "./components/ManaDistributionModal";
 import { AdditionalCostModal } from "./components/AdditionalCostModal";
 import { CastingModeSelectionModal, type CastingMode } from "./components/CastingModeSelectionModal";
 import { MDFCFaceSelectionModal, type CardFace } from "./components/MDFCFaceSelectionModal";
@@ -513,6 +514,18 @@ export function App() {
     reason: string;
     imageUrl?: string;
     colors?: ('white' | 'blue' | 'black' | 'red' | 'green')[];
+  } | null>(null);
+  
+  // Mana Distribution Modal state - for Selvala, Heart of the Wilds, etc.
+  const [manaDistributionModalOpen, setManaDistributionModalOpen] = useState(false);
+  const [manaDistributionModalData, setManaDistributionModalData] = useState<{
+    gameId: string;
+    permanentId: string;
+    cardName: string;
+    cardImageUrl?: string;
+    totalAmount: number;
+    availableColors: string[];
+    message?: string;
   } | null>(null);
   
   // Additional Cost Modal state - for discard/sacrifice as additional costs
@@ -1397,6 +1410,35 @@ export function App() {
       socket.off("colorChoiceRequest", handler);
     };
   }, [safeView?.id, safeView?.battlefield]);
+
+  // Mana distribution request listener (for Selvala, Heart of the Wilds, etc.)
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      permanentId: string;
+      cardName: string;
+      availableColors: string[];
+      totalAmount: number;
+      isAnyColor?: boolean;
+      message?: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        setManaDistributionModalData({
+          gameId: payload.gameId,
+          permanentId: payload.permanentId,
+          cardName: payload.cardName,
+          totalAmount: payload.totalAmount,
+          availableColors: payload.availableColors,
+          message: payload.message,
+        });
+        setManaDistributionModalOpen(true);
+      }
+    };
+    socket.on("manaColorChoice", handler);
+    return () => {
+      socket.off("manaColorChoice", handler);
+    };
+  }, [safeView?.id]);
 
   // Additional cost request listener - for discard/sacrifice as additional costs
   React.useEffect(() => {
@@ -4653,6 +4695,31 @@ export function App() {
           }
           setColorChoiceModalOpen(false);
           setColorChoiceModalData(null);
+        }}
+      />
+
+      {/* Mana Distribution Modal (Selvala, Heart of the Wilds, etc.) */}
+      <ManaDistributionModal
+        open={manaDistributionModalOpen}
+        cardName={manaDistributionModalData?.cardName || ''}
+        cardImageUrl={manaDistributionModalData?.cardImageUrl}
+        totalAmount={manaDistributionModalData?.totalAmount || 0}
+        availableColors={manaDistributionModalData?.availableColors || []}
+        message={manaDistributionModalData?.message}
+        onConfirm={(distribution) => {
+          if (safeView?.id && manaDistributionModalData) {
+            socket.emit("confirmManaDistribution", {
+              gameId: safeView.id,
+              permanentId: manaDistributionModalData.permanentId,
+              distribution,
+            });
+            setManaDistributionModalOpen(false);
+            setManaDistributionModalData(null);
+          }
+        }}
+        onCancel={() => {
+          setManaDistributionModalOpen(false);
+          setManaDistributionModalData(null);
         }}
       />
 

@@ -1001,6 +1001,7 @@ const ADDITIONAL_LAND_PLAY_CARDS: Record<string, { lands: number; affectsAll?: b
   "yasharn, implacable earth": { lands: 0 }, // Search on ETB, not extra land drops
   "aesi, tyrant of gyre strait": { lands: 1 }, // You may play an additional land on each of your turns
   "kynaios and tiro of meletis": { lands: 0 }, // End step ability, not extra land drops during turn
+  "case of the locked hothouse": { lands: 1 }, // You may play an additional land on each of your turns
 };
 
 /**
@@ -1029,6 +1030,7 @@ function detectAdditionalLandPlayFromOracle(oracleText: string): { lands: number
   
   // Check for additional land patterns
   // "play an additional land" / "play one additional land"
+  // This matches cards like "You may play an additional land on each of your turns" (Case of the Locked Hothouse)
   if (lowerText.includes("play an additional land") || 
       lowerText.includes("play one additional land")) {
     // Check if it's "two additional lands"
@@ -1039,6 +1041,7 @@ function detectAdditionalLandPlayFromOracle(oracleText: string): { lands: number
     if (lowerText.includes("three additional land")) {
       return { lands: 3, affectsAll };
     }
+    console.log(`[detectAdditionalLandPlayFromOracle] Found "play an additional land" pattern, granting +1 land (affectsAll: ${affectsAll})`);
     return { lands: 1, affectsAll };
   }
   
@@ -1049,7 +1052,9 @@ function detectAdditionalLandPlayFromOracle(oracleText: string): { lands: number
     const wordToNum: Record<string, number> = {
       'one': 1, 'two': 2, 'three': 3, 'four': 4, 'an': 1, 'a': 1
     };
-    return { lands: wordToNum[countWord] || 1, affectsAll };
+    const lands = wordToNum[countWord] || 1;
+    console.log(`[detectAdditionalLandPlayFromOracle] Found multi-land pattern: "${countWord}" -> ${lands} lands (affectsAll: ${affectsAll})`);
+    return { lands, affectsAll };
   }
   
   return { lands: 0, affectsAll: false };

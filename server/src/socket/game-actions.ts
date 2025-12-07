@@ -1904,7 +1904,8 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Check if this spell requires targets
       const isInstantOrSorcery = typeLine.includes("instant") || typeLine.includes("sorcery");
-      const isAura = typeLine.includes("enchantment") && oracleText.includes("enchant");
+      // An Aura is an enchantment with "Aura" in the type line AND "Enchant" at the start of its oracle text
+      const isAura = typeLine.includes("aura") && /^enchant\s+/i.test(oracleText);
       const spellSpec = (isInstantOrSorcery && !isAura) ? categorizeSpell(cardName, oracleText) : null;
       const targetReqs = (isInstantOrSorcery && !isAura) ? parseTargetRequirements(oracleText) : null;
       
@@ -2526,7 +2527,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Non-Aura permanents (creatures, artifacts, regular enchantments, planeswalkers) don't require 
       // targets when cast, even if they have activated/triggered abilities with "target" in the text.
       // This includes Equipment (which are artifacts) - they enter unattached and equipping is a separate ability.
-      const isAura = typeLine.includes('aura');
+      // An Aura is an enchantment with "Aura" in the type line AND "Enchant" at the start of its oracle text
+      const isAura = typeLine.includes('aura') && /^enchant\s+/i.test(oracleText);
       // Use the isInstantOrSorcery already declared above (line 2101)
       const requiresTargetingCheck = isInstantOrSorcery || isAura;
       
