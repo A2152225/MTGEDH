@@ -4184,6 +4184,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       moveTo,
     });
     
+    // Clear pending library search for this player
+    if (game.state?.pendingLibrarySearch && game.state.pendingLibrarySearch[pid]) {
+      delete game.state.pendingLibrarySearch[pid];
+    }
+    
     const ownerName = libraryOwner === pid ? "their" : `${getPlayerName(game, libraryOwner)}'s`;
     const destName = moveTo === 'hand' ? 'hand' : moveTo === 'battlefield' ? 'the battlefield' : moveTo === 'top' ? 'the top of their library' : 'graveyard';
     
@@ -4301,6 +4306,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       handCardIds,
       entersTapped,
     });
+    
+    // Clear pending library search for this player
+    if (game.state?.pendingLibrarySearch && game.state.pendingLibrarySearch[pid]) {
+      delete game.state.pendingLibrarySearch[pid];
+    }
     
     // Build chat message
     const messages: string[] = [];
@@ -4486,6 +4496,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Just shuffle library (most tutor effects require shuffle even if not finding)
     if (typeof game.shuffleLibrary === "function") {
       game.shuffleLibrary(pid);
+    }
+    
+    // Clear pending library search for this player
+    if (game.state?.pendingLibrarySearch && game.state.pendingLibrarySearch[pid]) {
+      delete game.state.pendingLibrarySearch[pid];
     }
     
     if (typeof game.bumpSeq === "function") {

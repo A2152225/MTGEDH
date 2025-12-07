@@ -1031,8 +1031,10 @@ export function handlePendingLibrarySearch(io: Server, game: any, gameId: string
       }
     }
     
-    // Clear the pending search after emitting requests
-    game.state.pendingLibrarySearch = {};
+    // NOTE: Do NOT clear pendingLibrarySearch here.
+    // Individual player entries are removed when each player completes their search
+    // in the librarySearchSelect, librarySearchSplitSelect, or librarySearchCancel handlers.
+    // This allows multiple players to have pending searches simultaneously (e.g., Join Forces effects).
     
   } catch (err) {
     console.warn('[handlePendingLibrarySearch] Error:', err);

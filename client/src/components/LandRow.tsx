@@ -17,6 +17,59 @@ function canonicalLandKey(typeLine?: string, name?: string) {
   return (name || '').toLowerCase() || 'land';
 }
 
+/**
+ * Parse numeric P/T from string like "2" or "*" -> number or undefined
+ */
+function parsePT(val?: string): number | undefined {
+  if (!val) return undefined;
+  const n = parseInt(val, 10);
+  return isNaN(n) ? undefined : n;
+}
+
+/**
+ * Get effective P/T for a permanent (base + counters + buffs)
+ */
+function getEffectivePT(perm: BattlefieldPermanent): {
+  baseP?: number;
+  baseT?: number;
+  p?: number;
+  t?: number;
+} {
+  const kc = perm.card as KnownCardRef;
+  const baseP = typeof perm.basePower === 'number' ? perm.basePower : parsePT(kc?.power);
+  const baseT = typeof perm.baseToughness === 'number' ? perm.baseToughness : parsePT(kc?.toughness);
+
+  // If server provided effective stats (includes counters + continuous buffs), prefer them.
+  const effP = (perm as any).effectivePower as number | undefined;
+  const effT = (perm as any).effectiveToughness as number | undefined;
+
+  if (typeof effP === 'number' && typeof effT === 'number') {
+    return { baseP, baseT, p: effP, t: effT };
+  }
+
+  // Fallback: base + (+1/+1 -1/-1) counters only (client-side approximation).
+  if (typeof baseP === 'number' && typeof baseT === 'number') {
+    const plus = perm.counters?.['+1/+1'] ?? 0;
+    const minus = perm.counters?.['-1/-1'] ?? 0;
+    const delta = plus - minus;
+    return { baseP, baseT, p: baseP + delta, t: baseT + delta };
+  }
+
+  return { baseP, baseT, p: undefined, t: undefined };
+}
+
+/**
+ * Get badge colors based on P/T delta
+ */
+function ptBadgeColors(baseP?: number, baseT?: number, p?: number, t?: number): { bg: string; border: string } {
+  if (typeof baseP === 'number' && typeof baseT === 'number' && typeof p === 'number' && typeof t === 'number') {
+    const delta = (p - baseP) + (t - baseT);
+    if (delta > 0) return { bg: 'rgba(56,161,105,0.85)', border: 'rgba(46,204,113,0.95)' }; // green
+    if (delta < 0) return { bg: 'rgba(229,62,62,0.85)', border: 'rgba(245,101,101,0.95)' }; // red
+  }
+  return { bg: 'rgba(0,0,0,0.65)', border: 'rgba(255,255,255,0.25)' }; // neutral
+}
+
 export function LandRow(props: {
   lands: BattlefieldPermanent[];
   imagePref: ImagePref;
@@ -60,6 +113,9 @@ export function LandRow(props: {
 
   const items = useMemo(() => lands.map(p => {
     const kc = p.card as KnownCardRef;
+    const { baseP, baseT, p: dispP, t: dispT } = getEffectivePT(p);
+    const isCreature = (kc?.type_line || '').toLowerCase().includes('creature');
+    const colors = ptBadgeColors(baseP, baseT, dispP, dispT);
     return {
       id: p.id,
       name: kc?.name || p.id,
@@ -69,6 +125,12 @@ export function LandRow(props: {
       counters: p.counters || {},
       key: canonicalLandKey(kc?.type_line, kc?.name),
       perm: p,
+      isCreature,
+      baseP,
+      baseT,
+      dispP,
+      dispT,
+      colors,
     };
   }), [lands, imagePref]);
 
@@ -235,6 +297,36 @@ export function LandRow(props: {
                 borderRadius: 4
               }}>
                 Tapped
+              </div>
+            )}
+
+            {/* P/T overlay for creatures with color-coded delta vs base */}
+            {it.isCreature && typeof it.dispP === 'number' && typeof it.dispT === 'number' && (
+              <div style={{
+                position: 'absolute',
+                right: 6,
+                bottom: 26,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'flex-end',
+                gap: 2
+              }}>
+                <div style={{
+                  padding: '2px 6px',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: '#fff',
+                  background: it.colors.bg,
+                  border: `1px solid ${it.colors.border}`,
+                  borderRadius: 6
+                }}>
+                  {it.dispP}/{it.dispT}
+                </div>
+                {(typeof it.baseP === 'number' && typeof it.baseT === 'number') && (
+                  <div style={{ fontSize: 10, color: '#ddd', opacity: 0.9 }}>
+                    base {it.baseP}/{it.baseT}
+                  </div>
+                )}
               </div>
             )}
 
