@@ -115,6 +115,7 @@ function calculateTotalAvailableMana(game: any, playerId: string): number {
     
     // Check for mana-producing abilities
     // Common patterns: "{T}: Add {G}", "Tap: Add one mana", etc.
+    // Includes all color symbols (WUBRG) and colorless (C)
     return oracle.includes('{t}:') && oracle.includes('add') && 
            (oracle.match(/add \{[wubrgc]\}/i) || 
             oracle.includes('add one mana') ||
