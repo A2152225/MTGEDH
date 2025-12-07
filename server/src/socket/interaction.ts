@@ -448,20 +448,21 @@ export function parseSearchCriteria(criteria: string): {
   // CMC / Mana Value filtering
   // ============================================
   // Pattern: "mana value X or greater" / "converted mana cost X or greater"
-  // Examples: "mana value 6 or greater", "mana value X or more", "cmc >= 6"
-  const manaValueGreaterMatch = text.match(/(?:mana (?:value|cost)|converted mana cost|cmc)\s+(\d+)\s+or\s+(?:greater|more)/);
+  // Examples: "mana value 6 or greater", "with mana value 6 or greater", "cmc >= 6"
+  // The pattern allows for optional "with" or other words before "mana value"
+  const manaValueGreaterMatch = text.match(/(?:with\s+)?(?:mana (?:value|cost)|converted mana cost|cmc)\s+(\d+)\s+or\s+(?:greater|more)/);
   if (manaValueGreaterMatch) {
     result.minCmc = parseInt(manaValueGreaterMatch[1], 10);
   }
   
   // Pattern: "mana value X or less" / "converted mana cost X or less"
-  const manaValueLessMatch = text.match(/(?:mana (?:value|cost)|converted mana cost|cmc)\s+(\d+)\s+or\s+(?:less|fewer)/);
+  const manaValueLessMatch = text.match(/(?:with\s+)?(?:mana (?:value|cost)|converted mana cost|cmc)\s+(\d+)\s+or\s+(?:less|fewer)/);
   if (manaValueLessMatch) {
     result.maxCmc = parseInt(manaValueLessMatch[1], 10);
   }
   
   // Pattern: "mana value exactly X" / "mana value X"
-  const manaValueExactMatch = text.match(/(?:mana (?:value|cost)|converted mana cost|cmc)\s+(?:exactly\s+)?(\d+)(?!\s+or)/);
+  const manaValueExactMatch = text.match(/(?:with\s+)?(?:mana (?:value|cost)|converted mana cost|cmc)\s+(?:exactly\s+)?(\d+)(?!\s+or)/);
   if (manaValueExactMatch && !manaValueGreaterMatch && !manaValueLessMatch) {
     const cmc = parseInt(manaValueExactMatch[1], 10);
     result.minCmc = cmc;
