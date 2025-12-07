@@ -555,6 +555,10 @@ export const KNOWN_ETB_TRIGGERS: Record<string, {
     effect: "Whenever a legendary creature enters the battlefield under your control, you may attach Hero's Blade to it",
     triggerOn: 'creature',
   },
+  "bane of progress": {
+    effect: "Destroy all artifacts and enchantments, then put a +1/+1 counter on Bane of Progress for each permanent destroyed this way",
+    triggerOn: 'self',
+  },
 };
 
 // ============================================================================
