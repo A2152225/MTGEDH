@@ -2135,10 +2135,11 @@ export function resolveTopOfStack(ctx: GameContext) {
         source: sourceName,
         shuffleAfter: true,
         filter: searchParams.filter || { types: ['land'] },
+        maxSelections: searchParams.maxSelections || 1,
         cardImageUrl: searchParams.cardImageUrl,
       };
       
-      console.log(`[resolveTopOfStack] Fetch land ${sourceName}: ${controller} may search for ${searchParams.searchDescription || 'a land card'}`);
+      console.log(`[resolveTopOfStack] Fetch land ${sourceName}: ${controller} may search for ${searchParams.searchDescription || 'a land card'}${searchParams.maxSelections > 1 ? ` (up to ${searchParams.maxSelections})` : ''}`);
       bumpSeq();
       return;
     }

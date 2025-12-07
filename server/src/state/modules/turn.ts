@@ -511,6 +511,13 @@ function trackCommanderDamage(
     if (defeatedPlayer && !defeatedPlayer.hasLost) {
       defeatedPlayer.hasLost = true;
       defeatedPlayer.lossReason = `21 or more combat damage from ${attackerCard.name || 'a commander'}`;
+      
+      // Mark player as inactive so they automatically pass priority
+      if (!((ctx as any).inactive instanceof Set)) {
+        (ctx as any).inactive = new Set<string>();
+      }
+      (ctx as any).inactive.add(defendingPlayerId);
+      console.log(`${ts()} [dealCombatDamage] Player ${defendingPlayerId} marked as inactive (commander damage)`);
     }
   }
 }
@@ -1518,7 +1525,32 @@ export function nextTurn(ctx: GameContext) {
     // actions occur during the step, and allows cards to be played/tapped
     // during the untap step before untapping occurs.
 
-    // give priority to the active player at the start of turn
+    // Rule 502.1: No player receives priority during the untap step.
+    // Priority will be given when UNTAP advances to UPKEEP.
+    // Set priority to null during UNTAP step to indicate no player has priority.
+    (ctx as any).state.priority = null;
+    
+    // Immediately advance from UNTAP to UPKEEP (Rule 502.1: untap step has no priority)
+    // Untap all permanents controlled by the active player
+    try {
+      untapPermanentsForPlayer(ctx, next);
+      
+      // Apply Unwinding Clock, Seedborn Muse, and similar effects
+      const untapEffects = getUntapStepEffects(ctx, next);
+      for (const effect of untapEffects) {
+        const count = applyUntapStepEffect(ctx, effect);
+        if (count > 0) {
+          console.log(`${ts()} [nextTurn] ${effect.cardName} untapped ${count} permanents for ${effect.controllerId}`);
+        }
+      }
+    } catch (err) {
+      console.warn(`${ts()} [nextTurn] Failed to untap permanents:`, err);
+    }
+    
+    // Advance to UPKEEP step
+    (ctx as any).state.step = "UPKEEP";
+    
+    // Now give priority to the active player at UPKEEP (Rule 503.1)
     (ctx as any).state.priority = next;
 
     // Reset lands played this turn for all players
@@ -2038,6 +2070,8 @@ export function nextStep(ctx: GameContext) {
 
     if (currentPhase === "beginning" || currentPhase === "pre_game" || currentPhase === "") {
       if (currentStep === "" || currentStep === "untap" || currentStep === "UNTAP") {
+        // UNTAP step: This should normally not happen since nextTurn auto-advances to UPKEEP
+        // But keep this for backward compatibility with old save states or manual step control
         nextPhase = "beginning";
         nextStep = "UPKEEP";
         shouldUntap = !isReplaying; // Untap all permanents when leaving UNTAP step (skip during replay)

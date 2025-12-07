@@ -21,6 +21,10 @@ export interface LibrarySearchModalProps {
     subtypes?: string[];   // e.g., ['forest', 'island', 'equipment', 'elf']
     maxCmc?: number;
     minCmc?: number;
+    maxPower?: number;
+    minPower?: number;
+    maxToughness?: number;
+    minToughness?: number;
     colors?: string[];
   };
   maxSelections?: number;  // Default 1 for most tutors
@@ -95,6 +99,36 @@ function matchesFilter(card: KnownCardRef, filter: LibrarySearchModalProps['filt
   const cmc = card.cmc ?? 0;
   if (filter.maxCmc !== undefined && cmc > filter.maxCmc) return false;
   if (filter.minCmc !== undefined && cmc < filter.minCmc) return false;
+  
+  // Power filter
+  if (filter.maxPower !== undefined || filter.minPower !== undefined) {
+    const powerStr = card.power;
+    if (powerStr && powerStr !== '*') {
+      const power = parseInt(powerStr, 10);
+      if (!isNaN(power)) {
+        if (filter.maxPower !== undefined && power > filter.maxPower) return false;
+        if (filter.minPower !== undefined && power < filter.minPower) return false;
+      }
+    } else {
+      // If power is undefined or *, cannot match power filters
+      return false;
+    }
+  }
+  
+  // Toughness filter
+  if (filter.maxToughness !== undefined || filter.minToughness !== undefined) {
+    const toughnessStr = card.toughness;
+    if (toughnessStr && toughnessStr !== '*') {
+      const toughness = parseInt(toughnessStr, 10);
+      if (!isNaN(toughness)) {
+        if (filter.maxToughness !== undefined && toughness > filter.maxToughness) return false;
+        if (filter.minToughness !== undefined && toughness < filter.minToughness) return false;
+      }
+    } else {
+      // If toughness is undefined or *, cannot match toughness filters
+      return false;
+    }
+  }
   
   // Color filter
   if (filter.colors && filter.colors.length > 0) {

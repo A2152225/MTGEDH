@@ -420,9 +420,83 @@ function getUpgradedCreatureTypes(permanent: any): string[] {
 /**
  * Parse search criteria to create a filter object
  */
-export function parseSearchCriteria(criteria: string): { supertypes?: string[]; types?: string[]; subtypes?: string[] } {
-  const result: { supertypes?: string[]; types?: string[]; subtypes?: string[] } = {};
+export function parseSearchCriteria(criteria: string): { 
+  supertypes?: string[]; 
+  types?: string[]; 
+  subtypes?: string[];
+  minCmc?: number;
+  maxCmc?: number;
+  minPower?: number;
+  maxPower?: number;
+  minToughness?: number;
+  maxToughness?: number;
+} {
+  const result: { 
+    supertypes?: string[]; 
+    types?: string[]; 
+    subtypes?: string[];
+    minCmc?: number;
+    maxCmc?: number;
+    minPower?: number;
+    maxPower?: number;
+    minToughness?: number;
+    maxToughness?: number;
+  } = {};
   const text = criteria.toLowerCase();
+  
+  // ============================================
+  // CMC / Mana Value filtering
+  // ============================================
+  // Pattern: "mana value X or greater" / "converted mana cost X or greater"
+  // Examples: "mana value 6 or greater", "mana value X or more", "cmc >= 6"
+  const manaValueGreaterMatch = text.match(/(?:mana (?:value|cost)|converted mana cost|cmc)\s+(\d+)\s+or\s+(?:greater|more)/);
+  if (manaValueGreaterMatch) {
+    result.minCmc = parseInt(manaValueGreaterMatch[1], 10);
+  }
+  
+  // Pattern: "mana value X or less" / "converted mana cost X or less"
+  const manaValueLessMatch = text.match(/(?:mana (?:value|cost)|converted mana cost|cmc)\s+(\d+)\s+or\s+(?:less|fewer)/);
+  if (manaValueLessMatch) {
+    result.maxCmc = parseInt(manaValueLessMatch[1], 10);
+  }
+  
+  // Pattern: "mana value exactly X" / "mana value X"
+  const manaValueExactMatch = text.match(/(?:mana (?:value|cost)|converted mana cost|cmc)\s+(?:exactly\s+)?(\d+)(?!\s+or)/);
+  if (manaValueExactMatch && !manaValueGreaterMatch && !manaValueLessMatch) {
+    const cmc = parseInt(manaValueExactMatch[1], 10);
+    result.minCmc = cmc;
+    result.maxCmc = cmc;
+  }
+  
+  // ============================================
+  // Power filtering
+  // ============================================
+  // Pattern: "power X or greater" / "power X or more"
+  const powerGreaterMatch = text.match(/power\s+(\d+)\s+or\s+(?:greater|more)/);
+  if (powerGreaterMatch) {
+    result.minPower = parseInt(powerGreaterMatch[1], 10);
+  }
+  
+  // Pattern: "power X or less"
+  const powerLessMatch = text.match(/power\s+(\d+)\s+or\s+(?:less|fewer)/);
+  if (powerLessMatch) {
+    result.maxPower = parseInt(powerLessMatch[1], 10);
+  }
+  
+  // ============================================
+  // Toughness filtering
+  // ============================================
+  // Pattern: "toughness X or greater" / "toughness X or more"
+  const toughnessGreaterMatch = text.match(/toughness\s+(\d+)\s+or\s+(?:greater|more)/);
+  if (toughnessGreaterMatch) {
+    result.minToughness = parseInt(toughnessGreaterMatch[1], 10);
+  }
+  
+  // Pattern: "toughness X or less"
+  const toughnessLessMatch = text.match(/toughness\s+(\d+)\s+or\s+(?:less|fewer)/);
+  if (toughnessLessMatch) {
+    result.maxToughness = parseInt(toughnessLessMatch[1], 10);
+  }
   
   // ============================================
   // Supertypes (Basic, Legendary, Snow, World, Ongoing, Host)
@@ -2257,15 +2331,34 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Parse what land types this fetch can find
       const filter = parseSearchCriteria(oracleText);
       
+      // Parse maxSelections from oracle text (e.g., "up to two" in Myriad Landscape)
+      let maxSelections = 1; // Default to 1
+      const upToMatch = oracleText.match(/search your library for up to (\w+)/i);
+      if (upToMatch) {
+        const num = upToMatch[1].toLowerCase();
+        if (num === 'two') maxSelections = 2;
+        else if (num === 'three') maxSelections = 3;
+        else if (num === 'four') maxSelections = 4;
+        else {
+          const parsed = parseInt(num, 10);
+          if (!isNaN(parsed)) maxSelections = parsed;
+        }
+      }
+      
       // Build description for the ability
       let searchDescription = "Search your library for a land card";
+      if (maxSelections > 1) {
+        searchDescription = `Search your library for up to ${maxSelections} land cards`;
+      }
       if (filter.subtypes && filter.subtypes.length > 0) {
         const landTypes = filter.subtypes.filter(s => !s.includes("basic")).map(s => s.charAt(0).toUpperCase() + s.slice(1));
         if (landTypes.length > 0) {
-          searchDescription = `Search for a ${landTypes.join(" or ")} card`;
+          const prefix = maxSelections > 1 ? `Search for up to ${maxSelections}` : "Search for a";
+          searchDescription = `${prefix} ${landTypes.join(" or ")} card${maxSelections > 1 ? 's' : ''}`;
         }
         if (filter.subtypes.includes("basic")) {
-          searchDescription = `Search for a basic ${landTypes.join(" or ")} card`;
+          const prefix = maxSelections > 1 ? `Search for up to ${maxSelections} basic` : "Search for a basic";
+          searchDescription = `${prefix} ${landTypes.join(" or ")} card${maxSelections > 1 ? 's' : ''}`;
         }
       }
       
@@ -2278,13 +2371,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         controller: pid,
         source: permanentId,
         sourceName: cardName,
-        description: `${searchDescription}, put it onto the battlefield, then shuffle`,
+        description: `${searchDescription}, put ${maxSelections > 1 ? 'them' : 'it'} onto the battlefield, then shuffle`,
         abilityType: 'fetch-land',
         // Store search parameters for when the ability resolves
         searchParams: {
           filter,
           searchDescription,
           isTrueFetch,
+          maxSelections,
           cardImageUrl: card?.image_uris?.small || card?.image_uris?.normal,
         },
       } as any);
