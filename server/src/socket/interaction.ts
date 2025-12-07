@@ -20,6 +20,93 @@ import {
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../rules-engine/src/creatureUpgradeAbilities";
 
 // ============================================================================
+// Tap/Untap Ability Text Parsing
+// ============================================================================
+
+/**
+ * Parse ability text to determine tap/untap target parameters
+ * Examples:
+ * - "Untap another target creature or land" -> { types: ['creature', 'land'], excludeSource: true, action: 'untap', count: 1 }
+ * - "Tap or untap target permanent" -> { types: ['permanent'], action: 'both', count: 1 }
+ * - "Untap two target lands" -> { types: ['land'], action: 'untap', count: 2 }
+ */
+export function parseTapUntapAbilityText(text: string): {
+  action: 'tap' | 'untap' | 'both';
+  types: string[];
+  count: number;
+  excludeSource: boolean;
+  controller?: 'you' | 'opponent' | 'any';
+} | null {
+  const lowerText = text.toLowerCase();
+  
+  // Check for tap/untap action
+  let action: 'tap' | 'untap' | 'both' = 'untap';
+  if (lowerText.includes('tap or untap') || lowerText.includes('untap or tap')) {
+    action = 'both';
+  } else if (lowerText.includes('untap')) {
+    action = 'untap';
+  } else if (lowerText.includes('tap')) {
+    action = 'tap';
+  } else {
+    return null; // Not a tap/untap ability
+  }
+
+  // Extract target count
+  let count = 1;
+  const countMatch = lowerText.match(/\b(two|three|four|up to (\d+))\s+target/);
+  if (countMatch) {
+    if (countMatch[1] === 'two') count = 2;
+    else if (countMatch[1] === 'three') count = 3;
+    else if (countMatch[1] === 'four') count = 4;
+    else if (countMatch[2]) count = parseInt(countMatch[2], 10);
+  }
+
+  // Extract target types
+  const types: string[] = [];
+  const typePatterns = [
+    { pattern: /target (creature|land|artifact|enchantment|planeswalker|permanent)s?/g, isPermanent: false },
+    { pattern: /target (creature or land|land or creature)s?/g, isPermanent: false },
+  ];
+
+  for (const { pattern } of typePatterns) {
+    let match;
+    while ((match = pattern.exec(lowerText)) !== null) {
+      const typeStr = match[1];
+      if (typeStr.includes(' or ')) {
+        // Handle "creature or land"
+        types.push(...typeStr.split(' or ').map(t => t.trim()));
+      } else {
+        types.push(typeStr);
+      }
+    }
+  }
+
+  // Default to 'permanent' if no specific type found
+  if (types.length === 0) {
+    types.push('permanent');
+  }
+
+  // Check for "another" (exclude source)
+  const excludeSource = lowerText.includes('another target') || lowerText.includes('target other');
+
+  // Check for controller restrictions
+  let controller: 'you' | 'opponent' | 'any' = 'any';
+  if (lowerText.includes('you control')) {
+    controller = 'you';
+  } else if (lowerText.includes('opponent controls') || lowerText.includes('an opponent controls')) {
+    controller = 'opponent';
+  }
+
+  return {
+    action,
+    types,
+    count,
+    excludeSource,
+    controller,
+  };
+}
+
+// ============================================================================
 // Pre-compiled RegExp patterns for creature type matching
 // Optimization: Created once at module load instead of inside loops
 // ============================================================================
@@ -2508,6 +2595,96 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       });
       
       console.log(`[activateBattlefieldAbility] Graveyard exile ability on ${cardName}: paid ${cost}, prompting for graveyard target selection`);
+      return;
+    }
+    
+    // Handle Tap/Untap abilities (Saryth, Merrow Reejerey, Argothian Elder, etc.)
+    // Parse ability text to detect tap/untap abilities
+    const tapUntapParams = parseTapUntapAbilityText(oracleText);
+    const isTapUntapAbility = tapUntapParams && (
+      abilityId.includes("tap") || 
+      abilityId.includes("untap") || 
+      abilityId.includes("tap-untap")
+    );
+    
+    if (isTapUntapAbility && tapUntapParams) {
+      // Parse the cost from oracle text - typically appears before the colon
+      // Examples: "{T}: Untap target creature", "{2}, {T}: Tap or untap target permanent"
+      const costMatch = oracleText.match(/([^:]+?):\s*(?:tap|untap)/i);
+      const costStr = costMatch ? costMatch[1].trim() : "";
+      
+      // Check if ability requires tapping
+      const requiresTap = costStr.includes('{t}') || costStr.includes('tap');
+      if (requiresTap && (permanent as any).tapped) {
+        socket.emit("error", {
+          code: "ALREADY_TAPPED",
+          message: `${cardName} is already tapped`,
+        });
+        return;
+      }
+      
+      // Parse mana cost from the cost string
+      const manaCostMatch = costStr.match(/\{[^}]+\}/g);
+      const manaCost = manaCostMatch ? manaCostMatch.filter(c => !c.includes('T')).join('') : "";
+      
+      if (manaCost) {
+        // Validate and consume mana
+        const parsedCost = parseManaCost(manaCost);
+        const pool = getOrInitManaPool(game.state, pid);
+        const totalAvailable = calculateTotalAvailableMana(pool, []);
+        
+        const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+        if (validationError) {
+          socket.emit("error", { code: "INSUFFICIENT_MANA", message: validationError });
+          return;
+        }
+        
+        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[activateBattlefieldAbility:tap-untap]');
+      }
+      
+      // Tap the permanent if required
+      if (requiresTap) {
+        (permanent as any).tapped = true;
+      }
+      
+      // Generate activation ID
+      const activationId = `tap_untap_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      
+      // Store pending activation
+      if (!game.state.pendingTapUntapActivations) {
+        game.state.pendingTapUntapActivations = {};
+      }
+      game.state.pendingTapUntapActivations[activationId] = {
+        playerId: pid,
+        sourceId: permanentId,
+        sourceName: cardName,
+        targetCount: tapUntapParams.count,
+        action: tapUntapParams.action,
+      };
+      
+      // Emit target selection request to client
+      socket.emit("tapUntapTargetRequest", {
+        gameId,
+        activationId,
+        source: {
+          id: permanentId,
+          name: cardName,
+          imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+        },
+        action: tapUntapParams.action,
+        targetFilter: {
+          types: tapUntapParams.types as any[],
+          controller: tapUntapParams.controller,
+          tapStatus: 'any',
+          excludeSource: tapUntapParams.excludeSource,
+        },
+        targetCount: tapUntapParams.count,
+        title: cardName,
+        description: oracleText,
+      });
+      
+      console.log(`[activateBattlefieldAbility] Tap/Untap ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for ${tapUntapParams.count} target(s)`);
+      broadcastGame(io, game, gameId);
       return;
     }
     
@@ -5388,6 +5565,107 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     // Broadcast updates
     broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${pending.cardName}`, game);
+    broadcastGame(io, game, gameId);
+  });
+
+  /**
+   * Handle tap/untap target confirmation from TapUntapTargetModal
+   * Used for abilities like:
+   * - Saryth, the Viper's Fang: "Untap another target creature or land"
+   * - Merrow Reejerey: "Tap or untap target permanent"
+   * - Argothian Elder: "Untap two target lands"
+   */
+  socket.on("confirmTapUntapTarget", ({ 
+    gameId, 
+    activationId, 
+    targetIds, 
+    action 
+  }: {
+    gameId: string;
+    activationId: string;
+    targetIds: string[];
+    action: 'tap' | 'untap';
+  }) => {
+    const game = ensureGame(gameId);
+    if (!game || !game.state) return;
+
+    const pid = (socket as any).playerId as PlayerID;
+    if (!pid) {
+      socket.emit("error", { code: "NO_PLAYER_ID", message: "No player ID associated with this socket" });
+      return;
+    }
+
+    // Retrieve pending activation
+    const pending = game.state.pendingTapUntapActivations?.[activationId];
+    if (!pending) {
+      socket.emit("error", { code: "INVALID_ACTIVATION", message: "Invalid or expired tap/untap activation" });
+      return;
+    }
+
+    // Verify it's the right player
+    if (pending.playerId !== pid) {
+      socket.emit("error", { code: "NOT_YOUR_ACTIVATION", message: "This is not your tap/untap activation" });
+      return;
+    }
+
+    // Verify target count
+    if (targetIds.length !== pending.targetCount) {
+      socket.emit("error", { 
+        code: "INVALID_TARGET_COUNT", 
+        message: `Expected ${pending.targetCount} target(s), got ${targetIds.length}` 
+      });
+      return;
+    }
+
+    // Apply tap/untap to each target
+    const battlefield = game.state.battlefield || [];
+    const affectedNames: string[] = [];
+    
+    for (const targetId of targetIds) {
+      const target = battlefield.find((p: any) => p.id === targetId);
+      if (!target) {
+        console.warn(`[confirmTapUntapTarget] Target ${targetId} not found on battlefield`);
+        continue;
+      }
+
+      // Apply the action
+      if (action === 'tap' && !target.tapped) {
+        target.tapped = true;
+        affectedNames.push(target.card?.name || 'permanent');
+      } else if (action === 'untap' && target.tapped) {
+        target.tapped = false;
+        affectedNames.push(target.card?.name || 'permanent');
+      }
+    }
+
+    // Clean up pending activation
+    delete game.state.pendingTapUntapActivations[activationId];
+
+    // Create chat message
+    if (affectedNames.length > 0) {
+      const targetsText = affectedNames.length === 1 
+        ? affectedNames[0]
+        : `${affectedNames.slice(0, -1).join(', ')} and ${affectedNames[affectedNames.length - 1]}`;
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} used ${pending.sourceName} to ${action} ${targetsText}.`,
+        ts: Date.now(),
+      });
+    }
+
+    // Append event to game log
+    appendGameEvent(game, {
+      type: action === 'tap' ? 'permanent_tapped' : 'permanent_untapped',
+      playerId: pid,
+      permanentIds: targetIds,
+      source: pending.sourceName,
+      ts: Date.now(),
+    } as any);
+
+    // Broadcast updates
     broadcastGame(io, game, gameId);
   });
 }

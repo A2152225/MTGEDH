@@ -2060,8 +2060,42 @@ export function App() {
     };
 
     socket.on("opponentMayPayPrompt", handleOpponentMayPayPrompt);
+    
+    // Tap/Untap Target Request handler
+    const handleTapUntapTargetRequest = (data: {
+      gameId: string;
+      activationId: string;
+      source: { id: string; name: string; imageUrl?: string };
+      action: 'tap' | 'untap' | 'both';
+      targetFilter: {
+        types?: ('creature' | 'land' | 'artifact' | 'enchantment' | 'planeswalker' | 'permanent')[];
+        controller?: 'you' | 'opponent' | 'any';
+        tapStatus?: 'tapped' | 'untapped' | 'any';
+        excludeSource?: boolean;
+      };
+      targetCount: number;
+      title?: string;
+      description?: string;
+    }) => {
+      if (!safeView || data.gameId !== safeView.id) return;
+      setTapUntapTargetModalData({
+        activationId: data.activationId,
+        sourceId: data.source.id,
+        sourceName: data.source.name,
+        sourceImageUrl: data.source.imageUrl,
+        action: data.action,
+        targetFilter: data.targetFilter,
+        targetCount: data.targetCount,
+        title: data.title,
+        description: data.description,
+      });
+      setTapUntapTargetModalOpen(true);
+    };
+    socket.on("tapUntapTargetRequest", handleTapUntapTargetRequest);
+    
     return () => {
       socket.off("opponentMayPayPrompt", handleOpponentMayPayPrompt);
+      socket.off("tapUntapTargetRequest", handleTapUntapTargetRequest);
     };
   }, [safeView?.id, you]);
 
@@ -4189,6 +4223,39 @@ export function App() {
           }}
         />
       )}
+
+      {/* Tap/Untap Target Modal - for abilities that tap/untap targets */}
+      <TapUntapTargetModal
+        open={tapUntapTargetModalOpen}
+        title={tapUntapTargetModalData?.title || tapUntapTargetModalData?.sourceName || "Tap/Untap Target"}
+        description={tapUntapTargetModalData?.description}
+        source={{
+          id: tapUntapTargetModalData?.sourceId || "",
+          name: tapUntapTargetModalData?.sourceName || "",
+          imageUrl: tapUntapTargetModalData?.sourceImageUrl,
+        }}
+        action={tapUntapTargetModalData?.action || 'untap'}
+        targetFilter={tapUntapTargetModalData?.targetFilter || {}}
+        targetCount={tapUntapTargetModalData?.targetCount || 1}
+        availablePermanents={safeView?.battlefield || []}
+        playerId={you || ""}
+        onConfirm={(selectedPermanentIds, action) => {
+          if (tapUntapTargetModalData && safeView) {
+            socket.emit("confirmTapUntapTarget", {
+              gameId: safeView.id,
+              activationId: tapUntapTargetModalData.activationId,
+              targetIds: selectedPermanentIds,
+              action,
+            });
+            setTapUntapTargetModalOpen(false);
+            setTapUntapTargetModalData(null);
+          }
+        }}
+        onCancel={() => {
+          setTapUntapTargetModalOpen(false);
+          setTapUntapTargetModalData(null);
+        }}
+      />
 
       {/* Name-in-use */}
       <NameInUseModal
