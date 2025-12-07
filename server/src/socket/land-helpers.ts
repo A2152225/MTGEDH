@@ -344,8 +344,8 @@ export function evaluateConditionalLandETB(
   }
   
   // Check lands with single type (Castle Locthwain - Swamp, Castle Garenbrig - Forest, etc.)
-  // "enters the battlefield tapped unless you control a [Type]"
-  const singleCheckMatch = text.match(/enters the battlefield tapped unless you control (?:a|an) ([\w]+)/i);
+  // "enters the battlefield tapped unless you control a [Type]" or "this land enters tapped unless you control a [Type]"
+  const singleCheckMatch = text.match(/(?:this land )?enters(?: the battlefield)? tapped unless you control (?:a|an) ([\w]+)/i);
   if (singleCheckMatch && !text.includes(' or ')) {
     const requiredType = singleCheckMatch[1].toLowerCase();
     const hasRequiredType = controlledLandTypes.some(t => t.toLowerCase().includes(requiredType));
@@ -358,8 +358,8 @@ export function evaluateConditionalLandETB(
   }
   
   // Check lands with "or" condition (Dragonskull Summit - Swamp or Mountain, etc.)
-  // "enters the battlefield tapped unless you control a [Type] or [Type]"
-  const dualCheckMatch = text.match(/enters the battlefield tapped unless you control (?:a|an) ([\w]+) or ([\w]+)/i);
+  // "enters the battlefield tapped unless you control a [Type] or [Type]" or "this land enters tapped unless you control a [Type] or [Type]"
+  const dualCheckMatch = text.match(/(?:this land )?enters(?: the battlefield)? tapped unless you control (?:a|an) ([\w]+) or ([\w]+)/i);
   if (dualCheckMatch) {
     const type1 = dualCheckMatch[1].toLowerCase();
     const type2 = dualCheckMatch[2].toLowerCase();

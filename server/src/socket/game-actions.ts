@@ -3425,15 +3425,22 @@ export function registerGameActions(io: Server, socket: Socket) {
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
-      // Clean up pending cast data
+      // Retrieve targets from pending cast data before cleaning up
+      // This ensures Aura targets (stored in targetSelectionConfirm) are preserved
+      let finalTargets = targets;
       if (effectId && (game.state as any).pendingSpellCasts?.[effectId]) {
+        const pendingCast = (game.state as any).pendingSpellCasts[effectId];
+        // Use pending targets if client didn't send them back (Aura case)
+        if (!finalTargets || finalTargets.length === 0) {
+          finalTargets = pendingCast.targets || [];
+        }
         delete (game.state as any).pendingSpellCasts[effectId];
       }
 
-      console.log(`[completeCastSpell] Completing cast for ${cardId} with targets: ${targets?.join(',') || 'none'}`);
+      console.log(`[completeCastSpell] Completing cast for ${cardId} with targets: ${finalTargets?.join(',') || 'none'}`);
 
       // Call the shared spell casting handler directly
-      handleCastSpellFromHand({ gameId, cardId, targets, payment });
+      handleCastSpellFromHand({ gameId, cardId, targets: finalTargets, payment });
       
     } catch (err: any) {
       console.error(`[completeCastSpell] Error:`, err);
