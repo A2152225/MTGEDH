@@ -2172,13 +2172,13 @@ export function resolveTopOfStack(ctx: GameContext) {
   // For adventure cards, determine which face was cast
   // If castAsAdventure is false, we're casting the permanent side (face 0)
   // If castAsAdventure is true, we're casting the adventure side (face 1, which is sorcery/instant)
+  // Only process adventure card logic if card exists (abilities and triggered abilities don't have card property)
   const castAsAdventure = (item as any).castAsAdventure;
-  const cardLayout = (card as any).layout;
-  let effectiveTypeLine = card.type_line;
+  let effectiveTypeLine = card?.type_line;
   let effectiveCard = card; // Use this for all card property accesses
   
   // For adventure cards, use the properties of the specific face that was cast
-  if (cardLayout === 'adventure' && Array.isArray((card as any).card_faces)) {
+  if (card && (card as any).layout === 'adventure' && Array.isArray((card as any).card_faces)) {
     const faces = (card as any).card_faces;
     let faceIndex = 0; // Default to permanent side
     
