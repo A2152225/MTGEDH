@@ -2169,6 +2169,46 @@ export function resolveTopOfStack(ctx: GameContext) {
   const controller = item.controller as PlayerID;
   const targets = (item as any).targets || [];
   
+  // For adventure cards, determine which face was cast
+  // If castAsAdventure is false, we're casting the permanent side (face 0)
+  // If castAsAdventure is true, we're casting the adventure side (face 1, which is sorcery/instant)
+  const castAsAdventure = (item as any).castAsAdventure;
+  const cardLayout = (card as any).layout;
+  let effectiveTypeLine = card.type_line;
+  let effectiveCard = card; // Use this for all card property accesses
+  
+  // For adventure cards, use the properties of the specific face that was cast
+  if (cardLayout === 'adventure' && Array.isArray((card as any).card_faces)) {
+    const faces = (card as any).card_faces;
+    let faceIndex = 0; // Default to permanent side
+    
+    if (castAsAdventure === true && faces[1]) {
+      // Casting adventure side (face 1) - sorcery/instant
+      faceIndex = 1;
+    } else if (castAsAdventure === false && faces[0]) {
+      // Casting permanent side (face 0) - creature/enchantment/artifact/etc.
+      faceIndex = 0;
+    }
+    
+    const face = faces[faceIndex];
+    if (face) {
+      effectiveTypeLine = face.type_line;
+      // Create an effective card object that merges the main card with the face-specific properties
+      effectiveCard = {
+        ...card,
+        type_line: face.type_line,
+        oracle_text: face.oracle_text,
+        mana_cost: face.mana_cost,
+        power: face.power,
+        toughness: face.toughness,
+        loyalty: face.loyalty,
+        // Keep the original name and image_uris from the main card for display
+        // but override the name if we need face-specific name
+        name: face.name || card.name,
+      };
+    }
+  }
+  
   // Handle activated abilities (like fetch lands)
   if ((item as any).type === 'ability') {
     const abilityType = (item as any).abilityType;
@@ -2294,18 +2334,18 @@ export function resolveTopOfStack(ctx: GameContext) {
     return;
   }
   
-  if (card && isPermanentTypeLine(card.type_line)) {
+  if (effectiveCard && isPermanentTypeLine(effectiveTypeLine)) {
     // Permanent spell resolves - move to battlefield
-    const tl = (card.type_line || "").toLowerCase();
+    const tl = (effectiveTypeLine || "").toLowerCase();
     const isCreature = /\bcreature\b/.test(tl);
     const isPlaneswalker = /\bplaneswalker\b/.test(tl);
-    const baseP = isCreature ? parsePT((card as any).power) : undefined;
-    const baseT = isCreature ? parsePT((card as any).toughness) : undefined;
+    const baseP = isCreature ? parsePT((effectiveCard as any).power) : undefined;
+    const baseT = isCreature ? parsePT((effectiveCard as any).toughness) : undefined;
     
     // Check if the creature has haste from any source (own text or battlefield effects)
     // Rule 702.10: Haste allows ignoring summoning sickness
     const battlefield = state.battlefield || [];
-    const hasHaste = isCreature && creatureWillHaveHaste(card, controller, battlefield);
+    const hasHaste = isCreature && creatureWillHaveHaste(effectiveCard, controller, battlefield);
     
     // Creatures have summoning sickness when they enter (unless they have haste)
     // Rule 302.6: A creature's activated ability with tap/untap symbol can't be
@@ -2315,25 +2355,25 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Initialize counters - planeswalkers enter with loyalty counters equal to their printed loyalty
     const initialCounters: Record<string, number> = {};
-    if (isPlaneswalker && card.loyalty) {
-      const startingLoyalty = typeof card.loyalty === 'number' ? card.loyalty : parseInt(card.loyalty, 10);
+    if (isPlaneswalker && effectiveCard.loyalty) {
+      const startingLoyalty = typeof effectiveCard.loyalty === 'number' ? effectiveCard.loyalty : parseInt(effectiveCard.loyalty, 10);
       if (!isNaN(startingLoyalty)) {
         initialCounters.loyalty = startingLoyalty;
-        console.log(`[resolveTopOfStack] Planeswalker ${card.name} enters with ${startingLoyalty} loyalty`);
+        console.log(`[resolveTopOfStack] Planeswalker ${effectiveCard.name} enters with ${startingLoyalty} loyalty`);
       }
     }
     
     // Check for "enters with counters" patterns (Zack Fair, modular creatures, sagas, etc.)
-    const etbCounters = detectEntersWithCounters(card);
+    const etbCounters = detectEntersWithCounters(effectiveCard);
     for (const [counterType, count] of Object.entries(etbCounters)) {
       initialCounters[counterType] = (initialCounters[counterType] || 0) + count;
-      console.log(`[resolveTopOfStack] ${card.name} enters with ${count} ${counterType} counter(s)`);
+      console.log(`[resolveTopOfStack] ${effectiveCard.name} enters with ${count} ${counterType} counter(s)`);
     }
     
     // Yuna, Grand Summoner: "When you next cast a creature spell this turn, that creature enters with two additional +1/+1 counters on it."
     if (isCreature && (state as any).yunaNextCreatureFlags?.[controller]) {
       initialCounters['+1/+1'] = (initialCounters['+1/+1'] || 0) + 2;
-      console.log(`[resolveTopOfStack] Yuna's Grand Summon: ${card.name} enters with 2 additional +1/+1 counters`);
+      console.log(`[resolveTopOfStack] Yuna's Grand Summon: ${effectiveCard.name} enters with 2 additional +1/+1 counters`);
       // Clear the flag
       delete (state as any).yunaNextCreatureFlags[controller];
     }
@@ -2341,7 +2381,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     // Check if this creature should enter tapped due to effects like Authority of the Consuls, Blind Obedience, etc.
     let shouldEnterTapped = false;
     if (isCreature) {
-      shouldEnterTapped = checkCreatureEntersTapped(state.battlefield || [], controller, card);
+      shouldEnterTapped = checkCreatureEntersTapped(state.battlefield || [], controller, effectiveCard);
     }
     
     state.battlefield = state.battlefield || [];
@@ -2363,7 +2403,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       basePower: baseP,
       baseToughness: baseT,
       summoningSickness: hasSummoningSickness,
-      card: { ...card, zone: "battlefield" },
+      card: { ...effectiveCard, zone: "battlefield" },
     } as any;
     state.battlefield.push(newPermanent);
     
@@ -2376,11 +2416,11 @@ export function resolveTopOfStack(ctx: GameContext) {
     } else if (hasHaste) {
       statusNote = ' (haste)';
     }
-    console.log(`[resolveTopOfStack] Permanent ${card.name || 'unnamed'} entered battlefield under ${controller}${statusNote}`);
+    console.log(`[resolveTopOfStack] Permanent ${effectiveCard.name || 'unnamed'} entered battlefield under ${controller}${statusNote}`);
     
     // Check for ETB triggers on this permanent and other permanents
     try {
-      const allTriggers = getETBTriggersForPermanent(card, newPermanent);
+      const allTriggers = getETBTriggersForPermanent(effectiveCard, newPermanent);
       
       // Filter out triggers that fire when OTHER permanents enter (not when self enters)
       // These trigger types should only fire for OTHER permanents, not the permanent itself:
@@ -2466,7 +2506,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
       
       if (etbTriggers.length > 0) {
-        console.log(`[resolveTopOfStack] Found ${etbTriggers.length} ETB trigger(s) for ${card.name || 'permanent'}`);
+        console.log(`[resolveTopOfStack] Found ${etbTriggers.length} ETB trigger(s) for ${effectiveCard.name || 'permanent'}`);
         
         for (const trigger of etbTriggers) {
           // Handle Job Select and Living Weapon immediately (they don't go on stack - they're part of ETB)
@@ -2555,11 +2595,11 @@ export function resolveTopOfStack(ctx: GameContext) {
     } catch (err) {
       console.warn('[resolveTopOfStack] Failed to recalculate player effects:', err);
     }
-  } else if (card) {
+  } else if (effectiveCard) {
     // Non-permanent spell (instant/sorcery) - execute effects before moving to graveyard
-    const oracleText = card.oracle_text || '';
+    const oracleText = effectiveCard.oracle_text || '';
     const oracleTextLower = oracleText.toLowerCase();
-    const spellSpec = categorizeSpell(card.name || '', oracleText);
+    const spellSpec = categorizeSpell(effectiveCard.name || '', oracleText);
     
     // IMPORTANT: Capture target permanent info BEFORE destruction/exile for effects that need it
     // This MUST be done before any effects are executed as the target will be removed
@@ -2585,17 +2625,17 @@ export function resolveTopOfStack(ctx: GameContext) {
         
         // For effects that affect target's controller after exile/destroy
         // Path to Exile, Swords to Plowshares, Fateful Absence, Get Lost
-        const isPathToExile = card.name?.toLowerCase().includes('path to exile') || 
+        const isPathToExile = effectiveCard.name?.toLowerCase().includes('path to exile') || 
             (oracleTextLower.includes('exile target creature') && 
              oracleTextLower.includes('search') && 
              oracleTextLower.includes('basic land'));
-        const isSwordsToPlowshares = card.name?.toLowerCase().includes('swords to plowshares') || 
+        const isSwordsToPlowshares = effectiveCard.name?.toLowerCase().includes('swords to plowshares') || 
             (oracleTextLower.includes('exile target creature') && 
              oracleTextLower.includes('gains life equal to'));
-        const isFatefulAbsence = card.name?.toLowerCase().includes('fateful absence') ||
+        const isFatefulAbsence = effectiveCard.name?.toLowerCase().includes('fateful absence') ||
             (oracleTextLower.includes('destroy target creature') && 
              oracleTextLower.includes('investigates'));
-        const isGetLost = card.name?.toLowerCase().includes('get lost') ||
+        const isGetLost = effectiveCard.name?.toLowerCase().includes('get lost') ||
             (oracleTextLower.includes('destroy target creature') && 
              oracleTextLower.includes('map token'));
              
@@ -2641,7 +2681,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       
       // Execute each effect
       for (const effect of effects) {
-        executeSpellEffect(ctx, effect, controller, card.name || 'spell');
+        executeSpellEffect(ctx, effect, controller, effectiveCard.name || 'spell');
       }
       
       // Handle special spell effects not covered by the base system
@@ -2663,7 +2703,7 @@ export function resolveTopOfStack(ctx: GameContext) {
           const tokenName = `${tokenType} Token`;
           
           createBeastToken(ctx, targetControllerForTokenCreation, tokenName, power, toughness, color);
-          console.log(`[resolveTopOfStack] ${card.name} created ${power}/${toughness} ${tokenName} for ${targetControllerForTokenCreation}`);
+          console.log(`[resolveTopOfStack] ${effectiveCard.name} created ${power}/${toughness} ${tokenName} for ${targetControllerForTokenCreation}`);
         }
       }
     }
@@ -2676,7 +2716,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     // This requires special handling because we need to:
     // 1. Capture the target permanent's info before exiling
     // 2. Create token copies for each opponent of the target's controller
-    const isFracturedIdentity = card.name?.toLowerCase().includes('fractured identity') ||
+    const isFracturedIdentity = effectiveCard.name?.toLowerCase().includes('fractured identity') ||
         (oracleTextLower.includes('exile target') && 
          oracleTextLower.includes('each player other than its controller') && 
          oracleTextLower.includes('creates a token') && 
@@ -2743,16 +2783,16 @@ export function resolveTopOfStack(ctx: GameContext) {
     // Handle token creation spells (where the caster creates tokens)
     // Patterns: "create X 1/1 tokens", "create two 1/1 tokens", etc.
     const spellXValue = (item as any).xValue;
-    const tokenCreationResult = parseTokenCreation(card.name, oracleTextLower, controller, state, spellXValue);
+    const tokenCreationResult = parseTokenCreation(effectiveCard.name, oracleTextLower, controller, state, spellXValue);
     if (tokenCreationResult) {
       for (let i = 0; i < tokenCreationResult.count; i++) {
         createTokenFromSpec(ctx, controller, tokenCreationResult);
       }
-      console.log(`[resolveTopOfStack] ${card.name} created ${tokenCreationResult.count} ${tokenCreationResult.name} token(s) for ${controller} (xValue: ${spellXValue ?? 'N/A'})`);
+      console.log(`[resolveTopOfStack] ${effectiveCard.name} created ${tokenCreationResult.count} ${tokenCreationResult.name} token(s) for ${controller} (xValue: ${spellXValue ?? 'N/A'})`);
     }
     
     // Handle extra turn spells (Time Warp, Time Walk, Temporal Mastery, etc.)
-    if (isExtraTurnSpell(card.name, oracleTextLower)) {
+    if (isExtraTurnSpell(effectiveCard.name, oracleTextLower)) {
       // Determine who gets the extra turn
       // Most extra turn spells give the caster an extra turn
       // "Target player takes an extra turn" would need target handling
@@ -2766,8 +2806,8 @@ export function resolveTopOfStack(ctx: GameContext) {
         }
       }
       
-      addExtraTurn(ctx, extraTurnPlayer, card.name || 'Extra turn spell');
-      console.log(`[resolveTopOfStack] Extra turn granted to ${extraTurnPlayer} by ${card.name}`);
+      addExtraTurn(ctx, extraTurnPlayer, effectiveCard.name || 'Extra turn spell');
+      console.log(`[resolveTopOfStack] Extra turn granted to ${extraTurnPlayer} by ${effectiveCard.name}`);
     }
     
     // Handle "each player draws" spells (Vision Skeins, Prosperity, Howling Mine effects, etc.)
@@ -2786,7 +2826,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         if (player && player.id) {
           try {
             const drawn = drawCardsFromZone(ctx, player.id as PlayerID, drawCount);
-            console.log(`[resolveTopOfStack] ${card.name}: ${player.name || player.id} drew ${drawn.length} card(s)`);
+            console.log(`[resolveTopOfStack] ${effectiveCard.name}: ${player.name || player.id} drew ${drawn.length} card(s)`);
           } catch (err) {
             console.warn(`[resolveTopOfStack] Failed to draw cards for ${player.id}:`, err);
           }
@@ -2808,7 +2848,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       
       try {
         const drawn = drawCardsFromZone(ctx, controller, controllerDrawCount);
-        console.log(`[resolveTopOfStack] ${card.name}: Controller ${controller} drew ${drawn.length} card(s)`);
+        console.log(`[resolveTopOfStack] ${effectiveCard.name}: Controller ${controller} drew ${drawn.length} card(s)`);
       } catch (err) {
         console.warn(`[resolveTopOfStack] Failed to draw cards for controller ${controller}:`, err);
       }
@@ -2821,7 +2861,7 @@ export function resolveTopOfStack(ctx: GameContext) {
           if (player && player.id && player.id !== controller) {
             try {
               const drawn = drawCardsFromZone(ctx, player.id as PlayerID, otherDrawCount);
-              console.log(`[resolveTopOfStack] ${card.name}: ${player.name || player.id} drew ${drawn.length} card(s)`);
+              console.log(`[resolveTopOfStack] ${effectiveCard.name}: ${player.name || player.id} drew ${drawn.length} card(s)`);
             } catch (err) {
               console.warn(`[resolveTopOfStack] Failed to draw cards for ${player.id}:`, err);
             }
@@ -2856,7 +2896,7 @@ export function resolveTopOfStack(ctx: GameContext) {
             playerZones.handCount = 0;
             playerZones.graveyardCount = (playerZones.graveyard as any[]).length;
             
-            console.log(`[resolveTopOfStack] ${card.name}: ${player.name || player.id} discarded ${handSize} card(s)`);
+            console.log(`[resolveTopOfStack] ${effectiveCard.name}: ${player.name || player.id} discarded ${handSize} card(s)`);
           }
         }
       }
@@ -2866,7 +2906,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         if (player && player.id && greatestDiscarded > 0) {
           try {
             const drawn = drawCardsFromZone(ctx, player.id as PlayerID, greatestDiscarded);
-            console.log(`[resolveTopOfStack] ${card.name}: ${player.name || player.id} drew ${drawn.length} card(s) (greatest discarded: ${greatestDiscarded})`);
+            console.log(`[resolveTopOfStack] ${effectiveCard.name}: ${player.name || player.id} drew ${drawn.length} card(s) (greatest discarded: ${greatestDiscarded})`);
           } catch (err) {
             console.warn(`[resolveTopOfStack] Failed to draw cards for ${player.id}:`, err);
           }
@@ -2887,16 +2927,16 @@ export function resolveTopOfStack(ctx: GameContext) {
       try {
         // Draw first
         const drawn = drawCardsFromZone(ctx, controller, drawCount);
-        console.log(`[resolveTopOfStack] ${card.name}: ${controller} drew ${drawn.length} card(s)`);
+        console.log(`[resolveTopOfStack] ${effectiveCard.name}: ${controller} drew ${drawn.length} card(s)`);
         
         // Set up pending discard - the socket layer will prompt for discard selection
         (state as any).pendingDiscard = (state as any).pendingDiscard || {};
         (state as any).pendingDiscard[controller] = {
           count: discardCount,
-          source: card.name || 'Spell',
+          source: effectiveCard.name || 'Spell',
           reason: 'spell_effect',
         };
-        console.log(`[resolveTopOfStack] ${card.name}: ${controller} must discard ${discardCount} card(s)`);
+        console.log(`[resolveTopOfStack] ${effectiveCard.name}: ${controller} must discard ${discardCount} card(s)`);
       } catch (err) {
         console.warn(`[resolveTopOfStack] Failed to process draw/discard for ${controller}:`, err);
       }
@@ -2918,13 +2958,13 @@ export function resolveTopOfStack(ctx: GameContext) {
       
       try {
         const drawn = drawCardsFromZone(ctx, controller, drawCount);
-        console.log(`[resolveTopOfStack] ${card.name}: ${controller} drew ${drawn.length} card(s)`);
+        console.log(`[resolveTopOfStack] ${effectiveCard.name}: ${controller} drew ${drawn.length} card(s)`);
         
         // Create treasure tokens
         for (let i = 0; i < treasureCount; i++) {
           createTreasureToken(ctx, controller);
         }
-        console.log(`[resolveTopOfStack] ${card.name}: ${controller} created ${treasureCount} Treasure token(s)`);
+        console.log(`[resolveTopOfStack] ${effectiveCard.name}: ${controller} created ${treasureCount} Treasure token(s)`);
       } catch (err) {
         console.warn(`[resolveTopOfStack] Failed to process draw/treasure for ${controller}:`, err);
       }
@@ -2955,7 +2995,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         
         try {
           const drawn = drawCardsFromZone(ctx, controller, drawCount);
-          console.log(`[resolveTopOfStack] ${card.name}: ${controller} drew ${drawn.length} card(s) (simple draw spell)`);
+          console.log(`[resolveTopOfStack] ${effectiveCard.name}: ${controller} drew ${drawn.length} card(s) (simple draw spell)`);
         } catch (err) {
           console.warn(`[resolveTopOfStack] Failed to draw cards for ${controller}:`, err);
         }
@@ -2974,7 +3014,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         destination: tutorInfo.destination || 'hand',
         tapped: tutorInfo.entersTapped ?? (tutorInfo.destination === 'battlefield'), // Cards put onto battlefield from tutors are usually tapped
         optional: tutorInfo.optional || false,
-        source: card.name || 'Tutor',
+        source: effectiveCard.name || 'Tutor',
         shuffleAfter: true,
         maxSelections: tutorInfo.maxSelections || 1,
         // For split-destination effects (Kodama's Reach, Cultivate)
@@ -2983,12 +3023,12 @@ export function resolveTopOfStack(ctx: GameContext) {
         toHand: tutorInfo.toHand,
         entersTapped: tutorInfo.entersTapped,
       };
-      console.log(`[resolveTopOfStack] Tutor spell ${card.name}: ${controller} may search for ${tutorInfo.searchCriteria || 'a card'} (destination: ${tutorInfo.destination}, split: ${tutorInfo.splitDestination || false})`);
+      console.log(`[resolveTopOfStack] Tutor spell ${effectiveCard.name}: ${controller} may search for ${tutorInfo.searchCriteria || 'a card'} (destination: ${tutorInfo.destination}, split: ${tutorInfo.splitDestination || false})`);
     }
     
     // Handle Gift of Estates - "If an opponent controls more lands than you, 
     // search your library for up to three Plains cards, reveal them, put them into your hand, then shuffle."
-    const isGiftOfEstates = card.name?.toLowerCase().includes('gift of estates') ||
+    const isGiftOfEstates = effectiveCard.name?.toLowerCase().includes('gift of estates') ||
         (oracleTextLower.includes('opponent controls more lands') && 
          oracleTextLower.includes('search') && 
          oracleTextLower.includes('plains'));
@@ -3023,7 +3063,7 @@ export function resolveTopOfStack(ctx: GameContext) {
           destination: 'hand',
           tapped: false,
           optional: true,
-          source: card.name || 'Gift of Estates',
+          source: effectiveCard.name || 'Gift of Estates',
           shuffleAfter: true,
           maxSelections: 3,
           filter: { subtypes: ['Plains'] },
@@ -3036,7 +3076,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Handle Traverse the Outlands - "Search your library for up to X basic land cards, 
     // where X is the greatest power among creatures you control"
-    const isTraverseOutlands = card.name?.toLowerCase().includes('traverse the outlands') ||
+    const isTraverseOutlands = effectiveCard.name?.toLowerCase().includes('traverse the outlands') ||
         (oracleTextLower.includes('search your library') && 
          oracleTextLower.includes('greatest power') && 
          oracleTextLower.includes('basic land'));
@@ -3105,7 +3145,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         destination: 'battlefield',
         tapped: true,
         optional: true,
-        source: card.name || 'Traverse the Outlands',
+        source: effectiveCard.name || 'Traverse the Outlands',
         shuffleAfter: true,
         maxSelections: greatestPower,
         filter: { types: ['land'], supertypes: ['basic'] },
@@ -3115,7 +3155,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Handle Boundless Realms - "Search your library for up to X basic land cards, 
     // where X is the number of lands you control"
-    const isBoundlessRealms = card.name?.toLowerCase().includes('boundless realms') ||
+    const isBoundlessRealms = effectiveCard.name?.toLowerCase().includes('boundless realms') ||
         (oracleTextLower.includes('search your library') && 
          oracleTextLower.includes('number of lands you control') && 
          oracleTextLower.includes('basic land'));
@@ -3137,7 +3177,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         destination: 'battlefield',
         tapped: true,
         optional: true,
-        source: card.name || 'Boundless Realms',
+        source: effectiveCard.name || 'Boundless Realms',
         shuffleAfter: true,
         maxSelections: landCount,
         filter: { types: ['land'], supertypes: ['basic'] },
@@ -3147,7 +3187,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Handle Jaheira's Respite - "Search your library for up to X basic land cards, 
     // where X is the number of creatures attacking you"
-    const isJaheirasRespite = card.name?.toLowerCase().includes("jaheira's respite") ||
+    const isJaheirasRespite = effectiveCard.name?.toLowerCase().includes("jaheira's respite") ||
         (oracleTextLower.includes('search your library') && 
          oracleTextLower.includes('number of creatures attacking you') && 
          oracleTextLower.includes('basic land'));
@@ -3168,7 +3208,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         destination: 'battlefield',
         tapped: true,
         optional: true,
-        source: card.name || "Jaheira's Respite",
+        source: effectiveCard.name || "Jaheira's Respite",
         shuffleAfter: true,
         maxSelections: attackingController,
         filter: { types: ['land'], supertypes: ['basic'] },
@@ -3178,7 +3218,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Handle Path to Exile - exile target creature, controller may search for basic land
     // Use captured target info from BEFORE the exile happened
-    const isPathToExile = card.name?.toLowerCase().includes('path to exile') || 
+    const isPathToExile = effectiveCard.name?.toLowerCase().includes('path to exile') || 
         (oracleTextLower.includes('exile target creature') && 
          oracleTextLower.includes('search') && 
          oracleTextLower.includes('basic land'));
@@ -3192,14 +3232,14 @@ export function resolveTopOfStack(ctx: GameContext) {
         destination: 'battlefield',
         tapped: true,
         optional: true,
-        source: card.name || 'Path to Exile',
+        source: effectiveCard.name || 'Path to Exile',
       };
       console.log(`[resolveTopOfStack] Path to Exile: ${targetControllerForRemovalEffects} may search for a basic land (tapped)`);
     }
     
     // Handle Swords to Plowshares - "Exile target creature. Its controller gains life equal to its power."
     // Use captured target info from BEFORE the exile happened
-    const isSwordsToPlowshares = card.name?.toLowerCase().includes('swords to plowshares') || 
+    const isSwordsToPlowshares = effectiveCard.name?.toLowerCase().includes('swords to plowshares') || 
         (oracleTextLower.includes('exile target creature') && 
          oracleTextLower.includes('gains life equal to'));
     
@@ -3227,7 +3267,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Handle Fateful Absence - "Destroy target creature or planeswalker. Its controller investigates."
     // Use captured target info from BEFORE the destroy happened
-    const isFatefulAbsence = card.name?.toLowerCase().includes('fateful absence') ||
+    const isFatefulAbsence = effectiveCard.name?.toLowerCase().includes('fateful absence') ||
         (oracleTextLower.includes('destroy target creature') && 
          oracleTextLower.includes('investigates'));
     
@@ -3257,7 +3297,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Handle Get Lost - "Destroy target creature, enchantment, or planeswalker. Its controller creates two Map tokens."
     // Use captured target info from BEFORE the destroy happened
-    const isGetLost = card.name?.toLowerCase().includes('get lost') ||
+    const isGetLost = effectiveCard.name?.toLowerCase().includes('get lost') ||
         (oracleTextLower.includes('destroy target creature') && 
          oracleTextLower.includes('map token'));
     
@@ -3289,7 +3329,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Handle Entrapment Maneuver - "Target player sacrifices an attacking creature. 
     // You create X 1/1 white Soldier creature tokens, where X is that creature's toughness."
-    const isEntrapmentManeuver = card.name?.toLowerCase().includes('entrapment maneuver') ||
+    const isEntrapmentManeuver = effectiveCard.name?.toLowerCase().includes('entrapment maneuver') ||
       (oracleTextLower.includes('sacrifices an attacking creature') && 
        oracleTextLower.includes('create') && 
        oracleTextLower.includes('soldier') &&
@@ -3312,7 +3352,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         // The target player chooses which attacking creature to sacrifice
         (state as any).pendingEntrapmentManeuver = (state as any).pendingEntrapmentManeuver || {};
         (state as any).pendingEntrapmentManeuver[targetPlayerId] = {
-          source: card.name || 'Entrapment Maneuver',
+          source: effectiveCard.name || 'Entrapment Maneuver',
           caster: controller,
           attackingCreatures: attackingCreatures.map((c: any) => ({
             id: c.id,
@@ -3331,7 +3371,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Handle Chaos Warp - "The owner of target permanent shuffles it into their library, 
     // then reveals the top card of their library. If it's a permanent card, they put it onto the battlefield."
-    const isChaosWarp = card.name?.toLowerCase().includes('chaos warp') ||
+    const isChaosWarp = effectiveCard.name?.toLowerCase().includes('chaos warp') ||
       (oracleTextLower.includes('shuffles it into their library') && 
        oracleTextLower.includes('reveals the top card') &&
        oracleTextLower.includes('permanent'));
@@ -3476,65 +3516,65 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Handle Join Forces spells (Mind's Aglow, Collective Voyage, etc.)
     // These require all players to have the option to contribute mana
-    const cardNameLower = (card.name || '').toLowerCase();
-    console.log(`[resolveTopOfStack] Checking if ${card.name} is a Join Forces spell...`);
-    if (isJoinForcesSpell(card.name, oracleTextLower)) {
+    const cardNameLower = (effectiveCard.name || '').toLowerCase();
+    console.log(`[resolveTopOfStack] Checking if ${effectiveCard.name} is a Join Forces spell...`);
+    if (isJoinForcesSpell(effectiveCard.name, oracleTextLower)) {
       // Set up pending join forces - this signals to the socket layer to initiate the contribution phase
       (state as any).pendingJoinForces = (state as any).pendingJoinForces || [];
       (state as any).pendingJoinForces.push({
         id: uid("jf"),
         controller,
-        cardName: card.name || 'Join Forces Spell',
+        cardName: effectiveCard.name || 'Join Forces Spell',
         effectDescription: oracleText,
-        imageUrl: card.image_uris?.normal || card.image_uris?.small,
+        imageUrl: effectiveCard.image_uris?.normal || effectiveCard.image_uris?.small,
       });
-      console.log(`[resolveTopOfStack] Join Forces spell ${card.name} waiting for player contributions (pendingJoinForces count: ${(state as any).pendingJoinForces.length})`);
+      console.log(`[resolveTopOfStack] Join Forces spell ${effectiveCard.name} waiting for player contributions (pendingJoinForces count: ${(state as any).pendingJoinForces.length})`);
     } else {
-      console.log(`[resolveTopOfStack] ${card.name} is NOT a Join Forces spell (name: "${cardNameLower}", has 'join forces': ${oracleTextLower.includes('join forces')})`);
+      console.log(`[resolveTopOfStack] ${effectiveCard.name} is NOT a Join Forces spell (name: "${cardNameLower}", has 'join forces': ${oracleTextLower.includes('join forces')})`);
     }
     
     // Handle Tempting Offer spells (Tempt with Discovery, Tempt with Glory, etc.)
     // These require each opponent to choose whether to accept the offer
-    console.log(`[resolveTopOfStack] Checking if ${card.name} is a Tempting Offer spell...`);
-    if (isTemptingOfferSpell(card.name, oracleTextLower)) {
+    console.log(`[resolveTopOfStack] Checking if ${effectiveCard.name} is a Tempting Offer spell...`);
+    if (isTemptingOfferSpell(effectiveCard.name, oracleTextLower)) {
       // Set up pending tempting offer - this signals to the socket layer to initiate the offer phase
       (state as any).pendingTemptingOffer = (state as any).pendingTemptingOffer || [];
       (state as any).pendingTemptingOffer.push({
         id: uid("tempt"),
         controller,
-        cardName: card.name || 'Tempting Offer Spell',
+        cardName: effectiveCard.name || 'Tempting Offer Spell',
         effectDescription: oracleText,
-        imageUrl: card.image_uris?.normal || card.image_uris?.small,
+        imageUrl: effectiveCard.image_uris?.normal || effectiveCard.image_uris?.small,
       });
-      console.log(`[resolveTopOfStack] Tempting Offer spell ${card.name} waiting for opponent responses (pendingTemptingOffer count: ${(state as any).pendingTemptingOffer.length})`);
+      console.log(`[resolveTopOfStack] Tempting Offer spell ${effectiveCard.name} waiting for opponent responses (pendingTemptingOffer count: ${(state as any).pendingTemptingOffer.length})`);
     } else {
-      console.log(`[resolveTopOfStack] ${card.name} is NOT a Tempting Offer spell`);
+      console.log(`[resolveTopOfStack] ${effectiveCard.name} is NOT a Tempting Offer spell`);
     }
     
     // Handle Ponder-style effects (look at top N, reorder, optionally shuffle, then draw)
     // Pattern: "Look at the top N cards of your library, then put them back in any order"
-    if (isPonderStyleSpell(card.name, oracleTextLower)) {
-      const ponderConfig = getPonderConfig(card.name, oracleTextLower);
+    if (isPonderStyleSpell(effectiveCard.name, oracleTextLower)) {
+      const ponderConfig = getPonderConfig(effectiveCard.name, oracleTextLower);
       
       // Set up pending ponder - the socket layer will send the peek prompt
       (state as any).pendingPonder = (state as any).pendingPonder || {};
       (state as any).pendingPonder[controller] = {
         effectId: uid("ponder"),
         cardCount: ponderConfig.cardCount,
-        cardName: card.name || 'Ponder',
+        cardName: effectiveCard.name || 'Ponder',
         variant: ponderConfig.variant,
         canShuffle: ponderConfig.canShuffle,
         drawAfter: ponderConfig.drawAfter,
         pickToHand: ponderConfig.pickToHand,
         targetPlayerId: controller,
-        imageUrl: card.image_uris?.normal || card.image_uris?.small,
+        imageUrl: effectiveCard.image_uris?.normal || effectiveCard.image_uris?.small,
       };
-      console.log(`[resolveTopOfStack] Ponder-style spell ${card.name} set up pending effect (variant: ${ponderConfig.variant}, cards: ${ponderConfig.cardCount})`);
+      console.log(`[resolveTopOfStack] Ponder-style spell ${effectiveCard.name} set up pending effect (variant: ${ponderConfig.variant}, cards: ${ponderConfig.cardCount})`);
     }
     
     // Handle Approach of the Second Sun - goes 7th from top of library, not graveyard
     // Also track that it was cast for win condition checking
-    const isApproach = (card.name || '').toLowerCase().includes('approach of the second sun') ||
+    const isApproach = (effectiveCard.name || '').toLowerCase().includes('approach of the second sun') ||
                        (oracleTextLower.includes('put it into its owner\'s library seventh from the top') &&
                         oracleTextLower.includes('you win the game'));
     
@@ -3604,7 +3644,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         });
         z.exileCount = (z.exile as any[]).length;
         
-        console.log(`[resolveTopOfStack] Adventure spell ${card.name || 'unnamed'} resolved and exiled for ${controller}`);
+        console.log(`[resolveTopOfStack] Adventure spell ${effectiveCard.name || 'unnamed'} resolved and exiled for ${controller}`);
       } else {
         // Regular instant/sorcery - goes to graveyard
         z.graveyard = z.graveyard || [];
