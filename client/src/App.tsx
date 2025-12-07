@@ -661,6 +661,13 @@ export function App() {
         aiDeckText: config.aiDeckText,
         aiDeckName: config.aiDeckName,
       });
+    } else {
+      // Create game without AI (human players only)
+      socket.emit('createGame' as any, {
+        gameId: config.gameId,
+        format: config.format,
+        startingLife: config.startingLife,
+      });
     }
     
     // Update the input fields and join the game

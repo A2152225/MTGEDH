@@ -2496,6 +2496,52 @@ export async function handleAIMulligan(
  * Register socket handlers for AI management
  */
 export function registerAIHandlers(io: Server, socket: Socket): void {
+  // Create game without AI (human players only)
+  socket.on('createGame', async ({
+    gameId,
+    format,
+    startingLife,
+  }: {
+    gameId: string;
+    format?: string;
+    startingLife?: number;
+  }) => {
+    try {
+      console.info('[Game] Creating game without AI:', { gameId, format, startingLife });
+      
+      // Create a NEW game using GameManager.createGame() which handles DB persistence
+      let game = GameManager.getGame(gameId);
+      if (!game) {
+        try {
+          game = GameManager.createGame({ id: gameId });
+          console.info('[Game] Created new game via GameManager:', gameId);
+        } catch (createErr: any) {
+          // Game might already exist (race condition), try to get it again
+          game = GameManager.getGame(gameId);
+          if (!game) {
+            console.error('[Game] Failed to create or get game:', createErr);
+            socket.emit('error', { code: 'GAME_CREATE_FAILED', message: 'Failed to create game' });
+            return;
+          }
+          console.info('[Game] Game was created by another request, reusing:', gameId);
+        }
+      }
+      
+      // Set format and starting life
+      game.state = (game.state || {}) as any;
+      (game.state as any).format = format || 'commander';
+      (game.state as any).startingLife = startingLife || (format === 'commander' ? 40 : 20);
+      
+      console.info('[Game] Game created successfully:', { gameId, format: (game.state as any).format, startingLife: (game.state as any).startingLife });
+    } catch (err) {
+      console.error('[Game] Error creating game:', err);
+      socket.emit('error', { 
+        code: 'GAME_CREATE_FAILED', 
+        message: err instanceof Error ? err.message : 'Failed to create game' 
+      });
+    }
+  });
+
   // Create game with AI opponent
   socket.on('createGameWithAI', async ({
     gameId,

@@ -12,6 +12,7 @@ import { getUpkeepTriggersForPlayer } from "../state/modules/upkeep-triggers";
 import { categorizeSpell, evaluateTargeting, requiresTargeting, parseTargetRequirements } from "../rules-engine/targeting";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts } from "../state/modules/game-state-effects";
 import { PAY_X_LIFE_CARDS, getMaxPayableLife, validateLifePayment, uid } from "../state/utils";
+import { detectTutorEffect, parseSearchCriteria, type TutorInfo } from "./interaction";
 
 // Import land-related helpers from modularized module
 import {
@@ -3425,64 +3426,65 @@ export function registerGameActions(io: Server, socket: Socket) {
           
           // Check if the resolved spell has a tutor effect (search library)
           if (resolvedCard && resolvedController) {
-            const oracleText = (resolvedCard.oracle_text || '').toLowerCase();
+            const oracleText = resolvedCard.oracle_text || '';
             const typeLine = (resolvedCard.type_line || '').toLowerCase();
             const isInstantOrSorcery = typeLine.includes('instant') || typeLine.includes('sorcery');
             
-            if (isInstantOrSorcery && oracleText.includes('search your library')) {
-              // This spell has a tutor effect - trigger library search
-              const cardName = resolvedCard.name || 'Spell';
+            if (isInstantOrSorcery && oracleText.toLowerCase().includes('search your library')) {
+              // Use the comprehensive tutor detection function
+              const tutorInfo = detectTutorEffect(oracleText);
               
-              // Parse what we're searching for
-              let searchDescription = 'Search your library for a card';
-              const forMatch = oracleText.match(/search your library for (?:a|an|up to \w+) ([^,\.]+)/i);
-              if (forMatch) {
-                searchDescription = `Search for: ${forMatch[1].trim()}`;
-              }
-              
-              // Detect destination
-              let moveTo = 'hand';
-              if (oracleText.includes('put it onto the battlefield') || 
-                  oracleText.includes('put that card onto the battlefield')) {
-                moveTo = 'battlefield';
-              } else if (oracleText.includes('put it on top of your library') || 
-                         oracleText.includes('put that card on top')) {
-                moveTo = 'top';
-              }
-              
-              // Build filter for specific card types
-              const filter: { types?: string[]; subtypes?: string[] } = {};
-              const types: string[] = [];
-              if (oracleText.includes('planeswalker')) types.push('planeswalker');
-              if (oracleText.includes('creature')) types.push('creature');
-              if (oracleText.includes('artifact')) types.push('artifact');
-              if (oracleText.includes('enchantment')) types.push('enchantment');
-              if (oracleText.includes('land')) types.push('land');
-              if (types.length > 0) filter.types = types;
-              
-              // Get library for the spell's controller
-              const library = typeof game.searchLibrary === 'function' 
-                ? game.searchLibrary(resolvedController, "", 1000) 
-                : [];
-              
-              // Find the socket for the controller and send library search request
-              for (const s of io.sockets.sockets.values()) {
-                if (s.data?.playerId === resolvedController && !s.data?.spectator) {
-                  s.emit("librarySearchRequest", {
-                    gameId,
-                    cards: library,
-                    title: cardName,
-                    description: searchDescription,
-                    filter,
-                    maxSelections: 1,
-                    moveTo,
-                    shuffleAfter: true,
-                  });
-                  break;
+              if (tutorInfo.isTutor) {
+                const cardName = resolvedCard.name || 'Spell';
+                
+                // Parse search criteria for filter
+                const filter = parseSearchCriteria(tutorInfo.searchCriteria || '');
+                
+                // Get library for the spell's controller
+                const library = typeof game.searchLibrary === 'function' 
+                  ? game.searchLibrary(resolvedController, "", 1000) 
+                  : [];
+                
+                // Find the socket for the controller and send library search request
+                for (const s of io.sockets.sockets.values()) {
+                  if (s.data?.playerId === resolvedController && !s.data?.spectator) {
+                    // Check if this is a split-destination effect (Cultivate, Kodama's Reach)
+                    if (tutorInfo.splitDestination) {
+                      s.emit("librarySearchRequest", {
+                        gameId,
+                        cards: library,
+                        title: cardName,
+                        description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : 'Search your library',
+                        filter,
+                        maxSelections: tutorInfo.maxSelections || 2,
+                        moveTo: 'split',
+                        splitDestination: true,
+                        toBattlefield: tutorInfo.toBattlefield || 1,
+                        toHand: tutorInfo.toHand || 1,
+                        entersTapped: tutorInfo.entersTapped || false,
+                        shuffleAfter: true,
+                      });
+                    } else {
+                      // Regular tutor effect
+                      s.emit("librarySearchRequest", {
+                        gameId,
+                        cards: library,
+                        title: cardName,
+                        description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : 'Search your library',
+                        filter,
+                        maxSelections: tutorInfo.maxSelections || 1,
+                        moveTo: tutorInfo.destination || 'hand',
+                        shuffleAfter: true,
+                      });
+                    }
+                    break;
+                  }
                 }
+                
+                console.log(`[passPriority] Triggered library search for ${cardName} by ${resolvedController} (destination: ${tutorInfo.splitDestination ? 'split' : tutorInfo.destination})`);
               }
-              
-              console.log(`[passPriority] Triggered library search for ${cardName} by ${resolvedController}`);
+            }
+          }
             }
           }
         }

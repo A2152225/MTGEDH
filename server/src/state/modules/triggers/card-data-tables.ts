@@ -64,7 +64,8 @@ export const KNOWN_ATTACK_TRIGGERS: Record<string, {
   effect: string; 
   value?: number; 
   putFromHand?: boolean; 
-  tappedAndAttacking?: boolean; 
+  tappedAndAttacking?: boolean;
+  conditionalTappedAttacking?: 'enchantment'; // For Summoner's Grimoire - only enchantment creatures
   createTokens?: { 
     count: number; 
     power: number; 
@@ -105,6 +106,7 @@ export const KNOWN_ATTACK_TRIGGERS: Record<string, {
   "isshin, two heavens as one": { effect: "Attack triggers happen twice" },
   "winota, joiner of forces": { effect: "Look for a Human, put onto battlefield tapped and attacking", putFromHand: false, tappedAndAttacking: true },
   "ilharg, the raze-boar": { effect: "Put a creature from hand onto battlefield tapped and attacking", putFromHand: true, tappedAndAttacking: true },
+  "summoner's grimoire": { effect: "Put a creature card from hand onto battlefield (if enchantment, enters tapped and attacking)", putFromHand: true, conditionalTappedAttacking: 'enchantment' },
   "sneak attack": { effect: "Put creature from hand, sacrifice at end step", putFromHand: true },
   "champion of rhonas": { effect: "Exert to put creature from hand", putFromHand: true },
   "elvish piper": { effect: "Put creature from hand onto battlefield" }, // Not attack trigger but related
@@ -554,6 +556,10 @@ export const KNOWN_ETB_TRIGGERS: Record<string, {
   "hero's blade": {
     effect: "Whenever a legendary creature enters the battlefield under your control, you may attach Hero's Blade to it",
     triggerOn: 'creature',
+  },
+  "bane of progress": {
+    effect: "Destroy all artifacts and enchantments, then put a +1/+1 counter on Bane of Progress for each permanent destroyed this way",
+    triggerOn: 'self',
   },
 };
 
