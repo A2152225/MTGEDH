@@ -239,7 +239,8 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   // This is a complex pattern: artifacts/battles/enchantments without restriction, OR creatures with flying
   if (/artifact,?\s+battle,?\s+enchantment,?\s+or creature with flying/.test(t)) {
     // All four types, but creatures need flying
-    multiFilter = ['ARTIFACT', 'PERMANENT', 'ENCHANTMENT', 'CREATURE']; // PERMANENT covers battles
+    // Note: Battles use PERMANENT filter since there's no dedicated BATTLE filter type
+    multiFilter = ['ARTIFACT', 'PERMANENT', 'ENCHANTMENT', 'CREATURE'];
     filter = 'ARTIFACT'; // Primary filter
     // Add restriction for creatures only - they must have flying
     creatureRestriction = {
@@ -255,10 +256,11 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   }
   // Pattern: "artifact, battle, enchantment" or similar multi-type without creature restriction
   else if (/artifact,?\s+(?:battle,?\s+)?enchantment/.test(t) || /battle,?\s+(?:artifact,?\s+)?enchantment/.test(t)) {
-    // Complex multi-type - need to parse all types
+    // Complex multi-type - parse all types mentioned
+    // Note: Battles use PERMANENT filter since there's no dedicated BATTLE filter type
     const types: PermanentFilter[] = [];
     if (hasArtifact) types.push('ARTIFACT');
-    if (hasBattle) types.push('PERMANENT'); // Battle will be checked separately
+    if (hasBattle) types.push('PERMANENT'); // Represents battles
     if (hasEnchantment) types.push('ENCHANTMENT');
     if (hasCreature) types.push('CREATURE');
     filter = types[0] || 'PERMANENT';
@@ -591,7 +593,7 @@ function matchesFilter(p: BattlefieldPermanent, filter: PermanentFilter): boolea
     case 'ARTIFACT': return isArtifact(p);
     case 'ENCHANTMENT': return isEnchantment(p);
     case 'LAND': return isLand(p);
-    case 'PERMANENT': return true; // All permanents match
+    case 'PERMANENT': return true; // All permanents match (including battles, artifacts, creatures, etc.)
     case 'ANY': return isCreature(p) || isPlaneswalker(p); // "Any target" only includes creatures/planeswalkers/players
     default: return false;
   }
@@ -910,10 +912,12 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
         // Also check for keywords granted by auras and equipment attached to this creature
         if (!meetsRestriction) {
           const attachments = state.battlefield.filter((att: any) => att.attachedTo === p.id);
+          // Pre-compile the regex pattern once before the loop
+          const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const grantsKeywordPattern = new RegExp(`(enchanted|equipped)\\s+creature\\s+has\\s+${escapedKeyword}`, 'i');
+          
           for (const attachment of attachments) {
             const attOracle = ((attachment.card as any)?.oracle_text || '').toLowerCase();
-            const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const grantsKeywordPattern = new RegExp(`(enchanted|equipped)\\s+creature\\s+has\\s+${escapedKeyword}`, 'i');
             if (grantsKeywordPattern.test(attOracle)) {
               meetsRestriction = true;
               break;
