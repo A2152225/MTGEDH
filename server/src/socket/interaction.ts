@@ -2835,6 +2835,33 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
+    // Handle Multi-Mode abilities (Staff of Domination, Trading Post, etc.)
+    // Import the multi-mode ability detection from triggered-abilities
+    const { detectMultiModeAbility } = await import("../state/modules/triggered-abilities.js");
+    const multiModeAbility = detectMultiModeAbility(card, permanent);
+    const isMultiModeAbility = multiModeAbility && (
+      abilityId.includes("multi-mode") || 
+      abilityId.includes("staff") ||
+      cardName.toLowerCase().includes("staff of domination") ||
+      cardName.toLowerCase().includes("trading post")
+    );
+    
+    if (isMultiModeAbility && multiModeAbility) {
+      // Emit mode selection request to client
+      socket.emit("multiModeActivationRequest", {
+        gameId,
+        permanent: {
+          id: permanentId,
+          name: cardName,
+          imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+        },
+        modes: multiModeAbility.modes,
+      });
+      
+      console.log(`[activateBattlefieldAbility] Multi-mode ability on ${cardName}: prompting for mode selection`);
+      return;
+    }
+    
     // Handle Station abilities (Spacecraft cards)
     // Station N: Add charge counters, becomes creature when threshold is met
     const isSpacecraft = typeLine.includes("spacecraft");
@@ -5861,5 +5888,148 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     // Broadcast updates
     broadcastGame(io, game, gameId);
+  });
+
+  /**
+   * Handle multi-mode ability activation confirmation
+   * Used for abilities like Staff of Domination with multiple modes
+   */
+  socket.on("confirmMultiModeActivation", async ({ 
+    gameId, 
+    permanentId, 
+    modeIndex 
+  }: {
+    gameId: string;
+    permanentId: string;
+    modeIndex: number;
+  }) => {
+    const game = ensureGame(gameId);
+    if (!game || !game.state) return;
+
+    const pid = (socket as any).playerId as PlayerID;
+    if (!pid) {
+      socket.emit("error", { code: "NO_PLAYER_ID", message: "No player ID associated with this socket" });
+      return;
+    }
+
+    // Find the permanent
+    const battlefield = game.state.battlefield || [];
+    const permanent = battlefield.find((p: any) => p.id === permanentId && p.controller === pid);
+    
+    if (!permanent) {
+      socket.emit("error", { code: "PERMANENT_NOT_FOUND", message: "Permanent not found or not controlled by you" });
+      return;
+    }
+
+    const card = (permanent as any).card;
+    const cardName = card?.name || "Unknown";
+
+    // Get multi-mode ability info
+    const { detectMultiModeAbility } = await import("../state/modules/triggered-abilities.js");
+    const multiModeAbility = detectMultiModeAbility(card, permanent);
+    
+    if (!multiModeAbility || modeIndex < 0 || modeIndex >= multiModeAbility.modes.length) {
+      socket.emit("error", { code: "INVALID_MODE", message: "Invalid mode selection" });
+      return;
+    }
+
+    const selectedMode = multiModeAbility.modes[modeIndex];
+    
+    // Parse and validate the cost
+    const costStr = selectedMode.cost;
+    const requiresTap = costStr.includes('{T}') || costStr.toLowerCase().includes('tap');
+    
+    if (requiresTap && (permanent as any).tapped) {
+      socket.emit("error", { code: "ALREADY_TAPPED", message: `${cardName} is already tapped` });
+      return;
+    }
+
+    // Parse mana cost
+    const manaCostMatch = costStr.match(/\{[^}]+\}/g);
+    const manaCost = manaCostMatch ? manaCostMatch.filter(c => !c.includes('T') && !c.toLowerCase().includes('tap')).join('') : "";
+    
+    if (manaCost) {
+      const parsedCost = parseManaCost(manaCost);
+      const pool = getOrInitManaPool(game.state, pid);
+      const totalAvailable = calculateTotalAvailableMana(pool, []);
+      
+      const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+      if (validationError) {
+        socket.emit("error", { code: "INSUFFICIENT_MANA", message: validationError });
+        return;
+      }
+      
+      consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[confirmMultiModeActivation]');
+    }
+
+    // Tap the permanent if required
+    if (requiresTap) {
+      (permanent as any).tapped = true;
+    }
+
+    // Handle mode effects
+    if (selectedMode.requiresTarget) {
+      // If mode requires a target, emit target selection request
+      // For now, we'll handle simple non-targeting modes
+      socket.emit("error", { 
+        code: "NOT_IMPLEMENTED", 
+        message: "Targeting modes not yet implemented for multi-mode abilities" 
+      });
+      return;
+    }
+
+    // Execute the ability effect based on the mode
+    let effectExecuted = false;
+    const modeName = selectedMode.name.toLowerCase();
+    
+    // Staff of Domination modes
+    if (modeName.includes("untap staff")) {
+      (permanent as any).tapped = false;
+      effectExecuted = true;
+    } else if (modeName.includes("draw card")) {
+      // Draw a card
+      const zones = (game.state as any)?.zones?.[pid];
+      if (zones && zones.library && zones.library.length > 0) {
+        const drawnCard = zones.library.shift();
+        zones.hand = zones.hand || [];
+        zones.hand.push(drawnCard);
+        zones.handCount = zones.hand.length;
+        zones.libraryCount = zones.library.length;
+        effectExecuted = true;
+      }
+    } else if (modeName.includes("gain") && modeName.includes("life")) {
+      // Gain life
+      const lifeGain = parseInt(modeName.match(/\d+/)?.[0] || "1", 10);
+      if (!(game.state as any).life) (game.state as any).life = {};
+      const currentLife = (game.state as any).life[pid] ?? 40;
+      (game.state as any).life[pid] = currentLife + lifeGain;
+      effectExecuted = true;
+    }
+
+    if (effectExecuted) {
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} activated ${cardName}: ${selectedMode.name}`,
+        ts: Date.now(),
+      });
+
+      appendGameEvent(game, {
+        type: 'ability_activated',
+        playerId: pid,
+        permanentId,
+        abilityName: selectedMode.name,
+        source: cardName,
+        ts: Date.now(),
+      } as any);
+
+      broadcastGame(io, game, gameId);
+    } else {
+      socket.emit("error", { 
+        code: "NOT_IMPLEMENTED", 
+        message: `Effect for "${selectedMode.name}" not yet implemented` 
+      });
+    }
   });
 }

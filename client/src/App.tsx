@@ -50,6 +50,7 @@ import { TemptingOfferModal, type TemptingOfferRequest } from "./components/Temp
 import { CommanderZoneChoiceModal } from "./components/CommanderZoneChoiceModal";
 import { TapUntapTargetModal } from "./components/TapUntapTargetModal";
 import { CounterMovementModal } from "./components/CounterMovementModal";
+import { MultiModeActivationModal, type AbilityMode } from "./components/MultiModeActivationModal";
 import { PonderModal, type PeekCard, type PonderVariant } from "./components/PonderModal";
 import { ExploreModal, type ExploreCard } from "./components/ExploreModal";
 import { BatchExploreModal, type ExploreResult } from "./components/BatchExploreModal";
@@ -564,6 +565,15 @@ export function App() {
     };
     title?: string;
     description?: string;
+  } | null>(null);
+  
+  // Multi-Mode Activation Modal state - for Staff of Domination, Trading Post, etc.
+  const [multiModeActivationModalOpen, setMultiModeActivationModalOpen] = useState(false);
+  const [multiModeActivationModalData, setMultiModeActivationModalData] = useState<{
+    permanentId: string;
+    permanentName: string;
+    permanentImageUrl?: string;
+    modes: AbilityMode[];
   } | null>(null);
   
   // Mana Distribution Modal state - for Selvala, Heart of the Wilds, etc.
@@ -2142,10 +2152,28 @@ export function App() {
     };
     socket.on("counterMovementRequest", handleCounterMovementRequest);
     
+    // Multi-Mode Activation Request handler
+    const handleMultiModeActivationRequest = (data: {
+      gameId: string;
+      permanent: { id: string; name: string; imageUrl?: string };
+      modes: AbilityMode[];
+    }) => {
+      if (!safeView || data.gameId !== safeView.id) return;
+      setMultiModeActivationModalData({
+        permanentId: data.permanent.id,
+        permanentName: data.permanent.name,
+        permanentImageUrl: data.permanent.imageUrl,
+        modes: data.modes,
+      });
+      setMultiModeActivationModalOpen(true);
+    };
+    socket.on("multiModeActivationRequest", handleMultiModeActivationRequest);
+    
     return () => {
       socket.off("opponentMayPayPrompt", handleOpponentMayPayPrompt);
       socket.off("tapUntapTargetRequest", handleTapUntapTargetRequest);
       socket.off("counterMovementRequest", handleCounterMovementRequest);
+      socket.off("multiModeActivationRequest", handleMultiModeActivationRequest);
     };
   }, [safeView?.id, you]);
 
@@ -4337,6 +4365,32 @@ export function App() {
         onCancel={() => {
           setCounterMovementModalOpen(false);
           setCounterMovementModalData(null);
+        }}
+      />
+
+      {/* Multi-Mode Activation Modal - for Staff of Domination and similar multi-mode abilities */}
+      <MultiModeActivationModal
+        open={multiModeActivationModalOpen}
+        permanent={{
+          id: multiModeActivationModalData?.permanentId || "",
+          name: multiModeActivationModalData?.permanentName || "",
+          imageUrl: multiModeActivationModalData?.permanentImageUrl,
+        }}
+        modes={multiModeActivationModalData?.modes || []}
+        onSelectMode={(modeIndex) => {
+          if (multiModeActivationModalData && safeView) {
+            socket.emit("confirmMultiModeActivation", {
+              gameId: safeView.id,
+              permanentId: multiModeActivationModalData.permanentId,
+              modeIndex,
+            });
+            setMultiModeActivationModalOpen(false);
+            setMultiModeActivationModalData(null);
+          }
+        }}
+        onCancel={() => {
+          setMultiModeActivationModalOpen(false);
+          setMultiModeActivationModalData(null);
         }}
       />
 
