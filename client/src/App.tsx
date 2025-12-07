@@ -35,6 +35,7 @@ import { SplitCardChoiceModal, type CardFaceOption } from "./components/SplitCar
 import { CreatureTypeSelectModal } from "./components/CreatureTypeSelectModal";
 import { AppearanceSettingsModal } from "./components/AppearanceSettingsModal";
 import { LifePaymentModal } from "./components/LifePaymentModal";
+import { ManaPaymentTriggerModal } from "./components/ManaPaymentTriggerModal";
 import { ColorChoiceModal } from "./components/ColorChoiceModal";
 import { AnyColorManaModal } from "./components/AnyColorManaModal";
 import { ManaDistributionModal } from "./components/ManaDistributionModal";
@@ -466,6 +467,16 @@ export function App() {
     minPayment: number;
     maxPayment: number;
     effectId?: string;
+  } | null>(null);
+  
+  // Mana Payment Trigger Modal state - for attack triggers with optional mana payment (e.g., Casal)
+  const [manaPaymentTriggerModalOpen, setManaPaymentTriggerModalOpen] = useState(false);
+  const [manaPaymentTriggerModalData, setManaPaymentTriggerModalData] = useState<{
+    triggerId: string;
+    cardName: string;
+    cardImageUrl?: string;
+    manaCost: string;
+    effect: string;
   } | null>(null);
   
   // MDFC Face Selection Modal state - for Modal Double-Faced Cards like Blightstep Pathway
@@ -1321,6 +1332,33 @@ export function App() {
     socket.on("lifePaymentComplete", handler);
     return () => {
       socket.off("lifePaymentComplete", handler);
+    };
+  }, [safeView?.id]);
+
+  // Attack trigger mana payment prompt listener (for Casal, etc.)
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      triggerId: string;
+      cardName: string;
+      cardImageUrl?: string;
+      manaCost: string;
+      effect: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        setManaPaymentTriggerModalData({
+          triggerId: payload.triggerId,
+          cardName: payload.cardName,
+          cardImageUrl: payload.cardImageUrl,
+          manaCost: payload.manaCost,
+          effect: payload.effect,
+        });
+        setManaPaymentTriggerModalOpen(true);
+      }
+    };
+    socket.on("attackTriggerManaPaymentPrompt", handler);
+    return () => {
+      socket.off("attackTriggerManaPaymentPrompt", handler);
     };
   }, [safeView?.id]);
 
@@ -4941,6 +4979,37 @@ export function App() {
         onCancel={() => {
           setLifePaymentModalOpen(false);
           setLifePaymentModalData(null);
+        }}
+      />
+
+      {/* Mana Payment Trigger Modal (Casal attack triggers, etc.) */}
+      <ManaPaymentTriggerModal
+        open={manaPaymentTriggerModalOpen}
+        cardName={manaPaymentTriggerModalData?.cardName || ''}
+        cardImageUrl={manaPaymentTriggerModalData?.cardImageUrl}
+        manaCost={manaPaymentTriggerModalData?.manaCost || ''}
+        effect={manaPaymentTriggerModalData?.effect || ''}
+        onPayMana={() => {
+          if (safeView?.id && manaPaymentTriggerModalData) {
+            socket.emit("respondAttackTriggerPayment", {
+              gameId: safeView.id,
+              triggerId: manaPaymentTriggerModalData.triggerId,
+              payMana: true,
+            });
+            setManaPaymentTriggerModalOpen(false);
+            setManaPaymentTriggerModalData(null);
+          }
+        }}
+        onDecline={() => {
+          if (safeView?.id && manaPaymentTriggerModalData) {
+            socket.emit("respondAttackTriggerPayment", {
+              gameId: safeView.id,
+              triggerId: manaPaymentTriggerModalData.triggerId,
+              payMana: false,
+            });
+            setManaPaymentTriggerModalOpen(false);
+            setManaPaymentTriggerModalData(null);
+          }
         }}
       />
 
