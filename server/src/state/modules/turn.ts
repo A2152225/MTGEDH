@@ -511,6 +511,13 @@ function trackCommanderDamage(
     if (defeatedPlayer && !defeatedPlayer.hasLost) {
       defeatedPlayer.hasLost = true;
       defeatedPlayer.lossReason = `21 or more combat damage from ${attackerCard.name || 'a commander'}`;
+      
+      // Mark player as inactive so they automatically pass priority
+      if (!((ctx as any).inactive instanceof Set)) {
+        (ctx as any).inactive = new Set<string>();
+      }
+      (ctx as any).inactive.add(defendingPlayerId);
+      console.log(`${ts()} [dealCombatDamage] Player ${defendingPlayerId} marked as inactive (commander damage)`);
     }
   }
 }
