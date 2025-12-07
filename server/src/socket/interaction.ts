@@ -24,11 +24,29 @@ import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../..
 // ============================================================================
 
 /**
- * Parse ability text to determine tap/untap target parameters
- * Examples:
- * - "Untap another target creature or land" -> { types: ['creature', 'land'], excludeSource: true, action: 'untap', count: 1 }
- * - "Tap or untap target permanent" -> { types: ['permanent'], action: 'both', count: 1 }
- * - "Untap two target lands" -> { types: ['land'], action: 'untap', count: 2 }
+ * Parse ability text to determine tap/untap target parameters.
+ * 
+ * Analyzes oracle text to extract information about tap/untap abilities including:
+ * - Action type (tap, untap, or both)
+ * - Target types (creature, land, artifact, etc.)
+ * - Number of targets required
+ * - Controller restrictions (you control, opponent controls, any)
+ * - Source exclusion (abilities that say "another target")
+ * 
+ * @param text - The oracle text of the ability to parse
+ * @returns Object with parsed parameters, or null if text doesn't describe a tap/untap ability
+ * 
+ * @example
+ * parseTapUntapAbilityText("Untap another target creature or land")
+ * // Returns: { action: 'untap', types: ['creature', 'land'], count: 1, excludeSource: true, controller: 'any' }
+ * 
+ * @example
+ * parseTapUntapAbilityText("Tap or untap target permanent")
+ * // Returns: { action: 'both', types: ['permanent'], count: 1, excludeSource: false, controller: 'any' }
+ * 
+ * @example
+ * parseTapUntapAbilityText("Untap two target lands")
+ * // Returns: { action: 'untap', types: ['land'], count: 2, excludeSource: false, controller: 'any' }
  */
 export function parseTapUntapAbilityText(text: string): {
   action: 'tap' | 'untap' | 'both';
@@ -53,31 +71,35 @@ export function parseTapUntapAbilityText(text: string): {
 
   // Extract target count
   let count = 1;
-  const countMatch = lowerText.match(/\b(two|three|four|up to (\d+))\s+target/);
+  const numberWords: Record<string, number> = {
+    'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+    'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10
+  };
+  
+  const countMatch = lowerText.match(/\b(one|two|three|four|five|six|seven|eight|nine|ten|up to (\d+))\s+target/);
   if (countMatch) {
-    if (countMatch[1] === 'two') count = 2;
-    else if (countMatch[1] === 'three') count = 3;
-    else if (countMatch[1] === 'four') count = 4;
-    else if (countMatch[2]) count = parseInt(countMatch[2], 10);
+    if (countMatch[2]) {
+      // "up to N" format
+      count = parseInt(countMatch[2], 10);
+    } else {
+      // Number word format
+      const word = countMatch[1];
+      count = numberWords[word] || 1;
+    }
   }
 
   // Extract target types
   const types: string[] = [];
-  const typePatterns = [
-    { pattern: /target (creature|land|artifact|enchantment|planeswalker|permanent)s?/g, isPermanent: false },
-    { pattern: /target (creature or land|land or creature)s?/g, isPermanent: false },
-  ];
-
-  for (const { pattern } of typePatterns) {
-    let match;
-    while ((match = pattern.exec(lowerText)) !== null) {
-      const typeStr = match[1];
-      if (typeStr.includes(' or ')) {
-        // Handle "creature or land"
-        types.push(...typeStr.split(' or ').map(t => t.trim()));
-      } else {
-        types.push(typeStr);
-      }
+  const typePattern = /target (creature|land|artifact|enchantment|planeswalker|permanent|creature or land|land or creature)s?/g;
+  
+  let match;
+  while ((match = typePattern.exec(lowerText)) !== null) {
+    const typeStr = match[1];
+    if (typeStr.includes(' or ')) {
+      // Handle "creature or land"
+      types.push(...typeStr.split(' or ').map(t => t.trim()));
+    } else {
+      types.push(typeStr);
     }
   }
 
@@ -104,6 +126,28 @@ export function parseTapUntapAbilityText(text: string): {
     excludeSource,
     controller,
   };
+}
+
+/**
+ * Helper function to parse activation cost from oracle text.
+ * Extracts mana cost and whether the ability requires tapping.
+ * 
+ * @param oracleText - The oracle text to parse (should be lowercase)
+ * @param abilityPattern - Regex pattern to match the ability (e.g., /untap|tap|move/)
+ * @returns Object with requiresTap flag and manaCost string
+ */
+function parseActivationCost(oracleText: string, abilityPattern: RegExp): {
+  requiresTap: boolean;
+  manaCost: string;
+} {
+  const costMatch = oracleText.match(new RegExp(`([^:]+?):\\s*${abilityPattern.source}`, 'i'));
+  const costStr = costMatch ? costMatch[1].trim() : "";
+  
+  const requiresTap = costStr.includes('{t}') || costStr.includes('tap');
+  const manaCostMatch = costStr.match(/\{[^}]+\}/g);
+  const manaCost = manaCostMatch ? manaCostMatch.filter(c => !c.includes('T')).join('') : "";
+  
+  return { requiresTap, manaCost };
 }
 
 // ============================================================================
@@ -2608,13 +2652,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     );
     
     if (isTapUntapAbility && tapUntapParams) {
-      // Parse the cost from oracle text - typically appears before the colon
-      // Examples: "{T}: Untap target creature", "{2}, {T}: Tap or untap target permanent"
-      const costMatch = oracleText.match(/([^:]+?):\s*(?:tap|untap)/i);
-      const costStr = costMatch ? costMatch[1].trim() : "";
+      // Parse the cost
+      const { requiresTap, manaCost } = parseActivationCost(oracleText, /(?:tap|untap)/i);
       
-      // Check if ability requires tapping
-      const requiresTap = costStr.includes('{t}') || costStr.includes('tap');
       if (requiresTap && (permanent as any).tapped) {
         socket.emit("error", {
           code: "ALREADY_TAPPED",
@@ -2759,12 +2799,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     );
     
     if (isCounterMovementAbility) {
-      // Parse the cost from oracle text
-      const costMatch = oracleText.match(/([^:]+?):\s*move (?:a|one) counter/i);
-      const costStr = costMatch ? costMatch[1].trim() : "";
+      // Parse the cost
+      const { requiresTap, manaCost } = parseActivationCost(oracleText, /move (?:a|one) counter/i);
       
-      // Check if ability requires tapping
-      const requiresTap = costStr.includes('{t}') || costStr.includes('tap');
       if (requiresTap && (permanent as any).tapped) {
         socket.emit("error", {
           code: "ALREADY_TAPPED",
