@@ -1,5 +1,5 @@
 import type { Server, Socket } from "socket.io";
-import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness } from "./util";
+import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool } from "./util";
 import { appendEvent } from "../db";
 import { games } from "./socket";
 import { 
@@ -1685,6 +1685,18 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     let devotionMana = getDevotionManaAmount(game.state, permanent, pid);
     let creatureCountMana = getCreatureCountManaAmount(game.state, permanent, pid);
     
+    // Debug logging for devotion mana
+    if (cardName.toLowerCase().includes('karametra') || cardName.toLowerCase().includes('acolyte')) {
+      console.log(`[tapPermanent] ${cardName} devotion check:`, {
+        devotionMana,
+        creatureCountMana,
+        hasDevotionMana: !!devotionMana,
+        devotionAmount: devotionMana?.amount,
+        permanentController: pid,
+        cardName: cardName,
+      });
+    }
+    
     // Get mana abilities for this permanent (includes granted abilities from Cryptolith Rite, etc.)
     const manaAbilities = getManaAbilitiesForPermanent(game.state, permanent, pid);
     
@@ -2317,6 +2329,64 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       });
       
       console.log(`[activateBattlefieldAbility] Equip ability on ${cardName}: prompting for target selection`);
+      return;
+    }
+    
+    // Handle graveyard exile abilities (Keen-Eyed Curator, etc.)
+    // Pattern: "{1}: Exile target card from a graveyard"
+    const hasGraveyardExileAbility = oracleText.includes("exile target card from a graveyard") ||
+      oracleText.includes("exile target card from any graveyard");
+    if (hasGraveyardExileAbility && abilityId.includes("exile-graveyard")) {
+      // Parse the cost
+      const costMatch = oracleText.match(/\{([^}]+)\}:\s*exile target card from (?:a|any) graveyard/i);
+      const cost = costMatch ? `{${costMatch[1]}}` : "{1}";
+      
+      // Parse the cost and validate mana availability
+      const parsedCost = parseManaCost(cost);
+      const pool = getOrInitManaPool(game.state, pid);
+      const totalAvailable = calculateTotalAvailableMana(pool, []);
+      
+      // Validate payment
+      const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+      if (validationError) {
+        socket.emit("error", { code: "INSUFFICIENT_MANA", message: validationError });
+        return;
+      }
+      
+      // Consume mana
+      consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[activateBattlefieldAbility:exile-graveyard]');
+      
+      // Tap the permanent if it has a tap symbol in the cost
+      // Pattern: {T}: or {1}{T}: etc.
+      if (oracleText.match(/\{[^}]*\bT\b[^}]*\}:/)) {
+        (permanent as any).tapped = true;
+      }
+      
+      // Request graveyard targets from all players
+      const effectId = `graveyard_exile_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      
+      // Store pending exile action
+      if (!(game.state as any).pendingGraveyardExile) {
+        (game.state as any).pendingGraveyardExile = {};
+      }
+      (game.state as any).pendingGraveyardExile[effectId] = {
+        playerId: pid,
+        permanentId,
+        cardName,
+        cost,
+      };
+      
+      // Send graveyard selection prompt - allow selecting from any player's graveyard
+      socket.emit("selectGraveyardExileTarget", {
+        gameId,
+        effectId,
+        permanentId,
+        cardName,
+        cost,
+        message: `Choose a graveyard and a card to exile`,
+      });
+      
+      console.log(`[activateBattlefieldAbility] Graveyard exile ability on ${cardName}: paid ${cost}, prompting for graveyard target selection`);
       return;
     }
     

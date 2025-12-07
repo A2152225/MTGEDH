@@ -711,6 +711,8 @@ export function calculateDevotion(
   const battlefield = gameState?.battlefield || [];
   let devotion = 0;
   
+  const devotedPermanents: string[] = [];
+  
   for (const permanent of battlefield) {
     if (!permanent || permanent.controller !== playerId) continue;
     
@@ -721,20 +723,35 @@ export function calculateDevotion(
     // Also count hybrid: {W/U}, {W/B}, etc. and Phyrexian: {W/P}
     const colorSymbol = color;
     
+    let permDevotion = 0;
+    
     // Count regular mana symbols: {W}, {U}, etc.
     const singleColorRegex = new RegExp(`\\{${colorSymbol}\\}`, 'gi');
     const singleMatches = manaCost.match(singleColorRegex) || [];
-    devotion += singleMatches.length;
+    permDevotion += singleMatches.length;
     
     // Count hybrid mana symbols: {W/U}, {R/G}, etc. - each counts as 1 devotion to BOTH colors
     const hybridRegex = new RegExp(`\\{${colorSymbol}\\/[WUBRGP]\\}|\\{[WUBRG]\\/${colorSymbol}\\}`, 'gi');
     const hybridMatches = manaCost.match(hybridRegex) || [];
-    devotion += hybridMatches.length;
+    permDevotion += hybridMatches.length;
     
     // Count 2-brid symbols: {2/W} etc.
     const twobrideRegex = new RegExp(`\\{2\\/${colorSymbol}\\}`, 'gi');
     const twobrideMatches = manaCost.match(twobrideRegex) || [];
-    devotion += twobrideMatches.length;
+    permDevotion += twobrideMatches.length;
+    
+    if (permDevotion > 0) {
+      devotedPermanents.push(`${permanent.card?.name || 'Unknown'} (${permDevotion})`);
+    }
+    devotion += permDevotion;
+  }
+  
+  if (color === 'G') {
+    console.log(`[calculateDevotion] Green devotion for ${playerId}:`, {
+      totalDevotion: devotion,
+      permanents: devotedPermanents,
+      battlefieldCount: battlefield.filter((p: any) => p?.controller === playerId).length,
+    });
   }
   
   return devotion;
@@ -752,10 +769,17 @@ export function getDevotionManaAmount(
   const cardName = (permanent?.card?.name || "").toLowerCase();
   const oracleText = (permanent?.card?.oracle_text || "").toLowerCase();
   
+  console.log(`[getDevotionManaAmount] Checking ${cardName}:`, {
+    hasKarametra: cardName.includes("karametra"),
+    hasAcolyte: cardName.includes("acolyte"),
+    fullCardName: cardName,
+  });
+  
   // Check known devotion mana cards
   for (const [knownName, info] of Object.entries(KNOWN_DEVOTION_MANA_CARDS)) {
     if (cardName.includes(knownName)) {
       const devotion = calculateDevotion(gameState, playerId, info.color);
+      console.log(`[getDevotionManaAmount] Matched ${knownName}, devotion=${devotion}`);
       // Devotion-based mana abilities produce 0 if devotion is 0
       // minDevotion is only used for special cases, default is 0
       return {
@@ -764,6 +788,8 @@ export function getDevotionManaAmount(
       };
     }
   }
+  
+  console.log(`[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection`);
   
   // Dynamic detection: "Add an amount of {G} equal to your devotion to green"
   const devotionManaMatch = oracleText.match(

@@ -6813,37 +6813,29 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
-      // Check if payment is required and not yet confirmed
+      // Check if payment is required
       const parsedCost = parseManaCost(equipCost);
       const totalManaCost = parsedCost.generic + Object.values(parsedCost.colors).reduce((a: number, b: number) => a + b, 0);
       
-      if (totalManaCost > 0 && !paymentConfirmed) {
-        // Store pending equip action and prompt for mana payment
-        (game.state as any).pendingEquipPayment = (game.state as any).pendingEquipPayment || {};
-        (game.state as any).pendingEquipPayment[playerId] = {
-          equipmentId,
-          targetCreatureId,
-          equipCost,
-          equipmentName: equipment.card?.name || "Equipment",
-          targetName: targetCreature.card?.name || "Creature",
-        };
+      if (totalManaCost > 0) {
+        // Validate and pay the equip cost
+        const pool = getOrInitManaPool(game.state, playerId);
+        const totalAvailable = calculateTotalAvailableMana(pool, []);
         
-        // Emit payment prompt
-        socket.emit("equipPaymentPrompt", {
-          gameId,
-          equipmentId,
-          targetCreatureId,
-          equipmentName: equipment.card?.name || "Equipment",
-          targetName: targetCreature.card?.name || "Creature",
-          equipCost,
-          parsedCost,
-        });
+        // Validate payment
+        const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+        if (validationError) {
+          socket.emit("error", { code: "INSUFFICIENT_MANA", message: validationError });
+          return;
+        }
         
-        console.log(`[equipAbility] Prompted ${playerId} to pay ${equipCost} to equip ${equipment.card?.name} to ${targetCreature.card?.name}`);
-        return;
+        // Consume mana
+        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[equipAbility]');
+        
+        console.log(`[equipAbility] ${playerId} paid ${equipCost} to equip ${equipment.card?.name} to ${targetCreature.card?.name}`);
       }
 
-      // Payment confirmed (or cost is 0) - proceed with equipping
+      // Proceed with equipping
       // Detach from previous creature if attached
       if (equipment.attachedTo) {
         const prevCreature = battlefield.find((p: any) => p.id === equipment.attachedTo);
@@ -6884,7 +6876,9 @@ export function registerGameActions(io: Server, socket: Socket) {
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `⚔️ ${getPlayerName(game, playerId)} equips ${equipment.card?.name || "Equipment"} to ${targetCreature.card?.name || "Creature"}`,
+        message: totalManaCost > 0 
+          ? `⚔️ ${getPlayerName(game, playerId)} pays ${equipCost} and equips ${equipment.card?.name || "Equipment"} to ${targetCreature.card?.name || "Creature"}`
+          : `⚔️ ${getPlayerName(game, playerId)} equips ${equipment.card?.name || "Equipment"} to ${targetCreature.card?.name || "Creature"}`,
         ts: Date.now(),
       });
 
@@ -7370,6 +7364,74 @@ export function registerGameActions(io: Server, socket: Socket) {
     } catch (err: any) {
       console.error(`confirmGraveyardTargets error for game ${gameId}:`, err);
       socket.emit("error", { code: "GRAVEYARD_CONFIRM_ERROR", message: err?.message ?? String(err) });
+    }
+  });
+
+  /**
+   * Handle graveyard exile target selection (Keen-Eyed Curator, etc.)
+   */
+  socket.on("confirmGraveyardExile", ({ gameId, effectId, targetPlayerId, targetCardId }: {
+    gameId: string;
+    effectId: string;
+    targetPlayerId: string;
+    targetCardId: string;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      const pending = (game.state as any).pendingGraveyardExile?.[effectId];
+      if (!pending) {
+        socket.emit("error", { code: "NO_PENDING_EXILE", message: "No pending graveyard exile action found" });
+        return;
+      }
+
+      const targetZones = game.state.zones?.[targetPlayerId];
+      if (!targetZones || !Array.isArray(targetZones.graveyard)) {
+        socket.emit("error", { code: "NO_GRAVEYARD", message: "Target graveyard not found" });
+        return;
+      }
+
+      const cardIndex = targetZones.graveyard.findIndex((c: any) => c?.id === targetCardId);
+      if (cardIndex === -1) {
+        socket.emit("error", { code: "CARD_NOT_FOUND", message: "Card not found in graveyard" });
+        return;
+      }
+
+      const card = targetZones.graveyard[cardIndex];
+      targetZones.graveyard.splice(cardIndex, 1);
+      targetZones.graveyardCount = targetZones.graveyard.length;
+
+      // Find the permanent that activated this ability
+      const battlefield = game.state.battlefield || [];
+      const permanent = battlefield.find((p: any) => p.id === pending.permanentId);
+      
+      // Add the card to the permanent's exile zone (tracked on the permanent itself for Keen-Eyed Curator)
+      if (permanent) {
+        (permanent as any).exiledCards = (permanent as any).exiledCards || [];
+        (permanent as any).exiledCards.push({ ...(card as any), zone: 'exile', exiledWith: pending.permanentId });
+      }
+
+      // Clean up pending action
+      delete (game.state as any).pendingGraveyardExile[effectId];
+
+      const cardName = (card as any)?.name || 'a card';
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `🚫 ${getPlayerName(game, playerId)} exiled ${cardName} from ${getPlayerName(game, targetPlayerId)}'s graveyard with ${pending.cardName}.`,
+        ts: Date.now(),
+      });
+
+      console.log(`[confirmGraveyardExile] ${playerId} exiled ${cardName} from ${targetPlayerId}'s graveyard with ${pending.cardName}`);
+
+      broadcastGame(io, game, gameId);
+    } catch (err: any) {
+      console.error(`confirmGraveyardExile error for game ${gameId}:`, err);
+      socket.emit("error", { code: "GRAVEYARD_EXILE_ERROR", message: err?.message ?? String(err) });
     }
   });
 

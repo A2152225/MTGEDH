@@ -1,6 +1,6 @@
 import type { PlayerID } from "../../../../shared/src/index.js";
 import type { GameContext } from "../context.js";
-import { uid, parsePT, addEnergyCounters, triggerLifeGainEffects } from "../utils.js";
+import { uid, parsePT, addEnergyCounters, triggerLifeGainEffects, calculateAllPTBonuses } from "../utils.js";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts } from "./game-state-effects.js";
 import { categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
 import { getETBTriggersForPermanent, processLinkedExileReturns, registerLinkedExile, detectLinkedExileEffect, type TriggeredAbility } from "./triggered-abilities.js";
@@ -1167,27 +1167,23 @@ function executeTriggerEffect(
       if (typeof sourcePerm.effectivePower === 'number') {
         sourcePower = sourcePerm.effectivePower;
       } else {
-        // Fall back to manual calculation
-        sourcePower = sourcePerm.basePower || 0;
-        if (!sourcePower && sourcePerm.card?.power) {
-          sourcePower = parseInt(String(sourcePerm.card.power), 10) || 0;
+        // Fall back to manual calculation using comprehensive P/T bonus calculation
+        // This includes equipment, auras, anthems, lords, and special abilities like Omnath's mana pool bonus
+        let basePower = sourcePerm.basePower || 0;
+        if (!basePower && sourcePerm.card?.power) {
+          basePower = parsePT(sourcePerm.card.power) ?? 0;
         }
+        
         // Add +1/+1 counters
         const plusCounters = sourcePerm.counters?.['+1/+1'] || 0;
         const minusCounters = sourcePerm.counters?.['-1/-1'] || 0;
-        sourcePower += (plusCounters - minusCounters);
+        const counterDelta = plusCounters - minusCounters;
         
-        // Apply modifiers
-        if (sourcePerm.modifiers && Array.isArray(sourcePerm.modifiers)) {
-          for (const mod of sourcePerm.modifiers) {
-            if (mod.type === 'powerToughness' || mod.type === 'POWER_TOUGHNESS') {
-              sourcePower += mod.power || 0;
-            }
-          }
-        }
+        // Calculate ALL other bonuses (equipment, auras, anthems, lords, Omnath's mana pool, etc.)
+        const allBonuses = calculateAllPTBonuses(sourcePerm, state);
+        
+        sourcePower = Math.max(0, basePower + counterDelta + allBonuses.power);
       }
-      
-      sourcePower = Math.max(0, sourcePower);
       
       console.log(`[executeTriggerEffect] ${sourcePerm.card?.name || 'Unknown'} has power ${sourcePower}, adding counters to all creatures`);
       
