@@ -1,5 +1,5 @@
 import type { Server, Socket } from "socket.io";
-import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool } from "./util";
+import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, calculateManaProduction } from "./util";
 import { appendEvent } from "../db";
 import { games } from "./socket";
 import { 
@@ -2757,22 +2757,25 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Determine mana color from ability ID
       let manaColor = "colorless";
       const manaColorMap: Record<string, string> = {
-        "tap-mana-w": "white",
-        "tap-mana-u": "blue",
-        "tap-mana-b": "black",
-        "tap-mana-r": "red",
-        "tap-mana-g": "green",
+        "tap-mana-w": "W",
+        "tap-mana-u": "U",
+        "tap-mana-b": "B",
+        "tap-mana-r": "R",
+        "tap-mana-g": "G",
         "tap-mana-any": "any", // Will need to prompt for color choice
-        "tap-mana": "colorless",
-        "native_w": "white",
-        "native_u": "blue",
-        "native_b": "black",
-        "native_r": "red",
-        "native_g": "green",
-        "native_c": "colorless",
+        "tap-mana": "C",
+        "native_w": "W",
+        "native_u": "U",
+        "native_b": "B",
+        "native_r": "R",
+        "native_g": "G",
+        "native_c": "C",
         "native_any": "any", // Will need to prompt for color choice
       };
-      manaColor = manaColorMap[abilityId] || "colorless";
+      manaColor = manaColorMap[abilityId] || "C";
+      
+      // Calculate actual mana production (handles multipliers, enchantments, etc.)
+      const manaProduction = calculateManaProduction(game.state, permanent, pid, manaColor);
       
       // Add mana to pool
       game.state.manaPool = game.state.manaPool || {};
@@ -2780,27 +2783,35 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
       };
       
-      if (manaColor === "any") {
-        // For "any color" mana, add colorless for now (ideally prompt user)
-        // TODO: Implement color choice prompt
-        game.state.manaPool[pid].colorless++;
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, pid)} tapped ${cardName} for mana.`,
-          ts: Date.now(),
-        });
-      } else {
-        (game.state.manaPool[pid] as any)[manaColor]++;
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, pid)} tapped ${manaColor} mana.`,
-          ts: Date.now(),
-        });
-      }
+      // Add the calculated amount of mana
+      const actualColor = manaProduction.colors[0] || manaColor;
+      const manaAmount = manaProduction.totalAmount;
+      
+      const colorToPoolKey: Record<string, keyof typeof game.state.manaPool[typeof pid]> = {
+        'W': 'white',
+        'U': 'blue',
+        'B': 'black',
+        'R': 'red',
+        'G': 'green',
+        'C': 'colorless',
+        'any': 'colorless', // TODO: Prompt for color choice
+      };
+      
+      const poolKey = colorToPoolKey[actualColor] || 'colorless';
+      (game.state.manaPool[pid] as any)[poolKey] = ((game.state.manaPool[pid] as any)[poolKey] || 0) + manaAmount;
+      
+      // Create chat message with correct amount
+      const manaDescription = manaAmount > 1 
+        ? `${manaAmount} ${actualColor === 'C' ? 'colorless' : actualColor} mana`
+        : `${actualColor === 'C' ? 'colorless' : actualColor} mana`;
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} tapped ${cardName} for ${manaDescription}.`,
+        ts: Date.now(),
+      });
       
       // ===== PAIN LANDS - Deal 1 damage when tapped for colored mana =====
       // Pain lands (Shivan Reef, Nurturing Peatland, etc.) deal 1 damage to you when tapped for colored mana
