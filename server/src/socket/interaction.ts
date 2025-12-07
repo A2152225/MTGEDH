@@ -8,7 +8,7 @@ import {
   findPermanentsWithCreatureType 
 } from "../../../shared/src/creatureTypes";
 import { parseSacrificeCost, type SacrificeType } from "../../../shared/src/textUtils";
-import { getDeathTriggers, getPlayersWhoMustSacrifice } from "../state/modules/triggered-abilities";
+import { getDeathTriggers, getPlayersWhoMustSacrifice, getLandfallTriggers } from "../state/modules/triggered-abilities";
 import { 
   getManaAbilitiesForPermanent, 
   getManaMultiplier, 
@@ -4127,6 +4127,41 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                 currentLife,
               });
             }
+          }
+          
+          // ========================================================================
+          // LANDFALL TRIGGERS: Check for and process landfall triggers
+          // This is CRITICAL - landfall triggers should fire when lands ETB from library
+          // ========================================================================
+          try {
+            const landfallTriggers = getLandfallTriggers(game as any, pid);
+            if (landfallTriggers.length > 0) {
+              console.log(`[librarySearchSelect] Found ${landfallTriggers.length} landfall trigger(s) for player ${pid}`);
+              
+              // Initialize stack if needed
+              (game.state as any).stack = (game.state as any).stack || [];
+              
+              // Push each landfall trigger onto the stack
+              for (const trigger of landfallTriggers) {
+                const triggerId = `landfall_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                (game.state as any).stack.push({
+                  id: triggerId,
+                  type: 'triggered_ability',
+                  controller: pid,
+                  source: trigger.permanentId,
+                  permanentId: trigger.permanentId,
+                  sourceName: trigger.cardName,
+                  description: `Landfall - ${trigger.effect}`,
+                  triggerType: 'landfall',
+                  mandatory: trigger.mandatory,
+                  effect: trigger.effect,
+                  requiresChoice: trigger.requiresChoice,
+                });
+                console.log(`[librarySearchSelect] ⚡ Pushed landfall trigger onto stack: ${trigger.cardName} - ${trigger.effect}`);
+              }
+            }
+          } catch (err) {
+            console.warn('[librarySearchSelect] Failed to process landfall triggers:', err);
           }
         } else {
           console.error('[librarySearchSelect] game.selectFromLibrary not available');

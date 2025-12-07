@@ -73,6 +73,81 @@ function generateJoinForcesId(): string {
  * AI will contribute based on strategy and available mana
  */
 /**
+ * Calculate total available mana for a player.
+ * Includes:
+ * - Untapped lands
+ * - Mana pool (if any)
+ * - Untapped mana-producing creatures (e.g., Llanowar Elves, Priest of Titania)
+ * - Untapped mana-producing artifacts (e.g., Sol Ring, mana rocks)
+ * 
+ * Note: This is a conservative estimate. Some mana abilities may have restrictions
+ * or produce varying amounts of mana.
+ */
+function calculateTotalAvailableMana(game: any, playerId: string): number {
+  const battlefield = game.state?.battlefield || [];
+  const manaPool = game.state?.manaPool?.[playerId];
+  
+  let totalMana = 0;
+  
+  // 1. Count mana in mana pool
+  if (manaPool) {
+    totalMana += (manaPool.white || 0) + (manaPool.blue || 0) + (manaPool.black || 0) +
+                 (manaPool.red || 0) + (manaPool.green || 0) + (manaPool.colorless || 0);
+  }
+  
+  // 2. Count untapped lands
+  const untappedLands = battlefield.filter((p: any) => 
+    p.controller === playerId && 
+    !p.tapped &&
+    (p.card?.type_line || '').toLowerCase().includes('land')
+  ).length;
+  totalMana += untappedLands;
+  
+  // 3. Count untapped mana-producing creatures
+  // Look for common patterns: "Add", "{T}: Add", "Tap: Add"
+  const manaCreatures = battlefield.filter((p: any) => {
+    if (p.controller !== playerId || p.tapped) return false;
+    const typeLine = (p.card?.type_line || '').toLowerCase();
+    const oracle = (p.card?.oracle_text || '').toLowerCase();
+    
+    // Must be a creature
+    if (!typeLine.includes('creature')) return false;
+    
+    // Check for mana-producing abilities
+    // Common patterns: "{T}: Add {G}", "Tap: Add one mana", etc.
+    return oracle.includes('{t}:') && oracle.includes('add') && 
+           (oracle.match(/add \{[wubrgc]\}/i) || 
+            oracle.includes('add one mana') ||
+            oracle.includes('add mana'));
+  });
+  
+  // Conservative estimate: each mana creature can produce 1 mana
+  totalMana += manaCreatures.length;
+  
+  // 4. Count untapped mana-producing artifacts
+  const manaArtifacts = battlefield.filter((p: any) => {
+    if (p.controller !== playerId || p.tapped) return false;
+    const typeLine = (p.card?.type_line || '').toLowerCase();
+    const oracle = (p.card?.oracle_text || '').toLowerCase();
+    
+    // Must be an artifact (but not a creature, we counted those above)
+    if (!typeLine.includes('artifact') || typeLine.includes('creature')) return false;
+    
+    // Check for mana-producing abilities
+    return oracle.includes('{t}:') && oracle.includes('add') && 
+           (oracle.match(/add \{[wubrgc]\}/i) || 
+            oracle.includes('add one mana') ||
+            oracle.includes('add mana'));
+  });
+  
+  // Conservative estimate: each mana artifact can produce 1 mana
+  // (Sol Ring produces 2, but we're being conservative)
+  totalMana += manaArtifacts.length;
+  
+  return totalMana;
+}
+
+/**
  * Calculate AI contribution for Join Forces effects.
  * Uses game-state reasoning to make intelligent decisions:
  * - Minds Aglow: Consider hand size, cards needed to fill hand
@@ -85,13 +160,8 @@ function calculateAIJoinForcesContribution(game: any, aiPlayerId: string, cardNa
   const zones = game.state?.zones || {};
   const players = game.state?.players || [];
   
-  // Get AI's available mana (count untapped lands)
-  const aiLands = battlefield.filter((p: any) => 
-    p.controller === aiPlayerId && 
-    !p.tapped &&
-    (p.card?.type_line || '').toLowerCase().includes('land')
-  );
-  const availableMana = aiLands.length;
+  // Get AI's available mana (comprehensive calculation)
+  const availableMana = calculateTotalAvailableMana(game, aiPlayerId);
   
   // If no mana available, can't contribute
   if (availableMana === 0) {
