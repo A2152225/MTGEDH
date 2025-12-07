@@ -3065,7 +3065,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       // Set up library search for up to X basic lands
       (state as any).pendingLibrarySearch = (state as any).pendingLibrarySearch || {};
       (state as any).pendingLibrarySearch[controller] = {
-        type: 'jaherias_respite',
+        type: 'jaheiras_respite',
         searchFor: 'basic land cards',
         destination: 'battlefield',
         tapped: true,
