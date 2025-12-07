@@ -2824,6 +2824,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         'R': 'red',
         'G': 'green',
         'C': 'colorless',
+        // Note: 'any' color is now handled above by prompting for color choice
       };
       
       const poolKey = colorToPoolKey[actualColor] || 'colorless';

@@ -86,17 +86,10 @@ export function AnyColorManaModal({
   onConfirm,
   onCancel,
 }: AnyColorManaModalProps) {
-  const [selectedColor, setSelectedColor] = useState<'white' | 'blue' | 'black' | 'red' | 'green' | null>(null);
-
-  // Reset selection when modal opens
-  React.useEffect(() => {
-    if (open) {
-      setSelectedColor(null);
-    }
-  }, [open]);
-
+  // Note: We auto-confirm immediately when a color is clicked for better UX
+  // No need to track selectedColor state since we don't have a separate confirm button
+  
   const handleColorClick = useCallback((color: 'white' | 'blue' | 'black' | 'red' | 'green') => {
-    setSelectedColor(color);
     // Auto-confirm immediately when a color is clicked
     onConfirm(color);
   }, [onConfirm]);
@@ -173,15 +166,14 @@ export function AnyColorManaModal({
         >
           {(Object.keys(COLOR_DATA) as Array<keyof typeof COLOR_DATA>).map((color) => {
             const data = COLOR_DATA[color];
-            const isSelected = selectedColor === color;
             
             return (
               <button
                 key={color}
                 onClick={() => handleColorClick(color)}
                 style={{
-                  background: isSelected ? data.hoverBg : data.bg,
-                  border: `3px solid ${isSelected ? data.hoverBorder : data.border}`,
+                  background: data.bg,
+                  border: `3px solid ${data.border}`,
                   borderRadius: '8px',
                   padding: '20px 8px',
                   color: data.text,
@@ -189,22 +181,16 @@ export function AnyColorManaModal({
                   fontWeight: 'bold',
                   cursor: 'pointer',
                   transition: 'all 0.2s ease',
-                  boxShadow: isSelected ? '0 0 12px rgba(255, 255, 255, 0.5)' : 'none',
-                  transform: isSelected ? 'scale(1.05)' : 'scale(1)',
                 }}
                 onMouseEnter={(e) => {
-                  if (!isSelected) {
-                    e.currentTarget.style.background = data.hoverBg;
-                    e.currentTarget.style.borderColor = data.hoverBorder;
-                    e.currentTarget.style.transform = 'scale(1.05)';
-                  }
+                  e.currentTarget.style.background = data.hoverBg;
+                  e.currentTarget.style.borderColor = data.hoverBorder;
+                  e.currentTarget.style.transform = 'scale(1.05)';
                 }}
                 onMouseLeave={(e) => {
-                  if (!isSelected) {
-                    e.currentTarget.style.background = data.bg;
-                    e.currentTarget.style.borderColor = data.border;
-                    e.currentTarget.style.transform = 'scale(1)';
-                  }
+                  e.currentTarget.style.background = data.bg;
+                  e.currentTarget.style.borderColor = data.border;
+                  e.currentTarget.style.transform = 'scale(1)';
                 }}
               >
                 {data.symbol}
