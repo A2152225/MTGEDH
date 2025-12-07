@@ -32,7 +32,8 @@ function detectEntersWithCounters(card: any): Record<string, number> {
   // Also matches: "~ enters with N +1/+1 counters"
   // Also matches: "This creature enters with N +1/+1 counter(s)"
   // Combined pattern to avoid duplicate matches
-  const counterPattern = /(?:~|this creature|[a-z]+)\s+(?:enters|comes into play)(?: the battlefield)? with (\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s*([+\-\d\/]+|\w+)\s*counters?\s*(?:on it)?/gi;
+  // Note: We already lowercased oracleText, so all text is lowercase
+  const counterPattern = /(?:~|this creature)\s+(?:enters|comes into play)(?: the battlefield)? with (\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s*([+\-\d\/]+|\w+)\s*counters?\s*(?:on it)?/gi;
   
   // Track matched positions to avoid duplicates
   const matchedRanges = new Set<string>();
