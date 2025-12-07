@@ -3266,6 +3266,8 @@ export function registerGameActions(io: Server, socket: Socket) {
               card: { ...removedCard, zone: "stack" },
               targets: targets || [],
               targetDetails: targetDetails.length > 0 ? targetDetails : undefined,
+              // Mark if this is an adventure spell (face index 1 is adventure for adventure cards)
+              castAsAdventure: removedCard.layout === 'adventure' && faceIndex === 1,
             };
             
             if (typeof game.pushStack === 'function') {
