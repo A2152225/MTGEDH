@@ -2795,7 +2795,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         'R': 'red',
         'G': 'green',
         'C': 'colorless',
-        'any': 'colorless', // TODO: Prompt for color choice
+        // FIXME: 'any' color mana should prompt user for color choice, not default to colorless
+        // This is a known limitation that affects cards like Chromatic Lantern, Birds of Paradise
+        // See issue: any-color mana defaults to colorless
+        'any': 'colorless',
       };
       
       const poolKey = colorToPoolKey[actualColor] || 'colorless';
