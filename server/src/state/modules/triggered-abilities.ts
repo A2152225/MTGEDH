@@ -2041,38 +2041,92 @@ export interface DrawStepTrigger {
 /**
  * Detect draw step triggers from a card's oracle text
  * Pattern: "At the beginning of your draw step" or "At the beginning of each player's draw step"
+ * 
+ * IMPORTANT: This should only detect actual TRIGGERS, not replacement effects!
+ * Cards like Font of Mythos, Howling Mine, Kami of the Crescent Moon, Rites of Flourishing, Puzzlebox
+ * have text like "At the beginning of each player's draw step, that player draws X additional cards."
+ * These are REPLACEMENT EFFECTS that modify the draw, not triggers that go on the stack.
+ * 
+ * Replacement effects should NOT require passing priority - they're handled automatically
+ * by the draw calculation in game-state-effects.ts (calculateAdditionalDraws).
  */
 export function detectDrawStepTriggers(card: any, permanent: any): DrawStepTrigger[] {
   const triggers: DrawStepTrigger[] = [];
   const oracleText = (card?.oracle_text || "");
-  const cardName = card?.name || "Unknown";
+  const cardName = (card?.name || "Unknown").toLowerCase();
   const permanentId = permanent?.id || "";
   const controllerId = permanent?.controller || "";
   
-  // "At the beginning of your draw step"
-  const yourDrawMatch = oracleText.match(/at the beginning of your draw step,?\s*([^.]+)/i);
-  if (yourDrawMatch) {
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      description: yourDrawMatch[1].trim(),
-      effect: yourDrawMatch[1].trim(),
-      mandatory: true,
-    });
+  // List of cards that are replacement effects, NOT triggers
+  // These modify the draw but don't use the stack
+  const replacementEffectCards = [
+    'font of mythos',
+    'howling mine',
+    'kami of the crescent moon',
+    'rites of flourishing',
+    'dictate of kruphix',
+    'temple bell', // Activated ability, not a trigger
+    'mikokoro, center of the sea', // Activated ability
+    'geier reach sanitarium', // Activated ability
+    'seizan, perverter of truth',
+    'well of ideas',
+    'minds aglow',
+    'prosperity',
+    'font of fortunes',
+    'jace beleren',
+    'anvil of bogardan',
+    'spiteful visions',
+    'nekusar',
+    'teferi\'s puzzle box', // Puzzlebox
+  ];
+  
+  // Check if this is a known replacement effect card
+  if (replacementEffectCards.some(name => cardName.includes(name))) {
+    // This is a replacement effect, not a trigger - return empty
+    return triggers;
   }
   
-  // "At the beginning of each player's draw step"
+  // Check if the text is just modifying draws (replacement effect pattern)
+  // Pattern: "that player draws X additional cards" or "draw X additional cards"
+  const lowerOracle = oracleText.toLowerCase();
+  if (lowerOracle.includes('draw') && (lowerOracle.includes('additional card') || lowerOracle.includes('an extra card'))) {
+    // This looks like a replacement effect that modifies draws
+    // Don't treat it as a trigger
+    return triggers;
+  }
+  
+  // "At the beginning of your draw step" - actual triggers
+  const yourDrawMatch = oracleText.match(/at the beginning of your draw step,?\s*([^.]+)/i);
+  if (yourDrawMatch) {
+    const effect = yourDrawMatch[1].trim();
+    // Double-check it's not a draw modification
+    if (!effect.toLowerCase().includes('draw') || !effect.toLowerCase().includes('additional')) {
+      triggers.push({
+        permanentId,
+        cardName: card?.name || "Unknown",
+        controllerId,
+        description: effect,
+        effect: effect,
+        mandatory: true,
+      });
+    }
+  }
+  
+  // "At the beginning of each player's draw step" - actual triggers
   const eachDrawMatch = oracleText.match(/at the beginning of each player's draw step,?\s*([^.]+)/i);
   if (eachDrawMatch) {
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      description: eachDrawMatch[1].trim(),
-      effect: eachDrawMatch[1].trim(),
-      mandatory: true,
-    });
+    const effect = eachDrawMatch[1].trim();
+    // Double-check it's not a draw modification
+    if (!effect.toLowerCase().includes('draw') || !effect.toLowerCase().includes('additional')) {
+      triggers.push({
+        permanentId,
+        cardName: card?.name || "Unknown",
+        controllerId,
+        description: effect,
+        effect: effect,
+        mandatory: true,
+      });
+    }
   }
   
   return triggers;
