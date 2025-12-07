@@ -1976,6 +1976,31 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       oracleText.includes("search your library") &&
       searchesForLand;
     
+    // Cleanup equipment attachments if this is equipment leaving battlefield
+    const isEquipment = typeLine.includes("equipment");
+    if (isEquipment && permanent.attachedTo) {
+      const attachedCreature = battlefield.find((p: any) => p?.id === permanent.attachedTo);
+      if (attachedCreature && attachedCreature.attachedEquipment) {
+        attachedCreature.attachedEquipment = (attachedCreature.attachedEquipment as string[]).filter(
+          (id: string) => id !== permanentId
+        );
+        // Remove equipped badge if no equipment remains
+        if (attachedCreature.attachedEquipment.length === 0) {
+          attachedCreature.isEquipped = false;
+        }
+      }
+    }
+    
+    // Cleanup attached equipment if this is a creature leaving battlefield
+    if (isCreature && permanent.attachedEquipment && permanent.attachedEquipment.length > 0) {
+      for (const equipId of permanent.attachedEquipment as string[]) {
+        const equipment = battlefield.find((p: any) => p?.id === equipId);
+        if (equipment) {
+          equipment.attachedTo = undefined;
+        }
+      }
+    }
+    
     // Remove from battlefield
     battlefield.splice(permIndex, 1);
     
@@ -4859,6 +4884,123 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     });
 
     broadcastGame(io, game, gameId);
+  });
+
+  /**
+   * Handle equipment target selection (attach equipment to creature)
+   */
+  socket.on("equipTargetChosen", ({
+    gameId,
+    equipmentId,
+    targetCreatureId,
+    manaPaid,
+  }: {
+    gameId: string;
+    equipmentId: string;
+    targetCreatureId: string;
+    manaPaid?: Record<string, number>;
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+      return;
+    }
+
+    const battlefield = game.state?.battlefield || [];
+    
+    // Find the equipment
+    const equipment = battlefield.find((p: any) => p?.id === equipmentId && p?.controller === pid);
+    if (!equipment) {
+      socket.emit("error", {
+        code: "EQUIPMENT_NOT_FOUND",
+        message: "Equipment not found or not controlled by you",
+      });
+      return;
+    }
+    
+    // Find the target creature
+    const targetCreature = battlefield.find((p: any) => p?.id === targetCreatureId && p?.controller === pid);
+    if (!targetCreature) {
+      socket.emit("error", {
+        code: "INVALID_TARGET",
+        message: "Target creature not found or not controlled by you",
+      });
+      return;
+    }
+    
+    // Verify target is a creature
+    const targetTypeLine = (targetCreature.card?.type_line || "").toLowerCase();
+    if (!targetTypeLine.includes("creature")) {
+      socket.emit("error", {
+        code: "INVALID_TARGET",
+        message: "Target must be a creature",
+      });
+      return;
+    }
+    
+    // Parse equip cost from oracle text
+    const oracleText = equipment.card?.oracle_text || "";
+    const equipCostMatch = oracleText.match(/equip\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+    const equipCost = equipCostMatch ? equipCostMatch[1] : "{0}";
+    
+    // Validate and consume mana payment
+    const parsedCost = parseManaCost(equipCost);
+    const pool = getOrInitManaPool(game.state, pid);
+    
+    if (parsedCost.generic > 0 || parsedCost.colors.length > 0) {
+      const totalAvailable = calculateTotalAvailableMana(pool, []);
+      const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+      
+      if (validationError) {
+        socket.emit("error", {
+          code: "INSUFFICIENT_MANA",
+          message: validationError,
+        });
+        return;
+      }
+      
+      // Consume mana from pool
+      if (manaPaid) {
+        for (const [color, amount] of Object.entries(manaPaid)) {
+          if (pool[color] !== undefined && amount > 0) {
+            pool[color] -= amount;
+          }
+        }
+      }
+    }
+    
+    // Remove equipment from previous target (if any)
+    if (equipment.attachedTo) {
+      const previousTarget = battlefield.find((p: any) => p?.id === equipment.attachedTo);
+      if (previousTarget && previousTarget.attachedEquipment) {
+        previousTarget.attachedEquipment = (previousTarget.attachedEquipment as string[]).filter(
+          (id: string) => id !== equipmentId
+        );
+      }
+    }
+    
+    // Attach equipment to new target
+    equipment.attachedTo = targetCreatureId;
+    
+    // Add equipment to creature's attachedEquipment array
+    if (!targetCreature.attachedEquipment) {
+      targetCreature.attachedEquipment = [];
+    }
+    if (!targetCreature.attachedEquipment.includes(equipmentId)) {
+      targetCreature.attachedEquipment.push(equipmentId);
+    }
+    
+    // Add equipped badge/marker
+    targetCreature.isEquipped = true;
+    
+    console.log(`[equipTargetChosen] ${equipment.card?.name} equipped to ${targetCreature.card?.name}`);
+    
+    // Broadcast updated game state
+    broadcastGame(io, game, gameId);
+    broadcastManaPoolUpdate(io, game, gameId);
   });
 
   /**
