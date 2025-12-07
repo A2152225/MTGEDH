@@ -1518,7 +1518,32 @@ export function nextTurn(ctx: GameContext) {
     // actions occur during the step, and allows cards to be played/tapped
     // during the untap step before untapping occurs.
 
-    // give priority to the active player at the start of turn
+    // Rule 502.1: No player receives priority during the untap step.
+    // Priority will be given when UNTAP advances to UPKEEP.
+    // Set priority to null during UNTAP step to indicate no player has priority.
+    (ctx as any).state.priority = null;
+    
+    // Immediately advance from UNTAP to UPKEEP (Rule 502.1: untap step has no priority)
+    // Untap all permanents controlled by the active player
+    try {
+      untapPermanentsForPlayer(ctx, next);
+      
+      // Apply Unwinding Clock, Seedborn Muse, and similar effects
+      const untapEffects = getUntapStepEffects(ctx, next);
+      for (const effect of untapEffects) {
+        const count = applyUntapStepEffect(ctx, effect);
+        if (count > 0) {
+          console.log(`${ts()} [nextTurn] ${effect.cardName} untapped ${count} permanents for ${effect.controllerId}`);
+        }
+      }
+    } catch (err) {
+      console.warn(`${ts()} [nextTurn] Failed to untap permanents:`, err);
+    }
+    
+    // Advance to UPKEEP step
+    (ctx as any).state.step = "UPKEEP";
+    
+    // Now give priority to the active player at UPKEEP (Rule 503.1)
     (ctx as any).state.priority = next;
 
     // Reset lands played this turn for all players
@@ -2038,6 +2063,8 @@ export function nextStep(ctx: GameContext) {
 
     if (currentPhase === "beginning" || currentPhase === "pre_game" || currentPhase === "") {
       if (currentStep === "" || currentStep === "untap" || currentStep === "UNTAP") {
+        // UNTAP step: This should normally not happen since nextTurn auto-advances to UPKEEP
+        // But keep this for backward compatibility with old save states or manual step control
         nextPhase = "beginning";
         nextStep = "UPKEEP";
         shouldUntap = !isReplaying; // Untap all permanents when leaving UNTAP step (skip during replay)
@@ -2063,7 +2090,7 @@ export function nextStep(ctx: GameContext) {
         nextStep = "DECLARE_BLOCKERS";
       } else if (currentStep === "declareBlockers" || currentStep === "DECLARE_BLOCKERS") {
         // Check if any creature has first strike or double strike
-        // If so, go to FIRST_STRIKE_DAMAGE, otherwise go straight to DAMAGE
+        // If so, go to FIRST_STRIKE_DAMAGE, otherwise skip to END_COMBAT
         const battlefield = (ctx as any).state?.battlefield || [];
         const attackers = battlefield.filter((perm: any) => perm && perm.attacking);
         const blockers = battlefield.filter((perm: any) => perm && perm.blocking && perm.blocking.length > 0);
@@ -2094,9 +2121,11 @@ export function nextStep(ctx: GameContext) {
             }
           }
         } else {
-          console.log(`${ts()} [COMBAT_STEP] ========== TRANSITIONING FROM DECLARE_BLOCKERS TO DAMAGE (no first strike) ==========`);
-          nextStep = "DAMAGE";
-          // Deal combat damage when entering the DAMAGE step (Rule 510) - skip during replay
+          // Rule 510.5: Combat damage is dealt automatically, no priority during damage step
+          // After M10 rules change (2009), there is no separate damage step with priority
+          // Damage is dealt and the game immediately advances to end of combat
+          console.log(`${ts()} [COMBAT_STEP] ========== DEALING COMBAT DAMAGE AND ADVANCING TO END_COMBAT (no first strike) ==========`);
+          // Deal combat damage - skip during replay
           if (!isReplaying) {
             try {
               console.log(`${ts()} [COMBAT_STEP] Calling dealCombatDamage...`);
@@ -2109,12 +2138,14 @@ export function nextStep(ctx: GameContext) {
               console.warn(`${ts()} [nextStep] Failed to deal combat damage:`, err);
             }
           }
+          // Skip directly to END_COMBAT (no DAMAGE step)
+          nextStep = "END_COMBAT";
         }
         console.log(`${ts()} [COMBAT_STEP] ========== END DAMAGE STEP PROCESSING ==========`);
       } else if (currentStep === "firstStrikeDamage" || currentStep === "FIRST_STRIKE_DAMAGE") {
-        // After first strike damage, proceed to regular combat damage
-        console.log(`${ts()} [COMBAT_STEP] ========== TRANSITIONING FROM FIRST_STRIKE_DAMAGE TO DAMAGE ==========`);
-        nextStep = "DAMAGE";
+        // After first strike damage, deal regular combat damage and advance to END_COMBAT
+        // Rule 510.5: No priority during damage step, damage is automatic
+        console.log(`${ts()} [COMBAT_STEP] ========== DEALING REGULAR DAMAGE AND ADVANCING TO END_COMBAT ==========`);
         // Deal regular combat damage (from creatures without first strike, and double strike creatures again)
         // Skip during replay - combat damage should be handled by replayed events
         if (!isReplaying) {
@@ -2127,7 +2158,12 @@ export function nextStep(ctx: GameContext) {
             console.error(`${ts()} [COMBAT_STEP] CRASH in regular dealCombatDamage:`, err);
           }
         }
+        // Skip directly to END_COMBAT (no DAMAGE step)
+        nextStep = "END_COMBAT";
+        // NOTE: End of combat triggers will be pushed AFTER phase/step update below
       } else if (currentStep === "combatDamage" || currentStep === "DAMAGE") {
+        // This should not normally happen since we skip the DAMAGE step
+        // But keep for backward compatibility
         nextStep = "END_COMBAT";
         // NOTE: End of combat triggers will be pushed AFTER phase/step update below
       } else {
