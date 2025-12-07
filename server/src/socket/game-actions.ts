@@ -3485,8 +3485,6 @@ export function registerGameActions(io: Server, socket: Socket) {
               }
             }
           }
-            }
-          }
         }
         appendGameEvent(game, gameId, "resolveTopOfStack");
         io.to(gameId).emit("chat", {
