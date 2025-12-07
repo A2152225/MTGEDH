@@ -3553,14 +3553,33 @@ export function resolveTopOfStack(ctx: GameContext) {
       return; // Skip normal graveyard movement
     }
     
-    // Move spell to graveyard after resolution
+    // Move spell to graveyard or exile (for adventure) after resolution
     const zones = ctx.state.zones || {};
     const z = zones[controller];
     if (z) {
-      z.graveyard = z.graveyard || [];
-      (z.graveyard as any[]).push({ ...card, zone: "graveyard" });
-      z.graveyardCount = (z.graveyard as any[]).length;
-      console.log(`[resolveTopOfStack] Spell ${card.name || 'unnamed'} resolved and moved to graveyard for ${controller}`);
+      // Check if this is an adventure spell (layout === 'adventure' and was cast as adventure)
+      const layout = (card as any).layout;
+      const wasAdventure = (topOfStack as any).castAsAdventure === true;
+      
+      if (layout === 'adventure' && wasAdventure) {
+        // Adventure spells go to exile instead of graveyard (Rule 715.3d)
+        z.exile = z.exile || [];
+        (z.exile as any[]).push({ 
+          ...card, 
+          zone: "exile",
+          onAdventure: true, // Mark that this was sent on an adventure
+          adventureCaster: controller, // Track who sent it on adventure
+        });
+        z.exileCount = (z.exile as any[]).length;
+        
+        console.log(`[resolveTopOfStack] Adventure spell ${card.name || 'unnamed'} resolved and exiled for ${controller}`);
+      } else {
+        // Regular instant/sorcery - goes to graveyard
+        z.graveyard = z.graveyard || [];
+        (z.graveyard as any[]).push({ ...card, zone: "graveyard" });
+        z.graveyardCount = (z.graveyard as any[]).length;
+        console.log(`[resolveTopOfStack] Spell ${card.name || 'unnamed'} resolved and moved to graveyard for ${controller}`);
+      }
     }
   }
   
