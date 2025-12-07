@@ -238,6 +238,9 @@ export interface BattlefieldPermanent {
   sacrificeAtEndStep?: boolean;
   // Is currently attacking (for tokens created attacking)
   isAttacking?: boolean;
+  // Equipment tracking
+  attachedEquipment?: string[];     // IDs of equipment attached to this creature
+  isEquipped?: boolean;             // True if this creature has equipment attached
 }
 
 /* Temporary effect applied to a permanent or player */
