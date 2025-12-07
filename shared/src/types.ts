@@ -145,6 +145,7 @@ export interface PlayerZones {
   graveyard: KnownCardRef[] | string[];
   graveyardCount: number;
   exile?: KnownCardRef[] | string[];
+  exileCount?: number;
 }
 
 /* Commander info per player */

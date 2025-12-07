@@ -3748,7 +3748,7 @@ export function App() {
             isYouPlayer={isYouPlayer}
             gameOver={(safeView as any).gameOver}
             onConcede={() => socket.emit("concede", { gameId: safeView.id })}
-            onLeaveGame={() => leaveGame()}
+            onLeaveGame={() => leaveGame(() => setJoinCollapsed(false))}
             onUndo={(count: number) => handleRequestUndo(count)}
             availableUndoCount={availableUndoCount}
             onRollDie={(sides: number) => socket.emit("rollDie", { gameId: safeView.id, sides })}
