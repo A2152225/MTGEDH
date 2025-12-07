@@ -2918,6 +2918,88 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
+    // Handle Doubling Cube: "{3}, {T}: Double the amount of each type of mana in your mana pool"
+    if (cardName.toLowerCase().includes('doubling cube') || 
+        (oracleText.includes('double') && oracleText.includes('mana') && oracleText.includes('mana pool'))) {
+      // Validate: permanent must not be tapped
+      if ((permanent as any).tapped) {
+        socket.emit("error", {
+          code: "ALREADY_TAPPED",
+          message: `${cardName} is already tapped`,
+        });
+        return;
+      }
+      
+      // Check if player can pay {3}
+      const manaPool = game.state.manaPool[pid] || {
+        white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+      };
+      
+      const totalMana = manaPool.white + manaPool.blue + manaPool.black + 
+                        manaPool.red + manaPool.green + manaPool.colorless;
+      
+      if (totalMana < 3) {
+        socket.emit("error", {
+          code: "INSUFFICIENT_MANA",
+          message: `Not enough mana to activate ${cardName}. Need {3}, have ${totalMana}`,
+        });
+        return;
+      }
+      
+      // Consume {3} generic mana from pool (prioritize colorless, then colors)
+      let remaining = 3;
+      const poolCopy = { ...manaPool };
+      
+      // First use colorless
+      const colorlessUsed = Math.min(remaining, poolCopy.colorless);
+      poolCopy.colorless -= colorlessUsed;
+      remaining -= colorlessUsed;
+      
+      // Then use colors if needed
+      if (remaining > 0) {
+        const colors = ['white', 'blue', 'black', 'red', 'green'] as const;
+        for (const color of colors) {
+          if (remaining <= 0) break;
+          const used = Math.min(remaining, poolCopy[color]);
+          poolCopy[color] -= used;
+          remaining -= used;
+        }
+      }
+      
+      // Double all remaining mana in the pool
+      game.state.manaPool[pid] = {
+        white: poolCopy.white * 2,
+        blue: poolCopy.blue * 2,
+        black: poolCopy.black * 2,
+        red: poolCopy.red * 2,
+        green: poolCopy.green * 2,
+        colorless: poolCopy.colorless * 2,
+      };
+      
+      // Tap the permanent
+      (permanent as any).tapped = true;
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} activated ${cardName}, doubling their mana pool.`,
+        ts: Date.now(),
+      });
+      
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+      
+      // Broadcast mana pool update
+      broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Activated ${cardName}`, game);
+      
+      appendEvent(gameId, (game as any).seq ?? 0, "activateDoublingCube", { playerId: pid, permanentId });
+      
+      broadcastGame(io, game, gameId);
+      return;
+    }
+    
     // Handle planeswalker abilities (pw-ability-N)
     if (abilityId.startsWith("pw-ability-")) {
       // Parse ability index
