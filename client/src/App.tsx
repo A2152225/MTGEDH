@@ -2556,6 +2556,11 @@ export function App() {
     return hasHaste;
   };
 
+  // Color mapping for mana symbols - extracted as constant to avoid recreation
+  const MANA_COLOR_MAP: Record<string, ManaColor> = {
+    'W': 'W', 'U': 'U', 'B': 'B', 'R': 'R', 'G': 'G', 'C': 'C'
+  };
+
   // Get available mana sources (untapped lands and mana-producing artifacts/creatures)
   const getAvailableManaSourcesForPlayer = (playerId: string) => {
     if (!safeView) return [];
@@ -2648,10 +2653,7 @@ export function App() {
           
           // If this permanent has a special mana amount, use that specific color
           if (manaAmount && manaAmount > 0 && manaColor) {
-            const colorMap: Record<string, ManaColor> = {
-              'W': 'W', 'U': 'U', 'B': 'B', 'R': 'R', 'G': 'G', 'C': 'C'
-            };
-            const mappedColor = colorMap[manaColor.toUpperCase()] || 'C';
+            const mappedColor = MANA_COLOR_MAP[manaColor.toUpperCase()] || 'C';
             sources.push({ id: perm.id, name, options: [mappedColor], amount: manaAmount });
           } else {
             const artifactColors = parseManaColorsFromOracleText(oracleText);

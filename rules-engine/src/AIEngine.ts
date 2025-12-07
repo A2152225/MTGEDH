@@ -39,6 +39,11 @@ import {
 } from './tokenCreation';
 
 /**
+ * Default starting life total in Commander format
+ */
+const DEFAULT_COMMANDER_LIFE = 40;
+
+/**
  * AI Strategy level determines decision-making sophistication
  */
 export enum AIStrategy {
@@ -468,7 +473,7 @@ export class AIEngine {
     }).filter(Boolean) as CombatCreature[];
     
     // Calculate total unblocked damage to assess lethality
-    const playerLife = player.life || 40;
+    const playerLife = player.life || DEFAULT_COMMANDER_LIFE;
     const totalAttackerDamage = attackerCreatures.reduce((sum, a) => sum + a.power, 0);
     const isLethalIfUnblocked = totalAttackerDamage >= playerLife;
     
