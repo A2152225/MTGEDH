@@ -643,6 +643,19 @@ export function triggerETBEffectsForToken(
           continue; // Skip - this trigger only fires for nontoken creatures
         }
         
+        // Check if this trigger requires a specific creature type (e.g., Marwyn for Elves)
+        // Extract creature type from trigger description like "Whenever another Elf enters"
+        // Pattern captures multi-word types like "Artifact Creature" or "Cat Soldier"
+        const creatureTypeMatch = trigger.description.match(/whenever another ([^,]+?) enters/i);
+        if (creatureTypeMatch) {
+          const requiredType = creatureTypeMatch[1].trim().toLowerCase();
+          const enteringCreatureTypes = (token.card?.type_line || '').toLowerCase();
+          if (!enteringCreatureTypes.includes(requiredType)) {
+            // Entering creature doesn't have the required type
+            continue;
+          }
+        }
+        
         // Determine trigger controller
         const triggerController = perm.controller || controller;
         
@@ -768,6 +781,19 @@ function triggerETBEffectsForPermanent(
         // Check if this trigger requires nontoken creatures (e.g., Guardian Project)
         if ((trigger as any).nontokenOnly && isToken) {
           continue;
+        }
+        
+        // Check if this trigger requires a specific creature type (e.g., Marwyn for Elves)
+        // Extract creature type from trigger description like "Whenever another Elf enters"
+        // Pattern captures multi-word types like "Artifact Creature" or "Cat Soldier"
+        const creatureTypeMatch = trigger.description.match(/whenever another ([^,]+?) enters/i);
+        if (creatureTypeMatch) {
+          const requiredType = creatureTypeMatch[1].trim().toLowerCase();
+          const enteringCreatureTypes = (permanent.card?.type_line || '').toLowerCase();
+          if (!enteringCreatureTypes.includes(requiredType)) {
+            // Entering creature doesn't have the required type
+            continue;
+          }
         }
         
         const triggerController = perm.controller || controller;

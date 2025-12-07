@@ -6,7 +6,7 @@
  */
 
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, getPlayerName, emitToPlayer, getEffectivePower, getEffectiveToughness } from "./util.js";
+import { ensureGame, broadcastGame, getPlayerName, emitToPlayer, getEffectivePower, getEffectiveToughness, broadcastManaPoolUpdate } from "./util.js";
 import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 import { getAttackTriggersForCreatures, type TriggeredAbility } from "../state/modules/triggered-abilities.js";
@@ -597,19 +597,52 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         }
       }
       
-      // If there's an attack cost, prompt the player or check if they can pay
+      // If there's an attack cost, check if player can pay and consume mana
       if (totalAttackCostRequired > 0) {
-        // For now, emit a warning/prompt about the attack cost
-        // The proper implementation would require a payment flow
-        console.log(`[combat] Attack cost required: ${totalAttackCostRequired} mana for attacking (${attackCostBreakdown.map(b => b.sources.join(', ')).join('; ')})`);
+        // Check if player has enough mana
+        const manaPool = game.state.manaPool[playerId] || {
+          white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+        };
         
-        // Emit event to notify player about attack costs
-        socket.emit("attackCostRequired", {
-          gameId,
-          totalCost: totalAttackCostRequired,
-          breakdown: attackCostBreakdown,
-          attackerCount: attackers.length,
-        });
+        const totalMana = manaPool.white + manaPool.blue + manaPool.black + 
+                          manaPool.red + manaPool.green + manaPool.colorless;
+        
+        if (totalMana < totalAttackCostRequired) {
+          socket.emit("error", {
+            code: "INSUFFICIENT_MANA_FOR_ATTACK",
+            message: `Cannot attack. Need to pay {${totalAttackCostRequired}} for ${attackCostBreakdown.map(b => b.sources.join(', ')).join('; ')}. You have {${totalMana}}.`,
+          });
+          return;
+        }
+        
+        // Consume generic mana from pool (prioritize colorless, then colors)
+        let remaining = totalAttackCostRequired;
+        const poolCopy = { ...manaPool };
+        
+        // First use colorless
+        const colorlessUsed = Math.min(remaining, poolCopy.colorless);
+        poolCopy.colorless -= colorlessUsed;
+        remaining -= colorlessUsed;
+        
+        // Then use colors if needed
+        if (remaining > 0) {
+          const colors = ['white', 'blue', 'black', 'red', 'green'] as const;
+          for (const color of colors) {
+            if (remaining <= 0) break;
+            const used = Math.min(remaining, poolCopy[color]);
+            poolCopy[color] -= used;
+            remaining -= used;
+          }
+        }
+        
+        // Update mana pool
+        game.state.manaPool[playerId] = poolCopy;
+        
+        // Log the payment
+        console.log(`[combat] Player ${playerId} paid {${totalAttackCostRequired}} to attack (${attackCostBreakdown.map(b => b.sources.join(', ')).join('; ')})`);
+        
+        // Broadcast mana pool update
+        broadcastManaPoolUpdate(io, gameId, playerId, game.state.manaPool[playerId] as any, `Paid attack cost`, game);
       }
       
       for (const attacker of attackers) {

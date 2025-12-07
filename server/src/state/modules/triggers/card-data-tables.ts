@@ -561,6 +561,10 @@ export const KNOWN_ETB_TRIGGERS: Record<string, {
     effect: "Destroy all artifacts and enchantments, then put a +1/+1 counter on Bane of Progress for each permanent destroyed this way",
     triggerOn: 'self',
   },
+  "marwyn, the nurturer": {
+    effect: "Whenever another Elf enters the battlefield under your control, put a +1/+1 counter on Marwyn, the Nurturer",
+    triggerOn: 'creature',
+  },
 };
 
 // ============================================================================

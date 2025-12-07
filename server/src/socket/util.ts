@@ -2237,9 +2237,9 @@ export function calculateManaProduction(
     result.colors = ['G'];
   }
   
-  // Bighorner Rancher and similar - "Add {G} equal to the greatest power among creatures you control"
+  // Bighorn Rancher and similar - "Add {G} equal to the greatest power among creatures you control"
   if ((oracleText.includes("greatest power") && oracleText.includes("among creatures")) ||
-      cardName.includes('bighorner rancher')) {
+      cardName.includes('bighorn rancher') || cardName.includes('bighorner rancher')) {
     let greatestPower = 0;
     for (const perm of battlefield) {
       if (!perm || perm.controller !== playerId) continue;
@@ -2249,6 +2249,7 @@ export function calculateManaProduction(
       const { power } = getActualPowerToughness(perm, gameState);
       if (power > greatestPower) greatestPower = power;
     }
+    console.log(`[calculateManaProduction] ${cardName}: Greatest power among creatures is ${greatestPower}`);
     result.isDynamic = true;
     result.baseAmount = greatestPower;
     result.dynamicDescription = `{G} equal to greatest power (${greatestPower})`;
