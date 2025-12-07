@@ -2331,15 +2331,34 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Parse what land types this fetch can find
       const filter = parseSearchCriteria(oracleText);
       
+      // Parse maxSelections from oracle text (e.g., "up to two" in Myriad Landscape)
+      let maxSelections = 1; // Default to 1
+      const upToMatch = oracleText.match(/search your library for up to (\w+)/i);
+      if (upToMatch) {
+        const num = upToMatch[1].toLowerCase();
+        if (num === 'two') maxSelections = 2;
+        else if (num === 'three') maxSelections = 3;
+        else if (num === 'four') maxSelections = 4;
+        else {
+          const parsed = parseInt(num, 10);
+          if (!isNaN(parsed)) maxSelections = parsed;
+        }
+      }
+      
       // Build description for the ability
       let searchDescription = "Search your library for a land card";
+      if (maxSelections > 1) {
+        searchDescription = `Search your library for up to ${maxSelections} land cards`;
+      }
       if (filter.subtypes && filter.subtypes.length > 0) {
         const landTypes = filter.subtypes.filter(s => !s.includes("basic")).map(s => s.charAt(0).toUpperCase() + s.slice(1));
         if (landTypes.length > 0) {
-          searchDescription = `Search for a ${landTypes.join(" or ")} card`;
+          const prefix = maxSelections > 1 ? `Search for up to ${maxSelections}` : "Search for a";
+          searchDescription = `${prefix} ${landTypes.join(" or ")} card${maxSelections > 1 ? 's' : ''}`;
         }
         if (filter.subtypes.includes("basic")) {
-          searchDescription = `Search for a basic ${landTypes.join(" or ")} card`;
+          const prefix = maxSelections > 1 ? `Search for up to ${maxSelections} basic` : "Search for a basic";
+          searchDescription = `${prefix} ${landTypes.join(" or ")} card${maxSelections > 1 ? 's' : ''}`;
         }
       }
       
@@ -2352,13 +2371,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         controller: pid,
         source: permanentId,
         sourceName: cardName,
-        description: `${searchDescription}, put it onto the battlefield, then shuffle`,
+        description: `${searchDescription}, put ${maxSelections > 1 ? 'them' : 'it'} onto the battlefield, then shuffle`,
         abilityType: 'fetch-land',
         // Store search parameters for when the ability resolves
         searchParams: {
           filter,
           searchDescription,
           isTrueFetch,
+          maxSelections,
           cardImageUrl: card?.image_uris?.small || card?.image_uris?.normal,
         },
       } as any);
