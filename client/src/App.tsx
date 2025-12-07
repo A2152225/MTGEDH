@@ -36,6 +36,7 @@ import { CreatureTypeSelectModal } from "./components/CreatureTypeSelectModal";
 import { AppearanceSettingsModal } from "./components/AppearanceSettingsModal";
 import { LifePaymentModal } from "./components/LifePaymentModal";
 import { ColorChoiceModal } from "./components/ColorChoiceModal";
+import { AnyColorManaModal } from "./components/AnyColorManaModal";
 import { ManaDistributionModal } from "./components/ManaDistributionModal";
 import { AdditionalCostModal } from "./components/AdditionalCostModal";
 import { CastingModeSelectionModal, type CastingMode } from "./components/CastingModeSelectionModal";
@@ -514,6 +515,16 @@ export function App() {
     reason: string;
     imageUrl?: string;
     colors?: ('white' | 'blue' | 'black' | 'red' | 'green')[];
+  } | null>(null);
+  
+  // Any Color Mana Modal state - for Birds of Paradise, Chromatic Lantern, etc.
+  const [anyColorManaModalOpen, setAnyColorManaModalOpen] = useState(false);
+  const [anyColorManaModalData, setAnyColorManaModalData] = useState<{
+    activationId: string;
+    permanentId: string;
+    cardName: string;
+    amount: number;
+    cardImageUrl?: string;
   } | null>(null);
   
   // Mana Distribution Modal state - for Selvala, Heart of the Wilds, etc.
@@ -1410,6 +1421,33 @@ export function App() {
       socket.off("colorChoiceRequest", handler);
     };
   }, [safeView?.id, safeView?.battlefield]);
+
+  // Any color mana choice listener (for Birds of Paradise, Chromatic Lantern, etc.)
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      activationId: string;
+      permanentId: string;
+      cardName: string;
+      amount: number;
+      cardImageUrl?: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        setAnyColorManaModalData({
+          activationId: payload.activationId,
+          permanentId: payload.permanentId,
+          cardName: payload.cardName,
+          amount: payload.amount,
+          cardImageUrl: payload.cardImageUrl,
+        });
+        setAnyColorManaModalOpen(true);
+      }
+    };
+    socket.on("anyColorManaChoice", handler);
+    return () => {
+      socket.off("anyColorManaChoice", handler);
+    };
+  }, [safeView?.id]);
 
   // Mana distribution request listener (for Selvala, Heart of the Wilds, etc.)
   React.useEffect(() => {
@@ -4710,6 +4748,31 @@ export function App() {
           }
           setColorChoiceModalOpen(false);
           setColorChoiceModalData(null);
+        }}
+      />
+
+      {/* Any Color Mana Modal (Birds of Paradise, Chromatic Lantern, etc.) */}
+      <AnyColorManaModal
+        open={anyColorManaModalOpen}
+        activationId={anyColorManaModalData?.activationId || ''}
+        permanentId={anyColorManaModalData?.permanentId || ''}
+        cardName={anyColorManaModalData?.cardName || ''}
+        amount={anyColorManaModalData?.amount || 1}
+        cardImageUrl={anyColorManaModalData?.cardImageUrl}
+        onConfirm={(chosenColor) => {
+          if (safeView?.id && anyColorManaModalData) {
+            socket.emit("confirmAnyColorManaChoice", {
+              gameId: safeView.id,
+              activationId: anyColorManaModalData.activationId,
+              chosenColor,
+            });
+            setAnyColorManaModalOpen(false);
+            setAnyColorManaModalData(null);
+          }
+        }}
+        onCancel={() => {
+          setAnyColorManaModalOpen(false);
+          setAnyColorManaModalData(null);
         }}
       />
 

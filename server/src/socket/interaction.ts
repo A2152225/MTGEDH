@@ -1,4 +1,5 @@
 import type { Server, Socket } from "socket.io";
+import type { PlayerID } from "../../../shared/src/index.js";
 import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, calculateManaProduction } from "./util";
 import { appendEvent } from "../db";
 import { games } from "./socket";
@@ -2788,6 +2789,34 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const actualColor = manaProduction.colors[0] || manaColor;
       const manaAmount = manaProduction.totalAmount;
       
+      // If producing "any" color mana, prompt user for color choice
+      if (actualColor === 'any') {
+        // Store pending mana activation state
+        if (!game.state.pendingManaActivations) {
+          game.state.pendingManaActivations = {};
+        }
+        const activationId = `mana_any_${permanentId}_${Date.now()}`;
+        game.state.pendingManaActivations[activationId] = {
+          playerId: pid,
+          permanentId,
+          cardName,
+          amount: manaAmount,
+        };
+        
+        // Request color choice from player
+        socket.emit("anyColorManaChoice", {
+          gameId,
+          activationId,
+          permanentId,
+          cardName,
+          amount: manaAmount,
+          cardImageUrl: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
+        });
+        
+        broadcastGame(io, game, gameId);
+        return;
+      }
+      
       const colorToPoolKey: Record<string, keyof typeof game.state.manaPool[typeof pid]> = {
         'W': 'white',
         'U': 'blue',
@@ -2795,10 +2824,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         'R': 'red',
         'G': 'green',
         'C': 'colorless',
-        // FIXME: 'any' color mana should prompt user for color choice, not default to colorless
-        // This is a known limitation that affects cards like Chromatic Lantern, Birds of Paradise
-        // See issue: any-color mana defaults to colorless
-        'any': 'colorless',
       };
       
       const poolKey = colorToPoolKey[actualColor] || 'colorless';
@@ -5293,6 +5318,74 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     });
 
     broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`, game);
+    broadcastGame(io, game, gameId);
+  });
+
+  /**
+   * Handle player's choice of color for "any color" mana production
+   */
+  socket.on("confirmAnyColorManaChoice", ({ gameId, activationId, chosenColor }: {
+    gameId: string;
+    activationId: string;
+    chosenColor: 'white' | 'blue' | 'black' | 'red' | 'green';
+  }) => {
+    const game = ensureGame(gameId);
+    if (!game || !game.state) return;
+
+    const pid = (socket as any).playerId as PlayerID;
+    if (!pid) {
+      socket.emit("error", { code: "NO_PLAYER_ID", message: "No player ID associated with this socket" });
+      return;
+    }
+
+    // Retrieve pending activation
+    const pending = game.state.pendingManaActivations?.[activationId];
+    if (!pending) {
+      socket.emit("error", { code: "INVALID_ACTIVATION", message: "Invalid or expired mana activation" });
+      return;
+    }
+
+    // Verify it's the right player
+    if (pending.playerId !== pid) {
+      socket.emit("error", { code: "NOT_YOUR_ACTIVATION", message: "This is not your mana activation" });
+      return;
+    }
+
+    // Add mana to pool
+    game.state.manaPool = game.state.manaPool || {};
+    game.state.manaPool[pid] = game.state.manaPool[pid] || {
+      white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+    };
+
+    (game.state.manaPool[pid] as any)[chosenColor] = 
+      ((game.state.manaPool[pid] as any)[chosenColor] || 0) + pending.amount;
+
+    // Clean up pending activation
+    delete game.state.pendingManaActivations[activationId];
+
+    // Create chat message
+    const colorMap: Record<string, string> = {
+      white: 'W',
+      blue: 'U',
+      black: 'B',
+      red: 'R',
+      green: 'G',
+    };
+    const colorSymbol = colorMap[chosenColor];
+    const manaDescription = pending.amount > 1 
+      ? `${pending.amount} ${colorSymbol} mana`
+      : `${colorSymbol} mana`;
+
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} tapped ${pending.cardName} for ${manaDescription}.`,
+      ts: Date.now(),
+    });
+
+    // Broadcast updates
+    broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${pending.cardName}`, game);
     broadcastGame(io, game, gameId);
   });
 }
