@@ -2098,7 +2098,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const oracleText = (cardInHand.oracle_text || "").toLowerCase();
       let hasFlash = oracleText.includes("flash");
       const isInstant = typeLine.includes("instant");
-      const isInstantOrSorcery = isInstant || typeLine.includes("sorcery");
+      const isInstantOrSorcery = typeLine.includes("instant") || typeLine.includes("sorcery");
       
       // Check for "flash grant" effects from battlefield permanents
       // Yeva, Nature's Herald: "You may cast green creature cards as though they had flash."
@@ -2527,7 +2527,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       // targets when cast, even if they have activated/triggered abilities with "target" in the text.
       // This includes Equipment (which are artifacts) - they enter unattached and equipping is a separate ability.
       const isAura = typeLine.includes('aura');
-      // Use the isInstantOrSorcery already declared above (line 1906)
+      // Use the isInstantOrSorcery already declared above (line 2101)
       const requiresTargetingCheck = isInstantOrSorcery || isAura;
       
       // For Auras, determine valid targets based on "Enchant X" text
