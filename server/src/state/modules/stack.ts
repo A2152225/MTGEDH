@@ -1177,6 +1177,24 @@ function executeTriggerEffect(
     return;
   }
   
+  // Pattern: "double the number of +1/+1 counters on [this creature|it|~]" (Mossborn Hydra landfall)
+  // Matches: "double the number of +1/+1 counters on this creature", "double the number of +1/+1 counters on Mossborn Hydra"
+  if (desc.includes('double') && desc.includes('+1/+1 counter') && 
+      (desc.includes('this creature') || desc.includes('on it') || desc.includes('on ~'))) {
+    const sourcePermId = triggerItem?.source || triggerItem?.permanentId;
+    const battlefield = state.battlefield || [];
+    const sourcePerm = battlefield.find((p: any) => p.id === sourcePermId);
+    
+    if (sourcePerm) {
+      sourcePerm.counters = sourcePerm.counters || {};
+      const currentCounters = sourcePerm.counters['+1/+1'] || 0;
+      const newCounters = currentCounters * 2;
+      sourcePerm.counters['+1/+1'] = newCounters;
+      console.log(`[executeTriggerEffect] Doubled +1/+1 counters on ${sourcePerm.card?.name || sourcePerm.id}: ${currentCounters} -> ${newCounters}`);
+    }
+    return;
+  }
+  
   // Pattern: "put X +1/+1 counters on each creature you control" where X is based on source's power
   // Matches: "put X +1/+1 counters on each creature you control, where X is ~'s power"
   // Also matches: "put a number of +1/+1 counters equal to its power on each creature you control"
