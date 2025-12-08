@@ -1108,9 +1108,11 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
       console.warn(`${ts()} [dealCombatDamage] SBA failed:`, sbaErr);
     }
     
-    // Check for batched combat damage triggers (e.g., Professional Face-Breaker)
+    // Check for batched combat damage triggers (e.g., Professional Face-Breaker, Nature's Will)
     // These trigger once per combat damage step if ANY creatures dealt damage to a player
-    // "Whenever one or more creatures you control deal combat damage to a player, create a Treasure token."
+    // Examples:
+    // - "Whenever one or more creatures you control deal combat damage to a player, create a Treasure token."
+    // - "Whenever one or more creatures you control deal combat damage to a player, untap all lands you control."
     
     for (const [defendingPlayerId, attackerIds] of Object.entries(result.attackersThatDealtDamage || {})) {
       // Find all controllers who had creatures deal damage to this player
@@ -1136,10 +1138,22 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           for (const trigger of batchedTriggers) {
             console.log(`${ts()} [dealCombatDamage] Batched combat damage trigger from ${trigger.cardName}: ${trigger.description}`);
             
+            const effectLower = (trigger.description || trigger.effect || '').toLowerCase();
+            
+            // Nature's Will / Bear Umbra / Sword of Feast and Famine: untap all lands you control
+            if (effectLower.includes('untap all lands you control')) {
+              try {
+                untapLandsForPlayer(ctx, controllerId);
+                console.log(`${ts()} [dealCombatDamage] Untapped all lands for ${controllerId} from ${trigger.cardName}`);
+              } catch (untapErr) {
+                console.error(`${ts()} [dealCombatDamage] Failed to untap lands:`, untapErr);
+              }
+            }
+            
             // Professional Face-Breaker: create a Treasure token
             // Check if the card name matches Professional Face-Breaker exactly
             const isProfessionalFaceBreaker = trigger.cardName.toLowerCase() === 'professional face-breaker';
-            if (isProfessionalFaceBreaker || (trigger.description && trigger.description.toLowerCase().includes('create a treasure'))) {
+            if (isProfessionalFaceBreaker || effectLower.includes('create a treasure')) {
               try {
                 createToken(ctx, controllerId, 'Treasure', 1);
                 console.log(`${ts()} [dealCombatDamage] Created 1 Treasure token for ${controllerId} from ${trigger.cardName}`);
@@ -1436,6 +1450,39 @@ function anyPlayerHasSundialEffect(ctx: GameContext): boolean {
  * - "Doesn't untap" effects: Skip untapping for permanents with this flag
  * - Static effects: Check for cards like Intruder Alarm that prevent untapping
  */
+/**
+ * Untap all lands controlled by a specific player
+ * Used for Nature's Will, Bear Umbra, Sword of Feast and Famine, etc.
+ */
+function untapLandsForPlayer(ctx: GameContext, playerId: string) {
+  try {
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return;
+
+    let untappedCount = 0;
+
+    for (const permanent of battlefield) {
+      if (!permanent || permanent.controller !== playerId) continue;
+      if (!permanent.tapped) continue;
+      
+      const typeLine = (permanent.card?.type_line || '').toLowerCase();
+      if (!typeLine.includes('land')) continue;
+
+      // Untap the land
+      permanent.tapped = false;
+      untappedCount++;
+    }
+
+    if (untappedCount > 0) {
+      console.log(
+        `${ts()} [untapLandsForPlayer] Untapped ${untappedCount} lands for player ${playerId}`
+      );
+    }
+  } catch (err) {
+    console.warn(`${ts()} untapLandsForPlayer failed:`, err);
+  }
+}
+
 function untapPermanentsForPlayer(ctx: GameContext, playerId: string) {
   try {
     const battlefield = (ctx as any).state?.battlefield;

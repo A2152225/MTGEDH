@@ -191,6 +191,13 @@ export function extractCombatKeywords(perm: BattlefieldPermanent): CombatKeyword
  * Get creature's current power (with counters and modifiers)
  */
 export function getCreaturePower(perm: BattlefieldPermanent): number {
+  // CRITICAL: Use pre-calculated effectivePower if available
+  // This includes special abilities like Omnath's mana pool bonus, equipment, auras, anthems, lords, etc.
+  if (typeof (perm as any).effectivePower === 'number') {
+    return (perm as any).effectivePower;
+  }
+  
+  // Fallback: Calculate manually if effectivePower is not available
   const card = perm.card as KnownCardRef;
   let power = perm.basePower ?? (parseInt(String(card?.power || '0'), 10) || 0);
   
@@ -216,6 +223,13 @@ export function getCreaturePower(perm: BattlefieldPermanent): number {
  * Get creature's current toughness (with counters and modifiers)
  */
 export function getCreatureToughness(perm: BattlefieldPermanent): number {
+  // CRITICAL: Use pre-calculated effectiveToughness if available
+  // This includes special abilities like Omnath's mana pool bonus, equipment, auras, anthems, lords, etc.
+  if (typeof (perm as any).effectiveToughness === 'number') {
+    return (perm as any).effectiveToughness;
+  }
+  
+  // Fallback: Calculate manually if effectiveToughness is not available
   const card = perm.card as KnownCardRef;
   let toughness = perm.baseToughness ?? (parseInt(String(card?.toughness || '0'), 10) || 0);
   
