@@ -967,13 +967,34 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     } as any);
   }
   
-  // "Whenever another permanent enters the battlefield" - ANY permanent type
-  // This is the Altar of the Brood pattern: "Whenever another permanent enters the battlefield, each opponent mills a card."
-  // This triggers on ANY permanent (creature, artifact, enchantment, land, planeswalker)
+  // "Whenever another permanent you control enters" - Altar of the Brood, etc.
+  // This triggers on ANY permanent type (creature, artifact, enchantment, land, planeswalker) under YOUR control
   // Supports both old template "enters the battlefield" and new Bloomburrow template "enters"
   // Also handles plural forms
-  const anotherPermanentAnyETBMatch = oracleText.match(/whenever (?:another|one or more(?: other)?) (?:[\w\s]+)?permanents? enters?(?: the battlefield)?(?!.*under your control),?\s*([^.]+)/i);
-  if (anotherPermanentAnyETBMatch && !triggers.some(t => t.triggerType === 'permanent_etb')) {
+  const anotherPermanentControlledETBMatch = oracleText.match(/whenever (?:another|one or more(?: other)?) (?:[\w\s]+)?permanents? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i);
+  // Check for control restriction for permanents (not just creatures)
+  const hasPermanentControlRestriction = /whenever (?:another|one or more(?: other)?) [\w\s]*permanents? (?:you control|under your control)/.test(oracleText) ||
+                                         /whenever (?:another|one or more(?: other)?) [\w\s]*permanents? (?:you control )?enters?(?: the battlefield)? under your control/.test(oracleText);
+  if (anotherPermanentControlledETBMatch && hasPermanentControlRestriction && !triggers.some(t => t.triggerType === 'another_permanent_etb')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'another_permanent_etb', // Triggers only on permanents you control
+      description: anotherPermanentControlledETBMatch[1].trim(),
+      effect: anotherPermanentControlledETBMatch[1].trim(),
+      mandatory: true,
+    } as any);
+  }
+  
+  // "Whenever another permanent enters the battlefield" - ANY permanent from ANY player
+  // This would be for cards that trigger on ANY permanent entering, regardless of controller
+  // (Currently no known cards have this pattern, but included for completeness)
+  // Explicitly check that it does NOT have "you control" or "under your control"
+  // Supports both old template "enters the battlefield" and new Bloomburrow template "enters"
+  // Also handles plural forms
+  const anotherPermanentAnyETBMatch = oracleText.match(/whenever (?:another|one or more(?: other)?) (?:[\w\s]+)?permanents? enters?(?: the battlefield)?,?\s*([^.]+)/i);
+  const hasNoControlRestriction = !/you control|under your control|an opponent controls|under an opponent's control/.test(oracleText);
+  if (anotherPermanentAnyETBMatch && hasNoControlRestriction && !triggers.some(t => t.triggerType === 'permanent_etb')) {
     triggers.push({
       permanentId,
       cardName,
@@ -1026,25 +1047,6 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       description: opponentCreatureETBMatch[1].trim(),
       effect: opponentCreatureETBMatch[1].trim(),
       mandatory: !opponentCreatureETBMatch[1].toLowerCase().includes('you may'),
-    } as any);
-  }
-  
-  // "Whenever another permanent enters the battlefield under your control" (non-creature version)
-  // Also handles new Bloomburrow template: "another permanent you control enters"
-  // This triggers on ANY permanent you control
-  // Also handles plural forms
-  const anotherPermanentControlledETBMatch = oracleText.match(/whenever (?:another|one or more(?: other)?) (?:[\w\s]+)?permanents? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i);
-  // oracleText is already lowercased
-  const hasPermanentControlRestriction = /whenever (?:another|one or more(?: other)?) [\w\s]*permanents? (?:you control|under your control)/.test(oracleText) ||
-                                          /whenever (?:another|one or more(?: other)?) [\w\s]*permanents? (?:you control )?enters?(?: the battlefield)? under your control/.test(oracleText);
-  if (anotherPermanentControlledETBMatch && hasPermanentControlRestriction && !triggers.some(t => t.triggerType === 'another_permanent_etb')) {
-    triggers.push({
-      permanentId,
-      cardName,
-      triggerType: 'another_permanent_etb',
-      description: anotherPermanentControlledETBMatch[1].trim(),
-      effect: anotherPermanentControlledETBMatch[1].trim(),
-      mandatory: true,
     } as any);
   }
   

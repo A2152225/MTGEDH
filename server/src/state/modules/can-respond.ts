@@ -163,6 +163,26 @@ function hasActivatableAbility(
     // Skip if this is just a mana ability we already checked
     if (costPart.includes("{T}") && hasTapAbility) continue;
     
+    // Skip sorcery-speed abilities (Equip, Reconfigure, etc.)
+    // These can only be activated during main phase when stack is empty
+    const effectLower = effectPart.toLowerCase();
+    if (effectLower.includes("equip") || effectLower.includes("reconfigure")) {
+      // Check if it's instant-speed equip (rare exceptions like Cranial Plating)
+      // Pattern: "Equip {B}{B} ({B}{B}: Attach to target creature you control. Equip only as a sorcery.)"
+      // vs "BB: Attach to target creature you control." (no "only as a sorcery" = instant speed)
+      const hasInstantEquip = /equip\s*\{[^}]+\}/.test(effectLower) && 
+                              !/(equip|reconfigure) only as a sorcery|activate (?:only )?(?:this ability|these abilities) (?:only )?(?:any time|at any time) you could cast a sorcery/i.test(oracleText);
+      if (!hasInstantEquip) {
+        continue; // Skip sorcery-speed equip/reconfigure
+      }
+    }
+    
+    // Skip other sorcery-speed only abilities
+    // Pattern: "Activate only as a sorcery" or "Activate only any time you could cast a sorcery"
+    if (/(activate|use) (?:this ability|these abilities) only (?:as a sorcery|any time you could cast a sorcery)/i.test(oracleText)) {
+      continue; // Skip sorcery-speed ability
+    }
+    
     // Parse the cost
     const parsedCost = parseManaCost(costPart);
     
@@ -294,13 +314,17 @@ export function canPlayLand(ctx: GameContext, playerId: PlayerID): boolean {
     
     // Check for "play from top of library" effects (Experimental Frenzy, Future Sight, etc.)
     if (hasPlayFromTopOfLibraryEffect(ctx, playerId)) {
-      const library = Array.isArray(zones.library) ? zones.library : [];
-      if (library.length > 0) {
-        const topCard = library[library.length - 1]; // Top of library is last element
-        if (topCard && typeof topCard !== "string") {
-          const typeLine = (topCard.type_line || "").toLowerCase();
-          if (typeLine.includes("land")) {
-            return true; // Can play land from top of library
+      // Library is stored in ctx.libraries Map, not in zones
+      const libraries = (ctx as any).libraries;
+      if (libraries && typeof libraries.get === 'function') {
+        const library = libraries.get(playerId);
+        if (Array.isArray(library) && library.length > 0) {
+          const topCard = library[library.length - 1]; // Top of library is last element
+          if (topCard && typeof topCard !== "string") {
+            const typeLine = (topCard.type_line || "").toLowerCase();
+            if (typeLine.includes("land")) {
+              return true; // Can play land from top of library
+            }
           }
         }
       }
