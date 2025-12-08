@@ -25,11 +25,12 @@ import {
   getEndOfCombatTriggers,
   getUntapStepEffects,
   applyUntapStepEffect,
-  isPermanentPreventedFromUntapping
+  isPermanentPreventedFromUntapping,
+  detectCombatDamageTriggers
 } from "./triggered-abilities.js";
 import { getUpkeepTriggersForPlayer } from "./upkeep-triggers.js";
 import { parseCreatureKeywords } from "./combat-mechanics.js";
-import { runSBA } from "./counters_tokens.js";
+import { runSBA, createToken } from "./counters_tokens.js";
 import { calculateAllPTBonuses, parsePT } from "../utils.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
@@ -1090,6 +1091,55 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
       runSBA(ctx);
     } catch (sbaErr) {
       console.warn(`${ts()} [dealCombatDamage] SBA failed:`, sbaErr);
+    }
+    
+    // Check for batched combat damage triggers (e.g., Professional Face-Breaker)
+    // These trigger once per combat damage step if ANY creatures dealt damage to a player
+    // "Whenever one or more creatures you control deal combat damage to a player, create a Treasure token."
+    
+    for (const [defendingPlayerId, damageDealt] of Object.entries(result.damageToPlayers)) {
+      if (damageDealt > 0) {
+        // Find all controllers who had creatures deal damage to this player
+        const controllersWhoDamaged = new Set<string>();
+        for (const attacker of attackers) {
+          if (attacker.attacking === defendingPlayerId && !attacker.markedForDestruction) {
+            const attackerCard = attacker.card;
+            const attackerController = attacker.controller;
+            // Check if this attacker's controller had damage dealt
+            const attackerPower = parseInt(String(attackerCard?.power || '0'), 10);
+            if (attackerPower > 0 && attackerController) {
+              controllersWhoDamaged.add(attackerController);
+            }
+          }
+        }
+        
+        // For each controller who had creatures deal damage to this player
+        for (const controllerId of controllersWhoDamaged) {
+          // Check all permanents for batched combat damage triggers
+          for (const perm of battlefield) {
+            if (perm?.controller !== controllerId) continue;
+            
+            const triggers = detectCombatDamageTriggers(perm.card, perm);
+            const batchedTriggers = triggers.filter(t => 
+              t.triggerType === 'creatures_deal_combat_damage_batched' && t.batched
+            );
+            
+            for (const trigger of batchedTriggers) {
+              console.log(`${ts()} [dealCombatDamage] Batched combat damage trigger from ${trigger.cardName}: ${trigger.description}`);
+              
+              // Professional Face-Breaker: create a Treasure token
+              if (trigger.description && trigger.description.toLowerCase().includes('treasure')) {
+                try {
+                  createToken(ctx, controllerId, 'Treasure', 1);
+                  console.log(`${ts()} [dealCombatDamage] Created 1 Treasure token for ${controllerId} from ${trigger.cardName}`);
+                } catch (tokenErr) {
+                  console.error(`${ts()} [dealCombatDamage] Failed to create Treasure token:`, tokenErr);
+                }
+              }
+            }
+          }
+        }
+      }
     }
     
   } catch (err) {
