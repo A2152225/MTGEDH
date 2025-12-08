@@ -1,5 +1,6 @@
 import type { PlayerID, PlayerRef } from "../../../../shared/src";
 import type { GameContext } from "../context";
+import { canRespond } from "./can-respond";
 
 function activePlayersClockwise(ctx: GameContext): PlayerRef[] {
   const { state, inactive } = ctx;
@@ -16,6 +17,36 @@ function advancePriorityClockwise(ctx: GameContext, from: PlayerID): PlayerID {
   const step = ctx.state.turnDirection === -1 ? -1 : 1;
   const nextIdx = ((idx >= 0 ? idx : 0) + step + n) % n;
   return active[nextIdx].id as PlayerID;
+}
+
+/**
+ * Auto-pass priority for a player if they cannot respond
+ * 
+ * @param ctx Game context
+ * @param playerId Player to check and potentially auto-pass
+ * @returns true if auto-pass was applied, false otherwise
+ */
+export function autoPassIfCannotRespond(ctx: GameContext, playerId: PlayerID): boolean {
+  const { state } = ctx;
+  
+  // Check if auto-pass is enabled for this player
+  const autoPassPlayers = (state as any).autoPassPlayers || new Set();
+  if (!autoPassPlayers.has(playerId)) {
+    return false; // Auto-pass not enabled for this player
+  }
+  
+  // Check if player can respond
+  if (canRespond(ctx, playerId)) {
+    return false; // Player can respond, don't auto-pass
+  }
+  
+  // Player cannot respond - auto-pass priority
+  console.log(`[priority] Auto-passing for ${playerId} - no available responses`);
+  
+  // Call passPriority to advance
+  passPriority(ctx, playerId);
+  
+  return true;
 }
 
 export function passPriority(ctx: GameContext, playerId: PlayerID): { changed: boolean; resolvedNow: boolean; advanceStep: boolean } {

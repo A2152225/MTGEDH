@@ -314,6 +314,60 @@ export function registerAutomationHandlers(
   });
 
   /**
+   * Check if a player can respond (query from client)
+   * Returns whether the player has any available responses
+   */
+  socket.on("checkCanRespond", ({ gameId }: { gameId: string }) => {
+    const playerId = socket.data.playerId;
+    
+    if (!playerId) {
+      socket.emit("canRespondResponse", { canRespond: false, reason: "Not in game" });
+      return;
+    }
+    
+    const game = games.get(gameId);
+    if (!game || !game.state) {
+      socket.emit("canRespondResponse", { canRespond: false, reason: "Game not found" });
+      return;
+    }
+    
+    try {
+      // Import the canRespond function from can-respond module
+      import("../../state/modules/can-respond.js").then(({ canRespond }) => {
+        // Create a minimal context for the check
+        const ctx = {
+          state: game.state,
+          inactive: new Set(),
+          passesInRow: { value: 0 },
+          bumpSeq: () => {},
+        };
+        
+        const playerCanRespond = canRespond(ctx as any, playerId);
+        
+        socket.emit("canRespondResponse", {
+          canRespond: playerCanRespond,
+          gameId,
+          playerId,
+        });
+        
+        console.log(`[Automation] Player ${playerId} can respond: ${playerCanRespond}`);
+      }).catch(err => {
+        console.error("[Automation] Error checking canRespond:", err);
+        socket.emit("canRespondResponse", { 
+          canRespond: true, // Default to true on error to be safe
+          error: "Failed to check response capability" 
+        });
+      });
+    } catch (err) {
+      console.error("[Automation] Error in checkCanRespond:", err);
+      socket.emit("canRespondResponse", { 
+        canRespond: true, // Default to true on error to be safe
+        error: "Failed to check response capability" 
+      });
+    }
+  });
+
+  /**
    * Handle phase stop toggle
    */
   socket.on("setStop", (payload) => {
