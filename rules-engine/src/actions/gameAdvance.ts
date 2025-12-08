@@ -330,7 +330,7 @@ function resolveTopOfStack(
         const oracleText = card?.oracle_text || '';
         
         // Parse mana-adding patterns: "Add {B}{B}{B}", "Add {R}{R}{R}{R}{R}", etc.
-        const manaAddPattern = /add\s+(\{[WUBRGC]\}(?:\s*\{[WUBRGC]\})*)/gi;
+        const manaAddPattern = /add\s+(\{[WUBRGC]\}+)/gi;
         let manaMatch;
         
         while ((manaMatch = manaAddPattern.exec(oracleText)) !== null) {
@@ -338,7 +338,7 @@ function resolveTopOfStack(
           logs.push(`${getCardName(topObject)} adds mana: ${manaSymbols}`);
           
           // Extract individual mana symbols
-          const symbolMatches = manaSymbols.matchAll(/\{([WUBRGC])\}/g);
+          const symbolMatches = Array.from(manaSymbols.matchAll(/\{([WUBRGC])\}/g));
           const manaToAdd: Record<string, number> = {};
           
           for (const symbolMatch of symbolMatches) {

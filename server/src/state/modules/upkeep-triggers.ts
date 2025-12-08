@@ -194,9 +194,10 @@ export function detectUpkeepTriggers(card: any, permanent: any): UpkeepTrigger[]
     const ageCounters = (counters["age"] || 0) + 1;
     const cost = cumulativeMatch[1].trim();
     
-    // Special case: Braid of Fire has "Cumulative upkeep—Add {R}"
+    // Special case: Braid of Fire has "Cumulative upkeep—Add {R}" or similar
     // This ADDS mana instead of requiring payment
-    const isAddingMana = /^add\s+\{[WUBRGC]\}$/i.test(cost);
+    // Match patterns like "Add {R}", "Add {R}{R}", etc.
+    const isAddingMana = /^add\s+\{[WUBRGC]\}+$/i.test(cost);
     
     triggers.push({
       permanentId,
@@ -654,30 +655,37 @@ export function autoProcessCumulativeUpkeepMana(ctx: GameContext, activePlayerId
     const oracleText = card?.oracle_text || '';
     
     // Check for cumulative upkeep with "Add {X}" pattern (e.g., Braid of Fire)
-    const cumulativeMatch = oracleText.match(/cumulative upkeep[—\-\s]*add\s+(\{[WUBRGC]\})/i);
+    // Note: The pattern should capture one or more consecutive mana symbols
+    const cumulativeMatch = oracleText.match(/cumulative upkeep[—\-\s]*add\s+(\{[WUBRGC]\}+)/i);
     if (!cumulativeMatch) continue;
     
-    const manaSymbol = cumulativeMatch[1];
+    const manaSymbols = cumulativeMatch[1];
     const counters = permanent.counters || {};
     
     // Add age counter first
     const newAgeCounters = (counters["age"] || 0) + 1;
     (permanent as any).counters = { ...counters, age: newAgeCounters };
     
-    // Parse mana symbol
-    const symbol = manaSymbol.match(/\{([WUBRGC])\}/)?.[1];
-    if (!symbol) continue;
+    // Parse all mana symbols (e.g., {R} or {R}{R})
+    const symbolMatches = Array.from(manaSymbols.matchAll(/\{([WUBRGC])\}/g));
+    const manaPerCounter: Record<string, number> = {};
     
-    const manaType = symbol === 'W' ? 'white' :
-                     symbol === 'U' ? 'blue' :
-                     symbol === 'B' ? 'black' :
-                     symbol === 'R' ? 'red' :
-                     symbol === 'G' ? 'green' :
-                     'colorless';
+    for (const match of symbolMatches) {
+      const symbol = match[1];
+      const manaType = symbol === 'W' ? 'white' :
+                       symbol === 'U' ? 'blue' :
+                       symbol === 'B' ? 'black' :
+                       symbol === 'R' ? 'red' :
+                       symbol === 'G' ? 'green' :
+                       'colorless';
+      manaPerCounter[manaType] = (manaPerCounter[manaType] || 0) + 1;
+    }
     
-    // Add mana for each age counter
-    const manaAmount = newAgeCounters;
-    const manaToAdd: Record<string, number> = { [manaType]: manaAmount };
+    // Calculate total mana: (mana per counter) * (age counters)
+    const manaToAdd: Record<string, number> = {};
+    for (const [manaType, perCounter] of Object.entries(manaPerCounter)) {
+      manaToAdd[manaType] = perCounter * newAgeCounters;
+    }
     
     // Initialize mana pool if needed
     if (!ctx.state.manaPool) {
