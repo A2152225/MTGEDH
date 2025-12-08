@@ -207,7 +207,7 @@ describe('canActivateAnyAbility', () => {
     expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(false);
   });
 
-  it('should return true when controlling untapped creature with tap ability', () => {
+  it('should return false when controlling only mana dork (mana abilities dont require priority)', () => {
     const ctx = createTestContext({
       battlefield: [
         {
@@ -226,6 +226,30 @@ describe('canActivateAnyAbility', () => {
       },
     });
     
+    // Mana abilities don't use the stack and don't require priority (Rule 605)
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+
+  it('should return true when controlling creature with non-mana tap ability', () => {
+    const ctx = createTestContext({
+      battlefield: [
+        {
+          id: 'creature1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Merfolk Looter',
+            type_line: 'Creature — Merfolk Rogue',
+            oracle_text: '{T}: Draw a card, then discard a card.',
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+    });
+    
+    // Non-mana abilities DO require priority
     expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
@@ -342,7 +366,7 @@ describe('canRespond', () => {
     expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
-  it('should return true when player has activatable ability', () => {
+  it('should return false when player only has mana abilities (dont require priority)', () => {
     const ctx = createTestContext({
       zones: {
         p1: {
@@ -364,9 +388,12 @@ describe('canRespond', () => {
       manaPool: {
         p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
       },
+      step: 'UPKEEP',
+      stack: [],
     });
     
-    expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
+    // Mana abilities don't require priority - should auto-pass
+    expect(canRespond(ctx, 'p1' as PlayerID)).toBe(false);
   });
 
   it('should return true when player has free spell via alternate cost', () => {

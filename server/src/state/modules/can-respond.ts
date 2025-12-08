@@ -87,7 +87,41 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
 }
 
 /**
+ * Check if an ability is a mana ability (doesn't use the stack, doesn't require priority)
+ * Per MTG Rule 605.1a: A mana ability is an activated ability that:
+ * - Could add mana to a player's mana pool when it resolves
+ * - Isn't a loyalty ability
+ * - Doesn't target
+ * 
+ * Mana abilities can be activated at any time without priority, so they should NOT
+ * prevent auto-passing priority.
+ */
+function isManaAbility(oracleText: string, effectPart: string): boolean {
+  if (!effectPart) return false;
+  
+  const effectLower = effectPart.toLowerCase();
+  
+  // Check if it adds mana to a player's mana pool
+  // Patterns: "Add {G}", "Add {C}{C}", "Add one mana of any color", etc.
+  const addsMana = /add\s+(?:\{[wubrgc]\}|\{[^}]+\}\{[^}]+\}|one mana|mana|[x\d]+\s+mana)/i.test(effectLower);
+  
+  if (!addsMana) return false;
+  
+  // Check if it targets (mana abilities can't target per Rule 605.1a)
+  const hasTarget = /target/i.test(effectPart);
+  if (hasTarget) return false;
+  
+  // Check if it's a loyalty ability (planeswalker abilities use +/- counters)
+  // Loyalty abilities are not mana abilities even if they add mana
+  const isLoyaltyAbility = /[+-]\d+:/i.test(oracleText);
+  if (isLoyaltyAbility) return false;
+  
+  return true;
+}
+
+/**
  * Check if a permanent has an activated ability that can be activated
+ * and requires priority (excludes mana abilities per Rule 605)
  */
 function hasActivatableAbility(
   ctx: GameContext,
@@ -118,6 +152,12 @@ function hasActivatableAbility(
     
     const additionalCost = abilityMatch[1] || "";
     const effect = abilityMatch[2] || "";
+    
+    // CRITICAL: Skip mana abilities - they don't use the stack and don't require priority
+    // Per MTG Rule 605.3a, mana abilities can be activated whenever needed for payment
+    if (isManaAbility(oracleText, effect)) {
+      return false; // Mana abilities don't prevent auto-pass
+    }
     
     // Check for mana costs in additional cost
     const manaCostMatch = additionalCost.match(/\{[^}]+\}/g);
@@ -162,6 +202,11 @@ function hasActivatableAbility(
     
     // Skip if this is just a mana ability we already checked
     if (costPart.includes("{T}") && hasTapAbility) continue;
+    
+    // Skip mana abilities - they don't require priority
+    if (isManaAbility(oracleText, effectPart)) {
+      continue;
+    }
     
     // Skip sorcery-speed abilities (Equip, Reconfigure, etc.)
     // These can only be activated during main phase when stack is empty
