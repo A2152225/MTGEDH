@@ -1929,9 +1929,17 @@ export function registerGameActions(io: Server, socket: Socket) {
   // =====================================================================
   socket.on("requestCastSpell", ({ gameId, cardId, faceIndex }: { gameId: string; cardId: string; faceIndex?: number }) => {
     try {
+      console.log(`[requestCastSpell] ======== REQUEST START ========`);
+      console.log(`[requestCastSpell] gameId: ${gameId}, cardId: ${cardId}, faceIndex: ${faceIndex}`);
+      
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
-      if (!game || !playerId) return;
+      if (!game || !playerId) {
+        console.log(`[requestCastSpell] ERROR: game or playerId not found`);
+        return;
+      }
+      
+      console.log(`[requestCastSpell] playerId: ${playerId}, priority: ${game.state.priority}`);
 
       // Basic validation (same as castSpellFromHand)
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
@@ -2113,7 +2121,8 @@ export function registerGameActions(io: Server, socket: Socket) {
           effectId,
         });
         
-        console.log(`[requestCastSpell] Requesting targets for ${cardName} (effectId: ${effectId})`);
+        console.log(`[requestCastSpell] Emitted targetSelectionRequest for ${cardName} (effectId: ${effectId}, ${validTargetList.length} valid targets)`);
+        console.log(`[requestCastSpell] ======== REQUEST END (waiting for targets) ========`);
       } else {
         // No targets needed - go directly to payment
         socket.emit("paymentRequired", {
@@ -2125,7 +2134,8 @@ export function registerGameActions(io: Server, socket: Socket) {
           imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
         });
         
-        console.log(`[requestCastSpell] No targets needed, requesting payment for ${cardName}`);
+        console.log(`[requestCastSpell] No targets needed, emitted paymentRequired for ${cardName}`);
+        console.log(`[requestCastSpell] ======== REQUEST END (waiting for payment) ========`);
       }
     } catch (err: any) {
       console.error(`[requestCastSpell] Error:`, err);

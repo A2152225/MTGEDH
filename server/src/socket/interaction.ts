@@ -4690,13 +4690,22 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     effectId?: string;
     selectedTargetIds: string[];
   }) => {
+    console.log(`[targetSelectionConfirm] ======== CONFIRM START ========`);
+    console.log(`[targetSelectionConfirm] gameId: ${gameId}, effectId: ${effectId}`);
+    console.log(`[targetSelectionConfirm] selectedTargetIds: ${JSON.stringify(selectedTargetIds)}`);
+    
     const pid = socket.data.playerId as string | undefined;
-    if (!pid || socket.data.spectator) return;
+    if (!pid || socket.data.spectator) {
+      console.log(`[targetSelectionConfirm] ERROR: No playerId or is spectator`);
+      return;
+    }
 
     const game = ensureGame(gameId);
+    console.log(`[targetSelectionConfirm] playerId: ${pid}`);
     
     // Ensure selectedTargetIds is a valid array (defensive check for malformed payloads)
     const targetIds = Array.isArray(selectedTargetIds) ? selectedTargetIds : [];
+    console.log(`[targetSelectionConfirm] Validated targetIds: ${targetIds.join(',')}`);
     
     // Store targets for the pending effect/spell
     // This will be used when the spell/ability resolves
@@ -4705,6 +4714,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       playerId: pid,
       targetIds: targetIds,
     };
+    console.log(`[targetSelectionConfirm] Stored targets in pendingTargets[${effectId}]`);
     
     // Check if this is a spell cast that was waiting for targets (via requestCastSpell)
     // effectId format is "cast_${cardId}_${timestamp}"
@@ -4735,6 +4745,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         
         // MTG Rule 601.2h: After targets chosen, now request payment
         console.log(`[targetSelectionConfirm] Targets selected for ${pendingCast.cardName}, now requesting payment`);
+        console.log(`[targetSelectionConfirm] Storing targets in pendingCast.targets: ${targetIds.join(',')}`);
         
         // Store targets with the pending cast
         pendingCast.targets = targetIds;
@@ -4748,6 +4759,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           effectId,
           targets: targetIds,
         });
+        
+        console.log(`[targetSelectionConfirm] Emitted paymentRequired to ${pid}`);
+        console.log(`[targetSelectionConfirm] ======== CONFIRM END (waiting for payment) ========`);
       } else {
         // Legacy flow - old-style cast that bypassed requestCastSpell
         // Keep the old behavior for backward compatibility
