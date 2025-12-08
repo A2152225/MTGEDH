@@ -48,9 +48,15 @@ export function passPriority(ctx: GameContext, playerId: PlayerID): { changed: b
       // After stack resolution, priority goes back to the active player (turn player)
       // per MTG rule 117.3b - "After a spell or ability resolves, the active player receives priority"
       state.priority = state.turnPlayer as PlayerID;
+      
+      // Don't auto-pass here - we just resolved the stack after all players passed.
+      // The turn player will get a chance to respond to the new board state.
     } else {
       // Not all players have passed yet, advance priority clockwise
       state.priority = advancePriorityClockwise(ctx, playerId);
+      
+      // Iteratively auto-pass players who cannot respond
+      autoPassLoop(ctx, active);
     }
   } else {
     passesInRow.value = 0;
@@ -60,14 +66,88 @@ export function passPriority(ctx: GameContext, playerId: PlayerID): { changed: b
       stateAny.priorityPassedBy = new Set<string>(); // Reset tracking
       // Priority stays with the active player (turn player) for the next step
       state.priority = state.turnPlayer as PlayerID;
+      // Note: Don't auto-pass here because we're advancing to the next step.
+      // The step advancement logic will give priority and can check auto-pass there.
     } else {
       // Not all players have passed yet, advance priority clockwise
       state.priority = advancePriorityClockwise(ctx, playerId);
+      
+      // Iteratively auto-pass players who cannot respond
+      const result = autoPassLoop(ctx, active);
+      if (result.allPassed) {
+        advanceStep = true;
+        resolvedNow = result.resolved;
+      }
     }
   }
   
   bumpSeq();
   return { changed: true, resolvedNow, advanceStep };
+}
+
+/**
+ * Iteratively auto-pass for players who cannot respond
+ * Stops when we find a player who can respond OR all players have passed
+ */
+function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boolean; resolved: boolean } {
+  const { state } = ctx;
+  const stateAny = state as any;
+  const autoPassPlayers = stateAny.autoPassPlayers || new Set();
+  
+  let iterations = 0;
+  const maxIterations = active.length * 2; // Safety limit
+  
+  while (iterations < maxIterations) {
+    iterations++;
+    
+    const currentPlayer = state.priority;
+    
+    // Check if all players have now passed
+    const allPassed = active.every(p => stateAny.priorityPassedBy.has(p.id));
+    if (allPassed) {
+      // All players have passed - resolve or advance
+      if (state.stack.length > 0) {
+        // Resolve stack
+        stateAny.priorityPassedBy = new Set<string>();
+        state.priority = state.turnPlayer as PlayerID;
+        return { allPassed: true, resolved: true };
+      } else {
+        // Advance step
+        stateAny.priorityPassedBy = new Set<string>();
+        state.priority = state.turnPlayer as PlayerID;
+        return { allPassed: true, resolved: false };
+      }
+    }
+    
+    // If current player has already passed, advance to next
+    if (stateAny.priorityPassedBy.has(currentPlayer)) {
+      state.priority = advancePriorityClockwise(ctx, currentPlayer);
+      continue;
+    }
+    
+    // Check if auto-pass is enabled for current player
+    if (!autoPassPlayers.has(currentPlayer)) {
+      // Auto-pass not enabled, stop here
+      return { allPassed: false, resolved: false };
+    }
+    
+    // Check if player can respond
+    if (canRespond(ctx, currentPlayer)) {
+      // Player can respond, stop here
+      return { allPassed: false, resolved: false };
+    }
+    
+    // Player cannot respond - auto-pass
+    console.log(`[priority] Auto-passing for ${currentPlayer} - no available responses`);
+    stateAny.priorityPassedBy.add(currentPlayer);
+    
+    // Advance to next player
+    state.priority = advancePriorityClockwise(ctx, currentPlayer);
+  }
+  
+  // Safety fallback - should never reach here
+  console.warn('[priority] Auto-pass loop exceeded maximum iterations');
+  return { allPassed: false, resolved: false };
 }
 
 /**
