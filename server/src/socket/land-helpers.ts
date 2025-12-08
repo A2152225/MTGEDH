@@ -324,7 +324,7 @@ export function evaluateConditionalLandETB(
         }
       }
       actualBasicLandCount = basicTypes.size;
-      console.warn('[evaluateConditionalLandETB] Battle land check using fallback land type count - may be incorrect for dual lands. Caller should provide basicLandCount parameter.');
+      console.warn('[evaluateConditionalLandETB] Battle land check using fallback - may be incorrect for dual lands');
     }
     
     const shouldTap = actualBasicLandCount < 2;

@@ -430,6 +430,7 @@ export interface TriggeredAbility {
     | 'another_permanent_etb' // Whenever ANOTHER permanent enters under your control
     | 'deals_damage'
     | 'deals_combat_damage'
+    | 'creatures_deal_combat_damage_batched' // Batched trigger for one or more creatures dealing combat damage
     | 'annihilator'
     | 'melee'
     | 'myriad'
@@ -451,6 +452,7 @@ export interface TriggeredAbility {
   requiresChoice?: boolean; // For triggers where player must choose
   creatureType?: string; // For "whenever you cast a [type] spell" triggers
   nontokenOnly?: boolean; // For triggers that only fire for nontoken creatures (Guardian Project)
+  batched?: boolean; // For triggers that should only fire once per event even if multiple conditions met (Professional Face-Breaker)
 }
 
 // Note: KNOWN_DEATH_TRIGGERS, KNOWN_ATTACK_TRIGGERS, KNOWN_UNTAP_TRIGGERS, 
