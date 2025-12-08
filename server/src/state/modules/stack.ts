@@ -719,6 +719,12 @@ export function triggerETBEffectsForToken(
         
         const triggerController = perm.controller || controller;
         
+        // For another_permanent_etb, check if the entering permanent is controlled by the trigger's controller
+        // This is the "under your control" restriction
+        if (controller !== triggerController) {
+          continue; // Skip - entering permanent is not controlled by trigger's controller
+        }
+        
         state.stack = state.stack || [];
         const triggerId = uid("trigger");
         
@@ -855,6 +861,13 @@ function triggerETBEffectsForPermanent(
         }
         
         const triggerController = perm.controller || controller;
+        
+        // For another_permanent_etb, check if the entering permanent is controlled by the trigger's controller
+        // This is the "under your control" restriction
+        if (controller !== triggerController) {
+          continue; // Skip - entering permanent is not controlled by trigger's controller
+        }
+        
         state.stack = state.stack || [];
         const triggerId = uid("trigger");
         
