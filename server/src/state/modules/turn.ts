@@ -2141,8 +2141,6 @@ export function nextStep(ctx: GameContext) {
         nextStep = "DRAW";
         shouldDraw = !isReplaying; // Draw a card when entering draw step (skip during replay)
         // NOTE: Draw step triggers will be pushed AFTER phase/step update below
-        // Mark that we're entering DRAW step to potentially auto-advance
-        (ctx as any)._enteringDrawStep = true;
       } else {
         // After draw, go to precombatMain
         nextPhase = "precombatMain";
@@ -2412,13 +2410,12 @@ export function nextStep(ctx: GameContext) {
           const drawTriggers = getDrawStepTriggers(ctx, turnPlayer);
           pushTriggersToStack(drawTriggers, 'draw_step', 'draw');
           
-          // Per Rule 504: If there are no draw triggers, immediately advance to MAIN1
-          // This is similar to how UNTAP immediately advances to UPKEEP (Rule 502.1)
+          // Per Rule 504: If there are no draw triggers and we just entered from UPKEEP,
+          // immediately advance to MAIN1 (similar to how UNTAP advances to UPKEEP)
           // The draw action is a turn-based action and doesn't grant priority
-          const enteringDrawStep = (ctx as any)._enteringDrawStep;
-          delete (ctx as any)._enteringDrawStep; // Clear the flag
+          const justEnteredDrawFromUpkeep = (currentStep === "upkeep" || currentStep === "UPKEEP");
           
-          if (enteringDrawStep && drawTriggers.length === 0 && (ctx as any).state.stack.length === 0) {
+          if (justEnteredDrawFromUpkeep && drawTriggers.length === 0 && (ctx as any).state.stack.length === 0) {
             console.log(`${ts()} [nextStep] No draw triggers, immediately advancing to MAIN1 (similar to UNTAP->UPKEEP)`);
             // Override the next step to be MAIN1 instead of DRAW
             nextPhase = "precombatMain";
