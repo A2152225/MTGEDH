@@ -82,9 +82,6 @@ describe('Knight of the White Orchid - conditional land search trigger', () => {
     g.state.zones[p1] = g.state.zones[p1] || { hand: [], library: [], graveyard: [], exile: [] };
     (g.state.zones[p1] as any).hand = [knight];
     
-    // Cast the Knight (it should enter battlefield and trigger ETB)
-    const cardRef: KnownCardRef = knight;
-    
     // Put knight on stack
     g.state.stack = g.state.stack || [];
     g.state.stack.push({
