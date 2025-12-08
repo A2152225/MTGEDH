@@ -31,10 +31,14 @@ export function hasForceOfWillAlternateCost(
   const oracleText = (card.oracle_text || "").toLowerCase();
   const cardName = (card.name || "").toLowerCase();
   
-  // Check for Force of Will pattern
-  if (!cardName.includes("force of will") && 
-      !(oracleText.includes("exile") && oracleText.includes("blue card") && 
-        oracleText.includes("from your hand"))) {
+  // Check for Force of Will pattern in oracle text
+  const hasForceOfWillPattern = 
+    oracleText.includes("exile") && 
+    oracleText.includes("blue card") && 
+    oracleText.includes("from your hand");
+  
+  // Check if card name or pattern matches Force of Will
+  if (!cardName.includes("force of will") && !hasForceOfWillPattern) {
     return false;
   }
   
@@ -69,9 +73,14 @@ export function hasCommanderFreeAlternateCost(
   const oracleText = (card.oracle_text || "").toLowerCase();
   const cardName = (card.name || "").toLowerCase();
   
-  // Check for commander-dependent free cast pattern
-  if (!(oracleText.includes("if you control") && oracleText.includes("commander") && 
-        oracleText.includes("without paying its mana cost"))) {
+  // Check for commander-dependent free cast pattern in oracle text
+  const hasCommanderFreePattern = 
+    oracleText.includes("if you control") && 
+    oracleText.includes("commander") && 
+    oracleText.includes("without paying its mana cost");
+  
+  // Check if pattern matches
+  if (!hasCommanderFreePattern) {
     return false;
   }
   

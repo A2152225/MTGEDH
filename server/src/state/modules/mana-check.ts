@@ -30,7 +30,7 @@ export function parseManaCost(manaCost?: string): {
       result.hasX = true;
     } else if (/^\d+$/.test(clean)) {
       result.generic += parseInt(clean, 10);
-    } else if (clean.length === 1 && Object.prototype.hasOwnProperty.call(result.colors, clean)) {
+    } else if (clean.length === 1 && clean in result.colors) {
       result.colors[clean as keyof typeof result.colors] = 
         (result.colors[clean as keyof typeof result.colors] || 0) + 1;
     }
