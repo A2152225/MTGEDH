@@ -2462,25 +2462,24 @@ export function nextStep(ctx: GameContext) {
         }
         
         // Give priority to active player based on step type
-        // Per Rule 116.3a: Active player receives priority after triggers are placed
-        // Per Rule 505.1/505.5: Active player receives priority in main phases
+        // Per Rule 116.3a: Active player receives priority at the beginning of most steps
         // Per Rule 502.1: No player receives priority during untap step
-        const shouldGrantPriority = (
-          (ctx as any).state.stack.length > 0 || 
-          nextStep === "MAIN1" || 
-          nextStep === "MAIN2"
-        );
+        // Per Rule 514.1: Cleanup step normally doesn't grant priority (handled elsewhere)
+        const isUntapStep = nextStep === "UNTAP" || nextStep === "untap";
+        const isCleanupStep = nextStep === "CLEANUP" || nextStep === "cleanup";
+        
+        // Grant priority in all steps except UNTAP and CLEANUP (cleanup has special rules)
+        // Main phases (MAIN1, MAIN2) always get priority even with empty stack
+        // Other steps get priority if there's anything on the stack or it's a main phase
+        const shouldGrantPriority = !isUntapStep && !isCleanupStep;
         
         if (shouldGrantPriority) {
           (ctx as any).state.priority = turnPlayer;
           console.log(`${ts()} [nextStep] Granting priority to active player ${turnPlayer} (step: ${nextStep}, stack size: ${(ctx as any).state.stack.length})`);
         } else {
-          // No triggers on stack and not a main phase - clear priority to indicate no player has priority
-          // This is important for steps like DRAW where turn-based actions occur
-          // without using the stack (Rule 504.1: drawing a card is a turn-based action)
-          // Players only receive priority if there are spells, abilities, or triggers
+          // UNTAP and CLEANUP steps don't grant priority normally
           (ctx as any).state.priority = null;
-          console.log(`${ts()} [nextStep] No triggers and not main phase, clearing priority (step will auto-advance)`);
+          console.log(`${ts()} [nextStep] Step ${nextStep} does not grant priority (Rule 502.1/514.1)`);
         }
       }
     }
