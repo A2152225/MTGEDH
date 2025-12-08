@@ -430,6 +430,7 @@ export interface TriggeredAbility {
     | 'another_permanent_etb' // Whenever ANOTHER permanent enters under your control
     | 'deals_damage'
     | 'deals_combat_damage'
+    | 'creatures_deal_combat_damage_batched' // Batched trigger for one or more creatures dealing combat damage
     | 'annihilator'
     | 'melee'
     | 'myriad'
@@ -451,6 +452,7 @@ export interface TriggeredAbility {
   requiresChoice?: boolean; // For triggers where player must choose
   creatureType?: string; // For "whenever you cast a [type] spell" triggers
   nontokenOnly?: boolean; // For triggers that only fire for nontoken creatures (Guardian Project)
+  batched?: boolean; // For triggers that should only fire once per event even if multiple conditions met (Professional Face-Breaker)
 }
 
 // Note: KNOWN_DEATH_TRIGGERS, KNOWN_ATTACK_TRIGGERS, KNOWN_UNTAP_TRIGGERS, 
@@ -493,6 +495,21 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
       description: combatDamagePlayerMatch[1].trim(),
       effect: combatDamagePlayerMatch[1].trim(),
       mandatory: true,
+    });
+  }
+  
+  // "Whenever one or more creatures you control deal combat damage to a player" (batched trigger)
+  // Examples: Professional Face-Breaker, Idol of Oblivion, etc.
+  const batchedCombatDamageMatch = oracleText.match(/whenever\s+one\s+or\s+more\s+creatures\s+you\s+control\s+deal\s+combat\s+damage\s+to\s+(?:a\s+)?(?:player|an?\s+opponent),?\s*([^.]+)/i);
+  if (batchedCombatDamageMatch && !triggers.some(t => t.triggerType === 'creatures_deal_combat_damage_batched')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'creatures_deal_combat_damage_batched',
+      description: batchedCombatDamageMatch[1].trim(),
+      effect: batchedCombatDamageMatch[1].trim(),
+      mandatory: true,
+      batched: true,  // This trigger should only fire once per combat damage step if any creatures dealt damage
     });
   }
   

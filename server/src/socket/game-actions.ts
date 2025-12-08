@@ -2062,6 +2062,11 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
 
         if (validTargetList.length === 0) {
+          // Clean up any pending spell cast state (defensive - shouldn't exist yet at this point)
+          if ((game.state as any).pendingSpellCasts?.[effectId]) {
+            delete (game.state as any).pendingSpellCasts[effectId];
+          }
+          
           socket.emit("error", {
             code: "NO_VALID_TARGETS",
             message: `No valid targets for ${cardName}`,
