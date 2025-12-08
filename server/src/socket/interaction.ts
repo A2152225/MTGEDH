@@ -3705,11 +3705,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // - Could add mana to a player's mana pool when it resolves
     // - Isn't a loyalty ability (checked earlier)
     // - Doesn't target
-    const isManaAbility = (
-      /add\s+(\{[wubrgc]\}|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana)/i.test(abilityText) ||
-      // Also match patterns like "Add {C}", "Add {C}{C}", etc.
-      /add\s+\{c\}/i.test(abilityText)
-    ) && !/target/i.test(abilityText);
+    // 
+    // Pattern matches:
+    // - "Add {W}", "Add {G}{G}", etc. (specific mana symbols including {C} for colorless)
+    // - "Add one mana", "Add two mana", etc.
+    // - "Add mana of any color", "Add any color"
+    // - "Add X mana" (variable mana)
+    const isManaAbility = /add\s+(\{[wubrgc]\}|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana)/i.test(abilityText) && 
+                          !/target/i.test(abilityText);
     
     if (!isManaAbility) {
       // Put the ability on the stack
