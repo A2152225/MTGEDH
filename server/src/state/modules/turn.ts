@@ -2461,18 +2461,25 @@ export function nextStep(ctx: GameContext) {
           pushTriggersToStack(endStepTriggers, 'end_step', 'endstep');
         }
         
-        // Give priority to active player if there are triggers on the stack
-        // Per Rule 116.3a: Active player receives priority after triggers are placed
-        if ((ctx as any).state.stack.length > 0) {
+        // Give priority to active player based on step type
+        // Per Rule 116.3a: Active player receives priority at the beginning of most steps
+        // Per Rule 502.1: No player receives priority during untap step
+        // Per Rule 514.1: Cleanup step normally doesn't grant priority (handled elsewhere)
+        const stepUpper = (nextStep ?? '').toUpperCase();
+        const isUntapStep = stepUpper === "UNTAP";
+        const isCleanupStep = stepUpper === "CLEANUP";
+        
+        // Grant priority in all steps except UNTAP and CLEANUP
+        // This includes main phases, combat steps, upkeep, draw, end step, etc.
+        const shouldGrantPriority = !isUntapStep && !isCleanupStep;
+        
+        if (shouldGrantPriority) {
           (ctx as any).state.priority = turnPlayer;
-          console.log(`${ts()} [nextStep] Triggers on stack, priority to active player ${turnPlayer}`);
+          console.log(`${ts()} [nextStep] Granting priority to active player ${turnPlayer} (step: ${nextStep ?? 'unknown'}, stack size: ${(ctx as any).state.stack.length})`);
         } else {
-          // No triggers on stack - clear priority to indicate no player has priority
-          // This is important for steps like DRAW where turn-based actions occur
-          // without using the stack (Rule 504.1: drawing a card is a turn-based action)
-          // Players only receive priority if there are spells, abilities, or triggers
+          // UNTAP and CLEANUP steps don't grant priority normally
           (ctx as any).state.priority = null;
-          console.log(`${ts()} [nextStep] No triggers, clearing priority (step will auto-advance)`);
+          console.log(`${ts()} [nextStep] Step ${nextStep ?? 'unknown'} does not grant priority (Rule 502.1/514.1)`);
         }
       }
     }
