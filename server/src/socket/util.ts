@@ -553,6 +553,9 @@ export function broadcastGame(
   
   // Check for pending trigger ordering and emit prompts
   checkAndEmitTriggerOrderingPrompts(io, game, gameId);
+  
+  // Check for newly eliminated players (commander damage, life loss, etc.)
+  checkAndEmitPlayerElimination(io, game, gameId);
 }
 
 /** AI reaction delay - matches timing in ai.ts */
@@ -601,6 +604,93 @@ function checkAndEmitTriggerOrderingPrompts(io: Server, game: InMemoryGame, game
     }
   } catch (e) {
     console.warn('[util] checkAndEmitTriggerOrderingPrompts error:', e);
+  }
+}
+
+/**
+ * Check for newly eliminated players and emit appropriate notifications
+ * This handles commander damage wins, life loss, poison counters, etc.
+ */
+function checkAndEmitPlayerElimination(io: Server, game: InMemoryGame, gameId: string): void {
+  try {
+    const gameState = (game as any).state;
+    if (!gameState) return;
+    
+    const players = gameState.players || [];
+    
+    // Track if we've already notified about this player
+    // Store this on the game state to avoid duplicate notifications
+    if (!(gameState as any).eliminationNotifications) {
+      (gameState as any).eliminationNotifications = new Set<string>();
+    }
+    const notifiedPlayers = (gameState as any).eliminationNotifications;
+    
+    // Check each player for elimination
+    for (const player of players) {
+      if (!player || !player.id) continue;
+      
+      // Skip if we've already notified about this player
+      if (notifiedPlayers.has(player.id)) continue;
+      
+      // Check if player has been marked as eliminated
+      if (player.hasLost || player.eliminated) {
+        const playerName = player.name || player.id;
+        const reason = player.lossReason || "Unknown reason";
+        
+        // Mark as notified to avoid duplicate emissions
+        notifiedPlayers.add(player.id);
+        
+        // Emit player elimination event
+        io.to(gameId).emit("playerEliminated", {
+          gameId,
+          playerId: player.id,
+          playerName,
+          reason,
+        });
+        
+        console.log(`[checkAndEmitPlayerElimination] Player ${playerName} eliminated: ${reason}`);
+        
+        // Check if game is over (only 1 or 0 active players remaining)
+        const activePlayers = players.filter((p: any) => 
+          p && p.id && !p.hasLost && !p.eliminated && !p.conceded && !p.isSpectator
+        );
+        
+        if (activePlayers.length === 1) {
+          // One player left - they win!
+          const winner = activePlayers[0];
+          const winnerName = winner.name || winner.id;
+          
+          io.to(gameId).emit("gameOver", {
+            gameId,
+            type: 'victory',
+            winnerId: winner.id,
+            winnerName,
+            loserId: player.id,
+            loserName: playerName,
+            message: `${winnerName} Wins!`,
+          });
+          
+          // Mark game as over
+          gameState.gameOver = true;
+          gameState.winner = winner.id;
+          
+          console.log(`[checkAndEmitPlayerElimination] Game over! ${winnerName} wins.`);
+        } else if (activePlayers.length === 0) {
+          // No players left - draw
+          io.to(gameId).emit("gameOver", {
+            gameId,
+            type: 'draw',
+            message: "Draw!",
+          });
+          
+          gameState.gameOver = true;
+          
+          console.log(`[checkAndEmitPlayerElimination] Game over! Draw.`);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn(`[checkAndEmitPlayerElimination] Error:`, err);
   }
 }
 
