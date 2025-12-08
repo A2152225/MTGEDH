@@ -2564,6 +2564,19 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const equipCostMatch = oracleText.match(/equip\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
       const equipCost = equipCostMatch ? equipCostMatch[1] : "{0}";
       
+      // Store pending equip activation for when target is chosen
+      // IMPORTANT: Preserve permanent/card info to prevent issues during target > pay workflow
+      const effectId = `equip_${permanentId}_${Date.now()}`;
+      (game.state as any).pendingEquipActivations = (game.state as any).pendingEquipActivations || {};
+      (game.state as any).pendingEquipActivations[effectId] = {
+        equipmentId: permanentId,
+        equipmentName: cardName,
+        equipCost,
+        playerId: pid,
+        permanent: { ...permanent }, // Copy full permanent object
+        validTargetIds: validTargets.map((c: any) => c.id),
+      };
+      
       // Send target selection prompt
       socket.emit("selectEquipTarget", {
         gameId,
@@ -2571,6 +2584,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         equipmentName: cardName,
         equipCost,
         imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+        effectId, // Include effectId for tracking
         validTargets: validTargets.map((c: any) => ({
           id: c.id,
           name: c.card?.name || "Creature",
@@ -2580,7 +2594,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         })),
       });
       
-      console.log(`[activateBattlefieldAbility] Equip ability on ${cardName}: prompting for target selection`);
+      console.log(`[activateBattlefieldAbility] Equip ability on ${cardName}: prompting for target selection (effectId: ${effectId})`);
       return;
     }
     
@@ -5562,11 +5576,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     equipmentId,
     targetCreatureId,
     manaPaid,
+    effectId,
   }: {
     gameId: string;
     equipmentId: string;
     targetCreatureId: string;
     manaPaid?: Record<string, number>;
+    effectId?: string;
   }) => {
     const pid = socket.data.playerId as string | undefined;
     if (!pid || socket.data.spectator) return;
@@ -5575,6 +5591,26 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (!game) {
       socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
       return;
+    }
+    
+    // Check and clean up pending equip activation
+    if (effectId && (game.state as any).pendingEquipActivations?.[effectId]) {
+      const pendingEquip = (game.state as any).pendingEquipActivations[effectId];
+      
+      // Validate that the target is in the valid list
+      const validTargetIds = pendingEquip.validTargetIds || [];
+      if (!validTargetIds.includes(targetCreatureId)) {
+        console.warn(`[equipTargetChosen] Invalid target selected: ${targetCreatureId} for ${pendingEquip.equipmentName}`);
+        socket.emit("error", {
+          code: "INVALID_TARGET",
+          message: `Invalid target selected for ${pendingEquip.equipmentName}`,
+        });
+        return;
+      }
+      
+      // Clean up pending state
+      delete (game.state as any).pendingEquipActivations[effectId];
+      console.log(`[equipTargetChosen] Using preserved equip data from effectId: ${effectId}`);
     }
 
     const battlefield = game.state?.battlefield || [];

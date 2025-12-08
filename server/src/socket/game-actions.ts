@@ -6992,11 +6992,25 @@ export function registerGameActions(io: Server, socket: Socket) {
           return pTypeLine.includes("creature");
         });
 
+        // Store pending equip activation for when target is chosen
+        // IMPORTANT: Preserve equipment/card info to prevent issues during target > pay workflow
+        const effectId = `equip_${equipmentId}_${Date.now()}`;
+        (game.state as any).pendingEquipActivations = (game.state as any).pendingEquipActivations || {};
+        (game.state as any).pendingEquipActivations[effectId] = {
+          equipmentId,
+          equipmentName: equipment.card?.name || "Equipment",
+          equipCost,
+          playerId,
+          equipment: { ...equipment }, // Copy full equipment object
+          validTargetIds: validTargets.map((c: any) => c.id),
+        };
+
         socket.emit("selectEquipTarget", {
           gameId,
           equipmentId,
           equipmentName: equipment.card?.name || "Equipment",
           equipCost,
+          effectId, // Include effectId for tracking
           validTargets: validTargets.map((c: any) => ({
             id: c.id,
             name: c.card?.name || "Creature",
@@ -7005,6 +7019,8 @@ export function registerGameActions(io: Server, socket: Socket) {
             imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
           })),
         });
+        
+        console.log(`[equipAbility] Requesting target for ${equipment.card?.name || "Equipment"} (effectId: ${effectId})`);
         return;
       }
 
