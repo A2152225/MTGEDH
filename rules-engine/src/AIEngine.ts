@@ -286,6 +286,9 @@ export class AIEngine {
       case AIDecisionType.DISCARD:
         return this.makeDiscardDecision(context, config);
       
+      case AIDecisionType.ACTIVATE_ABILITY:
+        return this.makeActivatedAbilityDecision(context, config);
+      
       default:
         return this.makeRandomDecision(context);
     }
@@ -1995,6 +1998,286 @@ export class AIEngine {
     } else {
       this.decisionHistory.clear();
     }
+  }
+  
+  /**
+   * Detect if a permanent has an activated ability
+   * Returns the ability text if found, null otherwise
+   */
+  private detectActivatedAbility(perm: BattlefieldPermanent): string | null {
+    const card = perm.card as KnownCardRef;
+    const oracleText = (card?.oracle_text || '').toLowerCase();
+    
+    // Skip if no oracle text
+    if (!oracleText) return null;
+    
+    // Check for common activated ability patterns:
+    // 1. {T}: [effect] - tap ability
+    // 2. {cost}: [effect] - other activated abilities
+    // 3. {T}, {cost}: [effect] - tap plus other costs
+    
+    // Tap ability pattern (most common)
+    if (oracleText.includes('{t}:') || oracleText.includes('{t},')) {
+      return card.oracle_text || null;
+    }
+    
+    // Other activated abilities with mana costs
+    // Pattern: {Number}{Color}: or just {Color}:
+    const activatedPattern = /\{[0-9wubrgc\/]+\}:/i;
+    if (activatedPattern.test(oracleText)) {
+      return card.oracle_text || null;
+    }
+    
+    // Loyalty abilities (planeswalkers)
+    if (oracleText.includes('[+') || oracleText.includes('[-') || oracleText.includes('[0]')) {
+      return card.oracle_text || null;
+    }
+    
+    return null;
+  }
+  
+  /**
+   * Evaluate the value of activating an ability
+   * Returns a score indicating how beneficial it would be to activate this ability
+   * Higher score = more beneficial
+   */
+  private evaluateActivatedAbilityValue(perm: BattlefieldPermanent, abilityText: string): number {
+    let value = 0;
+    const lowerText = abilityText.toLowerCase();
+    const card = perm.card as KnownCardRef;
+    
+    // CARD DRAW: Very high value! Drawing cards is one of the best things you can do
+    if (lowerText.includes('draw') && !lowerText.includes('opponent draws')) {
+      // Count how many cards drawn
+      const drawMatch = lowerText.match(/draw (\w+) card/);
+      if (drawMatch) {
+        const countWord = drawMatch[1];
+        let drawCount = 1;
+        if (countWord === 'two') drawCount = 2;
+        else if (countWord === 'three') drawCount = 3;
+        else if (countWord === 'a' || countWord === 'one') drawCount = 1;
+        
+        // Each card drawn is worth 15 points (very valuable!)
+        value += drawCount * 15;
+      } else {
+        value += 15; // Default card draw value
+      }
+    }
+    
+    // MANA GENERATION: High value for ramping
+    if ((lowerText.includes('add {') && lowerText.includes('mana')) || 
+        lowerText.includes('add {c}') ||
+        lowerText.includes('add {w}') ||
+        lowerText.includes('add {u}') ||
+        lowerText.includes('add {b}') ||
+        lowerText.includes('add {r}') ||
+        lowerText.includes('add {g}')) {
+      value += 8;
+    }
+    
+    // TUTORING: Very high value
+    if (lowerText.includes('search your library')) {
+      value += 12;
+    }
+    
+    // CREATURE TOKEN CREATION: Good value
+    if (lowerText.includes('create') && lowerText.includes('token')) {
+      value += 6;
+    }
+    
+    // DAMAGE TO OPPONENTS: Moderate value
+    if (lowerText.includes('damage') && (lowerText.includes('opponent') || lowerText.includes('player'))) {
+      value += 5;
+    }
+    
+    // REMOVAL: High value if there are threats
+    if (lowerText.includes('destroy') || lowerText.includes('exile')) {
+      value += 7;
+    }
+    
+    // LIFEGAIN: Low-moderate value
+    if (lowerText.includes('gain') && lowerText.includes('life')) {
+      value += 3;
+    }
+    
+    // BUFF EFFECTS: Moderate value if we have creatures
+    if (lowerText.includes('+1/+1') || lowerText.includes('+2/+2')) {
+      value += 4;
+    }
+    
+    // UNTAP EFFECTS: Moderate value (can enable additional activations)
+    if (lowerText.includes('untap')) {
+      value += 5;
+    }
+    
+    // COST CONSIDERATIONS: Reduce value based on costs
+    
+    // Check if ability requires tapping
+    if (lowerText.includes('{t}:') || lowerText.includes('{t},')) {
+      // Small penalty for tap cost (creature won't be able to block or attack)
+      value -= 1;
+    }
+    
+    // Check if ability requires sacrificing something
+    if (lowerText.includes('sacrifice')) {
+      // Penalty for sacrifice unless it's self-sacrifice for a good effect
+      if (!lowerText.includes('sacrifice ~') && !lowerText.includes(`sacrifice ${card.name?.toLowerCase()}`)) {
+        value -= 5; // Sacrificing other permanents is costly
+      }
+    }
+    
+    // Check if ability has mana cost
+    // Pattern: {Number} or {Color}
+    const manaCostMatch = lowerText.match(/\{([0-9]+|[wubrg])\}/g);
+    if (manaCostMatch && manaCostMatch.length > 0) {
+      // Count total mana symbols (excluding {T})
+      const manaCost = manaCostMatch.filter(cost => 
+        !cost.includes('t}') && !cost.includes('t,')
+      ).length;
+      // Slight penalty for mana cost
+      value -= manaCost * 0.5;
+    }
+    
+    // NEGATIVE EFFECTS: Reduce value significantly
+    
+    // Opponent gains control (like Humble Defector)
+    if (lowerText.includes('opponent') && lowerText.includes('control')) {
+      // This is actually OK if the benefit is high (e.g., drawing cards first)
+      // But reduce value slightly
+      value -= 3;
+    }
+    
+    // Each opponent gets benefit
+    if (lowerText.includes('each opponent') && (lowerText.includes('draw') || lowerText.includes('create'))) {
+      value -= 4; // Helping opponents is bad
+    }
+    
+    return Math.max(0, value);
+  }
+  
+  /**
+   * Check if a permanent can activate its ability right now
+   * Returns true if the permanent is untapped and the ability can be activated
+   */
+  private canActivateAbilityNow(perm: BattlefieldPermanent, gameState: GameState, playerId: PlayerID): boolean {
+    const card = perm.card as KnownCardRef;
+    const oracleText = (card?.oracle_text || '').toLowerCase();
+    
+    // Check if permanent is tapped (can't use tap abilities)
+    if (perm.tapped && oracleText.includes('{t}')) {
+      return false;
+    }
+    
+    // Check for summoning sickness on tap abilities
+    if (perm.summoningSickness && oracleText.includes('{t}')) {
+      const typeLine = (card?.type_line || '').toLowerCase();
+      // Creatures with summoning sickness can't use tap abilities
+      // unless they have haste
+      if (typeLine.includes('creature') && !oracleText.includes('haste')) {
+        return false;
+      }
+    }
+    
+    // Check for sorcery-speed restriction
+    if (oracleText.includes('activate only as a sorcery') || 
+        oracleText.includes('activate this ability only any time you could cast a sorcery')) {
+      const phase = String(gameState.phase || '').toLowerCase();
+      const isMainPhase = phase.includes('main');
+      const isOwnTurn = gameState.turnPlayer === playerId;
+      const stackEmpty = !gameState.stack || gameState.stack.length === 0;
+      
+      if (!isMainPhase || !isOwnTurn || !stackEmpty) {
+        return false;
+      }
+    }
+    
+    // Additional restrictions can be added here
+    // For now, assume ability can be activated if it passes above checks
+    
+    return true;
+  }
+  
+  /**
+   * Find the best activated ability to use on the battlefield
+   * Returns the permanent and ability value, or null if no good abilities
+   */
+  private findBestActivatedAbility(
+    gameState: GameState,
+    playerId: PlayerID
+  ): { permanent: BattlefieldPermanent; abilityText: string; value: number } | null {
+    const battlefield = gameState.battlefield || [];
+    
+    // Get all permanents controlled by this player
+    const myPermanents = battlefield.filter((perm: BattlefieldPermanent) => 
+      perm.controller === playerId
+    );
+    
+    let bestAbility: { permanent: BattlefieldPermanent; abilityText: string; value: number } | null = null;
+    let bestValue = 0;
+    
+    for (const perm of myPermanents) {
+      // Check if permanent has an activated ability
+      const abilityText = this.detectActivatedAbility(perm);
+      if (!abilityText) continue;
+      
+      // Check if ability can be activated now
+      if (!this.canActivateAbilityNow(perm, gameState, playerId)) continue;
+      
+      // Evaluate the ability value
+      const value = this.evaluateActivatedAbilityValue(perm, abilityText);
+      
+      // Keep track of best ability
+      if (value > bestValue) {
+        bestValue = value;
+        bestAbility = { permanent: perm, abilityText, value };
+      }
+    }
+    
+    // Only return abilities that have positive value
+    if (bestAbility && bestValue > 0) {
+      return bestAbility;
+    }
+    
+    return null;
+  }
+  
+  /**
+   * Make a decision about activating an ability
+   * This is called when the AI needs to decide whether to activate an ability
+   */
+  private makeActivatedAbilityDecision(
+    context: AIDecisionContext,
+    config: AIPlayerConfig
+  ): AIDecision {
+    const { gameState, playerId } = context;
+    
+    // Find the best activated ability to use
+    const bestAbility = this.findBestActivatedAbility(gameState, playerId);
+    
+    if (!bestAbility) {
+      return {
+        type: AIDecisionType.ACTIVATE_ABILITY,
+        playerId,
+        action: { activate: false },
+        reasoning: 'No valuable activated abilities available',
+        confidence: 0.8,
+      };
+    }
+    
+    const card = bestAbility.permanent.card as KnownCardRef;
+    
+    return {
+      type: AIDecisionType.ACTIVATE_ABILITY,
+      playerId,
+      action: {
+        activate: true,
+        permanentId: bestAbility.permanent.id,
+        cardName: card.name || 'Unknown',
+        abilityText: bestAbility.abilityText,
+      },
+      reasoning: `Activating ${card.name || 'ability'} (value: ${bestAbility.value})`,
+      confidence: Math.min(0.95, 0.5 + bestAbility.value / 40),
+    };
   }
 }
 

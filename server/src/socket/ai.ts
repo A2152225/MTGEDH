@@ -1295,6 +1295,25 @@ export async function handleAIPriority(
         }
       }
       
+      // Try to use activated abilities (before casting spells)
+      // This prioritizes card draw and other beneficial effects
+      const abilityDecision = await aiEngine.makeDecision({
+        gameState: game.state as any,
+        playerId,
+        decisionType: AIDecisionType.ACTIVATE_ABILITY,
+        options: [],
+      });
+      
+      if (abilityDecision.action?.activate) {
+        console.info('[AI] Activating ability:', abilityDecision.action.cardName, '-', abilityDecision.reasoning);
+        await executeAIActivateAbility(io, gameId, playerId, abilityDecision.action);
+        // After activating ability, continue with more actions
+        setTimeout(() => {
+          handleAIPriority(io, gameId, playerId).catch(console.error);
+        }, AI_THINK_TIME_MS);
+        return;
+      }
+      
       // Try to cast spells
       const castableSpells = findCastableSpells(game, playerId);
       if (castableSpells.length > 0) {
@@ -1947,6 +1966,136 @@ async function executeAICastSpell(
     
   } catch (error) {
     console.error('[AI] Error casting spell:', error);
+  }
+}
+
+/**
+ * Execute AI activated ability activation
+ * Handles tapping permanents and putting abilities on the stack
+ */
+async function executeAIActivateAbility(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  action: any
+): Promise<void> {
+  const game = ensureGame(gameId);
+  if (!game) return;
+  
+  console.info('[AI] Activating ability:', { 
+    gameId, 
+    playerId, 
+    cardName: action.cardName,
+    permanentId: action.permanentId 
+  });
+  
+  try {
+    // Find the permanent on the battlefield
+    const battlefield = game.state?.battlefield || [];
+    const permanent = battlefield.find((p: any) => p.id === action.permanentId);
+    
+    if (!permanent) {
+      console.warn('[AI] Permanent not found for ability activation:', action.permanentId);
+      return;
+    }
+    
+    const card = permanent.card;
+    const abilityText = (card?.oracle_text || '').toLowerCase();
+    
+    // Check if this is a tap ability
+    const isTapAbility = abilityText.includes('{t}:') || abilityText.includes('{t},');
+    
+    // Tap the permanent if it's a tap ability
+    if (isTapAbility && !permanent.tapped) {
+      permanent.tapped = true;
+      console.info('[AI] Tapped permanent for ability:', card.name);
+    }
+    
+    // Handle specific abilities based on oracle text
+    
+    // HUMBLE DEFECTOR: Draw two cards, give control to opponent
+    if (abilityText.includes('draw two cards') && abilityText.includes('opponent') && abilityText.includes('control')) {
+      console.info('[AI] Activating Humble Defector ability');
+      
+      // Draw two cards
+      if (typeof (game as any).drawCards === 'function') {
+        const drawn = (game as any).drawCards(playerId, 2);
+        console.info('[AI] Drew', drawn?.length || 0, 'cards from Humble Defector');
+      }
+      
+      // Give control to a random opponent
+      const opponents = (game.state?.players || [])
+        .filter((p: any) => p.id !== playerId && !p.hasLost)
+        .map((p: any) => p.id);
+      
+      if (opponents.length > 0) {
+        const randomOpponent = opponents[Math.floor(Math.random() * opponents.length)];
+        permanent.controller = randomOpponent;
+        
+        // Reset summoning sickness for the new controller
+        permanent.summoningSickness = true;
+        
+        console.info('[AI] Gave control of', card.name, 'to', randomOpponent);
+        
+        // Send chat message
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `AI activated ${card.name}: drew 2 cards and gave control to opponent`,
+          ts: Date.now(),
+        });
+      }
+    }
+    // GENERIC TAP ABILITY: Put on stack
+    else if (isTapAbility) {
+      // For other tap abilities, put them on the stack
+      game.state.stack = game.state.stack || [];
+      const stackItem = {
+        id: `stack_ability_${Date.now()}_${permanent.id}`,
+        type: 'ability',
+        controller: playerId,
+        card: {
+          id: permanent.id,
+          name: `${card.name} (ability)`,
+          type_line: 'Activated Ability',
+          oracle_text: card.oracle_text,
+          image_uris: card.image_uris,
+        },
+        targets: [],
+      };
+      
+      game.state.stack.push(stackItem as any);
+      console.info('[AI] Added activated ability to stack:', card.name);
+    }
+    
+    // Persist event
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'activateAbility', {
+        playerId,
+        permanentId: action.permanentId,
+        cardName: action.cardName,
+        isAI: true,
+      });
+    } catch (e) {
+      console.warn('[AI] Failed to persist activateAbility event:', e);
+    }
+    
+    // Bump sequence
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    
+    // Broadcast updated state
+    broadcastGame(io, game, gameId);
+    
+    // After activating ability, pass priority to allow responses
+    setTimeout(async () => {
+      await executePassPriority(io, gameId, playerId);
+    }, AI_REACTION_DELAY_MS);
+    
+  } catch (error) {
+    console.error('[AI] Error activating ability:', error);
   }
 }
 
