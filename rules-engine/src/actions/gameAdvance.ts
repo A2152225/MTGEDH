@@ -330,7 +330,7 @@ function resolveTopOfStack(
         const oracleText = card?.oracle_text || '';
         
         // Parse mana-adding patterns: "Add {B}{B}{B}", "Add {R}{R}{R}{R}{R}", etc.
-        const manaAddPattern = /add\s+(\{[WUBRGC]\}+)/gi;
+        const manaAddPattern = /add\s+((?:\{[WUBRGC]\})+)/gi;
         let manaMatch;
         
         while ((manaMatch = manaAddPattern.exec(oracleText)) !== null) {

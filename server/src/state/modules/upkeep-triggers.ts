@@ -196,8 +196,8 @@ export function detectUpkeepTriggers(card: any, permanent: any): UpkeepTrigger[]
     
     // Special case: Braid of Fire has "Cumulative upkeep—Add {R}" or similar
     // This ADDS mana instead of requiring payment
-    // Match patterns like "Add {R}", "Add {R}{R}", etc.
-    const isAddingMana = /^add\s+\{[WUBRGC]\}+$/i.test(cost);
+    // Match patterns like "Add {R}", "Add {R}{R}", "Add {R}{G}", etc.
+    const isAddingMana = /^add\s+(?:\{[WUBRGC]\})+$/i.test(cost);
     
     triggers.push({
       permanentId,
@@ -655,8 +655,8 @@ export function autoProcessCumulativeUpkeepMana(ctx: GameContext, activePlayerId
     const oracleText = card?.oracle_text || '';
     
     // Check for cumulative upkeep with "Add {X}" pattern (e.g., Braid of Fire)
-    // Note: The pattern should capture one or more consecutive mana symbols
-    const cumulativeMatch = oracleText.match(/cumulative upkeep[—\-\s]*add\s+(\{[WUBRGC]\}+)/i);
+    // Note: The pattern should capture one or more mana symbols (can be mixed)
+    const cumulativeMatch = oracleText.match(/cumulative upkeep[—\-\s]*add\s+((?:\{[WUBRGC]\})+)/i);
     if (!cumulativeMatch) continue;
     
     const manaSymbols = cumulativeMatch[1];
@@ -699,7 +699,9 @@ export function autoProcessCumulativeUpkeepMana(ctx: GameContext, activePlayerId
     
     // Add mana to pool
     const pool = (ctx.state as any).manaPool[activePlayerId];
-    pool[manaType] = (pool[manaType] || 0) + manaAmount;
+    for (const [manaType, amount] of Object.entries(manaToAdd)) {
+      pool[manaType] = (pool[manaType] || 0) + amount;
+    }
     
     processed.push({
       permanentId: permanent.id,
