@@ -22,6 +22,7 @@ import { categorizeSpell, evaluateTargeting, type SpellSpec, type TargetRef } fr
 import { GameManager } from "../GameManager.js";
 import { hasPendingColorChoices } from "./color-choice.js";
 import { hasPendingJoinForcesOrOffers } from "./join-forces.js";
+import { hasPendingCreatureTypeSelections } from "./creature-type.js";
 
 /** AI timing delays for more natural behavior */
 const AI_THINK_TIME_MS = 500;
@@ -3266,6 +3267,9 @@ function checkPendingModals(game: any, gameId: string): { hasPending: boolean; r
   }
   if (hasPendingColorChoices(gameId)) {
     return { hasPending: true, reason: 'players have pending color choice modals' };
+  }
+  if (hasPendingCreatureTypeSelections(gameId)) {
+    return { hasPending: true, reason: 'players have pending creature type selection modals' };
   }
   if (hasPendingJoinForcesOrOffers(gameId)) {
     return { hasPending: true, reason: 'players have pending Join Forces or Tempting Offer modals' };
