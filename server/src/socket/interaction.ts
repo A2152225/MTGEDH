@@ -4685,14 +4685,16 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   });
 
   // Target selection confirmation
-  socket.on("targetSelectionConfirm", ({ gameId, effectId, selectedTargetIds }: {
+  socket.on("targetSelectionConfirm", ({ gameId, effectId, selectedTargetIds, targets }: {
     gameId: string;
     effectId?: string;
-    selectedTargetIds: string[];
+    selectedTargetIds?: string[];
+    targets?: string[];  // Client sends 'targets' instead of 'selectedTargetIds'
   }) => {
     console.log(`[targetSelectionConfirm] ======== CONFIRM START ========`);
     console.log(`[targetSelectionConfirm] gameId: ${gameId}, effectId: ${effectId}`);
     console.log(`[targetSelectionConfirm] selectedTargetIds: ${JSON.stringify(selectedTargetIds)}`);
+    console.log(`[targetSelectionConfirm] targets: ${JSON.stringify(targets)}`);
     
     const pid = socket.data.playerId as string | undefined;
     if (!pid || socket.data.spectator) {
@@ -4703,10 +4705,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const game = ensureGame(gameId);
     console.log(`[targetSelectionConfirm] playerId: ${pid}`);
     
+    // CRITICAL FIX: Accept both 'selectedTargetIds' (old) and 'targets' (current client)
     // Ensure selectedTargetIds is a valid array (defensive check for malformed payloads)
-    const targetIds = Array.isArray(selectedTargetIds) ? selectedTargetIds : [];
+    const targetIds = Array.isArray(selectedTargetIds) ? selectedTargetIds : 
+                      Array.isArray(targets) ? targets : [];
     console.log(`[targetSelectionConfirm] Validated targetIds: ${targetIds.join(',')}`);
     
+    if (targetIds.length === 0) {
+      console.warn(`[targetSelectionConfirm] WARNING: No targets provided by client!`);
+    }
     // Store targets for the pending effect/spell
     // This will be used when the spell/ability resolves
     game.state.pendingTargets = game.state.pendingTargets || {};
