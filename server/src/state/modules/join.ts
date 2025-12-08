@@ -18,6 +18,13 @@ export function addPlayerIfMissing(ctx: GameContext, id: PlayerID, name: string,
   const energy = (ctx as any).energy = (ctx as any).energy || {};
   energy[id] = 0;
 
+  // Initialize auto-pass to ON by default
+  const stateAny = state as any;
+  if (!stateAny.autoPassPlayers || !(stateAny.autoPassPlayers instanceof Set)) {
+    stateAny.autoPassPlayers = new Set();
+  }
+  stateAny.autoPassPlayers.add(id);
+
   // Defensive: libraries may be undefined or not a Map during some fallback flows.
   // Compute libraryCount safely.
   let libraryCount = 0;
