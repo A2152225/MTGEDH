@@ -26,7 +26,8 @@ import {
   getUntapStepEffects,
   applyUntapStepEffect,
   isPermanentPreventedFromUntapping,
-  detectCombatDamageTriggers
+  detectCombatDamageTriggers,
+  getTriggersForTiming
 } from "./triggered-abilities.js";
 import { getUpkeepTriggersForPlayer } from "./upkeep-triggers.js";
 import { parseCreatureKeywords } from "./combat-mechanics.js";
@@ -2408,6 +2409,14 @@ export function nextStep(ctx: GameContext) {
         else if (nextStep === "DRAW") {
           const drawTriggers = getDrawStepTriggers(ctx, turnPlayer);
           pushTriggersToStack(drawTriggers, 'draw_step', 'draw');
+        }
+        
+        // Rule 505.4: Beginning of precombat main phase - "at the beginning of your precombat main phase" triggers
+        // This includes cards like Black Market Connections, Saga lore counters (Rule 714.3b), etc.
+        else if (nextStep === "MAIN1") {
+          const precombatMainTriggers = getTriggersForTiming(ctx, 'precombat_main', turnPlayer);
+          pushTriggersToStack(precombatMainTriggers, 'precombat_main', 'main');
+          console.log(`${ts()} [nextStep] Checking precombat main triggers for ${turnPlayer}, found ${precombatMainTriggers.length} trigger(s)`);
         }
         
         // Rule 507.1: Beginning of combat - "at the beginning of combat" triggers

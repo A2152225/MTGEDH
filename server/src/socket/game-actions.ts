@@ -1929,9 +1929,17 @@ export function registerGameActions(io: Server, socket: Socket) {
   // =====================================================================
   socket.on("requestCastSpell", ({ gameId, cardId, faceIndex }: { gameId: string; cardId: string; faceIndex?: number }) => {
     try {
+      console.log(`[requestCastSpell] ======== REQUEST START ========`);
+      console.log(`[requestCastSpell] gameId: ${gameId}, cardId: ${cardId}, faceIndex: ${faceIndex}`);
+      
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
-      if (!game || !playerId) return;
+      if (!game || !playerId) {
+        console.log(`[requestCastSpell] ERROR: game or playerId not found`);
+        return;
+      }
+      
+      console.log(`[requestCastSpell] playerId: ${playerId}, priority: ${game.state.priority}`);
 
       // Basic validation (same as castSpellFromHand)
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
@@ -2113,7 +2121,8 @@ export function registerGameActions(io: Server, socket: Socket) {
           effectId,
         });
         
-        console.log(`[requestCastSpell] Requesting targets for ${cardName} (effectId: ${effectId})`);
+        console.log(`[requestCastSpell] Emitted targetSelectionRequest for ${cardName} (effectId: ${effectId}, ${validTargetList.length} valid targets)`);
+        console.log(`[requestCastSpell] ======== REQUEST END (waiting for targets) ========`);
       } else {
         // No targets needed - go directly to payment
         socket.emit("paymentRequired", {
@@ -2125,7 +2134,8 @@ export function registerGameActions(io: Server, socket: Socket) {
           imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
         });
         
-        console.log(`[requestCastSpell] No targets needed, requesting payment for ${cardName}`);
+        console.log(`[requestCastSpell] No targets needed, emitted paymentRequired for ${cardName}`);
+        console.log(`[requestCastSpell] ======== REQUEST END (waiting for payment) ========`);
       }
     } catch (err: any) {
       console.error(`[requestCastSpell] Error:`, err);
@@ -2140,14 +2150,26 @@ export function registerGameActions(io: Server, socket: Socket) {
   // CAST SPELL FROM HAND - Core spell casting handler
   // Defined as a named function so it can be called directly from completeCastSpell
   // =====================================================================
-  const handleCastSpellFromHand = ({ gameId, cardId, targets, payment }: { gameId: string; cardId: string; targets?: any[]; payment?: PaymentItem[] }) => {
+  const handleCastSpellFromHand = ({ gameId, cardId, targets, payment, skipInteractivePrompts }: { 
+    gameId: string; 
+    cardId: string; 
+    targets?: any[]; 
+    payment?: PaymentItem[];
+    skipInteractivePrompts?: boolean; // NEW: Flag to skip target/payment requests when completing a previous cast
+  }) => {
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
       // DEBUG: Log incoming parameters to trace targeting loop
-      console.log(`[handleCastSpellFromHand] Called with cardId=${cardId}, targets=${JSON.stringify(targets)}, payment=${payment ? 'provided' : 'none'}`);
+      console.log(`[handleCastSpellFromHand] ======== DEBUG START ========`);
+      console.log(`[handleCastSpellFromHand] cardId: ${cardId}`);
+      console.log(`[handleCastSpellFromHand] targets: ${targets ? JSON.stringify(targets) : 'undefined'}`);
+      console.log(`[handleCastSpellFromHand] payment: ${payment ? JSON.stringify(payment) : 'undefined'}`);
+      console.log(`[handleCastSpellFromHand] skipInteractivePrompts: ${skipInteractivePrompts}`);
+      console.log(`[handleCastSpellFromHand] playerId: ${playerId}`);
+      console.log(`[handleCastSpellFromHand] priority: ${game.state.priority}`);
 
       // Check if we're in PRE_GAME phase - spells cannot be cast during pre-game
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
@@ -2196,6 +2218,14 @@ export function registerGameActions(io: Server, socket: Socket) {
         });
         return;
       }
+      
+      // =============================================================================
+      // CRITICAL FIX: Skip all interactive prompts when completing a previous cast
+      // =============================================================================
+      // When skipInteractivePrompts=true (from completeCastSpell), we're completing 
+      // a cast that already went through target/payment selection. Jump directly to 
+      // the actual casting logic to prevent infinite targeting loops.
+      const shouldSkipAllPrompts = skipInteractivePrompts === true;
       
       // Check timing restrictions for sorcery-speed spells
       const oracleText = (cardInHand.oracle_text || "").toLowerCase();
@@ -2313,7 +2343,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const abundantHarvestMatch = oracleText.match(/choose\s+land\s+or\s+nonland/i);
       const abundantChoiceSelected = (cardInHand as any).abundantChoice || (targets as any)?.abundantChoice;
       
-      if (abundantHarvestMatch && !abundantChoiceSelected) {
+      if (!shouldSkipAllPrompts && abundantHarvestMatch && !abundantChoiceSelected) {
         // Prompt the player to choose land or nonland
         socket.emit("modeSelectionRequest", {
           gameId,
@@ -2357,7 +2387,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const isSpreeCard = oracleText.includes('spree');
       const spreeModesSelected = (cardInHand as any).selectedSpreeModes || (targets as any)?.selectedSpreeModes;
       
-      if (isSpreeCard && !spreeModesSelected) {
+      if (!shouldSkipAllPrompts && isSpreeCard && !spreeModesSelected) {
         // Parse spree costs and effects
         // Pattern: "+ {cost} — Effect text"
         const spreePattern = /\+\s*(\{[^}]+\})\s*[—-]\s*([^+]+?)(?=\+\s*\{|$)/gi;
@@ -2400,7 +2430,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
       }
       
-      if (modalSpellMatch && !modesAlreadySelected) {
+      if (!shouldSkipAllPrompts && modalSpellMatch && !modesAlreadySelected) {
         const modeCount = modalSpellMatch[1].toLowerCase();
         const modeCountMap: Record<string, number> = { 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'any number': -1 };
         const numModes = modeCountMap[modeCount] ?? -1;
@@ -2548,7 +2578,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const additionalCostPaid = (payment as any[])?.some((p: any) => p.additionalCostPaid === true) ||
                                   (targets as any)?.additionalCostPaid === true;
       
-      if (additionalCost && !additionalCostPaid) {
+      if (!shouldSkipAllPrompts && additionalCost && !additionalCostPaid) {
         // Need to prompt for additional cost payment
         if (additionalCost.type === 'discard') {
           // Check if player has enough cards to discard
@@ -2688,7 +2718,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       console.log(`[handleCastSpellFromHand] ${cardInHand.name}: spellSpec=${!!spellSpec}, targetReqs=${!!targetReqs}, needsTargetSelection=${needsTargetSelection}, hasTargets=${!!(targets && targets.length > 0)}`);
       
       // Handle Aura targeting separately from spell targeting
-      if (isAura && auraTargetType && (!targets || targets.length === 0)) {
+      // CRITICAL FIX: Skip Aura target request if we're completing a previous cast
+      if (!skipInteractivePrompts && isAura && auraTargetType && (!targets || targets.length === 0)) {
         // Build valid targets based on Aura's enchant type
         let validTargets: { id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string }[] = [];
         
@@ -2830,7 +2861,11 @@ export function registerGameActions(io: Server, socket: Socket) {
           return;
         }
         
-        if (!targets || targets.length < requiredMinTargets) {
+        // CRITICAL FIX: Skip target request if we're completing a previous cast (prevents infinite loop)
+        console.log(`[handleCastSpellFromHand] Checking if need to request targets: skipInteractivePrompts=${skipInteractivePrompts}, hasTargets=${!!(targets && targets.length > 0)}, minRequired=${requiredMinTargets}`);
+        
+        if (!skipInteractivePrompts && (!targets || targets.length < requiredMinTargets)) {
+          console.log(`[handleCastSpellFromHand] Requesting targets for ${cardInHand.name} (minTargets: ${requiredMinTargets}, maxTargets: ${requiredMaxTargets})`);
           // Need to request targets from the player
           // Build valid targets based on what the spell can target
           let validTargetList: { id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string; typeLine?: string }[] = [];
@@ -2985,16 +3020,20 @@ export function registerGameActions(io: Server, socket: Socket) {
           
           console.log(`[castSpellFromHand] Requesting ${requiredMinTargets}-${requiredMaxTargets} target(s) for ${cardInHand.name} (${targetDescription})`);
           return; // Wait for target selection
+        } else {
+          console.log(`[handleCastSpellFromHand] Skipping target request - already have ${targets?.length || 0} target(s) or skipInteractivePrompts=${skipInteractivePrompts}`);
         }
         
         // Validate provided targets if we have a spellSpec
-        if (spellSpec) {
+        if (spellSpec && targets && targets.length > 0) {
+          console.log(`[handleCastSpellFromHand] Validating ${targets.length} target(s) for ${cardInHand.name}`);
           const validRefs = evaluateTargeting(game.state as any, playerId, spellSpec);
           const validTargetIds = new Set(validRefs.map((t: any) => t.id));
           
           for (const target of targets) {
             const targetId = typeof target === 'string' ? target : target.id;
             if (!validTargetIds.has(targetId)) {
+              console.error(`[handleCastSpellFromHand] INVALID TARGET: ${targetId} not in valid set`);
               socket.emit("error", {
                 code: "INVALID_TARGET",
                 message: `Invalid target for ${cardInHand.name}`,
@@ -3002,8 +3041,11 @@ export function registerGameActions(io: Server, socket: Socket) {
               return;
             }
           }
+          console.log(`[handleCastSpellFromHand] All targets validated successfully`);
         }
-      }
+      } // Close if (needsTargetSelection)
+      
+      console.log(`[handleCastSpellFromHand] ======== DEBUG END ========`);
 
       // Parse the mana cost to validate payment
       const manaCost = cardInHand.mana_cost || "";
@@ -3481,11 +3523,19 @@ export function registerGameActions(io: Server, socket: Socket) {
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
+      // DEBUG: Log incoming parameters
+      console.log(`[completeCastSpell] DEBUG START ========================================`);
+      console.log(`[completeCastSpell] cardId: ${cardId}, effectId: ${effectId}`);
+      console.log(`[completeCastSpell] targets from client: ${targets ? JSON.stringify(targets) : 'undefined'}`);
+      console.log(`[completeCastSpell] payment from client: ${payment ? JSON.stringify(payment) : 'undefined'}`);
+      
       // Retrieve targets from pending cast data before cleaning up
       // This ensures Aura targets (stored in targetSelectionConfirm) are preserved
       let finalTargets = targets;
       if (effectId && (game.state as any).pendingSpellCasts?.[effectId]) {
         const pendingCast = (game.state as any).pendingSpellCasts[effectId];
+        console.log(`[completeCastSpell] Found pendingCast:`, JSON.stringify(pendingCast, null, 2));
+        
         // CRITICAL FIX: Always prefer pending targets over client-sent targets
         // This prevents the infinite targeting loop when client doesn't send targets back
         if (pendingCast.targets && pendingCast.targets.length > 0) {
@@ -3496,13 +3546,45 @@ export function registerGameActions(io: Server, socket: Socket) {
           finalTargets = targets || [];
           console.log(`[completeCastSpell] Using client-sent targets: ${finalTargets?.join(',') || 'none'}`);
         }
+        
+        // CRITICAL FIX: Validate that spell has required targets before allowing cast
+        // Check if this spell requires targets based on validTargetIds
+        const requiredTargets = pendingCast.validTargetIds && pendingCast.validTargetIds.length > 0;
+        if (requiredTargets && (!finalTargets || finalTargets.length === 0)) {
+          console.error(`[completeCastSpell] ERROR: Spell ${pendingCast.cardName} requires targets but none provided!`);
+          console.error(`[completeCastSpell] validTargetIds: ${JSON.stringify(pendingCast.validTargetIds)}`);
+          console.error(`[completeCastSpell] pendingCast.targets: ${JSON.stringify(pendingCast.targets)}`);
+          console.error(`[completeCastSpell] client targets: ${JSON.stringify(targets)}`);
+          
+          // Clean up the pending cast
+          delete (game.state as any).pendingSpellCasts[effectId];
+          
+          socket.emit("error", {
+            code: "MISSING_TARGETS",
+            message: `${pendingCast.cardName} requires a target but none was provided. Please try casting again.`,
+          });
+          return;
+        }
+        
         delete (game.state as any).pendingSpellCasts[effectId];
+      } else {
+        console.log(`[completeCastSpell] No pendingCast found for effectId: ${effectId}`);
+      }
+      
+      // CRITICAL FIX: Clean up pendingTargets to prevent game from being blocked
+      // pendingTargets is set by targetSelectionConfirm but never cleaned up
+      if (effectId && game.state.pendingTargets?.[effectId]) {
+        console.log(`[completeCastSpell] Cleaning up pendingTargets for effectId: ${effectId}`);
+        delete game.state.pendingTargets[effectId];
       }
 
-      console.log(`[completeCastSpell] Completing cast for ${cardId} with targets: ${finalTargets?.join(',') || 'none'}`);
+      console.log(`[completeCastSpell] Final targets to use: ${finalTargets?.join(',') || 'none'}`);
+      console.log(`[completeCastSpell] Calling handleCastSpellFromHand with skipInteractivePrompts=true`);
+      console.log(`[completeCastSpell] DEBUG END ==========================================`);
 
-      // Call the shared spell casting handler directly
-      handleCastSpellFromHand({ gameId, cardId, targets: finalTargets, payment });
+      // CRITICAL FIX: Pass skipInteractivePrompts=true to prevent infinite targeting loop
+      // This tells handleCastSpellFromHand to skip all target/payment requests since we're completing a previous cast
+      handleCastSpellFromHand({ gameId, cardId, targets: finalTargets, payment, skipInteractivePrompts: true });
       
     } catch (err: any) {
       console.error(`[completeCastSpell] Error:`, err);

@@ -2993,6 +2993,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     // Handle "draw cards and create treasure" spells (Seize the Spoils, Unexpected Windfall, etc.)
     // Pattern: "Draw two cards and create a Treasure token"
     const drawAndTreasureMatch = oracleTextLower.match(/draw\s+(\d+|a|an|one|two|three|four|five)\s+cards?.*(?:create|creates?)\s+(?:a|an|one|two|three|\d+)?\s*treasure\s+tokens?/i);
+    console.log(`[resolveTopOfStack] ${effectiveCard.name}: Checking draw+treasure pattern. Match: ${!!drawAndTreasureMatch}, drawThenDiscardMatch: ${!!drawThenDiscardMatch}, eachPlayer: ${oracleTextLower.includes('each player')}`);
     if (drawAndTreasureMatch && !oracleTextLower.includes('each player') && !drawThenDiscardMatch) {
       const wordToNumber: Record<string, number> = { 
         'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5
@@ -3004,6 +3005,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       const treasureCount = treasureCountMatch && treasureCountMatch[1] ? 
         parseInt(treasureCountMatch[1], 10) : 1;
       
+      console.log(`[resolveTopOfStack] ${effectiveCard.name}: Executing draw ${drawCount} + create ${treasureCount} treasure(s)`);
       try {
         const drawn = drawCardsFromZone(ctx, controller, drawCount);
         console.log(`[resolveTopOfStack] ${effectiveCard.name}: ${controller} drew ${drawn.length} card(s)`);
