@@ -4685,6 +4685,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         
         if (invalidTargets.length > 0) {
           console.warn(`[targetSelectionConfirm] Invalid targets selected: ${invalidTargets.join(', ')} for ${pendingCast.cardName}`);
+          
+          // Clean up pending spell cast to prevent loops
+          delete (game.state as any).pendingSpellCasts[effectId];
+          
           socket.emit("error", {
             code: "INVALID_TARGETS",
             message: `Invalid targets selected for ${pendingCast.cardName}. The targets don't meet the spell's requirements.`,

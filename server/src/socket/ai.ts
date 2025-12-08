@@ -1181,6 +1181,28 @@ export async function handleAIPriority(
       return;
     }
     
+    // CRITICAL: Check for stuck pendingSpellCasts that could cause infinite loops
+    // This can happen when a spell with targets gets stuck in the targeting workflow
+    // Clean up any pendingSpellCasts that belong to this AI player
+    const pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
+    const aiPendingCasts = Object.keys(pendingSpellCasts).filter(effectId => 
+      pendingSpellCasts[effectId]?.playerId === playerId
+    );
+    if (aiPendingCasts.length > 0) {
+      console.warn(`[AI] Cleaning up ${aiPendingCasts.length} stuck pending spell cast(s) to prevent infinite loop`);
+      for (const effectId of aiPendingCasts) {
+        const castInfo = pendingSpellCasts[effectId];
+        console.warn(`[AI] Removing stuck spell cast: ${castInfo?.cardName || 'unknown'} (effectId: ${effectId})`);
+        delete pendingSpellCasts[effectId];
+      }
+      // After cleanup, broadcast state and return - next AI action will proceed normally
+      if (typeof game.bumpSeq === 'function') {
+        game.bumpSeq();
+      }
+      broadcastGame(io, game, gameId);
+      return;
+    }
+    
     // If it's not the AI's turn, handle special cases where non-turn player needs to act
     if (!isAITurn) {
       // DECLARE_BLOCKERS step: The defending player (non-turn player) needs to declare blockers
