@@ -105,6 +105,8 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
   const stateAny = state as any;
   const autoPassPlayers = stateAny.autoPassPlayers || new Set();
   
+  console.log(`[priority] autoPassLoop starting - active players: ${active.map(p => p.id).join(', ')}, autoPassEnabled: ${Array.from(autoPassPlayers).join(', ')}, currentPriority: ${state.priority}`);
+  
   let iterations = 0;
   // Safety limit: Each player can pass at most once per priority round.
   // We add +1 to account for checking if we've cycled back to a player who already passed.
@@ -142,12 +144,17 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
     // Check if auto-pass is enabled for current player
     if (!autoPassPlayers.has(currentPlayer)) {
       // Auto-pass not enabled, stop here
+      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: auto-pass not enabled`);
       return { allPassed: false, resolved: false };
     }
     
     // Check if player can respond
-    if (canRespond(ctx, currentPlayer)) {
+    const playerCanRespond = canRespond(ctx, currentPlayer);
+    console.log(`[priority] autoPassLoop - checking ${currentPlayer}: canRespond=${playerCanRespond}, stack.length=${state.stack.length}, step=${(state as any).step}`);
+    
+    if (playerCanRespond) {
       // Player can respond, stop here
+      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: player can respond`);
       return { allPassed: false, resolved: false };
     }
     
