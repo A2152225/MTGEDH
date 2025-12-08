@@ -323,7 +323,71 @@ function resolveTopOfStack(
           data: { spell: topObject, enteredBattlefield: true, controller: controllerId },
         });
       } else {
-        // Instant/sorcery - goes to graveyard after resolution
+        // Instant/sorcery - process effects and goes to graveyard after resolution
+        
+        // Check for mana-adding effects (e.g., Dark Ritual, Seething Song, etc.)
+        const card = topObject.card as any;
+        const oracleText = card?.oracle_text || '';
+        
+        // Parse mana-adding patterns: "Add {B}{B}{B}", "Add {R}{R}{R}{R}{R}", "Add {C}", etc.
+        // Supports {W}{U}{B}{R}{G}{C} for all mana types
+        const manaAddPattern = /add\s+((?:\{[WUBRGC]\})+)/gi;
+        let manaMatch;
+        
+        while ((manaMatch = manaAddPattern.exec(oracleText)) !== null) {
+          const manaSymbols = manaMatch[1];
+          logs.push(`${getCardName(topObject)} adds mana: ${manaSymbols}`);
+          
+          // Extract individual mana symbols
+          const symbolMatches = Array.from(manaSymbols.matchAll(/\{([WUBRGC])\}/g));
+          const manaToAdd: Record<string, number> = {};
+          
+          for (const symbolMatch of symbolMatches) {
+            const symbol = symbolMatch[1];
+            const manaType = symbol === 'W' ? 'white' :
+                           symbol === 'U' ? 'blue' :
+                           symbol === 'B' ? 'black' :
+                           symbol === 'R' ? 'red' :
+                           symbol === 'G' ? 'green' :
+                           symbol === 'C' ? 'colorless' :
+                           null; // Invalid symbol - skip it
+            
+            if (manaType) {
+              manaToAdd[manaType] = (manaToAdd[manaType] || 0) + 1;
+            }
+          }
+          
+          // Initialize mana pool if needed
+          if (!updatedState.manaPool) {
+            (updatedState as any).manaPool = {};
+          }
+          if (!(updatedState as any).manaPool[controllerId]) {
+            (updatedState as any).manaPool[controllerId] = {
+              white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+            };
+          }
+          
+          // Add mana to controller's pool
+          const pool = (updatedState as any).manaPool[controllerId];
+          for (const [manaType, amount] of Object.entries(manaToAdd)) {
+            pool[manaType] = (pool[manaType] || 0) + amount;
+            logs.push(`Added ${amount} ${manaType} mana to ${controllerId}'s pool`);
+          }
+          
+          // Emit mana added event
+          context.emit({
+            type: RulesEngineEvent.MANA_ADDED,
+            timestamp: Date.now(),
+            gameId,
+            data: { 
+              playerId: controllerId, 
+              manaAdded: manaToAdd,
+              source: getCardName(topObject)
+            },
+          });
+        }
+        
+        // Move to graveyard
         updatedState = moveToGraveyard(updatedState, topObject, controllerId);
         
         context.emit({

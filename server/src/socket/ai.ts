@@ -1150,6 +1150,26 @@ export async function handleAIPriority(
     hasPriority
   });
   
+  // CRITICAL: Cleanup step does NOT receive priority (Rule 514.1)
+  // Cleanup happens automatically: discard to hand size, remove damage, end "until end of turn" effects
+  // However, if AI needs to discard, handle that first, then auto-advance
+  if (step.includes('cleanup') || step === 'cleanup') {
+    console.info('[AI] Cleanup step - handling automatic cleanup actions (Rule 514.1)');
+    
+    const { needsDiscard, discardCount } = needsToDiscard(game, playerId);
+    
+    if (needsDiscard) {
+      console.info('[AI] Cleanup step - AI needs to discard', discardCount, 'cards');
+      await executeAIDiscard(io, gameId, playerId, discardCount);
+      return;
+    }
+    
+    // No discard needed - cleanup is complete, auto-advance
+    console.info('[AI] Cleanup step - no discard needed, auto-advancing');
+    await executeAdvanceStep(io, gameId, playerId);
+    return;
+  }
+  
   // Critical check: AI should NOT act if it doesn't have priority
   // This prevents the AI from getting into an infinite loop of passing priority
   if (!hasPriority) {
@@ -1256,22 +1276,6 @@ export async function handleAIPriority(
     }
     
     // Handle different phases/steps
-    
-    // CLEANUP STEP: Handle discard to max hand size
-    if (step.includes('cleanup') || step === 'cleanup') {
-      const { needsDiscard, discardCount } = needsToDiscard(game, playerId);
-      
-      if (needsDiscard) {
-        console.info('[AI] Cleanup step - discarding', discardCount, 'cards');
-        await executeAIDiscard(io, gameId, playerId, discardCount);
-        return;
-      }
-      
-      // Cleanup complete, advance to next turn
-      console.info('[AI] Cleanup complete, advancing to next turn');
-      await executeAdvanceStep(io, gameId, playerId);
-      return;
-    }
     
     // MAIN PHASES: Play lands and cast spells
     const isMainPhase = phase.includes('main') || step.includes('main');

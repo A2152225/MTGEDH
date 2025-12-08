@@ -193,15 +193,24 @@ export function detectUpkeepTriggers(card: any, permanent: any): UpkeepTrigger[]
   if (cumulativeMatch) {
     const ageCounters = (counters["age"] || 0) + 1;
     const cost = cumulativeMatch[1].trim();
+    
+    // Special case: Braid of Fire has "Cumulative upkeep—Add {R}" or similar
+    // This ADDS mana instead of requiring payment
+    // Match patterns like "Add {R}", "Add {R}{R}", "Add {R}{G}", "Add {C}", etc.
+    // Supports {W}{U}{B}{R}{G}{C} for all mana types
+    const isAddingMana = /^add\s+(?:\{[WUBRGC]\})+$/i.test(cost);
+    
     triggers.push({
       permanentId,
       cardName,
       triggerType: 'cumulative_upkeep',
       cost: cost,
-      description: `Pay ${cost} for each age counter (will be ${ageCounters})`,
+      description: isAddingMana 
+        ? `${cost} for each age counter (will be ${ageCounters})`
+        : `Pay ${cost} for each age counter (will be ${ageCounters})`,
       counters: ageCounters,
-      mandatory: false,
-      consequence: `Sacrifice ${cardName}`,
+      mandatory: isAddingMana, // Adding mana is mandatory, payment is optional
+      consequence: isAddingMana ? undefined : `Sacrifice ${cardName}`,
       controllerTrigger: true,
       anyPlayerTrigger: false,
     });
@@ -628,5 +637,91 @@ export function checkSagaSacrifice(ctx: GameContext, permanentId: string): boole
     : 3;
   
   return loreCounters >= maxChapter;
+}
+
+/**
+ * Automatically process cumulative upkeep for mana-adding effects like Braid of Fire
+ * This should be called at the beginning of upkeep, before triggers go on the stack
+ * 
+ * Returns: List of permanents that had mana-adding cumulative upkeep processed
+ */
+export function autoProcessCumulativeUpkeepMana(ctx: GameContext, activePlayerId: string): Array<{permanentId: string, cardName: string, manaAdded: Record<string, number>, ageCounters: number}> {
+  const processed: Array<{permanentId: string, cardName: string, manaAdded: Record<string, number>, ageCounters: number}> = [];
+  const battlefield = ctx.state?.battlefield || [];
+  
+  for (const permanent of battlefield) {
+    if (!permanent || permanent.controller !== activePlayerId) continue;
+    
+    const card = permanent.card;
+    const oracleText = card?.oracle_text || '';
+    
+    // Check for cumulative upkeep with "Add {X}" pattern (e.g., Braid of Fire)
+    // Note: The pattern should capture one or more mana symbols (can be mixed)
+    // Includes {W}{U}{B}{R}{G}{C} for white, blue, black, red, green, colorless
+    const cumulativeMatch = oracleText.match(/cumulative upkeep[—\-\s]*add\s+((?:\{[WUBRGC]\})+)/i);
+    if (!cumulativeMatch) continue;
+    
+    const manaSymbols = cumulativeMatch[1];
+    const counters = permanent.counters || {};
+    
+    // Add age counter first
+    const newAgeCounters = (counters["age"] || 0) + 1;
+    (permanent as any).counters = { ...counters, age: newAgeCounters };
+    
+    // Parse all mana symbols (e.g., {R} or {R}{R} or {R}{G})
+    // Supports {W}{U}{B}{R}{G}{C} for white, blue, black, red, green, colorless
+    const symbolMatches = Array.from(manaSymbols.matchAll(/\{([WUBRGC])\}/g));
+    const manaPerCounter: Record<string, number> = {};
+    
+    for (const match of symbolMatches) {
+      const symbol = match[1];
+      const manaType = symbol === 'W' ? 'white' :
+                       symbol === 'U' ? 'blue' :
+                       symbol === 'B' ? 'black' :
+                       symbol === 'R' ? 'red' :
+                       symbol === 'G' ? 'green' :
+                       symbol === 'C' ? 'colorless' :
+                       null; // Invalid symbol - skip it
+      
+      if (manaType) {
+        manaPerCounter[manaType] = (manaPerCounter[manaType] || 0) + 1;
+      }
+    }
+    
+    // Calculate total mana: (mana per counter) * (age counters)
+    const manaToAdd: Record<string, number> = {};
+    for (const [manaType, perCounter] of Object.entries(manaPerCounter)) {
+      manaToAdd[manaType] = perCounter * newAgeCounters;
+    }
+    
+    // Initialize mana pool if needed
+    if (!ctx.state.manaPool) {
+      (ctx.state as any).manaPool = {};
+    }
+    if (!(ctx.state as any).manaPool[activePlayerId]) {
+      (ctx.state as any).manaPool[activePlayerId] = {
+        white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+      };
+    }
+    
+    // Add mana to pool
+    const pool = (ctx.state as any).manaPool[activePlayerId];
+    for (const [manaType, amount] of Object.entries(manaToAdd)) {
+      pool[manaType] = (pool[manaType] || 0) + amount;
+    }
+    
+    processed.push({
+      permanentId: permanent.id,
+      cardName: card?.name || 'Unknown',
+      manaAdded: manaToAdd,
+      ageCounters: newAgeCounters
+    });
+  }
+  
+  if (processed.length > 0) {
+    ctx.bumpSeq();
+  }
+  
+  return processed;
 }
 
