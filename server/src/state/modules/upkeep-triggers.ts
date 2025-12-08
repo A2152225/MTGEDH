@@ -637,3 +637,74 @@ export function checkSagaSacrifice(ctx: GameContext, permanentId: string): boole
   return loreCounters >= maxChapter;
 }
 
+/**
+ * Automatically process cumulative upkeep for mana-adding effects like Braid of Fire
+ * This should be called at the beginning of upkeep, before triggers go on the stack
+ * 
+ * Returns: List of permanents that had mana-adding cumulative upkeep processed
+ */
+export function autoProcessCumulativeUpkeepMana(ctx: GameContext, activePlayerId: string): Array<{permanentId: string, cardName: string, manaAdded: Record<string, number>, ageCounters: number}> {
+  const processed: Array<{permanentId: string, cardName: string, manaAdded: Record<string, number>, ageCounters: number}> = [];
+  const battlefield = ctx.state?.battlefield || [];
+  
+  for (const permanent of battlefield) {
+    if (!permanent || permanent.controller !== activePlayerId) continue;
+    
+    const card = permanent.card;
+    const oracleText = card?.oracle_text || '';
+    
+    // Check for cumulative upkeep with "Add {X}" pattern (e.g., Braid of Fire)
+    const cumulativeMatch = oracleText.match(/cumulative upkeep[—\-\s]*add\s+(\{[WUBRGC]\})/i);
+    if (!cumulativeMatch) continue;
+    
+    const manaSymbol = cumulativeMatch[1];
+    const counters = permanent.counters || {};
+    
+    // Add age counter first
+    const newAgeCounters = (counters["age"] || 0) + 1;
+    (permanent as any).counters = { ...counters, age: newAgeCounters };
+    
+    // Parse mana symbol
+    const symbol = manaSymbol.match(/\{([WUBRGC])\}/)?.[1];
+    if (!symbol) continue;
+    
+    const manaType = symbol === 'W' ? 'white' :
+                     symbol === 'U' ? 'blue' :
+                     symbol === 'B' ? 'black' :
+                     symbol === 'R' ? 'red' :
+                     symbol === 'G' ? 'green' :
+                     'colorless';
+    
+    // Add mana for each age counter
+    const manaAmount = newAgeCounters;
+    const manaToAdd: Record<string, number> = { [manaType]: manaAmount };
+    
+    // Initialize mana pool if needed
+    if (!ctx.state.manaPool) {
+      (ctx.state as any).manaPool = {};
+    }
+    if (!(ctx.state as any).manaPool[activePlayerId]) {
+      (ctx.state as any).manaPool[activePlayerId] = {
+        white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+      };
+    }
+    
+    // Add mana to pool
+    const pool = (ctx.state as any).manaPool[activePlayerId];
+    pool[manaType] = (pool[manaType] || 0) + manaAmount;
+    
+    processed.push({
+      permanentId: permanent.id,
+      cardName: card?.name || 'Unknown',
+      manaAdded: manaToAdd,
+      ageCounters: newAgeCounters
+    });
+  }
+  
+  if (processed.length > 0) {
+    ctx.bumpSeq();
+  }
+  
+  return processed;
+}
+

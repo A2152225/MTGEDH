@@ -29,7 +29,7 @@ import {
   detectCombatDamageTriggers,
   getTriggersForTiming
 } from "./triggered-abilities.js";
-import { getUpkeepTriggersForPlayer } from "./upkeep-triggers.js";
+import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana } from "./upkeep-triggers.js";
 import { parseCreatureKeywords } from "./combat-mechanics.js";
 import { runSBA, createToken } from "./counters_tokens.js";
 import { calculateAllPTBonuses, parsePT } from "../utils.js";
@@ -2401,6 +2401,20 @@ export function nextStep(ctx: GameContext) {
         
         // Rule 504.1: Upkeep step - "at the beginning of your upkeep" triggers
         if (nextStep === "UPKEEP") {
+          // FIRST: Auto-process cumulative upkeep mana effects (e.g., Braid of Fire)
+          // This must happen BEFORE triggers are collected, because Braid of Fire adds mana
+          // as part of cumulative upkeep, not as a separate trigger
+          const processedMana = autoProcessCumulativeUpkeepMana(ctx, turnPlayer);
+          if (processedMana.length > 0) {
+            console.log(`${ts()} [nextStep] Auto-processed cumulative upkeep mana for ${processedMana.length} permanent(s)`);
+            for (const item of processedMana) {
+              const manaStr = Object.entries(item.manaAdded)
+                .map(([type, amount]) => `${amount} ${type}`)
+                .join(', ');
+              console.log(`${ts()} [nextStep] ${item.cardName}: Added ${manaStr} (${item.ageCounters} age counters)`);
+            }
+          }
+          
           const upkeepTriggers = getUpkeepTriggersForPlayer(ctx, turnPlayer);
           pushTriggersToStack(upkeepTriggers, 'upkeep', 'upkeep');
         }

@@ -8,7 +8,7 @@ import { requiresColorChoice, requestColorChoice } from "./color-choice";
 import { checkAndPromptOpeningHandActions } from "./opening-hand";
 import { emitSacrificeUnlessPayPrompt } from "./triggers";
 import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, getLandfallTriggers, type SpellCastTrigger } from "../state/modules/triggered-abilities";
-import { getUpkeepTriggersForPlayer } from "../state/modules/upkeep-triggers";
+import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana } from "../state/modules/upkeep-triggers";
 import { categorizeSpell, evaluateTargeting, requiresTargeting, parseTargetRequirements } from "../rules-engine/targeting";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts } from "../state/modules/game-state-effects";
 import { PAY_X_LIFE_CARDS, getMaxPayableLife, validateLifePayment, uid } from "../state/utils";
@@ -4652,6 +4652,23 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       if (isSkippingThroughUpkeep && turnPlayer) {
         try {
+          // Auto-process cumulative upkeep mana effects (Braid of Fire, etc.) FIRST
+          const processedMana = autoProcessCumulativeUpkeepMana(game as any, turnPlayer);
+          if (processedMana.length > 0) {
+            for (const item of processedMana) {
+              const manaStr = Object.entries(item.manaAdded)
+                .map(([type, amount]) => `${amount} ${type}`)
+                .join(', ');
+              io.to(gameId).emit('chat', {
+                id: `m_${Date.now()}_${item.permanentId}`,
+                gameId,
+                from: 'system',
+                message: `${item.cardName}: Added ${manaStr} to ${getPlayerName(game, turnPlayer)}'s mana pool (${item.ageCounters} age counters)`,
+                ts: Date.now(),
+              });
+            }
+          }
+          
           const upkeepTriggers = getUpkeepTriggersForPlayer(game as any, turnPlayer);
           if (upkeepTriggers && upkeepTriggers.length > 0) {
             stopAtPhaseForTriggers('beginning', 'UPKEEP', upkeepTriggers, 'upkeep');
