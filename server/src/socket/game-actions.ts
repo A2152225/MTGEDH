@@ -3546,6 +3546,26 @@ export function registerGameActions(io: Server, socket: Socket) {
           finalTargets = targets || [];
           console.log(`[completeCastSpell] Using client-sent targets: ${finalTargets?.join(',') || 'none'}`);
         }
+        
+        // CRITICAL FIX: Validate that spell has required targets before allowing cast
+        // Check if this spell requires targets based on validTargetIds
+        const requiredTargets = pendingCast.validTargetIds && pendingCast.validTargetIds.length > 0;
+        if (requiredTargets && (!finalTargets || finalTargets.length === 0)) {
+          console.error(`[completeCastSpell] ERROR: Spell ${pendingCast.cardName} requires targets but none provided!`);
+          console.error(`[completeCastSpell] validTargetIds: ${JSON.stringify(pendingCast.validTargetIds)}`);
+          console.error(`[completeCastSpell] pendingCast.targets: ${JSON.stringify(pendingCast.targets)}`);
+          console.error(`[completeCastSpell] client targets: ${JSON.stringify(targets)}`);
+          
+          // Clean up the pending cast
+          delete (game.state as any).pendingSpellCasts[effectId];
+          
+          socket.emit("error", {
+            code: "MISSING_TARGETS",
+            message: `${pendingCast.cardName} requires a target but none was provided. Please try casting again.`,
+          });
+          return;
+        }
+        
         delete (game.state as any).pendingSpellCasts[effectId];
       } else {
         console.log(`[completeCastSpell] No pendingCast found for effectId: ${effectId}`);
