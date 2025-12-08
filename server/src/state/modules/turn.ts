@@ -2141,6 +2141,8 @@ export function nextStep(ctx: GameContext) {
         nextStep = "DRAW";
         shouldDraw = !isReplaying; // Draw a card when entering draw step (skip during replay)
         // NOTE: Draw step triggers will be pushed AFTER phase/step update below
+        // Mark that we're entering DRAW step to potentially auto-advance
+        (ctx as any)._enteringDrawStep = true;
       } else {
         // After draw, go to precombatMain
         nextPhase = "precombatMain";
@@ -2409,6 +2411,28 @@ export function nextStep(ctx: GameContext) {
         else if (nextStep === "DRAW") {
           const drawTriggers = getDrawStepTriggers(ctx, turnPlayer);
           pushTriggersToStack(drawTriggers, 'draw_step', 'draw');
+          
+          // Per Rule 504: If there are no draw triggers, immediately advance to MAIN1
+          // This is similar to how UNTAP immediately advances to UPKEEP (Rule 502.1)
+          // The draw action is a turn-based action and doesn't grant priority
+          const enteringDrawStep = (ctx as any)._enteringDrawStep;
+          delete (ctx as any)._enteringDrawStep; // Clear the flag
+          
+          if (enteringDrawStep && drawTriggers.length === 0 && (ctx as any).state.stack.length === 0) {
+            console.log(`${ts()} [nextStep] No draw triggers, immediately advancing to MAIN1 (similar to UNTAP->UPKEEP)`);
+            // Override the next step to be MAIN1 instead of DRAW
+            nextPhase = "precombatMain";
+            nextStep = "MAIN1";
+            
+            // We need to update the state now since we've already set it to DRAW above
+            (ctx as any).state.phase = nextPhase;
+            (ctx as any).state.step = nextStep;
+            
+            // Check for precombat main triggers
+            const precombatMainTriggers = getTriggersForTiming(ctx, 'precombat_main', turnPlayer);
+            pushTriggersToStack(precombatMainTriggers, 'precombat_main', 'main');
+            console.log(`${ts()} [nextStep] Advanced to MAIN1, found ${precombatMainTriggers.length} precombat main trigger(s)`);
+          }
         }
         
         // Rule 505.4: Beginning of precombat main phase - "at the beginning of your precombat main phase" triggers
