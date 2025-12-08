@@ -193,15 +193,22 @@ export function detectUpkeepTriggers(card: any, permanent: any): UpkeepTrigger[]
   if (cumulativeMatch) {
     const ageCounters = (counters["age"] || 0) + 1;
     const cost = cumulativeMatch[1].trim();
+    
+    // Special case: Braid of Fire has "Cumulative upkeep—Add {R}"
+    // This ADDS mana instead of requiring payment
+    const isAddingMana = /^add\s+\{[WUBRGC]\}$/i.test(cost);
+    
     triggers.push({
       permanentId,
       cardName,
       triggerType: 'cumulative_upkeep',
       cost: cost,
-      description: `Pay ${cost} for each age counter (will be ${ageCounters})`,
+      description: isAddingMana 
+        ? `${cost} for each age counter (will be ${ageCounters})`
+        : `Pay ${cost} for each age counter (will be ${ageCounters})`,
       counters: ageCounters,
-      mandatory: false,
-      consequence: `Sacrifice ${cardName}`,
+      mandatory: isAddingMana, // Adding mana is mandatory, payment is optional
+      consequence: isAddingMana ? undefined : `Sacrifice ${cardName}`,
       controllerTrigger: true,
       anyPlayerTrigger: false,
     });
