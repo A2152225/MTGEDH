@@ -2409,6 +2409,27 @@ export function nextStep(ctx: GameContext) {
         else if (nextStep === "DRAW") {
           const drawTriggers = getDrawStepTriggers(ctx, turnPlayer);
           pushTriggersToStack(drawTriggers, 'draw_step', 'draw');
+          
+          // Per Rule 504: If there are no draw triggers and we just entered from UPKEEP,
+          // immediately advance to MAIN1 (similar to how UNTAP advances to UPKEEP)
+          // The draw action is a turn-based action and doesn't grant priority
+          const justEnteredDrawFromUpkeep = (currentStep === "upkeep" || currentStep === "UPKEEP");
+          
+          if (justEnteredDrawFromUpkeep && drawTriggers.length === 0 && (ctx as any).state.stack.length === 0) {
+            console.log(`${ts()} [nextStep] No draw triggers, immediately advancing to MAIN1 (similar to UNTAP->UPKEEP)`);
+            // Override the next step to be MAIN1 instead of DRAW
+            nextPhase = "precombatMain";
+            nextStep = "MAIN1";
+            
+            // We need to update the state now since we've already set it to DRAW above
+            (ctx as any).state.phase = nextPhase;
+            (ctx as any).state.step = nextStep;
+            
+            // Check for precombat main triggers
+            const precombatMainTriggers = getTriggersForTiming(ctx, 'precombat_main', turnPlayer);
+            pushTriggersToStack(precombatMainTriggers, 'precombat_main', 'main');
+            console.log(`${ts()} [nextStep] Advanced to MAIN1, found ${precombatMainTriggers.length} precombat main trigger(s)`);
+          }
         }
         
         // Rule 505.4: Beginning of precombat main phase - "at the beginning of your precombat main phase" triggers
@@ -2445,6 +2466,13 @@ export function nextStep(ctx: GameContext) {
         if ((ctx as any).state.stack.length > 0) {
           (ctx as any).state.priority = turnPlayer;
           console.log(`${ts()} [nextStep] Triggers on stack, priority to active player ${turnPlayer}`);
+        } else {
+          // No triggers on stack - clear priority to indicate no player has priority
+          // This is important for steps like DRAW where turn-based actions occur
+          // without using the stack (Rule 504.1: drawing a card is a turn-based action)
+          // Players only receive priority if there are spells, abilities, or triggers
+          (ctx as any).state.priority = null;
+          console.log(`${ts()} [nextStep] No triggers, clearing priority (step will auto-advance)`);
         }
       }
     }

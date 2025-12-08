@@ -682,6 +682,7 @@ export function clearPriorityTimer(gameId: string) {
 /**
  * Schedules a priority pass timeout, automatically passing after the configured delay.
  * If the game has only one active player and a non-empty stack, passes immediately.
+ * If priority is null (no player has priority), auto-advance to next step.
  */
 export function schedulePriorityTimeout(
   io: Server,
@@ -691,7 +692,27 @@ export function schedulePriorityTimeout(
   clearPriorityTimer(gameId);
 
   try {
-    if (!game.state || !game.state.active || !game.state.priority) return;
+    if (!game.state || !game.state.active) return;
+    
+    // If priority is null (no player has priority), auto-advance to next step
+    // This happens in steps like DRAW where there are no triggers - only turn-based actions
+    if (!game.state.priority) {
+      console.log(`[schedulePriorityTimeout] Priority is null, auto-advancing step for game ${gameId}`);
+      // Schedule immediate step advancement
+      priorityTimers.set(
+        gameId,
+        setTimeout(() => {
+          // Auto-advance to next step
+          if (typeof (game as any).nextStep === 'function') {
+            (game as any).nextStep();
+            appendGameEvent(game, gameId, "nextStep", { reason: 'noPriority' });
+            broadcastGame(io, game, gameId);
+            console.log(`[schedulePriorityTimeout] Auto-advanced step (no priority) for game ${gameId}`);
+          }
+        }, 0)
+      );
+      return;
+    }
   } catch {
     return;
   }
