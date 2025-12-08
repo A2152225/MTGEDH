@@ -2071,6 +2071,8 @@ export function registerGameActions(io: Server, socket: Socket) {
 
         // Store pending cast info for after targets are selected
         // IMPORTANT: Store valid target IDs for server-side validation (Rule 601.2c compliance)
+        // IMPORTANT: Copy the full card object to prevent issues where card info is deleted
+        // before it can be read during the target > pay workflow (fixes loop issue)
         (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
         (game.state as any).pendingSpellCasts[effectId] = {
           cardId,
@@ -2079,6 +2081,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           playerId,
           faceIndex,
           validTargetIds: validTargetList.map((t: any) => t.id), // Store for validation
+          card: { ...cardInHand }, // Copy full card object to preserve oracle text, type line, etc.
         };
 
         // Request targets FIRST (per MTG Rule 601.2c)
@@ -2745,6 +2748,8 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         // Store pending cast info for after targets are selected (like requestCastSpell does)
         // This ensures targetSelectionConfirm can find the pending spell and request payment
+        // IMPORTANT: Copy the full card object to prevent issues where card info is deleted
+        // before it can be read during the target > pay workflow (fixes loop issue)
         (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
         (game.state as any).pendingSpellCasts[effectId] = {
           cardId,
@@ -2752,6 +2757,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           manaCost: cardInHand.mana_cost || "",
           playerId,
           validTargetIds: validTargets.map((t: any) => t.id),
+          card: { ...cardInHand }, // Copy full card object to preserve oracle text, type line, etc.
         };
         
         // Emit target selection request for Aura
@@ -2907,6 +2913,8 @@ export function registerGameActions(io: Server, socket: Socket) {
           
           // Store pending cast info for after targets are selected (like requestCastSpell does)
           // This ensures targetSelectionConfirm can find the pending spell and request payment
+          // IMPORTANT: Copy the full card object to prevent issues where card info is deleted
+          // before it can be read during the target > pay workflow (fixes loop issue)
           (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
           (game.state as any).pendingSpellCasts[effectId] = {
             cardId,
@@ -2914,6 +2922,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             manaCost: cardInHand.mana_cost || "",
             playerId,
             validTargetIds: validTargetList.map((t: any) => t.id),
+            card: { ...cardInHand }, // Copy full card object to preserve oracle text, type line, etc.
           };
           
           socket.emit("targetSelectionRequest", {
