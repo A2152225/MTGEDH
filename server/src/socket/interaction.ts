@@ -2918,11 +2918,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Import the multi-mode ability detection from triggered-abilities
     const { detectMultiModeAbility } = await import("../state/modules/triggered-abilities.js");
     const multiModeAbility = detectMultiModeAbility(card, permanent);
+    // Only treat as multi-mode if the ability ID explicitly indicates it (not just by card name)
+    // This allows individual abilities to be activated directly from the parsed ability list
     const isMultiModeAbility = multiModeAbility && (
       abilityId.includes("multi-mode") || 
-      abilityId.includes("staff") ||
-      cardName.toLowerCase().includes("staff of domination") ||
-      cardName.toLowerCase().includes("trading post")
+      abilityId === "multi-mode" ||
+      abilityId === "staff-multi-mode"
     );
     
     if (isMultiModeAbility && multiModeAbility) {
