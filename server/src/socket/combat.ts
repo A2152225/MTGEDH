@@ -6,7 +6,7 @@
  */
 
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, getPlayerName, emitToPlayer, getEffectivePower, getEffectiveToughness, broadcastManaPoolUpdate } from "./util.js";
+import { ensureGame, broadcastGame, getPlayerName, emitToPlayer, getEffectivePower, getEffectiveToughness, broadcastManaPoolUpdate, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool } from "./util.js";
 import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 import { getAttackTriggersForCreatures, type TriggeredAbility } from "../state/modules/triggered-abilities.js";
@@ -990,8 +990,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
               toughness: newFace.toughness,
               mana_cost: newFace.mana_cost,
               colors: newFace.colors,
-              keywords: newFace.keywords,
-            };
+            } as any;
             
             // Check if this is Casal transforming to Pathbreaker Owlbear
             const newName = newFace.name || '';
@@ -1006,17 +1005,20 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
               
               for (const creature of legendaryCreatures) {
                 // Add temporary buff modifier
-                creature.modifiers = creature.modifiers || [];
-                creature.modifiers.push({
-                  type: 'pt_buff',
-                  source: permanentId,
-                  sourceName: newName,
-                  power: 2,
-                  toughness: 2,
-                  keywords: ['Trample'],
-                  duration: 'end_of_turn',
-                  appliedAt: Date.now(),
-                });
+                const existingModifiers = creature.modifiers || [];
+                creature.modifiers = [
+                  ...existingModifiers,
+                  {
+                    type: 'pt_buff',
+                    source: permanentId,
+                    sourceName: newName,
+                    power: 2,
+                    toughness: 2,
+                    keywords: ['Trample'],
+                    duration: 'end_of_turn',
+                    appliedAt: Date.now(),
+                  }
+                ];
               }
               
               if (legendaryCreatures.length > 0) {

@@ -3296,7 +3296,8 @@ export function registerGameActions(io: Server, socket: Socket) {
               targetDetails: targetDetails.length > 0 ? targetDetails : undefined,
               // Mark if this is an adventure spell (face index 1 is adventure for adventure cards)
               // For adventure cards: faceIndex 1 = adventure side (instant/sorcery), faceIndex 0 or undefined = creature/enchantment side
-              castAsAdventure: removedCard.layout === 'adventure' ? (faceIndex === 1) : undefined,
+              // Note: faceIndex is not available in this fallback path
+              castAsAdventure: removedCard.layout === 'adventure' ? false : undefined,
             };
             
             if (typeof game.pushStack === 'function') {

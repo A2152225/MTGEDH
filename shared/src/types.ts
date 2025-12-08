@@ -440,6 +440,26 @@ export interface GameState {
     cardName: string;
     amount: number;
   }>;
+  /**
+   * Pending attack triggers awaiting player's mana payment decision.
+   * Maps trigger ID to trigger details (e.g., Casal's transform on attack).
+   */
+  pendingAttackTriggers?: Record<string, {
+    permanentId: string;
+    cardName: string;
+    effect?: string;
+    manaCost?: string;
+    controller: string;
+    description: string;
+  }>;
+  /**
+   * Pending tap/untap activations for permanents with tap abilities.
+   */
+  pendingTapUntapActivations?: Record<string, any>;
+  /**
+   * Pending counter movements between permanents.
+   */
+  pendingCounterMovements?: Record<string, any>;
 }
 
 /* Player protection state for effects like Teferi's Protection */
