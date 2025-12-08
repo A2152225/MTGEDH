@@ -2445,6 +2445,13 @@ export function nextStep(ctx: GameContext) {
         if ((ctx as any).state.stack.length > 0) {
           (ctx as any).state.priority = turnPlayer;
           console.log(`${ts()} [nextStep] Triggers on stack, priority to active player ${turnPlayer}`);
+        } else {
+          // No triggers on stack - clear priority to indicate no player has priority
+          // This is important for steps like DRAW where turn-based actions occur
+          // without using the stack (Rule 504.1: drawing a card is a turn-based action)
+          // Players only receive priority if there are spells, abilities, or triggers
+          (ctx as any).state.priority = null;
+          console.log(`${ts()} [nextStep] No triggers, clearing priority (step will auto-advance)`);
         }
       }
     }
