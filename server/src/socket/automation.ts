@@ -14,6 +14,7 @@ import type {
 } from "../../../shared/src/events.js";
 import { games } from "./socket.js";
 import GameManager from "../GameManager.js";
+import { canRespond } from "../state/modules/can-respond.js";
 
 /**
  * Register automation-related socket handlers
@@ -332,32 +333,23 @@ export function registerAutomationHandlers(
     }
     
     try {
-      // Import the canRespond function from can-respond module
-      import("../../state/modules/can-respond.js").then(({ canRespond }) => {
-        // Create a minimal context for the check
-        const ctx = {
-          state: game.state,
-          inactive: new Set(),
-          passesInRow: { value: 0 },
-          bumpSeq: () => {},
-        };
-        
-        const playerCanRespond = canRespond(ctx as any, playerId);
-        
-        socket.emit("canRespondResponse", {
-          canRespond: playerCanRespond,
-          gameId,
-          playerId,
-        });
-        
-        console.log(`[Automation] Player ${playerId} can respond: ${playerCanRespond}`);
-      }).catch(err => {
-        console.error("[Automation] Error checking canRespond:", err);
-        socket.emit("canRespondResponse", { 
-          canRespond: true, // Default to true on error to be safe
-          error: "Failed to check response capability" 
-        });
+      // Create a minimal context for the check
+      const ctx = {
+        state: game.state,
+        inactive: new Set(),
+        passesInRow: { value: 0 },
+        bumpSeq: () => {},
+      };
+      
+      const playerCanRespond = canRespond(ctx as any, playerId);
+      
+      socket.emit("canRespondResponse", {
+        canRespond: playerCanRespond,
+        gameId,
+        playerId,
       });
+      
+      console.log(`[Automation] Player ${playerId} can respond: ${playerCanRespond}`);
     } catch (err) {
       console.error("[Automation] Error in checkCanRespond:", err);
       socket.emit("canRespondResponse", { 

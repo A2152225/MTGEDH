@@ -11,7 +11,9 @@ function createTestContext(state: any): GameContext {
     state,
     inactive: new Set(),
     passesInRow: { value: 0 },
-    bumpSeq: () => {},
+    bumpSeq: () => {
+      // Mock function for testing
+    },
   } as any;
 }
 
