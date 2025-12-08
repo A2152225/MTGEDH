@@ -496,6 +496,21 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     });
   }
   
+  // "Whenever one or more creatures you control deal combat damage to a player" (batched trigger)
+  // Examples: Professional Face-Breaker, Idol of Oblivion, etc.
+  const batchedCombatDamageMatch = oracleText.match(/whenever\s+one\s+or\s+more\s+creatures\s+you\s+control\s+deal\s+combat\s+damage\s+to\s+(?:a\s+)?(?:player|an?\s+opponent),?\s*([^.]+)/i);
+  if (batchedCombatDamageMatch && !triggers.some(t => t.triggerType === 'creatures_deal_combat_damage_batched')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'creatures_deal_combat_damage_batched',
+      description: batchedCombatDamageMatch[1].trim(),
+      effect: batchedCombatDamageMatch[1].trim(),
+      mandatory: true,
+      batched: true,  // This trigger should only fire once per combat damage step if any creatures dealt damage
+    });
+  }
+  
   // "Whenever ~ deals damage to a player" (includes combat and non-combat)
   const damagePlayerMatch = oracleText.match(/whenever\s+(?:~|this creature)\s+deals\s+damage\s+to\s+(?:a\s+)?(?:player|an?\s+opponent),?\s*([^.]+)/i);
   if (damagePlayerMatch && !triggers.some(t => t.triggerType === 'deals_combat_damage' || t.triggerType === 'deals_damage')) {
