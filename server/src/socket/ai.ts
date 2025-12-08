@@ -2089,14 +2089,9 @@ async function executeAdvanceStep(
   if (!game) return;
   
   // Check if there are any pending modal interactions before advancing
-  if (hasPendingLibrarySearch(game)) {
-    console.info('[AI] Cannot advance step - players have pending library searches');
-    return;
-  } else if (hasPendingColorChoices(gameId)) {
-    console.info('[AI] Cannot advance step - players have pending color choice modals');
-    return;
-  } else if (hasPendingJoinForcesOrOffers(gameId)) {
-    console.info('[AI] Cannot advance step - players have pending Join Forces or Tempting Offer modals');
+  const pendingCheck = checkPendingModals(game, gameId);
+  if (pendingCheck.hasPending) {
+    console.info(`[AI] Cannot advance step - ${pendingCheck.reason}`);
     return;
   }
   
@@ -2366,12 +2361,9 @@ async function executePassPriority(
     // BUT: Do NOT advance if there are pending modals (e.g., library searches, color choices, join forces)
     // Human players need time to complete their modal interactions
     if (advanceStep) {
-      if (hasPendingLibrarySearch(game)) {
-        console.info('[AI] Cannot advance step - players have pending library searches');
-      } else if (hasPendingColorChoices(gameId)) {
-        console.info('[AI] Cannot advance step - players have pending color choice modals');
-      } else if (hasPendingJoinForcesOrOffers(gameId)) {
-        console.info('[AI] Cannot advance step - players have pending Join Forces or Tempting Offer modals');
+      const pendingCheck = checkPendingModals(game, gameId);
+      if (pendingCheck.hasPending) {
+        console.info(`[AI] Cannot advance step - ${pendingCheck.reason}`);
       } else {
         console.info('[AI] All players passed priority with empty stack, advancing step');
         if (typeof (game as any).nextStep === 'function') {
@@ -3262,6 +3254,23 @@ export function cleanupGameAI(gameId: string): void {
 function hasPendingLibrarySearch(game: any): boolean {
   const pending = (game.state as any)?.pendingLibrarySearch;
   return pending && typeof pending === 'object' && Object.keys(pending).length > 0;
+}
+
+/**
+ * Check if there are any pending modals that should block AI advancement.
+ * Returns an object with a boolean flag and optional reason string.
+ */
+function checkPendingModals(game: any, gameId: string): { hasPending: boolean; reason?: string } {
+  if (hasPendingLibrarySearch(game)) {
+    return { hasPending: true, reason: 'players have pending library searches' };
+  }
+  if (hasPendingColorChoices(gameId)) {
+    return { hasPending: true, reason: 'players have pending color choice modals' };
+  }
+  if (hasPendingJoinForcesOrOffers(gameId)) {
+    return { hasPending: true, reason: 'players have pending Join Forces or Tempting Offer modals' };
+  }
+  return { hasPending: false };
 }
 
 /**
