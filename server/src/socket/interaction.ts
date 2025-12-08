@@ -2425,7 +2425,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const totalAvailable = calculateTotalAvailableMana(manaPool, undefined);
         const validationError = validateManaPayment(
           totalAvailable,
-          parsedCost.colored,
+          parsedCost.colors,
           parsedCost.generic
         );
         
@@ -2438,7 +2438,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         }
         
         // Consume the mana from the pool
-        consumeManaFromPool(game.state, pid, parsedCost.colored, parsedCost.generic);
+        consumeManaFromPool(manaPool, parsedCost.colors, parsedCost.generic);
         
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
@@ -3547,6 +3547,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       abilityText = `Activated ability on ${cardName}`;
     }
     
+    // Validate: if ability requires tap, permanent must not be tapped
+    if (requiresTap && (permanent as any).tapped) {
+      socket.emit("error", {
+        code: "ALREADY_TAPPED",
+        message: `${cardName} is already tapped`,
+      });
+      return;
+    }
+    
     // Check if sacrifice is required and we need to prompt for selection
     if (sacrificeType && sacrificeType !== 'self') {
       // Get eligible permanents for sacrifice
@@ -3639,7 +3648,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           // Validate payment
           const validationError = validateManaPayment(
             totalAvailable,
-            parsedCost.colored,
+            parsedCost.colors,
             parsedCost.generic
           );
           
@@ -3652,7 +3661,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           }
           
           // Consume the mana from the pool
-          consumeManaFromPool(game.state, pid, parsedCost.colored, parsedCost.generic);
+          consumeManaFromPool(manaPool, parsedCost.colors, parsedCost.generic);
           
           io.to(gameId).emit("chat", {
             id: `m_${Date.now()}`,

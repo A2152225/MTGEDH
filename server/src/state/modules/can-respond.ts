@@ -478,6 +478,7 @@ function hasPlayFromTopOfLibraryEffect(ctx: GameContext, playerId: PlayerID): bo
  * Main function: Determine if a player can respond
  * 
  * A player can respond if they can cast an instant/flash spell or activate an ability.
+ * During main phase with empty stack, also check for sorcery-speed actions.
  * This is used to auto-pass priority when appropriate.
  * 
  * @param ctx Game context
@@ -486,7 +487,7 @@ function hasPlayFromTopOfLibraryEffect(ctx: GameContext, playerId: PlayerID): bo
  */
 export function canRespond(ctx: GameContext, playerId: PlayerID): boolean {
   try {
-    // Check if player can cast any spells
+    // Check if player can cast any instant/flash spells
     if (canCastAnySpell(ctx, playerId)) {
       return true;
     }
@@ -496,13 +497,18 @@ export function canRespond(ctx: GameContext, playerId: PlayerID): boolean {
       return true;
     }
     
-    // Check if player can play a land
-    // Only check during main phase with empty stack
+    // Check for sorcery-speed actions during main phase with empty stack
     const isMainPhase = isInMainPhase(ctx);
     const stackIsEmpty = !ctx.state.stack || ctx.state.stack.length === 0;
     
     if (isMainPhase && stackIsEmpty) {
+      // Check if player can play a land
       if (canPlayLand(ctx, playerId)) {
+        return true;
+      }
+      
+      // Check if player can cast any sorcery-speed spells
+      if (canCastAnySorcerySpeed(ctx, playerId)) {
         return true;
       }
     }
@@ -513,5 +519,69 @@ export function canRespond(ctx: GameContext, playerId: PlayerID): boolean {
     console.warn("[canRespond] Error:", err);
     // On error, default to true (don't auto-pass) to be safe
     return true;
+  }
+}
+
+/**
+ * Check if player can cast any sorcery-speed spell from hand
+ * (creatures, sorceries, artifacts, enchantments, planeswalkers)
+ */
+function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
+  try {
+    const { state } = ctx;
+    if (!state) return false;
+    
+    const zones = state.zones?.[playerId];
+    if (!zones || !Array.isArray(zones.hand)) return false;
+    
+    // Get mana pool
+    const pool = getManaPoolFromState(state, playerId);
+    
+    // Check each card in hand
+    for (const card of zones.hand as any[]) {
+      if (!card || typeof card === "string") continue;
+      
+      const typeLine = (card.type_line || "").toLowerCase();
+      
+      // Check if it's a sorcery-speed spell (not instant, not land)
+      const isSorcerySpeed = 
+        typeLine.includes("creature") ||
+        typeLine.includes("sorcery") ||
+        typeLine.includes("artifact") ||
+        typeLine.includes("enchantment") ||
+        typeLine.includes("planeswalker") ||
+        typeLine.includes("battle");
+      
+      // Skip if it's instant or has flash (already checked in canCastAnySpell)
+      if (typeLine.includes("instant") || (card.oracle_text || "").toLowerCase().includes("flash")) {
+        continue;
+      }
+      
+      // Skip lands (checked separately in canPlayLand)
+      if (typeLine.includes("land")) {
+        continue;
+      }
+      
+      if (!isSorcerySpeed) continue;
+      
+      // Check if player can pay the cost (either normal or alternate)
+      const manaCost = card.mana_cost || "";
+      const parsedCost = parseManaCost(manaCost);
+      
+      // Check normal mana cost
+      if (canPayManaCost(pool, parsedCost)) {
+        return true;
+      }
+      
+      // Check alternate costs
+      if (hasPayableAlternateCost(ctx, playerId, card)) {
+        return true;
+      }
+    }
+    
+    return false;
+  } catch (err) {
+    console.warn("[canCastAnySorcerySpeed] Error:", err);
+    return false;
   }
 }
