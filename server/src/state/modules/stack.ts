@@ -3074,6 +3074,28 @@ export function resolveTopOfStack(ctx: GameContext) {
       console.log(`[resolveTopOfStack] Tutor spell ${effectiveCard.name}: ${controller} may search for ${tutorInfo.searchCriteria || 'a card'} (destination: ${tutorInfo.destination}, split: ${tutorInfo.splitDestination || false})`);
     }
     
+    // Handle Gamble - special tutor with random discard
+    // "Search your library for a card, put it into your hand, then shuffle. Then discard a card at random."
+    const isGamble = effectiveCard.name?.toLowerCase().includes('gamble') && 
+                     oracleTextLower.includes('search your library') && 
+                     oracleTextLower.includes('discard a card at random');
+    
+    if (isGamble) {
+      // Set up pending library search with special flag for random discard
+      (state as any).pendingLibrarySearch = (state as any).pendingLibrarySearch || {};
+      (state as any).pendingLibrarySearch[controller] = {
+        type: 'tutor',
+        searchFor: 'a card', // Gamble can search for any card
+        destination: 'hand',
+        source: 'Gamble',
+        shuffleAfter: true,
+        maxSelections: 1,
+        // Special flag for Gamble: after the tutor, discard random
+        discardRandomAfter: true,
+      };
+      console.log(`[resolveTopOfStack] Gamble: ${controller} will search for a card and then discard a random card`);
+    }
+    
     // Handle Gift of Estates - "If an opponent controls more lands than you, 
     // search your library for up to three Plains cards, reveal them, put them into your hand, then shuffle."
     const isGiftOfEstates = effectiveCard.name?.toLowerCase().includes('gift of estates') ||

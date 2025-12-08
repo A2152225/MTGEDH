@@ -4314,8 +4314,44 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     });
     
     // Clear pending library search for this player
+    const searchInfo = game.state?.pendingLibrarySearch?.[pid];
+    const needsRandomDiscard = searchInfo?.discardRandomAfter === true;
+    
     if (game.state?.pendingLibrarySearch && game.state.pendingLibrarySearch[pid]) {
       delete game.state.pendingLibrarySearch[pid];
+    }
+    
+    // Handle Gamble's random discard
+    if (needsRandomDiscard && moveTo === 'hand') {
+      // After adding card to hand, discard a random card from hand
+      const zones = game.state?.zones?.[pid];
+      if (zones && Array.isArray(zones.hand) && zones.hand.length > 0) {
+        const randomIndex = Math.floor(Math.random() * zones.hand.length);
+        const discardedCard = zones.hand[randomIndex];
+        const discardedCardName = discardedCard?.name || 'Unknown';
+        
+        // Remove from hand
+        zones.hand.splice(randomIndex, 1);
+        zones.handCount = zones.hand.length;
+        
+        // Add to graveyard
+        if (!Array.isArray(zones.graveyard)) {
+          zones.graveyard = [];
+        }
+        zones.graveyard.push(discardedCard);
+        zones.graveyardCount = zones.graveyard.length;
+        
+        console.log(`[Gamble] ${pid} discarded ${discardedCardName} at random`);
+        
+        // Notify about the random discard
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `🎲 Gamble: ${getPlayerName(game, pid)} discarded ${discardedCardName} at random.`,
+          ts: Date.now(),
+        });
+      }
     }
     
     const ownerName = libraryOwner === pid ? "their" : `${getPlayerName(game, libraryOwner)}'s`;
