@@ -3010,7 +3010,6 @@ export function registerGameActions(io: Server, socket: Socket) {
           
           console.log(`[castSpellFromHand] Requesting ${requiredMinTargets}-${requiredMaxTargets} target(s) for ${cardInHand.name} (${targetDescription})`);
           return; // Wait for target selection
-        }
         } else {
           console.log(`[handleCastSpellFromHand] Skipping target request - already have ${targets?.length || 0} target(s) or skipInteractivePrompts=${skipInteractivePrompts}`);
         }
@@ -3034,7 +3033,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           }
           console.log(`[handleCastSpellFromHand] All targets validated successfully`);
         }
-      }
+      } // Close if (needsTargetSelection)
       
       console.log(`[handleCastSpellFromHand] ======== DEBUG END ========`);
 
@@ -3540,6 +3539,13 @@ export function registerGameActions(io: Server, socket: Socket) {
         delete (game.state as any).pendingSpellCasts[effectId];
       } else {
         console.log(`[completeCastSpell] No pendingCast found for effectId: ${effectId}`);
+      }
+      
+      // CRITICAL FIX: Clean up pendingTargets to prevent game from being blocked
+      // pendingTargets is set by targetSelectionConfirm but never cleaned up
+      if (effectId && game.state.pendingTargets?.[effectId]) {
+        console.log(`[completeCastSpell] Cleaning up pendingTargets for effectId: ${effectId}`);
+        delete game.state.pendingTargets[effectId];
       }
 
       console.log(`[completeCastSpell] Final targets to use: ${finalTargets?.join(',') || 'none'}`);
