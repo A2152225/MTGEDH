@@ -290,13 +290,15 @@ export interface ConditionalLandETBResult {
  * @param controlledLandCount - Number of OTHER lands the player controls (not counting this one)
  * @param controlledLandTypes - Array of land subtypes the player controls
  * @param cardsInHand - Player's hand (for reveal land checks)
+ * @param basicLandCount - Number of BASIC lands the player controls (for battle lands)
  * @returns Object with shouldEnterTapped, reason, and optional prompt for reveal lands
  */
 export function evaluateConditionalLandETB(
   oracleText: string,
   controlledLandCount: number,
   controlledLandTypes: string[],
-  cardsInHand?: any[]
+  cardsInHand?: any[],
+  basicLandCount?: number
 ): ConditionalLandETBResult {
   const text = (oracleText || '').toLowerCase();
   
@@ -304,19 +306,33 @@ export function evaluateConditionalLandETB(
   // "enters the battlefield tapped unless you control two or more basic lands"
   const battleLandMatch = text.match(/enters the battlefield tapped unless you control two or more basic lands/i);
   if (battleLandMatch) {
-    // Need to count BASIC lands specifically - this requires additional parameter
-    // For now, we check if any of the controlled land types are basic (Plains, Island, Swamp, Mountain, Forest)
-    // A basic land has "Basic" in its supertype line (e.g., "Basic Land — Forest")
-    // Since we only get subtypes, we check if they're in our known basic subtypes list
-    // In practice, if someone controls Forest/Mountain/etc., they're likely basic unless they're shock/dual lands
-    // This is a simplified check - the calling code should pass basic land count
-    const basicLandCount = controlledLandTypes.length; // Each basic land type counts as one basic land
-    const shouldTap = basicLandCount < 2;
+    // Use the provided basicLandCount if available, otherwise use fallback
+    // NOTE: Using controlledLandTypes.length as fallback is INCORRECT for dual lands
+    // (e.g., Blood Crypt with Swamp+Mountain types would count as 2 instead of 1)
+    // Calling code should always provide basicLandCount parameter
+    let actualBasicLandCount: number;
+    if (basicLandCount !== undefined) {
+      actualBasicLandCount = basicLandCount;
+    } else {
+      // Fallback: This is buggy for dual lands but kept for backward compatibility
+      // Count unique basic land types - still wrong but better than counting all types
+      const basicTypes = new Set<string>();
+      const knownBasicTypes = ['plains', 'island', 'swamp', 'mountain', 'forest'];
+      for (const type of controlledLandTypes) {
+        if (knownBasicTypes.includes(type.toLowerCase())) {
+          basicTypes.add(type.toLowerCase());
+        }
+      }
+      actualBasicLandCount = basicTypes.size;
+      console.warn('[evaluateConditionalLandETB] Battle land check using fallback land type count - may be incorrect for dual lands. Caller should provide basicLandCount parameter.');
+    }
+    
+    const shouldTap = actualBasicLandCount < 2;
     return {
       shouldEnterTapped: shouldTap,
       reason: shouldTap 
-        ? `Enters tapped (you control only ${basicLandCount} basic land${basicLandCount !== 1 ? 's' : ''})` 
-        : `Enters untapped (you control ${basicLandCount} basic lands)`,
+        ? `Enters tapped (you control only ${actualBasicLandCount} basic land${actualBasicLandCount !== 1 ? 's' : ''})` 
+        : `Enters untapped (you control ${actualBasicLandCount} basic lands)`,
     };
   }
   

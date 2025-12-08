@@ -4572,11 +4572,13 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
         shouldEnterTapped = basicLandCount < 2;
         console.log(`[playLand] ${card.name || 'Land'} battle land check: ${basicLandCount} basic lands - enters ${shouldEnterTapped ? 'tapped' : 'untapped'}`);
       } else {
-        // Use general conditional evaluation for check lands, fast lands, etc.
+        // Use general conditional evaluation for check lands, fast lands, slow lands, etc.
         const evaluation = evaluateConditionalLandETB(
           oracleText,
           otherLandCount,
-          controlledLandTypes
+          controlledLandTypes,
+          undefined,  // cardsInHand - not needed for these land types
+          basicLandCount  // Pass basic land count for battle lands if they reach this code path
         );
         shouldEnterTapped = evaluation.shouldEnterTapped;
         console.log(`[playLand] ${card.name || 'Land'} conditional ETB: ${evaluation.reason}`);
