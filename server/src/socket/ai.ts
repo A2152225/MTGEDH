@@ -2089,18 +2089,13 @@ async function executeAdvanceStep(
   if (!game) return;
   
   // Check if there are any pending modal interactions before advancing
-  const hasPendingLibrarySearch = (game.state as any)?.pendingLibrarySearch && 
-                                  Object.keys((game.state as any).pendingLibrarySearch).length > 0;
-  const hasPendingColorChoice = hasPendingColorChoices(gameId);
-  const hasPendingJoinForces = hasPendingJoinForcesOrOffers(gameId);
-  
-  if (hasPendingLibrarySearch) {
+  if (hasPendingLibrarySearch(game)) {
     console.info('[AI] Cannot advance step - players have pending library searches');
     return;
-  } else if (hasPendingColorChoice) {
+  } else if (hasPendingColorChoices(gameId)) {
     console.info('[AI] Cannot advance step - players have pending color choice modals');
     return;
-  } else if (hasPendingJoinForces) {
+  } else if (hasPendingJoinForcesOrOffers(gameId)) {
     console.info('[AI] Cannot advance step - players have pending Join Forces or Tempting Offer modals');
     return;
   }
@@ -2371,16 +2366,11 @@ async function executePassPriority(
     // BUT: Do NOT advance if there are pending modals (e.g., library searches, color choices, join forces)
     // Human players need time to complete their modal interactions
     if (advanceStep) {
-      const hasPendingLibrarySearch = (game.state as any)?.pendingLibrarySearch && 
-                                      Object.keys((game.state as any).pendingLibrarySearch).length > 0;
-      const hasPendingColorChoice = hasPendingColorChoices(gameId);
-      const hasPendingJoinForces = hasPendingJoinForcesOrOffers(gameId);
-      
-      if (hasPendingLibrarySearch) {
+      if (hasPendingLibrarySearch(game)) {
         console.info('[AI] Cannot advance step - players have pending library searches');
-      } else if (hasPendingColorChoice) {
+      } else if (hasPendingColorChoices(gameId)) {
         console.info('[AI] Cannot advance step - players have pending color choice modals');
-      } else if (hasPendingJoinForces) {
+      } else if (hasPendingJoinForcesOrOffers(gameId)) {
         console.info('[AI] Cannot advance step - players have pending Join Forces or Tempting Offer modals');
       } else {
         console.info('[AI] All players passed priority with empty stack, advancing step');
@@ -3264,6 +3254,14 @@ export function cleanupGameAI(gameId: string): void {
     aiPlayers.delete(gameId);
     console.info('[AI] Cleaned up AI players for game:', gameId);
   }
+}
+
+/**
+ * Check if there are any pending library searches for a game
+ */
+function hasPendingLibrarySearch(game: any): boolean {
+  const pending = (game.state as any)?.pendingLibrarySearch;
+  return pending && typeof pending === 'object' && Object.keys(pending).length > 0;
 }
 
 /**
