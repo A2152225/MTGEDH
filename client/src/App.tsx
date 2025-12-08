@@ -40,6 +40,7 @@ import { ColorChoiceModal } from "./components/ColorChoiceModal";
 import { AnyColorManaModal } from "./components/AnyColorManaModal";
 import { ManaDistributionModal } from "./components/ManaDistributionModal";
 import { AdditionalCostModal } from "./components/AdditionalCostModal";
+import { SquadCostModal } from "./components/SquadCostModal";
 import { CastingModeSelectionModal, type CastingMode } from "./components/CastingModeSelectionModal";
 import { MDFCFaceSelectionModal, type CardFace } from "./components/MDFCFaceSelectionModal";
 import { ModalSpellSelectionModal, type SpellMode } from "./components/ModalSpellSelectionModal";
@@ -612,6 +613,16 @@ export function App() {
     imageUrl?: string;
     availableCards?: Array<{ id: string; name: string; imageUrl?: string }>;
     availableTargets?: Array<{ id: string; name: string; imageUrl?: string; typeLine?: string }>;
+    effectId?: string;
+  } | null>(null);
+  
+  // Squad Cost Modal state - for paying squad costs multiple times
+  const [squadCostModalOpen, setSquadCostModalOpen] = useState(false);
+  const [squadCostModalData, setSquadCostModalData] = useState<{
+    cardId: string;
+    cardName: string;
+    squadCost: string;
+    imageUrl?: string;
     effectId?: string;
   } | null>(null);
   
@@ -1603,6 +1614,33 @@ export function App() {
     socket.on("additionalCostRequest", handler);
     return () => {
       socket.off("additionalCostRequest", handler);
+    };
+  }, [safeView?.id]);
+
+  // Squad cost request listener
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      cardId: string;
+      cardName: string;
+      squadCost: string;
+      imageUrl?: string;
+      effectId?: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        setSquadCostModalData({
+          cardId: payload.cardId,
+          cardName: payload.cardName,
+          squadCost: payload.squadCost,
+          imageUrl: payload.imageUrl,
+          effectId: payload.effectId,
+        });
+        setSquadCostModalOpen(true);
+      }
+    };
+    socket.on("squadCostRequest", handler);
+    return () => {
+      socket.off("squadCostRequest", handler);
     };
   }, [safeView?.id]);
 
@@ -5127,6 +5165,33 @@ export function App() {
         onCancel={() => {
           setAdditionalCostModalOpen(false);
           setAdditionalCostModalData(null);
+        }}
+      />
+
+      {/* Squad Cost Modal (Pay squad cost multiple times) */}
+      <SquadCostModal
+        open={squadCostModalOpen}
+        cardId={squadCostModalData?.cardId || ''}
+        cardName={squadCostModalData?.cardName || ''}
+        squadCost={squadCostModalData?.squadCost || ''}
+        imageUrl={squadCostModalData?.imageUrl}
+        effectId={squadCostModalData?.effectId}
+        availableMana={manaPool || undefined}
+        onConfirm={(timesPaid) => {
+          if (squadCostModalData) {
+            socket.emit("squadCostConfirm", {
+              gameId: safeView?.id,
+              cardId: squadCostModalData.cardId,
+              timesPaid,
+              effectId: squadCostModalData.effectId,
+            });
+            setSquadCostModalOpen(false);
+            setSquadCostModalData(null);
+          }
+        }}
+        onCancel={() => {
+          setSquadCostModalOpen(false);
+          setSquadCostModalData(null);
         }}
       />
 
