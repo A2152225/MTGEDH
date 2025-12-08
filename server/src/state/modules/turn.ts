@@ -622,6 +622,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
   damageToPlayers: Record<string, number>;
   lifeGainForPlayers: Record<string, number>;
   creaturesDestroyed: string[];
+  attackersThatDealtDamage?: Record<string, Set<string>>; // defendingPlayerId -> Set of attacker IDs
 } {
   console.log(`${ts()} [COMBAT_DAMAGE] ========== ENTERING dealCombatDamage (firstStrike=${isFirstStrikePhase}) ==========`);
   
@@ -629,6 +630,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
     damageToPlayers: {} as Record<string, number>,
     lifeGainForPlayers: {} as Record<string, number>,
     creaturesDestroyed: [] as string[],
+    attackersThatDealtDamage: {} as Record<string, Set<string>>,
   };
   
   try {
@@ -803,6 +805,12 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             result.damageToPlayers[defendingPlayerId] = 
               (result.damageToPlayers[defendingPlayerId] || 0) + actualDamage;
             
+            // Track which attacker dealt damage to which player (for batched triggers)
+            if (!result.attackersThatDealtDamage[defendingPlayerId]) {
+              result.attackersThatDealtDamage[defendingPlayerId] = new Set();
+            }
+            result.attackersThatDealtDamage[defendingPlayerId].add(attacker.id);
+            
             console.log(`${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${actualDamage} combat damage to ${defendingPlayerId} (${currentLife} -> ${life[defendingPlayerId]})`);
             
             // Track commander damage (Rule 903.10a)
@@ -932,6 +940,12 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             
             result.damageToPlayers[defendingPlayerId] = 
               (result.damageToPlayers[defendingPlayerId] || 0) + remainingDamage;
+            
+            // Track which attacker dealt damage to which player (for batched triggers)
+            if (!result.attackersThatDealtDamage[defendingPlayerId]) {
+              result.attackersThatDealtDamage[defendingPlayerId] = new Set();
+            }
+            result.attackersThatDealtDamage[defendingPlayerId].add(attacker.id);
             
             console.log(`${ts()} [dealCombatDamage] ${card.name || 'Attacker'} trample: dealt ${remainingDamage} excess damage to ${defendingPlayerId}`);
             
@@ -1097,44 +1111,39 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
     // These trigger once per combat damage step if ANY creatures dealt damage to a player
     // "Whenever one or more creatures you control deal combat damage to a player, create a Treasure token."
     
-    for (const [defendingPlayerId, damageDealt] of Object.entries(result.damageToPlayers)) {
-      if (damageDealt > 0) {
-        // Find all controllers who had creatures deal damage to this player
-        const controllersWhoDamaged = new Set<string>();
-        for (const attacker of attackers) {
-          if (attacker.attacking === defendingPlayerId && !attacker.markedForDestruction) {
-            const attackerCard = attacker.card;
-            const attackerController = attacker.controller;
-            // Check if this attacker's controller had damage dealt
-            const attackerPower = parseInt(String(attackerCard?.power || '0'), 10);
-            if (attackerPower > 0 && attackerController) {
-              controllersWhoDamaged.add(attackerController);
-            }
-          }
+    for (const [defendingPlayerId, attackerIds] of Object.entries(result.attackersThatDealtDamage || {})) {
+      // Find all controllers who had creatures deal damage to this player
+      const controllersWhoDamaged = new Set<string>();
+      for (const attackerId of attackerIds) {
+        const attacker = attackers.find((a: any) => a.id === attackerId);
+        if (attacker?.controller) {
+          controllersWhoDamaged.add(attacker.controller);
         }
-        
-        // For each controller who had creatures deal damage to this player
-        for (const controllerId of controllersWhoDamaged) {
-          // Check all permanents for batched combat damage triggers
-          for (const perm of battlefield) {
-            if (perm?.controller !== controllerId) continue;
+      }
+      
+      // For each controller who had creatures deal damage to this player
+      for (const controllerId of controllersWhoDamaged) {
+        // Check all permanents for batched combat damage triggers
+        for (const perm of battlefield) {
+          if (perm?.controller !== controllerId) continue;
+          
+          const triggers = detectCombatDamageTriggers(perm.card, perm);
+          const batchedTriggers = triggers.filter(t => 
+            t.triggerType === 'creatures_deal_combat_damage_batched' && t.batched
+          );
+          
+          for (const trigger of batchedTriggers) {
+            console.log(`${ts()} [dealCombatDamage] Batched combat damage trigger from ${trigger.cardName}: ${trigger.description}`);
             
-            const triggers = detectCombatDamageTriggers(perm.card, perm);
-            const batchedTriggers = triggers.filter(t => 
-              t.triggerType === 'creatures_deal_combat_damage_batched' && t.batched
-            );
-            
-            for (const trigger of batchedTriggers) {
-              console.log(`${ts()} [dealCombatDamage] Batched combat damage trigger from ${trigger.cardName}: ${trigger.description}`);
-              
-              // Professional Face-Breaker: create a Treasure token
-              if (trigger.description && trigger.description.toLowerCase().includes('treasure')) {
-                try {
-                  createToken(ctx, controllerId, 'Treasure', 1);
-                  console.log(`${ts()} [dealCombatDamage] Created 1 Treasure token for ${controllerId} from ${trigger.cardName}`);
-                } catch (tokenErr) {
-                  console.error(`${ts()} [dealCombatDamage] Failed to create Treasure token:`, tokenErr);
-                }
+            // Professional Face-Breaker: create a Treasure token
+            // Check if the card name matches Professional Face-Breaker exactly
+            const isProfessionalFaceBreaker = trigger.cardName.toLowerCase() === 'professional face-breaker';
+            if (isProfessionalFaceBreaker || (trigger.description && trigger.description.toLowerCase().includes('create a treasure'))) {
+              try {
+                createToken(ctx, controllerId, 'Treasure', 1);
+                console.log(`${ts()} [dealCombatDamage] Created 1 Treasure token for ${controllerId} from ${trigger.cardName}`);
+              } catch (tokenErr) {
+                console.error(`${ts()} [dealCombatDamage] Failed to create Treasure token:`, tokenErr);
               }
             }
           }

@@ -3076,9 +3076,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Handle Gamble - special tutor with random discard
     // "Search your library for a card, put it into your hand, then shuffle. Then discard a card at random."
-    const isGamble = effectiveCard.name?.toLowerCase().includes('gamble') && 
-                     oracleTextLower.includes('search your library') && 
-                     oracleTextLower.includes('discard a card at random');
+    const isGamble = effectiveCard.name?.toLowerCase().trim() === 'gamble';
     
     if (isGamble) {
       // Set up pending library search with special flag for random discard

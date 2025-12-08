@@ -4338,7 +4338,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         if (!Array.isArray(zones.graveyard)) {
           zones.graveyard = [];
         }
-        zones.graveyard.push(discardedCard);
+        // Create new array to avoid mutating readonly
+        zones.graveyard = [...zones.graveyard, discardedCard];
         zones.graveyardCount = zones.graveyard.length;
         
         console.log(`[Gamble] ${pid} discarded ${discardedCardName} at random`);
