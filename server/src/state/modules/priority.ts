@@ -56,7 +56,12 @@ export function passPriority(ctx: GameContext, playerId: PlayerID): { changed: b
       state.priority = advancePriorityClockwise(ctx, playerId);
       
       // Iteratively auto-pass players who cannot respond
-      autoPassLoop(ctx, active);
+      const result = autoPassLoop(ctx, active);
+      if (result.allPassed && result.resolved) {
+        // All players auto-passed and stack was resolved
+        resolvedNow = true;
+        passesInRow.value = 0;
+      }
     }
   } else {
     passesInRow.value = 0;
@@ -75,8 +80,14 @@ export function passPriority(ctx: GameContext, playerId: PlayerID): { changed: b
       // Iteratively auto-pass players who cannot respond
       const result = autoPassLoop(ctx, active);
       if (result.allPassed) {
-        advanceStep = true;
-        resolvedNow = result.resolved;
+        // All players have now passed via auto-pass
+        if (result.resolved) {
+          // Stack was resolved
+          resolvedNow = true;
+        } else {
+          // Empty stack - advance step
+          advanceStep = true;
+        }
       }
     }
   }
@@ -95,7 +106,10 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
   const autoPassPlayers = stateAny.autoPassPlayers || new Set();
   
   let iterations = 0;
-  const maxIterations = active.length * 2; // Safety limit
+  // Safety limit: Each player can pass at most once per priority round.
+  // We add +1 to account for checking if we've cycled back to a player who already passed.
+  // This prevents infinite loops while allowing legitimate auto-pass chains.
+  const maxIterations = active.length + 1;
   
   while (iterations < maxIterations) {
     iterations++;
@@ -148,36 +162,6 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
   // Safety fallback - should never reach here
   console.warn('[priority] Auto-pass loop exceeded maximum iterations');
   return { allPassed: false, resolved: false };
-}
-
-/**
- * Auto-pass priority for a player if they cannot respond
- * 
- * @param ctx Game context
- * @param playerId Player to check and potentially auto-pass
- * @returns true if auto-pass was applied, false otherwise
- */
-export function autoPassIfCannotRespond(ctx: GameContext, playerId: PlayerID): boolean {
-  const { state } = ctx;
-  
-  // Check if auto-pass is enabled for this player
-  const autoPassPlayers = (state as any).autoPassPlayers || new Set();
-  if (!autoPassPlayers.has(playerId)) {
-    return false; // Auto-pass not enabled for this player
-  }
-  
-  // Check if player can respond
-  if (canRespond(ctx, playerId)) {
-    return false; // Player can respond, don't auto-pass
-  }
-  
-  // Player cannot respond - auto-pass priority
-  console.log(`[priority] Auto-passing for ${playerId} - no available responses`);
-  
-  // Call passPriority to advance
-  passPriority(ctx, playerId);
-  
-  return true;
 }
 
 export function setTurnDirection(ctx: GameContext, dir: 1 | -1) {
