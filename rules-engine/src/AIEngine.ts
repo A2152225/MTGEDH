@@ -475,12 +475,55 @@ export class AIEngine {
     // Calculate total unblocked damage to assess lethality
     const playerLife = player.life || DEFAULT_COMMANDER_LIFE;
     const totalAttackerDamage = attackerCreatures.reduce((sum, a) => sum + a.power, 0);
-    const isLethalIfUnblocked = totalAttackerDamage >= playerLife;
+    let isLethalIfUnblocked = totalAttackerDamage >= playerLife;
     
-    // Sort attackers by threat level (power + keywords)
+    // CRITICAL: Check for commander damage lethality
+    // If any attacker is a commander with 21+ power, that's instantly lethal
+    // Get commander damage tracking from game state if available
+    const commanderDamage = (state as any)?.commanderDamage?.[playerId] || {};
+    for (const attacker of attackerCreatures) {
+      // Check if this is a commander (isCommander flag or in command zone)
+      const isCommander = attacker.permanent.isCommander || 
+                          (attacker.permanent.card as any)?.zone === 'command';
+      
+      if (isCommander) {
+        // Calculate total commander damage this attacker would deal
+        const commanderKey = `${attacker.controllerId}-${attacker.name}`;
+        const existingDamage = commanderDamage[commanderKey] || 0;
+        const totalCommanderDamage = existingDamage + attacker.power;
+        
+        // If this commander would deal 21+ total damage, it's lethal
+        if (totalCommanderDamage >= 21) {
+          isLethalIfUnblocked = true;
+          console.log(`[AI] Commander damage lethal threat detected: ${attacker.name} would deal ${totalCommanderDamage} total commander damage (${existingDamage} existing + ${attacker.power} new)`);
+          break;
+        }
+      }
+    }
+    
+    // Sort attackers by threat level (power + keywords + commander damage)
     const sortedAttackers = [...attackerCreatures].sort((a, b) => {
-      const aThreat = a.power + (a.keywords.trample ? 3 : 0) + (a.keywords.deathtouch ? 4 : 0) + (a.keywords.flying ? 2 : 0);
-      const bThreat = b.power + (b.keywords.trample ? 3 : 0) + (b.keywords.deathtouch ? 4 : 0) + (b.keywords.flying ? 2 : 0);
+      let aThreat = a.power + (a.keywords.trample ? 3 : 0) + (a.keywords.deathtouch ? 4 : 0) + (a.keywords.flying ? 2 : 0);
+      let bThreat = b.power + (b.keywords.trample ? 3 : 0) + (b.keywords.deathtouch ? 4 : 0) + (b.keywords.flying ? 2 : 0);
+      
+      // Commanders get extra threat priority
+      const aIsCommander = a.permanent.isCommander || (a.permanent.card as any)?.zone === 'command';
+      const bIsCommander = b.permanent.isCommander || (b.permanent.card as any)?.zone === 'command';
+      if (aIsCommander) aThreat += 10;
+      if (bIsCommander) bThreat += 10;
+      
+      // Check for near-lethal commander damage
+      if (aIsCommander) {
+        const aCommanderKey = `${a.controllerId}-${a.name}`;
+        const aExistingDamage = commanderDamage[aCommanderKey] || 0;
+        if (aExistingDamage + a.power >= 21) aThreat += 100; // Massive priority for lethal commanders
+      }
+      if (bIsCommander) {
+        const bCommanderKey = `${b.controllerId}-${b.name}`;
+        const bExistingDamage = commanderDamage[bCommanderKey] || 0;
+        if (bExistingDamage + b.power >= 21) bThreat += 100;
+      }
+      
       return bThreat - aThreat;
     });
     
