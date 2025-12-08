@@ -2359,7 +2359,7 @@ async function executePassPriority(
     }
     
     // If all players passed priority with empty stack, advance to next step
-    // BUT: Do NOT advance if there are pending modals (e.g., library searches, color choices, join forces)
+    // BUT: Do NOT advance if there are pending modals (e.g., library searches, color choices, creature type selections, Join Forces)
     // Human players need time to complete their modal interactions
     if (advanceStep) {
       const pendingCheck = checkPendingModals(game, gameId);
