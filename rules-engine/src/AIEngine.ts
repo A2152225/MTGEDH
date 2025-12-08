@@ -2011,6 +2011,10 @@ export class AIEngine {
     // Skip if no oracle text
     if (!oracleText) return null;
     
+    // Regular expression for activated ability patterns:
+    // Matches: {T}, {Number}{Color}, {Color}, {X}, hybrid costs like {W/U}
+    const ACTIVATED_ABILITY_PATTERN = /\{(?:[0-9xX]+|[wubrgcWUBRGC]|[wubrgWUBRG]\/[wubrgWUBRG]|t)\}[\s,]*:/i;
+    
     // Check for common activated ability patterns:
     // 1. {T}: [effect] - tap ability
     // 2. {cost}: [effect] - other activated abilities
@@ -2021,10 +2025,8 @@ export class AIEngine {
       return card.oracle_text || null;
     }
     
-    // Other activated abilities with mana costs
-    // Pattern: {Number}{Color}: or just {Color}:
-    const activatedPattern = /\{[0-9wubrgc\/]+\}:/i;
-    if (activatedPattern.test(oracleText)) {
+    // Other activated abilities with costs
+    if (ACTIVATED_ABILITY_PATTERN.test(oracleText)) {
       return card.oracle_text || null;
     }
     
@@ -2048,14 +2050,24 @@ export class AIEngine {
     
     // CARD DRAW: Very high value! Drawing cards is one of the best things you can do
     if (lowerText.includes('draw') && !lowerText.includes('opponent draws')) {
-      // Count how many cards drawn
+      // Count how many cards drawn - handle both word and numeric formats
       const drawMatch = lowerText.match(/draw (\w+) card/);
       if (drawMatch) {
-        const countWord = drawMatch[1];
+        const countText = drawMatch[1];
         let drawCount = 1;
-        if (countWord === 'two') drawCount = 2;
-        else if (countWord === 'three') drawCount = 3;
-        else if (countWord === 'a' || countWord === 'one') drawCount = 1;
+        
+        // Handle numeric values
+        const numericValue = parseInt(countText, 10);
+        if (!isNaN(numericValue)) {
+          drawCount = numericValue;
+        } else {
+          // Handle number words
+          const numberWords: Record<string, number> = {
+            'a': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4,
+            'five': 5, 'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+          };
+          drawCount = numberWords[countText] || 1;
+        }
         
         // Each card drawn is worth 15 points (very valuable!)
         value += drawCount * 15;
