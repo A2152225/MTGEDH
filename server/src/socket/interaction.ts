@@ -2413,6 +2413,42 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
       
+      // Parse and validate mana cost from oracle text
+      // Examples: "{2}, {T}, Sacrifice ~" (Myriad Landscape), "{3}{G}, {T}, Sacrifice ~" (Blighted Woodland)
+      const manaCostMatch = oracleText.match(/\{[^}]+\}(?:\s*,\s*\{[^}]+\})*(?=\s*,\s*\{t\})/i);
+      if (manaCostMatch) {
+        const manaCostStr = manaCostMatch[0];
+        const parsedCost = parseManaCost(manaCostStr);
+        const manaPool = getOrInitManaPool(game.state, pid);
+        
+        // Check if player can pay the mana cost
+        const totalAvailable = calculateTotalAvailableMana(manaPool, undefined);
+        const validationError = validateManaPayment(
+          totalAvailable,
+          parsedCost.colored,
+          parsedCost.generic
+        );
+        
+        if (validationError) {
+          socket.emit("error", {
+            code: "INSUFFICIENT_MANA",
+            message: validationError,
+          });
+          return;
+        }
+        
+        // Consume the mana from the pool
+        consumeManaFromPool(game.state, pid, parsedCost.colored, parsedCost.generic);
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, pid)} paid ${manaCostStr}.`,
+          ts: Date.now(),
+        });
+      }
+      
       // Check if it's a true fetch (pay 1 life)
       const isTrueFetch = oracleText.includes("pay 1 life");
       
