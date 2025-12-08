@@ -203,6 +203,24 @@ export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boo
 }
 
 /**
+ * Check if game is currently in a main phase
+ */
+function isInMainPhase(ctx: GameContext): boolean {
+  try {
+    const step = (ctx.state as any).step;
+    if (!step) return false;
+    
+    // Main phases are MAIN_1 (pre-combat) and MAIN_2 (post-combat)
+    const stepStr = String(step).toUpperCase();
+    return stepStr === 'MAIN_1' || stepStr === 'MAIN_2' || stepStr === 'MAIN' || stepStr.includes('MAIN');
+  } catch (err) {
+    console.warn("[isInMainPhase] Error:", err);
+    // Default to true to be conservative (don't auto-pass if uncertain)
+    return true;
+  }
+}
+
+/**
  * Check if player can play a land
  * This includes:
  * - Having a land in hand
@@ -210,7 +228,8 @@ export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boo
  * - Having a land in exile AND an effect that allows playing from exile
  * - Having pending play effects (impulse draw, etc.)
  * - Not having reached the land play limit for this turn
- * - Being in a main phase (checked by caller)
+ * 
+ * NOTE: Caller should verify game is in main phase with empty stack before calling
  */
 export function canPlayLand(ctx: GameContext, playerId: PlayerID): boolean {
   try {
@@ -412,9 +431,14 @@ export function canRespond(ctx: GameContext, playerId: PlayerID): boolean {
     }
     
     // Check if player can play a land
-    // This prevents auto-passing during main phases when player could play a land
-    if (canPlayLand(ctx, playerId)) {
-      return true;
+    // Only check during main phase with empty stack
+    const isMainPhase = isInMainPhase(ctx);
+    const stackIsEmpty = !ctx.state.stack || ctx.state.stack.length === 0;
+    
+    if (isMainPhase && stackIsEmpty) {
+      if (canPlayLand(ctx, playerId)) {
+        return true;
+      }
     }
     
     // No responses available
