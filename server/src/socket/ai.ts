@@ -20,6 +20,8 @@ import { fetchCardsByExactNamesBatch, normalizeName, parseDecklist } from "../se
 import type { PlayerID } from "../../../shared/src/types.js";
 import { categorizeSpell, evaluateTargeting, type SpellSpec, type TargetRef } from "../rules-engine/targeting.js";
 import { GameManager } from "../GameManager.js";
+import { hasPendingColorChoices } from "./color-choice.js";
+import { hasPendingJoinForcesOrOffers } from "./join-forces.js";
 
 /** AI timing delays for more natural behavior */
 const AI_THINK_TIME_MS = 500;
@@ -2086,6 +2088,23 @@ async function executeAdvanceStep(
   const game = ensureGame(gameId);
   if (!game) return;
   
+  // Check if there are any pending modal interactions before advancing
+  const hasPendingLibrarySearch = (game.state as any)?.pendingLibrarySearch && 
+                                  Object.keys((game.state as any).pendingLibrarySearch).length > 0;
+  const hasPendingColorChoice = hasPendingColorChoices(gameId);
+  const hasPendingJoinForces = hasPendingJoinForcesOrOffers(gameId);
+  
+  if (hasPendingLibrarySearch) {
+    console.info('[AI] Cannot advance step - players have pending library searches');
+    return;
+  } else if (hasPendingColorChoice) {
+    console.info('[AI] Cannot advance step - players have pending color choice modals');
+    return;
+  } else if (hasPendingJoinForces) {
+    console.info('[AI] Cannot advance step - players have pending Join Forces or Tempting Offer modals');
+    return;
+  }
+  
   const currentStep = String((game.state as any).step || '');
   const currentPhase = String(game.state.phase || '');
   
@@ -2349,14 +2368,20 @@ async function executePassPriority(
     }
     
     // If all players passed priority with empty stack, advance to next step
-    // BUT: Do NOT advance if there are pending library searches (e.g., after Collective Voyage)
-    // Human players need time to complete their library searches
+    // BUT: Do NOT advance if there are pending modals (e.g., library searches, color choices, join forces)
+    // Human players need time to complete their modal interactions
     if (advanceStep) {
-      const hasPendingLibrarySearch = game.state?.pendingLibrarySearch && 
-                                      Object.keys(game.state.pendingLibrarySearch).length > 0;
+      const hasPendingLibrarySearch = (game.state as any)?.pendingLibrarySearch && 
+                                      Object.keys((game.state as any).pendingLibrarySearch).length > 0;
+      const hasPendingColorChoice = hasPendingColorChoices(gameId);
+      const hasPendingJoinForces = hasPendingJoinForcesOrOffers(gameId);
       
       if (hasPendingLibrarySearch) {
         console.info('[AI] Cannot advance step - players have pending library searches');
+      } else if (hasPendingColorChoice) {
+        console.info('[AI] Cannot advance step - players have pending color choice modals');
+      } else if (hasPendingJoinForces) {
+        console.info('[AI] Cannot advance step - players have pending Join Forces or Tempting Offer modals');
       } else {
         console.info('[AI] All players passed priority with empty stack, advancing step');
         if (typeof (game as any).nextStep === 'function') {
