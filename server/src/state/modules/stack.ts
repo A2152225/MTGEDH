@@ -231,6 +231,38 @@ function evaluateMetalcraft(
 }
 
 /**
+ * Helper function to check if any opponent controls more lands than the controller.
+ * Used for conditional triggers like Knight of the White Orchid, Land Tax, Gift of Estates.
+ * 
+ * @param state - Game state
+ * @param controller - Player ID to check lands for
+ * @returns Object with myLandCount and anyOpponentHasMoreLands boolean
+ */
+function checkOpponentHasMoreLands(state: any, controller: PlayerID): { myLandCount: number; anyOpponentHasMoreLands: boolean } {
+  const battlefield = state.battlefield || [];
+  const players = state.players || [];
+  
+  const myLandCount = battlefield.filter((p: any) => 
+    p.controller === controller && 
+    (p.card?.type_line || '').toLowerCase().includes('land')
+  ).length;
+  
+  const opponentIds = players
+    .filter((p: any) => p.id !== controller && !p.hasLost)
+    .map((p: any) => p.id);
+  
+  const anyOpponentHasMoreLands = opponentIds.some((oppId: string) => {
+    const oppLandCount = battlefield.filter((p: any) => 
+      p.controller === oppId && 
+      (p.card?.type_line || '').toLowerCase().includes('land')
+    ).length;
+    return oppLandCount > myLandCount;
+  });
+  
+  return { myLandCount, anyOpponentHasMoreLands };
+}
+
+/**
  * Stack / resolution helpers (extracted).
  *
  * Exports:
@@ -1405,25 +1437,7 @@ function executeTriggerEffect(
     // (Knight of the White Orchid, etc.)
     const hasLandCondition = desc.match(/if (?:an|any) opponent controls more lands than you/i);
     if (hasLandCondition) {
-      // Count lands to verify condition
-      const battlefield = state.battlefield || [];
-      const players = state.players || [];
-      const myLandCount = battlefield.filter((p: any) => 
-        p.controller === controller && 
-        (p.card?.type_line || '').toLowerCase().includes('land')
-      ).length;
-      
-      const opponentIds = players
-        .filter((p: any) => p.id !== controller && !p.hasLost)
-        .map((p: any) => p.id);
-      
-      const anyOpponentHasMoreLands = opponentIds.some((oppId: string) => {
-        const oppLandCount = battlefield.filter((p: any) => 
-          p.controller === oppId && 
-          (p.card?.type_line || '').toLowerCase().includes('land')
-        ).length;
-        return oppLandCount > myLandCount;
-      });
+      const { myLandCount, anyOpponentHasMoreLands } = checkOpponentHasMoreLands(state, controller);
       
       if (!anyOpponentHasMoreLands) {
         console.log(`[executeTriggerEffect] ${sourceName}: Condition NOT met - ${controller} has ${myLandCount} lands, no opponent has more`);
@@ -3137,24 +3151,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     if (isGiftOfEstates) {
       // Check condition: does an opponent control more lands?
-      const battlefield = state.battlefield || [];
-      const players = state.players || [];
-      const myLandCount = battlefield.filter((p: any) => 
-        p.controller === controller && 
-        (p.card?.type_line || '').toLowerCase().includes('land')
-      ).length;
-      
-      const opponentIds = players
-        .filter((p: any) => p.id !== controller && !p.hasLost)
-        .map((p: any) => p.id);
-      
-      const anyOpponentHasMoreLands = opponentIds.some((oppId: string) => {
-        const oppLandCount = battlefield.filter((p: any) => 
-          p.controller === oppId && 
-          (p.card?.type_line || '').toLowerCase().includes('land')
-        ).length;
-        return oppLandCount > myLandCount;
-      });
+      const { myLandCount, anyOpponentHasMoreLands } = checkOpponentHasMoreLands(state, controller);
       
       if (anyOpponentHasMoreLands) {
         // Condition met - set up library search for up to 3 Plains
