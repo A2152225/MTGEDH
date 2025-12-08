@@ -3711,7 +3711,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // - "Add one mana", "Add two mana", etc.
     // - "Add mana of any color", "Add any color"
     // - "Add X mana" (variable mana)
-    const isManaAbility = /add\s+(\{[wubrgc]\}|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana)/i.test(abilityText) && 
+    // - "Add an amount of {G}" (Karametra's Acolyte, etc.)
+    // - "Add X mana in any combination" (Selvala, Nykthos, etc.)
+    const isManaAbility = /add\s+(\{[wubrgc]\}|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i.test(abilityText) && 
                           !/target/i.test(abilityText);
     
     if (!isManaAbility) {
