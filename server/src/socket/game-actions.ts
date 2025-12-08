@@ -2146,6 +2146,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
+      // DEBUG: Log incoming parameters to trace targeting loop
+      console.log(`[handleCastSpellFromHand] Called with cardId=${cardId}, targets=${JSON.stringify(targets)}, payment=${payment ? 'provided' : 'none'}`);
+
       // Check if we're in PRE_GAME phase - spells cannot be cast during pre-game
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
       if (phaseStr === "" || phaseStr === "PRE_GAME") {
@@ -2681,6 +2684,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       const needsTargetSelection = (spellSpec && spellSpec.minTargets > 0 && (!targets || targets.length === 0)) || 
                                    (targetReqs && targetReqs.needsTargets && (!targets || targets.length === 0));
       
+      // DEBUG: Log targeting logic to debug infinite loop
+      console.log(`[handleCastSpellFromHand] ${cardInHand.name}: spellSpec=${!!spellSpec}, targetReqs=${!!targetReqs}, needsTargetSelection=${needsTargetSelection}, hasTargets=${!!(targets && targets.length > 0)}`);
+      
       // Handle Aura targeting separately from spell targeting
       if (isAura && auraTargetType && (!targets || targets.length === 0)) {
         // Build valid targets based on Aura's enchant type
@@ -2809,6 +2815,20 @@ export function registerGameActions(io: Server, socket: Socket) {
         // This spell requires targets - check if we have them already
         const requiredMinTargets = spellSpec?.minTargets || targetReqs?.minTargets || 1;
         const requiredMaxTargets = spellSpec?.maxTargets || targetReqs?.maxTargets || 1;
+        
+        // CRITICAL: Check if there's already a pending cast for this card to prevent infinite loop
+        // If a pending cast exists, it means we've already requested targets before
+        const existingPendingCast = (game.state as any).pendingSpellCasts ? 
+          Object.values((game.state as any).pendingSpellCasts).find((pc: any) => pc.cardId === cardId) : null;
+        
+        if (existingPendingCast) {
+          console.error(`[castSpellFromHand] LOOP PREVENTION: Pending cast already exists for ${cardInHand.name}. This should not happen!`);
+          socket.emit("error", {
+            code: "TARGETING_LOOP_DETECTED",
+            message: `Targeting error for ${cardInHand.name}. Please try casting again.`,
+          });
+          return;
+        }
         
         if (!targets || targets.length < requiredMinTargets) {
           // Need to request targets from the player
@@ -3466,9 +3486,15 @@ export function registerGameActions(io: Server, socket: Socket) {
       let finalTargets = targets;
       if (effectId && (game.state as any).pendingSpellCasts?.[effectId]) {
         const pendingCast = (game.state as any).pendingSpellCasts[effectId];
-        // Use pending targets if client didn't send them back (Aura case)
-        if (!finalTargets || finalTargets.length === 0) {
-          finalTargets = pendingCast.targets || [];
+        // CRITICAL FIX: Always prefer pending targets over client-sent targets
+        // This prevents the infinite targeting loop when client doesn't send targets back
+        if (pendingCast.targets && pendingCast.targets.length > 0) {
+          finalTargets = pendingCast.targets;
+          console.log(`[completeCastSpell] Using pending targets from server: ${finalTargets.join(',')}`);
+        } else if (!finalTargets || finalTargets.length === 0) {
+          // Fallback: use client-sent targets if no pending targets
+          finalTargets = targets || [];
+          console.log(`[completeCastSpell] Using client-sent targets: ${finalTargets?.join(',') || 'none'}`);
         }
         delete (game.state as any).pendingSpellCasts[effectId];
       }
