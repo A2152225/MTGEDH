@@ -3544,7 +3544,29 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         sacrificeType = sacrificeInfo.sacrificeType;
       }
     } else {
-      abilityText = `Activated ability on ${cardName}`;
+      // FALLBACK: If parsing failed or abilityIndex is out of range, try to extract ability text from oracle
+      // For cards with a single activated ability or when the client sends an unrecognized abilityId,
+      // use the full oracle text to detect if it's a mana ability
+      // This fixes double-clicking lands and creatures with mana abilities
+      console.log(`[activateBattlefieldAbility] Ability parsing failed or index out of range (${abilityIndex}/${abilities.length}), using oracle text as fallback`);
+      
+      // If there's only one ability parsed, use it
+      if (abilities.length === 1) {
+        const ability = abilities[0];
+        abilityText = ability.effect;
+        requiresTap = ability.cost.toLowerCase().includes('{t}') || ability.cost.toLowerCase().includes('tap');
+        manaCost = ability.cost;
+        
+        const sacrificeInfo = parseSacrificeCost(ability.cost);
+        if (sacrificeInfo.requiresSacrifice && sacrificeInfo.sacrificeType) {
+          sacrificeType = sacrificeInfo.sacrificeType;
+        }
+      } else {
+        // Use the full oracle text to check if this is a mana ability
+        // This handles simple cases like basic lands: "{T}: Add {G}"
+        abilityText = oracleText;
+        requiresTap = oracleText.includes('{T}:') || oracleText.toLowerCase().includes('tap:');
+      }
     }
     
     // Validate: if ability requires tap, permanent must not be tapped
@@ -3678,7 +3700,18 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Mana abilities are abilities that produce mana and don't target
     // IMPORTANT: Check the specific ability text, NOT the entire oracle text
     // This fixes cards like Herd Heirloom which have both mana AND non-mana tap abilities
-    const isManaAbility = /add\s*(\{[wubrgc]\}|mana|one mana|two mana|three mana)/i.test(abilityText) && 
+    // 
+    // Per MTG Rule 605.1a, a mana ability is an activated ability that:
+    // - Could add mana to a player's mana pool when it resolves
+    // - Isn't a loyalty ability (checked earlier)
+    // - Doesn't target
+    // 
+    // Pattern matches:
+    // - "Add {W}", "Add {G}{G}", etc. (specific mana symbols including {C} for colorless)
+    // - "Add one mana", "Add two mana", etc.
+    // - "Add mana of any color", "Add any color"
+    // - "Add X mana" (variable mana)
+    const isManaAbility = /add\s+(\{[wubrgc]\}|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana)/i.test(abilityText) && 
                           !/target/i.test(abilityText);
     
     if (!isManaAbility) {
