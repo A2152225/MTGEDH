@@ -3620,6 +3620,50 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       (permanent as any).tapped = true;
     }
     
+    // Parse and validate mana cost if present
+    // Extract just the mana symbols from the cost string (excluding {T}, sacrifice, etc.)
+    if (manaCost) {
+      const manaSymbols = manaCost.match(/\{[WUBRGC0-9X]+\}/gi);
+      if (manaSymbols) {
+        // Filter out {T} and {Q} to get just the mana cost
+        const manaOnly = manaSymbols.filter(s => 
+          s.toUpperCase() !== '{T}' && s.toUpperCase() !== '{Q}'
+        ).join('');
+        
+        if (manaOnly) {
+          const parsedCost = parseManaCost(manaOnly);
+          const manaPool = getOrInitManaPool(game.state, pid);
+          const totalAvailable = calculateTotalAvailableMana(manaPool, undefined);
+          
+          // Validate payment
+          const validationError = validateManaPayment(
+            totalAvailable,
+            parsedCost.colored,
+            parsedCost.generic
+          );
+          
+          if (validationError) {
+            socket.emit("error", {
+              code: "INSUFFICIENT_MANA",
+              message: validationError,
+            });
+            return;
+          }
+          
+          // Consume the mana from the pool
+          consumeManaFromPool(game.state, pid, parsedCost.colored, parsedCost.generic);
+          
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `${getPlayerName(game, pid)} paid ${manaOnly} to activate ${cardName}.`,
+            ts: Date.now(),
+          });
+        }
+      }
+    }
+    
     // Check if this is a mana ability (doesn't use the stack)
     // Mana abilities are abilities that produce mana and don't target
     // IMPORTANT: Check the specific ability text, NOT the entire oracle text

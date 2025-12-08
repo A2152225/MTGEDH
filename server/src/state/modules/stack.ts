@@ -2373,8 +2373,14 @@ export function resolveTopOfStack(ctx: GameContext) {
       return;
     }
     
-    // Handle other ability types (could be added here in the future)
-    console.log(`[resolveTopOfStack] Resolved ability from ${sourceName} for ${controller}`);
+    // Handle other activated abilities - execute their effects
+    // Use the same effect execution logic as triggered abilities
+    const description = (item as any).description || '';
+    console.log(`[resolveTopOfStack] Executing activated ability from ${sourceName} for ${controller}: ${description}`);
+    
+    // Execute the ability effect (handles life gain, draw, damage, etc.)
+    executeTriggerEffect(ctx, controller, sourceName, description, item);
+    
     bumpSeq();
     return;
   }
