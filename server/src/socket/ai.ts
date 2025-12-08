@@ -20,6 +20,9 @@ import { fetchCardsByExactNamesBatch, normalizeName, parseDecklist } from "../se
 import type { PlayerID } from "../../../shared/src/types.js";
 import { categorizeSpell, evaluateTargeting, type SpellSpec, type TargetRef } from "../rules-engine/targeting.js";
 import { GameManager } from "../GameManager.js";
+import { hasPendingColorChoices } from "./color-choice.js";
+import { hasPendingJoinForcesOrOffers } from "./join-forces.js";
+import { hasPendingCreatureTypeSelections } from "./creature-type.js";
 
 /** AI timing delays for more natural behavior */
 const AI_THINK_TIME_MS = 500;
@@ -2086,6 +2089,13 @@ async function executeAdvanceStep(
   const game = ensureGame(gameId);
   if (!game) return;
   
+  // Check if there are any pending modal interactions before advancing
+  const pendingCheck = checkPendingModals(game, gameId);
+  if (pendingCheck.hasPending) {
+    console.info(`[AI] Cannot advance step - ${pendingCheck.reason}`);
+    return;
+  }
+  
   const currentStep = String((game.state as any).step || '');
   const currentPhase = String(game.state.phase || '');
   
@@ -2349,14 +2359,12 @@ async function executePassPriority(
     }
     
     // If all players passed priority with empty stack, advance to next step
-    // BUT: Do NOT advance if there are pending library searches (e.g., after Collective Voyage)
-    // Human players need time to complete their library searches
+    // BUT: Do NOT advance if there are pending modals (e.g., library searches, color choices, creature type selections, Join Forces)
+    // Human players need time to complete their modal interactions
     if (advanceStep) {
-      const hasPendingLibrarySearch = game.state?.pendingLibrarySearch && 
-                                      Object.keys(game.state.pendingLibrarySearch).length > 0;
-      
-      if (hasPendingLibrarySearch) {
-        console.info('[AI] Cannot advance step - players have pending library searches');
+      const pendingCheck = checkPendingModals(game, gameId);
+      if (pendingCheck.hasPending) {
+        console.info(`[AI] Cannot advance step - ${pendingCheck.reason}`);
       } else {
         console.info('[AI] All players passed priority with empty stack, advancing step');
         if (typeof (game as any).nextStep === 'function') {
@@ -3239,6 +3247,34 @@ export function cleanupGameAI(gameId: string): void {
     aiPlayers.delete(gameId);
     console.info('[AI] Cleaned up AI players for game:', gameId);
   }
+}
+
+/**
+ * Check if there are any pending library searches for a game
+ */
+function hasPendingLibrarySearch(game: any): boolean {
+  const pending = (game.state as any)?.pendingLibrarySearch;
+  return pending && typeof pending === 'object' && Object.keys(pending).length > 0;
+}
+
+/**
+ * Check if there are any pending modals that should block AI advancement.
+ * Returns an object with a boolean flag and optional reason string.
+ */
+function checkPendingModals(game: any, gameId: string): { hasPending: boolean; reason?: string } {
+  if (hasPendingLibrarySearch(game)) {
+    return { hasPending: true, reason: 'players have pending library searches' };
+  }
+  if (hasPendingColorChoices(gameId)) {
+    return { hasPending: true, reason: 'players have pending color choice modals' };
+  }
+  if (hasPendingCreatureTypeSelections(gameId)) {
+    return { hasPending: true, reason: 'players have pending creature type selection modals' };
+  }
+  if (hasPendingJoinForcesOrOffers(gameId)) {
+    return { hasPending: true, reason: 'players have pending Join Forces or Tempting Offer modals' };
+  }
+  return { hasPending: false };
 }
 
 /**

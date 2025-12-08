@@ -307,6 +307,18 @@ export function getChosenColor(permanent: any): string | undefined {
 }
 
 /**
+ * Check if there are any pending color choices for a game
+ */
+export function hasPendingColorChoices(gameId: string): boolean {
+  for (const pending of pendingChoices.values()) {
+    if (pending.gameId === gameId) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Clear all pending choices for a game (e.g., when game ends)
  */
 export function clearPendingChoicesForGame(gameId: string) {

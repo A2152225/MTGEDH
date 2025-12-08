@@ -397,3 +397,15 @@ export function registerCreatureTypeHandlers(io: Server, socket: Socket) {
     }
   });
 }
+
+/**
+ * Check if there are any pending creature type selections for a game
+ */
+export function hasPendingCreatureTypeSelections(gameId: string): boolean {
+  for (const pending of pendingSelections.values()) {
+    if (pending.gameId === gameId) {
+      return true;
+    }
+  }
+  return false;
+}

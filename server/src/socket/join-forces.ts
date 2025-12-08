@@ -1799,4 +1799,25 @@ export function registerJoinForcesHandlers(io: Server, socket: Socket) {
   }
 }
 
+/**
+ * Check if there are any pending Join Forces or Tempting Offer effects for a game
+ */
+export function hasPendingJoinForcesOrOffers(gameId: string): boolean {
+  // Check Join Forces
+  for (const pending of pendingJoinForces.values()) {
+    if (pending.gameId === gameId) {
+      return true;
+    }
+  }
+  
+  // Check Tempting Offers
+  for (const pending of pendingTemptingOffers.values()) {
+    if (pending.gameId === gameId) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
 export default registerJoinForcesHandlers;
