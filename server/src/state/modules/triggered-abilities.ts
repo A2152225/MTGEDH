@@ -971,19 +971,21 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   // This triggers on ANY permanent type (creature, artifact, enchantment, land, planeswalker) under YOUR control
   // Supports both old template "enters the battlefield" and new Bloomburrow template "enters"
   // Also handles plural forms
-  const anotherPermanentControlledETBMatch = oracleText.match(/whenever (?:another|one or more(?: other)?) (?:[\w\s]+)?permanents? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i);
-  // Check for control restriction for permanents (not just creatures)
+  // First check if there's a control restriction, then match the pattern
   const hasPermanentControlRestriction = /whenever (?:another|one or more(?: other)?) [\w\s]*permanents? (?:you control|under your control)/.test(oracleText) ||
                                          /whenever (?:another|one or more(?: other)?) [\w\s]*permanents? (?:you control )?enters?(?: the battlefield)? under your control/.test(oracleText);
-  if (anotherPermanentControlledETBMatch && hasPermanentControlRestriction && !triggers.some(t => t.triggerType === 'another_permanent_etb')) {
-    triggers.push({
-      permanentId,
-      cardName,
-      triggerType: 'another_permanent_etb', // Triggers only on permanents you control
-      description: anotherPermanentControlledETBMatch[1].trim(),
-      effect: anotherPermanentControlledETBMatch[1].trim(),
-      mandatory: true,
-    } as any);
+  if (hasPermanentControlRestriction) {
+    const anotherPermanentControlledETBMatch = oracleText.match(/whenever (?:another|one or more(?: other)?) (?:[\w\s]+)?permanents? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i);
+    if (anotherPermanentControlledETBMatch && !triggers.some(t => t.triggerType === 'another_permanent_etb')) {
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'another_permanent_etb', // Triggers only on permanents you control
+        description: anotherPermanentControlledETBMatch[1].trim(),
+        effect: anotherPermanentControlledETBMatch[1].trim(),
+        mandatory: true,
+      } as any);
+    }
   }
   
   // "Whenever another permanent enters the battlefield" - ANY permanent from ANY player

@@ -166,15 +166,12 @@ function hasActivatableAbility(
     // Skip sorcery-speed abilities (Equip, Reconfigure, etc.)
     // These can only be activated during main phase when stack is empty
     const effectLower = effectPart.toLowerCase();
+    
+    // Equip is sorcery-speed by default (Rule 702.6a)
+    // Only a few exceptions exist (Cranial Plating, Lightning Greaves in some contexts)
+    // For safety, we'll consider ALL equip abilities as sorcery-speed unless explicitly stated otherwise
     if (effectLower.includes("equip") || effectLower.includes("reconfigure")) {
-      // Check if it's instant-speed equip (rare exceptions like Cranial Plating)
-      // Pattern: "Equip {B}{B} ({B}{B}: Attach to target creature you control. Equip only as a sorcery.)"
-      // vs "BB: Attach to target creature you control." (no "only as a sorcery" = instant speed)
-      const hasInstantEquip = /equip\s*\{[^}]+\}/.test(effectLower) && 
-                              !/(equip|reconfigure) only as a sorcery|activate (?:only )?(?:this ability|these abilities) (?:only )?(?:any time|at any time) you could cast a sorcery/i.test(oracleText);
-      if (!hasInstantEquip) {
-        continue; // Skip sorcery-speed equip/reconfigure
-      }
+      continue; // Skip all equip/reconfigure abilities
     }
     
     // Skip other sorcery-speed only abilities
