@@ -3622,7 +3622,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     
     // Check if this is a mana ability (doesn't use the stack)
     // Mana abilities are abilities that produce mana and don't target
-    const isManaAbility = /add\s*(\{[wubrgc]\}|mana|one mana|two mana|three mana)/i.test(oracleText);
+    // IMPORTANT: Check the specific ability text, NOT the entire oracle text
+    // This fixes cards like Herd Heirloom which have both mana AND non-mana tap abilities
+    const isManaAbility = /add\s*(\{[wubrgc]\}|mana|one mana|two mana|three mana)/i.test(abilityText) && 
+                          !/target/i.test(abilityText);
     
     if (!isManaAbility) {
       // Put the ability on the stack
