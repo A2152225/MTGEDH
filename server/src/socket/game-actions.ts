@@ -2605,6 +2605,20 @@ export function registerGameActions(io: Server, socket: Socket) {
           
           console.log(`[castSpellFromHand] Requesting sacrifice of ${additionalCost.amount} ${additionalCost.filter || 'permanent'}(s) for ${cardInHand.name}`);
           return; // Wait for sacrifice selection
+        } else if (additionalCost.type === 'squad') {
+          // Squad: "As an additional cost to cast this spell, you may pay {cost} any number of times"
+          // Prompt the player to choose how many times to pay the squad cost
+          socket.emit("squadCostRequest", {
+            gameId,
+            cardId,
+            cardName: cardInHand.name,
+            squadCost: additionalCost.cost,
+            imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            effectId: `squad_${cardId}_${Date.now()}`,
+          });
+          
+          console.log(`[castSpellFromHand] Requesting squad payment for ${cardInHand.name} (cost: ${additionalCost.cost})`);
+          return; // Wait for squad payment selection
         }
       }
 
@@ -3276,7 +3290,8 @@ export function registerGameActions(io: Server, socket: Socket) {
               targets: targets || [],
               targetDetails: targetDetails.length > 0 ? targetDetails : undefined,
               // Mark if this is an adventure spell (face index 1 is adventure for adventure cards)
-              castAsAdventure: removedCard.layout === 'adventure' && faceIndex === 1,
+              // For adventure cards: faceIndex 1 = adventure side (instant/sorcery), faceIndex 0 or undefined = creature/enchantment side
+              castAsAdventure: removedCard.layout === 'adventure' ? (faceIndex === 1) : undefined,
             };
             
             if (typeof game.pushStack === 'function') {
@@ -6738,6 +6753,90 @@ export function registerGameActions(io: Server, socket: Socket) {
     } catch (err: any) {
       console.error(`additionalCostConfirm error:`, err);
       socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "Additional cost payment failed" });
+    }
+  });
+
+  /**
+   * Handle squad cost confirmation - player selects how many times to pay the squad cost
+   * Squad is a keyword ability that lets you pay an additional cost any number of times to create token copies
+   */
+  socket.on("squadCostConfirm", async ({ gameId, cardId, timesPaid, effectId }: {
+    gameId: string;
+    cardId: string;
+    timesPaid: number; // How many times the player chose to pay the squad cost (0 or more)
+    effectId?: string;
+  }) => {
+    try {
+      const playerId = socket.data.playerId as string | undefined;
+      if (!playerId) {
+        socket.emit("error", { code: "NOT_JOINED", message: "You must join the game first" });
+        return;
+      }
+
+      const game = ensureGame(gameId);
+      if (!game) {
+        socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+        return;
+      }
+
+      const zones = game.state.zones?.[playerId];
+      if (!zones) {
+        socket.emit("error", { code: "NO_ZONES", message: "Player zones not found" });
+        return;
+      }
+
+      const cardInHand = (zones.hand as any[]).find((c: any) => c && c.id === cardId);
+      if (!cardInHand) {
+        socket.emit("error", { code: "CARD_NOT_IN_HAND", message: "Card not found in hand" });
+        return;
+      }
+
+      console.log(`[squadCostConfirm] ${playerId} chose to pay squad cost ${timesPaid} time(s) for ${cardInHand.name}`);
+
+      // Store the squad payment on the card for use when it enters the battlefield
+      // The token creation happens when the creature ETBs (handled in stack resolution)
+      (cardInHand as any).squadTimesPaid = timesPaid;
+      (cardInHand as any).additionalCostPaid = true; // Mark that additional cost was handled
+      
+      // Persist event for replay
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, "squadCostConfirm", {
+          playerId,
+          cardId,
+          timesPaid,
+          effectId,
+        });
+      } catch (e) {
+        console.warn('appendEvent(squadCostConfirm) failed:', e);
+      }
+
+      if (timesPaid > 0) {
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} pays the squad cost ${timesPaid} time(s) for ${cardInHand.name}.`,
+          ts: Date.now(),
+        });
+      }
+
+      // Emit event to continue the cast
+      socket.emit("additionalCostComplete", {
+        gameId,
+        cardId,
+        costType: 'squad',
+        timesPaid,
+        effectId,
+      });
+
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+      broadcastGame(io, game, gameId);
+
+    } catch (err: any) {
+      console.error(`squadCostConfirm error:`, err);
+      socket.emit("error", { code: "INTERNAL_ERROR", message: err.message || "Squad cost payment failed" });
     }
   });
 

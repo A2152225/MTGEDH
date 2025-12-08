@@ -2590,6 +2590,53 @@ export function resolveTopOfStack(ctx: GameContext) {
       console.warn('[resolveTopOfStack] Failed to detect ETB triggers:', err);
     }
     
+    // Handle Squad token creation (Rule 702.157)
+    // Squad: "As an additional cost to cast this spell, you may pay {cost} any number of times. 
+    // When this permanent enters the battlefield, create that many tokens that are copies of it."
+    try {
+      const squadTimesPaid = (card as any).squadTimesPaid;
+      if (squadTimesPaid && squadTimesPaid > 0 && isCreature) {
+        console.log(`[resolveTopOfStack] Squad: Creating ${squadTimesPaid} token copies of ${effectiveCard.name || 'creature'}`);
+        
+        for (let i = 0; i < squadTimesPaid; i++) {
+          const tokenId = uid("squad_token");
+          const tokenCard = {
+            id: `card_${tokenId}`,
+            name: effectiveCard.name || 'Token',
+            type_line: effectiveCard.type_line || 'Creature',
+            oracle_text: effectiveCard.oracle_text || '',
+            colors: (card as any).colors || [],
+            power: effectiveCard.power,
+            toughness: effectiveCard.toughness,
+            image_uris: effectiveCard.image_uris,
+            isToken: true,
+          };
+          
+          const tokenPermanent = {
+            id: tokenId,
+            controller,
+            owner: controller,
+            tapped: false,
+            counters: {},
+            basePower: baseP,
+            baseToughness: baseT,
+            summoningSickness: true,
+            isToken: true,
+            card: { ...tokenCard, zone: 'battlefield' },
+          } as any;
+          
+          state.battlefield.push(tokenPermanent);
+          
+          // Trigger ETB effects for each squad token
+          triggerETBEffectsForToken(ctx, tokenPermanent, controller);
+          
+          console.log(`[resolveTopOfStack] Squad: Created token copy #${i + 1} of ${effectiveCard.name}`);
+        }
+      }
+    } catch (err) {
+      console.warn('[resolveTopOfStack] Failed to create squad tokens:', err);
+    }
+    
     // Recalculate player effects when permanents ETB (for Exploration, Font of Mythos, etc.)
     try {
       recalculatePlayerEffects(ctx);

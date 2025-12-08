@@ -21,25 +21,43 @@
  * Examples include discarding cards (Faithless Looting), sacrificing permanents,
  * or paying life.
  * 
- * @property type - The type of additional cost required ('discard', 'sacrifice', or 'pay_life')
+ * @property type - The type of additional cost required ('discard', 'sacrifice', 'pay_life', or 'squad')
  * @property amount - How many of the cost type must be paid (e.g., 1 card, 2 life)
  * @property filter - Optional filter for sacrifice costs (e.g., "creature", "artifact")
+ * @property cost - For squad: the mana cost to pay per copy (e.g., "{1}{W}")
+ * @property canPayMultipleTimes - For squad: indicates the cost can be paid any number of times
  */
 export interface AdditionalCostResult {
-  type: 'discard' | 'sacrifice' | 'pay_life';
+  type: 'discard' | 'sacrifice' | 'pay_life' | 'squad';
   amount: number;
   filter?: string;
+  cost?: string;
+  canPayMultipleTimes?: boolean;
 }
 
 /**
  * Detect if a spell/permanent has additional costs like "discard a card" or "sacrifice a creature"
  * Returns the additional cost requirement if found.
  * 
- * This handles Seize the Spoils, Faithless Looting, and similar cards.
+ * This handles Seize the Spoils, Faithless Looting, Squad, and similar cards.
  * Pattern: "As an additional cost to cast this spell, discard a card"
+ * Squad pattern: "Squad [cost]" which means "As an additional cost to cast this spell, you may pay [cost] any number of times"
  */
 export function detectAdditionalCost(oracleText: string): AdditionalCostResult | null {
   const lowerText = (oracleText || "").toLowerCase();
+  
+  // Squad: "Squad {cost}" - Rule 702.157
+  // This is an additional cost that can be paid any number of times
+  // Pattern: "Squad {X}{Y}" or "Squad — {cost}"
+  const squadMatch = oracleText.match(/\bSquad\s+[—\-]?\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (squadMatch) {
+    return {
+      type: 'squad',
+      amount: 0, // Will be determined by player choice
+      cost: squadMatch[1].trim(),
+      canPayMultipleTimes: true,
+    };
+  }
   
   // "As an additional cost to cast this spell, discard a card"
   const discardMatch = lowerText.match(/as an additional cost.*discard\s+(?:a|(\d+))\s+cards?/i);
