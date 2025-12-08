@@ -1401,6 +1401,38 @@ function executeTriggerEffect(
     if (types.length > 0) filter.types = types;
     if (subtypes.length > 0) filter.subtypes = subtypes;
     
+    // Check for conditional triggers: "if an opponent controls more lands than you"
+    // (Knight of the White Orchid, etc.)
+    const hasLandCondition = desc.match(/if (?:an|any) opponent controls more lands than you/i);
+    if (hasLandCondition) {
+      // Count lands to verify condition
+      const battlefield = state.battlefield || [];
+      const players = state.players || [];
+      const myLandCount = battlefield.filter((p: any) => 
+        p.controller === controller && 
+        (p.card?.type_line || '').toLowerCase().includes('land')
+      ).length;
+      
+      const opponentIds = players
+        .filter((p: any) => p.id !== controller && !p.hasLost)
+        .map((p: any) => p.id);
+      
+      const anyOpponentHasMoreLands = opponentIds.some((oppId: string) => {
+        const oppLandCount = battlefield.filter((p: any) => 
+          p.controller === oppId && 
+          (p.card?.type_line || '').toLowerCase().includes('land')
+        ).length;
+        return oppLandCount > myLandCount;
+      });
+      
+      if (!anyOpponentHasMoreLands) {
+        console.log(`[executeTriggerEffect] ${sourceName}: Condition NOT met - ${controller} has ${myLandCount} lands, no opponent has more`);
+        return; // Don't set up library search if condition not met
+      }
+      
+      console.log(`[executeTriggerEffect] ${sourceName}: Condition met - opponent has more lands than ${controller} (${myLandCount} lands)`);
+    }
+    
     // Set up pending library search
     state.pendingLibrarySearch = state.pendingLibrarySearch || {};
     state.pendingLibrarySearch[controller] = {
