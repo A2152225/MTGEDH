@@ -203,6 +203,193 @@ export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boo
 }
 
 /**
+ * Check if player can play a land
+ * This includes:
+ * - Having a land in hand
+ * - Having a land in graveyard AND an effect that allows playing from graveyard
+ * - Having a land in exile AND an effect that allows playing from exile
+ * - Having pending play effects (impulse draw, etc.)
+ * - Not having reached the land play limit for this turn
+ * - Being in a main phase (checked by caller)
+ */
+export function canPlayLand(ctx: GameContext, playerId: PlayerID): boolean {
+  try {
+    const { state } = ctx;
+    if (!state) return false;
+    
+    const zones = state.zones?.[playerId];
+    if (!zones) return false;
+    
+    // Check if player has already played maximum lands this turn
+    const landsPlayedThisTurn = (state.landsPlayedThisTurn as any)?.[playerId] ?? 0;
+    const maxLandsPerTurn = 1; // Standard MTG rule
+    
+    if (landsPlayedThisTurn >= maxLandsPerTurn) {
+      return false; // Already played max lands
+    }
+    
+    // Check if player has a land card in hand
+    if (Array.isArray(zones.hand)) {
+      for (const card of zones.hand as any[]) {
+        if (!card || typeof card === "string") continue;
+        
+        const typeLine = (card.type_line || "").toLowerCase();
+        if (typeLine.includes("land")) {
+          return true; // Found a land in hand that can be played
+        }
+      }
+    }
+    
+    // Check if player can play lands from graveyard
+    const canPlayFromGraveyard = hasPlayFromZoneEffect(ctx, playerId, "graveyard");
+    
+    if (canPlayFromGraveyard && Array.isArray(zones.graveyard)) {
+      for (const card of zones.graveyard as any[]) {
+        if (!card || typeof card === "string") continue;
+        
+        const typeLine = (card.type_line || "").toLowerCase();
+        if (typeLine.includes("land")) {
+          return true; // Found a land in graveyard and can play it
+        }
+      }
+    }
+    
+    // Check if player can play lands from exile
+    // This covers: Aetherworks Marvel, Golos, impulse draw effects (Light Up the Stage, etc.)
+    const canPlayFromExile = hasPlayFromZoneEffect(ctx, playerId, "exile");
+    
+    if (canPlayFromExile) {
+      // Check exile zone for lands
+      const exileZone = (state as any).exile?.[playerId];
+      if (Array.isArray(exileZone)) {
+        for (const card of exileZone as any[]) {
+          if (!card || typeof card === "string") continue;
+          
+          const typeLine = (card.type_line || "").toLowerCase();
+          if (typeLine.includes("land")) {
+            return true; // Found a land in exile and can play it
+          }
+        }
+      }
+    }
+    
+    // Check for "play from top of library" effects (Experimental Frenzy, Future Sight, etc.)
+    if (hasPlayFromTopOfLibraryEffect(ctx, playerId)) {
+      const library = Array.isArray(zones.library) ? zones.library : [];
+      if (library.length > 0) {
+        const topCard = library[library.length - 1]; // Top of library is last element
+        if (topCard && typeof topCard !== "string") {
+          const typeLine = (topCard.type_line || "").toLowerCase();
+          if (typeLine.includes("land")) {
+            return true; // Can play land from top of library
+          }
+        }
+      }
+    }
+    
+    return false;
+  } catch (err) {
+    console.warn("[canPlayLand] Error:", err);
+    return false;
+  }
+}
+
+/**
+ * Check if player has an effect that allows playing cards from a specific zone
+ * @param zone - The zone to check (graveyard, exile, etc.)
+ */
+function hasPlayFromZoneEffect(ctx: GameContext, playerId: PlayerID, zone: string): boolean {
+  try {
+    const { state } = ctx;
+    if (!state) return false;
+    
+    const battlefield = state.battlefield || [];
+    
+    for (const permanent of battlefield) {
+      // Only check permanents controlled by this player
+      if (permanent.controller !== playerId) continue;
+      
+      const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
+      
+      // Check for "you may play" or "you may cast" from the specified zone
+      const hasPlayText = oracleText.includes("you may play") || oracleText.includes("you may cast");
+      const hasZone = oracleText.includes(zone);
+      
+      if (hasPlayText && hasZone) {
+        // Additional check for lands specifically
+        if (zone === "graveyard" && oracleText.includes("land")) {
+          return true;
+        }
+        // For exile, be more generous as it often comes from impulse draw effects
+        if (zone === "exile") {
+          return true;
+        }
+      }
+      
+      // Special case: "play cards from exile" or "cast cards from exile"
+      if (zone === "exile" && 
+          (oracleText.includes("play") || oracleText.includes("cast")) && 
+          oracleText.includes("from exile")) {
+        return true;
+      }
+    }
+    
+    // Check for temporary effects stored in game state
+    // Many impulse draw effects store exiled cards with "can play until end of turn" markers
+    const stateAny = state as any;
+    if (zone === "exile" && stateAny.playableFromExile) {
+      const playableCards = stateAny.playableFromExile[playerId];
+      if (playableCards && (Array.isArray(playableCards) ? playableCards.length > 0 : Object.keys(playableCards).length > 0)) {
+        return true;
+      }
+    }
+    
+    return false;
+  } catch (err) {
+    console.warn("[hasPlayFromZoneEffect] Error:", err);
+    return false;
+  }
+}
+
+/**
+ * Check if player has "play from top of library" effect
+ * Examples: Experimental Frenzy, Future Sight, Bolas's Citadel
+ */
+function hasPlayFromTopOfLibraryEffect(ctx: GameContext, playerId: PlayerID): boolean {
+  try {
+    const { state } = ctx;
+    if (!state) return false;
+    
+    const battlefield = state.battlefield || [];
+    
+    for (const permanent of battlefield) {
+      // Only check permanents controlled by this player
+      if (permanent.controller !== playerId) continue;
+      
+      const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
+      
+      // Check for various patterns of "play from top of library"
+      if ((oracleText.includes("you may play") || oracleText.includes("you may cast")) &&
+          (oracleText.includes("top") || oracleText.includes("off the top")) &&
+          (oracleText.includes("library") || oracleText.includes("your library"))) {
+        return true;
+      }
+      
+      // Special case for Experimental Frenzy and similar
+      if (oracleText.includes("play") && 
+          oracleText.includes("from the top of your library")) {
+        return true;
+      }
+    }
+    
+    return false;
+  } catch (err) {
+    console.warn("[hasPlayFromTopOfLibraryEffect] Error:", err);
+    return false;
+  }
+}
+
+/**
  * Main function: Determine if a player can respond
  * 
  * A player can respond if they can cast an instant/flash spell or activate an ability.
@@ -221,6 +408,12 @@ export function canRespond(ctx: GameContext, playerId: PlayerID): boolean {
     
     // Check if player can activate any abilities
     if (canActivateAnyAbility(ctx, playerId)) {
+      return true;
+    }
+    
+    // Check if player can play a land
+    // This prevents auto-passing during main phases when player could play a land
+    if (canPlayLand(ctx, playerId)) {
       return true;
     }
     
