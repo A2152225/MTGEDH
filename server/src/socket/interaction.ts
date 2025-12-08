@@ -2413,6 +2413,42 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
       
+      // Parse and validate mana cost from oracle text
+      // Examples: "{2}, {T}, Sacrifice ~" (Myriad Landscape), "{3}{G}, {T}, Sacrifice ~" (Blighted Woodland)
+      const manaCostMatch = oracleText.match(/\{[^}]+\}(?:\s*,\s*\{[^}]+\})*(?=\s*,\s*\{t\})/i);
+      if (manaCostMatch) {
+        const manaCostStr = manaCostMatch[0];
+        const parsedCost = parseManaCost(manaCostStr);
+        const manaPool = getOrInitManaPool(game.state, pid);
+        
+        // Check if player can pay the mana cost
+        const totalAvailable = calculateTotalAvailableMana(manaPool, undefined);
+        const validationError = validateManaPayment(
+          totalAvailable,
+          parsedCost.colors,
+          parsedCost.generic
+        );
+        
+        if (validationError) {
+          socket.emit("error", {
+            code: "INSUFFICIENT_MANA",
+            message: validationError,
+          });
+          return;
+        }
+        
+        // Consume the mana from the pool
+        consumeManaFromPool(manaPool, parsedCost.colors, parsedCost.generic);
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, pid)} paid ${manaCostStr}.`,
+          ts: Date.now(),
+        });
+      }
+      
       // Check if it's a true fetch (pay 1 life)
       const isTrueFetch = oracleText.includes("pay 1 life");
       
@@ -2882,11 +2918,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Import the multi-mode ability detection from triggered-abilities
     const { detectMultiModeAbility } = await import("../state/modules/triggered-abilities.js");
     const multiModeAbility = detectMultiModeAbility(card, permanent);
+    // Only treat as multi-mode if the ability ID explicitly indicates it (not just by card name)
+    // This allows individual abilities to be activated directly from the parsed ability list
     const isMultiModeAbility = multiModeAbility && (
       abilityId.includes("multi-mode") || 
-      abilityId.includes("staff") ||
-      cardName.toLowerCase().includes("staff of domination") ||
-      cardName.toLowerCase().includes("trading post")
+      abilityId === "multi-mode" ||
+      abilityId === "staff-multi-mode"
     );
     
     if (isMultiModeAbility && multiModeAbility) {
@@ -3510,6 +3547,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       abilityText = `Activated ability on ${cardName}`;
     }
     
+    // Validate: if ability requires tap, permanent must not be tapped
+    if (requiresTap && (permanent as any).tapped) {
+      socket.emit("error", {
+        code: "ALREADY_TAPPED",
+        message: `${cardName} is already tapped`,
+      });
+      return;
+    }
+    
     // Check if sacrifice is required and we need to prompt for selection
     if (sacrificeType && sacrificeType !== 'self') {
       // Get eligible permanents for sacrifice
@@ -3584,9 +3630,56 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       (permanent as any).tapped = true;
     }
     
+    // Parse and validate mana cost if present
+    // Extract just the mana symbols from the cost string (excluding {T}, sacrifice, etc.)
+    if (manaCost) {
+      const manaSymbols = manaCost.match(/\{[WUBRGC0-9X]+\}/gi);
+      if (manaSymbols) {
+        // Filter out {T} and {Q} to get just the mana cost
+        const manaOnly = manaSymbols.filter(s => 
+          s.toUpperCase() !== '{T}' && s.toUpperCase() !== '{Q}'
+        ).join('');
+        
+        if (manaOnly) {
+          const parsedCost = parseManaCost(manaOnly);
+          const manaPool = getOrInitManaPool(game.state, pid);
+          const totalAvailable = calculateTotalAvailableMana(manaPool, undefined);
+          
+          // Validate payment
+          const validationError = validateManaPayment(
+            totalAvailable,
+            parsedCost.colors,
+            parsedCost.generic
+          );
+          
+          if (validationError) {
+            socket.emit("error", {
+              code: "INSUFFICIENT_MANA",
+              message: validationError,
+            });
+            return;
+          }
+          
+          // Consume the mana from the pool
+          consumeManaFromPool(manaPool, parsedCost.colors, parsedCost.generic);
+          
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `${getPlayerName(game, pid)} paid ${manaOnly} to activate ${cardName}.`,
+            ts: Date.now(),
+          });
+        }
+      }
+    }
+    
     // Check if this is a mana ability (doesn't use the stack)
     // Mana abilities are abilities that produce mana and don't target
-    const isManaAbility = /add\s*(\{[wubrgc]\}|mana|one mana|two mana|three mana)/i.test(oracleText);
+    // IMPORTANT: Check the specific ability text, NOT the entire oracle text
+    // This fixes cards like Herd Heirloom which have both mana AND non-mana tap abilities
+    const isManaAbility = /add\s*(\{[wubrgc]\}|mana|one mana|two mana|three mana)/i.test(abilityText) && 
+                          !/target/i.test(abilityText);
     
     if (!isManaAbility) {
       // Put the ability on the stack

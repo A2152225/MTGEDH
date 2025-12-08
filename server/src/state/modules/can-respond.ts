@@ -87,7 +87,41 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
 }
 
 /**
+ * Check if an ability is a mana ability (doesn't use the stack, doesn't require priority)
+ * Per MTG Rule 605.1a: A mana ability is an activated ability that:
+ * - Could add mana to a player's mana pool when it resolves
+ * - Isn't a loyalty ability
+ * - Doesn't target
+ * 
+ * Mana abilities can be activated at any time without priority, so they should NOT
+ * prevent auto-passing priority.
+ */
+function isManaAbility(oracleText: string, effectPart: string): boolean {
+  if (!effectPart) return false;
+  
+  const effectLower = effectPart.toLowerCase();
+  
+  // Check if it adds mana to a player's mana pool
+  // Patterns: "Add {G}", "Add {C}{C}", "Add one mana of any color", etc.
+  const addsMana = /add\s+(?:\{[wubrgc]\}|\{[^}]+\}\{[^}]+\}|one mana|mana|[x\d]+\s+mana)/i.test(effectLower);
+  
+  if (!addsMana) return false;
+  
+  // Check if it targets (mana abilities can't target per Rule 605.1a)
+  const hasTarget = /target/i.test(effectPart);
+  if (hasTarget) return false;
+  
+  // Check if it's a loyalty ability (planeswalker abilities use +/- counters)
+  // Loyalty abilities are not mana abilities even if they add mana
+  const isLoyaltyAbility = /[+-]\d+:/i.test(oracleText);
+  if (isLoyaltyAbility) return false;
+  
+  return true;
+}
+
+/**
  * Check if a permanent has an activated ability that can be activated
+ * and requires priority (excludes mana abilities per Rule 605)
  */
 function hasActivatableAbility(
   ctx: GameContext,
@@ -118,6 +152,12 @@ function hasActivatableAbility(
     
     const additionalCost = abilityMatch[1] || "";
     const effect = abilityMatch[2] || "";
+    
+    // CRITICAL: Skip mana abilities - they don't use the stack and don't require priority
+    // Per MTG Rule 605.3a, mana abilities can be activated whenever needed for payment
+    if (isManaAbility(oracleText, effect)) {
+      return false; // Mana abilities don't prevent auto-pass
+    }
     
     // Check for mana costs in additional cost
     const manaCostMatch = additionalCost.match(/\{[^}]+\}/g);
@@ -162,6 +202,11 @@ function hasActivatableAbility(
     
     // Skip if this is just a mana ability we already checked
     if (costPart.includes("{T}") && hasTapAbility) continue;
+    
+    // Skip mana abilities - they don't require priority
+    if (isManaAbility(oracleText, effectPart)) {
+      continue;
+    }
     
     // Skip sorcery-speed abilities (Equip, Reconfigure, etc.)
     // These can only be activated during main phase when stack is empty
@@ -433,6 +478,7 @@ function hasPlayFromTopOfLibraryEffect(ctx: GameContext, playerId: PlayerID): bo
  * Main function: Determine if a player can respond
  * 
  * A player can respond if they can cast an instant/flash spell or activate an ability.
+ * During main phase with empty stack, also check for sorcery-speed actions.
  * This is used to auto-pass priority when appropriate.
  * 
  * @param ctx Game context
@@ -441,7 +487,7 @@ function hasPlayFromTopOfLibraryEffect(ctx: GameContext, playerId: PlayerID): bo
  */
 export function canRespond(ctx: GameContext, playerId: PlayerID): boolean {
   try {
-    // Check if player can cast any spells
+    // Check if player can cast any instant/flash spells
     if (canCastAnySpell(ctx, playerId)) {
       return true;
     }
@@ -451,13 +497,18 @@ export function canRespond(ctx: GameContext, playerId: PlayerID): boolean {
       return true;
     }
     
-    // Check if player can play a land
-    // Only check during main phase with empty stack
+    // Check for sorcery-speed actions during main phase with empty stack
     const isMainPhase = isInMainPhase(ctx);
     const stackIsEmpty = !ctx.state.stack || ctx.state.stack.length === 0;
     
     if (isMainPhase && stackIsEmpty) {
+      // Check if player can play a land
       if (canPlayLand(ctx, playerId)) {
+        return true;
+      }
+      
+      // Check if player can cast any sorcery-speed spells
+      if (canCastAnySorcerySpeed(ctx, playerId)) {
         return true;
       }
     }
@@ -468,5 +519,69 @@ export function canRespond(ctx: GameContext, playerId: PlayerID): boolean {
     console.warn("[canRespond] Error:", err);
     // On error, default to true (don't auto-pass) to be safe
     return true;
+  }
+}
+
+/**
+ * Check if player can cast any sorcery-speed spell from hand
+ * (creatures, sorceries, artifacts, enchantments, planeswalkers)
+ */
+function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
+  try {
+    const { state } = ctx;
+    if (!state) return false;
+    
+    const zones = state.zones?.[playerId];
+    if (!zones || !Array.isArray(zones.hand)) return false;
+    
+    // Get mana pool
+    const pool = getManaPoolFromState(state, playerId);
+    
+    // Check each card in hand
+    for (const card of zones.hand as any[]) {
+      if (!card || typeof card === "string") continue;
+      
+      const typeLine = (card.type_line || "").toLowerCase();
+      
+      // Check if it's a sorcery-speed spell (not instant, not land)
+      const isSorcerySpeed = 
+        typeLine.includes("creature") ||
+        typeLine.includes("sorcery") ||
+        typeLine.includes("artifact") ||
+        typeLine.includes("enchantment") ||
+        typeLine.includes("planeswalker") ||
+        typeLine.includes("battle");
+      
+      // Skip if it's instant or has flash (already checked in canCastAnySpell)
+      if (typeLine.includes("instant") || (card.oracle_text || "").toLowerCase().includes("flash")) {
+        continue;
+      }
+      
+      // Skip lands (checked separately in canPlayLand)
+      if (typeLine.includes("land")) {
+        continue;
+      }
+      
+      if (!isSorcerySpeed) continue;
+      
+      // Check if player can pay the cost (either normal or alternate)
+      const manaCost = card.mana_cost || "";
+      const parsedCost = parseManaCost(manaCost);
+      
+      // Check normal mana cost
+      if (canPayManaCost(pool, parsedCost)) {
+        return true;
+      }
+      
+      // Check alternate costs
+      if (hasPayableAlternateCost(ctx, playerId, card)) {
+        return true;
+      }
+    }
+    
+    return false;
+  } catch (err) {
+    console.warn("[canCastAnySorcerySpeed] Error:", err);
+    return false;
   }
 }
