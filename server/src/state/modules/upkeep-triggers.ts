@@ -196,7 +196,8 @@ export function detectUpkeepTriggers(card: any, permanent: any): UpkeepTrigger[]
     
     // Special case: Braid of Fire has "Cumulative upkeep—Add {R}" or similar
     // This ADDS mana instead of requiring payment
-    // Match patterns like "Add {R}", "Add {R}{R}", "Add {R}{G}", etc.
+    // Match patterns like "Add {R}", "Add {R}{R}", "Add {R}{G}", "Add {C}", etc.
+    // Supports {W}{U}{B}{R}{G}{C} for all mana types
     const isAddingMana = /^add\s+(?:\{[WUBRGC]\})+$/i.test(cost);
     
     triggers.push({
@@ -656,6 +657,7 @@ export function autoProcessCumulativeUpkeepMana(ctx: GameContext, activePlayerId
     
     // Check for cumulative upkeep with "Add {X}" pattern (e.g., Braid of Fire)
     // Note: The pattern should capture one or more mana symbols (can be mixed)
+    // Includes {W}{U}{B}{R}{G}{C} for white, blue, black, red, green, colorless
     const cumulativeMatch = oracleText.match(/cumulative upkeep[—\-\s]*add\s+((?:\{[WUBRGC]\})+)/i);
     if (!cumulativeMatch) continue;
     
@@ -666,7 +668,8 @@ export function autoProcessCumulativeUpkeepMana(ctx: GameContext, activePlayerId
     const newAgeCounters = (counters["age"] || 0) + 1;
     (permanent as any).counters = { ...counters, age: newAgeCounters };
     
-    // Parse all mana symbols (e.g., {R} or {R}{R})
+    // Parse all mana symbols (e.g., {R} or {R}{R} or {R}{G})
+    // Supports {W}{U}{B}{R}{G}{C} for white, blue, black, red, green, colorless
     const symbolMatches = Array.from(manaSymbols.matchAll(/\{([WUBRGC])\}/g));
     const manaPerCounter: Record<string, number> = {};
     
@@ -677,8 +680,12 @@ export function autoProcessCumulativeUpkeepMana(ctx: GameContext, activePlayerId
                        symbol === 'B' ? 'black' :
                        symbol === 'R' ? 'red' :
                        symbol === 'G' ? 'green' :
-                       'colorless';
-      manaPerCounter[manaType] = (manaPerCounter[manaType] || 0) + 1;
+                       symbol === 'C' ? 'colorless' :
+                       null; // Invalid symbol - skip it
+      
+      if (manaType) {
+        manaPerCounter[manaType] = (manaPerCounter[manaType] || 0) + 1;
+      }
     }
     
     // Calculate total mana: (mana per counter) * (age counters)

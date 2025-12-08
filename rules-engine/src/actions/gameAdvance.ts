@@ -329,7 +329,8 @@ function resolveTopOfStack(
         const card = topObject.card as any;
         const oracleText = card?.oracle_text || '';
         
-        // Parse mana-adding patterns: "Add {B}{B}{B}", "Add {R}{R}{R}{R}{R}", etc.
+        // Parse mana-adding patterns: "Add {B}{B}{B}", "Add {R}{R}{R}{R}{R}", "Add {C}", etc.
+        // Supports {W}{U}{B}{R}{G}{C} for all mana types
         const manaAddPattern = /add\s+((?:\{[WUBRGC]\})+)/gi;
         let manaMatch;
         
@@ -348,8 +349,12 @@ function resolveTopOfStack(
                            symbol === 'B' ? 'black' :
                            symbol === 'R' ? 'red' :
                            symbol === 'G' ? 'green' :
-                           'colorless';
-            manaToAdd[manaType] = (manaToAdd[manaType] || 0) + 1;
+                           symbol === 'C' ? 'colorless' :
+                           null; // Invalid symbol - skip it
+            
+            if (manaType) {
+              manaToAdd[manaType] = (manaToAdd[manaType] || 0) + 1;
+            }
           }
           
           // Initialize mana pool if needed
