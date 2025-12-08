@@ -4587,6 +4587,10 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
       const oracleTextLower = oracleText.toLowerCase();
       const hasBattleLandPattern = oracleTextLower.includes('two or more basic lands');
       
+      // Count opponents (other players in the game, excluding the current player)
+      const allPlayers = state.players || [];
+      const opponentCount = allPlayers.filter((p: any) => p.id !== playerId).length;
+      
       if (hasBattleLandPattern) {
         // Battle land (BFZ tango land) - check basic land count
         shouldEnterTapped = basicLandCount < 2;
@@ -4598,7 +4602,8 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
           otherLandCount,
           controlledLandTypes,
           undefined,  // cardsInHand - not needed for these land types
-          basicLandCount  // Pass basic land count for battle lands if they reach this code path
+          basicLandCount,  // Pass basic land count for battle lands if they reach this code path
+          opponentCount    // Pass opponent count for Luxury Suite and similar lands
         );
         shouldEnterTapped = evaluation.shouldEnterTapped;
         console.log(`[playLand] ${card.name || 'Land'} conditional ETB: ${evaluation.reason}`);

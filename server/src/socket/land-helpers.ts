@@ -298,7 +298,8 @@ export function evaluateConditionalLandETB(
   controlledLandCount: number,
   controlledLandTypes: string[],
   cardsInHand?: any[],
-  basicLandCount?: number
+  basicLandCount?: number,
+  opponentCount?: number
 ): ConditionalLandETBResult {
   const text = (oracleText || '').toLowerCase();
   
@@ -374,6 +375,21 @@ export function evaluateConditionalLandETB(
       reason: shouldTap 
         ? `Enters tapped (you control ${controlledLandCount} other lands)` 
         : `Enters untapped (you control only ${controlledLandCount} other land${controlledLandCount !== 1 ? 's' : ''})`,
+    };
+  }
+  
+  // Opponent count lands (Luxury Suite, Spectator Seating, etc.)
+  // "This land enters tapped unless you have two or more opponents"
+  // Pattern matches both "This land enters" and "enters the battlefield"
+  const opponentCountMatch = text.match(/(?:this land )?enters(?: the battlefield)? tapped unless you have two or more opponents/i);
+  if (opponentCountMatch) {
+    const actualOpponentCount = opponentCount ?? 0;
+    const shouldTap = actualOpponentCount < 2;
+    return {
+      shouldEnterTapped: shouldTap,
+      reason: shouldTap 
+        ? `Enters tapped (you have only ${actualOpponentCount} opponent${actualOpponentCount !== 1 ? 's' : ''})` 
+        : `Enters untapped (you have ${actualOpponentCount} opponents)`,
     };
   }
   

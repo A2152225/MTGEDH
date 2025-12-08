@@ -1750,6 +1750,10 @@ export function registerGameActions(io: Server, socket: Socket) {
           // Get player's hand for reveal land checks
           const playerHand = Array.isArray(zones?.hand) ? zones.hand : [];
           
+          // Count opponents (other players in the game, excluding the current player)
+          const allPlayers = (game.state as any)?.players || [];
+          const opponentCount = allPlayers.filter((p: any) => p.id !== playerId).length;
+          
           // Evaluate the conditional ETB
           // For battle lands, use basic land count instead of land types
           let evaluation;
@@ -1767,7 +1771,9 @@ export function registerGameActions(io: Server, socket: Socket) {
               oracleText,
               otherLandCount,
               controlledLandTypes,
-              playerHand
+              playerHand,
+              basicLandCount,
+              opponentCount
             );
           }
           

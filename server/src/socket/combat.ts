@@ -9,7 +9,7 @@ import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, getPlayerName, emitToPlayer, getEffectivePower, getEffectiveToughness, broadcastManaPoolUpdate, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool } from "./util.js";
 import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
-import { getAttackTriggersForCreatures, type TriggeredAbility } from "../state/modules/triggered-abilities.js";
+import { getAttackTriggersForCreatures, getTapTriggers, type TriggeredAbility } from "../state/modules/triggered-abilities.js";
 import { creatureHasHaste, permanentHasKeyword } from "./game-actions.js";
 
 
@@ -715,6 +715,83 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         if (!hasVigilance) {
           (creature as any).tapped = true;
         }
+      }
+
+      // Process tap triggers for creatures that became tapped from attacking
+      // This handles cards like Magda, Brazen Outlaw: "Whenever a Dwarf you control becomes tapped, create a Treasure token."
+      try {
+        const ctx = {
+          state: game.state,
+          bumpSeq: () => {
+            if (typeof (game as any).bumpSeq === "function") {
+              (game as any).bumpSeq();
+            }
+          }
+        };
+        
+        // Check for tap triggers for each creature that was tapped
+        const allTapTriggers: any[] = [];
+        for (const attacker of attackers) {
+          const creature = battlefield.find((p: any) => p?.id === attacker.creatureId);
+          if (!creature) continue;
+          
+          // Only process tap triggers if the creature was actually tapped
+          const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance');
+          if (!hasVigilance && creature.tapped) {
+            const tapTriggers = getTapTriggers(ctx as any, creature, playerId);
+            allTapTriggers.push(...tapTriggers);
+          }
+        }
+        
+        // Push tap triggers to stack and notify clients
+        if (allTapTriggers.length > 0) {
+          console.log(`[combat] Found ${allTapTriggers.length} tap trigger(s) for game ${gameId}`);
+          
+          for (const trigger of allTapTriggers) {
+            // Push trigger onto stack
+            game.state.stack = game.state.stack || [];
+            const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            const stackItem: any = {
+              id: triggerId,
+              type: 'triggered_ability',
+              controller: playerId,
+              source: trigger.permanentId,
+              sourceName: trigger.cardName,
+              description: trigger.description,
+              triggerType: 'tap',
+              mandatory: trigger.mandatory,
+            };
+            
+            // Add effect data if present
+            if (trigger.createsToken) {
+              stackItem.effectData = {
+                createsToken: true,
+                tokenDetails: trigger.tokenDetails,
+              };
+            }
+            
+            game.state.stack.push(stackItem);
+            
+            // Notify players about the trigger
+            io.to(gameId).emit("triggeredAbility", {
+              gameId,
+              triggerId,
+              playerId,
+              sourcePermanentId: trigger.permanentId,
+              sourceName: trigger.cardName,
+              triggerType: 'tap',
+              description: trigger.description,
+              mandatory: trigger.mandatory,
+            });
+            
+            console.log(`[combat] Tap trigger: ${trigger.cardName} - ${trigger.description}`);
+          }
+          
+          // Broadcast the updated game state after adding triggers
+          broadcastGame(io, gameId, game);
+        }
+      } catch (e) {
+        console.error("[combat] Failed to process tap triggers:", e);
       }
 
       // Use game's declareAttackers method if available
@@ -1576,6 +1653,82 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         if (!hasVigilance) {
           (creature as any).tapped = true;
         }
+      }
+
+      // Process tap triggers for creatures that became tapped from attacking
+      // This handles cards like Magda, Brazen Outlaw: "Whenever a Dwarf you control becomes tapped, create a Treasure token."
+      try {
+        const ctx = {
+          state: game.state,
+          bumpSeq: () => {
+            if (typeof (game as any).bumpSeq === "function") {
+              (game as any).bumpSeq();
+            }
+          }
+        };
+        
+        // Check for tap triggers for each creature that was tapped
+        const allTapTriggers: any[] = [];
+        for (const attacker of attackers) {
+          const creature = battlefield.find((p: any) => p?.id === attacker.creatureId);
+          if (!creature) continue;
+          
+          // Only process tap triggers if the creature was actually tapped
+          const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance');
+          if (!hasVigilance && creature.tapped) {
+            // Get the actual controller of the creature (may be different from playerId in controlled combat)
+            const creatureController = creature.controller || playerId;
+            const tapTriggers = getTapTriggers(ctx as any, creature, creatureController);
+            allTapTriggers.push(...tapTriggers);
+          }
+        }
+        
+        // Push tap triggers to stack and notify clients
+        if (allTapTriggers.length > 0) {
+          console.log(`[combat] Found ${allTapTriggers.length} tap trigger(s) for game ${gameId}`);
+          
+          for (const trigger of allTapTriggers) {
+            // Push trigger onto stack
+            game.state.stack = game.state.stack || [];
+            const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            const stackItem: any = {
+              id: triggerId,
+              type: 'triggered_ability',
+              controller: trigger.controllerId,
+              source: trigger.permanentId,
+              sourceName: trigger.cardName,
+              description: trigger.description,
+              triggerType: 'tap',
+              mandatory: trigger.mandatory,
+            };
+            
+            // Add effect data if present
+            if (trigger.createsToken) {
+              stackItem.effectData = {
+                createsToken: true,
+                tokenDetails: trigger.tokenDetails,
+              };
+            }
+            
+            game.state.stack.push(stackItem);
+            
+            // Notify players about the trigger
+            io.to(gameId).emit("triggeredAbility", {
+              gameId,
+              triggerId,
+              playerId: trigger.controllerId,
+              sourcePermanentId: trigger.permanentId,
+              sourceName: trigger.cardName,
+              triggerType: 'tap',
+              description: trigger.description,
+              mandatory: trigger.mandatory,
+            });
+            
+            console.log(`[combat] Tap trigger: ${trigger.cardName} - ${trigger.description}`);
+          }
+        }
+      } catch (e) {
+        console.error("[combat] Failed to process tap triggers:", e);
       }
 
       // Update combat state
