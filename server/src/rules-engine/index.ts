@@ -91,6 +91,37 @@ export function applyStateBasedActions(state: Readonly<GameState>): EngineSBARes
   }
 
   const destroys: string[] = [];
+  
+  // CR 704.5m: If an Aura is attached to an illegal object or player,
+  // or is not attached to an object or player, that Aura is put into
+  // its owner's graveyard.
+  // CR 704.5n: If an Aura is on the battlefield and isn't enchanting
+  // an object or player, that Aura is put into its owner's graveyard.
+  for (const perm of state.battlefield as readonly BattlefieldPermanent[]) {
+    const typeLine = ((perm.card as any)?.type_line || '').toLowerCase();
+    const isAura = typeLine.includes('enchantment') && typeLine.includes('aura');
+    
+    if (isAura) {
+      // Check if the aura is an enchantment creature (Bestow, Reconfigure, etc.)
+      // These can exist on the battlefield without being attached
+      const isEnchantmentCreature = typeLine.includes('creature');
+      
+      // If it's NOT an enchantment creature and has no attachedTo, destroy it
+      if (!isEnchantmentCreature && !(perm as any).attachedTo) {
+        destroys.push(perm.id);
+      }
+      // If it IS attached, verify the target still exists
+      else if ((perm as any).attachedTo && !isEnchantmentCreature) {
+        const targetExists = (state.battlefield as readonly BattlefieldPermanent[])
+          .some(p => p.id === (perm as any).attachedTo);
+        if (!targetExists) {
+          destroys.push(perm.id);
+        }
+      }
+    }
+  }
+  
+  // CR 704.5a: Creatures with toughness 0 or less are destroyed
   for (const perm of state.battlefield as readonly BattlefieldPermanent[]) {
     const dt = derivedToughness(perm);
     if (isNumber(dt) && dt <= 0) {
