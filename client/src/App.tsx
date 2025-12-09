@@ -932,19 +932,28 @@ export function App() {
     const playableCards = (safeView as any).playableCards || [];
     const canRespond = playableCards.length > 0;
     
-    // Check if player has creatures for combat
-    const playerCreatures = (safeView.battlefield || []).filter((p: any) => 
-      p.controller === you && 
-      (p.card?.type_line || '').toLowerCase().includes('creature') &&
-      !p.tapped
-    );
+    // Check if player has creatures for combat (must be untapped and not have summoning sickness)
+    const playerCreatures = (safeView.battlefield || []).filter((p: any) => {
+      if (p.controller !== you) return false;
+      if (!(p.card?.type_line || '').toLowerCase().includes('creature')) return false;
+      if (p.tapped) return false;
+      // Check summoning sickness - creature must have been on battlefield since start of turn
+      // If the creature has 'Haste' keyword, it can attack immediately
+      const hasHaste = (p.card?.keywords || []).some((k: string) => k.toLowerCase() === 'haste') ||
+                      (p.card?.oracle_text || '').toLowerCase().includes('haste');
+      if (p.summoningSick && !hasHaste) return false;
+      return true;
+    });
     const hasCreaturesToAttack = playerCreatures.length > 0;
-    const isCombatPhase = stepKey.includes('combat') || stepKey.includes('attack') || stepKey.includes('block') || stepKey.includes('damage');
+    
+    // Combat phases detection
+    const COMBAT_STEPS = ['combat', 'attack', 'block', 'damage'];
+    const isCombatPhase = COMBAT_STEPS.some(phase => stepKey.includes(phase));
     
     // Auto-pass logic for your own turn:
     // 1. Main phases: Auto-pass if you CAN'T respond (no playable cards/lands/abilities)
     // 2. Combat phases: Auto-pass if you have no creatures to attack with
-    // 3. Other phases: Auto-pass if using phase navigator AND can't respond
+    // 3. Other phases: Auto-pass if using phase navigator
     const canAutoPassOnYourTurn = 
       (isActionPhase && !canRespond) ||  // Main phase with nothing to do
       (isCombatPhase && !hasCreaturesToAttack) ||  // Combat with no creatures
@@ -953,9 +962,8 @@ export function App() {
     // Auto-pass activates when:
     // 1. Auto-pass is enabled for this step, AND
     // 2. Either: not your turn, OR you can auto-pass on your turn (no actions available), AND  
-    // 3. No pending triggers to handle, AND
-    // 4. You cannot respond (no playable cards/lands/abilities)
-    const shouldAutoPass = autoPassStepEnabled && (!isYourTurn || canAutoPassOnYourTurn) && !hasPendingTriggers && !canRespond;
+    // 3. No pending triggers to handle
+    const shouldAutoPass = autoPassStepEnabled && (!isYourTurn || canAutoPassOnYourTurn) && !hasPendingTriggers;
     
     if (youHavePriority && stackLength === 0 && !combatModalOpen) {
       // Check if this is a new step OR if canRespond status changed
