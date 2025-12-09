@@ -793,6 +793,17 @@ export function registerAIPlayer(
   }
   aiPlayers.get(gameId)!.set(playerId, config);
   
+  // Add AI player to auto-pass set so they automatically pass when they can't respond
+  const game = ensureGame(gameId);
+  if (game && game.state) {
+    const stateAny = game.state as any;
+    if (!stateAny.autoPassPlayers || !(stateAny.autoPassPlayers instanceof Set)) {
+      stateAny.autoPassPlayers = new Set();
+    }
+    stateAny.autoPassPlayers.add(playerId);
+    console.info('[AI] Added AI player to auto-pass set:', { gameId, playerId });
+  }
+  
   console.info('[AI] Registered AI player:', { gameId, playerId, name, strategy, difficulty });
 }
 
@@ -807,6 +818,16 @@ export function unregisterAIPlayer(gameId: string, playerId: PlayerID): void {
     gameAIs.delete(playerId);
     if (gameAIs.size === 0) {
       aiPlayers.delete(gameId);
+    }
+  }
+  
+  // Remove AI player from auto-pass set
+  const game = ensureGame(gameId);
+  if (game && game.state) {
+    const stateAny = game.state as any;
+    if (stateAny.autoPassPlayers && stateAny.autoPassPlayers instanceof Set) {
+      stateAny.autoPassPlayers.delete(playerId);
+      console.info('[AI] Removed AI player from auto-pass set:', { gameId, playerId });
     }
   }
   
