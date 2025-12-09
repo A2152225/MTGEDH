@@ -134,13 +134,51 @@ function hasBackground(card: any): boolean {
 }
 
 /**
+ * Calculate the overall color identity of a deck by examining all cards
+ */
+function calculateDeckColorIdentity(cards: any[]): Set<string> {
+  const deckColors = new Set<string>();
+  for (const card of cards) {
+    const colors = extractColorIdentity(card);
+    for (const color of colors) {
+      deckColors.add(color);
+    }
+  }
+  return deckColors;
+}
+
+/**
+ * Calculate how well a set of commanders covers the deck's color identity
+ * Returns the number of deck colors that are covered by the commanders
+ */
+function calculateColorCoverage(commanders: any[], deckColors: Set<string>): number {
+  const commanderColors = new Set<string>();
+  for (const commander of commanders) {
+    const colors = extractColorIdentity(commander);
+    for (const color of colors) {
+      commanderColors.add(color);
+    }
+  }
+  
+  let coverage = 0;
+  for (const color of deckColors) {
+    if (commanderColors.has(color)) {
+      coverage++;
+    }
+  }
+  return coverage;
+}
+
+/**
  * Find the best commander(s) from a deck's card list
  * Returns 1 or 2 commanders based on partner/background rules
  * 
  * Priority order:
  * 1. Check first 1-2 cards in decklist (commanders are typically listed first)
- * 2. Look for partner pairs or commander+background pairs
- * 3. Fall back to first valid commander candidate
+ *    - BUT validate that partner pairs cover the deck's color identity
+ * 2. Look for partner pairs that best match deck colors
+ * 3. Look for commander+background pairs
+ * 4. Fall back to first valid commander candidate
  * 
  * Also calculates combined color identity of the selected commander(s)
  */
@@ -152,6 +190,10 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
     console.warn('[AI] No valid commander candidates found in deck');
     return { commanders: [], colorIdentity: [] };
   }
+  
+  // Calculate the deck's overall color identity
+  const deckColors = calculateDeckColorIdentity(cards);
+  console.info('[AI] Deck color identity:', Array.from(deckColors).join(''));
   
   // Find partner candidates and background candidates
   const partnerCandidates = candidates.filter(hasPartner);
@@ -168,11 +210,20 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
     // Check if first two cards are both partners
     if (firstTwoCandidates.length === 2 && 
         hasPartner(firstTwoCandidates[0]) && hasPartner(firstTwoCandidates[1])) {
-      selectedCommanders = firstTwoCandidates;
-      console.info('[AI] Selected partner commanders from first 2 cards:', selectedCommanders.map(c => c.name));
+      // Validate that these partners cover the deck's color identity
+      const coverage = calculateColorCoverage(firstTwoCandidates, deckColors);
+      if (coverage === deckColors.size || deckColors.size === 0) {
+        // Perfect match - use these commanders
+        selectedCommanders = firstTwoCandidates;
+        console.info('[AI] Selected partner commanders from first 2 cards (full color coverage):', selectedCommanders.map(c => c.name));
+      } else {
+        // Partners don't cover all deck colors - look for better options
+        console.warn('[AI] First 2 partner commanders only cover', coverage, 'of', deckColors.size, 'deck colors');
+        // Fall through to find better partners
+      }
     }
     // Check if first two cards are commander + background pair
-    else if (firstTwoCandidates.length >= 1) {
+    else if (firstTwoCandidates.length >= 1 && selectedCommanders.length === 0) {
       const firstCard = firstTwoCandidates[0];
       const secondCard = firstTwoCards[1];
       
@@ -193,10 +244,39 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
     }
   }
   
-  // Priority 2: If no commanders found in first 2 cards, check for partner pairs elsewhere
+  // Priority 2: If no commanders found or first 2 didn't cover colors, find best partner pair
   if (selectedCommanders.length === 0 && partnerCandidates.length >= 2) {
-    selectedCommanders = partnerCandidates.slice(0, 2);
-    console.info('[AI] Selected partner commanders:', selectedCommanders.map(c => c.name));
+    // Find the partner pair that best covers the deck's color identity
+    let bestPair: any[] = [];
+    let bestCoverage = 0;
+    
+    for (let i = 0; i < partnerCandidates.length; i++) {
+      for (let j = i + 1; j < partnerCandidates.length; j++) {
+        const pair = [partnerCandidates[i], partnerCandidates[j]];
+        const coverage = calculateColorCoverage(pair, deckColors);
+        if (coverage > bestCoverage) {
+          bestCoverage = coverage;
+          bestPair = pair;
+        }
+        // If we found perfect coverage, stop searching
+        if (coverage === deckColors.size) {
+          break;
+        }
+      }
+      // If we found perfect coverage, stop searching
+      if (bestCoverage === deckColors.size) {
+        break;
+      }
+    }
+    
+    if (bestPair.length === 2) {
+      selectedCommanders = bestPair;
+      console.info('[AI] Selected partner commanders with best color coverage (' + bestCoverage + '/' + deckColors.size + '):', selectedCommanders.map(c => c.name));
+    } else {
+      // Fallback to first 2 partners if no pair found
+      selectedCommanders = partnerCandidates.slice(0, 2);
+      console.info('[AI] Selected partner commanders (fallback):', selectedCommanders.map(c => c.name));
+    }
   }
   
   // Priority 3: Check for background pair
