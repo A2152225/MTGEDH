@@ -488,8 +488,109 @@ export async function handleAIGameFlow(
         
         // Broadcast updated state so human players see AI has kept hand
         broadcastGame(io, game, gameId);
+        
+        // After keeping hand, re-trigger game flow to check for advancement
+        setTimeout(() => handleAIGameFlow(io, gameId, playerId), AI_THINK_TIME_MS);
+        return;
+      }
+      
+      // AI has already kept hand - now check if we should advance from pre_game
+      // This happens when:
+      // 1. AI is the active player (turnPlayer)
+      // 2. All players have kept their hands
+      // 3. All pending Leyline/opening hand actions are resolved
+      if (isAITurn) {
+        console.info('[AI] AI is active player in pre_game, checking if ready to advance');
+        
+        // Check if all players have kept their hands
+        const allPlayers = players.filter((p: any) => p && !p.spectator);
+        const allKeptHands = allPlayers.every((p: any) => {
+          const pMulliganState = mulliganState[p.id];
+          return pMulliganState && pMulliganState.hasKeptHand;
+        });
+        
+        if (!allKeptHands) {
+          console.info('[AI] Waiting for other players to keep their hands');
+          return;
+        }
+        
+        // Check for pending Leyline/opening hand actions
+        // Players with Leylines in hand will have a pending prompt
+        // We need to wait for them to either play or skip Leylines
+        let hasPendingLeylineActions = false;
+        for (const player of allPlayers) {
+          const pid = player.id;
+          // Check if player has Leyline cards in hand
+          const pZones = game.state.zones?.[pid];
+          if (pZones && Array.isArray(pZones.hand)) {
+            const hasLeylines = pZones.hand.some((card: any) => {
+              if (!card) return false;
+              const oracleText = (card.oracle_text || '').toLowerCase();
+              const cardName = (card.name || '').toLowerCase();
+              return (
+                (oracleText.includes('in your opening hand') &&
+                 oracleText.includes('begin the game with')) ||
+                cardName.startsWith('leyline of') ||
+                cardName === 'gemstone caverns'
+              );
+            });
+            
+            if (hasLeylines && !isAIPlayer(gameId, pid)) {
+              // Human player has Leylines - they might still need to resolve them
+              // Check if they've already been prompted (we track this implicitly by checking
+              // if the game has broadcast since they kept their hand)
+              // For safety, give them a brief window to act
+              hasPendingLeylineActions = true;
+              console.info(`[AI] Player ${pid} has Leyline cards, waiting for resolution`);
+            }
+          }
+        }
+        
+        // If there are pending Leyline actions, wait a bit longer for players to resolve them
+        // This is a conservative check - in practice, the Leyline prompt should be shown
+        // immediately after keeping hand, but we give a small grace period
+        if (hasPendingLeylineActions) {
+          // Re-check after a delay to allow human players to play/skip Leylines
+          setTimeout(() => handleAIGameFlow(io, gameId, playerId), AI_THINK_TIME_MS * 2);
+          return;
+        }
+        
+        // All conditions met - advance from pre_game to beginning phase (MAIN1)
+        console.info('[AI] All players ready, AI advancing from pre_game to beginning phase');
+        
+        try {
+          // Use nextStep to advance from pre_game to the first turn
+          // This will set up UNTAP step and immediately advance to UPKEEP, then to MAIN1
+          if (typeof (game as any).nextStep === 'function') {
+            (game as any).nextStep();
+            console.info('[AI] Advanced game from pre_game to beginning phase');
+            
+            // Persist the event
+            try {
+              await appendEvent(gameId, (game as any).seq || 0, 'nextStep', {
+                playerId,
+                reason: 'ai_pregame_advance',
+                isAI: true,
+              });
+            } catch (e) {
+              console.warn('[AI] Failed to persist nextStep event:', e);
+            }
+            
+            // Broadcast updated state
+            broadcastGame(io, game, gameId);
+            
+            // Re-trigger AI game flow to handle the new phase
+            setTimeout(() => handleAIGameFlow(io, gameId, playerId), AI_THINK_TIME_MS);
+          } else {
+            console.error('[AI] game.nextStep not available');
+          }
+        } catch (err) {
+          console.error('[AI] Error advancing from pre_game:', err);
+        }
+        
+        return;
       } else {
-        console.info('[AI] AI has already kept hand, ready to start game');
+        console.info('[AI] AI has kept hand but is not active player, waiting');
       }
     }
     return;

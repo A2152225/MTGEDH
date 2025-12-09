@@ -349,6 +349,18 @@ export function useGameSocket(): UseGameSocketState {
             (payload && (payload.id || payload.gameId)) || undefined;
         }
 
+        // CRITICAL FIX: Ignore state updates for games we've left
+        // This prevents the race condition where leaving a game clears state,
+        // but then a delayed state broadcast re-populates it
+        if (!lastJoinRef.current || lastJoinRef.current.gameId !== incomingGameId) {
+          // eslint-disable-next-line no-console
+          console.debug("[socket] state ignored - not joined or different game", {
+            incomingGameId,
+            currentJoin: lastJoinRef.current?.gameId,
+          });
+          return;
+        }
+
         if (newView) {
           const viewWithId = incomingGameId
             ? { ...newView, id: incomingGameId }
@@ -391,6 +403,18 @@ export function useGameSocket(): UseGameSocketState {
             undefined;
         } else {
           diff = { after: payload };
+        }
+
+        // CRITICAL FIX: Ignore state updates for games we've left
+        // This prevents the race condition where leaving a game clears state,
+        // but then a delayed state broadcast re-populates it
+        if (!lastJoinRef.current || lastJoinRef.current.gameId !== incomingGameId) {
+          // eslint-disable-next-line no-console
+          console.debug("[socket] stateDiff ignored - not joined or different game", {
+            incomingGameId,
+            currentJoin: lastJoinRef.current?.gameId,
+          });
+          return;
         }
 
         if (diff?.full) {
