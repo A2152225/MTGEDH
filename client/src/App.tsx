@@ -5347,6 +5347,7 @@ export function App() {
         }}
         onActivateAbility={handleGraveyardAbility}
         playableCards={you === graveyardModalPlayerId ? (safeView as any)?.playableCards : undefined}
+        appearanceSettings={appearanceSettings}
       />
 
       {/* Exile View Modal */}
@@ -5365,6 +5366,7 @@ export function App() {
         }}
         onActivateAbility={handleExileAbility}
         playableCards={you === exileModalPlayerId ? (safeView as any)?.playableCards : undefined}
+        appearanceSettings={appearanceSettings}
       />
 
       {/* Join Forces Modal (Collective Voyage, Minds Aglow, etc.) */}

@@ -8,6 +8,8 @@
 import React, { useState, useMemo } from 'react';
 import type { KnownCardRef } from '../../../shared/src';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
+import type { AppearanceSettings } from '../utils/appearanceSettings';
+import { getPlayableCardHighlight } from '../utils/appearanceSettings';
 
 export interface ExileAbility {
   id: string;
@@ -24,6 +26,7 @@ export interface ExileViewModalProps {
   onClose: () => void;
   onActivateAbility?: (cardId: string, abilityId: string, card: KnownCardRef) => void;
   playableCards?: string[];
+  appearanceSettings?: AppearanceSettings;
 }
 
 function parseExileAbilities(card: KnownCardRef): ExileAbility[] {
@@ -94,6 +97,7 @@ export function ExileViewModal({
   onClose,
   onActivateAbility,
   playableCards = [],
+  appearanceSettings,
 }: ExileViewModalProps) {
   const [selectedCard, setSelectedCard] = useState<KnownCardRef | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -206,7 +210,7 @@ export function ExileViewModal({
                       position: 'relative', borderRadius: 6, overflow: 'hidden',
                       border: isSuspended ? '2px solid rgba(245,158,11,0.5)' : abilities.length > 0 ? '2px solid rgba(147,51,234,0.5)' : '1px solid rgba(255,255,255,0.1)',
                       backgroundColor: '#252540', cursor: 'pointer',
-                      boxShadow: isPlayable ? '0 0 8px 3px rgba(34,197,94,0.8), 0 0 0 2px #22c55e' : 'none',
+                      boxShadow: isPlayable ? getPlayableCardHighlight(appearanceSettings) : 'none',
                     }}
                     onClick={() => setSelectedCard(selectedCard?.id === card.id ? null : card)}
                     onMouseEnter={(e) => showCardPreview(e.currentTarget as HTMLElement, card, { prefer: 'above' })}

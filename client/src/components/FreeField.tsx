@@ -7,6 +7,8 @@ import { CardContextMenu } from './CardContextMenu';
 import { ActivatedAbilityButtons } from './ActivatedAbilityButtons';
 import { AbilitySelectionModal } from './AbilitySelectionModal';
 import { parseActivatedAbilities, canActivateTapAbility, type ParsedActivatedAbility, type ActivationContext } from '../utils/activatedAbilityParser';
+import type { AppearanceSettings } from '../utils/appearanceSettings';
+import { getPlayableCardHighlight } from '../utils/appearanceSettings';
 
 function parsePT(raw?: string | number): number | undefined {
   if (typeof raw === 'number') return raw;
@@ -108,6 +110,8 @@ export function FreeField(props: {
   showActivatedAbilityButtons?: boolean;
   // Playable cards highlighting
   playableCards?: string[];
+  // Appearance settings for custom highlight color
+  appearanceSettings?: AppearanceSettings;
 }) {
   const {
     perms, imagePref, tileWidth, widthPx, heightPx,
@@ -122,6 +126,7 @@ export function FreeField(props: {
     hasThousandYearElixirEffect = false,
     showActivatedAbilityButtons = true,
     playableCards = [],
+    appearanceSettings,
   } = props;
 
   const tileH = Math.round(tileWidth / 0.72);
@@ -520,7 +525,7 @@ export function FreeField(props: {
               transform: tapped ? 'rotate(14deg)' : 'none',
               transformOrigin: '50% 50%',
               boxShadow: isPlayable
-                ? '0 0 8px 3px rgba(34, 197, 94, 0.8), 0 0 0 2px #22c55e' // Green glow for playable
+                ? getPlayableCardHighlight(appearanceSettings)
                 : isAttachmentHighlighted
                   ? '0 0 16px rgba(168,85,247,0.7)' // Purple glow for attachment highlight
                   : isAttacking 

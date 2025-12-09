@@ -1,6 +1,8 @@
 import React from "react";
 import type { PlayerZones, CommanderInfo, KnownCardRef } from "../../../shared/src";
 import { showCardPreview, hideCardPreview } from "./CardPreviewLayer";
+import type { AppearanceSettings } from "../utils/appearanceSettings";
+import { getPlayableCardHighlight } from "../utils/appearanceSettings";
 
 /**
  * ZonesPiles: shows library/graveyard/exile and command zone slots.
@@ -28,8 +30,9 @@ export function ZonesPiles(props: {
   onViewExile?: () => void;
   playableCards?: string[];
   playerId?: string;
+  appearanceSettings?: AppearanceSettings;
 }) {
-  const { zones: zonesInput = SAFE_DEFAULT_ZONES, commander, isCommanderFormat, showHandCount = 0, hideHandDetails, canCastCommander, onCastCommander, onViewGraveyard, onViewExile, playableCards = [], playerId } = props;
+  const { zones: zonesInput = SAFE_DEFAULT_ZONES, commander, isCommanderFormat, showHandCount = 0, hideHandDetails, canCastCommander, onCastCommander, onViewGraveyard, onViewExile, playableCards = [], playerId, appearanceSettings } = props;
   // Ensure zones is never null
   const zones = zonesInput ?? SAFE_DEFAULT_ZONES;
 
@@ -75,7 +78,7 @@ export function ZonesPiles(props: {
           textAlign: "center",
           cursor: isClickable ? "pointer" : "default",
           transition: "border-color 0.15s",
-          boxShadow: isPlayable ? '0 0 8px 3px rgba(34, 197, 94, 0.8), 0 0 0 2px #22c55e' : 'none',
+          boxShadow: isPlayable ? getPlayableCardHighlight(appearanceSettings) : 'none',
         }}
         onClick={onClick}
         onDoubleClick={onDoubleClick}
@@ -178,7 +181,7 @@ export function ZonesPiles(props: {
                     cursor: previewCard ? "pointer" : "default",
                     overflow: "hidden",
                     opacity: slot.isInCZ ? 1 : 0.5,
-                    boxShadow: isPlayable ? '0 0 8px 3px rgba(34, 197, 94, 0.8), 0 0 0 2px #22c55e' : 'none',
+                    boxShadow: isPlayable ? getPlayableCardHighlight(appearanceSettings) : 'none',
                   }}
                   onMouseEnter={(e) => {
                     if (previewCard) showCardPreview(e.currentTarget as HTMLElement, previewCard, { prefer: "above", anchorPadding: 0 });

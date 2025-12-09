@@ -28,7 +28,7 @@ import { CentralStack } from './CentralStack';
 import { FloatingManaPool } from './FloatingManaPool';
 import { socket } from '../socket';
 import type { AppearanceSettings } from '../utils/appearanceSettings';
-import { getPlayAreaGradientStyle, getBackgroundStyle } from '../utils/appearanceSettings';
+import { getPlayAreaGradientStyle, getBackgroundStyle, getPlayableCardHighlight } from '../utils/appearanceSettings';
 
 function clamp(n: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, n)); }
 function isLandTypeLine(tl?: string) { return /\bland\b/i.test(tl || ''); }
@@ -1293,6 +1293,7 @@ export function TableLayout(props: {
                           hasThousandYearElixirEffect={hasThousandYearElixirEffect}
                           showActivatedAbilityButtons={!!isYouThis}
                           playableCards={isYouThis ? playableCards : undefined}
+                          appearanceSettings={appearanceSettings}
                         />
 
                         {/* Mana Sources Row (mana rocks, dorks) - positioned above lands */}
@@ -1444,6 +1445,7 @@ export function TableLayout(props: {
                               enableReorder={allowReorderHere}
                               onReorder={onReorderHand}
                               playableCards={playableCards}
+                              appearanceSettings={appearanceSettings}
                             />
                           </div>
                         )}
@@ -1624,6 +1626,7 @@ export function TableLayout(props: {
                             onViewExile={onViewExile ? () => onViewExile(pb.player.id) : undefined}
                             playableCards={isYouThis ? playableCards : undefined}
                             playerId={pb.player.id}
+                            appearanceSettings={appearanceSettings}
                           />
                         )}
                       </div>

@@ -1,6 +1,8 @@
 import React, { useState, useRef } from 'react';
 import type { CardRef, KnownCardRef } from '../../../shared/src';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
+import type { AppearanceSettings } from '../utils/appearanceSettings';
+import { getPlayableCardHighlight } from '../utils/appearanceSettings';
 
 /**
  * Cost reduction info for a card
@@ -34,6 +36,8 @@ export interface HandGalleryProps {
   costReductions?: Record<string, CardCostReduction>;
   // NEW: IDs of cards that are currently playable (for highlighting)
   playableCards?: string[];
+  // Appearance settings for custom highlight color
+  appearanceSettings?: AppearanceSettings;
 }
 
 function isLand(tl?: string): boolean {
@@ -75,6 +79,7 @@ export function HandGallery(props: HandGalleryProps) {
     hidden = false,
     costReductions = {},
     playableCards = [],
+    appearanceSettings,
   } = props;
 
   const [dragIdx, setDragIdx] = useState<number | null>(null);
@@ -234,7 +239,7 @@ export function HandGallery(props: HandGalleryProps) {
                   : dragOver === i
                   ? '0 0 0 2px #38a169'
                   : isPlayable
-                  ? '0 0 8px 3px rgba(34, 197, 94, 0.8), 0 0 0 2px #22c55e'
+                  ? getPlayableCardHighlight(appearanceSettings)
                   : 'none',
             }}
             title={name}
