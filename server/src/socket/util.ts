@@ -401,15 +401,12 @@ export function ensureGame(gameId: string, options?: EnsureGameOptions): InMemor
           
           for (const player of game.state.players) {
             if (player && (player as any).isAI) {
-              // Use saved strategy if available, otherwise pick a varied strategy based on player index
-              let strategy = (player as any).strategy;
-              if (!strategy) {
-                const playerIndex = game.state.players.indexOf(player);
-                strategy = strategies[playerIndex % strategies.length];
-              }
+              // Use saved strategy if available, otherwise use basic as safe default
+              // Strategy should always be saved when AI is created, but fallback to basic for safety
+              let strategy = (player as any).strategy || AIStrategy.BASIC;
               const difficulty = (player as any).difficulty ?? 0.5;
               aiModule.registerAIPlayer(gameId, player.id as any, player.name || 'AI Opponent', strategy as any, difficulty);
-              console.info('[ensureGame] Re-registered AI player after replay:', { gameId, playerId: player.id, name: player.name, strategy });
+              console.info('[ensureGame] Re-registered AI player after replay:', { gameId, playerId: player.id, name: player.name, strategy, difficulty });
             }
           }
         }

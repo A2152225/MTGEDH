@@ -58,14 +58,11 @@ export interface HouseRulesConfig {
 
 /**
  * Configuration for a single AI opponent
- * 
- * TODO: Add difficulty field (number 0-1) for AI skill level
- * This will be set via a slider in the UI below the strategy selection
  */
 export interface AIOpponentConfig {
   name: string;
   strategy: AIStrategy;
-  difficulty?: number; // TODO: Add UI slider for this (0 = easy, 0.5 = medium, 1 = hard)
+  difficulty?: number; // AI skill level: 0 = easy, 0.5 = medium, 1 = hard (default: 0.5)
   deckId?: string;
   deckText?: string;
   deckName?: string;
