@@ -243,7 +243,7 @@ export function AppearanceSettingsModal({
               <div style={{ marginBottom: 16 }}>
                 <div style={{ color: '#aaa', fontSize: 12, marginBottom: 8 }}>Playable Card Highlight Color</div>
                 <ColorPicker
-                  color={settings.playableCardHighlightColor || DEFAULT_APPEARANCE_SETTINGS.playableCardHighlightColor!}
+                  value={settings.playableCardHighlightColor || DEFAULT_APPEARANCE_SETTINGS.playableCardHighlightColor!}
                   onChange={(color) => setSettings(prev => ({ ...prev, playableCardHighlightColor: color }))}
                 />
               </div>
