@@ -247,9 +247,9 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
           console.info(`[AI] Selected single commander from first card (full color coverage): ${firstCard.name}`);
         } else {
           // First card doesn't cover all deck colors
-          // Don't use it as a single commander - look for partner pairs instead
-          console.warn(`[AI] First commander only covers ${firstCardCoverage} of ${deckColors.size} deck colors - searching for partner pairs`);
-          // Fall through to Priority 2 to find better partners
+          // Continue searching for better options: partner pairs OR single commanders with full coverage
+          console.warn(`[AI] First commander only covers ${firstCardCoverage} of ${deckColors.size} deck colors - searching for better options`);
+          // Fall through to Priority 2 (partners), Priority 3 (backgrounds), or Priority 4 (single with full coverage)
         }
       }
     }
@@ -298,6 +298,7 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
   }
   
   // Priority 4: Find the single commander that best covers the deck's color identity
+  // This includes commanders with full color identity (e.g., 4-color commanders like Atraxa, Omnath)
   if (selectedCommanders.length === 0) {
     let bestCommander: any = null;
     let bestCoverage = 0;

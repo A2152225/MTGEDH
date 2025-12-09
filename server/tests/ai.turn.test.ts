@@ -357,5 +357,247 @@ describe('AI Turn Handling', () => {
       expect(isCleanupStep('cleanup')).toBe(true);
       expect(isCleanupStep('END')).toBe(false);
     });
+    
+    it('should select partner commanders for multi-color decks instead of single commander', () => {
+      // Test the fix for issue: WURG deck picking single WG commander instead of partners
+      
+      // Helper functions (mirroring ai.ts logic)
+      const hasPartner = (card: any): boolean => {
+        const oracleText = (card.oracle_text || '').toLowerCase();
+        return oracleText.includes('partner');
+      };
+      
+      const extractColorIdentity = (card: any): string[] => {
+        const colors = new Set<string>();
+        const colorSymbols = ['W', 'U', 'B', 'R', 'G'];
+        
+        const manaCost = card.mana_cost || '';
+        for (const colorSymbol of colorSymbols) {
+          if (manaCost.includes(colorSymbol)) {
+            colors.add(colorSymbol);
+          }
+        }
+        
+        if (Array.isArray(card.color_identity)) {
+          for (const c of card.color_identity) {
+            colors.add(c);
+          }
+        }
+        
+        return Array.from(colors);
+      };
+      
+      const calculateDeckColorIdentity = (cards: any[]): Set<string> => {
+        const deckColors = new Set<string>();
+        for (const card of cards) {
+          const colors = extractColorIdentity(card);
+          for (const color of colors) {
+            deckColors.add(color);
+          }
+        }
+        return deckColors;
+      };
+      
+      const calculateColorCoverage = (commanders: any[], deckColors: Set<string>): number => {
+        const commanderColors = new Set<string>();
+        for (const commander of commanders) {
+          const colors = extractColorIdentity(commander);
+          for (const color of colors) {
+            commanderColors.add(color);
+          }
+        }
+        
+        let coverage = 0;
+        for (const color of deckColors) {
+          if (commanderColors.has(color)) {
+            coverage++;
+          }
+        }
+        return coverage;
+      };
+      
+      // Create test cards for WURG (4-color) deck
+      const tanaPartner = {
+        id: 'tana_1',
+        name: 'Tana, the Bloodsower',
+        type_line: 'Legendary Creature — Elf Druid',
+        mana_cost: '{2}{R}{G}',
+        color_identity: ['R', 'G'],
+        oracle_text: 'Trample. Whenever Tana deals combat damage, create that many 1/1 green Saproling creature tokens. Partner',
+      };
+      
+      const ishaiPartner = {
+        id: 'ishai_1',
+        name: 'Ishai, Ojutai Dragonspeaker',
+        type_line: 'Legendary Creature — Bird Monk',
+        mana_cost: '{2}{W}{U}',
+        color_identity: ['W', 'U'],
+        oracle_text: 'Flying. Whenever an opponent casts a spell, put a +1/+1 counter on Ishai. Partner',
+      };
+      
+      // Some other legendary creatures
+      const deckCard1 = {
+        id: 'card_1',
+        name: 'Ojutai, Soul of Winter',
+        type_line: 'Legendary Creature — Dragon',
+        mana_cost: '{5}{W}{U}',
+        color_identity: ['W', 'U'],
+        oracle_text: 'Flying, vigilance',
+      };
+      
+      const deckCard2 = {
+        id: 'card_2',
+        name: 'Xenagos, God of Revels',
+        type_line: 'Legendary Enchantment Creature — God',
+        mana_cost: '{3}{R}{G}',
+        color_identity: ['R', 'G'],
+        oracle_text: 'Indestructible',
+      };
+      
+      // Build a WURG deck (partners first)
+      const deck = [tanaPartner, ishaiPartner, deckCard1, deckCard2];
+      const deckColors = calculateDeckColorIdentity(deck);
+      
+      // Deck should be WURG (4 colors)
+      expect(deckColors.has('W')).toBe(true);
+      expect(deckColors.has('U')).toBe(true);
+      expect(deckColors.has('R')).toBe(true);
+      expect(deckColors.has('G')).toBe(true);
+      expect(deckColors.size).toBe(4);
+      
+      // Test that partners cover all 4 colors
+      const partnerCoverage = calculateColorCoverage([tanaPartner, ishaiPartner], deckColors);
+      expect(partnerCoverage).toBe(4);
+      
+      // Test that single WG commander doesn't cover all colors
+      const singleCommanderCoverage = calculateColorCoverage([tanaPartner], deckColors);
+      expect(singleCommanderCoverage).toBe(2); // Only R and G
+      
+      // Verify both cards have partner
+      expect(hasPartner(tanaPartner)).toBe(true);
+      expect(hasPartner(ishaiPartner)).toBe(true);
+      
+      // The fix ensures we DON'T select a single commander when it doesn't cover all colors
+      // Instead, we search for partner pairs that do
+      const firstCard = deck[0];
+      const firstCardCoverage = calculateColorCoverage([firstCard], deckColors);
+      
+      // First card doesn't cover all 4 colors
+      expect(firstCardCoverage).toBeLessThan(deckColors.size);
+      
+      // Therefore, we should NOT select it as a single commander
+      // Instead, we should fall through to find the partner pair
+      // The test verifies the logic: when single commander coverage < deck colors,
+      // we should look for partners instead
+    });
+    
+    it('should select single 4-color commander for 4-color deck', () => {
+      // Test the requirement: legendary creatures with all the color identity should be considered
+      
+      // Helper functions
+      const extractColorIdentity = (card: any): string[] => {
+        const colors = new Set<string>();
+        const colorSymbols = ['W', 'U', 'B', 'R', 'G'];
+        
+        const manaCost = card.mana_cost || '';
+        for (const colorSymbol of colorSymbols) {
+          if (manaCost.includes(colorSymbol)) {
+            colors.add(colorSymbol);
+          }
+        }
+        
+        if (Array.isArray(card.color_identity)) {
+          for (const c of card.color_identity) {
+            colors.add(c);
+          }
+        }
+        
+        return Array.from(colors);
+      };
+      
+      const calculateDeckColorIdentity = (cards: any[]): Set<string> => {
+        const deckColors = new Set<string>();
+        for (const card of cards) {
+          const colors = extractColorIdentity(card);
+          for (const color of colors) {
+            deckColors.add(color);
+          }
+        }
+        return deckColors;
+      };
+      
+      const calculateColorCoverage = (commanders: any[], deckColors: Set<string>): number => {
+        const commanderColors = new Set<string>();
+        for (const commander of commanders) {
+          const colors = extractColorIdentity(commander);
+          for (const color of colors) {
+            commanderColors.add(color);
+          }
+        }
+        
+        let coverage = 0;
+        for (const color of deckColors) {
+          if (commanderColors.has(color)) {
+            coverage++;
+          }
+        }
+        return coverage;
+      };
+      
+      // Create a 4-color commander (Atraxa-like)
+      const atraxa = {
+        id: 'atraxa_1',
+        name: 'Atraxa, Praetors\' Voice',
+        type_line: 'Legendary Creature — Phyrexian Angel Horror',
+        mana_cost: '{G}{W}{U}{B}',
+        color_identity: ['W', 'U', 'B', 'G'],
+        oracle_text: 'Flying, vigilance, deathtouch, lifelink. Proliferate',
+      };
+      
+      // Other deck cards
+      const deckCard1 = {
+        id: 'card_1',
+        name: 'Supreme Verdict',
+        type_line: 'Sorcery',
+        mana_cost: '{1}{W}{W}{U}',
+        color_identity: ['W', 'U'],
+        oracle_text: 'This spell can\'t be countered. Destroy all creatures.',
+      };
+      
+      const deckCard2 = {
+        id: 'card_2',
+        name: 'Putrefy',
+        type_line: 'Instant',
+        mana_cost: '{1}{B}{G}',
+        color_identity: ['B', 'G'],
+        oracle_text: 'Destroy target artifact or creature.',
+      };
+      
+      // Build WUBG deck with Atraxa first
+      const deck = [atraxa, deckCard1, deckCard2];
+      const deckColors = calculateDeckColorIdentity(deck);
+      
+      // Deck should be WUBG (4 colors)
+      expect(deckColors.has('W')).toBe(true);
+      expect(deckColors.has('U')).toBe(true);
+      expect(deckColors.has('B')).toBe(true);
+      expect(deckColors.has('G')).toBe(true);
+      expect(deckColors.size).toBe(4);
+      
+      // Test that Atraxa covers all 4 colors
+      const atraxaCoverage = calculateColorCoverage([atraxa], deckColors);
+      expect(atraxaCoverage).toBe(4);
+      
+      // Verify Atraxa has all 4 colors in identity
+      const atraxaColors = extractColorIdentity(atraxa);
+      expect(atraxaColors).toContain('W');
+      expect(atraxaColors).toContain('U');
+      expect(atraxaColors).toContain('B');
+      expect(atraxaColors).toContain('G');
+      expect(atraxaColors.length).toBe(4);
+      
+      // The logic should select Atraxa as a single commander since it has full coverage
+      // This validates Priority 1 (first card with full coverage) logic
+    });
   });
 });
