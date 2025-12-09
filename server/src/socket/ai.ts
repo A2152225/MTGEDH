@@ -238,14 +238,15 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
         console.info('[AI] Selected commander + background from first 2 cards:', selectedCommanders.map(c => c.name));
       } else {
         // Validate that the first card covers the deck's color identity
-        const firstCardCoverage = calculateColorCoverage([firstTwoCandidates[0]], deckColors);
+        // Safe to access firstCard since we checked length >= 1 above
+        const firstCardCoverage = calculateColorCoverage([firstCard], deckColors);
         if (firstCardCoverage === deckColors.size || deckColors.size === 0) {
           // First card covers all deck colors - use it
-          selectedCommanders = [firstTwoCandidates[0]];
-          console.info('[AI] Selected single commander from first card (full color coverage):', selectedCommanders[0]?.name);
+          selectedCommanders = [firstCard];
+          console.info(`[AI] Selected single commander from first card (full color coverage): ${firstCard.name}`);
         } else {
           // First card doesn't cover all deck colors - need to search for better option
-          console.warn('[AI] First commander only covers', firstCardCoverage, 'of', deckColors.size, 'deck colors');
+          console.warn(`[AI] First commander only covers ${firstCardCoverage} of ${deckColors.size} deck colors`);
           // Fall through to find better commanders
         }
       }
@@ -279,7 +280,7 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
     
     if (bestPair.length === 2) {
       selectedCommanders = bestPair;
-      console.info('[AI] Selected partner commanders with best color coverage (' + bestCoverage + '/' + deckColors.size + '):', selectedCommanders.map(c => c.name));
+      console.info(`[AI] Selected partner commanders with best color coverage (${bestCoverage}/${deckColors.size}):`, selectedCommanders.map(c => c.name));
     } else {
       // Fallback to first 2 partners if no pair found
       selectedCommanders = partnerCandidates.slice(0, 2);
@@ -313,7 +314,7 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
     
     if (bestCommander) {
       selectedCommanders = [bestCommander];
-      console.info('[AI] Selected single commander with best color coverage (' + bestCoverage + '/' + deckColors.size + '):', bestCommander.name);
+      console.info(`[AI] Selected single commander with best color coverage (${bestCoverage}/${deckColors.size}): ${bestCommander.name}`);
     } else {
       // Ultimate fallback - just use first candidate
       selectedCommanders = [candidates[0]];
@@ -386,6 +387,8 @@ export async function autoSelectAICommander(
       return false;
     }
     
+    // Use only valid cards for commander selection to avoid errors
+    const cardsForSelection = validCards.length < library.length ? validCards : library;
     if (validCards.length < library.length) {
       console.warn('[AI] autoSelectAICommander: some cards in library lack required data', {
         gameId,
@@ -393,15 +396,13 @@ export async function autoSelectAICommander(
         totalCards: library.length,
         validCards: validCards.length,
       });
-      // Use only valid cards for commander selection
-      library = validCards;
     }
     
-    console.info('[AI] autoSelectAICommander: found library with', library.length, 'cards');
+    console.info('[AI] autoSelectAICommander: found library with', cardsForSelection.length, 'cards');
     
     // Log the first few cards to help debug commander selection
-    if (library.length > 0) {
-      const firstCards = library.slice(0, 3).map((c: any) => ({
+    if (cardsForSelection.length > 0) {
+      const firstCards = cardsForSelection.slice(0, 3).map((c: any) => ({
         name: c.name,
         type: c.type_line,
         colors: c.color_identity || extractColorIdentity(c),
@@ -410,12 +411,12 @@ export async function autoSelectAICommander(
     }
     
     // Find the best commander(s) from the deck (uses original unshuffled order)
-    let { commanders, colorIdentity } = findBestCommanders(library);
+    let { commanders, colorIdentity } = findBestCommanders(cardsForSelection);
     
     if (commanders.length === 0) {
       console.warn('[AI] autoSelectAICommander: no valid commander found', { gameId, playerId });
       // Fallback: just pick the first legendary card if any
-      const legendary = library.find((c: any) => 
+      const legendary = cardsForSelection.find((c: any) => 
         (c?.type_line || '').toLowerCase().includes('legendary')
       );
       if (legendary) {
