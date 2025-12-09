@@ -11,6 +11,84 @@
  * - Sacrifice decisions
  * - Token creation and management
  * - Triggered ability responses
+ * 
+ * DIFFICULTY SYSTEM:
+ * The difficulty parameter (0-1) affects AI decision quality:
+ * - 0.0-0.33 (Easy): Makes more mistakes, misses obvious plays, poor evaluation
+ * - 0.34-0.66 (Medium): Decent play, occasional mistakes
+ * - 0.67-1.0 (Hard): Optimal play, rarely makes mistakes
+ * 
+ * IMPORTANT: Mistakes are HIGH-LEVEL tactical/strategic errors, NOT low-level game-rule mistakes
+ * ✓ GOOD mistakes: Attacking with too few/many creatures, poor threat assessment, suboptimal targeting
+ * ✗ BAD mistakes: Buffing opponent's creatures, destroying own permanents, clearly nonsensical plays
+ * 
+ * Difficulty affects:
+ * 1. Aggression Level: Lower difficulty = poor timing on when to attack/hold back
+ * 2. Resource Management: Lower difficulty = wastes creatures/spells unnecessarily
+ * 3. Threat Assessment: Lower difficulty = poor at identifying the biggest threat
+ * 4. Risk Evaluation: Lower difficulty = takes bad risks or plays too safe
+ * 
+ * CONCRETE MISTAKE EXAMPLES:
+ * 
+ * SCENARIO 1 - Attack Decision Mistakes (CURRENTLY IMPLEMENTED):
+ * Board State: AI has 5 creatures (3/3, 3/3, 2/2, 1/1, 0/4 defender)
+ * Opponent: 15 life, 2 untapped blockers (2/2, 2/2)
+ * 
+ * HARD AI (optimal, difficulty 1.0):
+ *   - Attacks with 3/3, 3/3, 2/2 (ignores 1/1 and defender)
+ *   - Reasoning: Max pressure while minimizing loss to blocks
+ *   - Expected damage: ~5-7 (opponent blocks two creatures)
+ * 
+ * MEDIUM AI (occasional mistakes, difficulty 0.5):
+ *   - Usually attacks optimally (90% of the time)
+ *   - 10% chance of mistake (too cautious or overcommitting)
+ * 
+ * EASY AI (frequent mistakes, difficulty 0.2):
+ *   Mistake Type A - Too Cautious (50% when shouldMakeMistake=true, ~20% overall):
+ *     - Only attacks with one 3/3 creature
+ *     - Misses opportunity to apply pressure
+ *     - Expected damage: 0-3
+ *     - Why this is a GOOD mistake: Tactically poor but not nonsensical
+ *   
+ *   Mistake Type B - Overcommitting (50% when shouldMakeMistake=true, ~20% overall):
+ *     - Attacks with ALL creatures including weak 1/1 and defender
+ *     - Trades weak creatures unnecessarily  
+ *     - Expected damage: 3-5 but loses more creatures
+ *     - Why this is a GOOD mistake: Strategically poor but follows game rules
+ * 
+ * SCENARIO 2 - Blocking Decision Mistakes (TODO - not yet implemented):
+ * Incoming Attackers: 4/4, 3/3, 2/2
+ * AI Blockers: 5/5, 3/3, 1/1
+ * AI Life: 8
+ * 
+ * HARD AI (optimal):
+ *   - Block 4/4 with 5/5 (kills it, survives)
+ *   - Block 3/3 with 3/3 (mutual destruction)
+ *   - Take 2 damage from 2/2
+ *   - Result: 6 life, traded efficiently
+ * 
+ * EASY AI (makes mistakes):
+ *   GOOD mistake: Block only the 2/2 with 5/5 (inefficient, but valid strategy)
+ *   BAD mistake (AVOID): Block own creatures, block with tapped creatures
+ * 
+ * SCENARIO 3 - Targeting Mistakes (TODO - not yet implemented):
+ * Spell: "Destroy target creature"
+ * Opponent has: 10/10 indestructible threat, 6/6 flying threat, 2/2 utility creature
+ * 
+ * HARD AI: Targets 6/6 (best valid target)
+ * EASY AI: 30% chance to target the 2/2 instead (poor threat assessment)
+ * AVOID: Targeting the indestructible creature (game-rule mistake)
+ * AVOID: Targeting own creature (nonsensical)
+ * 
+ * SCENARIO 4 - Spell Timing Mistakes (TODO - not yet implemented):
+ * AI has: Removal spell, opponent has 2/2 and will play 5/5 next turn
+ * 
+ * HARD AI: Waits to use removal on the 5/5
+ * EASY AI: Uses removal on 2/2 immediately (poor resource management)
+ * AVOID: Never casting the spell (game-breaking)
+ * 
+ * Implementation: Use shouldMakeMistake(difficulty) to probabilistically choose
+ * between optimal and suboptimal (but valid) decisions based on difficulty level.
  */
 
 import type { GameState, PlayerID, BattlefieldPermanent, KnownCardRef } from '../../shared/src';
@@ -127,6 +205,33 @@ export class AIEngine {
    */
   unregisterAI(playerId: PlayerID): void {
     this.aiPlayers.delete(playerId);
+  }
+  
+  /**
+   * Determine if AI should make a mistake based on difficulty level.
+   * 
+   * CRITICAL: Mistakes must be HIGH-LEVEL strategic/tactical errors, not game-rule violations.
+   * Examples of VALID mistakes: attacking with too few/many creatures, poor threat assessment
+   * Examples of INVALID mistakes: buffing opponent's creatures, targeting invalid targets
+   * 
+   * @param difficulty - AI difficulty (0-1): 0 = easy (many mistakes), 1 = hard (rare mistakes)
+   * @returns true if AI should make a suboptimal choice
+   * 
+   * Mistake probabilities:
+   * - difficulty 0.0 (easy): 40% chance of mistake per decision
+   * - difficulty 0.5 (medium): 10% chance of mistake per decision
+   * - difficulty 1.0 (hard): 0% chance of mistake (always optimal)
+   * 
+   * Formula: mistakeRate = 0.4 * (1 - difficulty)^2
+   * This quadratic decay ensures hard AI rarely makes mistakes while easy AI is inconsistent
+   */
+  private shouldMakeMistake(difficulty: number = 0.5): boolean {
+    // Mistake rate decreases quadratically with difficulty
+    // 0.4 * (1-0)^2 = 0.40 (40% at difficulty 0)
+    // 0.4 * (1-0.5)^2 = 0.10 (10% at difficulty 0.5)
+    // 0.4 * (1-1)^2 = 0.00 (0% at difficulty 1.0)
+    const mistakeRate = 0.4 * Math.pow(1 - difficulty, 2);
+    return Math.random() < mistakeRate;
   }
   
   /**
@@ -338,8 +443,13 @@ export class AIEngine {
    * - Must not have "can't attack" effects (e.g., Pacifism)
    * 
    * Now enhanced to prioritize creatures with beneficial death triggers!
+   * Difficulty affects attack strategy:
+   * - Easy: May miss good attacks or make bad attacks
+   * - Hard: Consistently makes optimal attack decisions
    */
   private makeBasicAttackDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
+    const difficulty = config.difficulty ?? 0.5;
+    
     // Use getLegalAttackers to get all valid attackers
     const legalAttackerIds = getLegalAttackers(context.gameState, context.playerId);
     
@@ -384,10 +494,27 @@ export class AIEngine {
       .filter(e => e.wantsToGetKilled)
       .map(e => e.id);
     
-    // Attack with most other creatures too (basic strategy is aggressive)
-    const regularAttackers = attackerEvaluations
+    // Apply difficulty-based mistakes to attack decisions
+    let regularAttackers = attackerEvaluations
       .filter(e => !e.wantsToGetKilled && e.value > 0)
       .map(e => e.id);
+    
+    // DIFFICULTY IMPLEMENTATION: Attack decision mistakes
+    // Example: AI has 3/3, 3/3, 2/2, 1/1 creatures. Optimal = attack with 3/3, 3/3, 2/2
+    if (this.shouldMakeMistake(difficulty)) {
+      // Randomly choose between two types of mistakes:
+      if (Math.random() < 0.5) {
+        // MISTAKE TYPE A: Too Cautious
+        // Example: Only attack with one 3/3 instead of all good attackers
+        // Result: Misses opportunity to apply pressure, opponent gains time
+        regularAttackers = regularAttackers.slice(0, Math.floor(regularAttackers.length / 2));
+      } else {
+        // MISTAKE TYPE B: Overcommitting  
+        // Example: Attack with ALL creatures including weak 1/1
+        // Result: Unnecessarily trades away creatures, poor resource management
+        regularAttackers = legalAttackerIds.filter(id => !suicideAttackers.includes(id));
+      }
+    }
     
     const allAttackers = [...suicideAttackers, ...regularAttackers];
     
@@ -483,7 +610,7 @@ export class AIEngine {
     // CRITICAL: Check for commander damage lethality
     // If any attacker is a commander with 21+ power, that's instantly lethal
     // Get commander damage tracking from game state if available
-    const commanderDamage = (state as any)?.commanderDamage?.[playerId] || {};
+    const commanderDamage = (context.gameState as any)?.commanderDamage?.[context.playerId] || {};
     for (const attacker of attackerCreatures) {
       // Check if this is a commander (isCommander flag or in command zone)
       const isCommander = attacker.permanent.isCommander || 

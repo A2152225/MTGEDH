@@ -62,6 +62,7 @@ export interface HouseRulesConfig {
 export interface AIOpponentConfig {
   name: string;
   strategy: AIStrategy;
+  difficulty?: number; // AI skill level: 0 = easy, 0.5 = medium, 1 = hard (default: 0.5)
   deckId?: string;
   deckText?: string;
   deckName?: string;
@@ -81,6 +82,7 @@ export interface GameCreationConfig {
   // Legacy single AI opponent fields (for backward compatibility)
   aiName?: string;
   aiStrategy?: AIStrategy;
+  aiDifficulty?: number;
   aiDeckId?: string;
   aiDeckText?: string;
   aiDeckName?: string;
@@ -151,6 +153,7 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
     id: string;
     name: string;
     strategy: AIStrategy;
+    difficulty: number; // 0 = easy, 0.5 = medium, 1 = hard
     deckId: string;
     deckMode: 'select' | 'import';
     deckText: string;
@@ -187,6 +190,7 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
       id: newId,
       name: `AI Opponent ${opponentNumber}`,
       strategy: 'basic' as AIStrategy,
+      difficulty: 0.5, // Default to medium difficulty
       deckId: '',
       deckMode: 'select',
       deckText: '',
@@ -364,6 +368,7 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
     const aiOpponentsConfig: AIOpponentConfig[] = aiOpponents.map(ai => ({
       name: ai.name.trim() || 'AI Opponent',
       strategy: ai.strategy,
+      difficulty: ai.difficulty,
       deckId: ai.deckMode === 'select' && ai.deckId ? ai.deckId : undefined,
       deckText: ai.deckMode === 'import' && ai.deckText.trim() ? ai.deckText.trim() : undefined,
       deckName: ai.deckMode === 'import' && ai.deckName.trim() ? ai.deckName.trim() : undefined,
@@ -382,6 +387,7 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
       // Legacy fields for backward compatibility with single AI
       aiName: hasAI && aiOpponents.length === 1 ? aiOpponentsConfig[0].name : undefined,
       aiStrategy: hasAI && aiOpponents.length === 1 ? aiOpponentsConfig[0].strategy : undefined,
+      aiDifficulty: hasAI && aiOpponents.length === 1 ? aiOpponentsConfig[0].difficulty : undefined,
       aiDeckId: hasAI && aiOpponents.length === 1 ? aiOpponentsConfig[0].deckId : undefined,
       aiDeckText: hasAI && aiOpponents.length === 1 ? aiOpponentsConfig[0].deckText : undefined,
       aiDeckName: hasAI && aiOpponents.length === 1 ? aiOpponentsConfig[0].deckName : undefined,
@@ -695,6 +701,34 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
                           </option>
                         ))}
                       </select>
+                    </div>
+
+                    {/* AI Difficulty Slider */}
+                    <div style={{ marginBottom: 10 }}>
+                      <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#444' }}>
+                        Difficulty: {
+                          ai.difficulty <= 0.33 ? 'Easy' :
+                          ai.difficulty <= 0.66 ? 'Medium' :
+                          'Hard'
+                        } ({Math.round(ai.difficulty * 100)}%)
+                      </label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        value={ai.difficulty}
+                        onChange={(e) => updateAiOpponent(ai.id, { difficulty: parseFloat(e.target.value) })}
+                        style={{
+                          width: '100%',
+                          accentColor: '#3b82f6',
+                        }}
+                      />
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#888', marginTop: 2 }}>
+                        <span>Easy</span>
+                        <span>Medium</span>
+                        <span>Hard</span>
+                      </div>
                     </div>
 
                     {/* AI Deck Selection */}
