@@ -2,6 +2,17 @@ import type { PlayerID, PlayerRef } from "../../../../shared/src";
 import type { GameContext } from "../context";
 import { canAct } from "./can-respond";
 
+/**
+ * Normalize phase and step strings for comparison.
+ * Phase is lowercased, step is uppercased.
+ */
+function normalizePhaseStep(phase: string, step: string): { phase: string; step: string } {
+  return {
+    phase: String(phase || '').toLowerCase(),
+    step: String(step || '').toUpperCase(),
+  };
+}
+
 function activePlayersClockwise(ctx: GameContext): PlayerRef[] {
   const { state, inactive } = ctx;
   return (state.players as any as PlayerRef[])
@@ -32,6 +43,22 @@ export function passPriority(ctx: GameContext, playerId: PlayerID): { changed: b
     stateAny.priorityPassedBy = new Set<string>();
   }
   stateAny.priorityPassedBy.add(playerId);
+  
+  // If the player who initiated skipToPhase just manually passed, clear the flag
+  // This allows auto-pass to resume normally after they've had their priority window
+  if (stateAny.justSkippedToPhase && stateAny.justSkippedToPhase.playerId === playerId) {
+    const current = normalizePhaseStep(stateAny.phase, stateAny.step);
+    const justSkipped = normalizePhaseStep(
+      stateAny.justSkippedToPhase.phase,
+      stateAny.justSkippedToPhase.step
+    );
+    
+    // Only clear if we're still in the phase/step they skipped to
+    if (current.phase === justSkipped.phase && current.step === justSkipped.step) {
+      console.log(`[passPriority] Clearing justSkippedToPhase: initiator ${playerId} manually passed at ${current.step}`);
+      delete stateAny.justSkippedToPhase;
+    }
+  }
   
   let resolvedNow = false;
   let advanceStep = false;
@@ -111,6 +138,36 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
   const turnPlayer = state.turnPlayer as PlayerID;
   
   console.log(`[priority] autoPassLoop starting - active players: ${active.map(p => p.id).join(', ')}, autoPassEnabled: ${Array.from(autoPassPlayers).join(', ')}, currentPriority: ${state.priority}, turnPlayer: ${turnPlayer}`);
+  
+  // Check if we just arrived at this phase via skipToPhase
+  // If so, give the player who initiated the skip at least one priority window
+  // This prevents auto-passing through a phase the player explicitly navigated to
+  const justSkipped = stateAny.justSkippedToPhase;
+  if (justSkipped && justSkipped.playerId && justSkipped.phase && justSkipped.step) {
+    const current = normalizePhaseStep(stateAny.phase, stateAny.step);
+    const skipped = normalizePhaseStep(justSkipped.phase, justSkipped.step);
+    
+    // Check if we're still in the phase/step that was just skipped to
+    if (current.phase === skipped.phase && current.step === skipped.step) {
+      const skipInitiator = justSkipped.playerId;
+      
+      // If the player who skipped hasn't passed yet, don't auto-pass them
+      if (state.priority === skipInitiator && !stateAny.priorityPassedBy.has(skipInitiator)) {
+        console.log(`[priority] autoPassLoop - stopping: player ${skipInitiator} just skipped to ${current.step}, giving them priority window`);
+        return { allPassed: false, resolved: false };
+      }
+      
+      // If the skip initiator has passed, clear the flag so auto-pass can resume
+      if (stateAny.priorityPassedBy.has(skipInitiator)) {
+        console.log(`[priority] autoPassLoop - clearing justSkippedToPhase: initiator ${skipInitiator} has passed`);
+        delete stateAny.justSkippedToPhase;
+      }
+    } else {
+      // We've moved to a different phase/step, clear the flag
+      console.log(`[priority] autoPassLoop - clearing justSkippedToPhase: moved from ${skipped.step} to ${current.step}`);
+      delete stateAny.justSkippedToPhase;
+    }
+  }
   
   let iterations = 0;
   // Safety limit: Each player can pass at most once per priority round.

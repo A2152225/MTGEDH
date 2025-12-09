@@ -344,4 +344,157 @@ describe('skipToPhase turn-based actions', () => {
     expect((g.state as any).step).toBe('MAIN1');
     expect((g.state as any).priority).toBe(p1);
   });
+
+  it('should prevent auto-pass when justSkippedToPhase is set', () => {
+    const g = createInitialGameState('skip_prevents_autopass');
+
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+
+    // Set up libraries for both players
+    const sampleDeck = Array.from({ length: 20 }, (_, i) => ({
+      id: `card_p1_${i}`,
+      name: `Test Card ${i}`,
+      type_line: 'Creature',
+      oracle_text: '',
+    }));
+    g.importDeckResolved(p1, sampleDeck);
+    g.importDeckResolved(p2, sampleDeck.map(c => ({ ...c, id: `card_p2_${c.id}` })));
+    
+    g.drawCards(p1, 7);
+    g.drawCards(p2, 7);
+
+    // Set up game state in MAIN1
+    (g.state as any).phase = 'precombatMain';
+    (g.state as any).step = 'MAIN1';
+    (g.state as any).turnPlayer = p1;
+    (g.state as any).priority = p1;
+    
+    // Enable auto-pass for p1 (simulate AI or auto-pass setting)
+    (g.state as any).autoPassPlayers = new Set([p1]);
+    
+    // Set justSkippedToPhase metadata (as skipToPhase does)
+    (g.state as any).justSkippedToPhase = {
+      playerId: p1,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+    };
+
+    // Reset priority tracking
+    (g.state as any).priorityPassedBy = new Set<string>();
+
+    // Now when p1 passes priority, autoPassLoop should check justSkippedToPhase
+    // and NOT auto-pass p1 even though auto-pass is enabled
+    const result = g.passPriority(p1);
+
+    // Priority should have passed to p2, but p1 should not have been auto-passed back
+    // because justSkippedToPhase prevents that
+    expect(result.changed).toBe(true);
+    expect((g.state as any).priority).toBe(p2); // Priority moved to p2
+    expect((g.state as any).priorityPassedBy.has(p1)).toBe(true); // p1 passed
+    
+    // justSkippedToPhase should have been cleared since p1 manually passed
+    expect((g.state as any).justSkippedToPhase).toBeUndefined();
+    
+    // Step should not have advanced
+    expect((g.state as any).step).toBe('MAIN1');
+  });
+
+  it('should clear justSkippedToPhase after initiator passes', () => {
+    const g = createInitialGameState('skip_clear_flag');
+
+    const p1 = 'p1' as PlayerID;
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+
+    // Set up library
+    const sampleDeck = Array.from({ length: 20 }, (_, i) => ({
+      id: `card_${i}`,
+      name: `Test Card ${i}`,
+      type_line: 'Creature',
+      oracle_text: '',
+    }));
+    g.importDeckResolved(p1, sampleDeck);
+    g.drawCards(p1, 7);
+
+    // Set up game state in MAIN1
+    (g.state as any).phase = 'precombatMain';
+    (g.state as any).step = 'MAIN1';
+    (g.state as any).turnPlayer = p1;
+    (g.state as any).priority = p1;
+    
+    // Set justSkippedToPhase metadata
+    (g.state as any).justSkippedToPhase = {
+      playerId: p1,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+    };
+    
+    (g.state as any).priorityPassedBy = new Set<string>();
+
+    // Verify flag is set
+    expect((g.state as any).justSkippedToPhase).toBeDefined();
+    expect((g.state as any).justSkippedToPhase.playerId).toBe(p1);
+
+    // When p1 passes, the flag should be cleared
+    g.passPriority(p1);
+
+    // Flag should be cleared because the initiator passed
+    expect((g.state as any).justSkippedToPhase).toBeUndefined();
+  });
+
+  it('should clear justSkippedToPhase when moving to different phase', () => {
+    const g = createInitialGameState('skip_clear_on_phase_change');
+
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+
+    // Set up libraries
+    const sampleDeck = Array.from({ length: 20 }, (_, i) => ({
+      id: `card_${i}`,
+      name: `Test Card ${i}`,
+      type_line: 'Creature',
+      oracle_text: '',
+    }));
+    g.importDeckResolved(p1, sampleDeck);
+    g.importDeckResolved(p2, sampleDeck.map(c => ({ ...c, id: `p2_${c.id}` })));
+    
+    g.drawCards(p1, 7);
+    g.drawCards(p2, 7);
+
+    // Set up game state in MAIN1
+    (g.state as any).phase = 'precombatMain';
+    (g.state as any).step = 'MAIN1';
+    (g.state as any).turnPlayer = p1;
+    (g.state as any).priority = p1;
+    
+    // Set justSkippedToPhase for MAIN1
+    (g.state as any).justSkippedToPhase = {
+      playerId: p1,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+    };
+    
+    (g.state as any).priorityPassedBy = new Set<string>();
+
+    // Manually advance to a different step (simulating natural game flow)
+    (g.state as any).phase = 'combat';
+    (g.state as any).step = 'BEGIN_COMBAT';
+    (g.state as any).priority = p1;
+    
+    // Now when autoPassLoop runs, it should detect we're in a different phase
+    // and clear the justSkippedToPhase flag
+    
+    // Trigger passPriority which calls autoPassLoop
+    (g.state as any).priorityPassedBy = new Set<string>();
+    (g.state as any).autoPassPlayers = new Set([p1]);
+    
+    g.passPriority(p1);
+
+    // Flag should be cleared because we moved to a different step
+    expect((g.state as any).justSkippedToPhase).toBeUndefined();
+  });
 });
