@@ -376,8 +376,8 @@ export async function autoSelectAICommander(
     }
     
     // Validate that library cards have required data (name, type_line, etc.)
-    const validCards = library.filter((c: any) => c && c.name && c.type_line);
-    if (validCards.length === 0) {
+    const cardsForSelection = library.filter((c: any) => c && c.name && c.type_line);
+    if (cardsForSelection.length === 0) {
       console.error('[AI] autoSelectAICommander: library has cards but they lack required data', {
         gameId,
         playerId,
@@ -387,14 +387,12 @@ export async function autoSelectAICommander(
       return false;
     }
     
-    // Use only valid cards for commander selection to avoid errors
-    const cardsForSelection = validCards.length < library.length ? validCards : library;
-    if (validCards.length < library.length) {
-      console.warn('[AI] autoSelectAICommander: some cards in library lack required data', {
+    if (cardsForSelection.length < library.length) {
+      console.warn('[AI] autoSelectAICommander: filtered out cards lacking required data', {
         gameId,
         playerId,
         totalCards: library.length,
-        validCards: validCards.length,
+        validCards: cardsForSelection.length,
       });
     }
     
@@ -405,7 +403,7 @@ export async function autoSelectAICommander(
       const firstCards = cardsForSelection.slice(0, 3).map((c: any) => ({
         name: c.name,
         type: c.type_line,
-        colors: c.color_identity || extractColorIdentity(c),
+        colors: c.color_identity || [],
       }));
       console.info('[AI] First cards in library:', JSON.stringify(firstCards));
     }
