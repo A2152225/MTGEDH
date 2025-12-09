@@ -1,6 +1,6 @@
 import type { PlayerID, PlayerRef } from "../../../../shared/src";
 import type { GameContext } from "../context";
-import { canRespond, canAct } from "./can-respond";
+import { canAct } from "./can-respond";
 
 function activePlayersClockwise(ctx: GameContext): PlayerRef[] {
   const { state, inactive } = ctx;
@@ -97,13 +97,12 @@ export function passPriority(ctx: GameContext, playerId: PlayerID): { changed: b
 }
 
 /**
- * Iteratively auto-pass for players who cannot respond or act
- * Stops when we find a player who can respond/act OR all players have passed
+ * Iteratively auto-pass for players who cannot act
+ * Stops when we find a player who can act OR all players have passed
  * 
- * Checks both canAct() AND canRespond() for all players:
- * - canRespond: instant-speed responses (instants, flash, activated abilities)
- * - canAct: sorcery-speed actions (lands, sorceries) during main phase
- * A player is only auto-passed if BOTH return false
+ * Uses canAct() for all players - it checks both instant-speed AND sorcery-speed actions.
+ * For non-active players, canAct will return false for sorcery-speed actions (not their main phase)
+ * but will still check instant-speed responses correctly.
  */
 function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boolean; resolved: boolean } {
   const { state } = ctx;
@@ -155,20 +154,21 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
     }
     
     // Check if player can take any action (instant-speed OR sorcery-speed)
-    const playerCanRespond = canRespond(ctx, currentPlayer);
-    const playerCanAct = canAct(ctx, currentPlayer);
+    // canAct checks both instant-speed (instants, flash, abilities) AND sorcery-speed (lands, sorceries)
+    // For non-active players, sorcery-speed checks will return false (not their main phase)
     const isActivePlayer = currentPlayer === turnPlayer;
+    const playerCanAct = canAct(ctx, currentPlayer);
     
-    console.log(`[priority] autoPassLoop - checking ${currentPlayer} (${isActivePlayer ? 'ACTIVE' : 'non-active'}): canRespond=${playerCanRespond}, canAct=${playerCanAct}, stack.length=${state.stack.length}, step=${(state as any).step}`);
+    console.log(`[priority] autoPassLoop - checking ${currentPlayer} (${isActivePlayer ? 'ACTIVE' : 'non-active'}): canAct=${playerCanAct}, stack.length=${state.stack.length}, step=${(state as any).step}`);
     
-    if (playerCanRespond || playerCanAct) {
-      // Player can respond or act, stop here
-      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: player can ${playerCanRespond ? 'respond' : ''}${playerCanRespond && playerCanAct ? ' and ' : ''}${playerCanAct ? 'act' : ''}`);
+    if (playerCanAct) {
+      // Player can act, stop here
+      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: player can act`);
       return { allPassed: false, resolved: false };
     }
     
-    // Player cannot respond or act - auto-pass
-    console.log(`[priority] Auto-passing for ${currentPlayer} - no available responses or actions`);
+    // Player cannot act - auto-pass
+    console.log(`[priority] Auto-passing for ${currentPlayer} - no available actions`);
     stateAny.priorityPassedBy.add(currentPlayer);
     
     // Advance to next player
