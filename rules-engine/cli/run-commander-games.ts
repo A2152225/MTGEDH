@@ -1477,7 +1477,7 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
       }
       
       this.resolveInstantSorcery(cardName, player, state);
-      player.graveyard.push(cardName);
+      this.moveCardToGraveyard(cardName, player, state);
     }
     
     return true;
@@ -1794,7 +1794,7 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
           if ((creature.damage || 0) >= creature.toughness) {
             p.battlefield = p.battlefield.filter(x => x !== creature);
             if (!creature.isToken) {
-              p.graveyard.push(creature.card);
+              this.moveCardToGraveyard(creature.card, p, state);
               killedCreatures.push(`${creature.card} (${p.name})`);
             }
             killed++;
@@ -2307,6 +2307,97 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
     }
   }
 
+  /**
+   * Use activated abilities on permanents that can be activated with available mana.
+   * Handles cards like Elixir of Immortality that shuffle graveyard back into library.
+   */
+  useActivatedAbilities(player: PlayerState, state: SimulatedGameState): void {
+    // Check for Elixir of Immortality and similar effects
+    for (const perm of player.battlefield) {
+      const card = this.getCard(perm.card);
+      const oracle = card?.oracle_text?.toLowerCase() || '';
+      
+      // Elixir of Immortality: "{2}, {T}: You gain 5 life. Shuffle this artifact and your graveyard into their owner's library."
+      // This is specific to Elixir - it's an activated ability that shuffles graveyard + itself
+      if (perm.card === 'Elixir of Immortality') {
+        
+        // Check if we can activate it (has {2}, {T} cost and permanent is untapped)
+        if (!perm.tapped && this.canPayMana(player, 2) && player.graveyard.length > 0) {
+          // Activate if library is getting low OR graveyard has many cards
+          // With multiplayer, each player draws less frequently, so be more aggressive
+          const shouldActivate = player.library.length < 30 || player.graveyard.length >= 15;
+          
+          if (shouldActivate) {
+            perm.tapped = true;
+            this.payMana(player, 2);
+            
+            // Gain 5 life
+            player.life += 5;
+            
+            // Shuffle graveyard and this artifact into library
+            const graveyardSize = player.graveyard.length;
+            player.library.push(...player.graveyard);
+            player.graveyard = [];
+            
+            // Remove Elixir from battlefield and add to library
+            const elixirIndex = player.battlefield.indexOf(perm);
+            if (elixirIndex >= 0) {
+              player.battlefield.splice(elixirIndex, 1);
+              player.library.push(perm.card);
+            }
+            
+            // Shuffle the library
+            player.library = this.shuffle(player.library);
+            
+            state.events.push({
+              turn: state.turn,
+              player: player.name,
+              action: 'activated ability',
+              card: perm.card,
+              details: `Gained 5 life, shuffled ${graveyardSize} cards from graveyard + ${perm.card} into library`,
+              result: `Library now has ${player.library.length} cards`,
+            });
+            
+            this.log(`${player.name} used ${perm.card}: shuffled ${graveyardSize} cards back into library`);
+            
+            // Only use one ability per turn
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Handle a card being moved to the graveyard, checking for triggered abilities.
+   * Some cards (like Vigor, Kozilek, Ulamog) shuffle themselves back into the library when they hit the graveyard.
+   */
+  moveCardToGraveyard(cardName: string, player: PlayerState, state: SimulatedGameState): void {
+    const card = this.getCard(cardName);
+    const oracle = card?.oracle_text?.toLowerCase() || '';
+    
+    // Check for "When X is put into a graveyard from anywhere, shuffle it into its owner's library"
+    if (oracle.includes('put into a graveyard') && oracle.includes('shuffle it into its owner\'s library')) {
+      // Don't add to graveyard, shuffle directly into library
+      player.library.push(cardName);
+      player.library = this.shuffle(player.library);
+      
+      state.events.push({
+        turn: state.turn,
+        player: player.name,
+        action: 'trigger',
+        card: cardName,
+        details: `Shuffled ${cardName} into library instead of graveyard`,
+        result: `Library now has ${player.library.length} cards`,
+      });
+      
+      this.log(`${player.name}'s ${cardName} shuffled itself back into library`);
+    } else {
+      // Normal graveyard movement
+      player.graveyard.push(cardName);
+    }
+  }
+
   simulateMainPhase(player: PlayerState, state: SimulatedGameState): void {
     // Get deck analysis for this player
     const deckName = player.name.match(/\(([^)]+)\)/)?.[1] || '';
@@ -2331,6 +2422,9 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
     
     // Tap lands for mana and track which lands were tapped
     const tappedLands = this.tapLandsForMana(player, state);
+    
+    // Use activated abilities (like Elixir of Immortality)
+    this.useActivatedAbilities(player, state);
     
     // Cast spells prioritizing by importance, using deck analysis
     const castable = player.hand
@@ -2668,7 +2762,7 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
     const maxHandSize = this.getMaxHandSize(player);
     while (player.hand.length > maxHandSize) {
       const discarded = player.hand.pop()!;
-      player.graveyard.push(discarded);
+      this.moveCardToGraveyard(discarded, player, state);
       
       if (this.analysisMode) {
         state.events.push({
@@ -3134,19 +3228,6 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
     }
     console.log('='.repeat(80) + '\n');
     
-    // Count wins per player
-    const wins = new Map<string, number>();
-    for (const summary of summaries) {
-      const winner = summary.winner;
-      wins.set(winner, (wins.get(winner) || 0) + 1);
-    }
-    
-    console.log('WIN SUMMARY:');
-    for (const [winner, count] of wins) {
-      console.log(`  ${winner}: ${count} win(s)`);
-    }
-    console.log('');
-    
     console.log('WIN CONDITIONS BY GAME:');
     for (const summary of summaries) {
       console.log(`  Game ${summary.gameNumber} (Seed: ${summary.seed}): ${summary.winner}`);
@@ -3284,6 +3365,21 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
       for (const [card, count] of sorted) {
         console.log(`    - ${card}: ${count} time(s)`);
       }
+    }
+    
+    console.log('\n' + '='.repeat(80));
+    console.log('OVERALL WIN SUMMARY');
+    console.log('='.repeat(80));
+    
+    // Count wins per player
+    const wins = new Map<string, number>();
+    for (const summary of summaries) {
+      const winner = summary.winner;
+      wins.set(winner, (wins.get(winner) || 0) + 1);
+    }
+    
+    for (const [winner, count] of wins) {
+      console.log(`  ${winner}: ${count} win(s)`);
     }
     
     console.log('\n' + '='.repeat(80));
