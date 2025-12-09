@@ -148,24 +148,9 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
       return { allPassed: false, resolved: false };
     }
     
-    // CRITICAL: Never auto-pass the active player during their main phase with empty stack
-    // During main phases, the active player should have explicit control to play sorcery-speed
-    // spells, lands, and decide when to advance to the next phase, even if they currently
-    // have no playable cards.
-    const isActivePlayer = currentPlayer === state.turnPlayer;
-    const currentStep = String(stateAny.step || '').toUpperCase();
-    const isMainPhase = currentStep === 'MAIN1' || currentStep === 'MAIN2' || currentStep === 'MAIN';
-    const stackIsEmpty = !state.stack || state.stack.length === 0;
-    
-    if (isActivePlayer && isMainPhase && stackIsEmpty) {
-      // Active player in their main phase with empty stack - never auto-pass
-      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: active player in main phase with empty stack (explicit control required)`);
-      return { allPassed: false, resolved: false };
-    }
-    
     // Check if player can respond
     const playerCanRespond = canRespond(ctx, currentPlayer);
-    console.log(`[priority] autoPassLoop - checking ${currentPlayer}: canRespond=${playerCanRespond}, stack.length=${state.stack.length}, step=${currentStep}`);
+    console.log(`[priority] autoPassLoop - checking ${currentPlayer}: canRespond=${playerCanRespond}, stack.length=${state.stack.length}, step=${(state as any).step}`);
     
     if (playerCanRespond) {
       // Player can respond, stop here
