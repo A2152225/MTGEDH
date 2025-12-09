@@ -148,10 +148,13 @@ function calculateDeckColorIdentity(cards: any[]): Set<string> {
 }
 
 /**
- * Calculate how well a set of commanders covers the deck's color identity
- * Returns the number of deck colors that are covered by the commanders
+ * Calculate how well commanders match the deck's color identity
+ * Returns a score based on:
+ * - How many deck colors are covered by commanders
+ * - How many commander colors are NOT in the deck (penalty)
+ * Higher score is better
  */
-function calculateColorCoverage(commanders: any[], deckColors: Set<string>): number {
+function calculateColorMatchScore(commanders: any[], deckColors: Set<string>): { score: number; coverage: number; extraColors: number } {
   const commanderColors = new Set<string>();
   for (const commander of commanders) {
     const colors = extractColorIdentity(commander);
@@ -160,13 +163,63 @@ function calculateColorCoverage(commanders: any[], deckColors: Set<string>): num
     }
   }
   
+  // Count how many deck colors are covered
   let coverage = 0;
   for (const color of deckColors) {
     if (commanderColors.has(color)) {
       coverage++;
     }
   }
-  return coverage;
+  
+  // Count how many extra colors the commander has (not in deck)
+  let extraColors = 0;
+  for (const color of commanderColors) {
+    if (!deckColors.has(color)) {
+      extraColors++;
+    }
+  }
+  
+  // Score: prioritize coverage, penalize extra colors
+  // Perfect match: coverage = deckColors.size, extraColors = 0
+  const score = (coverage * 10) - (extraColors * 5);
+  
+  return { score, coverage, extraColors };
+}
+
+/**
+ * Check if commanders' combined color identity exactly matches the deck's color identity
+ * In Commander/EDH, the deck can only contain cards within the commander's color identity
+ * Returns true if the identities match exactly, false otherwise
+ */
+function commanderIdentityMatchesDeck(commanders: any[], deckColors: Set<string>): boolean {
+  const commanderColors = new Set<string>();
+  for (const commander of commanders) {
+    const colors = extractColorIdentity(commander);
+    for (const color of colors) {
+      commanderColors.add(color);
+    }
+  }
+  
+  // Check if sizes match first
+  if (commanderColors.size !== deckColors.size) {
+    return false;
+  }
+  
+  // Check if all deck colors are in commander identity
+  for (const color of deckColors) {
+    if (!commanderColors.has(color)) {
+      return false;
+    }
+  }
+  
+  // Check if all commander colors are in deck identity (no extra colors)
+  for (const color of commanderColors) {
+    if (!deckColors.has(color)) {
+      return false;
+    }
+  }
+  
+  return true;
 }
 
 /**
@@ -175,14 +228,14 @@ function calculateColorCoverage(commanders: any[], deckColors: Set<string>): num
  * 
  * Priority order:
  * 1. Check first 1-2 cards in decklist (commanders are typically listed first)
- *    - BUT validate that partner pairs cover the deck's color identity
- * 2. Look for partner pairs that best match deck colors
- * 3. Look for commander+background pairs
- * 4. Fall back to first valid commander candidate
+ *    - Validate that they exactly match the deck's color identity
+ * 2. Look for partner pairs that exactly match deck colors
+ * 3. Look for commander+background pairs that exactly match
+ * 4. Fall back to first valid commander candidate (with mismatch warning)
  * 
  * Also calculates combined color identity of the selected commander(s)
  */
-function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: string[] } {
+function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: string[]; exactMatch: boolean } {
   // Find all valid commander candidates
   const candidates = cards.filter(isValidCommander);
   
@@ -210,16 +263,18 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
     // Check if first two cards are both partners
     if (firstTwoCandidates.length === 2 && 
         hasPartner(firstTwoCandidates[0]) && hasPartner(firstTwoCandidates[1])) {
-      // Validate that these partners cover the deck's color identity
-      const coverage = calculateColorCoverage(firstTwoCandidates, deckColors);
-      if (coverage === deckColors.size || deckColors.size === 0) {
+      // Validate that these partners' identity exactly matches the deck's color identity
+      const identityMatches = commanderIdentityMatchesDeck(firstTwoCandidates, deckColors);
+      if (identityMatches) {
         // Perfect match - use these commanders
         selectedCommanders = firstTwoCandidates;
-        console.info('[AI] Selected partner commanders from first 2 cards (full color coverage):', selectedCommanders.map(c => c.name));
+        console.info('[AI] Selected partner commanders from first 2 cards (exact identity match):', selectedCommanders.map(c => c.name));
       } else {
-        // Partners don't cover all deck colors - look for better options
-        console.warn('[AI] First 2 partner commanders only cover', coverage, 'of', deckColors.size, 'deck colors');
-        // Fall through to find better partners
+        // Partners' identity doesn't match deck - look for better options
+        const commanderColors = new Set<string>();
+        firstTwoCandidates.forEach(c => extractColorIdentity(c).forEach(col => commanderColors.add(col)));
+        console.warn('[AI] First 2 partner commanders identity', Array.from(commanderColors).join(''), 'does not match deck identity', Array.from(deckColors).join(''));
+        // Fall through to Priority 2 to find better partners
       }
     }
     // Check if first two cards are commander + background pair
@@ -229,98 +284,171 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
       
       if (hasBackground(firstCard) && secondCard && 
           (secondCard.type_line || '').toLowerCase().includes('background')) {
-        selectedCommanders = [firstCard, secondCard];
-        console.info('[AI] Selected commander + background from first 2 cards:', selectedCommanders.map(c => c.name));
+        // Check if this background pair matches deck identity
+        const identityMatches = commanderIdentityMatchesDeck([firstCard, secondCard], deckColors);
+        if (identityMatches) {
+          selectedCommanders = [firstCard, secondCard];
+          console.info('[AI] Selected commander + background from first 2 cards (exact identity match):', selectedCommanders.map(c => c.name));
+        } else {
+          console.warn('[AI] First 2 cards (commander + background) identity does not match deck identity');
+        }
       } else if (secondCard && isValidCommander(secondCard) &&
                  (secondCard.type_line || '').toLowerCase().includes('background') && 
                  hasBackground(firstCard)) {
-        selectedCommanders = [firstCard, secondCard];
-        console.info('[AI] Selected commander + background from first 2 cards:', selectedCommanders.map(c => c.name));
-      } else {
-        // Validate that the first card covers the deck's color identity
-        // Safe to access firstCard since we checked length >= 1 above
-        const firstCardCoverage = calculateColorCoverage([firstCard], deckColors);
-        if (firstCardCoverage === deckColors.size || deckColors.size === 0) {
-          // First card covers all deck colors - use it
-          selectedCommanders = [firstCard];
-          console.info(`[AI] Selected single commander from first card (full color coverage): ${firstCard.name}`);
+        // Check if this background pair matches deck identity
+        const identityMatches = commanderIdentityMatchesDeck([firstCard, secondCard], deckColors);
+        if (identityMatches) {
+          selectedCommanders = [firstCard, secondCard];
+          console.info('[AI] Selected commander + background from first 2 cards (exact identity match):', selectedCommanders.map(c => c.name));
         } else {
-          // First card doesn't cover all deck colors - need to search for better option
-          console.warn(`[AI] First commander only covers ${firstCardCoverage} of ${deckColors.size} deck colors`);
-          // Fall through to find better commanders
+          console.warn('[AI] First 2 cards (background + commander) identity does not match deck identity');
+        }
+      } else {
+        // Validate that the first card's identity exactly matches the deck's color identity
+        // Safe to access firstCard since we checked length >= 1 above
+        const identityMatches = commanderIdentityMatchesDeck([firstCard], deckColors);
+        if (identityMatches) {
+          // First card's identity matches deck - use it
+          selectedCommanders = [firstCard];
+          console.info(`[AI] Selected single commander from first card (exact identity match): ${firstCard.name}`);
+        } else {
+          // First card's identity doesn't match deck
+          // Continue searching for better options: partner pairs OR single commanders with exact match
+          const firstCardColors = extractColorIdentity(firstCard);
+          console.warn(`[AI] First commander identity [${firstCardColors.join('')}] does not match deck identity [${Array.from(deckColors).join('')}] - searching for better options`);
+          // Fall through to Priority 2 (partners), Priority 3 (backgrounds), or Priority 4 (single with exact match)
         }
       }
     }
   }
   
-  // Priority 2: If no commanders found or first 2 didn't cover colors, find best partner pair
+  // Priority 2: If no commanders found, find partner pair with exact identity match
   if (selectedCommanders.length === 0 && partnerCandidates.length >= 2) {
-    // Find the partner pair that best covers the deck's color identity
+    // Find the partner pair whose identity exactly matches the deck
+    let exactMatchPair: any[] = [];
     let bestPair: any[] = [];
     let bestCoverage = 0;
     
     for (let i = 0; i < partnerCandidates.length; i++) {
       for (let j = i + 1; j < partnerCandidates.length; j++) {
         const pair = [partnerCandidates[i], partnerCandidates[j]];
-        const coverage = calculateColorCoverage(pair, deckColors);
-        if (coverage > bestCoverage) {
-          bestCoverage = coverage;
+        
+        // Check for exact identity match first
+        if (commanderIdentityMatchesDeck(pair, deckColors)) {
+          exactMatchPair = pair;
+          break; // Found exact match, no need to continue
+        }
+        
+        // Track best match score as fallback
+        const matchInfo = calculateColorMatchScore(pair, deckColors);
+        if (matchInfo.score > bestCoverage) {
+          bestCoverage = matchInfo.score;
           bestPair = pair;
         }
-        // If we found perfect coverage, stop searching
-        if (coverage === deckColors.size) {
-          break;
-        }
       }
-      // If we found perfect coverage, stop searching
-      if (bestCoverage === deckColors.size) {
-        break;
+      if (exactMatchPair.length === 2) {
+        break; // Found exact match, stop searching
       }
     }
     
-    if (bestPair.length === 2) {
+    if (exactMatchPair.length === 2) {
+      selectedCommanders = exactMatchPair;
+      console.info(`[AI] Selected partner commanders with exact identity match:`, selectedCommanders.map(c => c.name));
+    } else if (bestPair.length === 2) {
+      // Use best match even if not exact (in case of 1 wrong card in deck)
       selectedCommanders = bestPair;
-      console.info(`[AI] Selected partner commanders with best color coverage (${bestCoverage}/${deckColors.size}):`, selectedCommanders.map(c => c.name));
+      const matchInfo = calculateColorMatchScore(bestPair, deckColors);
+      const pairColors = new Set<string>();
+      bestPair.forEach(c => extractColorIdentity(c).forEach(col => pairColors.add(col)));
+      console.warn(`[AI] Selected partner commanders with closest match (score: ${matchInfo.score}, coverage: ${matchInfo.coverage}/${deckColors.size}, extra colors: ${matchInfo.extraColors}):`, selectedCommanders.map(c => c.name), `- Commander identity [${Array.from(pairColors).join('')}] vs Deck identity [${Array.from(deckColors).join('')}]`);
     } else {
-      // Fallback to first 2 partners if no pair found
-      selectedCommanders = partnerCandidates.slice(0, 2);
-      console.info('[AI] Selected partner commanders (fallback):', selectedCommanders.map(c => c.name));
+      console.warn(`[AI] No partner pair found for deck colors [${Array.from(deckColors).join('')}]`);
     }
   }
   
-  // Priority 3: Check for background pair
+  // Priority 3: Check for background pair (exact match preferred, or closest match)
   if (selectedCommanders.length === 0 && 
       chooseBackgroundCandidates.length > 0 && backgroundCandidates.length > 0) {
-    selectedCommanders = [chooseBackgroundCandidates[0], backgroundCandidates[0]];
-    console.info('[AI] Selected commander + background:', selectedCommanders.map(c => c.name));
+    // Try each background combination to find best match
+    let exactMatchPair: any[] = [];
+    let bestPair: any[] = [];
+    let bestScore = -Infinity;
+    
+    for (const cmdWithBackground of chooseBackgroundCandidates) {
+      for (const background of backgroundCandidates) {
+        const pair = [cmdWithBackground, background];
+        
+        if (commanderIdentityMatchesDeck(pair, deckColors)) {
+          exactMatchPair = pair;
+          break;
+        }
+        
+        const matchInfo = calculateColorMatchScore(pair, deckColors);
+        if (matchInfo.score > bestScore) {
+          bestScore = matchInfo.score;
+          bestPair = pair;
+        }
+      }
+      if (exactMatchPair.length === 2) break;
+    }
+    
+    if (exactMatchPair.length === 2) {
+      selectedCommanders = exactMatchPair;
+      console.info('[AI] Selected commander + background with exact identity match:', selectedCommanders.map(c => c.name));
+    } else if (bestPair.length === 2) {
+      selectedCommanders = bestPair;
+      const matchInfo = calculateColorMatchScore(bestPair, deckColors);
+      const pairColors = new Set<string>();
+      bestPair.forEach(c => extractColorIdentity(c).forEach(col => pairColors.add(col)));
+      console.warn(`[AI] Selected commander + background with closest match (score: ${matchInfo.score}, coverage: ${matchInfo.coverage}/${deckColors.size}, extra colors: ${matchInfo.extraColors}):`, selectedCommanders.map(c => c.name), `- Identity [${Array.from(pairColors).join('')}] vs Deck [${Array.from(deckColors).join('')}]`);
+    } else {
+      console.warn(`[AI] No background pair found for deck colors [${Array.from(deckColors).join('')}]`);
+    }
   }
   
-  // Priority 4: Find the single commander that best covers the deck's color identity
+  // Priority 4: Find single commander (exact match preferred, or closest match)
+  // This includes commanders with full color identity (e.g., 4-color commanders like Atraxa, Omnath)
   if (selectedCommanders.length === 0) {
+    let exactMatchCommander: any = null;
     let bestCommander: any = null;
-    let bestCoverage = 0;
+    let bestScore = -Infinity;
     
     for (const candidate of candidates) {
-      const coverage = calculateColorCoverage([candidate], deckColors);
-      if (coverage > bestCoverage) {
-        bestCoverage = coverage;
-        bestCommander = candidate;
+      // Check for exact identity match
+      if (commanderIdentityMatchesDeck([candidate], deckColors)) {
+        exactMatchCommander = candidate;
+        break; // Found exact match, stop searching
       }
-      // If we found perfect coverage, stop searching
-      if (coverage === deckColors.size) {
-        break;
+      
+      // Track best match score
+      const matchInfo = calculateColorMatchScore([candidate], deckColors);
+      if (matchInfo.score > bestScore) {
+        bestScore = matchInfo.score;
+        bestCommander = candidate;
       }
     }
     
-    if (bestCommander) {
+    if (exactMatchCommander) {
+      selectedCommanders = [exactMatchCommander];
+      const commanderColors = extractColorIdentity(exactMatchCommander);
+      console.info(`[AI] Selected single commander with exact identity match [${commanderColors.join('')}]: ${exactMatchCommander.name}`);
+    } else if (bestCommander) {
       selectedCommanders = [bestCommander];
-      console.info(`[AI] Selected single commander with best color coverage (${bestCoverage}/${deckColors.size}): ${bestCommander.name}`);
+      const matchInfo = calculateColorMatchScore([bestCommander], deckColors);
+      const commanderColors = extractColorIdentity(bestCommander);
+      console.warn(`[AI] Selected single commander with closest match (score: ${matchInfo.score}, coverage: ${matchInfo.coverage}/${deckColors.size}, extra colors: ${matchInfo.extraColors}) [${commanderColors.join('')}]: ${bestCommander.name} - Deck identity [${Array.from(deckColors).join('')}]`);
     } else {
-      // Ultimate fallback - just use first candidate
-      selectedCommanders = [candidates[0]];
-      console.warn('[AI] No commanders found with good color coverage, using first candidate:', candidates[0]?.name);
+      // Ultimate fallback - shouldn't happen if there are any candidates
+      if (candidates.length > 0) {
+        selectedCommanders = [candidates[0]];
+        const fallbackColors = extractColorIdentity(candidates[0]);
+        console.error(`[AI] Using fallback commander (no valid candidates) [${fallbackColors.join('')}]: ${candidates[0]?.name} - Deck identity [${Array.from(deckColors).join('')}]`);
+      }
     }
   }
+  
+  // Check if we found an exact match
+  const exactMatch = selectedCommanders.length > 0 && commanderIdentityMatchesDeck(selectedCommanders, deckColors);
   
   // Calculate combined color identity
   const colorIdentity = new Set<string>();
@@ -333,6 +461,7 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
   return {
     commanders: selectedCommanders,
     colorIdentity: Array.from(colorIdentity),
+    exactMatch,
   };
 }
 
@@ -409,24 +538,67 @@ export async function autoSelectAICommander(
     }
     
     // Find the best commander(s) from the deck (uses original unshuffled order)
-    let { commanders, colorIdentity } = findBestCommanders(cardsForSelection);
+    let { commanders, colorIdentity, exactMatch } = findBestCommanders(cardsForSelection);
     
     if (commanders.length === 0) {
       console.warn('[AI] autoSelectAICommander: no valid commander found', { gameId, playerId });
-      // Fallback: just pick the first legendary card if any
-      const legendary = cardsForSelection.find((c: any) => 
-        (c?.type_line || '').toLowerCase().includes('legendary')
-      );
-      if (legendary) {
-        console.warn('[AI] Using fallback legendary as commander:', legendary.name);
-        // Create new arrays with the fallback commander
-        commanders = [legendary];
-        const fallbackColors = extractColorIdentity(legendary);
-        colorIdentity = [...fallbackColors];
-      } else {
-        console.error('[AI] No legendary cards found in deck, cannot set commander');
-        return false;
-      }
+      
+      // Send alert to all players
+      io.to(gameId).emit('error', {
+        code: 'NO_COMMANDER_FOUND',
+        message: 'AI deck has no valid commander candidates'
+      });
+      
+      // Send chat message
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `⚠️ AI player has no valid commander in deck. Cannot start game.`,
+        ts: Date.now(),
+      });
+      
+      return false;
+    }
+    
+    // Check if commander identity matches deck
+    if (!exactMatch) {
+      // Send warning to all players about identity mismatch
+      const deckColors = calculateDeckColorIdentity(cardsForSelection);
+      const commanderColors = new Set<string>();
+      commanders.forEach((cmd: any) => extractColorIdentity(cmd).forEach(c => commanderColors.add(c)));
+      
+      const commanderNames = commanders.map((c: any) => c.name).join(' + ');
+      const deckIdentityStr = Array.from(deckColors).join('');
+      const commanderIdentityStr = Array.from(commanderColors).join('');
+      
+      console.warn('[AI] Commander identity mismatch:', {
+        gameId,
+        playerId,
+        commanders: commanderNames,
+        commanderIdentity: commanderIdentityStr,
+        deckIdentity: deckIdentityStr,
+      });
+      
+      // Send warning notification
+      io.to(gameId).emit('warning', {
+        code: 'COMMANDER_IDENTITY_MISMATCH',
+        message: `AI commander identity [${commanderIdentityStr}] does not exactly match deck identity [${deckIdentityStr}]`,
+        details: {
+          commanders: commanderNames,
+          commanderIdentity: commanderIdentityStr,
+          deckIdentity: deckIdentityStr,
+        }
+      });
+      
+      // Send chat message
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `⚠️ AI commander ${commanderNames} [${commanderIdentityStr}] does not match deck identity [${deckIdentityStr}]. This may indicate deck construction errors.`,
+        ts: Date.now(),
+      });
     }
     
     // Set commander using the game's setCommander function
@@ -1614,9 +1786,14 @@ export async function handleAIPriority(
         return;
       }
       
-      // No more actions, advance step
-      console.info('[AI] Main phase, no more actions, advancing step');
-      await executeAdvanceStep(io, gameId, playerId);
+      // No more actions, advance step (only if it's AI's turn)
+      if (isAITurn) {
+        console.info('[AI] Main phase, no more actions, advancing step');
+        await executeAdvanceStep(io, gameId, playerId);
+      } else {
+        console.info('[AI] Main phase, not AI turn, passing priority');
+        await executePassPriority(io, gameId, playerId);
+      }
       return;
     }
     
@@ -1650,8 +1827,9 @@ export async function handleAIPriority(
         if (decision.action?.attackers?.length > 0) {
           await executeDeclareAttackers(io, gameId, playerId, decision.action.attackers);
         } else {
-          // No attackers, advance step
-          await executeAdvanceStep(io, gameId, playerId);
+          // No attackers, pass priority (step will advance when all players pass)
+          console.info('[AI] No attackers to declare, passing priority');
+          await executePassPriority(io, gameId, playerId);
         }
         return;
       }
@@ -1691,35 +1869,36 @@ export async function handleAIPriority(
         if (decision.action?.blockers?.length > 0) {
           await executeDeclareBlockers(io, gameId, playerId, decision.action.blockers);
         } else {
-          // No blockers, advance step
-          await executeAdvanceStep(io, gameId, playerId);
+          // No blockers, pass priority (step will advance when all players pass)
+          console.info('[AI] No blockers to declare, passing priority');
+          await executePassPriority(io, gameId, playerId);
         }
         return;
       }
       
-      // Other combat steps - just advance
-      console.info('[AI] Combat step', step, '- advancing');
-      await executeAdvanceStep(io, gameId, playerId);
+      // Other combat steps - just pass priority (only active player can advance combat)
+      console.info('[AI] Combat step', step, '- passing priority');
+      await executePassPriority(io, gameId, playerId);
       return;
     }
     
-    // BEGINNING PHASES (Untap, Upkeep, Draw)
+    // BEGINNING PHASES (Untap, Upkeep, Draw) - only active player can advance
     if (phase === 'beginning' || phase.includes('begin')) {
-      console.info('[AI] Beginning phase, step:', step, '- advancing');
-      await executeAdvanceStep(io, gameId, playerId);
+      console.info('[AI] Beginning phase, step:', step, '- passing priority');
+      await executePassPriority(io, gameId, playerId);
       return;
     }
     
-    // ENDING PHASE (End step)
+    // ENDING PHASE (End step) - only active player can advance
     if (phase === 'ending' || phase === 'end') {
-      console.info('[AI] Ending phase, step:', step, '- advancing');
-      await executeAdvanceStep(io, gameId, playerId);
+      console.info('[AI] Ending phase, step:', step, '- passing priority');
+      await executePassPriority(io, gameId, playerId);
       return;
     }
     
-    // Default: advance step
-    console.info('[AI] Unknown phase/step, advancing');
-    await executeAdvanceStep(io, gameId, playerId);
+    // Default: pass priority instead of advancing (let the game engine handle step advancement)
+    console.info('[AI] Unknown phase/step, passing priority');
+    await executePassPriority(io, gameId, playerId);
     
   } catch (error) {
     console.error('[AI] Error handling AI priority:', error);
@@ -2589,9 +2768,14 @@ async function executeAdvanceStep(
     // Broadcast
     broadcastGame(io, game, gameId);
     
-    // If AI still has priority after advancing, continue handling
+    // If AI still has priority after advancing AND it's the AI's turn, continue handling
+    // CRITICAL: Don't continue if it's CLEANUP step (no priority granted during cleanup per Rule 514.1)
     const newPriority = (game.state as any)?.priority;
-    if (newPriority === playerId && isAIPlayer(gameId, playerId)) {
+    const newTurnPlayer = game.state?.turnPlayer;
+    const isStillAITurn = newTurnPlayer === playerId;
+    const isCleanupStep = String((game.state as any).step || '').toLowerCase().includes('cleanup');
+    
+    if (newPriority === playerId && isAIPlayer(gameId, playerId) && isStillAITurn && !isCleanupStep) {
       setTimeout(() => {
         handleAIPriority(io, gameId, playerId).catch(console.error);
       }, AI_THINK_TIME_MS);
