@@ -493,6 +493,10 @@ function hasPlayFromTopOfLibraryEffect(ctx: GameContext, playerId: PlayerID): bo
  * During main phase with empty stack, also check for sorcery-speed actions.
  * This is used to auto-pass priority when appropriate.
  * 
+ * IMPORTANT: Be conservative with the active player (turn player) - they should
+ * generally NOT be auto-passed during their own turn, especially in main phases
+ * where they might want to manually control pacing and sorcery-speed actions.
+ * 
  * @param ctx Game context
  * @param playerId The player to check
  * @returns true if the player can respond, false otherwise
@@ -502,8 +506,16 @@ export function canRespond(ctx: GameContext, playerId: PlayerID): boolean {
     const currentStep = String((ctx.state as any).step || '').toUpperCase();
     const isMainPhase = currentStep === 'MAIN1' || currentStep === 'MAIN2' || currentStep === 'MAIN';
     const stackIsEmpty = !ctx.state.stack || ctx.state.stack.length === 0;
+    const isActivePlayer = (ctx.state as any).turnPlayer === playerId;
     
-    console.log(`[canRespond] ${playerId}: step=${currentStep}, isMainPhase=${isMainPhase}, stackIsEmpty=${stackIsEmpty}`);
+    console.log(`[canRespond] ${playerId}: step=${currentStep}, isMainPhase=${isMainPhase}, stackIsEmpty=${stackIsEmpty}, isActivePlayer=${isActivePlayer}`);
+    
+    // CRITICAL: During main phase with empty stack, the active player should
+    // NEVER be auto-passed, as they control sorcery-speed actions and pacing
+    if (isActivePlayer && isMainPhase && stackIsEmpty) {
+      console.log(`[canRespond] ${playerId}: Active player in main phase with empty stack - never auto-pass (returning true)`);
+      return true;
+    }
     
     // Check if player can cast any instant/flash spells
     if (canCastAnySpell(ctx, playerId)) {
