@@ -268,6 +268,8 @@ export function TableLayout(props: {
   pendingBottomCount?: number;
   canKeepHand?: boolean;
   canMulligan?: boolean;
+  // Playable cards highlighting (for current priority player)
+  playableCards?: string[];
   isPreGame?: boolean;
   allPlayersKeptHands?: boolean;
   onKeepHand?: () => void;
@@ -1438,6 +1440,7 @@ export function TableLayout(props: {
                               rowGapPx={10}
                               enableReorder={allowReorderHere}
                               onReorder={onReorderHand}
+                              playableCards={props.playableCards}
                             />
                           </div>
                         )}

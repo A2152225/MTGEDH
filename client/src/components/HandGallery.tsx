@@ -32,6 +32,8 @@ export interface HandGalleryProps {
   hidden?: boolean;                 // if true, render facedown placeholders (no leak)
   // NEW: cost reduction info for displaying modified costs
   costReductions?: Record<string, CardCostReduction>;
+  // NEW: IDs of cards that are currently playable (for highlighting)
+  playableCards?: string[];
 }
 
 function isLand(tl?: string): boolean {
@@ -72,6 +74,7 @@ export function HandGallery(props: HandGalleryProps) {
     onReorder,
     hidden = false,
     costReductions = {},
+    playableCards = [],
   } = props;
 
   const [dragIdx, setDragIdx] = useState<number | null>(null);
@@ -204,6 +207,7 @@ export function HandGallery(props: HandGalleryProps) {
 
         const cantPlayLand = kc && isLand(tl) && reasonCannotPlayLand ? reasonCannotPlayLand(kc) : null;
         const cantCast = kc && reasonCannotCast ? reasonCannotCast(kc) : null;
+        const isPlayable = kc && playableCards.includes(kc.id);
 
         return (
           <div
@@ -229,6 +233,8 @@ export function HandGallery(props: HandGalleryProps) {
                   ? '0 0 0 2px #2b6cb0'
                   : dragOver === i
                   ? '0 0 0 2px #38a169'
+                  : isPlayable
+                  ? '0 0 8px 3px rgba(34, 197, 94, 0.8), 0 0 0 2px #22c55e'
                   : 'none',
             }}
             title={name}
