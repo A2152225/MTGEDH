@@ -1,6 +1,8 @@
 import React, { useState, useRef } from 'react';
 import type { CardRef, KnownCardRef } from '../../../shared/src';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
+import type { AppearanceSettings } from '../utils/appearanceSettings';
+import { getPlayableCardHighlight } from '../utils/appearanceSettings';
 
 /**
  * Cost reduction info for a card
@@ -32,6 +34,10 @@ export interface HandGalleryProps {
   hidden?: boolean;                 // if true, render facedown placeholders (no leak)
   // NEW: cost reduction info for displaying modified costs
   costReductions?: Record<string, CardCostReduction>;
+  // NEW: IDs of cards that are currently playable (for highlighting)
+  playableCards?: string[];
+  // Appearance settings for custom highlight color
+  appearanceSettings?: AppearanceSettings;
 }
 
 function isLand(tl?: string): boolean {
@@ -72,6 +78,8 @@ export function HandGallery(props: HandGalleryProps) {
     onReorder,
     hidden = false,
     costReductions = {},
+    playableCards = [],
+    appearanceSettings,
   } = props;
 
   const [dragIdx, setDragIdx] = useState<number | null>(null);
@@ -204,6 +212,7 @@ export function HandGallery(props: HandGalleryProps) {
 
         const cantPlayLand = kc && isLand(tl) && reasonCannotPlayLand ? reasonCannotPlayLand(kc) : null;
         const cantCast = kc && reasonCannotCast ? reasonCannotCast(kc) : null;
+        const isPlayable = kc && playableCards.includes(kc.id);
 
         return (
           <div
@@ -229,6 +238,8 @@ export function HandGallery(props: HandGalleryProps) {
                   ? '0 0 0 2px #2b6cb0'
                   : dragOver === i
                   ? '0 0 0 2px #38a169'
+                  : isPlayable
+                  ? getPlayableCardHighlight(appearanceSettings)
                   : 'none',
             }}
             title={name}

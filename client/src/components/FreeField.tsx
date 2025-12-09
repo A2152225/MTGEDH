@@ -7,6 +7,8 @@ import { CardContextMenu } from './CardContextMenu';
 import { ActivatedAbilityButtons } from './ActivatedAbilityButtons';
 import { AbilitySelectionModal } from './AbilitySelectionModal';
 import { parseActivatedAbilities, canActivateTapAbility, type ParsedActivatedAbility, type ActivationContext } from '../utils/activatedAbilityParser';
+import type { AppearanceSettings } from '../utils/appearanceSettings';
+import { getPlayableCardHighlight } from '../utils/appearanceSettings';
 
 function parsePT(raw?: string | number): number | undefined {
   if (typeof raw === 'number') return raw;
@@ -106,6 +108,10 @@ export function FreeField(props: {
   hasThousandYearElixirEffect?: boolean;
   // Display options for ability buttons
   showActivatedAbilityButtons?: boolean;
+  // Playable cards highlighting
+  playableCards?: string[];
+  // Appearance settings for custom highlight color
+  appearanceSettings?: AppearanceSettings;
 }) {
   const {
     perms, imagePref, tileWidth, widthPx, heightPx,
@@ -119,6 +125,8 @@ export function FreeField(props: {
     stackEmpty = true,
     hasThousandYearElixirEffect = false,
     showActivatedAbilityButtons = true,
+    playableCards = [],
+    appearanceSettings,
   } = props;
 
   const tileH = Math.round(tileWidth / 0.72);
@@ -479,6 +487,7 @@ export function FreeField(props: {
 
         const hovered = hoverId === id;
         const attackingPlayerName = attacking ? players.find(p => p.id === attacking)?.name || attacking : null;
+        const isPlayable = playableCards.includes(id);
 
         return (
           <div
@@ -515,17 +524,19 @@ export function FreeField(props: {
               background: '#0f0f0f',
               transform: tapped ? 'rotate(14deg)' : 'none',
               transformOrigin: '50% 50%',
-              boxShadow: isAttachmentHighlighted
-                ? '0 0 16px rgba(168,85,247,0.7)' // Purple glow for attachment highlight
-                : isAttacking 
-                  ? '0 0 12px rgba(239,68,68,0.6)' 
-                  : isBlocking 
-                    ? '0 0 12px rgba(59,130,246,0.6)' 
-                    : isTargeted 
-                      ? '0 0 8px rgba(245,158,11,0.5)' 
-                      : hasAttachments
-                        ? '0 0 6px rgba(139,92,246,0.4)' // Subtle glow for cards with attachments
-                        : 'none',
+              boxShadow: isPlayable
+                ? getPlayableCardHighlight(appearanceSettings)
+                : isAttachmentHighlighted
+                  ? '0 0 16px rgba(168,85,247,0.7)' // Purple glow for attachment highlight
+                  : isAttacking 
+                    ? '0 0 12px rgba(239,68,68,0.6)' 
+                    : isBlocking 
+                      ? '0 0 12px rgba(59,130,246,0.6)' 
+                      : isTargeted 
+                        ? '0 0 8px rgba(245,158,11,0.5)' 
+                        : hasAttachments
+                          ? '0 0 6px rgba(139,92,246,0.4)' // Subtle glow for cards with attachments
+                          : 'none',
             }}
             title={name + (tapped ? ' (tapped)' : '')}
           >

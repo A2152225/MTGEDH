@@ -28,7 +28,7 @@ import { CentralStack } from './CentralStack';
 import { FloatingManaPool } from './FloatingManaPool';
 import { socket } from '../socket';
 import type { AppearanceSettings } from '../utils/appearanceSettings';
-import { getPlayAreaGradientStyle, getBackgroundStyle } from '../utils/appearanceSettings';
+import { getPlayAreaGradientStyle, getBackgroundStyle, getPlayableCardHighlight } from '../utils/appearanceSettings';
 
 function clamp(n: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, n)); }
 function isLandTypeLine(tl?: string) { return /\bland\b/i.test(tl || ''); }
@@ -268,6 +268,8 @@ export function TableLayout(props: {
   pendingBottomCount?: number;
   canKeepHand?: boolean;
   canMulligan?: boolean;
+  // Playable cards highlighting (for current priority player)
+  playableCards?: string[];
   isPreGame?: boolean;
   allPlayersKeptHands?: boolean;
   onKeepHand?: () => void;
@@ -307,6 +309,8 @@ export function TableLayout(props: {
     showMulliganUI, hasKeptHand, mulligansTaken = 0, pendingBottomCount = 0,
     canKeepHand, canMulligan, isPreGame, allPlayersKeptHands,
     onKeepHand, onMulligan, onRandomizeStart, onBeginGame,
+    // Playable cards highlighting
+    playableCards,
   } = props;
 
   // Snapshot debug
@@ -1288,6 +1292,8 @@ export function TableLayout(props: {
                           stackEmpty={stackEmpty}
                           hasThousandYearElixirEffect={hasThousandYearElixirEffect}
                           showActivatedAbilityButtons={!!isYouThis}
+                          playableCards={isYouThis ? playableCards : undefined}
+                          appearanceSettings={appearanceSettings}
                         />
 
                         {/* Mana Sources Row (mana rocks, dorks) - positioned above lands */}
@@ -1438,6 +1444,8 @@ export function TableLayout(props: {
                               rowGapPx={10}
                               enableReorder={allowReorderHere}
                               onReorder={onReorderHand}
+                              playableCards={playableCards}
+                              appearanceSettings={appearanceSettings}
                             />
                           </div>
                         )}
@@ -1616,6 +1624,9 @@ export function TableLayout(props: {
                             }}
                             onViewGraveyard={onViewGraveyard ? () => onViewGraveyard(pb.player.id) : undefined}
                             onViewExile={onViewExile ? () => onViewExile(pb.player.id) : undefined}
+                            playableCards={isYouThis ? playableCards : undefined}
+                            playerId={pb.player.id}
+                            appearanceSettings={appearanceSettings}
                           />
                         )}
                       </div>

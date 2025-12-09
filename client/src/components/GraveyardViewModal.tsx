@@ -8,6 +8,8 @@
 import React, { useState, useMemo } from 'react';
 import type { KnownCardRef } from '../../../shared/src';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
+import type { AppearanceSettings } from '../utils/appearanceSettings';
+import { getPlayableCardHighlight } from '../utils/appearanceSettings';
 
 export interface GraveyardAbility {
   id: string;
@@ -23,6 +25,8 @@ export interface GraveyardViewModalProps {
   canActivate?: boolean;
   onClose: () => void;
   onActivateAbility?: (cardId: string, abilityId: string, card: KnownCardRef) => void;
+  playableCards?: string[];
+  appearanceSettings?: AppearanceSettings;
 }
 
 /**
@@ -212,6 +216,8 @@ export function GraveyardViewModal({
   canActivate = true,
   onClose,
   onActivateAbility,
+  playableCards = [],
+  appearanceSettings,
 }: GraveyardViewModalProps) {
   const [selectedCard, setSelectedCard] = useState<KnownCardRef | null>(null);
   const [filter, setFilter] = useState('');
@@ -405,7 +411,10 @@ export function GraveyardViewModal({
               gap: 8,
             }}
           >
-            {[...filteredCards].reverse().map(({ card, abilities }) => (
+            {[...filteredCards].reverse().map(({ card, abilities }) => {
+              const isPlayable = playableCards.includes(card.id);
+              
+              return (
               <div
                 key={card.id}
                 style={{
@@ -415,6 +424,7 @@ export function GraveyardViewModal({
                   border: abilities.length > 0 ? '2px solid rgba(59, 130, 246, 0.5)' : '1px solid rgba(255,255,255,0.1)',
                   backgroundColor: '#252540',
                   cursor: 'pointer',
+                  boxShadow: isPlayable ? getPlayableCardHighlight(appearanceSettings) : 'none',
                 }}
                 onClick={() => setSelectedCard(selectedCard?.id === card.id ? null : card)}
                 onMouseEnter={(e) => showCardPreview(e.currentTarget as HTMLElement, card, { prefer: 'above' })}
@@ -463,7 +473,8 @@ export function GraveyardViewModal({
                   {card.name}
                 </div>
               </div>
-            ))}
+            );
+            })}
           </div>
         </div>
         

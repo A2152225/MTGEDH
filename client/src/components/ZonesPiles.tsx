@@ -1,6 +1,8 @@
 import React from "react";
 import type { PlayerZones, CommanderInfo, KnownCardRef } from "../../../shared/src";
 import { showCardPreview, hideCardPreview } from "./CardPreviewLayer";
+import type { AppearanceSettings } from "../utils/appearanceSettings";
+import { getPlayableCardHighlight } from "../utils/appearanceSettings";
 
 /**
  * ZonesPiles: shows library/graveyard/exile and command zone slots.
@@ -26,8 +28,11 @@ export function ZonesPiles(props: {
   onCastCommander?: (commanderId: string, commanderName: string, manaCost?: string, tax?: number) => void;
   onViewGraveyard?: () => void;
   onViewExile?: () => void;
+  playableCards?: string[];
+  playerId?: string;
+  appearanceSettings?: AppearanceSettings;
 }) {
-  const { zones: zonesInput = SAFE_DEFAULT_ZONES, commander, isCommanderFormat, showHandCount = 0, hideHandDetails, canCastCommander, onCastCommander, onViewGraveyard, onViewExile } = props;
+  const { zones: zonesInput = SAFE_DEFAULT_ZONES, commander, isCommanderFormat, showHandCount = 0, hideHandDetails, canCastCommander, onCastCommander, onViewGraveyard, onViewExile, playableCards = [], playerId, appearanceSettings } = props;
   // Ensure zones is never null
   const zones = zonesInput ?? SAFE_DEFAULT_ZONES;
 
@@ -43,7 +48,7 @@ export function ZonesPiles(props: {
   // Which commanders are currently in the command zone (not on stack/battlefield)
   const inCommandZone = (isCommanderFormat ? (commander as any)?.inCommandZone : undefined) as string[] | undefined;
 
-  function renderPile(label: string, count: number, topCard?: KnownCardRef, hideTopCard?: boolean, onClick?: () => void, onDoubleClick?: () => void) {
+  function renderPile(label: string, count: number, topCard?: KnownCardRef, hideTopCard?: boolean, onClick?: () => void, onDoubleClick?: () => void, isPlayable?: boolean) {
     const name = topCard?.name || "";
     // prefer art_crop -> normal -> small
     const img = topCard?.image_uris?.art_crop || topCard?.image_uris?.normal || topCard?.image_uris?.small || null;
@@ -73,6 +78,7 @@ export function ZonesPiles(props: {
           textAlign: "center",
           cursor: isClickable ? "pointer" : "default",
           transition: "border-color 0.15s",
+          boxShadow: isPlayable ? getPlayableCardHighlight(appearanceSettings) : 'none',
         }}
         onClick={onClick}
         onDoubleClick={onDoubleClick}
@@ -153,6 +159,7 @@ export function ZonesPiles(props: {
             // prefer art_crop -> normal -> small for commander tile too
             const img = previewCard?.image_uris?.art_crop || previewCard?.image_uris?.normal || previewCard?.image_uris?.small || null;
             const canCast = canCastCommander && hasCard && slot.isInCZ && onCastCommander;
+            const isPlayable = commanderId && playableCards.includes(commanderId);
 
             return (
               <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
@@ -174,6 +181,7 @@ export function ZonesPiles(props: {
                     cursor: previewCard ? "pointer" : "default",
                     overflow: "hidden",
                     opacity: slot.isInCZ ? 1 : 0.5,
+                    boxShadow: isPlayable ? getPlayableCardHighlight(appearanceSettings) : 'none',
                   }}
                   onMouseEnter={(e) => {
                     if (previewCard) showCardPreview(e.currentTarget as HTMLElement, previewCard, { prefer: "above", anchorPadding: 0 });
@@ -224,15 +232,20 @@ export function ZonesPiles(props: {
   const libraryTop = libArr.length > 0 ? (libArr[0] as KnownCardRef) : undefined;
   const graveTop = grArr.length > 0 ? (grArr[grArr.length - 1] as KnownCardRef) : undefined;
   const exileTop = exArr.length > 0 ? (exArr[exArr.length - 1] as KnownCardRef) : undefined;
+  
+  // Check if zones are playable
+  const libraryPlayable = playerId && playableCards.includes(`library-${playerId}`);
+  const graveyardPlayable = playableCards.some(id => grArr.some(card => card.id === id));
+  const exilePlayable = playableCards.some(id => exArr.some(card => card.id === id));
 
   return (
     <div style={{ display: "flex", flexDirection: "row", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
       {/* Command zone now rendered before Library for expected layout */}
       {isCommanderFormat && commander ? <CommandSlots /> : null}
-      {renderPile("Library", (zones.libraryCount ?? libArr.length ?? 0), libraryTop, true /* hideTopCard */)}
+      {renderPile("Library", (zones.libraryCount ?? libArr.length ?? 0), libraryTop, true /* hideTopCard */, undefined, undefined, libraryPlayable)}
       {/* Graveyard supports both click and double-click - double-click opens the full graveyard modal */}
-      {renderPile("Graveyard", (zones.graveyardCount ?? grArr.length ?? 0), graveTop, false, undefined, onViewGraveyard)}
-      {renderPile("Exile", ((zones as any).exile?.length ?? exArr.length ?? 0), exileTop, false, undefined, onViewExile)}
+      {renderPile("Graveyard", (zones.graveyardCount ?? grArr.length ?? 0), graveTop, false, undefined, onViewGraveyard, graveyardPlayable)}
+      {renderPile("Exile", ((zones as any).exile?.length ?? exArr.length ?? 0), exileTop, false, undefined, onViewExile, exilePlayable)}
     </div>
   );
 }
