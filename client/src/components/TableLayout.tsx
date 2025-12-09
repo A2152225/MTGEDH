@@ -309,6 +309,8 @@ export function TableLayout(props: {
     showMulliganUI, hasKeptHand, mulligansTaken = 0, pendingBottomCount = 0,
     canKeepHand, canMulligan, isPreGame, allPlayersKeptHands,
     onKeepHand, onMulligan, onRandomizeStart, onBeginGame,
+    // Playable cards highlighting
+    playableCards,
   } = props;
 
   // Snapshot debug
@@ -1290,7 +1292,7 @@ export function TableLayout(props: {
                           stackEmpty={stackEmpty}
                           hasThousandYearElixirEffect={hasThousandYearElixirEffect}
                           showActivatedAbilityButtons={!!isYouThis}
-                          playableCards={isYouThis ? props.playableCards : undefined}
+                          playableCards={isYouThis ? playableCards : undefined}
                         />
 
                         {/* Mana Sources Row (mana rocks, dorks) - positioned above lands */}
@@ -1441,7 +1443,7 @@ export function TableLayout(props: {
                               rowGapPx={10}
                               enableReorder={allowReorderHere}
                               onReorder={onReorderHand}
-                              playableCards={props.playableCards}
+                              playableCards={playableCards}
                             />
                           </div>
                         )}
@@ -1620,7 +1622,7 @@ export function TableLayout(props: {
                             }}
                             onViewGraveyard={onViewGraveyard ? () => onViewGraveyard(pb.player.id) : undefined}
                             onViewExile={onViewExile ? () => onViewExile(pb.player.id) : undefined}
-                            playableCards={isYouThis ? props.playableCards : undefined}
+                            playableCards={isYouThis ? playableCards : undefined}
                             playerId={pb.player.id}
                           />
                         )}

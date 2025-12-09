@@ -47,6 +47,7 @@ import { ModalSpellSelectionModal, type SpellMode } from "./components/ModalSpel
 import { ReplacementEffectOrderModal, type ReplacementEffectItem, type OrderingMode } from "./components/ReplacementEffectOrderModal";
 import { ReplacementEffectSettingsPanel } from "./components/ReplacementEffectSettingsPanel";
 import { GraveyardViewModal } from "./components/GraveyardViewModal";
+import { ExileViewModal } from "./components/ExileViewModal";
 import { JoinForcesModal, type JoinForcesRequest } from "./components/JoinForcesModal";
 import { TemptingOfferModal, type TemptingOfferRequest } from "./components/TemptingOfferModal";
 import { CommanderZoneChoiceModal } from "./components/CommanderZoneChoiceModal";
@@ -424,6 +425,9 @@ export function App() {
   // Graveyard View Modal state
   const [graveyardModalOpen, setGraveyardModalOpen] = useState(false);
   const [graveyardModalPlayerId, setGraveyardModalPlayerId] = useState<string | null>(null);
+  
+  const [exileModalOpen, setExileModalOpen] = useState(false);
+  const [exileModalPlayerId, setExileModalPlayerId] = useState<string | null>(null);
   
   // Join Forces Modal state (Collective Voyage, Minds Aglow, etc.)
   const [joinForcesModalOpen, setJoinForcesModalOpen] = useState(false);
@@ -3462,6 +3466,26 @@ export function App() {
     
     setGraveyardModalOpen(false);
   };
+  
+  // Exile view handler
+  const handleViewExile = (playerId: string) => {
+    setExileModalPlayerId(playerId);
+    setExileModalOpen(true);
+  };
+
+  // Exile ability activation handler
+  const handleExileAbility = (cardId: string, abilityId: string, card: KnownCardRef) => {
+    if (!safeView) return;
+    
+    // Emit the exile ability activation to the server
+    socket.emit("activateExileAbility", {
+      gameId: safeView.id,
+      cardId,
+      abilityId,
+    });
+    
+    setExileModalOpen(false);
+  };
 
   /**
    * Check if a creature can attack (considering summoning sickness).
@@ -3958,6 +3982,7 @@ export function App() {
               worldSize={12000}
               appearanceSettings={appearanceSettings}
               onViewGraveyard={handleViewGraveyard}
+              onViewExile={handleViewExile}
               onUpdatePermPos={(id: string, x: number, y: number, z: number) =>
                 safeView &&
                 socket.emit("updatePermanentPos", {
@@ -5322,6 +5347,24 @@ export function App() {
         }}
         onActivateAbility={handleGraveyardAbility}
         playableCards={you === graveyardModalPlayerId ? (safeView as any)?.playableCards : undefined}
+      />
+
+      {/* Exile View Modal */}
+      <ExileViewModal
+        open={exileModalOpen}
+        cards={useMemo(() => {
+          if (!safeView || !exileModalPlayerId) return [];
+          const exile = (safeView as any).exile?.[exileModalPlayerId] || [];
+          return Array.isArray(exile) ? exile.filter((c: any) => c && c.name) as KnownCardRef[] : [];
+        }, [safeView, exileModalPlayerId])}
+        playerId={exileModalPlayerId || ''}
+        canActivate={you === exileModalPlayerId}
+        onClose={() => {
+          setExileModalOpen(false);
+          setExileModalPlayerId(null);
+        }}
+        onActivateAbility={handleExileAbility}
+        playableCards={you === exileModalPlayerId ? (safeView as any)?.playableCards : undefined}
       />
 
       {/* Join Forces Modal (Collective Voyage, Minds Aglow, etc.) */}
