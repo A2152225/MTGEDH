@@ -19,6 +19,9 @@ import type { GameID, PlayerID } from "../../../shared/src/index.js";
 import { registerPendingJoinForces, registerPendingTemptingOffer } from "./join-forces.js";
 import { getActualPowerToughness } from "../state/utils.js";
 import { getDevotionManaAmount, getCreatureCountManaAmount } from "../state/modules/mana-abilities.js";
+import { canRespond } from "../state/modules/can-respond.js";
+import { parseManaCost as parseManaFromString, canPayManaCost, getManaPoolFromState } from "../state/modules/mana-check.js";
+import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
 
 // ============================================================================
 // Pre-compiled RegExp patterns for mana color matching in devotion calculations
@@ -105,6 +108,308 @@ function ensureStateZonesForPlayers(game: any) {
     }
   } catch (e) {
     console.warn("ensureStateZonesForPlayers failed:", e);
+  }
+}
+
+/**
+ * Get IDs of cards/permanents that the player can currently play or activate
+ * This is used for UI highlighting to show players their available options
+ * Includes: cards in hand, battlefield abilities, foretell cards in exile, 
+ * playable cards from graveyard/exile/top deck, etc.
+ * 
+ * NOTE: Checks both affordability AND timing to ensure automation works correctly.
+ */
+function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
+  const playableIds: string[] = [];
+  
+  try {
+    const state = game.state;
+    if (!state) return playableIds;
+    
+    const zones = state.zones?.[playerId];
+    if (!zones) return playableIds;
+    
+    const pool = getManaPoolFromState(state, playerId);
+    const isMainPhase = isInMainPhase(state);
+    const stackIsEmpty = !state.stack || state.stack.length === 0;
+    
+    // Check hand for castable spells
+    if (Array.isArray(zones.hand)) {
+      for (const card of zones.hand) {
+        if (!card || typeof card === "string") continue;
+        
+        const typeLine = (card.type_line || "").toLowerCase();
+        const oracleText = (card.oracle_text || "").toLowerCase();
+        
+        // Skip lands - they're checked separately
+        if (typeLine.includes("land")) continue;
+        
+        // Check if it's instant-speed (instant or flash)
+        const isInstantSpeed = typeLine.includes("instant") || oracleText.includes("flash");
+        
+        // Check if it's sorcery-speed and we're in the right timing
+        const isSorcerySpeed = 
+          typeLine.includes("creature") ||
+          typeLine.includes("sorcery") ||
+          typeLine.includes("artifact") ||
+          typeLine.includes("enchantment") ||
+          typeLine.includes("planeswalker") ||
+          typeLine.includes("battle");
+        
+        const canCastNow = isInstantSpeed || (isSorcerySpeed && isMainPhase && stackIsEmpty);
+        
+        if (canCastNow) {
+          // Check if player can pay the cost
+          const manaCost = card.mana_cost || "";
+          const parsedCost = parseManaFromString(manaCost);
+          
+          if (canPayManaCost(pool, parsedCost) || hasPayableAlternateCost(game as any, playerId, card)) {
+            playableIds.push(card.id);
+          }
+        }
+      }
+    }
+    
+    // Check for playable lands in hand (during main phase with empty stack)
+    if (isMainPhase && stackIsEmpty) {
+      const landsPlayedThisTurn = (state.landsPlayedThisTurn as any)?.[playerId] ?? 0;
+      const maxLandsPerTurn = 1;
+      
+      if (landsPlayedThisTurn < maxLandsPerTurn && Array.isArray(zones.hand)) {
+        for (const card of zones.hand) {
+          if (!card || typeof card === "string") continue;
+          
+          const typeLine = (card.type_line || "").toLowerCase();
+          if (typeLine.includes("land")) {
+            playableIds.push(card.id);
+          }
+        }
+      }
+    }
+    
+    // Check exile zone for foretell cards and other playable cards
+    const exileZone = (state as any).exile?.[playerId];
+    if (Array.isArray(exileZone)) {
+      for (const card of exileZone) {
+        if (!card || typeof card === "string") continue;
+        
+        const oracleText = (card.oracle_text || "").toLowerCase();
+        const typeLine = (card.type_line || "").toLowerCase();
+        
+        // Check for foretell cards - can cast from exile for foretell cost
+        if (oracleText.includes("foretell")) {
+          const foretellMatch = oracleText.match(/foretell\s+(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+          if (foretellMatch) {
+            const foretellCost = foretellMatch[1];
+            const parsedCost = parseManaFromString(foretellCost);
+            
+            // Check timing for foretell
+            const isInstantSpeed = typeLine.includes("instant");
+            const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty);
+            
+            if (canCastNow && canPayManaCost(pool, parsedCost)) {
+              playableIds.push(card.id);
+            }
+          }
+        }
+        
+        // Check if marked as playable from exile (impulse draw effects, etc.)
+        const playableFromExile = (state as any).playableFromExile?.[playerId];
+        if (playableFromExile) {
+          const isPlayable = Array.isArray(playableFromExile) 
+            ? playableFromExile.includes(card.id)
+            : playableFromExile[card.id];
+          
+          if (isPlayable) {
+            const manaCost = card.mana_cost || "";
+            const parsedCost = parseManaFromString(manaCost);
+            
+            // Check timing
+            const isInstantSpeed = typeLine.includes("instant") || oracleText.includes("flash");
+            const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty);
+            
+            if (canCastNow && canPayManaCost(pool, parsedCost)) {
+              playableIds.push(card.id);
+            }
+          }
+        }
+      }
+    }
+    
+    // Check graveyard for cards that can be played from graveyard
+    if (Array.isArray(zones.graveyard)) {
+      const battlefield = state.battlefield || [];
+      const hasPlayFromGraveyardEffect = battlefield.some((perm: any) => {
+        if (perm.controller !== playerId) return false;
+        const oracle = (perm.card?.oracle_text || "").toLowerCase();
+        return (oracle.includes("you may play") || oracle.includes("you may cast")) && 
+               oracle.includes("graveyard");
+      });
+      
+      if (hasPlayFromGraveyardEffect) {
+        for (const card of zones.graveyard) {
+          if (!card || typeof card === "string") continue;
+          
+          const typeLine = (card.type_line || "").toLowerCase();
+          const oracleText = (card.oracle_text || "").toLowerCase();
+          const manaCost = card.mana_cost || "";
+          const parsedCost = parseManaFromString(manaCost);
+          
+          // Check timing
+          const isInstantSpeed = typeLine.includes("instant") || oracleText.includes("flash");
+          const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty);
+          
+          if (canCastNow && canPayManaCost(pool, parsedCost)) {
+            playableIds.push(card.id);
+          }
+        }
+      }
+    }
+    
+    // Check top of library if player can play from top
+    const libraries = (game as any).libraries;
+    if (libraries && typeof libraries.get === 'function') {
+      const library = libraries.get(playerId);
+      const battlefield = state.battlefield || [];
+      
+      const hasPlayFromTopEffect = battlefield.some((perm: any) => {
+        if (perm.controller !== playerId) return false;
+        const oracle = (perm.card?.oracle_text || "").toLowerCase();
+        return (oracle.includes("you may play") || oracle.includes("you may cast")) && 
+               (oracle.includes("top") || oracle.includes("off the top")) &&
+               (oracle.includes("library") || oracle.includes("your library"));
+      });
+      
+      if (hasPlayFromTopEffect && Array.isArray(library) && library.length > 0) {
+        const topCard = library[library.length - 1]; // Top is last element
+        if (topCard && typeof topCard !== "string") {
+          const typeLine = (topCard.type_line || "").toLowerCase();
+          const oracleText = (topCard.oracle_text || "").toLowerCase();
+          
+          // For lands from top of library
+          if (typeLine.includes("land")) {
+            if (isMainPhase && stackIsEmpty) {
+              const landsPlayedThisTurn = (state.landsPlayedThisTurn as any)?.[playerId] ?? 0;
+              if (landsPlayedThisTurn < 1) {
+                // Highlight the library zone instead of the individual card
+                playableIds.push(`library-${playerId}`);
+              }
+            }
+          } else {
+            // For spells from top of library - check timing and cost
+            const manaCost = topCard.mana_cost || "";
+            const parsedCost = parseManaFromString(manaCost);
+            
+            // Check timing (example: creature with flash from top of library)
+            const isInstantSpeed = typeLine.includes("instant") || oracleText.includes("flash");
+            const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty);
+            
+            if (canCastNow && canPayManaCost(pool, parsedCost)) {
+              // Highlight the library zone instead of the individual card
+              playableIds.push(`library-${playerId}`);
+            }
+          }
+        }
+      }
+    }
+    
+    // Check battlefield for activatable abilities
+    const battlefield = state.battlefield || [];
+    for (const perm of battlefield) {
+      if (!perm || perm.controller !== playerId) continue;
+      
+      const oracleText = perm.card?.oracle_text || "";
+      let hasActivatableAbility = false;
+      
+      // Check for tap abilities
+      if (/\{T\}:/.test(oracleText) && !perm.tapped) {
+        const abilityMatch = oracleText.match(/\{T\}(?:,\s*([^:]+))?:\s*(.+)/i);
+        if (abilityMatch) {
+          const effect = abilityMatch[2] || "";
+          const effectLower = effect.toLowerCase();
+          
+          // Skip pure mana abilities (they don't require priority)
+          const isPureManaAbility = /add\s+(?:\{[wubrgc]\}|\{[^}]+\}\{[^}]+\}|one mana|mana)/i.test(effectLower) &&
+                                    !/target/i.test(effect);
+          
+          if (!isPureManaAbility) {
+            hasActivatableAbility = true;
+          }
+        }
+      }
+      
+      // Check for other activated abilities with costs
+      const activatedAbilityPattern = /(\{[^}]+\}(?:\s*,\s*\{[^}]+\})*)\s*:\s*(.+)/gi;
+      const matches = [...oracleText.matchAll(activatedAbilityPattern)];
+      
+      for (const match of matches) {
+        const costPart = match[1];
+        const effectPart = match[2];
+        
+        // Skip if already checked (tap ability)
+        if (costPart.includes("{T}")) continue;
+        
+        // Skip pure mana abilities
+        const effectLower = effectPart.toLowerCase();
+        const isPureManaAbility = /add\s+(?:\{[wubrgc]\}|\{[^}]+\}\{[^}]+\}|one mana|mana)/i.test(effectLower) &&
+                                  !/target/i.test(effectPart);
+        
+        if (isPureManaAbility) continue;
+        
+        // Check for sorcery-speed-only abilities (equip, reconfigure, etc.)
+        if (effectLower.includes("equip") || effectLower.includes("reconfigure")) {
+          if (isMainPhase && stackIsEmpty) {
+            const parsedCost = parseManaFromString(costPart);
+            if (canPayManaCost(pool, parsedCost)) {
+              hasActivatableAbility = true;
+            }
+          }
+          continue;
+        }
+        
+        // Check for explicit sorcery-speed restriction
+        if (/(activate|use) (?:this ability|these abilities) only (?:as a sorcery|any time you could cast a sorcery)/i.test(oracleText)) {
+          if (isMainPhase && stackIsEmpty) {
+            const parsedCost = parseManaFromString(costPart);
+            if (canPayManaCost(pool, parsedCost)) {
+              hasActivatableAbility = true;
+            }
+          }
+          continue;
+        }
+        
+        // Instant-speed abilities - check if we can pay the cost
+        const parsedCost = parseManaFromString(costPart);
+        if (canPayManaCost(pool, parsedCost)) {
+          hasActivatableAbility = true;
+          break;
+        }
+      }
+      
+      // Add permanent once if it has any activatable abilities
+      if (hasActivatableAbility) {
+        playableIds.push(perm.id);
+      }
+    }
+    
+  } catch (err) {
+    console.warn("[getPlayableCardIds] Error:", err);
+  }
+  
+  return playableIds;
+}
+
+/**
+ * Check if game is in main phase
+ */
+function isInMainPhase(state: any): boolean {
+  try {
+    const step = state.step;
+    if (!step) return false;
+    const stepStr = String(step).toUpperCase();
+    return stepStr === 'MAIN_1' || stepStr === 'MAIN_2' || stepStr === 'MAIN' || stepStr.includes('MAIN');
+  } catch {
+    return false;
   }
 }
 
@@ -204,6 +509,26 @@ function normalizeViewForEmit(rawView: any, game: any) {
     } catch (e) {
       // non-fatal - don't break the whole view if mana calculation fails
       console.warn("Failed to augment mana amounts:", e);
+    }
+    
+    // Add playable cards highlighting for the current priority player
+    // This helps players see which cards/permanents they can play/activate
+    try {
+      if (game && game.state && view.viewer) {
+        const priority = game.state.priority;
+        const viewerId = view.viewer;
+        
+        // Only add playable cards for the current priority holder viewing their own game
+        if (priority === viewerId) {
+          const playableCardIds = getPlayableCardIds(game, viewerId);
+          if (playableCardIds && playableCardIds.length > 0) {
+            view.playableCards = playableCardIds;
+          }
+        }
+      }
+    } catch (e) {
+      // non-fatal - don't break the whole view if playable calculation fails
+      console.warn("Failed to calculate playable cards:", e);
     }
 
     return view;
@@ -872,8 +1197,8 @@ export function schedulePriorityTimeout(
 
 /**
  * Automatically passes the priority during a timeout.
- * IMPORTANT: This should ONLY auto-pass for AI players.
- * Human players should never have their priority auto-passed.
+ * For AI players: Always auto-pass.
+ * For human players: Only auto-pass if they have no valid responses available.
  */
 function doAutoPass(
   io: Server,
@@ -885,8 +1210,7 @@ function doAutoPass(
     const playerId = game.state.priority;
     if (!playerId) return;
     
-    // CRITICAL: Only auto-pass for AI players!
-    // Human players must manually pass priority - never auto-pass for them
+    // Check if priority player exists
     const players = (game.state as any)?.players || [];
     const priorityPlayer = players.find((p: any) => p?.id === playerId);
     
@@ -895,9 +1219,18 @@ function doAutoPass(
       return;
     }
     
+    // For human players, only auto-pass if they have NO valid responses
     if (!priorityPlayer.isAI) {
-      console.log(`[doAutoPass] Skipping auto-pass for human player ${playerId} (reason: ${reason})`);
-      return; // DO NOT auto-pass for human players
+      // Check if player can respond with any action
+      const playerCanRespond = canRespond(game as any, playerId);
+      
+      if (playerCanRespond) {
+        console.log(`[doAutoPass] Skipping auto-pass for human player ${playerId} - they have valid actions available`);
+        return; // Player has options, don't auto-pass
+      }
+      
+      console.log(`[doAutoPass] Auto-passing for human player ${playerId} - no valid actions available`);
+      // Fall through to auto-pass since player has no valid responses
     }
     
     // IMPORTANT: Don't auto-pass during DECLARE_BLOCKERS step for defending players
