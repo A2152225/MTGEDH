@@ -2312,6 +2312,10 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
    * Handles cards like Elixir of Immortality that shuffle graveyard back into library.
    */
   useActivatedAbilities(player: PlayerState, state: SimulatedGameState): void {
+    // Activation thresholds for Elixir of Immortality
+    const ELIXIR_LOW_LIBRARY_THRESHOLD = 30;  // Activate when library drops below this
+    const ELIXIR_FULL_GRAVEYARD_THRESHOLD = 15;  // Activate when graveyard reaches this
+    
     // Check for Elixir of Immortality and similar effects
     for (const perm of player.battlefield) {
       const card = this.getCard(perm.card);
@@ -2325,7 +2329,8 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
         if (!perm.tapped && this.canPayMana(player, 2) && player.graveyard.length > 0) {
           // Activate if library is getting low OR graveyard has many cards
           // With multiplayer, each player draws less frequently, so be more aggressive
-          const shouldActivate = player.library.length < 30 || player.graveyard.length >= 15;
+          const shouldActivate = player.library.length < ELIXIR_LOW_LIBRARY_THRESHOLD || 
+                                 player.graveyard.length >= ELIXIR_FULL_GRAVEYARD_THRESHOLD;
           
           if (shouldActivate) {
             perm.tapped = true;
@@ -2377,7 +2382,7 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
     const oracle = card?.oracle_text?.toLowerCase() || '';
     
     // Check for "When X is put into a graveyard from anywhere, shuffle it into its owner's library"
-    if (oracle.includes('put into a graveyard') && oracle.includes('shuffle it into its owner\'s library')) {
+    if (oracle.includes('put into a graveyard') && oracle.includes("shuffle it into its owner's library")) {
       // Don't add to graveyard, shuffle directly into library
       player.library.push(cardName);
       player.library = this.shuffle(player.library);
