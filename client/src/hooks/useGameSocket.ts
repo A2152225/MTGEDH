@@ -323,6 +323,28 @@ export function useGameSocket(): UseGameSocketState {
       }
     );
 
+    /**
+     * Helper: Check if we should accept state updates for this game
+     * Returns true if the incoming gameId matches the game we're currently joined to
+     */
+    const shouldAcceptStateUpdate = (incomingGameId: string | undefined): boolean => {
+      if (!incomingGameId) return false;
+      if (!lastJoinRef.current) {
+        // eslint-disable-next-line no-console
+        console.debug("[socket] state update ignored - not joined to any game");
+        return false;
+      }
+      if (lastJoinRef.current.gameId !== incomingGameId) {
+        // eslint-disable-next-line no-console
+        console.debug("[socket] state update ignored - different game", {
+          incomingGameId,
+          currentJoin: lastJoinRef.current.gameId,
+        });
+        return false;
+      }
+      return true;
+    };
+
     // full state => always hard-replace
     socket.on("state", (payload: any) => {
       try {
@@ -352,12 +374,7 @@ export function useGameSocket(): UseGameSocketState {
         // CRITICAL FIX: Ignore state updates for games we've left
         // This prevents the race condition where leaving a game clears state,
         // but then a delayed state broadcast re-populates it
-        if (!lastJoinRef.current || lastJoinRef.current.gameId !== incomingGameId) {
-          // eslint-disable-next-line no-console
-          console.debug("[socket] state ignored - not joined or different game", {
-            incomingGameId,
-            currentJoin: lastJoinRef.current?.gameId,
-          });
+        if (!shouldAcceptStateUpdate(incomingGameId)) {
           return;
         }
 

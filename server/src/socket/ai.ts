@@ -433,6 +433,9 @@ export async function handleAIGameFlow(
   const isAITurn = game.state.turnPlayer === playerId;
   const hasPriority = game.state.priority === playerId;
   
+  // Leyline resolution delay - time to allow human players to play/skip Leylines before advancing
+  const LEYLINE_RESOLUTION_DELAY_MS = AI_THINK_TIME_MS * 2;
+  
   console.info('[AI] handleAIGameFlow:', {
     gameId,
     playerId,
@@ -502,6 +505,9 @@ export async function handleAIGameFlow(
       if (isAITurn) {
         console.info('[AI] AI is active player in pre_game, checking if ready to advance');
         
+        // Get mulligan state for checking hand keeping status
+        const mulliganState = (game.state as any).mulliganState || {};
+        
         // Check if all players have kept their hands
         const allPlayers = players.filter((p: any) => p && !p.spectator);
         const allKeptHands = allPlayers.every((p: any) => {
@@ -549,9 +555,6 @@ export async function handleAIGameFlow(
             }
           }
         }
-        
-        // Leyline resolution delay - time to allow human players to play/skip Leylines
-        const LEYLINE_RESOLUTION_DELAY_MS = AI_THINK_TIME_MS * 2;
         
         // If there are pending Leyline actions, wait a bit longer for players to resolve them
         // This is a conservative check - in practice, the Leyline prompt should be shown
