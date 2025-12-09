@@ -237,9 +237,17 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
         selectedCommanders = [firstCard, secondCard];
         console.info('[AI] Selected commander + background from first 2 cards:', selectedCommanders.map(c => c.name));
       } else {
-        // Just use the first valid commander from the decklist
-        selectedCommanders = [firstTwoCandidates[0]];
-        console.info('[AI] Selected single commander from first card(s):', selectedCommanders[0]?.name);
+        // Validate that the first card covers the deck's color identity
+        const firstCardCoverage = calculateColorCoverage([firstTwoCandidates[0]], deckColors);
+        if (firstCardCoverage === deckColors.size || deckColors.size === 0) {
+          // First card covers all deck colors - use it
+          selectedCommanders = [firstTwoCandidates[0]];
+          console.info('[AI] Selected single commander from first card (full color coverage):', selectedCommanders[0]?.name);
+        } else {
+          // First card doesn't cover all deck colors - need to search for better option
+          console.warn('[AI] First commander only covers', firstCardCoverage, 'of', deckColors.size, 'deck colors');
+          // Fall through to find better commanders
+        }
       }
     }
   }
@@ -286,10 +294,31 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
     console.info('[AI] Selected commander + background:', selectedCommanders.map(c => c.name));
   }
   
-  // Priority 4: Fall back to first valid commander candidate
+  // Priority 4: Find the single commander that best covers the deck's color identity
   if (selectedCommanders.length === 0) {
-    selectedCommanders = [candidates[0]];
-    console.info('[AI] Selected single commander:', selectedCommanders[0]?.name);
+    let bestCommander: any = null;
+    let bestCoverage = 0;
+    
+    for (const candidate of candidates) {
+      const coverage = calculateColorCoverage([candidate], deckColors);
+      if (coverage > bestCoverage) {
+        bestCoverage = coverage;
+        bestCommander = candidate;
+      }
+      // If we found perfect coverage, stop searching
+      if (coverage === deckColors.size) {
+        break;
+      }
+    }
+    
+    if (bestCommander) {
+      selectedCommanders = [bestCommander];
+      console.info('[AI] Selected single commander with best color coverage (' + bestCoverage + '/' + deckColors.size + '):', bestCommander.name);
+    } else {
+      // Ultimate fallback - just use first candidate
+      selectedCommanders = [candidates[0]];
+      console.warn('[AI] No commanders found with good color coverage, using first candidate:', candidates[0]?.name);
+    }
   }
   
   // Calculate combined color identity
@@ -345,7 +374,40 @@ export async function autoSelectAICommander(
       return false;
     }
     
+    // Validate that library cards have required data (name, type_line, etc.)
+    const validCards = library.filter((c: any) => c && c.name && c.type_line);
+    if (validCards.length === 0) {
+      console.error('[AI] autoSelectAICommander: library has cards but they lack required data', {
+        gameId,
+        playerId,
+        totalCards: library.length,
+        sampleCard: library[0],
+      });
+      return false;
+    }
+    
+    if (validCards.length < library.length) {
+      console.warn('[AI] autoSelectAICommander: some cards in library lack required data', {
+        gameId,
+        playerId,
+        totalCards: library.length,
+        validCards: validCards.length,
+      });
+      // Use only valid cards for commander selection
+      library = validCards;
+    }
+    
     console.info('[AI] autoSelectAICommander: found library with', library.length, 'cards');
+    
+    // Log the first few cards to help debug commander selection
+    if (library.length > 0) {
+      const firstCards = library.slice(0, 3).map((c: any) => ({
+        name: c.name,
+        type: c.type_line,
+        colors: c.color_identity || extractColorIdentity(c),
+      }));
+      console.info('[AI] First cards in library:', JSON.stringify(firstCards));
+    }
     
     // Find the best commander(s) from the deck (uses original unshuffled order)
     let { commanders, colorIdentity } = findBestCommanders(library);
