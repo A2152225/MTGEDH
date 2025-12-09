@@ -2809,11 +2809,13 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         aiPlayerId = `ai_${Date.now().toString(36)}`;
       }
       
-      // Mark the player as AI in the game state
+      // Mark the player as AI in the game state and save strategy/difficulty for replay
       game.state.players = game.state.players || [];
       const playerInState = game.state.players.find((p: any) => p.id === aiPlayerId);
       if (playerInState) {
         playerInState.isAI = true;
+        playerInState.strategy = strategy;
+        playerInState.difficulty = 0.5; // Default difficulty
       }
       
       // Load deck for AI - either from saved deck ID or from imported text
@@ -3092,10 +3094,12 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           aiPlayerId = `ai_${Date.now().toString(36)}_${i}`;
         }
         
-        // Mark the player as AI in the game state
+        // Mark the player as AI in the game state and save strategy/difficulty for replay
         const playerInState = game.state.players?.find((p: any) => p.id === aiPlayerId);
         if (playerInState) {
           playerInState.isAI = true;
+          playerInState.strategy = strategy;
+          playerInState.difficulty = 0.5; // Default difficulty
         }
         
         // Load deck for AI
@@ -3297,6 +3301,8 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         name: aiName || 'AI Opponent',
         life: (game.state as any).startingLife || 40,
         isAI: true,
+        strategy: strategy,
+        difficulty: 0.5,
       } as any);
       
       // Register with AI engine

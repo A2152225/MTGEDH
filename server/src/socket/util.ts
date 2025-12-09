@@ -380,24 +380,42 @@ export function ensureGame(gameId: string, options?: EnsureGameOptions): InMemor
       /* ignore */
     }
 
-    // Re-register AI players after replay (must be synchronous to avoid race conditions)
-    try {
-      if (game.state && Array.isArray(game.state.players)) {
-        // Dynamically import AI module to avoid circular dependencies
-        const aiModule = await import('./ai.js').catch(() => null);
+    // Re-register AI players after replay (done asynchronously to keep function synchronous)
+    if (game.state && Array.isArray(game.state.players)) {
+      // Dynamically import AI module to avoid circular dependencies
+      import('./ai.js').then(aiModule => {
+        // Also import AIStrategy enum from rules-engine to get proper strategy values
+        return Promise.all([
+          aiModule,
+          import('../../../rules-engine/src/AIEngine.js')
+        ]);
+      }).then(([aiModule, engineModule]) => {
         if (aiModule && aiModule.registerAIPlayer) {
+          const AIStrategy = engineModule.AIStrategy;
+          const strategies = AIStrategy ? [
+            AIStrategy.BASIC,
+            AIStrategy.AGGRESSIVE,
+            AIStrategy.DEFENSIVE,
+            AIStrategy.CONTROL
+          ] : ['basic', 'aggressive', 'defensive', 'control'];
+          
           for (const player of game.state.players) {
             if (player && (player as any).isAI) {
-              const strategy = (player as any).strategy || aiModule.AIStrategy?.BASIC || 'basic';
+              // Use saved strategy if available, otherwise pick a varied strategy based on player index
+              let strategy = (player as any).strategy;
+              if (!strategy) {
+                const playerIndex = game.state.players.indexOf(player);
+                strategy = strategies[playerIndex % strategies.length];
+              }
               const difficulty = (player as any).difficulty ?? 0.5;
               aiModule.registerAIPlayer(gameId, player.id as any, player.name || 'AI Opponent', strategy as any, difficulty);
-              console.info('[ensureGame] Re-registered AI player after replay:', { gameId, playerId: player.id, name: player.name });
+              console.info('[ensureGame] Re-registered AI player after replay:', { gameId, playerId: player.id, name: player.name, strategy });
             }
           }
         }
-      }
-    } catch (err) {
-      console.warn('[ensureGame] Error re-registering AI players:', err);
+      }).catch(err => {
+        console.warn('[ensureGame] Error re-registering AI players:', err);
+      });
     }
 
     games.set(gameId, game);
