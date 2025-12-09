@@ -61,19 +61,36 @@ export function setCommander(
   }
 
   // Remove commander cards from library if present
+  // Important: We collect all indices first, then remove from highest to lowest
+  // to avoid index shifting issues when removing multiple commanders
   if (lib && lib.length) {
     let changed = false;
+    const indicesToRemove: number[] = [];
+    
+    // Collect indices of all commanders in the library
     for (const cid of info.commanderIds || []) {
       const idx = lib.findIndex((c: any) => c && c.id === cid);
       if (idx >= 0) {
-        console.log(`[setCommander] Removing commander ${cid} from library at index ${idx}, library size before: ${lib.length}`);
-        lib.splice(idx, 1);
-        changed = true;
-        console.log(`[setCommander] Library size after removal: ${lib.length}`);
+        console.log(`[setCommander] Found commander ${cid} in library at index ${idx}`);
+        indicesToRemove.push(idx);
       } else {
         console.log(`[setCommander] Commander ${cid} not found in library (library size: ${lib.length})`);
       }
     }
+    
+    // Remove from highest index to lowest to prevent index shifting issues
+    if (indicesToRemove.length > 0) {
+      indicesToRemove.sort((a, b) => b - a); // Sort descending
+      console.log(`[setCommander] Removing ${indicesToRemove.length} commander(s) from library at indices:`, indicesToRemove, `library size before: ${lib.length}`);
+      
+      for (const idx of indicesToRemove) {
+        lib.splice(idx, 1);
+        changed = true;
+      }
+      
+      console.log(`[setCommander] Library size after removal: ${lib.length}`);
+    }
+    
     if (changed) {
       libraries.set(playerId, lib);
       zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: lib.length, graveyard: [], graveyardCount: 0 } as any;
