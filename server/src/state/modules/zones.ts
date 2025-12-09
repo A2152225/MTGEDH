@@ -23,7 +23,7 @@ export function importDeckResolved(
     Pick<
       KnownCardRef,
       "id" | "name" | "type_line" | "oracle_text" | "image_uris" | "mana_cost" | "power" | "toughness" | "card_faces" | "layout"
-    >
+    > & { color_identity?: string[] }
   >
 ) {
   const { libraries, state, bumpSeq } = ctx as any;
@@ -70,6 +70,7 @@ export function importDeckResolved(
       toughness: (c as any).toughness,
       card_faces: (c as any).card_faces,
       layout: (c as any).layout,
+      color_identity: (c as any).color_identity,
       zone: "library",
     }))
   );
@@ -523,7 +524,19 @@ export function applyExplore(
 export function searchLibrary(ctx: GameContext, playerId: PlayerID, query: string, limit = 20) {
   const lib = ctx.libraries.get(playerId) || [];
   if (!query || typeof query !== "string") {
-    return lib.slice(0, Math.max(0, limit)).map(c => ({ id: c.id, name: c.name, type_line: c.type_line, oracle_text: c.oracle_text, image_uris: (c as any).image_uris, card_faces: (c as any).card_faces, layout: (c as any).layout }));
+    return lib.slice(0, Math.max(0, limit)).map(c => ({ 
+      id: c.id, 
+      name: c.name, 
+      type_line: c.type_line, 
+      oracle_text: c.oracle_text, 
+      image_uris: (c as any).image_uris, 
+      card_faces: (c as any).card_faces, 
+      layout: (c as any).layout,
+      mana_cost: (c as any).mana_cost,
+      power: (c as any).power,
+      toughness: (c as any).toughness,
+      color_identity: (c as any).color_identity,
+    }));
   }
   const q = query.trim().toLowerCase();
   const res: any[] = [];
@@ -531,7 +544,19 @@ export function searchLibrary(ctx: GameContext, playerId: PlayerID, query: strin
     if (res.length >= limit) break;
     const name = (c.name || "").toLowerCase();
     if (name.includes(q)) {
-      res.push({ id: c.id, name: c.name, type_line: c.type_line, oracle_text: c.oracle_text, image_uris: (c as any).image_uris, card_faces: (c as any).card_faces, layout: (c as any).layout });
+      res.push({ 
+        id: c.id, 
+        name: c.name, 
+        type_line: c.type_line, 
+        oracle_text: c.oracle_text, 
+        image_uris: (c as any).image_uris, 
+        card_faces: (c as any).card_faces, 
+        layout: (c as any).layout,
+        mana_cost: (c as any).mana_cost,
+        power: (c as any).power,
+        toughness: (c as any).toughness,
+        color_identity: (c as any).color_identity,
+      });
     }
   }
   return res;

@@ -292,6 +292,54 @@ class MinimalGameAdapter {
     }
   }
 
+  // Search library implementation for AI commander selection
+  // This is critical for AI to access the deck and select commanders
+  searchLibrary(playerId: string, query: string, limit = 20) {
+    try {
+      const lib = this._fallbackLibraries?.[playerId] || [];
+      if (!query || typeof query !== "string") {
+        // Empty query returns all cards (used by AI for commander selection)
+        return lib.slice(0, Math.max(0, limit)).map((c: any) => ({
+          id: c.id,
+          name: c.name,
+          type_line: c.type_line,
+          oracle_text: c.oracle_text,
+          image_uris: c.image_uris,
+          card_faces: c.card_faces,
+          layout: c.layout,
+          mana_cost: c.mana_cost,
+          power: c.power,
+          toughness: c.toughness,
+          color_identity: c.color_identity,
+        }));
+      }
+      const q = query.trim().toLowerCase();
+      const res: any[] = [];
+      for (const c of lib) {
+        if (res.length >= limit) break;
+        const name = (c.name || "").toLowerCase();
+        if (name.includes(q)) {
+          res.push({
+            id: c.id,
+            name: c.name,
+            type_line: c.type_line,
+            oracle_text: c.oracle_text,
+            image_uris: c.image_uris,
+            card_faces: c.card_faces,
+            layout: c.layout,
+            mana_cost: c.mana_cost,
+            power: c.power,
+            toughness: c.toughness,
+            color_identity: c.color_identity,
+          });
+        }
+      }
+      return res;
+    } catch (e) {
+      return [];
+    }
+  }
+
   toJSON() {
     return { id: this.id, state: this.state, seq: this.seq };
   }
