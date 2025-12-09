@@ -872,6 +872,8 @@ export function schedulePriorityTimeout(
 
 /**
  * Automatically passes the priority during a timeout.
+ * IMPORTANT: This should ONLY auto-pass for AI players.
+ * Human players should never have their priority auto-passed.
  */
 function doAutoPass(
   io: Server,
@@ -882,6 +884,21 @@ function doAutoPass(
   try {
     const playerId = game.state.priority;
     if (!playerId) return;
+    
+    // CRITICAL: Only auto-pass for AI players!
+    // Human players must manually pass priority - never auto-pass for them
+    const players = (game.state as any)?.players || [];
+    const priorityPlayer = players.find((p: any) => p?.id === playerId);
+    
+    if (!priorityPlayer) {
+      console.warn(`[doAutoPass] Priority player ${playerId} not found in game ${gameId}`);
+      return;
+    }
+    
+    if (!priorityPlayer.isAI) {
+      console.log(`[doAutoPass] Skipping auto-pass for human player ${playerId} (reason: ${reason})`);
+      return; // DO NOT auto-pass for human players
+    }
     
     // IMPORTANT: Don't auto-pass during DECLARE_BLOCKERS step for defending players
     // Per Rule 509, the defending player must be given the opportunity to declare blockers

@@ -2489,14 +2489,16 @@ export function resolveTopOfStack(ctx: GameContext) {
         newPermanent.attachedTo = targetId;
         
         // Track attachment on the target permanent
-        if (isAura) {
-          targetPerm.attachedAuras = targetPerm.attachedAuras || [];
-          targetPerm.attachedAuras.push(newPermId);
-          console.log(`[resolveTopOfStack] Aura ${effectiveCard.name} attached to ${targetPerm.card?.name || targetId}`);
-        } else if (isEquipment) {
-          targetPerm.attachedEquipment = targetPerm.attachedEquipment || [];
-          targetPerm.attachedEquipment.push(newPermId);
+        // Use attachedEquipment for equipment (existing pattern) and attachments for auras
+        if (isEquipment) {
+          (targetPerm as any).attachedEquipment = (targetPerm as any).attachedEquipment || [];
+          (targetPerm as any).attachedEquipment.push(newPermId);
           console.log(`[resolveTopOfStack] Equipment ${effectiveCard.name} attached to ${targetPerm.card?.name || targetId}`);
+        } else {
+          // For auras, use the standard attachments field
+          (targetPerm as any).attachments = (targetPerm as any).attachments || [];
+          (targetPerm as any).attachments.push(newPermId);
+          console.log(`[resolveTopOfStack] Aura ${effectiveCard.name} attached to ${targetPerm.card?.name || targetId}`);
         }
       } else {
         console.warn(`[resolveTopOfStack] ${isAura ? 'Aura' : 'Equipment'} ${effectiveCard.name} target ${targetId} not found on battlefield`);

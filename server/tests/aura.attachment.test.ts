@@ -61,7 +61,7 @@ describe('Aura Attachment System', () => {
       
       // Verify aura is attached to creature
       expect((auraPerm as any).attachedTo).toBe('creature_1');
-      expect((creaturePerm as any).attachedAuras).toContain((auraPerm as any).id);
+      expect((creaturePerm as any).attachments).toContain((auraPerm as any).id);
       
       // Verify creature gets +2/+2 bonus
       const view = g.viewFor(p1);
@@ -139,7 +139,7 @@ describe('Aura Attachment System', () => {
         tapped: false,
         basePower: 2,
         baseToughness: 2,
-        attachedAuras: ['aura_1'],
+        attachments: ['aura_1'],
       });
       
       g.state.battlefield.push({
@@ -246,7 +246,7 @@ describe('Aura Attachment System', () => {
         tapped: false,
         basePower: 2,
         baseToughness: 2,
-        attachedAuras: ['aura_1'],
+        attachments: ['aura_1'],
       });
       
       g.state.battlefield.push({
@@ -311,7 +311,7 @@ describe('Aura Attachment System', () => {
         tapped: false,
         basePower: 2,
         baseToughness: 2,
-        attachedAuras: ['bestow_1'],
+        attachments: ['bestow_1'],
       });
       
       // Create a bestow creature attached to the bear
