@@ -241,7 +241,7 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
   
   if (candidates.length === 0) {
     console.warn('[AI] No valid commander candidates found in deck');
-    return { commanders: [], colorIdentity: [] };
+    return { commanders: [], colorIdentity: [], exactMatch: false };
   }
   
   // Calculate the deck's overall color identity
