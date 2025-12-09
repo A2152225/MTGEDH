@@ -753,6 +753,7 @@ export function App() {
         startingLife: config.startingLife,
         aiName: config.aiName,
         aiStrategy: config.aiStrategy,
+        aiDifficulty: config.aiDifficulty,
         aiDeckId: config.aiDeckId,
         aiDeckText: config.aiDeckText,
         aiDeckName: config.aiDeckName,

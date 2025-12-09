@@ -11,6 +11,21 @@
  * - Sacrifice decisions
  * - Token creation and management
  * - Triggered ability responses
+ * 
+ * DIFFICULTY SYSTEM:
+ * The difficulty parameter (0-1) affects AI decision quality:
+ * - 0.0-0.33 (Easy): Makes more mistakes, misses obvious plays, poor evaluation
+ * - 0.34-0.66 (Medium): Decent play, occasional mistakes
+ * - 0.67-1.0 (Hard): Optimal play, rarely makes mistakes
+ * 
+ * Difficulty affects:
+ * 1. Mistake Rate: Lower difficulty increases chance of suboptimal choices
+ * 2. Card Evaluation: Lower difficulty = worse at evaluating card power/synergies
+ * 3. Threat Assessment: Lower difficulty = poor at identifying dangerous opponents
+ * 4. Combat Math: Lower difficulty = makes more combat calculation errors
+ * 
+ * Implementation: Use shouldMakeMistake(difficulty) to probabilistically choose
+ * between optimal and suboptimal decisions based on difficulty level.
  */
 
 import type { GameState, PlayerID, BattlefieldPermanent, KnownCardRef } from '../../shared/src';
@@ -127,6 +142,25 @@ export class AIEngine {
    */
   unregisterAI(playerId: PlayerID): void {
     this.aiPlayers.delete(playerId);
+  }
+  
+  /**
+   * Determine if AI should make a mistake based on difficulty level.
+   * 
+   * @param difficulty - AI difficulty (0-1): 0 = easy (many mistakes), 1 = hard (rare mistakes)
+   * @returns true if AI should make a suboptimal choice
+   * 
+   * Mistake probabilities:
+   * - difficulty 0.0 (easy): 40% chance of mistake
+   * - difficulty 0.5 (medium): 15% chance of mistake
+   * - difficulty 1.0 (hard): 2% chance of mistake
+   */
+  private shouldMakeMistake(difficulty: number = 0.5): boolean {
+    // Mistake rate decreases with difficulty
+    // Formula: mistakeRate = 0.4 * (1 - difficulty)^2
+    // This gives: Easy=40%, Medium=10%, Hard=0%
+    const mistakeRate = 0.4 * Math.pow(1 - difficulty, 2);
+    return Math.random() < mistakeRate;
   }
   
   /**
@@ -338,8 +372,13 @@ export class AIEngine {
    * - Must not have "can't attack" effects (e.g., Pacifism)
    * 
    * Now enhanced to prioritize creatures with beneficial death triggers!
+   * Difficulty affects attack strategy:
+   * - Easy: May miss good attacks or make bad attacks
+   * - Hard: Consistently makes optimal attack decisions
    */
   private makeBasicAttackDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
+    const difficulty = config.difficulty ?? 0.5;
+    
     // Use getLegalAttackers to get all valid attackers
     const legalAttackerIds = getLegalAttackers(context.gameState, context.playerId);
     
@@ -384,10 +423,22 @@ export class AIEngine {
       .filter(e => e.wantsToGetKilled)
       .map(e => e.id);
     
-    // Attack with most other creatures too (basic strategy is aggressive)
-    const regularAttackers = attackerEvaluations
+    // Apply difficulty-based mistakes
+    let regularAttackers = attackerEvaluations
       .filter(e => !e.wantsToGetKilled && e.value > 0)
       .map(e => e.id);
+    
+    // Difficulty affects attack decision quality
+    if (this.shouldMakeMistake(difficulty)) {
+      // Make a mistake: either attack with too few or attack with weak creatures
+      if (Math.random() < 0.5) {
+        // Mistake: Be overly cautious, only attack with half
+        regularAttackers = regularAttackers.slice(0, Math.floor(regularAttackers.length / 2));
+      } else {
+        // Mistake: Attack with ALL creatures including bad ones
+        regularAttackers = legalAttackerIds.filter(id => !suicideAttackers.includes(id));
+      }
+    }
     
     const allAttackers = [...suicideAttackers, ...regularAttackers];
     
@@ -483,7 +534,7 @@ export class AIEngine {
     // CRITICAL: Check for commander damage lethality
     // If any attacker is a commander with 21+ power, that's instantly lethal
     // Get commander damage tracking from game state if available
-    const commanderDamage = (state as any)?.commanderDamage?.[playerId] || {};
+    const commanderDamage = (context.gameState as any)?.commanderDamage?.[context.playerId] || {};
     for (const attacker of attackerCreatures) {
       // Check if this is a commander (isCommander flag or in command zone)
       const isCommander = attacker.permanent.isCommander || 

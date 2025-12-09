@@ -2744,6 +2744,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
     startingLife,
     aiName,
     aiStrategy,
+    aiDifficulty,
     aiDeckId,
     aiDeckText,
     aiDeckName,
@@ -2754,12 +2755,13 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
     startingLife?: number;
     aiName?: string;
     aiStrategy?: string;
+    aiDifficulty?: number;
     aiDeckId?: string;
     aiDeckText?: string;
     aiDeckName?: string;
   }) => {
     try {
-      console.info('[AI] Creating game with AI:', { gameId, playerName, aiName, aiStrategy, hasText: !!aiDeckText });
+      console.info('[AI] Creating game with AI:', { gameId, playerName, aiName, aiStrategy, aiDifficulty, hasText: !!aiDeckText });
       
       // Create a NEW game using GameManager.createGame() which handles DB persistence
       // This is critical - ensureGame() checks if the game exists in DB first,
@@ -2789,6 +2791,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       // Join the AI player to the game first
       // This will generate a playerId and properly initialize the player
       const strategy = (aiStrategy as AIStrategy) || AIStrategy.BASIC;
+      const difficulty = aiDifficulty ?? 0.5; // Default to medium difficulty
       const aiPlayerName = aiName || 'AI Opponent';
       let joinResult: any;
       let aiPlayerId: string;
@@ -2815,7 +2818,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       if (playerInState) {
         playerInState.isAI = true;
         playerInState.strategy = strategy;
-        playerInState.difficulty = 0.5; // Default difficulty
+        playerInState.difficulty = difficulty;
       }
       
       // Load deck for AI - either from saved deck ID or from imported text
@@ -2958,7 +2961,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       }
       
       // Register with AI engine
-      registerAIPlayer(gameId, aiPlayerId, aiPlayerName, strategy);
+      registerAIPlayer(gameId, aiPlayerId, aiPlayerName, strategy, difficulty);
       
       // Persist AI join event as a regular 'join' event so it can be properly replayed after server restart
       // Include isAI flag and seatToken from the join result
@@ -3026,6 +3029,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
     aiOpponents: Array<{
       name: string;
       strategy: string;
+      difficulty?: number;
       deckId?: string;
       deckText?: string;
       deckName?: string;
@@ -3037,6 +3041,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         playerName, 
         aiCount: aiOpponents.length,
         aiNames: aiOpponents.map(ai => ai.name),
+        aiDifficulties: aiOpponents.map(ai => ai.difficulty ?? 0.5),
       });
       
       // Create a NEW game using GameManager.createGame() which handles DB persistence
@@ -3071,6 +3076,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       for (let i = 0; i < aiOpponents.length; i++) {
         const aiConfig = aiOpponents[i];
         const strategy = (aiConfig.strategy as AIStrategy) || AIStrategy.BASIC;
+        const difficulty = aiConfig.difficulty ?? 0.5; // Default to medium difficulty
         const aiName = aiConfig.name || `AI Opponent ${i + 1}`;
         
         // Join the AI player to the game first
@@ -3099,7 +3105,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         if (playerInState) {
           playerInState.isAI = true;
           playerInState.strategy = strategy;
-          playerInState.difficulty = 0.5; // Default difficulty
+          playerInState.difficulty = difficulty;
         }
         
         // Load deck for AI
@@ -3211,7 +3217,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         }
         
         // Register with AI engine
-        registerAIPlayer(gameId, aiPlayerId, aiName, strategy);
+        registerAIPlayer(gameId, aiPlayerId, aiName, strategy, difficulty);
         
         createdAIPlayers.push({
           playerId: aiPlayerId,
@@ -3276,11 +3282,13 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
     gameId,
     aiName,
     aiStrategy,
+    aiDifficulty,
     aiDeckId,
   }: {
     gameId: string;
     aiName?: string;
     aiStrategy?: string;
+    aiDifficulty?: number;
     aiDeckId?: string;
   }) => {
     try {
@@ -3292,6 +3300,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       
       const aiPlayerId = `ai_${Date.now().toString(36)}`;
       const strategy = (aiStrategy as AIStrategy) || AIStrategy.BASIC;
+      const difficulty = aiDifficulty ?? 0.5;
       
       // Add AI to game state
       game.state = (game.state || {}) as any;
@@ -3302,13 +3311,13 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         life: (game.state as any).startingLife || 40,
         isAI: true,
         strategy: strategy,
-        difficulty: 0.5,
+        difficulty: difficulty,
       } as any);
       
       // Register with AI engine
-      registerAIPlayer(gameId, aiPlayerId, aiName || 'AI Opponent', strategy);
+      registerAIPlayer(gameId, aiPlayerId, aiName || 'AI Opponent', strategy, difficulty);
       
-      socket.emit('aiPlayerCreated', { gameId, aiPlayerId, aiName: aiName || 'AI Opponent', strategy });
+      socket.emit('aiPlayerCreated', { gameId, aiPlayerId, aiName: aiName || 'AI Opponent', strategy, difficulty });
       broadcastGame(io, game, gameId);
       
     } catch (error) {
