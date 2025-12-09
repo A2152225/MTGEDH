@@ -1937,12 +1937,14 @@ async function executeAICastSpell(
       }
     }
     
-    // Persist event
+    // Persist event with targets for proper replay
     try {
       await appendEvent(gameId, (game as any).seq || 0, 'castSpell', { 
         playerId, 
         cardId: card.id, 
         cardName: card.name,
+        targets: targets,  // Include targets for replay
+        card: card,  // Include full card data for replay
         isAI: true 
       });
     } catch (e) {
@@ -2784,22 +2786,35 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       (game.state as any).format = format || 'commander';
       (game.state as any).startingLife = startingLife || (format === 'commander' ? 40 : 20);
       
-      // Create AI player
-      const aiPlayerId = `ai_${Date.now().toString(36)}`;
+      // Join the AI player to the game first
+      // This will generate a playerId and properly initialize the player
       const strategy = (aiStrategy as AIStrategy) || AIStrategy.BASIC;
+      const aiPlayerName = aiName || 'AI Opponent';
+      let joinResult: any;
+      let aiPlayerId: string;
       
-      // Add AI to game state with deck info
+      if (typeof (game as any).join === 'function') {
+        try {
+          // Use a fake socket ID for the AI player
+          const aiSocketId = `ai_socket_${Date.now().toString(36)}`;
+          joinResult = (game as any).join(aiSocketId, aiPlayerName, false);
+          aiPlayerId = joinResult?.playerId || `ai_${Date.now().toString(36)}`;
+          console.info('[AI] AI player joined game via game.join():', { aiPlayerId, aiPlayerName });
+        } catch (err) {
+          console.warn('[AI] game.join failed for AI, using fallback:', err);
+          aiPlayerId = `ai_${Date.now().toString(36)}`;
+        }
+      } else {
+        // Fallback if game.join is not available
+        aiPlayerId = `ai_${Date.now().toString(36)}`;
+      }
+      
+      // Mark the player as AI in the game state
       game.state.players = game.state.players || [];
-      const aiPlayer: any = {
-        id: aiPlayerId,
-        name: aiName || 'AI Opponent',
-        life: (game.state as any).startingLife,
-        isAI: true,
-        hand: [],
-        library: [],
-        graveyard: [],
-        exile: [],
-      };
+      const playerInState = game.state.players.find((p: any) => p.id === aiPlayerId);
+      if (playerInState) {
+        playerInState.isAI = true;
+      }
       
       // Load deck for AI - either from saved deck ID or from imported text
       let deckLoaded = false;
@@ -2881,9 +2896,6 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           // Use importDeckResolved to properly populate the context's libraries Map
           // This ensures shuffle/draw operations work correctly later.
           
-          aiPlayer.deckName = finalDeckName;
-          // Use provided deckId or generate one for imported text
-          aiPlayer.deckId = aiDeckId || (aiDeckText ? `imported_${Date.now().toString(36)}` : null);
           deckLoaded = true;
           
           // Use the game's importDeckResolved function to properly populate the libraries Map
@@ -2895,6 +2907,17 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
               deckName: finalDeckName, 
               resolvedCount: resolvedCards.length,
             });
+            
+            // CRITICAL: Persist the deck import to event log for replay after server restart / undo
+            try {
+              await appendEvent(gameId, (game as any).seq || 0, 'deckImportResolved', {
+                playerId: aiPlayerId,
+                cards: resolvedCards,
+              });
+              console.info('[AI] Persisted deckImportResolved event for AI:', { aiPlayerId, cardCount: resolvedCards.length });
+            } catch (e) {
+              console.warn('[AI] Failed to persist deckImportResolved event:', e);
+            }
           } else {
             // Fallback: manually initialize zones (this may cause issues with shuffle/draw)
             console.warn('[AI] importDeckResolved not available, using fallback zone initialization');
@@ -2907,6 +2930,13 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
               graveyardCount: 0,
             };
             // Note: We don't set library in zones - the authoritative source is ctx.libraries
+          }
+          
+          // Store deck metadata on the player object
+          const playerInState = game.state.players?.find((p: any) => p.id === aiPlayerId);
+          if (playerInState) {
+            playerInState.deckName = finalDeckName;
+            playerInState.deckId = aiDeckId || (aiDeckText ? `imported_${Date.now().toString(36)}` : null);
           }
           
           console.info('[AI] Deck resolved for AI:', { 
@@ -2925,16 +2955,19 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         }
       }
       
-      game.state.players.push(aiPlayer);
-      
       // Register with AI engine
-      registerAIPlayer(gameId, aiPlayerId, aiName || 'AI Opponent', strategy);
+      registerAIPlayer(gameId, aiPlayerId, aiPlayerName, strategy);
       
-      // Persist AI join event
+      // Persist AI join event as a regular 'join' event so it can be properly replayed after server restart
+      // Include isAI flag and seatToken from the join result
       try {
-        await appendEvent(gameId, (game as any).seq || 0, 'aiJoin', {
+        const seatToken = joinResult?.seatToken || `ai_token_${randomBytes(6).toString('hex')}`;
+        await appendEvent(gameId, (game as any).seq || 0, 'join', {
           playerId: aiPlayerId,
-          name: aiName || 'AI Opponent',
+          name: aiPlayerName,
+          seatToken,
+          spectator: false,
+          isAI: true,
           strategy,
           deckId: aiDeckId,
           deckLoaded,
@@ -3035,21 +3068,35 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       // Create each AI opponent
       for (let i = 0; i < aiOpponents.length; i++) {
         const aiConfig = aiOpponents[i];
-        const aiPlayerId = `ai_${Date.now().toString(36)}_${i}`;
         const strategy = (aiConfig.strategy as AIStrategy) || AIStrategy.BASIC;
         const aiName = aiConfig.name || `AI Opponent ${i + 1}`;
         
-        // Add AI to game state
-        const aiPlayer: any = {
-          id: aiPlayerId,
-          name: aiName,
-          life: (game.state as any).startingLife,
-          isAI: true,
-          hand: [],
-          library: [],
-          graveyard: [],
-          exile: [],
-        };
+        // Join the AI player to the game first
+        // This will generate a playerId and properly initialize the player
+        let joinResult: any;
+        let aiPlayerId: string;
+        
+        if (typeof (game as any).join === 'function') {
+          try {
+            // Use a fake socket ID for the AI player
+            const aiSocketId = `ai_socket_${Date.now().toString(36)}_${i}`;
+            joinResult = (game as any).join(aiSocketId, aiName, false);
+            aiPlayerId = joinResult?.playerId || `ai_${Date.now().toString(36)}_${i}`;
+            console.info(`[AI] AI player joined game via game.join():`, { aiPlayerId, aiName });
+          } catch (err) {
+            console.warn(`[AI] game.join failed for ${aiName}, using fallback:`, err);
+            aiPlayerId = `ai_${Date.now().toString(36)}_${i}`;
+          }
+        } else {
+          // Fallback if game.join is not available
+          aiPlayerId = `ai_${Date.now().toString(36)}_${i}`;
+        }
+        
+        // Mark the player as AI in the game state
+        const playerInState = game.state.players?.find((p: any) => p.id === aiPlayerId);
+        if (playerInState) {
+          playerInState.isAI = true;
+        }
         
         // Load deck for AI
         let deckLoaded = false;
@@ -3118,8 +3165,6 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           }
           
           if (resolvedCards.length > 0) {
-            aiPlayer.deckName = finalDeckName;
-            aiPlayer.deckId = aiConfig.deckId || (aiConfig.deckText ? `imported_${Date.now().toString(36)}_${i}` : null);
             deckLoaded = true;
             
             if (typeof (game as any).importDeckResolved === 'function') {
@@ -3129,6 +3174,17 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
                 deckName: finalDeckName, 
                 resolvedCount: resolvedCards.length,
               });
+              
+              // CRITICAL: Persist the deck import to event log for replay after server restart / undo
+              try {
+                await appendEvent(gameId, (game as any).seq || 0, 'deckImportResolved', {
+                  playerId: aiPlayerId,
+                  cards: resolvedCards,
+                });
+                console.info(`[AI] Persisted deckImportResolved event for ${aiName}:`, { aiPlayerId, cardCount: resolvedCards.length });
+              } catch (e) {
+                console.warn(`[AI] Failed to persist deckImportResolved event for ${aiName}:`, e);
+              }
             } else {
               console.warn(`[AI] importDeckResolved not available for ${aiName}, using fallback`);
               game.state.zones = game.state.zones || {};
@@ -3140,10 +3196,15 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
                 graveyardCount: 0,
               };
             }
+            
+            // Store deck metadata on the player object
+            const playerInState = game.state.players?.find((p: any) => p.id === aiPlayerId);
+            if (playerInState) {
+              playerInState.deckName = finalDeckName;
+              playerInState.deckId = aiConfig.deckId || (aiConfig.deckText ? `imported_${Date.now().toString(36)}_${i}` : null);
+            }
           }
         }
-        
-        game.state.players.push(aiPlayer);
         
         // Register with AI engine
         registerAIPlayer(gameId, aiPlayerId, aiName, strategy);
@@ -3155,11 +3216,16 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           deckLoaded,
         });
         
-        // Persist AI join event
+        // Persist AI join event as a regular 'join' event so it can be properly replayed after server restart
+        // Include isAI flag and seatToken from the join result
         try {
-          await appendEvent(gameId, (game as any).seq || 0, 'aiJoin', {
+          const seatToken = joinResult?.seatToken || `ai_token_${randomBytes(6).toString('hex')}`;
+          await appendEvent(gameId, (game as any).seq || 0, 'join', {
             playerId: aiPlayerId,
             name: aiName,
+            seatToken,
+            spectator: false,
+            isAI: true,
             strategy,
             deckId: aiConfig.deckId,
             deckLoaded,
