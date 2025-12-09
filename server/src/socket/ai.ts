@@ -2905,6 +2905,17 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
               deckName: finalDeckName, 
               resolvedCount: resolvedCards.length,
             });
+            
+            // CRITICAL: Persist the deck import to event log for replay after server restart / undo
+            try {
+              await appendEvent(gameId, (game as any).seq || 0, 'deckImportResolved', {
+                playerId: aiPlayerId,
+                cards: resolvedCards,
+              });
+              console.info('[AI] Persisted deckImportResolved event for AI:', { aiPlayerId, cardCount: resolvedCards.length });
+            } catch (e) {
+              console.warn('[AI] Failed to persist deckImportResolved event:', e);
+            }
           } else {
             // Fallback: manually initialize zones (this may cause issues with shuffle/draw)
             console.warn('[AI] importDeckResolved not available, using fallback zone initialization');
@@ -3161,6 +3172,17 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
                 deckName: finalDeckName, 
                 resolvedCount: resolvedCards.length,
               });
+              
+              // CRITICAL: Persist the deck import to event log for replay after server restart / undo
+              try {
+                await appendEvent(gameId, (game as any).seq || 0, 'deckImportResolved', {
+                  playerId: aiPlayerId,
+                  cards: resolvedCards,
+                });
+                console.info(`[AI] Persisted deckImportResolved event for ${aiName}:`, { aiPlayerId, cardCount: resolvedCards.length });
+              } catch (e) {
+                console.warn(`[AI] Failed to persist deckImportResolved event for ${aiName}:`, e);
+              }
             } else {
               console.warn(`[AI] importDeckResolved not available for ${aiName}, using fallback`);
               game.state.zones = game.state.zones || {};
