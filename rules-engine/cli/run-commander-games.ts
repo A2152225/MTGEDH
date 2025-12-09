@@ -8,20 +8,32 @@
  * Purpose: Quick testing of cards and interactions to find and fix gaps in the rules engine.
  * Can also be used to playtest decks and analyze performance.
  * 
- * Integrates with:
- * - oracleTextParser: For parsing card abilities
- * - triggeredAbilities: For trigger detection
+ * Rules Engine Integration:
+ * - parseTriggeredAbilitiesFromText: Parses oracle text to detect triggered abilities
+ *   - Used in processDrawTriggers() for "whenever you draw" effects
+ *   - Used in handleETBTrigger() for "when/whenever enters the battlefield" effects
+ *   - Used in processLandfallTriggers() for landfall triggers
+ * - TriggerEvent enum: Structured event types (DRAWN, ENTERS_BATTLEFIELD, LANDFALL, etc.)
+ * - oracleTextParser: For parsing general card abilities
  * - stateBasedActions: For SBA checking (life, poison, commander damage)
  * - staticAbilities: For continuous effects
  * - winEffectCards: For win condition detection
  * - activatedAbilities: For activated ability parsing
+ * 
+ * Architecture:
+ * - Uses simplified PlayerState/SimulatedGameState instead of full GameState
+ * - Integrates rules engine's parsing but maintains custom execution logic
+ * - Suitable for rapid prototyping and testing card interactions
+ * 
+ * Note: For full game implementation with stack, priority, and complex interactions,
+ * use the main GameState-based rules engine in server/src/state/
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import type { ManaPool } from '../../shared/src';
-import { parseOracleText, parseTriggeredAbility, type ParsedAbility, AbilityType } from '../src/oracleTextParser';
+import { parseOracleText, type ParsedAbility, AbilityType } from '../src/oracleTextParser';
 import { parseTriggeredAbilitiesFromText, TriggerEvent, type TriggeredAbility } from '../src/triggeredAbilities';
 import { 
   checkPlayerLife, 
@@ -51,6 +63,9 @@ const SEED_SPACING = 1000;
 
 /** Path to deck files */
 const DECKS_PATH = path.join(__dirname, '../../precon_json');
+
+/** Maximum length for effect text preview in analysis logs */
+const EFFECT_TEXT_PREVIEW_LENGTH = 100;
 
 /** Available deck files (files starting with "Deck") */
 const DECK_FILES = [
@@ -1254,7 +1269,21 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
 
   /**
    * Process triggers that fire when a player draws cards.
-   * Handles cards like Psychosis Crawler: "Whenever you draw a card, each opponent loses 1 life"
+   * Uses the rules engine's trigger parsing to properly detect and execute draw triggers.
+   * 
+   * Handles cards like:
+   * - Psychosis Crawler: "Whenever you draw a card, each opponent loses 1 life"
+   * - Niv-Mizzet, Parun: "Whenever you draw a card, deal 1 damage to any target"
+   * - Any card with "whenever you draw" trigger text
+   * 
+   * Integration with rules engine:
+   * - Uses parseTriggeredAbilitiesFromText() to parse oracle text
+   * - Checks for TriggerEvent.DRAWN to identify draw triggers
+   * - Dynamically extracts effect values (life loss, damage) from parsed text
+   * 
+   * @param player - The player who drew cards
+   * @param state - The current game state
+   * @param cardsDrawn - Number of cards drawn (triggers fire once per draw)
    */
   processDrawTriggers(player: PlayerState, state: SimulatedGameState, cardsDrawn: number): void {
     const playerId = this.getPlayerIdFromName(state, player.name);
@@ -1262,23 +1291,81 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
     
     for (const perm of player.battlefield) {
       const card = this.getCard(perm.card);
-      const oracle = card?.oracle_text?.toLowerCase() || '';
+      if (!card) continue;
       
-      // Check for "whenever you draw a card, each opponent loses life" effects
-      if (oracle.includes('whenever you draw') && oracle.includes('loses') && oracle.includes('life')) {
-        for (const opponent of opponents) {
-          opponent.life -= cardsDrawn;
-          // Track the damage source for elimination tracking
-          const opponentId = this.getPlayerIdFromName(state, opponent.name);
-          this.trackDamageSource(state, opponentId, playerId, perm.card, 'triggered', cardsDrawn);
+      // Use rules engine to parse triggered abilities from the card
+      const triggeredAbilities = parseTriggeredAbilitiesFromText(
+        card.oracle_text || '',
+        perm.card, // Use card name as ID
+        `player${playerId}`,
+        card.name
+      );
+      
+      // Check if any abilities trigger on draw
+      for (const ability of triggeredAbilities) {
+        if (ability.event === TriggerEvent.DRAWN) {
+          // Execute the trigger effect based on the parsed ability
+          const effect = ability.effect?.toLowerCase() || '';
+          
+          // Psychosis Crawler: "Whenever you draw a card, each opponent loses 1 life"
+          if (effect.includes('each opponent') && effect.includes('loses') && effect.includes('life')) {
+            // Extract life loss amount (default to 1 if not found)
+            const lossMatch = effect.match(/loses?\s+(\d+)\s+life/);
+            const lifeLoss = lossMatch ? parseInt(lossMatch[1], 10) : 1;
+            const totalLoss = lifeLoss * cardsDrawn;
+            
+            for (const opponent of opponents) {
+              opponent.life -= totalLoss;
+              // Track the damage source for elimination tracking
+              const opponentId = this.getPlayerIdFromName(state, opponent.name);
+              this.trackDamageSource(state, opponentId, playerId, perm.card, 'triggered', totalLoss);
+            }
+            
+            state.events.push({
+              turn: state.turn,
+              player: player.name,
+              action: 'trigger',
+              card: perm.card,
+              details: `All opponents lost ${totalLoss} life from ${cardsDrawn} card ${cardsDrawn === 1 ? 'draw' : 'draws'}`,
+              triggerSource: ability.sourceName,
+            });
+          }
+          // Niv-Mizzet Parun: "Whenever you draw a card, Niv-Mizzet, Parun deals 1 damage to any target."
+          else if (effect.includes('deals') && effect.includes('damage')) {
+            // For targeting effects, pick a random opponent
+            const target = opponents[Math.floor(this.rng() * opponents.length)];
+            if (target) {
+              const damageMatch = effect.match(/deals?\s+(\d+)\s+damage/);
+              const damage = damageMatch ? parseInt(damageMatch[1], 10) : 1;
+              const totalDamage = damage * cardsDrawn;
+              
+              target.life -= totalDamage;
+              const targetId = this.getPlayerIdFromName(state, target.name);
+              this.trackDamageSource(state, targetId, playerId, perm.card, 'triggered', totalDamage);
+              
+              state.events.push({
+                turn: state.turn,
+                player: player.name,
+                action: 'trigger',
+                card: perm.card,
+                details: `Dealt ${totalDamage} damage to ${target.name} from ${cardsDrawn} card ${cardsDrawn === 1 ? 'draw' : 'draws'}`,
+                targetPlayer: target.name,
+                triggerSource: ability.sourceName,
+              });
+            }
+          }
+          // Generic draw trigger (log it)
+          else if (this.analysisMode) {
+            state.events.push({
+              turn: state.turn,
+              player: player.name,
+              action: 'trigger',
+              card: perm.card,
+              details: `Draw trigger detected: ${effect.substring(0, EFFECT_TEXT_PREVIEW_LENGTH)}`,
+              triggerSource: ability.sourceName,
+            });
+          }
         }
-        state.events.push({
-          turn: state.turn,
-          player: player.name,
-          action: 'trigger',
-          card: perm.card,
-          details: `All opponents lost ${cardsDrawn} life from card draws`
-        });
       }
     }
   }
@@ -1323,57 +1410,73 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
 
   /**
    * Process landfall triggers when a land enters the battlefield.
+   * Uses rules engine's trigger parsing for proper detection.
+   * 
+   * Handles cards with landfall abilities such as:
+   * - "Landfall — Whenever a land enters, draw a card"
+   * - "Whenever a land enters under your control, gain 1 life"
+   * - Any "whenever a land enters" trigger
+   * 
+   * Integration with rules engine:
+   * - Uses parseTriggeredAbilitiesFromText() to parse oracle text
+   * - Checks for TriggerEvent.LANDFALL to identify landfall triggers
+   * - Executes common effects (draw, lifegain) from parsed abilities
+   * 
+   * @param player - The player who played the land
+   * @param state - The current game state
+   * @param landName - The name of the land that entered
    */
   processLandfallTriggers(player: PlayerState, state: SimulatedGameState, landName: string): void {
     const playerId = this.getPlayerIdFromName(state, player.name);
     
     for (const perm of player.battlefield) {
       const card = this.getCard(perm.card);
-      const oracle = card?.oracle_text?.toLowerCase() || '';
+      if (!card) continue;
+      
+      // Use rules engine to parse triggered abilities
+      const triggeredAbilities = parseTriggeredAbilitiesFromText(
+        card.oracle_text || '',
+        perm.card,
+        `player${playerId}`,
+        card.name
+      );
       
       // Check for landfall triggers
-      // "Whenever a land enters the battlefield under your control"
-      // "Landfall — Whenever a land enters the battlefield under your control"
-      if ((oracle.includes('landfall') || 
-           (oracle.includes('whenever a land') && oracle.includes('enters'))) && 
-          oracle.includes('under your control')) {
-        
-        state.events.push({
-          turn: state.turn,
-          player: player.name,
-          action: 'trigger',
-          card: perm.card,
-          details: `Landfall triggered from ${landName}`,
-        });
-        
-        // Handle common landfall effects
-        // +2/+2 until end of turn
-        if (oracle.includes('+2/+2') || oracle.includes('get +2/+2')) {
-          // Buff creatures (simplified - just log for now)
-        }
-        
-        // Draw a card
-        if (oracle.includes('draw a card')) {
-          this.drawCards(player, 1, state, `${perm.card} landfall`);
-        }
-        
-        // Gain life
-        const lifeGainMatch = oracle.match(/gain (\d+) life/);
-        if (lifeGainMatch) {
-          const lifeGained = parseInt(lifeGainMatch[1], 10);
-          player.life += lifeGained;
+      for (const ability of triggeredAbilities) {
+        if (ability.event === TriggerEvent.LANDFALL) {
+          const effect = ability.effect?.toLowerCase() || '';
+          
           state.events.push({
             turn: state.turn,
             player: player.name,
             action: 'trigger',
             card: perm.card,
-            details: `Gained ${lifeGained} life from landfall`,
+            details: `Landfall triggered from ${landName}`,
+            triggerSource: ability.sourceName,
           });
-        }
-        
-        // Create token(s)
-        if (oracle.includes('create') && oracle.includes('token')) {
-          // Token creation would go here
+          
+          // Handle common landfall effects
+          // Draw a card
+          if (effect.includes('draw a card') || effect.includes('draw 1')) {
+            this.drawCards(player, 1, state, `${perm.card} landfall`);
+          }
+          
+          // Gain life
+          const lifeGainMatch = effect.match(/gain (\d+) life/);
+          if (lifeGainMatch) {
+            const lifeGained = parseInt(lifeGainMatch[1], 10);
+            player.life += lifeGained;
+            state.events.push({
+              turn: state.turn,
+              player: player.name,
+              action: 'trigger',
+              card: perm.card,
+              details: `Gained ${lifeGained} life from landfall`,
+            });
+          }
+          
+          // Note: Other landfall effects (token creation, +1/+1 counters, etc.)
+          // would be handled here with proper rules engine integration
         }
       }
     }
@@ -1488,17 +1591,28 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
     const oracle = card?.oracle_text?.toLowerCase() || '';
     const playerId = this.getPlayerIdFromName(state, player.name);
     
-    // Log the ETB trigger with parsed ability info
-    if (oracle.includes('when') && oracle.includes('enters')) {
-      const parsedAbility = parseTriggeredAbility(oracle);
-      state.events.push({
-        turn: state.turn,
-        player: player.name,
-        action: 'trigger',
-        card: cardName,
-        details: `ETB trigger: ${parsedAbility?.effect || 'effect detected'}`,
-        oracleTextExecuted: true,
-      });
+    // Use rules engine to parse triggered abilities
+    const triggeredAbilities = parseTriggeredAbilitiesFromText(
+      card?.oracle_text || '',
+      cardName,
+      `player${playerId}`,
+      cardName
+    );
+    
+    // Process ETB triggers from parsed abilities
+    const etbTriggers = triggeredAbilities.filter(a => a.event === TriggerEvent.ENTERS_BATTLEFIELD);
+    if (etbTriggers.length > 0) {
+      for (const trigger of etbTriggers) {
+        state.events.push({
+          turn: state.turn,
+          player: player.name,
+          action: 'trigger',
+          card: cardName,
+          details: `ETB trigger: ${trigger.effect || 'effect detected'}`,
+          oracleTextExecuted: true,
+          triggerSource: trigger.sourceName,
+        });
+      }
     }
     
     // Check for devotion-based win conditions (like Thassa's Oracle)
@@ -2598,8 +2712,7 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
       return 'Artifact for utility';
     }
     
-    const ORACLE_TEXT_PREVIEW_LENGTH = 120;
-    return `Cast for its effect: ${oracle.substring(0, ORACLE_TEXT_PREVIEW_LENGTH) || 'unknown'}...`;
+    return `Cast for its effect: ${oracle.substring(0, EFFECT_TEXT_PREVIEW_LENGTH) || 'unknown'}...`;
   }
 
   /**
@@ -3125,15 +3238,27 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
         
         // Psychosis Crawler should deal damage when its controller draws cards
         if (card === 'Psychosis Crawler') {
-          const crawlerDamage = state.events.filter(e => 
-            e.card === 'Psychosis Crawler' && e.action === 'trigger'
+          // Find which player played this Psychosis Crawler
+          const crawlerTriggers = state.events.filter(e => 
+            e.card === 'Psychosis Crawler' && e.action === 'trigger' && e.player === playerName
           ).length;
-          // Only count draws by the Psychosis Crawler's controller (the player who played it)
-          const controllerDraws = state.events.filter(e => 
-            e.action === 'draw' && e.player.includes(playerName.includes('1') ? '1' : '2')
-          ).length;
-          if (controllerDraws > 0 && crawlerDamage === 0) {
-            notFunctioning.push(`Psychosis Crawler (${playerName}): Should have triggered on controller's card draws but didn't`);
+          
+          // Count draws by this specific player AFTER they cast Psychosis Crawler
+          const castEvent = state.events.find(e => 
+            e.action === 'cast' && e.card === 'Psychosis Crawler' && e.player === playerName
+          );
+          
+          if (castEvent) {
+            const drawsAfterCast = state.events.filter(e => 
+              e.action === 'draw' && 
+              e.player === playerName && 
+              e.turn > castEvent.turn
+            ).length;
+            
+            // Only flag as not functioning if player drew cards but trigger never fired
+            if (drawsAfterCast > 0 && crawlerTriggers === 0) {
+              notFunctioning.push(`Psychosis Crawler (${playerName}): Should have triggered on ${drawsAfterCast} card draw(s) but didn't`);
+            }
           }
         }
       }
