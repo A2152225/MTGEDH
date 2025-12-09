@@ -296,29 +296,41 @@ function isInMainPhase(ctx: GameContext): boolean {
 export function canPlayLand(ctx: GameContext, playerId: PlayerID): boolean {
   try {
     const { state } = ctx;
-    if (!state) return false;
+    if (!state) {
+      console.log(`[canPlayLand] ${playerId}: No state`);
+      return false;
+    }
     
     const zones = state.zones?.[playerId];
-    if (!zones) return false;
+    if (!zones) {
+      console.log(`[canPlayLand] ${playerId}: No zones found`);
+      return false;
+    }
     
     // Check if player has already played maximum lands this turn
     const landsPlayedThisTurn = (state.landsPlayedThisTurn as any)?.[playerId] ?? 0;
     const maxLandsPerTurn = 1; // Standard MTG rule
     
     if (landsPlayedThisTurn >= maxLandsPerTurn) {
+      console.log(`[canPlayLand] ${playerId}: Already played max lands this turn (${landsPlayedThisTurn}/${maxLandsPerTurn})`);
       return false; // Already played max lands
     }
     
     // Check if player has a land card in hand
     if (Array.isArray(zones.hand)) {
+      console.log(`[canPlayLand] ${playerId}: Checking hand with ${zones.hand.length} cards`);
       for (const card of zones.hand as any[]) {
         if (!card || typeof card === "string") continue;
         
         const typeLine = (card.type_line || "").toLowerCase();
         if (typeLine.includes("land")) {
+          console.log(`[canPlayLand] ${playerId}: Found land in hand: ${card.name || 'unknown'}`);
           return true; // Found a land in hand that can be played
         }
       }
+      console.log(`[canPlayLand] ${playerId}: No lands found in hand of ${zones.hand.length} cards`);
+    } else {
+      console.log(`[canPlayLand] ${playerId}: zones.hand is not an array:`, typeof zones.hand, zones.hand);
     }
     
     // Check if player can play lands from graveyard
@@ -487,33 +499,45 @@ function hasPlayFromTopOfLibraryEffect(ctx: GameContext, playerId: PlayerID): bo
  */
 export function canRespond(ctx: GameContext, playerId: PlayerID): boolean {
   try {
+    const currentStep = String((ctx.state as any).step || '').toUpperCase();
+    const isMainPhase = currentStep === 'MAIN1' || currentStep === 'MAIN2' || currentStep === 'MAIN';
+    const stackIsEmpty = !ctx.state.stack || ctx.state.stack.length === 0;
+    
+    console.log(`[canRespond] ${playerId}: step=${currentStep}, isMainPhase=${isMainPhase}, stackIsEmpty=${stackIsEmpty}`);
+    
     // Check if player can cast any instant/flash spells
     if (canCastAnySpell(ctx, playerId)) {
+      console.log(`[canRespond] ${playerId}: Can cast instant/flash spell`);
       return true;
     }
     
     // Check if player can activate any abilities
     if (canActivateAnyAbility(ctx, playerId)) {
+      console.log(`[canRespond] ${playerId}: Can activate ability`);
       return true;
     }
     
     // Check for sorcery-speed actions during main phase with empty stack
-    const isMainPhase = isInMainPhase(ctx);
-    const stackIsEmpty = !ctx.state.stack || ctx.state.stack.length === 0;
-    
     if (isMainPhase && stackIsEmpty) {
+      console.log(`[canRespond] ${playerId}: In main phase with empty stack, checking sorcery-speed actions`);
+      
       // Check if player can play a land
       if (canPlayLand(ctx, playerId)) {
+        console.log(`[canRespond] ${playerId}: Can play land`);
         return true;
       }
       
       // Check if player can cast any sorcery-speed spells
       if (canCastAnySorcerySpeed(ctx, playerId)) {
+        console.log(`[canRespond] ${playerId}: Can cast sorcery-speed spell`);
         return true;
       }
+      
+      console.log(`[canRespond] ${playerId}: No sorcery-speed actions available`);
     }
     
     // No responses available
+    console.log(`[canRespond] ${playerId}: No responses available (returning false)`);
     return false;
   } catch (err) {
     console.warn("[canRespond] Error:", err);
