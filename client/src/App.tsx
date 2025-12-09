@@ -4001,6 +4001,7 @@ export function App() {
               onMulligan={() => socket.emit("mulligan", { gameId: safeView?.id })}
               onRandomizeStart={() => socket.emit("randomizeStartingPlayer", { gameId: safeView?.id })}
               onBeginGame={() => socket.emit("nextStep", { gameId: safeView?.id })}
+              playableCards={(safeView as any)?.playableCards}
             />
           ) : (
             <div style={{ padding: 20, color: "#666" }}>
@@ -5320,6 +5321,7 @@ export function App() {
           setGraveyardModalPlayerId(null);
         }}
         onActivateAbility={handleGraveyardAbility}
+        playableCards={you === graveyardModalPlayerId ? (safeView as any)?.playableCards : undefined}
       />
 
       {/* Join Forces Modal (Collective Voyage, Minds Aglow, etc.) */}

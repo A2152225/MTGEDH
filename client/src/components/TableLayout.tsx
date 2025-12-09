@@ -1290,6 +1290,7 @@ export function TableLayout(props: {
                           stackEmpty={stackEmpty}
                           hasThousandYearElixirEffect={hasThousandYearElixirEffect}
                           showActivatedAbilityButtons={!!isYouThis}
+                          playableCards={isYouThis ? props.playableCards : undefined}
                         />
 
                         {/* Mana Sources Row (mana rocks, dorks) - positioned above lands */}
@@ -1619,6 +1620,8 @@ export function TableLayout(props: {
                             }}
                             onViewGraveyard={onViewGraveyard ? () => onViewGraveyard(pb.player.id) : undefined}
                             onViewExile={onViewExile ? () => onViewExile(pb.player.id) : undefined}
+                            playableCards={isYouThis ? props.playableCards : undefined}
+                            playerId={pb.player.id}
                           />
                         )}
                       </div>
