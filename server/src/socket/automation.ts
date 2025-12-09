@@ -14,7 +14,7 @@ import type {
 } from "../../../shared/src/events.js";
 import { games } from "./socket.js";
 import GameManager from "../GameManager.js";
-import { canRespond } from "../state/modules/can-respond.js";
+import { canRespond, canAct } from "../state/modules/can-respond.js";
 
 /**
  * Register automation-related socket handlers
@@ -315,20 +315,20 @@ export function registerAutomationHandlers(
   });
 
   /**
-   * Check if a player can respond (query from client)
-   * Returns whether the player has any available responses
+   * Check if a player can respond or act (query from client)
+   * Returns whether the player has any available responses or actions
    */
   socket.on("checkCanRespond", ({ gameId }: { gameId: string }) => {
     const playerId = socket.data.playerId;
     
     if (!playerId) {
-      socket.emit("canRespondResponse", { canRespond: false, reason: "Not in game" });
+      socket.emit("canRespondResponse", { canRespond: false, canAct: false, reason: "Not in game" });
       return;
     }
     
     const game = games.get(gameId);
     if (!game || !game.state) {
-      socket.emit("canRespondResponse", { canRespond: false, reason: "Game not found" });
+      socket.emit("canRespondResponse", { canRespond: false, canAct: false, reason: "Game not found" });
       return;
     }
     
@@ -342,11 +342,11 @@ export function registerAutomationHandlers(
       };
       
       const playerCanRespond = canRespond(ctx as any, playerId);
+      const playerCanAct = canAct(ctx as any, playerId);
       
       socket.emit("canRespondResponse", {
         canRespond: playerCanRespond,
-        gameId,
-        playerId,
+        canAct: playerCanAct,
       });
       
       console.log(`[Automation] Player ${playerId} can respond: ${playerCanRespond}`);

@@ -111,6 +111,7 @@ export interface ClientToServerEvents {
   // Automation control
   setAutoPass: (payload: { gameId: GameID; enabled: boolean }) => void;
   setStop: (payload: { gameId: GameID; phase: string; enabled: boolean }) => void;
+  checkCanRespond: (payload: { gameId: GameID }) => void;
   
   // Combat declarations
   declareAttackers: (payload: { gameId: GameID; attackers: Array<{ attackerId?: string; creatureId?: string; defendingPlayer?: PlayerID; targetPlayerId?: string; targetPermanentId?: string }> }) => void;
@@ -601,6 +602,13 @@ export interface ServerToClientEvents {
     status: 'running' | 'waiting_for_decision' | 'waiting_for_priority' | 'paused' | 'completed';
     priorityPlayer?: PlayerID;
     pendingDecisionCount?: number;
+  }) => void;
+  
+  // Can respond check response
+  canRespondResponse: (payload: {
+    canRespond: boolean;
+    canAct: boolean;
+    reason?: string;
   }) => void;
   
   // Combat state updates

@@ -487,11 +487,14 @@ function hasPlayFromTopOfLibraryEffect(ctx: GameContext, playerId: PlayerID): bo
 }
 
 /**
- * Main function: Determine if a player can respond
+ * Determine if a player can respond to something on the stack or during priority.
  * 
- * A player can respond if they can cast an instant/flash spell or activate an ability.
- * During main phase with empty stack, also check for sorcery-speed actions.
- * This is used to auto-pass priority when appropriate.
+ * A player can respond if they can cast an instant/flash spell or activate an ability
+ * that uses the stack. This is used for auto-passing non-active players.
+ * 
+ * NOTE: This function is intentionally STRICT - it only returns true if the player
+ * has instant-speed responses available. For the active player during their own turn,
+ * use canAct() instead, which is more conservative.
  * 
  * @param ctx Game context
  * @param playerId The player to check
@@ -499,11 +502,7 @@ function hasPlayFromTopOfLibraryEffect(ctx: GameContext, playerId: PlayerID): bo
  */
 export function canRespond(ctx: GameContext, playerId: PlayerID): boolean {
   try {
-    const currentStep = String((ctx.state as any).step || '').toUpperCase();
-    const isMainPhase = currentStep === 'MAIN1' || currentStep === 'MAIN2' || currentStep === 'MAIN';
-    const stackIsEmpty = !ctx.state.stack || ctx.state.stack.length === 0;
-    
-    console.log(`[canRespond] ${playerId}: step=${currentStep}, isMainPhase=${isMainPhase}, stackIsEmpty=${stackIsEmpty}`);
+    console.log(`[canRespond] ${playerId}: checking instant-speed responses only`);
     
     // Check if player can cast any instant/flash spells
     if (canCastAnySpell(ctx, playerId)) {
@@ -517,30 +516,77 @@ export function canRespond(ctx: GameContext, playerId: PlayerID): boolean {
       return true;
     }
     
-    // Check for sorcery-speed actions during main phase with empty stack
+    // No instant-speed responses available
+    console.log(`[canRespond] ${playerId}: No instant-speed responses available (returning false)`);
+    return false;
+  } catch (err) {
+    console.warn("[canRespond] Error:", err);
+    // On error, default to true (don't auto-pass) to be safe
+    return true;
+  }
+}
+
+/**
+ * Determine if the active player can take any action during their turn.
+ * 
+ * This is a MORE CONSERVATIVE check than canRespond - it returns true if the player
+ * can take ANY action, including:
+ * - Instant/flash spells (checked by canRespond)
+ * - Activated abilities (checked by canRespond)
+ * - Playing lands (if lands played < maxLands AND in main phase with empty stack)
+ * - Sorcery-speed spells (if in main phase with empty stack)
+ * 
+ * This function should be used for the active player (turn player) to decide if they
+ * should be auto-passed. The active player should almost NEVER be auto-passed during
+ * their main phase if they have any possible actions.
+ * 
+ * @param ctx Game context
+ * @param playerId The player to check (should be the active player)
+ * @returns true if the player can take any action, false otherwise
+ */
+export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
+  try {
+    const currentStep = String((ctx.state as any).step || '').toUpperCase();
+    const isMainPhase = currentStep === 'MAIN1' || currentStep === 'MAIN2' || currentStep === 'MAIN';
+    const stackIsEmpty = !ctx.state.stack || ctx.state.stack.length === 0;
+    
+    console.log(`[canAct] ${playerId}: step=${currentStep}, isMainPhase=${isMainPhase}, stackIsEmpty=${stackIsEmpty}`);
+    
+    // First check instant-speed responses (same as canRespond)
+    if (canCastAnySpell(ctx, playerId)) {
+      console.log(`[canAct] ${playerId}: Can cast instant/flash spell`);
+      return true;
+    }
+    
+    if (canActivateAnyAbility(ctx, playerId)) {
+      console.log(`[canAct] ${playerId}: Can activate ability`);
+      return true;
+    }
+    
+    // During main phase with empty stack, check sorcery-speed actions
     if (isMainPhase && stackIsEmpty) {
-      console.log(`[canRespond] ${playerId}: In main phase with empty stack, checking sorcery-speed actions`);
+      console.log(`[canAct] ${playerId}: In main phase with empty stack, checking sorcery-speed actions`);
       
       // Check if player can play a land
       if (canPlayLand(ctx, playerId)) {
-        console.log(`[canRespond] ${playerId}: Can play land`);
+        console.log(`[canAct] ${playerId}: Can play land`);
         return true;
       }
       
       // Check if player can cast any sorcery-speed spells
       if (canCastAnySorcerySpeed(ctx, playerId)) {
-        console.log(`[canRespond] ${playerId}: Can cast sorcery-speed spell`);
+        console.log(`[canAct] ${playerId}: Can cast sorcery-speed spell`);
         return true;
       }
       
-      console.log(`[canRespond] ${playerId}: No sorcery-speed actions available`);
+      console.log(`[canAct] ${playerId}: No sorcery-speed actions available in main phase`);
     }
     
-    // No responses available
-    console.log(`[canRespond] ${playerId}: No responses available (returning false)`);
+    // No actions available
+    console.log(`[canAct] ${playerId}: No actions available (returning false)`);
     return false;
   } catch (err) {
-    console.warn("[canRespond] Error:", err);
+    console.warn("[canAct] Error:", err);
     // On error, default to true (don't auto-pass) to be safe
     return true;
   }
