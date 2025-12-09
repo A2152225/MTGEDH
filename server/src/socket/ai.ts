@@ -2784,22 +2784,35 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       (game.state as any).format = format || 'commander';
       (game.state as any).startingLife = startingLife || (format === 'commander' ? 40 : 20);
       
-      // Create AI player
-      const aiPlayerId = `ai_${Date.now().toString(36)}`;
+      // Join the AI player to the game first
+      // This will generate a playerId and properly initialize the player
       const strategy = (aiStrategy as AIStrategy) || AIStrategy.BASIC;
+      const aiPlayerName = aiName || 'AI Opponent';
+      let joinResult: any;
+      let aiPlayerId: string;
       
-      // Add AI to game state with deck info
+      if (typeof (game as any).join === 'function') {
+        try {
+          // Use a fake socket ID for the AI player
+          const aiSocketId = `ai_socket_${Date.now().toString(36)}`;
+          joinResult = (game as any).join(aiSocketId, aiPlayerName, false);
+          aiPlayerId = joinResult?.playerId || `ai_${Date.now().toString(36)}`;
+          console.info('[AI] AI player joined game via game.join():', { aiPlayerId, aiPlayerName });
+        } catch (err) {
+          console.warn('[AI] game.join failed for AI, using fallback:', err);
+          aiPlayerId = `ai_${Date.now().toString(36)}`;
+        }
+      } else {
+        // Fallback if game.join is not available
+        aiPlayerId = `ai_${Date.now().toString(36)}`;
+      }
+      
+      // Mark the player as AI in the game state
       game.state.players = game.state.players || [];
-      const aiPlayer: any = {
-        id: aiPlayerId,
-        name: aiName || 'AI Opponent',
-        life: (game.state as any).startingLife,
-        isAI: true,
-        hand: [],
-        library: [],
-        graveyard: [],
-        exile: [],
-      };
+      const playerInState = game.state.players.find((p: any) => p.id === aiPlayerId);
+      if (playerInState) {
+        playerInState.isAI = true;
+      }
       
       // Load deck for AI - either from saved deck ID or from imported text
       let deckLoaded = false;
@@ -2881,9 +2894,6 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           // Use importDeckResolved to properly populate the context's libraries Map
           // This ensures shuffle/draw operations work correctly later.
           
-          aiPlayer.deckName = finalDeckName;
-          // Use provided deckId or generate one for imported text
-          aiPlayer.deckId = aiDeckId || (aiDeckText ? `imported_${Date.now().toString(36)}` : null);
           deckLoaded = true;
           
           // Use the game's importDeckResolved function to properly populate the libraries Map
@@ -2909,6 +2919,13 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
             // Note: We don't set library in zones - the authoritative source is ctx.libraries
           }
           
+          // Store deck metadata on the player object
+          const playerInState = game.state.players?.find((p: any) => p.id === aiPlayerId);
+          if (playerInState) {
+            playerInState.deckName = finalDeckName;
+            playerInState.deckId = aiDeckId || (aiDeckText ? `imported_${Date.now().toString(36)}` : null);
+          }
+          
           console.info('[AI] Deck resolved for AI:', { 
             aiPlayerId, 
             deckName: finalDeckName, 
@@ -2924,8 +2941,6 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           console.warn('[AI] No cards resolved:', { error: deckLoadError });
         }
       }
-      
-      game.state.players.push(aiPlayer);
       
       // Register with AI engine
       registerAIPlayer(gameId, aiPlayerId, aiName || 'AI Opponent', strategy);
@@ -3035,21 +3050,35 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       // Create each AI opponent
       for (let i = 0; i < aiOpponents.length; i++) {
         const aiConfig = aiOpponents[i];
-        const aiPlayerId = `ai_${Date.now().toString(36)}_${i}`;
         const strategy = (aiConfig.strategy as AIStrategy) || AIStrategy.BASIC;
         const aiName = aiConfig.name || `AI Opponent ${i + 1}`;
         
-        // Add AI to game state
-        const aiPlayer: any = {
-          id: aiPlayerId,
-          name: aiName,
-          life: (game.state as any).startingLife,
-          isAI: true,
-          hand: [],
-          library: [],
-          graveyard: [],
-          exile: [],
-        };
+        // Join the AI player to the game first
+        // This will generate a playerId and properly initialize the player
+        let joinResult: any;
+        let aiPlayerId: string;
+        
+        if (typeof (game as any).join === 'function') {
+          try {
+            // Use a fake socket ID for the AI player
+            const aiSocketId = `ai_socket_${Date.now().toString(36)}_${i}`;
+            joinResult = (game as any).join(aiSocketId, aiName, false);
+            aiPlayerId = joinResult?.playerId || `ai_${Date.now().toString(36)}_${i}`;
+            console.info(`[AI] AI player joined game via game.join():`, { aiPlayerId, aiName });
+          } catch (err) {
+            console.warn(`[AI] game.join failed for ${aiName}, using fallback:`, err);
+            aiPlayerId = `ai_${Date.now().toString(36)}_${i}`;
+          }
+        } else {
+          // Fallback if game.join is not available
+          aiPlayerId = `ai_${Date.now().toString(36)}_${i}`;
+        }
+        
+        // Mark the player as AI in the game state
+        const playerInState = game.state.players?.find((p: any) => p.id === aiPlayerId);
+        if (playerInState) {
+          playerInState.isAI = true;
+        }
         
         // Load deck for AI
         let deckLoaded = false;
@@ -3118,8 +3147,6 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           }
           
           if (resolvedCards.length > 0) {
-            aiPlayer.deckName = finalDeckName;
-            aiPlayer.deckId = aiConfig.deckId || (aiConfig.deckText ? `imported_${Date.now().toString(36)}_${i}` : null);
             deckLoaded = true;
             
             if (typeof (game as any).importDeckResolved === 'function') {
@@ -3140,10 +3167,15 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
                 graveyardCount: 0,
               };
             }
+            
+            // Store deck metadata on the player object
+            const playerInState = game.state.players?.find((p: any) => p.id === aiPlayerId);
+            if (playerInState) {
+              playerInState.deckName = finalDeckName;
+              playerInState.deckId = aiConfig.deckId || (aiConfig.deckText ? `imported_${Date.now().toString(36)}_${i}` : null);
+            }
           }
         }
-        
-        game.state.players.push(aiPlayer);
         
         // Register with AI engine
         registerAIPlayer(gameId, aiPlayerId, aiName, strategy);
