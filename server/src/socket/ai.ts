@@ -486,6 +486,18 @@ export async function autoSelectAICommander(
       return false;
     }
     
+    // Check if player already has a commander - if so, don't select again
+    const commanderInfo = game.state.commandZone?.[playerId];
+    const hasCommander = commanderInfo?.commanderIds?.length > 0;
+    if (hasCommander) {
+      console.info('[AI] autoSelectAICommander: player already has commander, skipping', { 
+        gameId, 
+        playerId,
+        commanderIds: commanderInfo?.commanderIds 
+      });
+      return true; // Return true since commander is already set
+    }
+    
     // Get the AI player's library (deck)
     // The library is stored in ctx.libraries Map via importDeckResolved.
     // Use searchLibrary with empty query to get all cards (up to limit).
