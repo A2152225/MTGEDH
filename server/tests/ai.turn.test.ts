@@ -398,7 +398,7 @@ describe('AI Turn Handling', () => {
         return deckColors;
       };
       
-      const calculateColorCoverage = (commanders: any[], deckColors: Set<string>): number => {
+      const commanderIdentityMatchesDeck = (commanders: any[], deckColors: Set<string>): boolean => {
         const commanderColors = new Set<string>();
         for (const commander of commanders) {
           const colors = extractColorIdentity(commander);
@@ -407,13 +407,17 @@ describe('AI Turn Handling', () => {
           }
         }
         
-        let coverage = 0;
+        if (commanderColors.size !== deckColors.size) return false;
+        
         for (const color of deckColors) {
-          if (commanderColors.has(color)) {
-            coverage++;
-          }
+          if (!commanderColors.has(color)) return false;
         }
-        return coverage;
+        
+        for (const color of commanderColors) {
+          if (!deckColors.has(color)) return false;
+        }
+        
+        return true;
       };
       
       // Create test cards for WURG (4-color) deck
@@ -465,30 +469,27 @@ describe('AI Turn Handling', () => {
       expect(deckColors.has('G')).toBe(true);
       expect(deckColors.size).toBe(4);
       
-      // Test that partners cover all 4 colors
-      const partnerCoverage = calculateColorCoverage([tanaPartner, ishaiPartner], deckColors);
-      expect(partnerCoverage).toBe(4);
+      // Test that partners' combined identity EXACTLY matches deck
+      const partnersMatch = commanderIdentityMatchesDeck([tanaPartner, ishaiPartner], deckColors);
+      expect(partnersMatch).toBe(true);
       
-      // Test that single WG commander doesn't cover all colors
-      const singleCommanderCoverage = calculateColorCoverage([tanaPartner], deckColors);
-      expect(singleCommanderCoverage).toBe(2); // Only R and G
+      // Test that single WG commander does NOT match WURG deck
+      const singleCommanderMatches = commanderIdentityMatchesDeck([tanaPartner], deckColors);
+      expect(singleCommanderMatches).toBe(false);
       
       // Verify both cards have partner
       expect(hasPartner(tanaPartner)).toBe(true);
       expect(hasPartner(ishaiPartner)).toBe(true);
       
-      // The fix ensures we DON'T select a single commander when it doesn't cover all colors
-      // Instead, we search for partner pairs that do
-      const firstCard = deck[0];
-      const firstCardCoverage = calculateColorCoverage([firstCard], deckColors);
-      
-      // First card doesn't cover all 4 colors
-      expect(firstCardCoverage).toBeLessThan(deckColors.size);
-      
-      // Therefore, we should NOT select it as a single commander
-      // Instead, we should fall through to find the partner pair
-      // The test verifies the logic: when single commander coverage < deck colors,
-      // we should look for partners instead
+      // Test that a WUG commander wouldn't match WURG deck (missing R)
+      const wrongCommander = {
+        id: 'wrong_1',
+        name: 'Wrong Commander',
+        type_line: 'Legendary Creature — Test',
+        color_identity: ['W', 'U', 'G'],
+        oracle_text: '',
+      };
+      expect(commanderIdentityMatchesDeck([wrongCommander], deckColors)).toBe(false);
     });
     
     it('should select single 4-color commander for 4-color deck', () => {
