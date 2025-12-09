@@ -1937,12 +1937,14 @@ async function executeAICastSpell(
       }
     }
     
-    // Persist event
+    // Persist event with targets for proper replay
     try {
       await appendEvent(gameId, (game as any).seq || 0, 'castSpell', { 
         playerId, 
         cardId: card.id, 
         cardName: card.name,
+        targets: targets,  // Include targets for replay
+        card: card,  // Include full card data for replay
         isAI: true 
       });
     } catch (e) {

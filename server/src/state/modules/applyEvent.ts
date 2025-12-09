@@ -1263,8 +1263,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       case "librarySearchSelect": {
         // Select cards from library search (tutor effects)
         const pid = (e as any).playerId;
-        const cardIds = (e as any).cardIds as string[] || [];
-        const destination = (e as any).destination || "hand";
+        // Support both field names for backward compatibility
+        const cardIds = (e as any).selectedCardIds as string[] || (e as any).cardIds as string[] || [];
+        const destination = (e as any).moveTo || (e as any).destination || "hand";
         try {
           if (pid && cardIds.length > 0) {
             const lib = ctx.libraries.get(pid) || [];
