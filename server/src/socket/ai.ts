@@ -2948,7 +2948,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       // Persist AI join event as a regular 'join' event so it can be properly replayed after server restart
       // Include isAI flag and seatToken from the join result
       try {
-        const seatToken = joinResult?.seatToken || `ai_token_${Date.now().toString(36)}`;
+        const seatToken = joinResult?.seatToken || `ai_token_${randomBytes(6).toString('hex')}`;
         await appendEvent(gameId, (game as any).seq || 0, 'join', {
           playerId: aiPlayerId,
           name: aiPlayerName,
@@ -3195,7 +3195,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         // Persist AI join event as a regular 'join' event so it can be properly replayed after server restart
         // Include isAI flag and seatToken from the join result
         try {
-          const seatToken = joinResult?.seatToken || `ai_token_${Date.now().toString(36)}_${i}`;
+          const seatToken = joinResult?.seatToken || `ai_token_${randomBytes(6).toString('hex')}`;
           await appendEvent(gameId, (game as any).seq || 0, 'join', {
             playerId: aiPlayerId,
             name: aiName,
