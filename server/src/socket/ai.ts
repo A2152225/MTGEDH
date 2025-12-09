@@ -1430,12 +1430,12 @@ export async function handleAIPriority(
   
   // CRITICAL: Cleanup step does NOT receive priority (Rule 514.1)
   // Cleanup happens automatically: discard to hand size, remove damage, end "until end of turn" effects
-  // However, AI can only act during cleanup on its own turn or during opponent's cleanup if it needs to discard
+  // AI only acts during cleanup on its own turn to handle automatic actions
   if (step.includes('cleanup') || step === 'cleanup') {
     console.info('[AI] Cleanup step - handling automatic cleanup actions (Rule 514.1)');
     
-    // Only handle cleanup if it's the AI's turn or if AI is the active player
-    // (Cleanup doesn't grant priority, so we only act if we're the turn player)
+    // Only handle cleanup if it's the AI's turn
+    // (Cleanup doesn't grant priority per Rule 514.1, so we only act if we're the turn player)
     if (isAITurn) {
       const { needsDiscard, discardCount } = needsToDiscard(game, playerId);
       
@@ -1450,7 +1450,7 @@ export async function handleAIPriority(
       await executeAdvanceStep(io, gameId, playerId);
       return;
     } else {
-      // Not AI's turn - don't act during cleanup
+      // Not AI's turn - don't act during cleanup (per Rule 514.1, cleanup doesn't grant priority)
       console.info('[AI] Cleanup step - not AI turn, skipping');
       return;
     }
