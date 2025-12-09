@@ -8,20 +8,32 @@
  * Purpose: Quick testing of cards and interactions to find and fix gaps in the rules engine.
  * Can also be used to playtest decks and analyze performance.
  * 
- * Integrates with:
- * - oracleTextParser: For parsing card abilities
- * - triggeredAbilities: For trigger detection
+ * Rules Engine Integration:
+ * - parseTriggeredAbilitiesFromText: Parses oracle text to detect triggered abilities
+ *   - Used in processDrawTriggers() for "whenever you draw" effects
+ *   - Used in handleETBTrigger() for "when/whenever enters the battlefield" effects
+ *   - Used in processLandfallTriggers() for landfall triggers
+ * - TriggerEvent enum: Structured event types (DRAWN, ENTERS_BATTLEFIELD, LANDFALL, etc.)
+ * - oracleTextParser: For parsing general card abilities
  * - stateBasedActions: For SBA checking (life, poison, commander damage)
  * - staticAbilities: For continuous effects
  * - winEffectCards: For win condition detection
  * - activatedAbilities: For activated ability parsing
+ * 
+ * Architecture:
+ * - Uses simplified PlayerState/SimulatedGameState instead of full GameState
+ * - Integrates rules engine's parsing but maintains custom execution logic
+ * - Suitable for rapid prototyping and testing card interactions
+ * 
+ * Note: For full game implementation with stack, priority, and complex interactions,
+ * use the main GameState-based rules engine in server/src/state/
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import type { ManaPool } from '../../shared/src';
-import { parseOracleText, parseTriggeredAbility, type ParsedAbility, AbilityType } from '../src/oracleTextParser';
+import { parseOracleText, type ParsedAbility, AbilityType } from '../src/oracleTextParser';
 import { parseTriggeredAbilitiesFromText, TriggerEvent, type TriggeredAbility } from '../src/triggeredAbilities';
 import { 
   checkPlayerLife, 
@@ -51,6 +63,9 @@ const SEED_SPACING = 1000;
 
 /** Path to deck files */
 const DECKS_PATH = path.join(__dirname, '../../precon_json');
+
+/** Maximum length for effect text preview in analysis logs */
+const EFFECT_TEXT_PREVIEW_LENGTH = 100;
 
 /** Available deck files (files starting with "Deck") */
 const DECK_FILES = [
@@ -1255,7 +1270,20 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
   /**
    * Process triggers that fire when a player draws cards.
    * Uses the rules engine's trigger parsing to properly detect and execute draw triggers.
-   * Handles cards like Psychosis Crawler: "Whenever you draw a card, each opponent loses 1 life"
+   * 
+   * Handles cards like:
+   * - Psychosis Crawler: "Whenever you draw a card, each opponent loses 1 life"
+   * - Niv-Mizzet, Parun: "Whenever you draw a card, deal 1 damage to any target"
+   * - Any card with "whenever you draw" trigger text
+   * 
+   * Integration with rules engine:
+   * - Uses parseTriggeredAbilitiesFromText() to parse oracle text
+   * - Checks for TriggerEvent.DRAWN to identify draw triggers
+   * - Dynamically extracts effect values (life loss, damage) from parsed text
+   * 
+   * @param player - The player who drew cards
+   * @param state - The current game state
+   * @param cardsDrawn - Number of cards drawn (triggers fire once per draw)
    */
   processDrawTriggers(player: PlayerState, state: SimulatedGameState, cardsDrawn: number): void {
     const playerId = this.getPlayerIdFromName(state, player.name);
@@ -1298,7 +1326,7 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
               player: player.name,
               action: 'trigger',
               card: perm.card,
-              details: `All opponents lost ${totalLoss} life from ${cardsDrawn} card draw(s)`,
+              details: `All opponents lost ${totalLoss} life from ${cardsDrawn} card ${cardsDrawn === 1 ? 'draw' : 'draws'}`,
               triggerSource: ability.sourceName,
             });
           }
@@ -1320,7 +1348,7 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
                 player: player.name,
                 action: 'trigger',
                 card: perm.card,
-                details: `Dealt ${totalDamage} damage to ${target.name} from ${cardsDrawn} card draw(s)`,
+                details: `Dealt ${totalDamage} damage to ${target.name} from ${cardsDrawn} card ${cardsDrawn === 1 ? 'draw' : 'draws'}`,
                 targetPlayer: target.name,
                 triggerSource: ability.sourceName,
               });
@@ -1333,7 +1361,7 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
               player: player.name,
               action: 'trigger',
               card: perm.card,
-              details: `Draw trigger detected: ${effect.substring(0, 100)}`,
+              details: `Draw trigger detected: ${effect.substring(0, EFFECT_TEXT_PREVIEW_LENGTH)}`,
               triggerSource: ability.sourceName,
             });
           }
@@ -1383,6 +1411,20 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
   /**
    * Process landfall triggers when a land enters the battlefield.
    * Uses rules engine's trigger parsing for proper detection.
+   * 
+   * Handles cards with landfall abilities such as:
+   * - "Landfall — Whenever a land enters, draw a card"
+   * - "Whenever a land enters under your control, gain 1 life"
+   * - Any "whenever a land enters" trigger
+   * 
+   * Integration with rules engine:
+   * - Uses parseTriggeredAbilitiesFromText() to parse oracle text
+   * - Checks for TriggerEvent.LANDFALL to identify landfall triggers
+   * - Executes common effects (draw, lifegain) from parsed abilities
+   * 
+   * @param player - The player who played the land
+   * @param state - The current game state
+   * @param landName - The name of the land that entered
    */
   processLandfallTriggers(player: PlayerState, state: SimulatedGameState, landName: string): void {
     const playerId = this.getPlayerIdFromName(state, player.name);
@@ -2670,8 +2712,7 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
       return 'Artifact for utility';
     }
     
-    const ORACLE_TEXT_PREVIEW_LENGTH = 120;
-    return `Cast for its effect: ${oracle.substring(0, ORACLE_TEXT_PREVIEW_LENGTH) || 'unknown'}...`;
+    return `Cast for its effect: ${oracle.substring(0, EFFECT_TEXT_PREVIEW_LENGTH) || 'unknown'}...`;
   }
 
   /**
