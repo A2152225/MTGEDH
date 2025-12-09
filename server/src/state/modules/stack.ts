@@ -2471,7 +2471,37 @@ export function resolveTopOfStack(ctx: GameContext) {
       summoningSickness: hasSummoningSickness,
       card: { ...effectiveCard, zone: "battlefield" },
     } as any;
+    
     state.battlefield.push(newPermanent);
+    
+    // Handle aura and equipment attachments
+    // Auras are enchantments with "Aura" subtype that target when cast
+    // When they resolve, attach them to their target
+    // IMPORTANT: This must be done AFTER pushing to battlefield so the permanent exists
+    const isAura = tl.includes('enchantment') && tl.includes('aura');
+    const isEquipment = tl.includes('equipment');
+    if ((isAura || isEquipment) && targets && targets.length > 0) {
+      const targetId = targets[0];
+      const targetPerm = state.battlefield.find((p: any) => p?.id === targetId);
+      
+      if (targetPerm) {
+        // Set attachedTo on the aura/equipment
+        newPermanent.attachedTo = targetId;
+        
+        // Track attachment on the target permanent
+        if (isAura) {
+          targetPerm.attachedAuras = targetPerm.attachedAuras || [];
+          targetPerm.attachedAuras.push(newPermId);
+          console.log(`[resolveTopOfStack] Aura ${effectiveCard.name} attached to ${targetPerm.card?.name || targetId}`);
+        } else if (isEquipment) {
+          targetPerm.attachedEquipment = targetPerm.attachedEquipment || [];
+          targetPerm.attachedEquipment.push(newPermId);
+          console.log(`[resolveTopOfStack] Equipment ${effectiveCard.name} attached to ${targetPerm.card?.name || targetId}`);
+        }
+      } else {
+        console.warn(`[resolveTopOfStack] ${isAura ? 'Aura' : 'Equipment'} ${effectiveCard.name} target ${targetId} not found on battlefield`);
+      }
+    }
     
     // Build a readable status message for logging
     let statusNote = '';
