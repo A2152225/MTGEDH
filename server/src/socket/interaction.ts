@@ -1,5 +1,6 @@
 import type { Server, Socket } from "socket.io";
 import type { PlayerID } from "../../../shared/src/index.js";
+import crypto from "crypto";
 import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, calculateManaProduction } from "./util";
 import { appendEvent } from "../db";
 import { games } from "./socket";
@@ -3264,42 +3265,35 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const opponents = players.filter((p: any) => p?.id != null && p.id !== pid);
         
         if (opponents.length > 0) {
-          // TODO: In a real implementation, controller should choose the target opponent
-          // For now, give token to first opponent
-          const targetOpponent = opponents[0];
-          const opponentId = targetOpponent.id;
+          // Store pending Forbidden Orchard activation - controller must choose target opponent
+          if (!game.state.pendingForbiddenOrchard) {
+            game.state.pendingForbiddenOrchard = {};
+          }
           
-          // Create 1/1 colorless Spirit token for opponent
-          const tokenId = `token_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-          game.state.battlefield = game.state.battlefield || [];
-          game.state.battlefield.push({
-            id: tokenId,
-            controller: opponentId,
-            owner: opponentId,
-            tapped: false,
-            summoningSickness: true,
-            counters: {},
-            card: {
-              id: tokenId,
-              name: 'Spirit',
-              type_line: 'Token Creature — Spirit',
-              oracle_text: '',
-              mana_cost: '',
-              cmc: 0,
-              colors: [],
-            },
-            basePower: 1,
-            baseToughness: 1,
-            isToken: true,
-          });
+          const activationId = `forbidden_orchard_${crypto.randomUUID()}`;
+          game.state.pendingForbiddenOrchard[activationId] = {
+            playerId: pid,
+            permanentId,
+            cardName: 'Forbidden Orchard',
+            opponents: opponents.map((p: any) => ({ id: p.id, name: p.name })),
+          };
           
-          io.to(gameId).emit("chat", {
-            id: `m_${Date.now()}`,
+          // Request opponent choice from player
+          socket.emit("forbiddenOrchardTargetRequest", {
             gameId,
-            from: "system",
-            message: `Forbidden Orchard: ${getPlayerName(game, opponentId)} creates a 1/1 colorless Spirit token.`,
-            ts: Date.now(),
+            activationId,
+            permanentId,
+            cardName: 'Forbidden Orchard',
+            opponents: opponents.map((p: any) => ({
+              id: p.id,
+              name: p.name || p.id,
+            })),
+            message: "Choose target opponent to create a 1/1 colorless Spirit creature token.",
           });
+          
+          console.log(`[activateBattlefieldAbility] Forbidden Orchard: prompting ${pid} to choose target opponent`);
+          broadcastGame(io, game, gameId);
+          return; // Exit early - wait for target selection
         }
       }
       
@@ -6416,5 +6410,96 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         message: `Effect for "${selectedMode.name}" not yet implemented` 
       });
     }
+  });
+
+  /**
+   * Handle Forbidden Orchard opponent target selection
+   * When tapping Forbidden Orchard for mana, controller must choose target opponent
+   * to create a 1/1 colorless Spirit creature token.
+   */
+  socket.on("confirmForbiddenOrchardTarget", ({
+    gameId,
+    activationId,
+    targetOpponentId,
+  }: {
+    gameId: string;
+    activationId: string;
+    targetOpponentId: string;
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+      return;
+    }
+
+    // Retrieve pending activation
+    const pending = game.state.pendingForbiddenOrchard?.[activationId];
+    if (!pending) {
+      socket.emit("error", { code: "INVALID_ACTIVATION", message: "Invalid or expired Forbidden Orchard activation" });
+      return;
+    }
+
+    // Verify it's the right player
+    if (pending.playerId !== pid) {
+      socket.emit("error", { code: "NOT_YOUR_ACTIVATION", message: "This is not your Forbidden Orchard activation" });
+      return;
+    }
+
+    // Verify target opponent is valid
+    const validOpponent = pending.opponents.find((opp: any) => opp.id === targetOpponentId);
+    if (!validOpponent) {
+      socket.emit("error", { code: "INVALID_TARGET", message: "Invalid target opponent" });
+      return;
+    }
+
+    // Clean up pending activation
+    delete game.state.pendingForbiddenOrchard[activationId];
+
+    // Create 1/1 colorless Spirit token for the target opponent
+    const tokenId = `token_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    game.state.battlefield = game.state.battlefield || [];
+    game.state.battlefield.push({
+      id: tokenId,
+      controller: targetOpponentId,
+      owner: targetOpponentId,
+      tapped: false,
+      summoningSickness: true,
+      counters: {},
+      card: {
+        id: tokenId,
+        name: 'Spirit',
+        type_line: 'Token Creature — Spirit',
+        oracle_text: '',
+        mana_cost: '',
+        cmc: 0,
+        colors: [],
+      },
+      basePower: 1,
+      baseToughness: 1,
+      isToken: true,
+    });
+
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `Forbidden Orchard: ${getPlayerName(game, targetOpponentId)} creates a 1/1 colorless Spirit token.`,
+      ts: Date.now(),
+    });
+
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+
+    appendEvent(gameId, (game as any).seq ?? 0, "confirmForbiddenOrchardTarget", {
+      playerId: pid,
+      activationId,
+      targetOpponentId,
+    });
+
+    broadcastGame(io, game, gameId);
   });
 }
