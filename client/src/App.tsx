@@ -460,6 +460,7 @@ export function App() {
   // Priority Modal state - shows when player receives priority on step changes
   const [priorityModalOpen, setPriorityModalOpen] = useState(false);
   const lastPriorityStep = React.useRef<string | null>(null);
+  const lastCanRespond = React.useRef<boolean | null>(null);
   
   // Life Payment Modal state - for spells like Toxic Deluge that require paying X life
   const [lifePaymentModalOpen, setLifePaymentModalOpen] = useState(false);
@@ -924,23 +925,59 @@ export function App() {
     const isYourTurn = turnPlayer !== null && turnPlayer !== undefined && turnPlayer === you;
     
     // Action phases are main phases where the turn player can play lands and cast sorcery-speed spells
-    // The turn player should ALWAYS get priority at these phases, regardless of auto-pass settings
     // Use stepKey (normalized, lowercase, no underscores) for precise detection
     const isActionPhase = stepKey.includes('main');
     
-    // For the turn player, don't auto-pass during action phases even when phase navigator is advancing
-    // This prevents the "skip to cleanup" bug where clicking phase navigator skips the entire turn
-    const canAutoPassOnYourTurn = phaseNavigatorAdvancing && !isActionPhase;
+    // Check if player can respond (has playable cards, lands, or activatable abilities)
+    const playableCards = (safeView as any).playableCards || [];
+    const canRespond = playableCards.length > 0;
     
+    // Check if player has creatures for combat (must be untapped and not have summoning sickness)
+    const playerCreatures = (safeView.battlefield || []).filter((p: any) => {
+      if (p.controller !== you) return false;
+      if (!(p.card?.type_line || '').toLowerCase().includes('creature')) return false;
+      if (p.tapped) return false;
+      // Check summoning sickness - creature must have been on battlefield since start of turn
+      // If the creature has 'Haste' keyword, it can attack immediately
+      const hasHaste = (p.card?.keywords || []).some((k: string) => k.toLowerCase() === 'haste') ||
+                      (p.card?.oracle_text || '').toLowerCase().includes('haste');
+      if (p.summoningSick && !hasHaste) return false;
+      return true;
+    });
+    const hasCreaturesToAttack = playerCreatures.length > 0;
+    
+    // Combat phases detection
+    const COMBAT_STEPS = ['combat', 'attack', 'block', 'damage'];
+    const isCombatPhase = COMBAT_STEPS.some(phase => stepKey.includes(phase));
+    
+    // Auto-pass logic for your own turn:
+    // 1. Main phases: Auto-pass if you CAN'T respond (no playable cards/lands/abilities)
+    // 2. Combat phases: Auto-pass if you have no creatures to attack with
+    // 3. Other phases: Auto-pass if using phase navigator
+    const canAutoPassOnYourTurn = 
+      (isActionPhase && !canRespond) ||  // Main phase with nothing to do
+      (isCombatPhase && !hasCreaturesToAttack) ||  // Combat with no creatures
+      (phaseNavigatorAdvancing && !isActionPhase && !canRespond);  // Phase navigator in non-action phases
+    
+    // Auto-pass activates when:
+    // 1. Auto-pass is enabled for this step, AND
+    // 2. Either: not your turn, OR you can auto-pass on your turn (no actions available), AND  
+    // 3. No pending triggers to handle
     const shouldAutoPass = autoPassStepEnabled && (!isYourTurn || canAutoPassOnYourTurn) && !hasPendingTriggers;
     
     if (youHavePriority && stackLength === 0 && !combatModalOpen) {
-      // Check if this is a new step
-      if (lastPriorityStep.current !== step) {
+      // Check if this is a new step OR if canRespond status changed
+      // This ensures we re-evaluate auto-pass after drawing cards, playing lands, etc.
+      const stepChanged = lastPriorityStep.current !== step;
+      const canRespondChanged = lastCanRespond.current !== null && lastCanRespond.current !== canRespond;
+      
+      if (stepChanged || canRespondChanged) {
         lastPriorityStep.current = step;
+        lastCanRespond.current = canRespond;
         
         if (shouldAutoPass) {
-          // Auto-pass priority (during opponents' turns OR during phase navigator advancement)
+          // Auto-pass priority (during opponents' turns OR when player has no actions available)
+          console.log('[AutoPass] Passing priority - canRespond:', canRespond, 'step:', step);
           socket.emit("passPriority", { gameId: safeView.id, by: you });
           setPriorityModalOpen(false);
         } else {
@@ -955,6 +992,8 @@ export function App() {
     } else {
       // Close priority modal if we don't have priority or stack is not empty
       setPriorityModalOpen(false);
+      // Reset tracking when we don't have priority
+      lastCanRespond.current = null;
     }
   }, [safeView, you, combatModalOpen, autoPassSteps, phaseNavigatorAdvancing, pendingTriggers]);
 

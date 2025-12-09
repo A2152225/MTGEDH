@@ -237,9 +237,18 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
         selectedCommanders = [firstCard, secondCard];
         console.info('[AI] Selected commander + background from first 2 cards:', selectedCommanders.map(c => c.name));
       } else {
-        // Just use the first valid commander from the decklist
-        selectedCommanders = [firstTwoCandidates[0]];
-        console.info('[AI] Selected single commander from first card(s):', selectedCommanders[0]?.name);
+        // Validate that the first card covers the deck's color identity
+        // Safe to access firstCard since we checked length >= 1 above
+        const firstCardCoverage = calculateColorCoverage([firstCard], deckColors);
+        if (firstCardCoverage === deckColors.size || deckColors.size === 0) {
+          // First card covers all deck colors - use it
+          selectedCommanders = [firstCard];
+          console.info(`[AI] Selected single commander from first card (full color coverage): ${firstCard.name}`);
+        } else {
+          // First card doesn't cover all deck colors - need to search for better option
+          console.warn(`[AI] First commander only covers ${firstCardCoverage} of ${deckColors.size} deck colors`);
+          // Fall through to find better commanders
+        }
       }
     }
   }
@@ -271,7 +280,7 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
     
     if (bestPair.length === 2) {
       selectedCommanders = bestPair;
-      console.info('[AI] Selected partner commanders with best color coverage (' + bestCoverage + '/' + deckColors.size + '):', selectedCommanders.map(c => c.name));
+      console.info(`[AI] Selected partner commanders with best color coverage (${bestCoverage}/${deckColors.size}):`, selectedCommanders.map(c => c.name));
     } else {
       // Fallback to first 2 partners if no pair found
       selectedCommanders = partnerCandidates.slice(0, 2);
@@ -286,10 +295,31 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
     console.info('[AI] Selected commander + background:', selectedCommanders.map(c => c.name));
   }
   
-  // Priority 4: Fall back to first valid commander candidate
+  // Priority 4: Find the single commander that best covers the deck's color identity
   if (selectedCommanders.length === 0) {
-    selectedCommanders = [candidates[0]];
-    console.info('[AI] Selected single commander:', selectedCommanders[0]?.name);
+    let bestCommander: any = null;
+    let bestCoverage = 0;
+    
+    for (const candidate of candidates) {
+      const coverage = calculateColorCoverage([candidate], deckColors);
+      if (coverage > bestCoverage) {
+        bestCoverage = coverage;
+        bestCommander = candidate;
+      }
+      // If we found perfect coverage, stop searching
+      if (coverage === deckColors.size) {
+        break;
+      }
+    }
+    
+    if (bestCommander) {
+      selectedCommanders = [bestCommander];
+      console.info(`[AI] Selected single commander with best color coverage (${bestCoverage}/${deckColors.size}): ${bestCommander.name}`);
+    } else {
+      // Ultimate fallback - just use first candidate
+      selectedCommanders = [candidates[0]];
+      console.warn('[AI] No commanders found with good color coverage, using first candidate:', candidates[0]?.name);
+    }
   }
   
   // Calculate combined color identity
@@ -345,15 +375,46 @@ export async function autoSelectAICommander(
       return false;
     }
     
-    console.info('[AI] autoSelectAICommander: found library with', library.length, 'cards');
+    // Validate that library cards have required data (name, type_line, etc.)
+    const cardsForSelection = library.filter((c: any) => c && c.name && c.type_line);
+    if (cardsForSelection.length === 0) {
+      console.error('[AI] autoSelectAICommander: library has cards but they lack required data', {
+        gameId,
+        playerId,
+        totalCards: library.length,
+        sampleCard: library[0],
+      });
+      return false;
+    }
+    
+    if (cardsForSelection.length < library.length) {
+      console.warn('[AI] autoSelectAICommander: filtered out cards lacking required data', {
+        gameId,
+        playerId,
+        totalCards: library.length,
+        validCards: cardsForSelection.length,
+      });
+    }
+    
+    console.info('[AI] autoSelectAICommander: found library with', cardsForSelection.length, 'cards');
+    
+    // Log the first few cards to help debug commander selection
+    if (cardsForSelection.length > 0) {
+      const firstCards = cardsForSelection.slice(0, 3).map((c: any) => ({
+        name: c.name,
+        type: c.type_line,
+        colors: c.color_identity || [],
+      }));
+      console.info('[AI] First cards in library:', JSON.stringify(firstCards));
+    }
     
     // Find the best commander(s) from the deck (uses original unshuffled order)
-    let { commanders, colorIdentity } = findBestCommanders(library);
+    let { commanders, colorIdentity } = findBestCommanders(cardsForSelection);
     
     if (commanders.length === 0) {
       console.warn('[AI] autoSelectAICommander: no valid commander found', { gameId, playerId });
       // Fallback: just pick the first legendary card if any
-      const legendary = library.find((c: any) => 
+      const legendary = cardsForSelection.find((c: any) => 
         (c?.type_line || '').toLowerCase().includes('legendary')
       );
       if (legendary) {
@@ -731,6 +792,17 @@ export function registerAIPlayer(
   }
   aiPlayers.get(gameId)!.set(playerId, config);
   
+  // Add AI player to auto-pass set so they automatically pass when they can't respond
+  const game = ensureGame(gameId);
+  if (game && game.state) {
+    const stateAny = game.state as any;
+    if (!stateAny.autoPassPlayers || !(stateAny.autoPassPlayers instanceof Set)) {
+      stateAny.autoPassPlayers = new Set();
+    }
+    stateAny.autoPassPlayers.add(playerId);
+    console.info('[AI] Added AI player to auto-pass set:', { gameId, playerId });
+  }
+  
   console.info('[AI] Registered AI player:', { gameId, playerId, name, strategy, difficulty });
 }
 
@@ -745,6 +817,16 @@ export function unregisterAIPlayer(gameId: string, playerId: PlayerID): void {
     gameAIs.delete(playerId);
     if (gameAIs.size === 0) {
       aiPlayers.delete(gameId);
+    }
+  }
+  
+  // Remove AI player from auto-pass set
+  const game = ensureGame(gameId);
+  if (game && game.state) {
+    const stateAny = game.state as any;
+    if (stateAny.autoPassPlayers && stateAny.autoPassPlayers instanceof Set) {
+      stateAny.autoPassPlayers.delete(playerId);
+      console.info('[AI] Removed AI player from auto-pass set:', { gameId, playerId });
     }
   }
   

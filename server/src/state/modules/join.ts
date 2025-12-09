@@ -18,12 +18,14 @@ export function addPlayerIfMissing(ctx: GameContext, id: PlayerID, name: string,
   const energy = (ctx as any).energy = (ctx as any).energy || {};
   energy[id] = 0;
 
-  // Initialize auto-pass to ON by default
+  // Initialize auto-pass set if needed, but DON'T add players by default
+  // Auto-pass should only be enabled explicitly (e.g., for AI players)
   const stateAny = state as any;
   if (!stateAny.autoPassPlayers || !(stateAny.autoPassPlayers instanceof Set)) {
     stateAny.autoPassPlayers = new Set();
   }
-  stateAny.autoPassPlayers.add(id);
+  // NOTE: Do NOT add players to autoPassPlayers by default
+  // This was causing human players to be auto-passed unintentionally
 
   // Defensive: libraries may be undefined or not a Map during some fallback flows.
   // Compute libraryCount safely.
