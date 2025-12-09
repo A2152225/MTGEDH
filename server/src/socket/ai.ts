@@ -2943,13 +2943,18 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       }
       
       // Register with AI engine
-      registerAIPlayer(gameId, aiPlayerId, aiName || 'AI Opponent', strategy);
+      registerAIPlayer(gameId, aiPlayerId, aiPlayerName, strategy);
       
-      // Persist AI join event
+      // Persist AI join event as a regular 'join' event so it can be properly replayed after server restart
+      // Include isAI flag and seatToken from the join result
       try {
-        await appendEvent(gameId, (game as any).seq || 0, 'aiJoin', {
+        const seatToken = joinResult?.seatToken || `ai_token_${Date.now().toString(36)}`;
+        await appendEvent(gameId, (game as any).seq || 0, 'join', {
           playerId: aiPlayerId,
-          name: aiName || 'AI Opponent',
+          name: aiPlayerName,
+          seatToken,
+          spectator: false,
+          isAI: true,
           strategy,
           deckId: aiDeckId,
           deckLoaded,
@@ -3187,11 +3192,16 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           deckLoaded,
         });
         
-        // Persist AI join event
+        // Persist AI join event as a regular 'join' event so it can be properly replayed after server restart
+        // Include isAI flag and seatToken from the join result
         try {
-          await appendEvent(gameId, (game as any).seq || 0, 'aiJoin', {
+          const seatToken = joinResult?.seatToken || `ai_token_${Date.now().toString(36)}_${i}`;
+          await appendEvent(gameId, (game as any).seq || 0, 'join', {
             playerId: aiPlayerId,
             name: aiName,
+            seatToken,
+            spectator: false,
+            isAI: true,
             strategy,
             deckId: aiConfig.deckId,
             deckLoaded,

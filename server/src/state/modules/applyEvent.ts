@@ -328,6 +328,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const name = (e as any).name as string | undefined;
         const seatToken = (e as any).seatToken as string | undefined;
         const spectator = Boolean((e as any).spectator);
+        const isAI = Boolean((e as any).isAI);
 
         if (!pid || !name) {
           break;
@@ -343,6 +344,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               name,
               spectator,
               seatToken,
+              isAI,
             };
             playersArr.push(existing);
           } else {
@@ -352,6 +354,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               existing.spectator = spectator;
             if (!existing.seatToken && seatToken)
               existing.seatToken = seatToken;
+            if (typeof existing.isAI === "undefined")
+              existing.isAI = isAI;
           }
           
           // Set turnPlayer and priority if not already set (non-spectators only)

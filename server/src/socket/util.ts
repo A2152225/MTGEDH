@@ -380,6 +380,27 @@ export function ensureGame(gameId: string, options?: EnsureGameOptions): InMemor
       /* ignore */
     }
 
+    // Re-register AI players after replay
+    try {
+      if (game.state && Array.isArray(game.state.players)) {
+        for (const player of game.state.players) {
+          if (player && (player as any).isAI) {
+            // Dynamically import registerAIPlayer to avoid circular dependencies
+            import('./ai.js').then(({ registerAIPlayer }) => {
+              const strategy = (player as any).strategy || 'basic';
+              const difficulty = (player as any).difficulty ?? 0.5;
+              registerAIPlayer(gameId, player.id as any, player.name || 'AI Opponent', strategy as any, difficulty);
+              console.info('[ensureGame] Re-registered AI player after replay:', { gameId, playerId: player.id, name: player.name });
+            }).catch((err) => {
+              console.warn('[ensureGame] Failed to re-register AI player:', err);
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[ensureGame] Error re-registering AI players:', err);
+    }
+
     games.set(gameId, game);
   }
 
