@@ -928,11 +928,17 @@ export function App() {
     // Use stepKey (normalized, lowercase, no underscores) for precise detection
     const isActionPhase = stepKey.includes('main');
     
+    // Check if player can respond (has playable cards, lands, or activatable abilities)
+    const playableCards = (safeView as any).playableCards || [];
+    const canRespond = playableCards.length > 0;
+    
     // For the turn player, don't auto-pass during action phases even when phase navigator is advancing
     // This prevents the "skip to cleanup" bug where clicking phase navigator skips the entire turn
-    const canAutoPassOnYourTurn = phaseNavigatorAdvancing && !isActionPhase;
+    // CRITICAL: Also don't auto-pass if the player can actually respond (has playable cards/lands)
+    const canAutoPassOnYourTurn = phaseNavigatorAdvancing && !isActionPhase && !canRespond;
     
-    const shouldAutoPass = autoPassStepEnabled && (!isYourTurn || canAutoPassOnYourTurn) && !hasPendingTriggers;
+    // NEVER auto-pass if player can respond (has playable cards, lands, or abilities)
+    const shouldAutoPass = autoPassStepEnabled && (!isYourTurn || canAutoPassOnYourTurn) && !hasPendingTriggers && !canRespond;
     
     if (youHavePriority && stackLength === 0 && !combatModalOpen) {
       // Check if this is a new step
