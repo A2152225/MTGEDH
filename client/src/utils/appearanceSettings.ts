@@ -18,6 +18,8 @@ export interface AppearanceSettings {
     color: string;       // CSS color value
     imageUrl: string;    // URL or empty string
   };
+  // Playable card highlight color
+  playableCardHighlightColor?: string; // Hex color for the green glow on playable cards
 }
 
 // Default settings with improved contrast
@@ -32,6 +34,7 @@ export const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {
     color: '#1a2540', // Dark blue with better contrast
     imageUrl: '',
   },
+  playableCardHighlightColor: '#22c55e', // Default green
 };
 
 // Preset themes for quick selection
@@ -170,6 +173,9 @@ export function loadAppearanceSettings(): AppearanceSettings {
               ? parsed.playAreaBackground.imageUrl 
               : '',
           },
+          playableCardHighlightColor: typeof parsed.playableCardHighlightColor === 'string'
+            ? parsed.playableCardHighlightColor
+            : DEFAULT_APPEARANCE_SETTINGS.playableCardHighlightColor,
         };
       }
     }
@@ -312,4 +318,30 @@ export function getTextColorsForBackground(
     return { primary: '#1a1a2e', secondary: '#555' };
   }
   return { primary: '#fff', secondary: '#aaa' };
+}
+
+/**
+ * Get the playable card highlight box shadow style
+ */
+export function getPlayableCardHighlight(settings?: AppearanceSettings): string {
+  const color = settings?.playableCardHighlightColor || DEFAULT_APPEARANCE_SETTINGS.playableCardHighlightColor;
+  // Convert hex to rgba for the glow effect
+  const rgb = hexToRgb(color);
+  if (rgb) {
+    return `0 0 8px 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.8), 0 0 0 2px ${color}`;
+  }
+  // Fallback to default green
+  return '0 0 8px 3px rgba(34, 197, 94, 0.8), 0 0 0 2px #22c55e';
+}
+
+/**
+ * Convert hex color to RGB
+ */
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result ? {
+    r: parseInt(result[1], 16),
+    g: parseInt(result[2], 16),
+    b: parseInt(result[3], 16)
+  } : null;
 }

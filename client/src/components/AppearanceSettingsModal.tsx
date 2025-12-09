@@ -20,7 +20,7 @@ export function AppearanceSettingsModal({
   onApply,
 }: AppearanceSettingsModalProps) {
   const [settings, setSettings] = useState<AppearanceSettings>(() => loadAppearanceSettings());
-  const [activeTab, setActiveTab] = useState<'table' | 'playArea'>('table');
+  const [activeTab, setActiveTab] = useState<'table' | 'playArea' | 'highlight'>('table');
 
   // Reload settings when modal opens
   useEffect(() => {
@@ -195,6 +195,22 @@ export function AppearanceSettingsModal({
             >
               Player Field
             </button>
+            <button
+              onClick={() => setActiveTab('highlight')}
+              style={{
+                padding: '8px 16px',
+                fontSize: 13,
+                fontWeight: 500,
+                borderRadius: '6px 6px 0 0',
+                border: 'none',
+                background: activeTab === 'highlight' ? 'rgba(59, 130, 246, 0.3)' : 'transparent',
+                color: activeTab === 'highlight' ? '#60a5fa' : '#888',
+                cursor: 'pointer',
+              }}
+              title="Color for highlighting playable cards"
+            >
+              Highlight Color
+            </button>
           </div>
 
           {/* Description for active tab */}
@@ -209,10 +225,86 @@ export function AppearanceSettingsModal({
           }}>
             {activeTab === 'table' 
               ? '🎴 The tablecloth area that surrounds all player boards'
-              : '🃏 The field section where player cards are displayed'}
+              : activeTab === 'playArea'
+                ? '🃏 The field section where player cards are displayed'
+                : '✨ The glow color for playable cards and abilities'}
           </div>
 
           {/* Settings Panel */}
+          {activeTab === 'highlight' ? (
+            <div
+              style={{
+                background: 'rgba(0, 0, 0, 0.3)',
+                borderRadius: 8,
+                padding: 16,
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+              }}
+            >
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ color: '#aaa', fontSize: 12, marginBottom: 8 }}>Playable Card Highlight Color</div>
+                <ColorPicker
+                  color={settings.playableCardHighlightColor || DEFAULT_APPEARANCE_SETTINGS.playableCardHighlightColor!}
+                  onChange={(color) => setSettings(prev => ({ ...prev, playableCardHighlightColor: color }))}
+                />
+              </div>
+              
+              {/* Preview */}
+              <div style={{ marginTop: 16 }}>
+                <div style={{ color: '#aaa', fontSize: 12, marginBottom: 8 }}>Preview</div>
+                <div
+                  style={{
+                    width: 120,
+                    height: 167,
+                    borderRadius: 8,
+                    background: '#1a1a2e',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    boxShadow: `0 0 8px 3px ${settings.playableCardHighlightColor || DEFAULT_APPEARANCE_SETTINGS.playableCardHighlightColor}80, 0 0 0 2px ${settings.playableCardHighlightColor || DEFAULT_APPEARANCE_SETTINGS.playableCardHighlightColor}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#888',
+                    fontSize: 11,
+                    textAlign: 'center',
+                    padding: 8,
+                  }}
+                >
+                  Playable Card
+                </div>
+              </div>
+              
+              {/* Common color presets */}
+              <div style={{ marginTop: 16 }}>
+                <div style={{ color: '#aaa', fontSize: 12, marginBottom: 8 }}>Quick Presets</div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {[
+                    { name: 'Green', color: '#22c55e' },
+                    { name: 'Blue', color: '#3b82f6' },
+                    { name: 'Purple', color: '#a855f7' },
+                    { name: 'Gold', color: '#eab308' },
+                    { name: 'Cyan', color: '#06b6d4' },
+                    { name: 'Pink', color: '#ec4899' },
+                  ].map(preset => (
+                    <button
+                      key={preset.name}
+                      onClick={() => setSettings(prev => ({ ...prev, playableCardHighlightColor: preset.color }))}
+                      style={{
+                        padding: '6px 12px',
+                        fontSize: 11,
+                        borderRadius: 4,
+                        border: `2px solid ${preset.color}`,
+                        background: settings.playableCardHighlightColor === preset.color ? `${preset.color}40` : 'transparent',
+                        color: preset.color,
+                        cursor: 'pointer',
+                        fontWeight: 500,
+                      }}
+                    >
+                      {preset.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
           <div
             style={{
               background: 'rgba(0, 0, 0, 0.3)',
@@ -393,6 +485,7 @@ export function AppearanceSettingsModal({
               </div>
             </div>
           </div>
+          )}
         </div>
 
         {/* Footer */}
