@@ -408,12 +408,7 @@ export function useGameSocket(): UseGameSocketState {
         // CRITICAL FIX: Ignore state updates for games we've left
         // This prevents the race condition where leaving a game clears state,
         // but then a delayed state broadcast re-populates it
-        if (!lastJoinRef.current || lastJoinRef.current.gameId !== incomingGameId) {
-          // eslint-disable-next-line no-console
-          console.debug("[socket] stateDiff ignored - not joined or different game", {
-            incomingGameId,
-            currentJoin: lastJoinRef.current?.gameId,
-          });
+        if (!shouldAcceptStateUpdate(incomingGameId)) {
           return;
         }
 

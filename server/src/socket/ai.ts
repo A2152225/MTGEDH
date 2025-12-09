@@ -517,23 +517,27 @@ export async function handleAIGameFlow(
         // Check for pending Leyline/opening hand actions
         // Players with Leylines in hand will have a pending prompt
         // We need to wait for them to either play or skip Leylines
+        
+        // Use the same Leyline detection logic from opening-hand.ts
+        const isLeylineCard = (card: any): boolean => {
+          if (!card) return false;
+          const oracleText = (card.oracle_text || '').toLowerCase();
+          const cardName = (card.name || '').toLowerCase();
+          return (
+            (oracleText.includes('in your opening hand') &&
+             oracleText.includes('begin the game with')) ||
+            cardName.startsWith('leyline of') ||
+            cardName === 'gemstone caverns'
+          );
+        };
+        
         let hasPendingLeylineActions = false;
         for (const player of allPlayers) {
           const pid = player.id;
           // Check if player has Leyline cards in hand
           const pZones = game.state.zones?.[pid];
           if (pZones && Array.isArray(pZones.hand)) {
-            const hasLeylines = pZones.hand.some((card: any) => {
-              if (!card) return false;
-              const oracleText = (card.oracle_text || '').toLowerCase();
-              const cardName = (card.name || '').toLowerCase();
-              return (
-                (oracleText.includes('in your opening hand') &&
-                 oracleText.includes('begin the game with')) ||
-                cardName.startsWith('leyline of') ||
-                cardName === 'gemstone caverns'
-              );
-            });
+            const hasLeylines = pZones.hand.some(isLeylineCard);
             
             if (hasLeylines && !isAIPlayer(gameId, pid)) {
               // Human player has Leylines - they might still need to resolve them
@@ -546,12 +550,15 @@ export async function handleAIGameFlow(
           }
         }
         
+        // Leyline resolution delay - time to allow human players to play/skip Leylines
+        const LEYLINE_RESOLUTION_DELAY_MS = AI_THINK_TIME_MS * 2;
+        
         // If there are pending Leyline actions, wait a bit longer for players to resolve them
         // This is a conservative check - in practice, the Leyline prompt should be shown
         // immediately after keeping hand, but we give a small grace period
         if (hasPendingLeylineActions) {
           // Re-check after a delay to allow human players to play/skip Leylines
-          setTimeout(() => handleAIGameFlow(io, gameId, playerId), AI_THINK_TIME_MS * 2);
+          setTimeout(() => handleAIGameFlow(io, gameId, playerId), LEYLINE_RESOLUTION_DELAY_MS);
           return;
         }
         
@@ -566,14 +573,19 @@ export async function handleAIGameFlow(
             console.info('[AI] Advanced game from pre_game to beginning phase');
             
             // Persist the event
-            try {
-              await appendEvent(gameId, (game as any).seq || 0, 'nextStep', {
-                playerId,
-                reason: 'ai_pregame_advance',
-                isAI: true,
-              });
-            } catch (e) {
-              console.warn('[AI] Failed to persist nextStep event:', e);
+            const gameSeq = (game as any).seq;
+            if (typeof gameSeq !== 'number') {
+              console.error('[AI] game.seq is not a number, cannot persist event');
+            } else {
+              try {
+                await appendEvent(gameId, gameSeq, 'nextStep', {
+                  playerId,
+                  reason: 'ai_pregame_advance',
+                  isAI: true,
+                });
+              } catch (e) {
+                console.warn('[AI] Failed to persist nextStep event:', e);
+              }
             }
             
             // Broadcast updated state
