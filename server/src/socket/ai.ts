@@ -1430,26 +1430,35 @@ export async function handleAIPriority(
   
   // CRITICAL: Cleanup step does NOT receive priority (Rule 514.1)
   // Cleanup happens automatically: discard to hand size, remove damage, end "until end of turn" effects
-  // However, if AI needs to discard, handle that first, then auto-advance
+  // However, AI can only act during cleanup on its own turn or during opponent's cleanup if it needs to discard
   if (step.includes('cleanup') || step === 'cleanup') {
     console.info('[AI] Cleanup step - handling automatic cleanup actions (Rule 514.1)');
     
-    const { needsDiscard, discardCount } = needsToDiscard(game, playerId);
-    
-    if (needsDiscard) {
-      console.info('[AI] Cleanup step - AI needs to discard', discardCount, 'cards');
-      await executeAIDiscard(io, gameId, playerId, discardCount);
+    // Only handle cleanup if it's the AI's turn or if AI is the active player
+    // (Cleanup doesn't grant priority, so we only act if we're the turn player)
+    if (isAITurn) {
+      const { needsDiscard, discardCount } = needsToDiscard(game, playerId);
+      
+      if (needsDiscard) {
+        console.info('[AI] Cleanup step - AI needs to discard', discardCount, 'cards');
+        await executeAIDiscard(io, gameId, playerId, discardCount);
+        return;
+      }
+      
+      // No discard needed - cleanup is complete, auto-advance
+      console.info('[AI] Cleanup step - no discard needed, auto-advancing');
+      await executeAdvanceStep(io, gameId, playerId);
+      return;
+    } else {
+      // Not AI's turn - don't act during cleanup
+      console.info('[AI] Cleanup step - not AI turn, skipping');
       return;
     }
-    
-    // No discard needed - cleanup is complete, auto-advance
-    console.info('[AI] Cleanup step - no discard needed, auto-advancing');
-    await executeAdvanceStep(io, gameId, playerId);
-    return;
   }
   
   // Critical check: AI should NOT act if it doesn't have priority
   // This prevents the AI from getting into an infinite loop of passing priority
+  // and prevents the AI from advancing during opponent's turn
   if (!hasPriority) {
     console.info('[AI] AI does not have priority, skipping action');
     return;
