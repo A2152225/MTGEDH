@@ -219,7 +219,8 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
       } else {
         // Partners don't cover all deck colors - look for better options
         console.warn('[AI] First 2 partner commanders only cover', coverage, 'of', deckColors.size, 'deck colors');
-        // Fall through to find better partners
+        // Fall through to Priority 2 to find better partners
+        // DO NOT select a single commander here - we need partners for multi-color decks
       }
     }
     // Check if first two cards are commander + background pair
@@ -245,9 +246,10 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
           selectedCommanders = [firstCard];
           console.info(`[AI] Selected single commander from first card (full color coverage): ${firstCard.name}`);
         } else {
-          // First card doesn't cover all deck colors - need to search for better option
-          console.warn(`[AI] First commander only covers ${firstCardCoverage} of ${deckColors.size} deck colors`);
-          // Fall through to find better commanders
+          // First card doesn't cover all deck colors
+          // Don't use it as a single commander - look for partner pairs instead
+          console.warn(`[AI] First commander only covers ${firstCardCoverage} of ${deckColors.size} deck colors - searching for partner pairs`);
+          // Fall through to Priority 2 to find better partners
         }
       }
     }
@@ -1614,9 +1616,14 @@ export async function handleAIPriority(
         return;
       }
       
-      // No more actions, advance step
-      console.info('[AI] Main phase, no more actions, advancing step');
-      await executeAdvanceStep(io, gameId, playerId);
+      // No more actions, advance step (only if it's AI's turn)
+      if (isAITurn) {
+        console.info('[AI] Main phase, no more actions, advancing step');
+        await executeAdvanceStep(io, gameId, playerId);
+      } else {
+        console.info('[AI] Main phase, not AI turn, passing priority');
+        await executePassPriority(io, gameId, playerId);
+      }
       return;
     }
     
@@ -1650,8 +1657,9 @@ export async function handleAIPriority(
         if (decision.action?.attackers?.length > 0) {
           await executeDeclareAttackers(io, gameId, playerId, decision.action.attackers);
         } else {
-          // No attackers, advance step
-          await executeAdvanceStep(io, gameId, playerId);
+          // No attackers, pass priority (step will advance when all players pass)
+          console.info('[AI] No attackers to declare, passing priority');
+          await executePassPriority(io, gameId, playerId);
         }
         return;
       }
@@ -1691,35 +1699,36 @@ export async function handleAIPriority(
         if (decision.action?.blockers?.length > 0) {
           await executeDeclareBlockers(io, gameId, playerId, decision.action.blockers);
         } else {
-          // No blockers, advance step
-          await executeAdvanceStep(io, gameId, playerId);
+          // No blockers, pass priority (step will advance when all players pass)
+          console.info('[AI] No blockers to declare, passing priority');
+          await executePassPriority(io, gameId, playerId);
         }
         return;
       }
       
-      // Other combat steps - just advance
-      console.info('[AI] Combat step', step, '- advancing');
-      await executeAdvanceStep(io, gameId, playerId);
+      // Other combat steps - just pass priority (only active player can advance combat)
+      console.info('[AI] Combat step', step, '- passing priority');
+      await executePassPriority(io, gameId, playerId);
       return;
     }
     
-    // BEGINNING PHASES (Untap, Upkeep, Draw)
+    // BEGINNING PHASES (Untap, Upkeep, Draw) - only active player can advance
     if (phase === 'beginning' || phase.includes('begin')) {
-      console.info('[AI] Beginning phase, step:', step, '- advancing');
-      await executeAdvanceStep(io, gameId, playerId);
+      console.info('[AI] Beginning phase, step:', step, '- passing priority');
+      await executePassPriority(io, gameId, playerId);
       return;
     }
     
-    // ENDING PHASE (End step)
+    // ENDING PHASE (End step) - only active player can advance
     if (phase === 'ending' || phase === 'end') {
-      console.info('[AI] Ending phase, step:', step, '- advancing');
-      await executeAdvanceStep(io, gameId, playerId);
+      console.info('[AI] Ending phase, step:', step, '- passing priority');
+      await executePassPriority(io, gameId, playerId);
       return;
     }
     
-    // Default: advance step
-    console.info('[AI] Unknown phase/step, advancing');
-    await executeAdvanceStep(io, gameId, playerId);
+    // Default: pass priority instead of advancing (let the game engine handle step advancement)
+    console.info('[AI] Unknown phase/step, passing priority');
+    await executePassPriority(io, gameId, playerId);
     
   } catch (error) {
     console.error('[AI] Error handling AI priority:', error);
@@ -2589,9 +2598,14 @@ async function executeAdvanceStep(
     // Broadcast
     broadcastGame(io, game, gameId);
     
-    // If AI still has priority after advancing, continue handling
+    // If AI still has priority after advancing AND it's the AI's turn, continue handling
+    // CRITICAL: Don't continue if it's CLEANUP step (no priority granted during cleanup per Rule 514.1)
     const newPriority = (game.state as any)?.priority;
-    if (newPriority === playerId && isAIPlayer(gameId, playerId)) {
+    const newTurnPlayer = game.state?.turnPlayer;
+    const isStillAITurn = newTurnPlayer === playerId;
+    const isCleanupStep = String((game.state as any).step || '').toLowerCase().includes('cleanup');
+    
+    if (newPriority === playerId && isAIPlayer(gameId, playerId) && isStillAITurn && !isCleanupStep) {
       setTimeout(() => {
         handleAIPriority(io, gameId, playerId).catch(console.error);
       }, AI_THINK_TIME_MS);
