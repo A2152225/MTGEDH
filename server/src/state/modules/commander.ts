@@ -67,15 +67,29 @@ export function setCommander(
     let changed = false;
     const indicesToRemove: number[] = [];
     
+    console.log(`[setCommander] Library size before commander removal: ${lib.length}, Commander IDs to remove:`, info.commanderIds);
+    
     // Collect indices of all commanders in the library
     for (const cid of info.commanderIds || []) {
       const idx = lib.findIndex((c: any) => c && c.id === cid);
       if (idx >= 0) {
-        console.log(`[setCommander] Found commander ${cid} in library at index ${idx}`);
+        const cardName = lib[idx]?.name || 'unknown';
+        console.log(`[setCommander] Found commander "${cardName}" (${cid}) in library at index ${idx}`);
         indicesToRemove.push(idx);
       } else {
-        console.log(`[setCommander] Commander ${cid} not found in library (library size: ${lib.length})`);
+        console.warn(`[setCommander] Commander ${cid} not found in library (library size: ${lib.length}). This may indicate a card ID mismatch.`);
+        // Log first few cards in library to help debug
+        const sample = lib.slice(0, 5).map((c: any) => ({ id: c?.id, name: c?.name }));
+        console.warn(`[setCommander] First 5 cards in library:`, JSON.stringify(sample));
       }
+    }
+    
+    // Check for duplicate indices (shouldn't happen, but let's be defensive)
+    const uniqueIndices = Array.from(new Set(indicesToRemove));
+    if (uniqueIndices.length !== indicesToRemove.length) {
+      console.error(`[setCommander] Duplicate indices detected! Original:`, indicesToRemove, `Unique:`, uniqueIndices);
+      indicesToRemove.length = 0;
+      indicesToRemove.push(...uniqueIndices);
     }
     
     // Remove from highest index to lowest to prevent index shifting issues
@@ -84,11 +98,14 @@ export function setCommander(
       console.log(`[setCommander] Removing ${indicesToRemove.length} commander(s) from library at indices:`, indicesToRemove, `library size before: ${lib.length}`);
       
       for (const idx of indicesToRemove) {
-        lib.splice(idx, 1);
+        const removed = lib.splice(idx, 1)[0];
+        console.log(`[setCommander] Removed card at index ${idx}: ${removed?.name} (${removed?.id})`);
         changed = true;
       }
       
       console.log(`[setCommander] Library size after removal: ${lib.length}`);
+    } else {
+      console.warn(`[setCommander] No commanders found in library to remove. Commanders may have already been removed or IDs don't match.`);
     }
     
     if (changed) {

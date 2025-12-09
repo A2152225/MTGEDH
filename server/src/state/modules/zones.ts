@@ -29,6 +29,8 @@ export function importDeckResolved(
   const { libraries, state, bumpSeq } = ctx as any;
   const zones = state.zones = state.zones || {};
   
+  console.log(`[importDeckResolved] Importing ${cards.length} cards for player ${playerId}`);
+  
   // Clear all existing zones for this player to ensure clean deck import
   // This prevents issues with loading a new deck over an existing one
   zones[playerId] = {
@@ -57,25 +59,29 @@ export function importDeckResolved(
   }
   
   // Now import the new deck
-  libraries.set(
-    playerId,
-    cards.map((c) => ({
-      id: c.id,
-      name: c.name,
-      type_line: c.type_line,
-      oracle_text: c.oracle_text,
-      image_uris: c.image_uris,
-      mana_cost: (c as any).mana_cost,
-      power: (c as any).power,
-      toughness: (c as any).toughness,
-      card_faces: (c as any).card_faces,
-      layout: (c as any).layout,
-      color_identity: (c as any).color_identity,
-      zone: "library",
-    }))
-  );
+  const mappedCards = cards.map((c) => ({
+    id: c.id,
+    name: c.name,
+    type_line: c.type_line,
+    oracle_text: c.oracle_text,
+    image_uris: c.image_uris,
+    mana_cost: (c as any).mana_cost,
+    power: (c as any).power,
+    toughness: (c as any).toughness,
+    card_faces: (c as any).card_faces,
+    layout: (c as any).layout,
+    color_identity: (c as any).color_identity,
+    zone: "library",
+  }));
+  
+  console.log(`[importDeckResolved] Mapped ${mappedCards.length} cards. First card: ${mappedCards[0]?.name} (${mappedCards[0]?.id})`);
+  
+  libraries.set(playerId, mappedCards);
   const libLen = libraries.get(playerId)?.length ?? 0;
   zones[playerId]!.libraryCount = libLen;
+  
+  console.log(`[importDeckResolved] Library set for player ${playerId}. Final library size: ${libLen}`);
+  
   bumpSeq();
 }
 
