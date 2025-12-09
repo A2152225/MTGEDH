@@ -289,5 +289,84 @@ describe('Aura Attachment System', () => {
       const auraInGraveyard = graveyard.find((c: any) => c.name === 'Rancor');
       expect(auraInGraveyard).toBeDefined();
     });
+    
+    it('should restore creature stats when bestow creature unattaches', () => {
+      const g = createInitialGameState('bestow_unattach');
+      
+      const p1 = 'p1' as PlayerID;
+      g.applyEvent({ type: 'join', playerId: p1, name: 'Player 1' });
+      
+      // Create a creature to enchant
+      g.state.battlefield.push({
+        id: 'creature_1',
+        controller: p1,
+        owner: p1,
+        card: { 
+          id: 'creature_1', 
+          name: 'Grizzly Bears', 
+          type_line: 'Creature — Bear',
+          power: '2',
+          toughness: '2',
+        } as any,
+        tapped: false,
+        basePower: 2,
+        baseToughness: 2,
+        attachedAuras: ['bestow_1'],
+      });
+      
+      // Create a bestow creature attached to the bear
+      // When attached as an aura, it doesn't have basePower/baseToughness
+      // Use a bestow creature with non-zero stats like Hypnotic Siren (1/1 with bestow)
+      g.state.battlefield.push({
+        id: 'bestow_1',
+        controller: p1,
+        owner: p1,
+        card: { 
+          id: 'bestow_1', 
+          name: 'Hypnotic Siren', 
+          type_line: 'Enchantment Creature — Siren',
+          oracle_text: 'Bestow {5}{U}{U}\nFlying\nYou control enchanted creature.\nEnchanted creature gets +1/+1 and has flying.',
+          power: '1',
+          toughness: '1',
+        } as any,
+        tapped: false,
+        attachedTo: 'creature_1',
+        // No basePower/baseToughness when attached as aura
+      });
+      
+      // Initialize zones
+      g.state.zones = g.state.zones || {};
+      g.state.zones[p1] = {
+        hand: [],
+        handCount: 0,
+        libraryCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+      };
+      
+      // Remove the enchanted creature (simulate death)
+      const creatureIndex = g.state.battlefield.findIndex((p: any) => p.id === 'creature_1');
+      const removedCreature = g.state.battlefield.splice(creatureIndex, 1)[0];
+      g.state.zones[p1].graveyard.push({ ...(removedCreature as any).card, zone: 'graveyard' });
+      
+      // Run state-based actions - bestow creature should unattach and become a creature
+      g.runSBA();
+      
+      // Bestow creature should still be on battlefield
+      const bestowCreature = g.state.battlefield.find((p: any) => p.id === 'bestow_1');
+      expect(bestowCreature).toBeDefined();
+      
+      // It should no longer be attached
+      expect((bestowCreature as any).attachedTo).toBeUndefined();
+      
+      // It should have restored its base stats (1/1 for Hypnotic Siren)
+      expect((bestowCreature as any).basePower).toBe(1);
+      expect((bestowCreature as any).baseToughness).toBe(1);
+      
+      // Only the original creature should be in graveyard
+      const graveyard = g.state.zones?.[p1]?.graveyard || [];
+      expect(graveyard.length).toBe(1);
+      expect(graveyard[0].name).toBe('Grizzly Bears');
+    });
   });
 });

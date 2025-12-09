@@ -1,5 +1,19 @@
 import type { GameState, BattlefieldPermanent } from '../../../shared/src';
 
+/**
+ * Parse power/toughness value from string or number
+ * Handles: "2", "3", "*", "1+*", etc.
+ * Returns undefined for * or complex values
+ */
+function parsePT(raw?: string | number): number | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw === 'number') return raw;
+  const s = String(raw).trim();
+  if (s === '*' || s.includes('*')) return undefined;
+  const n = parseInt(s, 10);
+  return isNaN(n) ? undefined : n;
+}
+
 // Engine effects (counter updates computed by SBA)
 export type EngineCounterUpdate = {
   readonly permanentId: string;
@@ -118,6 +132,9 @@ export function applyStateBasedActions(state: Readonly<GameState>): EngineSBARes
           destroys.push(perm.id);
         }
       }
+      // Note: Enchantment creatures (bestow/reconfigure) are handled in runSBA
+      // before applyStateBasedActions is called, so they get their stats restored
+      // before the toughness check below
     }
   }
   

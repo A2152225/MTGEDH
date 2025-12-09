@@ -567,8 +567,53 @@ export function movePermanentToExile(ctx: GameContext, permanentId: string) {
  */
 export function runSBA(ctx: GameContext) {
   const { state, bumpSeq } = ctx;
+  
+  // FIRST: Handle bestow/reconfigure creatures that need to unattach and restore stats
+  // This must happen BEFORE applyStateBasedActions so the restored stats prevent 0-toughness destruction
+  let unattachChanged = false;
+  for (const perm of state.battlefield) {
+    const typeLine = ((perm as any).card?.type_line || '').toLowerCase();
+    const oracleText = ((perm as any).card?.oracle_text || '').toLowerCase();
+    const isEnchantmentCreature = typeLine.includes('enchantment') && typeLine.includes('creature');
+    const hasBestowOrReconfigure = oracleText.includes('bestow') || oracleText.includes('reconfigure');
+    
+    if (isEnchantmentCreature && hasBestowOrReconfigure && (perm as any).attachedTo) {
+      // Check if the attached target still exists
+      const targetExists = state.battlefield.some(p => p.id === (perm as any).attachedTo);
+      if (!targetExists) {
+        // Target is gone - unattach and restore creature stats
+        console.log(`[runSBA] ${(perm as any).card?.name} unattaching (bestow/reconfigure target gone), restoring creature stats`);
+        (perm as any).attachedTo = undefined;
+        
+        // Restore creature stats from the card if they're missing
+        if ((perm as any).basePower === undefined || (perm as any).baseToughness === undefined) {
+          const cardPower = (perm as any).card?.power;
+          const cardToughness = (perm as any).card?.toughness;
+          
+          if (cardPower !== undefined) {
+            const parsed = parsePT(cardPower);
+            if (parsed !== undefined) {
+              (perm as any).basePower = parsed;
+              console.log(`[runSBA] Restored basePower to ${parsed}`);
+            }
+          }
+          if (cardToughness !== undefined) {
+            const parsed = parsePT(cardToughness);
+            if (parsed !== undefined) {
+              (perm as any).baseToughness = parsed;
+              console.log(`[runSBA] Restored baseToughness to ${parsed}`);
+            }
+          }
+        }
+        unattachChanged = true;
+      }
+    }
+  }
+  
+  // NOW run the standard SBA checks
   const res = applyStateBasedActions(state);
-  let changed = false;
+  let changed = unattachChanged;
+  
   for (const upd of res.counterUpdates) {
     const perm = state.battlefield.find(b => b.id === upd.permanentId);
     if (!perm) continue;
