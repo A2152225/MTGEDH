@@ -319,12 +319,20 @@ export function canPlayLand(ctx: GameContext, playerId: PlayerID): boolean {
     // Check if player has a land card in hand
     if (Array.isArray(zones.hand)) {
       console.log(`[canPlayLand] ${playerId}: Checking hand with ${zones.hand.length} cards`);
+      
+      // Log first few cards in hand for debugging
+      const sampleCards = zones.hand.slice(0, 3).map((c: any) => {
+        if (!c || typeof c === "string") return `string:${c}`;
+        return `${c.name || 'unknown'}(${(c.type_line || '').substring(0, 20)})`;
+      });
+      console.log(`[canPlayLand] ${playerId}: Sample cards in hand: [${sampleCards.join(', ')}]`);
+      
       for (const card of zones.hand as any[]) {
         if (!card || typeof card === "string") continue;
         
         const typeLine = (card.type_line || "").toLowerCase();
         if (typeLine.includes("land")) {
-          console.log(`[canPlayLand] ${playerId}: Found land in hand: ${card.name || 'unknown'}`);
+          console.log(`[canPlayLand] ${playerId}: Found land in hand: ${card.name || 'unknown'} (${card.type_line || 'unknown type'})`);
           return true; // Found a land in hand that can be played
         }
       }
@@ -554,12 +562,12 @@ export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
     
     // First check instant-speed responses (same as canRespond)
     if (canCastAnySpell(ctx, playerId)) {
-      console.log(`[canAct] ${playerId}: Can cast instant/flash spell`);
+      console.log(`[canAct] ${playerId}: Can cast instant/flash spell - returning TRUE`);
       return true;
     }
     
     if (canActivateAnyAbility(ctx, playerId)) {
-      console.log(`[canAct] ${playerId}: Can activate ability`);
+      console.log(`[canAct] ${playerId}: Can activate ability - returning TRUE`);
       return true;
     }
     
@@ -569,21 +577,23 @@ export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
       
       // Check if player can play a land
       if (canPlayLand(ctx, playerId)) {
-        console.log(`[canAct] ${playerId}: Can play land`);
+        console.log(`[canAct] ${playerId}: Can play land - returning TRUE`);
         return true;
       }
       
       // Check if player can cast any sorcery-speed spells
       if (canCastAnySorcerySpeed(ctx, playerId)) {
-        console.log(`[canAct] ${playerId}: Can cast sorcery-speed spell`);
+        console.log(`[canAct] ${playerId}: Can cast sorcery-speed spell - returning TRUE`);
         return true;
       }
       
-      console.log(`[canAct] ${playerId}: No sorcery-speed actions available in main phase`);
+      console.log(`[canAct] ${playerId}: No sorcery-speed actions available in main phase - returning FALSE`);
+    } else {
+      console.log(`[canAct] ${playerId}: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE`);
     }
     
     // No actions available
-    console.log(`[canAct] ${playerId}: No actions available (returning false)`);
+    console.log(`[canAct] ${playerId}: No actions available - returning FALSE`);
     return false;
   } catch (err) {
     console.warn("[canAct] Error:", err);
