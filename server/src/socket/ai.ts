@@ -1621,17 +1621,34 @@ export async function handleAIPriority(
     // Only handle cleanup if it's the AI's turn
     // (Cleanup doesn't grant priority per Rule 514.1, so we only act if we're the turn player)
     if (isAITurn) {
+      // Check if we're already processing cleanup for this AI to prevent double-execution
+      const processingCleanup = (game.state as any)._aiProcessingCleanup?.[playerId];
+      if (processingCleanup) {
+        console.info('[AI] Cleanup step - already processing cleanup for this AI, skipping to prevent double-execution');
+        return;
+      }
+      
+      // Mark that we're processing cleanup for this AI
+      (game.state as any)._aiProcessingCleanup = (game.state as any)._aiProcessingCleanup || {};
+      (game.state as any)._aiProcessingCleanup[playerId] = true;
+      
       const { needsDiscard, discardCount } = needsToDiscard(game, playerId);
       
       if (needsDiscard) {
         console.info('[AI] Cleanup step - AI needs to discard', discardCount, 'cards');
         await executeAIDiscard(io, gameId, playerId, discardCount);
+        
+        // Clear the processing flag after discard
+        delete (game.state as any)._aiProcessingCleanup[playerId];
         return;
       }
       
       // No discard needed - cleanup is complete, auto-advance
       console.info('[AI] Cleanup step - no discard needed, auto-advancing');
       await executeAdvanceStep(io, gameId, playerId);
+      
+      // Clear the processing flag after advancing
+      delete (game.state as any)._aiProcessingCleanup[playerId];
       return;
     } else {
       // Not AI's turn - don't act during cleanup (per Rule 514.1, cleanup doesn't grant priority)
@@ -2778,6 +2795,15 @@ async function executeAdvanceStep(
     const newPhase = String(game.state.phase || '');
     
     console.info('[AI] Step advanced:', { newPhase, newStep });
+    
+    // Clear cleanup processing flag when advancing from cleanup step
+    // This ensures the flag doesn't persist if we re-enter cleanup later
+    if (currentStep.toLowerCase().includes('cleanup') && newStep.toLowerCase() !== currentStep.toLowerCase()) {
+      if ((game.state as any)._aiProcessingCleanup) {
+        console.info('[AI] Clearing cleanup processing flags after advancing from cleanup');
+        delete (game.state as any)._aiProcessingCleanup;
+      }
+    }
     
     // Persist event
     try {
