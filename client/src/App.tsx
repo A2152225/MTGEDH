@@ -88,8 +88,6 @@ export function App() {
     setGameIdInput,
     nameInput,
     setNameInput,
-    joinAsSpectator,
-    setJoinAsSpectator,
 
     you,
     view,
@@ -3718,22 +3716,6 @@ export function App() {
                     fontSize: 12,
                   }}
                 />
-                <label
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                    color: "#c4b5fd",
-                    fontSize: 12,
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={joinAsSpectator}
-                    onChange={(e) => setJoinAsSpectator(e.target.checked)}
-                  />
-                  Spectator
-                </label>
                 <button 
                   onClick={handleJoin} 
                   disabled={!connected}
@@ -4582,7 +4564,7 @@ export function App() {
           socket.emit("joinGame", {
             gameId: gid,
             playerName: pname,
-            spectator: joinAsSpectator,
+            spectator: false, // Always join as player when reconnecting
             seatToken: token || undefined,
             fixedPlayerId,
           });
@@ -4605,7 +4587,7 @@ export function App() {
           socket.emit("joinGame", {
             gameId: gid,
             playerName: newName,
-            spectator: joinAsSpectator,
+            spectator: false, // Always join as player when using new name
             seatToken: token,
           });
           setShowNameInUseModal(false);

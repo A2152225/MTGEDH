@@ -18,7 +18,7 @@ type GameRow = {
 };
 
 interface GameListProps {
-  onJoin: (gameId: string) => void;
+  onJoin: (gameId: string, spectator?: boolean) => void;
   pollMs?: number;
   onRefresh?: () => void;
   currentPlayerId?: string | null;
@@ -76,9 +76,17 @@ export default function GameList(props: GameListProps) {
     };
   }, []);
 
-  const handleJoin = (id: string) => {
-    console.debug("[GAME_LIST] join", id);
-    onJoin(id);
+  const handleJoin = (id: string, spectator: boolean = false) => {
+    console.debug("[GAME_LIST] join", id, "spectator:", spectator);
+    onJoin(id, spectator);
+  };
+
+  // Check if game has started (is not in pre_game phase)
+  const hasGameStarted = (game: GameRow): boolean => {
+    const phase = (game.phase || "").toLowerCase();
+    // Game has started if phase is not empty AND not "pre_game"
+    // Empty string or "pre_game" both indicate the game hasn't started yet
+    return phase !== "" && phase !== "pre_game";
   };
 
   const isLocalhost = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.hostname === "");
@@ -173,7 +181,7 @@ export default function GameList(props: GameListProps) {
               <th style={{ padding: "4px 6px", color: "#a78bfa", fontWeight: 600 }}>Turn</th>
               <th style={{ padding: "4px 6px", color: "#a78bfa", fontWeight: 600 }}>Phase</th>
               <th style={{ padding: "4px 6px", color: "#a78bfa", fontWeight: 600 }}>Status</th>
-              <th style={{ padding: "4px 6px", color: "#a78bfa", fontWeight: 600 }}>Actions</th>
+              <th style={{ padding: "4px 6px", color: "#a78bfa", fontWeight: 600, minWidth: 200 }}>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -186,44 +194,61 @@ export default function GameList(props: GameListProps) {
                 <td style={{ padding: "4px 6px" }}>{g.phase ?? "-"}</td>
                 <td style={{ padding: "4px 6px" }}>{g.status ?? "-"}</td>
                 <td style={{ padding: "4px 6px" }}>
-                  <button 
-                    onClick={() => handleJoin(g.id)} 
-                    style={{ 
-                      marginRight: 6,
-                      padding: "2px 8px",
-                      borderRadius: 4,
-                      border: "1px solid rgba(16, 185, 129, 0.4)",
-                      background: "rgba(16, 185, 129, 0.2)",
-                      color: "#10b981",
-                      fontSize: 10,
-                      cursor: "pointer",
-                    }}
-                  >
-                    Join
-                  </button>
-                  {canDelete(g) && (
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                     <button 
-                      disabled={deleting === g.id} 
-                      onClick={() => handleDelete(g)}
-                      title={
-                        isLocalhost ? "Admin delete" :
-                        currentPlayerId && g.createdByPlayerId === currentPlayerId ? "Delete your game" :
-                        g.activeConnectionsCount === 0 ? "Delete (no active players)" :
-                        "Delete"
-                      }
-                      style={{
+                      onClick={() => handleJoin(g.id, false)} 
+                      style={{ 
                         padding: "2px 8px",
                         borderRadius: 4,
-                        border: "1px solid rgba(239, 68, 68, 0.4)",
-                        background: "rgba(239, 68, 68, 0.2)",
-                        color: "#ef4444",
+                        border: "1px solid rgba(16, 185, 129, 0.4)",
+                        background: "rgba(16, 185, 129, 0.2)",
+                        color: "#10b981",
                         fontSize: 10,
-                        cursor: deleting === g.id ? "not-allowed" : "pointer",
+                        cursor: "pointer",
                       }}
+                      title={hasGameStarted(g) ? "Join as inactive player (will join on next reset)" : "Join game"}
                     >
-                      {deleting === g.id ? "Deleting…" : "Delete"}
+                      Play
                     </button>
-                  )}
+                    <button 
+                      onClick={() => handleJoin(g.id, true)} 
+                      style={{ 
+                        padding: "2px 8px",
+                        borderRadius: 4,
+                        border: "1px solid rgba(147, 197, 253, 0.4)",
+                        background: "rgba(147, 197, 253, 0.2)",
+                        color: "#93c5fd",
+                        fontSize: 10,
+                        cursor: "pointer",
+                      }}
+                      title="Watch game as spectator"
+                    >
+                      Spectate
+                    </button>
+                    {canDelete(g) && (
+                      <button 
+                        disabled={deleting === g.id} 
+                        onClick={() => handleDelete(g)}
+                        title={
+                          isLocalhost ? "Admin delete" :
+                          currentPlayerId && g.createdByPlayerId === currentPlayerId ? "Delete your game" :
+                          g.activeConnectionsCount === 0 ? "Delete (no active players)" :
+                          "Delete"
+                        }
+                        style={{
+                          padding: "2px 8px",
+                          borderRadius: 4,
+                          border: "1px solid rgba(239, 68, 68, 0.4)",
+                          background: "rgba(239, 68, 68, 0.2)",
+                          color: "#ef4444",
+                          fontSize: 10,
+                          cursor: deleting === g.id ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        {deleting === g.id ? "Deleting…" : "Delete"}
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}

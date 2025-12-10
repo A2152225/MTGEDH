@@ -655,16 +655,37 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
               // create new
               const newId = `p_${Math.random().toString(36).slice(2, 9)}`;
               const tokenToUse = seatToken || makeSeatToken();
+              
+              // Check if game has started (not in pre_game phase)
+              const gamePhase = String((game.state as any)?.phase || "").toLowerCase();
+              // Game has started if phase is not empty AND not "pre_game"
+              // Empty string or "pre_game" both indicate the game hasn't started yet
+              const hasGameStarted = gamePhase !== "" && gamePhase !== "pre_game";
+              
               const playerObj: any = {
                 id: newId,
                 name: playerName,
                 spectator: Boolean(spectator),
                 seatToken: tokenToUse,
                 socketId: socket.id,
+                inactive: hasGameStarted && !spectator, // Mark as inactive if game has started and not a spectator
               };
               game.state = (game.state || {}) as any;
               game.state.players = game.state.players || [];
               game.state.players.push(playerObj);
+              
+              // Add to inactive set if game has started and player is not a spectator
+              if (hasGameStarted && !spectator) {
+                if (!(game as any).inactive) {
+                  (game as any).inactive = new Set<string>();
+                }
+                (game as any).inactive.add(newId);
+                if (process.env.DEBUG_STATE === "1")
+                  console.log(
+                    `joinGame: marked new player ${newId} as inactive (game already started)`
+                  );
+              }
+              
               playerId = newId;
               resolvedToken = tokenToUse;
               added = true;

@@ -31,8 +31,6 @@ export interface UseGameSocketState {
   setGameIdInput: (id: GameID) => void;
   nameInput: string;
   setNameInput: (v: string) => void;
-  joinAsSpectator: boolean;
-  setJoinAsSpectator: (v: boolean) => void;
 
   you: PlayerID | null;
   view: ClientGameView | null;
@@ -114,7 +112,6 @@ export function useGameSocket(): UseGameSocketState {
   const [gameIdInput, setGameIdInput] = useState<GameID>("demo");
   // Initialize from cached value
   const [nameInput, setNameInput] = useState<string>(getCachedPlayerName);
-  const [joinAsSpectator, setJoinAsSpectator] = useState(false);
 
   const lastJoinRef = useRef<{
     gameId: GameID;
@@ -737,7 +734,7 @@ export function useGameSocket(): UseGameSocketState {
     lastJoinRef.current = {
       gameId: gameIdInput,
       name: nameInput,
-      spectator: joinAsSpectator,
+      spectator: false, // Always join as player from manual join button
     };
     try {
       sessionStorage.setItem(
@@ -753,20 +750,23 @@ export function useGameSocket(): UseGameSocketState {
     const payload = {
       gameId: gameIdInput,
       playerName: nameInput,
-      spectator: joinAsSpectator,
+      spectator: false, // Always join as player from manual join button
       seatToken: token,
     };
     // eslint-disable-next-line no-console
     console.debug("[JOIN_EMIT] manual join", payload);
     socket.emit("joinGame", payload);
-  }, [gameIdInput, nameInput, joinAsSpectator]);
+  }, [gameIdInput, nameInput]);
 
   const joinFromList = useCallback(
-    (selectedGameId: string) => {
+    (selectedGameId: string, spectator?: boolean) => {
+      // If spectator parameter is provided, use it; otherwise default to false (join as player)
+      const isSpectator = spectator !== undefined ? spectator : false;
+      
       lastJoinRef.current = {
         gameId: selectedGameId,
         name: nameInput,
-        spectator: joinAsSpectator,
+        spectator: isSpectator,
       };
       try {
         sessionStorage.setItem(
@@ -782,7 +782,7 @@ export function useGameSocket(): UseGameSocketState {
       const payload = {
         gameId: selectedGameId,
         playerName: nameInput,
-        spectator: joinAsSpectator,
+        spectator: isSpectator,
         seatToken: token,
       };
       // eslint-disable-next-line no-console
@@ -790,7 +790,7 @@ export function useGameSocket(): UseGameSocketState {
       socket.emit("joinGame", payload);
       setGameIdInput(selectedGameId as GameID);
     },
-    [nameInput, joinAsSpectator]
+    [nameInput]
   );
 
   // Leave the current game and clear session data
@@ -991,8 +991,6 @@ export function useGameSocket(): UseGameSocketState {
     setGameIdInput,
     nameInput,
     setNameInput: handleSetNameInput,
-    joinAsSpectator,
-    setJoinAsSpectator,
 
     you,
     view,
