@@ -295,10 +295,12 @@ export function useGameSocket(): UseGameSocketState {
       "joined",
       ({ you: youId, seatToken, gameId: joinedGameId }: any) => {
         setYou(youId);
+        // Preserve the spectator value from the original join request
+        const wasSpectator = lastJoinRef.current?.spectator ?? false;
         lastJoinRef.current = {
           gameId: joinedGameId,
           name: nameInput,
-          spectator: joinAsSpectator,
+          spectator: wasSpectator,
         };
         const savedName = lastJoinRef.current?.name ?? nameInput;
         if (seatToken) {
@@ -714,7 +716,6 @@ export function useGameSocket(): UseGameSocketState {
     };
   }, [
     nameInput,
-    joinAsSpectator,
     confirmId,
     view,
     confirmOpen,
