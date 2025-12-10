@@ -658,6 +658,8 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
               
               // Check if game has started (not in pre_game phase)
               const gamePhase = String((game.state as any)?.phase || "").toLowerCase();
+              // Game has started if phase is not empty AND not "pre_game"
+              // Empty string or "pre_game" both indicate the game hasn't started yet
               const hasGameStarted = gamePhase !== "" && gamePhase !== "pre_game";
               
               const playerObj: any = {

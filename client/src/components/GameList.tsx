@@ -84,6 +84,8 @@ export default function GameList(props: GameListProps) {
   // Check if game has started (is not in pre_game phase)
   const hasGameStarted = (game: GameRow): boolean => {
     const phase = (game.phase || "").toLowerCase();
+    // Game has started if phase is not empty AND not "pre_game"
+    // Empty string or "pre_game" both indicate the game hasn't started yet
     return phase !== "" && phase !== "pre_game";
   };
 
