@@ -88,8 +88,6 @@ export function App() {
     setGameIdInput,
     nameInput,
     setNameInput,
-    joinAsSpectator,
-    setJoinAsSpectator,
 
     you,
     view,
@@ -4566,7 +4564,7 @@ export function App() {
           socket.emit("joinGame", {
             gameId: gid,
             playerName: pname,
-            spectator: joinAsSpectator,
+            spectator: false, // Always join as player when reconnecting
             seatToken: token || undefined,
             fixedPlayerId,
           });
@@ -4589,7 +4587,7 @@ export function App() {
           socket.emit("joinGame", {
             gameId: gid,
             playerName: newName,
-            spectator: joinAsSpectator,
+            spectator: false, // Always join as player when using new name
             seatToken: token,
           });
           setShowNameInUseModal(false);
