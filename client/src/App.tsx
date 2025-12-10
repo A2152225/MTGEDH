@@ -694,6 +694,23 @@ export function App() {
     } catch { /* ignore */ }
   }, []);
 
+  // Auto-pass for rest of turn setting
+  // When enabled, forces auto-pass for all remaining priority windows this turn
+  const [autoPassForTurn, setAutoPassForTurn] = useState(false);
+  
+  // Toggle auto-pass for rest of turn
+  const handleToggleAutoPassForTurn = React.useCallback(() => {
+    setAutoPassForTurn(prev => !prev);
+  }, []);
+  
+  // Reset auto-pass for turn when turn changes
+  React.useEffect(() => {
+    if (safeView?.turnPlayer) {
+      // Reset when turn player changes (new turn started)
+      setAutoPassForTurn(false);
+    }
+  }, [safeView?.turnPlayer]);
+
   // Auto-advance phases/steps setting
   // When enabled, automatically passes priority during untap, draw, and cleanup phases
   // if the player has nothing to do
@@ -960,10 +977,12 @@ export function App() {
       (phaseNavigatorAdvancing && !isActionPhase && !canRespond);  // Phase navigator in non-action phases
     
     // Auto-pass activates when:
-    // 1. Auto-pass is enabled for this step, AND
-    // 2. Either: not your turn, OR you can auto-pass on your turn (no actions available), AND  
+    // 1. (Auto-pass is enabled for this step AND (not your turn OR you can auto-pass on your turn)), OR
+    // 2. Force auto-pass for rest of turn is enabled, AND  
     // 3. No pending triggers to handle
-    const shouldAutoPass = autoPassStepEnabled && (!isYourTurn || canAutoPassOnYourTurn) && !hasPendingTriggers;
+    const shouldAutoPass = 
+      ((autoPassStepEnabled && (!isYourTurn || canAutoPassOnYourTurn)) || autoPassForTurn) && 
+      !hasPendingTriggers;
     
     if (youHavePriority && stackLength === 0 && !combatModalOpen) {
       // Check if this is a new step OR if canRespond status changed
@@ -995,7 +1014,7 @@ export function App() {
       // Reset tracking when we don't have priority
       lastCanRespond.current = null;
     }
-  }, [safeView, you, combatModalOpen, autoPassSteps, phaseNavigatorAdvancing, pendingTriggers]);
+  }, [safeView, you, combatModalOpen, autoPassSteps, autoPassForTurn, phaseNavigatorAdvancing, pendingTriggers]);
 
   // Shock land prompt listener
   React.useEffect(() => {
@@ -5586,6 +5605,8 @@ export function App() {
               !isPreGame && 
               (safeView.players || []).filter((p: any) => !p.spectator && !p.inactive).length === 1
             }
+            onToggleAutoPassForTurn={handleToggleAutoPassForTurn}
+            autoPassForTurnEnabled={autoPassForTurn}
           />
           {/* Trigger Shortcuts Button */}
           <button
