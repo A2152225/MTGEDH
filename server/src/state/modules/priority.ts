@@ -210,6 +210,24 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
       return { allPassed: false, resolved: false };
     }
     
+    // CRITICAL FIX: Check if current player is an AI player
+    // For AI players, DON'T auto-pass them during main phase even if canAct returns false
+    // This gives the AI time to evaluate and play lands/spells via handleAIPriority
+    // The AI's own logic in handleAIPriority will pass priority if it has nothing to do
+    const players = state.players || [];
+    const currentPlayerObj = players.find((p: any) => p.id === currentPlayer);
+    const isAIPlayer = currentPlayerObj && (currentPlayerObj as any).isAI;
+    const currentStep = String(stateAny.step || '').toUpperCase();
+    const isMainPhase = currentStep === 'MAIN1' || currentStep === 'MAIN2' || currentStep === 'MAIN';
+    const stackIsEmpty = !state.stack || state.stack.length === 0;
+    
+    if (isAIPlayer && isMainPhase && stackIsEmpty && currentPlayer === turnPlayer) {
+      // Don't auto-pass AI during their main phase with empty stack
+      // Let the AI's handleAIPriority function decide what to do
+      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: AI player in their main phase, letting AI logic handle it`);
+      return { allPassed: false, resolved: false };
+    }
+    
     // Check if player can take any action
     // CRITICAL FIX: Use different checks for active vs non-active players
     // - Active player (turn player): use canAct() which checks ALL actions (instant-speed + sorcery-speed)
@@ -222,7 +240,7 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
       ? canAct(ctx, currentPlayer)      // Active player: check all actions (instant + sorcery speed)
       : canRespond(ctx, currentPlayer);  // Non-active: only check instant-speed responses
     
-    console.log(`[priority] autoPassLoop - checking ${currentPlayer} (${isActivePlayer ? 'ACTIVE' : 'non-active'}): canAct=${playerCanAct}, stack.length=${state.stack.length}, step=${(state as any).step}`);
+    console.log(`[priority] autoPassLoop - checking ${currentPlayer} (${isActivePlayer ? 'ACTIVE' : 'non-active'}): canAct=${playerCanAct}, stack.length=${state.stack.length}, step=${currentStep}`);
     
     if (playerCanAct) {
       // Player can act, stop here
