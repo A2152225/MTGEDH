@@ -762,11 +762,14 @@ export function useGameSocket(): UseGameSocketState {
   }, [gameIdInput, nameInput, joinAsSpectator]);
 
   const joinFromList = useCallback(
-    (selectedGameId: string) => {
+    (selectedGameId: string, spectator?: boolean) => {
+      // If spectator parameter is provided, use it; otherwise use the checkbox state
+      const isSpectator = spectator !== undefined ? spectator : joinAsSpectator;
+      
       lastJoinRef.current = {
         gameId: selectedGameId,
         name: nameInput,
-        spectator: joinAsSpectator,
+        spectator: isSpectator,
       };
       try {
         sessionStorage.setItem(
@@ -782,7 +785,7 @@ export function useGameSocket(): UseGameSocketState {
       const payload = {
         gameId: selectedGameId,
         playerName: nameInput,
-        spectator: joinAsSpectator,
+        spectator: isSpectator,
         seatToken: token,
       };
       // eslint-disable-next-line no-console
