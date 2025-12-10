@@ -1651,6 +1651,15 @@ export async function handleAIPriority(
   console.info('[AI] AI has priority, proceeding with action');
   
   try {
+    // CRITICAL: Check for pending discard selection FIRST (cleanup step)
+    // This handles the case where AI needs to discard to hand size
+    const pendingDiscard = (game.state as any).pendingDiscardSelection?.[playerId];
+    if (pendingDiscard) {
+      console.info('[AI] AI has pending discard selection, auto-discarding lowest value cards');
+      await executeAIDiscard(io, gameId, playerId, pendingDiscard.count);
+      return; // After discarding, priority will advance
+    }
+    
     // CRITICAL: Check for pending trigger ordering BEFORE any other action
     // This prevents the AI from getting stuck in an infinite loop trying to advance
     // while trigger ordering is pending

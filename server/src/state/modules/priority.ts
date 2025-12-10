@@ -1,6 +1,6 @@
 import type { PlayerID, PlayerRef } from "../../../../shared/src";
 import type { GameContext } from "../context";
-import { canAct } from "./can-respond";
+import { canAct, canRespond } from "./can-respond";
 
 /**
  * Normalize phase and step strings for comparison.
@@ -210,11 +210,17 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
       return { allPassed: false, resolved: false };
     }
     
-    // Check if player can take any action (instant-speed OR sorcery-speed)
-    // canAct checks both instant-speed (instants, flash, abilities) AND sorcery-speed (lands, sorceries)
-    // For non-active players, sorcery-speed checks will return false (not their main phase)
+    // Check if player can take any action
+    // CRITICAL FIX: Use different checks for active vs non-active players
+    // - Active player (turn player): use canAct() which checks ALL actions (instant-speed + sorcery-speed)
+    // - Non-active players: use canRespond() which ONLY checks instant-speed responses
+    // 
+    // This prevents auto-pass false positives where non-active players are prompted for priority
+    // even though they only have lands/sorceries (which they can't play on opponent's turn)
     const isActivePlayer = currentPlayer === turnPlayer;
-    const playerCanAct = canAct(ctx, currentPlayer);
+    const playerCanAct = isActivePlayer 
+      ? canAct(ctx, currentPlayer)      // Active player: check all actions (instant + sorcery speed)
+      : canRespond(ctx, currentPlayer);  // Non-active: only check instant-speed responses
     
     console.log(`[priority] autoPassLoop - checking ${currentPlayer} (${isActivePlayer ? 'ACTIVE' : 'non-active'}): canAct=${playerCanAct}, stack.length=${state.stack.length}, step=${(state as any).step}`);
     
