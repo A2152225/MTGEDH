@@ -242,6 +242,9 @@ export interface BattlefieldPermanent {
   // Equipment tracking
   attachedEquipment?: string[];     // IDs of equipment attached to this creature
   isEquipped?: boolean;             // True if this creature has equipment attached
+  // Goad mechanic (Rule 701.15)
+  goadedBy?: string[];              // Player IDs who have goaded this creature
+  goadedUntil?: Readonly<Record<string, number>>; // Map of player ID -> turn number when goad expires
 }
 
 /* Temporary effect applied to a permanent or player */

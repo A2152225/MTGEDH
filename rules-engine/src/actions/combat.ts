@@ -496,6 +496,139 @@ function hasAbility(permanent: any, abilityName: string): boolean {
 }
 
 /**
+ * Check if a permanent is goaded (Rule 701.15)
+ * 
+ * @param permanent - The permanent to check
+ * @param currentTurn - Current turn number (optional, for expiration checking)
+ * @returns true if the permanent is currently goaded by any player
+ */
+export function isGoaded(permanent: any, currentTurn?: number): boolean {
+  if (!permanent) return false;
+  
+  const goadedBy = permanent.goadedBy;
+  if (!goadedBy || !Array.isArray(goadedBy) || goadedBy.length === 0) {
+    return false;
+  }
+  
+  // If no turn tracking, just check if goaded by anyone
+  if (currentTurn === undefined) {
+    return true;
+  }
+  
+  // Check if any goad effects are still active
+  const goadedUntil = permanent.goadedUntil;
+  if (!goadedUntil) {
+    return true; // Has goad but no expiration tracking, assume active
+  }
+  
+  // Check if any goad is still active
+  return goadedBy.some(playerId => {
+    const expiryTurn = goadedUntil[playerId];
+    return expiryTurn === undefined || expiryTurn > currentTurn;
+  });
+}
+
+/**
+ * Get the list of player IDs who have goaded this creature (Rule 701.15)
+ * 
+ * @param permanent - The permanent to check
+ * @param currentTurn - Current turn number (optional, for expiration checking)
+ * @returns Array of player IDs who have goaded this creature
+ */
+export function getGoadedBy(permanent: any, currentTurn?: number): string[] {
+  if (!permanent || !permanent.goadedBy || !Array.isArray(permanent.goadedBy)) {
+    return [];
+  }
+  
+  // If no turn tracking, return all goaders
+  if (currentTurn === undefined) {
+    return [...permanent.goadedBy];
+  }
+  
+  // Filter to only active goad effects
+  const goadedUntil = permanent.goadedUntil;
+  if (!goadedUntil) {
+    return [...permanent.goadedBy];
+  }
+  
+  return permanent.goadedBy.filter((playerId: string) => {
+    const expiryTurn = goadedUntil[playerId];
+    return expiryTurn === undefined || expiryTurn > currentTurn;
+  });
+}
+
+/**
+ * Get valid attack targets for a goaded creature (Rule 701.15b)
+ * A goaded creature must attack a player other than the goader if able.
+ * It can only attack the goader if there are no other valid attack targets.
+ * 
+ * @param permanent - The goaded creature
+ * @param allPlayers - All player IDs in the game
+ * @param currentTurn - Current turn number (for expiration checking)
+ * @returns Array of valid player IDs this creature can attack
+ */
+export function getGoadedAttackTargets(
+  permanent: any,
+  allPlayers: string[],
+  currentTurn?: number
+): string[] {
+  const goaders = getGoadedBy(permanent, currentTurn);
+  if (goaders.length === 0) {
+    // Not goaded, can attack anyone except controller
+    return allPlayers.filter(p => p !== permanent.controller);
+  }
+  
+  // Get non-goader opponents
+  const nonGoaderOpponents = allPlayers.filter(p => 
+    p !== permanent.controller && !goaders.includes(p)
+  );
+  
+  // Rule 701.15b: Must attack a player other than the goader if able
+  if (nonGoaderOpponents.length > 0) {
+    return nonGoaderOpponents;
+  }
+  
+  // Only goaders are available - can attack them as they are the only option
+  return goaders;
+}
+
+/**
+ * Check if a goaded creature can attack a specific player (Rule 701.15b)
+ * 
+ * @param permanent - The creature to check
+ * @param targetPlayerId - The player ID to attack
+ * @param allPlayers - All player IDs in the game
+ * @param currentTurn - Current turn number (for expiration checking)
+ * @returns Object with canAttack flag and reason if blocked
+ */
+export function canGoadedCreatureAttack(
+  permanent: any,
+  targetPlayerId: string,
+  allPlayers: string[],
+  currentTurn?: number
+): { canAttack: boolean; reason?: string } {
+  if (!isGoaded(permanent, currentTurn)) {
+    // Not goaded, use normal attack rules
+    return { canAttack: true };
+  }
+  
+  const validTargets = getGoadedAttackTargets(permanent, allPlayers, currentTurn);
+  
+  if (!validTargets.includes(targetPlayerId)) {
+    const goaders = getGoadedBy(permanent, currentTurn);
+    if (goaders.includes(targetPlayerId)) {
+      return { 
+        canAttack: false, 
+        reason: 'Goaded creature cannot attack the player who goaded it (unless they are the only option)' 
+      };
+    }
+    return { canAttack: false, reason: 'Invalid attack target for goaded creature' };
+  }
+  
+  return { canAttack: true };
+}
+
+/**
  * Get the combat damage value for a creature
  * Handles power/toughness swaps (e.g., Doran, the Siege Tower)
  * 
@@ -655,6 +788,46 @@ export function getLegalAttackers(state: GameState, playerId: string): string[] 
 }
 
 /**
+ * Get all goaded creatures that must attack (Rule 701.15b)
+ * Returns creatures that are goaded and can legally attack
+ * 
+ * @param state - The game state
+ * @param playerId - The player declaring attackers
+ * @returns Array of permanent IDs that are goaded and must attack
+ */
+export function getGoadedAttackers(state: GameState, playerId: string): string[] {
+  const goadedAttackers: string[] = [];
+  const currentTurn = state.turn;
+  
+  // Check global battlefield
+  if (state.battlefield) {
+    for (const perm of state.battlefield as any[]) {
+      if (perm.controller === playerId && isGoaded(perm, currentTurn)) {
+        const result = canPermanentAttack(perm, playerId);
+        if (result.canParticipate) {
+          goadedAttackers.push(perm.id);
+        }
+      }
+    }
+  }
+  
+  // Check player-specific battlefield
+  const player = state.players?.find((p: any) => p.id === playerId);
+  if (player?.battlefield) {
+    for (const perm of player.battlefield as any[]) {
+      if (isGoaded(perm, currentTurn)) {
+        const result = canPermanentAttack(perm, playerId);
+        if (result.canParticipate && !goadedAttackers.includes(perm.id)) {
+          goadedAttackers.push(perm.id);
+        }
+      }
+    }
+  }
+  
+  return goadedAttackers;
+}
+
+/**
  * Get all legal blockers for a player against a specific attacker
  * 
  * @param state - The game state
@@ -751,6 +924,43 @@ export function validateDeclareAttackers(
     const validationResult = canPermanentAttack(permanent, action.playerId);
     if (!validationResult.canParticipate) {
       return { legal: false, reason: validationResult.reason || 'Cannot attack with this permanent' };
+    }
+    
+    // Check goad restrictions (Rule 701.15b)
+    if (isGoaded(permanent, state.turn)) {
+      const allPlayerIds = state.players.map(p => p.id);
+      const goadCheck = canGoadedCreatureAttack(
+        permanent,
+        attacker.defendingPlayerId,
+        allPlayerIds,
+        state.turn
+      );
+      if (!goadCheck.canAttack) {
+        return { 
+          legal: false, 
+          reason: goadCheck.reason || 'Goaded creature cannot attack this player' 
+        };
+      }
+    }
+  }
+  
+  // Check that all goaded creatures are attacking (Rule 701.15b)
+  const goadedCreatures = getGoadedAttackers(state, action.playerId);
+  const attackingCreatureIds = new Set(action.attackers.map(a => a.creatureId));
+  
+  for (const goadedId of goadedCreatures) {
+    if (!attackingCreatureIds.has(goadedId)) {
+      // Find the creature for error message
+      let creature = state.battlefield?.find((p: any) => p.id === goadedId);
+      if (!creature) {
+        const player = state.players.find(p => p.id === action.playerId);
+        creature = player?.battlefield?.find((p: any) => p.id === goadedId);
+      }
+      const creatureName = creature?.card?.name || 'Goaded creature';
+      return { 
+        legal: false, 
+        reason: `${creatureName} is goaded and must attack if able (Rule 701.15b)` 
+      };
     }
   }
   

@@ -463,6 +463,10 @@ export class AIEngine {
       };
     }
     
+    // Import goad functions from combat actions
+    const { isGoaded, getGoadedBy, getGoadedAttackTargets, getGoadedAttackers } = 
+      require('./actions/combat');
+    
     // Get the player's battlefield to evaluate creatures
     const player = context.gameState.players.find(p => p.id === context.playerId);
     if (!player?.battlefield) {
@@ -475,8 +479,44 @@ export class AIEngine {
       };
     }
     
-    // Evaluate each legal attacker for combat value
-    const attackerEvaluations = legalAttackerIds.map(id => {
+    // Get all goaded creatures - these MUST attack (Rule 701.15b)
+    const goadedCreatureIds = getGoadedAttackers(context.gameState, context.playerId);
+    const goadedSet = new Set(goadedCreatureIds);
+    
+    // Get all player IDs for determining valid goad targets
+    const allPlayerIds = context.gameState.players.map(p => p.id);
+    
+    // Build attack targets for goaded creatures
+    const goadedAttackers: Array<{ creatureId: string; defendingPlayerId: string }> = [];
+    for (const goadedId of goadedCreatureIds) {
+      const perm = player.battlefield.find((p: BattlefieldPermanent) => p.id === goadedId);
+      if (!perm) continue;
+      
+      // Get valid targets for this goaded creature
+      const validTargets = getGoadedAttackTargets(perm, allPlayerIds, context.gameState.turn);
+      
+      if (validTargets.length === 0) {
+        // Can't attack (all opponents have protection, etc.)
+        continue;
+      }
+      
+      // Choose target based on AI strategy
+      // For basic AI: attack the player with lowest life
+      const targetPlayer = validTargets.reduce((lowest, current) => {
+        const currentLife = context.gameState.players.find(p => p.id === current)?.life || 40;
+        const lowestLife = context.gameState.players.find(p => p.id === lowest)?.life || 40;
+        return currentLife < lowestLife ? current : lowest;
+      });
+      
+      goadedAttackers.push({
+        creatureId: goadedId,
+        defendingPlayerId: targetPlayer,
+      });
+    }
+    
+    // Evaluate each non-goaded legal attacker for combat value
+    const nonGoadedLegalAttackerIds = legalAttackerIds.filter(id => !goadedSet.has(id));
+    const attackerEvaluations = nonGoadedLegalAttackerIds.map(id => {
       const perm = player.battlefield.find((p: BattlefieldPermanent) => p.id === id);
       if (!perm) return { id, value: 0, wantsToGetKilled: false };
       
@@ -512,13 +552,30 @@ export class AIEngine {
         // MISTAKE TYPE B: Overcommitting  
         // Example: Attack with ALL creatures including weak 1/1
         // Result: Unnecessarily trades away creatures, poor resource management
-        regularAttackers = legalAttackerIds.filter(id => !suicideAttackers.includes(id));
+        regularAttackers = nonGoadedLegalAttackerIds.filter(id => !suicideAttackers.includes(id));
       }
     }
     
-    const allAttackers = [...suicideAttackers, ...regularAttackers];
+    // Determine attack target for non-goaded attackers
+    // Attack the player with lowest life
+    const opponents = allPlayerIds.filter(id => id !== context.playerId);
+    const targetPlayer = opponents.reduce((lowest, current) => {
+      const currentLife = context.gameState.players.find(p => p.id === current)?.life || 40;
+      const lowestLife = context.gameState.players.find(p => p.id === lowest)?.life || 40;
+      return currentLife < lowestLife ? current : lowest;
+    }, opponents[0] || context.playerId);
+    
+    const voluntaryAttackers = [...suicideAttackers, ...regularAttackers].map(id => ({
+      creatureId: id,
+      defendingPlayerId: targetPlayer,
+    }));
+    
+    const allAttackers = [...goadedAttackers, ...voluntaryAttackers];
     
     let reasoning = `Attacking with ${allAttackers.length} creatures`;
+    if (goadedCreatureIds.length > 0) {
+      reasoning += ` (including ${goadedCreatureIds.length} goaded)`;
+    }
     if (suicideAttackers.length > 0) {
       reasoning += ` (including ${suicideAttackers.length} with beneficial death triggers)`;
     }
