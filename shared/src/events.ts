@@ -110,6 +110,8 @@ export interface ClientToServerEvents {
   
   // Automation control
   setAutoPass: (payload: { gameId: GameID; enabled: boolean }) => void;
+  setAutoPassForTurn: (payload: { gameId: GameID; enabled: boolean }) => void;
+  claimPriority: (payload: { gameId: GameID }) => void;
   setStop: (payload: { gameId: GameID; phase: string; enabled: boolean }) => void;
   checkCanRespond: (payload: { gameId: GameID }) => void;
   

@@ -723,16 +723,33 @@ export function App() {
   
   // Toggle auto-pass for rest of turn
   const handleToggleAutoPassForTurn = React.useCallback(() => {
-    setAutoPassForTurn(prev => !prev);
-  }, []);
+    setAutoPassForTurn(prev => {
+      const newValue = !prev;
+      // Sync to server
+      if (safeView?.id) {
+        socket.emit('setAutoPassForTurn', {
+          gameId: safeView.id,
+          enabled: newValue,
+        });
+      }
+      return newValue;
+    });
+  }, [safeView?.id, socket]);
   
   // Reset auto-pass for turn when turn changes
   React.useEffect(() => {
     if (safeView?.turnPlayer) {
       // Reset when turn player changes (new turn started)
       setAutoPassForTurn(false);
+      // Also sync to server
+      if (safeView?.id) {
+        socket.emit('setAutoPassForTurn', {
+          gameId: safeView.id,
+          enabled: false,
+        });
+      }
     }
-  }, [safeView?.turnPlayer]);
+  }, [safeView?.turnPlayer, safeView?.id, socket]);
   
   // Sync auto-pass settings with server when joining/loading a game
   // We need a ref to capture the current autoPassSteps without adding it as a dependency
@@ -5605,7 +5622,10 @@ export function App() {
         phase={(safeView as any)?.phase || ''}
         onTake={() => {
           setPriorityModalOpen(false);
-          // Player wants to take action - just close the modal, they can cast from hand/activate abilities
+          // Player wants to take action - notify server to prevent auto-pass
+          if (safeView && you) {
+            socket.emit("claimPriority", { gameId: safeView.id });
+          }
         }}
         onPass={() => {
           setPriorityModalOpen(false);

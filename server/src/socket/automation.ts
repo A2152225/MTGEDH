@@ -334,6 +334,78 @@ export function registerAutomationHandlers(
   });
 
   /**
+   * Handle auto-pass for rest of turn toggle
+   */
+  socket.on("setAutoPassForTurn", (payload) => {
+    const { gameId, enabled } = payload;
+    const playerId = socket.data.playerId;
+    
+    if (!playerId) {
+      socket.emit("error", { message: "Not in a game" });
+      return;
+    }
+    
+    console.log(`[Automation] Auto-pass for turn ${enabled ? "enabled" : "disabled"} for ${playerId} in game ${gameId}`);
+    
+    const game = games.get(gameId);
+    if (game && game.state) {
+      const stateAny = game.state as any;
+      if (!stateAny.autoPassForTurn) {
+        stateAny.autoPassForTurn = {};
+      }
+      
+      if (enabled) {
+        stateAny.autoPassForTurn[playerId] = true;
+      } else {
+        delete stateAny.autoPassForTurn[playerId];
+      }
+      
+      console.log(`[Automation] Auto-pass for turn state in game ${gameId}:`, stateAny.autoPassForTurn);
+      
+      // Bump sequence to trigger state update
+      if (typeof (game as any).bumpSeq === 'function') {
+        (game as any).bumpSeq();
+      }
+    } else {
+      console.warn(`[Automation] Failed to toggle auto-pass for turn: game ${gameId} not found or has no state`);
+      socket.emit("error", { message: "Game not found" });
+    }
+  });
+
+  /**
+   * Handle claim priority (player wants to retain priority and take action)
+   * This prevents auto-pass from immediately passing their priority
+   */
+  socket.on("claimPriority", (payload) => {
+    const { gameId } = payload;
+    const playerId = socket.data.playerId;
+    
+    if (!playerId) {
+      socket.emit("error", { message: "Not in a game" });
+      return;
+    }
+    
+    const game = games.get(gameId);
+    if (!game || !game.state) {
+      socket.emit("error", { message: "Game not found" });
+      return;
+    }
+    
+    console.log(`[Automation] Player ${playerId} claimed priority in game ${gameId}`);
+    
+    // Mark that this player has claimed priority for this step
+    // This will prevent auto-pass from passing them immediately
+    const stateAny = game.state as any;
+    if (!stateAny.priorityClaimed) {
+      stateAny.priorityClaimed = new Set<string>();
+    }
+    stateAny.priorityClaimed.add(playerId);
+    
+    // Clear the claim after a short timeout (e.g., when step changes)
+    // This is handled by clearing priorityClaimed in nextStep logic
+  });
+
+  /**
    * Check if a player can respond or act (query from client)
    * Returns whether the player has any available responses or actions
    */
