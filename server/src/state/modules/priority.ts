@@ -205,8 +205,10 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
     
     // Check if player has claimed priority (clicked "Take Action")
     // If so, don't auto-pass them - they want to take an action
-    const priorityClaimed = stateAny.priorityClaimed || new Set();
-    if (priorityClaimed.has(currentPlayer)) {
+    if (!stateAny.priorityClaimed) {
+      stateAny.priorityClaimed = new Set<string>();
+    }
+    if (stateAny.priorityClaimed.has(currentPlayer)) {
       console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: player claimed priority (wants to take action)`);
       return { allPassed: false, resolved: false };
     }

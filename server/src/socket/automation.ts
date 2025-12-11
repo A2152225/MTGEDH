@@ -401,8 +401,7 @@ export function registerAutomationHandlers(
     }
     stateAny.priorityClaimed.add(playerId);
     
-    // Clear the claim after a short timeout (e.g., when step changes)
-    // This is handled by clearing priorityClaimed in nextStep logic
+    // The claim is cleared when the step advances in nextStep logic
   });
 
   /**
