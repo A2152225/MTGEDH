@@ -1615,6 +1615,16 @@ export function nextTurn(ctx: GameContext) {
     
     (ctx as any).state.turnPlayer = next;
 
+    // Remove expired goad effects at the start of this player's turn (Rule 701.15a)
+    try {
+      const { removeExpiredGoads } = require('./goad-effects.js');
+      const battlefield = (ctx as any).state.battlefield || [];
+      const updatedBattlefield = removeExpiredGoads(battlefield, turnNumber, next);
+      (ctx as any).state.battlefield = updatedBattlefield;
+    } catch (err) {
+      console.warn(`${ts()} [nextTurn] Failed to remove expired goads:`, err);
+    }
+
     // Reset to beginning of turn
     (ctx as any).state.phase = "beginning";
     (ctx as any).state.step = "UNTAP";

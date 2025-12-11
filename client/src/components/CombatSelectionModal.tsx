@@ -48,6 +48,8 @@ interface DangerIndicators {
   doubleStrike: boolean;
   lifelink: boolean;
   indestructible: boolean;
+  goaded: boolean; // If creature is goaded and must attack
+  goadedBy?: string[]; // Player IDs who goaded this creature
 }
 
 /**
@@ -69,7 +71,18 @@ function getCreatureInfo(perm: BattlefieldPermanent): {
       effectivePower: undefined, 
       effectiveToughness: undefined,
       imageUrl: undefined,
-      dangers: { deathtouch: false, infect: false, toxic: 0, trample: false, menace: false, firstStrike: false, doubleStrike: false, lifelink: false, indestructible: false }
+      dangers: { 
+        deathtouch: false, 
+        infect: false, 
+        toxic: 0, 
+        trample: false, 
+        menace: false, 
+        firstStrike: false, 
+        doubleStrike: false, 
+        lifelink: false, 
+        indestructible: false,
+        goaded: false,
+      }
     };
   }
   
@@ -143,6 +156,8 @@ function getCreatureInfo(perm: BattlefieldPermanent): {
     doubleStrike: hasAbility('double strike') || hasAbility('double_strike'),
     lifelink: hasAbility('lifelink'),
     indestructible: hasAbility('indestructible'),
+    goaded: (perm.goadedBy && Array.isArray(perm.goadedBy) && perm.goadedBy.length > 0) || false,
+    goadedBy: perm.goadedBy,
   };
   
   return { name, pt, effectivePower, effectiveToughness, imageUrl, dangers };
@@ -178,6 +193,15 @@ function DangerBadge({ label, color, tooltip }: { label: string; color: string; 
  */
 function DangerIndicatorBadges({ dangers }: { dangers: DangerIndicators }) {
   const badges: React.ReactNode[] = [];
+  
+  // Goad indicator - show first as it affects combat requirements
+  if (dangers.goaded) {
+    const goadedByCount = dangers.goadedBy?.length || 1;
+    const goadTooltip = goadedByCount > 1 
+      ? `Goaded by ${goadedByCount} players - Must attack if able, cannot attack goaders unless only option`
+      : 'Goaded - Must attack if able, cannot attack goader unless only option';
+    badges.push(<DangerBadge key="goad" label="🎯GOAD" color="#d97706" tooltip={goadTooltip} />);
+  }
   
   if (dangers.deathtouch) {
     badges.push(<DangerBadge key="dt" label="☠️DT" color="#10b981" tooltip="Deathtouch - Any damage destroys" />);
