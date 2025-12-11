@@ -332,13 +332,19 @@ export function canPlayLand(ctx: GameContext, playerId: PlayerID): boolean {
         
         const typeLine = (card.type_line || "").toLowerCase();
         if (typeLine.includes("land")) {
-          console.log(`[canPlayLand] ${playerId}: Found land in hand: ${card.name || 'unknown'} (${card.type_line || 'unknown type'})`);
+          console.log(`[canPlayLand] ${playerId}: Found land in hand: ${card.name || 'unknown'} (${card.type_line || 'unknown type'}) - returning TRUE`);
           return true; // Found a land in hand that can be played
         }
       }
-      console.log(`[canPlayLand] ${playerId}: No lands found in hand of ${zones.hand.length} cards`);
+      console.log(`[canPlayLand] ${playerId}: No lands found in hand of ${zones.hand.length} cards - returning FALSE`);
     } else {
       console.log(`[canPlayLand] ${playerId}: zones.hand is not an array:`, typeof zones.hand, zones.hand);
+      // FALLBACK: Check handCount to see if there might be cards
+      if (zones.handCount && zones.handCount > 0) {
+        console.warn(`[canPlayLand] ${playerId}: WARNING - handCount=${zones.handCount} but zones.hand is not an array! This is a data consistency issue.`);
+        // Return true conservatively - don't auto-pass if we're not sure
+        return true;
+      }
     }
     
     // Check if player can play lands from graveyard
