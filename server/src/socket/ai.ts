@@ -984,7 +984,7 @@ export async function handleAIGameFlow(
   // SPECIAL CASE: During cleanup step, call handleAIPriority even without priority
   // Per MTG Rule 514.1, cleanup step does not grant priority, but the turn player
   // must still perform mandatory actions (discard to hand size, etc.)
-  const isCleanupStep = stepStr === 'CLEANUP';
+  const isCleanupStep = stepStr.toUpperCase() === 'CLEANUP';
   
   if (hasPriority || (isCleanupStep && isAITurn)) {
     // Small delay before AI takes action
@@ -3237,6 +3237,12 @@ async function executeDeclareBlockers(
 }
 
 /**
+ * Mulligan thresholds
+ */
+const MIN_HAND_SIZE_TO_MULLIGAN = 5; // Don't mulligan below this size (too risky)
+const OPENING_HAND_SIZE = 7; // Standard opening hand in EDH/Commander
+
+/**
  * Handle AI mulligan decision
  * AI should mulligan if:
  * - Hand has 0 lands (unplayable)
@@ -3292,9 +3298,9 @@ export async function handleAIMulligan(
       nonLandCount,
     });
     
-    // Rule 1: If hand size is already 5 or less, keep it (avoid going too low)
-    if (handSize <= 5) {
-      console.info('[AI] Hand size is 5 or less, keeping to avoid further mulligans');
+    // Rule 1: If hand size is already at threshold or below, keep it (avoid going too low)
+    if (handSize <= MIN_HAND_SIZE_TO_MULLIGAN) {
+      console.info(`[AI] Hand size is ${MIN_HAND_SIZE_TO_MULLIGAN} or less, keeping to avoid further mulligans`);
       return true;
     }
     
@@ -3304,14 +3310,14 @@ export async function handleAIMulligan(
       return false; // Mulligan
     }
     
-    // Rule 3: Mulligan if all lands and 7 card hand (no spells to cast)
-    if (nonLandCount === 0 && handSize === 7) {
+    // Rule 3: Mulligan if all lands and opening hand (no spells to cast)
+    if (nonLandCount === 0 && handSize === OPENING_HAND_SIZE) {
       console.info('[AI] All lands in opening hand, mulliganing');
       return false; // Mulligan
     }
     
-    // Rule 4: Mulligan if only 1 land in opening hand (7 cards) - too risky
-    if (landCount === 1 && handSize === 7) {
+    // Rule 4: Mulligan if only 1 land in opening hand - too risky
+    if (landCount === 1 && handSize === OPENING_HAND_SIZE) {
       console.info('[AI] Only 1 land in opening hand, mulliganing (too risky)');
       return false; // Mulligan
     }
