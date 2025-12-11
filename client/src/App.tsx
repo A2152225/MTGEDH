@@ -668,9 +668,18 @@ export function App() {
       try {
         localStorage.setItem('mtgedh:autoPassSteps', JSON.stringify([...next]));
       } catch { /* ignore */ }
+      
+      // Sync with server: auto-pass is enabled if ANY step is enabled
+      if (safeView?.id) {
+        socket.emit('setAutoPass', {
+          gameId: safeView.id,
+          enabled: next.size > 0,
+        });
+      }
+      
       return next;
     });
-  }, []);
+  }, [safeView?.id]);
   
   // Clear all auto-pass settings
   const handleClearAllAutoPass = React.useCallback(() => {
@@ -678,7 +687,15 @@ export function App() {
     try {
       localStorage.removeItem('mtgedh:autoPassSteps');
     } catch { /* ignore */ }
-  }, []);
+    
+    // Sync with server: auto-pass is now disabled
+    if (safeView?.id) {
+      socket.emit('setAutoPass', {
+        gameId: safeView.id,
+        enabled: false,
+      });
+    }
+  }, [safeView?.id]);
 
   // Select all auto-pass settings
   const handleSelectAllAutoPass = React.useCallback(() => {
@@ -690,7 +707,15 @@ export function App() {
     try {
       localStorage.setItem('mtgedh:autoPassSteps', JSON.stringify([...allSteps]));
     } catch { /* ignore */ }
-  }, []);
+    
+    // Sync with server: auto-pass is now enabled
+    if (safeView?.id) {
+      socket.emit('setAutoPass', {
+        gameId: safeView.id,
+        enabled: true,
+      });
+    }
+  }, [safeView?.id]);
 
   // Auto-pass for rest of turn setting
   // When enabled, forces auto-pass for all remaining priority windows this turn
@@ -708,6 +733,24 @@ export function App() {
       setAutoPassForTurn(false);
     }
   }, [safeView?.turnPlayer]);
+  
+  // Sync auto-pass settings with server when joining/loading a game
+  // We need a ref to capture the current autoPassSteps without adding it as a dependency
+  const autoPassStepsRef = React.useRef(autoPassSteps);
+  React.useEffect(() => {
+    autoPassStepsRef.current = autoPassSteps;
+  }, [autoPassSteps]);
+  
+  React.useEffect(() => {
+    if (safeView?.id && socket.connected) {
+      // Send current auto-pass state to server
+      const hasAutoPass = autoPassStepsRef.current.size > 0;
+      socket.emit('setAutoPass', {
+        gameId: safeView.id,
+        enabled: hasAutoPass,
+      });
+    }
+  }, [safeView?.id, socket.connected]); // Only sync when game changes or socket reconnects
 
   // Auto-advance phases/steps setting
   // When enabled, automatically passes priority during untap, draw, and cleanup phases
