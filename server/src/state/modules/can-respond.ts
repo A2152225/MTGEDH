@@ -62,7 +62,8 @@ function hasFlashback(card: any): { hasIt: boolean; cost?: string } {
     return { hasIt: true, cost: flashbackMatch[1] };
   }
   
-  // If we find "flashback" but can't parse cost, assume it exists
+  // If we find "flashback" but can't parse cost, log warning and assume it exists
+  console.warn(`[hasFlashback] Found flashback on ${card.name} but could not parse cost from: "${oracleText}"`);
   return { hasIt: true };
 }
 
@@ -83,6 +84,7 @@ function hasForetellOrCanCastFromExile(card: any): { hasIt: boolean; cost?: stri
     if (foretellMatch) {
       return { hasIt: true, cost: foretellMatch[1] };
     }
+    console.warn(`[hasForetellOrCanCastFromExile] Found foretell on ${card.name} but could not parse cost from: "${oracleText}"`);
     return { hasIt: true };
   }
   
@@ -97,6 +99,16 @@ function hasForetellOrCanCastFromExile(card: any): { hasIt: boolean; cost?: stri
   }
   
   return { hasIt: false };
+}
+
+/**
+ * Conservative check for unparseable alternative cost.
+ * When we can't parse the cost, we assume the player might be able to pay it.
+ * This prevents auto-passing when we're unsure, which is safer.
+ */
+function canPayUnparseableCost(cardName: string, mechanicName: string): boolean {
+  console.warn(`[canPayUnparseableCost] Could not parse ${mechanicName} cost for ${cardName} - being conservative, assuming player can pay`);
+  return true;
 }
 
 
@@ -159,9 +171,10 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
             return true;
           }
         } else {
-          // If we can't parse the cost, assume they might be able to pay it
-          // This is conservative - we don't auto-pass if unsure
-          return true;
+          // If we can't parse the cost, be conservative and assume they can pay it
+          if (canPayUnparseableCost(card.name, 'flashback')) {
+            return true;
+          }
         }
       }
     }
@@ -189,7 +202,9 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
             }
           } else {
             // If we can't parse cost or card has "you may cast from exile", be conservative
-            return true;
+            if (canPayUnparseableCost(card.name, 'foretell/exile')) {
+              return true;
+            }
           }
         }
         
@@ -841,8 +856,10 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
             return true;
           }
         } else {
-          // If we can't parse the cost, assume they might be able to pay it
-          return true;
+          // If we can't parse the cost, be conservative and assume they can pay it
+          if (canPayUnparseableCost(card.name, 'flashback')) {
+            return true;
+          }
         }
       }
     }
@@ -885,7 +902,9 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
             }
           } else {
             // If we can't parse cost or card has "you may cast from exile", be conservative
-            return true;
+            if (canPayUnparseableCost(card.name, 'foretell/exile')) {
+              return true;
+            }
           }
         }
         
