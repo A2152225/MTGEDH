@@ -798,28 +798,72 @@ export async function handleAIGameFlow(
       const aiMulliganState = mulliganState[playerId];
       
       if (!aiMulliganState || !aiMulliganState.hasKeptHand) {
-        // AI automatically keeps hand - set mulligan state
-        console.info('[AI] AI automatically keeping hand');
+        // AI needs to decide whether to keep or mulligan
+        console.info('[AI] AI evaluating hand for mulligan decision');
         
-        (game.state as any).mulliganState = (game.state as any).mulliganState || {};
-        (game.state as any).mulliganState[playerId] = {
-          hasKeptHand: true,
-          mulligansTaken: 0,
-        };
+        const keepHand = await handleAIMulligan(io, gameId, playerId);
         
-        // Bump sequence to propagate state change
-        if (typeof (game as any).bumpSeq === 'function') {
-          (game as any).bumpSeq();
+        if (keepHand) {
+          // Keep the hand
+          console.info('[AI] AI keeping hand');
+          
+          (game.state as any).mulliganState = (game.state as any).mulliganState || {};
+          (game.state as any).mulliganState[playerId] = {
+            hasKeptHand: true,
+            mulligansTaken: aiMulliganState?.mulligansTaken || 0,
+          };
+          
+          // Bump sequence to propagate state change
+          if (typeof (game as any).bumpSeq === 'function') {
+            (game as any).bumpSeq();
+          }
+          
+          console.info('[AI] AI is ready to start game (hand kept)');
+          
+          // Broadcast updated state so human players see AI has kept hand
+          broadcastGame(io, game, gameId);
+          
+          // After keeping hand, re-trigger game flow to check for advancement
+          setTimeout(() => handleAIGameFlow(io, gameId, playerId), AI_THINK_TIME_MS);
+          return;
+        } else {
+          // Take a mulligan
+          console.info('[AI] AI taking mulligan');
+          
+          const currentMulligans = aiMulliganState?.mulligansTaken || 0;
+          
+          // Update mulligan count but DON'T set hasKeptHand yet
+          (game.state as any).mulliganState = (game.state as any).mulliganState || {};
+          (game.state as any).mulliganState[playerId] = {
+            hasKeptHand: false,
+            mulligansTaken: currentMulligans + 1,
+          };
+          
+          // Execute the mulligan via the game's mulligan method
+          if (typeof (game as any).mulligan === 'function') {
+            (game as any).mulligan(playerId);
+            console.info('[AI] Executed mulligan for AI player');
+          } else {
+            console.warn('[AI] game.mulligan method not available');
+          }
+          
+          // Persist the mulligan event
+          try {
+            await appendEvent(gameId, (game as any).seq || 0, 'mulligan', {
+              playerId,
+              isAI: true,
+            });
+          } catch (e) {
+            console.warn('[AI] Failed to persist mulligan event:', e);
+          }
+          
+          // Broadcast updated state
+          broadcastGame(io, game, gameId);
+          
+          // Re-trigger game flow to evaluate the new hand
+          setTimeout(() => handleAIGameFlow(io, gameId, playerId), AI_THINK_TIME_MS);
+          return;
         }
-        
-        console.info('[AI] AI is ready to start game (hand kept)');
-        
-        // Broadcast updated state so human players see AI has kept hand
-        broadcastGame(io, game, gameId);
-        
-        // After keeping hand, re-trigger game flow to check for advancement
-        setTimeout(() => handleAIGameFlow(io, gameId, playerId), AI_THINK_TIME_MS);
-        return;
       }
       
       // AI has already kept hand - now check if we should advance from pre_game
@@ -937,7 +981,12 @@ export async function handleAIGameFlow(
   }
   
   // Active game phases: handle priority if AI has it
-  if (hasPriority) {
+  // SPECIAL CASE: During cleanup step, call handleAIPriority even without priority
+  // Per MTG Rule 514.1, cleanup step does not grant priority, but the turn player
+  // must still perform mandatory actions (discard to hand size, etc.)
+  const isCleanupStep = stepStr.toUpperCase() === 'CLEANUP';
+  
+  if (hasPriority || (isCleanupStep && isAITurn)) {
     // Small delay before AI takes action
     setTimeout(async () => {
       await handleAIPriority(io, gameId, playerId);
@@ -1789,7 +1838,20 @@ export async function handleAIPriority(
             handleAIPriority(io, gameId, playerId).catch(console.error);
           }, AI_THINK_TIME_MS);
           return;
+        } else {
+          console.info('[AI] No land found in hand to play');
         }
+      } else {
+        // Debug why we can't play a land
+        const landsPlayed = game.state?.landsPlayedThisTurn?.[playerId] || 0;
+        const maxLands = ((game as any).maxLandsPerTurn?.[playerId] ?? (game.state as any)?.maxLandsPerTurn?.[playerId]) || 1;
+        console.info('[AI] Cannot play land:', { 
+          isMainPhase, 
+          isAITurn, 
+          landsPlayed, 
+          maxLands,
+          reason: !isMainPhase ? 'not main phase' : !isAITurn ? 'not AI turn' : 'already played max lands'
+        });
       }
       
       // Try to use activated abilities (before casting spells)
@@ -2770,15 +2832,30 @@ async function executeAdvanceStep(
   const game = ensureGame(gameId);
   if (!game) return;
   
+  // CRITICAL: Only the turn player can advance steps (fail fast)
+  // Non-turn players should pass priority instead
+  const turnPlayer = game.state?.turnPlayer;
+  if (playerId !== turnPlayer) {
+    console.warn('[AI] Cannot advance step - not the turn player:', { 
+      gameId, 
+      playerId, 
+      turnPlayer,
+      message: 'Only the active player can advance game steps'
+    });
+    // Non-turn player should pass priority instead
+    await executePassPriority(io, gameId, playerId);
+    return;
+  }
+  
+  const currentStep = String((game.state as any).step || '');
+  const currentPhase = String(game.state.phase || '');
+  
   // Check if there are any pending modal interactions before advancing
   const pendingCheck = checkPendingModals(game, gameId);
   if (pendingCheck.hasPending) {
     console.info(`[AI] Cannot advance step - ${pendingCheck.reason}`);
     return;
   }
-  
-  const currentStep = String((game.state as any).step || '');
-  const currentPhase = String(game.state.phase || '');
   
   console.info('[AI] Advancing step:', { gameId, playerId, currentPhase, currentStep });
   
@@ -3160,7 +3237,17 @@ async function executeDeclareBlockers(
 }
 
 /**
+ * Mulligan thresholds
+ */
+const MIN_HAND_SIZE_TO_MULLIGAN = 5; // Don't mulligan below this size (too risky)
+const OPENING_HAND_SIZE = 7; // Standard opening hand in EDH/Commander
+
+/**
  * Handle AI mulligan decision
+ * AI should mulligan if:
+ * - Hand has 0 lands (unplayable)
+ * - Hand has all lands and no spells (unlikely to win)
+ * - Hand size is already low (< 5 cards) - keep it
  */
 export async function handleAIMulligan(
   io: Server,
@@ -3179,28 +3266,72 @@ export async function handleAIMulligan(
   console.info('[AI] AI making mulligan decision:', { gameId, playerId });
   
   try {
-    const context: AIDecisionContext = {
-      gameState: game.state as any,
-      playerId,
-      decisionType: AIDecisionType.MULLIGAN,
-      options: [true, false],
-    };
+    // Get the AI's current hand
+    const zones = game.state.zones?.[playerId];
+    const hand = Array.isArray(zones?.hand) ? zones.hand : [];
     
-    const decision = await aiEngine.makeDecision(context);
-    const keepHand = decision.action?.keep ?? true;
+    if (hand.length === 0) {
+      console.info('[AI] Empty hand, keeping by default');
+      return true; // Empty hand, nothing to mulligan
+    }
     
-    console.info('[AI] Mulligan decision:', {
+    // Count lands and non-lands in hand
+    let landCount = 0;
+    let nonLandCount = 0;
+    
+    for (const card of hand) {
+      const typeLine = (card?.type_line || '').toLowerCase();
+      if (typeLine.includes('land')) {
+        landCount++;
+      } else {
+        nonLandCount++;
+      }
+    }
+    
+    const handSize = hand.length;
+    
+    console.info('[AI] Mulligan analysis:', {
       gameId,
       playerId,
-      keepHand,
-      reasoning: decision.reasoning,
+      handSize,
+      landCount,
+      nonLandCount,
     });
     
-    return keepHand;
+    // Rule 1: If hand size is already at threshold or below, keep it (avoid going too low)
+    if (handSize <= MIN_HAND_SIZE_TO_MULLIGAN) {
+      console.info(`[AI] Hand size is ${MIN_HAND_SIZE_TO_MULLIGAN} or less, keeping to avoid further mulligans`);
+      return true;
+    }
+    
+    // Rule 2: Mulligan if zero lands (unplayable hand)
+    if (landCount === 0) {
+      console.info('[AI] Zero lands in hand, mulliganing');
+      return false; // Mulligan
+    }
+    
+    // Rule 3: Mulligan if all lands and opening hand (no spells to cast)
+    if (nonLandCount === 0 && handSize === OPENING_HAND_SIZE) {
+      console.info('[AI] All lands in opening hand, mulliganing');
+      return false; // Mulligan
+    }
+    
+    // Rule 4: Mulligan if only 1 land in opening hand - too risky
+    if (landCount === 1 && handSize === OPENING_HAND_SIZE) {
+      console.info('[AI] Only 1 land in opening hand, mulliganing (too risky)');
+      return false; // Mulligan
+    }
+    
+    // Rule 5: Keep hand if it has 2-4 lands (good mana ratio)
+    console.info('[AI] Hand has reasonable land count, keeping:', {
+      landCount,
+      handSize,
+    });
+    return true; // Keep hand
     
   } catch (error) {
     console.error('[AI] Error making mulligan decision:', error);
-    return true; // Default to keeping hand
+    return true; // Default to keeping hand on error
   }
 }
 

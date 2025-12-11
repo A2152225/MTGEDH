@@ -203,24 +203,6 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
       continue;
     }
     
-    // CRITICAL FIX: Check if current player is an AI player BEFORE checking auto-pass
-    // For AI players, DON'T auto-pass them during their main phase even if canAct returns false
-    // This gives the AI time to evaluate and play lands/spells via handleAIPriority
-    // The AI's own logic in handleAIPriority will pass priority if it has nothing to do
-    const players = state.players || [];
-    const currentPlayerObj = players.find((p: any) => p.id === currentPlayer);
-    const isAIPlayer = currentPlayerObj && (currentPlayerObj as any).isAI;
-    const currentStep = String(stateAny.step || '').toUpperCase();
-    const isMainPhase = currentStep === 'MAIN1' || currentStep === 'MAIN2' || currentStep === 'MAIN';
-    const stackIsEmpty = !state.stack || state.stack.length === 0;
-    
-    if (isAIPlayer && isMainPhase && stackIsEmpty && currentPlayer === turnPlayer) {
-      // Don't auto-pass AI during their main phase with empty stack
-      // Let the AI's handleAIPriority function decide what to do
-      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: AI player in their main phase, letting AI logic handle it`);
-      return { allPassed: false, resolved: false };
-    }
-    
     // Check if auto-pass is enabled for current player
     if (!autoPassPlayers.has(currentPlayer)) {
       // Auto-pass not enabled, stop here
@@ -229,19 +211,29 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
     }
     
     // Check if player can take any action
-    // CRITICAL FIX: Use different checks for active vs non-active players
+    // Use different checks for active vs non-active players:
     // - Active player (turn player): use canAct() which checks ALL actions (instant-speed + sorcery-speed)
     // - Non-active players: use canRespond() which ONLY checks instant-speed responses
     // 
     // This prevents auto-pass false positives where non-active players are prompted for priority
     // even though they only have lands/sorceries (which they can't play on opponent's turn)
     const isActivePlayer = currentPlayer === turnPlayer;
+    const currentStep = String(stateAny.step || '').toUpperCase();
+    const isMainPhase = currentStep === 'MAIN1' || currentStep === 'MAIN2' || currentStep === 'MAIN';
+    const stackIsEmpty = !state.stack || state.stack.length === 0;
     
     // CRITICAL: Never auto-pass the active player during their main phase with empty stack
-    // This is when they can play lands and cast sorcery-speed spells
-    // Even if canAct returns false (due to bugs), we should give them priority
+    // This is a defensive check that ensures active player ALWAYS gets priority in main phase.
+    // Per MTG Comprehensive Rules 505.6: "the active player gets priority" at start of main phase.
+    // 
+    // Reasons for this check:
+    // 1. Core MTG rule - active player must receive priority in main phase
+    // 2. Defensive programming - even if canAct() has bugs, active player still gets priority
+    // 3. Main phase is when most game actions happen (lands, sorceries, creatures, etc.)
+    // 
+    // This check applies to ALL players (human and AI) equally.
     if (isActivePlayer && isMainPhase && stackIsEmpty) {
-      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: ACTIVE PLAYER in main phase, must give priority`);
+      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: active player in main phase with empty stack (MTG rule 505.6)`);
       return { allPassed: false, resolved: false };
     }
     

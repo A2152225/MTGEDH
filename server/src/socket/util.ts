@@ -124,17 +124,28 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
   
   try {
     const state = game.state;
-    if (!state) return playableIds;
+    if (!state) {
+      console.log(`[getPlayableCardIds] No state for player ${playerId}`);
+      return playableIds;
+    }
     
     const zones = state.zones?.[playerId];
-    if (!zones) return playableIds;
+    if (!zones) {
+      console.log(`[getPlayableCardIds] No zones for player ${playerId}`);
+      return playableIds;
+    }
     
     const pool = getManaPoolFromState(state, playerId);
     const isMainPhase = isInMainPhase(state);
     const stackIsEmpty = !state.stack || state.stack.length === 0;
+    const turnPlayer = state.turnPlayer;
+    const isMyTurn = turnPlayer === playerId;
+    
+    console.log(`[getPlayableCardIds] Player ${playerId}: step=${state.step}, isMainPhase=${isMainPhase}, stackIsEmpty=${stackIsEmpty}, isMyTurn=${isMyTurn}, manaPool=`, pool);
     
     // Check hand for castable spells
     if (Array.isArray(zones.hand)) {
+      console.log(`[getPlayableCardIds] Checking ${zones.hand.length} cards in hand`);
       for (const card of zones.hand) {
         if (!card || typeof card === "string") continue;
         
@@ -156,7 +167,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           typeLine.includes("planeswalker") ||
           typeLine.includes("battle");
         
-        const canCastNow = isInstantSpeed || (isSorcerySpeed && isMainPhase && stackIsEmpty);
+        const canCastNow = isInstantSpeed || (isSorcerySpeed && isMainPhase && stackIsEmpty && isMyTurn);
         
         if (canCastNow) {
           // Check if player can pay the cost
@@ -164,16 +175,21 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           const parsedCost = parseManaFromString(manaCost);
           
           if (canPayManaCost(pool, parsedCost) || hasPayableAlternateCost(game as any, playerId, card)) {
+            console.log(`[getPlayableCardIds] Card ${card.name} (${card.id}) is playable`);
             playableIds.push(card.id);
+          } else {
+            console.log(`[getPlayableCardIds] Card ${card.name} not playable - cannot pay cost ${manaCost}`);
           }
         }
       }
     }
     
     // Check for playable lands in hand (during main phase with empty stack)
-    if (isMainPhase && stackIsEmpty) {
+    if (isMainPhase && stackIsEmpty && isMyTurn) {
       const landsPlayedThisTurn = (state.landsPlayedThisTurn as any)?.[playerId] ?? 0;
       const maxLandsPerTurn = 1;
+      
+      console.log(`[getPlayableCardIds] Checking lands: landsPlayed=${landsPlayedThisTurn}, max=${maxLandsPerTurn}`);
       
       if (landsPlayedThisTurn < maxLandsPerTurn && Array.isArray(zones.hand)) {
         for (const card of zones.hand) {
@@ -181,10 +197,13 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           
           const typeLine = (card.type_line || "").toLowerCase();
           if (typeLine.includes("land")) {
+            console.log(`[getPlayableCardIds] Land ${card.name} (${card.id}) is playable`);
             playableIds.push(card.id);
           }
         }
       }
+    } else {
+      console.log(`[getPlayableCardIds] Not checking lands: isMainPhase=${isMainPhase}, stackIsEmpty=${stackIsEmpty}, isMyTurn=${isMyTurn}`);
     }
     
     // Check exile zone for foretell cards and other playable cards
@@ -407,7 +426,10 @@ function isInMainPhase(state: any): boolean {
     const step = state.step;
     if (!step) return false;
     const stepStr = String(step).toUpperCase();
-    return stepStr === 'MAIN_1' || stepStr === 'MAIN_2' || stepStr === 'MAIN' || stepStr.includes('MAIN');
+    // Check for main phase steps (with or without underscore for compatibility)
+    return stepStr === 'MAIN1' || stepStr === 'MAIN2' || 
+           stepStr === 'MAIN_1' || stepStr === 'MAIN_2' || 
+           stepStr === 'MAIN' || stepStr.includes('MAIN');
   } catch {
     return false;
   }
