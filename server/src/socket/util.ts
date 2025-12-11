@@ -546,6 +546,18 @@ function normalizeViewForEmit(rawView: any, game: any) {
           if (playableCardIds && playableCardIds.length > 0) {
             view.playableCards = playableCardIds;
           }
+          
+          // Add canAct and canRespond flags to the view
+          // These are calculated server-side to ensure consistency with game rules
+          try {
+            view.canAct = canAct(game as any, viewerId);
+            view.canRespond = canRespond(game as any, viewerId);
+          } catch (err) {
+            console.warn("Failed to calculate canAct/canRespond:", err);
+            // Fallback: use playableCards as indicator
+            view.canAct = playableCardIds && playableCardIds.length > 0;
+            view.canRespond = view.canAct; // Conservative fallback
+          }
         }
       }
     } catch (e) {
