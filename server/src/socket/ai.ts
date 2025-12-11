@@ -1793,7 +1793,23 @@ export async function handleAIPriority(
             handleAIPriority(io, gameId, playerId).catch(console.error);
           }, AI_THINK_TIME_MS);
           return;
+        } else {
+          console.info('[AI] No land found in hand to play');
         }
+      } else {
+        const phase = String(game.state?.phase || '').toLowerCase();
+        const step = String(game.state?.step || '').toLowerCase();
+        const isMainPhaseCheck = phase.includes('main') || step.includes('main');
+        const isAITurnCheck = game.state?.turnPlayer === playerId;
+        const landsPlayed = game.state?.landsPlayedThisTurn?.[playerId] || 0;
+        const maxLands = (game.maxLandsPerTurn?.[playerId] ?? game.state?.maxLandsPerTurn?.[playerId]) || 1;
+        console.info('[AI] Cannot play land:', { 
+          isMainPhase: isMainPhaseCheck, 
+          isAITurn: isAITurnCheck, 
+          landsPlayed, 
+          maxLands,
+          reason: !isMainPhaseCheck ? 'not main phase' : !isAITurnCheck ? 'not AI turn' : 'already played max lands'
+        });
       }
       
       // Try to use activated abilities (before casting spells)
@@ -2773,6 +2789,21 @@ async function executeAdvanceStep(
 ): Promise<void> {
   const game = ensureGame(gameId);
   if (!game) return;
+  
+  // CRITICAL: Only the turn player can advance steps
+  // Non-turn players should pass priority instead
+  const turnPlayer = game.state?.turnPlayer;
+  if (playerId !== turnPlayer) {
+    console.warn('[AI] Cannot advance step - not the turn player:', { 
+      gameId, 
+      playerId, 
+      turnPlayer,
+      message: 'Only the active player can advance game steps'
+    });
+    // Non-turn player should pass priority instead
+    await executePassPriority(io, gameId, playerId);
+    return;
+  }
   
   // Check if there are any pending modal interactions before advancing
   const pendingCheck = checkPendingModals(game, gameId);
