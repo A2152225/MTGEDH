@@ -163,15 +163,6 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
       continue;
     }
     
-    // Check if the current player just used phase navigator
-    // If so, give them priority at EVERY step until they explicitly re-enable auto-pass
-    const justSkipped = stateAny.justSkippedToPhase;
-    if (justSkipped && justSkipped.playerId === currentPlayer) {
-      const current = normalizePhaseStep(stateAny.phase, stateAny.step);
-      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: player used phase navigator, giving them priority window at ${current.step}`);
-      return { allPassed: false, resolved: false };
-    }
-    
     // Check if player has claimed priority (clicked "Take Action")
     // If so, don't auto-pass them - they want to take an action
     if (!stateAny.priorityClaimed) {
@@ -189,6 +180,18 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
       return { allPassed: false, resolved: false };
     }
     
+    // Check if player has explicitly enabled "auto-pass for rest of turn"
+    const autoPassForTurn = stateAny.autoPassForTurn?.[currentPlayer] || false;
+    
+    // If player has "Auto-Pass Rest of Turn" enabled, skip all ability checks
+    // and auto-pass them through everything
+    if (autoPassForTurn) {
+      console.log(`[priority] Auto-passing for ${currentPlayer} - auto-pass for rest of turn enabled`);
+      stateAny.priorityPassedBy.add(currentPlayer);
+      state.priority = advancePriorityClockwise(ctx, currentPlayer);
+      continue;
+    }
+    
     // Check if player can take any action
     // Use different checks for active vs non-active players:
     // - Active player (turn player): use canAct() which checks ALL actions (instant-speed + sorcery-speed)
@@ -198,32 +201,31 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
     // even though they only have lands/sorceries (which they can't play on opponent's turn)
     const isActivePlayer = currentPlayer === turnPlayer;
     const currentStep = String(stateAny.step || '').toUpperCase();
-    const isMainPhase = currentStep === 'MAIN1' || currentStep === 'MAIN2' || currentStep === 'MAIN';
-    const stackIsEmpty = !state.stack || state.stack.length === 0;
     
-    // Check if player has explicitly enabled "auto-pass for rest of turn"
-    const autoPassForTurn = stateAny.autoPassForTurn?.[currentPlayer] || false;
-    
-    // For the active player, check if they can actually take any action
-    // If they have "auto-pass for rest of turn" enabled, always auto-pass regardless of actions available
-    // Otherwise, check canAct() to see if they have any legal moves
     const playerCanAct = isActivePlayer 
       ? canAct(ctx, currentPlayer)      // Active player: check all actions (instant + sorcery speed)
       : canRespond(ctx, currentPlayer);  // Non-active: only check instant-speed responses
     
-    console.log(`[priority] autoPassLoop - checking ${currentPlayer} (${isActivePlayer ? 'ACTIVE' : 'non-active'}): canAct=${playerCanAct}, stack.length=${state.stack.length}, step=${currentStep}, autoPassForTurn=${autoPassForTurn}`);
+    console.log(`[priority] autoPassLoop - checking ${currentPlayer} (${isActivePlayer ? 'ACTIVE' : 'non-active'}): canAct=${playerCanAct}, stack.length=${state.stack.length}, step=${currentStep}`);
     
-    // CRITICAL: For the active player during their own turn:
-    // - If they have "auto-pass for rest of turn" enabled, always auto-pass them
-    // - Otherwise, only auto-pass if canAct() returns false (no legal actions available)
+    // Check if the current player used phase navigator
+    // If so, give them priority at this step (they explicitly navigated here)
+    const justSkipped = stateAny.justSkippedToPhase;
+    if (justSkipped && justSkipped.playerId === currentPlayer) {
+      const current = normalizePhaseStep(stateAny.phase, stateAny.step);
+      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: player used phase navigator, giving them priority window at ${current.step}`);
+      return { allPassed: false, resolved: false };
+    }
+    
+    // For the active player during their own turn:
+    // Only auto-pass if canAct() returns false (no legal actions available)
     // 
     // This ensures:
     // 1. Turn player with lands/spells gets priority to act
     // 2. Turn player with no legal moves is auto-passed (e.g., no lands, all spells too expensive)
-    // 3. Turn player can force auto-pass with "auto-pass for rest of turn" button
-    if (isActivePlayer && !autoPassForTurn && playerCanAct) {
-      // Active player can take actions and hasn't enabled auto-pass for turn - stop here
-      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: active player can act (must manually pass or enable auto-pass for rest of turn)`);
+    if (isActivePlayer && playerCanAct) {
+      // Active player can take actions - stop here
+      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: active player can act`);
       return { allPassed: false, resolved: false };
     }
     
