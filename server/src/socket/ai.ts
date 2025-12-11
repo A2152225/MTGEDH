@@ -1937,14 +1937,11 @@ export async function handleAIPriority(
         return;
       }
       
-      // No more actions, advance step (only if it's AI's turn)
-      if (isAITurn) {
-        console.info('[AI] Main phase, no more actions, advancing step');
-        await executeAdvanceStep(io, gameId, playerId);
-      } else {
-        console.info('[AI] Main phase, not AI turn, passing priority');
-        await executePassPriority(io, gameId, playerId);
-      }
+      // No more actions, pass priority (don't advance step directly - let priority system handle it)
+      // This allows other players to get priority and potentially take actions
+      // The step will advance automatically when all players pass priority
+      console.info('[AI] Main phase, no more actions, passing priority');
+      await executePassPriority(io, gameId, playerId);
       return;
     }
     

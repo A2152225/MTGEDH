@@ -222,34 +222,40 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
     const isMainPhase = currentStep === 'MAIN1' || currentStep === 'MAIN2' || currentStep === 'MAIN';
     const stackIsEmpty = !state.stack || state.stack.length === 0;
     
-    // CRITICAL: Never auto-pass the active player during their main phase with empty stack
-    // This is a defensive check that ensures active player ALWAYS gets priority in main phase.
-    // Per MTG Comprehensive Rules 505.6: "the active player gets priority" at start of main phase.
-    // 
-    // Reasons for this check:
-    // 1. Core MTG rule - active player must receive priority in main phase
-    // 2. Defensive programming - even if canAct() has bugs, active player still gets priority
-    // 3. Main phase is when most game actions happen (lands, sorceries, creatures, etc.)
-    // 
-    // This check applies to ALL players (human and AI) equally.
-    if (isActivePlayer && isMainPhase && stackIsEmpty) {
-      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: active player in main phase with empty stack (MTG rule 505.6)`);
-      return { allPassed: false, resolved: false };
-    }
+    // Check if player has explicitly enabled "auto-pass for rest of turn"
+    const autoPassForTurn = stateAny.autoPassForTurn?.[currentPlayer] || false;
     
+    // For the active player, check if they can actually take any action
+    // If they have "auto-pass for rest of turn" enabled, always auto-pass regardless of actions available
+    // Otherwise, check canAct() to see if they have any legal moves
     const playerCanAct = isActivePlayer 
       ? canAct(ctx, currentPlayer)      // Active player: check all actions (instant + sorcery speed)
       : canRespond(ctx, currentPlayer);  // Non-active: only check instant-speed responses
     
-    console.log(`[priority] autoPassLoop - checking ${currentPlayer} (${isActivePlayer ? 'ACTIVE' : 'non-active'}): canAct=${playerCanAct}, stack.length=${state.stack.length}, step=${currentStep}`);
+    console.log(`[priority] autoPassLoop - checking ${currentPlayer} (${isActivePlayer ? 'ACTIVE' : 'non-active'}): canAct=${playerCanAct}, stack.length=${state.stack.length}, step=${currentStep}, autoPassForTurn=${autoPassForTurn}`);
     
-    if (playerCanAct) {
-      // Player can act, stop here
+    // CRITICAL: For the active player during their own turn:
+    // - If they have "auto-pass for rest of turn" enabled, always auto-pass them
+    // - Otherwise, only auto-pass if canAct() returns false (no legal actions available)
+    // 
+    // This ensures:
+    // 1. Turn player with lands/spells gets priority to act
+    // 2. Turn player with no legal moves is auto-passed (e.g., no lands, all spells too expensive)
+    // 3. Turn player can force auto-pass with "auto-pass for rest of turn" button
+    if (isActivePlayer && !autoPassForTurn && playerCanAct) {
+      // Active player can take actions and hasn't enabled auto-pass for turn - stop here
+      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: active player can act (must manually pass or enable auto-pass for rest of turn)`);
+      return { allPassed: false, resolved: false };
+    }
+    
+    // For non-active players, check if they can respond
+    if (!isActivePlayer && playerCanAct) {
+      // Non-active player can respond - stop here
       console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: player can act`);
       return { allPassed: false, resolved: false };
     }
     
-    // Player cannot act - auto-pass
+    // Player cannot act (or has auto-pass for turn enabled) - auto-pass
     console.log(`[priority] Auto-passing for ${currentPlayer} - no available actions`);
     stateAny.priorityPassedBy.add(currentPlayer);
     
