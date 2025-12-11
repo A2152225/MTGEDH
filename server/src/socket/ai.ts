@@ -1867,13 +1867,14 @@ export async function handleAIPriority(
       const isHumanTurnPlayer = turnPlayer && !isAIPlayer(gameId, turnPlayer);
       
       // Check if the turn player has claimed priority (interacted with the UI) this step
+      // Note: priorityClaimed is dynamically added to game state, hence the `any` cast
       const priorityClaimed = (game.state as any).priorityClaimed || new Set();
       const turnPlayerHasClaimedPriority = priorityClaimed.has(turnPlayer);
       
       // Check if turn player can take sorcery-speed actions (they can act)
       // We use canAct from can-respond module to check if they have playable actions
       let turnPlayerCanAct = false;
-      // Check if we're in main phase (duplicated from below to avoid forward reference)
+      // Check if we're in main phase (duplicated from line 1917 to avoid forward reference)
       const inMainPhase = phase.includes('main') || step.includes('main');
       if (inMainPhase && stackEmpty && turnPlayer) {
         try {
@@ -1882,7 +1883,8 @@ export async function handleAIPriority(
           turnPlayerCanAct = canAct(ctx, turnPlayer);
         } catch (err) {
           console.warn('[AI] Failed to check turnPlayerCanAct:', err);
-          // On error, assume they can act (conservative approach)
+          // Conservative approach: assume they can act to avoid blocking the human player
+          // This is safer than potentially blocking a human player due to a transient error
           turnPlayerCanAct = true;
         }
       }
