@@ -15,6 +15,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import type { BattlefieldPermanent, PlayerRef, PlayerID, KnownCardRef, CombatControlEffect } from '../../../shared/src';
+import { isCurrentlyCreature } from '../utils/creatureUtils';
 
 export interface CombatControlModalProps {
   open: boolean;
@@ -97,8 +98,8 @@ function getCreatureInfo(
   let canBlock = true;
   let blockReason: string | undefined;
   
-  // Check if it's a creature
-  if (!typeLine.includes('creature')) {
+  // Check if it's currently a creature (handles reconfigure/bestow)
+  if (!isCurrentlyCreature(perm)) {
     canAttack = false;
     attackReason = 'Not a creature';
     canBlock = false;

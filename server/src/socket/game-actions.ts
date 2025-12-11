@@ -3599,13 +3599,13 @@ export function registerGameActions(io: Server, socket: Socket) {
   socket.on("castSpellFromHand", handleCastSpellFromHand);
 
   // Pass priority
-  socket.on("passPriority", ({ gameId }: { gameId: string }) => {
+  socket.on("passPriority", ({ gameId, isAutoPass }: { gameId: string; isAutoPass?: boolean }) => {
     try {
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
-      const { changed, resolvedNow, advanceStep } = game.passPriority(playerId);
+      const { changed, resolvedNow, advanceStep } = game.passPriority(playerId, isAutoPass);
       if (!changed) return;
 
       appendGameEvent(game, gameId, "passPriority", { by: playerId });

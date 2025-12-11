@@ -39,7 +39,7 @@ function advancePriorityClockwise(ctx: GameContext, from: PlayerID): PlayerID {
   return active[nextIdx].id as PlayerID;
 }
 
-export function passPriority(ctx: GameContext, playerId: PlayerID): { changed: boolean; resolvedNow: boolean; advanceStep: boolean } {
+export function passPriority(ctx: GameContext, playerId: PlayerID, isAutoPass?: boolean): { changed: boolean; resolvedNow: boolean; advanceStep: boolean } {
   const { state, passesInRow, bumpSeq } = ctx;
   if (state.priority !== playerId) return { changed: false, resolvedNow: false, advanceStep: false };
   const active = activePlayersClockwise(ctx);
@@ -93,12 +93,16 @@ export function passPriority(ctx: GameContext, playerId: PlayerID): { changed: b
       // Not all players have passed yet, advance priority clockwise
       state.priority = advancePriorityClockwise(ctx, playerId);
       
-      // Iteratively auto-pass players who cannot respond
-      const result = autoPassLoop(ctx, active);
-      if (result.allPassed && result.resolved) {
-        // All players auto-passed and stack was resolved
-        resolvedNow = true;
-        passesInRow.value = 0;
+      // Run autoPassLoop ONLY if this is an auto-pass (not a manual pass)
+      // This allows the system to chain auto-passes when players have no actions,
+      // but prevents aggressive auto-passing when a player manually clicks "Pass Priority"
+      if (isAutoPass) {
+        const result = autoPassLoop(ctx, active);
+        if (result.allPassed && result.resolved) {
+          // All players auto-passed and stack was resolved
+          resolvedNow = true;
+          passesInRow.value = 0;
+        }
       }
     }
   } else {
@@ -115,16 +119,20 @@ export function passPriority(ctx: GameContext, playerId: PlayerID): { changed: b
       // Not all players have passed yet, advance priority clockwise
       state.priority = advancePriorityClockwise(ctx, playerId);
       
-      // Iteratively auto-pass players who cannot respond
-      const result = autoPassLoop(ctx, active);
-      if (result.allPassed) {
-        // All players have now passed via auto-pass
-        if (result.resolved) {
-          // Stack was resolved
-          resolvedNow = true;
-        } else {
-          // Empty stack - advance step
-          advanceStep = true;
+      // Run autoPassLoop ONLY if this is an auto-pass (not a manual pass)
+      // This allows the system to chain auto-passes when players have no actions,
+      // but prevents aggressive auto-passing when a player manually clicks "Pass Priority"
+      if (isAutoPass) {
+        const result = autoPassLoop(ctx, active);
+        if (result.allPassed) {
+          // All players have now passed via auto-pass
+          if (result.resolved) {
+            // Stack was resolved
+            resolvedNow = true;
+          } else {
+            // Empty stack - advance step
+            advanceStep = true;
+          }
         }
       }
     }

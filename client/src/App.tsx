@@ -74,6 +74,7 @@ import {
   getTextColorsForBackground,
 } from "./utils/appearanceSettings";
 import { prettyPhase, prettyStep, isLandTypeLine } from "./utils/gameDisplayHelpers";
+import { isCurrentlyCreature } from "./utils/creatureUtils";
 import { IgnoredTriggersPanel } from "./components/IgnoredTriggersPanel";
 import { PriorityModal } from "./components/PriorityModal";
 import { AutoPassSettingsPanel } from "./components/AutoPassSettingsPanel";
@@ -905,8 +906,8 @@ export function App() {
         // Check if there are any valid creatures that can attack
         const validAttackers = (safeView.battlefield || []).filter((p: BattlefieldPermanent) => {
           if (p.controller !== you) return false;
-          const typeLine = (p.card as KnownCardRef)?.type_line?.toLowerCase() || '';
-          if (!typeLine.includes('creature')) return false;
+          // Check if it's currently a creature (handles reconfigure/bestow)
+          if (!isCurrentlyCreature(p)) return false;
           // Check if creature can attack (not tapped, no summoning sickness unless haste, no defender)
           if (p.tapped) return false;
           return canCreatureAttack(p);
@@ -1055,7 +1056,7 @@ export function App() {
         if (shouldAutoPass) {
           // Auto-pass priority (during opponents' turns OR when player has no actions available)
           console.log('[AutoPass] Passing priority - canRespond:', canRespond, 'step:', step);
-          socket.emit("passPriority", { gameId: safeView.id, by: you });
+          socket.emit("passPriority", { gameId: safeView.id, by: you, isAutoPass: true });
           setPriorityModalOpen(false);
         } else {
           // Show priority modal for this step
@@ -3656,8 +3657,8 @@ export function App() {
     if (!safeView || !you) return [];
     return (safeView.battlefield || []).filter((p: BattlefieldPermanent) => {
       if (p.controller !== you) return false;
-      const typeLine = (p.card as KnownCardRef)?.type_line?.toLowerCase() || '';
-      if (!typeLine.includes('creature')) return false;
+      // Check if it's currently a creature (handles reconfigure/bestow)
+      if (!isCurrentlyCreature(p)) return false;
       
       // Filter out creatures that cannot attack (summoning sickness without haste, or defender)
       return canCreatureAttack(p);
@@ -3672,8 +3673,8 @@ export function App() {
     if (!safeView || !you) return [];
     return (safeView.battlefield || []).filter((p: BattlefieldPermanent) => {
       if (p.controller !== you) return false;
-      const typeLine = (p.card as KnownCardRef)?.type_line?.toLowerCase() || '';
-      if (!typeLine.includes('creature')) return false;
+      // Check if it's currently a creature (handles reconfigure/bestow)
+      if (!isCurrentlyCreature(p)) return false;
       // Tapped creatures cannot block
       if (p.tapped) return false;
       // All untapped creatures can block (even with summoning sickness or defender)
@@ -3685,7 +3686,7 @@ export function App() {
     if (!safeView) return [];
     return (safeView.battlefield || []).filter((p: any) => 
       p.attacking && 
-      (p.card as KnownCardRef)?.type_line?.toLowerCase().includes('creature')
+      isCurrentlyCreature(p)
     );
   }, [safeView]);
 
