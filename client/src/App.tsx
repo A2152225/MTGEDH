@@ -770,6 +770,30 @@ export function App() {
     }
   }, [safeView?.id, socket.connected]); // Only sync when game changes or socket reconnects
 
+  // Listen for auto-pass toggle confirmation from server
+  // This updates the client UI when auto-pass is enabled/disabled
+  React.useEffect(() => {
+    const handleAutoPassToggled = (data: { 
+      gameId: string; 
+      playerId: string; 
+      enabled: boolean; 
+      success: boolean; 
+    }) => {
+      // Only update if it's for this game and this player
+      if (data.gameId === safeView?.id && data.playerId === you && data.success) {
+        console.log('[AutoPass] Server confirmed toggle:', data.enabled ? 'enabled' : 'disabled');
+        // The UI state is already updated from the user action
+        // This confirms the server processed it correctly
+        // If the server state doesn't match, we could sync here
+      }
+    };
+
+    socket.on('autoPassToggled', handleAutoPassToggled);
+    return () => {
+      socket.off('autoPassToggled', handleAutoPassToggled);
+    };
+  }, [safeView?.id, you]);
+
   // Auto-advance phases/steps setting
   // When enabled, automatically passes priority during untap, draw, and cleanup phases
   // if the player has nothing to do
