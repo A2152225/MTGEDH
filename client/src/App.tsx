@@ -1051,13 +1051,11 @@ export function App() {
     const isCombatPhase = COMBAT_STEPS.some(phase => stepKey.includes(phase));
     
     // Auto-pass logic for your own turn:
-    // 1. Main phases: NEVER auto-pass client-side - let server check canAct() properly
-    //    This prevents race conditions where playableCards isn't updated yet
+    // 1. Main phases: Auto-pass if you CAN'T respond (no playable cards/lands/abilities)
     // 2. Combat phases: Auto-pass if you have no creatures to attack with
     // 3. Other phases: Auto-pass if using phase navigator
     const canAutoPassOnYourTurn = 
-      // NOTE: Removed (isActionPhase && !canRespond) check to fix issue where
-      // client auto-passes before playableCards is populated, preventing land plays
+      (isActionPhase && !canRespond) ||  // Main phase with nothing to do
       (isCombatPhase && !hasCreaturesToAttack) ||  // Combat with no creatures
       (phaseNavigatorAdvancing && !isActionPhase && !canRespond);  // Phase navigator in non-action phases
     
@@ -1075,7 +1073,12 @@ export function App() {
       const stepChanged = lastPriorityStep.current !== step;
       const canRespondChanged = lastCanRespond.current !== null && lastCanRespond.current !== canRespond;
       
-      if (stepChanged || canRespondChanged) {
+      // Special handling for main phases on your turn:
+      // Don't auto-pass immediately on step change - wait for canRespond to stabilize
+      // This prevents race condition where playableCards isn't populated yet
+      const shouldWaitForCanRespond = isYourTurn && isActionPhase && stepChanged && !canRespondChanged;
+      
+      if ((stepChanged || canRespondChanged) && !shouldWaitForCanRespond) {
         lastPriorityStep.current = step;
         lastCanRespond.current = canRespond;
         
@@ -1092,6 +1095,11 @@ export function App() {
             setPriorityModalOpen(true);
           }
         }
+      } else if (shouldWaitForCanRespond) {
+        // Update tracking but don't auto-pass yet - wait for playableCards to populate
+        lastPriorityStep.current = step;
+        lastCanRespond.current = canRespond;
+        console.log('[AutoPass] Waiting for playableCards to populate in main phase');
       }
     } else {
       // Close priority modal if we don't have priority or stack is not empty
