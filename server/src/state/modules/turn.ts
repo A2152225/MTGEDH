@@ -2558,7 +2558,10 @@ export function nextStep(ctx: GameContext) {
         const shouldGrantPriority = !isUntapStep && !isCleanupStep;
         
         if (shouldGrantPriority) {
+          // Always grant priority to the active player first
+          // The auto-pass system will handle passing priority if they can't act
           (ctx as any).state.priority = turnPlayer;
+          
           // CRITICAL: Reset priorityPassedBy when granting priority in a new step
           // This ensures players who passed in the previous step get a fresh chance to act
           // Without this, auto-pass can cause steps to be skipped incorrectly
