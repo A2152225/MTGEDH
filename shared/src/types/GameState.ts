@@ -39,6 +39,10 @@ export interface GameState {
   // Game status
   status: GameStatus;
   winner?: string;
+  
+  // Pending interactions
+  pendingForbiddenOrchard?: Record<string, any>;
+  pendingLibrarySearch?: Record<string, any>;
 }
 
 export enum GameFormat {

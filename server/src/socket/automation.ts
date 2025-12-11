@@ -465,10 +465,9 @@ export function registerAutomationHandlers(
     } catch (err) {
       console.error("[Automation] Error in checkCanRespond:", err);
       socket.emit("canRespondResponse", { 
-        gameId,
-        playerId,
         canRespond: true, // Default to true on error to be safe
-        error: "Failed to check response capability" 
+        canAct: true,
+        reason: "Failed to check response capability" 
       });
     }
   });
