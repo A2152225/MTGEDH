@@ -93,13 +93,15 @@ export function passPriority(ctx: GameContext, playerId: PlayerID): { changed: b
       // Not all players have passed yet, advance priority clockwise
       state.priority = advancePriorityClockwise(ctx, playerId);
       
-      // Iteratively auto-pass players who cannot respond
-      const result = autoPassLoop(ctx, active);
-      if (result.allPassed && result.resolved) {
-        // All players auto-passed and stack was resolved
-        resolvedNow = true;
-        passesInRow.value = 0;
-      }
+      // NOTE: We do NOT run autoPassLoop here after a manual priority pass.
+      // Each player should get the opportunity to manually pass priority themselves.
+      // Running autoPassLoop immediately after a manual pass causes issues where:
+      // 1. User manually passes priority in upkeep
+      // 2. autoPassLoop auto-passes all other players who can't respond
+      // 3. All players have now passed -> step advances all the way to END
+      // Instead, we just advance priority to the next player and let them decide.
+      // The auto-pass feature should only apply when a player receives priority
+      // and decides whether to show them the priority modal or auto-pass.
     }
   } else {
     passesInRow.value = 0;
@@ -115,18 +117,15 @@ export function passPriority(ctx: GameContext, playerId: PlayerID): { changed: b
       // Not all players have passed yet, advance priority clockwise
       state.priority = advancePriorityClockwise(ctx, playerId);
       
-      // Iteratively auto-pass players who cannot respond
-      const result = autoPassLoop(ctx, active);
-      if (result.allPassed) {
-        // All players have now passed via auto-pass
-        if (result.resolved) {
-          // Stack was resolved
-          resolvedNow = true;
-        } else {
-          // Empty stack - advance step
-          advanceStep = true;
-        }
-      }
+      // NOTE: We do NOT run autoPassLoop here after a manual priority pass.
+      // Each player should get the opportunity to manually pass priority themselves.
+      // Running autoPassLoop immediately after a manual pass causes issues where:
+      // 1. User manually passes priority in upkeep
+      // 2. autoPassLoop auto-passes all other players who can't respond
+      // 3. All players have now passed -> step advances all the way to END
+      // Instead, we just advance priority to the next player and let them decide.
+      // The auto-pass feature should only apply when a player receives priority
+      // and decides whether to show them the priority modal or auto-pass.
     }
   }
   
