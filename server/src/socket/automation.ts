@@ -299,7 +299,7 @@ export function registerAutomationHandlers(
       return;
     }
     
-    console.log(`[Automation] Auto-pass ${enabled ? "enabled" : "disabled"} for ${playerId}`);
+    console.log(`[Automation] Auto-pass ${enabled ? "enabled" : "disabled"} for ${playerId} in game ${gameId}`);
     
     // Store auto-pass preference (would be in game state or automation config)
     const game = games.get(gameId);
@@ -311,6 +311,25 @@ export function registerAutomationHandlers(
         autoPassPlayers.delete(playerId);
       }
       (game.state as any).autoPassPlayers = autoPassPlayers;
+      
+      // Log the current state
+      console.log(`[Automation] Auto-pass players in game ${gameId}:`, Array.from(autoPassPlayers));
+      
+      // Confirm the change back to the client
+      socket.emit("autoPassToggled", { 
+        gameId, 
+        playerId,
+        enabled,
+        success: true 
+      });
+      
+      // Bump sequence to trigger state update
+      if (typeof (game as any).bumpSeq === 'function') {
+        (game as any).bumpSeq();
+      }
+    } else {
+      console.warn(`[Automation] Failed to toggle auto-pass: game ${gameId} not found or has no state`);
+      socket.emit("error", { message: "Game not found" });
     }
   });
 
