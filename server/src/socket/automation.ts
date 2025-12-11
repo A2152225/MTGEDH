@@ -305,8 +305,22 @@ export function registerAutomationHandlers(
     const game = games.get(gameId);
     if (game && game.state) {
       const autoPassPlayers = (game.state as any).autoPassPlayers || new Set();
+      const wasEnabled = autoPassPlayers.has(playerId);
+      
       if (enabled) {
         autoPassPlayers.add(playerId);
+        
+        // Only clear justSkippedToPhase if the player is RE-ENABLING auto-pass
+        // (i.e., it wasn't already enabled). This allows phase navigator to work
+        // even when auto-pass is enabled - the flag persists until they actively
+        // toggle auto-pass back on after using the navigator.
+        if (!wasEnabled) {
+          const justSkipped = (game.state as any).justSkippedToPhase;
+          if (justSkipped && justSkipped.playerId === playerId) {
+            delete (game.state as any).justSkippedToPhase;
+            console.log(`[Automation] Cleared justSkippedToPhase for ${playerId} (re-enabled auto-pass)`);
+          }
+        }
       } else {
         autoPassPlayers.delete(playerId);
       }
@@ -331,6 +345,85 @@ export function registerAutomationHandlers(
       console.warn(`[Automation] Failed to toggle auto-pass: game ${gameId} not found or has no state`);
       socket.emit("error", { message: "Game not found" });
     }
+  });
+
+  /**
+   * Handle auto-pass for rest of turn toggle
+   */
+  socket.on("setAutoPassForTurn", (payload) => {
+    const { gameId, enabled } = payload;
+    const playerId = socket.data.playerId;
+    
+    if (!playerId) {
+      socket.emit("error", { message: "Not in a game" });
+      return;
+    }
+    
+    console.log(`[Automation] Auto-pass for turn ${enabled ? "enabled" : "disabled"} for ${playerId} in game ${gameId}`);
+    
+    const game = games.get(gameId);
+    if (game && game.state) {
+      const stateAny = game.state as any;
+      if (!stateAny.autoPassForTurn) {
+        stateAny.autoPassForTurn = {};
+      }
+      
+      if (enabled) {
+        stateAny.autoPassForTurn[playerId] = true;
+        
+        // When enabling auto-pass for turn, clear the justSkippedToPhase flag for this player
+        // This allows auto-pass to work normally after they've navigated with phase navigator
+        const justSkipped = stateAny.justSkippedToPhase;
+        if (justSkipped && justSkipped.playerId === playerId) {
+          delete stateAny.justSkippedToPhase;
+          console.log(`[Automation] Cleared justSkippedToPhase for ${playerId} (enabled auto-pass for turn)`);
+        }
+      } else {
+        delete stateAny.autoPassForTurn[playerId];
+      }
+      
+      console.log(`[Automation] Auto-pass for turn state in game ${gameId}:`, stateAny.autoPassForTurn);
+      
+      // Bump sequence to trigger state update
+      if (typeof (game as any).bumpSeq === 'function') {
+        (game as any).bumpSeq();
+      }
+    } else {
+      console.warn(`[Automation] Failed to toggle auto-pass for turn: game ${gameId} not found or has no state`);
+      socket.emit("error", { message: "Game not found" });
+    }
+  });
+
+  /**
+   * Handle claim priority (player wants to retain priority and take action)
+   * This prevents auto-pass from immediately passing their priority
+   */
+  socket.on("claimPriority", (payload) => {
+    const { gameId } = payload;
+    const playerId = socket.data.playerId;
+    
+    if (!playerId) {
+      socket.emit("error", { message: "Not in a game" });
+      return;
+    }
+    
+    const game = games.get(gameId);
+    if (!game || !game.state) {
+      socket.emit("error", { message: "Game not found" });
+      return;
+    }
+    
+    console.log(`[Automation] Player ${playerId} claimed priority in game ${gameId}`);
+    
+    // Mark that this player has claimed priority for this step
+    // This will prevent auto-pass from passing them immediately
+    const stateAny = game.state as any;
+    if (!stateAny.priorityClaimed) {
+      stateAny.priorityClaimed = new Set<string>();
+    }
+    stateAny.priorityClaimed.add(playerId);
+    
+    // The claim is cleared when the step advances in nextStep logic
   });
 
   /**

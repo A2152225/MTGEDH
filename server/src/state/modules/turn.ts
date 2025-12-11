@@ -1660,6 +1660,20 @@ export function nextTurn(ctx: GameContext) {
     // Now give priority to the active player at UPKEEP (Rule 503.1)
     (ctx as any).state.priority = next;
 
+    // Clear auto-pass for turn flags when starting a new turn
+    // This resets the "Auto-Pass Rest of Turn" setting for all players
+    if ((ctx as any).state.autoPassForTurn) {
+      (ctx as any).state.autoPassForTurn = {};
+      console.log(`${ts()} [nextTurn] Cleared autoPassForTurn flags for new turn`);
+    }
+    
+    // Clear justSkippedToPhase flag when starting a new turn
+    // Players need to use phase navigator again if they want priority protection
+    if ((ctx as any).state.justSkippedToPhase) {
+      delete (ctx as any).state.justSkippedToPhase;
+      console.log(`${ts()} [nextTurn] Cleared justSkippedToPhase flag for new turn`);
+    }
+
     // Reset lands played this turn for all players
     (ctx as any).state.landsPlayedThisTurn = (ctx as any).state.landsPlayedThisTurn || {};
     for (const pid of players) {
@@ -2540,6 +2554,10 @@ export function nextStep(ctx: GameContext) {
           // This ensures players who passed in the previous step get a fresh chance to act
           // Without this, auto-pass can cause steps to be skipped incorrectly
           (ctx as any).state.priorityPassedBy = new Set<string>();
+          
+          // Also clear priorityClaimed set - players need to claim priority again each step
+          (ctx as any).state.priorityClaimed = new Set<string>();
+          
           console.log(`${ts()} [nextStep] Granting priority to active player ${turnPlayer} (step: ${nextStep ?? 'unknown'}, stack size: ${(ctx as any).state.stack.length})`);
         } else {
           // UNTAP and CLEANUP steps don't grant priority normally

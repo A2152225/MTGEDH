@@ -13,6 +13,15 @@ function normalizePhaseStep(phase: string, step: string): { phase: string; step:
   };
 }
 
+/**
+ * Check if we're at the phase/step that the player skipped to
+ */
+function isAtSkipTarget(currentPhase: string, currentStep: string, skipPhase: string, skipStep: string): boolean {
+  const current = normalizePhaseStep(currentPhase, currentStep);
+  const target = normalizePhaseStep(skipPhase, skipStep);
+  return current.phase === target.phase && current.step === target.step;
+}
+
 function activePlayersClockwise(ctx: GameContext): PlayerRef[] {
   const { state, inactive } = ctx;
   return (state.players as any as PlayerRef[])
@@ -44,21 +53,10 @@ export function passPriority(ctx: GameContext, playerId: PlayerID): { changed: b
   }
   stateAny.priorityPassedBy.add(playerId);
   
-  // If the player who initiated skipToPhase just manually passed, clear the flag
-  // This allows auto-pass to resume normally after they've had their priority window
-  if (stateAny.justSkippedToPhase && stateAny.justSkippedToPhase.playerId === playerId) {
-    const current = normalizePhaseStep(stateAny.phase, stateAny.step);
-    const justSkipped = normalizePhaseStep(
-      stateAny.justSkippedToPhase.phase,
-      stateAny.justSkippedToPhase.step
-    );
-    
-    // Only clear if we're still in the phase/step they skipped to
-    if (current.phase === justSkipped.phase && current.step === justSkipped.step) {
-      console.log(`[passPriority] Clearing justSkippedToPhase: initiator ${playerId} manually passed at ${current.step}`);
-      delete stateAny.justSkippedToPhase;
-    }
-  }
+  // NOTE: We do NOT clear justSkippedToPhase here when the player manually passes.
+  // The justSkippedToPhase flag should persist across multiple steps so the player
+  // gets priority at each step after using the phase navigator.
+  // It will be cleared automatically in autoPassLoop when moving to a different phase/step.
   
   let resolvedNow = false;
   let advanceStep = false;
@@ -139,35 +137,6 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
   
   console.log(`[priority] autoPassLoop starting - active players: ${active.map(p => p.id).join(', ')}, autoPassEnabled: ${Array.from(autoPassPlayers).join(', ')}, currentPriority: ${state.priority}, turnPlayer: ${turnPlayer}`);
   
-  // Check if we just arrived at this phase via skipToPhase
-  // If so, give the player who initiated the skip at least one priority window
-  // This prevents auto-passing through a phase the player explicitly navigated to
-  const justSkipped = stateAny.justSkippedToPhase;
-  if (justSkipped && justSkipped.playerId && justSkipped.phase && justSkipped.step) {
-    const current = normalizePhaseStep(stateAny.phase, stateAny.step);
-    const skipped = normalizePhaseStep(justSkipped.phase, justSkipped.step);
-    
-    // Check if we're still in the phase/step that was just skipped to
-    if (current.phase === skipped.phase && current.step === skipped.step) {
-      const skipInitiator = justSkipped.playerId;
-      
-      // If the player who skipped hasn't passed yet, don't auto-pass them
-      if (state.priority === skipInitiator && !stateAny.priorityPassedBy.has(skipInitiator)) {
-        console.log(`[priority] autoPassLoop - stopping: player ${skipInitiator} just skipped to ${current.step}, giving them priority window`);
-        return { allPassed: false, resolved: false };
-      }
-      
-      // If the skip initiator has passed, clear the flag so auto-pass can resume
-      if (stateAny.priorityPassedBy.has(skipInitiator)) {
-        console.log(`[priority] autoPassLoop - clearing justSkippedToPhase: initiator ${skipInitiator} has passed`);
-        delete stateAny.justSkippedToPhase;
-      }
-    } else {
-      // We've moved to a different phase/step, clear the flag
-      console.log(`[priority] autoPassLoop - clearing justSkippedToPhase: moved from ${skipped.step} to ${current.step}`);
-      delete stateAny.justSkippedToPhase;
-    }
-  }
   
   let iterations = 0;
   // Safety limit: Each player can pass at most once per priority round.
@@ -203,11 +172,33 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
       continue;
     }
     
+    // Check if player has claimed priority (clicked "Take Action")
+    // If so, don't auto-pass them - they want to take an action
+    if (!stateAny.priorityClaimed) {
+      stateAny.priorityClaimed = new Set<string>();
+    }
+    if (stateAny.priorityClaimed.has(currentPlayer)) {
+      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: player claimed priority (wants to take action)`);
+      return { allPassed: false, resolved: false };
+    }
+    
     // Check if auto-pass is enabled for current player
     if (!autoPassPlayers.has(currentPlayer)) {
       // Auto-pass not enabled, stop here
       console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: auto-pass not enabled`);
       return { allPassed: false, resolved: false };
+    }
+    
+    // Check if player has explicitly enabled "auto-pass for rest of turn"
+    const autoPassForTurn = stateAny.autoPassForTurn?.[currentPlayer] || false;
+    
+    // If player has "Auto-Pass Rest of Turn" enabled, skip all ability checks
+    // and auto-pass them through everything
+    if (autoPassForTurn) {
+      console.log(`[priority] Auto-passing for ${currentPlayer} - auto-pass for rest of turn enabled`);
+      stateAny.priorityPassedBy.add(currentPlayer);
+      state.priority = advancePriorityClockwise(ctx, currentPlayer);
+      continue;
     }
     
     // Check if player can take any action
@@ -219,32 +210,45 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
     // even though they only have lands/sorceries (which they can't play on opponent's turn)
     const isActivePlayer = currentPlayer === turnPlayer;
     const currentStep = String(stateAny.step || '').toUpperCase();
-    const isMainPhase = currentStep === 'MAIN1' || currentStep === 'MAIN2' || currentStep === 'MAIN';
-    const stackIsEmpty = !state.stack || state.stack.length === 0;
     
-    // Check if player has explicitly enabled "auto-pass for rest of turn"
-    const autoPassForTurn = stateAny.autoPassForTurn?.[currentPlayer] || false;
-    
-    // For the active player, check if they can actually take any action
-    // If they have "auto-pass for rest of turn" enabled, always auto-pass regardless of actions available
-    // Otherwise, check canAct() to see if they have any legal moves
     const playerCanAct = isActivePlayer 
       ? canAct(ctx, currentPlayer)      // Active player: check all actions (instant + sorcery speed)
       : canRespond(ctx, currentPlayer);  // Non-active: only check instant-speed responses
     
-    console.log(`[priority] autoPassLoop - checking ${currentPlayer} (${isActivePlayer ? 'ACTIVE' : 'non-active'}): canAct=${playerCanAct}, stack.length=${state.stack.length}, step=${currentStep}, autoPassForTurn=${autoPassForTurn}`);
+    console.log(`[priority] autoPassLoop - checking ${currentPlayer} (${isActivePlayer ? 'ACTIVE' : 'non-active'}): canAct=${playerCanAct}, stack.length=${state.stack.length}, step=${currentStep}`);
     
-    // CRITICAL: For the active player during their own turn:
-    // - If they have "auto-pass for rest of turn" enabled, always auto-pass them
-    // - Otherwise, only auto-pass if canAct() returns false (no legal actions available)
+    // Check if the current player used phase navigator and we're AT the target phase/step
+    // If so, give them priority at this specific step (they explicitly navigated here)
+    // This only applies at the TARGET phase, not intermediate steps
+    const justSkipped = stateAny.justSkippedToPhase;
+    if (justSkipped && justSkipped.playerId === currentPlayer) {
+      const isAtTarget = isAtSkipTarget(
+        stateAny.phase, 
+        stateAny.step, 
+        justSkipped.phase, 
+        justSkipped.step
+      );
+      
+      if (isAtTarget) {
+        console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: reached phase navigator target at ${currentStep}`);
+        // Clear the flag since we've reached the target and given them priority
+        delete stateAny.justSkippedToPhase;
+        return { allPassed: false, resolved: false };
+      } else {
+        // Not at target yet - allow auto-pass to continue moving toward target
+        console.log(`[priority] autoPassLoop - continuing auto-pass for ${currentPlayer}: moving toward phase navigator target (currently at ${currentStep})`);
+      }
+    }
+    
+    // For the active player during their own turn:
+    // Only auto-pass if canAct() returns false (no legal actions available)
     // 
     // This ensures:
     // 1. Turn player with lands/spells gets priority to act
     // 2. Turn player with no legal moves is auto-passed (e.g., no lands, all spells too expensive)
-    // 3. Turn player can force auto-pass with "auto-pass for rest of turn" button
-    if (isActivePlayer && !autoPassForTurn && playerCanAct) {
-      // Active player can take actions and hasn't enabled auto-pass for turn - stop here
-      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: active player can act (must manually pass or enable auto-pass for rest of turn)`);
+    if (isActivePlayer && playerCanAct) {
+      // Active player can take actions - stop here
+      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: active player can act`);
       return { allPassed: false, resolved: false };
     }
     
