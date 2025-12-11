@@ -97,7 +97,11 @@ import {
   getLegalBlockers,
   canPermanentAttack,
   canPermanentBlock,
-  isCurrentlyCreature 
+  isCurrentlyCreature,
+  isGoaded,
+  getGoadedBy,
+  getGoadedAttackTargets,
+  getGoadedAttackers,
 } from './actions/combat';
 import {
   extractCombatKeywords,
@@ -462,10 +466,6 @@ export class AIEngine {
         confidence: 1,
       };
     }
-    
-    // Import goad functions from combat actions
-    const { isGoaded, getGoadedBy, getGoadedAttackTargets, getGoadedAttackers } = 
-      require('./actions/combat');
     
     // Get the player's battlefield to evaluate creatures
     const player = context.gameState.players.find(p => p.id === context.playerId);

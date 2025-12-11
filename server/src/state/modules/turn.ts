@@ -34,6 +34,7 @@ import { parseCreatureKeywords } from "./combat-mechanics.js";
 import { runSBA, createToken } from "./counters_tokens.js";
 import { calculateAllPTBonuses, parsePT } from "../utils.js";
 import { canAct, canRespond } from "./can-respond.js";
+import { removeExpiredGoads } from "./goad-effects.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -1617,7 +1618,6 @@ export function nextTurn(ctx: GameContext) {
 
     // Remove expired goad effects at the start of this player's turn (Rule 701.15a)
     try {
-      const { removeExpiredGoads } = require('./goad-effects.js');
       const battlefield = (ctx as any).state.battlefield || [];
       const updatedBattlefield = removeExpiredGoads(battlefield, turnNumber, next);
       (ctx as any).state.battlefield = updatedBattlefield;
