@@ -3266,12 +3266,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         
         if (opponents.length > 0) {
           // Store pending Forbidden Orchard activation - controller must choose target opponent
-          if (!game.state.pendingForbiddenOrchard) {
-            game.state.pendingForbiddenOrchard = {};
+          if (!(game.state as any).pendingForbiddenOrchard) {
+            (game.state as any).pendingForbiddenOrchard = {};
           }
           
           const activationId = `forbidden_orchard_${crypto.randomUUID()}`;
-          game.state.pendingForbiddenOrchard[activationId] = {
+          (game.state as any).pendingForbiddenOrchard[activationId] = {
             playerId: pid,
             permanentId,
             cardName: 'Forbidden Orchard',
@@ -4436,11 +4436,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     });
     
     // Clear pending library search for this player
-    const searchInfo = game.state?.pendingLibrarySearch?.[pid];
+    const searchInfo = (game.state as any)?.pendingLibrarySearch?.[pid];
     const needsRandomDiscard = searchInfo?.discardRandomAfter === true;
     
-    if (game.state?.pendingLibrarySearch && game.state.pendingLibrarySearch[pid]) {
-      delete game.state.pendingLibrarySearch[pid];
+    if ((game.state as any)?.pendingLibrarySearch && (game.state as any).pendingLibrarySearch[pid]) {
+      delete (game.state as any).pendingLibrarySearch[pid];
     }
     
     // Handle Gamble's random discard
@@ -4450,7 +4450,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       if (zones && Array.isArray(zones.hand) && zones.hand.length > 0) {
         const randomIndex = Math.floor(Math.random() * zones.hand.length);
         const discardedCard = zones.hand[randomIndex];
-        const discardedCardName = discardedCard?.name || 'Unknown';
+        const discardedCardName = typeof discardedCard === 'string' ? discardedCard : (discardedCard?.name || 'Unknown');
         
         // Remove from hand
         zones.hand.splice(randomIndex, 1);
@@ -4461,7 +4461,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           zones.graveyard = [];
         }
         // Create new array to avoid mutating readonly
-        zones.graveyard = [...zones.graveyard, discardedCard];
+        zones.graveyard = [...zones.graveyard, discardedCard] as any;
         zones.graveyardCount = zones.graveyard.length;
         
         console.log(`[Gamble] ${pid} discarded ${discardedCardName} at random`);
@@ -4596,8 +4596,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     });
     
     // Clear pending library search for this player
-    if (game.state?.pendingLibrarySearch && game.state.pendingLibrarySearch[pid]) {
-      delete game.state.pendingLibrarySearch[pid];
+    if (game.state?.pendingLibrarySearch && (game.state as any).pendingLibrarySearch[pid]) {
+      delete (game.state as any).pendingLibrarySearch[pid];
     }
     
     // Build chat message
@@ -4787,8 +4787,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
     
     // Clear pending library search for this player
-    if (game.state?.pendingLibrarySearch && game.state.pendingLibrarySearch[pid]) {
-      delete game.state.pendingLibrarySearch[pid];
+    if (game.state?.pendingLibrarySearch && (game.state as any).pendingLibrarySearch[pid]) {
+      delete (game.state as any).pendingLibrarySearch[pid];
     }
     
     if (typeof game.bumpSeq === "function") {
@@ -6150,13 +6150,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
 
     // Append event to game log
-    appendGameEvent(game, {
-      type: action === 'tap' ? 'permanent_tapped' : 'permanent_untapped',
+    appendGameEvent(game, gameId, action === 'tap' ? 'permanent_tapped' : 'permanent_untapped', {
       playerId: pid,
       permanentIds: targetIds,
       source: pending.sourceName,
       ts: Date.now(),
-    } as any);
+    });
 
     // Broadcast updates
     broadcastGame(io, game, gameId);
@@ -6255,15 +6254,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     });
 
     // Append event to game log
-    appendGameEvent(game, {
-      type: 'counter_moved',
+    appendGameEvent(game, gameId, 'counter_moved', {
       playerId: pid,
       sourcePermanentId,
       targetPermanentId,
       counterType,
       source: pending.sourceName,
       ts: Date.now(),
-    } as any);
+    });
 
     // Broadcast updates
     broadcastGame(io, game, gameId);
@@ -6394,14 +6392,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         ts: Date.now(),
       });
 
-      appendGameEvent(game, {
-        type: 'ability_activated',
+      appendGameEvent(game, gameId, 'ability_activated', {
         playerId: pid,
         permanentId,
         abilityName: selectedMode.name,
         source: cardName,
         ts: Date.now(),
-      } as any);
+      });
 
       broadcastGame(io, game, gameId);
     } else {
@@ -6436,7 +6433,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
 
     // Retrieve pending activation
-    const pending = game.state.pendingForbiddenOrchard?.[activationId];
+    const pending = (game.state as any).pendingForbiddenOrchard?.[activationId];
     if (!pending) {
       socket.emit("error", { code: "INVALID_ACTIVATION", message: "Invalid or expired Forbidden Orchard activation" });
       return;
@@ -6456,7 +6453,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
 
     // Clean up pending activation
-    delete game.state.pendingForbiddenOrchard[activationId];
+    delete (game.state as any).pendingForbiddenOrchard[activationId];
 
     // Create 1/1 colorless Spirit token for the target opponent
     const tokenId = `token_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;

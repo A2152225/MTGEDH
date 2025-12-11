@@ -102,7 +102,7 @@ function processTapTriggersForAttackers(
       }
       
       // Broadcast the updated game state after adding triggers
-      broadcastGame(io, gameId, game);
+      broadcastGame(io, game, gameId);
     }
   } catch (e) {
     console.error("[combat] Failed to process tap triggers:", e);
@@ -900,7 +900,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                                     permanent?.card?.image_uris?.normal;
                 
                 // Emit payment prompt to the controlling player
-                emitToPlayer(io, gameId, playerId, "attackTriggerManaPaymentPrompt", {
+                emitToPlayer(io, playerId, "attackTriggerManaPaymentPrompt", {
                   gameId,
                   triggerId,
                   permanentId: trigger.permanentId,
@@ -1063,7 +1063,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         
         // Consume mana
         consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[attackTriggerPayment:${cardName}]`);
-        broadcastManaPoolUpdate(io, gameId, playerId);
+        broadcastManaPoolUpdate(io, gameId, playerId, pool as any, `Paid ${manaCost} for ${cardName}`, game);
         
         // Execute the effect (e.g., transform Casal)
         const battlefield = game.state?.battlefield || [];
@@ -1110,14 +1110,13 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                   ...existingModifiers,
                   {
                     type: 'pt_buff',
-                    source: permanentId,
-                    sourceName: newName,
+                    sourceId: permanentId,
                     power: 2,
                     toughness: 2,
                     keywords: ['Trample'],
                     duration: 'end_of_turn',
                     appliedAt: Date.now(),
-                  }
+                  } as any
                 ];
               }
               
