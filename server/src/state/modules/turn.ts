@@ -2359,6 +2359,36 @@ export function nextStep(ctx: GameContext) {
     );
 
     // ========================================================================
+    // DRAW STEP SPECIAL HANDLING (Rule 504.1)
+    // 
+    // Per Rule 504.1: "First, the active player draws a card. This turn-based
+    // action doesn't use the stack."
+    // 
+    // The draw happens BEFORE triggers are processed. This is critical for
+    // triggers like "at the beginning of your draw step" which should see
+    // the card that was just drawn.
+    // ========================================================================
+    if (shouldDraw && !isReplaying) {
+      try {
+        const turnPlayer = (ctx as any).state.turnPlayer;
+        if (turnPlayer) {
+          // Calculate total cards to draw: 1 (base) + any additional draws from effects
+          const additionalDraws = (ctx as any).additionalDrawsPerTurn?.[turnPlayer] || 0;
+          const totalDraws = 1 + additionalDraws;
+          
+          const drawn = drawCards(ctx, turnPlayer, totalDraws);
+          console.log(
+            `${ts()} [nextStep] Drew ${drawn.length} card(s) for ${turnPlayer} at draw step (base: 1, additional: ${additionalDraws})`
+          );
+        } else {
+          console.warn(`${ts()} [nextStep] No turnPlayer set, cannot draw card`);
+        }
+      } catch (err) {
+        console.warn(`${ts()} [nextStep] Failed to draw card:`, err);
+      }
+    }
+
+    // ========================================================================
     // STEP-ENTRY TRIGGER PROCESSING (Per MTG Rules 503-514)
     // 
     // Per Rule 116.2a: Triggered abilities go on the stack the next time a 
@@ -2656,28 +2686,6 @@ export function nextStep(ctx: GameContext) {
         }
       } catch (err) {
         console.warn(`${ts()} [nextStep] Failed to untap permanents:`, err);
-      }
-    }
-
-    // If we're entering the draw step, draw a card for the active player
-    // Also apply any additional draw effects (Font of Mythos, Rites of Flourishing, etc.)
-    if (shouldDraw) {
-      try {
-        const turnPlayer = (ctx as any).state.turnPlayer;
-        if (turnPlayer) {
-          // Calculate total cards to draw: 1 (base) + any additional draws from effects
-          const additionalDraws = (ctx as any).additionalDrawsPerTurn?.[turnPlayer] || 0;
-          const totalDraws = 1 + additionalDraws;
-          
-          const drawn = drawCards(ctx, turnPlayer, totalDraws);
-          console.log(
-            `${ts()} [nextStep] Drew ${drawn.length} card(s) for ${turnPlayer} at draw step (base: 1, additional: ${additionalDraws})`
-          );
-        } else {
-          console.warn(`${ts()} [nextStep] No turnPlayer set, cannot draw card`);
-        }
-      } catch (err) {
-        console.warn(`${ts()} [nextStep] Failed to draw card:`, err);
       }
     }
 
