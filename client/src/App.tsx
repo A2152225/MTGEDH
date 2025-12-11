@@ -1051,11 +1051,13 @@ export function App() {
     const isCombatPhase = COMBAT_STEPS.some(phase => stepKey.includes(phase));
     
     // Auto-pass logic for your own turn:
-    // 1. Main phases: Auto-pass if you CAN'T respond (no playable cards/lands/abilities)
+    // 1. Main phases: NEVER auto-pass client-side - let server check canAct() properly
+    //    This prevents race conditions where playableCards isn't updated yet
     // 2. Combat phases: Auto-pass if you have no creatures to attack with
     // 3. Other phases: Auto-pass if using phase navigator
     const canAutoPassOnYourTurn = 
-      (isActionPhase && !canRespond) ||  // Main phase with nothing to do
+      // NOTE: Removed (isActionPhase && !canRespond) check to fix issue where
+      // client auto-passes before playableCards is populated, preventing land plays
       (isCombatPhase && !hasCreaturesToAttack) ||  // Combat with no creatures
       (phaseNavigatorAdvancing && !isActionPhase && !canRespond);  // Phase navigator in non-action phases
     
