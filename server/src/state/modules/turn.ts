@@ -2504,15 +2504,24 @@ export function nextStep(ctx: GameContext) {
             const precombatMainTriggers = getTriggersForTiming(ctx, 'precombat_main', turnPlayer);
             pushTriggersToStack(precombatMainTriggers, 'precombat_main', 'main');
             console.log(`${ts()} [nextStep] Advanced to MAIN1, found ${precombatMainTriggers.length} precombat main trigger(s)`);
+            
+            // IMPORTANT: Set a flag to skip the duplicate MAIN1 trigger processing below
+            (ctx as any)._skipMain1TriggerCheck = true;
           }
         }
         
         // Rule 505.4: Beginning of precombat main phase - "at the beginning of your precombat main phase" triggers
         // This includes cards like Black Market Connections, Saga lore counters (Rule 714.3b), etc.
-        else if (nextStep === "MAIN1") {
+        // NOTE: Only process if we didn't just auto-advance from DRAW (checked via flag)
+        else if (nextStep === "MAIN1" && !(ctx as any)._skipMain1TriggerCheck) {
           const precombatMainTriggers = getTriggersForTiming(ctx, 'precombat_main', turnPlayer);
           pushTriggersToStack(precombatMainTriggers, 'precombat_main', 'main');
           console.log(`${ts()} [nextStep] Checking precombat main triggers for ${turnPlayer}, found ${precombatMainTriggers.length} trigger(s)`);
+        }
+        
+        // Clear the skip flag after processing triggers
+        if ((ctx as any)._skipMain1TriggerCheck) {
+          delete (ctx as any)._skipMain1TriggerCheck;
         }
         
         // Rule 507.1: Beginning of combat - "at the beginning of combat" triggers
