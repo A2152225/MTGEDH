@@ -937,7 +937,11 @@ export async function handleAIGameFlow(
   }
   
   // Active game phases: handle priority if AI has it
-  if (hasPriority) {
+  // SPECIAL CASE: During cleanup step, call handleAIPriority even without priority
+  // because cleanup has automatic actions that need to be executed by the turn player
+  const isCleanupStep = stepStr === 'CLEANUP';
+  
+  if (hasPriority || (isCleanupStep && isAITurn)) {
     // Small delay before AI takes action
     setTimeout(async () => {
       await handleAIPriority(io, gameId, playerId);
