@@ -2536,6 +2536,10 @@ export function nextStep(ctx: GameContext) {
         
         if (shouldGrantPriority) {
           (ctx as any).state.priority = turnPlayer;
+          // CRITICAL: Reset priorityPassedBy when granting priority in a new step
+          // This ensures players who passed in the previous step get a fresh chance to act
+          // Without this, auto-pass can cause steps to be skipped incorrectly
+          (ctx as any).state.priorityPassedBy = new Set<string>();
           console.log(`${ts()} [nextStep] Granting priority to active player ${turnPlayer} (step: ${nextStep ?? 'unknown'}, stack size: ${(ctx as any).state.stack.length})`);
         } else {
           // UNTAP and CLEANUP steps don't grant priority normally
