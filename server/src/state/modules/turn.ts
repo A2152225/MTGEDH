@@ -1666,6 +1666,13 @@ export function nextTurn(ctx: GameContext) {
       (ctx as any).state.autoPassForTurn = {};
       console.log(`${ts()} [nextTurn] Cleared autoPassForTurn flags for new turn`);
     }
+    
+    // Clear justSkippedToPhase flag when starting a new turn
+    // Players need to use phase navigator again if they want priority protection
+    if ((ctx as any).state.justSkippedToPhase) {
+      delete (ctx as any).state.justSkippedToPhase;
+      console.log(`${ts()} [nextTurn] Cleared justSkippedToPhase flag for new turn`);
+    }
 
     // Reset lands played this turn for all players
     (ctx as any).state.landsPlayedThisTurn = (ctx as any).state.landsPlayedThisTurn || {};

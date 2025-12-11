@@ -305,8 +305,22 @@ export function registerAutomationHandlers(
     const game = games.get(gameId);
     if (game && game.state) {
       const autoPassPlayers = (game.state as any).autoPassPlayers || new Set();
+      const wasEnabled = autoPassPlayers.has(playerId);
+      
       if (enabled) {
         autoPassPlayers.add(playerId);
+        
+        // Only clear justSkippedToPhase if the player is RE-ENABLING auto-pass
+        // (i.e., it wasn't already enabled). This allows phase navigator to work
+        // even when auto-pass is enabled - the flag persists until they actively
+        // toggle auto-pass back on after using the navigator.
+        if (!wasEnabled) {
+          const justSkipped = (game.state as any).justSkippedToPhase;
+          if (justSkipped && justSkipped.playerId === playerId) {
+            delete (game.state as any).justSkippedToPhase;
+            console.log(`[Automation] Cleared justSkippedToPhase for ${playerId} (re-enabled auto-pass)`);
+          }
+        }
       } else {
         autoPassPlayers.delete(playerId);
       }
@@ -356,6 +370,14 @@ export function registerAutomationHandlers(
       
       if (enabled) {
         stateAny.autoPassForTurn[playerId] = true;
+        
+        // When enabling auto-pass for turn, clear the justSkippedToPhase flag for this player
+        // This allows auto-pass to work normally after they've navigated with phase navigator
+        const justSkipped = stateAny.justSkippedToPhase;
+        if (justSkipped && justSkipped.playerId === playerId) {
+          delete stateAny.justSkippedToPhase;
+          console.log(`[Automation] Cleared justSkippedToPhase for ${playerId} (enabled auto-pass for turn)`);
+        }
       } else {
         delete stateAny.autoPassForTurn[playerId];
       }
