@@ -798,28 +798,72 @@ export async function handleAIGameFlow(
       const aiMulliganState = mulliganState[playerId];
       
       if (!aiMulliganState || !aiMulliganState.hasKeptHand) {
-        // AI automatically keeps hand - set mulligan state
-        console.info('[AI] AI automatically keeping hand');
+        // AI needs to decide whether to keep or mulligan
+        console.info('[AI] AI evaluating hand for mulligan decision');
         
-        (game.state as any).mulliganState = (game.state as any).mulliganState || {};
-        (game.state as any).mulliganState[playerId] = {
-          hasKeptHand: true,
-          mulligansTaken: 0,
-        };
+        const keepHand = await handleAIMulligan(io, gameId, playerId);
         
-        // Bump sequence to propagate state change
-        if (typeof (game as any).bumpSeq === 'function') {
-          (game as any).bumpSeq();
+        if (keepHand) {
+          // Keep the hand
+          console.info('[AI] AI keeping hand');
+          
+          (game.state as any).mulliganState = (game.state as any).mulliganState || {};
+          (game.state as any).mulliganState[playerId] = {
+            hasKeptHand: true,
+            mulligansTaken: aiMulliganState?.mulligansTaken || 0,
+          };
+          
+          // Bump sequence to propagate state change
+          if (typeof (game as any).bumpSeq === 'function') {
+            (game as any).bumpSeq();
+          }
+          
+          console.info('[AI] AI is ready to start game (hand kept)');
+          
+          // Broadcast updated state so human players see AI has kept hand
+          broadcastGame(io, game, gameId);
+          
+          // After keeping hand, re-trigger game flow to check for advancement
+          setTimeout(() => handleAIGameFlow(io, gameId, playerId), AI_THINK_TIME_MS);
+          return;
+        } else {
+          // Take a mulligan
+          console.info('[AI] AI taking mulligan');
+          
+          const currentMulligans = aiMulliganState?.mulligansTaken || 0;
+          
+          // Update mulligan count but DON'T set hasKeptHand yet
+          (game.state as any).mulliganState = (game.state as any).mulliganState || {};
+          (game.state as any).mulliganState[playerId] = {
+            hasKeptHand: false,
+            mulligansTaken: currentMulligans + 1,
+          };
+          
+          // Execute the mulligan via the game's mulligan method
+          if (typeof (game as any).mulligan === 'function') {
+            (game as any).mulligan(playerId);
+            console.info('[AI] Executed mulligan for AI player');
+          } else {
+            console.warn('[AI] game.mulligan method not available');
+          }
+          
+          // Persist the mulligan event
+          try {
+            await appendEvent(gameId, (game as any).seq || 0, 'mulligan', {
+              playerId,
+              isAI: true,
+            });
+          } catch (e) {
+            console.warn('[AI] Failed to persist mulligan event:', e);
+          }
+          
+          // Broadcast updated state
+          broadcastGame(io, game, gameId);
+          
+          // Re-trigger game flow to evaluate the new hand
+          setTimeout(() => handleAIGameFlow(io, gameId, playerId), AI_THINK_TIME_MS);
+          return;
         }
-        
-        console.info('[AI] AI is ready to start game (hand kept)');
-        
-        // Broadcast updated state so human players see AI has kept hand
-        broadcastGame(io, game, gameId);
-        
-        // After keeping hand, re-trigger game flow to check for advancement
-        setTimeout(() => handleAIGameFlow(io, gameId, playerId), AI_THINK_TIME_MS);
-        return;
       }
       
       // AI has already kept hand - now check if we should advance from pre_game
@@ -3194,6 +3238,10 @@ async function executeDeclareBlockers(
 
 /**
  * Handle AI mulligan decision
+ * AI should mulligan if:
+ * - Hand has 0 lands (unplayable)
+ * - Hand has all lands and no spells (unlikely to win)
+ * - Hand size is already low (< 5 cards) - keep it
  */
 export async function handleAIMulligan(
   io: Server,
@@ -3212,28 +3260,72 @@ export async function handleAIMulligan(
   console.info('[AI] AI making mulligan decision:', { gameId, playerId });
   
   try {
-    const context: AIDecisionContext = {
-      gameState: game.state as any,
-      playerId,
-      decisionType: AIDecisionType.MULLIGAN,
-      options: [true, false],
-    };
+    // Get the AI's current hand
+    const zones = game.state.zones?.[playerId];
+    const hand = Array.isArray(zones?.hand) ? zones.hand : [];
     
-    const decision = await aiEngine.makeDecision(context);
-    const keepHand = decision.action?.keep ?? true;
+    if (hand.length === 0) {
+      console.info('[AI] Empty hand, keeping by default');
+      return true; // Empty hand, nothing to mulligan
+    }
     
-    console.info('[AI] Mulligan decision:', {
+    // Count lands and non-lands in hand
+    let landCount = 0;
+    let nonLandCount = 0;
+    
+    for (const card of hand) {
+      const typeLine = (card?.type_line || '').toLowerCase();
+      if (typeLine.includes('land')) {
+        landCount++;
+      } else {
+        nonLandCount++;
+      }
+    }
+    
+    const handSize = hand.length;
+    
+    console.info('[AI] Mulligan analysis:', {
       gameId,
       playerId,
-      keepHand,
-      reasoning: decision.reasoning,
+      handSize,
+      landCount,
+      nonLandCount,
     });
     
-    return keepHand;
+    // Rule 1: If hand size is already 5 or less, keep it (avoid going too low)
+    if (handSize <= 5) {
+      console.info('[AI] Hand size is 5 or less, keeping to avoid further mulligans');
+      return true;
+    }
+    
+    // Rule 2: Mulligan if zero lands (unplayable hand)
+    if (landCount === 0) {
+      console.info('[AI] Zero lands in hand, mulliganing');
+      return false; // Mulligan
+    }
+    
+    // Rule 3: Mulligan if all lands and 7 card hand (no spells to cast)
+    if (nonLandCount === 0 && handSize === 7) {
+      console.info('[AI] All lands in opening hand, mulliganing');
+      return false; // Mulligan
+    }
+    
+    // Rule 4: Mulligan if only 1 land in opening hand (7 cards) - too risky
+    if (landCount === 1 && handSize === 7) {
+      console.info('[AI] Only 1 land in opening hand, mulliganing (too risky)');
+      return false; // Mulligan
+    }
+    
+    // Rule 5: Keep hand if it has 2-4 lands (good mana ratio)
+    console.info('[AI] Hand has reasonable land count, keeping:', {
+      landCount,
+      handSize,
+    });
+    return true; // Keep hand
     
   } catch (error) {
     console.error('[AI] Error making mulligan decision:', error);
-    return true; // Default to keeping hand
+    return true; // Default to keeping hand on error
   }
 }
 
