@@ -222,18 +222,18 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
     const isMainPhase = currentStep === 'MAIN1' || currentStep === 'MAIN2' || currentStep === 'MAIN';
     const stackIsEmpty = !state.stack || state.stack.length === 0;
     
-    // CRITICAL: Never auto-pass the active player during their main phase with empty stack
-    // This is a defensive check that ensures active player ALWAYS gets priority in main phase.
-    // Per MTG Comprehensive Rules 505.6: "the active player gets priority" at start of main phase.
+    // CRITICAL: Never auto-pass the active player (turn player) during their own turn
+    // unless they have explicitly enabled "auto-pass for rest of turn" (checked via autoPassForTurn flag)
     // 
-    // Reasons for this check:
-    // 1. Core MTG rule - active player must receive priority in main phase
-    // 2. Defensive programming - even if canAct() has bugs, active player still gets priority
-    // 3. Main phase is when most game actions happen (lands, sorceries, creatures, etc.)
+    // The regular auto-pass toggle is meant for non-active players to skip priority on opponents' turns.
+    // The turn player should ALWAYS be given a chance to act in each step/phase during their turn
+    // so they can play lands, cast spells, activate abilities, etc.
     // 
-    // This check applies to ALL players (human and AI) equally.
-    if (isActivePlayer && isMainPhase && stackIsEmpty) {
-      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: active player in main phase with empty stack (MTG rule 505.6)`);
+    // This is a fundamental MTG rule - the active player must receive priority and have
+    // the opportunity to take actions before the game advances.
+    const autoPassForTurn = stateAny.autoPassForTurn?.[currentPlayer] || false;
+    if (isActivePlayer && !autoPassForTurn) {
+      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: active player on their own turn (must manually pass or enable auto-pass for rest of turn)`);
       return { allPassed: false, resolved: false };
     }
     
