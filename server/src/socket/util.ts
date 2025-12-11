@@ -1083,6 +1083,34 @@ function checkAndEmitPlayerElimination(io: Server, game: InMemoryGame, gameId: s
 function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string): void {
   try {
     const priority = (game.state as any)?.priority;
+    const currentStep = (game.state as any)?.currentStep;
+    const turnPlayer = (game.state as any)?.turnPlayer;
+    
+    // Special case: CLEANUP step with pending discard selection
+    // During cleanup, no priority is granted, but AI needs to handle discards
+    if (currentStep === 'CLEANUP' && turnPlayer) {
+      const pendingDiscard = (game.state as any).pendingDiscardSelection?.[turnPlayer];
+      if (pendingDiscard && pendingDiscard.count > 0) {
+        const players = (game.state as any)?.players || [];
+        const turnPlayerObj = players.find((p: any) => p?.id === turnPlayer);
+        
+        if (turnPlayerObj && turnPlayerObj.isAI) {
+          // Trigger AI to handle cleanup discard
+          setTimeout(async () => {
+            try {
+              const aiModule = await import('./ai.js');
+              if (typeof aiModule.handleAIGameFlow === 'function') {
+                await aiModule.handleAIGameFlow(io, gameId, turnPlayer);
+              }
+            } catch (e) {
+              console.error('[util] Failed to trigger AI handler for cleanup:', { gameId, playerId: turnPlayer, error: e });
+            }
+          }, AI_REACTION_DELAY_MS);
+          return; // Exit early - we've handled the cleanup case
+        }
+      }
+    }
+    
     if (!priority) return;
     
     // Check if the current priority holder is an AI player
@@ -1100,12 +1128,12 @@ function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string): void
             await aiModule.handleAIPriority(io, gameId, priority);
           }
         } catch (e) {
-          console.warn('[util] Failed to trigger AI handler:', e);
+          console.error('[util] Failed to trigger AI handler:', { gameId, playerId: priority, error: e });
         }
       }, AI_REACTION_DELAY_MS);
     }
   } catch (e) {
-    console.warn('[util] checkAndTriggerAI error:', e);
+    console.error('[util] checkAndTriggerAI error:', { gameId, error: e });
   }
 }
 

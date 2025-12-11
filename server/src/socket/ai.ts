@@ -2663,26 +2663,52 @@ async function executeAIActivateAbility(
         });
       }
     }
-    // GENERIC TAP ABILITY: Put on stack
+    // GENERIC TAP ABILITY: Check if it's a mana ability first
     else if (isTapAbility) {
-      // For other tap abilities, put them on the stack
-      game.state.stack = game.state.stack || [];
-      const stackItem = {
-        id: `stack_ability_${Date.now()}_${permanent.id}`,
-        type: 'ability',
-        controller: playerId,
-        card: {
-          id: permanent.id,
-          name: `${card.name} (ability)`,
-          type_line: 'Activated Ability',
-          oracle_text: card.oracle_text,
-          image_uris: card.image_uris,
-        },
-        targets: [],
-      };
+      // Check if this is a mana ability (mana abilities don't use the stack - MTG Rule 605)
+      // Mana abilities produce mana and don't target
+      // Patterns matched:
+      //   - {W}, {U}, {B}, {R}, {G}, {C} (specific mana symbols)
+      //   - "add one mana", "add two mana", "add X mana"
+      //   - "mana of any color", "any color", "mana in any combination"
+      //   - Must NOT contain "target" (targeting abilities can't be mana abilities)
+      const manaProductionPattern = /add\s+(\{[wubrgc]\}|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i;
+      const hasTargets = /target/i.test(abilityText);
+      const isManaAbility = manaProductionPattern.test(abilityText) && !hasTargets;
       
-      game.state.stack.push(stackItem as any);
-      console.info('[AI] Added activated ability to stack:', card.name);
+      if (isManaAbility) {
+        // Mana abilities resolve immediately - don't put on stack
+        // The mana will be added to the mana pool by the game engine
+        // For now, we just log that the AI tapped for mana
+        console.info('[AI] Tapped for mana ability (resolves immediately, not on stack):', card.name);
+        // Mana abilities don't pass priority - they resolve instantly
+        // Continue AI turn after instant resolution
+        setTimeout(() => {
+          handleAIPriority(io, gameId, playerId).catch((err) => {
+            console.error('[AI] Error continuing after mana ability:', { gameId, playerId, cardName: card.name, error: err });
+          });
+        }, AI_REACTION_DELAY_MS);
+        return;
+      } else {
+        // For non-mana tap abilities, put them on the stack
+        game.state.stack = game.state.stack || [];
+        const stackItem = {
+          id: `stack_ability_${Date.now()}_${permanent.id}`,
+          type: 'ability',
+          controller: playerId,
+          card: {
+            id: permanent.id,
+            name: `${card.name} (ability)`,
+            type_line: 'Activated Ability',
+            oracle_text: card.oracle_text,
+            image_uris: card.image_uris,
+          },
+          targets: [],
+        };
+        
+        game.state.stack.push(stackItem as any);
+        console.info('[AI] Added activated ability to stack:', card.name);
+      }
     }
     
     // Persist event
