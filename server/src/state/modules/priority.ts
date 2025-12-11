@@ -39,7 +39,7 @@ function advancePriorityClockwise(ctx: GameContext, from: PlayerID): PlayerID {
   return active[nextIdx].id as PlayerID;
 }
 
-export function passPriority(ctx: GameContext, playerId: PlayerID): { changed: boolean; resolvedNow: boolean; advanceStep: boolean } {
+export function passPriority(ctx: GameContext, playerId: PlayerID, isAutoPass?: boolean): { changed: boolean; resolvedNow: boolean; advanceStep: boolean } {
   const { state, passesInRow, bumpSeq } = ctx;
   if (state.priority !== playerId) return { changed: false, resolvedNow: false, advanceStep: false };
   const active = activePlayersClockwise(ctx);
@@ -93,15 +93,17 @@ export function passPriority(ctx: GameContext, playerId: PlayerID): { changed: b
       // Not all players have passed yet, advance priority clockwise
       state.priority = advancePriorityClockwise(ctx, playerId);
       
-      // NOTE: We do NOT run autoPassLoop here after a manual priority pass.
-      // Each player should get the opportunity to manually pass priority themselves.
-      // Running autoPassLoop immediately after a manual pass causes issues where:
-      // 1. User manually passes priority in upkeep
-      // 2. autoPassLoop auto-passes all other players who can't respond
-      // 3. All players have now passed -> step advances all the way to END
-      // Instead, we just advance priority to the next player and let them decide.
-      // The auto-pass feature should only apply when a player receives priority
-      // and decides whether to show them the priority modal or auto-pass.
+      // Run autoPassLoop ONLY if this is an auto-pass (not a manual pass)
+      // This allows the system to chain auto-passes when players have no actions,
+      // but prevents aggressive auto-passing when a player manually clicks "Pass Priority"
+      if (isAutoPass) {
+        const result = autoPassLoop(ctx, active);
+        if (result.allPassed && result.resolved) {
+          // All players auto-passed and stack was resolved
+          resolvedNow = true;
+          passesInRow.value = 0;
+        }
+      }
     }
   } else {
     passesInRow.value = 0;
@@ -117,15 +119,22 @@ export function passPriority(ctx: GameContext, playerId: PlayerID): { changed: b
       // Not all players have passed yet, advance priority clockwise
       state.priority = advancePriorityClockwise(ctx, playerId);
       
-      // NOTE: We do NOT run autoPassLoop here after a manual priority pass.
-      // Each player should get the opportunity to manually pass priority themselves.
-      // Running autoPassLoop immediately after a manual pass causes issues where:
-      // 1. User manually passes priority in upkeep
-      // 2. autoPassLoop auto-passes all other players who can't respond
-      // 3. All players have now passed -> step advances all the way to END
-      // Instead, we just advance priority to the next player and let them decide.
-      // The auto-pass feature should only apply when a player receives priority
-      // and decides whether to show them the priority modal or auto-pass.
+      // Run autoPassLoop ONLY if this is an auto-pass (not a manual pass)
+      // This allows the system to chain auto-passes when players have no actions,
+      // but prevents aggressive auto-passing when a player manually clicks "Pass Priority"
+      if (isAutoPass) {
+        const result = autoPassLoop(ctx, active);
+        if (result.allPassed) {
+          // All players have now passed via auto-pass
+          if (result.resolved) {
+            // Stack was resolved
+            resolvedNow = true;
+          } else {
+            // Empty stack - advance step
+            advanceStep = true;
+          }
+        }
+      }
     }
   }
   

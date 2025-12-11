@@ -1056,7 +1056,7 @@ export function App() {
         if (shouldAutoPass) {
           // Auto-pass priority (during opponents' turns OR when player has no actions available)
           console.log('[AutoPass] Passing priority - canRespond:', canRespond, 'step:', step);
-          socket.emit("passPriority", { gameId: safeView.id, by: you });
+          socket.emit("passPriority", { gameId: safeView.id, by: you, isAutoPass: true });
           setPriorityModalOpen(false);
         } else {
           // Show priority modal for this step
