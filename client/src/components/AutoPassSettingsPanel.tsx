@@ -195,15 +195,30 @@ export function AutoPassSettingsPanel({
               alignItems: 'center', 
               justifyContent: 'space-between',
               cursor: 'pointer',
-            }}>
+            }}
+            onClick={(e) => {
+              // Stop propagation to prevent drag handler from interfering
+              e.stopPropagation();
+            }}
+            >
               <span style={{ fontSize: 12, color: '#ddd', fontWeight: 500 }}>
                 Enable Smart Auto-Pass
               </span>
-              <div style={{ position: 'relative' }}>
+              <div 
+                style={{ position: 'relative' }}
+                onClick={(e) => {
+                  // Ensure clicks on the toggle area work
+                  e.stopPropagation();
+                  handleMainToggle();
+                }}
+              >
                 <input
                   type="checkbox"
                   checked={hasAllAutoPass}
-                  onChange={handleMainToggle}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    handleMainToggle();
+                  }}
                   style={{ 
                     cursor: 'pointer',
                     width: 40,

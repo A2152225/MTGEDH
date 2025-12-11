@@ -938,7 +938,8 @@ export async function handleAIGameFlow(
   
   // Active game phases: handle priority if AI has it
   // SPECIAL CASE: During cleanup step, call handleAIPriority even without priority
-  // because cleanup has automatic actions that need to be executed by the turn player
+  // Per MTG Rule 514.1, cleanup step does not grant priority, but the turn player
+  // must still perform mandatory actions (discard to hand size, etc.)
   const isCleanupStep = stepStr === 'CLEANUP';
   
   if (hasPriority || (isCleanupStep && isAITurn)) {
@@ -1797,18 +1798,15 @@ export async function handleAIPriority(
           console.info('[AI] No land found in hand to play');
         }
       } else {
-        const phase = String(game.state?.phase || '').toLowerCase();
-        const step = String(game.state?.step || '').toLowerCase();
-        const isMainPhaseCheck = phase.includes('main') || step.includes('main');
-        const isAITurnCheck = game.state?.turnPlayer === playerId;
+        // Debug why we can't play a land
         const landsPlayed = game.state?.landsPlayedThisTurn?.[playerId] || 0;
-        const maxLands = (game.maxLandsPerTurn?.[playerId] ?? game.state?.maxLandsPerTurn?.[playerId]) || 1;
+        const maxLands = ((game as any).maxLandsPerTurn?.[playerId] ?? (game.state as any)?.maxLandsPerTurn?.[playerId]) || 1;
         console.info('[AI] Cannot play land:', { 
-          isMainPhase: isMainPhaseCheck, 
-          isAITurn: isAITurnCheck, 
+          isMainPhase, 
+          isAITurn, 
           landsPlayed, 
           maxLands,
-          reason: !isMainPhaseCheck ? 'not main phase' : !isAITurnCheck ? 'not AI turn' : 'already played max lands'
+          reason: !isMainPhase ? 'not main phase' : !isAITurn ? 'not AI turn' : 'already played max lands'
         });
       }
       
@@ -2790,7 +2788,7 @@ async function executeAdvanceStep(
   const game = ensureGame(gameId);
   if (!game) return;
   
-  // CRITICAL: Only the turn player can advance steps
+  // CRITICAL: Only the turn player can advance steps (fail fast)
   // Non-turn players should pass priority instead
   const turnPlayer = game.state?.turnPlayer;
   if (playerId !== turnPlayer) {
@@ -2805,15 +2803,15 @@ async function executeAdvanceStep(
     return;
   }
   
+  const currentStep = String((game.state as any).step || '');
+  const currentPhase = String(game.state.phase || '');
+  
   // Check if there are any pending modal interactions before advancing
   const pendingCheck = checkPendingModals(game, gameId);
   if (pendingCheck.hasPending) {
     console.info(`[AI] Cannot advance step - ${pendingCheck.reason}`);
     return;
   }
-  
-  const currentStep = String((game.state as any).step || '');
-  const currentPhase = String(game.state.phase || '');
   
   console.info('[AI] Advancing step:', { gameId, playerId, currentPhase, currentStep });
   
