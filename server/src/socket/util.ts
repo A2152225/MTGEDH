@@ -1288,10 +1288,13 @@ function doAutoPass(
     
     // For human players, only auto-pass if they have NO valid responses
     if (!priorityPlayer.isAI) {
-      // For the active player (turn player), use canAct which checks sorcery-speed actions too
-      // For non-active players, use canRespond which only checks instant-speed responses
+      // For the active player (turn player), check BOTH canAct and canRespond
+      // They need to be able to hold priority to cast instants on their own turn
+      // For non-active players, only check canRespond (instant-speed responses)
       const isActivePlayer = playerId === turnPlayer;
-      const hasActions = isActivePlayer ? canAct(game as any, playerId) : canRespond(game as any, playerId);
+      const hasActions = isActivePlayer 
+        ? (canAct(game as any, playerId) || canRespond(game as any, playerId))
+        : canRespond(game as any, playerId);
       
       if (hasActions) {
         console.log(`[doAutoPass] Skipping auto-pass for human player ${playerId} (${isActivePlayer ? 'active' : 'non-active'}) - they have valid actions available`);
