@@ -701,8 +701,8 @@ export function App() {
   // Select all auto-pass settings
   const handleSelectAllAutoPass = React.useCallback(() => {
     const allSteps = new Set([
-      'upkeep', 'draw', 'begincombat', 'declareattackers', 
-      'declareblockers', 'damage', 'endcombat', 'end'
+      'upkeep', 'draw', 'main1', 'begincombat', 'declareattackers', 
+      'declareblockers', 'damage', 'endcombat', 'main2', 'end'
     ]);
     setAutoPassSteps(allSteps);
     try {
