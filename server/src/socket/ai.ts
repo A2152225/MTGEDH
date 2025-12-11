@@ -1873,10 +1873,13 @@ export async function handleAIPriority(
       // Check if turn player can take sorcery-speed actions (they can act)
       // We use canAct from can-respond module to check if they have playable actions
       let turnPlayerCanAct = false;
-      if (isMainPhase && stackEmpty && turnPlayer) {
+      // Check if we're in main phase (duplicated from below to avoid forward reference)
+      const inMainPhase = phase.includes('main') || step.includes('main');
+      if (inMainPhase && stackEmpty && turnPlayer) {
         try {
           // canAct checks if player can play lands, cast sorceries, or activate abilities
-          turnPlayerCanAct = canAct(game, turnPlayer);
+          // Use ctx (GameContext) which is already available in this function
+          turnPlayerCanAct = canAct(ctx, turnPlayer);
         } catch (err) {
           console.warn('[AI] Failed to check turnPlayerCanAct:', err);
           // On error, assume they can act (conservative approach)
@@ -1888,7 +1891,7 @@ export async function handleAIPriority(
         console.info('[AI] Not AI turn, but human turn player has not claimed priority yet and can act - waiting');
         console.info('[AI] Turn player capabilities:', {
           turnPlayer,
-          isMainPhase,
+          isMainPhase: inMainPhase,
           stackEmpty,
           canAct: turnPlayerCanAct,
           hasClaimedPriority: turnPlayerHasClaimedPriority
