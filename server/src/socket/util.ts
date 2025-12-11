@@ -1241,6 +1241,11 @@ function doAutoPass(
       return;
     }
     
+    // Get turn player and current step for checks below
+    const turnPlayer = game.state.turnPlayer;
+    const currentStep = (game.state.step || '').toString().toUpperCase();
+    const isDefendingPlayer = playerId !== turnPlayer;
+    
     // For human players, only auto-pass if they have NO valid responses
     if (!priorityPlayer.isAI) {
       // For the active player (turn player), use canAct which checks sorcery-speed actions too
@@ -1260,9 +1265,6 @@ function doAutoPass(
     // IMPORTANT: Don't auto-pass during DECLARE_BLOCKERS step for defending players
     // Per Rule 509, the defending player must be given the opportunity to declare blockers
     // This is a turn-based action that doesn't use the stack
-    const currentStep = (game.state.step || '').toString().toUpperCase();
-    const turnPlayer = game.state.turnPlayer;
-    const isDefendingPlayer = playerId !== turnPlayer;
     
     if ((currentStep === 'DECLARE_BLOCKERS' || currentStep.includes('BLOCKERS')) && isDefendingPlayer) {
       console.log(`[doAutoPass] Skipping auto-pass for ${playerId} during DECLARE_BLOCKERS step - must allow blocker declaration`);
