@@ -21,23 +21,21 @@ export function isCurrentlyCreature(perm: BattlefieldPermanent): boolean {
   const typeLine = (card?.type_line || '').toLowerCase();
   const oracleText = (card?.oracle_text || '').toLowerCase();
   
-  // Check if it's a creature in the type line
-  if (typeLine.includes('creature')) {
-    return true;
-  }
-  
   // Check for Equipment with Reconfigure or Enchantment with Bestow
-  // These ARE creatures when NOT attached
-  const hasReconfigure = oracleText.includes('reconfigure');
-  const hasBestow = oracleText.includes('bestow');
+  // These can be creatures OR equipment/auras depending on attachment state
+  // Use word boundary regex to avoid false positives (e.g., "preconfigure")
+  const hasReconfigure = /\breconfigure\b/i.test(oracleText);
+  const hasBestow = /\bbestow\b/i.test(oracleText);
   const isEquipment = typeLine.includes('equipment');
   const isEnchantment = typeLine.includes('enchantment');
   
   if ((isEquipment && hasReconfigure) || (isEnchantment && hasBestow)) {
-    // Check if it's attached - if attachedTo is set, it's NOT a creature
+    // These permanents are creatures when NOT attached, equipment/aura when attached
     // The attachedTo property is already defined in BattlefieldPermanent interface
     return !perm.attachedTo; // IS a creature when NOT attached
   }
   
-  return false;
+  // For all other permanents, check if it's a creature in the type line
+  // This covers normal creatures, artifact creatures, enchantment creatures, etc.
+  return typeLine.includes('creature');
 }
