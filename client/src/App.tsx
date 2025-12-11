@@ -1028,9 +1028,12 @@ export function App() {
     // Use stepKey (normalized, lowercase, no underscores) for precise detection
     const isActionPhase = stepKey.includes('main');
     
-    // Check if player can respond (has playable cards, lands, or activatable abilities)
+    // Get action/response capabilities from server (preferred) or calculate from playableCards (fallback)
+    // canAct: Can take sorcery-speed actions (play lands, cast sorceries, etc.)
+    // canRespond: Can take instant-speed actions (cast instants, activate abilities, etc.)
     const playableCards = (safeView as any).playableCards || [];
-    const canRespond = playableCards.length > 0;
+    const canAct = (safeView as any).canAct ?? (playableCards.length > 0);
+    const canRespond = (safeView as any).canRespond ?? canAct;
     
     // Check if player has creatures for combat (must be untapped and not have summoning sickness)
     const playerCreatures = (safeView.battlefield || []).filter((p: any) => {
@@ -1050,45 +1053,29 @@ export function App() {
     const COMBAT_STEPS = ['combat', 'attack', 'block', 'damage'];
     const isCombatPhase = COMBAT_STEPS.some(phase => stepKey.includes(phase));
     
-    // Auto-pass logic for your own turn:
-    // 1. Main phases: Auto-pass if you CAN'T respond (no playable cards/lands/abilities)
-    // 2. Combat phases: Auto-pass if you have no creatures to attack with
-    // 3. Other phases: Auto-pass if using phase navigator
-    const canAutoPassOnYourTurn = 
-      (isActionPhase && !canRespond) ||  // Main phase with nothing to do
-      (isCombatPhase && !hasCreaturesToAttack) ||  // Combat with no creatures
-      (phaseNavigatorAdvancing && !isActionPhase && !canRespond);  // Phase navigator in non-action phases
+    // NOTE: Auto-pass logic has been moved to server-side (doAutoPass in util.ts)
+    // The server will auto-pass after timeout if player has no actions (canAct/canRespond)
+    // This ensures authoritative game state and prevents race conditions.
+    //
+    // Client-side auto-pass is DISABLED to prevent:
+    // 1. Race conditions where client auto-passes before canAct/canRespond is calculated
+    // 2. Client/server state desync
+    // 3. Priority passing before user can see their options
+    //
+    // TODO: If we want to support user preferences for auto-pass, those should be sent
+    // to the server and the server should handle auto-passing based on those preferences.
     
-    // Auto-pass activates when:
-    // 1. (Auto-pass is enabled for this step AND (not your turn OR you can auto-pass on your turn)), OR
-    // 2. Force auto-pass for rest of turn is enabled, AND  
-    // 3. No pending triggers to handle
-    const shouldAutoPass = 
-      ((autoPassStepEnabled && (!isYourTurn || canAutoPassOnYourTurn)) || autoPassForTurn) && 
-      !hasPendingTriggers;
-    
+    // For now, just show priority modal when relevant (not in main phases)
     if (youHavePriority && stackLength === 0 && !combatModalOpen) {
-      // Check if this is a new step OR if canRespond status changed
-      // This ensures we re-evaluate auto-pass after drawing cards, playing lands, etc.
-      const stepChanged = lastPriorityStep.current !== step;
-      const canRespondChanged = lastCanRespond.current !== null && lastCanRespond.current !== canRespond;
+      const priorityChanged = lastPriorityStep.current !== step;
       
-      if (stepChanged || canRespondChanged) {
+      if (priorityChanged) {
         lastPriorityStep.current = step;
-        lastCanRespond.current = canRespond;
         
-        if (shouldAutoPass) {
-          // Auto-pass priority (during opponents' turns OR when player has no actions available)
-          console.log('[AutoPass] Passing priority - canRespond:', canRespond, 'step:', step);
-          socket.emit("passPriority", { gameId: safeView.id, by: you, isAutoPass: true });
-          setPriorityModalOpen(false);
-        } else {
-          // Show priority modal for this step
-          // Don't show for main phases (main1, main2, main, postcombat_main) - those are obvious
-          const isMainPhase = step.includes('main') || step === 'main1' || step === 'main2';
-          if (!isMainPhase) {
-            setPriorityModalOpen(true);
-          }
+        // Show priority modal for non-main-phase steps
+        const isMainPhase = step.includes('main') || step === 'main1' || step === 'main2';
+        if (!isMainPhase && !hasPendingTriggers) {
+          setPriorityModalOpen(true);
         }
       }
     } else {

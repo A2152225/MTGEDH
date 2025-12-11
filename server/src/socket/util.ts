@@ -546,6 +546,18 @@ function normalizeViewForEmit(rawView: any, game: any) {
           if (playableCardIds && playableCardIds.length > 0) {
             view.playableCards = playableCardIds;
           }
+          
+          // Add canAct and canRespond flags to the view
+          // These are calculated server-side to ensure consistency with game rules
+          try {
+            view.canAct = canAct(game as any, viewerId);
+            view.canRespond = canRespond(game as any, viewerId);
+          } catch (err) {
+            console.warn("Failed to calculate canAct/canRespond:", err);
+            // Fallback: use playableCards as indicator
+            view.canAct = playableCardIds && playableCardIds.length > 0;
+            view.canRespond = view.canAct; // Conservative fallback
+          }
         }
       }
     } catch (e) {
@@ -1276,10 +1288,13 @@ function doAutoPass(
     
     // For human players, only auto-pass if they have NO valid responses
     if (!priorityPlayer.isAI) {
-      // For the active player (turn player), use canAct which checks sorcery-speed actions too
-      // For non-active players, use canRespond which only checks instant-speed responses
+      // For the active player (turn player), check BOTH canAct and canRespond
+      // They need to be able to hold priority to cast instants on their own turn
+      // For non-active players, only check canRespond (instant-speed responses)
       const isActivePlayer = playerId === turnPlayer;
-      const hasActions = isActivePlayer ? canAct(game as any, playerId) : canRespond(game as any, playerId);
+      const hasActions = isActivePlayer 
+        ? (canAct(game as any, playerId) || canRespond(game as any, playerId))
+        : canRespond(game as any, playerId);
       
       if (hasActions) {
         console.log(`[doAutoPass] Skipping auto-pass for human player ${playerId} (${isActivePlayer ? 'active' : 'non-active'}) - they have valid actions available`);
