@@ -33,6 +33,7 @@ import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana } from "./u
 import { parseCreatureKeywords } from "./combat-mechanics.js";
 import { runSBA, createToken } from "./counters_tokens.js";
 import { calculateAllPTBonuses, parsePT } from "../utils.js";
+import { canAct, canRespond } from "./can-respond.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -2359,6 +2360,36 @@ export function nextStep(ctx: GameContext) {
     );
 
     // ========================================================================
+    // DRAW STEP SPECIAL HANDLING (Rule 504.1)
+    // 
+    // Per Rule 504.1: "First, the active player draws a card. This turn-based
+    // action doesn't use the stack."
+    // 
+    // The draw happens BEFORE triggers are processed. This is critical for
+    // triggers like "at the beginning of your draw step" which should see
+    // the card that was just drawn.
+    // ========================================================================
+    if (shouldDraw && !isReplaying) {
+      try {
+        const turnPlayer = (ctx as any).state.turnPlayer;
+        if (turnPlayer) {
+          // Calculate total cards to draw: 1 (base) + any additional draws from effects
+          const additionalDraws = (ctx as any).additionalDrawsPerTurn?.[turnPlayer] || 0;
+          const totalDraws = 1 + additionalDraws;
+          
+          const drawn = drawCards(ctx, turnPlayer, totalDraws);
+          console.log(
+            `${ts()} [nextStep] Drew ${drawn.length} card(s) for ${turnPlayer} at draw step (base: 1, additional: ${additionalDraws})`
+          );
+        } else {
+          console.warn(`${ts()} [nextStep] No turnPlayer set, cannot draw card`);
+        }
+      } catch (err) {
+        console.warn(`${ts()} [nextStep] Failed to draw card:`, err);
+      }
+    }
+
+    // ========================================================================
     // STEP-ENTRY TRIGGER PROCESSING (Per MTG Rules 503-514)
     // 
     // Per Rule 116.2a: Triggered abilities go on the stack the next time a 
@@ -2504,15 +2535,24 @@ export function nextStep(ctx: GameContext) {
             const precombatMainTriggers = getTriggersForTiming(ctx, 'precombat_main', turnPlayer);
             pushTriggersToStack(precombatMainTriggers, 'precombat_main', 'main');
             console.log(`${ts()} [nextStep] Advanced to MAIN1, found ${precombatMainTriggers.length} precombat main trigger(s)`);
+            
+            // IMPORTANT: Set a flag to skip the duplicate MAIN1 trigger processing below
+            (ctx as any)._skipMain1TriggerCheck = true;
           }
         }
         
         // Rule 505.4: Beginning of precombat main phase - "at the beginning of your precombat main phase" triggers
         // This includes cards like Black Market Connections, Saga lore counters (Rule 714.3b), etc.
-        else if (nextStep === "MAIN1") {
+        // NOTE: Only process if we didn't just auto-advance from DRAW (checked via flag)
+        else if (nextStep === "MAIN1" && !(ctx as any)._skipMain1TriggerCheck) {
           const precombatMainTriggers = getTriggersForTiming(ctx, 'precombat_main', turnPlayer);
           pushTriggersToStack(precombatMainTriggers, 'precombat_main', 'main');
           console.log(`${ts()} [nextStep] Checking precombat main triggers for ${turnPlayer}, found ${precombatMainTriggers.length} trigger(s)`);
+        }
+        
+        // Clear the skip flag after processing triggers
+        if ((ctx as any)._skipMain1TriggerCheck) {
+          delete (ctx as any)._skipMain1TriggerCheck;
         }
         
         // Rule 507.1: Beginning of combat - "at the beginning of combat" triggers
@@ -2549,7 +2589,10 @@ export function nextStep(ctx: GameContext) {
         const shouldGrantPriority = !isUntapStep && !isCleanupStep;
         
         if (shouldGrantPriority) {
+          // Always grant priority to the active player first
+          // The auto-pass system will handle passing priority if they can't act
           (ctx as any).state.priority = turnPlayer;
+          
           // CRITICAL: Reset priorityPassedBy when granting priority in a new step
           // This ensures players who passed in the previous step get a fresh chance to act
           // Without this, auto-pass can cause steps to be skipped incorrectly
@@ -2559,6 +2602,23 @@ export function nextStep(ctx: GameContext) {
           (ctx as any).state.priorityClaimed = new Set<string>();
           
           console.log(`${ts()} [nextStep] Granting priority to active player ${turnPlayer} (step: ${nextStep ?? 'unknown'}, stack size: ${(ctx as any).state.stack.length})`);
+          
+          // DEBUG: Log turn player's hand and ability to act
+          try {
+            const zones = (ctx as any).state?.zones?.[turnPlayer];
+            const hand = zones?.hand || [];
+            const handNames = hand.map((card: any) => card?.name || 'Unknown').join(', ');
+            const handCount = hand.length || zones?.handCount || 0;
+            
+            const playerCanAct = canAct(ctx, turnPlayer);
+            const playerCanRespond = canRespond(ctx, turnPlayer);
+            
+            console.log(`${ts()} [nextStep] DEBUG - Turn Player ${turnPlayer}:`);
+            console.log(`${ts()} [nextStep]   Hand (${handCount}): ${handNames || '(empty)'}`);
+            console.log(`${ts()} [nextStep]   canAct: ${playerCanAct}, canRespond: ${playerCanRespond}`);
+          } catch (err) {
+            console.warn(`${ts()} [nextStep] Failed to log debug info:`, err);
+          }
         } else {
           // UNTAP and CLEANUP steps don't grant priority normally
           (ctx as any).state.priority = null;
@@ -2644,28 +2704,6 @@ export function nextStep(ctx: GameContext) {
         }
       } catch (err) {
         console.warn(`${ts()} [nextStep] Failed to untap permanents:`, err);
-      }
-    }
-
-    // If we're entering the draw step, draw a card for the active player
-    // Also apply any additional draw effects (Font of Mythos, Rites of Flourishing, etc.)
-    if (shouldDraw) {
-      try {
-        const turnPlayer = (ctx as any).state.turnPlayer;
-        if (turnPlayer) {
-          // Calculate total cards to draw: 1 (base) + any additional draws from effects
-          const additionalDraws = (ctx as any).additionalDrawsPerTurn?.[turnPlayer] || 0;
-          const totalDraws = 1 + additionalDraws;
-          
-          const drawn = drawCards(ctx, turnPlayer, totalDraws);
-          console.log(
-            `${ts()} [nextStep] Drew ${drawn.length} card(s) for ${turnPlayer} at draw step (base: 1, additional: ${additionalDraws})`
-          );
-        } else {
-          console.warn(`${ts()} [nextStep] No turnPlayer set, cannot draw card`);
-        }
-      } catch (err) {
-        console.warn(`${ts()} [nextStep] Failed to draw card:`, err);
       }
     }
 
