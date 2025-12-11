@@ -1103,7 +1103,7 @@ function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string): void
                 await aiModule.handleAIGameFlow(io, gameId, turnPlayer);
               }
             } catch (e) {
-              console.warn('[util] Failed to trigger AI handler for cleanup:', e);
+              console.error('[util] Failed to trigger AI handler for cleanup:', { gameId, playerId: turnPlayer, error: e });
             }
           }, AI_REACTION_DELAY_MS);
           return; // Exit early - we've handled the cleanup case
@@ -1128,12 +1128,12 @@ function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string): void
             await aiModule.handleAIPriority(io, gameId, priority);
           }
         } catch (e) {
-          console.warn('[util] Failed to trigger AI handler:', e);
+          console.error('[util] Failed to trigger AI handler:', { gameId, playerId: priority, error: e });
         }
       }, AI_REACTION_DELAY_MS);
     }
   } catch (e) {
-    console.warn('[util] checkAndTriggerAI error:', e);
+    console.error('[util] checkAndTriggerAI error:', { gameId, error: e });
   }
 }
 

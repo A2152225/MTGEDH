@@ -2667,9 +2667,14 @@ async function executeAIActivateAbility(
     else if (isTapAbility) {
       // Check if this is a mana ability (mana abilities don't use the stack - MTG Rule 605)
       // Mana abilities produce mana and don't target
-      // Pattern matches: {W}, {U}, {B}, {R}, {G}, {C}, "add mana", "add one mana", etc.
-      const isManaAbility = /add\s+(\{[wubrgc]\}|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i.test(abilityText) && 
-                            !/target/i.test(abilityText);
+      // Patterns matched:
+      //   - {W}, {U}, {B}, {R}, {G}, {C} (specific mana symbols)
+      //   - "add one mana", "add two mana", "add X mana"
+      //   - "mana of any color", "any color", "mana in any combination"
+      //   - Must NOT contain "target" (targeting abilities can't be mana abilities)
+      const manaProductionPattern = /add\s+(\{[wubrgc]\}|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i;
+      const hasTargets = /target/i.test(abilityText);
+      const isManaAbility = manaProductionPattern.test(abilityText) && !hasTargets;
       
       if (isManaAbility) {
         // Mana abilities resolve immediately - don't put on stack
@@ -2679,7 +2684,9 @@ async function executeAIActivateAbility(
         // Mana abilities don't pass priority - they resolve instantly
         // Continue AI turn after instant resolution
         setTimeout(() => {
-          handleAIPriority(io, gameId, playerId).catch(console.error);
+          handleAIPriority(io, gameId, playerId).catch((err) => {
+            console.error('[AI] Error continuing after mana ability:', { gameId, playerId, cardName: card.name, error: err });
+          });
         }, AI_REACTION_DELAY_MS);
         return;
       } else {
