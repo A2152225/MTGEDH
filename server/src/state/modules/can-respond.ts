@@ -41,10 +41,69 @@ function hasFlashOrInstant(card: any): boolean {
   return false;
 }
 
+/**
+ * Check if a card has flashback ability
+ * Flashback allows casting from graveyard for an alternate cost
+ */
+function hasFlashback(card: any): { hasIt: boolean; cost?: string } {
+  if (!card) return { hasIt: false };
+  
+  const oracleText = (card.oracle_text || "").toLowerCase();
+  
+  // Check for flashback keyword
+  if (!oracleText.includes("flashback")) {
+    return { hasIt: false };
+  }
+  
+  // Try to extract the flashback cost
+  // Pattern: "Flashback {cost}" or "Flashback—{cost}"
+  const flashbackMatch = oracleText.match(/flashback[—\s]+(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (flashbackMatch) {
+    return { hasIt: true, cost: flashbackMatch[1] };
+  }
+  
+  // If we find "flashback" but can't parse cost, assume it exists
+  return { hasIt: true };
+}
+
+/**
+ * Check if a card has foretell ability or can be cast from exile
+ * Foretell allows casting from exile for an alternate cost after being foretold
+ */
+function hasForetellOrCanCastFromExile(card: any): { hasIt: boolean; cost?: string } {
+  if (!card) return { hasIt: false };
+  
+  const oracleText = (card.oracle_text || "").toLowerCase();
+  
+  // Check for foretell keyword
+  if (oracleText.includes("foretell")) {
+    // Try to extract foretell cost
+    // Pattern: "Foretell {cost}"
+    const foretellMatch = oracleText.match(/foretell\s+(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+    if (foretellMatch) {
+      return { hasIt: true, cost: foretellMatch[1] };
+    }
+    return { hasIt: true };
+  }
+  
+  // Check for "you may cast this card from exile" or similar patterns
+  if (oracleText.includes("you may cast") && oracleText.includes("from exile")) {
+    return { hasIt: true };
+  }
+  
+  // Check for "you may play" from exile
+  if (oracleText.includes("you may play") && oracleText.includes("from exile")) {
+    return { hasIt: true };
+  }
+  
+  return { hasIt: false };
+}
+
 
 
 /**
- * Check if player can cast any instant or flash spell from hand
+ * Check if player can cast any instant or flash spell from hand, graveyard (flashback), 
+ * or exile (foretell/impulse draw)
  */
 export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
   try {
@@ -52,30 +111,109 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
     if (!state) return false;
     
     const zones = state.zones?.[playerId];
-    if (!zones || !Array.isArray(zones.hand)) return false;
+    if (!zones) return false;
     
     // Get mana pool
     const pool = getManaPoolFromState(state, playerId);
     
     // Check each card in hand
-    for (const card of zones.hand as any[]) {
-      if (!card || typeof card === "string") continue;
-      
-      // Skip non-instant/flash cards
-      if (!hasFlashOrInstant(card)) continue;
-      
-      // Check if player can pay the cost (either normal or alternate)
-      const manaCost = card.mana_cost || "";
-      const parsedCost = parseManaCost(manaCost);
-      
-      // Check normal mana cost
-      if (canPayManaCost(pool, parsedCost)) {
-        return true;
+    if (Array.isArray(zones.hand)) {
+      for (const card of zones.hand as any[]) {
+        if (!card || typeof card === "string") continue;
+        
+        // Skip non-instant/flash cards
+        if (!hasFlashOrInstant(card)) continue;
+        
+        // Check if player can pay the cost (either normal or alternate)
+        const manaCost = card.mana_cost || "";
+        const parsedCost = parseManaCost(manaCost);
+        
+        // Check normal mana cost
+        if (canPayManaCost(pool, parsedCost)) {
+          return true;
+        }
+        
+        // Check alternate costs
+        if (hasPayableAlternateCost(ctx, playerId, card)) {
+          return true;
+        }
       }
-      
-      // Check alternate costs
-      if (hasPayableAlternateCost(ctx, playerId, card)) {
-        return true;
+    }
+    
+    // Check graveyard for flashback instants
+    if (Array.isArray(zones.graveyard)) {
+      for (const card of zones.graveyard as any[]) {
+        if (!card || typeof card === "string") continue;
+        
+        // Check if it's an instant with flashback
+        const typeLine = (card.type_line || "").toLowerCase();
+        if (!typeLine.includes("instant")) continue;
+        
+        const flashbackInfo = hasFlashback(card);
+        if (!flashbackInfo.hasIt) continue;
+        
+        // Check if player can pay the flashback cost
+        if (flashbackInfo.cost) {
+          const parsedCost = parseManaCost(flashbackInfo.cost);
+          if (canPayManaCost(pool, parsedCost)) {
+            return true;
+          }
+        } else {
+          // If we can't parse the cost, assume they might be able to pay it
+          // This is conservative - we don't auto-pass if unsure
+          return true;
+        }
+      }
+    }
+    
+    // Check exile for foretell instants or impulse draw effects
+    const stateAny = state as any;
+    const exileZone = stateAny.exile?.[playerId];
+    
+    if (Array.isArray(exileZone)) {
+      for (const card of exileZone as any[]) {
+        if (!card || typeof card === "string") continue;
+        
+        // Check if it's an instant that can be cast from exile
+        const typeLine = (card.type_line || "").toLowerCase();
+        if (!typeLine.includes("instant")) continue;
+        
+        // Check for foretell
+        const foretellInfo = hasForetellOrCanCastFromExile(card);
+        if (foretellInfo.hasIt) {
+          // Check if player can pay the foretell cost
+          if (foretellInfo.cost) {
+            const parsedCost = parseManaCost(foretellInfo.cost);
+            if (canPayManaCost(pool, parsedCost)) {
+              return true;
+            }
+          } else {
+            // If we can't parse cost or card has "you may cast from exile", be conservative
+            return true;
+          }
+        }
+        
+        // Check for impulse draw effects (playableFromExile state marker)
+        if (stateAny.playableFromExile?.[playerId]) {
+          const playableCards = stateAny.playableFromExile[playerId];
+          const cardId = card.id || card.name;
+          
+          // Check if this card is marked as playable from exile
+          if (Array.isArray(playableCards) ? playableCards.includes(cardId) : playableCards[cardId]) {
+            // Check if player can pay the normal mana cost
+            const manaCost = card.mana_cost || "";
+            const parsedCost = parseManaCost(manaCost);
+            
+            if (canPayManaCost(pool, parsedCost)) {
+              return true;
+            }
+            
+            // Check alternate costs
+            if (hasPayableAlternateCost(ctx, playerId, card)) {
+              return true;
+            }
+          }
+        }
       }
     }
     
@@ -609,7 +747,8 @@ export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
 }
 
 /**
- * Check if player can cast any sorcery-speed spell from hand
+ * Check if player can cast any sorcery-speed spell from hand, graveyard (flashback),
+ * or exile (foretell/impulse draw)
  * (creatures, sorceries, artifacts, enchantments, planeswalkers)
  */
 function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
@@ -618,50 +757,159 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
     if (!state) return false;
     
     const zones = state.zones?.[playerId];
-    if (!zones || !Array.isArray(zones.hand)) return false;
+    if (!zones) return false;
     
     // Get mana pool
     const pool = getManaPoolFromState(state, playerId);
     
     // Check each card in hand
-    for (const card of zones.hand as any[]) {
-      if (!card || typeof card === "string") continue;
-      
-      const typeLine = (card.type_line || "").toLowerCase();
-      
-      // Check if it's a sorcery-speed spell (not instant, not land)
-      const isSorcerySpeed = 
-        typeLine.includes("creature") ||
-        typeLine.includes("sorcery") ||
-        typeLine.includes("artifact") ||
-        typeLine.includes("enchantment") ||
-        typeLine.includes("planeswalker") ||
-        typeLine.includes("battle");
-      
-      // Skip if it's instant or has flash (already checked in canCastAnySpell)
-      if (typeLine.includes("instant") || (card.oracle_text || "").toLowerCase().includes("flash")) {
-        continue;
+    if (Array.isArray(zones.hand)) {
+      for (const card of zones.hand as any[]) {
+        if (!card || typeof card === "string") continue;
+        
+        const typeLine = (card.type_line || "").toLowerCase();
+        
+        // Check if it's a sorcery-speed spell (not instant, not land)
+        const isSorcerySpeed = 
+          typeLine.includes("creature") ||
+          typeLine.includes("sorcery") ||
+          typeLine.includes("artifact") ||
+          typeLine.includes("enchantment") ||
+          typeLine.includes("planeswalker") ||
+          typeLine.includes("battle");
+        
+        // Skip if it's instant or has flash (already checked in canCastAnySpell)
+        if (typeLine.includes("instant") || (card.oracle_text || "").toLowerCase().includes("flash")) {
+          continue;
+        }
+        
+        // Skip lands (checked separately in canPlayLand)
+        if (typeLine.includes("land")) {
+          continue;
+        }
+        
+        if (!isSorcerySpeed) continue;
+        
+        // Check if player can pay the cost (either normal or alternate)
+        const manaCost = card.mana_cost || "";
+        const parsedCost = parseManaCost(manaCost);
+        
+        // Check normal mana cost
+        if (canPayManaCost(pool, parsedCost)) {
+          return true;
+        }
+        
+        // Check alternate costs
+        if (hasPayableAlternateCost(ctx, playerId, card)) {
+          return true;
+        }
       }
-      
-      // Skip lands (checked separately in canPlayLand)
-      if (typeLine.includes("land")) {
-        continue;
+    }
+    
+    // Check graveyard for flashback sorceries/creatures/etc
+    if (Array.isArray(zones.graveyard)) {
+      for (const card of zones.graveyard as any[]) {
+        if (!card || typeof card === "string") continue;
+        
+        const typeLine = (card.type_line || "").toLowerCase();
+        
+        // Skip instants (already checked)
+        if (typeLine.includes("instant")) continue;
+        
+        // Skip lands
+        if (typeLine.includes("land")) continue;
+        
+        // Check if it's a sorcery-speed spell
+        const isSorcerySpeed = 
+          typeLine.includes("creature") ||
+          typeLine.includes("sorcery") ||
+          typeLine.includes("artifact") ||
+          typeLine.includes("enchantment") ||
+          typeLine.includes("planeswalker") ||
+          typeLine.includes("battle");
+        
+        if (!isSorcerySpeed) continue;
+        
+        // Check for flashback
+        const flashbackInfo = hasFlashback(card);
+        if (!flashbackInfo.hasIt) continue;
+        
+        // Check if player can pay the flashback cost
+        if (flashbackInfo.cost) {
+          const parsedCost = parseManaCost(flashbackInfo.cost);
+          if (canPayManaCost(pool, parsedCost)) {
+            return true;
+          }
+        } else {
+          // If we can't parse the cost, assume they might be able to pay it
+          return true;
+        }
       }
-      
-      if (!isSorcerySpeed) continue;
-      
-      // Check if player can pay the cost (either normal or alternate)
-      const manaCost = card.mana_cost || "";
-      const parsedCost = parseManaCost(manaCost);
-      
-      // Check normal mana cost
-      if (canPayManaCost(pool, parsedCost)) {
-        return true;
-      }
-      
-      // Check alternate costs
-      if (hasPayableAlternateCost(ctx, playerId, card)) {
-        return true;
+    }
+    
+    // Check exile for foretell sorceries or impulse draw effects
+    const stateAny = state as any;
+    const exileZone = stateAny.exile?.[playerId];
+    
+    if (Array.isArray(exileZone)) {
+      for (const card of exileZone as any[]) {
+        if (!card || typeof card === "string") continue;
+        
+        const typeLine = (card.type_line || "").toLowerCase();
+        
+        // Skip instants
+        if (typeLine.includes("instant")) continue;
+        
+        // Skip lands
+        if (typeLine.includes("land")) continue;
+        
+        // Check if it's a sorcery-speed spell
+        const isSorcerySpeed = 
+          typeLine.includes("creature") ||
+          typeLine.includes("sorcery") ||
+          typeLine.includes("artifact") ||
+          typeLine.includes("enchantment") ||
+          typeLine.includes("planeswalker") ||
+          typeLine.includes("battle");
+        
+        if (!isSorcerySpeed) continue;
+        
+        // Check for foretell
+        const foretellInfo = hasForetellOrCanCastFromExile(card);
+        if (foretellInfo.hasIt) {
+          // Check if player can pay the foretell cost
+          if (foretellInfo.cost) {
+            const parsedCost = parseManaCost(foretellInfo.cost);
+            if (canPayManaCost(pool, parsedCost)) {
+              return true;
+            }
+          } else {
+            // If we can't parse cost or card has "you may cast from exile", be conservative
+            return true;
+          }
+        }
+        
+        // Check for impulse draw effects (playableFromExile state marker)
+        if (stateAny.playableFromExile?.[playerId]) {
+          const playableCards = stateAny.playableFromExile[playerId];
+          const cardId = card.id || card.name;
+          
+          // Check if this card is marked as playable from exile
+          if (Array.isArray(playableCards) ? playableCards.includes(cardId) : playableCards[cardId]) {
+            // Check if player can pay the normal mana cost
+            const manaCost = card.mana_cost || "";
+            const parsedCost = parseManaCost(manaCost);
+            
+            if (canPayManaCost(pool, parsedCost)) {
+              return true;
+            }
+            
+            // Check alternate costs
+            if (hasPayableAlternateCost(ctx, playerId, card)) {
+              return true;
+            }
+          }
+        }
       }
     }
     

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canCastAnySpell, canActivateAnyAbility, canRespond } from '../src/state/modules/can-respond';
+import { canCastAnySpell, canActivateAnyAbility, canRespond, canAct } from '../src/state/modules/can-respond';
 import type { GameContext } from '../src/state/context';
 import type { PlayerID } from '../../shared/src';
 
@@ -427,5 +427,231 @@ describe('canRespond', () => {
     });
     
     expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should return true when player has flashback instant in graveyard with mana', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'card1',
+              name: 'Desperate Ravings',
+              type_line: 'Instant',
+              mana_cost: '{1}{R}',
+              oracle_text: 'Draw two cards, then discard a card at random.\nFlashback {2}{U}',
+            },
+          ],
+        },
+      },
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 2 },
+      },
+    });
+    
+    expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should return false when player has flashback instant in graveyard without mana', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'card1',
+              name: 'Desperate Ravings',
+              type_line: 'Instant',
+              mana_cost: '{1}{R}',
+              oracle_text: 'Draw two cards, then discard a card at random.\nFlashback {2}{U}',
+            },
+          ],
+        },
+      },
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+    });
+    
+    expect(canRespond(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+
+  it('should return true when player has foretell instant in exile with mana', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+        },
+      },
+      exile: {
+        p1: [
+          {
+            id: 'card1',
+            name: 'Saw It Coming',
+            type_line: 'Instant',
+            mana_cost: '{2}{U}{U}',
+            oracle_text: 'Counter target spell.\nForetell {1}{U}',
+          },
+        ],
+      },
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 1 },
+      },
+    });
+    
+    expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should return true when player has playable instant from exile via impulse draw', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+        },
+      },
+      exile: {
+        p1: [
+          {
+            id: 'bolt1',
+            name: 'Lightning Bolt',
+            type_line: 'Instant',
+            mana_cost: '{R}',
+            oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+          },
+        ],
+      },
+      playableFromExile: {
+        p1: ['bolt1'], // Card marked as playable from exile (e.g., Light Up the Stage)
+      },
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 0 },
+      },
+    });
+    
+    expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+});
+
+describe('canAct', () => {
+  it('should return true when player can cast sorcery from hand in main phase', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [
+            {
+              id: 'card1',
+              name: 'Divination',
+              type_line: 'Sorcery',
+              mana_cost: '{2}{U}',
+              oracle_text: 'Draw two cards.',
+            },
+          ],
+        },
+      },
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 2 },
+      },
+      step: 'MAIN1',
+      stack: [],
+    });
+    
+    expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should return true when player has flashback sorcery in graveyard with mana in main phase', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'card1',
+              name: 'Deep Analysis',
+              type_line: 'Sorcery',
+              mana_cost: '{3}{U}',
+              oracle_text: 'Target player draws two cards.\nFlashback—{1}{U}, Pay 3 life.',
+            },
+          ],
+        },
+      },
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 1 },
+      },
+      life: {
+        p1: 20,
+      },
+      step: 'MAIN1',
+      stack: [],
+    });
+    
+    expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should return true when player has foretell creature in exile with mana in main phase', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+        },
+      },
+      exile: {
+        p1: [
+          {
+            id: 'card1',
+            name: 'Behold the Multiverse',
+            type_line: 'Sorcery',
+            mana_cost: '{3}{U}',
+            oracle_text: 'Scry 2, then draw two cards.\nForetell {1}{U}',
+          },
+        ],
+      },
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 1 },
+      },
+      step: 'MAIN1',
+      stack: [],
+    });
+    
+    expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should return true when player has creature from exile via impulse draw in main phase', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+        },
+      },
+      exile: {
+        p1: [
+          {
+            id: 'creature1',
+            name: 'Grizzly Bears',
+            type_line: 'Creature — Bear',
+            mana_cost: '{1}{G}',
+            oracle_text: '',
+          },
+        ],
+      },
+      playableFromExile: {
+        p1: ['creature1'], // Card marked as playable from exile (e.g., Act on Impulse)
+      },
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 1 },
+      },
+      step: 'MAIN1',
+      stack: [],
+    });
+    
+    expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
   });
 });
