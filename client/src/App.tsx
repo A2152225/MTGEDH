@@ -905,8 +905,8 @@ export function App() {
         // Check if there are any valid creatures that can attack
         const validAttackers = (safeView.battlefield || []).filter((p: BattlefieldPermanent) => {
           if (p.controller !== you) return false;
-          const typeLine = (p.card as KnownCardRef)?.type_line?.toLowerCase() || '';
-          if (!typeLine.includes('creature')) return false;
+          // Check if it's currently a creature (handles reconfigure/bestow)
+          if (!isCurrentlyCreature(p)) return false;
           // Check if creature can attack (not tapped, no summoning sickness unless haste, no defender)
           if (p.tapped) return false;
           return canCreatureAttack(p);
@@ -3604,6 +3604,41 @@ export function App() {
   };
 
   /**
+   * Check if a permanent is currently a creature.
+   * Handles special cases:
+   * - Equipment with Reconfigure: IS a creature when not attached
+   * - Enchantment Creatures with Bestow: IS a creature when not attached
+   * 
+   * Rule 702.151b: "Attaching an Equipment with reconfigure to another creature causes 
+   * the Equipment to stop being a creature until it becomes unattached from that creature."
+   */
+  const isCurrentlyCreature = (perm: BattlefieldPermanent): boolean => {
+    const card = perm.card as KnownCardRef;
+    const typeLine = (card?.type_line || '').toLowerCase();
+    const oracleText = (card?.oracle_text || '').toLowerCase();
+    
+    // Check if it's a creature in the type line
+    if (typeLine.includes('creature')) {
+      return true;
+    }
+    
+    // Check for Equipment with Reconfigure or Enchantment with Bestow
+    // These ARE creatures when NOT attached
+    const hasReconfigure = oracleText.includes('reconfigure');
+    const hasBestow = oracleText.includes('bestow');
+    const isEquipment = typeLine.includes('equipment');
+    const isEnchantment = typeLine.includes('enchantment');
+    
+    if ((isEquipment && hasReconfigure) || (isEnchantment && hasBestow)) {
+      // Check if it's attached - if attachedTo is set, it's NOT a creature
+      const attachedTo = (perm as any).attachedTo;
+      return !attachedTo; // IS a creature when NOT attached
+    }
+    
+    return false;
+  };
+
+  /**
    * Check if a creature can attack (considering summoning sickness).
    * Rule 302.6: A creature can't attack unless it's been continuously controlled 
    * since the turn began, or it has haste.
@@ -3656,8 +3691,8 @@ export function App() {
     if (!safeView || !you) return [];
     return (safeView.battlefield || []).filter((p: BattlefieldPermanent) => {
       if (p.controller !== you) return false;
-      const typeLine = (p.card as KnownCardRef)?.type_line?.toLowerCase() || '';
-      if (!typeLine.includes('creature')) return false;
+      // Check if it's currently a creature (handles reconfigure/bestow)
+      if (!isCurrentlyCreature(p)) return false;
       
       // Filter out creatures that cannot attack (summoning sickness without haste, or defender)
       return canCreatureAttack(p);
@@ -3672,8 +3707,8 @@ export function App() {
     if (!safeView || !you) return [];
     return (safeView.battlefield || []).filter((p: BattlefieldPermanent) => {
       if (p.controller !== you) return false;
-      const typeLine = (p.card as KnownCardRef)?.type_line?.toLowerCase() || '';
-      if (!typeLine.includes('creature')) return false;
+      // Check if it's currently a creature (handles reconfigure/bestow)
+      if (!isCurrentlyCreature(p)) return false;
       // Tapped creatures cannot block
       if (p.tapped) return false;
       // All untapped creatures can block (even with summoning sickness or defender)
@@ -3685,7 +3720,7 @@ export function App() {
     if (!safeView) return [];
     return (safeView.battlefield || []).filter((p: any) => 
       p.attacking && 
-      (p.card as KnownCardRef)?.type_line?.toLowerCase().includes('creature')
+      isCurrentlyCreature(p)
     );
   }, [safeView]);
 
