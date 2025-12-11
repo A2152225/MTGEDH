@@ -74,8 +74,21 @@ export function passPriority(ctx: GameContext, playerId: PlayerID): { changed: b
       // per MTG rule 117.3b - "After a spell or ability resolves, the active player receives priority"
       state.priority = state.turnPlayer as PlayerID;
       
-      // Don't auto-pass here - we just resolved the stack after all players passed.
-      // The turn player will get a chance to respond to the new board state.
+      // IMPORTANT: After stack resolution, check if active player can act
+      // If not, run auto-pass loop to advance priority to next player who can act
+      // This prevents the game from getting stuck after resolving spells/abilities
+      // when the active player has no responses available
+      const result = autoPassLoop(ctx, active);
+      if (result.allPassed) {
+        // All players auto-passed after stack resolution
+        if (result.resolved) {
+          // Another item was resolved from stack
+          resolvedNow = true;
+        } else {
+          // Empty stack now - advance step
+          advanceStep = true;
+        }
+      }
     } else {
       // Not all players have passed yet, advance priority clockwise
       state.priority = advancePriorityClockwise(ctx, playerId);
