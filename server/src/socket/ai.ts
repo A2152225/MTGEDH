@@ -1731,22 +1731,22 @@ export async function handleAIPriority(
       // CRITICAL: Check pendingDiscardSelection first (set by game engine during nextStep)
       // This is the authoritative source for cleanup discard requirements
       const pendingDiscard = (game.state as any).pendingDiscardSelection?.[playerId];
+      let discardCount = 0;
+      
       if (pendingDiscard && pendingDiscard.count > 0) {
         console.info('[AI] Cleanup step - AI has pending discard selection:', pendingDiscard.count, 'cards');
-        await executeAIDiscard(io, gameId, playerId, pendingDiscard.count);
-        
-        // Clear the processing flag after discard
-        delete (game.state as any)._aiProcessingCleanup[playerId];
-        return;
+        discardCount = pendingDiscard.count;
+      } else {
+        // Fallback: calculate discard need independently (in case pendingDiscardSelection wasn't set)
+        const { needsDiscard, discardCount: calculatedCount } = needsToDiscard(game, playerId);
+        if (needsDiscard) {
+          console.info('[AI] Cleanup step - AI needs to discard', calculatedCount, 'cards (calculated independently)');
+          discardCount = calculatedCount;
+        }
       }
       
-      // Fallback: calculate discard need independently (in case pendingDiscardSelection wasn't set)
-      const { needsDiscard, discardCount } = needsToDiscard(game, playerId);
-      
-      if (needsDiscard) {
-        console.info('[AI] Cleanup step - AI needs to discard', discardCount, 'cards (calculated independently)');
+      if (discardCount > 0) {
         await executeAIDiscard(io, gameId, playerId, discardCount);
-        
         // Clear the processing flag after discard
         delete (game.state as any)._aiProcessingCleanup[playerId];
         return;
