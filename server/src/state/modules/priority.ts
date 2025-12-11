@@ -13,6 +13,15 @@ function normalizePhaseStep(phase: string, step: string): { phase: string; step:
   };
 }
 
+/**
+ * Check if we're at the phase/step that the player skipped to
+ */
+function isAtSkipTarget(currentPhase: string, currentStep: string, skipPhase: string, skipStep: string): boolean {
+  const current = normalizePhaseStep(currentPhase, currentStep);
+  const target = normalizePhaseStep(skipPhase, skipStep);
+  return current.phase === target.phase && current.step === target.step;
+}
+
 function activePlayersClockwise(ctx: GameContext): PlayerRef[] {
   const { state, inactive } = ctx;
   return (state.players as any as PlayerRef[])
@@ -208,13 +217,27 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
     
     console.log(`[priority] autoPassLoop - checking ${currentPlayer} (${isActivePlayer ? 'ACTIVE' : 'non-active'}): canAct=${playerCanAct}, stack.length=${state.stack.length}, step=${currentStep}`);
     
-    // Check if the current player used phase navigator
-    // If so, give them priority at this step (they explicitly navigated here)
+    // Check if the current player used phase navigator and we're AT the target phase/step
+    // If so, give them priority at this specific step (they explicitly navigated here)
+    // This only applies at the TARGET phase, not intermediate steps
     const justSkipped = stateAny.justSkippedToPhase;
     if (justSkipped && justSkipped.playerId === currentPlayer) {
-      const current = normalizePhaseStep(stateAny.phase, stateAny.step);
-      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: player used phase navigator, giving them priority window at ${current.step}`);
-      return { allPassed: false, resolved: false };
+      const isAtTarget = isAtSkipTarget(
+        stateAny.phase, 
+        stateAny.step, 
+        justSkipped.phase, 
+        justSkipped.step
+      );
+      
+      if (isAtTarget) {
+        console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: reached phase navigator target at ${currentStep}`);
+        // Clear the flag since we've reached the target and given them priority
+        delete stateAny.justSkippedToPhase;
+        return { allPassed: false, resolved: false };
+      } else {
+        // Not at target yet - allow auto-pass to continue moving toward target
+        console.log(`[priority] autoPassLoop - continuing auto-pass for ${currentPlayer}: moving toward phase navigator target (currently at ${currentStep})`);
+      }
     }
     
     // For the active player during their own turn:
