@@ -19,7 +19,7 @@ import type { GameID, PlayerID } from "../../../shared/src/index.js";
 import { registerPendingJoinForces, registerPendingTemptingOffer } from "./join-forces.js";
 import { getActualPowerToughness } from "../state/utils.js";
 import { getDevotionManaAmount, getCreatureCountManaAmount } from "../state/modules/mana-abilities.js";
-import { canRespond } from "../state/modules/can-respond.js";
+import { canRespond, canAct } from "../state/modules/can-respond.js";
 import { parseManaCost as parseManaFromString, canPayManaCost, getManaPoolFromState } from "../state/modules/mana-check.js";
 import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
 
@@ -1241,26 +1241,30 @@ function doAutoPass(
       return;
     }
     
+    // Get turn player and current step for checks below
+    const turnPlayer = game.state.turnPlayer;
+    const currentStep = (game.state.step || '').toString().toUpperCase();
+    const isDefendingPlayer = playerId !== turnPlayer;
+    
     // For human players, only auto-pass if they have NO valid responses
     if (!priorityPlayer.isAI) {
-      // Check if player can respond with any action
-      const playerCanRespond = canRespond(game as any, playerId);
+      // For the active player (turn player), use canAct which checks sorcery-speed actions too
+      // For non-active players, use canRespond which only checks instant-speed responses
+      const isActivePlayer = playerId === turnPlayer;
+      const hasActions = isActivePlayer ? canAct(game as any, playerId) : canRespond(game as any, playerId);
       
-      if (playerCanRespond) {
-        console.log(`[doAutoPass] Skipping auto-pass for human player ${playerId} - they have valid actions available`);
+      if (hasActions) {
+        console.log(`[doAutoPass] Skipping auto-pass for human player ${playerId} (${isActivePlayer ? 'active' : 'non-active'}) - they have valid actions available`);
         return; // Player has options, don't auto-pass
       }
       
-      console.log(`[doAutoPass] Auto-passing for human player ${playerId} - no valid actions available`);
+      console.log(`[doAutoPass] Auto-passing for human player ${playerId} (${isActivePlayer ? 'active' : 'non-active'}) - no valid actions available`);
       // Fall through to auto-pass since player has no valid responses
     }
     
     // IMPORTANT: Don't auto-pass during DECLARE_BLOCKERS step for defending players
     // Per Rule 509, the defending player must be given the opportunity to declare blockers
     // This is a turn-based action that doesn't use the stack
-    const currentStep = (game.state.step || '').toString().toUpperCase();
-    const turnPlayer = game.state.turnPlayer;
-    const isDefendingPlayer = playerId !== turnPlayer;
     
     if ((currentStep === 'DECLARE_BLOCKERS' || currentStep.includes('BLOCKERS')) && isDefendingPlayer) {
       console.log(`[doAutoPass] Skipping auto-pass for ${playerId} during DECLARE_BLOCKERS step - must allow blocker declaration`);
