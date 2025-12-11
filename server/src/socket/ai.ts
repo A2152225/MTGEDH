@@ -831,26 +831,73 @@ export async function handleAIGameFlow(
           console.info('[AI] AI taking mulligan');
           
           const currentMulligans = aiMulliganState?.mulligansTaken || 0;
+          const newMulliganCount = currentMulligans + 1;
+          
+          // Check if player can still mulligan (max 7 mulligans = 0 cards)
+          if (newMulliganCount > 7) {
+            console.warn('[AI] AI cannot mulligan further - would have 0 cards');
+            // Force keep the hand
+            (game.state as any).mulliganState = (game.state as any).mulliganState || {};
+            (game.state as any).mulliganState[playerId] = {
+              hasKeptHand: true,
+              mulligansTaken: currentMulligans,
+            };
+            broadcastGame(io, game, gameId);
+            setTimeout(() => handleAIGameFlow(io, gameId, playerId), AI_THINK_TIME_MS);
+            return;
+          }
           
           // Update mulligan count but DON'T set hasKeptHand yet
           (game.state as any).mulliganState = (game.state as any).mulliganState || {};
           (game.state as any).mulliganState[playerId] = {
             hasKeptHand: false,
-            mulligansTaken: currentMulligans + 1,
+            mulligansTaken: newMulliganCount,
           };
           
-          // Execute the mulligan via the game's mulligan method
-          if (typeof (game as any).mulligan === 'function') {
-            (game as any).mulligan(playerId);
-            console.info('[AI] Executed mulligan for AI player');
-          } else {
-            console.warn('[AI] game.mulligan method not available');
+          // Execute the mulligan by moving hand to library, shuffling, and drawing new hand
+          // This matches the logic in game-actions.ts socket handler
+          try {
+            console.info(`[AI] Executing mulligan #${newMulliganCount} for AI player`);
+            
+            // Move hand back to library
+            if (typeof (game as any).moveHandToLibrary === 'function') {
+              (game as any).moveHandToLibrary(playerId);
+              console.info('[AI] Moved hand to library');
+            } else {
+              console.warn('[AI] game.moveHandToLibrary not available');
+            }
+            
+            // Shuffle library
+            if (typeof (game as any).shuffleLibrary === 'function') {
+              (game as any).shuffleLibrary(playerId);
+              console.info('[AI] Shuffled library');
+            } else {
+              console.warn('[AI] game.shuffleLibrary not available');
+            }
+            
+            // Draw new 7-card hand (London mulligan - put cards back later when keeping)
+            if (typeof (game as any).drawCards === 'function') {
+              const drawn = (game as any).drawCards(playerId, 7);
+              console.info('[AI] Drew new 7-card hand, actual drawn:', drawn?.length || 0);
+            } else {
+              console.warn('[AI] game.drawCards not available');
+            }
+            
+            // Bump sequence
+            if (typeof (game as any).bumpSeq === 'function') {
+              (game as any).bumpSeq();
+            }
+            
+            console.info('[AI] Mulligan executed successfully');
+          } catch (e) {
+            console.error('[AI] Error executing mulligan:', e);
           }
           
           // Persist the mulligan event
           try {
             await appendEvent(gameId, (game as any).seq || 0, 'mulligan', {
               playerId,
+              mulliganNumber: newMulliganCount,
               isAI: true,
             });
           } catch (e) {
@@ -3239,15 +3286,88 @@ async function executeDeclareBlockers(
 /**
  * Mulligan thresholds
  */
-const MIN_HAND_SIZE_TO_MULLIGAN = 5; // Don't mulligan below this size (too risky)
+const MIN_HAND_SIZE_TO_MULLIGAN = 4; // Don't mulligan to 4 or fewer cards (too risky)
 const OPENING_HAND_SIZE = 7; // Standard opening hand in EDH/Commander
 
 /**
+ * Calculate the effective hand size after London Mulligan
+ * In multiplayer Commander, the first mulligan is free, then you put back N-1 cards
+ * where N is the number of mulligans taken (excluding the first free one)
+ */
+function calculateEffectiveHandSizeAfterMulligan(currentHandSize: number, mulligansTaken: number): number {
+  // After mulligan, you draw 7 cards
+  // Then you put back cards equal to the number of mulligans (minus 1 for the free first mulligan in multiplayer)
+  // Effective mulligans = mulligansTaken (the free first mulligan is already accounted for in the game rules)
+  
+  // For the first mulligan (mulligansTaken = 0 -> 1), you draw 7 and keep 7 (free)
+  // For the second mulligan (mulligansTaken = 1 -> 2), you draw 7 and put back 1 (keep 6)
+  // For the third mulligan (mulligansTaken = 2 -> 3), you draw 7 and put back 2 (keep 5)
+  
+  const nextMulliganCount = mulligansTaken + 1;
+  const cardsToBottom = Math.max(0, nextMulliganCount - 1); // First mulligan is free
+  return 7 - cardsToBottom;
+}
+
+/**
+ * Check if a card is a mana source (mana rock or mana dork)
+ */
+function isManaSource(card: any): boolean {
+  const typeLine = (card?.type_line || '').toLowerCase();
+  const oracleText = (card?.oracle_text || '').toLowerCase();
+  const cardName = (card?.name || '').toLowerCase();
+  
+  // Don't count lands as mana sources here - we track those separately
+  if (typeLine.includes('land')) return false;
+  
+  // Check for mana rocks (artifacts with tap: add mana)
+  if (typeLine.includes('artifact') && oracleText.includes('{t}') && oracleText.includes('add')) {
+    return true;
+  }
+  
+  // Check for mana dorks (creatures with tap: add mana)
+  if (typeLine.includes('creature') && oracleText.includes('{t}') && oracleText.includes('add')) {
+    return true;
+  }
+  
+  // Known mana rocks
+  const knownManaRocks = [
+    'sol ring', 'mana crypt', 'mana vault', 'arcane signet', 'mind stone',
+    'fellwar stone', 'thought vessel', 'commander\'s sphere', 'chromatic lantern',
+    'signet', 'talisman'
+  ];
+  if (knownManaRocks.some(name => cardName.includes(name))) return true;
+  
+  // Known mana dorks
+  const knownManaDorks = [
+    'llanowar elves', 'elvish mystic', 'birds of paradise', 'noble hierarch',
+    'deathrite shaman', 'avacyn\'s pilgrim', 'elves of deep shadow',
+    'bloom tender', 'priest of titania', 'elvish archdruid', 'fyndhorn elves',
+    'boreal druid', 'arbor elf'
+  ];
+  if (knownManaDorks.some(name => cardName.includes(name))) return true;
+  
+  return false;
+}
+
+/**
  * Handle AI mulligan decision
+ * 
+ * Key considerations:
+ * - London Mulligan: After mulliganing, you draw 7 and put back N cards (where N = mulligans taken - 1 for free first)
+ * - The cost of mulliganing increases significantly with each mulligan
+ * - Need to balance having enough lands vs keeping enough cards
+ * 
  * AI should mulligan if:
  * - Hand has 0 lands (unplayable)
+ * - Hand has 1 land without mana acceleration (too risky)
  * - Hand has all lands and no spells (unlikely to win)
- * - Hand size is already low (< 5 cards) - keep it
+ * - Hand is severely imbalanced (6+ lands in opening hand)
+ * 
+ * AI should keep if:
+ * - Hand has 3+ lands (good mana base)
+ * - Hand has 2 lands with mana rocks/dorks (can accelerate)
+ * - Effective hand size after next mulligan would be too small (4 or fewer)
+ * - Current hand has playable cards even if not ideal
  */
 export async function handleAIMulligan(
   io: Server,
@@ -3266,7 +3386,7 @@ export async function handleAIMulligan(
   console.info('[AI] AI making mulligan decision:', { gameId, playerId });
   
   try {
-    // Get the AI's current hand
+    // Get the AI's current hand and mulligan state
     const zones = game.state.zones?.[playerId];
     const hand = Array.isArray(zones?.hand) ? zones.hand : [];
     
@@ -3275,32 +3395,83 @@ export async function handleAIMulligan(
       return true; // Empty hand, nothing to mulligan
     }
     
-    // Count lands and non-lands in hand
+    // Get current mulligan count
+    const mulliganState = (game.state as any).mulliganState || {};
+    const aiMulliganState = mulliganState[playerId];
+    const currentMulligans = aiMulliganState?.mulligansTaken || 0;
+    
+    // Calculate what hand size we'd have after the next mulligan (London Mulligan rule)
+    const effectiveHandSizeAfterMulligan = calculateEffectiveHandSizeAfterMulligan(hand.length, currentMulligans);
+    
+    // Analyze hand composition
     let landCount = 0;
-    let nonLandCount = 0;
+    let manaSourceCount = 0;
+    let lowCostSpellCount = 0; // CMC <= 2
+    let midCostSpellCount = 0; // CMC 3-4
+    let highCostSpellCount = 0; // CMC >= 5
     
     for (const card of hand) {
-      const typeLine = (card?.type_line || '').toLowerCase();
+      // Handle both object cards and string references
+      const cardObj = typeof card === 'string' ? null : card;
+      if (!cardObj) continue;
+      
+      const typeLine = (cardObj?.type_line || '').toLowerCase();
       if (typeLine.includes('land')) {
         landCount++;
       } else {
-        nonLandCount++;
+        // Check if it's a mana source (rock or dork)
+        if (isManaSource(cardObj)) {
+          manaSourceCount++;
+        }
+        
+        // Categorize by CMC
+        const cmc = (cardObj as any)?.cmc || 0;
+        if (cmc <= 2) {
+          lowCostSpellCount++;
+        } else if (cmc <= 4) {
+          midCostSpellCount++;
+        } else {
+          highCostSpellCount++;
+        }
       }
     }
     
     const handSize = hand.length;
+    const nonLandCount = hand.length - landCount;
+    const totalManaProduction = landCount + manaSourceCount; // Effective mana sources
     
     console.info('[AI] Mulligan analysis:', {
       gameId,
       playerId,
       handSize,
+      currentMulligans,
+      effectiveHandSizeAfterMulligan,
       landCount,
-      nonLandCount,
+      manaSourceCount,
+      totalManaProduction,
+      lowCostSpellCount,
+      midCostSpellCount,
+      highCostSpellCount,
     });
     
-    // Rule 1: If hand size is already at threshold or below, keep it (avoid going too low)
-    if (handSize <= MIN_HAND_SIZE_TO_MULLIGAN) {
-      console.info(`[AI] Hand size is ${MIN_HAND_SIZE_TO_MULLIGAN} or less, keeping to avoid further mulligans`);
+    // Rule 1: If next mulligan would leave us with 4 or fewer cards, be very conservative
+    // Only mulligan truly unplayable hands (0 lands or all lands)
+    if (effectiveHandSizeAfterMulligan <= MIN_HAND_SIZE_TO_MULLIGAN) {
+      console.info(`[AI] Next mulligan would result in ${effectiveHandSizeAfterMulligan} cards - being conservative`);
+      
+      // Only mulligan if truly unplayable
+      if (landCount === 0) {
+        console.info('[AI] Zero lands with small hand after mulligan - still mulliganing (unplayable)');
+        return false;
+      }
+      
+      if (nonLandCount === 0) {
+        console.info('[AI] All lands with small hand after mulligan - still mulliganing (no spells)');
+        return false;
+      }
+      
+      // Otherwise keep - even 1 land is better than going to 4 cards
+      console.info('[AI] Hand is playable, keeping to avoid going to 4 or fewer cards');
       return true;
     }
     
@@ -3310,24 +3481,90 @@ export async function handleAIMulligan(
       return false; // Mulligan
     }
     
-    // Rule 3: Mulligan if all lands and opening hand (no spells to cast)
-    if (nonLandCount === 0 && handSize === OPENING_HAND_SIZE) {
-      console.info('[AI] All lands in opening hand, mulliganing');
+    // Rule 3: Mulligan if all lands and no spells (unlikely to win)
+    if (nonLandCount === 0) {
+      console.info('[AI] All lands in hand, mulliganing');
       return false; // Mulligan
     }
     
-    // Rule 4: Mulligan if only 1 land in opening hand - too risky
-    if (landCount === 1 && handSize === OPENING_HAND_SIZE) {
-      console.info('[AI] Only 1 land in opening hand, mulliganing (too risky)');
+    // Rule 4: If only 1 land, check for mana acceleration and hand size considerations
+    if (landCount === 1) {
+      // With mana rocks/dorks AND low-cost spells, 1 land might be playable
+      // BUT: Consider the effective hand size after mulligan
+      if (manaSourceCount >= 1 && lowCostSpellCount >= 1) {
+        // Check if we'd still have a reasonable hand size after mulligan
+        if (effectiveHandSizeAfterMulligan >= 6) {
+          console.info('[AI] 1 land but has mana acceleration and low-cost spells, and mulligan cost is low, keeping');
+          return true; // Keep - can play mana rock/dork turn 1-2
+        } else {
+          // Hand size after mulligan would be 5 or less - 1 land is risky
+          console.info('[AI] 1 land with acceleration but mulligan cost is high - still too risky, mulliganing');
+          return false;
+        }
+      }
+      console.info('[AI] Only 1 land without sufficient mana acceleration, mulliganing');
       return false; // Mulligan
     }
     
-    // Rule 5: Keep hand if it has 2-4 lands (good mana ratio)
-    console.info('[AI] Hand has reasonable land count, keeping:', {
-      landCount,
-      handSize,
-    });
-    return true; // Keep hand
+    // Rule 5: If 2 lands, evaluate playability and mulligan cost
+    if (landCount === 2) {
+      // 2 lands is borderline - check if hand is playable and consider mulligan cost
+      
+      // If effective hand size after mulligan would be 5 or less, be conservative
+      if (effectiveHandSizeAfterMulligan <= 5) {
+        console.info('[AI] 2 lands with high mulligan cost (would go to 5 or fewer), keeping');
+        return true;
+      }
+      
+      // With 6+ cards after mulligan, we can be pickier
+      // Keep if we have:
+      // - A mana rock/dork (gives us 3 mana on turn 3)
+      // - Multiple low-cost spells we can cast
+      
+      if (manaSourceCount >= 1) {
+        console.info('[AI] 2 lands with mana acceleration, keeping');
+        return true; // Keep - 2 lands + rock/dork is playable
+      }
+      
+      if (lowCostSpellCount >= 2) {
+        console.info('[AI] 2 lands with multiple low-cost spells, keeping');
+        return true; // Keep - can play early spells
+      }
+      
+      // 2 lands with mostly high-cost spells is risky in a 7-card hand with low mulligan cost
+      if (handSize === OPENING_HAND_SIZE && effectiveHandSizeAfterMulligan >= 6 && 
+          highCostSpellCount >= 3 && lowCostSpellCount === 0) {
+        console.info('[AI] 2 lands with mostly high-cost spells in opening hand, mulliganing');
+        return false; // Mulligan - hand is too slow
+      }
+      
+      // Otherwise keep 2 lands
+      console.info('[AI] 2 lands, keeping');
+      return true;
+    }
+    
+    // Rule 6: Keep hands with 3-5 lands (good mana ratio)
+    if (landCount >= 3 && landCount <= 5) {
+      console.info('[AI] Hand has good land count (3-5 lands), keeping');
+      return true;
+    }
+    
+    // Rule 7: Mulligan hands with 6+ lands in opening hand (too flooded)
+    // BUT: Only if the mulligan cost is reasonable (would still have 6+ cards)
+    if (landCount >= 6 && handSize === OPENING_HAND_SIZE && effectiveHandSizeAfterMulligan >= 6) {
+      console.info('[AI] 6+ lands in opening hand with reasonable mulligan cost, mulliganing');
+      return false; // Mulligan
+    }
+    
+    // If we have 6+ lands but mulligan cost is high, keep it
+    if (landCount >= 6) {
+      console.info('[AI] 6+ lands but mulligan cost too high, keeping');
+      return true;
+    }
+    
+    // Default: keep hand
+    console.info('[AI] Hand evaluation complete, keeping');
+    return true;
     
   } catch (error) {
     console.error('[AI] Error making mulligan decision:', error);
