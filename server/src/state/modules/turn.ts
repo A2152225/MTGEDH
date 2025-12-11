@@ -33,6 +33,7 @@ import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana } from "./u
 import { parseCreatureKeywords } from "./combat-mechanics.js";
 import { runSBA, createToken } from "./counters_tokens.js";
 import { calculateAllPTBonuses, parsePT } from "../utils.js";
+import { canAct, canRespond } from "./can-respond.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -2604,9 +2605,6 @@ export function nextStep(ctx: GameContext) {
           
           // DEBUG: Log turn player's hand and ability to act
           try {
-            // Import canAct and canRespond for debugging
-            const { canAct, canRespond } = require('./can-respond.js');
-            
             const zones = (ctx as any).state?.zones?.[turnPlayer];
             const hand = zones?.hand || [];
             const handNames = hand.map((card: any) => card?.name || 'Unknown').join(', ');
