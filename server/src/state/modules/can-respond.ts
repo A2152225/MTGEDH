@@ -104,11 +104,29 @@ function hasForetellOrCanCastFromExile(card: any): { hasIt: boolean; cost?: stri
 /**
  * Conservative check for unparseable alternative cost.
  * When we can't parse the cost, we assume the player might be able to pay it.
- * This prevents auto-passing when we're unsure, which is safer.
+ * This prevents auto-passing when we're unsure, which is safer than auto-passing incorrectly.
+ * 
+ * @returns Always returns true (assumes player can pay)
  */
-function canPayUnparseableCost(cardName: string, mechanicName: string): boolean {
-  console.warn(`[canPayUnparseableCost] Could not parse ${mechanicName} cost for ${cardName} - being conservative, assuming player can pay`);
+function assumeCanPayUnknownCost(cardName: string, mechanicName: string): boolean {
+  console.warn(`[assumeCanPayUnknownCost] Could not parse ${mechanicName} cost for ${cardName} - being conservative, assuming player can pay`);
   return true;
+}
+
+/**
+ * Check if a card is marked as playable from exile
+ * Handles both array and object formats for playableFromExile state
+ */
+function isCardPlayableFromExile(playableCards: any, cardId: string): boolean {
+  if (!playableCards) return false;
+  
+  // Handle array format: ['card1', 'card2']
+  if (Array.isArray(playableCards)) {
+    return playableCards.includes(cardId);
+  }
+  
+  // Handle object format: { 'card1': true, 'card2': true }
+  return Boolean(playableCards[cardId]);
 }
 
 
@@ -172,7 +190,7 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
           }
         } else {
           // If we can't parse the cost, be conservative and assume they can pay it
-          if (canPayUnparseableCost(card.name, 'flashback')) {
+          if (assumeCanPayUnknownCost(card.name, 'flashback')) {
             return true;
           }
         }
@@ -202,7 +220,7 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
             }
           } else {
             // If we can't parse cost or card has "you may cast from exile", be conservative
-            if (canPayUnparseableCost(card.name, 'foretell/exile')) {
+            if (assumeCanPayUnknownCost(card.name, 'foretell/exile')) {
               return true;
             }
           }
@@ -214,7 +232,7 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
           const cardId = card.id || card.name;
           
           // Check if this card is marked as playable from exile
-          if (Array.isArray(playableCards) ? playableCards.includes(cardId) : playableCards[cardId]) {
+          if (isCardPlayableFromExile(playableCards, cardId)) {
             // Check if player can pay the normal mana cost
             const manaCost = card.mana_cost || "";
             const parsedCost = parseManaCost(manaCost);
@@ -857,7 +875,7 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
           }
         } else {
           // If we can't parse the cost, be conservative and assume they can pay it
-          if (canPayUnparseableCost(card.name, 'flashback')) {
+          if (assumeCanPayUnknownCost(card.name, 'flashback')) {
             return true;
           }
         }
@@ -902,7 +920,7 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
             }
           } else {
             // If we can't parse cost or card has "you may cast from exile", be conservative
-            if (canPayUnparseableCost(card.name, 'foretell/exile')) {
+            if (assumeCanPayUnknownCost(card.name, 'foretell/exile')) {
               return true;
             }
           }
@@ -914,7 +932,7 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
           const cardId = card.id || card.name;
           
           // Check if this card is marked as playable from exile
-          if (Array.isArray(playableCards) ? playableCards.includes(cardId) : playableCards[cardId]) {
+          if (isCardPlayableFromExile(playableCards, cardId)) {
             // Check if player can pay the normal mana cost
             const manaCost = card.mana_cost || "";
             const parsedCost = parseManaCost(manaCost);
