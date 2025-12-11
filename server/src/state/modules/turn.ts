@@ -2601,6 +2601,26 @@ export function nextStep(ctx: GameContext) {
           (ctx as any).state.priorityClaimed = new Set<string>();
           
           console.log(`${ts()} [nextStep] Granting priority to active player ${turnPlayer} (step: ${nextStep ?? 'unknown'}, stack size: ${(ctx as any).state.stack.length})`);
+          
+          // DEBUG: Log turn player's hand and ability to act
+          try {
+            // Import canAct and canRespond for debugging
+            const { canAct, canRespond } = require('./can-respond.js');
+            
+            const zones = (ctx as any).state?.zones?.[turnPlayer];
+            const hand = zones?.hand || [];
+            const handNames = hand.map((card: any) => card?.name || 'Unknown').join(', ');
+            const handCount = hand.length || zones?.handCount || 0;
+            
+            const playerCanAct = canAct(ctx, turnPlayer);
+            const playerCanRespond = canRespond(ctx, turnPlayer);
+            
+            console.log(`${ts()} [nextStep] DEBUG - Turn Player ${turnPlayer}:`);
+            console.log(`${ts()} [nextStep]   Hand (${handCount}): ${handNames || '(empty)'}`);
+            console.log(`${ts()} [nextStep]   canAct: ${playerCanAct}, canRespond: ${playerCanRespond}`);
+          } catch (err) {
+            console.warn(`${ts()} [nextStep] Failed to log debug info:`, err);
+          }
         } else {
           // UNTAP and CLEANUP steps don't grant priority normally
           (ctx as any).state.priority = null;
