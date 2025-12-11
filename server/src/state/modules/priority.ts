@@ -223,10 +223,17 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
     const stackIsEmpty = !state.stack || state.stack.length === 0;
     
     // CRITICAL: Never auto-pass the active player during their main phase with empty stack
-    // This is when they can play lands and cast sorcery-speed spells
-    // Per MTG rules, active player must receive priority at start of main phase
+    // This is a defensive check that ensures active player ALWAYS gets priority in main phase.
+    // Per MTG Comprehensive Rules 505.6: "the active player gets priority" at start of main phase.
+    // 
+    // Reasons for this check:
+    // 1. Core MTG rule - active player must receive priority in main phase
+    // 2. Defensive programming - even if canAct() has bugs, active player still gets priority
+    // 3. Main phase is when most game actions happen (lands, sorceries, creatures, etc.)
+    // 
+    // This check applies to ALL players (human and AI) equally.
     if (isActivePlayer && isMainPhase && stackIsEmpty) {
-      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: active player in main phase with empty stack (MTG rule)`);
+      console.log(`[priority] autoPassLoop - stopping at ${currentPlayer}: active player in main phase with empty stack (MTG rule 505.6)`);
       return { allPassed: false, resolved: false };
     }
     
