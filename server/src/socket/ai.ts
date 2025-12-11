@@ -23,6 +23,7 @@ import { GameManager } from "../GameManager.js";
 import { hasPendingColorChoices } from "./color-choice.js";
 import { hasPendingJoinForcesOrOffers } from "./join-forces.js";
 import { hasPendingCreatureTypeSelections } from "./creature-type.js";
+import { canAct } from "../state/modules/can-respond.js";
 
 /** AI timing delays for more natural behavior */
 const AI_THINK_TIME_MS = 500;
@@ -1857,6 +1858,43 @@ export async function handleAIPriority(
           }
           // No blockers to declare - fall through to pass priority
         }
+      }
+      
+      // CRITICAL FIX: Before auto-passing priority, check if the turn player is human
+      // and hasn't had a chance to act yet. This prevents AI from advancing the step
+      // before the human player can take sorcery-speed actions like playing lands.
+      const turnPlayer = game.state.turnPlayer;
+      const isHumanTurnPlayer = turnPlayer && !isAIPlayer(gameId, turnPlayer);
+      
+      // Check if the turn player has claimed priority (interacted with the UI) this step
+      const priorityClaimed = (game.state as any).priorityClaimed || new Set();
+      const turnPlayerHasClaimedPriority = priorityClaimed.has(turnPlayer);
+      
+      // Check if turn player can take sorcery-speed actions (they can act)
+      // We use canAct from can-respond module to check if they have playable actions
+      let turnPlayerCanAct = false;
+      if (isMainPhase && stackEmpty && turnPlayer) {
+        try {
+          // canAct checks if player can play lands, cast sorceries, or activate abilities
+          turnPlayerCanAct = canAct(game, turnPlayer);
+        } catch (err) {
+          console.warn('[AI] Failed to check turnPlayerCanAct:', err);
+          // On error, assume they can act (conservative approach)
+          turnPlayerCanAct = true;
+        }
+      }
+      
+      if (isHumanTurnPlayer && !turnPlayerHasClaimedPriority && turnPlayerCanAct) {
+        console.info('[AI] Not AI turn, but human turn player has not claimed priority yet and can act - waiting');
+        console.info('[AI] Turn player capabilities:', {
+          turnPlayer,
+          isMainPhase,
+          stackEmpty,
+          canAct: turnPlayerCanAct,
+          hasClaimedPriority: turnPlayerHasClaimedPriority
+        });
+        // Don't pass priority yet - wait for the human to claim priority or explicitly pass
+        return;
       }
       
       // Default behavior for non-turn player: pass priority
