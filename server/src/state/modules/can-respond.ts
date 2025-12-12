@@ -946,8 +946,24 @@ function hasValidAttackers(ctx: GameContext, playerId: PlayerID): boolean {
         if (!hasHaste) continue; // Summoning sickness
       }
       
-      // TODO: Check for "can't attack" effects (like Pacifism)
-      // For now, if we have an untapped creature without summoning sickness, return true
+      // Check for "can't attack" effects (like Pacifism, Trapped in the Tower, etc.)
+      const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
+      const grantedAbilities = permanent.grantedAbilities || [];
+      
+      // Check permanent's own text
+      if (oracleText.includes("can't attack") || oracleText.includes("cannot attack")) {
+        continue; // This creature can't attack
+      }
+      
+      // Check granted abilities from other sources
+      const hasCantAttack = grantedAbilities.some((a: string) => {
+        const abilityText = (a || "").toLowerCase();
+        return abilityText.includes("can't attack") || abilityText.includes("cannot attack");
+      });
+      
+      if (hasCantAttack) continue; // Granted ability prevents attacking
+      
+      // If we have an untapped creature without summoning sickness that can attack, return true
       return true;
     }
     
@@ -982,9 +998,27 @@ function hasValidBlockers(ctx: GameContext, playerId: PlayerID): boolean {
       // Can't block if tapped
       if (permanent.tapped) continue;
       
-      // TODO: Check for "can't block" effects
-      // TODO: Check for special blocking restrictions (flying, etc.)
-      // For now, if we have an untapped creature, return true
+      // Check for "can't block" effects (like Goblin Tunneler's ability)
+      const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
+      const grantedAbilities = permanent.grantedAbilities || [];
+      
+      // Check permanent's own text
+      if (oracleText.includes("can't block") || oracleText.includes("cannot block")) {
+        continue; // This creature can't block
+      }
+      
+      // Check granted abilities from other sources
+      const hasCantBlock = grantedAbilities.some((a: string) => {
+        const abilityText = (a || "").toLowerCase();
+        return abilityText.includes("can't block") || abilityText.includes("cannot block");
+      });
+      
+      if (hasCantBlock) continue; // Granted ability prevents blocking
+      
+      // Note: Flying/reach restrictions are complex and would require checking all attackers
+      // For Smart Auto-Pass purposes, we're conservative: if any untapped creature exists, 
+      // pause to let player decide (they might have flying blockers for flying attackers, etc.)
+      // This is safer than auto-passing and missing a valid block
       return true;
     }
     

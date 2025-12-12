@@ -6067,7 +6067,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       id: `m_${Date.now()}`,
       gameId,
       from: "system",
-      message: `${pendingFight.sourceName} fights ${targetCreature.card?.name}! Each deals ${sourcePower} and ${targetPower} damage respectively.`,
+      message: `⚔️ ${pendingFight.sourceName} fights ${targetCreature.card?.name}! ${pendingFight.sourceName} deals ${sourcePower} damage, ${targetCreature.card?.name} deals ${targetPower} damage.`,
       ts: Date.now(),
     });
     
