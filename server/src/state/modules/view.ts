@@ -251,7 +251,7 @@ export function viewFor(
     // Map turnNumber to turn for client compatibility
     turn: (state as any).turnNumber ?? 1,
     // Set viewer field for playable cards calculation
-    // Exclude spectator viewers (e.g., "spectator:judge") as they don't have priority
-    viewer: typeof viewer === 'string' && viewer.startsWith('spectator:') ? undefined : viewer,
+    // Exclude "spectator:judge" as they don't have priority
+    viewer: viewer === "spectator:judge" ? undefined : viewer,
   } as any;
 }
