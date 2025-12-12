@@ -139,11 +139,19 @@ function getCostAdjustmentForCard(state: any, playerId: PlayerID, card: any): nu
   
   const typeLine = (card.type_line || "").toLowerCase();
   const oracleText = (card.oracle_text || "").toLowerCase();
-  const manaCost = (card.mana_cost || "").toLowerCase();
+  const manaCostRaw = card.mana_cost || "";
   const colors = (card.colors || card.color_identity || []).map((c: string) => c.toUpperCase());
-  const isRedSpell = manaCost.includes("{r}") || colors.includes("R");
+  const isRedSpell = /{R}/i.test(manaCostRaw) || colors.includes("R");
   const isCreatureSpell = typeLine.includes("creature");
   const isArtifactOrEnchantment = typeLine.includes("artifact") || typeLine.includes("enchantment");
+  const redCostReducers = [
+    { nameMatch: "fire crystal", textMatch: "red spells you cast cost {1} less", applies: (creature: boolean) => true },
+    { nameMatch: "ruby medallion", textMatch: "red spells you cast cost {1} less", applies: (creature: boolean) => true },
+    { nameMatch: "hazoret's monument", textMatch: "red creature spells you cast cost {1} less", applies: (creature: boolean) => creature },
+  ];
+  const taxEffects = [
+    { nameMatch: "aura of silence", textMatch: "artifact and enchantment spells your opponents cast cost {2} more", applies: (isAE: boolean) => isAE, amount: 2 },
+  ];
   
   let adjustment = 0; // negative = reduction, positive = increase
   
@@ -153,23 +161,23 @@ function getCostAdjustmentForCard(state: any, playerId: PlayerID, card: any): nu
     const permOracle = (perm.card.oracle_text || "").toLowerCase();
     const sameController = perm.controller === playerId;
     
-    // Cost reducers for red spells
+    // Cost reducers for red spells (scoped to requested effects)
     if (sameController && isRedSpell) {
-      if (permName.includes("fire crystal") || permOracle.includes("red spells you cast cost {1} less")) {
-        adjustment -= 1;
-      }
-      if (permName.includes("ruby medallion")) {
-        adjustment -= 1;
-      }
-      if (isCreatureSpell && (permName.includes("hazoret's monument") || permOracle.includes("red creature spells you cast cost {1} less"))) {
-        adjustment -= 1;
+      for (const reducer of redCostReducers) {
+        if ((reducer.applies(isCreatureSpell)) &&
+            (permName.includes(reducer.nameMatch) || permOracle.includes(reducer.textMatch))) {
+          adjustment -= 1;
+        }
       }
     }
     
     // Taxes from opponents (Aura of Silence)
     if (!sameController && isArtifactOrEnchantment) {
-      if (permName.includes("aura of silence") || permOracle.includes("artifact and enchantment spells your opponents cast cost {2} more")) {
-        adjustment += 2;
+      for (const tax of taxEffects) {
+        if (tax.applies(isArtifactOrEnchantment) &&
+            (permName.includes(tax.nameMatch) || permOracle.includes(tax.textMatch))) {
+          adjustment += tax.amount;
+        }
       }
     }
   }

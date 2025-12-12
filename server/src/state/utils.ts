@@ -864,10 +864,11 @@ export function calculateVariablePT(
   const name = (card.name || '').toLowerCase();
   const oracleText = (card.oracle_text || '').toLowerCase();
   const typeLine = (card.type_line || '').toLowerCase();
+  const battlefield = gameState?.battlefield || [];
   const controllerId =
     (card as any).controller ??
-    (gameState?.battlefield || []).find((p: any) => p?.card?.id === card.id)?.controller ??
-    (gameState?.battlefield || []).find((p: any) => p?.card === card)?.controller ??
+    battlefield.find((p: any) => p?.card?.id === card.id)?.controller ??
+    battlefield.find((p: any) => p?.card === card)?.controller ??
     (card as any).owner;
   const battlefield = gameState?.battlefield || [];
   const zones = gameState?.zones || {};
