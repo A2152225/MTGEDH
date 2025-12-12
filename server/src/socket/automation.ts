@@ -347,12 +347,15 @@ export function registerAutomationHandlers(
       if (enabled && (game.state as any).priority === playerId) {
         console.log(`[Automation] Player ${playerId} has priority - triggering auto-pass check`);
         
-        // Import broadcastGame dynamically to avoid circular dependency
-        const utilModule = require('./util.js');
-        if (utilModule && utilModule.broadcastGame) {
-          // Broadcast game state which will trigger checkAndTriggerAutoPass
-          utilModule.broadcastGame(io, game, gameId);
-        }
+        // Import broadcastGame dynamically to trigger auto-pass check
+        import('./util.js').then((utilModule) => {
+          if (utilModule && utilModule.broadcastGame) {
+            // Broadcast game state which will trigger checkAndTriggerAutoPass
+            utilModule.broadcastGame(io, game, gameId);
+          }
+        }).catch((err) => {
+          console.error(`[Automation] Failed to import util module:`, err);
+        });
       }
     } else {
       console.warn(`[Automation] Failed to toggle auto-pass: game ${gameId} not found or has no state`);
@@ -407,12 +410,15 @@ export function registerAutomationHandlers(
       if (enabled && stateAny.priority === playerId) {
         console.log(`[Automation] Player ${playerId} has priority - immediately auto-passing`);
         
-        // Import broadcastGame dynamically to avoid circular dependency
-        const utilModule = require('./util.js');
-        if (utilModule && utilModule.broadcastGame) {
-          // Broadcast game state which will trigger checkAndTriggerAutoPass
-          utilModule.broadcastGame(io, game, gameId);
-        }
+        // Import broadcastGame dynamically to trigger auto-pass check
+        import('./util.js').then((utilModule) => {
+          if (utilModule && utilModule.broadcastGame) {
+            // Broadcast game state which will trigger checkAndTriggerAutoPass
+            utilModule.broadcastGame(io, game, gameId);
+          }
+        }).catch((err) => {
+          console.error(`[Automation] Failed to import util module:`, err);
+        });
       }
     } else {
       console.warn(`[Automation] Failed to toggle auto-pass for turn: game ${gameId} not found or has no state`);

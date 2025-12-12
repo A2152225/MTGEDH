@@ -1213,15 +1213,34 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
       return;
     }
     
-    // Import canAct and canRespond to check if player can take actions
-    const canActModule = require('../state/modules/can-respond.js');
-    const { canAct, canRespond } = canActModule;
-    
-    const ctx = {
+    // Use the imported canAct and canRespond functions
+    // Create a minimal GameContext with required properties
+    const ctx: any = {
+      gameId,
       state: game.state,
+      libraries: new Map(),
+      life: stateAny.life || {},
+      poison: {},
+      experience: {},
+      commandZone: stateAny.commandZone || {},
+      joinedBySocket: new Map(),
+      participantsList: [],
+      tokenToPlayer: new Map(),
+      playerToToken: new Map(),
+      grants: new Map(),
       inactive: new Set(),
-      passesInRow: { value: 0 },
+      spectatorNames: new Map(),
+      pendingInitialDraw: new Set(),
+      handVisibilityGrants: new Map(),
+      rngSeed: null,
+      rng: () => 0,
+      seq: { value: 0 },
       bumpSeq: () => {},
+      passesInRow: { value: 0 },
+      landsPlayedThisTurn: stateAny.landsPlayedThisTurn || {},
+      maxLandsPerTurn: {},
+      additionalDrawsPerTurn: {},
+      manaPool: {},
     };
     
     const turnPlayer = stateAny.turnPlayer;
