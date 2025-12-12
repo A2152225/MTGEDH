@@ -9,7 +9,8 @@
     "test": "vitest run",
     "dev:test": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "simulate": "tsx cli/simulate.ts"
+    "simulate": "tsx cli/simulate.ts",
+    "keywords:status": "tsx cli/generate-keyword-status-table.ts"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",
