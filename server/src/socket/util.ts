@@ -20,7 +20,7 @@ import { registerPendingJoinForces, registerPendingTemptingOffer } from "./join-
 import { getActualPowerToughness } from "../state/utils.js";
 import { getDevotionManaAmount, getCreatureCountManaAmount } from "../state/modules/mana-abilities.js";
 import { canRespond, canAct } from "../state/modules/can-respond.js";
-import { parseManaCost as parseManaFromString, canPayManaCost, getManaPoolFromState } from "../state/modules/mana-check.js";
+import { parseManaCost as parseManaFromString, canPayManaCost, getManaPoolFromState, getAvailableMana } from "../state/modules/mana-check.js";
 import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
 
 // ============================================================================
@@ -136,12 +136,15 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
     }
     
     const pool = getManaPoolFromState(state, playerId);
+    // Also calculate available mana (including potential from untapped sources)
+    // This is used to highlight cards that COULD be cast if mana sources are tapped
+    const availableMana = getAvailableMana(state, playerId);
     const isMainPhase = isInMainPhase(state);
     const stackIsEmpty = !state.stack || state.stack.length === 0;
     const turnPlayer = state.turnPlayer;
     const isMyTurn = turnPlayer === playerId;
     
-    console.log(`[getPlayableCardIds] Player ${playerId}: step=${state.step}, isMainPhase=${isMainPhase}, stackIsEmpty=${stackIsEmpty}, isMyTurn=${isMyTurn}, manaPool=`, pool);
+    console.log(`[getPlayableCardIds] Player ${playerId}: step=${state.step}, isMainPhase=${isMainPhase}, stackIsEmpty=${stackIsEmpty}, isMyTurn=${isMyTurn}, manaPool=`, pool, 'availableMana=', availableMana);
     
     // Check hand for castable spells
     if (Array.isArray(zones.hand)) {
@@ -170,11 +173,11 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
         const canCastNow = isInstantSpeed || (isSorcerySpeed && isMainPhase && stackIsEmpty && isMyTurn);
         
         if (canCastNow) {
-          // Check if player can pay the cost
+          // Check if player can pay the cost with available mana (floating + untapped sources)
           const manaCost = card.mana_cost || "";
           const parsedCost = parseManaFromString(manaCost);
           
-          if (canPayManaCost(pool, parsedCost) || hasPayableAlternateCost(game as any, playerId, card)) {
+          if (canPayManaCost(availableMana, parsedCost) || hasPayableAlternateCost(game as any, playerId, card)) {
             console.log(`[getPlayableCardIds] Card ${card.name} (${card.id}) is playable`);
             playableIds.push(card.id);
           } else {
@@ -226,7 +229,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
             const isInstantSpeed = typeLine.includes("instant");
             const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty);
             
-            if (canCastNow && canPayManaCost(pool, parsedCost)) {
+            if (canCastNow && canPayManaCost(availableMana, parsedCost)) {
               playableIds.push(card.id);
             }
           }
@@ -247,7 +250,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
             const isInstantSpeed = typeLine.includes("instant") || oracleText.includes("flash");
             const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty);
             
-            if (canCastNow && canPayManaCost(pool, parsedCost)) {
+            if (canCastNow && canPayManaCost(availableMana, parsedCost)) {
               playableIds.push(card.id);
             }
           }
@@ -278,7 +281,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           const isInstantSpeed = typeLine.includes("instant") || oracleText.includes("flash");
           const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty);
           
-          if (canCastNow && canPayManaCost(pool, parsedCost)) {
+          if (canCastNow && canPayManaCost(availableMana, parsedCost)) {
             playableIds.push(card.id);
           }
         }
@@ -323,7 +326,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
             const isInstantSpeed = typeLine.includes("instant") || oracleText.includes("flash");
             const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty);
             
-            if (canCastNow && canPayManaCost(pool, parsedCost)) {
+            if (canCastNow && canPayManaCost(availableMana, parsedCost)) {
               // Highlight the library zone instead of the individual card
               playableIds.push(`library-${playerId}`);
             }
@@ -379,7 +382,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
         if (effectLower.includes("equip") || effectLower.includes("reconfigure")) {
           if (isMainPhase && stackIsEmpty) {
             const parsedCost = parseManaFromString(costPart);
-            if (canPayManaCost(pool, parsedCost)) {
+            if (canPayManaCost(availableMana, parsedCost)) {
               hasActivatableAbility = true;
             }
           }
@@ -390,7 +393,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
         if (/(activate|use) (?:this ability|these abilities) only (?:as a sorcery|any time you could cast a sorcery)/i.test(oracleText)) {
           if (isMainPhase && stackIsEmpty) {
             const parsedCost = parseManaFromString(costPart);
-            if (canPayManaCost(pool, parsedCost)) {
+            if (canPayManaCost(availableMana, parsedCost)) {
               hasActivatableAbility = true;
             }
           }
@@ -399,7 +402,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
         
         // Instant-speed abilities - check if we can pay the cost
         const parsedCost = parseManaFromString(costPart);
-        if (canPayManaCost(pool, parsedCost)) {
+        if (canPayManaCost(availableMana, parsedCost)) {
           hasActivatableAbility = true;
           break;
         }

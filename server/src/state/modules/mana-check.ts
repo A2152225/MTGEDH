@@ -150,3 +150,97 @@ export function getEmptyManaPool(): Record<string, number> {
 export function getManaPoolFromState(state: any, playerId: PlayerID): Record<string, number> {
   return (state as any).manaPool?.[playerId] || getEmptyManaPool();
 }
+
+/**
+ * Get total available mana for a player, including:
+ * 1. Floating mana in their mana pool
+ * 2. Potential mana from untapped mana-producing permanents
+ * 
+ * This gives a realistic picture of what the player could cast if they tap their sources.
+ * 
+ * NOTE: This is an OPTIMISTIC calculation - it assumes the player will tap all their mana sources.
+ * It doesn't account for complex scenarios like:
+ * - Mana sources that can only be used for specific spells
+ * - Mana sources with restrictions (e.g., "spend only on creatures")
+ * - Activated abilities that cost mana to activate
+ * 
+ * For precise checks, use the actual mana pool + cost calculation logic.
+ */
+export function getAvailableMana(state: any, playerId: PlayerID): Record<string, number> {
+  // Start with floating mana in pool
+  const pool = { ...getManaPoolFromState(state, playerId) };
+  
+  // Add potential mana from untapped permanents
+  const battlefield = state.battlefield || [];
+  for (const permanent of battlefield) {
+    if (permanent.controller !== playerId) continue;
+    if (permanent.tapped) continue;
+    if (!permanent.card) continue;
+    
+    const oracleText = (permanent.card.oracle_text || "").toLowerCase();
+    const cardName = (permanent.card.name || "").toLowerCase();
+    
+    // Check for mana abilities - these are activated abilities that produce mana
+    // Pattern: "{T}: Add {COLOR}" or similar
+    const manaAbilityPattern = /\{t\}(?:[^:]*)?:\s*add\s+\{([wubrgc])\}/gi;
+    const matches = [...oracleText.matchAll(manaAbilityPattern)];
+    
+    for (const match of matches) {
+      const color = match[1].toUpperCase();
+      const colorKey = {
+        'W': 'white',
+        'U': 'blue',
+        'B': 'black',
+        'R': 'red',
+        'G': 'green',
+        'C': 'colorless',
+      }[color];
+      
+      if (colorKey) {
+        pool[colorKey] = (pool[colorKey] || 0) + 1;
+      }
+    }
+    
+    // Check for multi-mana abilities like Sol Ring "{T}: Add {C}{C}"
+    const multiManaPattern = /\{t\}(?:[^:]*)?:\s*add\s+(\{[^}]+\}(?:\s*\{[^}]+\})*)/gi;
+    const multiMatches = [...oracleText.matchAll(multiManaPattern)];
+    
+    for (const match of multiMatches) {
+      const manaString = match[1];
+      // Count each {C}, {W}, etc.
+      const manaTokens = manaString.match(/\{([wubrgc])\}/gi) || [];
+      for (const token of manaTokens) {
+        const color = token.replace(/[{}]/g, '').toUpperCase();
+        const colorKey = {
+          'W': 'white',
+          'U': 'blue',
+          'B': 'black',
+          'R': 'red',
+          'G': 'green',
+          'C': 'colorless',
+        }[color];
+        
+        if (colorKey) {
+          pool[colorKey] = (pool[colorKey] || 0) + 1;
+        }
+      }
+    }
+    
+    // Special case: Basic lands (Mountain, Island, etc.)
+    if (/^(plains|island|swamp|mountain|forest)$/i.test(cardName)) {
+      const landToColor: Record<string, string> = {
+        'plains': 'white',
+        'island': 'blue',
+        'swamp': 'black',
+        'mountain': 'red',
+        'forest': 'green',
+      };
+      const colorKey = landToColor[cardName];
+      if (colorKey) {
+        pool[colorKey] = (pool[colorKey] || 0) + 1;
+      }
+    }
+  }
+  
+  return pool;
+}

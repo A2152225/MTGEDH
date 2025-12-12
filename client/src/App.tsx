@@ -1066,6 +1066,7 @@ export function App() {
     // to the server and the server should handle auto-passing based on those preferences.
     
     // For now, just show priority modal when relevant (not in main phases)
+    // BUT also check if player can actually take actions
     if (youHavePriority && stackLength === 0 && !combatModalOpen) {
       const priorityChanged = lastPriorityStep.current !== step;
       
@@ -1074,7 +1075,17 @@ export function App() {
         
         // Show priority modal for non-main-phase steps
         const isMainPhase = step.includes('main') || step === 'main1' || step === 'main2';
-        if (!isMainPhase && !hasPendingTriggers) {
+        
+        // ONLY show modal if:
+        // 1. Not in a main phase (main phases are less disruptive)
+        // 2. No pending triggers to resolve
+        // 3. Player can actually respond (canRespond=true) OR we don't have that info yet
+        //
+        // The canRespond check prevents showing the modal when the player has no instant-speed actions.
+        // If canRespond is undefined, we conservatively show the modal (server hasn't calculated yet).
+        const shouldShowModal = !isMainPhase && !hasPendingTriggers && (canRespond === true || canRespond === undefined);
+        
+        if (shouldShowModal) {
           setPriorityModalOpen(true);
         }
       }
