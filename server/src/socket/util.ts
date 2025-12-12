@@ -1256,54 +1256,61 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
       return;
     }
     
-    // Use the imported canAct and canRespond functions
-    // Create a minimal GameContext with required properties
-    const ctx: any = {
-      gameId,
-      state: game.state,
-      libraries: new Map(),
-      life: stateAny.life || {},
-      poison: {},
-      experience: {},
-      commandZone: stateAny.commandZone || {},
-      joinedBySocket: new Map(),
-      participantsList: [],
-      tokenToPlayer: new Map(),
-      playerToToken: new Map(),
-      grants: new Map(),
-      inactive: new Set(),
-      spectatorNames: new Map(),
-      pendingInitialDraw: new Set(),
-      handVisibilityGrants: new Map(),
-      rngSeed: null,
-      rng: () => 0,
-      seq: { value: 0 },
-      bumpSeq: () => {},
-      passesInRow: { value: 0 },
-      landsPlayedThisTurn: stateAny.landsPlayedThisTurn || {},
-      maxLandsPerTurn: {},
-      additionalDrawsPerTurn: {},
-      manaPool: {},
-    };
-    
-    const turnPlayer = stateAny.turnPlayer;
-    const isActivePlayer = priority === turnPlayer;
-    
-    // Check if player can take any actions
-    let playerCanAct = false;
-    try {
-      playerCanAct = isActivePlayer 
-        ? canAct(ctx, priority)      // Active player: check all actions
-        : canRespond(ctx, priority);  // Non-active: only check instant-speed responses
-    } catch (err) {
-      console.warn(`[checkAndTriggerAutoPass] Error checking if player ${priority} can act:`, err);
-      // On error, don't auto-pass to be safe
-      return;
-    }
-    
-    // If player can act, don't auto-pass
-    if (playerCanAct) {
-      return;
+    // CRITICAL: If autoPassForTurn is enabled, skip the canAct check and auto-pass immediately
+    // This fixes the bug where "Auto-Pass Rest of Turn" didn't work properly
+    if (!autoPassForTurn) {
+      // Only check if player can act when autoPassForTurn is NOT enabled
+      // Use the imported canAct and canRespond functions
+      // Create a minimal GameContext with required properties
+      const ctx: any = {
+        gameId,
+        state: game.state,
+        libraries: new Map(),
+        life: stateAny.life || {},
+        poison: {},
+        experience: {},
+        commandZone: stateAny.commandZone || {},
+        joinedBySocket: new Map(),
+        participantsList: [],
+        tokenToPlayer: new Map(),
+        playerToToken: new Map(),
+        grants: new Map(),
+        inactive: new Set(),
+        spectatorNames: new Map(),
+        pendingInitialDraw: new Set(),
+        handVisibilityGrants: new Map(),
+        rngSeed: null,
+        rng: () => 0,
+        seq: { value: 0 },
+        bumpSeq: () => {},
+        passesInRow: { value: 0 },
+        landsPlayedThisTurn: stateAny.landsPlayedThisTurn || {},
+        maxLandsPerTurn: {},
+        additionalDrawsPerTurn: {},
+        manaPool: {},
+      };
+      
+      const turnPlayer = stateAny.turnPlayer;
+      const isActivePlayer = priority === turnPlayer;
+      
+      // Check if player can take any actions
+      let playerCanAct = false;
+      try {
+        playerCanAct = isActivePlayer 
+          ? canAct(ctx, priority)      // Active player: check all actions
+          : canRespond(ctx, priority);  // Non-active: only check instant-speed responses
+      } catch (err) {
+        console.warn(`[checkAndTriggerAutoPass] Error checking if player ${priority} can act:`, err);
+        // On error, don't auto-pass to be safe
+        return;
+      }
+      
+      // If player can act, don't auto-pass
+      if (playerCanAct) {
+        return;
+      }
+    } else {
+      console.log(`[checkAndTriggerAutoPass] Auto-pass for rest of turn is enabled for ${priority} - bypassing canAct check`);
     }
     
     // Player cannot act and has auto-pass enabled - auto-pass their priority
