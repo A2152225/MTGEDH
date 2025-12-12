@@ -409,6 +409,66 @@ function hasActivatableAbility(
 }
 
 /**
+ * Check if a card in graveyard has an activated ability that can be activated
+ * Examples: Magma Phoenix, Squee, Goblin Nabob, etc.
+ * 
+ * IMPORTANT: This should ONLY be called for cards actually in the graveyard.
+ * When a card is on the battlefield, its graveyard-only abilities should not be activatable.
+ */
+function hasGraveyardActivatedAbility(
+  ctx: GameContext,
+  playerId: PlayerID,
+  card: any,
+  pool: Record<string, number>
+): boolean {
+  if (!card || typeof card === "string") return false;
+  
+  const oracleText = card.oracle_text || "";
+  const cardName = card.name || "this card";
+  
+  // Check for activated abilities that can be used from graveyard
+  // Pattern: "{Cost}: [Effect]. Activate only from your graveyard"
+  // OR: "{Cost}: [Effect] from your graveyard"
+  // Examples:
+  // - "{3}{R}{R}: Return Magma Phoenix from your graveyard to your hand."
+  // - "{1}{R}: Return Squee, Goblin Nabob from your graveyard to your hand."
+  
+  // Look for cost patterns followed by effects that mention graveyard
+  const activatedAbilityPattern = /(\{[^}]+\}(?:\s*,?\s*\{[^}]+\})*)\s*:\s*(.+?)(?:\.|$)/gi;
+  const matches = [...oracleText.matchAll(activatedAbilityPattern)];
+  
+  for (const match of matches) {
+    const costPart = match[1];
+    const effectPart = match[2];
+    
+    // Check if the effect mentions "from your graveyard" or "from a graveyard"
+    if (!effectPart.toLowerCase().includes("graveyard")) {
+      continue;
+    }
+    
+    // Check if it's explicitly restricted to "only from your graveyard" or similar
+    // or if the effect naturally works from graveyard (returns card from graveyard, etc.)
+    const isGraveyardAbility = 
+      /from (?:your |a )?graveyard/i.test(effectPart) ||
+      /activate (?:this ability |only )?(?:only )?from (?:your |a )?graveyard/i.test(oracleText);
+    
+    if (!isGraveyardAbility) {
+      continue;
+    }
+    
+    // Parse the cost
+    const parsedCost = parseManaCost(costPart);
+    
+    // Check if we can pay it
+    if (canPayManaCost(pool, parsedCost)) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
  * Check if player can activate any abilities
  */
 export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boolean {
@@ -425,6 +485,27 @@ export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boo
     for (const permanent of battlefield) {
       if (hasActivatableAbility(ctx, playerId, permanent, pool)) {
         return true;
+      }
+    }
+    
+    // Check graveyard for cards with activated abilities that can be used from there
+    // IMPORTANT: Only check cards that are ACTUALLY in the graveyard, not on battlefield
+    const zones = state.zones?.[playerId];
+    if (zones && Array.isArray(zones.graveyard)) {
+      for (const card of zones.graveyard as any[]) {
+        // Skip this card if it's also on the battlefield (shouldn't happen, but defensive check)
+        // This ensures abilities like Magma Phoenix's graveyard ability are ONLY activatable from graveyard
+        const isOnBattlefield = battlefield.some((perm: any) => 
+          perm.card?.id === card.id || perm.card?.name === card.name
+        );
+        
+        if (isOnBattlefield) {
+          continue; // Card is on battlefield, don't allow graveyard abilities
+        }
+        
+        if (hasGraveyardActivatedAbility(ctx, playerId, card, pool)) {
+          return true;
+        }
       }
     }
     
@@ -792,8 +873,8 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
     const zones = state.zones?.[playerId];
     if (!zones) return false;
     
-    // Get mana pool
-    const pool = getManaPoolFromState(state, playerId);
+    // Get mana pool (including potential from untapped sources)
+    const pool = getAvailableMana(state, playerId);
     
     // Check each card in hand
     if (Array.isArray(zones.hand)) {
