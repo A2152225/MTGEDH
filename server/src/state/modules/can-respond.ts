@@ -1253,9 +1253,11 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
         // Check if player can pay the cost (either normal or alternate)
         const manaCost = card.mana_cost || "";
         const parsedCost = parseManaCost(manaCost);
+        const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
+        const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
         
         // Check normal mana cost
-        if (canPayManaCost(pool, parsedCost)) {
+        if (canPayManaCost(pool, adjustedCost)) {
           return true;
         }
         
@@ -1297,7 +1299,9 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
         // Check if player can pay the flashback cost
         if (flashbackInfo.cost) {
           const parsedCost = parseManaCost(flashbackInfo.cost);
-          if (canPayManaCost(pool, parsedCost)) {
+          const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
+          const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
+          if (canPayManaCost(pool, adjustedCost)) {
             return true;
           }
         } else {
@@ -1342,7 +1346,9 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
           // Check if player can pay the foretell cost
           if (foretellInfo.cost) {
             const parsedCost = parseManaCost(foretellInfo.cost);
-            if (canPayManaCost(pool, parsedCost)) {
+            const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
+            const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
+            if (canPayManaCost(pool, adjustedCost)) {
               return true;
             }
           } else {
@@ -1363,8 +1369,10 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
             // Check if player can pay the normal mana cost
             const manaCost = card.mana_cost || "";
             const parsedCost = parseManaCost(manaCost);
+            const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
+            const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
             
-            if (canPayManaCost(pool, parsedCost)) {
+            if (canPayManaCost(pool, adjustedCost)) {
               return true;
             }
             
