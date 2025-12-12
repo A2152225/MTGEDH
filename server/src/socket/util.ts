@@ -112,6 +112,43 @@ function ensureStateZonesForPlayers(game: any) {
 }
 
 /**
+ * Add commander tax to a mana cost string
+ * @param manaCost Original mana cost like "{2}{R}{R}"
+ * @param tax Commander tax amount (increases by 2 each time)
+ * @returns New mana cost with tax added like "{4}{R}{R}"
+ */
+function addTaxToManaCost(manaCost: string, tax: number): string {
+  if (!tax || tax === 0) return manaCost;
+  
+  // Parse the original mana cost
+  const symbols = manaCost.match(/\{[^}]+\}/g) || [];
+  
+  // Extract generic mana (colorless/numeric symbols)
+  let genericMana = 0;
+  const coloredSymbols: string[] = [];
+  
+  for (const symbol of symbols) {
+    const innerSymbol = symbol.slice(1, -1); // Remove { and }
+    const numericValue = parseInt(innerSymbol, 10);
+    
+    if (!isNaN(numericValue)) {
+      // It's a generic/numeric mana symbol
+      genericMana += numericValue;
+    } else {
+      // It's a colored or special symbol (W, U, B, R, G, C, X, etc.)
+      coloredSymbols.push(symbol);
+    }
+  }
+  
+  // Add tax to generic mana
+  genericMana += tax;
+  
+  // Reconstruct the mana cost
+  const genericSymbol = genericMana > 0 ? `{${genericMana}}` : '';
+  return genericSymbol + coloredSymbols.join('');
+}
+
+/**
  * Get IDs of cards/permanents that the player can currently play or activate
  * This is used for UI highlighting to show players their available options
  * Includes: cards in hand, battlefield abilities, foretell cards in exile, 
@@ -213,6 +250,42 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
       }
     } else {
       console.log(`[getPlayableCardIds] Not checking lands: isMainPhase=${isMainPhase}, stackIsEmpty=${stackIsEmpty}, isMyTurn=${isMyTurn}`);
+    }
+    
+    // Check for castable commanders from command zone
+    const commandZone = (state as any).commandZone?.[playerId];
+    if (commandZone) {
+      const inCommandZone = (commandZone as any).inCommandZone as string[] || [];
+      const commanderCards = (commandZone as any).commanderCards as any[] || [];
+      const commanderTax = (commandZone as any).commanderTax || {};
+      
+      if (inCommandZone.length > 0 && commanderCards.length > 0) {
+        console.log(`[getPlayableCardIds] Checking ${inCommandZone.length} commanders in command zone`);
+        
+        for (const commanderId of inCommandZone) {
+          const commander = commanderCards.find((c: any) => c.id === commanderId || c.name === commanderId);
+          if (!commander) continue;
+          
+          const manaCost = commander.mana_cost || "";
+          const tax = commanderTax[commanderId] || 0;
+          const totalCost = addTaxToManaCost(manaCost, tax);
+          const parsedCost = parseManaFromString(totalCost);
+          
+          const typeLine = (commander.type_line || "").toLowerCase();
+          const oracleText = (commander.oracle_text || "").toLowerCase();
+          
+          // Check timing
+          const isInstantSpeed = typeLine.includes("instant") || oracleText.includes("flash");
+          const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty && isMyTurn);
+          
+          if (canCastNow && canPayManaCost(availableMana, parsedCost)) {
+            console.log(`[getPlayableCardIds] Commander ${commander.name} (${commanderId}) is playable with cost ${totalCost}`);
+            playableIds.push(commanderId);
+          } else {
+            console.log(`[getPlayableCardIds] Commander ${commander.name} not playable - canCastNow=${canCastNow}, canPay=${canPayManaCost(availableMana, parsedCost)}`);
+          }
+        }
+      }
     }
     
     // Check exile zone for foretell cards and other playable cards
