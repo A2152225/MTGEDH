@@ -845,6 +845,12 @@ export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
         return true;
       }
       
+      // Check if player can activate sorcery-speed abilities (equip, reconfigure, etc.)
+      if (canActivateSorcerySpeedAbility(ctx, playerId)) {
+        console.log(`[canAct] ${playerId}: Can activate sorcery-speed ability - returning TRUE`);
+        return true;
+      }
+      
       console.log(`[canAct] ${playerId}: No sorcery-speed actions available in main phase - returning FALSE`);
     } else {
       console.log(`[canAct] ${playerId}: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE`);
@@ -1034,6 +1040,82 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
     return false;
   } catch (err) {
     console.warn("[canCastAnySorcerySpeed] Error:", err);
+    return false;
+  }
+}
+
+/**
+ * Check if player can activate any sorcery-speed abilities (equip, reconfigure, etc.)
+ * These can only be activated during main phase when stack is empty
+ */
+function canActivateSorcerySpeedAbility(ctx: GameContext, playerId: PlayerID): boolean {
+  try {
+    const { state } = ctx;
+    if (!state) return false;
+    
+    const battlefield = state.battlefield || [];
+    const pool = getAvailableMana(state, playerId);
+    
+    // Check each permanent controlled by the player
+    for (const permanent of battlefield) {
+      if (!permanent || !permanent.card) continue;
+      if (permanent.controller !== playerId) continue;
+      
+      const oracleText = permanent.card.oracle_text || "";
+      const effectLower = oracleText.toLowerCase();
+      
+      // Check for equip ability: "{Cost}: Equip"
+      if (effectLower.includes("equip")) {
+        // Extract equip cost - pattern: "Equip {cost}" or "{cost}: Equip"
+        const equipMatch = oracleText.match(/(?:equip\s+(\{[^}]+\}(?:\s*\{[^}]+\})*))|\((\{[^}]+\}(?:\s*\{[^}]+\})*)\s*:\s*equip/i);
+        if (equipMatch) {
+          const costString = equipMatch[1] || equipMatch[2];
+          if (costString) {
+            const parsedCost = parseManaCost(costString);
+            if (canPayManaCost(pool, parsedCost)) {
+              // Also check if there's a valid target (a creature to equip)
+              const hasCreatureTarget = battlefield.some((p: any) => 
+                p.controller === playerId && 
+                (p.card?.type_line || "").toLowerCase().includes("creature")
+              );
+              if (hasCreatureTarget) {
+                return true;
+              }
+            }
+          }
+        }
+      }
+      
+      // Check for reconfigure ability
+      if (effectLower.includes("reconfigure")) {
+        const reconfigureMatch = oracleText.match(/reconfigure\s+(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+        if (reconfigureMatch) {
+          const costString = reconfigureMatch[1];
+          const parsedCost = parseManaCost(costString);
+          if (canPayManaCost(pool, parsedCost)) {
+            return true;
+          }
+        }
+      }
+      
+      // Check for other sorcery-speed only abilities
+      // Pattern: "Activate only as a sorcery" or "Activate only any time you could cast a sorcery"
+      if (/(activate|use) (?:this ability|these abilities) only (?:as a sorcery|any time you could cast a sorcery)/i.test(oracleText)) {
+        // Extract the cost from the ability
+        const sorceryAbilityMatch = oracleText.match(/(\{[^}]+\}(?:\s*,?\s*\{[^}]+\})*)\s*:\s*([^.]+(?:activate|use) (?:this ability|these abilities) only (?:as a sorcery|any time you could cast a sorcery))/i);
+        if (sorceryAbilityMatch) {
+          const costString = sorceryAbilityMatch[1];
+          const parsedCost = parseManaCost(costString);
+          if (canPayManaCost(pool, parsedCost)) {
+            return true;
+          }
+        }
+      }
+    }
+    
+    return false;
+  } catch (err) {
+    console.warn("[canActivateSorcerySpeedAbility] Error:", err);
     return false;
   }
 }
