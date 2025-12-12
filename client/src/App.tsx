@@ -257,6 +257,7 @@ export function App() {
     equipmentName: string;
     equipCost: string;
     imageUrl?: string;
+    effectId?: string;
     validTargets: { id: string; name: string; power: string; toughness: string; imageUrl?: string }[];
   } | null>(null);
 
@@ -1201,6 +1202,7 @@ export function App() {
           equipmentName: payload.equipmentName,
           equipCost: payload.equipCost,
           imageUrl: payload.imageUrl,
+          effectId: payload.effectId,
           validTargets: payload.validTargets || [],
         });
         setEquipTargetModalOpen(true);
@@ -3287,10 +3289,11 @@ export function App() {
   const handleEquipTarget = (targetId: string | null) => {
     if (!safeView || !equipTargetData) return;
     if (targetId) {
-      socket.emit("equipAbility", {
+      socket.emit("equipTargetChosen", {
         gameId: safeView.id,
         equipmentId: equipTargetData.equipmentId,
         targetCreatureId: targetId,
+        effectId: (equipTargetData as any).effectId, // Include effectId for server tracking
       });
     }
     setEquipTargetModalOpen(false);
