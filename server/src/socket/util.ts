@@ -193,7 +193,8 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
     // Check for playable lands in hand (during main phase with empty stack)
     if (isMainPhase && stackIsEmpty && isMyTurn) {
       const landsPlayedThisTurn = (state.landsPlayedThisTurn as any)?.[playerId] ?? 0;
-      const maxLandsPerTurn = 1;
+      // Check the actual max lands per turn from game state (accounts for Exploration, Azusa, etc.)
+      const maxLandsPerTurn = (state as any).maxLandsPerTurn?.[playerId] ?? 1;
       
       console.log(`[getPlayableCardIds] Checking lands: landsPlayed=${landsPlayedThisTurn}, max=${maxLandsPerTurn}`);
       
@@ -207,6 +208,8 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
             playableIds.push(card.id);
           }
         }
+      } else if (landsPlayedThisTurn >= maxLandsPerTurn) {
+        console.log(`[getPlayableCardIds] Already played max lands this turn (${landsPlayedThisTurn}/${maxLandsPerTurn})`);
       }
     } else {
       console.log(`[getPlayableCardIds] Not checking lands: isMainPhase=${isMainPhase}, stackIsEmpty=${stackIsEmpty}, isMyTurn=${isMyTurn}`);
