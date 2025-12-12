@@ -22,6 +22,7 @@ import { getDevotionManaAmount, getCreatureCountManaAmount } from "../state/modu
 import { canRespond, canAct } from "../state/modules/can-respond.js";
 import { parseManaCost as parseManaFromString, canPayManaCost, getManaPoolFromState, getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
+import { calculateCostReduction, applyCostReduction } from "./game-actions.js";
 
 // ============================================================================
 // Pre-compiled RegExp patterns for mana color matching in devotion calculations
@@ -213,15 +214,25 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
         const canCastNow = isInstantSpeed || (isSorcerySpeed && isMainPhase && stackIsEmpty && isMyTurn);
         
         if (canCastNow) {
+          // Calculate cost reduction for this spell
+          const reduction = calculateCostReduction(game as any, playerId, card, false);
+          
           // Check if player can pay the cost with available mana (floating + untapped sources)
           const manaCost = card.mana_cost || "";
           const parsedCost = parseManaFromString(manaCost);
           
-          if (canPayManaCost(availableMana, parsedCost) || hasPayableAlternateCost(game as any, playerId, card)) {
-            console.log(`[getPlayableCardIds] Card ${card.name} (${card.id}) is playable`);
+          // Apply cost reduction to get the actual cost
+          const actualCost = applyCostReduction(parsedCost, reduction);
+          
+          if (canPayManaCost(availableMana, actualCost) || hasPayableAlternateCost(game as any, playerId, card)) {
+            if (reduction.messages && reduction.messages.length > 0) {
+              console.log(`[getPlayableCardIds] Card ${card.name} (${card.id}) is playable with cost reduction: ${reduction.messages.join(', ')}`);
+            } else {
+              console.log(`[getPlayableCardIds] Card ${card.name} (${card.id}) is playable`);
+            }
             playableIds.push(card.id);
           } else {
-            console.log(`[getPlayableCardIds] Card ${card.name} not playable - cannot pay cost ${manaCost}`);
+            console.log(`[getPlayableCardIds] Card ${card.name} not playable - cannot pay cost ${manaCost} (after reduction: ${JSON.stringify(actualCost)})`);
           }
         }
       }

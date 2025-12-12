@@ -463,7 +463,7 @@ function checkEnchantmentETBTriggers(
  * - Board state based: Animar (experience/+1+1 counters), Affinity effects
  * - Color based: Ruby Medallion, Sapphire Medallion, etc.
  */
-function calculateCostReduction(
+export function calculateCostReduction(
   game: any,
   playerId: string,
   card: any,
@@ -813,7 +813,7 @@ function calculateCostReduction(
 /**
  * Extract creature types from a type line
  */
-function extractCreatureTypes(typeLine: string): string[] {
+export function extractCreatureTypes(typeLine: string): string[] {
   const types: string[] = [];
   const lower = typeLine.toLowerCase();
   
@@ -1086,7 +1086,7 @@ function applyHeroicTrigger(game: any, trigger: HeroicTrigger, io: any, gameId: 
 /**
  * Apply cost reduction to a parsed mana cost
  */
-function applyCostReduction(
+export function applyCostReduction(
   parsedCost: { generic: number; colors: Record<string, number> },
   reduction: { generic: number; colors: Record<string, number>; messages?: string[] }
 ): { generic: number; colors: Record<string, number> } {
