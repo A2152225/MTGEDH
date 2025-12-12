@@ -915,6 +915,86 @@ function canCastCommanderFromCommandZone(ctx: GameContext, playerId: PlayerID): 
  * @param playerId The player to check (should be the active player)
  * @returns true if the player can take any action, false otherwise
  */
+/**
+ * Check if player has any valid attackers (untapped creatures that can attack)
+ * Used to prevent auto-pass from skipping attack phase when creatures are available
+ */
+function hasValidAttackers(ctx: GameContext, playerId: PlayerID): boolean {
+  try {
+    const { state } = ctx;
+    const battlefield = state.battlefield || [];
+    
+    for (const permanent of battlefield) {
+      if (!permanent || permanent.controller !== playerId) continue;
+      
+      const typeLine = (permanent.card?.type_line || "").toLowerCase();
+      if (!typeLine.includes("creature")) continue;
+      
+      // Can't attack if tapped
+      if (permanent.tapped) continue;
+      
+      // Can't attack with summoning sickness (unless haste)
+      // Check if creature entered this turn AND doesn't have haste
+      const enteredThisTurn = permanent.enteredThisTurn === true;
+      if (enteredThisTurn) {
+        // Check for haste in oracle text or granted abilities
+        const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
+        const grantedAbilities = permanent.grantedAbilities || [];
+        const hasHaste = oracleText.includes("haste") || 
+                        grantedAbilities.some((a: string) => a && a.toLowerCase().includes("haste"));
+        
+        if (!hasHaste) continue; // Summoning sickness
+      }
+      
+      // TODO: Check for "can't attack" effects (like Pacifism)
+      // For now, if we have an untapped creature without summoning sickness, return true
+      return true;
+    }
+    
+    return false;
+  } catch (err) {
+    console.warn("[hasValidAttackers] Error:", err);
+    return true; // On error, assume they might have attackers (don't auto-pass)
+  }
+}
+
+/**
+ * Check if player has any valid blockers (untapped creatures that can block)
+ * Used to prevent auto-pass from skipping block phase when creatures are available
+ */
+function hasValidBlockers(ctx: GameContext, playerId: PlayerID): boolean {
+  try {
+    const { state } = ctx;
+    const battlefield = state.battlefield || [];
+    
+    // First check if there are any declared attackers to block
+    const declaredAttackers = (state as any).declaredAttackers || [];
+    if (declaredAttackers.length === 0) {
+      return false; // No attackers to block
+    }
+    
+    for (const permanent of battlefield) {
+      if (!permanent || permanent.controller !== playerId) continue;
+      
+      const typeLine = (permanent.card?.type_line || "").toLowerCase();
+      if (!typeLine.includes("creature")) continue;
+      
+      // Can't block if tapped
+      if (permanent.tapped) continue;
+      
+      // TODO: Check for "can't block" effects
+      // TODO: Check for special blocking restrictions (flying, etc.)
+      // For now, if we have an untapped creature, return true
+      return true;
+    }
+    
+    return false;
+  } catch (err) {
+    console.warn("[hasValidBlockers] Error:", err);
+    return true; // On error, assume they might have blockers (don't auto-pass)
+  }
+}
+
 export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
   try {
     const currentStep = String((ctx.state as any).step || '').toUpperCase();
@@ -965,6 +1045,26 @@ export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
       console.log(`[canAct] ${playerId}: No sorcery-speed actions available in main phase - returning FALSE`);
     } else {
       console.log(`[canAct] ${playerId}: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE`);
+    }
+    
+    // Check combat phases - if player has valid attackers/blockers, they can act
+    // This prevents auto-pass from skipping combat declaration when creatures are available
+    const isTurnPlayer = (ctx.state as any).turnPlayer === playerId;
+    
+    if (currentStep === 'DECLARE_ATTACKERS' && isTurnPlayer && stackIsEmpty) {
+      // Check if player has any creatures that can attack
+      if (hasValidAttackers(ctx, playerId)) {
+        console.log(`[canAct] ${playerId}: Has valid attackers - returning TRUE`);
+        return true;
+      }
+    }
+    
+    if (currentStep === 'DECLARE_BLOCKERS' && !isTurnPlayer && stackIsEmpty) {
+      // Check if player has any creatures that can block
+      if (hasValidBlockers(ctx, playerId)) {
+        console.log(`[canAct] ${playerId}: Has valid blockers - returning TRUE`);
+        return true;
+      }
     }
     
     // No actions available
