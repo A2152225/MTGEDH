@@ -16,7 +16,7 @@
 
 import type { GameContext } from "../context";
 import type { PlayerID } from "../../../../shared/src";
-import { parseManaCost, canPayManaCost, getManaPoolFromState } from "./mana-check";
+import { parseManaCost, canPayManaCost, getManaPoolFromState, getAvailableMana } from "./mana-check";
 import { hasPayableAlternateCost } from "./alternate-costs";
 
 /**
@@ -143,8 +143,8 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
     const zones = state.zones?.[playerId];
     if (!zones) return false;
     
-    // Get mana pool
-    const pool = getManaPoolFromState(state, playerId);
+    // Get mana pool (floating + potential from untapped sources)
+    const pool = getAvailableMana(state, playerId);
     
     // Check each card in hand
     if (Array.isArray(zones.hand)) {
@@ -418,8 +418,8 @@ export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boo
     
     const battlefield = state.battlefield || [];
     
-    // Get mana pool
-    const pool = getManaPoolFromState(state, playerId);
+    // Get mana pool (floating + potential from untapped sources)
+    const pool = getAvailableMana(state, playerId);
     
     // Check each permanent on battlefield
     for (const permanent of battlefield) {
