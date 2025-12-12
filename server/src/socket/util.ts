@@ -1164,7 +1164,7 @@ function checkAndEmitPlayerElimination(io: Server, game: InMemoryGame, gameId: s
 function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string): void {
   try {
     const priority = (game.state as any)?.priority;
-    const currentStep = (game.state as any)?.currentStep;
+    const currentStep = (game.state as any)?.step;
     const turnPlayer = (game.state as any)?.turnPlayer;
     
     // Special case: CLEANUP step with pending discard selection

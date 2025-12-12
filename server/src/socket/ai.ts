@@ -13,7 +13,7 @@
 import { randomBytes } from "crypto";
 import type { Server, Socket } from "socket.io";
 import { AIEngine, AIStrategy, AIDecisionType, type AIDecisionContext, type AIPlayerConfig } from "../../../rules-engine/src/AIEngine.js";
-import { ensureGame, broadcastGame } from "./util.js";
+import { ensureGame, broadcastGame, handlePendingJoinForces, handlePendingTemptingOffer } from "./util.js";
 import { appendEvent } from "../db/index.js";
 import { getDeck, listDecks } from "../db/decks.js";
 import { fetchCardsByExactNamesBatch, normalizeName, parseDecklist } from "../services/scryfall.js";
@@ -82,13 +82,19 @@ function extractColorIdentity(card: any): string[] {
  * - Legendary planeswalkers with "can be your commander"
  * - Legendary Vehicles (as of recent rules changes)
  * - Legendary cards with Station type
+ * - Background enchantments (can be commanders when paired with "Choose a Background")
  * - Any card with "can be your commander" text
  */
 function isValidCommander(card: any): boolean {
   const typeLine = (card.type_line || '').toLowerCase();
   const oracleText = (card.oracle_text || '').toLowerCase();
   
-  // Must be legendary
+  // Background enchantments can be commanders (even if not legendary)
+  if (typeLine.includes('background')) {
+    return true;
+  }
+  
+  // Must be legendary for other types
   if (!typeLine.includes('legendary')) {
     return false;
   }
@@ -3200,6 +3206,14 @@ async function executePassPriority(
       // Check for pending library search (from tutor spells)
       // For AI players, we auto-select the best card; for human players, emit the request
       await handlePendingLibrarySearchAfterResolution(io, game, gameId);
+      
+      // Check for pending Join Forces effects (Minds Aglow, Collective Voyage, etc.)
+      // These require all players to contribute mana
+      handlePendingJoinForces(io, game, gameId);
+      
+      // Check for pending Tempting Offer effects (Tempt with Discovery, etc.)
+      // These require opponents to choose whether to accept
+      handlePendingTemptingOffer(io, game, gameId);
       
       // Persist the resolution event
       try {

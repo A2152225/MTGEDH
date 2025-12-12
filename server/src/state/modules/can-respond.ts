@@ -793,12 +793,96 @@ export function canRespond(ctx: GameContext, playerId: PlayerID): boolean {
 }
 
 /**
+ * Check if player can cast their commander(s) from the command zone
+ * Commanders can be cast at any time they could normally cast that type of spell
+ * (e.g., instant if it has flash, sorcery-speed otherwise)
+ * 
+ * @param ctx Game context
+ * @param playerId Player to check
+ * @returns true if player can afford to cast at least one commander
+ */
+function canCastCommanderFromCommandZone(ctx: GameContext, playerId: PlayerID): boolean {
+  try {
+    const { state } = ctx;
+    if (!state) return false;
+    
+    // Get commander zone info for this player
+    const commandZone = (state as any).commandZone?.[playerId];
+    if (!commandZone) return false;
+    
+    // Get commanders that are currently in the command zone
+    const inCommandZone = (commandZone as any).inCommandZone as string[] || [];
+    const commanderCards = (commandZone as any).commanderCards as any[] || [];
+    
+    if (inCommandZone.length === 0 || commanderCards.length === 0) {
+      return false;
+    }
+    
+    // Get available mana
+    const pool = getAvailableMana(state, playerId);
+    
+    // Check each commander in the command zone
+    for (const commanderId of inCommandZone) {
+      const commander = commanderCards.find((c: any) => c.id === commanderId);
+      if (!commander) continue;
+      
+      // Parse mana cost
+      const manaCost = commander.mana_cost || "";
+      if (!manaCost) continue; // Can't cast without a mana cost
+      
+      const parsedCost = parseManaCost(manaCost);
+      
+      // Add commander tax to generic cost
+      const tax = (commandZone as any).taxById?.[commanderId] || 0;
+      const totalCost = {
+        ...parsedCost,
+        generic: parsedCost.generic + tax,
+      };
+      
+      // Check if player can pay the cost
+      if (canPayManaCost(pool, totalCost)) {
+        // Also check if this commander has flash (can be cast at instant speed)
+        const typeLine = (commander.type_line || "").toLowerCase();
+        const oracleText = (commander.oracle_text || "").toLowerCase();
+        
+        // Creatures, artifacts, enchantments, planeswalkers are sorcery-speed by default
+        // But if they have flash, they can be cast any time
+        const hasFlash = oracleText.includes("flash");
+        const isInstant = typeLine.includes("instant");
+        
+        if (hasFlash || isInstant) {
+          // Can cast at instant speed - always valid
+          console.log(`[canCastCommanderFromCommandZone] ${playerId}: Commander ${commander.name} has flash/instant - can cast`);
+          return true;
+        }
+        
+        // For sorcery-speed commanders, check if we're in main phase with empty stack
+        const currentStep = String((state as any).step || '').toUpperCase();
+        const isMainPhase = currentStep === 'MAIN1' || currentStep === 'MAIN2' || currentStep === 'MAIN';
+        const stackIsEmpty = !state.stack || state.stack.length === 0;
+        
+        if (isMainPhase && stackIsEmpty) {
+          console.log(`[canCastCommanderFromCommandZone] ${playerId}: Commander ${commander.name} can be cast (main phase, empty stack)`);
+          return true;
+        }
+      }
+    }
+    
+    return false;
+  } catch (err) {
+    console.warn("[canCastCommanderFromCommandZone] Error:", err);
+    return false;
+  }
+}
+
+/**
  * Determine if the active player can take any action during their turn.
  * 
  * This is a MORE CONSERVATIVE check than canRespond - it returns true if the player
  * can take ANY action, including:
  * - Instant/flash spells (checked by canRespond)
  * - Activated abilities (checked by canRespond)
+ * - Casting commanders from command zone
  * - Playing lands (if lands played < maxLands AND in main phase with empty stack)
  * - Sorcery-speed spells (if in main phase with empty stack)
  * 
@@ -829,6 +913,12 @@ export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
       return true;
     }
     
+    // Check if player can cast commander from command zone (any time they could cast it)
+    if (canCastCommanderFromCommandZone(ctx, playerId)) {
+      console.log(`[canAct] ${playerId}: Can cast commander from command zone - returning TRUE`);
+      return true;
+    }
+    
     // During main phase with empty stack, check sorcery-speed actions
     if (isMainPhase && stackIsEmpty) {
       console.log(`[canAct] ${playerId}: In main phase with empty stack, checking sorcery-speed actions`);
@@ -842,6 +932,12 @@ export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
       // Check if player can cast any sorcery-speed spells
       if (canCastAnySorcerySpeed(ctx, playerId)) {
         console.log(`[canAct] ${playerId}: Can cast sorcery-speed spell - returning TRUE`);
+        return true;
+      }
+      
+      // Check if player can activate sorcery-speed abilities (equip, reconfigure, etc.)
+      if (canActivateSorcerySpeedAbility(ctx, playerId)) {
+        console.log(`[canAct] ${playerId}: Can activate sorcery-speed ability - returning TRUE`);
         return true;
       }
       
@@ -1034,6 +1130,92 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
     return false;
   } catch (err) {
     console.warn("[canCastAnySorcerySpeed] Error:", err);
+    return false;
+  }
+}
+
+/**
+ * Check if player can activate any sorcery-speed abilities (equip, reconfigure, etc.)
+ * These can only be activated during main phase when stack is empty
+ */
+function canActivateSorcerySpeedAbility(ctx: GameContext, playerId: PlayerID): boolean {
+  try {
+    const { state } = ctx;
+    if (!state) return false;
+    
+    const battlefield = state.battlefield || [];
+    const pool = getAvailableMana(state, playerId);
+    
+    // Check each permanent controlled by the player
+    for (const permanent of battlefield) {
+      if (!permanent || !permanent.card) continue;
+      if (permanent.controller !== playerId) continue;
+      
+      const oracleText = permanent.card.oracle_text || "";
+      const effectLower = oracleText.toLowerCase();
+      
+      // Check for equip ability: "Equip {cost}" or "{cost}: Equip"
+      if (effectLower.includes("equip")) {
+        // Try pattern 1: "Equip {cost}"
+        let equipMatch = oracleText.match(/equip\s+(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+        
+        // Try pattern 2: "{cost}: Equip"
+        if (!equipMatch) {
+          equipMatch = oracleText.match(/(\{[^}]+\}(?:\s*\{[^}]+\})*)\s*:\s*equip/i);
+        }
+        
+        if (equipMatch) {
+          const costString = equipMatch[1];
+          if (costString) {
+            const parsedCost = parseManaCost(costString);
+            if (canPayManaCost(pool, parsedCost)) {
+              // Also check if there's a valid target (a creature to equip)
+              const hasCreatureTarget = battlefield.some((p: any) => 
+                p.controller === playerId && 
+                (p.card?.type_line || "").toLowerCase().includes("creature")
+              );
+              if (hasCreatureTarget) {
+                return true;
+              }
+            }
+          }
+        }
+      }
+      
+      // Check for reconfigure ability: "Reconfigure {cost}"
+      if (effectLower.includes("reconfigure")) {
+        const reconfigureMatch = oracleText.match(/reconfigure\s+(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+        if (reconfigureMatch) {
+          const costString = reconfigureMatch[1];
+          const parsedCost = parseManaCost(costString);
+          if (canPayManaCost(pool, parsedCost)) {
+            return true;
+          }
+        }
+      }
+      
+      // Check for other sorcery-speed only abilities
+      // First check if this ability has sorcery-speed restriction
+      if (/(activate|use) (?:this ability|these abilities) only (?:as a sorcery|any time you could cast a sorcery)/i.test(oracleText)) {
+        // Look for any activated ability pattern before the restriction: "{cost}: Effect"
+        const abilityPattern = /(\{[^}]+\}(?:\s*,?\s*\{[^}]+\})*)\s*:/gi;
+        const matches = oracleText.matchAll(abilityPattern);
+        
+        for (const match of matches) {
+          const costString = match[1];
+          if (costString) {
+            const parsedCost = parseManaCost(costString);
+            if (canPayManaCost(pool, parsedCost)) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+    
+    return false;
+  } catch (err) {
+    console.warn("[canActivateSorcerySpeedAbility] Error:", err);
     return false;
   }
 }
