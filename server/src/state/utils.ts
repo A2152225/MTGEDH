@@ -17,6 +17,37 @@ export function canPayLife(currentLife: number, amount: number): boolean {
 }
 
 /**
+ * Compute a card's mana value, optionally incorporating a chosen X value.
+ */
+export function cardManaValue(card: any, chosenX?: number): number {
+  if (!card) return 0;
+  const manaCost: string | undefined = (card as any).mana_cost;
+  let mv = typeof (card as any).cmc === 'number' ? (card as any).cmc : 0;
+  
+  if (mv === 0 && manaCost) {
+    const symbols = manaCost.match(/\{[^}]+\}/g) || [];
+    for (const sym of symbols) {
+      const inner = sym.slice(1, -1).toUpperCase();
+      if (inner === 'X') continue;
+      if (/^\d+$/.test(inner)) {
+        mv += parseInt(inner, 10);
+      } else {
+        mv += 1;
+      }
+    }
+  }
+  
+  if (chosenX !== undefined && manaCost) {
+    const xCount = (manaCost.match(/\{X\}/gi) || []).length;
+    if (xCount > 0) {
+      mv += chosenX * xCount;
+    }
+  }
+  
+  return mv;
+}
+
+/**
  * Get the maximum life a player can pay.
  * Useful for "pay X life" effects where X can be chosen.
  * 

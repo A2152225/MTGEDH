@@ -236,7 +236,11 @@ export interface ClientToServerEvents {
     payment?: Array<{ permanentId?: string; lifePayment?: number }>; 
     faceIndex?: number;
     effectId?: string;
+    xValue?: number;
   }) => void;
+  
+  // Resolve a cascade decision (cast the revealed card or decline)
+  resolveCascade: (payload: { gameId: GameID; effectId: string; cast: boolean }) => void;
   
   // Play a land from hand
   playLand: (payload: { gameId: GameID; cardId: string; selectedFace?: number }) => void;
@@ -336,7 +340,7 @@ export interface ClientToServerEvents {
   // ===== SPELL CASTING =====
   
   // Cast spell from hand (with payment info)
-  castSpellFromHand: (payload: { gameId: GameID; cardId: string; targets?: string[]; payment?: any[] }) => void;
+  castSpellFromHand: (payload: { gameId: GameID; cardId: string; targets?: string[]; payment?: any[]; xValue?: number }) => void;
 
   // ===== POSITION / UI EVENTS =====
   
@@ -356,6 +360,22 @@ export interface ClientToServerEvents {
   // Confirm surveil result
   confirmSurveil: (payload: { gameId: GameID; toGraveyard: Array<{ id: string }>; keepTopOrder: Array<{ id: string }> }) => void;
 
+  // ===== PONDER-STYLE EFFECTS =====
+  // Cascade prompt - controller chooses whether to cast the revealed card
+  cascadePrompt: (payload: {
+    gameId: GameID;
+    effectId: string;
+    playerId: PlayerID;
+    sourceName: string;
+    cascadeNumber: number;
+    totalCascades: number;
+    hitCard: KnownCardRef;
+    exiledCards: KnownCardRef[];
+  }) => void;
+  
+  // Cascade resolution acknowledgement (close modal on client)
+  cascadeComplete: (payload: { gameId: GameID; effectId: string }) => void;
+  
   // ===== PONDER-STYLE EFFECTS =====
   
   // Confirm Ponder-style effect (look at top N, reorder, optionally shuffle, then draw)

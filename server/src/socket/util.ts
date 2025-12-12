@@ -17,7 +17,7 @@ import type { InMemoryGame } from "../state/types.js";
 import { GameManager } from "../GameManager.js";
 import type { GameID, PlayerID } from "../../../shared/src/index.js";
 import { registerPendingJoinForces, registerPendingTemptingOffer } from "./join-forces.js";
-import { getActualPowerToughness } from "../state/utils.js";
+import { getActualPowerToughness, uid, cardManaValue } from "../state/utils.js";
 import { getDevotionManaAmount, getCreatureCountManaAmount } from "../state/modules/mana-abilities.js";
 import { canRespond, canAct } from "../state/modules/can-respond.js";
 import { parseManaCost as parseManaFromString, canPayManaCost, getManaPoolFromState, getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
@@ -2206,6 +2206,166 @@ export function handlePendingPonder(io: Server, game: any, gameId: string): void
 }
 
 /**
+ * Complete a cascade instance by optionally casting the hit card and bottoming the rest.
+ */
+export function resolveCascadeSelection(
+  io: Server,
+  game: any,
+  gameId: string,
+  playerId: string,
+  effectId: string,
+  cast: boolean
+): void {
+  const pending = (game.state as any).pendingCascade?.[playerId];
+  if (!pending || pending.length === 0) return;
+  const entry = pending[0];
+  if (!entry || entry.effectId !== effectId) return;
+  
+  const lib = (game as any).libraries?.get(playerId) || [];
+  const toBottom = (entry.exiledCards as any[] | undefined) || [];
+  const zones = game.state.zones = game.state.zones || {};
+  const z = zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: lib.length, graveyard: [], graveyardCount: 0 };
+  
+  // Bottom the exiled cards (excluding hit card if casting)
+  const randomized = [...toBottom];
+  for (let i = randomized.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [randomized[i], randomized[j]] = [randomized[j], randomized[i]];
+  }
+  for (const card of randomized) {
+    if (cast && entry.hitCard && card.id === entry.hitCard.id) continue;
+    lib.push({ ...card, zone: 'library' });
+  }
+  z.libraryCount = lib.length;
+  
+  // Cast the hit card if chosen
+  if (cast && entry.hitCard) {
+    if (typeof game.applyEvent === 'function') {
+      game.applyEvent({
+        type: "castSpell",
+        playerId,
+        card: { ...entry.hitCard },
+      });
+    }
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, "castSpell", { playerId, cardId: entry.hitCard.id, card: entry.hitCard, cascade: true });
+    } catch {
+      // ignore persistence failures
+    }
+  } else if (entry.hitCard) {
+    // Declined casting - put the hit card on bottom as well
+    lib.push({ ...entry.hitCard, zone: 'library' });
+    z.libraryCount = lib.length;
+  }
+  
+  pending.shift();
+  if (pending.length === 0) {
+    delete (game.state as any).pendingCascade[playerId];
+  }
+  
+  io.to(gameId).emit("cascadeComplete", { gameId, effectId });
+  handlePendingCascade(io, game, gameId);
+}
+
+/**
+ * Process pending cascade triggers for players and emit prompts.
+ */
+export function handlePendingCascade(io: Server, game: any, gameId: string): void {
+  try {
+    const pending = (game.state as any).pendingCascade;
+    if (!pending) return;
+    
+    for (const playerId of Object.keys(pending)) {
+      const queue = pending[playerId];
+      if (!Array.isArray(queue) || queue.length === 0) continue;
+      
+      const entry = queue[0];
+      if (!entry || entry.awaiting) continue;
+      
+      const lib = (game as any).libraries?.get(playerId) || [];
+      if (!Array.isArray(lib)) continue;
+      
+      const exiled: any[] = [];
+      let hitCard: any | null = null;
+      while (lib.length > 0) {
+        const card = lib.shift() as any;
+        if (!card) break;
+        exiled.push(card);
+        const tl = (card.type_line || "").toLowerCase();
+        const isLand = tl.includes('land');
+        const mv = cardManaValue(card);
+        if (!isLand && mv < entry.manaValue) {
+          hitCard = card;
+          break;
+        }
+      }
+      
+      const zones = game.state.zones = game.state.zones || {};
+      const z = zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: lib.length, graveyard: [], graveyardCount: 0 };
+      z.libraryCount = lib.length;
+      
+      // If nothing hit, bottom exiled and continue
+      if (!hitCard) {
+        for (const card of exiled) {
+          lib.push({ ...card, zone: 'library' });
+        }
+        z.libraryCount = lib.length;
+        queue.shift();
+        continue;
+      }
+      
+      entry.awaiting = true;
+      entry.hitCard = hitCard;
+      entry.exiledCards = exiled;
+      entry.effectId = entry.effectId || uid("cascade");
+      
+      const payloadCards = exiled.map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        type_line: c.type_line,
+        oracle_text: c.oracle_text,
+        image_uris: c.image_uris,
+        mana_cost: c.mana_cost,
+        cmc: c.cmc,
+      }));
+      const hitPayload = {
+        id: hitCard.id,
+        name: hitCard.name,
+        type_line: hitCard.type_line,
+        oracle_text: hitCard.oracle_text,
+        image_uris: hitCard.image_uris,
+        mana_cost: hitCard.mana_cost,
+        cmc: hitCard.cmc,
+      };
+      
+      let delivered = false;
+      for (const s of io.sockets.sockets.values()) {
+        if ((s as any).data?.playerId === playerId && !(s as any).data?.spectator) {
+          (s as any).emit("cascadePrompt", {
+            gameId,
+            effectId: entry.effectId,
+            playerId,
+            sourceName: entry.sourceName || 'Cascade',
+            cascadeNumber: entry.instance || 1,
+            totalCascades: queue.length,
+            hitCard: hitPayload,
+            exiledCards: payloadCards,
+          });
+          delivered = true;
+          break;
+        }
+      }
+      
+      if (!delivered) {
+        resolveCascadeSelection(io, game, gameId, playerId, entry.effectId, true);
+      }
+    }
+  } catch (err) {
+    console.warn('[handlePendingCascade] Error:', err);
+  }
+}
+
+/**
  * Maps mana color symbols to their human-readable names.
  */
 export const MANA_COLOR_NAMES: Record<string, string> = {
@@ -2271,6 +2431,7 @@ export function parseManaCost(
 
   return result;
 }
+
 
 /**
  * Consumes mana from a player's mana pool to pay for a spell cost.
