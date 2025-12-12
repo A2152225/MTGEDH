@@ -180,34 +180,32 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
     const oracleText = (permanent.card.oracle_text || "").toLowerCase();
     const cardName = (permanent.card.name || "").toLowerCase();
     
-    // Check for mana abilities - these are activated abilities that produce mana
-    // Pattern: "{T}: Add {COLOR}" or similar
-    const manaAbilityPattern = /\{t\}(?:[^:]*)?:\s*add\s+\{([wubrgc])\}/gi;
-    const matches = [...oracleText.matchAll(manaAbilityPattern)];
-    
-    for (const match of matches) {
-      const color = match[1].toUpperCase();
-      const colorKey = {
-        'W': 'white',
-        'U': 'blue',
-        'B': 'black',
-        'R': 'red',
-        'G': 'green',
-        'C': 'colorless',
-      }[color];
-      
+    // Special case: Basic lands (Mountain, Island, etc.)
+    // Handle these first since they don't have oracle text with mana abilities
+    if (/^(plains|island|swamp|mountain|forest)$/i.test(cardName)) {
+      const landToColor: Record<string, string> = {
+        'plains': 'white',
+        'island': 'blue',
+        'swamp': 'black',
+        'mountain': 'red',
+        'forest': 'green',
+      };
+      const colorKey = landToColor[cardName];
       if (colorKey) {
         pool[colorKey] = (pool[colorKey] || 0) + 1;
       }
+      continue; // Skip oracle text check for basic lands
     }
     
-    // Check for multi-mana abilities like Sol Ring "{T}: Add {C}{C}"
-    const multiManaPattern = /\{t\}(?:[^:]*)?:\s*add\s+(\{[^}]+\}(?:\s*\{[^}]+\})*)/gi;
-    const multiMatches = [...oracleText.matchAll(multiManaPattern)];
+    // Check for mana abilities in oracle text
+    // Pattern: "{T}: Add {C}", "{T}: Add {C}{C}", etc.
+    // This single pattern handles both single and multi-mana abilities
+    const manaAbilityPattern = /\{t\}(?:[^:]*)?:\s*add\s+(\{[^}]+\}(?:\s*\{[^}]+\})*)/gi;
+    const matches = [...oracleText.matchAll(manaAbilityPattern)];
     
-    for (const match of multiMatches) {
+    for (const match of matches) {
       const manaString = match[1];
-      // Count each {C}, {W}, etc.
+      // Count each {C}, {W}, {U}, {B}, {R}, {G} in the ability
       const manaTokens = manaString.match(/\{([wubrgc])\}/gi) || [];
       for (const token of manaTokens) {
         const color = token.replace(/[{}]/g, '').toUpperCase();
@@ -223,21 +221,6 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
         if (colorKey) {
           pool[colorKey] = (pool[colorKey] || 0) + 1;
         }
-      }
-    }
-    
-    // Special case: Basic lands (Mountain, Island, etc.)
-    if (/^(plains|island|swamp|mountain|forest)$/i.test(cardName)) {
-      const landToColor: Record<string, string> = {
-        'plains': 'white',
-        'island': 'blue',
-        'swamp': 'black',
-        'mountain': 'red',
-        'forest': 'green',
-      };
-      const colorKey = landToColor[cardName];
-      if (colorKey) {
-        pool[colorKey] = (pool[colorKey] || 0) + 1;
       }
     }
   }
