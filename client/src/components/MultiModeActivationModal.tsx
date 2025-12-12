@@ -114,8 +114,13 @@ export function MultiModeActivationModal({
                 src={permanent.imageUrl}
                 alt={permanent.name}
                 style={{ height: '80px', borderRadius: '6px', border: '1px solid #555' }}
-                onMouseEnter={() => showCardPreview(permanent.imageUrl!)}
-                onMouseLeave={hideCardPreview}
+                onMouseEnter={(e) =>
+                  showCardPreview(e.currentTarget, {
+                    image_uris: { normal: permanent.imageUrl },
+                    name: permanent.name,
+                  } as any)
+                }
+                onMouseLeave={(e) => hideCardPreview(e.currentTarget)}
               />
             )}
           </div>

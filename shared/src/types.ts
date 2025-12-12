@@ -235,6 +235,10 @@ export interface BattlefieldPermanent {
   isToken?: boolean;
   // Summoning sickness
   summoningSickness?: boolean;
+  // Track if this permanent entered this turn (combat/trigger helpers)
+  enteredThisTurn?: boolean;
+  // Damage marked for state-based actions
+  damageMarked?: number;
   // Mobilize tokens - sacrifice at end step
   sacrificeAtEndStep?: boolean;
   // Is currently attacking (for tokens created attacking)
@@ -444,6 +448,14 @@ export interface GameState {
     amount: number;
   }>;
   /**
+   * Pending fight activations awaiting target selection.
+   */
+  pendingFightActivations?: Record<string, {
+    playerId: PlayerID;
+    sourceId: string;
+    sourceName?: string;
+  }>;
+  /**
    * Pending attack triggers awaiting player's mana payment decision.
    * Maps trigger ID to trigger details (e.g., Casal's transform on attack).
    */
@@ -455,6 +467,8 @@ export interface GameState {
     controller: string;
     description: string;
   }>;
+  /** Pending library search prompts keyed by player */
+  pendingLibrarySearch?: Record<PlayerID, any>;
   /**
    * Pending tap/untap activations for permanents with tap abilities.
    */

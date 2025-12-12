@@ -4,6 +4,7 @@
  */
 
 import type React from 'react';
+import type { ImagePref } from '../components/BattlefieldGrid';
 
 export interface AppearanceSettings {
   // Table background (the outer area)
@@ -20,6 +21,7 @@ export interface AppearanceSettings {
   };
   // Playable card highlight color
   playableCardHighlightColor?: string; // Hex color for the green glow on playable cards
+  imagePref?: ImagePref;
 }
 
 // Default settings with improved contrast
@@ -35,6 +37,7 @@ export const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {
     imageUrl: '',
   },
   playableCardHighlightColor: '#22c55e', // Default green
+  imagePref: 'normal',
 };
 
 // Preset themes for quick selection
@@ -324,7 +327,10 @@ export function getTextColorsForBackground(
  * Get the playable card highlight box shadow style
  */
 export function getPlayableCardHighlight(settings?: AppearanceSettings): string {
-  const color = settings?.playableCardHighlightColor || DEFAULT_APPEARANCE_SETTINGS.playableCardHighlightColor;
+  const color: string =
+    settings?.playableCardHighlightColor ??
+    DEFAULT_APPEARANCE_SETTINGS.playableCardHighlightColor ??
+    '#22c55e';
   // Convert hex to rgba for the glow effect
   const rgb = hexToRgb(color);
   if (rgb) {

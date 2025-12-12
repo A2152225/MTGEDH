@@ -104,7 +104,7 @@ function matchesFilter(card: KnownCardRef, filter: LibrarySearchModalProps['filt
   if (filter.maxPower !== undefined || filter.minPower !== undefined) {
     const powerStr = card.power;
     if (powerStr && powerStr !== '*') {
-      const power = parseInt(powerStr, 10);
+      const power = parseInt(String(powerStr), 10);
       if (!isNaN(power)) {
         if (filter.maxPower !== undefined && power > filter.maxPower) return false;
         if (filter.minPower !== undefined && power < filter.minPower) return false;
@@ -119,7 +119,7 @@ function matchesFilter(card: KnownCardRef, filter: LibrarySearchModalProps['filt
   if (filter.maxToughness !== undefined || filter.minToughness !== undefined) {
     const toughnessStr = card.toughness;
     if (toughnessStr && toughnessStr !== '*') {
-      const toughness = parseInt(toughnessStr, 10);
+      const toughness = parseInt(String(toughnessStr), 10);
       if (!isNaN(toughness)) {
         if (filter.maxToughness !== undefined && toughness > filter.maxToughness) return false;
         if (filter.minToughness !== undefined && toughness < filter.minToughness) return false;

@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { AutomationErrorReport } from '@mtgedh/shared';
+import { AutomationErrorReport } from '../../../shared/src';
 
 export class ErrorReportingService {
   private db: Database.Database;

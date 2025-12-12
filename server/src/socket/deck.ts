@@ -24,7 +24,7 @@ import {
   buildFolderTree,
 } from "../db/decks";
 import type { KnownCardRef, PlayerID, GameState } from "../../../shared/src";
-import { GamePhase } from "@mtgedh/shared";
+import { GamePhase } from "../../../shared/src";
 import { COMMANDER_PRECONS } from "../../../shared/src/precons";
 
 // NEW: helpers to push candidate/suggest events to player's sockets

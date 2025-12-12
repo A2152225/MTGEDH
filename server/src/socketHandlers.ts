@@ -1,6 +1,6 @@
 import { Socket, Server } from 'socket.io';
 import GameManager from './GameManager';
-import { GameActionType, GameAction, AutomationErrorReport } from '@mtgedh/shared';
+import { GameActionType, GameAction, AutomationErrorReport } from '../../shared/src';
 import { v4 as uuidv4 } from 'uuid';
 
 // Note: This file uses GameManager methods that may not exist on all implementations.

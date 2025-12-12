@@ -234,7 +234,7 @@ export function ZonesPiles(props: {
   const exileTop = exArr.length > 0 ? (exArr[exArr.length - 1] as KnownCardRef) : undefined;
   
   // Check if zones are playable
-  const libraryPlayable = playerId && playableCards.includes(`library-${playerId}`);
+  const libraryPlayable = !!(playerId && playableCards.includes(`library-${playerId}`));
   const graveyardPlayable = playableCards.some(id => grArr.some(card => card.id === id));
   const exilePlayable = playableCards.some(id => exArr.some(card => card.id === id));
 

@@ -39,7 +39,7 @@ const RESTRICTION_ICONS: Record<string, { icon: string; label: string }> = {
   specific_card: { icon: '🎯', label: 'Specific card only' },
 };
 
-interface ManaPoolData {
+type ManaPoolData = {
   white?: number;
   blue?: number;
   black?: number;
@@ -47,12 +47,12 @@ interface ManaPoolData {
   green?: number;
   colorless?: number;
   /** Restricted mana entries */
-  restricted?: RestrictedManaEntry[];
+  restricted?: readonly RestrictedManaEntry[];
   /** Flag indicating mana doesn't empty at end of phases */
   doesNotEmpty?: boolean;
   /** Source name(s) for the doesn't empty effect */
-  noEmptySourceIds?: string[];
-}
+  noEmptySourceIds?: readonly string[];
+};
 
 interface FloatingManaPoolProps {
   manaPool?: ManaPoolData;
@@ -84,7 +84,7 @@ export function FloatingManaPool({ manaPool, playerId, onManaClick, compact = fa
     ['red', manaPool.red || 0],
     ['green', manaPool.green || 0],
     ['colorless', manaPool.colorless || 0],
-  ].filter(([_, count]) => count > 0) as [string, number][];
+  ].filter(([_, count]) => (Number(count) || 0) > 0) as [string, number][];
   
   // Sort regular mana by count descending
   regularManaEntries.sort((a, b) => b[1] - a[1]);
