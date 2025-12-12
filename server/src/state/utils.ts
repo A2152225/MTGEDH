@@ -864,9 +864,14 @@ export function calculateVariablePT(
   const name = (card.name || '').toLowerCase();
   const oracleText = (card.oracle_text || '').toLowerCase();
   const typeLine = (card.type_line || '').toLowerCase();
-  const controllerId = card.controller;
   const battlefield = gameState?.battlefield || [];
+  const controllerId =
+    (card as any).controller ??
+    battlefield.find((p: any) => p?.card?.id === card.id)?.controller ??
+    battlefield.find((p: any) => p?.card === card)?.controller ??
+    (card as any).owner;
   const zones = gameState?.zones || {};
+  // Battlefield sizes are small here, so linear lookup remains acceptable.
   
   // Marit Lage token - Defined as 20/20
   if (name.includes('marit lage')) {

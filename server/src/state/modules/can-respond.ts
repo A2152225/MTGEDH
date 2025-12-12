@@ -129,6 +129,104 @@ function isCardPlayableFromExile(playableCards: any, cardId: string): boolean {
   return Boolean(playableCards[cardId]);
 }
 
+/**
+ * Determine total cost adjustment (reductions/taxes) that apply to a spell.
+ * Currently handles common red cost reducers (Fire Crystal, Hazoret's Monument,
+ * Ruby Medallion) and Aura of Silence style taxes.
+ */
+function getCostAdjustmentForCard(state: any, playerId: PlayerID, card: any): number {
+  if (!state?.battlefield || !card) return 0;
+  
+  const typeLine = (card.type_line || "").toLowerCase();
+  const oracleText = (card.oracle_text || "").toLowerCase();
+  const manaCostRaw = card.mana_cost || "";
+  const colors = (card.colors || card.color_identity || []).map((c: string) => c.toUpperCase());
+  const isRedSpell = /{R}/i.test(manaCostRaw) || colors.includes("R");
+  const isCreatureSpell = typeLine.includes("creature");
+  const isArtifactOrEnchantment = typeLine.includes("artifact") || typeLine.includes("enchantment");
+  // NOTE: These tables intentionally cover only the red modifiers called out in the current requirements.
+  // Add additional entries if wider color support is needed.
+  const redCostReducers = [
+    { nameMatch: "fire crystal", textMatch: "red spells you cast cost {1} less", applies: (creature: boolean) => true },
+    { nameMatch: "ruby medallion", textMatch: "red spells you cast cost {1} less", applies: (creature: boolean) => true },
+    { nameMatch: "hazoret's monument", textMatch: "red creature spells you cast cost {1} less", applies: (creature: boolean) => creature },
+  ];
+  const taxEffects = [
+    { nameMatch: "aura of silence", textMatch: "artifact and enchantment spells your opponents cast cost {2} more", applies: (isAE: boolean) => isAE, amount: 2 },
+  ];
+  
+  let adjustment = 0; // negative = reduction, positive = increase
+  
+  for (const perm of state.battlefield) {
+    if (!perm?.card) continue;
+    const permName = (perm.card.name || "").toLowerCase();
+    const permOracle = (perm.card.oracle_text || "").toLowerCase();
+    const sameController = perm.controller === playerId;
+    
+    // Cost reducers for red spells (scoped to requested effects)
+    if (sameController && isRedSpell) {
+      for (const reducer of redCostReducers) {
+        if ((reducer.applies(isCreatureSpell)) &&
+            (permName.includes(reducer.nameMatch) || permOracle.includes(reducer.textMatch))) {
+          // Each matching permanent contributes an additional {1} reduction
+          adjustment -= 1;
+        }
+      }
+    }
+    
+    // Taxes from opponents (Aura of Silence)
+    if (!sameController && isArtifactOrEnchantment) {
+      for (const tax of taxEffects) {
+        if (tax.applies(isArtifactOrEnchantment) &&
+            (permName.includes(tax.nameMatch) || permOracle.includes(tax.textMatch))) {
+          // Legendary copies should rarely stack, but keep additive behavior for simplicity
+          adjustment += tax.amount;
+        }
+      }
+    }
+  }
+  
+  return adjustment;
+}
+
+/**
+ * Apply a generic cost adjustment (positive = tax, negative = reduction) to a parsed cost.
+ * Reductions lower generic first, then try to reduce red requirements to handle medallion-style effects.
+ */
+function applyCostAdjustment(
+  parsedCost: { colors: Record<string, number>; generic: number; hasX: boolean },
+  adjustment: number
+): { colors: Record<string, number>; generic: number; hasX: boolean } {
+  if (!adjustment) return parsedCost;
+  
+  const result = {
+    colors: { ...parsedCost.colors },
+    generic: parsedCost.generic,
+    hasX: parsedCost.hasX,
+  };
+  
+  if (adjustment > 0) {
+    // Taxes add to generic
+    result.generic += adjustment;
+    return result;
+  }
+  
+  // Reductions: consume generic first, then red pips if any
+  let remainingReduction = Math.abs(adjustment);
+  
+  const genericReduction = Math.min(result.generic, remainingReduction);
+  result.generic -= genericReduction;
+  remainingReduction -= genericReduction;
+  
+  if (remainingReduction > 0) {
+    const redAvailable = result.colors.R || 0;
+    const redReduction = Math.min(redAvailable, remainingReduction);
+    result.colors.R = redAvailable - redReduction;
+  }
+  
+  return result;
+}
+
 
 
 /**
@@ -157,9 +255,11 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
         // Check if player can pay the cost (either normal or alternate)
         const manaCost = card.mana_cost || "";
         const parsedCost = parseManaCost(manaCost);
+        const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
+        const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
         
         // Check normal mana cost
-        if (canPayManaCost(pool, parsedCost)) {
+        if (canPayManaCost(pool, adjustedCost)) {
           return true;
         }
         
@@ -185,7 +285,9 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
         // Check if player can pay the flashback cost
         if (flashbackInfo.cost) {
           const parsedCost = parseManaCost(flashbackInfo.cost);
-          if (canPayManaCost(pool, parsedCost)) {
+          const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
+          const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
+          if (canPayManaCost(pool, adjustedCost)) {
             return true;
           }
         } else {
@@ -215,7 +317,9 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
           // Check if player can pay the foretell cost
           if (foretellInfo.cost) {
             const parsedCost = parseManaCost(foretellInfo.cost);
-            if (canPayManaCost(pool, parsedCost)) {
+            const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
+            const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
+            if (canPayManaCost(pool, adjustedCost)) {
               return true;
             }
           } else {
@@ -236,8 +340,10 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
             // Check if player can pay the normal mana cost
             const manaCost = card.mana_cost || "";
             const parsedCost = parseManaCost(manaCost);
+            const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
+            const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
             
-            if (canPayManaCost(pool, parsedCost)) {
+            if (canPayManaCost(pool, adjustedCost)) {
               return true;
             }
             
@@ -1158,9 +1264,11 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
         // Check if player can pay the cost (either normal or alternate)
         const manaCost = card.mana_cost || "";
         const parsedCost = parseManaCost(manaCost);
+        const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
+        const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
         
         // Check normal mana cost
-        if (canPayManaCost(pool, parsedCost)) {
+        if (canPayManaCost(pool, adjustedCost)) {
           return true;
         }
         
@@ -1202,7 +1310,9 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
         // Check if player can pay the flashback cost
         if (flashbackInfo.cost) {
           const parsedCost = parseManaCost(flashbackInfo.cost);
-          if (canPayManaCost(pool, parsedCost)) {
+          const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
+          const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
+          if (canPayManaCost(pool, adjustedCost)) {
             return true;
           }
         } else {
@@ -1247,7 +1357,9 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
           // Check if player can pay the foretell cost
           if (foretellInfo.cost) {
             const parsedCost = parseManaCost(foretellInfo.cost);
-            if (canPayManaCost(pool, parsedCost)) {
+            const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
+            const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
+            if (canPayManaCost(pool, adjustedCost)) {
               return true;
             }
           } else {
@@ -1268,8 +1380,10 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
             // Check if player can pay the normal mana cost
             const manaCost = card.mana_cost || "";
             const parsedCost = parseManaCost(manaCost);
+            const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
+            const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
             
-            if (canPayManaCost(pool, parsedCost)) {
+            if (canPayManaCost(pool, adjustedCost)) {
               return true;
             }
             
