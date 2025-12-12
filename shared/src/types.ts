@@ -203,6 +203,8 @@ export interface BattlefieldPermanent {
   modifiers?: readonly PermanentModifier[]; // Power/toughness and other modifiers from effects
   effectivePower?: number;
   effectiveToughness?: number;
+  trepanationBonus?: number;
+  lastTrepanationBonus?: number;
   /** Sources contributing to P/T bonuses, for tooltip display */
   ptSources?: PTBonusSource[];
   isCommander?: boolean;
