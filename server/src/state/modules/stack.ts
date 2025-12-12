@@ -1652,6 +1652,80 @@ function executeTriggerEffect(
     return;
   }
   
+  // Pattern: "create a token copy of equipped creature" or "create a token that's a copy of equipped creature"
+  // Helm of the Host: "At the beginning of combat on your turn, create a token that's a copy of equipped creature, except it's not legendary"
+  if (desc.includes('token') && desc.includes('copy') && 
+      (desc.includes('equipped creature') || desc.includes('equipped permanent'))) {
+    const sourceId = triggerItem.source || triggerItem.permanentId;
+    const sourcePerm = (state.battlefield || []).find((p: any) => p?.id === sourceId);
+    
+    if (sourcePerm) {
+      // Find what this equipment is attached to
+      const attachedTo = sourcePerm.attachedTo;
+      if (attachedTo) {
+        const equippedCreature = (state.battlefield || []).find((p: any) => p?.id === attachedTo);
+        
+        if (equippedCreature && equippedCreature.card) {
+          // Create a token copy
+          const tokenId = uid("token");
+          const originalCard = equippedCreature.card;
+          const originalTypeLine = (originalCard.type_line || '').toLowerCase();
+          
+          // Remove "Legendary" from the type line (handle all positions)
+          let tokenTypeLine = originalCard.type_line || 'Token';
+          tokenTypeLine = tokenTypeLine.replace(/\bLegendary\s+/i, '').replace(/\s+Legendary\b/i, '').trim();
+          
+          // If the copy would have haste, ensure it doesn't have summoning sickness
+          const hasHaste = (originalCard.oracle_text || '').toLowerCase().includes('haste') ||
+                          (Array.isArray(originalCard.keywords) && 
+                           originalCard.keywords.some((k: string) => k.toLowerCase() === 'haste')) ||
+                          desc.includes('haste');
+          
+          const isCreature = originalTypeLine.includes('creature');
+          
+          const tokenCopy = {
+            id: tokenId,
+            controller,
+            owner: controller,
+            tapped: false,
+            counters: { ...equippedCreature.counters },
+            basePower: equippedCreature.basePower,
+            baseToughness: equippedCreature.baseToughness,
+            // Tokens that are copies with haste don't have summoning sickness
+            summoningSickness: isCreature && !hasHaste,
+            isToken: true,
+            card: {
+              ...originalCard,
+              id: tokenId,
+              type_line: tokenTypeLine,
+              zone: 'battlefield',
+              // Add haste if specified by the effect (Helm of the Host adds haste)
+              oracle_text: hasHaste && !(originalCard.oracle_text || '').toLowerCase().includes('haste')
+                ? (originalCard.oracle_text || '') + (originalCard.oracle_text ? '\n' : '') + 'Haste'
+                : originalCard.oracle_text,
+              keywords: hasHaste && Array.isArray(originalCard.keywords) && !originalCard.keywords.some((k: string) => k.toLowerCase() === 'haste')
+                ? [...originalCard.keywords, 'Haste']
+                : originalCard.keywords,
+            },
+          } as any;
+          
+          state.battlefield = state.battlefield || [];
+          state.battlefield.push(tokenCopy);
+          
+          console.log(`[executeTriggerEffect] Created token copy of ${originalCard.name || 'creature'} (not legendary${hasHaste ? ', with haste' : ''})`);
+          
+          // Trigger ETB effects for the copy token (Cathars' Crusade, Soul Warden, etc.)
+          triggerETBEffectsForToken(ctx, tokenCopy, controller);
+        } else {
+          console.log(`[executeTriggerEffect] No equipped creature found for copy token creation`);
+        }
+      } else {
+        console.log(`[executeTriggerEffect] Equipment ${sourcePerm.card?.name || 'equipment'} is not attached to anything`);
+      }
+    }
+    return;
+  }
+  
   // Pattern: "each opponent mills X cards" or "each opponent mills a card" (Altar of the Brood)
   const millOpponentsMatch = desc.match(/each opponent mills? (?:a card|(\d+) cards?)/i);
   if (millOpponentsMatch) {
@@ -2212,6 +2286,89 @@ function executeTriggerEffect(
         console.log(`[executeTriggerEffect] Untapped ${perm.card?.name || perm.id}`);
       }
     }
+    return;
+  }
+  
+  // ===== PROLIFERATE =====
+  // Pattern: "Proliferate" - Add one counter of each kind to chosen permanents/players
+  // Rule 701.34: Choose any number of permanents and/or players that have a counter,
+  // then give each one additional counter of each kind that permanent or player already has.
+  if (desc.includes('proliferate')) {
+    console.log(`[executeTriggerEffect] Proliferate effect from ${sourceName} for ${controller}`);
+    
+    // Set up pending proliferate choice - the socket layer will prompt the player
+    // to select targets (permanents/players with counters)
+    state.pendingProliferate = state.pendingProliferate || [];
+    state.pendingProliferate.push({
+      id: uid("proliferate"),
+      controller,
+      sourceName: sourceName || 'Proliferate Effect',
+      imageUrl: triggerItem.value?.imageUrl,
+    });
+    
+    return;
+  }
+  
+  // ===== KRENKO, MOB BOSS ACTIVATED ABILITY =====
+  // Pattern: "Create X 1/1 red Goblin creature tokens, where X is the number of Goblins you control"
+  // Krenko, Mob Boss: "{T}: Create X 1/1 red Goblin creature tokens, where X is the number of Goblins you control."
+  if ((desc.includes('create') && desc.includes('goblin') && 
+       (desc.includes('number of goblins') || desc.includes('goblins you control'))) ||
+      (sourceName.toLowerCase().includes('krenko') && sourceName.toLowerCase().includes('mob boss'))) {
+    const battlefield = state.battlefield || [];
+    
+    // Count Goblins controller controls
+    let goblinCount = 0;
+    for (const perm of battlefield) {
+      if (!perm) continue;
+      if (perm.controller !== controller) continue;
+      const typeLine = (perm.card?.type_line || '').toLowerCase();
+      if (typeLine.includes('goblin')) {
+        goblinCount++;
+      }
+    }
+    
+    console.log(`[executeTriggerEffect] ${sourceName}: Creating ${goblinCount} Goblin tokens for ${controller} (goblins controlled: ${goblinCount})`);
+    
+    // Apply token doublers (Anointed Procession, Doubling Season, etc.)
+    const tokensToCreate = goblinCount * getTokenDoublerMultiplier(controller, state);
+    
+    // Create X 1/1 red Goblin tokens
+    for (let i = 0; i < tokensToCreate; i++) {
+      const tokenId = uid("token");
+      const typeLine = 'Token Creature — Goblin';
+      const imageUrls = getTokenImageUrls('Goblin', 1, 1, ['R']);
+      
+      const goblinToken = {
+        id: tokenId,
+        controller,
+        owner: controller,
+        tapped: false,
+        counters: {},
+        basePower: 1,
+        baseToughness: 1,
+        summoningSickness: true,
+        isToken: true,
+        card: {
+          id: tokenId,
+          name: 'Goblin',
+          type_line: typeLine,
+          power: '1',
+          toughness: '1',
+          zone: 'battlefield',
+          colors: ['R'],
+          image_uris: imageUrls,
+        },
+      };
+      
+      state.battlefield.push(goblinToken as any);
+      
+      // Trigger ETB effects for each token (Cathars' Crusade, Soul Warden, Impact Tremors, etc.)
+      triggerETBEffectsForToken(ctx, goblinToken, controller);
+      
+      console.log(`[executeTriggerEffect] Created Goblin token ${i + 1}/${tokensToCreate}`);
+    }
+    
     return;
   }
   
