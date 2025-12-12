@@ -1748,7 +1748,9 @@ export async function handleAIPriority(
       if (discardCount > 0) {
         await executeAIDiscard(io, gameId, playerId, discardCount);
         // Clear the processing flag after discard
-        delete (game.state as any)._aiProcessingCleanup[playerId];
+        if ((game.state as any)._aiProcessingCleanup) {
+          delete (game.state as any)._aiProcessingCleanup[playerId];
+        }
         return;
       }
       
@@ -1757,7 +1759,9 @@ export async function handleAIPriority(
       await executeAdvanceStep(io, gameId, playerId);
       
       // Clear the processing flag after advancing
-      delete (game.state as any)._aiProcessingCleanup[playerId];
+      if ((game.state as any)._aiProcessingCleanup) {
+        delete (game.state as any)._aiProcessingCleanup[playerId];
+      }
       return;
     } else {
       // Not AI's turn - don't act during cleanup (per Rule 514.1, cleanup doesn't grant priority)
