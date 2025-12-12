@@ -1,6 +1,6 @@
 import type { PlayerID } from "../../../../shared/src/index.js";
 import type { GameContext } from "../context.js";
-import { uid, parsePT, addEnergyCounters, triggerLifeGainEffects, calculateAllPTBonuses } from "../utils.js";
+import { uid, parsePT, addEnergyCounters, triggerLifeGainEffects, calculateAllPTBonuses, cardManaValue } from "../utils.js";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts } from "./game-state-effects.js";
 import { categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
 import { getETBTriggersForPermanent, processLinkedExileReturns, registerLinkedExile, detectLinkedExileEffect, type TriggeredAbility, getLandfallTriggers } from "./triggered-abilities.js";
@@ -2385,6 +2385,7 @@ export function resolveTopOfStack(ctx: GameContext) {
   const card = item.card;
   const controller = item.controller as PlayerID;
   const targets = (item as any).targets || [];
+  const spellXValue = (item as any).xValue;
   
   // For adventure cards, determine which face was cast
   // If castAsAdventure is false, we're casting the permanent side (face 0)
@@ -3156,7 +3157,6 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Handle token creation spells (where the caster creates tokens)
     // Patterns: "create X 1/1 tokens", "create two 1/1 tokens", etc.
-    const spellXValue = (item as any).xValue;
     const tokenCreationResult = parseTokenCreation(effectiveCard.name, oracleTextLower, controller, state, spellXValue);
     if (tokenCreationResult) {
       for (let i = 0; i < tokenCreationResult.count; i++) {
@@ -3949,6 +3949,124 @@ export function resolveTopOfStack(ctx: GameContext) {
         imageUrl: effectiveCard.image_uris?.normal || effectiveCard.image_uris?.small,
       };
       console.log(`[resolveTopOfStack] Ponder-style spell ${effectiveCard.name} set up pending effect (variant: ${ponderConfig.variant}, cards: ${ponderConfig.cardCount})`);
+    }
+
+    // Handle Genesis Wave: Reveal top X, put all permanents with mana value <= X onto battlefield, rest on bottom in random order
+    if ((effectiveCard.name || '').toLowerCase().includes('genesis wave')) {
+      const xVal = typeof spellXValue === 'number' ? spellXValue : 0;
+      const lib = ctx.libraries?.get(controller) || [];
+      const revealed: any[] = [];
+      for (let i = 0; i < xVal && lib.length > 0; i++) {
+        revealed.push(lib.shift() as any);
+      }
+      
+      const toBattlefield: any[] = [];
+      const toBottom: any[] = [];
+      for (const c of revealed) {
+        const typeLine = (c.type_line || '').toLowerCase();
+        const isPermanentCard = ['creature', 'artifact', 'enchantment', 'planeswalker', 'land', 'battle'].some(t => typeLine.includes(t));
+        const mv = cardManaValue(c);
+        if (isPermanentCard && mv <= xVal) {
+          toBattlefield.push(c);
+        } else {
+          toBottom.push(c);
+        }
+      }
+      
+      // Put permanents onto battlefield
+      for (const cardToPut of toBattlefield) {
+        const tl = (cardToPut.type_line || '').toLowerCase();
+        const isCreature = tl.includes('creature');
+        const isPlaneswalker = tl.includes('planeswalker');
+        const baseP = isCreature ? parsePT((cardToPut as any).power) : undefined;
+        const baseT = isCreature ? parsePT((cardToPut as any).toughness) : undefined;
+        const hasHaste = isCreature && creatureWillHaveHaste(cardToPut, controller, state.battlefield || []);
+        const hasSummoningSickness = isCreature && !hasHaste;
+        let shouldEnterTapped = false;
+        if (isCreature) {
+          shouldEnterTapped = checkCreatureEntersTapped(state.battlefield || [], controller, cardToPut);
+        }
+        
+        const initialCounters: Record<string, number> = {};
+        if (isPlaneswalker && cardToPut.loyalty) {
+          const startingLoyalty = typeof cardToPut.loyalty === 'number' ? cardToPut.loyalty : parseInt(cardToPut.loyalty, 10);
+          if (!isNaN(startingLoyalty)) {
+            initialCounters.loyalty = startingLoyalty;
+          }
+        }
+        const etbCounters = detectEntersWithCounters(cardToPut);
+        for (const [counterType, count] of Object.entries(etbCounters)) {
+          initialCounters[counterType] = (initialCounters[counterType] || 0) + count;
+        }
+        
+        const tempId = uid("perm");
+        const tempPerm = { id: tempId, controller, counters: {} };
+        state.battlefield = state.battlefield || [];
+        state.battlefield.push(tempPerm as any);
+        const modifiedCounters = applyCounterModifications(state, tempId, initialCounters);
+        state.battlefield.pop();
+        
+        const newPermanent = {
+          id: tempId,
+          controller,
+          owner: controller,
+          tapped: shouldEnterTapped,
+          counters: Object.keys(modifiedCounters).length > 0 ? modifiedCounters : undefined,
+          basePower: baseP,
+          baseToughness: baseT,
+          summoningSickness: hasSummoningSickness,
+          card: { ...cardToPut, zone: "battlefield" },
+        } as any;
+        
+        state.battlefield.push(newPermanent);
+        console.log(`[resolveTopOfStack] Genesis Wave: Put ${cardToPut.name} onto the battlefield (MV ${cardManaValue(cardToPut)}, X=${xVal})`);
+        
+        // Self ETB triggers
+        const selfETBTriggerTypes = new Set([
+          'etb',
+          'etb_modal_choice',
+          'job_select',
+          'living_weapon',
+          'etb_sacrifice_unless_pay',
+          'etb_gain_life',
+          'etb_draw',
+          'etb_search',
+          'etb_create_token',
+          'etb_counter',
+        ]);
+        const allTriggers = getETBTriggersForPermanent(cardToPut, newPermanent);
+        for (const trigger of allTriggers) {
+          if (selfETBTriggerTypes.has(trigger.triggerType)) {
+            state.stack = state.stack || [];
+            state.stack.push({
+              id: uid("trigger"),
+              type: 'triggered_ability',
+              controller,
+              source: newPermanent.id,
+              sourceName: trigger.cardName,
+              description: trigger.description,
+              triggerType: trigger.triggerType,
+              mandatory: trigger.mandatory,
+            } as any);
+          }
+        }
+        
+        // Triggers from other permanents
+        triggerETBEffectsForPermanent(ctx, newPermanent, controller);
+      }
+      
+      // Put the rest on bottom in random order
+      const shuffled = [...toBottom].sort(() => Math.random() - 0.5);
+      for (const c of shuffled) {
+        lib.push({ ...c, zone: 'library' });
+      }
+      const zones = ctx.state.zones || {};
+      const z = zones[controller];
+      if (z) {
+        z.libraryCount = lib.length;
+      }
+      
+      bumpSeq();
     }
     
     // Handle Approach of the Second Sun - goes 7th from top of library, not graveyard
@@ -5033,7 +5151,8 @@ export function castSpell(
   ctx: GameContext, 
   playerId: PlayerID, 
   cardOrId: any,
-  targets?: any[]
+  targets?: any[],
+  xValue?: number
 ) {
   const { state, bumpSeq } = ctx;
   const zones = state.zones = state.zones || {};
@@ -5140,6 +5259,8 @@ export function castSpell(
       }
     }
   }
+
+  const spellManaValue = cardManaValue(card, xValue);
   
   // Add to stack
   const stackItem: any = {
@@ -5148,7 +5269,26 @@ export function castSpell(
     card: { ...card, zone: "stack" },
     targets: targets || [],
     targetDetails: targetDetails.length > 0 ? targetDetails : undefined,
+    xValue,
+    manaValue: spellManaValue,
   };
+  
+  // Register cascade triggers for this spell (supports multiple cascade instances)
+  const oracleTextLower = (card?.oracle_text || "").toLowerCase();
+  const cascadeMatches = oracleTextLower.match(/\bcascade\b/g);
+  if (cascadeMatches && cascadeMatches.length > 0) {
+    (state as any).pendingCascade = (state as any).pendingCascade || {};
+    const queue = (state as any).pendingCascade[playerId] = (state as any).pendingCascade[playerId] || [];
+    const baseLen = queue.length;
+    for (let i = 0; i < cascadeMatches.length; i++) {
+      queue.push({
+        sourceName: card?.name || 'Cascade',
+        sourceCardId: card?.id,
+        manaValue: spellManaValue,
+        instance: baseLen + i + 1,
+      });
+    }
+  }
   
   // Include selected modes if this is a modal spell (for stack display)
   // This allows players to see which mode was chosen (e.g., flicker vs destroy for Getaway Glamer)

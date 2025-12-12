@@ -406,7 +406,7 @@ interface CastSpellModalProps {
   otherCardsInHand?: OtherCardInfo[];
   floatingMana?: ManaPool;
   castFromZone?: 'hand' | 'graveyard' | 'exile' | 'command';
-  onConfirm: (payment: PaymentItem[], alternateCostId?: string) => void;
+  onConfirm: (payment: PaymentItem[], alternateCostId?: string, xValue?: number) => void;
   onCancel: () => void;
 }
 
@@ -496,7 +496,7 @@ export function CastSpellModal({
         count: getManaCountForSource(permanentId),
       }));
     }
-    onConfirm(finalPayment, selectedCostId !== 'normal' ? selectedCostId : undefined);
+    onConfirm(finalPayment, selectedCostId !== 'normal' ? selectedCostId : undefined, xValue);
     setPayment([]);
     setXValue(0);
     setSelectedCostId('normal');

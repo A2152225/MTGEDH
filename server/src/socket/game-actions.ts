@@ -1,5 +1,5 @@
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, handlePendingLibrarySearch, handlePendingJoinForces, handlePendingTemptingOffer, handlePendingPonder, broadcastManaPoolUpdate } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, handlePendingLibrarySearch, handlePendingJoinForces, handlePendingTemptingOffer, handlePendingPonder, broadcastManaPoolUpdate, handlePendingCascade } from "./util";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem, TriggerShortcut, PlayerID } from "../../../shared/src";
@@ -2200,12 +2200,13 @@ export function registerGameActions(io: Server, socket: Socket) {
   // CAST SPELL FROM HAND - Core spell casting handler
   // Defined as a named function so it can be called directly from completeCastSpell
   // =====================================================================
-  const handleCastSpellFromHand = ({ gameId, cardId, targets, payment, skipInteractivePrompts }: { 
+  const handleCastSpellFromHand = ({ gameId, cardId, targets, payment, skipInteractivePrompts, xValue }: { 
     gameId: string; 
     cardId: string; 
     targets?: any[]; 
     payment?: PaymentItem[];
     skipInteractivePrompts?: boolean; // NEW: Flag to skip target/payment requests when completing a previous cast
+    xValue?: number;
   }) => {
     try {
       const game = ensureGame(gameId);
@@ -3344,7 +3345,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           const stackLengthBefore = game.state.stack?.length || 0;
           
           if (typeof game.applyEvent === 'function') {
-            game.applyEvent({ type: "castSpell", playerId, cardId, targets: targets || [] });
+            game.applyEvent({ type: "castSpell", playerId, cardId, targets: targets || [], xValue });
             
             // Verify the spell was actually added to the stack
             const stackLengthAfter = game.state.stack?.length || 0;
@@ -3412,6 +3413,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               card: { ...removedCard, zone: "stack" },
               targets: targets || [],
               targetDetails: targetDetails.length > 0 ? targetDetails : undefined,
+              xValue,
               // Mark if this is an adventure spell (face index 1 is adventure for adventure cards)
               // For adventure cards: faceIndex 1 = adventure side (instant/sorcery), faceIndex 0 or undefined = creature/enchantment side
               // Note: faceIndex is not available in this fallback path
@@ -3450,7 +3452,8 @@ export function registerGameActions(io: Server, socket: Socket) {
           cardId, 
           targets,
           // Include full card data for replay to work correctly after server restart
-          card: cardInHand
+          card: cardInHand,
+          xValue,
         });
       } catch (e) {
         console.warn('appendEvent(castSpell) failed:', e);
@@ -3547,6 +3550,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         ts: Date.now(),
       });
       
+      handlePendingCascade(io, game, gameId);
       broadcastGame(io, game, gameId);
     } catch (err: any) {
       console.error(`castSpell error for game ${gameId}:`, err);
@@ -3561,12 +3565,13 @@ export function registerGameActions(io: Server, socket: Socket) {
   // COMPLETE CAST SPELL - Final step after targets selected and payment made
   // Called after both target selection and payment are complete
   // =====================================================================
-  socket.on("completeCastSpell", ({ gameId, cardId, targets, payment, effectId }: { 
+  socket.on("completeCastSpell", ({ gameId, cardId, targets, payment, effectId, xValue }: { 
     gameId: string; 
     cardId: string; 
     targets?: any[]; 
     payment?: PaymentItem[];
     effectId?: string;
+    xValue?: number;
   }) => {
     try {
       const game = ensureGame(gameId);
@@ -3634,7 +3639,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // CRITICAL FIX: Pass skipInteractivePrompts=true to prevent infinite targeting loop
       // This tells handleCastSpellFromHand to skip all target/payment requests since we're completing a previous cast
-      handleCastSpellFromHand({ gameId, cardId, targets: finalTargets, payment, skipInteractivePrompts: true });
+      handleCastSpellFromHand({ gameId, cardId, targets: finalTargets, payment, skipInteractivePrompts: true, xValue });
       
     } catch (err: any) {
       console.error(`[completeCastSpell] Error:`, err);
@@ -3802,6 +3807,9 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         // Check for pending Ponder-style effects (Ponder, Index, Telling Time, etc.)
         handlePendingPonder(io, game, gameId);
+        
+        // Check for pending Cascade prompts
+        handlePendingCascade(io, game, gameId);
         
         // ========================================================================
         // CRITICAL: Check if there's a pending phase skip that was interrupted

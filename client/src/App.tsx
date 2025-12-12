@@ -56,6 +56,7 @@ import { MultiModeActivationModal, type AbilityMode } from "./components/MultiMo
 import { PonderModal, type PeekCard, type PonderVariant } from "./components/PonderModal";
 import { ExploreModal, type ExploreCard } from "./components/ExploreModal";
 import { BatchExploreModal, type ExploreResult } from "./components/BatchExploreModal";
+import { CascadeModal } from "./components/CascadeModal";
 import { OpponentMayPayModal, type OpponentMayPayPrompt } from "./components/OpponentMayPayModal";
 import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
@@ -454,6 +455,17 @@ export function App() {
     targetPlayerId?: string;
     targetPlayerName?: string;
     isOwnLibrary: boolean;
+  } | null>(null);
+  
+  // Cascade modal state
+  const [cascadeModalOpen, setCascadeModalOpen] = useState(false);
+  const [cascadePrompt, setCascadePrompt] = useState<{
+    effectId: string;
+    sourceName: string;
+    cascadeNumber: number;
+    totalCascades: number;
+    hitCard: KnownCardRef;
+    exiledCards: KnownCardRef[];
   } | null>(null);
 
   // Priority Modal state - shows when player receives priority on step changes
@@ -2271,6 +2283,47 @@ export function App() {
     };
   }, [safeView?.id, you, ponderRequest?.effectId]);
 
+  // Cascade prompt handlers
+  React.useEffect(() => {
+    const handleCascadePrompt = (payload: {
+      gameId: string;
+      effectId: string;
+      playerId: string;
+      sourceName: string;
+      cascadeNumber: number;
+      totalCascades: number;
+      hitCard: KnownCardRef;
+      exiledCards: KnownCardRef[];
+    }) => {
+      if (payload.gameId === safeView?.id && payload.playerId === you) {
+        setCascadePrompt({
+          effectId: payload.effectId,
+          sourceName: payload.sourceName,
+          cascadeNumber: payload.cascadeNumber,
+          totalCascades: payload.totalCascades,
+          hitCard: payload.hitCard,
+          exiledCards: payload.exiledCards,
+        });
+        setCascadeModalOpen(true);
+      }
+    };
+
+    const handleCascadeComplete = (payload: { effectId: string }) => {
+      if (cascadePrompt?.effectId === payload.effectId) {
+        setCascadeModalOpen(false);
+        setCascadePrompt(null);
+      }
+    };
+
+    socket.on("cascadePrompt", handleCascadePrompt);
+    socket.on("cascadeComplete", handleCascadeComplete);
+
+    return () => {
+      socket.off("cascadePrompt", handleCascadePrompt);
+      socket.off("cascadeComplete", handleCascadeComplete);
+    };
+  }, [safeView?.id, you, cascadePrompt?.effectId]);
+
   // Explore prompt handler
   useEffect(() => {
     const handleExplorePrompt = (data: {
@@ -3104,7 +3157,7 @@ export function App() {
   };
 
   // Handle cast spell confirmation from modal - works for both hand and commander spells
-  const handleCastSpellConfirm = (payment: PaymentItem[]) => {
+  const handleCastSpellConfirm = (payment: PaymentItem[], _alternateCostId?: string, xValue?: number) => {
     if (!safeView || !spellToCast) return;
     
     console.log(`[Client] Casting ${spellToCast.isCommander ? 'commander' : 'spell'}: ${spellToCast.cardName} with payment:`, payment);
@@ -3125,6 +3178,7 @@ export function App() {
         targets: spellToCast.targets,
         payment: payment.length > 0 ? payment : undefined,
         effectId: spellToCast.effectId,
+        xValue,
       });
     } else {
       // Legacy flow: direct cast from hand (will check targets on server)
@@ -3132,6 +3186,7 @@ export function App() {
         gameId: safeView.id,
         cardId: spellToCast.cardId,
         payment: payment.length > 0 ? payment : undefined,
+        xValue,
       });
     }
     
@@ -5675,6 +5730,38 @@ export function App() {
           onCancel={() => {
             setPonderModalOpen(false);
             setPonderRequest(null);
+          }}
+        />
+      )}
+      
+      {/* Cascade Modal */}
+      {cascadeModalOpen && cascadePrompt && (
+        <CascadeModal
+          open={cascadeModalOpen}
+          sourceName={cascadePrompt.sourceName}
+          cascadeNumber={cascadePrompt.cascadeNumber}
+          totalCascades={cascadePrompt.totalCascades}
+          hitCard={cascadePrompt.hitCard}
+          exiledCards={cascadePrompt.exiledCards}
+          onCast={() => {
+            if (!safeView?.id || !cascadePrompt) return;
+            socket.emit("resolveCascade", {
+              gameId: safeView.id,
+              effectId: cascadePrompt.effectId,
+              cast: true,
+            });
+            setCascadeModalOpen(false);
+            setCascadePrompt(null);
+          }}
+          onDecline={() => {
+            if (!safeView?.id || !cascadePrompt) return;
+            socket.emit("resolveCascade", {
+              gameId: safeView.id,
+              effectId: cascadePrompt.effectId,
+              cast: false,
+            });
+            setCascadeModalOpen(false);
+            setCascadePrompt(null);
           }}
         />
       )}

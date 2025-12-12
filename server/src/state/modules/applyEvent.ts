@@ -727,7 +727,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx as any, 
           (e as any).playerId, 
           spellCardData,
-          (e as any).targets
+          (e as any).targets,
+          (e as any).xValue
         );
         break;
       }
