@@ -193,7 +193,8 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
     // Check for playable lands in hand (during main phase with empty stack)
     if (isMainPhase && stackIsEmpty && isMyTurn) {
       const landsPlayedThisTurn = (state.landsPlayedThisTurn as any)?.[playerId] ?? 0;
-      const maxLandsPerTurn = 1;
+      // Check the actual max lands per turn from game state (accounts for Exploration, Azusa, etc.)
+      const maxLandsPerTurn = (state as any).maxLandsPerTurn?.[playerId] ?? 1;
       
       console.log(`[getPlayableCardIds] Checking lands: landsPlayed=${landsPlayedThisTurn}, max=${maxLandsPerTurn}`);
       
@@ -207,6 +208,8 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
             playableIds.push(card.id);
           }
         }
+      } else if (landsPlayedThisTurn >= maxLandsPerTurn) {
+        console.log(`[getPlayableCardIds] Already played max lands this turn (${landsPlayedThisTurn}/${maxLandsPerTurn})`);
       }
     } else {
       console.log(`[getPlayableCardIds] Not checking lands: isMainPhase=${isMainPhase}, stackIsEmpty=${stackIsEmpty}, isMyTurn=${isMyTurn}`);
@@ -547,11 +550,18 @@ function normalizeViewForEmit(rawView: any, game: any) {
         const priority = game.state.priority;
         const viewerId = view.viewer;
         
+        console.log(`[normalizeViewForEmit] Checking playable cards: priority=${priority}, viewerId=${viewerId}, match=${priority === viewerId}`);
+        
         // Only add playable cards for the current priority holder viewing their own game
         if (priority === viewerId) {
           const playableCardIds = getPlayableCardIds(game, viewerId);
+          console.log(`[normalizeViewForEmit] getPlayableCardIds returned ${playableCardIds?.length || 0} cards`);
+          
           if (playableCardIds && playableCardIds.length > 0) {
             view.playableCards = playableCardIds;
+            console.log(`[normalizeViewForEmit] Set view.playableCards with ${playableCardIds.length} cards`);
+          } else {
+            console.log(`[normalizeViewForEmit] Not setting view.playableCards - no playable cards found`);
           }
           
           // Add canAct and canRespond flags to the view
@@ -559,13 +569,18 @@ function normalizeViewForEmit(rawView: any, game: any) {
           try {
             view.canAct = canAct(game as any, viewerId);
             view.canRespond = canRespond(game as any, viewerId);
+            console.log(`[normalizeViewForEmit] Set canAct=${view.canAct}, canRespond=${view.canRespond}`);
           } catch (err) {
             console.warn("Failed to calculate canAct/canRespond:", err);
             // Fallback: use playableCards as indicator
             view.canAct = playableCardIds && playableCardIds.length > 0;
             view.canRespond = view.canAct; // Conservative fallback
           }
+        } else {
+          console.log(`[normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority`);
         }
+      } else {
+        console.log(`[normalizeViewForEmit] Skipping playable cards - missing game/state/viewer`);
       }
     } catch (e) {
       // non-fatal - don't break the whole view if playable calculation fails

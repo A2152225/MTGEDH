@@ -3221,6 +3221,34 @@ async function executePassPriority(
         if (typeof (game as any).nextStep === 'function') {
           (game as any).nextStep();
           console.log(`[AI] Advanced to next step for game ${gameId}`);
+          
+          // Check if the new step triggered auto-pass that wants to advance again
+          let autoPassLoopCount = 0;
+          const MAX_AUTO_PASS_LOOPS = 20;
+          
+          while (autoPassLoopCount < MAX_AUTO_PASS_LOOPS) {
+            const autoPassResult = (game.state as any)?._autoPassResult;
+            
+            if (autoPassResult?.allPassed && autoPassResult?.advanceStep) {
+              console.log(`[AI] Auto-pass detected after step advancement (iteration ${autoPassLoopCount + 1}), advancing again`);
+              
+              delete (game.state as any)._autoPassResult;
+              (game as any).nextStep();
+              
+              const newStep = (game.state as any)?.step || 'unknown';
+              console.log(`[AI] Auto-advanced to ${newStep}`);
+              
+              autoPassLoopCount++;
+            } else {
+              break;
+            }
+          }
+          
+          if (autoPassLoopCount >= MAX_AUTO_PASS_LOOPS) {
+            console.warn(`[AI] Auto-pass loop limit reached, stopping`);
+          }
+          
+          delete (game.state as any)._autoPassResult;
         }
         
         // Persist the step advance event

@@ -4458,6 +4458,40 @@ export function registerGameActions(io: Server, socket: Socket) {
             message: `Step advanced to ${newStep}.`,
             ts: Date.now(),
           });
+          
+          // Check if the new step triggered auto-pass that wants to advance again
+          // This handles the case where entering a step grants priority, but all players auto-pass
+          let autoPassLoopCount = 0;
+          const MAX_AUTO_PASS_LOOPS = 20; // Safety limit to prevent infinite loops
+          
+          while (autoPassLoopCount < MAX_AUTO_PASS_LOOPS) {
+            const autoPassResult = (game.state as any)?._autoPassResult;
+            
+            if (autoPassResult?.allPassed && autoPassResult?.advanceStep) {
+              console.log(`[nextStep] Auto-pass detected after step advancement (iteration ${autoPassLoopCount + 1}), advancing again`);
+              
+              // Clear the flag before calling nextStep
+              delete (game.state as any)._autoPassResult;
+              
+              // Advance to the next step
+              (game as any).nextStep();
+              
+              const newStep2 = (game.state as any)?.step || 'unknown';
+              console.log(`[nextStep] Auto-advanced to ${newStep2}`);
+              
+              autoPassLoopCount++;
+            } else {
+              // No more auto-pass, break the loop
+              break;
+            }
+          }
+          
+          if (autoPassLoopCount >= MAX_AUTO_PASS_LOOPS) {
+            console.warn(`[nextStep] Auto-pass loop limit reached (${MAX_AUTO_PASS_LOOPS}), stopping to prevent infinite loop`);
+          }
+          
+          // Clear any remaining auto-pass flag
+          delete (game.state as any)._autoPassResult;
         }
       }
 
