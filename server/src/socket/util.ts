@@ -292,6 +292,49 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           }
         }
       }
+      
+      // Check graveyard for cards with activated abilities that can be used from there
+      // Examples: Magma Phoenix "{3}{R}{R}: Return this card from your graveyard to your hand."
+      // IMPORTANT: Only highlight cards that are ACTUALLY in the graveyard, not on battlefield
+      for (const card of zones.graveyard) {
+        if (!card || typeof card === "string") continue;
+        
+        // Skip this card if it's also on the battlefield
+        // This prevents highlighting abilities like Magma Phoenix's graveyard return when it's on battlefield
+        const isOnBattlefield = battlefield.some((perm: any) => 
+          perm.card?.id === card.id || perm.card?.name === card.name
+        );
+        
+        if (isOnBattlefield) {
+          continue; // Card is on battlefield, don't allow graveyard abilities
+        }
+        
+        const oracleText = card.oracle_text || "";
+        
+        // Look for activated abilities that mention graveyard in the effect
+        // Pattern: "{Cost}: [Effect mentions graveyard]"
+        const activatedAbilityPattern = /(\{[^}]+\}(?:\s*,?\s*\{[^}]+\})*)\s*:\s*(.+?)(?:\.|$)/gi;
+        const matches = [...oracleText.matchAll(activatedAbilityPattern)];
+        
+        let hasGraveyardAbility = false;
+        for (const match of matches) {
+          const costPart = match[1];
+          const effectPart = match[2];
+          
+          // Check if the effect mentions "from your graveyard" or "from a graveyard"
+          if (effectPart.toLowerCase().includes("graveyard")) {
+            const parsedCost = parseManaFromString(costPart);
+            if (canPayManaCost(availableMana, parsedCost)) {
+              hasGraveyardAbility = true;
+              break;
+            }
+          }
+        }
+        
+        if (hasGraveyardAbility) {
+          playableIds.push(card.id);
+        }
+      }
     }
     
     // Check top of library if player can play from top
