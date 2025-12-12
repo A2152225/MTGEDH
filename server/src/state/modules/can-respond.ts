@@ -166,6 +166,7 @@ function getCostAdjustmentForCard(state: any, playerId: PlayerID, card: any): nu
       for (const reducer of redCostReducers) {
         if ((reducer.applies(isCreatureSpell)) &&
             (permName.includes(reducer.nameMatch) || permOracle.includes(reducer.textMatch))) {
+          // Each matching permanent contributes an additional {1} reduction
           adjustment -= 1;
         }
       }
@@ -218,7 +219,6 @@ function applyCostAdjustment(
     const redAvailable = result.colors.R || 0;
     const redReduction = Math.min(redAvailable, remainingReduction);
     result.colors.R = redAvailable - redReduction;
-    remainingReduction -= redReduction;
   }
   
   return result;
