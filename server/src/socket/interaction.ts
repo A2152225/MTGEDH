@@ -6681,7 +6681,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Create a minimal context object for the trigger system
     const ctx = {
       state: game.state,
-      bumpSeq: game.bumpSeq?.bind(game) || (() => {}),
+      bumpSeq: game.bumpSeq?.bind(game) || (() => {
+        console.warn('[Forbidden Orchard] bumpSeq not available, state updates may not propagate');
+      }),
     };
     triggerETBEffectsForToken(ctx as any, spiritToken, targetOpponentId);
 

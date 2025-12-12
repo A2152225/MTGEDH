@@ -1671,9 +1671,9 @@ function executeTriggerEffect(
           const originalCard = equippedCreature.card;
           const originalTypeLine = (originalCard.type_line || '').toLowerCase();
           
-          // Remove "Legendary" from the type line
+          // Remove "Legendary" from the type line (handle all positions)
           let tokenTypeLine = originalCard.type_line || 'Token';
-          tokenTypeLine = tokenTypeLine.replace(/\bLegendary\b\s*/i, '');
+          tokenTypeLine = tokenTypeLine.replace(/\bLegendary\s+/i, '').replace(/\s+Legendary\b/i, '').trim();
           
           // If the copy would have haste, ensure it doesn't have summoning sickness
           const hasHaste = (originalCard.oracle_text || '').toLowerCase().includes('haste') ||
