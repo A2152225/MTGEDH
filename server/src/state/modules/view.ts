@@ -250,5 +250,7 @@ export function viewFor(
     experienceCounters: experience,
     // Map turnNumber to turn for client compatibility
     turn: (state as any).turnNumber ?? 1,
+    // Set viewer field for playable cards calculation
+    viewer: viewer === "spectator:judge" ? undefined : viewer,
   } as any;
 }
