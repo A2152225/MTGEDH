@@ -1,3 +1,5 @@
+import type { BattlefieldPermanent } from "../../../shared/src/types.js";
+
 export function uid(prefix = "id"): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -2529,7 +2531,7 @@ function extractCreatureTypes(typeLine: string): string[] {
  * @returns true if the exchange was completed, false if either permanent was missing
  */
 export function exchangePermanentOracleText(
-  battlefield: Array<{ id?: string; card?: any; oracle_text?: string }>,
+  battlefield: BattlefieldPermanent[],
   sourceId: string,
   targetId: string
 ): boolean {
@@ -2540,10 +2542,17 @@ export function exchangePermanentOracleText(
   const sourceText = source.card.oracle_text || '';
   const targetText = target.card.oracle_text || '';
 
-  source.card.oracle_text = targetText;
-  target.card.oracle_text = sourceText;
-  (source as any).oracle_text = targetText;
-  (target as any).oracle_text = sourceText;
+  const applyText = (perm: BattlefieldPermanent, text: string) => {
+    // Keep both the card reference and the per-permanent override in sync,
+    // as different modules may read from either location for text-changing effects.
+    if (perm.card) {
+      perm.card.oracle_text = text;
+    }
+    perm.oracle_text = text;
+  };
+
+  applyText(source, targetText);
+  applyText(target, sourceText);
   return true;
 }
 

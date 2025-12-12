@@ -1,5 +1,5 @@
 import type { Server, Socket } from "socket.io";
-import type { PlayerID } from "../../../shared/src/index.js";
+import type { PlayerID, BattlefieldPermanent } from "../../../shared/src/index.js";
 import crypto from "crypto";
 import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, calculateManaProduction, resolveCascadeSelection, handlePendingCascade } from "./util";
 import { appendEvent } from "../db";
@@ -25,6 +25,11 @@ import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../..
 // ============================================================================
 // Tap/Untap Ability Text Parsing
 // ============================================================================
+
+const getBattlefield = (game: any): BattlefieldPermanent[] =>
+  Array.isArray(game?.state?.battlefield)
+    ? (game.state.battlefield as BattlefieldPermanent[])
+    : [];
 
 /**
  * Parse ability text to determine tap/untap target parameters.
@@ -1059,7 +1064,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const isLand = typeLine.includes("land");
 
     // Find the exploring permanent for its name
-    const battlefield = game.state?.battlefield || [];
+    const battlefield = getBattlefield(game);
     const exploringPerm = battlefield.find((p: any) => p.id === permanentId && p.controller === pid);
     const exploringName = exploringPerm?.card?.name || "Creature";
 
@@ -1862,7 +1867,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (!pid || socket.data.spectator) return;
 
     const game = ensureGame(gameId);
-    const battlefield = game.state?.battlefield || [];
+    const battlefield = getBattlefield(game);
     
     const permanent = battlefield.find((p: any) => p?.id === permanentId && p?.controller === pid);
     if (!permanent) {
@@ -2135,7 +2140,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (!pid || socket.data.spectator) return;
 
     const game = ensureGame(gameId);
-    const battlefield = game.state?.battlefield || [];
+    const battlefield = getBattlefield(game);
     
     const permanent = battlefield.find((p: any) => p?.id === permanentId && p?.controller === pid);
     if (!permanent) {
@@ -2190,7 +2195,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
 
-    const exchanged = exchangePermanentOracleText(battlefield as any, sourcePermanentId, targetPermanentId);
+    const exchanged = exchangePermanentOracleText(battlefield, sourcePermanentId, targetPermanentId);
     if (!exchanged) {
       socket.emit("error", { code: "EXCHANGE_FAILED", message: "Could not exchange oracle text between permanents" });
       return;
