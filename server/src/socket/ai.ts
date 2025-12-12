@@ -3207,6 +3207,19 @@ async function executePassPriority(
       // For AI players, we auto-select the best card; for human players, emit the request
       await handlePendingLibrarySearchAfterResolution(io, game, gameId);
       
+      // Check for pending Join Forces effects (Minds Aglow, Collective Voyage, etc.)
+      // These require all players to contribute mana
+      const { handlePendingJoinForces, handlePendingTemptingOffer } = await import('./util.js');
+      if (typeof handlePendingJoinForces === 'function') {
+        handlePendingJoinForces(io, game, gameId);
+      }
+      
+      // Check for pending Tempting Offer effects (Tempt with Discovery, etc.)
+      // These require opponents to choose whether to accept
+      if (typeof handlePendingTemptingOffer === 'function') {
+        handlePendingTemptingOffer(io, game, gameId);
+      }
+      
       // Persist the resolution event
       try {
         await appendEvent(gameId, (game as any).seq || 0, 'resolveTopOfStack', { playerId });
