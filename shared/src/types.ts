@@ -210,6 +210,8 @@ export interface BattlefieldPermanent {
   posX?: number;
   posY?: number;
   posZ?: number;
+  /** Text-changing effects may override oracle text on the permanent */
+  oracle_text?: string;
   card: CardRef;
   // Combat state
   attacking?: PlayerID | string;  // Player ID being attacked, or permanent ID if attacking a planeswalker

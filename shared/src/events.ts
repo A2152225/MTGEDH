@@ -152,6 +152,11 @@ export interface ClientToServerEvents {
     targets?: string[];
     manaPayment?: Array<{ permanentId: string; manaColor: string }>;
   }) => void;
+  exchangeTextBoxes: (payload: {
+    gameId: GameID;
+    sourcePermanentId: string;
+    targetPermanentId: string;
+  }) => void;
   
   // Mulligan
   mulliganDecision: (payload: { gameId: GameID; keep: boolean }) => void;

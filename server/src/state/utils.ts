@@ -2523,6 +2523,31 @@ function extractCreatureTypes(typeLine: string): string[] {
 }
 
 /**
+ * Exchange the oracle text between two permanents on the battlefield.
+ * Used for text-changing effects like Exchange of Words or custom cards that swap text boxes.
+ *
+ * @returns true if the exchange was completed, false if either permanent was missing
+ */
+export function exchangePermanentOracleText(
+  battlefield: Array<{ id?: string; card?: any; oracle_text?: string }>,
+  sourceId: string,
+  targetId: string
+): boolean {
+  const source = battlefield.find(p => p?.id === sourceId);
+  const target = battlefield.find(p => p?.id === targetId);
+  if (!source || !target || !source.card || !target.card) return false;
+
+  const sourceText = source.card.oracle_text || '';
+  const targetText = target.card.oracle_text || '';
+
+  source.card.oracle_text = targetText;
+  target.card.oracle_text = sourceText;
+  (source as any).oracle_text = targetText;
+  (target as any).oracle_text = sourceText;
+  return true;
+}
+
+/**
  * Add energy counters to a player.
  * Energy counters are a resource introduced in Kaladesh block.
  * 

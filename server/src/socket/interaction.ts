@@ -19,6 +19,7 @@ import {
   getCreatureCountManaAmount,
   detectManaModifiers
 } from "../state/modules/mana-abilities";
+import { exchangePermanentOracleText } from "../state/utils";
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../rules-engine/src/creatureUpgradeAbilities";
 
 // ============================================================================
@@ -2161,6 +2162,60 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     
     appendEvent(gameId, (game as any).seq ?? 0, "untapPermanent", { playerId: pid, permanentId });
     
+    broadcastGame(io, game, gameId);
+  });
+
+  // Exchange oracle text boxes between two permanents (text-changing effects)
+  socket.on("exchangeTextBoxes", ({ gameId, sourcePermanentId, targetPermanentId }: {
+    gameId: string;
+    sourcePermanentId: string;
+    targetPermanentId: string;
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    const battlefield = game.state?.battlefield || [];
+
+    const source = battlefield.find((p: any) => p?.id === sourcePermanentId);
+    const target = battlefield.find((p: any) => p?.id === targetPermanentId);
+
+    if (!source || !target) {
+      socket.emit("error", { code: "PERMANENT_NOT_FOUND", message: "One or both permanents not found" });
+      return;
+    }
+
+    if (source.controller !== pid) {
+      socket.emit("error", { code: "NOT_CONTROLLER", message: "You must control the source permanent to exchange text boxes" });
+      return;
+    }
+
+    const exchanged = exchangePermanentOracleText(battlefield as any, sourcePermanentId, targetPermanentId);
+    if (!exchanged) {
+      socket.emit("error", { code: "EXCHANGE_FAILED", message: "Could not exchange oracle text between permanents" });
+      return;
+    }
+
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+
+    appendEvent(gameId, (game as any).seq ?? 0, "exchangeTextBoxes", {
+      playerId: pid,
+      sourcePermanentId,
+      targetPermanentId,
+    });
+
+    const sourceName = source?.card?.name || "Unknown";
+    const targetName = target?.card?.name || "Unknown";
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} exchanged text boxes of ${sourceName} and ${targetName}.`,
+      ts: Date.now(),
+    });
+
     broadcastGame(io, game, gameId);
   });
 

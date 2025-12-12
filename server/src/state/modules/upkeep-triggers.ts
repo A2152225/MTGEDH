@@ -99,6 +99,7 @@ const KNOWN_UPKEEP_CARDS: Record<string, { effect: string; mandatory: boolean; r
   "sulfuric vortex": { effect: "Each player loses 2 life", mandatory: true },
   "havoc festival": { effect: "Each player loses half their life", mandatory: true },
   "wound reflection": { effect: "Opponents lose life equal to life lost this turn (end step)", mandatory: true },
+  "deadpool, trading card": { effect: "You lose 3 life", mandatory: true },
   
   // Token creation - Creatures that create tokens at upkeep
   "master of the wild hunt": { effect: "Create a 2/2 green Wolf creature token", mandatory: true },
@@ -724,4 +725,3 @@ export function autoProcessCumulativeUpkeepMana(ctx: GameContext, activePlayerId
   
   return processed;
 }
-

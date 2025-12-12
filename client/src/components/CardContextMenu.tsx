@@ -35,6 +35,7 @@ export interface CardContextMenuProps {
   onAddCounter?: (permanentId: string, counterType: string, amount: number) => void;
   onSacrifice?: (permanentId: string) => void;
   onRemove?: (permanentId: string) => void;
+  onExchangeTextBoxes?: (permanentId: string) => void;
   canActivate?: boolean;
   playerId?: string;
 }
@@ -75,6 +76,7 @@ export function CardContextMenu({
   onAddCounter,
   onSacrifice,
   onRemove,
+  onExchangeTextBoxes,
   canActivate = true,
   playerId,
 }: CardContextMenuProps) {
@@ -210,7 +212,29 @@ export function CardContextMenu({
         <span style={{ width: 20, textAlign: 'center' }}>{isTapped ? '🔄' : '↪️'}</span>
         <span>{isTapped ? 'Untap' : 'Tap'}</span>
       </div>
-      
+
+      {onExchangeTextBoxes && (
+        <div
+          style={canActivate ? menuItemStyle : disabledStyle}
+          onClick={() => {
+            if (!canActivate) return;
+            onExchangeTextBoxes(permanent.id);
+            onClose();
+          }}
+          onMouseEnter={(e) => {
+            if (canActivate) {
+              (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(255,255,255,0.1)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent';
+          }}
+        >
+          <span style={{ width: 20, textAlign: 'center' }}>🔀</span>
+          <span>Exchange text box…</span>
+        </div>
+      )}
+
       {/* Activated Abilities */}
       {abilities.length > 0 && (
         <>

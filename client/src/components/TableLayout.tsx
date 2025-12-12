@@ -1284,6 +1284,11 @@ export function TableLayout(props: {
                           onAddCounter={isYouThis ? onCounter : undefined}
                           onSacrifice={isYouThis && gameId ? (id) => socket.emit('sacrificePermanent', { gameId, permanentId: id }) : undefined}
                           onRemove={isYouThis ? onRemove : undefined}
+                          onExchangeTextBoxes={isYouThis && gameId ? (sourceId) => {
+                            const targetPermanentId = prompt('Enter target permanent id to exchange text with');
+                            if (!targetPermanentId) return;
+                            socket.emit('exchangeTextBoxes', { gameId, sourcePermanentId: sourceId, targetPermanentId });
+                          } : undefined}
                           canActivate={isYouThis || false}
                           playerId={isYouThis ? you : undefined}
                           hasPriority={hasPriority || false}
