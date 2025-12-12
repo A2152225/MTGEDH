@@ -2289,6 +2289,89 @@ function executeTriggerEffect(
     return;
   }
   
+  // ===== PROLIFERATE =====
+  // Pattern: "Proliferate" - Add one counter of each kind to chosen permanents/players
+  // Rule 701.34: Choose any number of permanents and/or players that have a counter,
+  // then give each one additional counter of each kind that permanent or player already has.
+  if (desc.includes('proliferate')) {
+    console.log(`[executeTriggerEffect] Proliferate effect from ${sourceName} for ${controller}`);
+    
+    // Set up pending proliferate choice - the socket layer will prompt the player
+    // to select targets (permanents/players with counters)
+    state.pendingProliferate = state.pendingProliferate || [];
+    state.pendingProliferate.push({
+      id: uid("proliferate"),
+      controller,
+      sourceName: sourceName || 'Proliferate Effect',
+      imageUrl: triggerItem.value?.imageUrl,
+    });
+    
+    return;
+  }
+  
+  // ===== KRENKO, MOB BOSS ACTIVATED ABILITY =====
+  // Pattern: "Create X 1/1 red Goblin creature tokens, where X is the number of Goblins you control"
+  // Krenko, Mob Boss: "{T}: Create X 1/1 red Goblin creature tokens, where X is the number of Goblins you control."
+  if ((desc.includes('create') && desc.includes('goblin') && 
+       (desc.includes('number of goblins') || desc.includes('goblins you control'))) ||
+      (sourceName.toLowerCase().includes('krenko') && sourceName.toLowerCase().includes('mob boss'))) {
+    const battlefield = state.battlefield || [];
+    
+    // Count Goblins controller controls
+    let goblinCount = 0;
+    for (const perm of battlefield) {
+      if (!perm) continue;
+      if (perm.controller !== controller) continue;
+      const typeLine = (perm.card?.type_line || '').toLowerCase();
+      if (typeLine.includes('goblin')) {
+        goblinCount++;
+      }
+    }
+    
+    console.log(`[executeTriggerEffect] ${sourceName}: Creating ${goblinCount} Goblin tokens for ${controller} (goblins controlled: ${goblinCount})`);
+    
+    // Apply token doublers (Anointed Procession, Doubling Season, etc.)
+    const tokensToCreate = goblinCount * getTokenDoublerMultiplier(controller, state);
+    
+    // Create X 1/1 red Goblin tokens
+    for (let i = 0; i < tokensToCreate; i++) {
+      const tokenId = uid("token");
+      const typeLine = 'Token Creature — Goblin';
+      const imageUrls = getTokenImageUrls('Goblin', 1, 1, ['R']);
+      
+      const goblinToken = {
+        id: tokenId,
+        controller,
+        owner: controller,
+        tapped: false,
+        counters: {},
+        basePower: 1,
+        baseToughness: 1,
+        summoningSickness: true,
+        isToken: true,
+        card: {
+          id: tokenId,
+          name: 'Goblin',
+          type_line: typeLine,
+          power: '1',
+          toughness: '1',
+          zone: 'battlefield',
+          colors: ['R'],
+          image_uris: imageUrls,
+        },
+      };
+      
+      state.battlefield.push(goblinToken as any);
+      
+      // Trigger ETB effects for each token (Cathars' Crusade, Soul Warden, Impact Tremors, etc.)
+      triggerETBEffectsForToken(ctx, goblinToken, controller);
+      
+      console.log(`[executeTriggerEffect] Created Goblin token ${i + 1}/${tokensToCreate}`);
+    }
+    
+    return;
+  }
+  
   // Log unhandled triggers for future implementation
   console.log(`[executeTriggerEffect] Unhandled trigger effect: "${description}" from ${sourceName}`);
 }
