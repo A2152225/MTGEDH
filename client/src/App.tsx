@@ -257,6 +257,7 @@ export function App() {
     equipmentName: string;
     equipCost: string;
     imageUrl?: string;
+    effectId?: string;
     validTargets: { id: string; name: string; power: string; toughness: string; imageUrl?: string }[];
   } | null>(null);
 
@@ -562,6 +563,17 @@ export function App() {
       excludeSource?: boolean;
     };
     targetCount: number;
+    title?: string;
+    description?: string;
+  } | null>(null);
+  
+  // Fight Target Modal state - for Brash Taunter, etc.
+  const [fightTargetModalOpen, setFightTargetModalOpen] = useState(false);
+  const [fightTargetModalData, setFightTargetModalData] = useState<{
+    activationId: string;
+    sourceId: string;
+    sourceName: string;
+    sourceImageUrl?: string;
     title?: string;
     description?: string;
   } | null>(null);
@@ -1201,6 +1213,7 @@ export function App() {
           equipmentName: payload.equipmentName,
           equipCost: payload.equipCost,
           imageUrl: payload.imageUrl,
+          effectId: payload.effectId,
           validTargets: payload.validTargets || [],
         });
         setEquipTargetModalOpen(true);
@@ -2345,6 +2358,32 @@ export function App() {
     };
     socket.on("tapUntapTargetRequest", handleTapUntapTargetRequest);
     
+    // Fight Target Request handler
+    const handleFightTargetRequest = (data: {
+      gameId: string;
+      activationId: string;
+      source: { id: string; name: string; imageUrl?: string };
+      targetFilter: {
+        types?: string[];
+        controller?: 'you' | 'opponent' | 'any';
+        excludeSource?: boolean;
+      };
+      title?: string;
+      description?: string;
+    }) => {
+      if (!safeView || data.gameId !== safeView.id) return;
+      setFightTargetModalData({
+        activationId: data.activationId,
+        sourceId: data.source.id,
+        sourceName: data.source.name,
+        sourceImageUrl: data.source.imageUrl,
+        title: data.title,
+        description: data.description,
+      });
+      setFightTargetModalOpen(true);
+    };
+    socket.on("fightTargetRequest", handleFightTargetRequest);
+    
     // Counter Movement Request handler
     const handleCounterMovementRequest = (data: {
       gameId: string;
@@ -2395,6 +2434,7 @@ export function App() {
     return () => {
       socket.off("opponentMayPayPrompt", handleOpponentMayPayPrompt);
       socket.off("tapUntapTargetRequest", handleTapUntapTargetRequest);
+      socket.off("fightTargetRequest", handleFightTargetRequest);
       socket.off("counterMovementRequest", handleCounterMovementRequest);
       socket.off("multiModeActivationRequest", handleMultiModeActivationRequest);
     };
@@ -3287,10 +3327,11 @@ export function App() {
   const handleEquipTarget = (targetId: string | null) => {
     if (!safeView || !equipTargetData) return;
     if (targetId) {
-      socket.emit("equipAbility", {
+      socket.emit("equipTargetChosen", {
         gameId: safeView.id,
         equipmentId: equipTargetData.equipmentId,
         targetCreatureId: targetId,
+        effectId: (equipTargetData as any).effectId, // Include effectId for server tracking
       });
     }
     setEquipTargetModalOpen(false);
@@ -4561,6 +4602,43 @@ export function App() {
         onCancel={() => {
           setTapUntapTargetModalOpen(false);
           setTapUntapTargetModalData(null);
+        }}
+      />
+
+      {/* Fight Target Modal - for Brash Taunter and similar fight abilities */}
+      <TapUntapTargetModal
+        open={fightTargetModalOpen}
+        title={fightTargetModalData?.title || `${fightTargetModalData?.sourceName || 'Creature'} - Fight`}
+        description={fightTargetModalData?.description}
+        source={{
+          id: fightTargetModalData?.sourceId || "",
+          name: fightTargetModalData?.sourceName || "",
+          imageUrl: fightTargetModalData?.sourceImageUrl,
+        }}
+        action='tap' // Reuse tap UI but it's for fight selection
+        targetFilter={{
+          types: ['creature'],
+          controller: 'opponent',
+          tapStatus: 'any',
+          excludeSource: true,
+        }}
+        targetCount={1}
+        availablePermanents={safeView?.battlefield || []}
+        playerId={you || ""}
+        onConfirm={(selectedPermanentIds) => {
+          if (fightTargetModalData && safeView && selectedPermanentIds.length > 0) {
+            socket.emit("fightTargetChosen", {
+              gameId: safeView.id,
+              activationId: fightTargetModalData.activationId,
+              targetCreatureId: selectedPermanentIds[0],
+            });
+            setFightTargetModalOpen(false);
+            setFightTargetModalData(null);
+          }
+        }}
+        onCancel={() => {
+          setFightTargetModalOpen(false);
+          setFightTargetModalData(null);
         }}
       />
 

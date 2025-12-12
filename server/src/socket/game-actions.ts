@@ -463,7 +463,7 @@ function checkEnchantmentETBTriggers(
  * - Board state based: Animar (experience/+1+1 counters), Affinity effects
  * - Color based: Ruby Medallion, Sapphire Medallion, etc.
  */
-function calculateCostReduction(
+export function calculateCostReduction(
   game: any,
   playerId: string,
   card: any,
@@ -798,6 +798,56 @@ function calculateCostReduction(
       }
     }
     
+    // "This spell costs {X} less to cast, where X is the total mana value of historic permanents you control"
+    // Handles: Excalibur, Sword of Eden
+    // Historic = artifacts, legendaries, and sagas
+    const historicManaValueMatch = cardOracleText.match(/costs? \{?x\}? less.*where x is the total (?:mana value|mana cost) of historic/i);
+    if (historicManaValueMatch) {
+      let totalManaValue = 0;
+      for (const perm of battlefield) {
+        if (!perm || perm.controller !== playerId) continue;
+        
+        const permTypeLine = (perm.card?.type_line || "").toLowerCase();
+        const isHistoric = permTypeLine.includes("artifact") || 
+                          permTypeLine.includes("legendary") || 
+                          permTypeLine.includes("saga");
+        
+        if (isHistoric) {
+          // Get mana value from the card
+          const manaCost = perm.card?.mana_cost || "";
+          const cmc = perm.card?.cmc;
+          
+          // Use cmc if available, otherwise parse mana cost
+          let manaValue = 0;
+          if (typeof cmc === "number") {
+            manaValue = cmc;
+          } else if (manaCost) {
+            // Parse mana cost to calculate CMC
+            const symbols = manaCost.match(/\{[^}]+\}/g) || [];
+            for (const symbol of symbols) {
+              const inner = symbol.slice(1, -1);
+              const numeric = parseInt(inner, 10);
+              if (!isNaN(numeric)) {
+                manaValue += numeric;
+              } else if (inner.length === 1 && /[WUBRGC]/.test(inner)) {
+                manaValue += 1; // Colored mana symbols count as 1
+              } else if (inner.includes("/")) {
+                manaValue += 1; // Hybrid symbols count as 1
+              }
+              // X, Y, Z symbols don't count toward CMC
+            }
+          }
+          
+          totalManaValue += manaValue;
+        }
+      }
+      
+      if (totalManaValue > 0) {
+        reduction.generic += totalManaValue;
+        reduction.messages.push(`${cardName}: -{${totalManaValue}} (historic mana value)`);
+      }
+    }
+    
     // Log total reduction
     if (reduction.messages.length > 0) {
       console.log(`[costReduction] ${cardName}: ${reduction.messages.join(", ")}`);
@@ -813,7 +863,7 @@ function calculateCostReduction(
 /**
  * Extract creature types from a type line
  */
-function extractCreatureTypes(typeLine: string): string[] {
+export function extractCreatureTypes(typeLine: string): string[] {
   const types: string[] = [];
   const lower = typeLine.toLowerCase();
   
@@ -1086,7 +1136,7 @@ function applyHeroicTrigger(game: any, trigger: HeroicTrigger, io: any, gameId: 
 /**
  * Apply cost reduction to a parsed mana cost
  */
-function applyCostReduction(
+export function applyCostReduction(
   parsedCost: { generic: number; colors: Record<string, number> },
   reduction: { generic: number; colors: Record<string, number>; messages?: string[] }
 ): { generic: number; colors: Record<string, number> } {
