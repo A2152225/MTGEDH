@@ -20,7 +20,7 @@ import { registerPendingJoinForces, registerPendingTemptingOffer } from "./join-
 import { getActualPowerToughness } from "../state/utils.js";
 import { getDevotionManaAmount, getCreatureCountManaAmount } from "../state/modules/mana-abilities.js";
 import { canRespond, canAct } from "../state/modules/can-respond.js";
-import { parseManaCost as parseManaFromString, canPayManaCost, getManaPoolFromState, getAvailableMana } from "../state/modules/mana-check.js";
+import { parseManaCost as parseManaFromString, canPayManaCost, getManaPoolFromState, getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
 
 // ============================================================================
@@ -144,7 +144,10 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
     const turnPlayer = state.turnPlayer;
     const isMyTurn = turnPlayer === playerId;
     
-    console.log(`[getPlayableCardIds] Player ${playerId}: step=${state.step}, isMainPhase=${isMainPhase}, stackIsEmpty=${stackIsEmpty}, isMyTurn=${isMyTurn}, manaPool=`, pool, 'availableMana=', availableMana);
+    console.log(`[getPlayableCardIds] Player ${playerId}: step=${state.step}, isMainPhase=${isMainPhase}, stackIsEmpty=${stackIsEmpty}, isMyTurn=${isMyTurn}`);
+    console.log(`[getPlayableCardIds] manaPool=`, pool);
+    console.log(`[getPlayableCardIds] availableMana=`, availableMana);
+    console.log(`[getPlayableCardIds] Total available mana:`, getTotalManaFromPool(availableMana));
     
     // Check hand for castable spells
     if (Array.isArray(zones.hand)) {
@@ -418,6 +421,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
     console.warn("[getPlayableCardIds] Error:", err);
   }
   
+  console.log(`[getPlayableCardIds] Returning ${playableIds.length} playable card(s):`, playableIds);
   return playableIds;
 }
 
