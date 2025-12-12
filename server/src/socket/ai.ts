@@ -3160,8 +3160,9 @@ async function executePassPriority(
     let advanceStep = false;
     
     // Use game's pass priority method if available
+    // Mark as auto-pass so that autoPassLoop runs and checks if other players can also auto-pass
     if (typeof (game as any).passPriority === 'function') {
-      const result = (game as any).passPriority(playerId);
+      const result = (game as any).passPriority(playerId, true); // true = isAutoPass
       resolvedNow = result?.resolvedNow ?? false;
       advanceStep = result?.advanceStep ?? false;
     } else {

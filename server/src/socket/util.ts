@@ -1317,7 +1317,7 @@ function doAutoPass(
     // game.passPriority may not exist on some wrappers; call defensively
     let res: any = null;
     if (typeof (game as any).passPriority === "function") {
-      res = (game as any).passPriority(playerId);
+      res = (game as any).passPriority(playerId, true); // true = isAutoPass
     } else if (typeof (game as any).nextPass === "function") {
       res = (game as any).nextPass(playerId);
     } else {

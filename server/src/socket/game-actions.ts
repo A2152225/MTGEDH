@@ -3605,7 +3605,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const playerId = socket.data.playerId;
       if (!game || !playerId) return;
 
-      const { changed, resolvedNow, advanceStep } = game.passPriority(playerId);
+      const { changed, resolvedNow, advanceStep } = game.passPriority(playerId, isAutoPass);
       if (!changed) return;
 
       appendGameEvent(game, gameId, "passPriority", { by: playerId });
