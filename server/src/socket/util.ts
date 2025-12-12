@@ -967,6 +967,10 @@ export function broadcastGame(
   // This ensures AI responds to game state changes
   checkAndTriggerAI(io, game, gameId);
   
+  // Check if the current priority holder should auto-pass
+  // This ensures human players with auto-pass enabled don't get stuck with priority
+  checkAndTriggerAutoPass(io, game, gameId);
+  
   // Check for pending trigger ordering and emit prompts
   checkAndEmitTriggerOrderingPrompts(io, game, gameId);
   
@@ -1168,6 +1172,117 @@ function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string): void
     }
   } catch (e) {
     console.error('[util] checkAndTriggerAI error:', { gameId, error: e });
+  }
+}
+
+/**
+ * Check if the current priority holder should auto-pass and trigger it if needed
+ * This ensures human players with auto-pass enabled don't get stuck with priority
+ * when they have no legal actions available.
+ */
+function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string): void {
+  try {
+    const stateAny = game.state as any;
+    const priority = stateAny?.priority;
+    
+    if (!priority) return;
+    
+    // Check if auto-pass is enabled for this player
+    const autoPassPlayers = stateAny.autoPassPlayers || new Set();
+    const autoPassForTurn = stateAny.autoPassForTurn?.[priority] || false;
+    
+    if (!autoPassPlayers.has(priority) && !autoPassForTurn) {
+      // Auto-pass not enabled for this player
+      return;
+    }
+    
+    // Check if the player is an AI (AI is handled separately in checkAndTriggerAI)
+    const players = stateAny?.players || [];
+    const priorityPlayer = players.find((p: any) => p?.id === priority);
+    if (priorityPlayer && priorityPlayer.isAI) {
+      // AI players are handled by checkAndTriggerAI, skip
+      return;
+    }
+    
+    // Check if player has claimed priority (wants to take action)
+    if (!stateAny.priorityClaimed) {
+      stateAny.priorityClaimed = new Set<string>();
+    }
+    if (stateAny.priorityClaimed.has(priority)) {
+      // Player has claimed priority, don't auto-pass
+      return;
+    }
+    
+    // Import canAct and canRespond to check if player can take actions
+    const canActModule = require('../state/modules/can-respond.js');
+    const { canAct, canRespond } = canActModule;
+    
+    const ctx = {
+      state: game.state,
+      inactive: new Set(),
+      passesInRow: { value: 0 },
+      bumpSeq: () => {},
+    };
+    
+    const turnPlayer = stateAny.turnPlayer;
+    const isActivePlayer = priority === turnPlayer;
+    
+    // Check if player can take any actions
+    let playerCanAct = false;
+    try {
+      playerCanAct = isActivePlayer 
+        ? canAct(ctx, priority)      // Active player: check all actions
+        : canRespond(ctx, priority);  // Non-active: only check instant-speed responses
+    } catch (err) {
+      console.warn(`[checkAndTriggerAutoPass] Error checking if player ${priority} can act:`, err);
+      // On error, don't auto-pass to be safe
+      return;
+    }
+    
+    // If player can act, don't auto-pass
+    if (playerCanAct) {
+      return;
+    }
+    
+    // Player cannot act and has auto-pass enabled - auto-pass their priority
+    console.log(`[checkAndTriggerAutoPass] Auto-passing for ${priority} - no available actions`);
+    
+    // Call passPriority with isAutoPass flag
+    if (typeof (game as any).passPriority === 'function') {
+      try {
+        const result = (game as any).passPriority(priority, true); // true = isAutoPass
+        
+        if (result.changed) {
+          // Priority was passed successfully
+          appendGameEvent(game, gameId, "passPriority", { by: priority, auto: true });
+          
+          // Handle stack resolution or step advancement if needed
+          if (result.resolvedNow) {
+            console.log(`[checkAndTriggerAutoPass] Stack resolved after auto-pass for ${priority}`);
+            if (typeof (game as any).resolveTopOfStack === 'function') {
+              (game as any).resolveTopOfStack();
+            }
+            appendGameEvent(game, gameId, "resolveTopOfStack", { auto: true });
+          }
+          
+          if (result.advanceStep) {
+            console.log(`[checkAndTriggerAutoPass] Advancing step after auto-pass for ${priority}`);
+            if (typeof (game as any).nextStep === 'function') {
+              (game as any).nextStep();
+            }
+            appendGameEvent(game, gameId, "nextStep", { reason: 'autoPass' });
+          }
+          
+          // Broadcast updated state after auto-pass
+          // Note: This will recursively call checkAndTriggerAutoPass for the next player
+          broadcastGame(io, game, gameId);
+        }
+      } catch (err) {
+        console.error(`[checkAndTriggerAutoPass] Error passing priority for ${priority}:`, err);
+      }
+    }
+  } catch (e) {
+    console.error('[util] checkAndTriggerAutoPass error:', { gameId, error: e });
   }
 }
 
