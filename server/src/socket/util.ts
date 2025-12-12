@@ -113,6 +113,43 @@ function ensureStateZonesForPlayers(game: any) {
 }
 
 /**
+ * Mill cards from the top of a player's library until a land is revealed.
+ * Moves all revealed cards to the graveyard and returns the milled cards.
+ */
+export function millUntilLand(
+  game: any,
+  targetPlayerId: string
+): { milled: any[]; landHit?: any } {
+  const result = { milled: [] as any[], landHit: undefined as any };
+  try {
+    const zones = game.state?.zones?.[targetPlayerId];
+    if (!zones || !Array.isArray(zones.library)) return result;
+    
+    zones.graveyard = zones.graveyard || [];
+    
+    while (zones.library.length > 0) {
+      const card = zones.library.shift();
+      if (!card) break;
+      result.milled.push(card);
+      const isLand = (card.type_line || "").toLowerCase().includes("land");
+      zones.graveyard.push(card);
+      if (isLand) {
+        result.landHit = card;
+        break;
+      }
+    }
+    
+    zones.libraryCount = zones.library?.length ?? zones.libraryCount;
+    zones.graveyardCount = zones.graveyard?.length ?? zones.graveyardCount;
+  } catch (err) {
+    if (process.env.DEBUG_STATE) {
+      console.warn("[millUntilLand] Error milling:", err);
+    }
+  }
+  return result;
+}
+
+/**
  * Add commander tax to a mana cost string
  * @param manaCost Original mana cost like "{2}{R}{R}"
  * @param tax Commander tax amount (increases by 2 each time)

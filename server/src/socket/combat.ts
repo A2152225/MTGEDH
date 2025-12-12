@@ -6,7 +6,7 @@
  */
 
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, getPlayerName, emitToPlayer, getEffectivePower, getEffectiveToughness, broadcastManaPoolUpdate, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool } from "./util.js";
+import { ensureGame, broadcastGame, getPlayerName, emitToPlayer, getEffectivePower, getEffectiveToughness, broadcastManaPoolUpdate, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, millUntilLand } from "./util.js";
 import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 import { getAttackTriggersForCreatures, getTapTriggers, type TriggeredAbility } from "../state/modules/triggered-abilities.js";
@@ -811,6 +811,33 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance');
         if (!hasVigilance) {
           (creature as any).tapped = true;
+        }
+      }
+
+      // Trepanation Blade - mill defending player until land and set temporary bonus
+      for (const attacker of attackers) {
+        const defendingPlayerId = attacker.targetPlayerId;
+        if (!defendingPlayerId) continue;
+        const creature = battlefield.find((perm: any) => perm.id === attacker.creatureId);
+        if (!creature) continue;
+        for (const attachment of battlefield) {
+          const attachType = (attachment.card?.type_line || "").toLowerCase();
+          if (!attachType.includes("equipment")) continue;
+          if (attachment.attachedTo !== attacker.creatureId) continue;
+          const attachName = (attachment.card?.name || "").toLowerCase();
+          if (attachName.includes("trepanation blade")) {
+            const millResult = millUntilLand(game, defendingPlayerId);
+            const bonus = millResult.milled.length;
+            attachment.trepanationBonus = bonus;
+            attachment.lastTrepanationBonus = bonus;
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `${attachment.card?.name}: ${getPlayerName(game, defendingPlayerId)} mills ${bonus} card(s)${millResult.landHit ? ` (stopped at ${millResult.landHit.name})` : ''}. Equipped creature gets +${bonus}/+0 until end of turn.`,
+              ts: Date.now(),
+            });
+          }
         }
       }
 

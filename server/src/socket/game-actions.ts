@@ -1,5 +1,5 @@
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, handlePendingLibrarySearch, handlePendingJoinForces, handlePendingTemptingOffer, handlePendingPonder, broadcastManaPoolUpdate, handlePendingCascade } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, handlePendingLibrarySearch, handlePendingJoinForces, handlePendingTemptingOffer, handlePendingPonder, broadcastManaPoolUpdate, handlePendingCascade, millUntilLand } from "./util";
 import { appendEvent } from "../db";
 import { GameManager } from "../GameManager";
 import type { PaymentItem, TriggerShortcut, PlayerID } from "../../../shared/src";
@@ -3486,6 +3486,24 @@ export function registerGameActions(io: Server, socket: Socket) {
           if (effectLower.includes('untap')) {
             // Untap effect (Jeskai Ascendancy)
             applySpellCastUntapTrigger(game, playerId);
+          }
+          
+          // Consuming Aberration - mill each opponent until land, boost handled via graveyard counts
+          if (trigger.cardName.toLowerCase().includes('consuming aberration') ||
+              effectLower.includes('until they reveal a land card')) {
+            const opponents = (game.state.players || []).filter((p: any) => p.id !== playerId);
+            for (const opp of opponents) {
+              const millResult = millUntilLand(game, opp.id);
+              if (millResult.milled.length > 0) {
+                io.to(gameId).emit("chat", {
+                  id: `m_${Date.now()}`,
+                  gameId,
+                  from: "system",
+                  message: `${trigger.cardName}: ${getPlayerName(game, opp.id)} mills ${millResult.milled.length} card(s)${millResult.landHit ? ` (stopped at ${millResult.landHit.name})` : ''}.`,
+                  ts: Date.now(),
+                });
+              }
+            }
           }
           
           // Token creation handled separately
