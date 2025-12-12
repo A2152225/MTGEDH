@@ -1694,12 +1694,12 @@ export function nextTurn(ctx: GameContext) {
       console.log(`${ts()} [nextTurn] Checking if auto-pass should apply at upkeep`);
       const autoPassResult = tryAutoPass(ctx);
       
+      // Store the auto-pass result in the state so the caller can check it
+      (ctx as any).state._autoPassResult = autoPassResult;
+      
       if (autoPassResult.allPassed && autoPassResult.advanceStep) {
-        // All players auto-passed with empty stack - advance to draw step
-        console.log(`${ts()} [nextTurn] All players auto-passed at upkeep, advancing to draw step`);
-        ctx.bumpSeq();
-        nextStep(ctx);
-        return;
+        // All players auto-passed with empty stack - mark flag for caller to handle
+        console.log(`${ts()} [nextTurn] All players auto-passed at upkeep - caller should advance step`);
       } else if (autoPassResult.allPassed && autoPassResult.resolved) {
         // All players auto-passed and stack was resolved
         console.log(`${ts()} [nextTurn] All players auto-passed at upkeep and stack item resolved`);
@@ -2660,15 +2660,16 @@ export function nextStep(ctx: GameContext) {
             console.log(`${ts()} [nextStep] Checking if auto-pass should apply after granting priority`);
             const autoPassResult = tryAutoPass(ctx);
             
+            // Store the auto-pass result in the state so the caller can check it
+            // This allows the caller (socket handler or AI) to handle step advancement
+            // and broadcasting properly without breaking the control flow
+            (ctx as any).state._autoPassResult = autoPassResult;
+            
             if (autoPassResult.allPassed && autoPassResult.advanceStep) {
-              // All players auto-passed with empty stack - recursively advance to next step
-              console.log(`${ts()} [nextStep] All players auto-passed after granting priority, advancing to next step`);
-              ctx.bumpSeq();
-              nextStep(ctx);
-              return;
+              // All players auto-passed with empty stack - mark flag for caller to handle
+              console.log(`${ts()} [nextStep] All players auto-passed after granting priority - caller should advance step`);
             } else if (autoPassResult.allPassed && autoPassResult.resolved) {
               // All players auto-passed and stack was resolved
-              // The stack resolution logic should handle priority afterwards
               console.log(`${ts()} [nextStep] All players auto-passed and stack item resolved`);
             } else {
               // Auto-pass stopped at a player who can act, or auto-pass is not enabled
