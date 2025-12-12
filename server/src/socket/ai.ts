@@ -13,7 +13,7 @@
 import { randomBytes } from "crypto";
 import type { Server, Socket } from "socket.io";
 import { AIEngine, AIStrategy, AIDecisionType, type AIDecisionContext, type AIPlayerConfig } from "../../../rules-engine/src/AIEngine.js";
-import { ensureGame, broadcastGame } from "./util.js";
+import { ensureGame, broadcastGame, handlePendingJoinForces, handlePendingTemptingOffer } from "./util.js";
 import { appendEvent } from "../db/index.js";
 import { getDeck, listDecks } from "../db/decks.js";
 import { fetchCardsByExactNamesBatch, normalizeName, parseDecklist } from "../services/scryfall.js";
@@ -3209,16 +3209,11 @@ async function executePassPriority(
       
       // Check for pending Join Forces effects (Minds Aglow, Collective Voyage, etc.)
       // These require all players to contribute mana
-      const { handlePendingJoinForces, handlePendingTemptingOffer } = await import('./util.js');
-      if (typeof handlePendingJoinForces === 'function') {
-        handlePendingJoinForces(io, game, gameId);
-      }
+      handlePendingJoinForces(io, game, gameId);
       
       // Check for pending Tempting Offer effects (Tempt with Discovery, etc.)
       // These require opponents to choose whether to accept
-      if (typeof handlePendingTemptingOffer === 'function') {
-        handlePendingTemptingOffer(io, game, gameId);
-      }
+      handlePendingTemptingOffer(io, game, gameId);
       
       // Persist the resolution event
       try {
