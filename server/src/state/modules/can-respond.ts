@@ -144,6 +144,8 @@ function getCostAdjustmentForCard(state: any, playerId: PlayerID, card: any): nu
   const isRedSpell = /{R}/i.test(manaCostRaw) || colors.includes("R");
   const isCreatureSpell = typeLine.includes("creature");
   const isArtifactOrEnchantment = typeLine.includes("artifact") || typeLine.includes("enchantment");
+  // NOTE: These tables intentionally cover only the red modifiers called out in the current requirements.
+  // Add additional entries if wider color support is needed.
   const redCostReducers = [
     { nameMatch: "fire crystal", textMatch: "red spells you cast cost {1} less", applies: (creature: boolean) => true },
     { nameMatch: "ruby medallion", textMatch: "red spells you cast cost {1} less", applies: (creature: boolean) => true },
@@ -177,6 +179,7 @@ function getCostAdjustmentForCard(state: any, playerId: PlayerID, card: any): nu
       for (const tax of taxEffects) {
         if (tax.applies(isArtifactOrEnchantment) &&
             (permName.includes(tax.nameMatch) || permOracle.includes(tax.textMatch))) {
+          // Legendary copies should rarely stack, but keep additive behavior for simplicity
           adjustment += tax.amount;
         }
       }

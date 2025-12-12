@@ -871,6 +871,7 @@ export function calculateVariablePT(
     battlefield.find((p: any) => p?.card === card)?.controller ??
     (card as any).owner;
   const zones = gameState?.zones || {};
+  // Battlefield sizes are small here, so linear lookup remains acceptable.
   
   // Marit Lage token - Defined as 20/20
   if (name.includes('marit lage')) {
