@@ -149,6 +149,34 @@ export function passPriority(ctx: GameContext, playerId: PlayerID, isAutoPass?: 
  * Uses canAct() for all players - it checks both instant-speed AND sorcery-speed actions.
  * For non-active players, canAct will return false for sorcery-speed actions (not their main phase)
  * but will still check instant-speed responses correctly.
+ * 
+ * @export Exported so it can be called from turn.ts after granting priority in nextStep
+ */
+export function tryAutoPass(ctx: GameContext): { allPassed: boolean; resolved: boolean; advanceStep: boolean } {
+  const active = activePlayersClockwise(ctx);
+  const result = autoPassLoop(ctx, active);
+  
+  // If all players passed, determine whether to resolve stack or advance step
+  if (result.allPassed) {
+    if (result.resolved) {
+      // Stack was resolved
+      return { allPassed: true, resolved: true, advanceStep: false };
+    } else {
+      // Empty stack - should advance step
+      return { allPassed: true, resolved: false, advanceStep: true };
+    }
+  }
+  
+  return { allPassed: false, resolved: false, advanceStep: false };
+}
+
+/**
+ * Iteratively auto-pass for players who cannot act
+ * Stops when we find a player who can act OR all players have passed
+ * 
+ * Uses canAct() for all players - it checks both instant-speed AND sorcery-speed actions.
+ * For non-active players, canAct will return false for sorcery-speed actions (not their main phase)
+ * but will still check instant-speed responses correctly.
  */
 function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boolean; resolved: boolean } {
   const { state } = ctx;
