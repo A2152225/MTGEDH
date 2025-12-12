@@ -2373,6 +2373,78 @@ export function resolveTopOfStack(ctx: GameContext) {
       return;
     }
     
+    // Handle equip ability resolution
+    // CRITICAL: Equipment attachments must go through the stack and can be responded to
+    if (abilityType === 'equip') {
+      console.log(`[resolveTopOfStack] Resolving equip ability from ${sourceName} for ${controller}`);
+      
+      const equipParams = (item as any).equipParams || {};
+      const { equipmentId, targetCreatureId, equipmentName, targetCreatureName } = equipParams;
+      
+      if (!equipmentId || !targetCreatureId) {
+        console.warn(`[resolveTopOfStack] Equip ability missing parameters`);
+        bumpSeq();
+        return;
+      }
+      
+      // Find the equipment and target creature on the battlefield
+      const battlefield = state.battlefield || [];
+      const equipment = battlefield.find((p: any) => p.id === equipmentId);
+      const targetCreature = battlefield.find((p: any) => p.id === targetCreatureId);
+      
+      if (!equipment) {
+        console.log(`[resolveTopOfStack] Equipment ${equipmentName || equipmentId} no longer on battlefield`);
+        bumpSeq();
+        return;
+      }
+      
+      if (!targetCreature) {
+        console.log(`[resolveTopOfStack] Target creature ${targetCreatureName || targetCreatureId} no longer on battlefield`);
+        bumpSeq();
+        return;
+      }
+      
+      // Verify target is still a legal creature
+      const targetTypeLine = (targetCreature.card?.type_line || "").toLowerCase();
+      if (!targetTypeLine.includes("creature")) {
+        console.log(`[resolveTopOfStack] Target ${targetCreatureName || targetCreatureId} is no longer a creature`);
+        bumpSeq();
+        return;
+      }
+      
+      // Remove equipment from previous target (if any)
+      if (equipment.attachedTo) {
+        const previousTarget = battlefield.find((p: any) => p?.id === equipment.attachedTo);
+        if (previousTarget && previousTarget.attachedEquipment) {
+          previousTarget.attachedEquipment = (previousTarget.attachedEquipment as string[]).filter(
+            (id: string) => id !== equipmentId
+          );
+          // Remove equipped badge if no equipment remains
+          if (previousTarget.attachedEquipment.length === 0) {
+            previousTarget.isEquipped = false;
+          }
+        }
+      }
+      
+      // Attach equipment to new target
+      equipment.attachedTo = targetCreatureId;
+      
+      // Add equipment to creature's attachedEquipment array
+      if (!targetCreature.attachedEquipment) {
+        targetCreature.attachedEquipment = [];
+      }
+      if (!targetCreature.attachedEquipment.includes(equipmentId)) {
+        targetCreature.attachedEquipment.push(equipmentId);
+      }
+      
+      // Add equipped badge/marker
+      targetCreature.isEquipped = true;
+      
+      console.log(`[resolveTopOfStack] ${equipmentName || 'Equipment'} equipped to ${targetCreatureName || 'creature'}`);
+      bumpSeq();
+      return;
+    }
+    
     // Handle other activated abilities - execute their effects
     // Use the same effect execution logic as triggered abilities
     const description = (item as any).description || '';
