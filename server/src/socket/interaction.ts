@@ -10,6 +10,7 @@ import {
 } from "../../../shared/src/creatureTypes";
 import { parseSacrificeCost, type SacrificeType } from "../../../shared/src/textUtils";
 import { getDeathTriggers, getPlayersWhoMustSacrifice, getLandfallTriggers, getETBTriggersForPermanent } from "../state/modules/triggered-abilities";
+import { triggerETBEffectsForToken } from "../state/modules/stack";
 import { 
   getManaAbilitiesForPermanent, 
   getManaMultiplier, 
@@ -6654,7 +6655,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Create 1/1 colorless Spirit token for the target opponent
     const tokenId = `token_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     game.state.battlefield = game.state.battlefield || [];
-    game.state.battlefield.push({
+    const spiritToken = {
       id: tokenId,
       controller: targetOpponentId,
       owner: targetOpponentId,
@@ -6673,7 +6674,16 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       basePower: 1,
       baseToughness: 1,
       isToken: true,
-    });
+    };
+    game.state.battlefield.push(spiritToken);
+    
+    // Trigger ETB effects from other permanents (Cathars' Crusade, Soul Warden, etc.)
+    // Create a minimal context object for the trigger system
+    const ctx = {
+      state: game.state,
+      bumpSeq: game.bumpSeq?.bind(game) || (() => {}),
+    };
+    triggerETBEffectsForToken(ctx as any, spiritToken, targetOpponentId);
 
     io.to(gameId).emit("chat", {
       id: `m_${Date.now()}`,

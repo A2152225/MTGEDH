@@ -1652,6 +1652,80 @@ function executeTriggerEffect(
     return;
   }
   
+  // Pattern: "create a token copy of equipped creature" or "create a token that's a copy of equipped creature"
+  // Helm of the Host: "At the beginning of combat on your turn, create a token that's a copy of equipped creature, except it's not legendary"
+  if (desc.includes('token') && desc.includes('copy') && 
+      (desc.includes('equipped creature') || desc.includes('equipped permanent'))) {
+    const sourceId = triggerItem.source || triggerItem.permanentId;
+    const sourcePerm = (state.battlefield || []).find((p: any) => p?.id === sourceId);
+    
+    if (sourcePerm) {
+      // Find what this equipment is attached to
+      const attachedTo = sourcePerm.attachedTo;
+      if (attachedTo) {
+        const equippedCreature = (state.battlefield || []).find((p: any) => p?.id === attachedTo);
+        
+        if (equippedCreature && equippedCreature.card) {
+          // Create a token copy
+          const tokenId = uid("token");
+          const originalCard = equippedCreature.card;
+          const originalTypeLine = (originalCard.type_line || '').toLowerCase();
+          
+          // Remove "Legendary" from the type line
+          let tokenTypeLine = originalCard.type_line || 'Token';
+          tokenTypeLine = tokenTypeLine.replace(/\bLegendary\b\s*/i, '');
+          
+          // If the copy would have haste, ensure it doesn't have summoning sickness
+          const hasHaste = (originalCard.oracle_text || '').toLowerCase().includes('haste') ||
+                          (Array.isArray(originalCard.keywords) && 
+                           originalCard.keywords.some((k: string) => k.toLowerCase() === 'haste')) ||
+                          desc.includes('haste');
+          
+          const isCreature = originalTypeLine.includes('creature');
+          
+          const tokenCopy = {
+            id: tokenId,
+            controller,
+            owner: controller,
+            tapped: false,
+            counters: { ...equippedCreature.counters },
+            basePower: equippedCreature.basePower,
+            baseToughness: equippedCreature.baseToughness,
+            // Tokens that are copies with haste don't have summoning sickness
+            summoningSickness: isCreature && !hasHaste,
+            isToken: true,
+            card: {
+              ...originalCard,
+              id: tokenId,
+              type_line: tokenTypeLine,
+              zone: 'battlefield',
+              // Add haste if specified by the effect (Helm of the Host adds haste)
+              oracle_text: hasHaste && !(originalCard.oracle_text || '').toLowerCase().includes('haste')
+                ? (originalCard.oracle_text || '') + (originalCard.oracle_text ? '\n' : '') + 'Haste'
+                : originalCard.oracle_text,
+              keywords: hasHaste && Array.isArray(originalCard.keywords) && !originalCard.keywords.some((k: string) => k.toLowerCase() === 'haste')
+                ? [...originalCard.keywords, 'Haste']
+                : originalCard.keywords,
+            },
+          } as any;
+          
+          state.battlefield = state.battlefield || [];
+          state.battlefield.push(tokenCopy);
+          
+          console.log(`[executeTriggerEffect] Created token copy of ${originalCard.name || 'creature'} (not legendary${hasHaste ? ', with haste' : ''})`);
+          
+          // Trigger ETB effects for the copy token (Cathars' Crusade, Soul Warden, etc.)
+          triggerETBEffectsForToken(ctx, tokenCopy, controller);
+        } else {
+          console.log(`[executeTriggerEffect] No equipped creature found for copy token creation`);
+        }
+      } else {
+        console.log(`[executeTriggerEffect] Equipment ${sourcePerm.card?.name || 'equipment'} is not attached to anything`);
+      }
+    }
+    return;
+  }
+  
   // Pattern: "each opponent mills X cards" or "each opponent mills a card" (Altar of the Brood)
   const millOpponentsMatch = desc.match(/each opponent mills? (?:a card|(\d+) cards?)/i);
   if (millOpponentsMatch) {
