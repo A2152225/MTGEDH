@@ -68,7 +68,7 @@ function getKeywordPaths(repoRoot: string) {
   return { abilitiesDir, actionsDir };
 }
 
-function mapStatusOverride(
+function getStatusOverride(
   baseName: string,
   overrides?: Readonly<Record<string, ImplementationStatus>>,
 ): ImplementationStatus | undefined {
@@ -89,8 +89,8 @@ function scanKeywordDirectory(
     const name = file.replace(/\.ts$/, '');
     const displayName = toDisplayName(name);
     const status =
-      mapStatusOverride(name, overrides) ??
-      mapStatusOverride(displayName, overrides) ??
+      getStatusOverride(name, overrides) ??
+      getStatusOverride(displayName, overrides) ??
       ('Fully Implemented' as ImplementationStatus);
 
     return {
@@ -159,8 +159,8 @@ function formatKeywordTable(
     .map((row) => {
       const relSource = path.relative(repoRoot, row.source);
       const statusText = STATUS_EMOJI[row.status] ?? row.status;
-      const notes = row.notes ? ` ${row.notes}` : '';
-      return `| ${row.name} | ${row.category} | ${statusText}${notes ? ` (${notes.trim()})` : ''} | \`${relSource}\` |`;
+      const notes = row.notes ? ` (${row.notes.trim()})` : '';
+      return `| ${row.name} | ${row.category} | ${statusText}${notes} | \`${relSource}\` |`;
     })
     .join('\n');
 
