@@ -274,8 +274,14 @@ export function TapUntapTargetModal({
                   <div
                     key={perm.id}
                     onClick={() => toggleSelect(perm.id)}
-                    onMouseEnter={() => imageUrl && showCardPreview(imageUrl)}
-                    onMouseLeave={hideCardPreview}
+                    onMouseEnter={(e) =>
+                      imageUrl &&
+                      showCardPreview(e.currentTarget, {
+                        image_uris: { normal: imageUrl },
+                        name: card?.name,
+                      } as any)
+                    }
+                    onMouseLeave={(e) => hideCardPreview(e.currentTarget)}
                     style={{
                       padding: '8px',
                       backgroundColor: isSelected ? '#2a4a3a' : '#2a2a2a',

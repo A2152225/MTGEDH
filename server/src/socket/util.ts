@@ -222,7 +222,8 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           const parsedCost = parseManaFromString(manaCost);
           
           // Apply cost reduction to get the actual cost
-          const actualCost = applyCostReduction(parsedCost, reduction);
+          const reducedCost = applyCostReduction(parsedCost, reduction);
+          const actualCost = { ...reducedCost, hasX: (reducedCost as any).hasX ?? (parsedCost as any).hasX ?? false };
           
           if (canPayManaCost(availableMana, actualCost) || hasPayableAlternateCost(game as any, playerId, card)) {
             if (reduction.messages && reduction.messages.length > 0) {

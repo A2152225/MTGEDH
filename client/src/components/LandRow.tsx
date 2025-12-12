@@ -36,8 +36,8 @@ function getEffectivePT(perm: BattlefieldPermanent): {
   t?: number;
 } {
   const kc = perm.card as KnownCardRef;
-  const baseP = typeof perm.basePower === 'number' ? perm.basePower : parsePT(kc?.power);
-  const baseT = typeof perm.baseToughness === 'number' ? perm.baseToughness : parsePT(kc?.toughness);
+  const baseP = typeof perm.basePower === 'number' ? perm.basePower : parsePT(kc?.power ? String(kc.power) : undefined);
+  const baseT = typeof perm.baseToughness === 'number' ? perm.baseToughness : parsePT(kc?.toughness ? String(kc.toughness) : undefined);
 
   // If server provided effective stats (includes counters + continuous buffs), prefer them.
   const effP = (perm as any).effectivePower as number | undefined;

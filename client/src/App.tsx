@@ -7,7 +7,6 @@ import type {
   ChatMsg,
   BattlefieldPermanent,
   CardRef,
-  CardFace,
   ManaPool,
 } from "../../shared/src";
 import { TableLayout } from "./components/TableLayout";
@@ -1714,7 +1713,7 @@ export function App() {
       permanentId: string;
       cardName: string;
       availableColors: string[];
-      totalAmount: number;
+      totalAmount?: number;
       isAnyColor?: boolean;
       message?: string;
     }) => {
@@ -1723,7 +1722,7 @@ export function App() {
           gameId: payload.gameId,
           permanentId: payload.permanentId,
           cardName: payload.cardName,
-          totalAmount: payload.totalAmount,
+          totalAmount: payload.totalAmount ?? payload.availableColors.length,
           availableColors: payload.availableColors,
           message: payload.message,
         });
@@ -1846,7 +1845,7 @@ export function App() {
       if (payload.gameId === safeView?.id) {
         // Open the cast spell modal with the overload cost
         // Find the card in hand to get full details including oracle text
-        const hand = safeView.hand || [];
+        const hand = (safeView as any).hand || [];
         const cardInHand = hand.find((c: any) => c?.id === payload.cardId);
         
         if (cardInHand) {
@@ -1865,7 +1864,7 @@ export function App() {
     return () => {
       socket.off("overloadCastRequest", handler);
     };
-  }, [safeView?.id, safeView?.hand]);
+  }, [safeView?.id, (safeView as any)?.hand]);
 
   // MDFC face selection complete listener - continue playing the land
   React.useEffect(() => {
@@ -1917,7 +1916,7 @@ export function App() {
     }) => {
       // Only update if this is for the current player
       if (payload.gameId === safeView?.id && payload.playerId === you) {
-        setManaPool(payload.manaPool);
+        setManaPool(payload.manaPool as ManaPool);
       }
     };
     socket.on("manaPoolUpdate", handler);
@@ -3145,6 +3144,7 @@ export function App() {
     if (safeView && spellToCast?.effectId) {
       socket.emit("targetSelectionCancel", {
         gameId: safeView.id,
+        cardId: spellToCast.cardId,
         effectId: spellToCast.effectId,
       });
     }
@@ -3576,7 +3576,9 @@ export function App() {
     if (fused && cardFaces && cardFaces.length >= 2) {
       // Fuse: special case - for now use legacy flow
       // TODO: Implement fuse handling in requestCastSpell
-      const manaCost = (cardFaces[0]?.mana_cost || '') + (cardFaces[1]?.mana_cost || '');
+      const manaCost =
+        ((cardFaces[0] as any)?.mana_cost || cardFaces[0]?.manaCost || '') +
+        ((cardFaces[1] as any)?.mana_cost || cardFaces[1]?.manaCost || '');
       const displayName = `${cardFaces[0]?.name || 'Left'} // ${cardFaces[1]?.name || 'Right'}`;
       setSpellToCast({
         cardId: splitCardData.cardId,
@@ -4111,11 +4113,11 @@ export function App() {
                   // Build face options
                   const faces: CardFaceOption[] = cardFaces.map((face, idx) => ({
                     id: `face_${idx}`,
-                    name: face.name || `Face ${idx + 1}`,
-                    manaCost: face.mana_cost,
-                    typeLine: face.type_line,
-                    oracleText: face.oracle_text,
-                    imageUrl: face.image_uris?.small || face.image_uris?.normal,
+                    name: (face as any).name || `Face ${idx + 1}`,
+                    manaCost: (face as any).mana_cost ?? (face as any).manaCost,
+                    typeLine: (face as any).type_line ?? (face as any).typeLine,
+                    oracleText: (face as any).oracle_text ?? (face as any).oracleText,
+                    imageUrl: (face as any).image_uris?.small || (face as any).image_uris?.normal || (face as any).imageUrl,
                     // For adventure cards, the creature (first face) is the default
                     isDefault: layout === 'adventure' && idx === 0,
                   }));
@@ -5404,7 +5406,7 @@ export function App() {
         squadCost={squadCostModalData?.squadCost || ''}
         imageUrl={squadCostModalData?.imageUrl}
         effectId={squadCostModalData?.effectId}
-        availableMana={manaPool || undefined}
+        availableMana={(manaPool as unknown as Record<string, number>) || undefined}
         onConfirm={(timesPaid) => {
           if (squadCostModalData) {
             socket.emit("squadCostConfirm", {
@@ -5458,7 +5460,14 @@ export function App() {
         cardName={mdfcFaceModalData?.cardName || ''}
         title={mdfcFaceModalData?.title}
         description={mdfcFaceModalData?.description}
-        faces={mdfcFaceModalData?.faces || []}
+        faces={(mdfcFaceModalData?.faces || []).map((face, index) => ({
+          index,
+          name: face.name ?? (face as any).name ?? 'Face',
+          typeLine: (face as any).type_line ?? (face as any).typeLine ?? '',
+          oracleText: (face as any).oracle_text ?? (face as any).oracleText,
+          manaCost: (face as any).mana_cost ?? (face as any).manaCost,
+          imageUrl: (face as any).image_uris?.normal || (face as any).image_uris?.small || (face as any).imageUrl,
+        }))}
         onConfirm={(selectedFace) => {
           if (safeView?.id && mdfcFaceModalData) {
             socket.emit("mdfcFaceSelectionConfirm", {
@@ -5643,7 +5652,7 @@ export function App() {
           cards={ponderRequest.cards}
           cardName={ponderRequest.cardName}
           cardImageUrl={ponderRequest.cardImageUrl}
-          imagePref={appearanceSettings.imagePref}
+          imagePref={appearanceSettings.imagePref || 'normal'}
           variant={ponderRequest.variant}
           canShuffle={ponderRequest.canShuffle}
           drawAfter={ponderRequest.drawAfter}

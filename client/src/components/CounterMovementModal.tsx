@@ -317,8 +317,14 @@ export function CounterMovementModal({
                       <div
                         key={perm.id}
                         onClick={() => handleSourceSelect(perm.id)}
-                        onMouseEnter={() => imageUrl && showCardPreview(imageUrl)}
-                        onMouseLeave={hideCardPreview}
+                        onMouseEnter={(e) =>
+                          imageUrl &&
+                          showCardPreview(e.currentTarget, {
+                            image_uris: { normal: imageUrl },
+                            name: card?.name,
+                          } as any)
+                        }
+                        onMouseLeave={(e) => hideCardPreview(e.currentTarget)}
                         style={{
                           padding: '8px',
                           backgroundColor: isSelected ? '#2a4a3a' : '#2a2a2a',
@@ -344,7 +350,7 @@ export function CounterMovementModal({
                         </div>
                         <div style={{ fontSize: '11px', color: '#999', marginTop: '4px' }}>
                           {Object.entries(counters).map(([type, count]) => (
-                            <div key={type}>{count}x {type}</div>
+                            <div key={type}>{String(count)}x {type}</div>
                           ))}
                         </div>
                       </div>
@@ -407,8 +413,14 @@ export function CounterMovementModal({
                       <div
                         key={perm.id}
                         onClick={() => handleTargetSelect(perm.id)}
-                        onMouseEnter={() => imageUrl && showCardPreview(imageUrl)}
-                        onMouseLeave={hideCardPreview}
+                        onMouseEnter={(e) =>
+                          imageUrl &&
+                          showCardPreview(e.currentTarget, {
+                            image_uris: { normal: imageUrl },
+                            name: card?.name,
+                          } as any)
+                        }
+                        onMouseLeave={(e) => hideCardPreview(e.currentTarget)}
                         style={{
                           padding: '8px',
                           backgroundColor: isSelected ? '#2a4a3a' : '#2a2a2a',
@@ -434,9 +446,9 @@ export function CounterMovementModal({
                         </div>
                         {Object.keys(counters).length > 0 && (
                           <div style={{ fontSize: '11px', color: '#999', marginTop: '4px' }}>
-                            {Object.entries(counters).map(([type, count]) => (
-                              <div key={type}>{count}x {type}</div>
-                            ))}
+                          {Object.entries(counters).map(([type, count]) => (
+                            <div key={type}>{String(count)}x {type}</div>
+                          ))}
                           </div>
                         )}
                       </div>

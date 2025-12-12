@@ -38,6 +38,7 @@ export type KnownCardRef = {
 
 // Events sent from client -> server
 export interface ClientToServerEvents {
+  [event: string]: (...args: any[]) => void;
   // basic lobby / connection
   joinGame: (payload: { gameId: GameID; playerName: string; spectator?: boolean; seatToken?: string; fixedPlayerId?: PlayerID }) => void;
   requestState: (payload: { gameId: GameID }) => void;
@@ -233,11 +234,12 @@ export interface ClientToServerEvents {
     cardId: string; 
     targets?: string[]; 
     payment?: Array<{ permanentId?: string; lifePayment?: number }>; 
-    faceIndex?: number 
+    faceIndex?: number;
+    effectId?: string;
   }) => void;
   
   // Play a land from hand
-  playLand: (payload: { gameId: GameID; cardId: string }) => void;
+  playLand: (payload: { gameId: GameID; cardId: string; selectedFace?: number }) => void;
   
   // Remove a permanent from battlefield
   removePermanent: (payload: { gameId: GameID; permanentId: string; destination?: string }) => void;
@@ -937,6 +939,9 @@ export interface ServerToClientEvents {
     cardName: string;
     availableColors: string[];
     grantedBy?: string; // ID of the permanent granting the ability (e.g., Cryptolith Rite)
+    totalAmount?: number;
+    isAnyColor?: boolean;
+    message?: string;
   }) => void;
 
   // ===== REPLAY VIEWER EVENTS (SERVER -> CLIENT) =====
