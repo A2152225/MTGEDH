@@ -309,20 +309,27 @@ function hasActivatableAbility(
   const oracleText = permanent.card.oracle_text || "";
   const typeLine = (permanent.card.type_line || "").toLowerCase();
   
-  // Check for tap abilities: "{T}: Effect"
-  // Common patterns: "{T}: Add {G}", "{T}: Draw a card", "{T}, Sacrifice ~: Effect"
+  // Check for tap abilities: "{T}: Effect" or "{Cost}, {T}: Effect"
+  // Common patterns: 
+  // - "{T}: Add {G}" (simple tap)
+  // - "{T}, Sacrifice ~: Effect" (tap + additional cost after)
+  // - "{2}{R}, {T}: This creature fights..." (mana + tap, like Brash Taunter)
   const hasTapAbility = /\{T\}:/i.test(oracleText);
   
   if (hasTapAbility) {
     // Can only activate if not tapped
     if (permanent.tapped) return false;
     
-    // Check if there's a mana cost in the ability
-    const abilityMatch = oracleText.match(/\{T\}(?:,\s*([^:]+))?:\s*(.+)/i);
-    if (!abilityMatch) return true; // Simple tap ability with no cost
+    // Match tap abilities with various cost patterns:
+    // Pattern 1: "{T}, <additional>: <effect>" - tap first, then additional costs
+    // Pattern 2: "<costs>, {T}: <effect>" - costs before tap (e.g., {2}{R}, {T})
+    // Pattern 3: "{T}: <effect>" - simple tap only
+    const abilityMatch = oracleText.match(/(?:(\{[^}]+\}(?:\s*\{[^}]+\})*)\s*,\s*)?\{T\}(?:\s*,\s*([^:]+))?:\s*(.+)/i);
+    if (!abilityMatch) return true; // Couldn't parse, assume can activate
     
-    const additionalCost = abilityMatch[1] || "";
-    const effect = abilityMatch[2] || "";
+    const costsBeforeTap = abilityMatch[1] || ""; // Mana costs before {T}
+    const additionalCostAfterTap = abilityMatch[2] || ""; // Other costs after {T}
+    const effect = abilityMatch[3] || "";
     
     // CRITICAL: Skip mana abilities - they don't use the stack and don't require priority
     // Per MTG Rule 605.3a, mana abilities can be activated whenever needed for payment
@@ -330,31 +337,45 @@ function hasActivatableAbility(
       return false; // Mana abilities don't prevent auto-pass
     }
     
-    // Check for mana costs in additional cost
-    const manaCostMatch = additionalCost.match(/\{[^}]+\}/g);
-    if (manaCostMatch) {
-      const costString = manaCostMatch.join("");
-      const parsedCost = parseManaCost(costString);
-      if (!canPayManaCost(pool, parsedCost)) {
-        return false;
+    // Check for mana costs BEFORE tap symbol (e.g., "{2}{R}, {T}:")
+    if (costsBeforeTap) {
+      const manaCostMatch = costsBeforeTap.match(/\{[^}]+\}/g);
+      if (manaCostMatch) {
+        const costString = manaCostMatch.join("");
+        const parsedCost = parseManaCost(costString);
+        if (!canPayManaCost(pool, parsedCost)) {
+          return false; // Can't pay mana cost
+        }
       }
     }
     
-    // Check for sacrifice costs
-    if (additionalCost.toLowerCase().includes("sacrifice")) {
-      // Would need to check if player has permanents to sacrifice
-      // For now, assume they might have one
-      return true;
-    }
-    
-    // Check for life payment costs
-    if (additionalCost.toLowerCase().includes("pay") && additionalCost.toLowerCase().includes("life")) {
-      const lifeMatch = additionalCost.match(/pay (\d+) life/i);
-      if (lifeMatch) {
-        const lifeCost = parseInt(lifeMatch[1], 10);
-        const currentLife = state.life?.[playerId] ?? 40;
-        if (currentLife < lifeCost) {
-          return false;
+    // Check for mana costs AFTER tap symbol (e.g., "{T}, {2}:")
+    if (additionalCostAfterTap) {
+      const manaCostMatch = additionalCostAfterTap.match(/\{[^}]+\}/g);
+      if (manaCostMatch) {
+        const costString = manaCostMatch.join("");
+        const parsedCost = parseManaCost(costString);
+        if (!canPayManaCost(pool, parsedCost)) {
+          return false; // Can't pay mana cost
+        }
+      }
+      
+      // Check for sacrifice costs
+      if (additionalCostAfterTap.toLowerCase().includes("sacrifice")) {
+        // Would need to check if player has permanents to sacrifice
+        // For now, assume they might have one
+        return true;
+      }
+      
+      // Check for life payment costs
+      if (additionalCostAfterTap.toLowerCase().includes("pay") && additionalCostAfterTap.toLowerCase().includes("life")) {
+        const lifeMatch = additionalCostAfterTap.match(/pay (\d+) life/i);
+        if (lifeMatch) {
+          const lifeCost = parseInt(lifeMatch[1], 10);
+          const currentLife = state.life?.[playerId] ?? 40;
+          if (currentLife < lifeCost) {
+            return false;
+          }
         }
       }
     }

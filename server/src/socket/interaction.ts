@@ -5852,40 +5852,52 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
       
       // Consume mana from pool
-      if (manaPaid) {
-        for (const [color, amount] of Object.entries(manaPaid)) {
-          if (pool[color] !== undefined && amount > 0) {
-            pool[color] -= amount;
-          }
-        }
-      }
+      consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[equipTargetChosen]');
     }
     
-    // Remove equipment from previous target (if any)
-    if (equipment.attachedTo) {
-      const previousTarget = battlefield.find((p: any) => p?.id === equipment.attachedTo);
-      if (previousTarget && previousTarget.attachedEquipment) {
-        previousTarget.attachedEquipment = (previousTarget.attachedEquipment as string[]).filter(
-          (id: string) => id !== equipmentId
-        );
-      }
+    // CRITICAL FIX: Put equip ability on the stack instead of directly attaching
+    // This allows players to respond to equip activations
+    const equipAbilityId = `equip_ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    
+    game.state.stack = game.state.stack || [];
+    game.state.stack.push({
+      id: equipAbilityId,
+      type: 'ability',
+      controller: pid,
+      source: equipmentId,
+      sourceName: equipment.card?.name || "Equipment",
+      description: `Equip ${equipment.card?.name} to ${targetCreature.card?.name}`,
+      abilityType: 'equip',
+      // Store equip parameters for when the ability resolves
+      equipParams: {
+        equipmentId,
+        targetCreatureId,
+        equipmentName: equipment.card?.name,
+        targetCreatureName: targetCreature.card?.name,
+      },
+    } as any);
+    
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
     }
     
-    // Attach equipment to new target
-    equipment.attachedTo = targetCreatureId;
+    // Emit chat message
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} activated equip ability: ${equipment.card?.name} targeting ${targetCreature.card?.name}. Ability on the stack.`,
+      ts: Date.now(),
+    });
     
-    // Add equipment to creature's attachedEquipment array
-    if (!targetCreature.attachedEquipment) {
-      targetCreature.attachedEquipment = [];
-    }
-    if (!targetCreature.attachedEquipment.includes(equipmentId)) {
-      targetCreature.attachedEquipment.push(equipmentId);
-    }
+    console.log(`[equipTargetChosen] Equip ability on stack: ${equipment.card?.name} → ${targetCreature.card?.name}`);
     
-    // Add equipped badge/marker
-    targetCreature.isEquipped = true;
-    
-    console.log(`[equipTargetChosen] ${equipment.card?.name} equipped to ${targetCreature.card?.name}`);
+    appendEvent(gameId, (game as any).seq ?? 0, "equipTarget", {
+      playerId: pid,
+      equipmentId,
+      targetCreatureId,
+      equipCost,
+    });
     
     // Broadcast updated game state
     broadcastGame(io, game, gameId);
