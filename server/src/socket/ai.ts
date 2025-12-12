@@ -82,13 +82,19 @@ function extractColorIdentity(card: any): string[] {
  * - Legendary planeswalkers with "can be your commander"
  * - Legendary Vehicles (as of recent rules changes)
  * - Legendary cards with Station type
+ * - Background enchantments (can be commanders when paired with "Choose a Background")
  * - Any card with "can be your commander" text
  */
 function isValidCommander(card: any): boolean {
   const typeLine = (card.type_line || '').toLowerCase();
   const oracleText = (card.oracle_text || '').toLowerCase();
   
-  // Must be legendary
+  // Background enchantments can be commanders (even if not legendary)
+  if (typeLine.includes('background')) {
+    return true;
+  }
+  
+  // Must be legendary for other types
   if (!typeLine.includes('legendary')) {
     return false;
   }
