@@ -251,7 +251,7 @@ export function viewFor(
     // Map turnNumber to turn for client compatibility
     turn: (state as any).turnNumber ?? 1,
     // Set viewer field for playable cards calculation
-    // Exclude "spectator:judge" as they don't have priority
+    // Exclude spectator:judge as they are not players in the game
     viewer: viewer === "spectator:judge" ? undefined : viewer,
   } as any;
 }
