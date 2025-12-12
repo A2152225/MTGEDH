@@ -2693,6 +2693,79 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
+    // Handle Fight abilities (Brash Taunter, etc.)
+    // Pattern: "{Cost}: This creature fights target creature you don't control"
+    const hasFightAbility = oracleText.includes("fights") || oracleText.includes("fight");
+    const isFightAbility = hasFightAbility && (abilityId.includes("fight") || oracleText.match(/\{[^}]+\}[^:]*:\s*[^.]*fights?/i));
+    
+    if (isFightAbility) {
+      // Parse the cost
+      const { requiresTap, manaCost } = parseActivationCost(oracleText, /fights?/i);
+      
+      if (requiresTap && (permanent as any).tapped) {
+        socket.emit("error", {
+          code: "ALREADY_TAPPED",
+          message: `${cardName} is already tapped`,
+        });
+        return;
+      }
+      
+      if (manaCost) {
+        // Validate and consume mana
+        const parsedCost = parseManaCost(manaCost);
+        const pool = getOrInitManaPool(game.state, pid);
+        const totalAvailable = calculateTotalAvailableMana(pool, []);
+        
+        const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+        if (validationError) {
+          socket.emit("error", { code: "INSUFFICIENT_MANA", message: validationError });
+          return;
+        }
+        
+        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[activateBattlefieldAbility:fight]');
+      }
+      
+      // Tap the permanent if required
+      if (requiresTap) {
+        (permanent as any).tapped = true;
+      }
+      
+      // Generate activation ID
+      const activationId = `fight_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      
+      // Store pending fight activation
+      if (!game.state.pendingFightActivations) {
+        game.state.pendingFightActivations = {};
+      }
+      game.state.pendingFightActivations[activationId] = {
+        playerId: pid,
+        sourceId: permanentId,
+        sourceName: cardName,
+      };
+      
+      // Emit target selection request to client
+      socket.emit("fightTargetRequest", {
+        gameId,
+        activationId,
+        source: {
+          id: permanentId,
+          name: cardName,
+          imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+        },
+        targetFilter: {
+          types: ['creature'],
+          controller: 'opponent', // Fight abilities typically target opponent's creatures
+          excludeSource: true,
+        },
+        title: `${cardName} - Fight`,
+        description: oracleText,
+      });
+      
+      console.log(`[activateBattlefieldAbility] Fight ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for target creature`);
+      broadcastGame(io, game, gameId);
+      return;
+    }
+    
     // Handle Tap/Untap abilities (Saryth, Merrow Reejerey, Argothian Elder, etc.)
     // Parse ability text to detect tap/untap abilities
     const tapUntapParams = parseTapUntapAbilityText(oracleText);
@@ -5897,6 +5970,117 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       equipmentId,
       targetCreatureId,
       equipCost,
+    });
+    
+    // Broadcast updated game state
+    broadcastGame(io, game, gameId);
+  });
+
+  // Fight target selection handler
+  socket.on("fightTargetChosen", ({
+    gameId,
+    activationId,
+    targetCreatureId,
+  }: {
+    gameId: string;
+    activationId: string;
+    targetCreatureId: string;
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+      return;
+    }
+    
+    // Retrieve pending fight activation
+    const pendingFight = game.state.pendingFightActivations?.[activationId];
+    if (!pendingFight) {
+      socket.emit("error", {
+        code: "INVALID_ACTIVATION",
+        message: "Fight activation not found or expired",
+      });
+      return;
+    }
+    
+    // Validate player
+    if (pendingFight.playerId !== pid) {
+      socket.emit("error", {
+        code: "NOT_YOUR_ACTIVATION",
+        message: "This is not your activation",
+      });
+      return;
+    }
+    
+    const battlefield = game.state?.battlefield || [];
+    
+    // Find the source creature (the one that initiated the fight)
+    const sourceCreature = battlefield.find((p: any) => p?.id === pendingFight.sourceId);
+    if (!sourceCreature) {
+      socket.emit("error", {
+        code: "SOURCE_NOT_FOUND",
+        message: "Source creature not found on battlefield",
+      });
+      delete game.state.pendingFightActivations[activationId];
+      return;
+    }
+    
+    // Find the target creature
+    const targetCreature = battlefield.find((p: any) => p?.id === targetCreatureId);
+    if (!targetCreature) {
+      socket.emit("error", {
+        code: "INVALID_TARGET",
+        message: "Target creature not found on battlefield",
+      });
+      delete game.state.pendingFightActivations[activationId];
+      return;
+    }
+    
+    // Verify target is a creature
+    const targetTypeLine = (targetCreature.card?.type_line || "").toLowerCase();
+    if (!targetTypeLine.includes("creature")) {
+      socket.emit("error", {
+        code: "INVALID_TARGET",
+        message: "Target must be a creature",
+      });
+      delete game.state.pendingFightActivations[activationId];
+      return;
+    }
+    
+    // Clean up pending state
+    delete game.state.pendingFightActivations[activationId];
+    
+    // Execute the fight - each creature deals damage equal to its power to the other
+    const sourcePower = getEffectivePower(sourceCreature);
+    const targetPower = getEffectivePower(targetCreature);
+    
+    // Mark damage on both creatures
+    sourceCreature.damageMarked = (sourceCreature.damageMarked || 0) + targetPower;
+    targetCreature.damageMarked = (targetCreature.damageMarked || 0) + sourcePower;
+    
+    console.log(`[fightTargetChosen] ${pendingFight.sourceName} (power ${sourcePower}) fights ${targetCreature.card?.name} (power ${targetPower})`);
+    
+    // Emit chat message
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${pendingFight.sourceName} fights ${targetCreature.card?.name}! Each deals ${sourcePower} and ${targetPower} damage respectively.`,
+      ts: Date.now(),
+    });
+    
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+    
+    appendEvent(gameId, (game as any).seq ?? 0, "fight", {
+      playerId: pid,
+      sourceId: pendingFight.sourceId,
+      targetId: targetCreatureId,
+      sourcePower,
+      targetPower,
     });
     
     // Broadcast updated game state
