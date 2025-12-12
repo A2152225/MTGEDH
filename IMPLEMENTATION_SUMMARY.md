@@ -187,20 +187,65 @@ This PR addresses 5 critical gameplay bugs and implements 3 major new features w
 
 ---
 
+## 🎨 Additional Enhancements (Commits 10-11)
+
+### Combat Validation Improvements
+**Problem**: Smart Auto-Pass could incorrectly skip combat even when creatures had "can't attack" or "can't block" effects applied.
+
+**Solution**:
+- Enhanced `hasValidAttackers()` to check for "can't attack" restrictions
+  - Checks permanent's own oracle text
+  - Checks granted abilities from other sources (Pacifism, Trapped in the Tower, etc.)
+- Enhanced `hasValidBlockers()` to check for "can't block" restrictions
+  - Checks permanent's own oracle text
+  - Checks granted abilities from other sources
+
+**Impact**: More accurate combat detection prevents incorrect auto-passing.
+
+---
+
+### Fight Mechanic Polish
+**Improvement**: Better user feedback for fight resolution.
+
+**Changes**:
+- Added emoji to fight chat messages: "⚔️"
+- Clearer damage breakdown: "CreatureA deals X damage, CreatureB deals Y damage"
+- More explicit and easier to parse combat results
+
+**Example**: `⚔️ Brash Taunter fights Ancient Bronze Dragon! Brash Taunter deals 1 damage, Ancient Bronze Dragon deals 7 damage.`
+
+---
+
+### Excalibur Cost Reduction Implementation
+**Problem**: Excalibur, Sword of Eden wasn't reducing cost based on historic permanents' mana value.
+
+**Solution**:
+- Added pattern detection for "costs X less, where X is the total mana value of historic"
+- Calculates CMC for all historic permanents (artifacts, legendaries, sagas) you control
+- Uses CMC field when available, otherwise parses mana cost symbols
+- Handles colored mana, hybrid mana, and generic costs correctly
+
+**Files Changed**:
+- `server/src/socket/game-actions.ts` - Added historic mana value cost reduction
+
+**Testing**: With Excalibur and several historic permanents with total CMC of 15, verify Excalibur costs {15} less.
+
+---
+
 ## 📊 Impact Summary
 
 ### Changes Made
 - **7 files modified** with targeted changes  
-- **~450 lines added** across all changes
+- **~550 lines added** across all changes (includes enhancements)
 - **0 breaking changes** - all modifications backward compatible
 - **0 new compilation errors** - verified with typecheck
 
 ### Files Modified
 1. `client/src/App.tsx` - Equip fix, fight UI
 2. `server/src/socket/util.ts` - Commander checking, cost reduction
-3. `server/src/socket/game-actions.ts` - Export cost reduction functions
-4. `server/src/state/modules/can-respond.ts` - Combat checking
-5. `server/src/socket/interaction.ts` - Fight mechanic
+3. `server/src/socket/game-actions.ts` - Export cost reduction functions, Excalibur implementation
+4. `server/src/state/modules/can-respond.ts` - Combat checking with can't attack/block
+5. `server/src/socket/interaction.ts` - Fight mechanic with polished messages
 6. `IMPLEMENTATION_SUMMARY.md` - Documentation
 
 ### Pre-existing Issues
@@ -212,9 +257,15 @@ This PR addresses 5 critical gameplay bugs and implements 3 major new features w
 1. **Equip**: Activate equipment abilities, verify attachment
 2. **Commander**: Check highlight appears when castable from command zone
 3. **Cost Reduction**: Test Blasphemous Act, Excalibur with varying board states
+   - Blasphemous Act: Should reduce by {1} per creature on battlefield
+   - Excalibur: Should reduce by total mana value of historic permanents you control
 4. **Leyline Tyrant**: Verify red mana persists across phases
 5. **Auto-Pass**: Enable Smart Auto-Pass, verify combat phases aren't skipped
+   - Test with creatures that "can't attack" (Pacifism)
+   - Test with creatures that "can't block"
 6. **Fight**: Activate fight abilities, select targets, verify damage
+   - Check Brash Taunter fight ability
+   - Verify chat shows clear damage breakdown
 7. **Planeswalker**: Cast planeswalker commander, check loyalty badge
 8. **Goad**: Verify goaded creatures attack correctly
 9. **Reconfigure/Aura**: Test attachment mechanics
@@ -224,6 +275,7 @@ This PR addresses 5 critical gameplay bugs and implements 3 major new features w
 - Comprehensive logging added for debugging
 - Error handling included in all new functions
 - Minimal modifications principle followed throughout
+- Edge cases handled (can't attack/block effects, historic mana value calculation)
 
 ---
 
@@ -235,4 +287,4 @@ This PR is ready for:
 - ✅ Deployment to staging
 - ✅ Production deployment (after testing)
 
-All critical user-reported bugs have been addressed and new features implemented with minimal risk.
+All critical user-reported bugs have been addressed, new features implemented, and additional enhancements applied with minimal risk.
