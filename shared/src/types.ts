@@ -492,6 +492,8 @@ export type ClientGameView = Omit<GameState, 'battlefield' | 'stack' | 'players'
   cityBlessing?: Record<PlayerID, boolean>;
   /** Pending commander zone choice - when a commander would change zones */
   pendingCommanderZoneChoice?: PendingCommanderZoneChoice[];
+  /** The player ID viewing this game state (for calculating playable cards and priority checks) */
+  viewer?: PlayerID;
 };
 
 /** Pending commander zone choice (Rule 903.9a/903.9b) */
