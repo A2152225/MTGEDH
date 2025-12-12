@@ -394,10 +394,24 @@ export function evaluateConditionalLandETB(
   }
   
   // Check lands with single type (Castle Locthwain - Swamp, Castle Garenbrig - Forest, etc.)
+  // Also handles "basic land" requirement (Fire Nation Palace, etc.)
   // "enters the battlefield tapped unless you control a [Type]" or "this land enters tapped unless you control a [Type]"
-  const singleCheckMatch = text.match(/(?:this land )?enters(?: the battlefield)? tapped unless you control (?:a|an) ([\w]+)/i);
+  const singleCheckMatch = text.match(/(?:this land )?enters(?: the battlefield)? tapped unless you control (?:a|an) ([\w]+(?:\s+[\w]+)?)/i);
   if (singleCheckMatch && !text.includes(' or ')) {
-    const requiredType = singleCheckMatch[1].toLowerCase();
+    const requiredType = singleCheckMatch[1].toLowerCase().trim();
+    
+    // Special handling for "basic land" requirement
+    if (requiredType === 'basic land') {
+      const hasBasicLand = basicLandCount > 0;
+      return {
+        shouldEnterTapped: !hasBasicLand,
+        reason: hasBasicLand 
+          ? `Enters untapped (you control ${basicLandCount} basic land${basicLandCount !== 1 ? 's' : ''})` 
+          : `Enters tapped (no basic land controlled)`,
+      };
+    }
+    
+    // Regular land type check (Swamp, Forest, etc.)
     const hasRequiredType = controlledLandTypes.some(t => t.toLowerCase().includes(requiredType));
     return {
       shouldEnterTapped: !hasRequiredType,
