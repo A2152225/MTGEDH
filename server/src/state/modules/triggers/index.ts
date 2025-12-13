@@ -61,3 +61,9 @@ export * from "./crystal-abilities.js";
 
 // Lifegain triggers (Ratchet, Field Medic, Ajani's Pridemate, etc.)
 export * from "./lifegain.js";
+
+// Linked exile system (Oblivion Ring, Banisher Priest, etc.)
+export * from "./linked-exile.js";
+
+// Reanimate effects (Reanimate, Animate Dead, Living Death, etc.)
+export * from "./reanimate.js";
