@@ -978,6 +978,21 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     });
   }
   
+  // "Whenever a legendary creature enters the battlefield under your control" (Hero's Blade, etc.)
+  // This triggers when any legendary creature you control ETBs - used for auto-attach equipment
+  const legendaryCreatureETBMatch = oracleText.match(/whenever (?:a|an(?:other)?) legendary creatures? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i);
+  if (legendaryCreatureETBMatch && !triggers.some(t => (t as any).triggerType === 'legendary_creature_etb')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'legendary_creature_etb' as any,
+      description: legendaryCreatureETBMatch[1].trim(),
+      effect: legendaryCreatureETBMatch[1].trim(),
+      mandatory: !lowerOracle.includes('you may'),
+      requiresChoice: lowerOracle.includes('you may'),
+    });
+  }
+  
   // "Whenever another creature enters the battlefield" (Soul Warden, Auriok Champion, etc.)
   // This is CREATURE-ONLY - does NOT trigger on non-creature permanents like artifacts
   // NOTE: Soul Warden says "Whenever another creature enters the battlefield, you gain 1 life."
