@@ -183,7 +183,7 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
     
     // Special case: Basic lands (Mountain, Island, etc.)
     // Handle these first since they don't have oracle text with mana abilities
-    // Basic lands don't have summoning sickness
+    // Basic lands don't have summoning sickness (lands are never creatures unless stated otherwise)
     if (/^(plains|island|swamp|mountain|forest)$/i.test(cardName)) {
       const landToColor: Record<string, string> = {
         'plains': 'white',
@@ -208,24 +208,33 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
     // Skip if no tap mana abilities found
     if (matches.length === 0) continue;
     
-    // Rule 302.6: A permanent with a tap ability can't use it unless it's been under
-    // continuous control since the controller's most recent turn began, OR it's a creature with haste
-    // This applies to ALL permanents with tap abilities, not just creatures
+    // Rule 302.6: Permanents with tap abilities have "summoning sickness"
+    // They can't be used unless the permanent has been under the controller's control 
+    // continuously since their most recent turn began, OR:
+    // - It's a creature with haste
+    // Note: Lands don't have summoning sickness (they're not creatures by default)
     if (permanent.summoningSickness) {
-      // Check if it's a creature with haste (only creatures can have haste)
-      const isCreature = typeLine.includes('creature');
-      if (isCreature) {
-        // Check for haste - need to import/use the hasHaste check
-        // For now, simple check: look for "haste" in oracle text
-        const hasHaste = oracleText.includes('haste');
-        if (!hasHaste) {
-          // Creature with summoning sickness and no haste - skip it
+      // Lands never have summoning sickness (Rule 302.6)
+      // But check this based on type line, not just card name
+      const isLand = typeLine.includes('land');
+      if (!isLand) {
+        // Check if it's a creature with haste (only creatures can have haste)
+        const isCreature = typeLine.includes('creature');
+        if (isCreature) {
+          // Check for haste in oracle text or abilities
+          const hasHaste = oracleText.includes('haste');
+          if (!hasHaste) {
+            // Creature with summoning sickness and no haste - skip it
+            continue;
+          }
+          // Creature with haste can use tap abilities immediately
+        } else {
+          // Non-creature, non-land permanent with summoning sickness (e.g., Sol Ring, mana rocks)
+          // Can't use tap abilities
           continue;
         }
-      } else {
-        // Non-creature with summoning sickness - can't use tap ability
-        continue;
       }
+      // Lands can use tap abilities even with summoning sickness flag (shouldn't happen but defensive)
     }
     
     for (const match of matches) {
