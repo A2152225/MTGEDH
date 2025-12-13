@@ -401,6 +401,7 @@ export function TableLayout(props: {
   useEffect(() => { camRef.current = cam; }, [cam]);
   const dragRef = useRef<{ id: number; sx: number; sy: number; cx: number; cy: number; active: boolean } | null>(null);
   const [panKey, setPanKey] = useState(false);
+  const [pendingTextSwapSource, setPendingTextSwapSource] = useState<string | null>(null);
   useEffect(() => {
     const kd = (e: KeyboardEvent) => { if (e.code === 'Space') setPanKey(true); };
     const ku = (e: KeyboardEvent) => { if (e.code === 'Space') setPanKey(false); };
@@ -1284,6 +1285,17 @@ export function TableLayout(props: {
                           onAddCounter={isYouThis ? onCounter : undefined}
                           onSacrifice={isYouThis && gameId ? (id) => socket.emit('sacrificePermanent', { gameId, permanentId: id }) : undefined}
                           onRemove={isYouThis ? onRemove : undefined}
+                          onExchangeTextBoxes={isYouThis && gameId ? (clickedId) => {
+                            if (pendingTextSwapSource && pendingTextSwapSource !== clickedId) {
+                              socket.emit('exchangeTextBoxes', { gameId, sourcePermanentId: pendingTextSwapSource, targetPermanentId: clickedId });
+                              setPendingTextSwapSource(null);
+                            } else if (pendingTextSwapSource === clickedId) {
+                              setPendingTextSwapSource(null);
+                            } else {
+                              setPendingTextSwapSource(clickedId);
+                              console.info('[exchangeTextBoxes] Select a second permanent to complete the text swap.');
+                            }
+                          } : undefined}
                           canActivate={isYouThis || false}
                           playerId={isYouThis ? you : undefined}
                           hasPriority={hasPriority || false}

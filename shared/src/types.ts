@@ -203,6 +203,8 @@ export interface BattlefieldPermanent {
   modifiers?: readonly PermanentModifier[]; // Power/toughness and other modifiers from effects
   effectivePower?: number;
   effectiveToughness?: number;
+  trepanationBonus?: number;
+  lastTrepanationBonus?: number;
   /** Sources contributing to P/T bonuses, for tooltip display */
   ptSources?: PTBonusSource[];
   isCommander?: boolean;
@@ -210,6 +212,8 @@ export interface BattlefieldPermanent {
   posX?: number;
   posY?: number;
   posZ?: number;
+  /** Text-changing effects may override oracle text on the permanent */
+  oracle_text?: string;
   card: CardRef;
   // Combat state
   attacking?: PlayerID | string;  // Player ID being attacked, or permanent ID if attacking a planeswalker

@@ -2200,13 +2200,14 @@ export function registerGameActions(io: Server, socket: Socket) {
   // CAST SPELL FROM HAND - Core spell casting handler
   // Defined as a named function so it can be called directly from completeCastSpell
   // =====================================================================
-  const handleCastSpellFromHand = ({ gameId, cardId, targets, payment, skipInteractivePrompts, xValue }: { 
+  const handleCastSpellFromHand = ({ gameId, cardId, targets, payment, skipInteractivePrompts, xValue, alternateCostId }: { 
     gameId: string; 
     cardId: string; 
     targets?: any[]; 
     payment?: PaymentItem[];
     skipInteractivePrompts?: boolean; // NEW: Flag to skip target/payment requests when completing a previous cast
     xValue?: number;
+    alternateCostId?: string;
   }) => {
     try {
       const game = ensureGame(gameId);
@@ -2220,6 +2221,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       console.log(`[handleCastSpellFromHand] payment: ${payment ? JSON.stringify(payment) : 'undefined'}`);
       console.log(`[handleCastSpellFromHand] skipInteractivePrompts: ${skipInteractivePrompts}`);
       console.log(`[handleCastSpellFromHand] playerId: ${playerId}`);
+      if (alternateCostId) console.log(`[handleCastSpellFromHand] alternateCostId: ${alternateCostId}`);
       console.log(`[handleCastSpellFromHand] priority: ${game.state.priority}`);
 
       // Check if we're in PRE_GAME phase - spells cannot be cast during pre-game
@@ -3583,13 +3585,14 @@ export function registerGameActions(io: Server, socket: Socket) {
   // COMPLETE CAST SPELL - Final step after targets selected and payment made
   // Called after both target selection and payment are complete
   // =====================================================================
-  socket.on("completeCastSpell", ({ gameId, cardId, targets, payment, effectId, xValue }: { 
+  socket.on("completeCastSpell", ({ gameId, cardId, targets, payment, effectId, xValue, alternateCostId }: { 
     gameId: string; 
     cardId: string; 
     targets?: any[]; 
     payment?: PaymentItem[];
     effectId?: string;
     xValue?: number;
+    alternateCostId?: string;
   }) => {
     try {
       const game = ensureGame(gameId);
@@ -3657,7 +3660,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // CRITICAL FIX: Pass skipInteractivePrompts=true to prevent infinite targeting loop
       // This tells handleCastSpellFromHand to skip all target/payment requests since we're completing a previous cast
-      handleCastSpellFromHand({ gameId, cardId, targets: finalTargets, payment, skipInteractivePrompts: true, xValue });
+      handleCastSpellFromHand({ gameId, cardId, targets: finalTargets, payment, skipInteractivePrompts: true, xValue, alternateCostId });
       
     } catch (err: any) {
       console.error(`[completeCastSpell] Error:`, err);

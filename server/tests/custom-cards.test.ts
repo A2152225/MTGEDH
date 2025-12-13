@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID } from '../../shared/src';
-import { applyLifeGain } from '../src/state/utils';
+import { applyLifeGain, exchangePermanentOracleText } from '../src/state/utils';
+import { detectUpkeepTriggers } from '../src/state/modules/upkeep-triggers';
 
 describe('Custom Cards - Aerith Gainsborough', () => {
   it('gains exactly one +1/+1 counter per life gain event', () => {
@@ -224,6 +225,36 @@ describe('Custom Cards - Death\'s Presence', () => {
     
     expect(deathsPresenceTrigger).toBeDefined();
     expect(deathsPresenceTrigger?.countersToAdd).toBe(3);
+  });
+});
+
+describe('Custom Cards - Deadpool, Trading Card', () => {
+  const deadpoolText = [
+    'As Deadpool enters, you may exchange his text box and another creature’s.',
+    'At the beginning of your upkeep, you lose 3 life.',
+    '{3}, Sacrifice this creature: Each other player draws a card.'
+  ].join('\n');
+
+  it('exchanges oracle text between permanents', () => {
+    const battlefield = [
+      { id: 'deadpool', controller: 'p1', card: { oracle_text: deadpoolText } },
+      { id: 'target', controller: 'p2', card: { oracle_text: 'Flying' } },
+    ] as any[];
+
+    const swapped = exchangePermanentOracleText(battlefield, 'deadpool', 'target');
+    expect(swapped).toBe(true);
+    expect(battlefield[0].card.oracle_text).toBe('Flying');
+    expect(battlefield[1].card.oracle_text).toBe(deadpoolText);
+    expect((battlefield[0] as any).oracle_text).toBe('Flying');
+  });
+
+  it('registers upkeep life loss trigger', () => {
+    const triggers = detectUpkeepTriggers(
+      { name: 'Deadpool, Trading Card', oracle_text: deadpoolText },
+      { id: 'deadpool', counters: {} }
+    );
+
+    expect(triggers.some(t => t.description.toLowerCase().includes('lose 3 life'))).toBe(true);
   });
 });
 

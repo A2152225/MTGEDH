@@ -1,3 +1,5 @@
+import type { BattlefieldPermanent } from "../../../shared/src/types.js";
+
 export function uid(prefix = "id"): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -2520,6 +2522,38 @@ function extractCreatureTypes(typeLine: string): string[] {
   if (dashIndex === -1) return [];
   const subtypes = typeLine.substring(dashIndex + 1).trim();
   return subtypes.split(/\s+/).filter(t => t.length > 0);
+}
+
+/**
+ * Exchange the oracle text between two permanents on the battlefield.
+ * Used for text-changing effects like Exchange of Words or custom cards that swap text boxes.
+ *
+ * @returns true if the exchange was completed, false if either permanent was missing
+ */
+export function exchangePermanentOracleText(
+  battlefield: BattlefieldPermanent[],
+  sourceId: string,
+  targetId: string
+): boolean {
+  const source = battlefield.find(p => p?.id === sourceId);
+  const target = battlefield.find(p => p?.id === targetId);
+  if (!source || !target || !source.card || !target.card) return false;
+
+  const sourceText = source.card.oracle_text || '';
+  const targetText = target.card.oracle_text || '';
+
+  const applyText = (perm: BattlefieldPermanent, text: string) => {
+    // Keep both the card reference and the per-permanent override in sync,
+    // as different modules may read from either location for text-changing effects.
+    if (perm.card) {
+      perm.card.oracle_text = text;
+    }
+    perm.oracle_text = text;
+  };
+
+  applyText(source, targetText);
+  applyText(target, sourceText);
+  return true;
 }
 
 /**

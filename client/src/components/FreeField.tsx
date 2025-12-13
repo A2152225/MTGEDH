@@ -97,6 +97,7 @@ export function FreeField(props: {
   onAddCounter?: (id: string, kind: string, delta: number) => void;
   onSacrifice?: (id: string) => void;
   onRemove?: (id: string) => void;
+  onExchangeTextBoxes?: (sourceId: string) => void;
   canActivate?: boolean;
   playerId?: string;
   // Game state for ability activation context
@@ -118,6 +119,7 @@ export function FreeField(props: {
     draggable = false, onMove, highlightTargets, selectedTargets, onCardClick,
     players = [],
     onTap, onUntap, onActivateAbility, onAddCounter, onSacrifice, onRemove,
+    onExchangeTextBoxes,
     canActivate = true, playerId,
     hasPriority = false,
     isOwnTurn = false,
@@ -967,6 +969,7 @@ export function FreeField(props: {
           onAddCounter={onAddCounter}
           onSacrifice={onSacrifice}
           onRemove={onRemove}
+          onExchangeTextBoxes={onExchangeTextBoxes}
           canActivate={canActivate}
           playerId={playerId}
         />
