@@ -13,6 +13,7 @@ interface Props {
   showLoyalty?: boolean;
   showAttackIndicator?: boolean;
   showTargetedIndicator?: boolean;
+  showDamage?: boolean;  // Show sustained damage indicator
 }
 
 // Extended ability label map with more keywords
@@ -83,6 +84,7 @@ export function CardOverlay({
   showLoyalty = true,
   showAttackIndicator = true,
   showTargetedIndicator = true,
+  showDamage = true,
 }: Props) {
   const kc = perm.card as KnownCardRef;
   const typeLine = (kc?.type_line || '').toLowerCase();
@@ -119,6 +121,9 @@ export function CardOverlay({
   // P/T bonus sources for tooltip
   const ptSources = perm.ptSources || [];
 
+  // Damage marked on the creature (sustained damage this turn)
+  const damageMarked = perm.damageMarked ?? 0;
+
   // Attack indicator
   const attackingPlayer = perm.attacking;
   const attackingPlayerName = attackingPlayer 
@@ -144,29 +149,42 @@ export function CardOverlay({
   // State for P/T tooltip
   const [showPTTooltip, setShowPTTooltip] = useState(false);
 
-  // Build P/T tooltip content
-  const buildPTTooltipContent = () => {
-    if (ptSources.length === 0 && baseP === effP && baseT === effT) {
-      return null;
-    }
-    
+  // Build the P/T modifier breakdown for tooltip
+  const buildModifierBreakdown = (): { lines: string[]; hasModifiers: boolean } => {
     const lines: string[] = [];
+    let hasModifiers = false;
+
+    // Base P/T
     if (baseP !== undefined && baseT !== undefined) {
       lines.push(`Base: ${baseP}/${baseT}`);
     }
-    
+
+    // +1/+1 counters
+    const plusCounters = perm.counters?.['+1/+1'] ?? 0;
+    if (plusCounters > 0) {
+      lines.push(`${plusCounters}× +1/+1 counters`);
+      hasModifiers = true;
+    }
+
+    // -1/-1 counters
+    const minusCounters = perm.counters?.['-1/-1'] ?? 0;
+    if (minusCounters > 0) {
+      lines.push(`${minusCounters}× -1/-1 counters`);
+      hasModifiers = true;
+    }
+
+    // Other P/T sources (from continuous effects, equipment, auras, etc.)
     for (const source of ptSources) {
       const pStr = source.power >= 0 ? `+${source.power}` : `${source.power}`;
       const tStr = source.toughness >= 0 ? `+${source.toughness}` : `${source.toughness}`;
       lines.push(`${source.name}: ${pStr}/${tStr}`);
+      hasModifiers = true;
     }
-    
-    if (effP !== undefined && effT !== undefined) {
-      lines.push(`Total: ${effP}/${effT}`);
-    }
-    
-    return lines.join('\n');
+
+    return { lines, hasModifiers };
   };
+
+  const { lines: modifierLines, hasModifiers } = buildModifierBreakdown();
 
   return (
     <>
@@ -227,165 +245,254 @@ export function CardOverlay({
         </div>
       )}
 
-      {/* P/T display for creatures with hover tooltip */}
+      {/* P/T display for creatures with hover tooltip - positioned in lower right like real MTG cards */}
       {showPT && isCreature && effP !== undefined && effT !== undefined && (
         <div 
           style={{
             position: 'absolute',
             right: Math.round(4 * scale),
-            bottom: Math.round(24 * scale),
+            bottom: Math.round(4 * scale),
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'flex-end',
-            gap: Math.round(1 * scale),
+            gap: Math.round(2 * scale),
+            zIndex: 20,
           }}
-          onMouseEnter={() => ptSources.length > 0 && setShowPTTooltip(true)}
+          onMouseEnter={() => (hasModifiers || damageMarked > 0) && setShowPTTooltip(true)}
           onMouseLeave={() => setShowPTTooltip(false)}
         >
+          {/* Main P/T badge - styled like the P/T box on real MTG cards */}
           <div style={{
             display: 'flex',
             alignItems: 'center',
             gap: Math.round(2 * scale),
-            padding: `${Math.round(2 * scale)}px ${Math.round(6 * scale)}px`,
-            borderRadius: Math.round(4 * scale),
-            background: 'rgba(0,0,0,0.75)',
-            border: ptSources.length > 0 ? '1px solid rgba(255,215,0,0.5)' : '1px solid rgba(255,255,255,0.2)',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
-            cursor: ptSources.length > 0 ? 'help' : 'default',
+            padding: `${Math.round(3 * scale)}px ${Math.round(8 * scale)}px`,
+            borderRadius: Math.round(6 * scale),
+            background: 'linear-gradient(135deg, rgba(40,40,50,0.95), rgba(25,25,35,0.98))',
+            border: hasModifiers 
+              ? '2px solid rgba(255,215,0,0.7)' 
+              : damageMarked > 0 
+                ? '2px solid rgba(239,68,68,0.7)' 
+                : '2px solid rgba(200,200,200,0.4)',
+            boxShadow: hasModifiers 
+              ? '0 2px 8px rgba(255,215,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)' 
+              : damageMarked > 0
+                ? '0 2px 8px rgba(239,68,68,0.3), inset 0 1px 0 rgba(255,255,255,0.1)'
+                : '0 2px 6px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.1)',
+            cursor: (hasModifiers || damageMarked > 0) ? 'help' : 'default',
+            minWidth: Math.round(36 * scale),
+            justifyContent: 'center',
           }}>
             <span style={{
-              fontSize: Math.round(12 * scale),
+              fontSize: Math.round(14 * scale),
               fontWeight: 700,
               color: getPTColor(baseP, effP),
+              textShadow: '0 1px 2px rgba(0,0,0,0.5)',
             }}>
               {effP}
             </span>
             <span style={{
-              fontSize: Math.round(10 * scale),
+              fontSize: Math.round(11 * scale),
               color: '#9ca3af',
+              fontWeight: 600,
             }}>/</span>
             <span style={{
-              fontSize: Math.round(12 * scale),
+              fontSize: Math.round(14 * scale),
               fontWeight: 700,
               color: getPTColor(baseT, effT),
+              textShadow: '0 1px 2px rgba(0,0,0,0.5)',
             }}>
               {effT}
             </span>
           </div>
-          {/* Show base if different */}
-          {(baseP !== effP || baseT !== effT) && baseP !== undefined && baseT !== undefined && (
-            <span style={{
-              fontSize: Math.round(8 * scale),
-              color: '#9ca3af',
-              opacity: 0.8,
+
+          {/* Sustained damage indicator - shows damage marked on creature */}
+          {showDamage && damageMarked > 0 && effT !== undefined && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: Math.round(2 * scale),
+              padding: `${Math.round(2 * scale)}px ${Math.round(5 * scale)}px`,
+              borderRadius: Math.round(4 * scale),
+              background: 'linear-gradient(135deg, rgba(239,68,68,0.9), rgba(185,28,28,0.9))',
+              border: '1px solid rgba(252,165,165,0.6)',
+              boxShadow: '0 2px 6px rgba(239,68,68,0.4)',
             }}>
-              base {baseP}/{baseT}
-            </span>
+              <span style={{ fontSize: Math.round(8 * scale) }}>💔</span>
+              <span style={{
+                fontSize: Math.round(10 * scale),
+                fontWeight: 600,
+                color: '#fff',
+                textShadow: '0 1px 1px rgba(0,0,0,0.3)',
+              }}>
+                {damageMarked}/{effT}
+              </span>
+            </div>
           )}
           
-          {/* P/T Sources Tooltip */}
-          {showPTTooltip && ptSources.length > 0 && (
+          {/* P/T Breakdown Tooltip */}
+          {showPTTooltip && (hasModifiers || damageMarked > 0) && (
             <div style={{
               position: 'absolute',
               bottom: '100%',
               right: 0,
-              marginBottom: 4,
-              padding: '8px 12px',
-              background: 'rgba(0,0,0,0.95)',
-              borderRadius: 6,
-              border: '1px solid rgba(255,215,0,0.3)',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+              marginBottom: 6,
+              padding: '10px 14px',
+              background: 'rgba(15,15,25,0.98)',
+              borderRadius: 8,
+              border: '1px solid rgba(255,215,0,0.4)',
+              boxShadow: '0 6px 20px rgba(0,0,0,0.6)',
               zIndex: 1000,
-              minWidth: 150,
-              whiteSpace: 'nowrap',
+              minWidth: 180,
+              maxWidth: 280,
             }}>
+              {/* Header */}
               <div style={{ 
-                fontSize: 11, 
-                fontWeight: 600, 
+                fontSize: 12, 
+                fontWeight: 700, 
                 color: '#fbbf24', 
-                marginBottom: 6,
-                borderBottom: '1px solid rgba(255,255,255,0.1)',
-                paddingBottom: 4,
+                marginBottom: 8,
+                borderBottom: '1px solid rgba(255,255,255,0.15)',
+                paddingBottom: 6,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
               }}>
-                P/T Breakdown
+                <span>⚔️</span>
+                <span>P/T Breakdown</span>
               </div>
-              {baseP !== undefined && baseT !== undefined && (
-                <div style={{ 
-                  fontSize: 10, 
-                  color: '#d1d5db',
-                  marginBottom: 4,
-                }}>
-                  Base: {baseP}/{baseT}
-                </div>
+
+              {/* Modifier list */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {modifierLines.map((line, idx) => {
+                  const isBase = line.startsWith('Base:');
+                  const isPositive = line.includes('+1/+1') || (line.includes('+') && !line.includes('-'));
+                  const isNegative = line.includes('-1/-1') || (line.includes('-') && !line.includes('+'));
+                  return (
+                    <div key={idx} style={{ 
+                      fontSize: 11, 
+                      color: isBase ? '#d1d5db' : isPositive ? '#22c55e' : isNegative ? '#ef4444' : '#e5e7eb',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      padding: '2px 0',
+                    }}>
+                      <span>{line}</span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Damage section */}
+              {damageMarked > 0 && effT !== undefined && (
+                <>
+                  <div style={{ 
+                    borderTop: '1px solid rgba(255,255,255,0.15)',
+                    marginTop: 8,
+                    paddingTop: 8,
+                  }}>
+                    <div style={{ 
+                      fontSize: 11, 
+                      fontWeight: 600, 
+                      color: '#ef4444',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}>
+                      <span>💔 Sustained Damage:</span>
+                      <span>{damageMarked}/{effT}</span>
+                    </div>
+                    {damageMarked >= effT && (
+                      <div style={{
+                        fontSize: 10,
+                        color: '#fca5a5',
+                        fontStyle: 'italic',
+                        marginTop: 4,
+                      }}>
+                        ⚠️ Lethal damage marked!
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
-              {ptSources.map((source, idx) => (
-                <div key={idx} style={{ 
-                  fontSize: 10, 
-                  color: source.power > 0 || source.toughness > 0 ? '#22c55e' : 
-                         source.power < 0 || source.toughness < 0 ? '#ef4444' : '#9ca3af',
-                  marginBottom: 2,
+
+              {/* Total */}
+              <div style={{ 
+                borderTop: '1px solid rgba(255,255,255,0.15)',
+                marginTop: 8,
+                paddingTop: 6,
+              }}>
+                <div style={{ 
+                  fontSize: 12, 
+                  fontWeight: 700, 
+                  color: '#fff',
                   display: 'flex',
                   justifyContent: 'space-between',
-                  gap: 12,
                 }}>
-                  <span style={{ color: '#e5e7eb' }}>{source.name}</span>
-                  <span>
-                    {source.power >= 0 ? '+' : ''}{source.power}/
-                    {source.toughness >= 0 ? '+' : ''}{source.toughness}
+                  <span>Effective P/T:</span>
+                  <span style={{ 
+                    color: (effP !== baseP || effT !== baseT) ? '#fbbf24' : '#fff' 
+                  }}>
+                    {effP}/{effT}
                   </span>
                 </div>
-              ))}
-              <div style={{ 
-                fontSize: 11, 
-                fontWeight: 600, 
-                color: '#fff',
-                marginTop: 6,
-                borderTop: '1px solid rgba(255,255,255,0.1)',
-                paddingTop: 4,
-              }}>
-                Total: {effP}/{effT}
               </div>
             </div>
           )}
         </div>
       )}
 
-      {/* Loyalty display for planeswalkers */}
+      {/* Loyalty display for planeswalkers - positioned in lower right corner like a real planeswalker card */}
       {showLoyalty && isPlaneswalker && currentLoyalty !== undefined && (
         <div style={{
           position: 'absolute',
           right: Math.round(4 * scale),
-          bottom: Math.round(24 * scale),
+          bottom: Math.round(4 * scale),
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'flex-end',
-          gap: Math.round(1 * scale),
+          gap: Math.round(3 * scale),
+          zIndex: 20,
         }}>
+          {/* Loyalty shield badge - styled like actual planeswalker loyalty counter */}
           <div style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            width: Math.round(28 * scale),
-            height: Math.round(28 * scale),
-            borderRadius: '50%',
-            background: 'linear-gradient(135deg, rgba(139,92,246,0.9), rgba(168,85,247,0.9))',
-            border: '2px solid #c084fc',
-            boxShadow: '0 2px 8px rgba(139,92,246,0.4)',
+            width: Math.round(32 * scale),
+            height: Math.round(36 * scale),
+            background: 'linear-gradient(180deg, rgba(80,60,120,0.95) 0%, rgba(50,30,80,0.98) 100%)',
+            border: '2px solid #a78bfa',
+            borderRadius: `${Math.round(4 * scale)}px ${Math.round(4 * scale)}px ${Math.round(16 * scale)}px ${Math.round(16 * scale)}px`,
+            boxShadow: '0 3px 10px rgba(139,92,246,0.5), inset 0 1px 0 rgba(255,255,255,0.2)',
+            position: 'relative',
           }}>
+            {/* Inner glow for emphasis */}
+            <div style={{
+              position: 'absolute',
+              inset: 2,
+              background: 'radial-gradient(ellipse at center, rgba(168,139,250,0.3) 0%, transparent 70%)',
+              borderRadius: 'inherit',
+              pointerEvents: 'none',
+            }} />
             <span style={{
-              fontSize: Math.round(12 * scale),
+              fontSize: Math.round(14 * scale),
               fontWeight: 700,
               color: getLoyaltyColor(baseLoyalty, currentLoyalty),
-              textShadow: '0 1px 2px rgba(0,0,0,0.5)',
+              textShadow: '0 1px 3px rgba(0,0,0,0.6), 0 0 8px rgba(168,139,250,0.4)',
+              position: 'relative',
+              zIndex: 1,
             }}>
               {currentLoyalty}
             </span>
           </div>
+          {/* Starting loyalty indicator */}
           {baseLoyalty !== undefined && baseLoyalty !== currentLoyalty && (
             <span style={{
-              fontSize: Math.round(8 * scale),
+              fontSize: Math.round(9 * scale),
               color: '#c4b5fd',
-              opacity: 0.8,
+              fontWeight: 500,
+              textShadow: '0 1px 2px rgba(0,0,0,0.5)',
             }}>
               start {baseLoyalty}
             </span>
