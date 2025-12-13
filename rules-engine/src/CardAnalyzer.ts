@@ -835,10 +835,14 @@ export class CardAnalyzer {
     
     if (canSacrifice) {
       // Check for self-sacrifice patterns
+      // Use simple string check instead of regex for "Sacrifice CardName:" pattern
+      const escapedName = name.toLowerCase();
+      const sacrificeNamePattern = `sacrifice ${escapedName}:`;
+      
       if (text.includes('sacrifice ~') || 
           text.includes('sacrifice this') ||
-          // Also check for "Sacrifice CardName:" pattern (self-sacrifice activated ability)
-          new RegExp(`sacrifice ${name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:`, 'i').test(text)) {
+          // Check for "Sacrifice CardName:" pattern (self-sacrifice activated ability)
+          text.includes(sacrificeNamePattern)) {
         sacrificeTarget = 'self';
       } else if (text.includes('sacrifice a creature') || text.includes('sacrifice another creature')) {
         sacrificeTarget = 'creature';

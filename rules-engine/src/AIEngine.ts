@@ -1883,7 +1883,7 @@ export class AIEngine {
     
     // Use enhanced sacrifice target selection with CardAnalyzer
     const sacrificeResults: { id: string; reason: string; priority: number }[] = [];
-    const remainingTargets = [...validTargets];
+    let remainingTargets = [...validTargets];
     
     for (let i = 0; i < sacrificeCount && remainingTargets.length > 0; i++) {
       const result = this.selectSacrificeTarget(remainingTargets, gameState, playerId, true);
@@ -1893,9 +1893,9 @@ export class AIEngine {
           reason: result.reason,
           priority: result.priority,
         });
-        // Remove from remaining
-        const idx = remainingTargets.findIndex(t => t.id === result.creature!.id);
-        if (idx >= 0) remainingTargets.splice(idx, 1);
+        // Remove from remaining using filter (more efficient than splice)
+        const selectedId = result.creature.id;
+        remainingTargets = remainingTargets.filter(t => t.id !== selectedId);
       }
     }
     
@@ -2118,14 +2118,15 @@ export class AIEngine {
       // Use enhanced removal target selection if this is a removal spell
       if (spellType && permanents.length > 0) {
         const results: { target: BattlefieldPermanent; reason: string; priority: number }[] = [];
+        let availablePermanents = permanents;
         
-        for (let i = 0; i < targetCount && permanents.length > 0; i++) {
-          const result = this.selectRemovalTarget(permanents, gameState, playerId, spellType);
+        for (let i = 0; i < targetCount && availablePermanents.length > 0; i++) {
+          const result = this.selectRemovalTarget(availablePermanents, gameState, playerId, spellType);
           if (result.target) {
             results.push(result);
-            // Remove selected target from pool
-            const idx = permanents.findIndex(p => p.id === result.target!.id);
-            if (idx >= 0) permanents.splice(idx, 1);
+            // Remove selected target from pool using filter
+            const selectedId = result.target.id;
+            availablePermanents = availablePermanents.filter(p => p.id !== selectedId);
           }
         }
         
