@@ -182,12 +182,11 @@ export function processLinkedExileReturns(
     console.log(`[processLinkedExileReturns] ${linked.exilingPermanentName} left - returning ${linked.exiledCardName} to battlefield`);
     
     // Return the exiled card to the battlefield under its owner's control
-    // Per Rule 610.3, when a card returns from exile via "until ~ leaves" effect,
-    // it returns under its owner's control
+    // Per MTG rules, cards exiled "until ~ leaves" return under original owner's control
     const newPermanent = {
       id: `perm_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
       card: linked.exiledCard,
-      controller: linked.originalOwner, // Returns under owner's control (Rule 610.3)
+      controller: linked.originalOwner, // Returns under owner's control per MTG rules
       owner: linked.originalOwner,
       tapped: false,
       summoning_sickness: linked.exiledCard.type_line?.toLowerCase().includes('creature') || false,

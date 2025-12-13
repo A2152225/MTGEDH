@@ -67,3 +67,6 @@ export * from "./linked-exile.js";
 
 // Reanimate effects (Reanimate, Animate Dead, Living Death, etc.)
 export * from "./reanimate.js";
+
+// Aura graveyard triggers (Rancor, Spirit Loop, etc.)
+export * from "./aura-graveyard.js";
