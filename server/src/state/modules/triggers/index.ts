@@ -43,7 +43,28 @@ export {
 
 // Export from sub-modules (these re-export from triggered-abilities.ts)
 export * from "./combat.js";
-export * from "./turn-phases.js";
+export {
+  // End step
+  detectEndStepTriggers,
+  getEndStepTriggers,
+  // Draw step
+  detectDrawStepTriggers,
+  getDrawStepTriggers,
+  // Untap step
+  detectUntapStepEffects,
+  getUntapStepEffects,
+  applyUntapStepEffect,
+  // Doesn't untap effects
+  detectDoesntUntapEffects,
+  isPermanentPreventedFromUntapping,
+} from "./turn-phases.js";
+// Types from turn-phases that override types.ts
+export type {
+  EndStepTrigger,
+  DrawStepTrigger,
+  UntapStepEffect,
+  DoesntUntapEffect,
+} from "./turn-phases.js";
 export * from "./zone-changes.js";
 export * from "./spell-cast.js";
 export * from "./tap-untap.js";
