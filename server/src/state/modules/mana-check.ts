@@ -130,13 +130,16 @@ export function canPayManaCost(
               toPay -= remainingPool.colorless;
               remainingPool.colorless = 0;
             }
-            // Pay remainder from any color
+            // Pay remainder from any colors (may need to combine multiple)
             if (toPay > 0) {
               for (const colorKey of Object.keys(remainingPool)) {
-                if (remainingPool[colorKey as keyof typeof remainingPool] >= toPay) {
-                  remainingPool[colorKey as keyof typeof remainingPool] -= toPay;
-                  toPay = 0;
-                  break;
+                if (colorKey === 'colorless') continue; // Already handled above
+                const available = remainingPool[colorKey as keyof typeof remainingPool];
+                if (available > 0) {
+                  const toDeduct = Math.min(available, toPay);
+                  remainingPool[colorKey as keyof typeof remainingPool] -= toDeduct;
+                  toPay -= toDeduct;
+                  if (toPay === 0) break;
                 }
               }
             }
