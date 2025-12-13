@@ -80,6 +80,7 @@ export interface ManaAbility {
   id: string;
   cost: string; // Usually "{T}" for tap
   produces: string[]; // Colors that can be produced: ['W','U','B','R','G'] or ['any']
+  producesAllAtOnce?: boolean; // True for lands like Rakdos Carnarium that produce {B}{R} (both, not choice)
   isGranted?: boolean; // True if granted by another permanent
   grantedBy?: string; // ID of permanent granting this ability
 }
@@ -506,6 +507,40 @@ export function getManaAbilitiesForPermanent(
   // Colorless mana producers (lands with explicit colorless production)
   if (isLand && oracleText.match(/\{t\}:\s*add\s*\{c\}/i)) {
     abilities.push({ id: 'native_c', cost: '{T}', produces: ['C'] });
+  }
+  
+  // ========================================================================
+  // Check for multi-mana producers (bounce lands like Rakdos Carnarium)
+  // Pattern: "{T}: Add {X}{Y}" where X and Y are different colored mana symbols
+  // These lands produce BOTH colors at once (not a choice)
+  // ========================================================================
+  if (isLand) {
+    // Pattern to match "{t}: add {X}{Y}" with two different colored mana symbols
+    const multiManaMatch = oracleText.match(/\{t\}:\s*add\s+(\{[wubrgc]\}\{[wubrgc]\})/i);
+    if (multiManaMatch) {
+      const manaSymbols = multiManaMatch[1].match(/\{([wubrgc])\}/gi) || [];
+      const colors: string[] = [];
+      for (const sym of manaSymbols) {
+        const color = sym.replace(/[{}]/g, '').toUpperCase();
+        if (!colors.includes(color)) {
+          colors.push(color);
+        }
+      }
+      // Check if this produces multiple different colors (like {B}{R})
+      // vs. the same color twice (like {C}{C})
+      if (colors.length > 1) {
+        // Multi-color producer like Rakdos Carnarium - produces both at once
+        abilities.push({ 
+          id: 'native_multi', 
+          cost: '{T}', 
+          produces: colors,
+          producesAllAtOnce: true // Both colors are added, not a choice
+        });
+      } else if (colors.length === 1 && manaSymbols.length === 2) {
+        // Same color twice (like Sol Ring {C}{C}) - handled elsewhere
+        // This case is handled by the fixed multi-mana pattern
+      }
+    }
   }
   
   // Check for creatures/artifacts with explicit tap-for-mana abilities in oracle text

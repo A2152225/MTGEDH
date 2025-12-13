@@ -2043,8 +2043,40 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const produces = ability.produces || [];
         
         if (produces.length > 0) {
-          // If produces multiple colors (like "any color"), prompt user for choice
-          if (produces.length > 1) {
+          // ========================================================================
+          // Check if this ability produces ALL colors at once (like bounce lands)
+          // If producesAllAtOnce is true, add all mana at once without prompting
+          // ========================================================================
+          if (ability.producesAllAtOnce && produces.length > 1) {
+            // Multi-mana producer like Rakdos Carnarium - add ALL colors at once
+            const manaAdded: string[] = [];
+            
+            for (const manaColor of produces) {
+              const poolKey = colorToPoolKey[manaColor] || 'colorless';
+              (game.state.manaPool[pid] as any)[poolKey] += effectiveMultiplier;
+              manaAdded.push(`{${manaColor}}`);
+            }
+            
+            const manaStr = manaAdded.join('');
+            let message = `${getPlayerName(game, pid)} tapped ${cardName} for ${manaStr}`;
+            if (effectiveMultiplier > 1) {
+              message += ` (×${effectiveMultiplier})`;
+            }
+            message += '.';
+            
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message,
+              ts: Date.now(),
+            });
+            
+            // Broadcast mana pool update
+            broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`, game);
+          }
+          // If produces multiple colors but NOT all at once (like "any color"), prompt user for choice
+          else if (produces.length > 1) {
             // Calculate total mana for the prompt
             const baseAmount = 1;
             const totalAmount = baseAmount * effectiveMultiplier;
@@ -5909,12 +5941,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     targetCreatureId,
     manaPaid,
     effectId,
+    payment,
   }: {
     gameId: string;
     equipmentId: string;
     targetCreatureId: string;
     manaPaid?: Record<string, number>;
     effectId?: string;
+    payment?: Array<{ permanentId: string; mana: string; count: number }>;
   }) => {
     const pid = socket.data.playerId as string | undefined;
     if (!pid || socket.data.spectator) return;
@@ -5987,15 +6021,61 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const pool = getOrInitManaPool(game.state, pid);
     
     const hasColoredMana = Object.values(parsedCost.colors).some(v => v > 0);
-    if (parsedCost.generic > 0 || hasColoredMana) {
+    const hasCost = parsedCost.generic > 0 || hasColoredMana;
+    
+    if (hasCost) {
+      // Check if payment was provided (from mana source tapping)
+      if (payment && payment.length > 0) {
+        // Process payment from mana sources
+        for (const p of payment) {
+          const manaPerm = battlefield.find((perm: any) => perm?.id === p.permanentId);
+          if (manaPerm && !manaPerm.tapped) {
+            manaPerm.tapped = true;
+            // Add mana to pool
+            for (let i = 0; i < p.count; i++) {
+              const manaColor = p.mana.toLowerCase();
+              if (manaColor === 'w') pool.white += 1;
+              else if (manaColor === 'u') pool.blue += 1;
+              else if (manaColor === 'b') pool.black += 1;
+              else if (manaColor === 'r') pool.red += 1;
+              else if (manaColor === 'g') pool.green += 1;
+              else pool.colorless += 1;
+            }
+          }
+        }
+        console.log(`[equipTargetChosen] Added mana from ${payment.length} sources`);
+      }
+      
       const totalAvailable = calculateTotalAvailableMana(pool, []);
       const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
       
       if (validationError) {
-        socket.emit("error", {
-          code: "INSUFFICIENT_MANA",
-          message: validationError,
+        // Emit payment required - player needs to tap mana sources
+        const paymentEffectId = `equip_payment_${equipmentId}_${Date.now()}`;
+        
+        // Store pending equip payment
+        (game.state as any).pendingEquipPayments = (game.state as any).pendingEquipPayments || {};
+        (game.state as any).pendingEquipPayments[paymentEffectId] = {
+          equipmentId,
+          targetCreatureId,
+          equipCost,
+          playerId: pid,
+          equipmentName: equipment.card?.name,
+          targetCreatureName: targetCreature.card?.name,
+        };
+        
+        socket.emit("paymentRequired", {
+          gameId,
+          cardId: equipmentId,
+          cardName: equipment.card?.name || "Equipment",
+          manaCost: equipCost,
+          effectId: paymentEffectId,
+          abilityType: 'equip',
+          targets: [targetCreatureId],
+          imageUrl: equipment.card?.image_uris?.small || equipment.card?.image_uris?.normal,
         });
+        
+        console.log(`[equipTargetChosen] Payment required for ${equipment.card?.name} equip cost ${equipCost}`);
         return;
       }
       

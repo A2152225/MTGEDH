@@ -1443,6 +1443,63 @@ function findCastableSpells(game: any, playerId: PlayerID): any[] {
 }
 
 /**
+ * Find castable commander from command zone
+ * Returns the commander card and cost if castable, null otherwise
+ */
+function findCastableCommander(game: any, playerId: PlayerID): { card: any; cost: any; isBackground?: boolean } | null {
+  const commandZone = game.state?.commandZone?.[playerId];
+  if (!commandZone) return null;
+  
+  const commanderIds = commandZone.commanderIds || [];
+  const commanders = commandZone.commanders || [];
+  
+  if (commanderIds.length === 0 && commanders.length === 0) return null;
+  
+  const availableMana = calculateAvailableMana(game, playerId);
+  const commanderTax = (commandZone.commanderTax || 0);
+  
+  // Check each commander in the command zone
+  for (let i = 0; i < Math.max(commanderIds.length, commanders.length); i++) {
+    const card = commanders[i] || null;
+    if (!card) continue;
+    
+    // Check if commander is already on battlefield
+    const battlefield = game.state?.battlefield || [];
+    const commanderId = commanderIds[i] || card.id;
+    const onBattlefield = battlefield.some((p: any) => 
+      p.card?.id === commanderId || 
+      p.card?.name === card.name ||
+      (p.isCommander && p.controller === playerId && p.card?.name === card.name)
+    );
+    
+    if (onBattlefield) continue;
+    
+    // Get base mana cost
+    const manaCost = card.mana_cost;
+    if (!manaCost) continue;
+    
+    // Parse cost with commander tax
+    const baseCost = parseSpellCost(manaCost);
+    const totalCost = {
+      ...baseCost,
+      generic: baseCost.generic + commanderTax,
+      cmc: baseCost.cmc + commanderTax,
+    };
+    
+    // Check if we can afford it
+    if (canAffordSpell(availableMana, totalCost)) {
+      const typeLine = (card.type_line || '').toLowerCase();
+      const isBackground = typeLine.includes('background');
+      
+      console.info('[AI] Found castable commander:', card.name, 'with tax:', commanderTax, 'total CMC:', totalCost.cmc);
+      return { card, cost: totalCost, isBackground };
+    }
+  }
+  
+  return null;
+}
+
+/**
  * Calculate priority for casting a spell (higher = cast first)
  */
 function calculateSpellPriority(card: any, game: any, playerId: PlayerID): number {
@@ -1934,7 +1991,19 @@ export async function handleAIPriority(
         return;
       }
       
-      // Try to cast spells
+      // Try to cast commanders from command zone
+      const commanderCastResult = findCastableCommander(game, playerId);
+      if (commanderCastResult) {
+        console.info('[AI] Casting commander from command zone:', commanderCastResult.card.name);
+        await executeAICastCommander(io, gameId, playerId, commanderCastResult.card, commanderCastResult.cost);
+        // After casting, continue with more actions
+        setTimeout(() => {
+          handleAIPriority(io, gameId, playerId).catch(console.error);
+        }, AI_THINK_TIME_MS);
+        return;
+      }
+      
+      // Try to cast spells from hand
       const castableSpells = findCastableSpells(game, playerId);
       if (castableSpells.length > 0) {
         const bestSpell = castableSpells[0]; // Already sorted by priority
@@ -2596,6 +2665,128 @@ async function executeAICastSpell(
 }
 
 /**
+ * Execute AI commander cast from command zone
+ * Handles command tax, mana payment, and putting commander on stack
+ */
+async function executeAICastCommander(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  card: any,
+  cost: { colors: Record<string, number>; generic: number; cmc: number }
+): Promise<void> {
+  const game = ensureGame(gameId);
+  if (!game) return;
+  
+  console.info('[AI] Casting commander from command zone:', { gameId, playerId, cardName: card.name, cost });
+  
+  try {
+    // Get mana sources to tap for payment
+    const payments = getPaymentSources(game, playerId, cost);
+    
+    // Initialize mana pool if needed
+    (game.state as any).manaPool = (game.state as any).manaPool || {};
+    (game.state as any).manaPool[playerId] = (game.state as any).manaPool[playerId] || {
+      white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+    };
+    
+    const colorMap: Record<string, string> = { 
+      W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green', C: 'colorless' 
+    };
+    
+    // Tap the mana sources and add mana to pool
+    const battlefield = game.state?.battlefield || [];
+    for (const payment of payments) {
+      const perm = battlefield.find((p: any) => p?.id === payment.sourceId) as any;
+      if (perm && !perm.tapped) {
+        perm.tapped = true;
+        
+        // Check if this source produces 2 mana
+        const oracleText = ((perm.card as any)?.oracle_text || '').toLowerCase();
+        const producesTwoMana = oracleText.includes('{c}{c}') || oracleText.includes('add {c}{c}');
+        
+        const colorKey = colorMap[payment.produceColor] || 'colorless';
+        (game.state as any).manaPool[playerId][colorKey] += producesTwoMana ? 2 : 1;
+      }
+    }
+    
+    // Mark commander as being cast (removed from command zone temporarily)
+    const commandZone = game.state?.commandZone?.[playerId];
+    if (commandZone) {
+      // Add to stack - commanders go on the stack just like other spells
+      game.state.stack = game.state.stack || [];
+      const stackItem = {
+        id: `stack_${Date.now()}_${card.id}`,
+        controller: playerId,
+        card: { ...card, zone: 'stack' },
+        targets: [],
+        isCommander: true,
+        fromCommandZone: true,
+      };
+      game.state.stack.push(stackItem as any);
+      
+      console.info('[AI] Commander added to stack:', card.name);
+    }
+    
+    // Consume mana from pool to pay for commander
+    const pool = (game.state as any).manaPool[playerId];
+    
+    // Pay colored costs first
+    for (const [color, needed] of Object.entries(cost.colors)) {
+      const colorKey = colorMap[color];
+      if (colorKey && needed > 0) {
+        pool[colorKey] = Math.max(0, (pool[colorKey] || 0) - (needed as number));
+      }
+    }
+    
+    // Pay generic cost with remaining mana
+    let genericLeft = cost.generic;
+    if (genericLeft > 0 && pool.colorless > 0) {
+      const use = Math.min(pool.colorless, genericLeft);
+      pool.colorless -= use;
+      genericLeft -= use;
+    }
+    for (const colorKey of ['white', 'blue', 'black', 'red', 'green']) {
+      if (genericLeft <= 0) break;
+      if (pool[colorKey] > 0) {
+        const use = Math.min(pool[colorKey], genericLeft);
+        pool[colorKey] -= use;
+        genericLeft -= use;
+      }
+    }
+    
+    // Persist event
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'castCommander', { 
+        playerId, 
+        cardId: card.id, 
+        cardName: card.name,
+        card: card,
+        isAI: true 
+      });
+    } catch (e) {
+      console.warn('[AI] Failed to persist castCommander event:', e);
+    }
+    
+    // Bump sequence
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    
+    // Broadcast updated state
+    broadcastGame(io, game, gameId);
+    
+    // Pass priority after casting
+    setTimeout(async () => {
+      await executePassPriority(io, gameId, playerId);
+    }, AI_REACTION_DELAY_MS);
+    
+  } catch (error) {
+    console.error('[AI] Error casting commander:', error);
+  }
+}
+
+/**
  * Execute AI activated ability activation
  * Handles tapping permanents and putting abilities on the stack
  */
@@ -2702,22 +2893,101 @@ async function executeAIActivateAbility(
       } else {
         // For non-mana tap abilities, put them on the stack
         game.state.stack = game.state.stack || [];
-        const stackItem = {
-          id: `stack_ability_${Date.now()}_${permanent.id}`,
-          type: 'ability',
-          controller: playerId,
-          card: {
-            id: permanent.id,
-            name: `${card.name} (ability)`,
-            type_line: 'Activated Ability',
-            oracle_text: card.oracle_text,
-            image_uris: card.image_uris,
-          },
-          targets: [],
-        };
         
-        game.state.stack.push(stackItem as any);
-        console.info('[AI] Added activated ability to stack:', card.name);
+        // Check if this is a fetch land ability
+        // Patterns: "Search your library for a ... land card, put it onto the battlefield"
+        // or "sacrifice this artifact/~, pay 1 life: search your library for a ... card"
+        const isFetchLand = /search your library for a/i.test(abilityText) && 
+                            /land/i.test(abilityText) && 
+                            /(put it onto the battlefield|put it.*onto the battlefield)/i.test(abilityText);
+        
+        if (isFetchLand) {
+          // Detect what types of lands can be fetched
+          let searchDescription = 'a basic land card';
+          let landFilter: any = { types: ['land'], subtypes: ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest'] };
+          
+          // Specific fetch land detection
+          if (/plains or island/i.test(abilityText)) {
+            searchDescription = 'a Plains or Island card';
+            landFilter = { types: ['land'], subtypes: ['Plains', 'Island'] };
+          } else if (/island or swamp/i.test(abilityText)) {
+            searchDescription = 'an Island or Swamp card';
+            landFilter = { types: ['land'], subtypes: ['Island', 'Swamp'] };
+          } else if (/swamp or mountain/i.test(abilityText)) {
+            searchDescription = 'a Swamp or Mountain card';
+            landFilter = { types: ['land'], subtypes: ['Swamp', 'Mountain'] };
+          } else if (/mountain or forest/i.test(abilityText)) {
+            searchDescription = 'a Mountain or Forest card';
+            landFilter = { types: ['land'], subtypes: ['Mountain', 'Forest'] };
+          } else if (/forest or plains/i.test(abilityText)) {
+            searchDescription = 'a Forest or Plains card';
+            landFilter = { types: ['land'], subtypes: ['Forest', 'Plains'] };
+          } else if (/basic land/i.test(abilityText)) {
+            searchDescription = 'a basic land card';
+            landFilter = { types: ['land', 'basic'] };
+          } else if (/forest or island/i.test(abilityText)) {
+            searchDescription = 'a Forest or Island card';
+            landFilter = { types: ['land'], subtypes: ['Forest', 'Island'] };
+          } else if (/plains or swamp/i.test(abilityText)) {
+            searchDescription = 'a Plains or Swamp card';
+            landFilter = { types: ['land'], subtypes: ['Plains', 'Swamp'] };
+          } else if (/island or mountain/i.test(abilityText)) {
+            searchDescription = 'an Island or Mountain card';
+            landFilter = { types: ['land'], subtypes: ['Island', 'Mountain'] };
+          } else if (/swamp or forest/i.test(abilityText)) {
+            searchDescription = 'a Swamp or Forest card';
+            landFilter = { types: ['land'], subtypes: ['Swamp', 'Forest'] };
+          } else if (/mountain or plains/i.test(abilityText)) {
+            searchDescription = 'a Mountain or Plains card';
+            landFilter = { types: ['land'], subtypes: ['Mountain', 'Plains'] };
+          }
+          
+          const stackItem = {
+            id: `stack_ability_${Date.now()}_${permanent.id}`,
+            type: 'ability',
+            abilityType: 'fetch-land',
+            controller: playerId,
+            source: permanent.id,
+            sourceName: card.name,
+            card: {
+              id: permanent.id,
+              name: `${card.name} (ability)`,
+              type_line: 'Activated Ability',
+              oracle_text: card.oracle_text,
+              image_uris: card.image_uris,
+            },
+            targets: [],
+            searchParams: {
+              searchDescription,
+              filter: landFilter,
+              maxSelections: 1,
+              cardImageUrl: card.image_uris?.small || card.image_uris?.normal,
+            },
+          };
+          
+          game.state.stack.push(stackItem as any);
+          console.info('[AI] Added FETCH LAND ability to stack:', card.name);
+        } else {
+          // Regular non-mana ability
+          const stackItem = {
+            id: `stack_ability_${Date.now()}_${permanent.id}`,
+            type: 'ability',
+            controller: playerId,
+            source: permanent.id,
+            sourceName: card.name,
+            card: {
+              id: permanent.id,
+              name: `${card.name} (ability)`,
+              type_line: 'Activated Ability',
+              oracle_text: card.oracle_text,
+              image_uris: card.image_uris,
+            },
+            targets: [],
+          };
+          
+          game.state.stack.push(stackItem as any);
+          console.info('[AI] Added activated ability to stack:', card.name);
+        }
       }
     }
     
