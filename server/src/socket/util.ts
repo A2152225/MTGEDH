@@ -1367,7 +1367,18 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
     const stateAny = game.state as any;
     const priority = stateAny?.priority;
     
-    if (!priority) return;
+    // ========================================================================
+    // DEBUG: Track auto-pass calls to diagnose skip issues
+    // ========================================================================
+    const debugCallId = `autopass_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+    console.log(`${ts()} [checkAndTriggerAutoPass] ========== CALLED (ID: ${debugCallId}) ==========`);
+    console.log(`${ts()} [checkAndTriggerAutoPass] Priority: ${priority}, Phase: ${stateAny?.phase}, Step: ${stateAny?.step}`);
+    // ========================================================================
+    
+    if (!priority) {
+      console.log(`${ts()} [checkAndTriggerAutoPass] No priority holder, returning (ID: ${debugCallId})`);
+      return;
+    }
     
     // Prevent re-entry while auto-passing is in progress
     // This avoids recursive calls that might advance steps incorrectly
@@ -1375,7 +1386,7 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
       stateAny._autoPassInProgress = new Set<string>();
     }
     if (stateAny._autoPassInProgress.has(priority)) {
-      console.log(`[checkAndTriggerAutoPass] Already processing auto-pass for ${priority}, skipping re-entry`);
+      console.log(`[checkAndTriggerAutoPass] Already processing auto-pass for ${priority}, skipping re-entry (ID: ${debugCallId})`);
       return;
     }
     
@@ -1385,6 +1396,7 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
     
     if (!autoPassPlayers.has(priority) && !autoPassForTurn) {
       // Auto-pass not enabled for this player
+      console.log(`${ts()} [checkAndTriggerAutoPass] Auto-pass not enabled for ${priority}, returning (ID: ${debugCallId})`);
       return;
     }
     
@@ -1393,6 +1405,7 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
     const priorityPlayer = players.find((p: any) => p?.id === priority);
     if (priorityPlayer && priorityPlayer.isAI) {
       // AI players are handled by checkAndTriggerAI, skip
+      console.log(`${ts()} [checkAndTriggerAutoPass] ${priority} is AI, handled separately (ID: ${debugCallId})`);
       return;
     }
     
@@ -1402,6 +1415,7 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
     }
     if (stateAny.priorityClaimed.has(priority)) {
       // Player has claimed priority, don't auto-pass
+      console.log(`${ts()} [checkAndTriggerAutoPass] ${priority} claimed priority, returning (ID: ${debugCallId})`);
       return;
     }
     
@@ -1448,16 +1462,21 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
         playerCanAct = isActivePlayer 
           ? canAct(ctx, priority)      // Active player: check all actions
           : canRespond(ctx, priority);  // Non-active: only check instant-speed responses
+        
+        console.log(`${ts()} [checkAndTriggerAutoPass] canAct check: ${priority} isActive=${isActivePlayer} canAct=${playerCanAct} (ID: ${debugCallId})`);
       } catch (err) {
-        console.warn(`[checkAndTriggerAutoPass] Error checking if player ${priority} can act:`, err);
+        console.warn(`[checkAndTriggerAutoPass] Error checking if player ${priority} can act (ID: ${debugCallId}):`, err);
         // On error, don't auto-pass to be safe
         return;
       }
       
       // If player can act, don't auto-pass
       if (playerCanAct) {
+        console.log(`${ts()} [checkAndTriggerAutoPass] ${priority} CAN ACT - returning early, NO auto-pass (ID: ${debugCallId})`);
         return;
       }
+      
+      console.log(`${ts()} [checkAndTriggerAutoPass] ${priority} CANNOT ACT - proceeding with auto-pass (ID: ${debugCallId})`);
     } else {
       console.log(`[checkAndTriggerAutoPass] Auto-pass for rest of turn is enabled for ${priority} - bypassing canAct check`);
     }
@@ -1468,17 +1487,22 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
     const isHumanPlayer = priorityPlayer && !priorityPlayer.isAI;
     
     const executeAutoPass = () => {
+      console.log(`${ts()} [executeAutoPass] ========== EXECUTING for ${priority} (ID: ${debugCallId}) ==========`);
+      console.log(`${ts()} [executeAutoPass] Phase: ${(game.state as any)?.phase}, Step: ${(game.state as any)?.step}`);
+      
       // Re-check conditions after delay (state might have changed)
       const currentState = game.state as any;
       const currentPriority = currentState?.priority;
       
       // Only proceed if priority hasn't changed
       if (currentPriority !== priority) {
+        console.log(`${ts()} [executeAutoPass] Priority changed from ${priority} to ${currentPriority}, aborting (ID: ${debugCallId})`);
         return;
       }
       
       // Check if player claimed priority during the delay
       if (currentState.priorityClaimed?.has(priority)) {
+        console.log(`${ts()} [executeAutoPass] ${priority} claimed priority during delay, aborting (ID: ${debugCallId})`);
         return;
       }
       
@@ -1524,27 +1548,31 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
             ? canAct(recheckCtx, priority)
             : canRespond(recheckCtx, priority);
           
+          console.log(`${ts()} [executeAutoPass] Re-check: ${priority} canAct=${playerCanActNow} (ID: ${debugCallId})`);
+          
           if (playerCanActNow) {
-            console.log(`[checkAndTriggerAutoPass] Player ${priority} can now act - canceling auto-pass`);
+            console.log(`${ts()} [executeAutoPass] Player ${priority} CAN NOW ACT - canceling auto-pass (ID: ${debugCallId})`);
             return;
           }
         } catch (err) {
-          console.warn(`[checkAndTriggerAutoPass] Error re-checking if player ${priority} can act:`, err);
+          console.warn(`${ts()} [executeAutoPass] Error re-checking if player ${priority} can act (ID: ${debugCallId}):`, err);
           // On error, don't auto-pass to be safe
           return;
         }
       }
       
       // Player cannot act and has auto-pass enabled - auto-pass their priority
-      console.log(`[checkAndTriggerAutoPass] Auto-passing for ${priority} - no available actions`);
+      console.log(`${ts()} [executeAutoPass] Proceeding with auto-pass for ${priority} (ID: ${debugCallId})`);
       
       // Mark that we're processing auto-pass for this player
       stateAny._autoPassInProgress.add(priority);
+      console.log(`${ts()} [executeAutoPass] Set _autoPassInProgress flag for ${priority} (ID: ${debugCallId})`);
       
       // Call passPriority with isAutoPass flag
       if (typeof (game as any).passPriority === 'function') {
         try {
           const result = (game as any).passPriority(priority, true); // true = isAutoPass
+          console.log(`${ts()} [executeAutoPass] passPriority result: changed=${result.changed}, advanceStep=${result.advanceStep}, resolvedNow=${result.resolvedNow} (ID: ${debugCallId})`);
           
           if (result.changed) {
             // Priority was passed successfully
@@ -1560,7 +1588,7 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
             }
             
             if (result.advanceStep) {
-              console.log(`[checkAndTriggerAutoPass] Advancing step after auto-pass for ${priority}`);
+              console.log(`${ts()} [executeAutoPass] Advancing step after auto-pass for ${priority} (ID: ${debugCallId})`);
               if (typeof (game as any).nextStep === 'function') {
                 (game as any).nextStep();
               }
@@ -1570,21 +1598,29 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
             // Clear the in-progress flag before broadcasting
             // This allows the next player to be checked
             stateAny._autoPassInProgress.delete(priority);
+            console.log(`${ts()} [executeAutoPass] Cleared _autoPassInProgress flag for ${priority} (ID: ${debugCallId})`);
             
             // Broadcast updated state after auto-pass
             // Note: This will recursively call checkAndTriggerAutoPass for the next player
+            console.log(`${ts()} [executeAutoPass] Broadcasting state after auto-pass (ID: ${debugCallId})`);
             broadcastGame(io, game, gameId);
+            console.log(`${ts()} [executeAutoPass] Broadcast complete (ID: ${debugCallId})`);
           } else {
             // Priority pass didn't change state - clear flag
+            console.log(`${ts()} [executeAutoPass] Priority pass didn't change state (ID: ${debugCallId})`);
             stateAny._autoPassInProgress.delete(priority);
           }
         } catch (err) {
-          console.error(`[checkAndTriggerAutoPass] Error passing priority for ${priority}:`, err);
+          console.error(`${ts()} [executeAutoPass] Error passing priority for ${priority} (ID: ${debugCallId}):`, err);
           // Clear flag on error
           stateAny._autoPassInProgress.delete(priority);
         }
       } else {
         // passPriority function not available - clear flag
+        console.log(`${ts()} [executeAutoPass] passPriority function not available (ID: ${debugCallId})`);
+        stateAny._autoPassInProgress.delete(priority);
+      }
+    };
         stateAny._autoPassInProgress.delete(priority);
       }
     };
@@ -1592,9 +1628,11 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
     // For human players without autoPassForTurn, add a small delay
     // This allows them to evaluate and claim priority if needed
     if (isHumanPlayer && !autoPassForTurn) {
+      console.log(`${ts()} [checkAndTriggerAutoPass] Scheduling auto-pass for ${priority} with ${AUTO_PASS_DELAY_MS}ms delay (ID: ${debugCallId})`);
       setTimeout(executeAutoPass, AUTO_PASS_DELAY_MS);
     } else {
       // AI players or autoPassForTurn: execute immediately
+      console.log(`${ts()} [checkAndTriggerAutoPass] Executing auto-pass for ${priority} IMMEDIATELY (isHuman=${isHumanPlayer}, autoPassForTurn=${autoPassForTurn}) (ID: ${debugCallId})`);
       executeAutoPass();
     }
   } catch (e) {
