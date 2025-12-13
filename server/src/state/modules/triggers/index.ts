@@ -84,9 +84,46 @@ export type {
   UntapStepEffect,
   DoesntUntapEffect,
 } from "./turn-phases.js";
-export * from "./zone-changes.js";
-export * from "./spell-cast.js";
-export * from "./tap-untap.js";
+// Export from zone-changes.ts (full implementation, replaces re-exports)
+export {
+  detectDeathTriggers,
+  getDeathTriggers,
+  getDeathTriggersForCreature,
+  getPlayersWhoMustSacrifice,
+  processUndyingPersist,
+  detectETBTriggers,
+  getETBTriggersForPermanent,
+  detectETBUntapEffects,
+  getETBUntapEffects,
+  applyETBUntapEffect,
+  checkETBAutoSacrifice,
+  type TriggeredAbility as ZoneChangeTriggeredAbility,
+  type ETBUntapEffect as ZoneChangeETBUntapEffect,
+  type DeathTriggerResult as ZoneChangeDeathTriggerResult,
+} from "./zone-changes.js";
+// Export from spell-cast.ts (full implementation, replaces re-exports)
+export {
+  detectSpellCastTriggers,
+  getSpellCastTriggers,
+  detectSpellCastUntapEffects,
+  getSpellCastUntapEffects,
+  applySpellCastUntapEffect,
+  detectStormAbility,
+  getStormCount,
+  type SpellCastTrigger as SpellCastTriggerType,
+  type SpellCastUntapEffect as SpellCastUntapEffectType,
+} from "./spell-cast.js";
+// Export from tap-untap.ts (full implementation, replaces re-exports)
+export {
+  detectTapTriggers,
+  getTapTriggers,
+  detectUntapTriggers,
+  getAttackUntapTriggers,
+  getCombatDamageUntapTriggers,
+  executeUntapTrigger,
+  type TapTrigger as TapTriggerType,
+  type UntapTrigger as UntapTriggerType,
+} from "./tap-untap.js";
 export * from "./card-draw.js";
 export * from "./landfall.js";
 export * from "./planeswalker.js";
