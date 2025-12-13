@@ -8404,4 +8404,496 @@ export function registerGameActions(io: Server, socket: Socket) {
       socket.emit("triggerShortcutResponse", { shortcut: null });
     }
   });
+
+  // ==========================================================================
+  // MUTATE SUPPORT
+  // ==========================================================================
+
+  /**
+   * Request mutate target selection for a creature spell being cast with mutate
+   * This is called when a player chooses to cast a spell for its mutate cost
+   */
+  socket.on("requestMutateTargets", ({ gameId, cardId }: {
+    gameId: string;
+    cardId: string;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId as string | undefined;
+      if (!game || !playerId) return;
+
+      const zones = game.state.zones?.[playerId];
+      if (!zones) return;
+
+      // Find the card being cast
+      let card: any = null;
+      const hand = zones.hand as any[];
+      if (hand) {
+        card = hand.find((c: any) => c?.id === cardId);
+      }
+
+      if (!card) {
+        socket.emit("error", { code: "CARD_NOT_FOUND", message: "Card not found" });
+        return;
+      }
+
+      // Parse mutate cost from oracle text
+      const oracleText = card.oracle_text || '';
+      const mutateMatch = oracleText.match(/mutate\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+      const mutateCost = mutateMatch ? mutateMatch[1].trim() : undefined;
+
+      if (!mutateCost) {
+        socket.emit("error", { code: "NO_MUTATE", message: "Card does not have mutate" });
+        return;
+      }
+
+      // Find valid mutate targets (non-Human creatures the player owns)
+      const battlefield = game.state.battlefield || [];
+      const validTargets = battlefield.filter((perm: any) => {
+        if (!perm || perm.owner !== playerId) return false;
+        const typeLine = (perm.card?.type_line || '').toLowerCase();
+        return typeLine.includes('creature') && !typeLine.includes('human');
+      }).map((perm: any) => ({
+        id: perm.id,
+        name: perm.card?.name || 'Unknown',
+        typeLine: perm.card?.type_line || '',
+        power: perm.card?.power,
+        toughness: perm.card?.toughness,
+        imageUrl: perm.card?.image_uris?.small || perm.card?.image_uris?.normal,
+        controller: perm.controller,
+        owner: perm.owner,
+        // Check if already mutated
+        isAlreadyMutated: !!(perm as any).mutatedStack,
+        mutationCount: (perm as any).mutatedStack?.length || 0,
+      }));
+
+      socket.emit("mutateTargetsResponse", {
+        gameId,
+        cardId,
+        cardName: card.name,
+        mutateCost,
+        imageUrl: card.image_uris?.small || card.image_uris?.normal,
+        validTargets,
+      });
+
+      console.log(`[requestMutateTargets] Found ${validTargets.length} valid mutate targets for ${card.name}`);
+    } catch (err: any) {
+      console.error(`requestMutateTargets error:`, err);
+      socket.emit("error", { code: "MUTATE_ERROR", message: err?.message ?? String(err) });
+    }
+  });
+
+  /**
+   * Confirm mutate target selection and cast the spell with mutate
+   */
+  socket.on("confirmMutateTarget", ({ gameId, cardId, targetPermanentId, onTop }: {
+    gameId: string;
+    cardId: string;
+    targetPermanentId: string;
+    onTop: boolean;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId as string | undefined;
+      if (!game || !playerId) return;
+
+      const zones = game.state.zones?.[playerId];
+      if (!zones) return;
+
+      // Find the card being cast
+      const hand = zones.hand as any[];
+      const cardIndex = hand?.findIndex((c: any) => c?.id === cardId);
+      if (cardIndex === -1 || !hand) {
+        socket.emit("error", { code: "CARD_NOT_FOUND", message: "Card not found in hand" });
+        return;
+      }
+
+      const card = hand[cardIndex];
+
+      // Find the target permanent
+      const battlefield = game.state.battlefield || [];
+      const targetPerm = battlefield.find((p: any) => p?.id === targetPermanentId);
+      if (!targetPerm) {
+        socket.emit("error", { code: "TARGET_NOT_FOUND", message: "Target permanent not found" });
+        return;
+      }
+
+      // Validate target is still valid
+      if (targetPerm.owner !== playerId) {
+        socket.emit("error", { code: "INVALID_TARGET", message: "Target must be a creature you own" });
+        return;
+      }
+
+      const typeLine = (targetPerm.card?.type_line || '').toLowerCase();
+      if (!typeLine.includes('creature') || typeLine.includes('human')) {
+        socket.emit("error", { code: "INVALID_TARGET", message: "Target must be a non-Human creature" });
+        return;
+      }
+
+      // Parse mutate cost
+      const oracleText = card.oracle_text || '';
+      const mutateMatch = oracleText.match(/mutate\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+      const mutateCost = mutateMatch ? mutateMatch[1].trim() : '{0}';
+
+      // Store mutate information on the card for when it resolves
+      (card as any).isMutating = true;
+      (card as any).mutateTarget = targetPermanentId;
+      (card as any).mutateOnTop = onTop;
+      (card as any).mutateCost = mutateCost;
+
+      // Put on stack as a mutating creature spell
+      const stack = game.state.stack || [];
+      const stackItem = {
+        id: `stack_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
+        type: 'spell' as const,
+        controller: playerId,
+        card: { ...card, zone: 'stack' },
+        targets: [targetPermanentId],
+        targetDetails: [{
+          id: targetPermanentId,
+          type: 'permanent' as const,
+          name: targetPerm.card?.name || 'Unknown',
+          controllerId: targetPerm.controller,
+        }],
+        isMutating: true,
+        mutateOnTop: onTop,
+      };
+
+      stack.push(stackItem);
+      game.state.stack = stack;
+
+      // Remove from hand
+      hand.splice(cardIndex, 1);
+      zones.handCount = hand.length;
+
+      // Announce the mutate cast
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `🧬 ${getPlayerName(game, playerId)} casts ${card.name} with mutate (${mutateCost}), targeting ${targetPerm.card?.name || 'a creature'} (${onTop ? 'on top' : 'on bottom'}).`,
+        ts: Date.now(),
+      });
+
+      // Persist event for replay
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, "castWithMutate", {
+          playerId,
+          cardId,
+          cardName: card.name,
+          targetPermanentId,
+          targetName: targetPerm.card?.name,
+          onTop,
+          mutateCost,
+        });
+      } catch (e) {
+        console.warn('appendEvent(castWithMutate) failed:', e);
+      }
+
+      if (typeof (game as any).bumpSeq === "function") {
+        (game as any).bumpSeq();
+      }
+
+      broadcastGame(io, game, gameId);
+
+      console.log(`[confirmMutateTarget] ${playerId} cast ${card.name} with mutate onto ${targetPerm.card?.name}`);
+    } catch (err: any) {
+      console.error(`confirmMutateTarget error:`, err);
+      socket.emit("error", { code: "MUTATE_ERROR", message: err?.message ?? String(err) });
+    }
+  });
+
+  /**
+   * Cancel mutate and cast the creature normally instead
+   * This is used when the target becomes illegal (Rule 702.140b)
+   */
+  socket.on("castMutateNormally", ({ gameId, cardId }: {
+    gameId: string;
+    cardId: string;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId as string | undefined;
+      if (!game || !playerId) return;
+
+      // Find the card on the stack that was being mutated
+      const stack = game.state.stack || [];
+      const stackItemIndex = stack.findIndex((item: any) => 
+        item.card?.id === cardId && item.isMutating
+      );
+
+      if (stackItemIndex === -1) {
+        socket.emit("error", { code: "NOT_FOUND", message: "Mutating spell not found on stack" });
+        return;
+      }
+
+      // Remove mutate properties and let it resolve as normal creature
+      const stackItem = stack[stackItemIndex] as any;
+      delete stackItem.isMutating;
+      delete stackItem.mutateOnTop;
+      stackItem.targets = [];
+      stackItem.targetDetails = [];
+
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `🧬 ${stackItem.card?.name || 'Creature'}'s mutate target is invalid. It will resolve as a normal creature.`,
+        ts: Date.now(),
+      });
+
+      broadcastGame(io, game, gameId);
+
+      console.log(`[castMutateNormally] Mutate target invalid, ${stackItem.card?.name} will enter normally`);
+    } catch (err: any) {
+      console.error(`castMutateNormally error:`, err);
+      socket.emit("error", { code: "MUTATE_ERROR", message: err?.message ?? String(err) });
+    }
+  });
+
+  // ==========================================================================
+  // ALTERNATE COST SELECTION SUPPORT
+  // ==========================================================================
+
+  /**
+   * Request available alternate costs for casting a spell
+   * Returns all available options including mutate, WUBRG (Jodah/Fist of Suns), Omniscience, etc.
+   */
+  socket.on("requestAlternateCosts", ({ gameId, cardId, castFromZone }: {
+    gameId: string;
+    cardId: string;
+    castFromZone?: string;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId as string | undefined;
+      if (!game || !playerId) return;
+
+      const zones = game.state.zones?.[playerId];
+      if (!zones) return;
+
+      // Find the card
+      let card: any = null;
+      const zone = castFromZone || 'hand';
+      
+      if (zone === 'hand') {
+        const hand = zones.hand as any[];
+        if (hand) {
+          card = hand.find((c: any) => c?.id === cardId);
+        }
+      } else if (zone === 'graveyard') {
+        const graveyard = zones.graveyard as any[];
+        if (graveyard) {
+          card = graveyard.find((c: any) => c?.id === cardId);
+        }
+      }
+
+      if (!card) {
+        socket.emit("error", { code: "CARD_NOT_FOUND", message: "Card not found" });
+        return;
+      }
+
+      const oracleText = (card.oracle_text || '').toLowerCase();
+      const options: any[] = [];
+
+      // Always include normal cast option
+      options.push({
+        id: 'normal',
+        name: 'Normal Cast',
+        description: 'Pay the regular mana cost',
+        manaCost: card.mana_cost,
+        costType: 'normal',
+      });
+
+      // Check for mutate
+      if (/\bmutate\b/.test(oracleText)) {
+        const mutateMatch = oracleText.match(/mutate\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+        const mutateCost = mutateMatch ? mutateMatch[1].trim() : undefined;
+        
+        // Check if there are valid targets
+        const battlefield = game.state.battlefield || [];
+        const hasValidTarget = battlefield.some((perm: any) => {
+          if (!perm || perm.owner !== playerId) return false;
+          const typeLine = (perm.card?.type_line || '').toLowerCase();
+          return typeLine.includes('creature') && !typeLine.includes('human');
+        });
+
+        if (hasValidTarget) {
+          options.push({
+            id: 'mutate',
+            name: 'Mutate',
+            description: 'Merge with a non-Human creature you own',
+            manaCost: mutateCost,
+            costType: 'mutate',
+            requiresAdditionalInput: true,
+            additionalEffects: [
+              'Choose to put on top or bottom',
+              'Combined creature has all abilities',
+            ],
+          });
+        }
+      }
+
+      // Check for self-WUBRG (Bringers)
+      if (oracleText.includes('{w}{u}{b}{r}{g}') && 
+          oracleText.includes('rather than pay') &&
+          oracleText.includes('this spell')) {
+        options.push({
+          id: 'wubrg_self',
+          name: 'WUBRG Alternative',
+          description: 'Pay {W}{U}{B}{R}{G} instead of mana cost',
+          manaCost: '{W}{U}{B}{R}{G}',
+          costType: 'wubrg',
+        });
+      }
+
+      // Check for external WUBRG sources (Jodah, Fist of Suns)
+      const battlefield = game.state.battlefield || [];
+      for (const perm of battlefield) {
+        if (!perm || perm.controller !== playerId) continue;
+        
+        const permName = (perm.card?.name || '').toLowerCase();
+        const permOracle = (perm.card?.oracle_text || '').toLowerCase();
+        
+        if ((permName.includes('jodah') || permName.includes('fist of suns')) &&
+            permOracle.includes('{w}{u}{b}{r}{g}') && 
+            permOracle.includes('rather than pay') &&
+            !permOracle.includes('this spell')) {
+          options.push({
+            id: `wubrg_${perm.id}`,
+            name: 'WUBRG Alternative',
+            description: `Pay {W}{U}{B}{R}{G} via ${perm.card?.name || 'external source'}`,
+            manaCost: '{W}{U}{B}{R}{G}',
+            costType: 'wubrg',
+            sourceName: perm.card?.name,
+            sourceId: perm.id,
+          });
+          break; // Only add once
+        }
+      }
+
+      // Check for Omniscience (only from hand)
+      if (zone === 'hand') {
+        for (const perm of battlefield) {
+          if (!perm || perm.controller !== playerId) continue;
+          
+          const permName = (perm.card?.name || '').toLowerCase();
+          const permOracle = (perm.card?.oracle_text || '').toLowerCase();
+          
+          if (permName.includes('omniscience') ||
+              (permOracle.includes('cast spells from your hand') && 
+               permOracle.includes('without paying'))) {
+            options.push({
+              id: `free_${perm.id}`,
+              name: 'Free Cast',
+              description: `Cast without paying mana cost via ${perm.card?.name || 'Omniscience'}`,
+              manaCost: undefined,
+              costType: 'free',
+              sourceName: perm.card?.name,
+              sourceId: perm.id,
+            });
+            break;
+          }
+        }
+      }
+
+      // Check for Evoke
+      if (oracleText.includes('evoke')) {
+        const evokeMatch = oracleText.match(/evoke\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+        if (evokeMatch) {
+          options.push({
+            id: 'evoke',
+            name: 'Evoke',
+            description: 'Cast for evoke cost, sacrifice when it enters',
+            manaCost: evokeMatch[1].trim(),
+            costType: 'evoke',
+            additionalEffects: ['Sacrifice when it enters the battlefield'],
+          });
+        }
+      }
+
+      // Check for Overload
+      if (oracleText.includes('overload')) {
+        const overloadMatch = oracleText.match(/overload\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+        if (overloadMatch) {
+          options.push({
+            id: 'overload',
+            name: 'Overload',
+            description: 'Replace "target" with "each" in the spell text',
+            manaCost: overloadMatch[1].trim(),
+            costType: 'overload',
+            additionalEffects: ['Affects each applicable permanent instead of one target'],
+          });
+        }
+      }
+
+      // Send available options
+      socket.emit("alternateCostsResponse", {
+        gameId,
+        cardId,
+        cardName: card.name,
+        imageUrl: card.image_uris?.small || card.image_uris?.normal,
+        typeLine: card.type_line,
+        normalCost: card.mana_cost,
+        options,
+      });
+
+      console.log(`[requestAlternateCosts] Found ${options.length} casting options for ${card.name}`);
+    } catch (err: any) {
+      console.error(`requestAlternateCosts error:`, err);
+      socket.emit("error", { code: "ALTERNATE_COSTS_ERROR", message: err?.message ?? String(err) });
+    }
+  });
+
+  /**
+   * Confirm selected alternate cost and proceed with casting
+   */
+  socket.on("confirmAlternateCost", ({ gameId, cardId, selectedCostId, castFromZone }: {
+    gameId: string;
+    cardId: string;
+    selectedCostId: string;
+    castFromZone?: string;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId as string | undefined;
+      if (!game || !playerId) return;
+
+      console.log(`[confirmAlternateCost] Player ${playerId} selected cost ${selectedCostId} for card ${cardId}`);
+
+      // Handle based on selected cost type
+      if (selectedCostId === 'mutate') {
+        // Redirect to mutate target selection
+        socket.emit("requestMutateTargetSelection", { gameId, cardId });
+      } else if (selectedCostId === 'normal') {
+        // Normal cast - emit prompt for normal mana payment
+        socket.emit("proceedWithNormalCast", { gameId, cardId, castFromZone });
+      } else if (selectedCostId.startsWith('wubrg')) {
+        // WUBRG alternate cost - emit prompt with {W}{U}{B}{R}{G} cost
+        socket.emit("proceedWithAlternateCast", { 
+          gameId, 
+          cardId, 
+          manaCost: '{W}{U}{B}{R}{G}',
+          costType: 'wubrg',
+          castFromZone,
+        });
+      } else if (selectedCostId.startsWith('free')) {
+        // Free cast (Omniscience) - cast directly without mana
+        socket.emit("proceedWithFreeCast", { gameId, cardId, castFromZone });
+      } else if (selectedCostId === 'evoke') {
+        // Evoke - emit with evoke flag
+        socket.emit("proceedWithEvokeCast", { gameId, cardId, castFromZone });
+      } else if (selectedCostId === 'overload') {
+        // Overload - emit with overload flag
+        socket.emit("proceedWithOverloadCast", { gameId, cardId, castFromZone });
+      } else {
+        // Unknown cost type
+        socket.emit("error", { code: "UNKNOWN_COST", message: "Unknown alternate cost type" });
+      }
+
+    } catch (err: any) {
+      console.error(`confirmAlternateCost error:`, err);
+      socket.emit("error", { code: "ALTERNATE_COST_ERROR", message: err?.message ?? String(err) });
+    }
+  });
 }
