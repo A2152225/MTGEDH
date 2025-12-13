@@ -1472,6 +1472,59 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
         return;
       }
       
+      // CRITICAL FIX: Re-check if player can act before auto-passing
+      // This prevents auto-pass from advancing when a player gains the ability to act
+      // (e.g., after step advancement gives them priority in their main phase)
+      if (!autoPassForTurn) {
+        // Recreate context for re-check
+        const recheckCtx: any = {
+          gameId,
+          state: game.state,
+          libraries: new Map(),
+          life: currentState.life || {},
+          poison: {},
+          experience: {},
+          commandZone: currentState.commandZone || {},
+          joinedBySocket: new Map(),
+          participantsList: [],
+          tokenToPlayer: new Map(),
+          playerToToken: new Map(),
+          grants: new Map(),
+          inactive: new Set(),
+          spectatorNames: new Map(),
+          pendingInitialDraw: new Set(),
+          handVisibilityGrants: new Map(),
+          rngSeed: null,
+          rng: () => 0,
+          seq: { value: 0 },
+          bumpSeq: () => {},
+          passesInRow: { value: 0 },
+          landsPlayedThisTurn: currentState.landsPlayedThisTurn || {},
+          maxLandsPerTurn: {},
+          additionalDrawsPerTurn: {},
+          manaPool: {},
+        };
+        
+        const turnPlayer = currentState.turnPlayer;
+        const isActivePlayer = priority === turnPlayer;
+        
+        // Re-check if player can take any actions
+        try {
+          const playerCanActNow = isActivePlayer 
+            ? canAct(recheckCtx, priority)
+            : canRespond(recheckCtx, priority);
+          
+          if (playerCanActNow) {
+            console.log(`[checkAndTriggerAutoPass] Player ${priority} can now act - canceling auto-pass`);
+            return;
+          }
+        } catch (err) {
+          console.warn(`[checkAndTriggerAutoPass] Error re-checking if player ${priority} can act:`, err);
+          // On error, don't auto-pass to be safe
+          return;
+        }
+      }
+      
       // Player cannot act and has auto-pass enabled - auto-pass their priority
       console.log(`[checkAndTriggerAutoPass] Auto-passing for ${priority} - no available actions`);
       

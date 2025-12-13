@@ -19,6 +19,7 @@ import type { PlayerID } from "../../../../shared/src";
 import { parseManaCost, canPayManaCost, getManaPoolFromState, getAvailableMana } from "./mana-check";
 import { hasPayableAlternateCost } from "./alternate-costs";
 import { categorizeSpell, evaluateTargeting, parseTargetRequirements } from "../../rules-engine/targeting";
+import { calculateMaxLandsPerTurn } from "./game-state-effects";
 
 /**
  * Check if a card has flash or is an instant
@@ -788,7 +789,9 @@ export function canPlayLand(ctx: GameContext, playerId: PlayerID): boolean {
     
     // Check if player has already played maximum lands this turn
     const landsPlayedThisTurn = (state.landsPlayedThisTurn as any)?.[playerId] ?? 0;
-    const maxLandsPerTurn = 1; // Standard MTG rule
+    
+    // Calculate max lands dynamically based on game state (Exploration, Azusa, etc.)
+    const maxLandsPerTurn = calculateMaxLandsPerTurn(ctx, playerId);
     
     if (landsPlayedThisTurn >= maxLandsPerTurn) {
       console.log(`[canPlayLand] ${playerId}: Already played max lands this turn (${landsPlayedThisTurn}/${maxLandsPerTurn})`);
