@@ -58,6 +58,60 @@ function getLoyaltyColor(base: number | undefined, current: number | undefined):
   return '#c084fc'; // Purple - unchanged
 }
 
+/**
+ * Build P/T tooltip content showing breakdown of modifiers and damage
+ */
+function buildPTTooltip(params: {
+  baseP?: number;
+  baseT?: number;
+  plusCounters: number;
+  minusCounters: number;
+  ptSources?: { name: string; power: number; toughness: number }[];
+  damageMarked?: number;
+  effectiveToughness?: number;
+}): string | undefined {
+  const { baseP, baseT, plusCounters, minusCounters, ptSources, damageMarked, effectiveToughness } = params;
+  
+  const hasModifiers = plusCounters > 0 || minusCounters > 0 || (ptSources && ptSources.length > 0);
+  const hasDamage = (damageMarked ?? 0) > 0;
+  
+  if (!hasModifiers && !hasDamage) {
+    return undefined;
+  }
+  
+  const lines: string[] = [];
+  
+  // Base P/T
+  lines.push(`Base: ${baseP ?? '?'}/${baseT ?? '?'}`);
+  
+  // +1/+1 counters
+  if (plusCounters > 0) {
+    lines.push(`${plusCounters}× +1/+1`);
+  }
+  
+  // -1/-1 counters
+  if (minusCounters > 0) {
+    lines.push(`${minusCounters}× -1/-1`);
+  }
+  
+  // Other P/T sources
+  if (ptSources && ptSources.length > 0) {
+    for (const source of ptSources) {
+      const pStr = source.power >= 0 ? `+${source.power}` : `${source.power}`;
+      const tStr = source.toughness >= 0 ? `+${source.toughness}` : `${source.toughness}`;
+      lines.push(`${source.name}: ${pStr}/${tStr}`);
+    }
+  }
+  
+  // Damage
+  if (hasDamage && effectiveToughness !== undefined) {
+    lines.push('');  // Empty line before damage
+    lines.push(`💔 Damage: ${damageMarked}/${effectiveToughness}`);
+  }
+  
+  return lines.join('\n');
+}
+
 // Get ability info from glossary, with fallback
 function getAbilityDisplay(abilityName: string): { short: string; color: string; reminderText: string; term: string } {
   const info = getKeywordInfo(abilityName);
@@ -283,6 +337,8 @@ export function FreeField(props: {
       attachedToName?: string;
       hasAttachments?: boolean;
       attachmentNames?: string[];
+      damageMarked?: number;
+      ptSources?: { name: string; power: number; toughness: number }[];
     }> = [];
 
     const gap = 10;
@@ -349,6 +405,12 @@ export function FreeField(props: {
         return typeof eqCard?.name === 'string' ? eqCard.name : 'Equipment';
       });
 
+      // Damage marked on the creature
+      const damageMarked = p.damageMarked ?? 0;
+
+      // P/T bonus sources
+      const ptSources = p.ptSources || [];
+
       const counters = p.counters || {};
       const existing = (p as any).pos || null;
       const pos = existing ? { ...existing } : nextAuto();
@@ -379,6 +441,8 @@ export function FreeField(props: {
         attachedToName,
         hasAttachments,
         attachmentNames,
+        damageMarked,
+        ptSources,
       });
     }
     return placed;
@@ -438,7 +502,7 @@ export function FreeField(props: {
         overflow: 'visible' // Allow attack indicators to overflow
       }}
     >
-      {items.map(({ id, name, img, pos, tapped, isCreature, isPlaneswalker, counters, baseP, baseT, raw, effP, effT, abilities, attacking, blocking, blockedBy, baseLoyalty, loyalty, targetedBy, temporaryEffects, attachedTo, attachedToName, hasAttachments, attachmentNames }) => {
+      {items.map(({ id, name, img, pos, tapped, isCreature, isPlaneswalker, counters, baseP, baseT, raw, effP, effT, abilities, attacking, blocking, blockedBy, baseLoyalty, loyalty, targetedBy, temporaryEffects, attachedTo, attachedToName, hasAttachments, attachmentNames, damageMarked, ptSources }) => {
         const x = clamp(pos?.x ?? 0, 0, Math.max(0, widthPx - tileWidth));
         const y = clamp(pos?.y ?? 0, 0, Math.max(0, heightPx - tileH));
         const z = pos?.z ?? 0;
@@ -450,6 +514,12 @@ export function FreeField(props: {
         const isTargeted = targetedBy && targetedBy.length > 0;
         const hasTemporaryEffects = temporaryEffects && temporaryEffects.length > 0;
         const isAttached = !!attachedTo;
+
+        // Check for P/T modifiers (counters or ptSources)
+        const plusCounters = counters['+1/+1'] ?? 0;
+        const minusCounters = counters['-1/-1'] ?? 0;
+        const hasPTModifiers = plusCounters > 0 || minusCounters > 0 || (ptSources && ptSources.length > 0);
+        const hasDamage = (damageMarked ?? 0) > 0;
 
         // Check if this card should be highlighted due to attachment hover
         // 1. If hovering an equipment/aura, highlight the creature it's attached to
@@ -841,94 +911,150 @@ export function FreeField(props: {
               )}
             </div>
 
-            {/* P/T overlay for creatures with color-coded values */}
+            {/* P/T overlay for creatures - positioned in lower right like real MTG cards */}
             {isCreature && typeof pDisp === 'number' && typeof tDisp === 'number' && (
               <div style={{
                 position: 'absolute', 
                 right: Math.round(4 * scale), 
-                bottom: Math.round(28 * scale),
+                bottom: Math.round(4 * scale),
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'flex-end',
-                gap: Math.round(1 * scale),
+                gap: Math.round(2 * scale),
+                zIndex: 20,
               }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: Math.round(2 * scale),
-                  padding: `${Math.round(2 * scale)}px ${Math.round(5 * scale)}px`,
-                  borderRadius: Math.round(4 * scale),
-                  background: 'rgba(0,0,0,0.8)',
-                  border: '1px solid rgba(255,255,255,0.2)',
-                  boxShadow: '0 2px 4px rgba(0,0,0,0.4)',
-                }}>
+                {/* Main P/T badge */}
+                <div 
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: Math.round(2 * scale),
+                    padding: `${Math.round(3 * scale)}px ${Math.round(8 * scale)}px`,
+                    borderRadius: Math.round(6 * scale),
+                    background: 'linear-gradient(135deg, rgba(40,40,50,0.95), rgba(25,25,35,0.98))',
+                    border: hasPTModifiers 
+                      ? '2px solid rgba(255,215,0,0.7)' 
+                      : hasDamage 
+                        ? '2px solid rgba(239,68,68,0.7)' 
+                        : '2px solid rgba(200,200,200,0.4)',
+                    boxShadow: hasPTModifiers 
+                      ? '0 2px 8px rgba(255,215,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)' 
+                      : hasDamage
+                        ? '0 2px 8px rgba(239,68,68,0.3), inset 0 1px 0 rgba(255,255,255,0.1)'
+                        : '0 2px 6px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.1)',
+                    cursor: (hasPTModifiers || hasDamage) ? 'help' : 'default',
+                    minWidth: Math.round(36 * scale),
+                    justifyContent: 'center',
+                  }}
+                  title={buildPTTooltip({
+                    baseP,
+                    baseT,
+                    plusCounters,
+                    minusCounters,
+                    ptSources,
+                    damageMarked,
+                    effectiveToughness: tDisp,
+                  })}
+                >
                   <span style={{
-                    fontSize: Math.round(12 * scale),
+                    fontSize: Math.round(14 * scale),
                     fontWeight: 700,
                     color: getPTColor(baseP, pDisp),
+                    textShadow: '0 1px 2px rgba(0,0,0,0.5)',
                   }}>
                     {pDisp}
                   </span>
                   <span style={{
-                    fontSize: Math.round(9 * scale),
+                    fontSize: Math.round(11 * scale),
                     color: '#9ca3af',
+                    fontWeight: 600,
                   }}>/</span>
                   <span style={{
-                    fontSize: Math.round(12 * scale),
+                    fontSize: Math.round(14 * scale),
                     fontWeight: 700,
                     color: getPTColor(baseT, tDisp),
+                    textShadow: '0 1px 2px rgba(0,0,0,0.5)',
                   }}>
                     {tDisp}
                   </span>
                 </div>
-                {(baseP !== pDisp || baseT !== tDisp) && baseP !== undefined && baseT !== undefined && (
-                  <span style={{
-                    fontSize: Math.round(7 * scale),
-                    color: '#9ca3af',
-                    opacity: 0.85,
+
+                {/* Sustained damage indicator */}
+                {hasDamage && tDisp !== undefined && (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: Math.round(2 * scale),
+                    padding: `${Math.round(2 * scale)}px ${Math.round(5 * scale)}px`,
+                    borderRadius: Math.round(4 * scale),
+                    background: 'linear-gradient(135deg, rgba(239,68,68,0.9), rgba(185,28,28,0.9))',
+                    border: '1px solid rgba(252,165,165,0.6)',
+                    boxShadow: '0 2px 6px rgba(239,68,68,0.4)',
                   }}>
-                    base {baseP}/{baseT}
-                  </span>
+                    <span style={{ fontSize: Math.round(8 * scale) }}>💔</span>
+                    <span style={{
+                      fontSize: Math.round(10 * scale),
+                      fontWeight: 600,
+                      color: '#fff',
+                      textShadow: '0 1px 1px rgba(0,0,0,0.3)',
+                    }}>
+                      {damageMarked}/{tDisp}
+                    </span>
+                  </div>
                 )}
               </div>
             )}
 
-            {/* Loyalty display for planeswalkers */}
+            {/* Loyalty display for planeswalkers - positioned in lower right corner */}
             {isPlaneswalker && loyalty !== undefined && (
               <div style={{
                 position: 'absolute',
                 right: Math.round(4 * scale),
-                bottom: Math.round(28 * scale),
+                bottom: Math.round(4 * scale),
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'flex-end',
-                gap: Math.round(1 * scale),
+                gap: Math.round(3 * scale),
+                zIndex: 20,
               }}>
+                {/* Loyalty shield badge */}
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  width: Math.round(26 * scale),
-                  height: Math.round(26 * scale),
-                  borderRadius: '50%',
-                  background: 'linear-gradient(135deg, rgba(139,92,246,0.95), rgba(168,85,247,0.95))',
-                  border: '2px solid #c084fc',
-                  boxShadow: '0 2px 8px rgba(139,92,246,0.5)',
+                  width: Math.round(32 * scale),
+                  height: Math.round(36 * scale),
+                  background: 'linear-gradient(180deg, rgba(80,60,120,0.95) 0%, rgba(50,30,80,0.98) 100%)',
+                  border: '2px solid #a78bfa',
+                  borderRadius: `${Math.round(4 * scale)}px ${Math.round(4 * scale)}px ${Math.round(16 * scale)}px ${Math.round(16 * scale)}px`,
+                  boxShadow: '0 3px 10px rgba(139,92,246,0.5), inset 0 1px 0 rgba(255,255,255,0.2)',
+                  position: 'relative',
                 }}>
+                  {/* Inner glow */}
+                  <div style={{
+                    position: 'absolute',
+                    inset: 2,
+                    background: 'radial-gradient(ellipse at center, rgba(168,139,250,0.3) 0%, transparent 70%)',
+                    borderRadius: 'inherit',
+                    pointerEvents: 'none',
+                  }} />
                   <span style={{
-                    fontSize: Math.round(11 * scale),
+                    fontSize: Math.round(14 * scale),
                     fontWeight: 700,
                     color: getLoyaltyColor(baseLoyalty, loyalty),
-                    textShadow: '0 1px 2px rgba(0,0,0,0.4)',
+                    textShadow: '0 1px 3px rgba(0,0,0,0.6), 0 0 8px rgba(168,139,250,0.4)',
+                    position: 'relative',
+                    zIndex: 1,
                   }}>
                     {loyalty}
                   </span>
                 </div>
                 {baseLoyalty !== undefined && baseLoyalty !== loyalty && (
                   <span style={{
-                    fontSize: Math.round(7 * scale),
+                    fontSize: Math.round(9 * scale),
                     color: '#c4b5fd',
-                    opacity: 0.85,
+                    fontWeight: 500,
+                    textShadow: '0 1px 2px rgba(0,0,0,0.5)',
                   }}>
                     start {baseLoyalty}
                   </span>
@@ -936,8 +1062,8 @@ export function FreeField(props: {
               </div>
             )}
 
-            {/* Activated Ability Buttons - always visible for better discoverability */}
-            {showActivatedAbilityButtons && raw.controller === playerId && (
+            {/* Activated Ability Buttons - for non-planeswalkers or non-loyalty abilities */}
+            {showActivatedAbilityButtons && raw.controller === playerId && !isPlaneswalker && (
               <ActivatedAbilityButtons
                 perm={raw}
                 tileWidth={tileWidth}
@@ -950,6 +1076,24 @@ export function FreeField(props: {
                 showOnHover={false}
                 maxVisible={5}
                 position="left"
+              />
+            )}
+
+            {/* Planeswalker Loyalty Ability Buttons - inline on left side */}
+            {showActivatedAbilityButtons && raw.controller === playerId && isPlaneswalker && (
+              <ActivatedAbilityButtons
+                perm={raw}
+                tileWidth={tileWidth}
+                hasPriority={hasPriority}
+                isOwnTurn={isOwnTurn}
+                isMainPhase={isMainPhase}
+                stackEmpty={stackEmpty}
+                hasThousandYearElixirEffect={hasThousandYearElixirEffect}
+                onActivateAbility={onActivateAbility}
+                showOnHover={false}
+                maxVisible={6}
+                position="loyalty-inline"
+                loyaltyAbilitiesOnly={true}
               />
             )}
           </div>
