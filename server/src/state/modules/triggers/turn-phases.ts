@@ -153,15 +153,6 @@ export function getEndStepTriggers(
 // Draw Step Trigger System
 // ============================================================================
 
-export interface DrawStepTrigger {
-  permanentId: string;
-  cardName: string;
-  controllerId: string;
-  description: string;
-  effect?: string;
-  mandatory: boolean;
-}
-
 /**
  * Detect draw step triggers from a card's oracle text
  * Pattern: "At the beginning of your draw step" or "At the beginning of each player's draw step"
@@ -292,17 +283,6 @@ export function getDrawStepTriggers(
 // ============================================================================
 // Untap Step Effects System
 // ============================================================================
-
-export interface UntapStepEffect {
-  permanentId: string;
-  cardName: string;
-  controllerId: string;
-  description: string;
-  effect?: string;
-  untapType: 'artifacts' | 'creatures' | 'all' | 'lands' | 'specific';
-  onOtherPlayersTurn: boolean; // True for Unwinding Clock, Seedborn Muse
-  onYourTurn: boolean;
-}
 
 /**
  * Detect untap step effects from a card's oracle text
@@ -467,19 +447,6 @@ export function applyUntapStepEffect(ctx: GameContext, effect: UntapStepEffect):
 // ============================================================================
 // "Doesn't Untap" Effects
 // ============================================================================
-
-/**
- * Interface for effects that prevent permanents from untapping
- */
-export interface DoesntUntapEffect {
-  permanentId: string;
-  cardName: string;
-  controllerId: string;
-  affectedType: 'all_creatures' | 'all_lands' | 'all_permanents' | 'controller_creatures' | 'controller_lands' | 'specific_permanent';
-  affectedController: 'all' | 'controller' | 'opponents';
-  targetPermanentId?: string;
-  description: string;
-}
 
 /**
  * Detect "doesn't untap" effects from a card's oracle text
