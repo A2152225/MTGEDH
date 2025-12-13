@@ -42,7 +42,26 @@ export {
 } from "./registry.js";
 
 // Export from sub-modules (these re-export from triggered-abilities.ts)
-export * from "./combat.js";
+export {
+  // Combat damage triggers
+  detectCombatDamageTriggers,
+  getCombatDamageTriggersForCreature,
+  // Attack triggers
+  detectAttackTriggers,
+  getAttackTriggersForCreatures,
+  detectAttachmentAttackTriggers,
+  getAttachmentAttackTriggers,
+  getAttachmentCombatDamageTriggers,
+  // Beginning of combat
+  detectBeginningOfCombatTriggers,
+  getBeginningOfCombatTriggers,
+  // End of combat
+  detectEndOfCombatTriggers,
+  getEndOfCombatTriggers,
+  // Types
+  type CombatTriggeredAbility,
+  type AttachmentAttackTrigger,
+} from "./combat.js";
 export {
   // End step
   detectEndStepTriggers,
