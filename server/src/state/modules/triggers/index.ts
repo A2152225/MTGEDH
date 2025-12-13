@@ -42,11 +42,88 @@ export {
 } from "./registry.js";
 
 // Export from sub-modules (these re-export from triggered-abilities.ts)
-export * from "./combat.js";
-export * from "./turn-phases.js";
-export * from "./zone-changes.js";
-export * from "./spell-cast.js";
-export * from "./tap-untap.js";
+export {
+  // Combat damage triggers
+  detectCombatDamageTriggers,
+  getCombatDamageTriggersForCreature,
+  // Attack triggers
+  detectAttackTriggers,
+  getAttackTriggersForCreatures,
+  detectAttachmentAttackTriggers,
+  getAttachmentAttackTriggers,
+  getAttachmentCombatDamageTriggers,
+  // Beginning of combat
+  detectBeginningOfCombatTriggers,
+  getBeginningOfCombatTriggers,
+  // End of combat
+  detectEndOfCombatTriggers,
+  getEndOfCombatTriggers,
+  // Types
+  type CombatTriggeredAbility,
+  type AttachmentAttackTrigger,
+} from "./combat.js";
+export {
+  // End step
+  detectEndStepTriggers,
+  getEndStepTriggers,
+  // Draw step
+  detectDrawStepTriggers,
+  getDrawStepTriggers,
+  // Untap step
+  detectUntapStepEffects,
+  getUntapStepEffects,
+  applyUntapStepEffect,
+  // Doesn't untap effects
+  detectDoesntUntapEffects,
+  isPermanentPreventedFromUntapping,
+} from "./turn-phases.js";
+// Types from turn-phases that override types.ts
+export type {
+  EndStepTrigger,
+  DrawStepTrigger,
+  UntapStepEffect,
+  DoesntUntapEffect,
+} from "./turn-phases.js";
+// Export from zone-changes.ts (full implementation, replaces re-exports)
+export {
+  detectDeathTriggers,
+  getDeathTriggers,
+  getDeathTriggersForCreature,
+  getPlayersWhoMustSacrifice,
+  processUndyingPersist,
+  detectETBTriggers,
+  getETBTriggersForPermanent,
+  detectETBUntapEffects,
+  getETBUntapEffects,
+  applyETBUntapEffect,
+  checkETBAutoSacrifice,
+  type TriggeredAbility as ZoneChangeTriggeredAbility,
+  type ETBUntapEffect as ZoneChangeETBUntapEffect,
+  type DeathTriggerResult as ZoneChangeDeathTriggerResult,
+} from "./zone-changes.js";
+// Export from spell-cast.ts (full implementation, replaces re-exports)
+export {
+  detectSpellCastTriggers,
+  getSpellCastTriggers,
+  detectSpellCastUntapEffects,
+  getSpellCastUntapEffects,
+  applySpellCastUntapEffect,
+  detectStormAbility,
+  getStormCount,
+  type SpellCastTrigger as SpellCastTriggerType,
+  type SpellCastUntapEffect as SpellCastUntapEffectType,
+} from "./spell-cast.js";
+// Export from tap-untap.ts (full implementation, replaces re-exports)
+export {
+  detectTapTriggers,
+  getTapTriggers,
+  detectUntapTriggers,
+  getAttackUntapTriggers,
+  getCombatDamageUntapTriggers,
+  executeUntapTrigger,
+  type TapTrigger as TapTriggerType,
+  type UntapTrigger as UntapTriggerType,
+} from "./tap-untap.js";
 export * from "./card-draw.js";
 export * from "./landfall.js";
 export * from "./planeswalker.js";
@@ -61,3 +138,12 @@ export * from "./crystal-abilities.js";
 
 // Lifegain triggers (Ratchet, Field Medic, Ajani's Pridemate, etc.)
 export * from "./lifegain.js";
+
+// Linked exile system (Oblivion Ring, Banisher Priest, etc.)
+export * from "./linked-exile.js";
+
+// Reanimate effects (Reanimate, Animate Dead, Living Death, etc.)
+export * from "./reanimate.js";
+
+// Aura graveyard triggers (Rancor, Spirit Loop, etc.)
+export * from "./aura-graveyard.js";

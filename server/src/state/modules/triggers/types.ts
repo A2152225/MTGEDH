@@ -85,32 +85,7 @@ export interface BeginningOfCombatTrigger {
   requiresChoice?: boolean;
 }
 
-/**
- * End step trigger
- */
-export interface EndStepTrigger {
-  permanentId: string;
-  cardName: string;
-  controllerId: string;
-  triggerType: 'end_step_resource' | 'end_step_effect';
-  description: string;
-  effect?: string;
-  mandatory: boolean;
-  requiresChoice?: boolean;
-  affectsAllPlayers?: boolean;
-}
-
-/**
- * Draw step trigger
- */
-export interface DrawStepTrigger {
-  permanentId: string;
-  cardName: string;
-  controllerId: string;
-  description: string;
-  effect?: string;
-  mandatory: boolean;
-}
+// NOTE: EndStepTrigger and DrawStepTrigger have been moved to turn-phases.ts
 
 /**
  * End of combat trigger
@@ -139,19 +114,7 @@ export interface DeathTriggerResult {
   sacrificeFrom?: string; // Player ID who must sacrifice
 }
 
-/**
- * Untap step effect
- */
-export interface UntapStepEffect {
-  permanentId: string;
-  cardName: string;
-  controllerId: string;
-  effectType: 'untap_all' | 'untap_target' | 'untap_additional' | 'prevent_untap' | 'untap_during_opponents';
-  targetType?: string;
-  count?: number;
-  condition?: string;
-  description: string;
-}
+// NOTE: UntapStepEffect has been moved to turn-phases.ts
 
 /**
  * ETB untap effect (Intruder Alarm, etc.)
@@ -228,19 +191,7 @@ export interface UntapTrigger {
   mandatory: boolean;
 }
 
-/**
- * "Doesn't untap" effect
- */
-export interface DoesntUntapEffect {
-  permanentId: string;
-  cardName: string;
-  controllerId: string;
-  effectType: 'self' | 'all_creatures' | 'opponents_creatures' | 'specific_permanent';
-  targetPermanentId?: string;
-  condition?: string;
-  description: string;
-  isTemporary?: boolean;
-}
+// NOTE: DoesntUntapEffect has been moved to turn-phases.ts
 
 // CardDrawTrigger is defined in card-draw.ts
 

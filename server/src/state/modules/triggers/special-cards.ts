@@ -39,7 +39,7 @@ export {
   detectChargeCounterAbility,
   
   // Reanimate effects
-  detectReanimateEffect,
+  detectReanimateCard,
   
   // Library effects
   detectLibraryRevealPlayEffect,
