@@ -2353,6 +2353,7 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
         // High-value creatures (like combo pieces) might be kept back
         if (aiAnalysis.comboPotential >= 7 && !aiAnalysis.details.hasDeathTrigger) {
           combatValue -= 15;
+          wantsToAttack = false;
           reasoning = 'Combo piece - preserving';
         }
 
@@ -2389,12 +2390,14 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
           // Only attack if we're ahead on life
           if (attacker.life <= defender.life) {
             combatValue -= 10;
+            wantsToAttack = false;
           }
           break;
         case AIStrategy.COMBO:
           // Preserve creatures unless they have death triggers
           if (!aiAnalysis?.details.hasDeathTrigger) {
             combatValue -= 5;
+            wantsToAttack = false;
           }
           break;
         case AIStrategy.CONTROL:
@@ -2419,16 +2422,16 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
     // Easy AI might not attack with good attackers; Hard AI always attacks optimally
     const minCombatValue = Math.floor((1 - this.aiDifficulty) * 10);
     
-    // Sort by combat value and filter
-    const selectedAttackers = attackerEvaluations
-      .filter(e => e.combatValue >= minCombatValue)
-      .sort((a, b) => b.combatValue - a.combatValue)
-      .map(e => e.creature);
+    // Sort by combat value and filter - also consider wantsToAttack flag
+    const selectedEvaluations = attackerEvaluations
+      .filter(e => e.wantsToAttack && e.combatValue >= minCombatValue)
+      .sort((a, b) => b.combatValue - a.combatValue);
+    const selectedAttackers = selectedEvaluations.map(e => e.creature);
 
-    // Log AI reasoning in analysis mode
+    // Log AI reasoning in analysis mode - show actual selected attackers
     if (this.analysisMode && selectedAttackers.length > 0) {
       this.log(`AI attack decision: ${selectedAttackers.length}/${availableAttackers.length} attackers selected`);
-      for (const eval_ of attackerEvaluations.slice(0, 3)) {
+      for (const eval_ of selectedEvaluations.slice(0, 3)) {
         this.log(`  ${eval_.creature.card}: value=${eval_.combatValue} ${eval_.reasoning ? `(${eval_.reasoning})` : ''}`);
       }
     }
@@ -2749,13 +2752,14 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
     if (!cardData) return null;
     
     // Create a minimal card reference that CardAnalyzer can work with
+    // Use explicit null/undefined checks for cmc to handle 0 correctly
     const cardRef = {
       id: cardData.id || cardName,
       name: cardData.name,
       type_line: cardData.type_line || '',
       oracle_text: cardData.oracle_text || '',
       mana_cost: cardData.mana_cost || '',
-      cmc: cardData.cmc || this.getCMC(cardName),
+      cmc: cardData.cmc !== undefined && cardData.cmc !== null ? cardData.cmc : this.getCMC(cardName),
       power: cardData.power || '0',
       toughness: cardData.toughness || '0',
     } as KnownCardRef;
@@ -2909,7 +2913,8 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
         const aiAnalysis = this.analyzeCardWithAI(spell);
         if (aiAnalysis) {
           const categories = aiAnalysis.categories.slice(0, 2).join(', ');
-          const threat = ThreatLevel[aiAnalysis.threatLevel];
+          const threatNames = ['MINIMAL', 'LOW', 'MODERATE', 'HIGH', 'CRITICAL', 'GAME_WINNING'];
+          const threat = threatNames[aiAnalysis.threatLevel] || 'UNKNOWN';
           reasoning = `AI: ${categories} (threat: ${threat}, combo potential: ${aiAnalysis.comboPotential})`;
         } else {
           reasoning = this.getSpellReasoning(spell, player, analysis);
@@ -3289,9 +3294,10 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
       };
       
       // Register AI player if AI mode is enabled
+      // Use numeric index as string to match simulation's internal player identification
       if (this.useAI) {
         this.aiEngine.registerAI({
-          playerId: `player${i}`,
+          playerId: String(i),
           strategy: this.aiStrategy,
           difficulty: this.aiDifficulty,
         });
