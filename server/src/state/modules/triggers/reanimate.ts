@@ -12,8 +12,9 @@
 
 /**
  * Interface for reanimate card detection (known card lookup)
- * Note: This is different from ReanimateEffect in triggers/types.ts which is for
- * permanent-based effects. This interface is for card-level detection.
+ * Note: This is different from the ReanimateEffect interface defined in this
+ * directory's types.ts, which is for permanent-based effects. This interface
+ * is for detecting if a card has reanimate capabilities.
  */
 export interface ReanimateCardInfo {
   cardName: string;

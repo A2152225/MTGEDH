@@ -182,7 +182,9 @@ export function processLinkedExileReturns(
     console.log(`[processLinkedExileReturns] ${linked.exilingPermanentName} left - returning ${linked.exiledCardName} to battlefield`);
     
     // Return the exiled card to the battlefield under its owner's control
-    // Per MTG rules, cards exiled "until ~ leaves" return under original owner's control
+    // Per MTG rules for linked exile effects, cards exiled "until ~ leaves the 
+    // battlefield" return under their original owner's control when the exiling
+    // permanent leaves. This is different from effects that say "under your control".
     const newPermanent = {
       id: `perm_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
       card: linked.exiledCard,
