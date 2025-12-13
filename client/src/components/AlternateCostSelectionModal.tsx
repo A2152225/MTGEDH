@@ -325,6 +325,8 @@ export function AlternateCostSelectionModal({
                       
                       {isSelected && (
                         <div
+                          role="img"
+                          aria-label="Selected option"
                           style={{
                             position: 'absolute',
                             right: 14,

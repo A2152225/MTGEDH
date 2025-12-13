@@ -54,7 +54,11 @@ export interface MutatedPermanent {
   readonly cardStack: readonly MutatedCard[];
   /** Number of times this creature has been mutated */
   readonly mutationCount: number;
-  /** Whether the creature had summoning sickness before the last mutation */
+  /** 
+   * Whether the original creature did NOT have summoning sickness.
+   * If true, the mutated creature can attack/tap immediately.
+   * Rule 702.140: Mutated creature inherits summoning sickness state of target.
+   */
   readonly summoningSicknessInherited: boolean;
 }
 
@@ -342,6 +346,8 @@ export function createMutatedPermanent(
     owner: targetPermanent.owner,
     cardStack,
     mutationCount: (existingMutation?.mutationCount || 0) + 1,
+    // Creature keeps summoning sickness state of the original creature
+    // If original didn't have summoning sickness, mutated creature doesn't either
     summoningSicknessInherited: !targetPermanent.summoningSickness,
   };
 }

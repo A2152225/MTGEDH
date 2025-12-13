@@ -254,8 +254,7 @@ export interface BattlefieldPermanent {
   goadedBy?: string[];              // Player IDs who have goaded this creature
   goadedUntil?: Readonly<Record<string, number>>; // Map of player ID -> turn number when goad expires
   // Mutate support (Rule 702.140)
-  mutatedStack?: MutatedCardStack;  // Stack of cards in a mutated creature
-  isMutated?: boolean;              // True if this permanent is a mutated creature
+  mutatedStack?: MutatedCardStack;  // Stack of cards in a mutated creature (presence indicates mutation)
   mutationCount?: number;           // Number of times this creature has been mutated
 }
 

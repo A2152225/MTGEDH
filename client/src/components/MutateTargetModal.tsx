@@ -184,9 +184,6 @@ export function MutateTargetModal({
                   <div
                     key={target.id}
                     onClick={() => setSelectedTargetId(target.id)}
-                    onMouseEnter={(e) => {
-                      // Card preview on hover would go here
-                    }}
                     style={{
                       position: 'relative',
                       borderRadius: 8,
