@@ -58,6 +58,8 @@ import { ExploreModal, type ExploreCard } from "./components/ExploreModal";
 import { BatchExploreModal, type ExploreResult } from "./components/BatchExploreModal";
 import { CascadeModal } from "./components/CascadeModal";
 import { OpponentMayPayModal, type OpponentMayPayPrompt } from "./components/OpponentMayPayModal";
+import { MutateTargetModal, type MutateTarget } from "./components/MutateTargetModal";
+import { AlternateCostSelectionModal, type CastingOption } from "./components/AlternateCostSelectionModal";
 import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
 import { useGameSocket } from "./hooks/useGameSocket";
@@ -668,6 +670,31 @@ export function App() {
   
   // Mana Pool state - tracks floating mana for the current player
   const [manaPool, setManaPool] = useState<ManaPool | null>(null);
+  
+  // Mutate target selection modal state
+  const [mutateModalOpen, setMutateModalOpen] = useState(false);
+  const [mutateModalData, setMutateModalData] = useState<{
+    cardId: string;
+    cardName: string;
+    imageUrl?: string;
+    power?: string;
+    toughness?: string;
+    mutateCost: string;
+    targets: MutateTarget[];
+  } | null>(null);
+  
+  // Alternate cost selection modal state
+  const [alternateCostModalOpen, setAlternateCostModalOpen] = useState(false);
+  const [alternateCostModalData, setAlternateCostModalData] = useState<{
+    cardId: string;
+    cardName: string;
+    imageUrl?: string;
+    manaCost?: string;
+    typeLine?: string;
+    oracleText?: string;
+    options: CastingOption[];
+    castFromZone?: string;
+  } | null>(null);
   
   // Auto-pass steps - which steps to automatically pass priority on
   const [autoPassSteps, setAutoPassSteps] = useState<Set<string>>(() => {
@@ -2323,6 +2350,72 @@ export function App() {
       socket.off("cascadeComplete", handleCascadeComplete);
     };
   }, [safeView?.id, you, cascadePrompt?.effectId]);
+
+  // Mutate target selection listener
+  useEffect(() => {
+    const handleMutateTargetsResponse = (data: {
+      gameId: string;
+      cardId: string;
+      cardName: string;
+      mutateCost: string;
+      imageUrl?: string;
+      validTargets: MutateTarget[];
+    }) => {
+      if (!safeView || data.gameId !== safeView.id) return;
+      setMutateModalData({
+        cardId: data.cardId,
+        cardName: data.cardName,
+        imageUrl: data.imageUrl,
+        mutateCost: data.mutateCost,
+        targets: data.validTargets,
+      });
+      setMutateModalOpen(true);
+    };
+
+    const handleRequestMutateTargetSelection = (data: { gameId: string; cardId: string }) => {
+      if (!safeView || data.gameId !== safeView.id) return;
+      // Request mutate targets from the server
+      socket.emit("requestMutateTargets", { gameId: safeView.id, cardId: data.cardId });
+    };
+
+    socket.on("mutateTargetsResponse", handleMutateTargetsResponse);
+    socket.on("requestMutateTargetSelection", handleRequestMutateTargetSelection);
+
+    return () => {
+      socket.off("mutateTargetsResponse", handleMutateTargetsResponse);
+      socket.off("requestMutateTargetSelection", handleRequestMutateTargetSelection);
+    };
+  }, [safeView?.id]);
+
+  // Alternate cost selection listener
+  useEffect(() => {
+    const handleAlternateCostsResponse = (data: {
+      gameId: string;
+      cardId: string;
+      cardName: string;
+      imageUrl?: string;
+      typeLine?: string;
+      normalCost?: string;
+      options: CastingOption[];
+    }) => {
+      if (!safeView || data.gameId !== safeView.id) return;
+      setAlternateCostModalData({
+        cardId: data.cardId,
+        cardName: data.cardName,
+        imageUrl: data.imageUrl,
+        manaCost: data.normalCost,
+        typeLine: data.typeLine,
+        options: data.options,
+      });
+      setAlternateCostModalOpen(true);
+    };
+
+    socket.on("alternateCostsResponse", handleAlternateCostsResponse);
+
+    return () => {
+      socket.off("alternateCostsResponse", handleAlternateCostsResponse);
+    };
+  }, [safeView?.id]);
 
   // Explore prompt handler
   useEffect(() => {
@@ -5765,6 +5858,77 @@ export function App() {
           }}
         />
       )}
+
+      {/* Mutate Target Selection Modal */}
+      <MutateTargetModal
+        open={mutateModalOpen}
+        mutatingCard={{
+          id: mutateModalData?.cardId || '',
+          name: mutateModalData?.cardName || '',
+          imageUrl: mutateModalData?.imageUrl,
+          power: mutateModalData?.power,
+          toughness: mutateModalData?.toughness,
+          mutateCost: mutateModalData?.mutateCost || '',
+        }}
+        targets={mutateModalData?.targets || []}
+        onConfirm={(targetId, onTop) => {
+          if (safeView?.id && mutateModalData) {
+            socket.emit("confirmMutateTarget", {
+              gameId: safeView.id,
+              cardId: mutateModalData.cardId,
+              targetPermanentId: targetId,
+              onTop,
+            });
+            setMutateModalOpen(false);
+            setMutateModalData(null);
+          }
+        }}
+        onCancel={() => {
+          setMutateModalOpen(false);
+          setMutateModalData(null);
+        }}
+        onCastNormally={() => {
+          if (safeView?.id && mutateModalData) {
+            // Cancel mutate, cast normally instead
+            socket.emit("castMutateNormally", {
+              gameId: safeView.id,
+              cardId: mutateModalData.cardId,
+            });
+            setMutateModalOpen(false);
+            setMutateModalData(null);
+          }
+        }}
+      />
+
+      {/* Alternate Cost Selection Modal */}
+      <AlternateCostSelectionModal
+        open={alternateCostModalOpen}
+        card={{
+          id: alternateCostModalData?.cardId || '',
+          name: alternateCostModalData?.cardName || '',
+          imageUrl: alternateCostModalData?.imageUrl,
+          manaCost: alternateCostModalData?.manaCost,
+          typeLine: alternateCostModalData?.typeLine,
+          oracleText: alternateCostModalData?.oracleText,
+        }}
+        options={alternateCostModalData?.options || []}
+        onConfirm={(selectedOptionId) => {
+          if (safeView?.id && alternateCostModalData) {
+            socket.emit("confirmAlternateCost", {
+              gameId: safeView.id,
+              cardId: alternateCostModalData.cardId,
+              selectedCostId: selectedOptionId,
+              castFromZone: alternateCostModalData.castFromZone,
+            });
+            setAlternateCostModalOpen(false);
+            setAlternateCostModalData(null);
+          }
+        }}
+        onCancel={() => {
+          setAlternateCostModalOpen(false);
+          setAlternateCostModalData(null);
+        }}
+      />
 
       {/* Deck Validation Status */}
       {deckValidation && !deckValidation.valid && (

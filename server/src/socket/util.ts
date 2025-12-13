@@ -327,7 +327,8 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           const isInstantSpeed = typeLine.includes("instant") || oracleText.includes("flash");
           const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty && isMyTurn);
           
-          if (canCastNow && canPayManaCost(availableMana, parsedCost)) {
+          // Check if player can pay the cost (normal or alternate like WUBRG/Omniscience)
+          if (canCastNow && (canPayManaCost(availableMana, parsedCost) || hasPayableAlternateCost(game as any, playerId, commander))) {
             console.log(`[getPlayableCardIds] Commander ${commander.name} (${commanderId}) is playable with cost ${totalCost}`);
             playableIds.push(commanderId);
           } else {
@@ -378,7 +379,8 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
             const isInstantSpeed = typeLine.includes("instant") || oracleText.includes("flash");
             const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty);
             
-            if (canCastNow && canPayManaCost(availableMana, parsedCost)) {
+            // Check if player can pay the cost (normal or alternate)
+            if (canCastNow && (canPayManaCost(availableMana, parsedCost) || hasPayableAlternateCost(game as any, playerId, card))) {
               playableIds.push(card.id);
             }
           }
@@ -409,7 +411,8 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           const isInstantSpeed = typeLine.includes("instant") || oracleText.includes("flash");
           const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty);
           
-          if (canCastNow && canPayManaCost(availableMana, parsedCost)) {
+          // Check if player can pay the cost (normal or alternate)
+          if (canCastNow && (canPayManaCost(availableMana, parsedCost) || hasPayableAlternateCost(game as any, playerId, card))) {
             playableIds.push(card.id);
           }
         }

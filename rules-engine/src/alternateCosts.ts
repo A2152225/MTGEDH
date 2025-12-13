@@ -481,6 +481,193 @@ export function canPayPitchCost(
   return { canPay: true, eligibleCards: [] };
 }
 
+/**
+ * External alternate cost source definition
+ * Represents permanents like Jodah, Fist of Suns, Omniscience that provide
+ * alternate casting costs for spells you cast.
+ */
+export interface ExternalAlternateCostSource {
+  readonly sourceId: string;
+  readonly sourceName: string;
+  readonly costType: AlternateCostType;
+  readonly alternateCost?: ManaCost;
+  readonly condition?: ExternalCostCondition;
+  readonly freecast?: boolean;
+}
+
+/**
+ * Condition for when an external alternate cost applies
+ */
+export interface ExternalCostCondition {
+  readonly type: 'controller' | 'card_type' | 'zone' | 'color' | 'custom';
+  readonly value?: string;
+  readonly zones?: readonly string[];
+}
+
+/**
+ * Create an Omniscience alternate cost source
+ * "You may cast spells from your hand without paying their mana costs."
+ */
+export function createOmniscienceSource(sourceId: string): ExternalAlternateCostSource {
+  return {
+    sourceId,
+    sourceName: 'Omniscience',
+    costType: AlternateCostType.FREE,
+    freecast: true,
+    condition: {
+      type: 'zone',
+      zones: ['hand'],
+    },
+  };
+}
+
+/**
+ * Create a Jodah/Fist of Suns alternate cost source
+ * "You may pay {W}{U}{B}{R}{G} rather than pay the mana cost for spells you cast."
+ */
+export function createWUBRGAlternateCostSource(
+  sourceId: string,
+  sourceName: string
+): ExternalAlternateCostSource {
+  return {
+    sourceId,
+    sourceName,
+    costType: AlternateCostType.WUBRG,
+    alternateCost: WUBRG_COST,
+  };
+}
+
+/**
+ * Create a Bringer alternate cost (self-only WUBRG)
+ * "You may pay {W}{U}{B}{R}{G} rather than pay this spell's mana cost."
+ */
+export function createBringerCost(cardName: string): AlternateCost {
+  return {
+    type: AlternateCostType.WUBRG,
+    name: 'Bringer Cost',
+    description: `Pay {W}{U}{B}{R}{G} rather than pay the mana cost`,
+    manaCost: WUBRG_COST,
+    sourceName: cardName,
+  };
+}
+
+/**
+ * Detect external alternate cost sources on the battlefield
+ * Returns all permanents that provide alternate casting costs to the player
+ * 
+ * @param battlefield - Array of permanents on the battlefield
+ * @param playerId - The player casting the spell
+ * @returns Array of external alternate cost sources
+ */
+export function detectExternalAlternateCostSources(
+  battlefield: readonly any[],
+  playerId: string
+): ExternalAlternateCostSource[] {
+  const sources: ExternalAlternateCostSource[] = [];
+  
+  for (const perm of battlefield) {
+    if (!perm || !perm.card || perm.controller !== playerId) continue;
+    
+    const cardName = (perm.card.name || '').toLowerCase();
+    const oracleText = (perm.card.oracle_text || '').toLowerCase();
+    
+    // Omniscience: "You may cast spells from your hand without paying their mana costs."
+    if (cardName.includes('omniscience') || 
+        oracleText.includes('cast spells from your hand without paying their mana cost')) {
+      sources.push(createOmniscienceSource(perm.id));
+    }
+    
+    // Jodah, Archmage Eternal: "You may pay {W}{U}{B}{R}{G} rather than pay the mana cost for spells you cast."
+    // Fist of Suns: Same effect
+    if ((cardName.includes('jodah') && oracleText.includes('wubrg')) ||
+        cardName.includes('fist of suns') ||
+        (oracleText.includes('{w}{u}{b}{r}{g}') && oracleText.includes('rather than pay'))) {
+      // Check it's not the card-specific version (Bringers)
+      if (!oracleText.includes('this spell')) {
+        sources.push(createWUBRGAlternateCostSource(perm.id, perm.card.name || 'Unknown'));
+      }
+    }
+  }
+  
+  return sources;
+}
+
+/**
+ * Check if a card has a built-in alternate WUBRG cost (like the Bringers)
+ * "You may pay {W}{U}{B}{R}{G} rather than pay this spell's mana cost."
+ * 
+ * @param oracleText - Card oracle text
+ * @returns True if card has self-WUBRG alternate cost
+ */
+export function hasSelfWUBRGCost(oracleText: string): boolean {
+  if (!oracleText) return false;
+  const lower = oracleText.toLowerCase();
+  return lower.includes('{w}{u}{b}{r}{g}') && 
+         lower.includes('rather than pay') &&
+         lower.includes('this spell');
+}
+
+/**
+ * Get all available alternate costs for casting a spell
+ * Combines card's built-in costs with external sources
+ * 
+ * @param card - The card being cast
+ * @param externalSources - External alternate cost sources
+ * @param castFromZone - Zone the card is being cast from
+ * @returns Array of available alternate costs
+ */
+export function getAvailableAlternateCosts(
+  card: { oracle_text?: string; name?: string; mana_cost?: string },
+  externalSources: readonly ExternalAlternateCostSource[],
+  castFromZone: string = 'hand'
+): AlternateCost[] {
+  const costs: AlternateCost[] = [];
+  const oracleText = card.oracle_text || '';
+  const cardName = card.name || 'Unknown';
+  
+  // Check card's built-in alternate costs
+  
+  // Bringer-style self-WUBRG cost
+  if (hasSelfWUBRGCost(oracleText)) {
+    costs.push(createBringerCost(cardName));
+  }
+  
+  // Add external sources
+  for (const source of externalSources) {
+    // Check zone condition
+    if (source.condition?.type === 'zone' && source.condition.zones) {
+      if (!source.condition.zones.includes(castFromZone)) {
+        continue;
+      }
+    }
+    
+    if (source.freecast) {
+      // Free cast (Omniscience)
+      costs.push({
+        type: AlternateCostType.FREE,
+        name: 'Free Cast',
+        description: `Cast without paying mana cost (${source.sourceName})`,
+        sourceName: source.sourceName,
+        sourceId: source.sourceId,
+      });
+    } else if (source.alternateCost) {
+      // WUBRG or other alternate mana cost
+      costs.push({
+        type: source.costType,
+        name: source.costType === AlternateCostType.WUBRG ? 'WUBRG Alternative' : 'Alternate Cost',
+        description: source.costType === AlternateCostType.WUBRG 
+          ? `Pay {W}{U}{B}{R}{G} rather than pay the mana cost (${source.sourceName})`
+          : `Pay alternate cost (${source.sourceName})`,
+        manaCost: source.alternateCost,
+        sourceName: source.sourceName,
+        sourceId: source.sourceId,
+      });
+    }
+  }
+  
+  return costs;
+}
+
 export default {
   createJodahCost,
   createMorophonReduction,
@@ -497,6 +684,12 @@ export default {
   getApplicableCostReductions,
   calculateFinalCost,
   canPayPitchCost,
+  createOmniscienceSource,
+  createWUBRGAlternateCostSource,
+  createBringerCost,
+  detectExternalAlternateCostSources,
+  hasSelfWUBRGCost,
+  getAvailableAlternateCosts,
   WUBRG_COST,
   MOROPHON_REDUCTION,
   AlternateCostType,

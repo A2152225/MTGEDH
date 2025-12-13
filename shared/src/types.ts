@@ -253,7 +253,33 @@ export interface BattlefieldPermanent {
   // Goad mechanic (Rule 701.15)
   goadedBy?: string[];              // Player IDs who have goaded this creature
   goadedUntil?: Readonly<Record<string, number>>; // Map of player ID -> turn number when goad expires
+  // Mutate support (Rule 702.140)
+  mutatedStack?: MutatedCardStack;  // Stack of cards in a mutated creature (presence indicates mutation)
+  mutationCount?: number;           // Number of times this creature has been mutated
 }
+
+/**
+ * Represents a card in a mutated permanent's stack
+ * Rule 702.140e: Mutated permanents are represented by multiple cards
+ */
+export interface MutatedCardInStack {
+  id: string;
+  name: string;
+  typeLine: string;
+  oracleText?: string;
+  power?: string;
+  toughness?: string;
+  manaCost?: string;
+  isOriginal: boolean;    // True if this was the original creature (not from mutating)
+  isCommander?: boolean;  // True if this card is a commander
+  imageUrl?: string;
+}
+
+/**
+ * The stack of cards that make up a mutated permanent
+ * Rule 702.140e: Top card determines characteristics, all cards provide abilities
+ */
+export type MutatedCardStack = readonly MutatedCardInStack[];
 
 /* Temporary effect applied to a permanent or player */
 export interface TemporaryEffect {

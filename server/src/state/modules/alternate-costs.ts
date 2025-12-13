@@ -11,10 +11,57 @@
  * - Deflecting Swat: Free if you control a commander
  * - Pact cycle: Free now, pay on next upkeep
  * - Convoke: Tap creatures to pay for spell
+ * - Mutate: Cast for mutate cost targeting a non-Human creature
+ * - Jodah/Fist of Suns: Pay {W}{U}{B}{R}{G} for any spell
+ * - Omniscience: Cast from hand without paying mana cost
+ * - Bringers: Self-WUBRG alternate cost
  */
 
 import type { GameContext } from "../context";
 import type { PlayerID } from "../../../../shared/src";
+
+/**
+ * Alternate cost types
+ */
+export type AlternateCostType = 
+  | 'force_of_will'
+  | 'commander_free'
+  | 'pact'
+  | 'convoke'
+  | 'delve'
+  | 'improvise'
+  | 'mutate'
+  | 'evoke'
+  | 'overload'
+  | 'dash'
+  | 'flashback'
+  | 'surge'
+  | 'spectacle'
+  | 'kicker'
+  | 'multikicker'
+  | 'buyback'
+  | 'madness'
+  | 'emerge'
+  | 'prowl'
+  | 'ninjutsu'
+  | 'wubrg_external'
+  | 'omniscience'
+  | 'wubrg_self';
+
+/**
+ * Represents an available alternate cost option
+ */
+export interface AlternateCostOption {
+  type: AlternateCostType;
+  name: string;
+  description: string;
+  manaCost?: string;
+  sourceName?: string;
+  sourceId?: string;
+  requiresTarget?: boolean;
+  targetType?: 'non_human_creature' | 'creature' | 'player' | 'permanent';
+  additionalEffects?: string[];
+}
 
 /**
  * Pattern matcher for Force of Will style alternate costs
@@ -201,6 +248,122 @@ export function hasImproviseAlternateCost(
 }
 
 /**
+ * Pattern matcher for Mutate
+ * "Mutate [cost]" - Cast for mutate cost targeting non-Human creature you own
+ */
+export function hasMutateAlternateCost(
+  ctx: GameContext,
+  playerId: PlayerID,
+  card: any
+): boolean {
+  if (!card) return false;
+  
+  const { state } = ctx;
+  const oracleText = (card.oracle_text || "").toLowerCase();
+  
+  // Check for mutate keyword
+  if (!/\bmutate\b/.test(oracleText)) {
+    return false;
+  }
+  
+  // Check if player has a non-Human creature they own on the battlefield
+  const battlefield = state.battlefield || [];
+  const hasValidTarget = battlefield.some((p: any) => {
+    if (!p || p.owner !== playerId) return false;
+    const typeLine = (p.card?.type_line || "").toLowerCase();
+    return typeLine.includes("creature") && !typeLine.includes("human");
+  });
+  
+  return hasValidTarget;
+}
+
+/**
+ * Parse mutate cost from oracle text
+ */
+export function parseMutateCost(oracleText: string): string | undefined {
+  if (!oracleText) return undefined;
+  const match = oracleText.match(/mutate\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  return match ? match[1].trim() : undefined;
+}
+
+/**
+ * Check for self-WUBRG alternate cost (Bringers)
+ * "You may pay {W}{U}{B}{R}{G} rather than pay this spell's mana cost."
+ */
+export function hasSelfWUBRGAlternateCost(card: any): boolean {
+  if (!card) return false;
+  
+  const oracleText = (card.oracle_text || "").toLowerCase();
+  return oracleText.includes("{w}{u}{b}{r}{g}") && 
+         oracleText.includes("rather than pay") &&
+         oracleText.includes("this spell");
+}
+
+/**
+ * Check for external WUBRG sources (Jodah, Fist of Suns)
+ * Returns the source permanent if found
+ */
+export function getExternalWUBRGSource(
+  ctx: GameContext,
+  playerId: PlayerID
+): { sourceId: string; sourceName: string } | null {
+  const { state } = ctx;
+  const battlefield = state.battlefield || [];
+  
+  for (const perm of battlefield) {
+    if (!perm || perm.controller !== playerId) continue;
+    
+    const cardName = (perm.card?.name || "").toLowerCase();
+    const oracleText = (perm.card?.oracle_text || "").toLowerCase();
+    
+    // Jodah, Archmage Eternal or Fist of Suns
+    // "You may pay {W}{U}{B}{R}{G} rather than pay the mana cost for spells you cast."
+    if ((cardName.includes("jodah") || cardName.includes("fist of suns")) &&
+        oracleText.includes("{w}{u}{b}{r}{g}") && 
+        oracleText.includes("rather than pay") &&
+        !oracleText.includes("this spell")) {
+      return {
+        sourceId: perm.id,
+        sourceName: perm.card?.name || "Unknown",
+      };
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Check for Omniscience effect
+ * "You may cast spells from your hand without paying their mana costs."
+ */
+export function getOmniscienceSource(
+  ctx: GameContext,
+  playerId: PlayerID
+): { sourceId: string; sourceName: string } | null {
+  const { state } = ctx;
+  const battlefield = state.battlefield || [];
+  
+  for (const perm of battlefield) {
+    if (!perm || perm.controller !== playerId) continue;
+    
+    const cardName = (perm.card?.name || "").toLowerCase();
+    const oracleText = (perm.card?.oracle_text || "").toLowerCase();
+    
+    // Omniscience: "You may cast spells from your hand without paying their mana costs."
+    if (cardName.includes("omniscience") || 
+        (oracleText.includes("cast spells from your hand") && 
+         oracleText.includes("without paying"))) {
+      return {
+        sourceId: perm.id,
+        sourceName: perm.card?.name || "Omniscience",
+      };
+    }
+  }
+  
+  return null;
+}
+
+/**
  * Main function: Check if a spell has any payable alternate cost
  * 
  * @param ctx Game context
@@ -222,8 +385,148 @@ export function hasPayableAlternateCost(
   if (hasConvokeAlternateCost(ctx, playerId, card)) return true;
   if (hasDelveAlternateCost(ctx, playerId, card)) return true;
   if (hasImproviseAlternateCost(ctx, playerId, card)) return true;
+  if (hasMutateAlternateCost(ctx, playerId, card)) return true;
+  if (hasSelfWUBRGAlternateCost(card)) return true;
+  if (getExternalWUBRGSource(ctx, playerId)) return true;
+  if (getOmniscienceSource(ctx, playerId)) return true;
   
   return false;
+}
+
+/**
+ * Get all available alternate cost options for a card
+ * Returns structured options for UI display
+ */
+export function getAllAlternateCostOptions(
+  ctx: GameContext,
+  playerId: PlayerID,
+  card: any,
+  castFromZone: string = 'hand'
+): AlternateCostOption[] {
+  const options: AlternateCostOption[] = [];
+  
+  if (!card) return options;
+  
+  const oracleText = (card.oracle_text || "").toLowerCase();
+  
+  // Force of Will style
+  if (hasForceOfWillAlternateCost(ctx, playerId, card)) {
+    options.push({
+      type: 'force_of_will',
+      name: 'Pitch Cost',
+      description: 'Exile a blue card from your hand and pay 1 life',
+      additionalEffects: ['Pay 1 life', 'Exile a blue card from hand'],
+    });
+  }
+  
+  // Commander free cast
+  if (hasCommanderFreeAlternateCost(ctx, playerId, card)) {
+    options.push({
+      type: 'commander_free',
+      name: 'Commander Free Cast',
+      description: 'Cast for free (you control your commander)',
+      manaCost: undefined,
+    });
+  }
+  
+  // Pact
+  if (hasPactAlternateCost(card)) {
+    options.push({
+      type: 'pact',
+      name: 'Pact',
+      description: 'Cast for free now, pay on your next upkeep',
+      manaCost: undefined,
+      additionalEffects: ['Must pay cost at next upkeep or lose the game'],
+    });
+  }
+  
+  // Mutate
+  if (hasMutateAlternateCost(ctx, playerId, card)) {
+    const mutateCost = parseMutateCost(card.oracle_text || "");
+    options.push({
+      type: 'mutate',
+      name: 'Mutate',
+      description: 'Merge with a non-Human creature you own',
+      manaCost: mutateCost,
+      requiresTarget: true,
+      targetType: 'non_human_creature',
+      additionalEffects: [
+        'Choose to put on top or bottom of target creature',
+        'Combined creature has all abilities',
+        'Top card determines name, power/toughness',
+      ],
+    });
+  }
+  
+  // Self WUBRG (Bringers)
+  if (hasSelfWUBRGAlternateCost(card)) {
+    options.push({
+      type: 'wubrg_self',
+      name: 'WUBRG Cost',
+      description: 'Pay {W}{U}{B}{R}{G} instead of mana cost',
+      manaCost: '{W}{U}{B}{R}{G}',
+    });
+  }
+  
+  // External WUBRG (Jodah, Fist of Suns)
+  const wubrgSource = getExternalWUBRGSource(ctx, playerId);
+  if (wubrgSource) {
+    options.push({
+      type: 'wubrg_external',
+      name: 'WUBRG Alternative',
+      description: `Pay {W}{U}{B}{R}{G} via ${wubrgSource.sourceName}`,
+      manaCost: '{W}{U}{B}{R}{G}',
+      sourceName: wubrgSource.sourceName,
+      sourceId: wubrgSource.sourceId,
+    });
+  }
+  
+  // Omniscience (only from hand)
+  if (castFromZone === 'hand') {
+    const omniscienceSource = getOmniscienceSource(ctx, playerId);
+    if (omniscienceSource) {
+      options.push({
+        type: 'omniscience',
+        name: 'Free Cast',
+        description: `Cast without paying mana cost via ${omniscienceSource.sourceName}`,
+        manaCost: undefined,
+        sourceName: omniscienceSource.sourceName,
+        sourceId: omniscienceSource.sourceId,
+      });
+    }
+  }
+  
+  // Convoke
+  if (hasConvokeAlternateCost(ctx, playerId, card)) {
+    options.push({
+      type: 'convoke',
+      name: 'Convoke',
+      description: 'Tap creatures to help pay for this spell',
+      additionalEffects: ['Each creature tapped pays {1} or one mana of its color'],
+    });
+  }
+  
+  // Delve
+  if (hasDelveAlternateCost(ctx, playerId, card)) {
+    options.push({
+      type: 'delve',
+      name: 'Delve',
+      description: 'Exile cards from graveyard to reduce cost',
+      additionalEffects: ['Each card exiled pays {1}'],
+    });
+  }
+  
+  // Improvise
+  if (hasImproviseAlternateCost(ctx, playerId, card)) {
+    options.push({
+      type: 'improvise',
+      name: 'Improvise',
+      description: 'Tap artifacts to help pay for this spell',
+      additionalEffects: ['Each artifact tapped pays {1}'],
+    });
+  }
+  
+  return options;
 }
 
 /**
@@ -263,5 +566,76 @@ export function getAlternateCostDescription(
     descriptions.push("Improvise (tap artifacts to help pay)");
   }
   
+  if (hasMutateAlternateCost(ctx, playerId, card)) {
+    const mutateCost = parseMutateCost(card.oracle_text || "");
+    descriptions.push(`Mutate ${mutateCost || ''} (merge with a creature)`);
+  }
+  
+  if (hasSelfWUBRGAlternateCost(card)) {
+    descriptions.push("Pay {W}{U}{B}{R}{G} instead of mana cost");
+  }
+  
+  const wubrgSource = getExternalWUBRGSource(ctx, playerId);
+  if (wubrgSource) {
+    descriptions.push(`Pay {W}{U}{B}{R}{G} via ${wubrgSource.sourceName}`);
+  }
+  
+  const omniscienceSource = getOmniscienceSource(ctx, playerId);
+  if (omniscienceSource) {
+    descriptions.push(`Cast free via ${omniscienceSource.sourceName}`);
+  }
+  
   return descriptions;
+}
+
+/**
+ * Get valid mutate targets for a player
+ */
+export function getValidMutateTargets(
+  ctx: GameContext,
+  playerId: PlayerID
+): Array<{
+  permanentId: string;
+  cardName: string;
+  controller: string;
+  owner: string;
+  typeLine: string;
+  power?: string;
+  toughness?: string;
+  imageUrl?: string;
+}> {
+  const { state } = ctx;
+  const battlefield = state.battlefield || [];
+  const targets: Array<{
+    permanentId: string;
+    cardName: string;
+    controller: string;
+    owner: string;
+    typeLine: string;
+    power?: string;
+    toughness?: string;
+    imageUrl?: string;
+  }> = [];
+  
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    if (perm.owner !== playerId) continue;
+    
+    const typeLine = (perm.card.type_line || "").toLowerCase();
+    if (!typeLine.includes("creature")) continue;
+    if (typeLine.includes("human")) continue;
+    
+    targets.push({
+      permanentId: perm.id,
+      cardName: perm.card.name || "Unknown",
+      controller: perm.controller,
+      owner: perm.owner,
+      typeLine: perm.card.type_line || "",
+      power: perm.card.power != null ? String(perm.card.power) : undefined,
+      toughness: perm.card.toughness != null ? String(perm.card.toughness) : undefined,
+      imageUrl: perm.card.image_uris?.small || perm.card.image_uris?.normal,
+    });
+  }
+  
+  return targets;
 }
