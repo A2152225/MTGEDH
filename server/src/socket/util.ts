@@ -1621,9 +1621,6 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
         stateAny._autoPassInProgress.delete(priority);
       }
     };
-        stateAny._autoPassInProgress.delete(priority);
-      }
-    };
     
     // For human players without autoPassForTurn, add a small delay
     // This allows them to evaluate and claim priority if needed
