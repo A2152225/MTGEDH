@@ -28,7 +28,9 @@ export interface ActivatedAbilityButtonsProps {
   // Display options
   showOnHover?: boolean;
   maxVisible?: number;
-  position?: 'left' | 'bottom';
+  position?: 'left' | 'bottom' | 'loyalty-inline';
+  // Filter to show only loyalty abilities (for planeswalkers)
+  loyaltyAbilitiesOnly?: boolean;
 }
 
 /**
@@ -251,6 +253,94 @@ function AbilityButton({
 }
 
 /**
+ * Compact loyalty ability button for inline display on planeswalkers
+ */
+function CompactLoyaltyButton({
+  ability,
+  canActivate,
+  reason,
+  scale,
+  onActivate,
+}: {
+  ability: ParsedActivatedAbility;
+  canActivate: boolean;
+  reason?: string;
+  scale: number;
+  onActivate: () => void;
+}) {
+  const [isHovered, setIsHovered] = useState(false);
+  
+  // Determine button color based on loyalty cost
+  const loyaltyCost = ability.loyaltyCost ?? 0;
+  const isPositive = loyaltyCost > 0;
+  const isNegative = loyaltyCost < 0;
+  
+  // Styling based on loyalty direction
+  let bgColor = 'rgba(139, 92, 246, 0.9)';  // Default purple
+  let borderColor = 'rgba(167, 139, 250, 0.8)';
+  
+  if (isPositive) {
+    bgColor = 'rgba(34, 197, 94, 0.9)';  // Green for +
+    borderColor = 'rgba(74, 222, 128, 0.8)';
+  } else if (isNegative) {
+    bgColor = 'rgba(239, 68, 68, 0.9)';  // Red for -
+    borderColor = 'rgba(252, 165, 165, 0.8)';
+  }
+  
+  if (!canActivate) {
+    bgColor = 'rgba(55, 65, 81, 0.8)';
+    borderColor = 'rgba(75, 85, 99, 0.6)';
+  }
+  
+  // Format loyalty cost for display
+  const costDisplay = loyaltyCost > 0 ? `+${loyaltyCost}` : `${loyaltyCost}`;
+  
+  return (
+    <div
+      style={{ position: 'relative' }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          if (canActivate) {
+            onActivate();
+          }
+        }}
+        disabled={!canActivate}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: Math.round(28 * scale),
+          height: Math.round(20 * scale),
+          background: bgColor,
+          border: `1px solid ${borderColor}`,
+          borderRadius: Math.round(4 * scale),
+          color: canActivate ? '#fff' : '#9ca3af',
+          fontSize: Math.round(10 * scale),
+          fontWeight: 700,
+          cursor: canActivate ? 'pointer' : 'not-allowed',
+          boxShadow: canActivate && isHovered 
+            ? '0 2px 8px rgba(0,0,0,0.4)' 
+            : canActivate 
+              ? '0 1px 4px rgba(0,0,0,0.3)' 
+              : 'none',
+          transform: canActivate && isHovered ? 'scale(1.1)' : 'scale(1)',
+          transition: 'transform 0.1s ease, box-shadow 0.1s ease',
+          opacity: canActivate ? 1 : 0.5,
+          pointerEvents: 'auto',
+        }}
+        title={`${costDisplay}: ${ability.description}${!canActivate && reason ? ` (${reason})` : ''}`}
+      >
+        {costDisplay}
+      </button>
+    </div>
+  );
+}
+
+/**
  * Check if a creature has haste (from granted abilities or oracle text)
  */
 function hasHaste(perm: BattlefieldPermanent): boolean {
@@ -278,6 +368,15 @@ function isCreature(perm: BattlefieldPermanent): boolean {
 }
 
 /**
+ * Check if a permanent is a planeswalker
+ */
+function isPlaneswalker(perm: BattlefieldPermanent): boolean {
+  const kc = perm.card as KnownCardRef;
+  const typeLine = (kc?.type_line || '').toLowerCase();
+  return typeLine.includes('planeswalker');
+}
+
+/**
  * Get current loyalty counters for planeswalkers
  */
 function getLoyaltyCounters(perm: BattlefieldPermanent): number | undefined {
@@ -302,6 +401,7 @@ export function ActivatedAbilityButtons({
   showOnHover = true,
   maxVisible = 3,
   position = 'left',
+  loyaltyAbilitiesOnly = false,
 }: ActivatedAbilityButtonsProps) {
   const [expanded, setExpanded] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -389,10 +489,20 @@ export function ActivatedAbilityButtons({
     return null;
   }
   
+  // Filter abilities if loyaltyAbilitiesOnly is set
+  const filteredAbilities = loyaltyAbilitiesOnly 
+    ? annotatedAbilities.filter(a => a.ability.isLoyaltyAbility)
+    : annotatedAbilities;
+  
+  // Return null if filtering leaves no abilities
+  if (filteredAbilities.length === 0) {
+    return null;
+  }
+  
   // Show/hide based on hover if showOnHover is true
   const shouldShow = showOnHover ? hovered : true;
-  const visibleAbilities = expanded ? annotatedAbilities : annotatedAbilities.slice(0, maxVisible);
-  const hasMore = annotatedAbilities.length > maxVisible;
+  const visibleAbilities = expanded ? filteredAbilities : filteredAbilities.slice(0, maxVisible);
+  const hasMore = filteredAbilities.length > maxVisible;
   
   const handleActivate = (ability: ParsedActivatedAbility) => {
     if (onActivateAbility) {
@@ -400,32 +510,59 @@ export function ActivatedAbilityButtons({
     }
   };
   
-  // Positioning styles - buttons appear inside the card to avoid clipping by parent containers
-  const containerStyle: React.CSSProperties = position === 'left' ? {
-    position: 'absolute',
-    left: Math.round(4 * scale),
-    top: '50%',
-    transform: 'translateY(-50%)',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: Math.round(3 * scale),
-    zIndex: 30,
-    opacity: shouldShow ? 1 : 0,
-    transition: 'opacity 0.15s ease',
-    pointerEvents: shouldShow ? 'auto' : 'none',
-  } : {
-    position: 'absolute',
-    left: '50%',
-    bottom: Math.round(4 * scale),
-    transform: 'translateX(-50%)',
-    display: 'flex',
-    flexDirection: 'row',
-    gap: Math.round(3 * scale),
-    zIndex: 30,
-    opacity: shouldShow ? 1 : 0,
-    transition: 'opacity 0.15s ease',
-    pointerEvents: shouldShow ? 'auto' : 'none',
-  };
+  // Check if this is a planeswalker for inline loyalty positioning
+  const isPW = isPlaneswalker(perm);
+  
+  // Positioning styles based on position prop
+  let containerStyle: React.CSSProperties;
+  
+  if (position === 'loyalty-inline' && isPW) {
+    // For planeswalkers, show loyalty buttons vertically on the left, spaced to match card text
+    containerStyle = {
+      position: 'absolute',
+      left: Math.round(2 * scale),
+      top: '35%',  // Positioned roughly where abilities text would be on the card
+      display: 'flex',
+      flexDirection: 'column',
+      gap: Math.round(8 * scale),  // More spacing to match ability text lines
+      zIndex: 30,
+      opacity: shouldShow ? 1 : 0,
+      transition: 'opacity 0.15s ease',
+      pointerEvents: shouldShow ? 'auto' : 'none',
+    };
+  } else if (position === 'left') {
+    containerStyle = {
+      position: 'absolute',
+      left: Math.round(4 * scale),
+      top: '50%',
+      transform: 'translateY(-50%)',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: Math.round(3 * scale),
+      zIndex: 30,
+      opacity: shouldShow ? 1 : 0,
+      transition: 'opacity 0.15s ease',
+      pointerEvents: shouldShow ? 'auto' : 'none',
+    };
+  } else {
+    // bottom position
+    containerStyle = {
+      position: 'absolute',
+      left: '50%',
+      bottom: Math.round(4 * scale),
+      transform: 'translateX(-50%)',
+      display: 'flex',
+      flexDirection: 'row',
+      gap: Math.round(3 * scale),
+      zIndex: 30,
+      opacity: shouldShow ? 1 : 0,
+      transition: 'opacity 0.15s ease',
+      pointerEvents: shouldShow ? 'auto' : 'none',
+    };
+  }
+  
+  // Use compact buttons for loyalty-inline mode
+  const useCompactLoyaltyButtons = position === 'loyalty-inline' && loyaltyAbilitiesOnly;
   
   return (
     <div
@@ -443,14 +580,25 @@ export function ActivatedAbilityButtons({
       {/* Ability buttons container - now inside the card */}
       <div style={containerStyle}>
         {visibleAbilities.map(({ ability, canActivate, reason }) => (
-          <AbilityButton
-            key={ability.id}
-            ability={ability}
-            canActivate={canActivate}
-            reason={reason}
-            scale={scale}
-            onActivate={() => handleActivate(ability)}
-          />
+          useCompactLoyaltyButtons && ability.isLoyaltyAbility ? (
+            <CompactLoyaltyButton
+              key={ability.id}
+              ability={ability}
+              canActivate={canActivate}
+              reason={reason}
+              scale={scale}
+              onActivate={() => handleActivate(ability)}
+            />
+          ) : (
+            <AbilityButton
+              key={ability.id}
+              ability={ability}
+              canActivate={canActivate}
+              reason={reason}
+              scale={scale}
+              onActivate={() => handleActivate(ability)}
+            />
+          )
         ))}
         
         {/* Show more button */}
