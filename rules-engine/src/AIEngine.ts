@@ -119,6 +119,14 @@ import {
   createTokensByName,
   type TokenCharacteristics,
 } from './tokenCreation';
+import {
+  cardAnalyzer,
+  CardCategory,
+  ThreatLevel,
+  SynergyArchetype,
+  type CardAnalysis,
+  type BattlefieldAnalysis,
+} from './CardAnalyzer';
 
 /**
  * Default starting life total in Commander format
@@ -250,6 +258,387 @@ export class AIEngine {
    */
   getAIConfig(playerId: PlayerID): AIPlayerConfig | undefined {
     return this.aiPlayers.get(playerId);
+  }
+  
+  // ============================================================================
+  // Enhanced Card Analysis and Threat Assessment (NEW)
+  // ============================================================================
+  
+  /**
+   * Analyze the entire battlefield to assess threats from all opponents
+   * Returns prioritized threat information for strategic decision-making
+   */
+  assessBattlefieldThreats(
+    gameState: GameState,
+    playerId: PlayerID
+  ): {
+    playerAnalyses: Map<PlayerID, BattlefieldAnalysis>;
+    highestThreatPlayer: PlayerID | null;
+    criticalThreats: { permanentId: string; playerId: PlayerID; analysis: CardAnalysis }[];
+    comboDetected: boolean;
+    recommendedTargets: { permanentId: string; playerId: PlayerID; priority: number; reason: string }[];
+  } {
+    const battlefield = gameState.battlefield || [];
+    const playerAnalyses = new Map<PlayerID, BattlefieldAnalysis>();
+    const criticalThreats: { permanentId: string; playerId: PlayerID; analysis: CardAnalysis }[] = [];
+    const recommendedTargets: { permanentId: string; playerId: PlayerID; priority: number; reason: string }[] = [];
+    let comboDetected = false;
+    let highestThreat = 0;
+    let highestThreatPlayer: PlayerID | null = null;
+    
+    // Analyze each opponent's battlefield
+    for (const player of gameState.players) {
+      if (player.id === playerId) continue; // Skip self
+      
+      const analysis = cardAnalyzer.analyzeBattlefield(battlefield, player.id, playerId);
+      playerAnalyses.set(player.id, analysis);
+      
+      // Track highest threat player
+      if (analysis.totalThreatLevel > highestThreat) {
+        highestThreat = analysis.totalThreatLevel;
+        highestThreatPlayer = player.id;
+      }
+      
+      // Detect combo setups
+      if (analysis.comboPiecesOnBoard.length >= 2) {
+        comboDetected = true;
+      }
+      
+      // Collect critical threats and recommended removal targets
+      for (const { permanentId, priority } of analysis.removalPriorities) {
+        if (priority >= 6) { // High priority targets
+          const perm = battlefield.find(p => p.id === permanentId);
+          if (perm) {
+            const cardAnalysis = cardAnalyzer.analyzeCard(perm);
+            criticalThreats.push({
+              permanentId,
+              playerId: player.id,
+              analysis: cardAnalysis,
+            });
+            
+            recommendedTargets.push({
+              permanentId,
+              playerId: player.id,
+              priority,
+              reason: this.getRemovalReason(cardAnalysis),
+            });
+          }
+        }
+      }
+    }
+    
+    // Sort recommended targets by priority
+    recommendedTargets.sort((a, b) => b.priority - a.priority);
+    
+    return {
+      playerAnalyses,
+      highestThreatPlayer,
+      criticalThreats,
+      comboDetected,
+      recommendedTargets,
+    };
+  }
+  
+  /**
+   * Get a human-readable reason for removing a permanent
+   */
+  private getRemovalReason(analysis: CardAnalysis): string {
+    if (analysis.comboPotential >= 8) return 'Combo piece - must remove immediately';
+    if (analysis.threatLevel >= ThreatLevel.CRITICAL) return 'Critical threat - will win if left unchecked';
+    if (analysis.threatLevel >= ThreatLevel.HIGH) return 'High threat - significant board presence';
+    if (analysis.categories.includes(CardCategory.ARISTOCRAT)) return 'Aristocrat payoff - drains life';
+    if (analysis.categories.includes(CardCategory.SACRIFICE_OUTLET)) return 'Sacrifice outlet - enables combos';
+    if (analysis.details.drawsCards) return 'Card advantage engine';
+    if (analysis.details.producesMana) return 'Mana acceleration';
+    return 'Threat';
+  }
+  
+  /**
+   * Find synergies between cards in hand and the battlefield
+   * Helps AI prioritize which cards to cast
+   */
+  findHandSynergies(
+    hand: readonly KnownCardRef[],
+    gameState: GameState,
+    playerId: PlayerID
+  ): { card: KnownCardRef; synergyScore: number; synergiesWith: string[]; analysis: CardAnalysis }[] {
+    const battlefield = gameState.battlefield || [];
+    const results = cardAnalyzer.findSynergyCards(hand, battlefield, playerId);
+    
+    return results.map(r => ({
+      card: r.card,
+      synergyScore: r.synergyScore,
+      synergiesWith: r.synergizesWith,
+      analysis: cardAnalyzer.analyzeCard(r.card),
+    }));
+  }
+  
+  /**
+   * Analyze library to identify remaining win conditions and key pieces
+   * Uses only known information (not hidden)
+   */
+  analyzeLibraryForPlanning(
+    library: readonly KnownCardRef[],
+    battlefield: readonly BattlefieldPermanent[],
+    playerId: PlayerID
+  ): {
+    winConditions: KnownCardRef[];
+    comboPieces: KnownCardRef[];
+    answers: KnownCardRef[];
+    ramp: KnownCardRef[];
+    cardDraw: KnownCardRef[];
+    tutorTargetPriority: { card: KnownCardRef; priority: number; reason: string }[];
+  } {
+    const winConditions: KnownCardRef[] = [];
+    const comboPieces: KnownCardRef[] = [];
+    const answers: KnownCardRef[] = [];
+    const ramp: KnownCardRef[] = [];
+    const cardDraw: KnownCardRef[] = [];
+    const tutorTargets: { card: KnownCardRef; priority: number; reason: string }[] = [];
+    
+    for (const card of library) {
+      const analysis = cardAnalyzer.analyzeCard(card);
+      
+      // Categorize cards
+      if (analysis.categories.includes(CardCategory.FINISHER) || 
+          analysis.threatLevel >= ThreatLevel.GAME_WINNING) {
+        winConditions.push(card);
+        tutorTargets.push({ card, priority: 10, reason: 'Win condition' });
+      }
+      
+      if (analysis.comboPotential >= 7) {
+        comboPieces.push(card);
+        // Check if we already have combo partners on battlefield
+        const battlefieldSynergy = cardAnalyzer.findSynergyCards([card], battlefield, playerId);
+        if (battlefieldSynergy.length > 0 && battlefieldSynergy[0].synergyScore >= 8) {
+          tutorTargets.push({ card, priority: 9, reason: 'Completes combo on board' });
+        } else {
+          tutorTargets.push({ card, priority: 6, reason: 'Combo piece' });
+        }
+      }
+      
+      if (analysis.categories.includes(CardCategory.REMOVAL) ||
+          analysis.categories.includes(CardCategory.BOARD_WIPE) ||
+          analysis.categories.includes(CardCategory.COUNTERSPELL)) {
+        answers.push(card);
+        tutorTargets.push({ card, priority: 5, reason: 'Answer/interaction' });
+      }
+      
+      if (analysis.categories.includes(CardCategory.RAMP)) {
+        ramp.push(card);
+        tutorTargets.push({ card, priority: 4, reason: 'Mana acceleration' });
+      }
+      
+      if (analysis.categories.includes(CardCategory.DRAW) ||
+          analysis.categories.includes(CardCategory.TUTOR)) {
+        cardDraw.push(card);
+        tutorTargets.push({ card, priority: 7, reason: 'Card advantage' });
+      }
+    }
+    
+    // Sort tutor targets by priority
+    tutorTargets.sort((a, b) => b.priority - a.priority);
+    
+    return {
+      winConditions,
+      comboPieces,
+      answers,
+      ramp,
+      cardDraw,
+      tutorTargetPriority: tutorTargets,
+    };
+  }
+  
+  /**
+   * Decide the best target for removal spells
+   * Uses threat assessment and card analysis
+   */
+  selectRemovalTarget(
+    validTargets: readonly BattlefieldPermanent[],
+    gameState: GameState,
+    playerId: PlayerID,
+    spellType: 'destroy' | 'exile' | 'bounce' | 'any' = 'any'
+  ): { target: BattlefieldPermanent | null; reason: string; priority: number } {
+    // Filter to opponent's permanents
+    const opponentTargets = validTargets.filter(t => t.controller !== playerId);
+    
+    if (opponentTargets.length === 0) {
+      return { target: null, reason: 'No valid opponent targets', priority: 0 };
+    }
+    
+    // Analyze each potential target
+    const targetAnalyses = opponentTargets.map(target => {
+      const analysis = cardAnalyzer.analyzeCard(target);
+      let priority = analysis.removalTargetPriority;
+      
+      // Adjust for removal type effectiveness
+      if (spellType === 'destroy' && analysis.details.combatKeywords.includes('indestructible')) {
+        priority = 0; // Can't destroy indestructible
+      }
+      
+      // Prefer exiling cards with death triggers
+      if (spellType === 'exile' && analysis.details.hasDeathTrigger && 
+          analysis.details.deathTriggerBenefitsMe) {
+        priority += 2; // Exile avoids the death trigger
+      }
+      
+      // Reduce priority for bouncing high-value ETB creatures (they'll replay them)
+      if (spellType === 'bounce' && analysis.details.hasETBTrigger) {
+        priority -= 2;
+      }
+      
+      return { target, analysis, priority };
+    });
+    
+    // Sort by priority
+    targetAnalyses.sort((a, b) => b.priority - a.priority);
+    
+    const best = targetAnalyses[0];
+    return {
+      target: best.target,
+      reason: this.getRemovalReason(best.analysis),
+      priority: best.priority,
+    };
+  }
+  
+  /**
+   * Evaluate if a symmetric effect (like Veteran Explorer) is worth using
+   */
+  evaluateSymmetricEffect(
+    card: KnownCardRef,
+    gameState: GameState,
+    playerId: PlayerID
+  ): { worthUsing: boolean; reason: string } {
+    const player = gameState.players.find(p => p.id === playerId);
+    if (!player) return { worthUsing: false, reason: 'Player not found' };
+    
+    // Count lands for each player
+    const battlefield = gameState.battlefield || [];
+    const ownLandCount = battlefield.filter(p => 
+      p.controller === playerId && 
+      (p.card as KnownCardRef)?.type_line?.toLowerCase().includes('land')
+    ).length;
+    
+    const opponentLandCounts: number[] = [];
+    const opponentThreatLevels: number[] = [];
+    
+    for (const opp of gameState.players) {
+      if (opp.id === playerId) continue;
+      
+      const oppLands = battlefield.filter(p => 
+        p.controller === opp.id && 
+        (p.card as KnownCardRef)?.type_line?.toLowerCase().includes('land')
+      ).length;
+      opponentLandCounts.push(oppLands);
+      
+      // Calculate threat level
+      const oppAnalysis = cardAnalyzer.analyzeBattlefield(battlefield, opp.id, playerId);
+      opponentThreatLevels.push(oppAnalysis.totalThreatLevel);
+    }
+    
+    const result = cardAnalyzer.shouldUseSymmetricDeathEffect(
+      card, 
+      ownLandCount, 
+      opponentLandCounts, 
+      opponentThreatLevels
+    );
+    
+    return { worthUsing: result.shouldUse, reason: result.reason };
+  }
+  
+  /**
+   * Find the best creature to sacrifice
+   * Prefers creatures with beneficial death triggers (Veteran Explorer style)
+   */
+  selectSacrificeTarget(
+    availableCreatures: readonly BattlefieldPermanent[],
+    gameState: GameState,
+    playerId: PlayerID,
+    preferBeneficialDeath: boolean = true
+  ): { creature: BattlefieldPermanent | null; reason: string; priority: number } {
+    // First check symmetric effects
+    for (const creature of availableCreatures) {
+      const card = creature.card as KnownCardRef;
+      const evaluation = this.evaluateSymmetricEffect(card, gameState, playerId);
+      
+      // If it's a symmetric effect that's not worth using, skip it
+      const analysis = cardAnalyzer.analyzeCard(creature);
+      if (analysis.details.deathTriggerSymmetric && !evaluation.worthUsing) {
+        continue;
+      }
+    }
+    
+    // Use the card analyzer's sacrifice selection
+    const result = cardAnalyzer.findBestSacrificeTarget(availableCreatures, preferBeneficialDeath);
+    
+    return {
+      creature: result.creature,
+      reason: result.reason,
+      priority: result.priority,
+    };
+  }
+  
+  /**
+   * Analyze if opponent is setting up a combo
+   * Returns warning level and recommendations
+   */
+  detectOpponentCombo(
+    gameState: GameState,
+    playerId: PlayerID
+  ): {
+    comboThreat: 'none' | 'potential' | 'imminent';
+    comboPlayers: PlayerID[];
+    comboPieces: { playerId: PlayerID; pieces: string[] }[];
+    recommendation: string;
+  } {
+    const assessment = this.assessBattlefieldThreats(gameState, playerId);
+    const comboPieces: { playerId: PlayerID; pieces: string[] }[] = [];
+    const comboPlayers: PlayerID[] = [];
+    
+    for (const [oppId, analysis] of assessment.playerAnalyses) {
+      if (analysis.comboPiecesOnBoard.length >= 2) {
+        comboPlayers.push(oppId);
+        comboPieces.push({
+          playerId: oppId,
+          pieces: [...analysis.comboPiecesOnBoard], // Convert readonly to mutable
+        });
+      }
+    }
+    
+    let comboThreat: 'none' | 'potential' | 'imminent' = 'none';
+    let recommendation = 'No combo threats detected';
+    
+    if (comboPlayers.length > 0) {
+      // Check if it's an imminent threat (multiple pieces on board)
+      const maxPieces = Math.max(...comboPieces.map(c => c.pieces.length));
+      
+      if (maxPieces >= 3) {
+        comboThreat = 'imminent';
+        recommendation = 'CRITICAL: Opponent has multiple combo pieces! Prioritize disruption immediately.';
+      } else if (maxPieces >= 2) {
+        comboThreat = 'potential';
+        recommendation = 'Warning: Opponent has combo pieces on board. Consider holding interaction.';
+      }
+    }
+    
+    // Also check for critical threats that could combo with cards in hand
+    if (assessment.criticalThreats.length > 0) {
+      for (const threat of assessment.criticalThreats) {
+        if (threat.analysis.comboPotential >= 8) {
+          comboThreat = comboThreat === 'none' ? 'potential' : comboThreat;
+          recommendation = recommendation.includes('combo') 
+            ? recommendation 
+            : 'Combo-enabling permanent detected. Monitor for additional pieces.';
+        }
+      }
+    }
+    
+    return {
+      comboThreat,
+      comboPlayers,
+      comboPieces,
+      recommendation,
+    };
   }
   
   /**
@@ -1464,7 +1853,7 @@ export class AIEngine {
    * NOW IMPROVED: Prefers sacrificing creatures with beneficial death triggers!
    */
   private makeSacrificeDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    const { playerId, options, constraints } = context;
+    const { playerId, options, constraints, gameState } = context;
     const sacrificeCount = constraints?.count || 1;
     const permanentType = constraints?.type || 'permanent';
     
@@ -1492,44 +1881,37 @@ export class AIEngine {
       return true; // 'permanent' = any
     });
     
-    // Sort by sacrifice priority:
-    // 1. Creatures with beneficial death triggers (HIGHEST priority to sacrifice)
-    // 2. Low-value permanents
-    // 3. High-value permanents (LOWEST priority to sacrifice)
-    validTargets.sort((a: BattlefieldPermanent, b: BattlefieldPermanent) => {
-      const aCard = a.card as KnownCardRef;
-      const bCard = b.card as KnownCardRef;
-      
-      // Check for death triggers
-      const aDeathBenefit = this.evaluateDeathTrigger(aCard);
-      const bDeathBenefit = this.evaluateDeathTrigger(bCard);
-      
-      // PREFER sacrificing creatures with death triggers!
-      if (aDeathBenefit > 0 && bDeathBenefit === 0) return -1; // a first (sacrifice a)
-      if (bDeathBenefit > 0 && aDeathBenefit === 0) return 1;  // b first (sacrifice b)
-      if (aDeathBenefit > 0 && bDeathBenefit > 0) {
-        // Both have death triggers - sacrifice the one with better benefit
-        return bDeathBenefit - aDeathBenefit; // Higher benefit first
+    // Use enhanced sacrifice target selection with CardAnalyzer
+    const sacrificeResults: { id: string; reason: string; priority: number }[] = [];
+    const remainingTargets = [...validTargets];
+    
+    for (let i = 0; i < sacrificeCount && remainingTargets.length > 0; i++) {
+      const result = this.selectSacrificeTarget(remainingTargets, gameState, playerId, true);
+      if (result.creature) {
+        sacrificeResults.push({
+          id: result.creature.id,
+          reason: result.reason,
+          priority: result.priority,
+        });
+        // Remove from remaining
+        const idx = remainingTargets.findIndex(t => t.id === result.creature!.id);
+        if (idx >= 0) remainingTargets.splice(idx, 1);
       }
-      
-      // Neither has death triggers - sacrifice lowest value first
-      const aValue = this.evaluatePermanentValue(a);
-      const bValue = this.evaluatePermanentValue(b);
-      return aValue - bValue; // Ascending - sacrifice lowest value first
-    });
+    }
     
-    // Select the required number
-    const sacrificed = validTargets.slice(0, sacrificeCount).map((p: BattlefieldPermanent) => p.id);
+    const sacrificed = sacrificeResults.map(r => r.id);
     
-    // Count how many have death triggers for better reasoning
-    const withDeathTriggers = validTargets.slice(0, sacrificeCount).filter((p: BattlefieldPermanent) => {
-      const card = p.card as KnownCardRef;
-      return this.evaluateDeathTrigger(card) > 0;
-    }).length;
+    // Build reasoning from selection
+    const withDeathTriggers = sacrificeResults.filter(r => 
+      r.reason.toLowerCase().includes('death') || r.reason.toLowerCase().includes('trigger')
+    ).length;
     
     let reasoning = `Sacrificing ${sacrificed.length} ${permanentType}(s)`;
     if (withDeathTriggers > 0) {
       reasoning += ` (${withDeathTriggers} with beneficial death triggers!)`;
+    }
+    if (sacrificeResults.length > 0 && sacrificeResults[0].reason) {
+      reasoning += ` - ${sacrificeResults[0].reason}`;
     }
     
     return {
@@ -1707,9 +2089,10 @@ export class AIEngine {
    * Make a target selection decision
    */
   private makeTargetDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    const { playerId, options, constraints } = context;
+    const { playerId, options, constraints, gameState } = context;
     const targetCount = constraints?.count || 1;
     const targetType = constraints?.type || 'any';
+    const spellType = constraints?.spellType as 'destroy' | 'exile' | 'bounce' | undefined;
     
     if (!options || options.length === 0) {
       return {
@@ -1721,53 +2104,97 @@ export class AIEngine {
       };
     }
     
-    // For creature targets: prioritize biggest threats
+    // For creature targets: use enhanced threat assessment
     // For player targets: prioritize opponent with lowest life
     let selectedTargets: string[] = [];
+    let reasoning = '';
     
     if (targetType === 'creature' || targetType === 'permanent') {
-      // Sort by threat level (descending) and select top targets
-      const sorted = [...options].sort((a: any, b: any) => {
-        const aValue = typeof a === 'object' ? this.evaluatePermanentValue(a) : 0;
-        const bValue = typeof b === 'object' ? this.evaluatePermanentValue(b) : 0;
-        return bValue - aValue; // Descending - target highest value first
-      });
-      selectedTargets = sorted.slice(0, targetCount).map((t: any) => 
-        typeof t === 'string' ? t : t.id
-      );
+      // Convert options to permanents for analysis
+      const permanents = options.filter((opt: any) => 
+        typeof opt === 'object' && opt.id
+      ) as BattlefieldPermanent[];
+      
+      // Use enhanced removal target selection if this is a removal spell
+      if (spellType && permanents.length > 0) {
+        const results: { target: BattlefieldPermanent; reason: string; priority: number }[] = [];
+        
+        for (let i = 0; i < targetCount && permanents.length > 0; i++) {
+          const result = this.selectRemovalTarget(permanents, gameState, playerId, spellType);
+          if (result.target) {
+            results.push(result);
+            // Remove selected target from pool
+            const idx = permanents.findIndex(p => p.id === result.target!.id);
+            if (idx >= 0) permanents.splice(idx, 1);
+          }
+        }
+        
+        if (results.length > 0) {
+          selectedTargets = results.map(r => r.target.id);
+          reasoning = results.map(r => r.reason).join('; ');
+        }
+      }
+      
+      // Fallback to threat-based sorting with CardAnalyzer
+      if (selectedTargets.length === 0) {
+        const sorted = [...options].sort((a: any, b: any) => {
+          if (typeof a !== 'object' || typeof b !== 'object') return 0;
+          
+          // Use CardAnalyzer for proper threat assessment
+          const aAnalysis = cardAnalyzer.analyzeCard(a);
+          const bAnalysis = cardAnalyzer.analyzeCard(b);
+          
+          // Prioritize opponent's permanents
+          const aIsOpponent = a.controller !== playerId;
+          const bIsOpponent = b.controller !== playerId;
+          if (aIsOpponent !== bIsOpponent) {
+            return aIsOpponent ? -1 : 1;
+          }
+          
+          // Compare by removal priority
+          return bAnalysis.removalTargetPriority - aAnalysis.removalTargetPriority;
+        });
+        
+        selectedTargets = sorted.slice(0, targetCount).map((t: any) => 
+          typeof t === 'string' ? t : t.id
+        );
+        reasoning = `Selected ${selectedTargets.length} highest-threat target(s)`;
+      }
     } else if (targetType === 'player') {
       // Filter options to only include players, then sort by lowest life
       const playerOptions = options.filter((opt: any) => {
         const optId = typeof opt === 'string' ? opt : opt.id;
-        return context.gameState.players.some(p => p.id === optId && p.id !== playerId);
+        return gameState.players.some(p => p.id === optId && p.id !== playerId);
       });
       
       // Sort by life total (ascending - target lowest life first)
       playerOptions.sort((a: any, b: any) => {
         const aId = typeof a === 'string' ? a : a.id;
         const bId = typeof b === 'string' ? b : b.id;
-        const aPlayer = context.gameState.players.find(p => p.id === aId);
-        const bPlayer = context.gameState.players.find(p => p.id === bId);
+        const aPlayer = gameState.players.find(p => p.id === aId);
+        const bPlayer = gameState.players.find(p => p.id === bId);
         return (aPlayer?.life || 0) - (bPlayer?.life || 0);
       });
       
       selectedTargets = playerOptions.slice(0, targetCount).map((p: any) => 
         typeof p === 'string' ? p : p.id
       );
+      reasoning = 'Targeting opponent with lowest life';
     } else {
       // Default: random selection from provided options
       const shuffled = [...options].sort(() => Math.random() - 0.5);
       selectedTargets = shuffled.slice(0, targetCount).map((t: any) =>
         typeof t === 'string' ? t : t.id
       );
+      reasoning = 'Random target selection';
     }
     
     return {
       type: AIDecisionType.SELECT_TARGET,
       playerId,
       action: { targets: selectedTargets },
-      reasoning: `Selected ${selectedTargets.length} target(s)`,
-      confidence: 0.7,
+      reasoning: reasoning || `Selected ${selectedTargets.length} target(s)`,
+      confidence: 0.8,
     };
   }
   
