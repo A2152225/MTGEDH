@@ -3513,6 +3513,17 @@ async function executePassPriority(
           while (autoPassLoopCount < MAX_AUTO_PASS_LOOPS) {
             const autoPassResult = (game.state as any)?._autoPassResult;
             
+            // CRITICAL: Check if current priority player is human
+            // If a human player has priority, STOP advancing - they need time to act
+            const currentPriority = (game.state as any)?.priority;
+            if (currentPriority) {
+              const priorityPlayer = (game.state as any)?.players?.find((p: any) => p?.id === currentPriority);
+              if (priorityPlayer && !priorityPlayer.isAI) {
+                console.log(`[AI] Auto-pass loop stopping - human player ${currentPriority} has priority`);
+                break;
+              }
+            }
+            
             if (autoPassResult?.allPassed && autoPassResult?.advanceStep) {
               console.log(`[AI] Auto-pass detected after step advancement (iteration ${autoPassLoopCount + 1}), advancing again`);
               
