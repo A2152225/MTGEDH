@@ -1523,17 +1523,6 @@ function findCastableCommander(game: any, playerId: PlayerID): { card: any; cost
   
   return null;
 }
-    if (canAffordSpell(availableMana, totalCost)) {
-      const typeLine = (card.type_line || '').toLowerCase();
-      const isBackground = typeLine.includes('background');
-      
-      console.info('[AI] Found castable commander:', card.name, 'with tax:', commanderTax, 'total CMC:', totalCost.cmc);
-      return { card, cost: totalCost, isBackground };
-    }
-  }
-  
-  return null;
-}
 
 /**
  * Calculate priority for casting a spell (higher = cast first)
