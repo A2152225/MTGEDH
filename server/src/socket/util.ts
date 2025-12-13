@@ -25,6 +25,17 @@ import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
 import { calculateCostReduction, applyCostReduction } from "./game-actions.js";
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+/**
+ * Delay in milliseconds before auto-passing priority for human players.
+ * This gives them a brief moment to evaluate board state and claim priority.
+ * AI players and "Auto-Pass Rest of Turn" skip this delay for faster gameplay.
+ */
+const AUTO_PASS_DELAY_MS = 150;
+
+// ============================================================================
 // Pre-compiled RegExp patterns for mana color matching in devotion calculations
 // Optimization: Created once at module load instead of inside loops
 // ============================================================================
@@ -1347,6 +1358,9 @@ function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string): void
  * Check if the current priority holder should auto-pass and trigger it if needed
  * This ensures human players with auto-pass enabled don't get stuck with priority
  * when they have no legal actions available.
+ * 
+ * For human players, a small delay is added before auto-passing to give them a chance
+ * to evaluate the board state and potentially claim priority if they want to act.
  */
 function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string): void {
   try {
@@ -1438,42 +1452,72 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
       console.log(`[checkAndTriggerAutoPass] Auto-pass for rest of turn is enabled for ${priority} - bypassing canAct check`);
     }
     
-    // Player cannot act and has auto-pass enabled - auto-pass their priority
-    console.log(`[checkAndTriggerAutoPass] Auto-passing for ${priority} - no available actions`);
+    // For human players, add a small delay before auto-passing
+    // This gives them a moment to see the board state and potentially claim priority
+    // AI players and autoPassForTurn skip this delay for snappier gameplay
+    const isHumanPlayer = priorityPlayer && !priorityPlayer.isAI;
     
-    // Call passPriority with isAutoPass flag
-    if (typeof (game as any).passPriority === 'function') {
-      try {
-        const result = (game as any).passPriority(priority, true); // true = isAutoPass
-        
-        if (result.changed) {
-          // Priority was passed successfully
-          appendGameEvent(game, gameId, "passPriority", { by: priority, auto: true });
-          
-          // Handle stack resolution or step advancement if needed
-          if (result.resolvedNow) {
-            console.log(`[checkAndTriggerAutoPass] Stack resolved after auto-pass for ${priority}`);
-            if (typeof (game as any).resolveTopOfStack === 'function') {
-              (game as any).resolveTopOfStack();
-            }
-            appendGameEvent(game, gameId, "resolveTopOfStack", { auto: true });
-          }
-          
-          if (result.advanceStep) {
-            console.log(`[checkAndTriggerAutoPass] Advancing step after auto-pass for ${priority}`);
-            if (typeof (game as any).nextStep === 'function') {
-              (game as any).nextStep();
-            }
-            appendGameEvent(game, gameId, "nextStep", { reason: 'autoPass' });
-          }
-          
-          // Broadcast updated state after auto-pass
-          // Note: This will recursively call checkAndTriggerAutoPass for the next player
-          broadcastGame(io, game, gameId);
-        }
-      } catch (err) {
-        console.error(`[checkAndTriggerAutoPass] Error passing priority for ${priority}:`, err);
+    const executeAutoPass = () => {
+      // Re-check conditions after delay (state might have changed)
+      const currentState = game.state as any;
+      const currentPriority = currentState?.priority;
+      
+      // Only proceed if priority hasn't changed
+      if (currentPriority !== priority) {
+        return;
       }
+      
+      // Check if player claimed priority during the delay
+      if (currentState.priorityClaimed?.has(priority)) {
+        return;
+      }
+      
+      // Player cannot act and has auto-pass enabled - auto-pass their priority
+      console.log(`[checkAndTriggerAutoPass] Auto-passing for ${priority} - no available actions`);
+      
+      // Call passPriority with isAutoPass flag
+      if (typeof (game as any).passPriority === 'function') {
+        try {
+          const result = (game as any).passPriority(priority, true); // true = isAutoPass
+          
+          if (result.changed) {
+            // Priority was passed successfully
+            appendGameEvent(game, gameId, "passPriority", { by: priority, auto: true });
+            
+            // Handle stack resolution or step advancement if needed
+            if (result.resolvedNow) {
+              console.log(`[checkAndTriggerAutoPass] Stack resolved after auto-pass for ${priority}`);
+              if (typeof (game as any).resolveTopOfStack === 'function') {
+                (game as any).resolveTopOfStack();
+              }
+              appendGameEvent(game, gameId, "resolveTopOfStack", { auto: true });
+            }
+            
+            if (result.advanceStep) {
+              console.log(`[checkAndTriggerAutoPass] Advancing step after auto-pass for ${priority}`);
+              if (typeof (game as any).nextStep === 'function') {
+                (game as any).nextStep();
+              }
+              appendGameEvent(game, gameId, "nextStep", { reason: 'autoPass' });
+            }
+            
+            // Broadcast updated state after auto-pass
+            // Note: This will recursively call checkAndTriggerAutoPass for the next player
+            broadcastGame(io, game, gameId);
+          }
+        } catch (err) {
+          console.error(`[checkAndTriggerAutoPass] Error passing priority for ${priority}:`, err);
+        }
+      }
+    };
+    
+    // For human players without autoPassForTurn, add a small delay
+    // This allows them to evaluate and claim priority if needed
+    if (isHumanPlayer && !autoPassForTurn) {
+      setTimeout(executeAutoPass, AUTO_PASS_DELAY_MS);
+    } else {
+      // AI players or autoPassForTurn: execute immediately
+      executeAutoPass();
     }
   } catch (e) {
     console.error('[util] checkAndTriggerAutoPass error:', { gameId, error: e });

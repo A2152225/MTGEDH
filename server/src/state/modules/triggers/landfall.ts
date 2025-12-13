@@ -3,6 +3,13 @@
  * 
  * Landfall trigger detection and processing.
  * Includes triggers that fire when lands enter the battlefield.
+ * 
+ * NOTE: As of Bloomburrow (2024), Wizards updated oracle text templates to often
+ * exclude "the battlefield" from ETB text. For example:
+ * - Old: "Whenever a land enters the battlefield under your control"
+ * - New: "Whenever a land you control enters"
+ * 
+ * This module handles both old and new oracle text patterns.
  */
 
 import type { GameContext } from "../../context.js";
@@ -21,19 +28,33 @@ export interface LandfallTrigger {
 
 /**
  * Detect landfall triggers from a permanent's oracle text
+ * 
+ * Handles multiple oracle text patterns:
+ * - "Landfall — Whenever a land you control enters, ..." (new Bloomburrow style)
+ * - "Landfall — Whenever a land enters the battlefield under your control, ..." (old style)
+ * - "Whenever a land you control enters, ..." (non-keyworded, new style)
+ * - "Whenever a land enters the battlefield under your control, ..." (non-keyworded, old style)
+ * 
+ * @param card The card data
+ * @param permanent The permanent data
  */
 export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigger[] {
   const triggers: LandfallTrigger[] = [];
-  const oracleText = (card?.oracle_text || "");
-  const lowerOracle = oracleText.toLowerCase();
+  const oracleText = String(card?.oracle_text || "");
   const cardName = card?.name || "Unknown";
   const permanentId = permanent?.id || "";
   const controllerId = permanent?.controller || "";
   
-  // Pattern: "Landfall — Whenever a land enters the battlefield under your control,"
-  // Supports both old template "enters the battlefield" and new Bloomburrow template "enters"
-  // Also supports "you control" vs "under your control"
-  // Separates abilities at double newlines or end of string
+  // Early return if no oracle text
+  if (!oracleText) {
+    return triggers;
+  }
+  
+  // Pattern for Landfall keyword ability
+  // Handles both old and new Bloomburrow-style oracle text:
+  // - "Landfall — Whenever a land you control enters, ..." (new style, e.g., Geode Rager post-update)
+  // - "Landfall — Whenever a land enters the battlefield under your control, ..." (old style)
+  // - "Landfall — Whenever a land enters under your control, ..." (hybrid)
   const landfallMatch = oracleText.match(
     /landfall\s*[—-]\s*whenever a land (?:you control enters|enters(?: the battlefield)?(?: under your control)?),?\s*([^]*?)(?:\n\n|$)/i
   );
@@ -70,10 +91,11 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
     }
   }
   
-  // Also check for non-keyworded landfall: "Whenever a land enters the battlefield under your control"
-  // Supports both old template "enters the battlefield" and new Bloomburrow template "enters"
-  // Supports "you control" vs "under your control"
-  // Separates abilities at double newlines or end of string
+  // Also check for non-keyworded landfall patterns (cards without "Landfall" keyword)
+  // Handles both old and new Bloomburrow-style oracle text:
+  // - "Whenever a land you control enters, ..." (new style)
+  // - "Whenever a land enters the battlefield under your control, ..." (old style)
+  // - "Whenever a land enters under your control, ..." (hybrid)
   const genericLandfallMatch = oracleText.match(
     /whenever a land (?:you control enters|enters(?: the battlefield)?(?: under your control)?),?\s*([^]*?)(?:\n\n|$)/i
   );
@@ -114,6 +136,9 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
 
 /**
  * Get all landfall triggers when a land enters the battlefield
+ * 
+ * @param ctx Game context
+ * @param landController The player who played/controls the land that entered
  */
 export function getLandfallTriggers(
   ctx: GameContext,
@@ -124,7 +149,9 @@ export function getLandfallTriggers(
   
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;
-    // Landfall triggers only fire for the controller
+    
+    // Landfall triggers only fire for the controller when THEIR land enters
+    // (The effect may target opponents, but the trigger is on your own lands)
     if (permanent.controller !== landController) continue;
     
     const permTriggers = detectLandfallTriggers(permanent.card, permanent);
