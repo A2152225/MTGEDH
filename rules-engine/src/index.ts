@@ -144,6 +144,18 @@ export { RulesEngineEvent, type RulesEvent } from './core/events';
 // AI Engine
 export * from './AIEngine';
 
+// Card Analyzer (AI card analysis and threat assessment)
+export {
+  CardAnalyzer,
+  cardAnalyzer,
+  CardCategory,
+  ThreatLevel,
+  SynergyArchetype,
+  type CardAnalysis,
+  type CardEffectDetails,
+  type BattlefieldAnalysis,
+} from './CardAnalyzer';
+
 // Game Simulator
 export * from './GameSimulator';
 
