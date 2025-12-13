@@ -13,6 +13,57 @@ import {
 } from '../utils/activatedAbilityParser';
 import { KeywordHighlighter } from './KeywordHighlighter';
 
+// Color constants for ability button styling
+const COLORS = {
+  // Ability type colors
+  mana: {
+    bg: 'rgba(16, 185, 129, 0.9)',
+    border: 'rgba(52, 211, 153, 0.8)',
+    accent: '#10b981',
+  },
+  fetch: {
+    bg: 'rgba(139, 92, 246, 0.9)',
+    border: 'rgba(167, 139, 250, 0.8)',
+    accent: '#8b5cf6',
+  },
+  loyalty: {
+    bg: 'rgba(168, 85, 247, 0.9)',
+    border: 'rgba(192, 132, 252, 0.8)',
+    accent: '#a855f7',
+  },
+  sacrifice: {
+    bg: 'rgba(239, 68, 68, 0.9)',
+    border: 'rgba(252, 165, 165, 0.8)',
+    accent: '#ef4444',
+  },
+  default: {
+    bg: 'rgba(30, 41, 59, 0.95)',
+    border: 'rgba(100, 116, 139, 0.6)',
+    accent: '#64748b',
+  },
+  disabled: {
+    bg: 'rgba(55, 65, 81, 0.8)',
+    border: 'rgba(75, 85, 99, 0.6)',
+    accent: '#6b7280',
+  },
+  // Loyalty direction colors
+  loyaltyPositive: {
+    bg: 'rgba(34, 197, 94, 0.9)',
+    border: 'rgba(74, 222, 128, 0.8)',
+  },
+  loyaltyNegative: {
+    bg: 'rgba(239, 68, 68, 0.9)',
+    border: 'rgba(252, 165, 165, 0.8)',
+  },
+  loyaltyNeutral: {
+    bg: 'rgba(139, 92, 246, 0.9)',
+    border: 'rgba(167, 139, 250, 0.8)',
+  },
+  // Text colors
+  activeText: '#fff',
+  inactiveText: '#9ca3af',
+} as const;
+
 export interface ActivatedAbilityButtonsProps {
   perm: BattlefieldPermanent;
   tileWidth: number;
@@ -55,34 +106,24 @@ function AbilityButton({
   const icon = getAbilityIcon(ability);
   const costText = formatAbilityCost(ability);
   
-  // Color based on ability type
-  let bgColor = 'rgba(30, 41, 59, 0.95)';
-  let borderColor = 'rgba(100, 116, 139, 0.6)';
-  let accentColor = '#64748b';
-  
+  // Get color scheme based on ability type
+  let colorScheme = COLORS.default;
   if (ability.isManaAbility) {
-    bgColor = 'rgba(16, 185, 129, 0.9)';
-    borderColor = 'rgba(52, 211, 153, 0.8)';
-    accentColor = '#10b981';
+    colorScheme = COLORS.mana;
   } else if (ability.isFetchAbility) {
-    bgColor = 'rgba(139, 92, 246, 0.9)';
-    borderColor = 'rgba(167, 139, 250, 0.8)';
-    accentColor = '#8b5cf6';
+    colorScheme = COLORS.fetch;
   } else if (ability.isLoyaltyAbility) {
-    bgColor = 'rgba(168, 85, 247, 0.9)';
-    borderColor = 'rgba(192, 132, 252, 0.8)';
-    accentColor = '#a855f7';
+    colorScheme = COLORS.loyalty;
   } else if (ability.requiresSacrifice) {
-    bgColor = 'rgba(239, 68, 68, 0.9)';
-    borderColor = 'rgba(252, 165, 165, 0.8)';
-    accentColor = '#ef4444';
+    colorScheme = COLORS.sacrifice;
   }
   
+  // Override with disabled colors if not activatable
   if (!canActivate) {
-    bgColor = 'rgba(55, 65, 81, 0.8)';
-    borderColor = 'rgba(75, 85, 99, 0.6)';
-    accentColor = '#6b7280';
+    colorScheme = COLORS.disabled;
   }
+  
+  const { bg: bgColor, border: borderColor, accent: accentColor } = colorScheme;
   
   return (
     <div
@@ -113,7 +154,7 @@ function AbilityButton({
           background: bgColor,
           border: `1px solid ${borderColor}`,
           borderRadius: Math.round(6 * scale),
-          color: canActivate ? '#fff' : '#9ca3af',
+          color: canActivate ? COLORS.activeText : COLORS.inactiveText,
           fontSize: Math.round(10 * scale),
           fontWeight: 500,
           cursor: canActivate ? 'pointer' : 'not-allowed',
@@ -275,22 +316,20 @@ function CompactLoyaltyButton({
   const isPositive = loyaltyCost > 0;
   const isNegative = loyaltyCost < 0;
   
-  // Styling based on loyalty direction
-  let bgColor = 'rgba(139, 92, 246, 0.9)';  // Default purple
-  let borderColor = 'rgba(167, 139, 250, 0.8)';
-  
+  // Get color scheme based on loyalty direction
+  let colorScheme = COLORS.loyaltyNeutral;
   if (isPositive) {
-    bgColor = 'rgba(34, 197, 94, 0.9)';  // Green for +
-    borderColor = 'rgba(74, 222, 128, 0.8)';
+    colorScheme = COLORS.loyaltyPositive;
   } else if (isNegative) {
-    bgColor = 'rgba(239, 68, 68, 0.9)';  // Red for -
-    borderColor = 'rgba(252, 165, 165, 0.8)';
+    colorScheme = COLORS.loyaltyNegative;
   }
   
+  // Override with disabled colors if not activatable
   if (!canActivate) {
-    bgColor = 'rgba(55, 65, 81, 0.8)';
-    borderColor = 'rgba(75, 85, 99, 0.6)';
+    colorScheme = COLORS.disabled;
   }
+  
+  const { bg: bgColor, border: borderColor } = colorScheme;
   
   // Format loyalty cost for display
   const costDisplay = loyaltyCost > 0 ? `+${loyaltyCost}` : `${loyaltyCost}`;
@@ -318,7 +357,7 @@ function CompactLoyaltyButton({
           background: bgColor,
           border: `1px solid ${borderColor}`,
           borderRadius: Math.round(4 * scale),
-          color: canActivate ? '#fff' : '#9ca3af',
+          color: canActivate ? COLORS.activeText : COLORS.inactiveText,
           fontSize: Math.round(10 * scale),
           fontWeight: 700,
           cursor: canActivate ? 'pointer' : 'not-allowed',

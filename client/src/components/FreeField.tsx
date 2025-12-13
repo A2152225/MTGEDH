@@ -58,6 +58,60 @@ function getLoyaltyColor(base: number | undefined, current: number | undefined):
   return '#c084fc'; // Purple - unchanged
 }
 
+/**
+ * Build P/T tooltip content showing breakdown of modifiers and damage
+ */
+function buildPTTooltip(params: {
+  baseP?: number;
+  baseT?: number;
+  plusCounters: number;
+  minusCounters: number;
+  ptSources?: { name: string; power: number; toughness: number }[];
+  damageMarked?: number;
+  effectiveToughness?: number;
+}): string | undefined {
+  const { baseP, baseT, plusCounters, minusCounters, ptSources, damageMarked, effectiveToughness } = params;
+  
+  const hasModifiers = plusCounters > 0 || minusCounters > 0 || (ptSources && ptSources.length > 0);
+  const hasDamage = (damageMarked ?? 0) > 0;
+  
+  if (!hasModifiers && !hasDamage) {
+    return undefined;
+  }
+  
+  const lines: string[] = [];
+  
+  // Base P/T
+  lines.push(`Base: ${baseP ?? '?'}/${baseT ?? '?'}`);
+  
+  // +1/+1 counters
+  if (plusCounters > 0) {
+    lines.push(`${plusCounters}× +1/+1`);
+  }
+  
+  // -1/-1 counters
+  if (minusCounters > 0) {
+    lines.push(`${minusCounters}× -1/-1`);
+  }
+  
+  // Other P/T sources
+  if (ptSources && ptSources.length > 0) {
+    for (const source of ptSources) {
+      const pStr = source.power >= 0 ? `+${source.power}` : `${source.power}`;
+      const tStr = source.toughness >= 0 ? `+${source.toughness}` : `${source.toughness}`;
+      lines.push(`${source.name}: ${pStr}/${tStr}`);
+    }
+  }
+  
+  // Damage
+  if (hasDamage && effectiveToughness !== undefined) {
+    lines.push('');  // Empty line before damage
+    lines.push(`💔 Damage: ${damageMarked}/${effectiveToughness}`);
+  }
+  
+  return lines.join('\n');
+}
+
 // Get ability info from glossary, with fallback
 function getAbilityDisplay(abilityName: string): { short: string; color: string; reminderText: string; term: string } {
   const info = getKeywordInfo(abilityName);
@@ -892,10 +946,15 @@ export function FreeField(props: {
                     minWidth: Math.round(36 * scale),
                     justifyContent: 'center',
                   }}
-                  title={hasPTModifiers || hasDamage 
-                    ? `Base: ${baseP ?? '?'}/${baseT ?? '?'}${plusCounters > 0 ? `\n${plusCounters}× +1/+1` : ''}${minusCounters > 0 ? `\n${minusCounters}× -1/-1` : ''}${ptSources && ptSources.length > 0 ? '\n' + ptSources.map(s => `${s.name}: ${s.power >= 0 ? '+' : ''}${s.power}/${s.toughness >= 0 ? '+' : ''}${s.toughness}`).join('\n') : ''}${hasDamage ? `\n\n💔 Damage: ${damageMarked}/${tDisp}` : ''}`
-                    : undefined
-                  }
+                  title={buildPTTooltip({
+                    baseP,
+                    baseT,
+                    plusCounters,
+                    minusCounters,
+                    ptSources,
+                    damageMarked,
+                    effectiveToughness: tDisp,
+                  })}
                 >
                   <span style={{
                     fontSize: Math.round(14 * scale),
