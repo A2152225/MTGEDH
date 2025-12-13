@@ -40,10 +40,15 @@ export interface LandfallTrigger {
  */
 export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigger[] {
   const triggers: LandfallTrigger[] = [];
-  const oracleText = (card?.oracle_text || "");
+  const oracleText = String(card?.oracle_text || "");
   const cardName = card?.name || "Unknown";
   const permanentId = permanent?.id || "";
   const controllerId = permanent?.controller || "";
+  
+  // Early return if no oracle text
+  if (!oracleText) {
+    return triggers;
+  }
   
   // Pattern for Landfall keyword ability
   // Handles both old and new Bloomburrow-style oracle text:

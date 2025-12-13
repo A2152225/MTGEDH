@@ -25,6 +25,17 @@ import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
 import { calculateCostReduction, applyCostReduction } from "./game-actions.js";
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+/**
+ * Delay in milliseconds before auto-passing priority for human players.
+ * This gives them a brief moment to evaluate board state and claim priority.
+ * AI players and "Auto-Pass Rest of Turn" skip this delay for faster gameplay.
+ */
+const AUTO_PASS_DELAY_MS = 150;
+
+// ============================================================================
 // Pre-compiled RegExp patterns for mana color matching in devotion calculations
 // Optimization: Created once at module load instead of inside loops
 // ============================================================================
@@ -1441,11 +1452,10 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
       console.log(`[checkAndTriggerAutoPass] Auto-pass for rest of turn is enabled for ${priority} - bypassing canAct check`);
     }
     
-    // For human players, add a small delay (150ms) before auto-passing
+    // For human players, add a small delay before auto-passing
     // This gives them a moment to see the board state and potentially claim priority
     // AI players and autoPassForTurn skip this delay for snappier gameplay
     const isHumanPlayer = priorityPlayer && !priorityPlayer.isAI;
-    const AUTO_PASS_DELAY_MS = 150; // Small delay to allow human evaluation
     
     const executeAutoPass = () => {
       // Re-check conditions after delay (state might have changed)
