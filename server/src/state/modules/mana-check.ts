@@ -283,12 +283,14 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
     
     // Check for mana abilities in oracle text
     // Pattern: "{T}: Add {C}", "{T}: Add {C}{C}", "{T}: Add {B} or {R}", etc.
-    // We need to capture the entire text after "add" to handle "or" cases
-    const manaAbilityPattern = /\{t\}(?:[^:]*)?:\s*add\s+([^.]+)/gi;
+    // Captures text after "add" until period or newline to handle "or" cases
+    // Note: This pattern stops at the first period, which correctly handles most cards
+    // Example: "{T}: Add {B} or {R}. Other text." captures only "{B} or {R}"
+    const manaAbilityPattern = /\{t\}(?:[^:]*)?:\s*add\s+([^.\n]+)/gi;
     const matches = [...oracleText.matchAll(manaAbilityPattern)];
     
     for (const match of matches) {
-      const fullManaText = match[1];
+      const fullManaText = match[1].trim();
       // Extract ALL mana symbols from the entire "add" clause, including those separated by "or"
       // This handles: "{B}", "{B}{B}", "{B} or {R}", "one mana of any color", etc.
       const manaTokens = fullManaText.match(/\{([wubrgc])\}/gi) || [];
@@ -309,8 +311,10 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
         }
       }
       
-      // Handle "one mana of any color" or "add one mana of any color" type abilities
-      // For these, we add 1 to ALL colors since the player can choose
+      // Handle "one mana of any color" or similar abilities (Command Tower, Laser Screwdriver, etc.)
+      // NOTE: We add 1 to ALL colors because the player can CHOOSE which color to produce.
+      // This represents available options, not simultaneous production.
+      // The actual mana payment logic (canPayManaCost) handles the choice correctly.
       if (/one mana of any color|add.*any color/i.test(fullManaText)) {
         pool.white = (pool.white || 0) + 1;
         pool.blue = (pool.blue || 0) + 1;
