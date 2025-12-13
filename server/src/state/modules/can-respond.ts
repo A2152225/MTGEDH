@@ -193,9 +193,11 @@ function hasValidTargetsForSpell(state: any, playerId: PlayerID, card: any): boo
     const targetReqs = parseTargetRequirements(oracleText);
     if (targetReqs.needsTargets && targetReqs.minTargets > 0) {
       // This spell requires targets but we couldn't categorize it precisely
-      // Be conservative: assume it has valid targets to avoid incorrectly blocking playability
-      // The actual cast will fail with proper error if targets are invalid
-      return true;
+      // Cannot determine if valid targets exist without proper categorization
+      // To be safe for turn advancement: return false (spell not castable)
+      // This prevents incorrect turn stoppage while being conservative about unknown spells
+      console.warn(`[hasValidTargetsForSpell] Could not categorize targeting spell ${cardName}, assuming no valid targets`);
+      return false;
     }
   }
   

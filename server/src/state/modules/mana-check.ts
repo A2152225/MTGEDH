@@ -49,10 +49,10 @@ export function parseManaCost(manaCost?: string): {
           result.hybrid.push([firstColor]);
         }
       } else if (/^\d+$/.test(parts[0])) {
-        // Hybrid generic/color: {2/W}, {2/U}, etc.
-        // Can be paid with either 2 generic OR 1 colored mana
-        // Track as hybrid with generic option
-        result.hybrid.push(['GENERIC2', parts[1]]);
+        // Hybrid generic/color: {2/W}, {3/U}, etc.
+        // Can be paid with either N generic OR 1 colored mana
+        // Track as hybrid with generic option: ['GENERIC:N', 'COLOR']
+        result.hybrid.push([`GENERIC:${parts[0]}`, parts[1]]);
       } else {
         // Regular hybrid: {W/U}, {B/R}, etc.
         // Can be paid with either color
@@ -116,12 +116,13 @@ export function canPayManaCost(
       
       // Try to pay with one of the hybrid options
       for (const option of hybridOptions) {
-        if (option === 'GENERIC2') {
-          // Can pay with 2 generic mana
+        if (option.startsWith('GENERIC:')) {
+          // Can pay with N generic mana (e.g., GENERIC:2, GENERIC:3)
+          const genericAmount = parseInt(option.split(':')[1], 10);
           const totalRemaining = getTotalManaFromPool(remainingPool);
-          if (totalRemaining >= 2) {
-            // Deduct 2 from any available mana (prefer colorless first)
-            let toPay = 2;
+          if (totalRemaining >= genericAmount) {
+            // Deduct N from any available mana (prefer colorless first)
+            let toPay = genericAmount;
             if (remainingPool.colorless >= toPay) {
               remainingPool.colorless -= toPay;
               toPay = 0;
