@@ -32,7 +32,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import type { ManaPool } from '../../shared/src';
+import type { ManaPool, BattlefieldPermanent, KnownCardRef } from '../../shared/src';
 import { parseOracleText, type ParsedAbility, AbilityType } from '../src/oracleTextParser';
 import { parseTriggeredAbilitiesFromText, TriggerEvent, type TriggeredAbility } from '../src/triggeredAbilities';
 import { 
@@ -49,6 +49,22 @@ import {
 } from '../src/winEffectCards';
 import { parseStaticAbilities } from '../src/staticAbilities';
 import { parseActivatedAbilitiesFromText } from '../src/activatedAbilities';
+import { 
+  AIEngine, 
+  AIStrategy, 
+  AIDecisionType, 
+  type AIDecisionContext,
+  type AIDecision,
+  type AIPlayerConfig 
+} from '../src/AIEngine';
+import { 
+  cardAnalyzer, 
+  CardCategory, 
+  ThreatLevel, 
+  SynergyArchetype,
+  type CardAnalysis,
+  type BattlefieldAnalysis,
+} from '../src/CardAnalyzer';
 
 // ES module compatibility for __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -376,16 +392,29 @@ class CommanderGameSimulator {
   private cardDatabase: Map<string, CardData> = new Map();
   private deckAnalyses: Map<string, DeckAnalysis> = new Map();  // Deck name -> analysis
   
+  // AI-related properties
+  private useAI: boolean;
+  private aiStrategy: AIStrategy;
+  private aiDifficulty: number;
+  private aiEngine: AIEngine;
+  
   constructor(
     seed?: number, 
     analysisMode: boolean = false,
     playerCount: number = 2,
-    maxTurns: number = 25
+    maxTurns: number = 25,
+    useAI: boolean = false,
+    aiStrategy: AIStrategy = AIStrategy.BASIC,
+    aiDifficulty: number = 0.5
   ) {
     this.currentSeed = seed ?? Math.floor(Math.random() * 10000);
     this.analysisMode = analysisMode;
     this.playerCount = Math.max(2, Math.min(8, playerCount));
     this.maxTurns = Math.max(1, maxTurns);
+    this.useAI = useAI;
+    this.aiStrategy = aiStrategy;
+    this.aiDifficulty = Math.max(0, Math.min(1, aiDifficulty));
+    this.aiEngine = new AIEngine();
     this.initRng(this.currentSeed);
   }
 
@@ -2291,9 +2320,199 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
     };
   }
 
+  /**
+   * AI-enhanced attacker selection that considers death triggers, threat assessment, and combat value.
+   * Returns attackers sorted by combat value (higher = better to attack with).
+   */
+  private selectAttackersWithAI(
+    attacker: PlayerState, 
+    defender: PlayerState, 
+    availableAttackers: PermanentState[],
+    state: SimulatedGameState
+  ): PermanentState[] {
+    if (!this.useAI || availableAttackers.length === 0) {
+      return availableAttackers;
+    }
+
+    // Analyze each potential attacker
+    const attackerEvaluations = availableAttackers.map(creature => {
+      const cardData = this.getCard(creature.card);
+      const aiAnalysis = cardData ? this.analyzeCardWithAI(creature.card) : null;
+      
+      let combatValue = (creature.power || 0) + (creature.toughness || 0);
+      let wantsToAttack = true;
+      let reasoning = '';
+
+      if (aiAnalysis) {
+        // Creatures with beneficial death triggers should attack (they want to die!)
+        if (aiAnalysis.details.hasDeathTrigger && aiAnalysis.details.deathTriggerBenefitsMe) {
+          combatValue += 30; // Heavily favor attacking with these
+          reasoning = 'Has beneficial death trigger - wants to be blocked';
+        }
+
+        // High-value creatures (like combo pieces) might be kept back
+        if (aiAnalysis.comboPotential >= 7 && !aiAnalysis.details.hasDeathTrigger) {
+          combatValue -= 15;
+          wantsToAttack = false;
+          reasoning = 'Combo piece - preserving';
+        }
+
+        // Creatures with ETB abilities we might want to recur are valuable
+        if (aiAnalysis.details.hasETBTrigger) {
+          // Slightly less valuable to lose in combat
+          combatValue -= 5;
+        }
+
+        // Keywords affect combat value
+        for (const keyword of aiAnalysis.details.combatKeywords) {
+          switch (keyword.toLowerCase()) {
+            case 'flying':
+            case 'trample':
+            case 'double strike':
+              combatValue += 5;
+              break;
+            case 'deathtouch':
+              combatValue += 8;
+              break;
+            case 'lifelink':
+              combatValue += 3;
+              break;
+          }
+        }
+      }
+
+      // Strategy-specific adjustments
+      switch (this.aiStrategy) {
+        case AIStrategy.AGGRESSIVE:
+          combatValue += 10; // Always want to attack
+          break;
+        case AIStrategy.DEFENSIVE:
+          // Only attack if we're ahead on life
+          if (attacker.life <= defender.life) {
+            combatValue -= 10;
+            wantsToAttack = false;
+          }
+          break;
+        case AIStrategy.COMBO:
+          // Preserve creatures unless they have death triggers
+          if (!aiAnalysis?.details.hasDeathTrigger) {
+            combatValue -= 5;
+            wantsToAttack = false;
+          }
+          break;
+        case AIStrategy.CONTROL:
+          // Attack when we have board control
+          const ourCreatures = attacker.battlefield.filter(p => this.isCreature(p.card)).length;
+          const theirCreatures = defender.battlefield.filter(p => this.isCreature(p.card)).length;
+          if (ourCreatures > theirCreatures + 2) {
+            combatValue += 10;
+          }
+          break;
+      }
+
+      return {
+        creature,
+        combatValue,
+        wantsToAttack,
+        reasoning,
+      };
+    });
+
+    // Filter out creatures with very low combat value (based on difficulty)
+    // Easy AI might not attack with good attackers; Hard AI always attacks optimally
+    const minCombatValue = Math.floor((1 - this.aiDifficulty) * 10);
+    
+    // Sort by combat value and filter - also consider wantsToAttack flag
+    const selectedEvaluations = attackerEvaluations
+      .filter(e => e.wantsToAttack && e.combatValue >= minCombatValue)
+      .sort((a, b) => b.combatValue - a.combatValue);
+    const selectedAttackers = selectedEvaluations.map(e => e.creature);
+
+    // Log AI reasoning in analysis mode - show actual selected attackers
+    if (this.analysisMode && selectedAttackers.length > 0) {
+      this.log(`AI attack decision: ${selectedAttackers.length}/${availableAttackers.length} attackers selected`);
+      for (const eval_ of selectedEvaluations.slice(0, 3)) {
+        this.log(`  ${eval_.creature.card}: value=${eval_.combatValue} ${eval_.reasoning ? `(${eval_.reasoning})` : ''}`);
+      }
+    }
+
+    return selectedAttackers;
+  }
+
+  /**
+   * AI-enhanced target selection for attacks in multiplayer.
+   * Considers life totals, board state, and threat assessment.
+   */
+  private selectAttackTargetWithAI(state: SimulatedGameState, attackingPlayerId: number): PlayerState | null {
+    const opponents = this.getOpponents(state, attackingPlayerId);
+    if (opponents.length === 0) return null;
+
+    if (!this.useAI) {
+      // Default: attack player with lowest life
+      return opponents.reduce((lowest, current) => 
+        current.life < lowest.life ? current : lowest
+      );
+    }
+
+    // AI-enhanced target selection
+    const targetEvaluations = opponents.map(opponent => {
+      let targetValue = 0;
+
+      // Lower life = more attractive target
+      targetValue += (40 - opponent.life) * 2;
+
+      // Fewer creatures = easier to attack
+      const creatureCount = opponent.battlefield.filter(p => this.isCreature(p.card)).length;
+      targetValue += (10 - creatureCount) * 3;
+
+      // Player with fewer cards might be struggling
+      targetValue += (7 - opponent.hand.length) * 2;
+
+      // Check for threatening permanents
+      for (const perm of opponent.battlefield) {
+        const aiAnalysis = this.analyzeCardWithAI(perm.card);
+        if (aiAnalysis && aiAnalysis.threatLevel >= ThreatLevel.HIGH) {
+          // Attacking a player with big threats helps remove them if they block
+          targetValue += 5;
+        }
+      }
+
+      // Strategy-specific adjustments
+      switch (this.aiStrategy) {
+        case AIStrategy.AGGRESSIVE:
+          // Focus on lowest life player
+          targetValue += (40 - opponent.life) * 3;
+          break;
+        case AIStrategy.CONTROL:
+          // Attack the biggest threat player
+          const threatSum = opponent.battlefield.reduce((sum, perm) => {
+            const analysis = this.analyzeCardWithAI(perm.card);
+            return sum + (analysis?.threatLevel || 0);
+          }, 0);
+          targetValue += threatSum * 2;
+          break;
+      }
+
+      return { opponent, targetValue };
+    });
+
+    // Sort by target value and pick the best
+    targetEvaluations.sort((a, b) => b.targetValue - a.targetValue);
+    
+    if (this.analysisMode) {
+      this.log(`AI target selection: ${targetEvaluations[0].opponent.name} (value: ${targetEvaluations[0].targetValue})`);
+    }
+
+    return targetEvaluations[0].opponent;
+  }
+
   simulateCombat(state: SimulatedGameState, attackingPlayerId: number): void {
     const attacker = state.players[attackingPlayerId];
-    const defender = this.getRandomOpponent(state, attackingPlayerId);
+    
+    // Use AI-enhanced target selection if AI is enabled
+    const defender = this.useAI 
+      ? this.selectAttackTargetWithAI(state, attackingPlayerId)
+      : this.getRandomOpponent(state, attackingPlayerId);
     
     if (!defender) return; // No valid opponent
     
@@ -2316,11 +2535,18 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
       return;
     }
     
-    const attackers = attacker.battlefield.filter(p => 
+    const potentialAttackers = attacker.battlefield.filter(p => 
       this.isCreature(p.card) && 
       !p.tapped && 
       !p.summoningSickness
     );
+    
+    if (potentialAttackers.length === 0) return;
+    
+    // Use AI-enhanced attacker selection if AI is enabled
+    let attackers = this.useAI 
+      ? this.selectAttackersWithAI(attacker, defender, potentialAttackers, state)
+      : potentialAttackers;
     
     if (attackers.length === 0) return;
     
@@ -2517,6 +2743,121 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
     }
   }
 
+  /**
+   * Use AI-enhanced card analysis for threat assessment and spell prioritization.
+   * This converts cards to a format the CardAnalyzer can understand.
+   */
+  private analyzeCardWithAI(cardName: string): CardAnalysis | null {
+    const cardData = this.getCard(cardName);
+    if (!cardData) return null;
+    
+    // Create a minimal card reference that CardAnalyzer can work with
+    // Use explicit null/undefined checks for cmc to handle 0 correctly
+    const cardRef = {
+      id: cardData.id || cardName,
+      name: cardData.name,
+      type_line: cardData.type_line || '',
+      oracle_text: cardData.oracle_text || '',
+      mana_cost: cardData.mana_cost || '',
+      cmc: cardData.cmc !== undefined && cardData.cmc !== null ? cardData.cmc : this.getCMC(cardName),
+      power: cardData.power || '0',
+      toughness: cardData.toughness || '0',
+    } as KnownCardRef;
+    
+    return cardAnalyzer.analyzeCard(cardRef);
+  }
+
+  /**
+   * Get AI-enhanced spell priority score that considers threat assessment and synergies.
+   */
+  private getAISpellPriorityScore(spell: string, player: PlayerState, state: SimulatedGameState): number {
+    const analysis = this.analyzeCardWithAI(spell);
+    if (!analysis) return 0;
+    
+    let score = 0;
+    const cardData = this.getCard(spell);
+    const oracle = cardData?.oracle_text?.toLowerCase() || '';
+    const typeLine = cardData?.type_line?.toLowerCase() || '';
+    
+    // Base score from card categories
+    for (const category of analysis.categories) {
+      switch (category) {
+        case CardCategory.FINISHER:
+          score += 100; // Win conditions are highest priority
+          break;
+        case CardCategory.RAMP:
+          // Ramp is more valuable early game
+          const landCount = this.countLandsOnBattlefield(player);
+          score += landCount < 5 ? 50 : 20;
+          break;
+        case CardCategory.DRAW:
+          score += 40; // Card draw is always valuable
+          break;
+        case CardCategory.REMOVAL:
+        case CardCategory.BOARD_WIPE:
+          // Removal is valuable when opponents have threats
+          const opponentCreatureCount = this.countOpponentCreatures(state, player.name);
+          score += opponentCreatureCount > 0 ? 45 : 15;
+          break;
+        case CardCategory.CREATURE:
+          score += 30;
+          break;
+        case CardCategory.TOKEN_GENERATOR:
+          // Check if we have token doublers
+          const hasDoublers = player.battlefield.some(p => {
+            const o = this.getCard(p.card)?.oracle_text?.toLowerCase() || '';
+            return o.includes('twice that many') || o.includes('double');
+          });
+          score += hasDoublers ? 55 : 35;
+          break;
+        case CardCategory.SACRIFICE_OUTLET:
+        case CardCategory.ARISTOCRAT:
+          score += 35;
+          break;
+        case CardCategory.TUTOR:
+          score += 45;
+          break;
+        default:
+          score += 10;
+      }
+    }
+    
+    // Bonus for combo potential
+    score += analysis.comboPotential * 5;
+    
+    // Bonus for cards with death triggers (synergy with sacrifice strategies)
+    if (analysis.details.hasDeathTrigger && analysis.details.deathTriggerBenefitsMe) {
+      score += 20;
+    }
+    
+    // Bonus for ETB triggers
+    if (analysis.details.hasETBTrigger) {
+      score += 15;
+    }
+    
+    // Adjust for mana efficiency - prefer cards we can cast with leftover mana
+    const effectiveCost = this.getEffectiveCost(spell, player);
+    const availableMana = this.getTotalMana(player.manaPool);
+    if (effectiveCost <= availableMana / 2) {
+      score += 10; // Bonus for cheap spells
+    }
+    
+    return score;
+  }
+
+  /**
+   * Count opponent creatures for threat assessment
+   */
+  private countOpponentCreatures(state: SimulatedGameState, playerName: string): number {
+    let count = 0;
+    for (let i = 1; i <= state.playerCount; i++) {
+      const player = state.players[i];
+      if (!player || player.name === playerName) continue;
+      count += player.battlefield.filter(p => this.isCreature(p.card)).length;
+    }
+    return count;
+  }
+
   simulateMainPhase(player: PlayerState, state: SimulatedGameState): void {
     // Get deck analysis for this player
     const deckName = player.name.match(/\(([^)]+)\)/)?.[1] || '';
@@ -2545,18 +2886,42 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
     // Use activated abilities (like Elixir of Immortality)
     this.useActivatedAbilities(player, state);
     
-    // Cast spells prioritizing by importance, using deck analysis
-    const castable = player.hand
-      .filter(c => !this.isLand(c))
-      .filter(c => this.canPayMana(player, this.getEffectiveCost(c, player)))
-      .sort((a, b) => this.compareSpellPriority(a, b, player, analysis));
+    // Cast spells prioritizing by importance
+    // Use AI-enhanced priority if AI mode is enabled, otherwise use deck analysis
+    let castable: string[];
+    if (this.useAI) {
+      // AI-enhanced spell prioritization using CardAnalyzer
+      castable = player.hand
+        .filter(c => !this.isLand(c))
+        .filter(c => this.canPayMana(player, this.getEffectiveCost(c, player)))
+        .sort((a, b) => this.getAISpellPriorityScore(b, player, state) - this.getAISpellPriorityScore(a, player, state));
+    } else {
+      // Standard deck-analysis-based prioritization
+      castable = player.hand
+        .filter(c => !this.isLand(c))
+        .filter(c => this.canPayMana(player, this.getEffectiveCost(c, player)))
+        .sort((a, b) => this.compareSpellPriority(a, b, player, analysis));
+    }
     
     let spellsCast = 0;
     for (const spell of castable) {
       if (spellsCast >= 3) break;
       
-      // Determine reasoning for casting this spell using deck analysis
-      const reasoning = this.getSpellReasoning(spell, player, analysis);
+      // Determine reasoning for casting this spell
+      let reasoning: string;
+      if (this.useAI) {
+        const aiAnalysis = this.analyzeCardWithAI(spell);
+        if (aiAnalysis) {
+          const categories = aiAnalysis.categories.slice(0, 2).join(', ');
+          const threatNames = ['MINIMAL', 'LOW', 'MODERATE', 'HIGH', 'CRITICAL', 'GAME_WINNING'];
+          const threat = threatNames[aiAnalysis.threatLevel] || 'UNKNOWN';
+          reasoning = `AI: ${categories} (threat: ${threat}, combo potential: ${aiAnalysis.comboPotential})`;
+        } else {
+          reasoning = this.getSpellReasoning(spell, player, analysis);
+        }
+      } else {
+        reasoning = this.getSpellReasoning(spell, player, analysis);
+      }
       
       // Pass the list of tapped lands to castSpell for tracking
       if (this.castSpell(player, spell, state, tappedLands)) {
@@ -2927,6 +3292,16 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
         failedToDraw: false,
         commanderDamage: {},  // Track commander damage from each opponent's commander
       };
+      
+      // Register AI player if AI mode is enabled
+      // Use numeric index as string to match simulation's internal player identification
+      if (this.useAI) {
+        this.aiEngine.registerAI({
+          playerId: String(i),
+          strategy: this.aiStrategy,
+          difficulty: this.aiDifficulty,
+        });
+      }
     }
     
     return {
@@ -2951,11 +3326,15 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
     this.initRng(gameSeed);
     
     console.log(`\n${'='.repeat(60)}`);
-    console.log(`Starting Game ${gameNumber} (Seed: ${gameSeed}, Players: ${this.playerCount}, Max Turns: ${this.maxTurns})`);
+    console.log(`Starting Game ${gameNumber} (Seed: ${gameSeed}, Players: ${this.playerCount}, Max Turns: ${this.maxTurns}${this.useAI ? ', AI: ' + this.aiStrategy : ''})`);
     console.log(`${'='.repeat(60)}`);
     
     if (this.analysisMode) {
       console.log('\n[ANALYSIS MODE ENABLED - Detailed replay with reasoning]\n');
+    }
+    
+    if (this.useAI && this.analysisMode) {
+      console.log(`[AI MODE ENABLED - Strategy: ${this.aiStrategy}, Difficulty: ${this.aiDifficulty}]\n`);
     }
     
     const state = this.createInitialState();
@@ -3578,6 +3957,33 @@ function safeParseInt(value: string | undefined, defaultValue: number): number {
   return isNaN(parsed) ? defaultValue : parsed;
 }
 
+/**
+ * Safely parse a float with a default value
+ */
+function safeParseFloat(value: string | undefined, defaultValue: number): number {
+  if (value === undefined) return defaultValue;
+  const parsed = parseFloat(value);
+  return isNaN(parsed) ? defaultValue : parsed;
+}
+
+/**
+ * Parse AI strategy from string
+ */
+function parseAIStrategy(value: string | undefined): AIStrategy {
+  if (!value) return AIStrategy.BASIC;
+  
+  const strategies: Record<string, AIStrategy> = {
+    'random': AIStrategy.RANDOM,
+    'basic': AIStrategy.BASIC,
+    'aggressive': AIStrategy.AGGRESSIVE,
+    'defensive': AIStrategy.DEFENSIVE,
+    'control': AIStrategy.CONTROL,
+    'combo': AIStrategy.COMBO,
+  };
+  
+  return strategies[value.toLowerCase()] || AIStrategy.BASIC;
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const analysisMode = args.includes('--analysis') || args.includes('-a');
@@ -3596,24 +4002,43 @@ async function main() {
   const rawMaxTurns = safeParseInt(turnsArg, 25);
   const maxTurns = Math.max(1, rawMaxTurns);
   
+  // Parse AI options
+  const useAI = args.includes('--ai') || args.includes('--use-ai');
+  const aiStrategyArg = parseArg(args, 'ai-strategy');
+  const aiStrategy = parseAIStrategy(aiStrategyArg);
+  const aiDifficultyArg = parseArg(args, 'ai-difficulty');
+  const aiDifficulty = safeParseFloat(aiDifficultyArg, 0.5);
+  
   if (args.includes('--help') || args.includes('-h')) {
     console.log('Commander Game Simulator');
     console.log('');
     console.log('Usage: npx tsx run-commander-games.ts [options]');
     console.log('');
     console.log('Options:');
-    console.log('  -p, --players=N   Number of players (2-8, default: 2)');
-    console.log('  -t, --turns=N     Maximum number of turns per game (default: 25)');
-    console.log('  -a, --analysis    Enable analysis mode with detailed replay and reasoning');
-    console.log('  -s, --seed=N      Set the base random seed (default: 42)');
-    console.log('  -h, --help        Show this help message');
+    console.log('  -p, --players=N       Number of players (2-8, default: 2)');
+    console.log('  -t, --turns=N         Maximum number of turns per game (default: 25)');
+    console.log('  -a, --analysis        Enable analysis mode with detailed replay and reasoning');
+    console.log('  -s, --seed=N          Set the base random seed (default: 42)');
+    console.log('  --ai, --use-ai        Enable AI opponents with enhanced decision-making');
+    console.log('  --ai-strategy=STRAT   AI strategy: random, basic, aggressive, defensive, control, combo (default: basic)');
+    console.log('  --ai-difficulty=N     AI difficulty level 0.0-1.0 (default: 0.5)');
+    console.log('                        0.0 = easy (makes mistakes), 1.0 = hard (optimal play)');
+    console.log('  -h, --help            Show this help message');
+    console.log('');
+    console.log('AI Strategies:');
+    console.log('  random     - Completely random decisions');
+    console.log('  basic      - Simple heuristics-based play');
+    console.log('  aggressive - Prioritizes attacking and dealing damage');
+    console.log('  defensive  - Prioritizes blocking and life preservation');
+    console.log('  control    - Focuses on countering/removing threats, card advantage');
+    console.log('  combo      - Tries to assemble combos, protects key pieces');
     console.log('');
     console.log('Examples:');
     console.log('  npx tsx run-commander-games.ts');
     console.log('  npx tsx run-commander-games.ts -p 4 -t 30');
-    console.log('  npx tsx run-commander-games.ts --players=4 --turns=30');
-    console.log('  npx tsx run-commander-games.ts -p 8 --analysis');
-    console.log('  npx tsx run-commander-games.ts --players=4 --turns=50 --seed=12345');
+    console.log('  npx tsx run-commander-games.ts --players=4 --turns=30 --ai');
+    console.log('  npx tsx run-commander-games.ts -p 6 --ai --ai-strategy=aggressive --ai-difficulty=0.8');
+    console.log('  npx tsx run-commander-games.ts --analysis --seed=191 --players=6 --turns=650 --ai');
     console.log('');
     console.log('Available decks (randomly selected based on player count):');
     const availableDecks = getAvailableDeckFiles();
@@ -3629,9 +4054,14 @@ async function main() {
   if (analysisMode) {
     console.log('Analysis mode: ENABLED');
   }
+  if (useAI) {
+    console.log(`AI opponents: ENABLED`);
+    console.log(`  Strategy: ${aiStrategy}`);
+    console.log(`  Difficulty: ${aiDifficulty}`);
+  }
   console.log('');
   
-  const simulator = new CommanderGameSimulator(seed, analysisMode, playerCount, maxTurns);
+  const simulator = new CommanderGameSimulator(seed, analysisMode, playerCount, maxTurns, useAI, aiStrategy, aiDifficulty);
   await simulator.run();
 }
 
