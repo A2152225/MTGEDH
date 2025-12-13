@@ -23,6 +23,7 @@ import { GameManager } from "../GameManager.js";
 import { hasPendingColorChoices } from "./color-choice.js";
 import { hasPendingJoinForcesOrOffers } from "./join-forces.js";
 import { hasPendingCreatureTypeSelections } from "./creature-type.js";
+import { getAvailableMana, parseManaCost, canPayManaCost, getTotalManaFromPool } from "../state/modules/mana-check.js";
 
 /** AI timing delays for more natural behavior */
 const AI_THINK_TIME_MS = 500;
@@ -1298,17 +1299,34 @@ function hasCreatureSummoningSickness(perm: any): boolean {
  * Includes lands, mana rocks (artifacts), and creatures with mana abilities
  * Returns total mana available and a map of which sources can produce each color
  */
+/**
+ * Calculate available mana for AI using the same system as humans
+ * This ensures consistency between AI and human mana calculations
+ */
 function calculateAvailableMana(game: any, playerId: PlayerID): { total: number; colors: Record<string, number>; sourcesByColor: Map<string, string[]> } {
-  const battlefield = game.state?.battlefield || [];
-  const colors: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
-  const sourcesByColor = new Map<string, string[]>();
-  let total = 0;
+  // Use the shared getAvailableMana function from mana-check.ts
+  const manaPool = getAvailableMana(game.state, playerId);
   
-  // Initialize sourcesByColor
+  // Convert the pool format to what AI expects
+  const colors: Record<string, number> = {
+    W: manaPool.white || 0,
+    U: manaPool.blue || 0,
+    B: manaPool.black || 0,
+    R: manaPool.red || 0,
+    G: manaPool.green || 0,
+    C: manaPool.colorless || 0,
+  };
+  
+  const total = getTotalManaFromPool(manaPool);
+  
+  // Build sourcesByColor map for payment source tracking
+  // This requires iterating through battlefield to find which permanents produce which colors
+  const sourcesByColor = new Map<string, string[]>();
   for (const color of ['W', 'U', 'B', 'R', 'G', 'C']) {
     sourcesByColor.set(color, []);
   }
   
+  const battlefield = game.state?.battlefield || [];
   for (const perm of battlefield) {
     if (perm && perm.controller === playerId && !perm.tapped) {
       // Check if this permanent can produce mana
@@ -1320,18 +1338,11 @@ function calculateAvailableMana(game: any, playerId: PlayerID): { total: number;
       const producedColors = getManaProduction(perm.card);
       if (producedColors.length === 0) continue;
       
-      // Check if this source produces 2 mana (Sol Ring, Mana Crypt, etc.)
-      const oracleText = (perm.card?.oracle_text || '').toLowerCase();
-      const producesTwoColorless = oracleText.includes('{c}{c}') || oracleText.includes('add {c}{c}');
-      total += producesTwoColorless ? 2 : 1;
-      
       // Track which sources can produce each color
       for (const color of producedColors) {
         const sources = sourcesByColor.get(color) || [];
         sources.push(perm.id);
         sourcesByColor.set(color, sources);
-        // The color count represents how many sources CAN produce this color
-        colors[color] = (colors[color] || 0) + (producesTwoColorless && color === 'C' ? 2 : 1);
       }
     }
   }
@@ -1407,10 +1418,16 @@ function canAffordSpell(available: { total: number; colors: Record<string, numbe
 /**
  * Find castable spells in AI's hand, sorted by priority
  */
+/**
+ * Find all spells in hand that AI can currently afford to cast
+ * Uses shared mana calculation system for consistency with human players
+ */
 function findCastableSpells(game: any, playerId: PlayerID): any[] {
   const zones = game.state?.zones?.[playerId];
   const hand = Array.isArray(zones?.hand) ? zones.hand : [];
-  const availableMana = calculateAvailableMana(game, playerId);
+  
+  // Use shared mana calculation
+  const manaPool = getAvailableMana(game.state, playerId);
   
   const castable: any[] = [];
   
@@ -1424,12 +1441,18 @@ function findCastableSpells(game: any, playerId: PlayerID): any[] {
     const manaCost = card?.mana_cost;
     if (!manaCost) continue;
     
-    // Parse cost and check affordability
-    const cost = parseSpellCost(manaCost);
-    if (canAffordSpell(availableMana, cost)) {
+    // Parse cost using shared function
+    const parsedCost = parseManaCost(manaCost);
+    
+    // Check if we can afford it using shared function
+    if (canPayManaCost(manaPool, parsedCost)) {
+      // Calculate CMC for priority calculation
+      const cmc = parsedCost.generic + Object.values(parsedCost.colors).reduce((a, b) => a + b, 0);
+      
       castable.push({
         card,
-        cost,
+        cost: parsedCost,
+        cmc,
         typeLine,
         priority: calculateSpellPriority(card, game, playerId),
       });
@@ -1445,6 +1468,7 @@ function findCastableSpells(game: any, playerId: PlayerID): any[] {
 /**
  * Find castable commander from command zone
  * Returns the commander card and cost if castable, null otherwise
+ * Uses shared mana calculation for consistency
  */
 function findCastableCommander(game: any, playerId: PlayerID): { card: any; cost: any; isBackground?: boolean } | null {
   const commandZone = game.state?.commandZone?.[playerId];
@@ -1455,7 +1479,8 @@ function findCastableCommander(game: any, playerId: PlayerID): { card: any; cost
   
   if (commanderIds.length === 0 && commanders.length === 0) return null;
   
-  const availableMana = calculateAvailableMana(game, playerId);
+  // Use shared mana calculation
+  const manaPool = getAvailableMana(game.state, playerId);
   const commanderTax = (commandZone.commanderTax || 0);
   
   // Check each commander in the command zone
@@ -1478,20 +1503,20 @@ function findCastableCommander(game: any, playerId: PlayerID): { card: any; cost
     const manaCost = card.mana_cost;
     if (!manaCost) continue;
     
-    // Parse cost with commander tax
-    const baseCost = parseSpellCost(manaCost);
+    // Parse cost with commander tax using shared function
+    const parsedCost = parseManaCost(manaCost);
     const totalCost = {
-      ...baseCost,
-      generic: baseCost.generic + commanderTax,
-      cmc: baseCost.cmc + commanderTax,
+      ...parsedCost,
+      generic: parsedCost.generic + commanderTax,
     };
     
-    // Check if we can afford it
-    if (canAffordSpell(availableMana, totalCost)) {
+    // Check if we can afford it using shared function
+    if (canPayManaCost(manaPool, totalCost)) {
       const typeLine = (card.type_line || '').toLowerCase();
       const isBackground = typeLine.includes('background');
+      const cmc = totalCost.generic + Object.values(totalCost.colors).reduce((a, b) => a + b, 0);
       
-      console.info('[AI] Found castable commander:', card.name, 'with tax:', commanderTax, 'total CMC:', totalCost.cmc);
+      console.info('[AI] Found castable commander:', card.name, 'with tax:', commanderTax, 'total CMC:', cmc);
       return { card, cost: totalCost, isBackground };
     }
   }
@@ -1533,8 +1558,9 @@ function calculateSpellPriority(card: any, game: any, playerId: PlayerID): numbe
   }
   
   // Lower CMC spells get slight priority (play on curve)
-  const cost = parseSpellCost(card?.mana_cost || '');
-  priority += Math.max(0, 10 - cost.cmc);
+  const parsedCost = parseManaCost(card?.mana_cost || '');
+  const cmc = parsedCost.generic + Object.values(parsedCost.colors).reduce((a, b) => a + b, 0);
+  priority += Math.max(0, 10 - cmc);
   
   return priority;
 }
@@ -3512,6 +3538,17 @@ async function executePassPriority(
           
           while (autoPassLoopCount < MAX_AUTO_PASS_LOOPS) {
             const autoPassResult = (game.state as any)?._autoPassResult;
+            
+            // CRITICAL: Check if current priority player is human
+            // If a human player has priority, STOP advancing - they need time to act
+            const currentPriority = (game.state as any)?.priority;
+            if (currentPriority) {
+              const priorityPlayer = (game.state as any)?.players?.find((p: any) => p?.id === currentPriority);
+              if (priorityPlayer && !priorityPlayer.isAI) {
+                console.log(`[AI] Auto-pass loop stopping - human player ${currentPriority} has priority`);
+                break;
+              }
+            }
             
             if (autoPassResult?.allPassed && autoPassResult?.advanceStep) {
               console.log(`[AI] Auto-pass detected after step advancement (iteration ${autoPassLoopCount + 1}), advancing again`);
