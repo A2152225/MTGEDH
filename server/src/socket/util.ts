@@ -1369,6 +1369,16 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
     
     if (!priority) return;
     
+    // Prevent re-entry while auto-passing is in progress
+    // This avoids recursive calls that might advance steps incorrectly
+    if (!stateAny._autoPassInProgress) {
+      stateAny._autoPassInProgress = new Set<string>();
+    }
+    if (stateAny._autoPassInProgress.has(priority)) {
+      console.log(`[checkAndTriggerAutoPass] Already processing auto-pass for ${priority}, skipping re-entry`);
+      return;
+    }
+    
     // Check if auto-pass is enabled for this player
     const autoPassPlayers = stateAny.autoPassPlayers || new Set();
     const autoPassForTurn = stateAny.autoPassForTurn?.[priority] || false;
@@ -1528,6 +1538,9 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
       // Player cannot act and has auto-pass enabled - auto-pass their priority
       console.log(`[checkAndTriggerAutoPass] Auto-passing for ${priority} - no available actions`);
       
+      // Mark that we're processing auto-pass for this player
+      stateAny._autoPassInProgress.add(priority);
+      
       // Call passPriority with isAutoPass flag
       if (typeof (game as any).passPriority === 'function') {
         try {
@@ -1554,13 +1567,25 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
               appendGameEvent(game, gameId, "nextStep", { reason: 'autoPass' });
             }
             
+            // Clear the in-progress flag before broadcasting
+            // This allows the next player to be checked
+            stateAny._autoPassInProgress.delete(priority);
+            
             // Broadcast updated state after auto-pass
             // Note: This will recursively call checkAndTriggerAutoPass for the next player
             broadcastGame(io, game, gameId);
+          } else {
+            // Priority pass didn't change state - clear flag
+            stateAny._autoPassInProgress.delete(priority);
           }
         } catch (err) {
           console.error(`[checkAndTriggerAutoPass] Error passing priority for ${priority}:`, err);
+          // Clear flag on error
+          stateAny._autoPassInProgress.delete(priority);
         }
+      } else {
+        // passPriority function not available - clear flag
+        stateAny._autoPassInProgress.delete(priority);
       }
     };
     
