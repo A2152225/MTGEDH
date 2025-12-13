@@ -179,9 +179,11 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
     
     const oracleText = (permanent.card.oracle_text || "").toLowerCase();
     const cardName = (permanent.card.name || "").toLowerCase();
+    const typeLine = (permanent.card.type_line || "").toLowerCase();
     
     // Special case: Basic lands (Mountain, Island, etc.)
     // Handle these first since they don't have oracle text with mana abilities
+    // Basic lands don't have summoning sickness
     if (/^(plains|island|swamp|mountain|forest)$/i.test(cardName)) {
       const landToColor: Record<string, string> = {
         'plains': 'white',
@@ -202,6 +204,29 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
     // This single pattern handles both single and multi-mana abilities
     const manaAbilityPattern = /\{t\}(?:[^:]*)?:\s*add\s+(\{[^}]+\}(?:\s*\{[^}]+\})*)/gi;
     const matches = [...oracleText.matchAll(manaAbilityPattern)];
+    
+    // Skip if no tap mana abilities found
+    if (matches.length === 0) continue;
+    
+    // Rule 302.6: A permanent with a tap ability can't use it unless it's been under
+    // continuous control since the controller's most recent turn began, OR it's a creature with haste
+    // This applies to ALL permanents with tap abilities, not just creatures
+    if (permanent.summoningSickness) {
+      // Check if it's a creature with haste (only creatures can have haste)
+      const isCreature = typeLine.includes('creature');
+      if (isCreature) {
+        // Check for haste - need to import/use the hasHaste check
+        // For now, simple check: look for "haste" in oracle text
+        const hasHaste = oracleText.includes('haste');
+        if (!hasHaste) {
+          // Creature with summoning sickness and no haste - skip it
+          continue;
+        }
+      } else {
+        // Non-creature with summoning sickness - can't use tap ability
+        continue;
+      }
+    }
     
     for (const match of matches) {
       const manaString = match[1];
