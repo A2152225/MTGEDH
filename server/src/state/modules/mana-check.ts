@@ -14,11 +14,13 @@ export function parseManaCost(manaCost?: string): {
   colors: Record<string, number>;
   generic: number;
   hasX: boolean;
+  hybrid?: Array<string[]>; // Track hybrid mana requirements separately
 } {
   const result = {
     colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 },
     generic: 0,
     hasX: false,
+    hybrid: [] as Array<string[]>,
   };
 
   if (!manaCost) return result;
@@ -31,8 +33,31 @@ export function parseManaCost(manaCost?: string): {
     } else if (/^\d+$/.test(clean)) {
       result.generic += parseInt(clean, 10);
     } else if (clean.length === 1 && clean in result.colors) {
+      // Single color symbol: {W}, {U}, {B}, {R}, {G}, {C}
       result.colors[clean as keyof typeof result.colors] = 
         (result.colors[clean as keyof typeof result.colors] || 0) + 1;
+    } else if (clean.includes("/")) {
+      // Hybrid mana: {W/U}, {B/R}, {2/W}, etc.
+      const parts = clean.split("/");
+      
+      // Handle phyrexian mana {W/P} or colored phyrexian {B/P}
+      if (parts[1] === "P") {
+        // Phyrexian mana can be paid with the color OR 2 life
+        // For cost checking, we need the color OR alternate payment
+        const firstColor = parts[0];
+        if (firstColor.length === 1 && firstColor in result.colors) {
+          result.hybrid.push([firstColor]);
+        }
+      } else if (/^\d+$/.test(parts[0])) {
+        // Hybrid generic/color: {2/W}, {3/U}, etc.
+        // Can be paid with either N generic OR 1 colored mana
+        // Track as hybrid with generic option: ['GENERIC:N', 'COLOR']
+        result.hybrid.push([`GENERIC:${parts[0]}`, parts[1]]);
+      } else {
+        // Regular hybrid: {W/U}, {B/R}, etc.
+        // Can be paid with either color
+        result.hybrid.push(parts);
+      }
     }
   }
 
@@ -55,7 +80,7 @@ export function getTotalManaFromPool(pool: Record<string, number>): number {
  */
 export function canPayManaCost(
   pool: Record<string, number>,
-  parsedCost: { colors: Record<string, number>; generic: number; hasX: boolean }
+  parsedCost: { colors: Record<string, number>; generic: number; hasX: boolean; hybrid?: Array<string[]> }
 ): boolean {
   if (!pool) return false;
 
@@ -68,22 +93,81 @@ export function canPayManaCost(
     C: "colorless",
   };
 
-  // Check if we have enough of each colored mana
-  let remainingMana = getTotalManaFromPool(pool);
+  // Make a copy of the pool to track what's been spent
+  const remainingPool = { ...pool };
+  
+  // First, pay all non-hybrid colored costs
   for (const [color, needed] of Object.entries(parsedCost.colors)) {
     if (needed === 0) continue;
     const colorKey = manaColorMap[color];
     if (!colorKey) continue;
     
-    const available = pool[colorKey] || 0;
+    const available = remainingPool[colorKey] || 0;
     if (available < needed) {
       return false; // Can't pay this colored requirement
     }
-    remainingMana -= needed;
+    remainingPool[colorKey] -= needed;
+  }
+  
+  // Then, pay hybrid costs (can use any of the specified colors)
+  if (parsedCost.hybrid && parsedCost.hybrid.length > 0) {
+    for (const hybridOptions of parsedCost.hybrid) {
+      let paid = false;
+      
+      // Try to pay with one of the hybrid options
+      for (const option of hybridOptions) {
+        if (option.startsWith('GENERIC:')) {
+          // Can pay with N generic mana (e.g., GENERIC:2, GENERIC:3)
+          const genericAmount = parseInt(option.split(':')[1], 10);
+          const totalRemaining = getTotalManaFromPool(remainingPool);
+          if (totalRemaining >= genericAmount) {
+            // Deduct N from any available mana (prefer colorless first)
+            let toPay = genericAmount;
+            if (remainingPool.colorless >= toPay) {
+              remainingPool.colorless -= toPay;
+              toPay = 0;
+            } else if (remainingPool.colorless > 0) {
+              toPay -= remainingPool.colorless;
+              remainingPool.colorless = 0;
+            }
+            // Pay remainder from any colors (may need to combine multiple)
+            if (toPay > 0) {
+              for (const colorKey of Object.keys(remainingPool)) {
+                if (colorKey === 'colorless') continue; // Already handled above
+                const available = remainingPool[colorKey as keyof typeof remainingPool];
+                if (available > 0) {
+                  const toDeduct = Math.min(available, toPay);
+                  remainingPool[colorKey as keyof typeof remainingPool] -= toDeduct;
+                  toPay -= toDeduct;
+                  if (toPay === 0) break;
+                }
+              }
+            }
+            if (toPay === 0) {
+              paid = true;
+              break;
+            }
+          }
+        } else {
+          // Try to pay with this specific color
+          const colorKey = manaColorMap[option];
+          if (colorKey && remainingPool[colorKey] > 0) {
+            remainingPool[colorKey] -= 1;
+            paid = true;
+            break;
+          }
+        }
+      }
+      
+      if (!paid) {
+        return false; // Couldn't pay this hybrid cost
+      }
+    }
   }
 
-  // Check if we have enough remaining for generic cost
-  return remainingMana >= parsedCost.generic;
+  // Finally, check if we have enough remaining for generic cost
+  const totalRemaining = getTotalManaFromPool(remainingPool);
+  return totalRemaining >= parsedCost.generic;
 }
 
 /**

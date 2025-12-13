@@ -18,6 +18,7 @@ import type { GameContext } from "../context";
 import type { PlayerID } from "../../../../shared/src";
 import { parseManaCost, canPayManaCost, getManaPoolFromState, getAvailableMana } from "./mana-check";
 import { hasPayableAlternateCost } from "./alternate-costs";
+import { categorizeSpell, evaluateTargeting, parseTargetRequirements } from "../../rules-engine/targeting";
 
 /**
  * Check if a card has flash or is an instant
@@ -127,6 +128,81 @@ function isCardPlayableFromExile(playableCards: any, cardId: string): boolean {
   
   // Handle object format: { 'card1': true, 'card2': true }
   return Boolean(playableCards[cardId]);
+}
+
+/**
+ * Check if a spell has valid targets available on the battlefield.
+ * This prevents spells requiring targets from being considered "playable" when no valid targets exist.
+ * 
+ * MTG Rule 601.2c: A spell or ability cannot be cast/activated unless valid targets are available
+ * for all required targets.
+ * 
+ * @param state - Game state
+ * @param playerId - The player casting the spell
+ * @param card - The card being checked
+ * @returns true if spell has valid targets (or doesn't require targets), false otherwise
+ */
+function hasValidTargetsForSpell(state: any, playerId: PlayerID, card: any): boolean {
+  if (!card) return false;
+  
+  const typeLine = (card.type_line || "").toLowerCase();
+  const oracleText = (card.oracle_text || "").toLowerCase();
+  const cardName = card.name || "";
+  
+  // Check if this is an aura - auras ALWAYS require a target when cast
+  // Pattern: Enchantment — Aura with "Enchant <target type>" in oracle text
+  const isAura = typeLine.includes("aura") && /^enchant\s+/i.test(oracleText);
+  
+  if (isAura) {
+    // Extract what the aura can enchant (creature, permanent, player, artifact, land, opponent)
+    const auraMatch = oracleText.match(/^enchant\s+(creature|permanent|player|artifact|land|opponent)/i);
+    const auraTargetType = auraMatch ? auraMatch[1].toLowerCase() : 'creature';
+    
+    // Check if valid targets exist
+    if (auraTargetType === 'player' || auraTargetType === 'opponent') {
+      // Check if there are valid player targets
+      const players = state.players || [];
+      const validPlayers = players.filter((p: any) => 
+        auraTargetType !== 'opponent' || p.id !== playerId
+      );
+      return validPlayers.length > 0;
+    } else {
+      // Check battlefield for permanents of the required type
+      const battlefield = state.battlefield || [];
+      const validTargets = battlefield.filter((p: any) => {
+        const tl = (p.card?.type_line || '').toLowerCase();
+        if (auraTargetType === 'permanent') return true;
+        return tl.includes(auraTargetType);
+      });
+      return validTargets.length > 0;
+    }
+  }
+  
+  // Check for instants/sorceries that require targets
+  const isInstantOrSorcery = typeLine.includes("instant") || typeLine.includes("sorcery");
+  if (isInstantOrSorcery) {
+    // Try to categorize the spell to see if it needs targets
+    const spellSpec = categorizeSpell(cardName, oracleText);
+    if (spellSpec && spellSpec.minTargets > 0) {
+      // This spell requires targets - check if valid targets exist
+      const validTargets = evaluateTargeting(state, playerId, spellSpec);
+      return validTargets.length >= spellSpec.minTargets;
+    }
+    
+    // Also check via parseTargetRequirements as backup
+    const targetReqs = parseTargetRequirements(oracleText);
+    if (targetReqs.needsTargets && targetReqs.minTargets > 0) {
+      // This spell requires targets but we couldn't categorize it precisely
+      // Cannot determine if valid targets exist without proper categorization
+      // To be safe for turn advancement: return false (spell not castable)
+      // This prevents incorrect turn stoppage while being conservative about unknown spells
+      console.warn(`[hasValidTargetsForSpell] Could not categorize targeting spell ${cardName}, assuming no valid targets`);
+      return false;
+    }
+  }
+  
+  // Spell doesn't require targets, or we couldn't determine targeting requirements
+  return true;
 }
 
 /**
@@ -260,12 +336,18 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
         
         // Check normal mana cost
         if (canPayManaCost(pool, adjustedCost)) {
-          return true;
+          // Also check if the spell has valid targets (if it requires targets)
+          if (hasValidTargetsForSpell(state, playerId, card)) {
+            return true;
+          }
         }
         
         // Check alternate costs
         if (hasPayableAlternateCost(ctx, playerId, card)) {
-          return true;
+          // Also check if the spell has valid targets (if it requires targets)
+          if (hasValidTargetsForSpell(state, playerId, card)) {
+            return true;
+          }
         }
       }
     }
@@ -288,12 +370,18 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
           const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
           const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
           if (canPayManaCost(pool, adjustedCost)) {
-            return true;
+            // Also check if the spell has valid targets (if it requires targets)
+            if (hasValidTargetsForSpell(state, playerId, card)) {
+              return true;
+            }
           }
         } else {
           // If we can't parse the cost, be conservative and assume they can pay it
           if (assumeCanPayUnknownCost(card.name, 'flashback')) {
-            return true;
+            // Also check if the spell has valid targets (if it requires targets)
+            if (hasValidTargetsForSpell(state, playerId, card)) {
+              return true;
+            }
           }
         }
       }
@@ -320,12 +408,18 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
             const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
             const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
             if (canPayManaCost(pool, adjustedCost)) {
-              return true;
+              // Also check if the spell has valid targets (if it requires targets)
+              if (hasValidTargetsForSpell(state, playerId, card)) {
+                return true;
+              }
             }
           } else {
             // If we can't parse cost or card has "you may cast from exile", be conservative
             if (assumeCanPayUnknownCost(card.name, 'foretell/exile')) {
-              return true;
+              // Also check if the spell has valid targets (if it requires targets)
+              if (hasValidTargetsForSpell(state, playerId, card)) {
+                return true;
+              }
             }
           }
         }
@@ -344,12 +438,18 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
             const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
             
             if (canPayManaCost(pool, adjustedCost)) {
-              return true;
+              // Also check if the spell has valid targets (if it requires targets)
+              if (hasValidTargetsForSpell(state, playerId, card)) {
+                return true;
+              }
             }
             
             // Check alternate costs
             if (hasPayableAlternateCost(ctx, playerId, card)) {
-              return true;
+              // Also check if the spell has valid targets (if it requires targets)
+              if (hasValidTargetsForSpell(state, playerId, card)) {
+                return true;
+              }
             }
           }
         }
@@ -1269,12 +1369,18 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
         
         // Check normal mana cost
         if (canPayManaCost(pool, adjustedCost)) {
-          return true;
+          // Also check if the spell has valid targets (if it requires targets)
+          if (hasValidTargetsForSpell(state, playerId, card)) {
+            return true;
+          }
         }
         
         // Check alternate costs
         if (hasPayableAlternateCost(ctx, playerId, card)) {
-          return true;
+          // Also check if the spell has valid targets (if it requires targets)
+          if (hasValidTargetsForSpell(state, playerId, card)) {
+            return true;
+          }
         }
       }
     }
@@ -1313,12 +1419,18 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
           const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
           const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
           if (canPayManaCost(pool, adjustedCost)) {
-            return true;
+            // Also check if the spell has valid targets (if it requires targets)
+            if (hasValidTargetsForSpell(state, playerId, card)) {
+              return true;
+            }
           }
         } else {
           // If we can't parse the cost, be conservative and assume they can pay it
           if (assumeCanPayUnknownCost(card.name, 'flashback')) {
-            return true;
+            // Also check if the spell has valid targets (if it requires targets)
+            if (hasValidTargetsForSpell(state, playerId, card)) {
+              return true;
+            }
           }
         }
       }
@@ -1360,12 +1472,18 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
             const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
             const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
             if (canPayManaCost(pool, adjustedCost)) {
-              return true;
+              // Also check if the spell has valid targets (if it requires targets)
+              if (hasValidTargetsForSpell(state, playerId, card)) {
+                return true;
+              }
             }
           } else {
             // If we can't parse cost or card has "you may cast from exile", be conservative
             if (assumeCanPayUnknownCost(card.name, 'foretell/exile')) {
-              return true;
+              // Also check if the spell has valid targets (if it requires targets)
+              if (hasValidTargetsForSpell(state, playerId, card)) {
+                return true;
+              }
             }
           }
         }
@@ -1384,12 +1502,18 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
             const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
             
             if (canPayManaCost(pool, adjustedCost)) {
-              return true;
+              // Also check if the spell has valid targets (if it requires targets)
+              if (hasValidTargetsForSpell(state, playerId, card)) {
+                return true;
+              }
             }
             
             // Check alternate costs
             if (hasPayableAlternateCost(ctx, playerId, card)) {
-              return true;
+              // Also check if the spell has valid targets (if it requires targets)
+              if (hasValidTargetsForSpell(state, playerId, card)) {
+                return true;
+              }
             }
           }
         }
