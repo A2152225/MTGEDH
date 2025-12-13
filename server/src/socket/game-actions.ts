@@ -3605,6 +3605,97 @@ export function registerGameActions(io: Server, socket: Socket) {
       console.log(`[completeCastSpell] targets from client: ${targets ? JSON.stringify(targets) : 'undefined'}`);
       console.log(`[completeCastSpell] payment from client: ${payment ? JSON.stringify(payment) : 'undefined'}`);
       
+      // Check if this is an equip payment completion
+      if (effectId && effectId.startsWith('equip_payment_') && (game.state as any).pendingEquipPayments?.[effectId]) {
+        const pendingEquip = (game.state as any).pendingEquipPayments[effectId];
+        console.log(`[completeCastSpell] Handling equip payment for: ${pendingEquip.equipmentName}`);
+        
+        // Clean up pending state
+        delete (game.state as any).pendingEquipPayments[effectId];
+        
+        // Re-emit equipTargetChosen with payment to complete the action
+        socket.emit("equipTargetChosen", {
+          gameId,
+          equipmentId: pendingEquip.equipmentId,
+          targetCreatureId: pendingEquip.targetCreatureId,
+          payment,
+          effectId: undefined, // Already cleaned up
+        });
+        
+        // Manually trigger the equipTargetChosen handler logic
+        // Actually, we can't re-emit to the same socket easily - let's handle it inline
+        const battlefield = game.state?.battlefield || [];
+        const equipment = battlefield.find((p: any) => p?.id === pendingEquip.equipmentId && p?.controller === playerId);
+        const targetCreature = battlefield.find((p: any) => p?.id === pendingEquip.targetCreatureId && p?.controller === playerId);
+        
+        if (!equipment || !targetCreature) {
+          socket.emit("error", {
+            code: "EQUIP_FAILED",
+            message: "Equipment or target creature no longer available",
+          });
+          return;
+        }
+        
+        // Process payment and add mana to pool
+        const pool = getOrInitManaPool(game.state, playerId);
+        if (payment && payment.length > 0) {
+          for (const p of payment) {
+            const manaPerm = battlefield.find((perm: any) => perm?.id === p.permanentId);
+            if (manaPerm && !manaPerm.tapped) {
+              manaPerm.tapped = true;
+              for (let i = 0; i < p.count; i++) {
+                const manaColor = p.mana.toLowerCase();
+                if (manaColor === 'w') pool.white += 1;
+                else if (manaColor === 'u') pool.blue += 1;
+                else if (manaColor === 'b') pool.black += 1;
+                else if (manaColor === 'r') pool.red += 1;
+                else if (manaColor === 'g') pool.green += 1;
+                else pool.colorless += 1;
+              }
+            }
+          }
+        }
+        
+        // Parse and consume mana for equip cost
+        const parsedCost = parseManaCost(pendingEquip.equipCost);
+        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[completeCastSpell:equip]');
+        
+        // Put equip ability on stack
+        const equipAbilityId = `equip_ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        game.state.stack = game.state.stack || [];
+        game.state.stack.push({
+          id: equipAbilityId,
+          type: 'ability',
+          controller: playerId,
+          source: pendingEquip.equipmentId,
+          sourceName: pendingEquip.equipmentName,
+          description: `Equip ${pendingEquip.equipmentName} to ${pendingEquip.targetCreatureName}`,
+          abilityType: 'equip',
+          equipParams: {
+            equipmentId: pendingEquip.equipmentId,
+            targetCreatureId: pendingEquip.targetCreatureId,
+            equipmentName: pendingEquip.equipmentName,
+            targetCreatureName: pendingEquip.targetCreatureName,
+          },
+        } as any);
+        
+        if (typeof game.bumpSeq === "function") {
+          game.bumpSeq();
+        }
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} activated equip ability: ${pendingEquip.equipmentName} targeting ${pendingEquip.targetCreatureName}. Ability on the stack.`,
+          ts: Date.now(),
+        });
+        
+        console.log(`[completeCastSpell] Equip ability on stack: ${pendingEquip.equipmentName} → ${pendingEquip.targetCreatureName}`);
+        broadcastGame(io, game, gameId);
+        return;
+      }
+      
       // Retrieve targets from pending cast data before cleaning up
       // This ensures Aura targets (stored in targetSelectionConfirm) are preserved
       let finalTargets = targets;
