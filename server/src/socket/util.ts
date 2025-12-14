@@ -47,6 +47,13 @@ const DEVOTION_COLOR_PATTERNS: Record<string, RegExp> = {
   G: /\{G\}/gi,
 };
 
+// ============================================================================
+// Helper function for timestamps in debug logging
+// ============================================================================
+function ts() {
+  return new Date().toISOString();
+}
+
 /* ------------------- Event transformation helpers ------------------- */
 
 /**
