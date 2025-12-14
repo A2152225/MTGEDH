@@ -2986,6 +2986,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     
     // Handle Fight abilities (Brash Taunter, etc.)
     // Pattern: "{Cost}: This creature fights target creature you don't control"
+    // Pattern: "{Cost}: This creature fights another target creature" (can target any creature)
     const hasFightAbility = oracleText.includes("fights") || oracleText.includes("fight");
     const isFightAbility = hasFightAbility && (abilityId.includes("fight") || oracleText.match(/\{[^}]+\}[^:]*:\s*[^.]*fights?/i));
     
@@ -3024,6 +3025,19 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Generate activation ID
       const activationId = `fight_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       
+      // Determine fight target restrictions from oracle text
+      // "another target creature" = any creature except itself
+      // "target creature you don't control" = opponent's creatures only
+      // "target creature" = typically opponent's creatures unless specified otherwise
+      let fightController: 'opponent' | 'any' | 'you' = 'any';
+      if (oracleText.includes("you don't control") || oracleText.includes("you do not control")) {
+        fightController = 'opponent';
+      } else if (oracleText.includes("another target creature") || oracleText.includes("fights another target")) {
+        fightController = 'any'; // Can fight any creature including your own
+      } else if (oracleText.includes("target creature you control")) {
+        fightController = 'you';
+      }
+      
       // Store pending fight activation
       if (!game.state.pendingFightActivations) {
         game.state.pendingFightActivations = {};
@@ -3032,6 +3046,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         playerId: pid,
         sourceId: permanentId,
         sourceName: cardName,
+        controller: fightController,
       };
       
       // Emit target selection request to client
@@ -3045,14 +3060,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         },
         targetFilter: {
           types: ['creature'],
-          controller: 'opponent', // Fight abilities typically target opponent's creatures
+          controller: fightController,
           excludeSource: true,
         },
         title: `${cardName} - Fight`,
         description: oracleText,
       });
       
-      console.log(`[activateBattlefieldAbility] Fight ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for target creature`);
+      console.log(`[activateBattlefieldAbility] Fight ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for target creature (controller: ${fightController})`);
       broadcastGame(io, game, gameId);
       return;
     }
@@ -6400,6 +6415,65 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     targetCreature.damageMarked = (targetCreature.damageMarked || 0) + sourcePower;
     
     console.log(`[fightTargetChosen] ${pendingFight.sourceName} (power ${sourcePower}) fights ${targetCreature.card?.name} (power ${targetPower})`);
+    
+    // Check for "dealt damage" triggers on the source creature
+    // Brash Taunter: "Whenever this creature is dealt damage, it deals that much damage to target opponent."
+    // Ill-Tempered Loner: "Whenever this creature is dealt damage, it deals that much damage to any target."
+    // Wrathful Red Dragon: "Whenever a Dragon you control is dealt damage, it deals that much damage to any target that isn't a Dragon."
+    const checkDamageDealtTriggers = (damagedCreature: any, damageAmount: number, controller: string) => {
+      if (!damagedCreature || damageAmount <= 0) return;
+      
+      const oracleText = (damagedCreature.card?.oracle_text || "").toLowerCase();
+      const creatureName = damagedCreature.card?.name || "Unknown";
+      
+      // Pattern: "Whenever this creature is dealt damage" or "Whenever ~ is dealt damage"
+      if (oracleText.includes("whenever this creature is dealt damage") ||
+          oracleText.includes("whenever " + creatureName.toLowerCase() + " is dealt damage")) {
+        // Queue trigger for target selection
+        const triggerId = `damage_trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        game.state.pendingDamageTriggers = game.state.pendingDamageTriggers || {};
+        game.state.pendingDamageTriggers[triggerId] = {
+          sourceId: damagedCreature.id,
+          sourceName: creatureName,
+          controller: controller,
+          damageAmount: damageAmount,
+          triggerType: 'dealt_damage',
+        };
+        
+        // Determine target type from oracle text
+        let targetType = 'any'; // Default to any target
+        let targetRestriction = '';
+        if (oracleText.includes("target opponent")) {
+          targetType = 'opponent';
+          targetRestriction = 'opponent';
+        } else if (oracleText.includes("any target that isn't a dragon")) {
+          targetType = 'any_non_dragon';
+          targetRestriction = "that isn't a Dragon";
+        }
+        
+        // Emit trigger to player for target selection
+        socket.emit("damageTriggerTargetRequest", {
+          gameId,
+          triggerId,
+          source: {
+            id: damagedCreature.id,
+            name: creatureName,
+            imageUrl: damagedCreature.card?.image_uris?.small || damagedCreature.card?.image_uris?.normal,
+          },
+          damageAmount,
+          targetType,
+          targetRestriction,
+          title: `${creatureName} - Damage Trigger`,
+          description: `${creatureName} was dealt ${damageAmount} damage. Choose a target to deal ${damageAmount} damage to${targetRestriction ? ` (${targetRestriction})` : ''}.`,
+        });
+        
+        console.log(`[fightTargetChosen] Queued damage trigger from ${creatureName} for ${damageAmount} damage`);
+      }
+    };
+    
+    // Check triggers for both creatures
+    checkDamageDealtTriggers(sourceCreature, targetPower, sourceCreature.controller);
+    checkDamageDealtTriggers(targetCreature, sourcePower, targetCreature.controller);
     
     // Emit chat message
     io.to(gameId).emit("chat", {

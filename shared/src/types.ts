@@ -484,6 +484,17 @@ export interface GameState {
     playerId: PlayerID;
     sourceId: string;
     sourceName?: string;
+    controller?: 'opponent' | 'any' | 'you';
+  }>;
+  /**
+   * Pending damage triggers awaiting target selection (Brash Taunter, etc.)
+   */
+  pendingDamageTriggers?: Record<string, {
+    sourceId: string;
+    sourceName: string;
+    controller: PlayerID;
+    damageAmount: number;
+    triggerType: string;
   }>;
   /**
    * Pending attack triggers awaiting player's mana payment decision.
