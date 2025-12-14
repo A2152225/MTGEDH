@@ -1649,7 +1649,7 @@ function detectBeneficialAura(oracleText: string): boolean {
   if (text.includes("-1/-1") || text.includes("-2/-2") || text.includes("-3/-3")) return false;
   if (text.includes("exile") && text.includes("when")) return false;
   if (text.includes("destroy") && text.includes("when")) return false;
-  if (text.includes("goaded")) return false;
+  if (text.includes("goaded") || text.includes("is goaded")) return false;
   
   // Beneficial indicators (buffs, abilities)
   if (text.includes("+1/+1") || text.includes("+2/+2") || text.includes("+3/+3")) return true;
@@ -1987,7 +1987,17 @@ function needsToDiscard(game: any, playerId: PlayerID): { needsDiscard: boolean;
 }
 
 /**
- * Choose cards for AI to discard - prioritizes keeping lands and low-cost spells
+ * Choose cards for AI to discard - prioritizes keeping castable and valuable spells
+ * 
+ * Priority for KEEPING (higher score = keep):
+ * - Lands: +100 (always valuable)
+ * - Castable spells (can be cast next turn): +50
+ * - Removal spells: +30
+ * - Creatures: +20
+ * - Low-CMC spells: +10 - CMC (easier to cast)
+ * 
+ * The AI should discard high-CMC spells it can't cast rather than
+ * castable spells, even if those spells are technically "better"
  */
 function chooseCardsToDiscard(game: any, playerId: PlayerID, discardCount: number): string[] {
   const zones = game.state?.zones?.[playerId];
@@ -1997,34 +2007,62 @@ function chooseCardsToDiscard(game: any, playerId: PlayerID, discardCount: numbe
     return hand.map((c: any) => c.id);
   }
   
+  // Calculate available mana to determine castability
+  const manaPool = getAvailableMana(game.state, playerId);
+  const totalAvailableMana = getTotalManaFromPool(manaPool);
+  
   // Score cards - lower score = more likely to discard
   const scoredCards = hand.map((card: any) => {
     let score = 50; // Base score
     const typeLine = (card?.type_line || '').toLowerCase();
     const manaCost = card?.mana_cost || '';
+    const oracleText = (card?.oracle_text || '').toLowerCase();
     
-    // Keep lands (high priority)
+    // Keep lands (highest priority)
     if (typeLine.includes('land')) {
       score += 100;
+      return { card, score };
+    }
+    
+    // Calculate CMC
+    const parsedCost = parseManaCost(manaCost);
+    const cmc = parsedCost.generic + Object.values(parsedCost.colors).reduce((a, b) => a + b, 0);
+    
+    // CASTABILITY CHECK: Strongly prefer keeping castable spells
+    // A spell is "castable" if the AI can afford it with current/potential mana
+    // Add +2 mana buffer for "next turn" (likely land drop)
+    const canCastSoon = cmc <= totalAvailableMana + 2;
+    const canCastNow = canPayManaCost(manaPool, parsedCost);
+    
+    if (canCastNow) {
+      score += 60; // Can cast right now - definitely keep
+    } else if (canCastSoon) {
+      score += 40; // Can likely cast next turn - prefer to keep
+    } else if (cmc > totalAvailableMana + 4) {
+      score -= 30; // Very expensive spell we can't cast for a while - consider discarding
     }
     
     // Keep low-cost spells (easier to cast)
-    // Calculate approximate CMC by counting generic mana + number of colored symbols
-    const genericMatch = manaCost.match(/\d+/);
-    const generic = genericMatch ? parseInt(genericMatch[0], 10) : 0;
-    const coloredSymbols = (manaCost.match(/\{[WUBRG]\}/gi) || []).length;
-    const approxCMC = generic + coloredSymbols;
-    score += Math.max(0, 10 - approxCMC);
+    score += Math.max(0, 10 - cmc);
     
     // Keep creatures (good for board presence)
     if (typeLine.includes('creature')) {
       score += 20;
     }
     
-    // Keep removal spells
-    const oracleText = (card?.oracle_text || '').toLowerCase();
+    // Keep removal spells (interaction is important)
     if (oracleText.includes('destroy') || oracleText.includes('exile')) {
       score += 30;
+    }
+    
+    // Keep mana rocks/ramp (acceleration)
+    if (typeLine.includes('artifact') && (oracleText.includes('add {') || oracleText.includes('add one mana'))) {
+      score += 35;
+    }
+    
+    // Keep card draw spells
+    if (oracleText.includes('draw') && (oracleText.includes('card') || oracleText.includes('cards'))) {
+      score += 25;
     }
     
     return { card, score };
