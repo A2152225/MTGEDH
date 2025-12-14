@@ -539,6 +539,11 @@ export interface GameState {
     cardName: string;
     drawCards?: number;
   }>;
+  /**
+   * Firebending mana tracking - tracks red mana from firebending that lasts until end of combat.
+   * Maps playerId to amount of firebending red mana in their pool.
+   */
+  firebendingMana?: Record<PlayerID, number>;
 }
 
 /* Player protection state for effects like Teferi's Protection */
