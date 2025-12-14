@@ -21,6 +21,8 @@ import {
 } from "../state/modules/mana-abilities";
 import { exchangePermanentOracleText } from "../state/utils";
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../rules-engine/src/creatureUpgradeAbilities";
+import { isAIPlayer } from "./ai.js";
+import { getActivatedAbilityConfig } from "../../../rules-engine/src/cards/activatedAbilityCards.js";
 
 // ============================================================================
 // Tap/Untap Ability Text Parsing
@@ -2801,16 +2803,19 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
     
     // Handle Control Change abilities (Humble Defector, etc.)
-    // Pattern: "{T}: Draw two cards. Target opponent gains control of ~"
+    // Check registry first, then fall back to pattern matching for unregistered cards
+    const abilityConfig = getActivatedAbilityConfig(cardName);
     const hasControlChangeAbility = 
-      (oracleText.includes("opponent gains control") || oracleText.includes("target opponent gains control")) &&
-      (abilityId.includes("control") || abilityId.includes("humble-defector") || cardName.toLowerCase().includes("humble defector"));
+      (abilityConfig?.tapAbility?.controlChange === true) ||
+      ((oracleText.includes("opponent gains control") || oracleText.includes("target opponent gains control")) &&
+       abilityId.includes("control"));
     
     if (hasControlChangeAbility) {
-      // Check if it's Humble Defector or similar
-      const isHumbleDefector = cardName.toLowerCase().includes("humble defector");
+      // Get effect details from registry or infer from oracle text
+      const drawCards = abilityConfig?.tapAbility?.effect?.match(/draw (\w+) card/i)?.[1];
+      const drawCount = drawCards === 'two' ? 2 : drawCards === 'one' ? 1 : 0;
       
-      // Parse the cost - Humble Defector has {T} cost
+      // Parse the cost
       const { requiresTap, manaCost } = parseActivationCost(oracleText, /(?:draw|opponent gains control)/i);
       
       if (requiresTap && (permanent as any).tapped) {
@@ -2821,8 +2826,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
       
-      // Check timing restriction - Humble Defector can only be activated during your turn
-      if (isHumbleDefector && game.state?.turnPlayer !== pid) {
+      // Check timing restriction from registry
+      const timingRestriction = abilityConfig?.tapAbility?.timingRestriction;
+      if (timingRestriction === 'your_turn' && game.state?.turnPlayer !== pid) {
         socket.emit("error", {
           code: "WRONG_TIMING",
           message: `${cardName} can only be activated during your turn`,
@@ -2861,7 +2867,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         playerId: pid,
         permanentId: permanentId,
         cardName: cardName,
-        drawCards: isHumbleDefector ? 2 : 0, // Humble Defector draws 2 cards
+        drawCards: drawCount, // Cards to draw from registry/oracle text
       };
       
       // Get available opponents
@@ -2889,7 +2895,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       });
       
       // Auto-select opponent for AI players
-      const { isAIPlayer } = await import('./ai.js');
       if (isAIPlayer(gameId, pid)) {
         // AI should select randomly from available opponents
         // In a real implementation, AI could be smarter about target selection
