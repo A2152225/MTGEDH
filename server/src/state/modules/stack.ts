@@ -3,7 +3,20 @@ import type { GameContext } from "../context.js";
 import { uid, parsePT, addEnergyCounters, triggerLifeGainEffects, calculateAllPTBonuses, cardManaValue } from "../utils.js";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts } from "./game-state-effects.js";
 import { categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
-import { getETBTriggersForPermanent, processLinkedExileReturns, registerLinkedExile, detectLinkedExileEffect, type TriggeredAbility, getLandfallTriggers } from "./triggered-abilities.js";
+import { 
+  getETBTriggersForPermanent, 
+  processLinkedExileReturns, 
+  registerLinkedExile, 
+  detectLinkedExileEffect, 
+  type TriggeredAbility, 
+  getLandfallTriggers,
+  detectControlChangeEffects,
+  shouldEnterUnderOpponentControl,
+  hasOptionalGiveControlETB,
+  shouldGoadOnControlChange,
+  mustAttackEachCombat,
+  cantAttackOwner,
+} from "./triggered-abilities.js";
 import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone } from "./zones.js";
 import { runSBA, applyCounterModifications } from "./counters_tokens.js";
@@ -2798,6 +2811,48 @@ export function resolveTopOfStack(ctx: GameContext) {
       statusNote = ' (haste)';
     }
     console.log(`[resolveTopOfStack] Permanent ${effectiveCard.name || 'unnamed'} entered battlefield under ${controller}${statusNote}`);
+    
+    // Check for ETB control change effects (Xantcha, Akroan Horse, Vislor Turlough)
+    // These permanents enter under an opponent's control or may give control to an opponent
+    try {
+      const controlChangeEffects = detectControlChangeEffects(effectiveCard, newPermanent);
+      const etbControlChangeEffects = controlChangeEffects.filter(e => e.isETB);
+      
+      if (etbControlChangeEffects.length > 0) {
+        for (const effect of etbControlChangeEffects) {
+          if (effect.type === 'enters_under_opponent_control') {
+            // Card must enter under an opponent's control (Xantcha, etc.)
+            // Flag the permanent for opponent selection
+            (newPermanent as any).pendingControlChange = {
+              type: 'enters_under_opponent_control',
+              originalOwner: controller,
+              goadsOnChange: effect.goadsOnChange || false,
+              mustAttackEachCombat: mustAttackEachCombat(effectiveCard),
+              cantAttackOwner: cantAttackOwner(effectiveCard),
+            };
+            console.log(`[resolveTopOfStack] ${effectiveCard.name} has ETB control change - requires opponent selection`);
+          } else if (effect.type === 'may_give_control_to_opponent') {
+            // Optional: may give control to opponent (Vislor Turlough)
+            (newPermanent as any).pendingControlChange = {
+              type: 'may_give_opponent',
+              originalOwner: controller,
+              isOptional: true,
+              goadsOnChange: effect.goadsOnChange || false,
+            };
+            console.log(`[resolveTopOfStack] ${effectiveCard.name} has optional ETB control change`);
+          } else if (effect.type === 'opponent_gains_control') {
+            // Opponent gains control (Akroan Horse)
+            (newPermanent as any).pendingControlChange = {
+              type: 'opponent_gains',
+              originalOwner: controller,
+            };
+            console.log(`[resolveTopOfStack] ${effectiveCard.name} has ETB opponent gains control`);
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`[resolveTopOfStack] Error checking control change effects:`, err);
+    }
     
     // Check for ETB triggers on this permanent and other permanents
     try {

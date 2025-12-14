@@ -619,7 +619,7 @@ export function App() {
     modes: AbilityMode[];
   } | null>(null);
   
-  // Control Change Opponent Selection Modal state - for Humble Defector, etc.
+  // Control Change Opponent Selection Modal state - for Humble Defector, Xantcha, Vislor Turlough, etc.
   const [controlChangeOpponentModalOpen, setControlChangeOpponentModalOpen] = useState(false);
   const [controlChangeOpponentModalData, setControlChangeOpponentModalData] = useState<{
     activationId: string;
@@ -637,6 +637,7 @@ export function App() {
     }>;
     title: string;
     description: string;
+    isOptional?: boolean; // For Vislor Turlough - "may" give control
   } | null>(null);
   
   // Mana Distribution Modal state - for Selvala, Heart of the Wilds, etc.
@@ -2081,6 +2082,7 @@ export function App() {
       }>;
       title: string;
       description: string;
+      isOptional?: boolean;
     }) => {
       if (payload.gameId === safeView?.id) {
         setControlChangeOpponentModalData({
@@ -2089,6 +2091,7 @@ export function App() {
           opponents: payload.opponents,
           title: payload.title,
           description: payload.description,
+          isOptional: payload.isOptional,
         });
         setControlChangeOpponentModalOpen(true);
       }
@@ -4909,7 +4912,7 @@ export function App() {
         }}
       />
 
-      {/* Control Change Opponent Selection Modal (Humble Defector, etc.) */}
+      {/* Control Change Opponent Selection Modal (Humble Defector, Xantcha, Vislor Turlough, etc.) */}
       <PlayerTargetSelectionModal
         open={controlChangeOpponentModalOpen}
         title={controlChangeOpponentModalData?.title || "Choose Opponent"}
@@ -4927,20 +4930,38 @@ export function App() {
           isSelf: false,
         }))}
         opponentOnly={true}
-        minTargets={1}
+        minTargets={controlChangeOpponentModalData?.isOptional ? 0 : 1}
         maxTargets={1}
         onConfirm={(selectedPlayerIds) => {
-          if (controlChangeOpponentModalData && safeView && selectedPlayerIds.length > 0) {
-            socket.emit("confirmControlChangeOpponent", {
-              gameId: safeView.id,
-              activationId: controlChangeOpponentModalData.activationId,
-              targetOpponentId: selectedPlayerIds[0],
-            });
+          if (controlChangeOpponentModalData && safeView) {
+            if (selectedPlayerIds.length > 0) {
+              // Player chose an opponent to give control
+              socket.emit("confirmControlChangeOpponent", {
+                gameId: safeView.id,
+                activationId: controlChangeOpponentModalData.activationId,
+                targetOpponentId: selectedPlayerIds[0],
+              });
+            } else if (controlChangeOpponentModalData.isOptional) {
+              // Player chose not to give control (for "may" effects like Vislor Turlough)
+              socket.emit("confirmControlChangeOpponent", {
+                gameId: safeView.id,
+                activationId: controlChangeOpponentModalData.activationId,
+                targetOpponentId: "", // Empty means declined
+              });
+            }
             setControlChangeOpponentModalOpen(false);
             setControlChangeOpponentModalData(null);
           }
         }}
         onCancel={() => {
+          // For optional effects, canceling is the same as declining
+          if (controlChangeOpponentModalData?.isOptional && safeView) {
+            socket.emit("confirmControlChangeOpponent", {
+              gameId: safeView.id,
+              activationId: controlChangeOpponentModalData.activationId,
+              targetOpponentId: "", // Empty means declined
+            });
+          }
           setControlChangeOpponentModalOpen(false);
           setControlChangeOpponentModalData(null);
         }}
