@@ -106,6 +106,24 @@ export {
   isPermanentPreventedFromUntapping,
   type DoesntUntapEffect,
 } from "./triggers/turn-phases.js";
+// Control change effects (ETB under opponent control, etc.)
+export {
+  detectControlChangeEffects,
+  hasControlChangeEffect,
+  shouldEnterUnderOpponentControl,
+  hasOptionalGiveControlETB,
+  shouldGoadOnControlChange,
+  mustAttackEachCombat,
+  cantAttackOwner,
+  applyControlChange,
+  getAttackRestrictions as getControlChangeAttackRestrictions,
+  getControlChangeConfig,
+  isKnownControlChangeCard,
+  logControlChange,
+  KNOWN_CONTROL_CHANGE_CARDS,
+  type ControlChangeType,
+  type ControlChangeEffect as ETBControlChangeEffect,
+} from "./triggers/control-change.js";
 
 /**
  * Trigger timing - when the trigger should fire
