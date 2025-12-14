@@ -723,6 +723,38 @@ export function hasValidTargetsForSpell(
     }
   }
   
+  // Pattern: "attacking creature" or "target player sacrifices an attacking creature"
+  // These spells require an attacking creature to exist
+  // Examples: Entrapment Maneuver ("Target player sacrifices an attacking creature")
+  if (text.includes('attacking creature') || text.includes('sacrifices an attacking creature')) {
+    // Check if we're in combat and if there are attacking creatures
+    const phase = (gameState.phase || '').toString().toLowerCase();
+    const step = (gameState.step || '').toString().toLowerCase();
+    const isCombat = phase.includes('combat') || step.includes('attack') || step.includes('block') || step.includes('damage');
+    
+    if (!isCombat) {
+      return {
+        hasTargets: false,
+        reason: 'Can only be cast during combat (requires attacking creatures)',
+      };
+    }
+    
+    // Check for attacking creatures on the battlefield
+    const attackingCreatures = gameState.battlefield.filter(perm => {
+      const typeLine = ((perm.card as any)?.type_line || '').toLowerCase();
+      const isCreature = typeLine.includes('creature');
+      const isAttacking = (perm as any).attacking === true;
+      return isCreature && isAttacking;
+    });
+    
+    if (attackingCreatures.length === 0) {
+      return {
+        hasTargets: false,
+        reason: 'No attacking creatures on the battlefield',
+      };
+    }
+  }
+  
   // Generic "target opponent" check
   if (text.includes('target opponent')) {
     const opponents = gameState.players.filter(p => p.id !== currentPlayerId);
