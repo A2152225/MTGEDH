@@ -256,6 +256,18 @@ export interface BattlefieldPermanent {
   // Mutate support (Rule 702.140)
   mutatedStack?: MutatedCardStack;  // Stack of cards in a mutated creature (presence indicates mutation)
   mutationCount?: number;           // Number of times this creature has been mutated
+  // Control change mechanics (Xantcha, Vislor Turlough, Akroan Horse)
+  mustAttackEachCombat?: boolean;   // Xantcha-style: creature must attack each combat if able
+  cantAttackOwner?: boolean;        // Xantcha-style: creature can't attack its owner
+  ownerId?: PlayerID;               // Original owner for cantAttackOwner restriction
+  pendingControlChange?: {          // ETB control change pending opponent selection
+    type: 'enters_under_opponent_control' | 'may_give_opponent' | 'opponent_gains';
+    originalOwner: PlayerID;
+    isOptional?: boolean;
+    goadsOnChange?: boolean;
+    mustAttackEachCombat?: boolean;
+    cantAttackOwner?: boolean;
+  };
 }
 
 /**
@@ -532,12 +544,19 @@ export interface GameState {
   /**
    * Pending control change activations awaiting opponent selection.
    * Maps activation ID to activation details.
+   * Used for Humble Defector-style activated abilities and Xantcha-style ETB effects.
    */
   pendingControlChangeActivations?: Record<string, {
     playerId: PlayerID;
     permanentId: string;
     cardName: string;
     drawCards?: number;
+    // ETB control change fields
+    type?: 'enters_under_opponent_control' | 'may_give_opponent' | 'opponent_gains';
+    isOptional?: boolean;
+    goadsOnChange?: boolean;
+    mustAttackEachCombat?: boolean;
+    cantAttackOwner?: boolean;
   }>;
   /**
    * Firebending mana tracking - tracks red mana from firebending that lasts until end of combat.

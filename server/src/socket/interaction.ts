@@ -4796,6 +4796,71 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                 delete (enteredPermanent as any).pendingControlChange;
                 
                 console.log(`[playCard] ETB control change request emitted for ${(fullCard as any).name}`);
+                
+                // Auto-select opponent for AI players
+                if (isAIPlayer(gameId, pid)) {
+                  setTimeout(() => {
+                    const pending = (game.state as any).pendingControlChangeActivations?.[activationId];
+                    if (!pending) return;
+                    
+                    // For optional effects, AI decides whether to give control
+                    if (controlChange.isOptional) {
+                      // AI typically wants to keep its creatures, but Vislor Turlough gives card draw
+                      // For Vislor, giving control is beneficial due to goading
+                      const shouldGiveControl = controlChange.goadsOnChange || Math.random() < 0.3;
+                      
+                      if (!shouldGiveControl) {
+                        // AI declines to give control
+                        delete (game.state as any).pendingControlChangeActivations[activationId];
+                        console.log(`[AI] Declined to give control of ${(fullCard as any).name}`);
+                        broadcastGame(io, game, gameId);
+                        return;
+                      }
+                    }
+                    
+                    // AI selects a random opponent (could be smarter in future)
+                    const randomOpponent = opponents[Math.floor(Math.random() * opponents.length)];
+                    
+                    if (randomOpponent) {
+                      delete (game.state as any).pendingControlChangeActivations[activationId];
+                      
+                      // Apply control change
+                      const permanentToChange = game.state.battlefield.find((p: any) => p && p.id === enteredPermanent.id);
+                      if (permanentToChange) {
+                        const oldController = permanentToChange.controller;
+                        permanentToChange.controller = randomOpponent.id;
+                        
+                        // Apply goad if needed
+                        if (controlChange.goadsOnChange) {
+                          permanentToChange.goadedBy = permanentToChange.goadedBy || [];
+                          if (!permanentToChange.goadedBy.includes(pid)) {
+                            permanentToChange.goadedBy.push(pid);
+                          }
+                        }
+                        
+                        // Apply attack restrictions
+                        if (controlChange.mustAttackEachCombat) {
+                          (permanentToChange as any).mustAttackEachCombat = true;
+                        }
+                        if (controlChange.cantAttackOwner) {
+                          (permanentToChange as any).cantAttackOwner = true;
+                          (permanentToChange as any).ownerId = pid;
+                        }
+                        
+                        io.to(gameId).emit("chat", {
+                          id: `m_${Date.now()}`,
+                          gameId,
+                          from: "system",
+                          message: `🔄 Control of ${(fullCard as any).name} changed from ${getPlayerName(game, oldController)} to ${getPlayerName(game, randomOpponent.id)}.${controlChange.goadsOnChange ? ` ${(fullCard as any).name} is goaded.` : ''}`,
+                          ts: Date.now(),
+                        });
+                        
+                        console.log(`[AI] Auto-gave control of ${(fullCard as any).name} to ${randomOpponent.name}`);
+                        broadcastGame(io, game, gameId);
+                      }
+                    }
+                  }, 500); // Small delay for natural feel
+                }
               }
               
               // 1. Get ETB triggers from the permanent itself (e.g., modal choices, "When ~ enters")
