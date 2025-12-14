@@ -487,3 +487,74 @@ describe('Undo and Replay', () => {
     });
   });
 });
+
+  describe('RNG state after reset', () => {
+    it('should clear RNG state on reset so replay can re-seed correctly', () => {
+      // This test verifies the root cause of the undo bug:
+      // When reset() is called, the RNG state must be cleared so that
+      // the rngSeed event during replay can properly re-initialize it.
+      // If RNG is not cleared, subsequent shuffles will use a different
+      // RNG state and produce different results.
+      
+      const gameId = 'rng_reset_state_test';
+      const p1 = 'p_test' as PlayerID;
+      const deck = mkCards(30);
+      const seed = 777777777;
+
+      const game = createInitialGameState(gameId);
+      
+      // Apply events
+      game.applyEvent({ type: 'rngSeed', seed });
+      game.applyEvent({ type: 'deckImportResolved', playerId: p1, cards: deck });
+      game.applyEvent({ type: 'shuffleLibrary', playerId: p1 });
+      game.applyEvent({ type: 'drawCards', playerId: p1, count: 7 });
+      
+      const hand1 = (game.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
+      
+      // Reset should clear RNG state
+      game.reset!(true);
+      
+      // After reset, RNG should be in a cleared/unknown state
+      // Replaying events should re-seed it
+      const replayEvents = [
+        { type: 'rngSeed', seed },
+        { type: 'deckImportResolved', playerId: p1, cards: deck },
+        { type: 'shuffleLibrary', playerId: p1 },
+        { type: 'drawCards', playerId: p1, count: 7 }
+      ];
+      game.replay!(replayEvents);
+      
+      const hand2 = (game.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
+      
+      // The hands should be identical because the RNG was properly reset
+      // and re-seeded with the same seed
+      expect(hand2).toEqual(hand1);
+    });
+
+    it('should handle multiple reset-replay cycles deterministically', () => {
+      const gameId = 'rng_multi_reset_test';
+      const p1 = 'p_test' as PlayerID;
+      const deck = mkCards(30);
+      const seed = 888888888;
+
+      const events = [
+        { type: 'rngSeed', seed },
+        { type: 'deckImportResolved', playerId: p1, cards: deck },
+        { type: 'shuffleLibrary', playerId: p1 },
+        { type: 'drawCards', playerId: p1, count: 7 },
+        { type: 'drawCards', playerId: p1, count: 1 },
+      ];
+
+      const game = createInitialGameState(gameId);
+      for (const e of events) game.applyEvent(e);
+      const originalHand = (game.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
+      
+      // Multiple reset-replay cycles should all produce the same result
+      for (let i = 0; i < 5; i++) {
+        game.reset!(true);
+        game.replay!(events);
+        const hand = (game.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
+        expect(hand).toEqual(originalHand);
+      }
+    });
+  });

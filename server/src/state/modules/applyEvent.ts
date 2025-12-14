@@ -743,6 +743,27 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "skipToPhase": {
+        // Skip to a specific phase/step - used when player clicks on phase buttons
+        // Note: This is a simplified replay that just sets the phase/step directly
+        // The full skipToPhase handler in socket/game-actions.ts handles triggers, draws, etc.
+        // But those effects are persisted as separate events (drawCards, etc.)
+        const targetPhase = (e as any).targetPhase;
+        const targetStep = (e as any).targetStep || (e as any).to;
+        try {
+          if (targetPhase) {
+            (ctx.state as any).phase = targetPhase;
+          }
+          if (targetStep) {
+            (ctx.state as any).step = targetStep;
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(skipToPhase): failed", err);
+        }
+        break;
+      }
+
       case "reorderHand": {
         zonesReorderHand(
           ctx as any,
@@ -1050,6 +1071,37 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           console.warn("applyEvent(declareBlockers): failed", err);
+        }
+        break;
+      }
+
+      case "fight": {
+        // Two creatures fight - each deals damage to the other equal to their power
+        const sourceId = (e as any).sourceId;
+        const targetId = (e as any).targetId;
+        const sourcePower = (e as any).sourcePower;
+        const targetPower = (e as any).targetPower;
+        
+        try {
+          const battlefield = ctx.state.battlefield || [];
+          const source = battlefield.find((p: any) => p.id === sourceId);
+          const target = battlefield.find((p: any) => p.id === targetId);
+          
+          if (source && target) {
+            // Each creature deals damage to the other equal to its power
+            (source as any).damage = ((source as any).damage || 0) + targetPower;
+            (target as any).damage = ((target as any).damage || 0) + sourcePower;
+            
+            // Run SBA to check for lethal damage
+            try {
+              runSBA(ctx as any);
+            } catch {
+              // SBA may not be available during replay
+            }
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          console.warn("applyEvent(fight): failed", err);
         }
         break;
       }

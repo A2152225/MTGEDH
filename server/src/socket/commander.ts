@@ -971,11 +971,20 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
               ts: Date.now(),
             });
           } else {
-            // Shuffle into library
+            // Shuffle into library - use game's shuffleLibrary for deterministic RNG
             lib.push(cardCopy);
-            for (let i = lib.length - 1; i > 0; i--) {
-              const j = Math.floor(Math.random() * (i + 1));
-              [lib[i], lib[j]] = [lib[j], lib[i]];
+            (game as any).libraries?.set(pid, lib);
+            playerZones.libraryCount = lib.length;
+            // Call game's shuffleLibrary to ensure deterministic shuffle using game's RNG
+            if (typeof (game as any).shuffleLibrary === "function") {
+              (game as any).shuffleLibrary(pid);
+            } else {
+              // Fallback: manual shuffle (non-deterministic, but game should have shuffleLibrary)
+              console.warn("[commanderZoneChoice] game.shuffleLibrary not available, using Math.random");
+              for (let i = lib.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [lib[i], lib[j]] = [lib[j], lib[i]];
+              }
             }
             io.to(gameId).emit("chat", {
               id: `m_${Date.now()}`,
