@@ -5128,7 +5128,7 @@ const KNOWN_MULTI_MODE_ABILITIES: Record<string, { modes: MultiModeActivatedAbil
   "sensei's divining top": {
     modes: [
       { name: "Look at Top 3", cost: "{1}", effect: "Look at the top three cards of your library, then put them back in any order", requiresTarget: false },
-      { name: "Draw and Put on Top", cost: "{T}", effect: "Draw a card, then put Sensei's Divining Top on top of its owner's library", requiresTarget: false },
+      { name: "Draw and Put on Top", cost: "{T}", effect: "Draw a card, then put ~ on top of its owner's library", requiresTarget: false },
     ],
   },
   // Batterskull - Living Weapon equipment with vigilance/lifelink
