@@ -293,9 +293,13 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
       const fullManaText = match[1].trim();
       
       // Check if this is an OR mana ability (can produce one of multiple colors)
-      // Pattern: "{B} or {R}", "Add {B} or {R}", etc.
+      // Patterns to detect:
+      // - "{B} or {R}" (dual lands)
+      // - "{G}, {U}, or {R}" (tri-lands like Frontier Bivouac)
+      // - "{W}, {U}, {B}, {R}, or {G}" (five-color lands)
       // OR mana should only count as ONE mana, not multiple
-      const hasOrClause = /\{[wubrgc]\}\s+or\s+\{[wubrgc]\}/i.test(fullManaText);
+      // The key indicator is "or" appearing in the text with mana symbols
+      const hasOrClause = /\{[wubrgc]\}(?:,?\s*\{[wubrgc]\})*,?\s+or\s+\{[wubrgc]\}/i.test(fullManaText);
       
       if (hasOrClause) {
         // This is an OR mana ability - only count as 1 mana

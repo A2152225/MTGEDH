@@ -1229,12 +1229,125 @@ export function broadcastGame(
   // Check for pending trigger ordering and emit prompts
   checkAndEmitTriggerOrderingPrompts(io, game, gameId);
   
+  // Check for pending Kynaios and Tiro style choices (play land or draw)
+  checkAndEmitKynaiosChoicePrompts(io, game, gameId);
+  
   // Check for newly eliminated players (commander damage, life loss, etc.)
   checkAndEmitPlayerElimination(io, game, gameId);
 }
 
 /** AI reaction delay - matches timing in ai.ts */
 const AI_REACTION_DELAY_MS = 300;
+
+/**
+ * Check for pending Kynaios and Tiro of Meletis style choices
+ * and emit prompts to players who haven't made their choice yet.
+ * 
+ * Kynaios and Tiro effect:
+ * - Controller draws a card (already handled)
+ * - Each player may put a land card from their hand onto the battlefield
+ * - Each opponent who didn't put a land draws a card
+ */
+function checkAndEmitKynaiosChoicePrompts(io: Server, game: InMemoryGame, gameId: string): void {
+  try {
+    const gameState = (game as any).state;
+    if (!gameState) return;
+    
+    const pendingKynaiosChoice = gameState.pendingKynaiosChoice;
+    if (!pendingKynaiosChoice || Object.keys(pendingKynaiosChoice).length === 0) return;
+    
+    // Track which players have been prompted for this choice
+    const promptedPlayers = gameState._kynaiosChoicePromptedPlayers || new Set<string>();
+    gameState._kynaiosChoicePromptedPlayers = promptedPlayers;
+    
+    for (const [controllerId, choiceData] of Object.entries(pendingKynaiosChoice)) {
+      const choice = choiceData as any;
+      if (!choice.active) continue;
+      
+      const playersWhoMayPlayLand = choice.playersWhoMayPlayLand || [];
+      const playersWhoPlayedLand = choice.playersWhoPlayedLand || [];
+      const playersWhoDeclined = choice.playersWhoDeclined || [];
+      
+      // For each player who may play a land and hasn't decided yet
+      for (const playerId of playersWhoMayPlayLand) {
+        // Skip if already made choice
+        if (playersWhoPlayedLand.includes(playerId) || playersWhoDeclined.includes(playerId)) {
+          continue;
+        }
+        
+        // Create unique prompt key to avoid re-prompting
+        const promptKey = `kynaios_${controllerId}_${playerId}`;
+        if (promptedPlayers.has(promptKey)) {
+          continue;
+        }
+        
+        // Check if this player has any lands in hand
+        const playerZones = gameState.zones?.[playerId];
+        const hand = playerZones?.hand || [];
+        const landsInHand = hand.filter((card: any) => 
+          card && (card.type_line || '').toLowerCase().includes('land')
+        );
+        
+        // Determine if this player is the controller or an opponent
+        const isController = playerId === controllerId;
+        
+        console.log(`[util] Emitting Kynaios choice prompt to ${playerId} (isController: ${isController}, landsInHand: ${landsInHand.length})`);
+        promptedPlayers.add(promptKey);
+        
+        // Emit the choice prompt to this player
+        emitToPlayer(io, playerId, "kynaiosChoice", {
+          gameId,
+          sourceController: controllerId,
+          sourceName: choice.sourceName || "Kynaios and Tiro of Meletis",
+          isController,
+          canPlayLand: landsInHand.length > 0,
+          landsInHand: landsInHand.map((card: any) => ({
+            id: card.id,
+            name: card.name,
+            imageUrl: card.image_uris?.small || card.image_uris?.normal,
+          })),
+          // Opponents get the choice: play land OR draw a card
+          // Controller just gets the option to play a land (they already drew)
+          options: isController 
+            ? ['play_land', 'decline']
+            : ['play_land', 'draw_card'],
+        });
+      }
+      
+      // Check if all players have made their choice
+      const allDecided = playersWhoMayPlayLand.every((pid: string) => 
+        playersWhoPlayedLand.includes(pid) || playersWhoDeclined.includes(pid)
+      );
+      
+      if (allDecided) {
+        // Execute draws for opponents who didn't play a land
+        const players = gameState.players || [];
+        const opponents = players.filter((p: any) => 
+          p && p.id && p.id !== controllerId && !p.hasLost && !p.eliminated
+        );
+        
+        gameState.pendingDraws = gameState.pendingDraws || {};
+        for (const opp of opponents) {
+          if (!playersWhoPlayedLand.includes(opp.id)) {
+            gameState.pendingDraws[opp.id] = (gameState.pendingDraws[opp.id] || 0) + 1;
+            console.log(`[util] Kynaios: Opponent ${opp.id} didn't play a land, will draw a card`);
+          }
+        }
+        
+        // Clear the pending choice
+        delete pendingKynaiosChoice[controllerId];
+        delete gameState._kynaiosChoicePromptedPlayers;
+        
+        console.log(`[util] Kynaios choice complete for controller ${controllerId}`);
+        
+        // Broadcast updated state to process the draws
+        broadcastGame(io, game, gameId);
+      }
+    }
+  } catch (e) {
+    console.warn('[util] checkAndEmitKynaiosChoicePrompts error:', e);
+  }
+}
 
 /**
  * Check if any player needs to order multiple simultaneous triggers
@@ -1244,6 +1357,11 @@ function checkAndEmitTriggerOrderingPrompts(io: Server, game: InMemoryGame, game
   try {
     const triggerQueue = (game.state as any)?.triggerQueue || [];
     if (triggerQueue.length === 0) return;
+    
+    // Track which players have already been prompted for the current trigger set
+    // This prevents re-emitting prompts on every broadcast (which causes infinite loops)
+    const promptedPlayers = (game.state as any)._triggerOrderingPromptedPlayers || new Set<string>();
+    (game.state as any)._triggerOrderingPromptedPlayers = promptedPlayers;
     
     // Group triggers by controller
     const triggersByController = new Map<string, any[]>();
@@ -1257,9 +1375,21 @@ function checkAndEmitTriggerOrderingPrompts(io: Server, game: InMemoryGame, game
     }
     
     // For each controller with 2+ triggers, emit a prompt to order them
+    // BUT only if we haven't already prompted them for these triggers
     for (const [playerId, playerTriggers] of triggersByController.entries()) {
       if (playerTriggers.length >= 2 && playerTriggers.every(t => t.type === 'order')) {
+        // Create a unique key for this set of triggers to avoid re-prompting
+        const triggerIds = playerTriggers.map(t => t.id).sort().join(',');
+        const promptKey = `${playerId}:${triggerIds}`;
+        
+        // Skip if we've already prompted for this exact set of triggers
+        if (promptedPlayers.has(promptKey)) {
+          console.log(`[util] Skipping trigger ordering prompt for ${playerId} - already prompted`);
+          continue;
+        }
+        
         console.log(`[util] Emitting trigger ordering prompt to ${playerId} for ${playerTriggers.length} triggers`);
+        promptedPlayers.add(promptKey);
         
         // Emit all the order-type triggers to the player
         for (const trigger of playerTriggers) {
@@ -1378,13 +1508,13 @@ function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string): void
     const priority = (game.state as any)?.priority;
     const currentStep = (game.state as any)?.step;
     const turnPlayer = (game.state as any)?.turnPlayer;
+    const players = (game.state as any)?.players || [];
     
     // Special case: CLEANUP step with pending discard selection
     // During cleanup, no priority is granted, but AI needs to handle discards
     if (currentStep === 'CLEANUP' && turnPlayer) {
       const pendingDiscard = (game.state as any).pendingDiscardSelection?.[turnPlayer];
       if (pendingDiscard && pendingDiscard.count > 0) {
-        const players = (game.state as any)?.players || [];
         const turnPlayerObj = players.find((p: any) => p?.id === turnPlayer);
         
         if (turnPlayerObj && turnPlayerObj.isAI) {
@@ -1404,10 +1534,47 @@ function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string): void
       }
     }
     
+    // Special case: Kynaios and Tiro style choices
+    // These can affect any player (not just the one with priority)
+    // Check if any AI player needs to make a Kynaios choice
+    const pendingKynaiosChoice = (game.state as any).pendingKynaiosChoice;
+    if (pendingKynaiosChoice) {
+      for (const [controllerId, choiceData] of Object.entries(pendingKynaiosChoice)) {
+        const choice = choiceData as any;
+        if (!choice.active) continue;
+        
+        const playersWhoMayPlayLand = choice.playersWhoMayPlayLand || [];
+        const playersWhoPlayedLand = choice.playersWhoPlayedLand || [];
+        const playersWhoDeclined = choice.playersWhoDeclined || [];
+        
+        // Find AI players who need to make a choice
+        for (const playerId of playersWhoMayPlayLand) {
+          if (playersWhoPlayedLand.includes(playerId) || playersWhoDeclined.includes(playerId)) {
+            continue; // Already made choice
+          }
+          
+          const playerObj = players.find((p: any) => p?.id === playerId);
+          if (playerObj && playerObj.isAI) {
+            // Trigger AI to handle Kynaios choice
+            setTimeout(async () => {
+              try {
+                const aiModule = await import('./ai.js');
+                if (typeof aiModule.handleAIGameFlow === 'function') {
+                  await aiModule.handleAIGameFlow(io, gameId, playerId);
+                }
+              } catch (e) {
+                console.error('[util] Failed to trigger AI handler for Kynaios choice:', { gameId, playerId, error: e });
+              }
+            }, AI_REACTION_DELAY_MS);
+            return; // Exit - handle one AI at a time
+          }
+        }
+      }
+    }
+    
     if (!priority) return;
     
     // Check if the current priority holder is an AI player
-    const players = (game.state as any)?.players || [];
     const priorityPlayer = players.find((p: any) => p?.id === priority);
     
     if (priorityPlayer && priorityPlayer.isAI) {
