@@ -2711,8 +2711,9 @@ export function nextStep(ctx: GameContext) {
                     const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
                     
                     // Leyline Tyrant - Red mana doesn't empty
+                    // Oracle text: "You don't lose unspent red mana as steps and phases end."
                     if (cardName.includes("leyline tyrant") ||
-                        (oracleText.includes("red mana") && oracleText.includes("don't lose"))) {
+                        (oracleText.includes("red mana") && (oracleText.includes("don't lose") || oracleText.includes("doesn't empty")))) {
                       retainsRedMana = true;
                       console.log(`${ts()} [END_COMBAT] ${playerId} has Leyline Tyrant - firebending red mana preserved`);
                       break;

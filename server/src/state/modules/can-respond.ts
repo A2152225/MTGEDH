@@ -1622,8 +1622,9 @@ function canActivateSorcerySpeedAbility(ctx: GameContext, playerId: PlayerID): b
           const otherName = (otherPerm.card?.name || "").toLowerCase();
           const otherOracle = (otherPerm.card?.oracle_text || "").toLowerCase();
           
+          // The Chain Veil: "For each planeswalker you control, you may activate one of its loyalty abilities once"
           if (otherName.includes("chain veil") || 
-              otherOracle.includes("activate loyalty abilit") && otherOracle.includes("additional time")) {
+              (otherOracle.includes("activate") && otherOracle.includes("loyalty abilities") && otherOracle.includes("additional"))) {
             maxActivations = 2;
             break;
           }
@@ -1648,6 +1649,8 @@ function canActivateSorcerySpeedAbility(ctx: GameContext, playerId: PlayerID): b
               return true;
             } else if (sign === '-') {
               // Minus ability - check if we have enough loyalty
+              // For -X abilities, the player chooses X, so X can be 0 or any value up to current loyalty
+              // This means -X abilities are always activatable (player can choose X=0)
               const numericCost = cost === 'X' ? 0 : parseInt(cost, 10);
               if (currentLoyalty >= numericCost) {
                 return true;

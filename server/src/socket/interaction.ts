@@ -2717,7 +2717,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (isEquipAbility) {
       // Parse all equip abilities from oracle text to match the one being activated
       // Format: "Equip [type] [creature] {cost}" e.g., "Equip legendary creature {3}" or "Equip {7}"
-      const equipRegex = /equip(?:\s+([a-z]+(?:\s+[a-z]+)?))?(?:\s+creature)?\s*(\{[^}]+\}(?:\{[^}]+\})*)/gi;
+      // Note: Use [a-zA-Z] to match both upper and lower case creature types (Knight, Legendary, etc.)
+      const equipRegex = /equip(?:\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?))?(?:\s+creature)?\s*(\{[^}]+\}(?:\{[^}]+\})*)/gi;
       const equipAbilities: { type: string | null; cost: string; index: number }[] = [];
       let equipMatch;
       let index = 0;

@@ -2690,14 +2690,17 @@ export function resolveTopOfStack(ctx: GameContext) {
       oracleTextLower.includes("for each time") && 
       oracleTextLower.includes("commander from the command zone")
     )) {
-      // Count commander casts from tax (tax / 2 = number of casts for each commander)
+      // Count commander casts from tax
+      // Per MTG rules, commander tax increases by {2} for each time the commander has been cast
+      // from the command zone. Therefore, tax / 2 = number of times cast from command zone.
       const commandZone = (state as any).commandZone?.[controller];
       let totalCommanderCasts = 0;
       
       if (commandZone?.taxById) {
-        // Sum up all commander casts: tax / 2 for each commander
+        // Sum up all commander casts: (tax / 2) for each commander in the command zone
         for (const [, tax] of Object.entries(commandZone.taxById)) {
           const taxNumber = typeof tax === 'number' ? tax : 0;
+          // Commander tax = 2 * number_of_casts, so casts = tax / 2
           totalCommanderCasts += Math.floor(taxNumber / 2);
         }
       }
