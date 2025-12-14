@@ -1613,7 +1613,7 @@ function canActivateSorcerySpeedAbility(ctx: GameContext, playerId: PlayerID): b
       const typeLine = (permanent.card?.type_line || "").toLowerCase();
       if (typeLine.includes("planeswalker")) {
         // Check if the planeswalker has already activated a loyalty ability this turn
-        const activationsThisTurn = permanent.loyaltyActivationsThisTurn || 0;
+        const activationsThisTurn = (permanent as any).loyaltyActivationsThisTurn || 0;
         
         // Check for Chain Veil or similar effects that allow more activations
         let maxActivations = 1;
@@ -1631,8 +1631,9 @@ function canActivateSorcerySpeedAbility(ctx: GameContext, playerId: PlayerID): b
         
         if (activationsThisTurn < maxActivations) {
           // Get current loyalty
-          const currentLoyalty = permanent.loyaltyCounters ?? permanent.loyalty ?? 
-                                  (permanent.card?.loyalty ? parseInt(permanent.card.loyalty, 10) : 0);
+          const loyaltyString = (permanent.card as any)?.loyalty;
+          const currentLoyalty = (permanent as any).loyaltyCounters ?? (permanent as any).loyalty ?? 
+                                  (loyaltyString ? parseInt(String(loyaltyString), 10) : 0);
           
           // Check if any loyalty ability can be activated
           // Pattern: [+N]:, [-N]:, [0]:

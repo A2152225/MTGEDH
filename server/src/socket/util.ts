@@ -23,6 +23,7 @@ import { canRespond, canAct } from "../state/modules/can-respond.js";
 import { parseManaCost as parseManaFromString, canPayManaCost, getManaPoolFromState, getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
 import { calculateCostReduction, applyCostReduction } from "./game-actions.js";
+import { checkSpellTimingRestriction, hasValidTargetsForSpell } from "../../../rules-engine/src/castingRestrictions.js";
 
 // ============================================================================
 // Constants
@@ -274,6 +275,34 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
         
         // Skip lands - they're checked separately
         if (typeLine.includes("land")) continue;
+        
+        // Check for special casting timing restrictions
+        // Example: Delirium - "Cast this spell only during an opponent's turn"
+        const turnPlayer = state.turnPlayer;
+        const timingRestriction = checkSpellTimingRestriction(
+          card.oracle_text || "",
+          playerId,
+          turnPlayer,
+          state as any
+        );
+        
+        if (!timingRestriction.canCast) {
+          console.log(`[getPlayableCardIds] Card ${card.name} blocked by timing restriction: ${timingRestriction.reason}`);
+          continue;
+        }
+        
+        // Check for target availability
+        // Example: Delirium requires a creature controlled by the opponent whose turn it is
+        const targetCheck = hasValidTargetsForSpell(
+          card.oracle_text || "",
+          state as any,
+          playerId
+        );
+        
+        if (!targetCheck.hasTargets) {
+          console.log(`[getPlayableCardIds] Card ${card.name} blocked - no valid targets: ${targetCheck.reason}`);
+          continue;
+        }
         
         // Check if it's instant-speed (instant or flash)
         const isInstantSpeed = typeLine.includes("instant") || oracleText.includes("flash");
