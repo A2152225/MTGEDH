@@ -2170,6 +2170,26 @@ export function executeCleanupDiscard(ctx: GameContext, playerId: string, cardId
  */
 export function nextStep(ctx: GameContext) {
   try {
+    // ========================================================================
+    // DEBUG: Track nextStep calls to diagnose auto-pass skip issues
+    // ========================================================================
+    const debugInfo = {
+      timestamp: Date.now(),
+      gameId: (ctx as any).gameId || 'unknown',
+      currentPhase: String((ctx as any).state?.phase || "beginning"),
+      currentStep: String((ctx as any).state?.step || ""),
+      priority: (ctx as any).state?.priority,
+      turnPlayer: (ctx as any).state?.turnPlayer,
+      stackTrace: new Error().stack?.split('\n').slice(2, 6).join('\n    ') || 'no stack'
+    };
+    
+    console.log(`${ts()} [nextStep] ========== CALLED ==========`);
+    console.log(`${ts()} [nextStep] Game: ${debugInfo.gameId}`);
+    console.log(`${ts()} [nextStep] Current: ${debugInfo.currentPhase}/${debugInfo.currentStep}`);
+    console.log(`${ts()} [nextStep] Priority: ${debugInfo.priority}, Turn: ${debugInfo.turnPlayer}`);
+    console.log(`${ts()} [nextStep] Call stack:\n    ${debugInfo.stackTrace}`);
+    // ========================================================================
+    
     (ctx as any).state = (ctx as any).state || {};
     const currentPhase = String((ctx as any).state.phase || "beginning");
     const currentStep = String((ctx as any).state.step || "");
