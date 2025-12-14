@@ -1599,7 +1599,7 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
               if (typeof (game as any).nextStep === 'function') {
                 (game as any).nextStep();
               }
-              appendGameEvent(game, gameId, "nextStep", { reason: 'autoPass' });
+              // Note: Don't call appendGameEvent here - nextStep() already handles event persistence
             }
             
             // Clear the in-progress flag before broadcasting
