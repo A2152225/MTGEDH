@@ -1452,6 +1452,7 @@ function findCastableSpells(game: any, playerId: PlayerID): any[] {
   for (const card of hand) {
     const typeLine = (card?.type_line || '').toLowerCase();
     const cardName = card?.name || 'Unknown';
+    const oracleText = (card?.oracle_text || '').toLowerCase();
     
     // Skip lands
     if (typeLine.includes('land')) {
@@ -1463,6 +1464,17 @@ function findCastableSpells(game: any, playerId: PlayerID): any[] {
     if (!manaCost) {
       uncostable.push({ name: cardName, manaCost: 'none', reason: 'no mana cost' });
       continue;
+    }
+    
+    // Check if this is an Aura - Auras require a target when cast
+    const isAura = typeLine.includes('enchantment') && typeLine.includes('aura');
+    if (isAura) {
+      // Check if there's a valid target for this Aura
+      const hasValidAuraTarget = checkAuraHasValidTarget(game.state, playerId, card);
+      if (!hasValidAuraTarget) {
+        uncostable.push({ name: cardName, manaCost, reason: 'no valid target for aura' });
+        continue;
+      }
     }
     
     // Parse cost using shared function
@@ -1504,6 +1516,151 @@ function findCastableSpells(game: any, playerId: PlayerID): any[] {
   castable.sort((a, b) => b.priority - a.priority);
   
   return castable;
+}
+
+/**
+ * Check if an Aura card has a valid target on the battlefield
+ * Parses "Enchant X" patterns to determine what can be targeted
+ */
+function checkAuraHasValidTarget(state: any, playerId: PlayerID, auraCard: any): boolean {
+  const oracleText = (auraCard?.oracle_text || '').toLowerCase();
+  const battlefield = state?.battlefield || [];
+  
+  // Parse "Enchant X" pattern to determine valid targets
+  // Common patterns:
+  // - "Enchant creature"
+  // - "Enchant land"
+  // - "Enchant creature you control"
+  // - "Enchant creature an opponent controls"
+  // - "Enchant artifact"
+  // - "Enchant permanent"
+  
+  const enchantMatch = oracleText.match(/enchant\s+(\w+(?:\s+\w+)*?)(?:\s+you\s+control|\s+an\s+opponent\s+controls)?/i);
+  if (!enchantMatch) {
+    // No enchant pattern found - assume it can target anything
+    return battlefield.length > 0;
+  }
+  
+  const enchantTarget = enchantMatch[1].toLowerCase();
+  const youControlOnly = /enchant\s+\w+(?:\s+\w+)*\s+you\s+control/i.test(oracleText);
+  const opponentControlOnly = /enchant\s+\w+(?:\s+\w+)*\s+an?\s+opponent\s+controls/i.test(oracleText);
+  
+  // Find valid targets on the battlefield
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    
+    const typeLine = (perm.card.type_line || '').toLowerCase();
+    const controller = perm.controller;
+    
+    // Check controller restrictions
+    if (youControlOnly && controller !== playerId) continue;
+    if (opponentControlOnly && controller === playerId) continue;
+    
+    // Check type restrictions
+    if (enchantTarget.includes('creature') && !typeLine.includes('creature')) continue;
+    if (enchantTarget.includes('land') && !typeLine.includes('land')) continue;
+    if (enchantTarget.includes('artifact') && !typeLine.includes('artifact')) continue;
+    if (enchantTarget.includes('enchantment') && !typeLine.includes('enchantment')) continue;
+    if (enchantTarget.includes('planeswalker') && !typeLine.includes('planeswalker')) continue;
+    
+    // This permanent matches the enchant restriction
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Find the best target for an Aura spell
+ * Uses similar logic to checkAuraHasValidTarget but returns the actual target
+ */
+function findAuraTarget(state: any, playerId: PlayerID, auraCard: any): any | null {
+  const oracleText = (auraCard?.oracle_text || '').toLowerCase();
+  const battlefield = state?.battlefield || [];
+  
+  // Parse "Enchant X" pattern
+  const enchantMatch = oracleText.match(/enchant\s+(\w+(?:\s+\w+)*?)(?:\s+you\s+control|\s+an\s+opponent\s+controls)?/i);
+  if (!enchantMatch) {
+    // No enchant pattern - can target any permanent, prefer own permanents
+    const ownPermanents = battlefield.filter((p: any) => p.controller === playerId);
+    return ownPermanents[0] || battlefield[0] || null;
+  }
+  
+  const enchantTarget = enchantMatch[1].toLowerCase();
+  const youControlOnly = /enchant\s+\w+(?:\s+\w+)*\s+you\s+control/i.test(oracleText);
+  const opponentControlOnly = /enchant\s+\w+(?:\s+\w+)*\s+an?\s+opponent\s+controls/i.test(oracleText);
+  
+  // Determine if this is a beneficial or detrimental aura
+  // Beneficial auras should go on own permanents, detrimental on opponents
+  const isBeneficial = detectBeneficialAura(oracleText);
+  
+  const validTargets: any[] = [];
+  
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    
+    const typeLine = (perm.card.type_line || '').toLowerCase();
+    const controller = perm.controller;
+    
+    // Check controller restrictions
+    if (youControlOnly && controller !== playerId) continue;
+    if (opponentControlOnly && controller === playerId) continue;
+    
+    // Check type restrictions
+    if (enchantTarget.includes('creature') && !typeLine.includes('creature')) continue;
+    if (enchantTarget.includes('land') && !typeLine.includes('land')) continue;
+    if (enchantTarget.includes('artifact') && !typeLine.includes('artifact')) continue;
+    if (enchantTarget.includes('enchantment') && !typeLine.includes('enchantment')) continue;
+    if (enchantTarget.includes('planeswalker') && !typeLine.includes('planeswalker')) continue;
+    
+    // Add to valid targets with preference marker
+    validTargets.push({ perm, isOwn: controller === playerId });
+  }
+  
+  if (validTargets.length === 0) return null;
+  
+  // Sort by preference: beneficial auras prefer own, detrimental prefer opponent
+  validTargets.sort((a, b) => {
+    if (isBeneficial) {
+      // Prefer own permanents for beneficial auras
+      if (a.isOwn && !b.isOwn) return -1;
+      if (!a.isOwn && b.isOwn) return 1;
+    } else {
+      // Prefer opponent permanents for detrimental auras
+      if (!a.isOwn && b.isOwn) return -1;
+      if (a.isOwn && !b.isOwn) return 1;
+    }
+    return 0;
+  });
+  
+  return validTargets[0]?.perm || null;
+}
+
+/**
+ * Detect if an aura is beneficial (buffs) or detrimental (debuffs/control)
+ */
+function detectBeneficialAura(oracleText: string): boolean {
+  const text = oracleText.toLowerCase();
+  
+  // Detrimental indicators (pacifism, control, debuffs)
+  if (text.includes("can't attack") || text.includes("can't block")) return false;
+  if (text.includes("doesn't untap")) return false;
+  if (text.includes("gains control")) return false;
+  if (text.includes("-1/-1") || text.includes("-2/-2") || text.includes("-3/-3")) return false;
+  if (text.includes("exile") && text.includes("when")) return false;
+  if (text.includes("destroy") && text.includes("when")) return false;
+  if (text.includes("goaded")) return false;
+  
+  // Beneficial indicators (buffs, abilities)
+  if (text.includes("+1/+1") || text.includes("+2/+2") || text.includes("+3/+3")) return true;
+  if (text.includes("flying") || text.includes("trample") || text.includes("lifelink")) return true;
+  if (text.includes("first strike") || text.includes("double strike") || text.includes("vigilance")) return true;
+  if (text.includes("hexproof") || text.includes("indestructible") || text.includes("protection")) return true;
+  if (text.includes("create a") && text.includes("token")) return true; // Squirrel Nest, etc.
+  if (text.includes("whenever") && text.includes("draw")) return true;
+  
+  // Default to beneficial for enchantments on your own stuff
+  return true;
 }
 
 /**
@@ -2698,50 +2855,69 @@ async function executeAICastSpell(
     // Determine targets for targeted spells
     let targets: TargetRef[] = [];
     const oracleText = card.oracle_text || '';
-    const spellSpec = categorizeSpell(card.name, oracleText);
+    const typeLine = (card.type_line || '').toLowerCase();
+    const isAura = typeLine.includes('enchantment') && typeLine.includes('aura');
     
-    if (spellSpec && spellSpec.minTargets > 0) {
-      // This spell requires targets - use evaluateTargeting to find valid options
-      const validTargets = evaluateTargeting(game.state as any, playerId, spellSpec);
-      
-      if (validTargets.length > 0) {
-        // AI target selection logic:
-        // For removal spells, prefer targeting opponent's permanents
-        // Prioritize high-threat targets
-        const opponentTargets = validTargets.filter((t: TargetRef) => {
-          if (t.kind !== 'permanent') return false;
-          const perm = battlefield.find((p: any) => p.id === t.id);
-          return perm && perm.controller !== playerId;
-        });
-        
-        // Sort opponent targets by threat level (creatures with higher power first)
-        opponentTargets.sort((a: TargetRef, b: TargetRef) => {
-          const permA = battlefield.find((p: any) => p.id === a.id);
-          const permB = battlefield.find((p: any) => p.id === b.id);
-          const powerA = parseInt(String(permA?.basePower ?? permA?.card?.power ?? '0'), 10) || 0;
-          const powerB = parseInt(String(permB?.basePower ?? permB?.card?.power ?? '0'), 10) || 0;
-          return powerB - powerA; // Higher power first
-        });
-        
-        // Select targets (prefer opponent's, fallback to any valid)
-        if (opponentTargets.length > 0) {
-          targets = opponentTargets.slice(0, spellSpec.maxTargets);
-        } else {
-          targets = validTargets.slice(0, spellSpec.maxTargets);
-        }
-        
-        console.info('[AI] Selected targets for spell:', { 
+    // Handle Auras specially - they use "Enchant X" patterns instead of "target" patterns
+    if (isAura) {
+      const auraTarget = findAuraTarget(game.state, playerId, card);
+      if (auraTarget) {
+        targets = [{ kind: 'permanent', id: auraTarget.id }];
+        console.info('[AI] Selected Aura target:', { 
           cardName: card.name, 
-          targetCount: targets.length,
-          targets: targets.map((t: TargetRef) => {
-            const perm = battlefield.find((p: any) => p.id === t.id);
-            return perm?.card?.name || t.id;
-          })
+          targetName: auraTarget.card?.name || auraTarget.id
         });
       } else {
-        // No valid targets available - cannot cast this spell
-        console.warn('[AI] Cannot cast spell - no valid targets:', card.name);
+        console.warn('[AI] Cannot cast Aura - no valid targets:', card.name);
         return;
+      }
+    } else {
+      // Non-Aura spells use categorizeSpell for targeting
+      const spellSpec = categorizeSpell(card.name, oracleText);
+      
+      if (spellSpec && spellSpec.minTargets > 0) {
+        // This spell requires targets - use evaluateTargeting to find valid options
+        const validTargets = evaluateTargeting(game.state as any, playerId, spellSpec);
+        
+        if (validTargets.length > 0) {
+          // AI target selection logic:
+          // For removal spells, prefer targeting opponent's permanents
+          // Prioritize high-threat targets
+          const opponentTargets = validTargets.filter((t: TargetRef) => {
+            if (t.kind !== 'permanent') return false;
+            const perm = battlefield.find((p: any) => p.id === t.id);
+            return perm && perm.controller !== playerId;
+          });
+          
+          // Sort opponent targets by threat level (creatures with higher power first)
+          opponentTargets.sort((a: TargetRef, b: TargetRef) => {
+            const permA = battlefield.find((p: any) => p.id === a.id);
+            const permB = battlefield.find((p: any) => p.id === b.id);
+            const powerA = parseInt(String(permA?.basePower ?? permA?.card?.power ?? '0'), 10) || 0;
+            const powerB = parseInt(String(permB?.basePower ?? permB?.card?.power ?? '0'), 10) || 0;
+            return powerB - powerA; // Higher power first
+          });
+          
+          // Select targets (prefer opponent's, fallback to any valid)
+          if (opponentTargets.length > 0) {
+            targets = opponentTargets.slice(0, spellSpec.maxTargets);
+          } else {
+            targets = validTargets.slice(0, spellSpec.maxTargets);
+          }
+          
+          console.info('[AI] Selected targets for spell:', { 
+            cardName: card.name, 
+            targetCount: targets.length,
+            targets: targets.map((t: TargetRef) => {
+              const perm = battlefield.find((p: any) => p.id === t.id);
+              return perm?.card?.name || t.id;
+            })
+          });
+        } else {
+          // No valid targets available - cannot cast this spell
+          console.warn('[AI] Cannot cast spell - no valid targets:', card.name);
+          return;
+        }
       }
     }
     
