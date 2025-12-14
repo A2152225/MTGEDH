@@ -2619,3 +2619,97 @@ export function getEnergyCount(gameState: any, playerId: string): number {
   if (!gameState || !playerId) return 0;
   return gameState.energy?.[playerId] || 0;
 }
+
+/**
+ * Normalize a card name for oracle text matching.
+ * 
+ * Modern MTG oracle text uses shortened names for cards with titles:
+ * - "Abdel Adrian, Gorion's Ward" becomes "Abdel Adrian" in oracle text
+ * - "Kenrith, the Returned King" becomes "Kenrith" in oracle text
+ * - "Edgar Markov" stays "Edgar Markov" (no title to remove)
+ * 
+ * The pattern is: if a card has a comma followed by a title, 
+ * the oracle text uses just the name part before the comma.
+ * 
+ * @param fullName - The full card name (e.g., "Abdel Adrian, Gorion's Ward")
+ * @returns The normalized name for oracle text matching (e.g., "Abdel Adrian")
+ */
+export function normalizeCardNameForOracleText(fullName: string): string {
+  if (!fullName) return '';
+  
+  // If the name contains a comma, use only the part before the comma
+  // This handles "Abdel Adrian, Gorion's Ward" -> "Abdel Adrian"
+  // But we need to be careful about names like "Sisters of the Undying" which has no comma
+  const commaIndex = fullName.indexOf(',');
+  if (commaIndex > 0) {
+    return fullName.substring(0, commaIndex).trim();
+  }
+  
+  return fullName;
+}
+
+/**
+ * Check if oracle text references a card by name.
+ * Handles both full names and normalized (shortened) names.
+ * 
+ * Modern MTG oracle text uses shortened names, so we check both:
+ * - "When Abdel Adrian enters" matches card "Abdel Adrian, Gorion's Ward"
+ * - "When ~ enters" matches any card (tilde is a self-reference)
+ * 
+ * @param oracleText - The oracle text to search in
+ * @param cardName - The full card name to match
+ * @returns true if the oracle text references this card by name
+ */
+export function oracleTextReferencesCard(oracleText: string, cardName: string): boolean {
+  if (!oracleText || !cardName) return false;
+  
+  const lowerOracle = oracleText.toLowerCase();
+  const lowerFullName = cardName.toLowerCase();
+  const lowerShortName = normalizeCardNameForOracleText(cardName).toLowerCase();
+  
+  // Check for tilde (self-reference) first
+  if (lowerOracle.includes('~')) {
+    return true;
+  }
+  
+  // Check for "this creature", "this permanent", etc.
+  if (lowerOracle.includes('this creature') || 
+      lowerOracle.includes('this permanent') || 
+      lowerOracle.includes('this card')) {
+    return true;
+  }
+  
+  // Check for full name match
+  if (lowerOracle.includes(lowerFullName)) {
+    return true;
+  }
+  
+  // Check for shortened name match (for cards with titles)
+  if (lowerShortName !== lowerFullName && lowerOracle.includes(lowerShortName)) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Create a regex pattern that matches either the full card name or the shortened version.
+ * This is useful for detecting card-specific effects in oracle text.
+ * 
+ * @param cardName - The full card name
+ * @returns A regex pattern that matches the card name in oracle text
+ */
+export function createCardNameRegex(cardName: string): RegExp {
+  if (!cardName) return /(?!)/; // Never matches
+  
+  const fullName = cardName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const shortName = normalizeCardNameForOracleText(cardName).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  
+  if (shortName !== fullName) {
+    // Card has a title - match either full or short name, or tilde/this
+    return new RegExp(`(?:~|this creature|this permanent|${fullName}|${shortName})`, 'i');
+  }
+  
+  // No title - match full name or tilde/this
+  return new RegExp(`(?:~|this creature|this permanent|${fullName})`, 'i');
+}

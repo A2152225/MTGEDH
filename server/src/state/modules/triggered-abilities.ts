@@ -5111,6 +5111,33 @@ const KNOWN_MULTI_MODE_ABILITIES: Record<string, { modes: MultiModeActivatedAbil
       { name: "Sacrifice for Card", cost: "Sacrifice ~", effect: "Draw a card", requiresTarget: false },
     ],
   },
+  // Laser Screwdriver - Doctor Who Commander card with 4 distinct tap abilities
+  // {T}: Add one mana of any color.
+  // {1}, {T}: Tap target artifact.
+  // {2}, {T}: Surveil 1.
+  // {3}, {T}: Goad target creature.
+  "laser screwdriver": {
+    modes: [
+      { name: "Add Mana", cost: "{T}", effect: "Add one mana of any color", requiresTarget: false },
+      { name: "Tap Artifact", cost: "{1}, {T}", effect: "Tap target artifact", requiresTarget: true, targetType: 'artifact' },
+      { name: "Surveil 1", cost: "{2}, {T}", effect: "Surveil 1. (Look at the top card of your library. You may put that card into your graveyard.)", requiresTarget: false },
+      { name: "Goad Creature", cost: "{3}, {T}", effect: "Goad target creature. (Until your next turn, it attacks each combat if able and attacks a player other than you if able.)", requiresTarget: true, targetType: 'creature' },
+    ],
+  },
+  // Sensei's Divining Top - commonly used artifact with multiple abilities
+  "sensei's divining top": {
+    modes: [
+      { name: "Look at Top 3", cost: "{1}", effect: "Look at the top three cards of your library, then put them back in any order", requiresTarget: false },
+      { name: "Draw and Put on Top", cost: "{T}", effect: "Draw a card, then put Sensei's Divining Top on top of its owner's library", requiresTarget: false },
+    ],
+  },
+  // Batterskull - Living Weapon equipment with vigilance/lifelink
+  "batterskull": {
+    modes: [
+      { name: "Return to Hand", cost: "{3}", effect: "Return Batterskull to its owner's hand", requiresTarget: false },
+      { name: "Equip", cost: "{5}", effect: "Attach to target creature you control. Equip only as a sorcery.", requiresTarget: true, targetType: 'creature' },
+    ],
+  },
 };
 
 export function detectMultiModeAbility(card: any, permanent: any): MultiModeActivatedAbility | null {

@@ -41,6 +41,25 @@ export const KNOWN_DEATH_TRIGGERS: Record<string, { effect: string; triggerOn: '
   "species specialist": { effect: "Draw a card when chosen creature type dies", triggerOn: 'any' },
   "harvester of souls": { effect: "Draw a card when nontoken creature dies", triggerOn: 'any' },
   "dark prophecy": { effect: "Draw a card, lose 1 life when creature dies", triggerOn: 'controlled' },
+  // The Scorpion God - "When The Scorpion God dies, return it to its owner's hand at the beginning of the next end step."
+  // Also has "Whenever a creature with a -1/-1 counter on it dies, draw a card."
+  "the scorpion god": { effect: "Return to owner's hand at beginning of next end step", triggerOn: 'own' },
+  // Leyline Tyrant - "When Leyline Tyrant dies, you may pay any amount of {R}. When you do, it deals that much damage to any target."
+  "leyline tyrant": { effect: "Pay any amount of {R}. When you do, deal that much damage to any target", triggerOn: 'own' },
+  // Wurmcoil Engine - leaves behind two tokens
+  "wurmcoil engine": { effect: "Create a 3/3 colorless Wurm artifact creature token with deathtouch and a 3/3 colorless Wurm artifact creature token with lifelink", triggerOn: 'own' },
+  // Kokusho, the Evening Star - each opponent loses life
+  "kokusho, the evening star": { effect: "Each opponent loses 5 life. You gain life equal to the life lost this way", triggerOn: 'own' },
+  // Yosei, the Morning Star - tap and skip untap
+  "yosei, the morning star": { effect: "Target player skips their next untap step. Tap up to five target permanents that player controls", triggerOn: 'own' },
+  // Keiga, the Tide Star - gain control
+  "keiga, the tide star": { effect: "Gain control of target creature", triggerOn: 'own' },
+  // Ryusei, the Falling Star - deal damage
+  "ryusei, the falling star": { effect: "Deal 5 damage to each creature without flying", triggerOn: 'own' },
+  // Junji, the Midnight Sky - reanimate or mill/draw
+  "junji, the midnight sky": { effect: "Choose one - Target opponent discards two cards and loses 2 life; or put target non-Dragon creature card from a graveyard onto the battlefield under your control", triggerOn: 'own' },
+  // Ao, the Dawn Sky - counters or manifest
+  "ao, the dawn sky": { effect: "Choose one - Look at the top seven cards of your library. Put any number of nonland permanent cards with total mana value 4 or less from among them onto the battlefield. Put the rest on the bottom of your library in a random order; or put two +1/+1 counters on each permanent you control that's a creature or Vehicle", triggerOn: 'own' },
 };
 
 // ============================================================================
@@ -810,5 +829,93 @@ export const KNOWN_END_STEP_TRIGGERS: Record<string, {
     mandatory: true,
     requiresChoice: true,
     modalOptions: ["You gain 1 life", "Return a creature card with mana value 1 or less from your graveyard to the battlefield"],
+  },
+};
+
+// ============================================================================
+// Damage Received Triggers (Whenever ~ is dealt damage)
+// ============================================================================
+
+/**
+ * Known cards with "whenever this creature is dealt damage" triggers.
+ * These trigger when the creature RECEIVES damage, not when it deals damage.
+ * 
+ * Examples:
+ * - Brash Taunter: "Whenever Brash Taunter is dealt damage, it deals that much damage to target opponent."
+ * - Ill-Tempered Loner: "Whenever this creature is dealt damage, it deals that much damage to any target."
+ * - Wrathful Red Dragon: "Whenever a Dragon you control is dealt damage, it deals that much damage to any target that isn't a Dragon."
+ * - Stuffy Doll: "Whenever Stuffy Doll is dealt damage, it deals that much damage to the chosen player."
+ * - Boros Reckoner: "Whenever Boros Reckoner is dealt damage, it deals that much damage to any target."
+ */
+export const KNOWN_DAMAGE_RECEIVED_TRIGGERS: Record<string, { 
+  effect: string;
+  targetType: 'opponent' | 'any' | 'any_non_dragon' | 'chosen_player' | 'controller';
+  triggerOn: 'self' | 'dragon_controlled' | 'creature_controlled';
+}> = {
+  // Brash Taunter - "Whenever Brash Taunter is dealt damage, it deals that much damage to target opponent."
+  "brash taunter": {
+    effect: "Deals that much damage to target opponent",
+    targetType: 'opponent',
+    triggerOn: 'self',
+  },
+  // Ill-Tempered Loner // Howlpack Avenger - "Whenever this creature is dealt damage, it deals that much damage to any target."
+  "ill-tempered loner": {
+    effect: "Deals that much damage to any target",
+    targetType: 'any',
+    triggerOn: 'self',
+  },
+  "howlpack avenger": {
+    effect: "Deals that much damage to any target",
+    targetType: 'any',
+    triggerOn: 'self',
+  },
+  // Wrathful Red Dragon - "Whenever a Dragon you control is dealt damage, it deals that much damage to any target that isn't a Dragon."
+  "wrathful red dragon": {
+    effect: "Deals that much damage to any target that isn't a Dragon",
+    targetType: 'any_non_dragon',
+    triggerOn: 'dragon_controlled',
+  },
+  // Stuffy Doll - "Whenever Stuffy Doll is dealt damage, it deals that much damage to the chosen player."
+  "stuffy doll": {
+    effect: "Deals that much damage to the chosen player",
+    targetType: 'chosen_player',
+    triggerOn: 'self',
+  },
+  // Boros Reckoner - "Whenever Boros Reckoner is dealt damage, it deals that much damage to any target."
+  "boros reckoner": {
+    effect: "Deals that much damage to any target",
+    targetType: 'any',
+    triggerOn: 'self',
+  },
+  // Spitemare - "Whenever Spitemare is dealt damage, it deals that much damage to any target."
+  "spitemare": {
+    effect: "Deals that much damage to any target",
+    targetType: 'any',
+    triggerOn: 'self',
+  },
+  // Mogg Maniac - "Whenever Mogg Maniac is dealt damage, it deals that much damage to target opponent."
+  "mogg maniac": {
+    effect: "Deals that much damage to target opponent",
+    targetType: 'opponent',
+    triggerOn: 'self',
+  },
+  // Truefire Captain - "Whenever Truefire Captain is dealt damage, it deals that much damage to target player."
+  "truefire captain": {
+    effect: "Deals that much damage to target player",
+    targetType: 'any',
+    triggerOn: 'self',
+  },
+  // Coalhauler Swine - "Whenever Coalhauler Swine is dealt damage, it deals that much damage to each player."
+  "coalhauler swine": {
+    effect: "Deals that much damage to each player",
+    targetType: 'any',
+    triggerOn: 'self',
+  },
+  // Creepy Doll - "Whenever Creepy Doll is dealt combat damage by a creature, flip a coin. If you win the flip, destroy that creature."
+  // This is slightly different - triggers only on combat damage and has coin flip
+  "creepy doll": {
+    effect: "Flip a coin. If you win, destroy that creature",
+    targetType: 'controller',
+    triggerOn: 'self',
   },
 };
