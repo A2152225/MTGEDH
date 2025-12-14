@@ -2888,6 +2888,88 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         description: oracleText,
       });
       
+      // Auto-select opponent for AI players
+      const { isAIPlayer } = await import('./ai.js');
+      if (isAIPlayer(gameId, pid)) {
+        // AI should select randomly from available opponents
+        // In a real implementation, AI could be smarter about target selection
+        // For now, just pick a random valid opponent
+        const randomOpponent = opponents[Math.floor(Math.random() * opponents.length)];
+        
+        if (randomOpponent) {
+          // Delay slightly for more natural behavior
+          setTimeout(() => {
+            // Retrieve pending activation
+            const pending = (game.state as any).pendingControlChangeActivations?.[activationId];
+            if (!pending || pending.playerId !== pid) {
+              console.warn('[AI] Control change activation expired or invalid');
+              return;
+            }
+            
+            // Clean up pending activation
+            delete (game.state as any).pendingControlChangeActivations[activationId];
+            
+            // Find the permanent
+            const battlefield = game.state?.battlefield || [];
+            const permanent = battlefield.find((p: any) => p && p.id === pending.permanentId);
+            
+            if (!permanent) {
+              console.warn('[AI] Permanent not found for control change');
+              return;
+            }
+            
+            // Draw cards if applicable
+            if (pending.drawCards && pending.drawCards > 0) {
+              const zones = (game.state as any)?.zones?.[pid];
+              if (zones && zones.library) {
+                const drawnCards = zones.library.splice(0, Math.min(pending.drawCards, zones.library.length));
+                zones.libraryCount = zones.library.length;
+                
+                zones.hand = zones.hand || [];
+                zones.hand.push(...drawnCards);
+                zones.handCount = zones.hand.length;
+                
+                io.to(gameId).emit("chat", {
+                  id: `m_${Date.now()}`,
+                  gameId,
+                  from: "system",
+                  message: `🤖 ${getPlayerName(game, pid)} draws ${drawnCards.length} card${drawnCards.length !== 1 ? 's' : ''}.`,
+                  ts: Date.now(),
+                });
+              }
+            }
+            
+            // Change control
+            const oldController = permanent.controller;
+            permanent.controller = randomOpponent.id;
+            
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `🔄 Control of ${pending.cardName} changed from ${getPlayerName(game, oldController)} to ${getPlayerName(game, randomOpponent.id)}.`,
+              ts: Date.now(),
+            });
+            
+            if (typeof game.bumpSeq === "function") {
+              game.bumpSeq();
+            }
+            
+            appendEvent(gameId, (game as any).seq ?? 0, "aiControlChangeOpponent", {
+              playerId: pid,
+              activationId,
+              permanentId: pending.permanentId,
+              cardName: pending.cardName,
+              oldController,
+              newController: randomOpponent.id,
+              drewCards: pending.drawCards || 0,
+            }).catch(e => console.warn('[AI] Failed to persist AI control change event:', e));
+            
+            broadcastGame(io, game, gameId);
+          }, 500); // 500ms delay for AI thinking
+        }
+      }
+      
       console.log(`[activateBattlefieldAbility] Control change ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}${requiresTap ? 'tapped, ' : ''}prompting for opponent selection`);
       broadcastGame(io, game, gameId);
       return;
