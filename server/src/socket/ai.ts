@@ -3640,6 +3640,10 @@ async function executePassPriority(
       // For AI players, we auto-select the best card; for human players, emit the request
       await handlePendingLibrarySearchAfterResolution(io, game, gameId);
       
+      // Check for pending control change activations (Vislor Turlough, Xantcha, etc.)
+      // For AI players, we auto-select an opponent to give control to
+      await handlePendingControlChangesAfterResolution(io, game, gameId);
+      
       // Check for pending Join Forces effects (Minds Aglow, Collective Voyage, etc.)
       // These require all players to contribute mana
       handlePendingJoinForces(io, game, gameId);
@@ -5112,4 +5116,121 @@ async function handlePendingLibrarySearchAfterResolution(
   } catch (err) {
     console.warn('[handlePendingLibrarySearchAfterResolution] Error:', err);
   }
+}
+
+/**
+ * Handle pending control change activations after stack resolution for AI players.
+ * This handles cards like Vislor Turlough, Xantcha, Akroan Horse that have ETB control change effects.
+ * AI players need to auto-select an opponent to give control to.
+ */
+async function handlePendingControlChangesAfterResolution(
+  io: Server,
+  game: any,
+  gameId: string
+): Promise<void> {
+  try {
+    const pendingActivations = (game.state as any)?.pendingControlChangeActivations;
+    if (!pendingActivations || typeof pendingActivations !== 'object') return;
+    
+    const activationIds = Object.keys(pendingActivations);
+    if (activationIds.length === 0) return;
+    
+    for (const activationId of activationIds) {
+      const pending = pendingActivations[activationId];
+      if (!pending) continue;
+      
+      const playerId = pending.playerId;
+      
+      // Only handle AI players
+      if (!isAIPlayer(gameId, playerId)) continue;
+      
+      console.log(`[AI] Handling pending control change for ${pending.cardName} (activation: ${activationId})`);
+      
+      // Find the permanent on battlefield
+      const permanent = game.state.battlefield?.find((p: any) => p?.id === pending.permanentId);
+      if (!permanent) {
+        // Permanent no longer exists - clean up
+        delete pendingActivations[activationId];
+        continue;
+      }
+      
+      // Get available opponents
+      const players = game.state?.players || [];
+      const opponents = players.filter((p: any) => 
+        p && p.id !== playerId && !(p as any).hasLost && !(p as any).eliminated
+      );
+      
+      if (opponents.length === 0) {
+        // No valid opponents - clean up
+        delete pendingActivations[activationId];
+        continue;
+      }
+      
+      // For optional control changes (Vislor Turlough), AI decides whether to give control
+      if (pending.isOptional) {
+        // AI typically wants to keep creatures, but Vislor's goad effect is beneficial
+        const shouldGiveControl = pending.goadsOnChange || Math.random() < 0.3;
+        
+        if (!shouldGiveControl) {
+          // AI declines to give control
+          delete pendingActivations[activationId];
+          console.log(`[AI] Declined to give control of ${pending.cardName}`);
+          continue;
+        }
+      }
+      
+      // AI selects a random opponent
+      const randomOpponent = opponents[Math.floor(Math.random() * opponents.length)];
+      
+      // Apply control change
+      const oldController = permanent.controller;
+      permanent.controller = randomOpponent.id;
+      
+      // Apply goad if needed
+      if (pending.goadsOnChange) {
+        permanent.goadedBy = permanent.goadedBy || [];
+        if (!permanent.goadedBy.includes(playerId)) {
+          permanent.goadedBy.push(playerId);
+        }
+      }
+      
+      // Apply attack restrictions
+      if (pending.mustAttackEachCombat) {
+        permanent.mustAttackEachCombat = true;
+      }
+      if (pending.cantAttackOwner) {
+        permanent.cantAttackOwner = true;
+        permanent.ownerId = playerId;
+      }
+      
+      // Clean up pending activation
+      delete pendingActivations[activationId];
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `🔄 Control of ${pending.cardName} changed from ${getPlayerName(game, oldController)} to ${getPlayerName(game, randomOpponent.id)}.${pending.goadsOnChange ? ` ${pending.cardName} is goaded.` : ''}`,
+        ts: Date.now(),
+      });
+      
+      console.log(`[AI] Auto-gave control of ${pending.cardName} to ${randomOpponent.name || randomOpponent.id}`);
+      
+      if (typeof game.bumpSeq === 'function') {
+        game.bumpSeq();
+      }
+    }
+    
+    broadcastGame(io, game, gameId);
+  } catch (err) {
+    console.warn('[handlePendingControlChangesAfterResolution] Error:', err);
+  }
+}
+
+/**
+ * Get player display name
+ */
+function getPlayerName(game: any, playerId: string): string {
+  const player = game.state?.players?.find((p: any) => p?.id === playerId);
+  return player?.name || playerId;
 }
