@@ -2682,6 +2682,33 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
     }
     
+    // Special handling for Jeska, Thrice Reborn and similar cards
+    // "Jeska enters with a loyalty counter on her for each time you've cast a commander from the command zone this game."
+    const oracleTextLower = ((effectiveCard.oracle_text || "")).toLowerCase();
+    if (isPlaneswalker && (
+      oracleTextLower.includes("enters with a loyalty counter") && 
+      oracleTextLower.includes("for each time") && 
+      oracleTextLower.includes("commander from the command zone")
+    )) {
+      // Count commander casts from tax (tax / 2 = number of casts for each commander)
+      const commandZone = (state as any).commandZone?.[controller];
+      let totalCommanderCasts = 0;
+      
+      if (commandZone?.taxById) {
+        // Sum up all commander casts: tax / 2 for each commander
+        for (const [, tax] of Object.entries(commandZone.taxById)) {
+          const taxNumber = typeof tax === 'number' ? tax : 0;
+          totalCommanderCasts += Math.floor(taxNumber / 2);
+        }
+      }
+      
+      // Add loyalty for each commander cast (including Jeska herself if she was just cast from command zone)
+      if (totalCommanderCasts > 0) {
+        initialCounters.loyalty = (initialCounters.loyalty || 0) + totalCommanderCasts;
+        console.log(`[resolveTopOfStack] ${effectiveCard.name} (Jeska-style): enters with ${totalCommanderCasts} additional loyalty for commander casts`);
+      }
+    }
+    
     // Check for "enters with counters" patterns (Zack Fair, modular creatures, sagas, etc.)
     const etbCounters = detectEntersWithCounters(effectiveCard);
     for (const [counterType, count] of Object.entries(etbCounters)) {
