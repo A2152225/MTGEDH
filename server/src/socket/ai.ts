@@ -2306,6 +2306,17 @@ export async function handleAIPriority(
     const isMainPhase = phase.includes('main') || step.includes('main');
     
     if (isMainPhase) {
+      // Check if AI will need to discard at end of turn (hand size > 7)
+      // If so, be more aggressive about casting spells
+      const zones = game.state?.zones?.[playerId];
+      const handSize = Array.isArray(zones?.hand) ? zones.hand.length : 0;
+      const maxHandSize = getAIMaxHandSize(game, playerId);
+      const willNeedToDiscard = handSize > maxHandSize;
+      
+      if (willNeedToDiscard) {
+        console.info(`[AI] Hand size ${handSize} exceeds max ${maxHandSize} - will prioritize casting spells to avoid discarding`);
+      }
+      
       // Try to play a land first
       if (canAIPlayLand(game, playerId)) {
         const landCard = findPlayableLand(game, playerId);
@@ -2335,21 +2346,24 @@ export async function handleAIPriority(
       
       // Try to use activated abilities (before casting spells)
       // This prioritizes card draw and other beneficial effects
-      const abilityDecision = await aiEngine.makeDecision({
-        gameState: game.state as any,
-        playerId,
-        decisionType: AIDecisionType.ACTIVATE_ABILITY,
-        options: [],
-      });
-      
-      if (abilityDecision.action?.activate) {
-        console.info('[AI] Activating ability:', abilityDecision.action.cardName, '-', abilityDecision.reasoning);
-        await executeAIActivateAbility(io, gameId, playerId, abilityDecision.action);
-        // After activating ability, continue with more actions
-        setTimeout(() => {
-          handleAIPriority(io, gameId, playerId).catch(console.error);
-        }, AI_THINK_TIME_MS);
-        return;
+      // BUT: Skip if we need to discard - prioritize casting spells instead
+      if (!willNeedToDiscard) {
+        const abilityDecision = await aiEngine.makeDecision({
+          gameState: game.state as any,
+          playerId,
+          decisionType: AIDecisionType.ACTIVATE_ABILITY,
+          options: [],
+        });
+        
+        if (abilityDecision.action?.activate) {
+          console.info('[AI] Activating ability:', abilityDecision.action.cardName, '-', abilityDecision.reasoning);
+          await executeAIActivateAbility(io, gameId, playerId, abilityDecision.action);
+          // After activating ability, continue with more actions
+          setTimeout(() => {
+            handleAIPriority(io, gameId, playerId).catch(console.error);
+          }, AI_THINK_TIME_MS);
+          return;
+        }
       }
       
       // Try to cast commanders from command zone
@@ -2365,16 +2379,44 @@ export async function handleAIPriority(
       }
       
       // Try to cast spells from hand
+      // If we need to discard, we should cast ANY spell we can afford, not just optimal ones
       const castableSpells = findCastableSpells(game, playerId);
       if (castableSpells.length > 0) {
         const bestSpell = castableSpells[0]; // Already sorted by priority
-        console.info('[AI] Casting spell:', bestSpell.card.name, 'with priority', bestSpell.priority);
+        
+        // If we will need to discard, log the urgency
+        if (willNeedToDiscard) {
+          console.info(`[AI] Casting spell to avoid discard: ${bestSpell.card.name} (hand: ${handSize}/${maxHandSize})`);
+        } else {
+          console.info('[AI] Casting spell:', bestSpell.card.name, 'with priority', bestSpell.priority);
+        }
+        
         await executeAICastSpell(io, gameId, playerId, bestSpell.card, bestSpell.cost);
         // After casting, continue with more actions
         setTimeout(() => {
           handleAIPriority(io, gameId, playerId).catch(console.error);
         }, AI_THINK_TIME_MS);
         return;
+      }
+      
+      // If we still need to discard and couldn't cast anything, try activated abilities now
+      // (we skipped them earlier to prioritize spells)
+      if (willNeedToDiscard) {
+        const abilityDecision = await aiEngine.makeDecision({
+          gameState: game.state as any,
+          playerId,
+          decisionType: AIDecisionType.ACTIVATE_ABILITY,
+          options: [],
+        });
+        
+        if (abilityDecision.action?.activate) {
+          console.info('[AI] Activating ability (after spell attempts):', abilityDecision.action.cardName);
+          await executeAIActivateAbility(io, gameId, playerId, abilityDecision.action);
+          setTimeout(() => {
+            handleAIPriority(io, gameId, playerId).catch(console.error);
+          }, AI_THINK_TIME_MS);
+          return;
+        }
       }
       
       // No more actions, pass priority (don't advance step directly - let priority system handle it)
