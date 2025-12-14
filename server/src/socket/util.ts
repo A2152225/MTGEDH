@@ -24,6 +24,7 @@ import { parseManaCost as parseManaFromString, canPayManaCost, getManaPoolFromSt
 import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
 import { calculateCostReduction, applyCostReduction } from "./game-actions.js";
 import { checkSpellTimingRestriction, hasValidTargetsForSpell } from "../../../rules-engine/src/castingRestrictions.js";
+import { applyStaticAbilitiesToBattlefield } from "../../../rules-engine/src/staticAbilities.js";
 
 // ============================================================================
 // Constants
@@ -746,6 +747,24 @@ function normalizeViewForEmit(rawView: any, game: any) {
       }
     } catch {
       // non-fatal
+    }
+
+    // Apply static abilities to battlefield (P/T calculations, static goad from Baeloth, etc.)
+    // This ensures all battlefield permanents have correct effectivePower/effectiveToughness
+    // and isStaticallyGoaded flags before being sent to the client
+    try {
+      if (view.battlefield && Array.isArray(view.battlefield) && view.battlefield.length > 0) {
+        const updatedBattlefield = applyStaticAbilitiesToBattlefield(view.battlefield);
+        view.battlefield = updatedBattlefield;
+        
+        // Also update game.state.battlefield to keep it in sync
+        if (game && game.state && Array.isArray(game.state.battlefield)) {
+          game.state.battlefield = updatedBattlefield;
+        }
+      }
+    } catch (e) {
+      // non-fatal - don't break the whole view if static ability calculation fails
+      console.warn("Failed to apply static abilities to battlefield:", e);
     }
 
     // Augment battlefield permanents with mana production amounts for special abilities
