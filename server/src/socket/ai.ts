@@ -35,6 +35,9 @@ const MAX_LIBRARY_SEARCH_LIMIT = 1000;
 /** Initial hand size for commander format (7 cards) */
 const INITIAL_HAND_SIZE = 7;
 
+/** Probability that AI gives up control of optional creatures (0.3 = 30%) */
+const AI_OPTIONAL_GIVE_CONTROL_PROBABILITY = 0.3;
+
 /** MTG color identity symbols */
 const COLOR_IDENTITY_MAP: Record<string, string> = {
   'W': 'white',
@@ -1449,6 +1452,7 @@ function findCastableSpells(game: any, playerId: PlayerID): any[] {
   for (const card of hand) {
     const typeLine = (card?.type_line || '').toLowerCase();
     const cardName = card?.name || 'Unknown';
+    const oracleText = (card?.oracle_text || '').toLowerCase();
     
     // Skip lands
     if (typeLine.includes('land')) {
@@ -1460,6 +1464,17 @@ function findCastableSpells(game: any, playerId: PlayerID): any[] {
     if (!manaCost) {
       uncostable.push({ name: cardName, manaCost: 'none', reason: 'no mana cost' });
       continue;
+    }
+    
+    // Check if this is an Aura - Auras require a target when cast
+    const isAura = typeLine.includes('enchantment') && typeLine.includes('aura');
+    if (isAura) {
+      // Check if there's a valid target for this Aura
+      const hasValidAuraTarget = checkAuraHasValidTarget(game.state, playerId, card);
+      if (!hasValidAuraTarget) {
+        uncostable.push({ name: cardName, manaCost, reason: 'no valid target for aura' });
+        continue;
+      }
     }
     
     // Parse cost using shared function
@@ -1501,6 +1516,151 @@ function findCastableSpells(game: any, playerId: PlayerID): any[] {
   castable.sort((a, b) => b.priority - a.priority);
   
   return castable;
+}
+
+/**
+ * Check if an Aura card has a valid target on the battlefield
+ * Parses "Enchant X" patterns to determine what can be targeted
+ */
+function checkAuraHasValidTarget(state: any, playerId: PlayerID, auraCard: any): boolean {
+  const oracleText = (auraCard?.oracle_text || '').toLowerCase();
+  const battlefield = state?.battlefield || [];
+  
+  // Parse "Enchant X" pattern to determine valid targets
+  // Common patterns:
+  // - "Enchant creature"
+  // - "Enchant land"
+  // - "Enchant creature you control"
+  // - "Enchant creature an opponent controls"
+  // - "Enchant artifact"
+  // - "Enchant permanent"
+  
+  const enchantMatch = oracleText.match(/enchant\s+(\w+(?:\s+\w+)*?)(?:\s+you\s+control|\s+an\s+opponent\s+controls)?/i);
+  if (!enchantMatch) {
+    // No enchant pattern found - assume it can target anything
+    return battlefield.length > 0;
+  }
+  
+  const enchantTarget = enchantMatch[1].toLowerCase();
+  const youControlOnly = /enchant\s+\w+(?:\s+\w+)*\s+you\s+control/i.test(oracleText);
+  const opponentControlOnly = /enchant\s+\w+(?:\s+\w+)*\s+an?\s+opponent\s+controls/i.test(oracleText);
+  
+  // Find valid targets on the battlefield
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    
+    const typeLine = (perm.card.type_line || '').toLowerCase();
+    const controller = perm.controller;
+    
+    // Check controller restrictions
+    if (youControlOnly && controller !== playerId) continue;
+    if (opponentControlOnly && controller === playerId) continue;
+    
+    // Check type restrictions
+    if (enchantTarget.includes('creature') && !typeLine.includes('creature')) continue;
+    if (enchantTarget.includes('land') && !typeLine.includes('land')) continue;
+    if (enchantTarget.includes('artifact') && !typeLine.includes('artifact')) continue;
+    if (enchantTarget.includes('enchantment') && !typeLine.includes('enchantment')) continue;
+    if (enchantTarget.includes('planeswalker') && !typeLine.includes('planeswalker')) continue;
+    
+    // This permanent matches the enchant restriction
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Find the best target for an Aura spell
+ * Uses similar logic to checkAuraHasValidTarget but returns the actual target
+ */
+function findAuraTarget(state: any, playerId: PlayerID, auraCard: any): any | null {
+  const oracleText = (auraCard?.oracle_text || '').toLowerCase();
+  const battlefield = state?.battlefield || [];
+  
+  // Parse "Enchant X" pattern
+  const enchantMatch = oracleText.match(/enchant\s+(\w+(?:\s+\w+)*?)(?:\s+you\s+control|\s+an\s+opponent\s+controls)?/i);
+  if (!enchantMatch) {
+    // No enchant pattern - can target any permanent, prefer own permanents
+    const ownPermanents = battlefield.filter((p: any) => p.controller === playerId);
+    return ownPermanents[0] || battlefield[0] || null;
+  }
+  
+  const enchantTarget = enchantMatch[1].toLowerCase();
+  const youControlOnly = /enchant\s+\w+(?:\s+\w+)*\s+you\s+control/i.test(oracleText);
+  const opponentControlOnly = /enchant\s+\w+(?:\s+\w+)*\s+an?\s+opponent\s+controls/i.test(oracleText);
+  
+  // Determine if this is a beneficial or detrimental aura
+  // Beneficial auras should go on own permanents, detrimental on opponents
+  const isBeneficial = detectBeneficialAura(oracleText);
+  
+  const validTargets: any[] = [];
+  
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    
+    const typeLine = (perm.card.type_line || '').toLowerCase();
+    const controller = perm.controller;
+    
+    // Check controller restrictions
+    if (youControlOnly && controller !== playerId) continue;
+    if (opponentControlOnly && controller === playerId) continue;
+    
+    // Check type restrictions
+    if (enchantTarget.includes('creature') && !typeLine.includes('creature')) continue;
+    if (enchantTarget.includes('land') && !typeLine.includes('land')) continue;
+    if (enchantTarget.includes('artifact') && !typeLine.includes('artifact')) continue;
+    if (enchantTarget.includes('enchantment') && !typeLine.includes('enchantment')) continue;
+    if (enchantTarget.includes('planeswalker') && !typeLine.includes('planeswalker')) continue;
+    
+    // Add to valid targets with preference marker
+    validTargets.push({ perm, isOwn: controller === playerId });
+  }
+  
+  if (validTargets.length === 0) return null;
+  
+  // Sort by preference: beneficial auras prefer own, detrimental prefer opponent
+  validTargets.sort((a, b) => {
+    if (isBeneficial) {
+      // Prefer own permanents for beneficial auras
+      if (a.isOwn && !b.isOwn) return -1;
+      if (!a.isOwn && b.isOwn) return 1;
+    } else {
+      // Prefer opponent permanents for detrimental auras
+      if (!a.isOwn && b.isOwn) return -1;
+      if (a.isOwn && !b.isOwn) return 1;
+    }
+    return 0;
+  });
+  
+  return validTargets[0]?.perm || null;
+}
+
+/**
+ * Detect if an aura is beneficial (buffs) or detrimental (debuffs/control)
+ */
+function detectBeneficialAura(oracleText: string): boolean {
+  const text = oracleText.toLowerCase();
+  
+  // Detrimental indicators (pacifism, control, debuffs)
+  if (text.includes("can't attack") || text.includes("can't block")) return false;
+  if (text.includes("doesn't untap")) return false;
+  if (text.includes("gains control")) return false;
+  if (text.includes("-1/-1") || text.includes("-2/-2") || text.includes("-3/-3")) return false;
+  if (text.includes("exile") && text.includes("when")) return false;
+  if (text.includes("destroy") && text.includes("when")) return false;
+  if (text.includes("goaded") || text.includes("is goaded")) return false;
+  
+  // Beneficial indicators (buffs, abilities)
+  if (text.includes("+1/+1") || text.includes("+2/+2") || text.includes("+3/+3")) return true;
+  if (text.includes("flying") || text.includes("trample") || text.includes("lifelink")) return true;
+  if (text.includes("first strike") || text.includes("double strike") || text.includes("vigilance")) return true;
+  if (text.includes("hexproof") || text.includes("indestructible") || text.includes("protection")) return true;
+  if (text.includes("create a") && text.includes("token")) return true; // Squirrel Nest, etc.
+  if (text.includes("whenever") && text.includes("draw")) return true;
+  
+  // Default to beneficial for enchantments on your own stuff
+  return true;
 }
 
 /**
@@ -1827,7 +1987,17 @@ function needsToDiscard(game: any, playerId: PlayerID): { needsDiscard: boolean;
 }
 
 /**
- * Choose cards for AI to discard - prioritizes keeping lands and low-cost spells
+ * Choose cards for AI to discard - prioritizes keeping castable and valuable spells
+ * 
+ * Priority for KEEPING (higher score = keep):
+ * - Lands: +100 (always valuable)
+ * - Castable spells (can be cast next turn): +50
+ * - Removal spells: +30
+ * - Creatures: +20
+ * - Low-CMC spells: +10 - CMC (easier to cast)
+ * 
+ * The AI should discard high-CMC spells it can't cast rather than
+ * castable spells, even if those spells are technically "better"
  */
 function chooseCardsToDiscard(game: any, playerId: PlayerID, discardCount: number): string[] {
   const zones = game.state?.zones?.[playerId];
@@ -1837,34 +2007,62 @@ function chooseCardsToDiscard(game: any, playerId: PlayerID, discardCount: numbe
     return hand.map((c: any) => c.id);
   }
   
+  // Calculate available mana to determine castability
+  const manaPool = getAvailableMana(game.state, playerId);
+  const totalAvailableMana = getTotalManaFromPool(manaPool);
+  
   // Score cards - lower score = more likely to discard
   const scoredCards = hand.map((card: any) => {
     let score = 50; // Base score
     const typeLine = (card?.type_line || '').toLowerCase();
     const manaCost = card?.mana_cost || '';
+    const oracleText = (card?.oracle_text || '').toLowerCase();
     
-    // Keep lands (high priority)
+    // Keep lands (highest priority)
     if (typeLine.includes('land')) {
       score += 100;
+      return { card, score };
+    }
+    
+    // Calculate CMC
+    const parsedCost = parseManaCost(manaCost);
+    const cmc = parsedCost.generic + Object.values(parsedCost.colors).reduce((a, b) => a + b, 0);
+    
+    // CASTABILITY CHECK: Strongly prefer keeping castable spells
+    // A spell is "castable" if the AI can afford it with current/potential mana
+    // Add +2 mana buffer for "next turn" (likely land drop)
+    const canCastSoon = cmc <= totalAvailableMana + 2;
+    const canCastNow = canPayManaCost(manaPool, parsedCost);
+    
+    if (canCastNow) {
+      score += 60; // Can cast right now - definitely keep
+    } else if (canCastSoon) {
+      score += 40; // Can likely cast next turn - prefer to keep
+    } else if (cmc > totalAvailableMana + 4) {
+      score -= 30; // Very expensive spell we can't cast for a while - consider discarding
     }
     
     // Keep low-cost spells (easier to cast)
-    // Calculate approximate CMC by counting generic mana + number of colored symbols
-    const genericMatch = manaCost.match(/\d+/);
-    const generic = genericMatch ? parseInt(genericMatch[0], 10) : 0;
-    const coloredSymbols = (manaCost.match(/\{[WUBRG]\}/gi) || []).length;
-    const approxCMC = generic + coloredSymbols;
-    score += Math.max(0, 10 - approxCMC);
+    score += Math.max(0, 10 - cmc);
     
     // Keep creatures (good for board presence)
     if (typeLine.includes('creature')) {
       score += 20;
     }
     
-    // Keep removal spells
-    const oracleText = (card?.oracle_text || '').toLowerCase();
+    // Keep removal spells (interaction is important)
     if (oracleText.includes('destroy') || oracleText.includes('exile')) {
       score += 30;
+    }
+    
+    // Keep mana rocks/ramp (acceleration)
+    if (typeLine.includes('artifact') && (oracleText.includes('add {') || oracleText.includes('add one mana'))) {
+      score += 35;
+    }
+    
+    // Keep card draw spells
+    if (oracleText.includes('draw') && (oracleText.includes('card') || oracleText.includes('cards'))) {
+      score += 25;
     }
     
     return { card, score };
@@ -2108,6 +2306,17 @@ export async function handleAIPriority(
     const isMainPhase = phase.includes('main') || step.includes('main');
     
     if (isMainPhase) {
+      // Check if AI will need to discard at end of turn (hand size > 7)
+      // If so, be more aggressive about casting spells
+      const zones = game.state?.zones?.[playerId];
+      const handSize = Array.isArray(zones?.hand) ? zones.hand.length : 0;
+      const maxHandSize = getAIMaxHandSize(game, playerId);
+      const willNeedToDiscard = handSize > maxHandSize;
+      
+      if (willNeedToDiscard) {
+        console.info(`[AI] Hand size ${handSize} exceeds max ${maxHandSize} - will prioritize casting spells to avoid discarding`);
+      }
+      
       // Try to play a land first
       if (canAIPlayLand(game, playerId)) {
         const landCard = findPlayableLand(game, playerId);
@@ -2137,21 +2346,24 @@ export async function handleAIPriority(
       
       // Try to use activated abilities (before casting spells)
       // This prioritizes card draw and other beneficial effects
-      const abilityDecision = await aiEngine.makeDecision({
-        gameState: game.state as any,
-        playerId,
-        decisionType: AIDecisionType.ACTIVATE_ABILITY,
-        options: [],
-      });
-      
-      if (abilityDecision.action?.activate) {
-        console.info('[AI] Activating ability:', abilityDecision.action.cardName, '-', abilityDecision.reasoning);
-        await executeAIActivateAbility(io, gameId, playerId, abilityDecision.action);
-        // After activating ability, continue with more actions
-        setTimeout(() => {
-          handleAIPriority(io, gameId, playerId).catch(console.error);
-        }, AI_THINK_TIME_MS);
-        return;
+      // BUT: Skip if we need to discard - prioritize casting spells instead
+      if (!willNeedToDiscard) {
+        const abilityDecision = await aiEngine.makeDecision({
+          gameState: game.state as any,
+          playerId,
+          decisionType: AIDecisionType.ACTIVATE_ABILITY,
+          options: [],
+        });
+        
+        if (abilityDecision.action?.activate) {
+          console.info('[AI] Activating ability:', abilityDecision.action.cardName, '-', abilityDecision.reasoning);
+          await executeAIActivateAbility(io, gameId, playerId, abilityDecision.action);
+          // After activating ability, continue with more actions
+          setTimeout(() => {
+            handleAIPriority(io, gameId, playerId).catch(console.error);
+          }, AI_THINK_TIME_MS);
+          return;
+        }
       }
       
       // Try to cast commanders from command zone
@@ -2167,16 +2379,44 @@ export async function handleAIPriority(
       }
       
       // Try to cast spells from hand
+      // If we need to discard, we should cast ANY spell we can afford, not just optimal ones
       const castableSpells = findCastableSpells(game, playerId);
       if (castableSpells.length > 0) {
         const bestSpell = castableSpells[0]; // Already sorted by priority
-        console.info('[AI] Casting spell:', bestSpell.card.name, 'with priority', bestSpell.priority);
+        
+        // If we will need to discard, log the urgency
+        if (willNeedToDiscard) {
+          console.info(`[AI] Casting spell to avoid discard: ${bestSpell.card.name} (hand: ${handSize}/${maxHandSize})`);
+        } else {
+          console.info('[AI] Casting spell:', bestSpell.card.name, 'with priority', bestSpell.priority);
+        }
+        
         await executeAICastSpell(io, gameId, playerId, bestSpell.card, bestSpell.cost);
         // After casting, continue with more actions
         setTimeout(() => {
           handleAIPriority(io, gameId, playerId).catch(console.error);
         }, AI_THINK_TIME_MS);
         return;
+      }
+      
+      // If we still need to discard and couldn't cast anything, try activated abilities now
+      // (we skipped them earlier to prioritize spells)
+      if (willNeedToDiscard) {
+        const abilityDecision = await aiEngine.makeDecision({
+          gameState: game.state as any,
+          playerId,
+          decisionType: AIDecisionType.ACTIVATE_ABILITY,
+          options: [],
+        });
+        
+        if (abilityDecision.action?.activate) {
+          console.info('[AI] Activating ability (after spell attempts):', abilityDecision.action.cardName);
+          await executeAIActivateAbility(io, gameId, playerId, abilityDecision.action);
+          setTimeout(() => {
+            handleAIPriority(io, gameId, playerId).catch(console.error);
+          }, AI_THINK_TIME_MS);
+          return;
+        }
       }
       
       // No more actions, pass priority (don't advance step directly - let priority system handle it)
@@ -2695,50 +2935,69 @@ async function executeAICastSpell(
     // Determine targets for targeted spells
     let targets: TargetRef[] = [];
     const oracleText = card.oracle_text || '';
-    const spellSpec = categorizeSpell(card.name, oracleText);
+    const typeLine = (card.type_line || '').toLowerCase();
+    const isAura = typeLine.includes('enchantment') && typeLine.includes('aura');
     
-    if (spellSpec && spellSpec.minTargets > 0) {
-      // This spell requires targets - use evaluateTargeting to find valid options
-      const validTargets = evaluateTargeting(game.state as any, playerId, spellSpec);
-      
-      if (validTargets.length > 0) {
-        // AI target selection logic:
-        // For removal spells, prefer targeting opponent's permanents
-        // Prioritize high-threat targets
-        const opponentTargets = validTargets.filter((t: TargetRef) => {
-          if (t.kind !== 'permanent') return false;
-          const perm = battlefield.find((p: any) => p.id === t.id);
-          return perm && perm.controller !== playerId;
-        });
-        
-        // Sort opponent targets by threat level (creatures with higher power first)
-        opponentTargets.sort((a: TargetRef, b: TargetRef) => {
-          const permA = battlefield.find((p: any) => p.id === a.id);
-          const permB = battlefield.find((p: any) => p.id === b.id);
-          const powerA = parseInt(String(permA?.basePower ?? permA?.card?.power ?? '0'), 10) || 0;
-          const powerB = parseInt(String(permB?.basePower ?? permB?.card?.power ?? '0'), 10) || 0;
-          return powerB - powerA; // Higher power first
-        });
-        
-        // Select targets (prefer opponent's, fallback to any valid)
-        if (opponentTargets.length > 0) {
-          targets = opponentTargets.slice(0, spellSpec.maxTargets);
-        } else {
-          targets = validTargets.slice(0, spellSpec.maxTargets);
-        }
-        
-        console.info('[AI] Selected targets for spell:', { 
+    // Handle Auras specially - they use "Enchant X" patterns instead of "target" patterns
+    if (isAura) {
+      const auraTarget = findAuraTarget(game.state, playerId, card);
+      if (auraTarget) {
+        targets = [{ kind: 'permanent', id: auraTarget.id }];
+        console.info('[AI] Selected Aura target:', { 
           cardName: card.name, 
-          targetCount: targets.length,
-          targets: targets.map((t: TargetRef) => {
-            const perm = battlefield.find((p: any) => p.id === t.id);
-            return perm?.card?.name || t.id;
-          })
+          targetName: auraTarget.card?.name || auraTarget.id
         });
       } else {
-        // No valid targets available - cannot cast this spell
-        console.warn('[AI] Cannot cast spell - no valid targets:', card.name);
+        console.warn('[AI] Cannot cast Aura - no valid targets:', card.name);
         return;
+      }
+    } else {
+      // Non-Aura spells use categorizeSpell for targeting
+      const spellSpec = categorizeSpell(card.name, oracleText);
+      
+      if (spellSpec && spellSpec.minTargets > 0) {
+        // This spell requires targets - use evaluateTargeting to find valid options
+        const validTargets = evaluateTargeting(game.state as any, playerId, spellSpec);
+        
+        if (validTargets.length > 0) {
+          // AI target selection logic:
+          // For removal spells, prefer targeting opponent's permanents
+          // Prioritize high-threat targets
+          const opponentTargets = validTargets.filter((t: TargetRef) => {
+            if (t.kind !== 'permanent') return false;
+            const perm = battlefield.find((p: any) => p.id === t.id);
+            return perm && perm.controller !== playerId;
+          });
+          
+          // Sort opponent targets by threat level (creatures with higher power first)
+          opponentTargets.sort((a: TargetRef, b: TargetRef) => {
+            const permA = battlefield.find((p: any) => p.id === a.id);
+            const permB = battlefield.find((p: any) => p.id === b.id);
+            const powerA = parseInt(String(permA?.basePower ?? permA?.card?.power ?? '0'), 10) || 0;
+            const powerB = parseInt(String(permB?.basePower ?? permB?.card?.power ?? '0'), 10) || 0;
+            return powerB - powerA; // Higher power first
+          });
+          
+          // Select targets (prefer opponent's, fallback to any valid)
+          if (opponentTargets.length > 0) {
+            targets = opponentTargets.slice(0, spellSpec.maxTargets);
+          } else {
+            targets = validTargets.slice(0, spellSpec.maxTargets);
+          }
+          
+          console.info('[AI] Selected targets for spell:', { 
+            cardName: card.name, 
+            targetCount: targets.length,
+            targets: targets.map((t: TargetRef) => {
+              const perm = battlefield.find((p: any) => p.id === t.id);
+              return perm?.card?.name || t.id;
+            })
+          });
+        } else {
+          // No valid targets available - cannot cast this spell
+          console.warn('[AI] Cannot cast spell - no valid targets:', card.name);
+          return;
+        }
       }
     }
     
@@ -3639,6 +3898,10 @@ async function executePassPriority(
       // Check for pending library search (from tutor spells)
       // For AI players, we auto-select the best card; for human players, emit the request
       await handlePendingLibrarySearchAfterResolution(io, game, gameId);
+      
+      // Check for pending control change activations (Vislor Turlough, Xantcha, etc.)
+      // For AI players, we auto-select an opponent to give control to
+      await handlePendingControlChangesAfterResolution(io, game, gameId);
       
       // Check for pending Join Forces effects (Minds Aglow, Collective Voyage, etc.)
       // These require all players to contribute mana
@@ -5112,4 +5375,121 @@ async function handlePendingLibrarySearchAfterResolution(
   } catch (err) {
     console.warn('[handlePendingLibrarySearchAfterResolution] Error:', err);
   }
+}
+
+/**
+ * Handle pending control change activations after stack resolution for AI players.
+ * This handles cards like Vislor Turlough, Xantcha, Akroan Horse that have ETB control change effects.
+ * AI players need to auto-select an opponent to give control to.
+ */
+async function handlePendingControlChangesAfterResolution(
+  io: Server,
+  game: any,
+  gameId: string
+): Promise<void> {
+  try {
+    const pendingActivations = (game.state as any)?.pendingControlChangeActivations;
+    if (!pendingActivations || typeof pendingActivations !== 'object') return;
+    
+    const activationIds = Object.keys(pendingActivations);
+    if (activationIds.length === 0) return;
+    
+    for (const activationId of activationIds) {
+      const pending = pendingActivations[activationId];
+      if (!pending) continue;
+      
+      const playerId = pending.playerId;
+      
+      // Only handle AI players
+      if (!isAIPlayer(gameId, playerId)) continue;
+      
+      console.log(`[AI] Handling pending control change for ${pending.cardName} (activation: ${activationId})`);
+      
+      // Find the permanent on battlefield
+      const permanent = game.state.battlefield?.find((p: any) => p?.id === pending.permanentId);
+      if (!permanent) {
+        // Permanent no longer exists - clean up
+        delete pendingActivations[activationId];
+        continue;
+      }
+      
+      // Get available opponents
+      const players = game.state?.players || [];
+      const opponents = players.filter((p: any) => 
+        p && p.id !== playerId && !(p as any).hasLost && !(p as any).eliminated
+      );
+      
+      if (opponents.length === 0) {
+        // No valid opponents - clean up
+        delete pendingActivations[activationId];
+        continue;
+      }
+      
+      // For optional control changes (Vislor Turlough), AI decides whether to give control
+      if (pending.isOptional) {
+        // AI typically wants to keep creatures, but Vislor's goad effect is beneficial
+        const shouldGiveControl = pending.goadsOnChange || Math.random() < AI_OPTIONAL_GIVE_CONTROL_PROBABILITY;
+        
+        if (!shouldGiveControl) {
+          // AI declines to give control
+          delete pendingActivations[activationId];
+          console.log(`[AI] Declined to give control of ${pending.cardName}`);
+          continue;
+        }
+      }
+      
+      // AI selects a random opponent
+      const randomOpponent = opponents[Math.floor(Math.random() * opponents.length)];
+      
+      // Apply control change
+      const oldController = permanent.controller;
+      permanent.controller = randomOpponent.id;
+      
+      // Apply goad if needed
+      if (pending.goadsOnChange) {
+        permanent.goadedBy = permanent.goadedBy || [];
+        if (!permanent.goadedBy.includes(playerId)) {
+          permanent.goadedBy.push(playerId);
+        }
+      }
+      
+      // Apply attack restrictions
+      if (pending.mustAttackEachCombat) {
+        permanent.mustAttackEachCombat = true;
+      }
+      if (pending.cantAttackOwner) {
+        permanent.cantAttackOwner = true;
+        permanent.ownerId = playerId;
+      }
+      
+      // Clean up pending activation
+      delete pendingActivations[activationId];
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `🔄 Control of ${pending.cardName} changed from ${getPlayerName(game, oldController)} to ${getPlayerName(game, randomOpponent.id)}.${pending.goadsOnChange ? ` ${pending.cardName} is goaded.` : ''}`,
+        ts: Date.now(),
+      });
+      
+      console.log(`[AI] Auto-gave control of ${pending.cardName} to ${randomOpponent.name || randomOpponent.id}`);
+      
+      if (typeof game.bumpSeq === 'function') {
+        game.bumpSeq();
+      }
+    }
+    
+    broadcastGame(io, game, gameId);
+  } catch (err) {
+    console.warn('[handlePendingControlChangesAfterResolution] Error:', err);
+  }
+}
+
+/**
+ * Get player display name
+ */
+function getPlayerName(game: any, playerId: string): string {
+  const player = game.state?.players?.find((p: any) => p?.id === playerId);
+  return player?.name || playerId;
 }

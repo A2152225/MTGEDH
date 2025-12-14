@@ -695,13 +695,18 @@ export function collectStaticAbilities(
 
 /**
  * Apply static abilities to all permanents and return updated state
+ * This includes:
+ * - Power/Toughness modifications from lords, anthems, etc.
+ * - Granted abilities
+ * - Static goad effects (Baeloth Barrityl - "Creatures your opponents control with power less than Baeloth's power are goaded")
  */
 export function applyStaticAbilitiesToBattlefield(
   battlefield: BattlefieldPermanent[]
 ): BattlefieldPermanent[] {
   const staticAbilities = collectStaticAbilities(battlefield);
   
-  return battlefield.map(perm => {
+  // First pass: Calculate effective P/T for all creatures
+  const withEffectivePT = battlefield.map(perm => {
     const card = perm.card as KnownCardRef;
     if (!card) return perm;
     
@@ -725,6 +730,99 @@ export function applyStaticAbilitiesToBattlefield(
       grantedAbilities: grantedAbilities.length > 0 ? grantedAbilities : undefined,
     } as BattlefieldPermanent;
   });
+  
+  // Second pass: Apply static goad effects based on calculated powers
+  // This handles cards like Baeloth Barrityl: "Creatures your opponents control with power less than Baeloth's power are goaded"
+  const staticGoadSources = collectStaticGoadSources(withEffectivePT);
+  
+  if (staticGoadSources.length === 0) {
+    return withEffectivePT;
+  }
+  
+  return withEffectivePT.map(perm => {
+    const card = perm.card as KnownCardRef;
+    if (!card) return perm;
+    
+    const typeLine = (card.type_line || '').toLowerCase();
+    if (!typeLine.includes('creature')) {
+      return perm;
+    }
+    
+    // Check if this creature should be statically goaded by any source
+    let isStaticallyGoaded = false;
+    let goadedByStatic: string[] = [];
+    
+    for (const source of staticGoadSources) {
+      // Static goad only applies to opponents' creatures
+      if (perm.controller === source.controller) continue;
+      
+      // Check power condition (Baeloth: creatures with power less than Baeloth's power)
+      if (source.requiresLowerPower) {
+        const cardPower = card.power;
+        const permPower = perm.effectivePower ?? (perm as any).basePower ?? 
+                         (typeof cardPower === 'number' ? cardPower : parseInt(String(cardPower || '0'), 10));
+        if (permPower < source.sourcePower) {
+          isStaticallyGoaded = true;
+          if (!goadedByStatic.includes(source.controller)) {
+            goadedByStatic.push(source.controller);
+          }
+        }
+      }
+    }
+    
+    if (!isStaticallyGoaded) {
+      return perm;
+    }
+    
+    // Mark creature as statically goaded (this is a continuous effect, not an expiring one)
+    // We set a special flag to indicate static goad vs triggered goad
+    return {
+      ...perm,
+      isStaticallyGoaded: true,
+      staticGoadedBy: goadedByStatic,
+    } as BattlefieldPermanent;
+  });
+}
+
+/**
+ * Collect all permanents that create static goad effects
+ * Examples:
+ * - Baeloth Barrityl: "Creatures your opponents control with power less than Baeloth's power are goaded"
+ */
+interface StaticGoadSource {
+  permanentId: string;
+  controller: string;
+  sourcePower: number;
+  requiresLowerPower: boolean;
+}
+
+function collectStaticGoadSources(battlefield: BattlefieldPermanent[]): StaticGoadSource[] {
+  const sources: StaticGoadSource[] = [];
+  
+  for (const perm of battlefield) {
+    const card = perm.card as KnownCardRef;
+    if (!card) continue;
+    
+    const oracleText = (card.oracle_text || '').toLowerCase();
+    
+    // Baeloth Barrityl pattern: "creatures your opponents control with power less than [cardname]'s power are goaded"
+    // More specific pattern to avoid false matches
+    if (oracleText.includes('creatures your opponents control') && 
+        oracleText.includes('power less than') && 
+        oracleText.includes('power are goaded')) {
+      const cardPower = card.power;
+      const sourcePower = perm.effectivePower ?? (perm as any).basePower ?? 
+                         (typeof cardPower === 'number' ? cardPower : parseInt(String(cardPower || '0'), 10));
+      sources.push({
+        permanentId: perm.id,
+        controller: perm.controller,
+        sourcePower,
+        requiresLowerPower: true,
+      });
+    }
+  }
+  
+  return sources;
 }
 
 export default {

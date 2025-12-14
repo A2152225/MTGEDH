@@ -572,6 +572,16 @@ export function TableLayout(props: {
     return s;
   }, [permanentsByPlayer]);
 
+  // Collect all battlefield permanents across all players
+  // Used for looking up attachment targets (e.g., auras on opponent's creatures)
+  const allBattlefieldPerms = useMemo(() => {
+    const all: BattlefieldPermanent[] = [];
+    for (const arr of permanentsByPlayer.values()) {
+      all.push(...arr);
+    }
+    return all;
+  }, [permanentsByPlayer]);
+
   const cameraTransform =
     `translate(${container.w / 2}px, ${container.h / 2}px) scale(${cam.z}) translate(${-cam.x}px, ${-cam.y}px)`;
 
@@ -1267,6 +1277,7 @@ export function TableLayout(props: {
 
                         <FreeField
                           perms={others}
+                          allBattlefieldPerms={allBattlefieldPerms}
                           imagePref={imagePref || 'small'}
                           tileWidth={TILE_W}
                           widthPx={FREE_W}

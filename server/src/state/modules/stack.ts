@@ -1786,11 +1786,11 @@ function executeTriggerEffect(
   const eachDrawMatch = desc.match(/each player draws? (?:a card|(\d+) cards?)/i);
   if (eachDrawMatch) {
     const count = eachDrawMatch[1] ? parseInt(eachDrawMatch[1], 10) : 1;
-    state.pendingDraws = state.pendingDraws || {};
+    // Actually draw the cards instead of just setting pending
     for (const player of players) {
       if (!player.hasLost) {
-        state.pendingDraws[player.id] = (state.pendingDraws[player.id] || 0) + count;
-        console.log(`[executeTriggerEffect] ${player.id} will draw ${count} card(s)`);
+        const drawn = drawCardsFromZone(ctx, player.id as PlayerID, count);
+        console.log(`[executeTriggerEffect] ${sourceName}: ${player.id} drew ${drawn.length} card(s)`);
       }
     }
     return;
@@ -3271,6 +3271,131 @@ export function resolveTopOfStack(ctx: GameContext) {
         createTokenFromSpec(ctx, controller, tokenCreationResult);
       }
       console.log(`[resolveTopOfStack] ${effectiveCard.name} created ${tokenCreationResult.count} ${tokenCreationResult.name} token(s) for ${controller} (xValue: ${spellXValue ?? 'N/A'})`);
+    }
+    
+    // Handle mass bounce spells (Evacuation, Cyclonic Rift overloaded, Aetherize, etc.)
+    // Multiple patterns to handle different mass bounce effects:
+    // - "Return all creatures to their owners' hands" (Evacuation)
+    // - "Return all attacking creatures to their owner's hand" (Aetherize)
+    // - "Return all nonland permanents to their owners' hands" (Coastal Breach, Cyclonic Rift overloaded)
+    // - "Return all noncreature, nonland permanents to their owners' hands" (Filter Out)
+    // - "Return each nonland permanent you don't control to its owner's hand" (Cyclonic Rift overloaded)
+    
+    const massBouncePatterns = [
+      { pattern: /return all creatures to their owners'? hands?/i, filter: 'creatures' },
+      { pattern: /return all attacking creatures to their owners'? hands?/i, filter: 'attacking_creatures' },
+      { pattern: /return all nonland permanents to their owners'? hands?/i, filter: 'nonland_permanents' },
+      { pattern: /return all noncreature,?\s*nonland permanents to their owners'? hands?/i, filter: 'noncreature_nonland' },
+      { pattern: /return each nonland permanent you don't control to its owner's hand/i, filter: 'nonland_opponent_control' },
+    ];
+    
+    let massBounceFilter: string | null = null;
+    for (const { pattern, filter } of massBouncePatterns) {
+      if (pattern.test(oracleText)) {
+        massBounceFilter = filter;
+        break;
+      }
+    }
+    
+    if (massBounceFilter) {
+      const battlefield = state.battlefield || [];
+      const attackers = (state as any).attackers || [];
+      const attackingCreatureIds = new Set(attackers.map((a: any) => a.creatureId || a.id));
+      
+      // Filter permanents based on the bounce type
+      const permanentsToBounce = battlefield.filter((p: any) => {
+        const typeLine = (p.card?.type_line || '').toLowerCase();
+        const isCreature = typeLine.includes('creature');
+        const isLand = typeLine.includes('land');
+        const isAttacking = attackingCreatureIds.has(p.id);
+        
+        switch (massBounceFilter) {
+          case 'creatures':
+            return isCreature;
+          case 'attacking_creatures':
+            return isCreature && isAttacking;
+          case 'nonland_permanents':
+            return !isLand;
+          case 'noncreature_nonland':
+            return !isCreature && !isLand;
+          case 'nonland_opponent_control':
+            return !isLand && p.controller !== controller;
+          default:
+            return false;
+        }
+      });
+      
+      console.log(`[resolveTopOfStack] ${effectiveCard.name}: Returning ${permanentsToBounce.length} permanents to owners' hands (filter: ${massBounceFilter})`);
+      
+      // Helper function to bounce a single permanent
+      const bouncePermanent = (perm: any) => {
+        const ownerId = perm.owner || perm.controller;
+        const zones = state.zones || {};
+        const ownerZones = zones[ownerId];
+        
+        if (ownerZones) {
+          // Token permanents cease to exist when they leave the battlefield
+          if (perm.isToken) {
+            console.log(`[resolveTopOfStack] ${perm.card?.name || 'Token'} is a token - removed from game`);
+            const idx = battlefield.findIndex((p: any) => p.id === perm.id);
+            if (idx !== -1) battlefield.splice(idx, 1);
+            return;
+          }
+          
+          // Add card to owner's hand
+          ownerZones.hand = ownerZones.hand || [];
+          (ownerZones.hand as any[]).push({ ...perm.card, zone: 'hand' });
+          ownerZones.handCount = ownerZones.hand.length;
+          
+          console.log(`[resolveTopOfStack] ${perm.card?.name || 'Permanent'} returned to ${ownerId}'s hand`);
+        }
+        
+        // Handle attached permanents (auras, equipment) - they fall off
+        // Auras attached to this permanent go to graveyard
+        const attachedAuras = battlefield.filter((p: any) => 
+          p.attachedTo === perm.id && (p.card?.type_line || '').toLowerCase().includes('aura')
+        );
+        for (const aura of attachedAuras) {
+          const auraOwnerId = aura.owner || aura.controller;
+          const auraOwnerZones = zones[auraOwnerId];
+          if (auraOwnerZones) {
+            // Token auras cease to exist
+            if (aura.isToken) {
+              console.log(`[resolveTopOfStack] ${aura.card?.name || 'Aura Token'} is a token - removed from game`);
+            } else {
+              auraOwnerZones.graveyard = auraOwnerZones.graveyard || [];
+              (auraOwnerZones.graveyard as any[]).push({ ...aura.card, zone: 'graveyard' });
+              auraOwnerZones.graveyardCount = auraOwnerZones.graveyard.length;
+              console.log(`[resolveTopOfStack] ${aura.card?.name || 'Aura'} fell off and went to graveyard`);
+            }
+          }
+          const auraIdx = battlefield.findIndex((p: any) => p.id === aura.id);
+          if (auraIdx !== -1) battlefield.splice(auraIdx, 1);
+        }
+        
+        // Equipment detaches but stays on battlefield
+        const attachedEquipment = battlefield.filter((p: any) => 
+          p.attachedTo === perm.id && (p.card?.type_line || '').toLowerCase().includes('equipment')
+        );
+        for (const equipment of attachedEquipment) {
+          delete equipment.attachedTo;
+          console.log(`[resolveTopOfStack] ${equipment.card?.name || 'Equipment'} detached`);
+        }
+        
+        // Remove permanent from battlefield
+        const idx = battlefield.findIndex((p: any) => p.id === perm.id);
+        if (idx !== -1) battlefield.splice(idx, 1);
+      };
+      
+      // Bounce all matching permanents
+      // Make a copy of the array since we'll be modifying the battlefield
+      const permanentsToBounceIds = permanentsToBounce.map((p: any) => p.id);
+      for (const permId of permanentsToBounceIds) {
+        const perm = battlefield.find((p: any) => p.id === permId);
+        if (perm) {
+          bouncePermanent(perm);
+        }
+      }
     }
     
     // Handle extra turn spells (Time Warp, Time Walk, Temporal Mastery, etc.)

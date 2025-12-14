@@ -497,35 +497,47 @@ function hasAbility(permanent: any, abilityName: string): boolean {
 
 /**
  * Check if a permanent is goaded (Rule 701.15)
+ * Checks both:
+ * 1. Direct goad effects stored on the permanent (goadedBy array)
+ * 2. Static goad effects from staticAbilities.ts (isStaticallyGoaded flag)
  * 
  * @param permanent - The permanent to check
  * @param currentTurn - Current turn number (optional, for expiration checking)
+ * @param battlefield - Optional battlefield array (deprecated - static goad now uses isStaticallyGoaded flag)
  * @returns true if the permanent is currently goaded by any player
  */
-export function isGoaded(permanent: any, currentTurn?: number): boolean {
+export function isGoaded(permanent: any, currentTurn?: number, battlefield?: any[]): boolean {
   if (!permanent) return false;
   
-  const goadedBy = permanent.goadedBy;
-  if (!goadedBy || !Array.isArray(goadedBy) || goadedBy.length === 0) {
-    return false;
-  }
-  
-  // If no turn tracking, just check if goaded by anyone
-  if (currentTurn === undefined) {
+  // Check for static goad effects (Baeloth, etc.) - set by applyStaticAbilitiesToBattlefield
+  if (permanent.isStaticallyGoaded === true) {
     return true;
   }
   
-  // Check if any goad effects are still active
-  const goadedUntil = permanent.goadedUntil;
-  if (!goadedUntil) {
-    return true; // Has goad but no expiration tracking, assume active
+  // Check direct goad effects on the permanent
+  const goadedBy = permanent.goadedBy;
+  if (goadedBy && Array.isArray(goadedBy) && goadedBy.length > 0) {
+    // If no turn tracking, just check if goaded by anyone
+    if (currentTurn === undefined) {
+      return true;
+    }
+    
+    // Check if any goad effects are still active
+    const goadedUntil = permanent.goadedUntil;
+    if (!goadedUntil) {
+      return true; // Has goad but no expiration tracking, assume active
+    }
+    
+    // Check if any goad is still active
+    const hasActiveGoad = goadedBy.some(playerId => {
+      const expiryTurn = goadedUntil[playerId];
+      return expiryTurn === undefined || expiryTurn > currentTurn;
+    });
+    
+    if (hasActiveGoad) return true;
   }
   
-  // Check if any goad is still active
-  return goadedBy.some(playerId => {
-    const expiryTurn = goadedUntil[playerId];
-    return expiryTurn === undefined || expiryTurn > currentTurn;
-  });
+  return false;
 }
 
 /**
@@ -536,25 +548,37 @@ export function isGoaded(permanent: any, currentTurn?: number): boolean {
  * @returns Array of player IDs who have goaded this creature
  */
 export function getGoadedBy(permanent: any, currentTurn?: number): string[] {
-  if (!permanent || !permanent.goadedBy || !Array.isArray(permanent.goadedBy)) {
-    return [];
+  const goaders: string[] = [];
+  
+  // Check for static goad sources (Baeloth, etc.)
+  if (permanent.isStaticallyGoaded && permanent.staticGoadedBy && Array.isArray(permanent.staticGoadedBy)) {
+    goaders.push(...permanent.staticGoadedBy);
   }
   
-  // If no turn tracking, return all goaders
-  if (currentTurn === undefined) {
-    return [...permanent.goadedBy];
+  // Check for direct goad effects
+  if (permanent.goadedBy && Array.isArray(permanent.goadedBy)) {
+    // If no turn tracking, return all goaders
+    if (currentTurn === undefined) {
+      for (const goaderId of permanent.goadedBy) {
+        if (!goaders.includes(goaderId)) {
+          goaders.push(goaderId);
+        }
+      }
+    } else {
+      // Filter to only active goad effects
+      const goadedUntil = permanent.goadedUntil || {};
+      for (const goaderId of permanent.goadedBy) {
+        const expiryTurn = goadedUntil[goaderId];
+        if (expiryTurn === undefined || expiryTurn > currentTurn) {
+          if (!goaders.includes(goaderId)) {
+            goaders.push(goaderId);
+          }
+        }
+      }
+    }
   }
   
-  // Filter to only active goad effects
-  const goadedUntil = permanent.goadedUntil;
-  if (!goadedUntil) {
-    return [...permanent.goadedBy];
-  }
-  
-  return permanent.goadedBy.filter((playerId: string) => {
-    const expiryTurn = goadedUntil[playerId];
-    return expiryTurn === undefined || expiryTurn > currentTurn;
-  });
+  return goaders;
 }
 
 /**
@@ -790,6 +814,8 @@ export function getLegalAttackers(state: GameState, playerId: string): string[] 
 /**
  * Get all goaded creatures that must attack (Rule 701.15b)
  * Returns creatures that are goaded and can legally attack
+ * Note: Static goad effects (Baeloth, etc.) are now handled by applyStaticAbilitiesToBattlefield
+ * which sets isStaticallyGoaded flag on affected creatures.
  * 
  * @param state - The game state
  * @param playerId - The player declaring attackers
@@ -798,10 +824,11 @@ export function getLegalAttackers(state: GameState, playerId: string): string[] 
 export function getGoadedAttackers(state: GameState, playerId: string): string[] {
   const goadedAttackers: string[] = [];
   const currentTurn = state.turn;
+  const battlefield = state.battlefield as any[] || [];
   
   // Check global battlefield
-  if (state.battlefield) {
-    for (const perm of state.battlefield as any[]) {
+  if (battlefield.length > 0) {
+    for (const perm of battlefield) {
       if (perm.controller === playerId && isGoaded(perm, currentTurn)) {
         const result = canPermanentAttack(perm, playerId);
         if (result.canParticipate) {
@@ -927,6 +954,7 @@ export function validateDeclareAttackers(
     }
     
     // Check goad restrictions (Rule 701.15b)
+    // Static goad effects (Baeloth) are now handled via isStaticallyGoaded flag
     if (isGoaded(permanent, state.turn)) {
       const allPlayerIds = state.players.map(p => p.id);
       const goadCheck = canGoadedCreatureAttack(

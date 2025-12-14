@@ -3719,38 +3719,82 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       if (lowerCardName === 'forbidden orchard') {
         // Get opponents from game.state.players
         const players = game.state?.players || [];
-        const opponents = players.filter((p: any) => p?.id != null && p.id !== pid);
+        const opponents = players.filter((p: any) => p?.id != null && p.id !== pid && !p.hasLost);
         
         if (opponents.length > 0) {
-          // Store pending Forbidden Orchard activation - controller must choose target opponent
-          if (!(game.state as any).pendingForbiddenOrchard) {
-            (game.state as any).pendingForbiddenOrchard = {};
+          // For AI players, auto-select a random opponent
+          if (isAIPlayer(gameId, pid)) {
+            // AI auto-selects a random opponent for the token
+            const randomOpponent = opponents[Math.floor(Math.random() * opponents.length)];
+            const targetOpponentId = randomOpponent.id;
+            
+            // Create 1/1 colorless Spirit token for the target opponent
+            const tokenId = `token_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            game.state.battlefield = game.state.battlefield || [];
+            const spiritToken = {
+              id: tokenId,
+              controller: targetOpponentId,
+              owner: targetOpponentId,
+              tapped: false,
+              summoningSickness: true,
+              counters: {},
+              card: {
+                id: tokenId,
+                name: 'Spirit',
+                type_line: 'Token Creature — Spirit',
+                oracle_text: '',
+                mana_cost: '',
+                cmc: 0,
+                colors: [],
+              },
+              basePower: 1,
+              baseToughness: 1,
+              isToken: true,
+            };
+            game.state.battlefield.push(spiritToken);
+            
+            console.log(`[activateBattlefieldAbility] AI Forbidden Orchard: auto-selected ${targetOpponentId} to receive Spirit token`);
+            
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `Forbidden Orchard: ${getPlayerName(game, targetOpponentId)} creates a 1/1 colorless Spirit token.`,
+              ts: Date.now(),
+            });
+            
+            // Continue with normal mana ability processing - don't return early
+          } else {
+            // Human player: store pending activation and request choice
+            if (!(game.state as any).pendingForbiddenOrchard) {
+              (game.state as any).pendingForbiddenOrchard = {};
+            }
+            
+            const activationId = `forbidden_orchard_${crypto.randomUUID()}`;
+            (game.state as any).pendingForbiddenOrchard[activationId] = {
+              playerId: pid,
+              permanentId,
+              cardName: 'Forbidden Orchard',
+              opponents: opponents.map((p: any) => ({ id: p.id, name: p.name })),
+            };
+            
+            // Request opponent choice from player
+            socket.emit("forbiddenOrchardTargetRequest", {
+              gameId,
+              activationId,
+              permanentId,
+              cardName: 'Forbidden Orchard',
+              opponents: opponents.map((p: any) => ({
+                id: p.id,
+                name: p.name || p.id,
+              })),
+              message: "Choose target opponent to create a 1/1 colorless Spirit creature token.",
+            });
+            
+            console.log(`[activateBattlefieldAbility] Forbidden Orchard: prompting ${pid} to choose target opponent`);
+            broadcastGame(io, game, gameId);
+            return; // Exit early - wait for target selection
           }
-          
-          const activationId = `forbidden_orchard_${crypto.randomUUID()}`;
-          (game.state as any).pendingForbiddenOrchard[activationId] = {
-            playerId: pid,
-            permanentId,
-            cardName: 'Forbidden Orchard',
-            opponents: opponents.map((p: any) => ({ id: p.id, name: p.name })),
-          };
-          
-          // Request opponent choice from player
-          socket.emit("forbiddenOrchardTargetRequest", {
-            gameId,
-            activationId,
-            permanentId,
-            cardName: 'Forbidden Orchard',
-            opponents: opponents.map((p: any) => ({
-              id: p.id,
-              name: p.name || p.id,
-            })),
-            message: "Choose target opponent to create a 1/1 colorless Spirit creature token.",
-          });
-          
-          console.log(`[activateBattlefieldAbility] Forbidden Orchard: prompting ${pid} to choose target opponent`);
-          broadcastGame(io, game, gameId);
-          return; // Exit early - wait for target selection
         }
       }
       
@@ -6367,6 +6411,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
     
     // Check and clean up pending equip activation
+    // IMPORTANT: Use the stored equipCost from pending activation to support multiple equip costs
+    // (e.g., "Equip legendary creature {3}" vs "Equip {7}")
+    let storedEquipCost: string | null = null;
+    let storedEquipType: string | null = null;
     if (effectId && (game.state as any).pendingEquipActivations?.[effectId]) {
       const pendingEquip = (game.state as any).pendingEquipActivations[effectId];
       
@@ -6381,9 +6429,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
       
+      // CRITICAL: Store the equip cost BEFORE deleting the pending state
+      // This ensures we use the correct cost for conditional equip abilities
+      storedEquipCost = pendingEquip.equipCost || null;
+      storedEquipType = pendingEquip.equipType || null;
+      
       // Clean up pending state
       delete (game.state as any).pendingEquipActivations[effectId];
-      console.log(`[equipTargetChosen] Using preserved equip data from effectId: ${effectId}`);
+      console.log(`[equipTargetChosen] Using preserved equip data from effectId: ${effectId}, cost: ${storedEquipCost}, type: ${storedEquipType}`);
     }
 
     const battlefield = game.state?.battlefield || [];
@@ -6418,10 +6471,19 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
-    // Parse equip cost from oracle text
-    const oracleText = equipment.card?.oracle_text || "";
-    const equipCostMatch = oracleText.match(/equip\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
-    const equipCost = equipCostMatch ? equipCostMatch[1] : "{0}";
+    // Use the stored equip cost from pending activation if available
+    // This is critical for equipment with multiple equip costs (e.g., Blackblade Reforged)
+    // Fallback: Parse the FIRST equip cost from oracle text (which may be wrong for conditional equip)
+    let equipCost: string;
+    if (storedEquipCost) {
+      equipCost = storedEquipCost;
+    } else {
+      // Fallback parsing - only used if pending activation wasn't found
+      const oracleText = equipment.card?.oracle_text || "";
+      const equipCostMatch = oracleText.match(/equip\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+      equipCost = equipCostMatch ? equipCostMatch[1] : "{0}";
+      console.warn(`[equipTargetChosen] No stored equipCost found, using fallback parse: ${equipCost}`);
+    }
     
     // Validate and consume mana payment
     const parsedCost = parseManaCost(equipCost);
