@@ -806,7 +806,10 @@ function collectStaticGoadSources(battlefield: BattlefieldPermanent[]): StaticGo
     const oracleText = (card.oracle_text || '').toLowerCase();
     
     // Baeloth Barrityl pattern: "creatures your opponents control with power less than [cardname]'s power are goaded"
-    if (oracleText.includes('power less than') && oracleText.includes('power are goaded')) {
+    // More specific pattern to avoid false matches
+    if (oracleText.includes('creatures your opponents control') && 
+        oracleText.includes('power less than') && 
+        oracleText.includes('power are goaded')) {
       const cardPower = card.power;
       const sourcePower = perm.effectivePower ?? (perm as any).basePower ?? 
                          (typeof cardPower === 'number' ? cardPower : parseInt(String(cardPower || '0'), 10));

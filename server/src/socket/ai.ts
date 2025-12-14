@@ -35,6 +35,9 @@ const MAX_LIBRARY_SEARCH_LIMIT = 1000;
 /** Initial hand size for commander format (7 cards) */
 const INITIAL_HAND_SIZE = 7;
 
+/** Probability that AI gives up control of optional creatures (0.3 = 30%) */
+const AI_OPTIONAL_GIVE_CONTROL_PROBABILITY = 0.3;
+
 /** MTG color identity symbols */
 const COLOR_IDENTITY_MAP: Record<string, string> = {
   'W': 'white',
@@ -5169,7 +5172,7 @@ async function handlePendingControlChangesAfterResolution(
       // For optional control changes (Vislor Turlough), AI decides whether to give control
       if (pending.isOptional) {
         // AI typically wants to keep creatures, but Vislor's goad effect is beneficial
-        const shouldGiveControl = pending.goadsOnChange || Math.random() < 0.3;
+        const shouldGiveControl = pending.goadsOnChange || Math.random() < AI_OPTIONAL_GIVE_CONTROL_PROBABILITY;
         
         if (!shouldGiveControl) {
           // AI declines to give control

@@ -3275,8 +3275,8 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Handle mass bounce spells (Evacuation, Cyclonic Rift overloaded, etc.)
     // Pattern: "Return all creatures to their owners' hands"
-    const massBounceCrAturesPattern = /return all creatures to their owners'? hands?/i;
-    if (massBounceCrAturesPattern.test(oracleText)) {
+    const massBounceCreaturesPattern = /return all creatures to their owners'? hands?/i;
+    if (massBounceCreaturesPattern.test(oracleText)) {
       const battlefield = state.battlefield || [];
       const creatures = battlefield.filter((p: any) => {
         const typeLine = (p.card?.type_line || '').toLowerCase();
