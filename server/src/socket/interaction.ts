@@ -1546,10 +1546,34 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         message: `${getPlayerName(game, pid)} created a token copy of ${cardName} using ${abilityId}.`,
         ts: Date.now(),
       });
-    } else if (abilityId === "return-from-graveyard" || abilityId === "graveyard-activated") {
-      // Generic return from graveyard ability (like Summon the School)
-      // Parse the oracle text to determine the destination
+    } else if (abilityId === "return-from-graveyard" || abilityId === "graveyard-activated" || abilityId.includes("-return-")) {
+      // Generic return from graveyard ability (like Magma Phoenix, Summon the School)
+      // Parse the oracle text to determine the destination and mana cost
       const oracleText = (card.oracle_text || "").toLowerCase();
+      
+      // Parse mana cost from oracle text for graveyard abilities
+      // Pattern: "{3}{R}{R}: Return this card from your graveyard to your hand"
+      const graveyardAbilityMatch = oracleText.match(/(\{[^}]+\}(?:\{[^}]+\})*)\s*:\s*return\s+(?:this|~|(?:this card|it))\s+from\s+(?:your\s+)?graveyard\s+to\s+(?:your\s+)?hand/i);
+      
+      if (graveyardAbilityMatch) {
+        const manaCost = graveyardAbilityMatch[1];
+        const parsedCost = parseManaCost(manaCost);
+        const pool = getOrInitManaPool(game.state, pid);
+        const totalAvailable = calculateTotalAvailableMana(pool, []);
+        
+        // Validate mana payment
+        const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+        if (validationError) {
+          socket.emit("error", {
+            code: "INSUFFICIENT_MANA",
+            message: `Cannot pay ${manaCost}: ${validationError}`,
+          });
+          return;
+        }
+        
+        // Consume mana
+        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[activateGraveyardAbility:${cardName}]`);
+      }
       
       // Check for search library effects in the ability
       const tutorInfo = detectTutorEffect(card.oracle_text || "");
@@ -3883,8 +3907,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     console.log(`[activateBattlefieldAbility] Processing ability ${abilityId} on ${cardName}`);
     
     // Parse the ability from oracle text if possible
-    const abilityParts = abilityId.split('_');
-    const abilityIndex = abilityParts.length > 1 ? parseInt(abilityParts[1], 10) : 0;
+    // Ability ID format is: "{cardId}-{abilityType}-{index}" e.g., "card123-ability-0" or "card123-mana-r-0"
+    // Extract the ability index from the end of the abilityId
+    let abilityIndex = 0;
+    const abilityMatch = abilityId.match(/-(\d+)$/);
+    if (abilityMatch) {
+      abilityIndex = parseInt(abilityMatch[1], 10);
+      if (isNaN(abilityIndex)) abilityIndex = 0;
+    }
     
     // Extract ability text by parsing oracle text for activated abilities
     let abilityText = "";
