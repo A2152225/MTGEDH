@@ -25,7 +25,7 @@
 /**
  * Known cards with important death triggered abilities
  */
-export const KNOWN_DEATH_TRIGGERS: Record<string, { effect: string; triggerOn: 'own' | 'controlled' | 'any' }> = {
+export const KNOWN_DEATH_TRIGGERS: Record<string, { effect: string; triggerOn: 'own' | 'controlled' | 'any' | 'opponent' }> = {
   "grave pact": { effect: "Each other player sacrifices a creature", triggerOn: 'controlled' },
   "dictate of erebos": { effect: "Each other player sacrifices a creature", triggerOn: 'controlled' },
   "butcher of malakir": { effect: "Each other player sacrifices a creature", triggerOn: 'controlled' },
@@ -60,6 +60,10 @@ export const KNOWN_DEATH_TRIGGERS: Record<string, { effect: string; triggerOn: '
   "junji, the midnight sky": { effect: "Choose one - Target opponent discards two cards and loses 2 life; or put target non-Dragon creature card from a graveyard onto the battlefield under your control", triggerOn: 'own' },
   // Ao, the Dawn Sky - counters or manifest
   "ao, the dawn sky": { effect: "Choose one - Look at the top seven cards of your library. Put any number of nonland permanent cards with total mana value 4 or less from among them onto the battlefield. Put the rest on the bottom of your library in a random order; or put two +1/+1 counters on each permanent you control that's a creature or Vehicle", triggerOn: 'own' },
+  // Control change death triggers
+  "grave betrayal": { effect: "Return creature to battlefield under your control with +1/+1 counter at beginning of next end step. Creature becomes black Zombie in addition to other types.", triggerOn: 'opponent' },
+  "endless whispers": { effect: "Choose target opponent. That player puts this card onto the battlefield under their control at beginning of next end step.", triggerOn: 'any' },
+  "unholy indenture": { effect: "Return enchanted creature to battlefield under your control with +1/+1 counter.", triggerOn: 'own' },
 };
 
 // ============================================================================
@@ -917,5 +921,88 @@ export const KNOWN_DAMAGE_RECEIVED_TRIGGERS: Record<string, {
     effect: "Flip a coin. If you win, destroy that creature",
     targetType: 'controller',
     triggerOn: 'self',
+  },
+};
+
+// ============================================================================
+// Sacrifice Triggers (Whenever an opponent sacrifices)
+// ============================================================================
+
+/**
+ * Known cards with "whenever an opponent sacrifices" triggers.
+ * These trigger when an OPPONENT sacrifices a permanent.
+ * 
+ * Examples:
+ * - It That Betrays: "Whenever an opponent sacrifices a nontoken permanent, put that card onto the battlefield under your control."
+ * - Tergrid, God of Fright: "Whenever an opponent sacrifices a nontoken permanent or discards a permanent card, you may put that card from a graveyard onto the battlefield under your control."
+ */
+export const KNOWN_SACRIFICE_TRIGGERS: Record<string, { 
+  effect: string;
+  stealPermanent: boolean;
+  permanentType: 'nontoken' | 'any' | 'creature' | 'artifact' | 'land';
+  isOptional: boolean;
+}> = {
+  // It That Betrays - "Whenever an opponent sacrifices a nontoken permanent, put that card onto the battlefield under your control."
+  "it that betrays": {
+    effect: "Put that card onto the battlefield under your control",
+    stealPermanent: true,
+    permanentType: 'nontoken',
+    isOptional: false,
+  },
+  // Tergrid, God of Fright - "Whenever an opponent sacrifices a nontoken permanent or discards a permanent card, you may put that card onto the battlefield under your control."
+  "tergrid, god of fright": {
+    effect: "You may put that card from a graveyard onto the battlefield under your control",
+    stealPermanent: true,
+    permanentType: 'nontoken',
+    isOptional: true,
+  },
+  // Butcher of Malakir - While not strictly a sacrifice trigger, triggers on your creature deaths
+  // Note: Already in death triggers
+};
+
+// ============================================================================
+// Control Change ETB Triggers
+// ============================================================================
+
+/**
+ * Known cards with ETB control change effects.
+ * These are permanents that enter under another player's control.
+ * 
+ * Examples:
+ * - Xantcha, Sleeper Agent: "Xantcha enters under the control of an opponent of your choice."
+ * - Vislor Turlough: "you may have an opponent gain control of it. If you do, it's goaded"
+ * - Akroan Horse: "When this creature enters, an opponent gains control of it."
+ */
+export const KNOWN_CONTROL_CHANGE_ETB: Record<string, {
+  type: 'enters_opponent_choice' | 'may_give_opponent' | 'opponent_gains';
+  isOptional: boolean;
+  goadsOnChange?: boolean;
+  mustAttackEachCombat?: boolean;
+  cantAttackOwner?: boolean;
+  anyPlayerCanActivate?: boolean;
+}> = {
+  // Xantcha, Sleeper Agent
+  "xantcha, sleeper agent": {
+    type: 'enters_opponent_choice',
+    isOptional: false,
+    mustAttackEachCombat: true,
+    cantAttackOwner: true,
+    anyPlayerCanActivate: true,
+  },
+  // Vislor Turlough
+  "vislor turlough": {
+    type: 'may_give_opponent',
+    isOptional: true,
+    goadsOnChange: true,
+  },
+  // Akroan Horse
+  "akroan horse": {
+    type: 'opponent_gains',
+    isOptional: false,
+  },
+  // Humble Defector (activated ability, not ETB, but relevant)
+  "humble defector": {
+    type: 'opponent_gains',
+    isOptional: false,
   },
 };

@@ -4739,6 +4739,130 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               
               if (!enteredPermanent) continue;
               
+              // Check for pending control change (Xantcha, Akroan Horse, Vislor Turlough)
+              if ((enteredPermanent as any).pendingControlChange) {
+                const controlChange = (enteredPermanent as any).pendingControlChange;
+                const activationId = `control_change_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                
+                // Store pending control change activation
+                if (!game.state.pendingControlChangeActivations) {
+                  game.state.pendingControlChangeActivations = {};
+                }
+                
+                (game.state as any).pendingControlChangeActivations[activationId] = {
+                  playerId: pid,
+                  permanentId: enteredPermanent.id,
+                  cardName: (fullCard as any).name,
+                  type: controlChange.type,
+                  isOptional: controlChange.isOptional || false,
+                  goadsOnChange: controlChange.goadsOnChange || false,
+                  mustAttackEachCombat: controlChange.mustAttackEachCombat || false,
+                  cantAttackOwner: controlChange.cantAttackOwner || false,
+                };
+                
+                // Get available opponents
+                const players = game.state?.players || [];
+                const opponents = players.filter((p: any) => p && p.id !== pid && !(p as any).hasLost && !(p as any).eliminated).map((p: any) => ({
+                  id: p.id,
+                  name: p.name || p.id,
+                  life: game.state.life?.[p.id] ?? 40,
+                  libraryCount: game.state.zones?.[p.id]?.libraryCount ?? 0,
+                  isOpponent: true,
+                }));
+                
+                const title = controlChange.isOptional 
+                  ? `${(fullCard as any).name} - Give Control?` 
+                  : `${(fullCard as any).name} - Choose Opponent`;
+                const description = controlChange.isOptional
+                  ? `You may have an opponent gain control of ${(fullCard as any).name}.${controlChange.goadsOnChange ? ' If you do, it will be goaded.' : ''}`
+                  : `${(fullCard as any).name} enters under an opponent's control. Choose which opponent will control it.`;
+                
+                // Emit opponent selection request to client
+                socket.emit("controlChangeOpponentRequest", {
+                  gameId,
+                  activationId,
+                  source: {
+                    id: enteredPermanent.id,
+                    name: (fullCard as any).name,
+                    imageUrl: (fullCard as any).image_uris?.small || (fullCard as any).image_uris?.normal,
+                  },
+                  opponents,
+                  title,
+                  description,
+                  isOptional: controlChange.isOptional || false,
+                });
+                
+                // Clear the pending flag - it's now tracked in pendingControlChangeActivations
+                delete (enteredPermanent as any).pendingControlChange;
+                
+                console.log(`[playCard] ETB control change request emitted for ${(fullCard as any).name}`);
+                
+                // Auto-select opponent for AI players
+                if (isAIPlayer(gameId, pid)) {
+                  setTimeout(() => {
+                    const pending = (game.state as any).pendingControlChangeActivations?.[activationId];
+                    if (!pending) return;
+                    
+                    // For optional effects, AI decides whether to give control
+                    if (controlChange.isOptional) {
+                      // AI typically wants to keep its creatures, but Vislor Turlough gives card draw
+                      // For Vislor, giving control is beneficial due to goading
+                      const shouldGiveControl = controlChange.goadsOnChange || Math.random() < 0.3;
+                      
+                      if (!shouldGiveControl) {
+                        // AI declines to give control
+                        delete (game.state as any).pendingControlChangeActivations[activationId];
+                        console.log(`[AI] Declined to give control of ${(fullCard as any).name}`);
+                        broadcastGame(io, game, gameId);
+                        return;
+                      }
+                    }
+                    
+                    // AI selects a random opponent (could be smarter in future)
+                    const randomOpponent = opponents[Math.floor(Math.random() * opponents.length)];
+                    
+                    if (randomOpponent) {
+                      delete (game.state as any).pendingControlChangeActivations[activationId];
+                      
+                      // Apply control change
+                      const permanentToChange = game.state.battlefield.find((p: any) => p && p.id === enteredPermanent.id);
+                      if (permanentToChange) {
+                        const oldController = permanentToChange.controller;
+                        permanentToChange.controller = randomOpponent.id;
+                        
+                        // Apply goad if needed
+                        if (controlChange.goadsOnChange) {
+                          permanentToChange.goadedBy = permanentToChange.goadedBy || [];
+                          if (!permanentToChange.goadedBy.includes(pid)) {
+                            permanentToChange.goadedBy.push(pid);
+                          }
+                        }
+                        
+                        // Apply attack restrictions
+                        if (controlChange.mustAttackEachCombat) {
+                          (permanentToChange as any).mustAttackEachCombat = true;
+                        }
+                        if (controlChange.cantAttackOwner) {
+                          (permanentToChange as any).cantAttackOwner = true;
+                          (permanentToChange as any).ownerId = pid;
+                        }
+                        
+                        io.to(gameId).emit("chat", {
+                          id: `m_${Date.now()}`,
+                          gameId,
+                          from: "system",
+                          message: `🔄 Control of ${(fullCard as any).name} changed from ${getPlayerName(game, oldController)} to ${getPlayerName(game, randomOpponent.id)}.${controlChange.goadsOnChange ? ` ${(fullCard as any).name} is goaded.` : ''}`,
+                          ts: Date.now(),
+                        });
+                        
+                        console.log(`[AI] Auto-gave control of ${(fullCard as any).name} to ${randomOpponent.name}`);
+                        broadcastGame(io, game, gameId);
+                      }
+                    }
+                  }, 500); // Small delay for natural feel
+                }
+              }
+              
               // 1. Get ETB triggers from the permanent itself (e.g., modal choices, "When ~ enters")
               const selfTriggers = getETBTriggersForPermanent(fullCard, enteredPermanent);
               
@@ -7465,6 +7589,34 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
 
+    // Handle declined optional control change (empty targetOpponentId)
+    if (!targetOpponentId && pending.isOptional) {
+      // Player declined to give control - clean up and notify
+      delete (game.state as any).pendingControlChangeActivations[activationId];
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} chose not to give control of ${pending.cardName}.`,
+        ts: Date.now(),
+      });
+      
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+      
+      appendEvent(gameId, (game as any).seq ?? 0, "declinedControlChange", {
+        playerId: pid,
+        activationId,
+        permanentId: pending.permanentId,
+        cardName: pending.cardName,
+      });
+      
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
     // Verify target opponent is valid
     const players = game.state?.players || [];
     const validOpponent = players.find((p: any) => p && p.id === targetOpponentId && p.id !== pid);
@@ -7511,14 +7663,48 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const oldController = permanent.controller;
     permanent.controller = targetOpponentId;
     
+    // Apply goad if the control change goads the creature (Vislor Turlough)
+    if (pending.goadsOnChange) {
+      permanent.goadedBy = permanent.goadedBy || [];
+      if (!permanent.goadedBy.includes(pid)) {
+        permanent.goadedBy.push(pid);
+      }
+      // Goad until the original owner's next turn (track this)
+      // Create a new object for the readonly record
+      const newGoadedUntil: Record<string, number> = {
+        ...(permanent.goadedUntil || {}),
+        [pid]: (game.state as any).turnNumber + 1, // Approximate - lasts until next owner's turn
+      };
+      permanent.goadedUntil = newGoadedUntil;
+      
+      console.log(`[confirmControlChangeOpponent] ${pending.cardName} is goaded by ${pid}`);
+    }
+    
+    // Apply attack restrictions (Xantcha - must attack each combat, can't attack owner)
+    if (pending.mustAttackEachCombat) {
+      (permanent as any).mustAttackEachCombat = true;
+      console.log(`[confirmControlChangeOpponent] ${pending.cardName} must attack each combat`);
+    }
+    
+    if (pending.cantAttackOwner) {
+      (permanent as any).cantAttackOwner = true;
+      (permanent as any).ownerId = pending.playerId; // Track original owner for attack restriction
+      console.log(`[confirmControlChangeOpponent] ${pending.cardName} can't attack its owner (${pending.playerId})`);
+    }
+    
     // Remove summoning sickness if the new controller already had control this turn
     // (For now, creature keeps summoning sickness when changing control)
+    
+    let messageText = `🔄 Control of ${pending.cardName} changed from ${getPlayerName(game, oldController)} to ${getPlayerName(game, targetOpponentId)}.`;
+    if (pending.goadsOnChange) {
+      messageText += ` ${pending.cardName} is goaded.`;
+    }
     
     io.to(gameId).emit("chat", {
       id: `m_${Date.now()}`,
       gameId,
       from: "system",
-      message: `🔄 Control of ${pending.cardName} changed from ${getPlayerName(game, oldController)} to ${getPlayerName(game, targetOpponentId)}.`,
+      message: messageText,
       ts: Date.now(),
     });
 
@@ -7534,6 +7720,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       oldController,
       newController: targetOpponentId,
       drewCards: pending.drawCards || 0,
+      goaded: pending.goadsOnChange || false,
+      mustAttackEachCombat: pending.mustAttackEachCombat || false,
+      cantAttackOwner: pending.cantAttackOwner || false,
     });
 
     broadcastGame(io, game, gameId);

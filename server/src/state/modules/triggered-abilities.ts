@@ -106,6 +106,24 @@ export {
   isPermanentPreventedFromUntapping,
   type DoesntUntapEffect,
 } from "./triggers/turn-phases.js";
+// Control change effects (ETB under opponent control, etc.)
+export {
+  detectControlChangeEffects,
+  hasControlChangeEffect,
+  shouldEnterUnderOpponentControl,
+  hasOptionalGiveControlETB,
+  shouldGoadOnControlChange,
+  mustAttackEachCombat,
+  cantAttackOwner,
+  applyControlChange,
+  getAttackRestrictions as getControlChangeAttackRestrictions,
+  getControlChangeConfig,
+  isKnownControlChangeCard,
+  logControlChange,
+  KNOWN_CONTROL_CHANGE_CARDS,
+  type ControlChangeType,
+  type ControlChangeEffect as ETBControlChangeEffect,
+} from "./triggers/control-change.js";
 
 /**
  * Trigger timing - when the trigger should fire
@@ -1907,6 +1925,8 @@ export interface DeathTriggerResult {
   targets?: string[]; // Player IDs affected
   requiresSacrificeSelection?: boolean;
   sacrificeFrom?: string; // Player ID who must sacrifice
+  returnsUnderControl?: boolean; // For Grave Betrayal - return under your control
+  dyingCreatureCard?: any; // The card that died, for reanimation effects
 }
 
 /**
@@ -1957,11 +1977,18 @@ export function getDeathTriggers(
             // Triggers when THIS creature dies (shouldn't match here since it's not on battlefield)
             shouldTrigger = false;
             break;
+          case 'opponent':
+            // Triggers when an OPPONENT's creature dies (Grave Betrayal)
+            shouldTrigger = dyingCreatureController !== permanentController;
+            break;
         }
         
         if (shouldTrigger) {
           // Determine if this requires sacrifice selection
           const requiresSacrifice = info.effect.toLowerCase().includes('sacrifice');
+          // Check if this is a "return under your control" effect (Grave Betrayal, etc.)
+          const returnsUnderControl = info.effect.toLowerCase().includes('return') && 
+                                      info.effect.toLowerCase().includes('under your control');
           
           results.push({
             source: {
@@ -1971,6 +1998,8 @@ export function getDeathTriggers(
             },
             effect: info.effect,
             requiresSacrificeSelection: requiresSacrifice,
+            returnsUnderControl,
+            dyingCreatureCard: dyingCreature?.card, // Include the dying creature's card for reanimation effects
           });
         }
       }
@@ -2008,6 +2037,29 @@ export function getDeathTriggers(
           },
           effect,
           requiresSacrificeSelection: effect.toLowerCase().includes('sacrifice'),
+        });
+      }
+    }
+    
+    // Generic detection: "Whenever a creature you don't control dies" (Grave Betrayal style)
+    if ((oracleText.includes('whenever a creature you don\'t control dies') || 
+         oracleText.includes('whenever a creature an opponent controls dies')) && 
+        dyingCreatureController !== permanentController) {
+      const effectMatch = oracleText.match(/whenever a creature (?:you don't control|an opponent controls) dies,?\s*([^.]+)/i);
+      if (effectMatch && !results.some(r => r.source.permanentId === permanent.id)) {
+        const effect = effectMatch[1].trim();
+        const returnsUnderControl = effect.toLowerCase().includes('return') && 
+                                    effect.toLowerCase().includes('under your control');
+        results.push({
+          source: {
+            permanentId: permanent.id,
+            cardName: card.name,
+            controllerId: permanentController,
+          },
+          effect,
+          requiresSacrificeSelection: effect.toLowerCase().includes('sacrifice'),
+          returnsUnderControl,
+          dyingCreatureCard: dyingCreature?.card,
         });
       }
     }
