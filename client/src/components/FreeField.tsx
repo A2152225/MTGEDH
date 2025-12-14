@@ -134,6 +134,7 @@ function getAbilityDisplay(abilityName: string): { short: string; color: string;
 
 export function FreeField(props: {
   perms: BattlefieldPermanent[];
+  allBattlefieldPerms?: BattlefieldPermanent[]; // All permanents across all players (for attachment lookups)
   imagePref: ImagePref;
   tileWidth: number;
   widthPx: number;
@@ -169,7 +170,7 @@ export function FreeField(props: {
   appearanceSettings?: AppearanceSettings;
 }) {
   const {
-    perms, imagePref, tileWidth, widthPx, heightPx,
+    perms, allBattlefieldPerms, imagePref, tileWidth, widthPx, heightPx,
     draggable = false, onMove, highlightTargets, selectedTargets, onCardClick,
     players = [],
     onTap, onUntap, onActivateAbility, onAddCounter, onSacrifice, onRemove,
@@ -384,11 +385,14 @@ export function FreeField(props: {
       // Temporary effects
       const temporaryEffects = (p as any).temporaryEffects;
 
-      // Attachment info
+      // Attachment info - use allBattlefieldPerms to find cross-player attachments
+      // This fixes the issue where auras attached to opponent's creatures couldn't show the badge
       const attachedTo = p.attachedTo;
       let attachedToName: string | undefined;
       if (attachedTo) {
-        const attachedPerm = perms.find(perm => perm.id === attachedTo);
+        // First try allBattlefieldPerms (includes all players' permanents)
+        const lookupPerms = allBattlefieldPerms || perms;
+        const attachedPerm = lookupPerms.find(perm => perm.id === attachedTo);
         if (attachedPerm && attachedPerm.card) {
           const attachedCard = attachedPerm.card as any;
           if (typeof attachedCard.name === 'string') {
@@ -446,7 +450,7 @@ export function FreeField(props: {
       });
     }
     return placed;
-  }, [perms, imagePref, tileWidth, tileH, widthPx, heightPx]);
+  }, [perms, allBattlefieldPerms, imagePref, tileWidth, tileH, widthPx, heightPx]);
 
   const onPointerDown = (id: string, e: React.PointerEvent) => {
     if (!draggable) return;
