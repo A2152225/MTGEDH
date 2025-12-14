@@ -679,16 +679,37 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
   }
   
   // ======== EQUIP ABILITIES ========
+  // Equipment can have multiple equip abilities:
+  // - "Equip {7}" - standard equip cost
+  // - "Equip legendary creature {3}" - conditional equip with cheaper cost
+  // - "Equip Knight {1}" - tribal equip
   if (typeLine.includes('equipment')) {
-    const equipMatch = oracleText.match(/equip\s*(\{[^}]+\}|\d+)/i);
-    if (equipMatch) {
-      const equipCost = equipMatch[1].startsWith('{') ? equipMatch[1] : `{${equipMatch[1]}}`;
+    // Pattern to match all equip abilities, including conditional ones
+    // Examples: "Equip {7}", "Equip legendary creature {3}", "Equip Knight {1}", "Equip Soldier {2}"
+    const equipRegex = /equip(?:\s+([a-z]+(?:\s+[a-z]+)?))?(?:\s+creature)?\s*(\{[^}]+\}(?:\{[^}]+\})*|\d+)/gi;
+    let equipMatch;
+    
+    while ((equipMatch = equipRegex.exec(oracleText)) !== null) {
+      const conditionalType = equipMatch[1]?.trim(); // "legendary", "Knight", "Soldier", etc.
+      const costRaw = equipMatch[2];
+      const equipCost = costRaw.startsWith('{') ? costRaw : `{${costRaw}}`;
+      
+      // Build label based on whether it's conditional
+      let label = `Equip ${equipCost}`;
+      let targetDescription = 'creature you control';
+      
+      if (conditionalType) {
+        // Conditional equip - cheaper cost but restricted target
+        label = `Equip ${conditionalType} ${equipCost}`;
+        targetDescription = `${conditionalType} creature you control`;
+      }
+      
       abilities.push({
         id: `${card.id}-equip-${abilityIndex++}`,
-        label: `Equip ${equipCost}`,
-        description: 'Attach to target creature you control',
+        label,
+        description: `Attach to target ${targetDescription}`,
         cost: equipCost,
-        effect: 'Attach to target creature you control',
+        effect: `Attach to target ${targetDescription}`,
         requiresTap: false,
         requiresUntap: false,
         requiresSacrifice: false,
@@ -698,7 +719,7 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
         isFetchAbility: false,
         timingRestriction: 'sorcery',
         requiresTarget: true,
-        targetDescription: 'creature you control',
+        targetDescription,
       });
     }
   }

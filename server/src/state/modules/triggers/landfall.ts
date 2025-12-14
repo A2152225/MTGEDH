@@ -24,6 +24,9 @@ export interface LandfallTrigger {
   // For modal landfall triggers like Retreat to Emeria
   isModal?: boolean;
   modalOptions?: string[];
+  // For triggers that require targeting (Geode Rager - "goad each creature target player controls")
+  requiresTarget?: boolean;
+  targetType?: 'player' | 'creature' | 'permanent';
 }
 
 /**
@@ -80,6 +83,11 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
         modalOptions: options,
       });
     } else {
+      // Check if the effect requires a target player (e.g., Geode Rager)
+      // Pattern: "goad each creature target player controls"
+      const targetPlayerMatch = effectText.toLowerCase().match(/target\s+player/);
+      const targetCreatureMatch = effectText.toLowerCase().match(/target\s+creature/);
+      
       triggers.push({
         permanentId,
         cardName,
@@ -87,6 +95,8 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
         effect: effectText,
         mandatory: !effectText.toLowerCase().includes('you may'),
         requiresChoice: effectText.toLowerCase().includes('you may'),
+        requiresTarget: !!(targetPlayerMatch || targetCreatureMatch),
+        targetType: targetPlayerMatch ? 'player' : targetCreatureMatch ? 'creature' : undefined,
       });
     }
   }
@@ -120,6 +130,10 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
         modalOptions: options,
       });
     } else {
+      // Check if the effect requires a target player (e.g., Geode Rager)
+      const targetPlayerMatch = effectText.toLowerCase().match(/target\s+player/);
+      const targetCreatureMatch = effectText.toLowerCase().match(/target\s+creature/);
+      
       triggers.push({
         permanentId,
         cardName,
@@ -127,6 +141,8 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
         effect: effectText,
         mandatory: !effectText.toLowerCase().includes('you may'),
         requiresChoice: effectText.toLowerCase().includes('you may'),
+        requiresTarget: !!(targetPlayerMatch || targetCreatureMatch),
+        targetType: targetPlayerMatch ? 'player' : targetCreatureMatch ? 'creature' : undefined,
       });
     }
   }
