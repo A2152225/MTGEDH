@@ -93,6 +93,76 @@ function derivedToughness(perm: BattlefieldPermanent): number | undefined {
   return totalToughness - damage;
 }
 
+/**
+ * Check if a permanent has the indestructible ability
+ * Rule 702.12: A permanent with indestructible can't be destroyed.
+ */
+function hasIndestructible(perm: BattlefieldPermanent): boolean {
+  const oracleText = ((perm.card as any)?.oracle_text || '').toLowerCase();
+  const grantedAbilities = (perm as any).grantedAbilities || [];
+  const keywords = (perm.card as any)?.keywords || [];
+  
+  // Check oracle text
+  if (oracleText.includes('indestructible')) {
+    return true;
+  }
+  
+  // Check granted abilities
+  for (const ability of grantedAbilities) {
+    if (typeof ability === 'string' && ability.toLowerCase().includes('indestructible')) {
+      return true;
+    }
+  }
+  
+  // Check Scryfall keywords
+  for (const keyword of keywords) {
+    if (typeof keyword === 'string' && keyword.toLowerCase() === 'indestructible') {
+      return true;
+    }
+  }
+  
+  // Check for equipment that grants indestructible (e.g., Darksteel Plate)
+  const attachedEquipment = (perm as any).attachedEquipment || [];
+  const attachments = (perm as any).attachments || [];
+  const allAttachments = [...attachedEquipment, ...attachments];
+  
+  // We need to check the battlefield for these attachments
+  // This will be done in the main function where we have access to state
+  
+  return false;
+}
+
+/**
+ * Check if any attached permanents grant indestructible
+ * Used for Equipment like Darksteel Plate
+ */
+function attachmentGrantsIndestructible(
+  state: Readonly<GameState>, 
+  perm: BattlefieldPermanent
+): boolean {
+  const attachedEquipment = (perm as any).attachedEquipment || [];
+  const attachments = (perm as any).attachments || [];
+  const allAttachments = [...attachedEquipment, ...attachments];
+  
+  for (const attachId of allAttachments) {
+    const attachment = (state.battlefield as readonly BattlefieldPermanent[]).find(
+      p => p.id === attachId
+    );
+    if (attachment) {
+      const attachOracleText = ((attachment.card as any)?.oracle_text || '').toLowerCase();
+      // Pattern: "Equipped creature has indestructible" or "Equipped creature is indestructible"
+      if (attachOracleText.includes('equipped creature') && 
+          (attachOracleText.includes('has indestructible') || 
+           attachOracleText.includes('is indestructible') ||
+           attachOracleText.includes('indestructible'))) {
+        return true;
+      }
+    }
+  }
+  
+  return false;
+}
+
 // Pure SBA pass
 export function applyStateBasedActions(state: Readonly<GameState>): EngineSBAResult {
   const updates: EngineCounterUpdate[] = [];
@@ -138,11 +208,53 @@ export function applyStateBasedActions(state: Readonly<GameState>): EngineSBARes
     }
   }
   
-  // CR 704.5a: Creatures with toughness 0 or less are destroyed
+  // CR 704.5f: If a creature has toughness 0 or less, it's put into its owner's graveyard.
+  // This is NOT destruction (Rule 702.12b) - it happens regardless of indestructible
+  // CR 704.5g: If a creature has toughness greater than 0, and it has been dealt damage equal to
+  // or greater than its toughness, that creature has been dealt lethal damage and is destroyed.
+  // Rule 702.12b: Indestructible creatures are NOT destroyed by lethal damage.
   for (const perm of state.battlefield as readonly BattlefieldPermanent[]) {
-    const dt = derivedToughness(perm);
-    if (isNumber(dt) && dt <= 0) {
+    const typeLine = ((perm.card as any)?.type_line || '').toLowerCase();
+    if (!typeLine.includes('creature')) continue;
+    
+    // Get base toughness
+    let baseToughness: number | undefined;
+    if (isNumber(perm.baseToughness)) {
+      baseToughness = perm.baseToughness;
+    } else {
+      const cardToughness = (perm.card as any)?.toughness;
+      if (cardToughness !== undefined && cardToughness !== null) {
+        const parsed = parseInt(String(cardToughness), 10);
+        if (isNumber(parsed)) {
+          baseToughness = parsed;
+        }
+      }
+    }
+    
+    if (!isNumber(baseToughness)) continue;
+    
+    // Apply counters
+    const plus = perm.counters?.['+1/+1'] ?? 0;
+    const minus = perm.counters?.['-1/-1'] ?? 0;
+    const net = plus - minus;
+    const totalToughness = baseToughness + net;
+    
+    // Get damage
+    const damage = (perm as any).damage ?? (perm as any).markedDamage ?? (perm as any).damageMarked ?? 0;
+    
+    // CR 704.5f: 0 or less toughness - NOT destruction, ignores indestructible
+    if (totalToughness <= 0) {
       destroys.push(perm.id);
+      continue;
+    }
+    
+    // CR 704.5g: Lethal damage - IS destruction, respects indestructible
+    if (damage >= totalToughness) {
+      // Check for indestructible
+      const isIndestructible = hasIndestructible(perm) || attachmentGrantsIndestructible(state, perm);
+      if (!isIndestructible) {
+        destroys.push(perm.id);
+      }
     }
   }
 

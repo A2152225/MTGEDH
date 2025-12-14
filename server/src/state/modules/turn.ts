@@ -1759,7 +1759,7 @@ function clearManaPool(ctx: GameContext) {
     
     // Detect mana retention effects inline (to avoid circular dependencies)
     const detectManaRetentionEffectsLocal = (gameState: any, playerId: string) => {
-      const effects: { permanentId: string; cardName: string; type: string; colors?: string[] }[] = [];
+      const effects: { permanentId: string; cardName: string; type: string; colors?: string[]; color?: string }[] = [];
       const battlefield = gameState?.battlefield || [];
       
       for (const permanent of battlefield) {
@@ -1787,6 +1787,18 @@ function clearManaPool(ctx: GameContext) {
             cardName: permanent.card?.name || "Leyline Tyrant",
             type: 'doesnt_empty',
             colors: ['red'],
+          });
+        }
+        
+        // Ozai, the Phoenix King - Unspent mana becomes red instead
+        // Pattern: "If you would lose unspent mana, that mana becomes red instead"
+        if (cardName.includes("ozai") || 
+            (oracleText.includes("lose unspent mana") && oracleText.includes("becomes red instead"))) {
+          effects.push({
+            permanentId: permanent.id,
+            cardName: permanent.card?.name || "Ozai, the Phoenix King",
+            type: 'becomes_color',
+            color: 'red',
           });
         }
         
@@ -1823,6 +1835,7 @@ function clearManaPool(ctx: GameContext) {
       // Collect colors that should be retained
       const colorsToRetain = new Set<string>();
       let convertToColorless = false;
+      let convertToColor: string | null = null;
       let retainAllMana = false;
       
       for (const effect of retentionEffects) {
@@ -1834,6 +1847,9 @@ function clearManaPool(ctx: GameContext) {
           for (const color of effect.colors) {
             colorsToRetain.add(color);
           }
+        } else if (effect.type === 'becomes_color' && effect.color) {
+          // Track conversion to a specific color (Ozai -> red)
+          convertToColor = effect.color;
         }
       }
       
@@ -1841,7 +1857,11 @@ function clearManaPool(ctx: GameContext) {
       if (currentPool.doesNotEmpty) {
         const targetColor = currentPool.convertsTo || (currentPool.convertsToColorless ? 'colorless' : null);
         if (targetColor) {
-          convertToColorless = targetColor === 'colorless';
+          if (targetColor === 'colorless') {
+            convertToColorless = true;
+          } else {
+            convertToColor = targetColor;
+          }
         } else {
           retainAllMana = true;
         }
@@ -1850,6 +1870,53 @@ function clearManaPool(ctx: GameContext) {
       if (retainAllMana) {
         // Mana doesn't empty at all (e.g., Upwelling, or legacy doesNotEmpty without convertsTo)
         console.log(`${ts()} [clearManaPool] Player ${pid}: Mana pool preserved (all mana doesn't empty)`);
+        continue;
+      }
+      
+      // Handle "mana becomes [color] instead" (Ozai -> red)
+      if (convertToColor && convertToColor !== 'colorless') {
+        const allColors = ['white', 'blue', 'black', 'red', 'green', 'colorless'];
+        let totalConverted = 0;
+        
+        // Sum up all mana that will be converted (excluding the target color and any retained colors)
+        for (const color of allColors) {
+          if (color !== convertToColor && !colorsToRetain.has(color)) {
+            totalConverted += (currentPool[color] || 0);
+          }
+        }
+        
+        const newPool: any = {
+          white: 0,
+          blue: 0,
+          black: 0,
+          red: 0,
+          green: 0,
+          colorless: 0,
+          doesNotEmpty: currentPool.doesNotEmpty,
+          convertsTo: currentPool.convertsTo,
+          noEmptySourceIds: currentPool.noEmptySourceIds,
+        };
+        
+        // Add all converted mana to the target color
+        newPool[convertToColor] = (currentPool[convertToColor] || 0) + totalConverted;
+        
+        // Keep any colors that should be retained separately
+        for (const color of colorsToRetain) {
+          if (color !== convertToColor) {
+            newPool[color] = currentPool[color] || 0;
+          }
+        }
+        
+        // Keep restricted mana (but convert color)
+        if (currentPool.restricted) {
+          newPool.restricted = currentPool.restricted.map((entry: any) => ({
+            ...entry,
+            type: colorsToRetain.has(entry.type) ? entry.type : convertToColor,
+          }));
+        }
+        
+        (ctx as any).state.manaPool[pid] = newPool;
+        console.log(`${ts()} [clearManaPool] Player ${pid}: Converted ${totalConverted} mana to ${convertToColor}, retained: ${Array.from(colorsToRetain).join(', ') || 'none'}`);
         continue;
       }
       
@@ -2620,6 +2687,63 @@ export function nextStep(ctx: GameContext) {
         else if (nextStep === "END_COMBAT") {
           const endCombatTriggers = getEndOfCombatTriggers(ctx, turnPlayer);
           pushTriggersToStack(endCombatTriggers, 'end_combat', 'endcombat');
+          
+          // Clear firebending mana at end of combat
+          // Firebending: "add {R}{R}... This mana lasts until end of combat."
+          // BUT: Check for mana retention effects (Ozai, Leyline Tyrant) first
+          const firebendingMana = (ctx as any).state?.firebendingMana;
+          if (firebendingMana) {
+            for (const [playerId, amount] of Object.entries(firebendingMana)) {
+              if (typeof amount === 'number' && amount > 0) {
+                const manaPool = (ctx as any).state?.manaPool?.[playerId];
+                if (manaPool) {
+                  // Check for mana retention effects that would keep red mana
+                  // Ozai: "If you would lose unspent mana, that mana becomes red instead"
+                  // Leyline Tyrant: "Red mana doesn't empty from your mana pool"
+                  const battlefield = (ctx as any).state?.battlefield || [];
+                  let retainsRedMana = false;
+                  let hasOzaiEffect = false;
+                  
+                  for (const permanent of battlefield) {
+                    if (!permanent || permanent.controller !== playerId) continue;
+                    
+                    const cardName = (permanent.card?.name || "").toLowerCase();
+                    const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
+                    
+                    // Leyline Tyrant - Red mana doesn't empty
+                    // Oracle text: "You don't lose unspent red mana as steps and phases end."
+                    if (cardName.includes("leyline tyrant") ||
+                        (oracleText.includes("red mana") && (oracleText.includes("don't lose") || oracleText.includes("doesn't empty")))) {
+                      retainsRedMana = true;
+                      console.log(`${ts()} [END_COMBAT] ${playerId} has Leyline Tyrant - firebending red mana preserved`);
+                      break;
+                    }
+                    
+                    // Ozai - mana becomes red instead of emptying
+                    if (cardName.includes("ozai") || 
+                        (oracleText.includes("lose unspent mana") && oracleText.includes("becomes red instead"))) {
+                      hasOzaiEffect = true;
+                      console.log(`${ts()} [END_COMBAT] ${playerId} has Ozai - firebending red mana converts to red (already red, so preserved)`);
+                    }
+                  }
+                  
+                  // Firebending mana is red, so:
+                  // - Leyline Tyrant keeps it
+                  // - Ozai converts it to red (already red, so effectively keeps it)
+                  if (retainsRedMana || hasOzaiEffect) {
+                    console.log(`${ts()} [END_COMBAT] Firebending mana (${amount} red) preserved due to mana retention effect`);
+                    // Don't clear the mana, just reset the firebending tracking
+                  } else {
+                    // Remove firebending red mana from pool
+                    manaPool.red = Math.max(0, (manaPool.red || 0) - amount);
+                    console.log(`${ts()} [END_COMBAT] Cleared ${amount} firebending red mana from ${playerId}`);
+                  }
+                }
+              }
+            }
+            // Reset firebending tracking (regardless of whether mana was kept)
+            (ctx as any).state.firebendingMana = {};
+          }
         }
         
         // Rule 513.1: End step - "at the beginning of your end step" triggers

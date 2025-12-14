@@ -484,6 +484,17 @@ export interface GameState {
     playerId: PlayerID;
     sourceId: string;
     sourceName?: string;
+    controller?: 'opponent' | 'any' | 'you';
+  }>;
+  /**
+   * Pending damage triggers awaiting target selection (Brash Taunter, etc.)
+   */
+  pendingDamageTriggers?: Record<string, {
+    sourceId: string;
+    sourceName: string;
+    controller: PlayerID;
+    damageAmount: number;
+    triggerType: string;
   }>;
   /**
    * Pending attack triggers awaiting player's mana payment decision.
@@ -507,6 +518,32 @@ export interface GameState {
    * Pending counter movements between permanents.
    */
   pendingCounterMovements?: Record<string, any>;
+  /**
+   * Control change effects for temporary "gain control" effects.
+   * Tracks which permanents have had their controller changed and need cleanup.
+   */
+  controlChangeEffects?: Array<{
+    permanentId: string;
+    originalController: PlayerID;
+    newController: PlayerID;
+    duration: string;
+    appliedAt: number;
+  }>;
+  /**
+   * Pending control change activations awaiting opponent selection.
+   * Maps activation ID to activation details.
+   */
+  pendingControlChangeActivations?: Record<string, {
+    playerId: PlayerID;
+    permanentId: string;
+    cardName: string;
+    drawCards?: number;
+  }>;
+  /**
+   * Firebending mana tracking - tracks red mana from firebending that lasts until end of combat.
+   * Maps playerId to amount of firebending red mana in their pool.
+   */
+  firebendingMana?: Record<PlayerID, number>;
 }
 
 /* Player protection state for effects like Teferi's Protection */

@@ -41,6 +41,8 @@ export enum CastingRestrictionType {
   
   // Timing restrictions
   SORCERY_SPEED_ONLY = 'sorcery_speed_only',       // Teferi, Time Raveler
+  OPPONENTS_TURN_ONLY = 'opponents_turn_only',     // Delirium, etc.
+  YOUR_TURN_ONLY = 'your_turn_only',               // Most sorceries
   
   // Source restrictions
   HAND_ONLY = 'hand_only',                         // Drannith Magistrate
@@ -585,3 +587,152 @@ export const COMMON_RESTRICTION_CARDS = [
 ] as const;
 
 export type RestrictionCardName = typeof COMMON_RESTRICTION_CARDS[number];
+
+/**
+ * Spell timing restriction result
+ */
+export interface SpellTimingRestriction {
+  readonly canCast: boolean;
+  readonly reason?: string;
+  readonly requiresOpponentsTurn?: boolean;
+  readonly requiresOwnTurn?: boolean;
+  readonly requiresCreatureTarget?: string; // Controller requirement for creature targets
+}
+
+/**
+ * Check timing restrictions from a card's oracle text
+ * Handles patterns like:
+ * - "Cast this spell only during an opponent's turn" (Delirium)
+ * - "Cast this spell only during your turn"
+ * - "Cast this spell only before attackers are declared"
+ * 
+ * @param oracleText - The spell's oracle text
+ * @param currentPlayerId - The player attempting to cast
+ * @param activePlayerId - The player whose turn it is
+ * @param gameState - Optional game state for additional context
+ * @returns Timing restriction check result
+ */
+export function checkSpellTimingRestriction(
+  oracleText: string,
+  currentPlayerId: string,
+  activePlayerId: string,
+  gameState?: GameState
+): SpellTimingRestriction {
+  const text = (oracleText || '').toLowerCase();
+  
+  // Pattern: "Cast this spell only during an opponent's turn"
+  if (text.includes('cast this spell only during an opponent\'s turn') ||
+      text.includes('cast only during an opponent\'s turn')) {
+    const isOpponentsTurn = currentPlayerId !== activePlayerId;
+    if (!isOpponentsTurn) {
+      return {
+        canCast: false,
+        reason: 'This spell can only be cast during an opponent\'s turn',
+        requiresOpponentsTurn: true,
+      };
+    }
+    return { canCast: true, requiresOpponentsTurn: true };
+  }
+  
+  // Pattern: "Cast this spell only during your turn"
+  if (text.includes('cast this spell only during your turn') ||
+      text.includes('cast only during your turn')) {
+    const isOwnTurn = currentPlayerId === activePlayerId;
+    if (!isOwnTurn) {
+      return {
+        canCast: false,
+        reason: 'This spell can only be cast during your turn',
+        requiresOwnTurn: true,
+      };
+    }
+    return { canCast: true, requiresOwnTurn: true };
+  }
+  
+  // Pattern: "Cast this spell only before attackers are declared"
+  if (text.includes('cast this spell only before attackers are declared') ||
+      text.includes('cast only before attackers')) {
+    const phase = (gameState?.phase || '').toString().toLowerCase();
+    const step = (gameState?.step || '').toString().toLowerCase();
+    const isCombat = phase.includes('combat') || step.includes('attack') || step.includes('block');
+    
+    if (isCombat) {
+      return {
+        canCast: false,
+        reason: 'This spell can only be cast before attackers are declared',
+      };
+    }
+    return { canCast: true };
+  }
+  
+  // No timing restrictions found
+  return { canCast: true };
+}
+
+/**
+ * Check if a spell requires specific targets and if those targets exist
+ * Handles patterns like:
+ * - "Tap target creature that player controls" (Delirium)
+ * - Target restrictions based on the current turn
+ * 
+ * @param oracleText - The spell's oracle text
+ * @param gameState - The game state
+ * @param currentPlayerId - The player attempting to cast
+ * @returns Whether valid targets exist for the spell
+ */
+export function hasValidTargetsForSpell(
+  oracleText: string,
+  gameState: GameState,
+  currentPlayerId: string
+): { hasTargets: boolean; reason?: string } {
+  const text = (oracleText || '').toLowerCase();
+  
+  // Pattern for Delirium: needs creatures controlled by the opponent whose turn it is
+  // "Tap target creature that player controls"
+  if (text.includes('cast this spell only during an opponent\'s turn') &&
+      text.includes('target creature that player controls')) {
+    const activePlayerId = gameState.turnPlayer || gameState.players[gameState.activePlayerIndex || 0]?.id;
+    
+    // Find creatures controlled by the active player (the opponent whose turn it is)
+    const opponentCreatures = gameState.battlefield.filter(perm => {
+      const typeLine = ((perm.card as any)?.type_line || '').toLowerCase();
+      return typeLine.includes('creature') && perm.controller === activePlayerId;
+    });
+    
+    if (opponentCreatures.length === 0) {
+      return {
+        hasTargets: false,
+        reason: 'The opponent whose turn it is controls no creatures',
+      };
+    }
+    
+    return { hasTargets: true };
+  }
+  
+  // Generic "target creature" check
+  if (text.includes('target creature')) {
+    const creatures = gameState.battlefield.filter(perm => {
+      const typeLine = ((perm.card as any)?.type_line || '').toLowerCase();
+      return typeLine.includes('creature');
+    });
+    
+    if (creatures.length === 0) {
+      return {
+        hasTargets: false,
+        reason: 'No creatures on the battlefield',
+      };
+    }
+  }
+  
+  // Generic "target opponent" check
+  if (text.includes('target opponent')) {
+    const opponents = gameState.players.filter(p => p.id !== currentPlayerId);
+    if (opponents.length === 0) {
+      return {
+        hasTargets: false,
+        reason: 'No opponents',
+      };
+    }
+  }
+  
+  return { hasTargets: true };
+}

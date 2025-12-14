@@ -36,7 +36,8 @@ export type TargetRestrictionType =
   | 'entered_this_turn'                  // "target creature that entered the battlefield this turn"
   | 'tapped'                             // "target tapped creature"
   | 'untapped'                           // "target untapped creature"
-  | 'has_keyword';                       // "target creature with flying" (Atraxa's Fall, Wing Snare)
+  | 'has_keyword'                        // "target creature with flying" (Atraxa's Fall, Wing Snare)
+  | 'controlled_by_active_player';       // Delirium: "target creature that player controls" (where "that player" = opponent whose turn it is)
 
 export interface TargetRestriction {
   type: TargetRestrictionType;
@@ -513,6 +514,29 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
     return { op: 'TARGET_CREATURE', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetRestriction: restriction, targetDescription: 'untapped creature' };
   }
 
+  // Pattern: "target creature that player controls" with "cast only during an opponent's turn" (Delirium)
+  // Delirium: "Cast this spell only during an opponent's turn. Tap target creature that player controls.
+  //           That creature deals damage equal to its power to the player."
+  // "that player" refers to the opponent whose turn it is
+  if (/cast (?:this spell )?only during an opponent's turn/i.test(t) && 
+      /target creature that player controls/i.test(t)) {
+    const restriction: TargetRestriction = {
+      type: 'controlled_by_active_player',
+      description: 'controlled by the opponent whose turn it is',
+    };
+    
+    // Delirium taps and deals damage, but we'll categorize as TARGET_CREATURE
+    // The spell resolution handles the actual tap+damage effect
+    return { 
+      op: 'TARGET_CREATURE', 
+      filter: 'CREATURE', 
+      minTargets: 1, 
+      maxTargets: 1, 
+      targetRestriction: restriction,
+      targetDescription: 'creature that player controls',
+    };
+  }
+
   // Pattern: "target creature with [keyword]" (Atraxa's Fall, Wing Snare, Aerial Predation, etc.)
   // Keywords: flying, reach, deathtouch, lifelink, trample, vigilance, haste, etc.
   const keywordAbilities = ['flying', 'reach', 'deathtouch', 'lifelink', 'trample', 'vigilance', 'haste', 
@@ -833,6 +857,15 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
         case 'untapped': {
           // Check if the creature is untapped
           meetsRestriction = !(p as any).tapped;
+          break;
+        }
+        
+        case 'controlled_by_active_player': {
+          // Delirium: "target creature that player controls" where "that player" = opponent whose turn it is
+          // The creature must be controlled by the active player (turnPlayer)
+          const activePlayerId = (state as any).turnPlayer || 
+                                state.players[(state as any).activePlayerIndex || 0]?.id;
+          meetsRestriction = p.controller === activePlayerId;
           break;
         }
         

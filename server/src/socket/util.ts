@@ -23,6 +23,7 @@ import { canRespond, canAct } from "../state/modules/can-respond.js";
 import { parseManaCost as parseManaFromString, canPayManaCost, getManaPoolFromState, getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
 import { calculateCostReduction, applyCostReduction } from "./game-actions.js";
+import { checkSpellTimingRestriction, hasValidTargetsForSpell } from "../../../rules-engine/src/castingRestrictions.js";
 
 // ============================================================================
 // Constants
@@ -248,11 +249,60 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
       for (const card of zones.hand) {
         if (!card || typeof card === "string") continue;
         
+        // Skip DFC back faces - these are not directly castable
+        // Transform, modal_dfc, and double_faced_token cards have card_faces array
+        // The back face (index 1) cannot be cast directly from hand
+        const layout = (card as any).layout;
+        const cardFaces = (card as any).card_faces;
+        if (layout === 'transform' || layout === 'modal_dfc' || layout === 'double_faced_token') {
+          // Check if this card IS the back face by comparing to card_faces[1]
+          // For cards in hand, we should only allow casting the front face
+          // If the card has no mana_cost, it's likely the back face
+          const manaCost = card.mana_cost;
+          if (!manaCost && cardFaces && cardFaces.length >= 2) {
+            // No mana cost means this might be a back face or a transformed state
+            // Check if the front face has a mana cost
+            const frontFace = cardFaces[0];
+            if (frontFace?.mana_cost) {
+              console.log(`[getPlayableCardIds] Skipping back face of DFC: ${card.name}`);
+              continue; // This is the back face, skip it
+            }
+          }
+        }
+        
         const typeLine = (card.type_line || "").toLowerCase();
         const oracleText = (card.oracle_text || "").toLowerCase();
         
         // Skip lands - they're checked separately
         if (typeLine.includes("land")) continue;
+        
+        // Check for special casting timing restrictions
+        // Example: Delirium - "Cast this spell only during an opponent's turn"
+        const turnPlayer = state.turnPlayer;
+        const timingRestriction = checkSpellTimingRestriction(
+          card.oracle_text || "",
+          playerId,
+          turnPlayer,
+          state as any
+        );
+        
+        if (!timingRestriction.canCast) {
+          console.log(`[getPlayableCardIds] Card ${card.name} blocked by timing restriction: ${timingRestriction.reason}`);
+          continue;
+        }
+        
+        // Check for target availability
+        // Example: Delirium requires a creature controlled by the opponent whose turn it is
+        const targetCheck = hasValidTargetsForSpell(
+          card.oracle_text || "",
+          state as any,
+          playerId
+        );
+        
+        if (!targetCheck.hasTargets) {
+          console.log(`[getPlayableCardIds] Card ${card.name} blocked - no valid targets: ${targetCheck.reason}`);
+          continue;
+        }
         
         // Check if it's instant-speed (instant or flash)
         const isInstantSpeed = typeLine.includes("instant") || oracleText.includes("flash");

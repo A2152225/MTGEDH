@@ -1607,6 +1607,58 @@ function canActivateSorcerySpeedAbility(ctx: GameContext, playerId: PlayerID): b
           }
         }
       }
+      
+      // Check for planeswalker loyalty abilities (sorcery-speed by default)
+      // Loyalty abilities use [+N]:, [-N]:, or [0]: format
+      const typeLine = (permanent.card?.type_line || "").toLowerCase();
+      if (typeLine.includes("planeswalker")) {
+        // Check if the planeswalker has already activated a loyalty ability this turn
+        const activationsThisTurn = (permanent as any).loyaltyActivationsThisTurn || 0;
+        
+        // Check for Chain Veil or similar effects that allow more activations
+        let maxActivations = 1;
+        for (const otherPerm of battlefield) {
+          if (otherPerm.controller !== playerId) continue;
+          const otherName = (otherPerm.card?.name || "").toLowerCase();
+          const otherOracle = (otherPerm.card?.oracle_text || "").toLowerCase();
+          
+          // The Chain Veil: "For each planeswalker you control, you may activate one of its loyalty abilities once"
+          if (otherName.includes("chain veil") || 
+              (otherOracle.includes("activate") && otherOracle.includes("loyalty abilities") && otherOracle.includes("additional"))) {
+            maxActivations = 2;
+            break;
+          }
+        }
+        
+        if (activationsThisTurn < maxActivations) {
+          // Get current loyalty
+          const loyaltyString = (permanent.card as any)?.loyalty;
+          const currentLoyalty = (permanent as any).loyaltyCounters ?? (permanent as any).loyalty ?? 
+                                  (loyaltyString ? parseInt(String(loyaltyString), 10) : 0);
+          
+          // Check if any loyalty ability can be activated
+          // Pattern: [+N]:, [-N]:, [0]:
+          const loyaltyPattern = /\[([+-]?)(\d+|X)\]:\s*/gi;
+          let match;
+          while ((match = loyaltyPattern.exec(oracleText)) !== null) {
+            const sign = match[1];
+            const cost = match[2];
+            
+            if (sign === '+' || sign === '' || cost === '0') {
+              // Plus ability or zero ability - always usable (adds or doesn't change loyalty)
+              return true;
+            } else if (sign === '-') {
+              // Minus ability - check if we have enough loyalty
+              // For -X abilities, the player chooses X, so X can be 0 or any value up to current loyalty
+              // This means -X abilities are always activatable (player can choose X=0)
+              const numericCost = cost === 'X' ? 0 : parseInt(cost, 10);
+              if (currentLoyalty >= numericCost) {
+                return true;
+              }
+            }
+          }
+        }
+      }
     }
     
     return false;

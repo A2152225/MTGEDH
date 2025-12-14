@@ -2427,6 +2427,29 @@ export function resolveTopOfStack(ctx: GameContext) {
     }
   }
   
+  // For transform DFCs (Ill-Tempered Loner, etc.), always use front face (face 0) properties when casting
+  // The back face cannot be cast directly - it's only accessed via transformation
+  if (card && ((card as any).layout === 'transform' || (card as any).layout === 'double_faced_token') && 
+      Array.isArray((card as any).card_faces)) {
+    const faces = (card as any).card_faces;
+    const frontFace = faces[0];
+    if (frontFace) {
+      effectiveTypeLine = frontFace.type_line || effectiveTypeLine;
+      // Create an effective card object that ensures front face P/T are used
+      effectiveCard = {
+        ...card,
+        type_line: frontFace.type_line || card.type_line,
+        oracle_text: frontFace.oracle_text || card.oracle_text,
+        mana_cost: frontFace.mana_cost || card.mana_cost,
+        power: frontFace.power || card.power,
+        toughness: frontFace.toughness || card.toughness,
+        loyalty: frontFace.loyalty || card.loyalty,
+        name: frontFace.name || card.name,
+      };
+      console.log(`[resolveTopOfStack] Transform DFC ${effectiveCard.name}: using front face P/T ${frontFace.power}/${frontFace.toughness}`);
+    }
+  }
+  
   // Handle activated abilities (like fetch lands)
   if ((item as any).type === 'ability') {
     const abilityType = (item as any).abilityType;
@@ -2656,6 +2679,36 @@ export function resolveTopOfStack(ctx: GameContext) {
       if (!isNaN(startingLoyalty)) {
         initialCounters.loyalty = startingLoyalty;
         console.log(`[resolveTopOfStack] Planeswalker ${effectiveCard.name} enters with ${startingLoyalty} loyalty`);
+      }
+    }
+    
+    // Special handling for Jeska, Thrice Reborn and similar cards
+    // "Jeska enters with a loyalty counter on her for each time you've cast a commander from the command zone this game."
+    const oracleTextLower = ((effectiveCard.oracle_text || "")).toLowerCase();
+    if (isPlaneswalker && (
+      oracleTextLower.includes("enters with a loyalty counter") && 
+      oracleTextLower.includes("for each time") && 
+      oracleTextLower.includes("commander from the command zone")
+    )) {
+      // Count commander casts from tax
+      // Per MTG rules, commander tax increases by {2} for each time the commander has been cast
+      // from the command zone. Therefore, tax / 2 = number of times cast from command zone.
+      const commandZone = (state as any).commandZone?.[controller];
+      let totalCommanderCasts = 0;
+      
+      if (commandZone?.taxById) {
+        // Sum up all commander casts: (tax / 2) for each commander in the command zone
+        for (const [, tax] of Object.entries(commandZone.taxById)) {
+          const taxNumber = typeof tax === 'number' ? tax : 0;
+          // Commander tax = 2 * number_of_casts, so casts = tax / 2
+          totalCommanderCasts += Math.floor(taxNumber / 2);
+        }
+      }
+      
+      // Add loyalty for each commander cast (including Jeska herself if she was just cast from command zone)
+      if (totalCommanderCasts > 0) {
+        initialCounters.loyalty = (initialCounters.loyalty || 0) + totalCommanderCasts;
+        console.log(`[resolveTopOfStack] ${effectiveCard.name} (Jeska-style): enters with ${totalCommanderCasts} additional loyalty for commander casts`);
       }
     }
     
@@ -5121,8 +5174,14 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
           mandatory: trigger.mandatory,
           effect: trigger.effect,
           requiresChoice: trigger.requiresChoice,
+          // Include target requirement info for triggers like Geode Rager
+          requiresTarget: trigger.requiresTarget,
+          targetType: trigger.targetType,
+          // Modal options for choose X triggers
+          isModal: trigger.isModal,
+          modalOptions: trigger.modalOptions,
         } as any);
-        console.log(`[playLand] ⚡ Pushed landfall trigger onto stack: ${trigger.cardName} - ${trigger.effect}`);
+        console.log(`[playLand] ⚡ Pushed landfall trigger onto stack: ${trigger.cardName} - ${trigger.effect}${trigger.requiresTarget ? ` (requires ${trigger.targetType} target)` : ''}`);
       }
     }
   } catch (err) {

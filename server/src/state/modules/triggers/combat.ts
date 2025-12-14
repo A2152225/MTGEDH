@@ -185,6 +185,24 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
     });
   }
   
+  // Firebending N - Avatar set mechanic
+  // Pattern: "Firebending N" or "firebending N"
+  // Effect: "Whenever this creature attacks, add {R}{R}... (N times). This mana lasts until end of combat."
+  const firebendingMatch = oracleText.match(/firebending\s+(\d+)/i);
+  if (firebendingMatch) {
+    const n = parseInt(firebendingMatch[1], 10);
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'firebending',
+      description: `Add ${'{R}'.repeat(n)} (until end of combat)`,
+      effect: `add_red_mana`,
+      value: n,
+      mandatory: true,
+      requiresTarget: false,
+    });
+  }
+  
   // Melee
   if (lowerOracle.includes("melee")) {
     triggers.push({

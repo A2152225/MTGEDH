@@ -1546,10 +1546,34 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         message: `${getPlayerName(game, pid)} created a token copy of ${cardName} using ${abilityId}.`,
         ts: Date.now(),
       });
-    } else if (abilityId === "return-from-graveyard" || abilityId === "graveyard-activated") {
-      // Generic return from graveyard ability (like Summon the School)
-      // Parse the oracle text to determine the destination
+    } else if (abilityId === "return-from-graveyard" || abilityId === "graveyard-activated" || abilityId.includes("-return-")) {
+      // Generic return from graveyard ability (like Magma Phoenix, Summon the School)
+      // Parse the oracle text to determine the destination and mana cost
       const oracleText = (card.oracle_text || "").toLowerCase();
+      
+      // Parse mana cost from oracle text for graveyard abilities
+      // Pattern: "{3}{R}{R}: Return this card from your graveyard to your hand"
+      const graveyardAbilityMatch = oracleText.match(/(\{[^}]+\}(?:\{[^}]+\})*)\s*:\s*return\s+(?:this|~|(?:this card|it))\s+from\s+(?:your\s+)?graveyard\s+to\s+(?:your\s+)?hand/i);
+      
+      if (graveyardAbilityMatch) {
+        const manaCost = graveyardAbilityMatch[1];
+        const parsedCost = parseManaCost(manaCost);
+        const pool = getOrInitManaPool(game.state, pid);
+        const totalAvailable = calculateTotalAvailableMana(pool, []);
+        
+        // Validate mana payment
+        const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+        if (validationError) {
+          socket.emit("error", {
+            code: "INSUFFICIENT_MANA",
+            message: `Cannot pay ${manaCost}: ${validationError}`,
+          });
+          return;
+        }
+        
+        // Consume mana
+        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[activateGraveyardAbility:${cardName}]`);
+      }
       
       // Check for search library effects in the ability
       const tutorInfo = detectTutorEffect(card.oracle_text || "");
@@ -2691,25 +2715,63 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const isEquipment = typeLine.includes("equipment");
     const isEquipAbility = abilityId.includes("equip") || (isEquipment && oracleText.includes("equip"));
     if (isEquipAbility) {
-      // Get valid target creatures
+      // Parse all equip abilities from oracle text to match the one being activated
+      // Format: "Equip [type] [creature] {cost}" e.g., "Equip legendary creature {3}" or "Equip {7}"
+      // Note: Use [a-zA-Z] to match both upper and lower case creature types (Knight, Legendary, etc.)
+      const equipRegex = /equip(?:\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?))?(?:\s+creature)?\s*(\{[^}]+\}(?:\{[^}]+\})*)/gi;
+      const equipAbilities: { type: string | null; cost: string; index: number }[] = [];
+      let equipMatch;
+      let index = 0;
+      while ((equipMatch = equipRegex.exec(oracleText)) !== null) {
+        const conditionalType = equipMatch[1]?.trim() || null; // "legendary", "Knight", etc.
+        const cost = equipMatch[2];
+        equipAbilities.push({ type: conditionalType, cost, index: index++ });
+      }
+      
+      // Extract which equip ability was selected from abilityId
+      // Format: "{cardId}-equip-{index}" e.g., "card123-equip-0" or "card123-equip-1"
+      let selectedAbilityIndex = 0;
+      const abilityIndexMatch = abilityId.match(/-equip-(\d+)$/i);
+      if (abilityIndexMatch) {
+        selectedAbilityIndex = parseInt(abilityIndexMatch[1], 10);
+      }
+      
+      // Get the selected equip ability or default to the first one
+      const selectedEquip = equipAbilities[selectedAbilityIndex] || equipAbilities[0] || { type: null, cost: "{0}", index: 0 };
+      const equipCost = selectedEquip.cost;
+      const equipType = selectedEquip.type; // "legendary", "Knight", etc. or null for generic equip
+      
+      // Get valid target creatures based on equip type restriction
       const validTargets = battlefield.filter((p: any) => {
         if (p.controller !== pid) return false;
         const pTypeLine = (p.card?.type_line || "").toLowerCase();
-        return pTypeLine.includes("creature");
+        if (!pTypeLine.includes("creature")) return false;
+        
+        // If there's a type restriction (e.g., "legendary"), filter by it
+        if (equipType) {
+          // Handle common patterns:
+          // "legendary" -> must have "legendary" in type_line
+          // "legendary creature" -> same as "legendary"
+          // "Knight", "Soldier" -> must have that creature type
+          const typeRestriction = equipType.toLowerCase().replace(/\s+creature$/, '');
+          if (!pTypeLine.includes(typeRestriction)) {
+            return false;
+          }
+        }
+        
+        return true;
       });
 
       if (validTargets.length === 0) {
         socket.emit("error", {
           code: "NO_VALID_TARGETS",
-          message: "You have no creatures to equip",
+          message: equipType 
+            ? `You have no ${equipType} creatures to equip`
+            : "You have no creatures to equip",
         });
         return;
       }
 
-      // Parse equip cost from oracle text
-      const equipCostMatch = oracleText.match(/equip\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
-      const equipCost = equipCostMatch ? equipCostMatch[1] : "{0}";
-      
       // Store pending equip activation for when target is chosen
       // IMPORTANT: Preserve permanent/card info to prevent issues during target > pay workflow
       const effectId = `equip_${permanentId}_${Date.now()}`;
@@ -2718,6 +2780,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         equipmentId: permanentId,
         equipmentName: cardName,
         equipCost,
+        equipType, // Store the type restriction for logging
         playerId: pid,
         permanent: { ...permanent }, // Copy full permanent object
         validTargetIds: validTargets.map((c: any) => c.id),
@@ -2729,6 +2792,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         equipmentId: permanentId,
         equipmentName: cardName,
         equipCost,
+        equipType, // Include type restriction for display
         imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
         effectId, // Include effectId for tracking
         validTargets: validTargets.map((c: any) => ({
@@ -2740,7 +2804,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         })),
       });
       
-      console.log(`[activateBattlefieldAbility] Equip ability on ${cardName}: prompting for target selection (effectId: ${effectId})`);
+      console.log(`[activateBattlefieldAbility] Equip ability on ${cardName}: cost=${equipCost}, type=${equipType || 'any'}, prompting for target selection (effectId: ${effectId})`);
       return;
     }
     
@@ -2960,15 +3024,19 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               game.bumpSeq();
             }
             
-            appendEvent(gameId, (game as any).seq ?? 0, "aiControlChangeOpponent", {
-              playerId: pid,
-              activationId,
-              permanentId: pending.permanentId,
-              cardName: pending.cardName,
-              oldController,
-              newController: randomOpponent.id,
-              drewCards: pending.drawCards || 0,
-            }).catch(e => console.warn('[AI] Failed to persist AI control change event:', e));
+            try {
+              appendEvent(gameId, (game as any).seq ?? 0, "aiControlChangeOpponent", {
+                playerId: pid,
+                activationId,
+                permanentId: pending.permanentId,
+                cardName: pending.cardName,
+                oldController,
+                newController: randomOpponent.id,
+                drewCards: pending.drawCards || 0,
+              });
+            } catch (e) {
+              console.warn('[AI] Failed to persist AI control change event:', e);
+            }
             
             broadcastGame(io, game, gameId);
           }, 500); // 500ms delay for AI thinking
@@ -2982,6 +3050,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     
     // Handle Fight abilities (Brash Taunter, etc.)
     // Pattern: "{Cost}: This creature fights target creature you don't control"
+    // Pattern: "{Cost}: This creature fights another target creature" (can target any creature)
     const hasFightAbility = oracleText.includes("fights") || oracleText.includes("fight");
     const isFightAbility = hasFightAbility && (abilityId.includes("fight") || oracleText.match(/\{[^}]+\}[^:]*:\s*[^.]*fights?/i));
     
@@ -3020,6 +3089,19 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Generate activation ID
       const activationId = `fight_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       
+      // Determine fight target restrictions from oracle text
+      // "another target creature" = any creature except itself
+      // "target creature you don't control" = opponent's creatures only
+      // "target creature" = typically opponent's creatures unless specified otherwise
+      let fightController: 'opponent' | 'any' | 'you' = 'any';
+      if (oracleText.includes("you don't control") || oracleText.includes("you do not control")) {
+        fightController = 'opponent';
+      } else if (oracleText.includes("another target creature") || oracleText.includes("fights another target")) {
+        fightController = 'any'; // Can fight any creature including your own
+      } else if (oracleText.includes("target creature you control")) {
+        fightController = 'you';
+      }
+      
       // Store pending fight activation
       if (!game.state.pendingFightActivations) {
         game.state.pendingFightActivations = {};
@@ -3028,6 +3110,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         playerId: pid,
         sourceId: permanentId,
         sourceName: cardName,
+        controller: fightController,
       };
       
       // Emit target selection request to client
@@ -3041,14 +3124,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         },
         targetFilter: {
           types: ['creature'],
-          controller: 'opponent', // Fight abilities typically target opponent's creatures
+          controller: fightController,
           excludeSource: true,
         },
         title: `${cardName} - Fight`,
         description: oracleText,
       });
       
-      console.log(`[activateBattlefieldAbility] Fight ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for target creature`);
+      console.log(`[activateBattlefieldAbility] Fight ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for target creature (controller: ${fightController})`);
       broadcastGame(io, game, gameId);
       return;
     }
@@ -3864,8 +3947,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     console.log(`[activateBattlefieldAbility] Processing ability ${abilityId} on ${cardName}`);
     
     // Parse the ability from oracle text if possible
-    const abilityParts = abilityId.split('_');
-    const abilityIndex = abilityParts.length > 1 ? parseInt(abilityParts[1], 10) : 0;
+    // Ability ID format is: "{cardId}-{abilityType}-{index}" e.g., "card123-ability-0" or "card123-mana-r-0"
+    // Extract the ability index from the end of the abilityId
+    let abilityIndex = 0;
+    const abilityMatch = abilityId.match(/-(\d+)$/);
+    if (abilityMatch) {
+      abilityIndex = parseInt(abilityMatch[1], 10);
+      if (isNaN(abilityIndex)) abilityIndex = 0;
+    }
     
     // Extract ability text by parsing oracle text for activated abilities
     let abilityText = "";
@@ -6396,6 +6485,65 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     targetCreature.damageMarked = (targetCreature.damageMarked || 0) + sourcePower;
     
     console.log(`[fightTargetChosen] ${pendingFight.sourceName} (power ${sourcePower}) fights ${targetCreature.card?.name} (power ${targetPower})`);
+    
+    // Check for "dealt damage" triggers on the source creature
+    // Brash Taunter: "Whenever this creature is dealt damage, it deals that much damage to target opponent."
+    // Ill-Tempered Loner: "Whenever this creature is dealt damage, it deals that much damage to any target."
+    // Wrathful Red Dragon: "Whenever a Dragon you control is dealt damage, it deals that much damage to any target that isn't a Dragon."
+    const checkDamageDealtTriggers = (damagedCreature: any, damageAmount: number, controller: string) => {
+      if (!damagedCreature || damageAmount <= 0) return;
+      
+      const oracleText = (damagedCreature.card?.oracle_text || "").toLowerCase();
+      const creatureName = damagedCreature.card?.name || "Unknown";
+      
+      // Pattern: "Whenever this creature is dealt damage" or "Whenever ~ is dealt damage"
+      if (oracleText.includes("whenever this creature is dealt damage") ||
+          oracleText.includes("whenever " + creatureName.toLowerCase() + " is dealt damage")) {
+        // Queue trigger for target selection
+        const triggerId = `damage_trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        game.state.pendingDamageTriggers = game.state.pendingDamageTriggers || {};
+        game.state.pendingDamageTriggers[triggerId] = {
+          sourceId: damagedCreature.id,
+          sourceName: creatureName,
+          controller: controller,
+          damageAmount: damageAmount,
+          triggerType: 'dealt_damage',
+        };
+        
+        // Determine target type from oracle text
+        let targetType = 'any'; // Default to any target
+        let targetRestriction = '';
+        if (oracleText.includes("target opponent")) {
+          targetType = 'opponent';
+          targetRestriction = 'opponent';
+        } else if (oracleText.includes("any target that isn't a dragon")) {
+          targetType = 'any_non_dragon';
+          targetRestriction = "that isn't a Dragon";
+        }
+        
+        // Emit trigger to player for target selection
+        socket.emit("damageTriggerTargetRequest", {
+          gameId,
+          triggerId,
+          source: {
+            id: damagedCreature.id,
+            name: creatureName,
+            imageUrl: damagedCreature.card?.image_uris?.small || damagedCreature.card?.image_uris?.normal,
+          },
+          damageAmount,
+          targetType,
+          targetRestriction,
+          title: `${creatureName} - Damage Trigger`,
+          description: `${creatureName} was dealt ${damageAmount} damage. Choose a target to deal ${damageAmount} damage to${targetRestriction ? ` (${targetRestriction})` : ''}.`,
+        });
+        
+        console.log(`[fightTargetChosen] Queued damage trigger from ${creatureName} for ${damageAmount} damage`);
+      }
+    };
+    
+    // Check triggers for both creatures
+    checkDamageDealtTriggers(sourceCreature, targetPower, sourceCreature.controller);
+    checkDamageDealtTriggers(targetCreature, sourcePower, targetCreature.controller);
     
     // Emit chat message
     io.to(gameId).emit("chat", {

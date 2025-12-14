@@ -939,6 +939,35 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 });
                 
                 console.log(`[combat] Attack trigger with mana payment for ${trigger.cardName}: ${trigger.manaCost} to ${trigger.effect}`);
+              } else if ((trigger.triggerType as string) === 'firebending') {
+                // Firebending - add red mana immediately, lasts until end of combat
+                const manaAmount = typeof trigger.value === 'number' ? trigger.value : 1;
+                
+                // Initialize mana pool if needed
+                game.state.manaPool = game.state.manaPool || {};
+                game.state.manaPool[playerId] = game.state.manaPool[playerId] || {
+                  white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+                };
+                
+                // Add red mana
+                game.state.manaPool[playerId].red = (game.state.manaPool[playerId].red || 0) + manaAmount;
+                
+                // Track firebending mana so it empties at end of combat
+                game.state.firebendingMana = game.state.firebendingMana || {};
+                game.state.firebendingMana[playerId] = (game.state.firebendingMana[playerId] || 0) + manaAmount;
+                
+                // Emit chat and mana pool update
+                io.to(gameId).emit("chat", {
+                  id: `m_${Date.now()}`,
+                  gameId,
+                  from: "system",
+                  message: `🔥 ${trigger.cardName}'s firebending adds ${'{R}'.repeat(manaAmount)} (until end of combat)`,
+                  ts: Date.now(),
+                });
+                
+                broadcastManaPoolUpdate(io, gameId, playerId, game.state.manaPool[playerId] as any, `Firebending from ${trigger.cardName}`, game);
+                
+                console.log(`[combat] Firebending trigger from ${trigger.cardName}: added ${manaAmount} red mana`);
               } else {
                 // Regular trigger - push onto stack immediately
                 game.state.stack = game.state.stack || [];
