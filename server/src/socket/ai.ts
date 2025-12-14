@@ -1426,29 +1426,48 @@ function findCastableSpells(game: any, playerId: PlayerID): any[] {
   const zones = game.state?.zones?.[playerId];
   const hand = Array.isArray(zones?.hand) ? zones.hand : [];
   
+  // Debug: Log the hand contents to help diagnose issues
+  if (hand.length === 0) {
+    console.info('[AI] findCastableSpells: Hand is empty');
+    return [];
+  }
+  
+  console.info(`[AI] findCastableSpells: Checking ${hand.length} cards in hand`);
+  
   // Use shared mana calculation
   const manaPool = getAvailableMana(game.state, playerId);
+  const totalMana = getTotalManaFromPool(manaPool);
+  
+  console.info('[AI] Available mana pool:', { 
+    total: totalMana, 
+    colors: manaPool 
+  });
   
   const castable: any[] = [];
+  const uncostable: { name: string; manaCost: string; reason: string }[] = [];
   
   for (const card of hand) {
     const typeLine = (card?.type_line || '').toLowerCase();
+    const cardName = card?.name || 'Unknown';
     
     // Skip lands
-    if (typeLine.includes('land')) continue;
+    if (typeLine.includes('land')) {
+      continue;
+    }
     
     // Skip cards without mana cost (usually special cards)
     const manaCost = card?.mana_cost;
-    if (!manaCost) continue;
+    if (!manaCost) {
+      uncostable.push({ name: cardName, manaCost: 'none', reason: 'no mana cost' });
+      continue;
+    }
     
     // Parse cost using shared function
     const parsedCost = parseManaCost(manaCost);
+    const cmc = parsedCost.generic + Object.values(parsedCost.colors).reduce((a, b) => a + b, 0);
     
     // Check if we can afford it using shared function
     if (canPayManaCost(manaPool, parsedCost)) {
-      // Calculate CMC for priority calculation
-      const cmc = parsedCost.generic + Object.values(parsedCost.colors).reduce((a, b) => a + b, 0);
-      
       castable.push({
         card,
         cost: parsedCost,
@@ -1456,6 +1475,25 @@ function findCastableSpells(game: any, playerId: PlayerID): any[] {
         typeLine,
         priority: calculateSpellPriority(card, game, playerId),
       });
+    } else {
+      // Log why we can't cast this spell
+      uncostable.push({ 
+        name: cardName, 
+        manaCost, 
+        reason: `need ${cmc} mana (have ${totalMana}), colors: ${JSON.stringify(parsedCost.colors)}`
+      });
+    }
+  }
+  
+  // Log summary
+  if (castable.length > 0) {
+    console.info(`[AI] findCastableSpells: Found ${castable.length} castable spell(s):`, 
+      castable.map(s => `${s.card.name} (CMC ${s.cmc}, priority ${s.priority})`));
+  } else if (uncostable.length > 0) {
+    console.info(`[AI] findCastableSpells: No castable spells. Reasons:`,
+      uncostable.slice(0, 5).map(s => `${s.name}: ${s.reason}`));
+    if (uncostable.length > 5) {
+      console.info(`[AI] ... and ${uncostable.length - 5} more cards not castable`);
     }
   }
   
