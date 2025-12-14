@@ -210,6 +210,7 @@ Improve AI opponent selection:
 
 1. **Type Safety**: Some game state properties use `as any` casting
    - Solution: Define proper TypeScript interfaces for game state
+   - Affected areas: player objects, pendingControlChangeActivations
 
 2. **No Undo Support**: Control changes not integrated with undo system
    - Solution: Add control change events to undo tracking
@@ -219,6 +220,35 @@ Improve AI opponent selection:
 
 4. **No Temporary Control**: All control changes are permanent
    - Solution: Implement end-of-turn cleanup for temporary effects
+
+5. **Text Parsing Robustness**
+   - Current draw count parsing only handles "one" and "two"
+   - Fallback pattern matching could produce false positives
+   - Solution: Use more robust number parsing library and precise regex patterns
+
+6. **AI Delay Edge Cases**
+   - AI setTimeout doesn't check if game state changed during delay
+   - Solution: Validate game/permanent still exists before executing AI action
+
+7. **State Initialization**: controlChangeEffects not always initialized
+   - Solution: Initialize in game state constructor for consistency
+
+## Future Improvements Priority
+
+### High Priority
+- [ ] Add proper TypeScript interfaces for game state
+- [ ] Validate game state in AI timeout callbacks
+- [ ] Initialize controlChangeEffects in game constructor
+
+### Medium Priority
+- [ ] Improve number text parsing (handle three, four, five, etc.)
+- [ ] More precise regex for control change detection
+- [ ] Integrate with undo system
+
+### Low Priority
+- [ ] Smarter AI opponent selection
+- [ ] Support temporary control changes
+- [ ] Add logging/debugging improvements
 
 ## Related Cards
 
