@@ -53,6 +53,7 @@ import { CommanderZoneChoiceModal } from "./components/CommanderZoneChoiceModal"
 import { TapUntapTargetModal } from "./components/TapUntapTargetModal";
 import { CounterMovementModal } from "./components/CounterMovementModal";
 import { MultiModeActivationModal, type AbilityMode } from "./components/MultiModeActivationModal";
+import { PlayerTargetSelectionModal, type PlayerTarget } from "./components/PlayerTargetSelectionModal";
 import { PonderModal, type PeekCard, type PonderVariant } from "./components/PonderModal";
 import { ExploreModal, type ExploreCard } from "./components/ExploreModal";
 import { BatchExploreModal, type ExploreResult } from "./components/BatchExploreModal";
@@ -616,6 +617,26 @@ export function App() {
     permanentName: string;
     permanentImageUrl?: string;
     modes: AbilityMode[];
+  } | null>(null);
+  
+  // Control Change Opponent Selection Modal state - for Humble Defector, etc.
+  const [controlChangeOpponentModalOpen, setControlChangeOpponentModalOpen] = useState(false);
+  const [controlChangeOpponentModalData, setControlChangeOpponentModalData] = useState<{
+    activationId: string;
+    source: {
+      id: string;
+      name: string;
+      imageUrl?: string;
+    };
+    opponents: Array<{
+      id: string;
+      name: string;
+      life: number;
+      libraryCount?: number;
+      isOpponent: boolean;
+    }>;
+    title: string;
+    description: string;
   } | null>(null);
   
   // Mana Distribution Modal state - for Selvala, Heart of the Wilds, etc.
@@ -2038,6 +2059,43 @@ export function App() {
     socket.on("abilitySacrificeRequest", handler);
     return () => {
       socket.off("abilitySacrificeRequest", handler);
+    };
+  }, [safeView?.id]);
+
+  // Control change opponent selection listener (for Humble Defector, etc.)
+  React.useEffect(() => {
+    const handler = (payload: {
+      gameId: string;
+      activationId: string;
+      source: {
+        id: string;
+        name: string;
+        imageUrl?: string;
+      };
+      opponents: Array<{
+        id: string;
+        name: string;
+        life: number;
+        libraryCount?: number;
+        isOpponent: boolean;
+      }>;
+      title: string;
+      description: string;
+    }) => {
+      if (payload.gameId === safeView?.id) {
+        setControlChangeOpponentModalData({
+          activationId: payload.activationId,
+          source: payload.source,
+          opponents: payload.opponents,
+          title: payload.title,
+          description: payload.description,
+        });
+        setControlChangeOpponentModalOpen(true);
+      }
+    };
+    socket.on("controlChangeOpponentRequest", handler);
+    return () => {
+      socket.off("controlChangeOpponentRequest", handler);
     };
   }, [safeView?.id]);
 
@@ -4848,6 +4906,43 @@ export function App() {
         onCancel={() => {
           setMultiModeActivationModalOpen(false);
           setMultiModeActivationModalData(null);
+        }}
+      />
+
+      {/* Control Change Opponent Selection Modal (Humble Defector, etc.) */}
+      <PlayerTargetSelectionModal
+        open={controlChangeOpponentModalOpen}
+        title={controlChangeOpponentModalData?.title || "Choose Opponent"}
+        description={controlChangeOpponentModalData?.description}
+        source={{
+          name: controlChangeOpponentModalData?.source?.name || "",
+          imageUrl: controlChangeOpponentModalData?.source?.imageUrl,
+        }}
+        players={(controlChangeOpponentModalData?.opponents || []).map(opp => ({
+          id: opp.id,
+          name: opp.name,
+          life: opp.life,
+          libraryCount: opp.libraryCount,
+          isOpponent: true,
+          isSelf: false,
+        }))}
+        opponentOnly={true}
+        minTargets={1}
+        maxTargets={1}
+        onConfirm={(selectedPlayerIds) => {
+          if (controlChangeOpponentModalData && safeView && selectedPlayerIds.length > 0) {
+            socket.emit("confirmControlChangeOpponent", {
+              gameId: safeView.id,
+              activationId: controlChangeOpponentModalData.activationId,
+              targetOpponentId: selectedPlayerIds[0],
+            });
+            setControlChangeOpponentModalOpen(false);
+            setControlChangeOpponentModalData(null);
+          }
+        }}
+        onCancel={() => {
+          setControlChangeOpponentModalOpen(false);
+          setControlChangeOpponentModalData(null);
         }}
       />
 

@@ -14,10 +14,12 @@ export interface ActivatedAbilityConfig {
   readonly tapAbility?: {
     readonly cost: string;
     readonly effect: string;
-    readonly targetType?: 'player' | 'creature' | 'permanent' | 'spell' | 'self';
+    readonly targetType?: 'player' | 'creature' | 'permanent' | 'spell' | 'self' | 'opponent';
     readonly requiresType?: string;  // Creature type filter for tapping
     readonly requiresCount?: number; // Number of creatures to tap
     readonly stackInteraction?: boolean; // True if this ability targets the stack
+    readonly controlChange?: boolean; // True if this ability changes control of the permanent
+    readonly timingRestriction?: 'sorcery' | 'your_turn'; // Timing restrictions
   };
 }
 
@@ -89,6 +91,16 @@ export const ACTIVATED_ABILITY_CARDS: Record<string, ActivatedAbilityConfig> = {
       targetType: 'self',
       requiresType: 'Merfolk',
       requiresCount: 1,
+    },
+  },
+  'humble defector': {
+    cardName: 'Humble Defector',
+    tapAbility: {
+      cost: '{T}',
+      effect: 'Draw two cards. Target opponent gains control of Humble Defector.',
+      targetType: 'opponent',
+      controlChange: true,
+      timingRestriction: 'your_turn',
     },
   },
 };

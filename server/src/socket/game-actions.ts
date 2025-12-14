@@ -8237,6 +8237,71 @@ export function registerGameActions(io: Server, socket: Socket) {
     }
   });
 
+  // ==========================================================================
+  // CONTROL CHANGE (Humble Defector, Act of Treason, etc.)
+  // ==========================================================================
+  
+  /**
+   * Change control of a permanent from one player to another.
+   * Used by effects like Humble Defector, Act of Treason, Dominate, etc.
+   */
+  socket.on("changePermanentControl", ({ gameId, permanentId, newController, duration }: {
+    gameId: string;
+    permanentId: string;
+    newController: string;
+    duration?: 'permanent' | 'eot' | 'turn';
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      const battlefield = game.state?.battlefield || [];
+      const permanent = battlefield.find((p: any) => p && p.id === permanentId);
+      
+      if (!permanent) {
+        socket.emit("error", { code: "PERMANENT_NOT_FOUND", message: "Permanent not found" });
+        return;
+      }
+
+      const oldController = permanent.controller;
+      
+      // Change control
+      permanent.controller = newController;
+      
+      // Track control change for end-of-turn cleanup if temporary
+      if (duration === 'eot' || duration === 'turn') {
+        game.state.controlChangeEffects = game.state.controlChangeEffects || [];
+        game.state.controlChangeEffects.push({
+          permanentId,
+          originalController: oldController,
+          newController,
+          duration,
+          appliedAt: Date.now(),
+        });
+      }
+
+      const cardName = permanent.card?.name || 'a permanent';
+      const oldControllerName = getPlayerName(game, oldController);
+      const newControllerName = getPlayerName(game, newController);
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `🔄 Control of ${cardName} changed from ${oldControllerName} to ${newControllerName}${duration === 'eot' ? ' until end of turn' : ''}.`,
+        ts: Date.now(),
+      });
+
+      console.log(`[changePermanentControl] ${cardName} control changed from ${oldController} to ${newController}`);
+
+      broadcastGame(io, game, gameId);
+    } catch (err: any) {
+      console.error(`changePermanentControl error for game ${gameId}:`, err);
+      socket.emit("error", { code: "CONTROL_CHANGE_ERROR", message: err?.message ?? String(err) });
+    }
+  });
+
   /**
    * Handle player conceding the game.
    * 
