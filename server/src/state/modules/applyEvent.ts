@@ -1095,8 +1095,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             // Run SBA to check for lethal damage
             try {
               runSBA(ctx as any);
-            } catch {
-              // SBA may not be available during replay
+            } catch (sbaErr) {
+              // SBA may not be available during replay - this is expected
+              console.info("applyEvent(fight): SBA skipped during replay:", sbaErr);
             }
           }
           ctx.bumpSeq();

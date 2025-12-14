@@ -973,18 +973,22 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           } else {
             // Shuffle into library - use game's shuffleLibrary for deterministic RNG
             lib.push(cardCopy);
-            (game as any).libraries?.set(pid, lib);
-            playerZones.libraryCount = lib.length;
-            // Call game's shuffleLibrary to ensure deterministic shuffle using game's RNG
+            
+            // Use game's shuffleLibrary if available for deterministic shuffle
             if (typeof (game as any).shuffleLibrary === "function") {
+              // Set the library first so shuffleLibrary can access it
+              (game as any).libraries?.set(pid, lib);
+              playerZones.libraryCount = lib.length;
               (game as any).shuffleLibrary(pid);
             } else {
-              // Fallback: manual shuffle (non-deterministic, but game should have shuffleLibrary)
+              // Fallback: manual shuffle (non-deterministic) and set library
               console.warn("[commanderZoneChoice] game.shuffleLibrary not available, using Math.random");
               for (let i = lib.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
                 [lib[i], lib[j]] = [lib[j], lib[i]];
               }
+              (game as any).libraries?.set(pid, lib);
+              playerZones.libraryCount = lib.length;
             }
             io.to(gameId).emit("chat", {
               id: `m_${Date.now()}`,
@@ -995,8 +999,12 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
             });
           }
           
-          (game as any).libraries?.set(pid, lib);
-          playerZones.libraryCount = lib.length;
+          // Update library for non-shuffle cases (top/bottom)
+          // For shuffle case, library was already set inside the if/else block above
+          if (libraryPosition === 'top' || libraryPosition === 'bottom') {
+            (game as any).libraries?.set(pid, lib);
+            playerZones.libraryCount = lib.length;
+          }
         }
         
         console.log(`[commanderZoneChoice] ${pid} chose to let ${commanderName} go to ${destinationZone}`);
