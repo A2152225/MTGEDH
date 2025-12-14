@@ -2715,25 +2715,62 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const isEquipment = typeLine.includes("equipment");
     const isEquipAbility = abilityId.includes("equip") || (isEquipment && oracleText.includes("equip"));
     if (isEquipAbility) {
-      // Get valid target creatures
+      // Parse all equip abilities from oracle text to match the one being activated
+      // Format: "Equip [type] [creature] {cost}" e.g., "Equip legendary creature {3}" or "Equip {7}"
+      const equipRegex = /equip(?:\s+([a-z]+(?:\s+[a-z]+)?))?(?:\s+creature)?\s*(\{[^}]+\}(?:\{[^}]+\})*)/gi;
+      const equipAbilities: { type: string | null; cost: string; index: number }[] = [];
+      let equipMatch;
+      let index = 0;
+      while ((equipMatch = equipRegex.exec(oracleText)) !== null) {
+        const conditionalType = equipMatch[1]?.trim() || null; // "legendary", "Knight", etc.
+        const cost = equipMatch[2];
+        equipAbilities.push({ type: conditionalType, cost, index: index++ });
+      }
+      
+      // Extract which equip ability was selected from abilityId
+      // Format: "{cardId}-equip-{index}" e.g., "card123-equip-0" or "card123-equip-1"
+      let selectedAbilityIndex = 0;
+      const abilityIndexMatch = abilityId.match(/-equip-(\d+)$/i);
+      if (abilityIndexMatch) {
+        selectedAbilityIndex = parseInt(abilityIndexMatch[1], 10);
+      }
+      
+      // Get the selected equip ability or default to the first one
+      const selectedEquip = equipAbilities[selectedAbilityIndex] || equipAbilities[0] || { type: null, cost: "{0}", index: 0 };
+      const equipCost = selectedEquip.cost;
+      const equipType = selectedEquip.type; // "legendary", "Knight", etc. or null for generic equip
+      
+      // Get valid target creatures based on equip type restriction
       const validTargets = battlefield.filter((p: any) => {
         if (p.controller !== pid) return false;
         const pTypeLine = (p.card?.type_line || "").toLowerCase();
-        return pTypeLine.includes("creature");
+        if (!pTypeLine.includes("creature")) return false;
+        
+        // If there's a type restriction (e.g., "legendary"), filter by it
+        if (equipType) {
+          // Handle common patterns:
+          // "legendary" -> must have "legendary" in type_line
+          // "legendary creature" -> same as "legendary"
+          // "Knight", "Soldier" -> must have that creature type
+          const typeRestriction = equipType.toLowerCase().replace(/\s+creature$/, '');
+          if (!pTypeLine.includes(typeRestriction)) {
+            return false;
+          }
+        }
+        
+        return true;
       });
 
       if (validTargets.length === 0) {
         socket.emit("error", {
           code: "NO_VALID_TARGETS",
-          message: "You have no creatures to equip",
+          message: equipType 
+            ? `You have no ${equipType} creatures to equip`
+            : "You have no creatures to equip",
         });
         return;
       }
 
-      // Parse equip cost from oracle text
-      const equipCostMatch = oracleText.match(/equip\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
-      const equipCost = equipCostMatch ? equipCostMatch[1] : "{0}";
-      
       // Store pending equip activation for when target is chosen
       // IMPORTANT: Preserve permanent/card info to prevent issues during target > pay workflow
       const effectId = `equip_${permanentId}_${Date.now()}`;
@@ -2742,6 +2779,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         equipmentId: permanentId,
         equipmentName: cardName,
         equipCost,
+        equipType, // Store the type restriction for logging
         playerId: pid,
         permanent: { ...permanent }, // Copy full permanent object
         validTargetIds: validTargets.map((c: any) => c.id),
@@ -2753,6 +2791,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         equipmentId: permanentId,
         equipmentName: cardName,
         equipCost,
+        equipType, // Include type restriction for display
         imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
         effectId, // Include effectId for tracking
         validTargets: validTargets.map((c: any) => ({
@@ -2764,7 +2803,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         })),
       });
       
-      console.log(`[activateBattlefieldAbility] Equip ability on ${cardName}: prompting for target selection (effectId: ${effectId})`);
+      console.log(`[activateBattlefieldAbility] Equip ability on ${cardName}: cost=${equipCost}, type=${equipType || 'any'}, prompting for target selection (effectId: ${effectId})`);
       return;
     }
     
