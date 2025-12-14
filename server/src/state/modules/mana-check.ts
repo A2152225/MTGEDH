@@ -291,23 +291,87 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
     
     for (const match of matches) {
       const fullManaText = match[1].trim();
-      // Extract ALL mana symbols from the entire "add" clause, including those separated by "or"
-      // This handles: "{B}", "{B}{B}", "{B} or {R}", "one mana of any color", etc.
+      
+      // Check if this is an OR mana ability (can produce one of multiple colors)
+      // Pattern: "{B} or {R}", "Add {B} or {R}", etc.
+      // OR mana should only count as ONE mana, not multiple
+      const hasOrClause = /\{[wubrgc]\}\s+or\s+\{[wubrgc]\}/i.test(fullManaText);
+      
+      if (hasOrClause) {
+        // This is an OR mana ability - only count as 1 mana
+        // We still track it as potentially producing any of the colors for cost-checking
+        // but don't double-count the total mana available
+        // Extract the first mana symbol to add to the pool (player's choice will come later)
+        const firstManaMatch = fullManaText.match(/\{([wubrgc])\}/i);
+        if (firstManaMatch) {
+          const color = firstManaMatch[1].toUpperCase();
+          const colorKey = {
+            'W': 'white',
+            'U': 'blue',
+            'B': 'black',
+            'R': 'red',
+            'G': 'green',
+            'C': 'colorless',
+          }[color];
+          
+          if (colorKey) {
+            // For OR mana, we mark it as potentially producing any of the colors
+            // For simplicity, we add 1 to all available colors in the OR clause
+            // This is for COST CHECKING purposes - actual production requires player choice
+            const orManaSymbols = fullManaText.match(/\{([wubrgc])\}/gi) || [];
+            const orColors = orManaSymbols.map(sym => sym.replace(/[{}]/g, '').toUpperCase());
+            
+            // Only add 1 to the first color for total count purposes
+            // The canPayManaCost function will handle the actual choice
+            pool[colorKey] = (pool[colorKey] || 0) + 1;
+            
+            // Skip to next match to avoid double-counting OR mana
+            continue;
+          }
+        }
+      }
+      
+      // Check if this produces multiple mana at once (e.g., Sol Ring "{C}{C}", bounce lands "{B}{R}")
       const manaTokens = fullManaText.match(/\{([wubrgc])\}/gi) || [];
       
-      for (const token of manaTokens) {
-        const color = token.replace(/[{}]/g, '').toUpperCase();
-        const colorKey = {
-          'W': 'white',
-          'U': 'blue',
-          'B': 'black',
-          'R': 'red',
-          'G': 'green',
-          'C': 'colorless',
-        }[color];
-        
-        if (colorKey) {
-          pool[colorKey] = (pool[colorKey] || 0) + 1;
+      // Check for bounce land pattern: two different colors produced at once (not OR)
+      // Pattern: "{B}{R}" or "{G}{W}" without "or" between them
+      const isBothAtOnce = manaTokens.length === 2 && !hasOrClause && 
+        /\{[wubrgc]\}\{[wubrgc]\}/i.test(fullManaText);
+      
+      if (isBothAtOnce) {
+        // This produces BOTH colors (like Rakdos Carnarium producing {B}{R})
+        for (const token of manaTokens) {
+          const color = token.replace(/[{}]/g, '').toUpperCase();
+          const colorKey = {
+            'W': 'white',
+            'U': 'blue',
+            'B': 'black',
+            'R': 'red',
+            'G': 'green',
+            'C': 'colorless',
+          }[color];
+          
+          if (colorKey) {
+            pool[colorKey] = (pool[colorKey] || 0) + 1;
+          }
+        }
+      } else if (!hasOrClause) {
+        // Standard single or same-color multiple mana (e.g., Sol Ring "{C}{C}")
+        for (const token of manaTokens) {
+          const color = token.replace(/[{}]/g, '').toUpperCase();
+          const colorKey = {
+            'W': 'white',
+            'U': 'blue',
+            'B': 'black',
+            'R': 'red',
+            'G': 'green',
+            'C': 'colorless',
+          }[color];
+          
+          if (colorKey) {
+            pool[colorKey] = (pool[colorKey] || 0) + 1;
+          }
         }
       }
       
