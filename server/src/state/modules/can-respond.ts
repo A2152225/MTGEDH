@@ -1124,6 +1124,102 @@ function canCastCommanderFromCommandZone(ctx: GameContext, playerId: PlayerID): 
  * @param playerId The player to check (should be the active player)
  * @returns true if the player can take any action, false otherwise
  */
+
+/**
+ * Check if a creature is goaded (Rule 701.15)
+ * Goaded creatures must attack each combat if able.
+ */
+function isCreatureGoaded(permanent: any, currentTurn?: number): boolean {
+  if (!permanent) return false;
+  
+  const goadedBy = permanent.goadedBy;
+  if (!goadedBy || !Array.isArray(goadedBy) || goadedBy.length === 0) {
+    return false;
+  }
+  
+  // If no turn tracking, just check if goaded by anyone
+  if (currentTurn === undefined) {
+    return true;
+  }
+  
+  // Check if any goad effects are still active
+  const goadedUntil = permanent.goadedUntil;
+  if (!goadedUntil) {
+    return true; // Has goad but no expiration tracking, assume active
+  }
+  
+  // Check if any goad is still active
+  return goadedBy.some((playerId: string) => {
+    const expiryTurn = goadedUntil[playerId];
+    return expiryTurn === undefined || expiryTurn > currentTurn;
+  });
+}
+
+/**
+ * Check if player has any goaded creatures that MUST attack (Rule 701.15b)
+ * This is different from hasValidAttackers - goaded creatures MUST attack if able,
+ * so the player cannot skip combat declaration when they have goaded creatures.
+ * 
+ * @param ctx Game context
+ * @param playerId The player to check
+ * @returns true if the player has any goaded creatures that can attack
+ */
+function hasGoadedCreaturesThatMustAttack(ctx: GameContext, playerId: PlayerID): boolean {
+  try {
+    const { state } = ctx;
+    const battlefield = state.battlefield || [];
+    const currentTurn = (state as any).turn;
+    
+    for (const permanent of battlefield) {
+      if (!permanent || permanent.controller !== playerId) continue;
+      
+      const typeLine = (permanent.card?.type_line || "").toLowerCase();
+      if (!typeLine.includes("creature")) continue;
+      
+      // Check if this creature is goaded
+      if (!isCreatureGoaded(permanent, currentTurn)) continue;
+      
+      // Can't attack if tapped
+      if (permanent.tapped) continue;
+      
+      // Can't attack with summoning sickness (unless haste)
+      const enteredThisTurn = permanent.enteredThisTurn === true;
+      if (enteredThisTurn) {
+        const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
+        const grantedAbilities = permanent.grantedAbilities || [];
+        const hasHaste = oracleText.includes("haste") || 
+                        grantedAbilities.some((a: string) => a && a.toLowerCase().includes("haste"));
+        
+        if (!hasHaste) continue; // Summoning sickness
+      }
+      
+      // Check for "can't attack" effects
+      const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
+      const grantedAbilities = permanent.grantedAbilities || [];
+      
+      if (oracleText.includes("can't attack") || oracleText.includes("cannot attack")) {
+        continue;
+      }
+      
+      const hasCantAttack = grantedAbilities.some((a: string) => {
+        const abilityText = (a || "").toLowerCase();
+        return abilityText.includes("can't attack") || abilityText.includes("cannot attack");
+      });
+      
+      if (hasCantAttack) continue;
+      
+      // Found a goaded creature that CAN attack, so it MUST attack
+      console.log(`[hasGoadedCreaturesThatMustAttack] ${playerId}: Found goaded creature that must attack: ${permanent.card?.name || permanent.id}`);
+      return true;
+    }
+    
+    return false;
+  } catch (err) {
+    console.warn("[hasGoadedCreaturesThatMustAttack] Error:", err);
+    return true; // On error, assume they might have goaded creatures (don't auto-pass)
+  }
+}
+
 /**
  * Check if player has any valid attackers (untapped creatures that can attack)
  * Used to prevent auto-pass from skipping attack phase when creatures are available
@@ -1294,7 +1390,28 @@ export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
     // This prevents auto-pass from skipping combat declaration when creatures are available
     const isTurnPlayer = (ctx.state as any).turnPlayer === playerId;
     
+    // GOAD ENFORCEMENT (Rule 701.15b): Goaded creatures MUST attack if able
+    // This check ensures that:
+    // 1. Players cannot skip combat if they have goaded creatures
+    // 2. Auto-pass and smart-pass do not bypass combat with goaded creatures
+    // 3. Phase navigator cannot skip to end step if goaded creatures exist
+    
+    // Check during beginning of combat - if player has goaded creatures, they must proceed to declare attackers
+    if ((currentStep === 'BEGIN_COMBAT' || currentStep === 'BEGINNING_OF_COMBAT') && isTurnPlayer && stackIsEmpty) {
+      if (hasGoadedCreaturesThatMustAttack(ctx, playerId)) {
+        console.log(`[canAct] ${playerId}: Has goaded creatures that must attack - cannot skip combat - returning TRUE`);
+        return true;
+      }
+    }
+    
     if (currentStep === 'DECLARE_ATTACKERS' && isTurnPlayer && stackIsEmpty) {
+      // FIRST: Check if player has goaded creatures that MUST attack (Rule 701.15b)
+      // Goaded creatures must attack if able - player cannot skip this
+      if (hasGoadedCreaturesThatMustAttack(ctx, playerId)) {
+        console.log(`[canAct] ${playerId}: Has goaded creatures that MUST attack - returning TRUE`);
+        return true;
+      }
+      
       // Check if player has any creatures that can attack
       if (hasValidAttackers(ctx, playerId)) {
         console.log(`[canAct] ${playerId}: Has valid attackers - returning TRUE`);

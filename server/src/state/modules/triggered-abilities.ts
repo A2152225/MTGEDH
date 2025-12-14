@@ -5111,11 +5111,40 @@ const KNOWN_MULTI_MODE_ABILITIES: Record<string, { modes: MultiModeActivatedAbil
       { name: "Sacrifice for Card", cost: "Sacrifice ~", effect: "Draw a card", requiresTarget: false },
     ],
   },
+  // Laser Screwdriver - Doctor Who Commander card with 4 distinct tap abilities
+  // {T}: Add one mana of any color.
+  // {1}, {T}: Tap target artifact.
+  // {2}, {T}: Surveil 1.
+  // {3}, {T}: Goad target creature.
+  "laser screwdriver": {
+    modes: [
+      { name: "Add Mana", cost: "{T}", effect: "Add one mana of any color", requiresTarget: false },
+      { name: "Tap Artifact", cost: "{1}, {T}", effect: "Tap target artifact", requiresTarget: true, targetType: 'artifact' },
+      { name: "Surveil 1", cost: "{2}, {T}", effect: "Surveil 1. (Look at the top card of your library. You may put that card into your graveyard.)", requiresTarget: false },
+      { name: "Goad Creature", cost: "{3}, {T}", effect: "Goad target creature. (Until your next turn, it attacks each combat if able and attacks a player other than you if able.)", requiresTarget: true, targetType: 'creature' },
+    ],
+  },
+  // Sensei's Divining Top - commonly used artifact with multiple abilities
+  "sensei's divining top": {
+    modes: [
+      { name: "Look at Top 3", cost: "{1}", effect: "Look at the top three cards of your library, then put them back in any order", requiresTarget: false },
+      { name: "Draw and Put on Top", cost: "{T}", effect: "Draw a card, then put ~ on top of its owner's library", requiresTarget: false },
+    ],
+  },
+  // Batterskull - Living Weapon equipment with vigilance/lifelink
+  "batterskull": {
+    modes: [
+      { name: "Return to Hand", cost: "{3}", effect: "Return Batterskull to its owner's hand", requiresTarget: false },
+      { name: "Equip", cost: "{5}", effect: "Attach to target creature you control. Equip only as a sorcery.", requiresTarget: true, targetType: 'creature' },
+    ],
+  },
 };
 
 export function detectMultiModeAbility(card: any, permanent: any): MultiModeActivatedAbility | null {
   const cardName = (card?.name || "").toLowerCase();
+  const oracleText = card?.oracle_text || "";
   
+  // First check known cards for accurate data
   for (const [knownName, abilityInfo] of Object.entries(KNOWN_MULTI_MODE_ABILITIES)) {
     if (cardName.includes(knownName)) {
       return {
@@ -5126,7 +5155,167 @@ export function detectMultiModeAbility(card: any, permanent: any): MultiModeActi
     }
   }
   
+  // Dynamic parsing: Parse oracle text for multiple activated abilities
+  // This handles any card with multiple activated abilities not in the known list
+  const parsedModes = parseActivatedAbilitiesFromOracleText(oracleText, cardName);
+  
+  // Only return as multi-mode if there are 2+ distinct activated abilities
+  if (parsedModes.length >= 2) {
+    return {
+      permanentId: permanent?.id || '',
+      cardName: card?.name || 'Unknown',
+      modes: parsedModes,
+    };
+  }
+  
   return null;
+}
+
+/**
+ * Dynamically parse activated abilities from oracle text.
+ * Activated abilities follow the pattern: [Cost]: [Effect]
+ * 
+ * This handles:
+ * - Mana abilities: {T}: Add {C}
+ * - Tap abilities: {1}, {T}: Draw a card
+ * - Non-tap abilities: {2}: Gain 1 life
+ * - Sacrifice abilities: {1}, Sacrifice ~: Effect
+ * - Multiple abilities separated by newlines
+ * 
+ * @param oracleText The card's oracle text
+ * @param cardName The card's name (for self-reference replacement)
+ * @returns Array of parsed ability modes
+ */
+function parseActivatedAbilitiesFromOracleText(
+  oracleText: string, 
+  cardName: string
+): MultiModeActivatedAbility['modes'] {
+  const modes: MultiModeActivatedAbility['modes'] = [];
+  
+  if (!oracleText) return modes;
+  
+  // Split by newlines to separate different abilities
+  const lines = oracleText.split('\n').filter(line => line.trim());
+  
+  // Pattern to match activated abilities: [Cost]: [Effect]
+  // Cost part contains mana symbols, tap symbol, sacrifice, pay life, etc.
+  // The colon separates cost from effect
+  // Captures: (cost) : (effect)
+  const activatedAbilityPattern = /^([^:]+(?:\{[^}]+\})[^:]*?):\s*(.+)$/i;
+  
+  // Alternative pattern for abilities that start with mana/tap symbols
+  const manaOrTapStartPattern = /^(\{[^}]+\}(?:,?\s*\{[^}]+\})*(?:,?\s*[^:]+)?):\s*(.+)$/i;
+  
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+    
+    // Skip reminder text (in parentheses)
+    if (trimmedLine.startsWith('(') && trimmedLine.endsWith(')')) continue;
+    
+    // Skip keyword abilities and triggered abilities
+    if (/^(when|whenever|at the beginning|at end)/i.test(trimmedLine)) continue;
+    if (/^(flying|trample|haste|vigilance|lifelink|deathtouch|first strike|double strike|menace|reach|hexproof|indestructible|flash)/i.test(trimmedLine)) continue;
+    
+    // Try to match activated ability pattern
+    let match = trimmedLine.match(manaOrTapStartPattern);
+    if (!match) {
+      match = trimmedLine.match(activatedAbilityPattern);
+    }
+    
+    if (match) {
+      const cost = match[1].trim();
+      const effect = match[2].trim();
+      
+      // Validate this looks like a real cost (contains mana symbols, tap, sacrifice, etc.)
+      const hasCostIndicator = /\{[^}]+\}|sacrifice|pay|discard|exile|tap|untap/i.test(cost);
+      if (!hasCostIndicator) continue;
+      
+      // Detect if this ability requires a target
+      const requiresTarget = /target/i.test(effect);
+      let targetType: string | undefined;
+      
+      if (requiresTarget) {
+        // Try to determine target type
+        if (/target creature/i.test(effect)) targetType = 'creature';
+        else if (/target artifact/i.test(effect)) targetType = 'artifact';
+        else if (/target enchantment/i.test(effect)) targetType = 'enchantment';
+        else if (/target player/i.test(effect)) targetType = 'player';
+        else if (/target opponent/i.test(effect)) targetType = 'opponent';
+        else if (/target permanent/i.test(effect)) targetType = 'permanent';
+        else if (/any target/i.test(effect)) targetType = 'any';
+        else targetType = 'unknown';
+      }
+      
+      // Generate a readable name for the ability
+      const name = generateAbilityName(cost, effect);
+      
+      modes.push({
+        name,
+        cost,
+        effect,
+        requiresTarget,
+        targetType,
+      });
+    }
+  }
+  
+  return modes;
+}
+
+/**
+ * Generate a human-readable name for an activated ability based on its cost and effect
+ */
+function generateAbilityName(cost: string, effect: string): string {
+  // Check for common ability patterns
+  if (/add.*mana|add \{[wubrgc]\}/i.test(effect)) {
+    return 'Tap for Mana';
+  }
+  if (/draw.*card/i.test(effect)) {
+    return 'Draw Card';
+  }
+  if (/gain.*life/i.test(effect)) {
+    return 'Gain Life';
+  }
+  if (/create.*token/i.test(effect)) {
+    return 'Create Token';
+  }
+  if (/tap target/i.test(effect)) {
+    return 'Tap Target';
+  }
+  if (/untap target/i.test(effect)) {
+    return 'Untap Target';
+  }
+  if (/destroy target/i.test(effect)) {
+    return 'Destroy Target';
+  }
+  if (/exile target/i.test(effect)) {
+    return 'Exile Target';
+  }
+  if (/deal.*damage/i.test(effect)) {
+    return 'Deal Damage';
+  }
+  if (/surveil/i.test(effect)) {
+    return 'Surveil';
+  }
+  if (/scry/i.test(effect)) {
+    return 'Scry';
+  }
+  if (/goad/i.test(effect)) {
+    return 'Goad';
+  }
+  if (/counter target/i.test(effect)) {
+    return 'Counter';
+  }
+  if (/search your library/i.test(effect)) {
+    return 'Search Library';
+  }
+  if (/sacrifice/i.test(cost)) {
+    return 'Sacrifice Ability';
+  }
+  
+  // Default: truncate effect to first few words
+  const words = effect.split(' ').slice(0, 3).join(' ');
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 // ============================================================================
