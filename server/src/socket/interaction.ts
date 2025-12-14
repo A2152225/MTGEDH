@@ -2960,15 +2960,19 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               game.bumpSeq();
             }
             
-            appendEvent(gameId, (game as any).seq ?? 0, "aiControlChangeOpponent", {
-              playerId: pid,
-              activationId,
-              permanentId: pending.permanentId,
-              cardName: pending.cardName,
-              oldController,
-              newController: randomOpponent.id,
-              drewCards: pending.drawCards || 0,
-            }).catch(e => console.warn('[AI] Failed to persist AI control change event:', e));
+            try {
+              appendEvent(gameId, (game as any).seq ?? 0, "aiControlChangeOpponent", {
+                playerId: pid,
+                activationId,
+                permanentId: pending.permanentId,
+                cardName: pending.cardName,
+                oldController,
+                newController: randomOpponent.id,
+                drewCards: pending.drawCards || 0,
+              });
+            } catch (e) {
+              console.warn('[AI] Failed to persist AI control change event:', e);
+            }
             
             broadcastGame(io, game, gameId);
           }, 500); // 500ms delay for AI thinking

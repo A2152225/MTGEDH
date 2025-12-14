@@ -507,6 +507,27 @@ export interface GameState {
    * Pending counter movements between permanents.
    */
   pendingCounterMovements?: Record<string, any>;
+  /**
+   * Control change effects for temporary "gain control" effects.
+   * Tracks which permanents have had their controller changed and need cleanup.
+   */
+  controlChangeEffects?: Array<{
+    permanentId: string;
+    originalController: PlayerID;
+    newController: PlayerID;
+    duration: string;
+    appliedAt: number;
+  }>;
+  /**
+   * Pending control change activations awaiting opponent selection.
+   * Maps activation ID to activation details.
+   */
+  pendingControlChangeActivations?: Record<string, {
+    playerId: PlayerID;
+    permanentId: string;
+    cardName: string;
+    drawCards?: number;
+  }>;
 }
 
 /* Player protection state for effects like Teferi's Protection */
