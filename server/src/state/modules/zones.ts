@@ -722,10 +722,10 @@ export function movePermanentToLibrary(
   } else if (position === 'bottom') {
     lib.push(cardCopy);
   } else {
-    // Shuffle into library
+    // Shuffle into library using deterministic RNG
     lib.push(cardCopy);
     for (let i = lib.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(ctx.rng() * (i + 1));
       [lib[i], lib[j]] = [lib[j], lib[i]];
     }
   }

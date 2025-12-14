@@ -942,10 +942,24 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       for (const card of cardById.values()) {
         lib.push({ ...card, zone: 'library' });
       }
-      // Then shuffle the library
-      for (let i = lib.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [lib[i], lib[j]] = [lib[j], lib[i]];
+      
+      // Use game's shuffleLibrary for deterministic RNG if available
+      if (typeof (game as any).shuffleLibrary === "function") {
+        // Set the library first so shuffleLibrary can access it
+        if ((game as any).libraries) {
+          (game as any).libraries.set(targetPid, lib);
+        }
+        (game as any).shuffleLibrary(targetPid);
+      } else {
+        // Fallback: manual shuffle (non-deterministic) and set library
+        console.warn("[confirmPonder] game.shuffleLibrary not available, using Math.random");
+        for (let i = lib.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [lib[i], lib[j]] = [lib[j], lib[i]];
+        }
+        if ((game as any).libraries) {
+          (game as any).libraries.set(targetPid, lib);
+        }
       }
       console.log(`[confirmPonder] ${targetPid} shuffled their library`);
       
