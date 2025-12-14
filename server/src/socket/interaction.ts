@@ -2800,6 +2800,99 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
+    // Handle Control Change abilities (Humble Defector, etc.)
+    // Pattern: "{T}: Draw two cards. Target opponent gains control of ~"
+    const hasControlChangeAbility = 
+      (oracleText.includes("opponent gains control") || oracleText.includes("target opponent gains control")) &&
+      (abilityId.includes("control") || abilityId.includes("humble-defector") || cardName.toLowerCase().includes("humble defector"));
+    
+    if (hasControlChangeAbility) {
+      // Check if it's Humble Defector or similar
+      const isHumbleDefector = cardName.toLowerCase().includes("humble defector");
+      
+      // Parse the cost - Humble Defector has {T} cost
+      const { requiresTap, manaCost } = parseActivationCost(oracleText, /(?:draw|opponent gains control)/i);
+      
+      if (requiresTap && (permanent as any).tapped) {
+        socket.emit("error", {
+          code: "ALREADY_TAPPED",
+          message: `${cardName} is already tapped`,
+        });
+        return;
+      }
+      
+      // Check timing restriction - Humble Defector can only be activated during your turn
+      if (isHumbleDefector && game.state?.turnPlayer !== pid) {
+        socket.emit("error", {
+          code: "WRONG_TIMING",
+          message: `${cardName} can only be activated during your turn`,
+        });
+        return;
+      }
+      
+      if (manaCost) {
+        // Validate and consume mana
+        const parsedCost = parseManaCost(manaCost);
+        const pool = getOrInitManaPool(game.state, pid);
+        const totalAvailable = calculateTotalAvailableMana(pool, []);
+        
+        const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+        if (validationError) {
+          socket.emit("error", { code: "INSUFFICIENT_MANA", message: validationError });
+          return;
+        }
+        
+        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[activateBattlefieldAbility:control-change]');
+      }
+      
+      // Tap the permanent if required
+      if (requiresTap) {
+        (permanent as any).tapped = true;
+      }
+      
+      // Generate activation ID
+      const activationId = `control_change_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      
+      // Store pending control change activation
+      if (!game.state.pendingControlChangeActivations) {
+        game.state.pendingControlChangeActivations = {};
+      }
+      game.state.pendingControlChangeActivations[activationId] = {
+        playerId: pid,
+        permanentId: permanentId,
+        cardName: cardName,
+        drawCards: isHumbleDefector ? 2 : 0, // Humble Defector draws 2 cards
+      };
+      
+      // Get available opponents
+      const players = game.state?.players || [];
+      const opponents = players.filter((p: any) => p && p.id !== pid && !(p as any).hasLost && !(p as any).eliminated).map((p: any) => ({
+        id: p.id,
+        name: p.name || p.id,
+        life: game.state.life?.[p.id] ?? 40,
+        libraryCount: game.state.zones?.[p.id]?.libraryCount ?? 0,
+        isOpponent: true,
+      }));
+      
+      // Emit opponent selection request to client
+      socket.emit("controlChangeOpponentRequest", {
+        gameId,
+        activationId,
+        source: {
+          id: permanentId,
+          name: cardName,
+          imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+        },
+        opponents,
+        title: `${cardName} - Choose Opponent`,
+        description: oracleText,
+      });
+      
+      console.log(`[activateBattlefieldAbility] Control change ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}${requiresTap ? 'tapped, ' : ''}prompting for opponent selection`);
+      broadcastGame(io, game, gameId);
+      return;
+    }
+    
     // Handle Fight abilities (Brash Taunter, etc.)
     // Pattern: "{Cost}: This creature fights target creature you don't control"
     const hasFightAbility = oracleText.includes("fights") || oracleText.includes("fight");
@@ -6857,6 +6950,118 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       playerId: pid,
       activationId,
       targetOpponentId,
+    });
+
+    broadcastGame(io, game, gameId);
+  });
+
+  // ==========================================================================
+  // CONTROL CHANGE CONFIRMATION (Humble Defector, etc.)
+  // ==========================================================================
+  
+  /**
+   * Handle control change opponent confirmation for activated abilities
+   */
+  socket.on("confirmControlChangeOpponent", ({
+    gameId,
+    activationId,
+    targetOpponentId,
+  }: {
+    gameId: string;
+    activationId: string;
+    targetOpponentId: string;
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+      return;
+    }
+
+    // Retrieve pending activation
+    const pending = (game.state as any).pendingControlChangeActivations?.[activationId];
+    if (!pending) {
+      socket.emit("error", { code: "INVALID_ACTIVATION", message: "Invalid or expired control change activation" });
+      return;
+    }
+
+    // Verify it's the right player
+    if (pending.playerId !== pid) {
+      socket.emit("error", { code: "NOT_YOUR_ACTIVATION", message: "This is not your activation" });
+      return;
+    }
+
+    // Verify target opponent is valid
+    const players = game.state?.players || [];
+    const validOpponent = players.find((p: any) => p && p.id === targetOpponentId && p.id !== pid);
+    if (!validOpponent) {
+      socket.emit("error", { code: "INVALID_TARGET", message: "Invalid target opponent" });
+      return;
+    }
+
+    // Clean up pending activation
+    delete (game.state as any).pendingControlChangeActivations[activationId];
+
+    // Find the permanent
+    const battlefield = game.state?.battlefield || [];
+    const permanent = battlefield.find((p: any) => p && p.id === pending.permanentId);
+    
+    if (!permanent) {
+      socket.emit("error", { code: "PERMANENT_NOT_FOUND", message: "Permanent not found" });
+      return;
+    }
+
+    // Draw cards if applicable (Humble Defector draws 2 cards)
+    if (pending.drawCards && pending.drawCards > 0) {
+      const zones = (game.state as any)?.zones?.[pid];
+      if (zones && zones.library) {
+        const drawnCards = zones.library.splice(0, Math.min(pending.drawCards, zones.library.length));
+        zones.libraryCount = zones.library.length;
+        
+        // Add to hand
+        zones.hand = zones.hand || [];
+        zones.hand.push(...drawnCards);
+        zones.handCount = zones.hand.length;
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, pid)} draws ${drawnCards.length} card${drawnCards.length !== 1 ? 's' : ''}.`,
+          ts: Date.now(),
+        });
+      }
+    }
+
+    // Change control of the permanent
+    const oldController = permanent.controller;
+    permanent.controller = targetOpponentId;
+    
+    // Remove summoning sickness if the new controller already had control this turn
+    // (For now, creature keeps summoning sickness when changing control)
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `🔄 Control of ${pending.cardName} changed from ${getPlayerName(game, oldController)} to ${getPlayerName(game, targetOpponentId)}.`,
+      ts: Date.now(),
+    });
+
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+
+    appendEvent(gameId, (game as any).seq ?? 0, "confirmControlChangeOpponent", {
+      playerId: pid,
+      activationId,
+      permanentId: pending.permanentId,
+      cardName: pending.cardName,
+      oldController,
+      newController: targetOpponentId,
+      drewCards: pending.drawCards || 0,
     });
 
     broadcastGame(io, game, gameId);
