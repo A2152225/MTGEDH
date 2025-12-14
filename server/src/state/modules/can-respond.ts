@@ -1607,6 +1607,54 @@ function canActivateSorcerySpeedAbility(ctx: GameContext, playerId: PlayerID): b
           }
         }
       }
+      
+      // Check for planeswalker loyalty abilities (sorcery-speed by default)
+      // Loyalty abilities use [+N]:, [-N]:, or [0]: format
+      const typeLine = (permanent.card?.type_line || "").toLowerCase();
+      if (typeLine.includes("planeswalker")) {
+        // Check if the planeswalker has already activated a loyalty ability this turn
+        const activationsThisTurn = permanent.loyaltyActivationsThisTurn || 0;
+        
+        // Check for Chain Veil or similar effects that allow more activations
+        let maxActivations = 1;
+        for (const otherPerm of battlefield) {
+          if (otherPerm.controller !== playerId) continue;
+          const otherName = (otherPerm.card?.name || "").toLowerCase();
+          const otherOracle = (otherPerm.card?.oracle_text || "").toLowerCase();
+          
+          if (otherName.includes("chain veil") || 
+              otherOracle.includes("activate loyalty abilit") && otherOracle.includes("additional time")) {
+            maxActivations = 2;
+            break;
+          }
+        }
+        
+        if (activationsThisTurn < maxActivations) {
+          // Get current loyalty
+          const currentLoyalty = permanent.loyaltyCounters ?? permanent.loyalty ?? 
+                                  (permanent.card?.loyalty ? parseInt(permanent.card.loyalty, 10) : 0);
+          
+          // Check if any loyalty ability can be activated
+          // Pattern: [+N]:, [-N]:, [0]:
+          const loyaltyPattern = /\[([+-]?)(\d+|X)\]:\s*/gi;
+          let match;
+          while ((match = loyaltyPattern.exec(oracleText)) !== null) {
+            const sign = match[1];
+            const cost = match[2];
+            
+            if (sign === '+' || sign === '' || cost === '0') {
+              // Plus ability or zero ability - always usable (adds or doesn't change loyalty)
+              return true;
+            } else if (sign === '-') {
+              // Minus ability - check if we have enough loyalty
+              const numericCost = cost === 'X' ? 0 : parseInt(cost, 10);
+              if (currentLoyalty >= numericCost) {
+                return true;
+              }
+            }
+          }
+        }
+      }
     }
     
     return false;

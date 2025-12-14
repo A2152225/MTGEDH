@@ -2690,19 +2690,57 @@ export function nextStep(ctx: GameContext) {
           
           // Clear firebending mana at end of combat
           // Firebending: "add {R}{R}... This mana lasts until end of combat."
+          // BUT: Check for mana retention effects (Ozai, Leyline Tyrant) first
           const firebendingMana = (ctx as any).state?.firebendingMana;
           if (firebendingMana) {
             for (const [playerId, amount] of Object.entries(firebendingMana)) {
               if (typeof amount === 'number' && amount > 0) {
                 const manaPool = (ctx as any).state?.manaPool?.[playerId];
                 if (manaPool) {
-                  // Remove firebending red mana from pool
-                  manaPool.red = Math.max(0, (manaPool.red || 0) - amount);
-                  console.log(`${ts()} [END_COMBAT] Cleared ${amount} firebending red mana from ${playerId}`);
+                  // Check for mana retention effects that would keep red mana
+                  // Ozai: "If you would lose unspent mana, that mana becomes red instead"
+                  // Leyline Tyrant: "Red mana doesn't empty from your mana pool"
+                  const battlefield = (ctx as any).state?.battlefield || [];
+                  let retainsRedMana = false;
+                  let hasOzaiEffect = false;
+                  
+                  for (const permanent of battlefield) {
+                    if (!permanent || permanent.controller !== playerId) continue;
+                    
+                    const cardName = (permanent.card?.name || "").toLowerCase();
+                    const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
+                    
+                    // Leyline Tyrant - Red mana doesn't empty
+                    if (cardName.includes("leyline tyrant") ||
+                        (oracleText.includes("red mana") && oracleText.includes("don't lose"))) {
+                      retainsRedMana = true;
+                      console.log(`${ts()} [END_COMBAT] ${playerId} has Leyline Tyrant - firebending red mana preserved`);
+                      break;
+                    }
+                    
+                    // Ozai - mana becomes red instead of emptying
+                    if (cardName.includes("ozai") || 
+                        (oracleText.includes("lose unspent mana") && oracleText.includes("becomes red instead"))) {
+                      hasOzaiEffect = true;
+                      console.log(`${ts()} [END_COMBAT] ${playerId} has Ozai - firebending red mana converts to red (already red, so preserved)`);
+                    }
+                  }
+                  
+                  // Firebending mana is red, so:
+                  // - Leyline Tyrant keeps it
+                  // - Ozai converts it to red (already red, so effectively keeps it)
+                  if (retainsRedMana || hasOzaiEffect) {
+                    console.log(`${ts()} [END_COMBAT] Firebending mana (${amount} red) preserved due to mana retention effect`);
+                    // Don't clear the mana, just reset the firebending tracking
+                  } else {
+                    // Remove firebending red mana from pool
+                    manaPool.red = Math.max(0, (manaPool.red || 0) - amount);
+                    console.log(`${ts()} [END_COMBAT] Cleared ${amount} firebending red mana from ${playerId}`);
+                  }
                 }
               }
             }
-            // Reset firebending tracking
+            // Reset firebending tracking (regardless of whether mana was kept)
             (ctx as any).state.firebendingMana = {};
           }
         }
