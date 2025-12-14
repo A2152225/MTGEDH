@@ -4907,6 +4907,80 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
       }
       
+      // =======================================================================
+      // GOAD ENFORCEMENT (Rule 701.15b): Cannot skip past declare attackers
+      // if the player has goaded creatures that must attack.
+      // Goaded creatures MUST attack if able - the player cannot skip combat.
+      // =======================================================================
+      const declareAttackersIdx = currentPhaseOrder.indexOf('declare_attackers');
+      const isBeforeDeclareAttackers = currentIdx < declareAttackersIdx;
+      const isTargetAfterDeclareAttackers = targetIdx > declareAttackersIdx;
+      const isSkippingPastCombat = isBeforeDeclareAttackers && isTargetAfterDeclareAttackers;
+      
+      if (isSkippingPastCombat && turnPlayer) {
+        try {
+          // Check for goaded creatures that must attack
+          const battlefield = (game.state as any)?.battlefield || [];
+          const currentTurn = (game.state as any).turn;
+          
+          for (const permanent of battlefield) {
+            if (!permanent || permanent.controller !== turnPlayer) continue;
+            
+            const typeLine = (permanent.card?.type_line || "").toLowerCase();
+            if (!typeLine.includes("creature")) continue;
+            
+            // Check if creature is goaded
+            const goadedBy = permanent.goadedBy;
+            if (!goadedBy || !Array.isArray(goadedBy) || goadedBy.length === 0) continue;
+            
+            // Check if goad is still active
+            const goadedUntil = permanent.goadedUntil || {};
+            const isGoaded = goadedBy.some((goaderId: string) => {
+              const expiryTurn = goadedUntil[goaderId];
+              return expiryTurn === undefined || expiryTurn > currentTurn;
+            });
+            
+            if (!isGoaded) continue;
+            
+            // Can't attack if tapped
+            if (permanent.tapped) continue;
+            
+            // Can't attack with summoning sickness (unless haste)
+            const enteredThisTurn = permanent.enteredThisTurn === true;
+            if (enteredThisTurn) {
+              const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
+              const grantedAbilities = permanent.grantedAbilities || [];
+              const hasHaste = oracleText.includes("haste") || 
+                              grantedAbilities.some((a: string) => a && a.toLowerCase().includes("haste"));
+              if (!hasHaste) continue;
+            }
+            
+            // Check for "can't attack" effects
+            const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
+            const grantedAbilities = permanent.grantedAbilities || [];
+            
+            if (oracleText.includes("can't attack") || oracleText.includes("cannot attack")) continue;
+            
+            const hasCantAttack = grantedAbilities.some((a: string) => {
+              const abilityText = (a || "").toLowerCase();
+              return abilityText.includes("can't attack") || abilityText.includes("cannot attack");
+            });
+            if (hasCantAttack) continue;
+            
+            // Found a goaded creature that CAN and MUST attack
+            const creatureName = permanent.card?.name || "A creature";
+            console.log(`[skipToPhase] BLOCKED: ${creatureName} is goaded and must attack (Rule 701.15b)`);
+            socket.emit("error", {
+              code: "SKIP_TO_PHASE",
+              message: `${creatureName} is goaded and must attack this combat. You cannot skip past the declare attackers step.`,
+            });
+            return; // Exit early - cannot skip past combat with goaded creatures
+          }
+        } catch (err) {
+          console.warn(`[skipToPhase] Failed to check goaded creatures:`, err);
+        }
+      }
+      
       // Check END_STEP triggers if we're skipping to end step
       const endStepIdx = currentPhaseOrder.indexOf('end_step');
       const isBeforeEndStep = currentIdx < endStepIdx;
