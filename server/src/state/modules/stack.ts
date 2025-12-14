@@ -5144,8 +5144,14 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
           mandatory: trigger.mandatory,
           effect: trigger.effect,
           requiresChoice: trigger.requiresChoice,
+          // Include target requirement info for triggers like Geode Rager
+          requiresTarget: trigger.requiresTarget,
+          targetType: trigger.targetType,
+          // Modal options for choose X triggers
+          isModal: trigger.isModal,
+          modalOptions: trigger.modalOptions,
         } as any);
-        console.log(`[playLand] ⚡ Pushed landfall trigger onto stack: ${trigger.cardName} - ${trigger.effect}`);
+        console.log(`[playLand] ⚡ Pushed landfall trigger onto stack: ${trigger.cardName} - ${trigger.effect}${trigger.requiresTarget ? ` (requires ${trigger.targetType} target)` : ''}`);
       }
     }
   } catch (err) {
