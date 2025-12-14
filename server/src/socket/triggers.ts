@@ -465,7 +465,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
       }
 
       // Find the trigger in the trigger queue
-      const triggerQueue = (game as any).triggerQueue || [];
+      const triggerQueue = (game.state as any)?.triggerQueue || [];
       const triggerIndex = triggerQueue.findIndex((t: any) => t.id === triggerId);
       
       if (triggerIndex === -1) {
@@ -566,7 +566,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
         return;
       }
 
-      const triggerQueue = (game as any).triggerQueue || [];
+      const triggerQueue = (game.state as any)?.triggerQueue || [];
       const triggerIndex = triggerQueue.findIndex((t: any) => t.id === triggerId);
       
       if (triggerIndex !== -1) {
@@ -615,7 +615,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
         return;
       }
 
-      const triggerQueue = (game as any).triggerQueue || [];
+      const triggerQueue = (game.state as any)?.triggerQueue || [];
       
       // Find and remove the triggers from the queue
       const triggersToStack: any[] = [];
@@ -666,6 +666,11 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
         if (Object.keys((game.state as any).pendingTriggerOrdering).length === 0) {
           delete (game.state as any).pendingTriggerOrdering;
         }
+      }
+      
+      // Also clear the prompt tracking set since triggers have been ordered
+      if ((game.state as any)._triggerOrderingPromptedPlayers) {
+        delete (game.state as any)._triggerOrderingPromptedPlayers;
       }
       
       // Send chat message about the triggers being put on the stack
@@ -935,6 +940,203 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
       console.error(`[triggers] revealLandChoice error:`, err);
       socket.emit("error", {
         code: "REVEAL_LAND_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
+
+  /**
+   * Handle Kynaios and Tiro of Meletis style choice
+   * Players choose to either play a land from hand or (for opponents) draw a card
+   */
+  socket.on("kynaiosChoiceResponse", async ({
+    gameId,
+    sourceController,
+    choice,
+    landCardId,
+  }: {
+    gameId: string;
+    sourceController: string;
+    choice: 'play_land' | 'draw_card' | 'decline';
+    landCardId?: string;
+  }) => {
+    try {
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId as PlayerID | undefined;
+      
+      if (!game || !playerId) {
+        socket.emit("error", {
+          code: "KYNAIOS_CHOICE_ERROR",
+          message: "Game not found or player not identified",
+        });
+        return;
+      }
+
+      // Ensure game state exists
+      game.state = (game.state || {}) as any;
+      
+      const pendingKynaiosChoice = (game.state as any).pendingKynaiosChoice;
+      if (!pendingKynaiosChoice || !pendingKynaiosChoice[sourceController]) {
+        socket.emit("error", {
+          code: "NO_PENDING_CHOICE",
+          message: "No pending Kynaios choice found",
+        });
+        return;
+      }
+      
+      const choiceData = pendingKynaiosChoice[sourceController];
+      
+      // Verify this player is allowed to make a choice
+      if (!choiceData.playersWhoMayPlayLand?.includes(playerId)) {
+        socket.emit("error", {
+          code: "NOT_YOUR_CHOICE",
+          message: "You are not eligible to make this choice",
+        });
+        return;
+      }
+      
+      // Initialize tracking arrays if needed
+      choiceData.playersWhoPlayedLand = choiceData.playersWhoPlayedLand || [];
+      choiceData.playersWhoDeclined = choiceData.playersWhoDeclined || [];
+      
+      // Check if already made choice
+      if (choiceData.playersWhoPlayedLand.includes(playerId) || 
+          choiceData.playersWhoDeclined.includes(playerId)) {
+        socket.emit("error", {
+          code: "ALREADY_CHOSE",
+          message: "You have already made your choice",
+        });
+        return;
+      }
+      
+      const isController = playerId === sourceController;
+      
+      if (choice === 'play_land' && landCardId) {
+        // Player chose to play a land
+        const zones = (game.state as any).zones?.[playerId];
+        if (!zones || !Array.isArray(zones.hand)) {
+          socket.emit("error", {
+            code: "NO_HAND",
+            message: "Hand not found",
+          });
+          return;
+        }
+        
+        const cardIndex = zones.hand.findIndex((c: any) => c?.id === landCardId);
+        if (cardIndex === -1) {
+          socket.emit("error", {
+            code: "CARD_NOT_IN_HAND",
+            message: "Land card not found in hand",
+          });
+          return;
+        }
+        
+        const card = zones.hand[cardIndex];
+        const cardName = card.name || "Land";
+        
+        // Check if it's actually a land
+        if (!(card.type_line || '').toLowerCase().includes('land')) {
+          socket.emit("error", {
+            code: "NOT_A_LAND",
+            message: "Selected card is not a land",
+          });
+          return;
+        }
+        
+        // Remove from hand
+        zones.hand.splice(cardIndex, 1);
+        zones.handCount = zones.hand.length;
+        
+        // Put onto battlefield
+        game.state.battlefield = game.state.battlefield || [];
+        const permanentId = `perm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        
+        // Check if land enters tapped
+        const oracleText = (card.oracle_text || '').toLowerCase();
+        const entersTapped = oracleText.includes('enters tapped') || 
+                            oracleText.includes('enters the battlefield tapped');
+        
+        const permanent = {
+          id: permanentId,
+          card,
+          owner: playerId,
+          controller: playerId,
+          tapped: entersTapped,
+          summoningSickness: false,
+          zone: 'battlefield',
+        };
+        
+        game.state.battlefield.push(permanent as any);
+        
+        // Track that this player played a land
+        choiceData.playersWhoPlayedLand.push(playerId);
+        
+        // Chat message
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} puts ${cardName} onto the battlefield (${choiceData.sourceName || 'Kynaios and Tiro'}).`,
+          ts: Date.now(),
+        });
+        
+        console.log(`[triggers] ${playerId} played land ${cardName} via Kynaios choice`);
+        
+      } else if (choice === 'draw_card' && !isController) {
+        // Opponent chose to draw instead of playing a land
+        // They will draw when all choices are resolved
+        choiceData.playersWhoDeclined.push(playerId);
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} chooses to draw a card instead of playing a land (${choiceData.sourceName || 'Kynaios and Tiro'}).`,
+          ts: Date.now(),
+        });
+        
+        console.log(`[triggers] ${playerId} chose to draw via Kynaios choice`);
+        
+      } else if (choice === 'decline') {
+        // Controller declined to play a land, or opponent declined (will draw)
+        choiceData.playersWhoDeclined.push(playerId);
+        
+        if (isController) {
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `${getPlayerName(game, playerId)} declines to play a land (${choiceData.sourceName || 'Kynaios and Tiro'}).`,
+            ts: Date.now(),
+          });
+        }
+        
+        console.log(`[triggers] ${playerId} declined Kynaios land play option`);
+      }
+      
+      // Persist event
+      try {
+        await appendEvent(gameId, (game as any).seq || 0, "kynaiosChoice", {
+          playerId,
+          sourceController,
+          choice,
+          landCardId,
+        });
+      } catch (e) {
+        console.warn("[triggers] Failed to persist kynaiosChoice event:", e);
+      }
+
+      // Bump sequence and broadcast
+      if (typeof (game as any).bumpSeq === "function") {
+        (game as any).bumpSeq();
+      }
+
+      broadcastGame(io, game, gameId);
+      
+    } catch (err: any) {
+      console.error(`[triggers] kynaiosChoiceResponse error:`, err);
+      socket.emit("error", {
+        code: "KYNAIOS_CHOICE_ERROR",
         message: err?.message ?? String(err),
       });
     }

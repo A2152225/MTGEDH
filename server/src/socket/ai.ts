@@ -2226,6 +2226,30 @@ export async function handleAIPriority(
       return;
     }
     
+    // Check for pending Kynaios and Tiro style choice
+    // AI should automatically make a decision (play land if available, otherwise decline/draw)
+    const pendingKynaiosChoice = (game.state as any).pendingKynaiosChoice;
+    if (pendingKynaiosChoice) {
+      for (const [controllerId, choiceData] of Object.entries(pendingKynaiosChoice)) {
+        const choice = choiceData as any;
+        if (!choice.active) continue;
+        
+        const playersWhoMayPlayLand = choice.playersWhoMayPlayLand || [];
+        const playersWhoPlayedLand = choice.playersWhoPlayedLand || [];
+        const playersWhoDeclined = choice.playersWhoDeclined || [];
+        
+        // Check if AI needs to make a choice
+        if (playersWhoMayPlayLand.includes(playerId) &&
+            !playersWhoPlayedLand.includes(playerId) &&
+            !playersWhoDeclined.includes(playerId)) {
+          
+          console.info(`[AI] AI ${playerId} has pending Kynaios choice, making decision`);
+          await executeAIKynaiosChoice(io, gameId, playerId, controllerId, choice);
+          return;
+        }
+      }
+    }
+    
     // CRITICAL: Check for stuck pendingSpellCasts that could cause infinite loops
     // This can happen when a spell with targets gets stuck in the targeting workflow
     // Clean up any pendingSpellCasts that belong to this AI player
@@ -3797,6 +3821,11 @@ async function executeAITriggerOrdering(
       }
     }
     
+    // Also clear the prompt tracking set since triggers have been ordered
+    if ((game.state as any)._triggerOrderingPromptedPlayers) {
+      delete (game.state as any)._triggerOrderingPromptedPlayers;
+    }
+    
     // Send chat message about the triggers being put on the stack
     const triggerNames = aiTriggers.map((t: any) => t.sourceName).join(', ');
     try {
@@ -3839,6 +3868,130 @@ async function executeAITriggerOrdering(
       if (Object.keys((game.state as any).pendingTriggerOrdering).length === 0) {
         delete (game.state as any).pendingTriggerOrdering;
       }
+    }
+    broadcastGame(io, game, gameId);
+  }
+}
+
+/**
+ * Execute AI decision for Kynaios and Tiro of Meletis style choice
+ * AI will play a land if it has one, otherwise decline (controller) or draw (opponent)
+ */
+async function executeAIKynaiosChoice(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  sourceController: string,
+  choiceData: any
+): Promise<void> {
+  const game = ensureGame(gameId);
+  if (!game) return;
+  
+  console.info('[AI] Executing Kynaios choice:', { gameId, playerId, sourceController });
+  
+  try {
+    // Initialize tracking arrays if needed
+    choiceData.playersWhoPlayedLand = choiceData.playersWhoPlayedLand || [];
+    choiceData.playersWhoDeclined = choiceData.playersWhoDeclined || [];
+    
+    const isController = playerId === sourceController;
+    
+    // Check if AI has lands in hand
+    const zones = (game.state as any).zones?.[playerId];
+    const hand = zones?.hand || [];
+    const landsInHand = hand.filter((card: any) => 
+      card && (card.type_line || '').toLowerCase().includes('land')
+    );
+    
+    if (landsInHand.length > 0) {
+      // AI has lands - play the first one
+      const landCard = landsInHand[0];
+      const cardIndex = hand.findIndex((c: any) => c?.id === landCard.id);
+      const cardName = landCard.name || "Land";
+      
+      // Remove from hand
+      hand.splice(cardIndex, 1);
+      zones.handCount = hand.length;
+      
+      // Put onto battlefield
+      game.state.battlefield = game.state.battlefield || [];
+      const permanentId = `perm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      
+      // Check if land enters tapped
+      const oracleText = (landCard.oracle_text || '').toLowerCase();
+      const entersTapped = oracleText.includes('enters tapped') || 
+                          oracleText.includes('enters the battlefield tapped');
+      
+      const permanent = {
+        id: permanentId,
+        card: landCard,
+        owner: playerId,
+        controller: playerId,
+        tapped: entersTapped,
+        summoningSickness: false,
+        zone: 'battlefield',
+      };
+      
+      game.state.battlefield.push(permanent as any);
+      
+      // Track that AI played a land
+      choiceData.playersWhoPlayedLand.push(playerId);
+      
+      // Chat message
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `AI ${playerId} puts ${cardName} onto the battlefield (${choiceData.sourceName || 'Kynaios and Tiro'}).`,
+        ts: Date.now(),
+      });
+      
+      console.info(`[AI] AI ${playerId} played land ${cardName} via Kynaios choice`);
+      
+    } else {
+      // No lands - decline (controller will just skip, opponent will draw later)
+      choiceData.playersWhoDeclined.push(playerId);
+      
+      const action = isController ? "declines to play a land" : "chooses to draw a card";
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `AI ${playerId} ${action} (${choiceData.sourceName || 'Kynaios and Tiro'}).`,
+        ts: Date.now(),
+      });
+      
+      console.info(`[AI] AI ${playerId} ${action} via Kynaios choice`);
+    }
+    
+    // Persist event
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'kynaiosChoice', {
+        playerId,
+        sourceController,
+        choice: landsInHand.length > 0 ? 'play_land' : (isController ? 'decline' : 'draw_card'),
+        landCardId: landsInHand.length > 0 ? landsInHand[0].id : undefined,
+        isAI: true,
+      });
+    } catch (e) {
+      console.warn('[AI] Failed to persist kynaiosChoice event:', e);
+    }
+    
+    // Bump sequence and broadcast
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    
+    broadcastGame(io, game, gameId);
+    
+    console.info(`[AI] Successfully made Kynaios choice`);
+    
+  } catch (error) {
+    console.error('[AI] Error making Kynaios choice:', error);
+    // On error, mark as declined to prevent infinite loop
+    choiceData.playersWhoDeclined = choiceData.playersWhoDeclined || [];
+    if (!choiceData.playersWhoDeclined.includes(playerId)) {
+      choiceData.playersWhoDeclined.push(playerId);
     }
     broadcastGame(io, game, gameId);
   }
