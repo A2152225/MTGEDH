@@ -1786,11 +1786,11 @@ function executeTriggerEffect(
   const eachDrawMatch = desc.match(/each player draws? (?:a card|(\d+) cards?)/i);
   if (eachDrawMatch) {
     const count = eachDrawMatch[1] ? parseInt(eachDrawMatch[1], 10) : 1;
-    state.pendingDraws = state.pendingDraws || {};
+    // Actually draw the cards instead of just setting pending
     for (const player of players) {
       if (!player.hasLost) {
-        state.pendingDraws[player.id] = (state.pendingDraws[player.id] || 0) + count;
-        console.log(`[executeTriggerEffect] ${player.id} will draw ${count} card(s)`);
+        const drawn = drawCardsFromZone(ctx, player.id as PlayerID, count);
+        console.log(`[executeTriggerEffect] ${sourceName}: ${player.id} drew ${drawn.length} card(s)`);
       }
     }
     return;
