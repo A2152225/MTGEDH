@@ -29,6 +29,9 @@ import { getAvailableMana, parseManaCost, canPayManaCost, getTotalManaFromPool }
 const AI_THINK_TIME_MS = 500;
 const AI_REACTION_DELAY_MS = 300;
 
+/** Default fallback name for Kynaios and Tiro style effects */
+const KYNAIOS_DEFAULT_NAME = "Kynaios and Tiro of Meletis";
+
 /** Maximum cards to retrieve when searching the entire library for commander selection */
 const MAX_LIBRARY_SEARCH_LIMIT = 1000;
 
@@ -3942,7 +3945,7 @@ async function executeAIKynaiosChoice(
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `AI ${playerId} puts ${cardName} onto the battlefield (${choiceData.sourceName || 'Kynaios and Tiro'}).`,
+        message: `AI ${playerId} puts ${cardName} onto the battlefield (${choiceData.sourceName || KYNAIOS_DEFAULT_NAME}).`,
         ts: Date.now(),
       });
       
@@ -3957,7 +3960,7 @@ async function executeAIKynaiosChoice(
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `AI ${playerId} ${action} (${choiceData.sourceName || 'Kynaios and Tiro'}).`,
+        message: `AI ${playerId} ${action} (${choiceData.sourceName || KYNAIOS_DEFAULT_NAME}).`,
         ts: Date.now(),
       });
       

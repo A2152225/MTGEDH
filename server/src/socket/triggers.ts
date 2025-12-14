@@ -33,6 +33,12 @@ const SHOCK_LANDS = new Set([
 const MOX_DIAMOND_NAME = "mox diamond";
 
 /**
+ * Default fallback name for Kynaios and Tiro style effects
+ * Used when the source name is not available in the choice data
+ */
+const KYNAIOS_DEFAULT_NAME = "Kynaios and Tiro of Meletis";
+
+/**
  * Check if a card is Mox Diamond
  */
 function isMoxDiamond(cardName: string): boolean {
@@ -1076,7 +1082,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
           id: `m_${Date.now()}`,
           gameId,
           from: "system",
-          message: `${getPlayerName(game, playerId)} puts ${cardName} onto the battlefield (${choiceData.sourceName || 'Kynaios and Tiro'}).`,
+          message: `${getPlayerName(game, playerId)} puts ${cardName} onto the battlefield (${choiceData.sourceName || KYNAIOS_DEFAULT_NAME}).`,
           ts: Date.now(),
         });
         
@@ -1091,7 +1097,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
           id: `m_${Date.now()}`,
           gameId,
           from: "system",
-          message: `${getPlayerName(game, playerId)} chooses to draw a card instead of playing a land (${choiceData.sourceName || 'Kynaios and Tiro'}).`,
+          message: `${getPlayerName(game, playerId)} chooses to draw a card instead of playing a land (${choiceData.sourceName || KYNAIOS_DEFAULT_NAME}).`,
           ts: Date.now(),
         });
         
@@ -1106,7 +1112,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
             id: `m_${Date.now()}`,
             gameId,
             from: "system",
-            message: `${getPlayerName(game, playerId)} declines to play a land (${choiceData.sourceName || 'Kynaios and Tiro'}).`,
+            message: `${getPlayerName(game, playerId)} declines to play a land (${choiceData.sourceName || KYNAIOS_DEFAULT_NAME}).`,
             ts: Date.now(),
           });
         }
