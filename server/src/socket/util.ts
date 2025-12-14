@@ -248,6 +248,27 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
       for (const card of zones.hand) {
         if (!card || typeof card === "string") continue;
         
+        // Skip DFC back faces - these are not directly castable
+        // Transform, modal_dfc, and double_faced_token cards have card_faces array
+        // The back face (index 1) cannot be cast directly from hand
+        const layout = (card as any).layout;
+        const cardFaces = (card as any).card_faces;
+        if (layout === 'transform' || layout === 'modal_dfc' || layout === 'double_faced_token') {
+          // Check if this card IS the back face by comparing to card_faces[1]
+          // For cards in hand, we should only allow casting the front face
+          // If the card has no mana_cost, it's likely the back face
+          const manaCost = card.mana_cost;
+          if (!manaCost && cardFaces && cardFaces.length >= 2) {
+            // No mana cost means this might be a back face or a transformed state
+            // Check if the front face has a mana cost
+            const frontFace = cardFaces[0];
+            if (frontFace?.mana_cost) {
+              console.log(`[getPlayableCardIds] Skipping back face of DFC: ${card.name}`);
+              continue; // This is the back face, skip it
+            }
+          }
+        }
+        
         const typeLine = (card.type_line || "").toLowerCase();
         const oracleText = (card.oracle_text || "").toLowerCase();
         

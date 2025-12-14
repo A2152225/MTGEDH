@@ -2427,6 +2427,29 @@ export function resolveTopOfStack(ctx: GameContext) {
     }
   }
   
+  // For transform DFCs (Ill-Tempered Loner, etc.), always use front face (face 0) properties when casting
+  // The back face cannot be cast directly - it's only accessed via transformation
+  if (card && ((card as any).layout === 'transform' || (card as any).layout === 'double_faced_token') && 
+      Array.isArray((card as any).card_faces)) {
+    const faces = (card as any).card_faces;
+    const frontFace = faces[0];
+    if (frontFace) {
+      effectiveTypeLine = frontFace.type_line || effectiveTypeLine;
+      // Create an effective card object that ensures front face P/T are used
+      effectiveCard = {
+        ...card,
+        type_line: frontFace.type_line || card.type_line,
+        oracle_text: frontFace.oracle_text || card.oracle_text,
+        mana_cost: frontFace.mana_cost || card.mana_cost,
+        power: frontFace.power || card.power,
+        toughness: frontFace.toughness || card.toughness,
+        loyalty: frontFace.loyalty || card.loyalty,
+        name: frontFace.name || card.name,
+      };
+      console.log(`[resolveTopOfStack] Transform DFC ${effectiveCard.name}: using front face P/T ${frontFace.power}/${frontFace.toughness}`);
+    }
+  }
+  
   // Handle activated abilities (like fetch lands)
   if ((item as any).type === 'ability') {
     const abilityType = (item as any).abilityType;
