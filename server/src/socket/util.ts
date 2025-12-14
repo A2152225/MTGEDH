@@ -3174,14 +3174,37 @@ export function calculateManaProduction(
   
   // ===== STEP 1: Determine base mana production from the card itself =====
   
-  // Check for fixed multi-mana patterns: "Add {C}{C}" (Sol Ring), "Add {G}{G}" (Overgrowth)
-  const fixedManaMatch = oracleText.match(/add\s+((?:\{[wubrgc]\})+)/gi);
-  if (fixedManaMatch) {
-    for (const match of fixedManaMatch) {
-      const symbols = match.match(/\{[wubrgc]\}/gi) || [];
+  // Check for standard mana ability patterns: "{T}: Add {X}" or "{T}: Add {X}{X}"
+  // This MUST match the TAP SYMBOL followed by colon followed by Add to identify a mana ability
+  // This avoids matching triggered abilities or reminder text like "firebending" which mentions adding mana
+  // Pattern: \{t\}(?:[,\s]*[^:]*)?:\s*add\s+((?:\{[wubrgc]\})+)
+  // This matches: {T}: Add {R}, or {1}, {T}: Add {R}{R}, etc.
+  const manaAbilityMatch = oracleText.match(/\{t\}(?:[,\s]*[^:]*)?:\s*add\s+((?:\{[wubrgc]\})+)/gi);
+  
+  if (manaAbilityMatch && manaAbilityMatch.length > 0) {
+    // Use ONLY the first mana ability found (the basic tap-for-mana ability)
+    const firstManaAbility = manaAbilityMatch[0];
+    const symbols = firstManaAbility.match(/\{[wubrgc]\}/gi) || [];
+    if (symbols.length > 0) {
+      result.baseAmount = symbols.length;
+      // Get the color(s) from the first mana ability only
+      for (const sym of symbols) {
+        const color = sym.replace(/[{}]/g, '').toUpperCase();
+        if (!result.colors.includes(color)) {
+          result.colors.push(color);
+        }
+      }
+    }
+  } else {
+    // Fallback: Check for simpler fixed mana patterns without tap requirement
+    // (for special cases like artifacts that have different activation patterns)
+    const fixedManaMatch = oracleText.match(/add\s+((?:\{[wubrgc]\})+)/gi);
+    if (fixedManaMatch && result.colors.length === 0) {
+      // Only use first match to avoid picking up reminder text
+      const firstMatch = fixedManaMatch[0];
+      const symbols = firstMatch.match(/\{[wubrgc]\}/gi) || [];
       if (symbols.length > 0) {
         result.baseAmount = symbols.length;
-        // Get the color(s)
         for (const sym of symbols) {
           const color = sym.replace(/[{}]/g, '').toUpperCase();
           if (!result.colors.includes(color)) {

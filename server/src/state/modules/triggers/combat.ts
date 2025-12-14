@@ -155,6 +155,11 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
   const lowerName = cardName.toLowerCase();
   const permanentId = permanent?.id || "";
   
+  // Also check grantedAbilities on the permanent for temporary abilities
+  // These are abilities granted by other cards (e.g., "gains firebending 4 until end of turn")
+  const grantedAbilities = Array.isArray(permanent?.grantedAbilities) ? permanent.grantedAbilities : [];
+  const grantedText = grantedAbilities.join('\n').toLowerCase();
+  
   // Check known cards
   for (const [knownName, info] of Object.entries(KNOWN_ATTACK_TRIGGERS)) {
     if (lowerName.includes(knownName)) {
@@ -188,7 +193,8 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
   // Firebending N - Avatar set mechanic
   // Pattern: "Firebending N" or "firebending N"
   // Effect: "Whenever this creature attacks, add {R}{R}... (N times). This mana lasts until end of combat."
-  const firebendingMatch = oracleText.match(/firebending\s+(\d+)/i);
+  // Check both oracle text AND granted abilities (for creatures that "gain firebending N")
+  const firebendingMatch = oracleText.match(/firebending\s+(\d+)/i) || grantedText.match(/firebending\s+(\d+)/i);
   if (firebendingMatch) {
     const n = parseInt(firebendingMatch[1], 10);
     triggers.push({

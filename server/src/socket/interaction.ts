@@ -7025,21 +7025,137 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     // Handle mode effects
     if (selectedMode.requiresTarget) {
-      // If mode requires a target, emit target selection request
-      // For now, we'll handle simple non-targeting modes
-      socket.emit("error", { 
-        code: "NOT_IMPLEMENTED", 
-        message: "Targeting modes not yet implemented for multi-mode abilities" 
+      // Store pending ability for target selection
+      if (!(game.state as any).pendingMultiModeTargeting) {
+        (game.state as any).pendingMultiModeTargeting = {};
+      }
+      
+      const targetingId = `multimode_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      (game.state as any).pendingMultiModeTargeting[targetingId] = {
+        playerId: pid,
+        permanentId,
+        cardName,
+        modeName: selectedMode.name,
+        effect: selectedMode.effect,
+        targetType: selectedMode.targetType,
+      };
+      
+      // Emit target selection request to the player
+      socket.emit("multiModeTargetSelection", {
+        gameId,
+        targetingId,
+        permanentId,
+        cardName,
+        modeName: selectedMode.name,
+        effect: selectedMode.effect,
+        targetType: selectedMode.targetType,
+        cardImageUrl: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
       });
+      
+      broadcastGame(io, game, gameId);
       return;
     }
 
     // Execute the ability effect based on the mode
     let effectExecuted = false;
     const modeName = selectedMode.name.toLowerCase();
+    const effectLower = (selectedMode.effect || "").toLowerCase();
     
-    // Staff of Domination modes
-    if (modeName.includes("untap staff")) {
+    // ===== MANA ABILITIES =====
+    if (modeName.includes("add mana") || effectLower.includes("add one mana") || effectLower.includes("add {")) {
+      // Handle mana abilities - prompt for color choice if "any color"
+      if (effectLower.includes("any color")) {
+        // Store pending mana activation for color choice
+        if (!game.state.pendingManaActivations) {
+          game.state.pendingManaActivations = {};
+        }
+        const activationId = `mana_any_${crypto.randomUUID()}`;
+        game.state.pendingManaActivations[activationId] = {
+          playerId: pid,
+          permanentId,
+          cardName,
+          amount: 1,
+        };
+        
+        socket.emit("anyColorManaChoice", {
+          gameId,
+          activationId,
+          permanentId,
+          cardName,
+          amount: 1,
+          cardImageUrl: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
+        });
+        
+        broadcastGame(io, game, gameId);
+        return;
+      }
+      
+      // Check for specific color symbols in effect
+      const manaSymbols = effectLower.match(/\{([wubrgc])\}/gi) || [];
+      if (manaSymbols.length > 0) {
+        game.state.manaPool = game.state.manaPool || {};
+        game.state.manaPool[pid] = game.state.manaPool[pid] || {
+          white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+        };
+        
+        const colorToPoolKey: Record<string, string> = {
+          'W': 'white', 'U': 'blue', 'B': 'black', 'R': 'red', 'G': 'green', 'C': 'colorless',
+        };
+        
+        for (const sym of manaSymbols) {
+          const color = sym.replace(/[{}]/g, '').toUpperCase();
+          const poolKey = colorToPoolKey[color];
+          if (poolKey) {
+            (game.state.manaPool[pid] as any)[poolKey]++;
+          }
+        }
+        effectExecuted = true;
+      }
+    }
+    
+    // ===== SURVEIL =====
+    else if (modeName.includes("surveil") || effectLower.includes("surveil")) {
+      // Parse surveil amount
+      const surveilMatch = effectLower.match(/surveil\s*(\d+)/i);
+      const surveilAmount = surveilMatch ? parseInt(surveilMatch[1], 10) : 1;
+      
+      // Store pending surveil action
+      if (!(game.state as any).pendingSurveil) {
+        (game.state as any).pendingSurveil = {};
+      }
+      const surveilId = `surveil_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      (game.state as any).pendingSurveil[surveilId] = {
+        playerId: pid,
+        amount: surveilAmount,
+        permanentId,
+        cardName,
+      };
+      
+      // Get top N cards from library for surveil
+      const zones = (game.state as any)?.zones?.[pid];
+      if (zones && zones.library && zones.library.length > 0) {
+        const topCards = zones.library.slice(0, Math.min(surveilAmount, zones.library.length));
+        
+        socket.emit("surveilChoice", {
+          gameId,
+          surveilId,
+          amount: surveilAmount,
+          cards: topCards.map((c: any, i: number) => ({
+            id: c.id,
+            name: c.name,
+            position: i,
+            image_uris: c.image_uris,
+          })),
+        });
+        
+        broadcastGame(io, game, gameId);
+        return;
+      }
+      effectExecuted = true; // Empty library, surveil does nothing
+    }
+    
+    // ===== STAFF OF DOMINATION MODES =====
+    else if (modeName.includes("untap staff")) {
       (permanent as any).tapped = false;
       effectExecuted = true;
     } else if (modeName.includes("draw card")) {
@@ -7086,6 +7202,127 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         message: `Effect for "${selectedMode.name}" not yet implemented` 
       });
     }
+  });
+  
+  /**
+   * Handle multi-mode ability target confirmation
+   * For abilities like "Tap target artifact", "Goad target creature", etc.
+   */
+  socket.on("confirmMultiModeTarget", async ({
+    gameId,
+    targetingId,
+    targetId,
+  }: {
+    gameId: string;
+    targetingId: string;
+    targetId: string;
+  }) => {
+    const pid: string | undefined = socket.data?.playerId;
+    if (!pid) {
+      socket.emit("error", { code: "NO_PLAYER", message: "Player not found" });
+      return;
+    }
+    
+    const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+      return;
+    }
+    
+    // Get pending targeting info
+    const pending = (game.state as any).pendingMultiModeTargeting?.[targetingId];
+    if (!pending || pending.playerId !== pid) {
+      socket.emit("error", { code: "INVALID_TARGETING", message: "Invalid or expired targeting" });
+      return;
+    }
+    
+    // Remove pending
+    delete (game.state as any).pendingMultiModeTargeting[targetingId];
+    
+    const battlefield = game.state?.battlefield || [];
+    const targetPerm = battlefield.find((p: any) => p?.id === targetId);
+    
+    if (!targetPerm) {
+      socket.emit("error", { code: "TARGET_NOT_FOUND", message: "Target not found" });
+      return;
+    }
+    
+    const targetName = (targetPerm as any).card?.name || "creature";
+    
+    // Execute the effect based on target type
+    if (pending.targetType === 'creature') {
+      // Check if this is a goad effect
+      if (pending.modeName.toLowerCase().includes('goad') || pending.effect.toLowerCase().includes('goad')) {
+        // Apply goad to the target creature
+        const currentTurn = game.state.turn || 0;
+        const expiryTurn = currentTurn + 1; // Goad until your next turn
+        
+        (targetPerm as any).goadedBy = (targetPerm as any).goadedBy || [];
+        if (!(targetPerm as any).goadedBy.includes(pid)) {
+          (targetPerm as any).goadedBy.push(pid);
+        }
+        
+        (targetPerm as any).goadedUntil = (targetPerm as any).goadedUntil || {};
+        (targetPerm as any).goadedUntil[pid] = expiryTurn;
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, pid)} activated ${pending.cardName}: Goaded ${targetName} (attacks each combat if able, attacks someone other than ${getPlayerName(game, pid)} if able)`,
+          ts: Date.now(),
+        });
+      }
+      // Check if this is a tap/untap effect
+      else if (pending.modeName.toLowerCase().includes('tap') || pending.effect.toLowerCase().includes('tap target')) {
+        (targetPerm as any).tapped = true;
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, pid)} activated ${pending.cardName}: Tapped ${targetName}`,
+          ts: Date.now(),
+        });
+      }
+      else if (pending.modeName.toLowerCase().includes('untap') || pending.effect.toLowerCase().includes('untap target')) {
+        (targetPerm as any).tapped = false;
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, pid)} activated ${pending.cardName}: Untapped ${targetName}`,
+          ts: Date.now(),
+        });
+      }
+    }
+    else if (pending.targetType === 'artifact') {
+      // Tap target artifact
+      if (pending.modeName.toLowerCase().includes('tap') || pending.effect.toLowerCase().includes('tap target')) {
+        (targetPerm as any).tapped = true;
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, pid)} activated ${pending.cardName}: Tapped ${targetName}`,
+          ts: Date.now(),
+        });
+      }
+    }
+    
+    appendGameEvent(game, gameId, 'ability_activated', {
+      playerId: pid,
+      permanentId: pending.permanentId,
+      abilityName: pending.modeName,
+      targetId,
+      targetName,
+      source: pending.cardName,
+      ts: Date.now(),
+    });
+    
+    broadcastGame(io, game, gameId);
   });
 
   /**
