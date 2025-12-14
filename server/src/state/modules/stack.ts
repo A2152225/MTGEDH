@@ -3273,6 +3273,71 @@ export function resolveTopOfStack(ctx: GameContext) {
       console.log(`[resolveTopOfStack] ${effectiveCard.name} created ${tokenCreationResult.count} ${tokenCreationResult.name} token(s) for ${controller} (xValue: ${spellXValue ?? 'N/A'})`);
     }
     
+    // Handle mass bounce spells (Evacuation, Cyclonic Rift overloaded, etc.)
+    // Pattern: "Return all creatures to their owners' hands"
+    const massBounceCrAturesPattern = /return all creatures to their owners'? hands?/i;
+    if (massBounceCrAturesPattern.test(oracleText)) {
+      const battlefield = state.battlefield || [];
+      const creatures = battlefield.filter((p: any) => {
+        const typeLine = (p.card?.type_line || '').toLowerCase();
+        return typeLine.includes('creature');
+      });
+      
+      console.log(`[resolveTopOfStack] ${effectiveCard.name}: Returning ${creatures.length} creatures to owners' hands`);
+      
+      for (const creature of creatures) {
+        const ownerId = creature.owner || creature.controller;
+        const zones = state.zones || {};
+        const ownerZones = zones[ownerId];
+        
+        if (ownerZones) {
+          // Token creatures cease to exist when they leave the battlefield
+          if (creature.isToken) {
+            console.log(`[resolveTopOfStack] ${creature.card?.name || 'Token'} is a token - removed from game`);
+            continue;
+          }
+          
+          // Add card to owner's hand
+          ownerZones.hand = ownerZones.hand || [];
+          (ownerZones.hand as any[]).push({ ...creature.card, zone: 'hand' });
+          ownerZones.handCount = ownerZones.hand.length;
+          
+          // Handle attached permanents (auras, equipment) - they fall off
+          // Auras attached to this creature go to graveyard
+          const attachedAuras = battlefield.filter((p: any) => 
+            p.attachedTo === creature.id && (p.card?.type_line || '').toLowerCase().includes('aura')
+          );
+          for (const aura of attachedAuras) {
+            const auraOwnerId = aura.owner || aura.controller;
+            const auraOwnerZones = zones[auraOwnerId];
+            if (auraOwnerZones) {
+              auraOwnerZones.graveyard = auraOwnerZones.graveyard || [];
+              (auraOwnerZones.graveyard as any[]).push({ ...aura.card, zone: 'graveyard' });
+              auraOwnerZones.graveyardCount = auraOwnerZones.graveyard.length;
+            }
+            const auraIdx = battlefield.findIndex((p: any) => p.id === aura.id);
+            if (auraIdx !== -1) battlefield.splice(auraIdx, 1);
+            console.log(`[resolveTopOfStack] ${aura.card?.name || 'Aura'} fell off and went to graveyard`);
+          }
+          
+          // Equipment detaches but stays on battlefield
+          const attachedEquipment = battlefield.filter((p: any) => 
+            p.attachedTo === creature.id && (p.card?.type_line || '').toLowerCase().includes('equipment')
+          );
+          for (const equipment of attachedEquipment) {
+            delete equipment.attachedTo;
+            console.log(`[resolveTopOfStack] ${equipment.card?.name || 'Equipment'} detached`);
+          }
+          
+          console.log(`[resolveTopOfStack] ${creature.card?.name || 'Creature'} returned to ${ownerId}'s hand`);
+        }
+        
+        // Remove creature from battlefield
+        const idx = battlefield.findIndex((p: any) => p.id === creature.id);
+        if (idx !== -1) battlefield.splice(idx, 1);
+      }
+    }
+    
     // Handle extra turn spells (Time Warp, Time Walk, Temporal Mastery, etc.)
     if (isExtraTurnSpell(effectiveCard.name, oracleTextLower)) {
       // Determine who gets the extra turn
