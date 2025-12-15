@@ -735,6 +735,8 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
             const cardName = (perm.card.name || "").toLowerCase();
             
             // Check if this is a mana-producing permanent
+            // Note: This is a simplified check for auto-paying attack costs.
+            // The full mana availability check uses getAvailableMana() in mana-check.ts
             const isManaSource = /\{t\}(?:[^:]*)?:\s*add/i.test(oracleText) ||
                                 /^(plains|island|swamp|mountain|forest)$/i.test(cardName);
             

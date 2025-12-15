@@ -8,6 +8,14 @@
 import type { PlayerID } from "../../../../shared/src";
 
 /**
+ * Phyrexian mana can be paid with 2 life instead of the colored mana
+ * Rule 107.4f: "The Phyrexian mana symbol is {X/P}, where X is one of the five colored 
+ * mana symbols. A Phyrexian mana symbol represents a cost that can be paid by spending 
+ * one mana of the color associated with that Phyrexian mana symbol or by paying 2 life."
+ */
+const PHYREXIAN_LIFE_COST = 2;
+
+/**
  * Parse mana cost from a string into components
  */
 export function parseManaCost(manaCost?: string): {
@@ -46,8 +54,8 @@ export function parseManaCost(manaCost?: string): {
         // Track as hybrid with special LIFE payment option
         const firstColor = parts[0];
         if (firstColor.length === 1 && firstColor in result.colors) {
-          // Add both options: the color OR pay 2 life
-          result.hybrid.push([firstColor, 'LIFE:2']);
+          // Add both options: the color OR pay life (Rule 107.4f)
+          result.hybrid.push([firstColor, `LIFE:${PHYREXIAN_LIFE_COST}`]);
         }
       } else if (/^\d+$/.test(parts[0])) {
         // Hybrid generic/color: {2/W}, {3/U}, etc.

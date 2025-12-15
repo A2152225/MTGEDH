@@ -925,8 +925,17 @@ export const KNOWN_DAMAGE_RECEIVED_TRIGGERS: Record<string, {
 };
 
 // ============================================================================
-// Auras that grant "damage received" triggers to enchanted creature
+// Auras and Equipment that grant "damage received" triggers to attached creature
 // ============================================================================
+
+/**
+ * Common interface for attachment damage-received triggers.
+ * Used by both auras and equipment that grant "whenever [attached] creature is dealt damage" triggers.
+ */
+interface AttachmentDamageReceivedTrigger {
+  effect: string;
+  targetType: 'opponent' | 'any' | 'each_opponent' | 'controller';
+}
 
 /**
  * Known auras with "whenever enchanted creature is dealt damage" triggers.
@@ -934,12 +943,8 @@ export const KNOWN_DAMAGE_RECEIVED_TRIGGERS: Record<string, {
  * 
  * Examples:
  * - Pain for All: "Whenever enchanted creature is dealt damage, it deals that much damage to each opponent."
- * - Blazing Sunsteel: "Whenever equipped creature is dealt damage, it deals that much damage to any target." (equipment, handled separately)
  */
-export const KNOWN_DAMAGE_RECEIVED_AURAS: Record<string, { 
-  effect: string;
-  targetType: 'opponent' | 'any' | 'each_opponent' | 'controller';
-}> = {
+export const KNOWN_DAMAGE_RECEIVED_AURAS: Record<string, AttachmentDamageReceivedTrigger> = {
   // Pain for All - "Whenever enchanted creature is dealt damage, it deals that much damage to each opponent."
   "pain for all": {
     effect: "Deals that much damage to each opponent",
@@ -954,10 +959,7 @@ export const KNOWN_DAMAGE_RECEIVED_AURAS: Record<string, {
  * Examples:
  * - Blazing Sunsteel: "Whenever equipped creature is dealt damage, it deals that much damage to any target."
  */
-export const KNOWN_DAMAGE_RECEIVED_EQUIPMENT: Record<string, { 
-  effect: string;
-  targetType: 'opponent' | 'any' | 'each_opponent' | 'controller';
-}> = {
+export const KNOWN_DAMAGE_RECEIVED_EQUIPMENT: Record<string, AttachmentDamageReceivedTrigger> = {
   // Blazing Sunsteel - "Whenever equipped creature is dealt damage, it deals that much damage to any target."
   "blazing sunsteel": {
     effect: "Deals that much damage to any target",
