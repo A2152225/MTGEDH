@@ -954,7 +954,8 @@ function triggerETBEffectsForPermanent(
       state.stack = state.stack || [];
       const triggerId = uid("trigger");
       
-      state.stack.push({
+      // Include targeting info if the trigger requires a target
+      const triggerObj: any = {
         id: triggerId,
         type: 'triggered_ability',
         controller: triggerController,
@@ -963,9 +964,20 @@ function triggerETBEffectsForPermanent(
         description: trigger.description,
         triggerType: trigger.triggerType,
         mandatory: trigger.mandatory,
-      } as any);
+      };
       
-      console.log(`[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s own ETB trigger: ${trigger.description}`);
+      // Add targeting requirement if present
+      if ((trigger as any).requiresTarget) {
+        triggerObj.requiresTarget = true;
+        triggerObj.targetType = (trigger as any).targetType;
+        triggerObj.targetConstraint = (trigger as any).targetConstraint;
+        // Mark that this trigger needs target selection before it can resolve
+        triggerObj.needsTargetSelection = true;
+      }
+      
+      state.stack.push(triggerObj);
+      
+      console.log(`[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s own ETB trigger: ${trigger.description}${(trigger as any).requiresTarget ? ` (requires ${(trigger as any).targetType} target)` : ''}`);
     }
   }
 }

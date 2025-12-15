@@ -909,6 +909,21 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
         requiresChoice: true,
       });
     } else {
+      // Detect if this trigger requires targeting
+      const targetType = detectTargetType(effectText);
+      const requiresTarget = !!targetType;
+      
+      // Detect targeting constraint (e.g., "opponent controls" or "you control")
+      let targetConstraint: string | undefined = undefined;
+      if (requiresTarget) {
+        const lowerEffect = effectText.toLowerCase();
+        if (lowerEffect.includes('an opponent controls') || lowerEffect.includes('opponent controls')) {
+          targetConstraint = 'opponent';
+        } else if (lowerEffect.includes('you control')) {
+          targetConstraint = 'you';
+        }
+      }
+      
       triggers.push({
         permanentId,
         cardName,
@@ -916,7 +931,10 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
         description: effectText,
         effect: effectText,
         mandatory: true,
-      });
+        requiresTarget,
+        targetType,
+        targetConstraint,
+      } as any);
     }
   }
   
