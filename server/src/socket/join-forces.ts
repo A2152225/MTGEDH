@@ -1335,6 +1335,12 @@ function completeTemptingOffer(io: Server, pending: PendingTemptingOffer): void 
   
   // Clean up
   pendingTemptingOffers.delete(pending.id);
+  
+  // Broadcast updated game state so clients see any pending library searches
+  // This is important for Tempt with Discovery which creates library search prompts
+  if (game) {
+    broadcastGame(io, game, pending.gameId);
+  }
 }
 
 export function registerJoinForcesHandlers(io: Server, socket: Socket) {
@@ -1795,6 +1801,12 @@ export function registerJoinForcesHandlers(io: Server, socket: Socket) {
       });
     } catch (e) {
       console.warn("appendEvent(temptingOfferComplete) failed:", e);
+    }
+    
+    // Broadcast updated game state so clients see any pending library searches
+    // This is important for Tempt with Discovery which creates library search prompts
+    if (game) {
+      broadcastGame(io, game, pending.gameId);
     }
   }
 }
