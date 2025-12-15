@@ -925,6 +925,49 @@ export const KNOWN_DAMAGE_RECEIVED_TRIGGERS: Record<string, {
 };
 
 // ============================================================================
+// Auras and Equipment that grant "damage received" triggers to attached creature
+// ============================================================================
+
+/**
+ * Common interface for attachment damage-received triggers.
+ * Used by both auras and equipment that grant "whenever [attached] creature is dealt damage" triggers.
+ */
+interface AttachmentDamageReceivedTrigger {
+  effect: string;
+  targetType: 'opponent' | 'any' | 'each_opponent' | 'controller';
+}
+
+/**
+ * Known auras with "whenever enchanted creature is dealt damage" triggers.
+ * These grant the trigger to the creature they're attached to.
+ * 
+ * Examples:
+ * - Pain for All: "Whenever enchanted creature is dealt damage, it deals that much damage to each opponent."
+ */
+export const KNOWN_DAMAGE_RECEIVED_AURAS: Record<string, AttachmentDamageReceivedTrigger> = {
+  // Pain for All - "Whenever enchanted creature is dealt damage, it deals that much damage to each opponent."
+  "pain for all": {
+    effect: "Deals that much damage to each opponent",
+    targetType: 'each_opponent',
+  },
+};
+
+/**
+ * Known equipment with "whenever equipped creature is dealt damage" triggers.
+ * These grant the trigger to the creature they're attached to.
+ * 
+ * Examples:
+ * - Blazing Sunsteel: "Whenever equipped creature is dealt damage, it deals that much damage to any target."
+ */
+export const KNOWN_DAMAGE_RECEIVED_EQUIPMENT: Record<string, AttachmentDamageReceivedTrigger> = {
+  // Blazing Sunsteel - "Whenever equipped creature is dealt damage, it deals that much damage to any target."
+  "blazing sunsteel": {
+    effect: "Deals that much damage to any target",
+    targetType: 'any',
+  },
+};
+
+// ============================================================================
 // Sacrifice Triggers (Whenever an opponent sacrifices)
 // ============================================================================
 

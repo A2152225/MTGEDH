@@ -40,7 +40,34 @@ export interface ContinuousEffectResult {
   perPermanent: Map<string, EffectAggregate>;
   playerHexproof: Set<PlayerID>;
   playerShroud: Set<PlayerID>;
+  /** Type additions from global effects like Enchanted Evening */
+  typeAdditions: Map<string, string[]>;
 }
+
+// ============================================================================
+// Global Type-Changing Effects
+// ============================================================================
+
+/**
+ * Known cards that add types to all permanents globally
+ * Examples:
+ * - Enchanted Evening: "All permanents are enchantments in addition to their other types."
+ * - Mycosynth Lattice: "All permanents are artifacts in addition to their other types."
+ */
+const GLOBAL_TYPE_ADDITIONS: Record<string, { 
+  addsType: string; 
+  affectsAll: boolean;
+  condition?: string;
+}> = {
+  "enchanted evening": {
+    addsType: "Enchantment",
+    affectsAll: true,
+  },
+  "mycosynth lattice": {
+    addsType: "Artifact",
+    affectsAll: true,
+  },
+};
 
 // ============================================================================
 // Known static effect cards for special handling
@@ -299,5 +326,40 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
     }
   }
 
-  return { perPermanent, playerHexproof, playerShroud };
+  // Detect global type-changing effects like Enchanted Evening and Mycosynth Lattice
+  const typeAdditions = new Map<string, string[]>();
+  
+  for (const source of state.battlefield) {
+    const cardName = ((source.card as any)?.name || '').toLowerCase();
+    
+    // Check known global type-addition cards
+    for (const [knownName, effect] of Object.entries(GLOBAL_TYPE_ADDITIONS)) {
+      if (cardName.includes(knownName) && effect.affectsAll) {
+        // Add this type to ALL permanents
+        for (const perm of state.battlefield) {
+          const existingTypes = typeAdditions.get(perm.id) || [];
+          if (!existingTypes.includes(effect.addsType)) {
+            existingTypes.push(effect.addsType);
+            typeAdditions.set(perm.id, existingTypes);
+          }
+        }
+      }
+    }
+    
+    // Dynamic detection: "All permanents are [type] in addition to their other types"
+    const oracle = ((source.card as any)?.oracle_text || '').toLowerCase();
+    const allPermsMatch = oracle.match(/all permanents are (\w+)s? in addition to their other types/i);
+    if (allPermsMatch) {
+      const addedType = allPermsMatch[1].charAt(0).toUpperCase() + allPermsMatch[1].slice(1);
+      for (const perm of state.battlefield) {
+        const existingTypes = typeAdditions.get(perm.id) || [];
+        if (!existingTypes.includes(addedType)) {
+          existingTypes.push(addedType);
+          typeAdditions.set(perm.id, existingTypes);
+        }
+      }
+    }
+  }
+
+  return { perPermanent, playerHexproof, playerShroud, typeAdditions };
 }

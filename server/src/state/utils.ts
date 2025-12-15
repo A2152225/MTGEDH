@@ -2435,6 +2435,18 @@ export function calculateEquipmentBonus(
       continue;
     }
     
+    // Blazing Sunsteel - +1/+0 for each opponent
+    // Oracle text: "Equipped creature gets +1/+0 for each opponent you have."
+    if (cardName.includes('blazing sunsteel')) {
+      const allPlayers = gameState?.players || [];
+      // Count opponents (all players except the controller of the equipped creature)
+      const opponentCount = allPlayers.filter((p: any) => 
+        p && p.id !== controllerId && !p.hasLost
+      ).length;
+      powerBonus += opponentCount;
+      continue;
+    }
+    
     // All That Glitters - +1/+1 for each artifact and enchantment you control
     if (cardName.includes('all that glitters')) {
       const count = battlefield.filter((p: any) => {
