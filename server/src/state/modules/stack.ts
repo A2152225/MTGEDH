@@ -954,30 +954,27 @@ function triggerETBEffectsForPermanent(
       state.stack = state.stack || [];
       const triggerId = uid("trigger");
       
-      // Include targeting info if the trigger requires a target
-      const triggerObj: any = {
+      // Build the trigger object with proper structure
+      // The stack doesn't have strict typing, but we define the expected shape here
+      const triggerObj = {
         id: triggerId,
-        type: 'triggered_ability',
+        type: 'triggered_ability' as const,
         controller: triggerController,
         source: permanent.id,
         sourceName: trigger.cardName,
         description: trigger.description,
         triggerType: trigger.triggerType,
         mandatory: trigger.mandatory,
+        // Targeting properties (optional)
+        requiresTarget: trigger.requiresTarget || false,
+        targetType: trigger.targetType,
+        targetConstraint: trigger.targetConstraint,
+        needsTargetSelection: trigger.requiresTarget || false,
       };
-      
-      // Add targeting requirement if present
-      if ((trigger as any).requiresTarget) {
-        triggerObj.requiresTarget = true;
-        triggerObj.targetType = (trigger as any).targetType;
-        triggerObj.targetConstraint = (trigger as any).targetConstraint;
-        // Mark that this trigger needs target selection before it can resolve
-        triggerObj.needsTargetSelection = true;
-      }
       
       state.stack.push(triggerObj);
       
-      console.log(`[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s own ETB trigger: ${trigger.description}${(trigger as any).requiresTarget ? ` (requires ${(trigger as any).targetType} target)` : ''}`);
+      console.log(`[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s own ETB trigger: ${trigger.description}${trigger.requiresTarget ? ` (requires ${trigger.targetType} target)` : ''}`);
     }
   }
 }

@@ -502,6 +502,7 @@ export interface TriggeredAbility {
   mandatory: boolean;
   requiresTarget?: boolean;
   targetType?: string;
+  targetConstraint?: 'opponent' | 'you' | undefined; // For targeting restrictions (e.g., "opponent controls" or "you control")
   requiresChoice?: boolean; // For triggers where player must choose
   creatureType?: string; // For "whenever you cast a [type] spell" triggers
   nontokenOnly?: boolean; // For triggers that only fire for nontoken creatures (Guardian Project)
@@ -914,7 +915,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       const requiresTarget = !!targetType;
       
       // Detect targeting constraint (e.g., "opponent controls" or "you control")
-      let targetConstraint: string | undefined = undefined;
+      let targetConstraint: 'opponent' | 'you' | undefined = undefined;
       if (requiresTarget) {
         const lowerEffect = effectText.toLowerCase();
         if (lowerEffect.includes('an opponent controls') || lowerEffect.includes('opponent controls')) {
@@ -934,7 +935,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
         requiresTarget,
         targetType,
         targetConstraint,
-      } as any);
+      });
     }
   }
   
