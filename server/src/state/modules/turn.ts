@@ -96,13 +96,13 @@ function checkPendingInteractions(ctx: GameContext): {
   };
   
   try {
-    const state = (ctx as any).state;
+    const state = ctx.state as any;  // Use 'as any' for accessing dynamic pending* fields
     if (!state) return result;
     
     // =========================================================================
     // Check the unified ResolutionQueue first (new system)
     // =========================================================================
-    const gameId = (ctx as any).gameId;
+    const gameId = ctx.gameId;
     if (gameId) {
       const queueSummary = ResolutionQueueManager.getPendingSummary(gameId);
       if (queueSummary.hasPending) {
@@ -121,6 +121,7 @@ function checkPendingInteractions(ctx: GameContext): {
     
     // =========================================================================
     // Check legacy pending* fields (for backward compatibility during migration)
+    // Note: These are dynamically added to state and not in the GameState type
     // =========================================================================
     
     // Check for pending discard selection (cleanup step)

@@ -50,19 +50,29 @@ const COLORS = {
   loyaltyPositive: {
     bg: 'rgba(34, 197, 94, 0.9)',
     border: 'rgba(74, 222, 128, 0.8)',
+    accent: '#22c55e',
   },
   loyaltyNegative: {
     bg: 'rgba(239, 68, 68, 0.9)',
     border: 'rgba(252, 165, 165, 0.8)',
+    accent: '#ef4444',
   },
   loyaltyNeutral: {
     bg: 'rgba(139, 92, 246, 0.9)',
     border: 'rgba(167, 139, 250, 0.8)',
+    accent: '#8b5cf6',
   },
   // Text colors
   activeText: '#fff',
   inactiveText: '#9ca3af',
-} as const;
+};
+
+// Type for color scheme objects with optional accent
+type ColorScheme = {
+  bg: string;
+  border: string;
+  accent?: string;
+};
 
 export interface ActivatedAbilityButtonsProps {
   perm: BattlefieldPermanent;
@@ -107,7 +117,7 @@ function AbilityButton({
   const costText = formatAbilityCost(ability);
   
   // Get color scheme based on ability type
-  let colorScheme = COLORS.default;
+  let colorScheme: ColorScheme = COLORS.default;
   if (ability.isManaAbility) {
     colorScheme = COLORS.mana;
   } else if (ability.isFetchAbility) {
@@ -317,7 +327,7 @@ function CompactLoyaltyButton({
   const isNegative = loyaltyCost < 0;
   
   // Get color scheme based on loyalty direction
-  let colorScheme = COLORS.loyaltyNeutral;
+  let colorScheme: ColorScheme = COLORS.loyaltyNeutral;
   if (isPositive) {
     colorScheme = COLORS.loyaltyPositive;
   } else if (isNegative) {

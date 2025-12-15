@@ -119,7 +119,7 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     const response: ResolutionStepResponse = {
       stepId,
       playerId: pid,
-      selections: Array.isArray(selections) ? selections : selections,
+      selections: selections as readonly string[] | number | boolean | Record<string, any>,
       cancelled,
       timestamp: Date.now(),
     };
