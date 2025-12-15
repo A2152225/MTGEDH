@@ -2310,7 +2310,16 @@ export function nextStep(ctx: GameContext) {
     let shouldAdvanceTurn = false;
     let shouldUntap = false;
 
-    if (currentPhase === "beginning" || currentPhase === "pre_game" || currentPhase === "") {
+    // IMPORTANT: Do not advance from pre_game phase via nextStep.
+    // The pre_game phase is for deck selection, commander selection, mulligan decisions, etc.
+    // It should only be exited via explicit game start logic (when all players are ready).
+    // Auto-pass and nextStep should NOT automatically advance from pre_game to beginning phase.
+    if (currentPhase === "pre_game") {
+      console.log(`${ts()} [nextStep] In pre_game phase - nextStep should not be called during pre_game. Returning without advancing.`);
+      return;
+    }
+    
+    if (currentPhase === "beginning" || currentPhase === "") {
       if (currentStep === "" || currentStep === "untap" || currentStep === "UNTAP") {
         // UNTAP step: This should normally not happen since nextTurn auto-advances to UPKEEP
         // But keep this for backward compatibility with old save states or manual step control

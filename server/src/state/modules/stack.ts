@@ -954,18 +954,27 @@ function triggerETBEffectsForPermanent(
       state.stack = state.stack || [];
       const triggerId = uid("trigger");
       
-      state.stack.push({
+      // Build the trigger object with proper structure
+      // The stack doesn't have strict typing, but we define the expected shape here
+      const triggerObj = {
         id: triggerId,
-        type: 'triggered_ability',
+        type: 'triggered_ability' as const,
         controller: triggerController,
         source: permanent.id,
         sourceName: trigger.cardName,
         description: trigger.description,
         triggerType: trigger.triggerType,
         mandatory: trigger.mandatory,
-      } as any);
+        // Targeting properties (optional)
+        requiresTarget: trigger.requiresTarget || false,
+        targetType: trigger.targetType,
+        targetConstraint: trigger.targetConstraint,
+        needsTargetSelection: trigger.requiresTarget || false,
+      };
       
-      console.log(`[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s own ETB trigger: ${trigger.description}`);
+      state.stack.push(triggerObj);
+      
+      console.log(`[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s own ETB trigger: ${trigger.description}${trigger.requiresTarget ? ` (requires ${trigger.targetType} target)` : ''}`);
     }
   }
 }

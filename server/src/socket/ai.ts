@@ -4048,10 +4048,6 @@ async function executePassPriority(
         console.log(`[AI] Stack resolved for game ${gameId}`);
       }
       
-      // Check for pending library search (from tutor spells)
-      // For AI players, we auto-select the best card; for human players, emit the request
-      await handlePendingLibrarySearchAfterResolution(io, game, gameId);
-      
       // Check for pending control change activations (Vislor Turlough, Xantcha, etc.)
       // For AI players, we auto-select an opponent to give control to
       await handlePendingControlChangesAfterResolution(io, game, gameId);
@@ -4062,7 +4058,15 @@ async function executePassPriority(
       
       // Check for pending Tempting Offer effects (Tempt with Discovery, etc.)
       // These require opponents to choose whether to accept
+      // NOTE: Tempting Offer effects (like Tempt with Discovery) may CREATE pending library searches
+      // when they resolve, so this must be called BEFORE handlePendingLibrarySearchAfterResolution
       handlePendingTemptingOffer(io, game, gameId);
+      
+      // Check for pending library search (from tutor spells AND from Tempting Offer effects)
+      // For AI players, we auto-select the best card; for human players, emit the request
+      // NOTE: This must be called AFTER handlePendingTemptingOffer because cards like
+      // Tempt with Discovery create library searches when they resolve
+      await handlePendingLibrarySearchAfterResolution(io, game, gameId);
       
       // Persist the resolution event
       try {

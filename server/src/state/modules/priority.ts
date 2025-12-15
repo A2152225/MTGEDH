@@ -184,6 +184,15 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
   const autoPassPlayers = stateAny.autoPassPlayers || new Set();
   const turnPlayer = state.turnPlayer as PlayerID;
   
+  // IMPORTANT: Do not run auto-pass loop during pre_game phase
+  // During pre_game, players are selecting decks, commanders, and making mulligan decisions.
+  // Auto-pass should not interfere with these setup steps.
+  const currentPhase = String(stateAny.phase || '').toLowerCase();
+  if (currentPhase === 'pre_game') {
+    console.log(`[priority] autoPassLoop - in pre_game phase, skipping auto-pass`);
+    return { allPassed: false, resolved: false };
+  }
+  
   console.log(`[priority] autoPassLoop starting - active players: ${active.map(p => p.id).join(', ')}, autoPassEnabled: ${Array.from(autoPassPlayers).join(', ')}, currentPriority: ${state.priority}, turnPlayer: ${turnPlayer}`);
   
   
