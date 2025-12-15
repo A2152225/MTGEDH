@@ -49,6 +49,10 @@ import { viewFor } from "./modules/view";
 import { applyEvent, replay, reset, skip, unskip, remove } from "./modules/applyEvent";
 import { mulberry32 } from "../utils/rng";
 
+// Export the unified ResolutionQueue system
+export { ResolutionQueueManager, ResolutionStepType, ResolutionStepStatus } from "./resolution/index";
+export type { ResolutionStep, ResolutionQueue, ResolutionStepResponse, CreateResolutionStepConfig } from "./resolution/index";
+
 /**
  * Create a public InMemoryGame surface that delegates to the ctx + modules.
  * This wrapper preserves the monolithic API surface used by socket handlers.

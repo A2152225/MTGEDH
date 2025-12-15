@@ -36,6 +36,7 @@ import { calculateAllPTBonuses, parsePT } from "../utils.js";
 import { canAct, canRespond } from "./can-respond.js";
 import { removeExpiredGoads } from "./goad-effects.js";
 import { tryAutoPass } from "./priority.js";
+import { ResolutionQueueManager } from "../resolution/index.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -76,6 +77,10 @@ function safeBumpSeq(ctx: any) {
  * This ensures UI popups, modals, and player choices are fully resolved
  * before game state transitions, maintaining proper game flow order.
  * 
+ * This function checks both:
+ * 1. The new unified ResolutionQueue (preferred)
+ * 2. Legacy pending* state fields (for backward compatibility)
+ * 
  * @param ctx Game context
  * @returns Object with hasPending flag and details about what's pending
  */
@@ -93,6 +98,30 @@ function checkPendingInteractions(ctx: GameContext): {
   try {
     const state = (ctx as any).state;
     if (!state) return result;
+    
+    // =========================================================================
+    // Check the unified ResolutionQueue first (new system)
+    // =========================================================================
+    const gameId = (ctx as any).gameId;
+    if (gameId) {
+      const queueSummary = ResolutionQueueManager.getPendingSummary(gameId);
+      if (queueSummary.hasPending) {
+        result.hasPending = true;
+        for (const type of queueSummary.pendingTypes) {
+          if (!result.pendingTypes.includes(type)) {
+            result.pendingTypes.push(type);
+          }
+        }
+        result.details.resolutionQueue = {
+          pendingCount: queueSummary.pendingCount,
+          pendingByPlayer: queueSummary.pendingByPlayer,
+        };
+      }
+    }
+    
+    // =========================================================================
+    // Check legacy pending* fields (for backward compatibility during migration)
+    // =========================================================================
     
     // Check for pending discard selection (cleanup step)
     if (state.pendingDiscardSelection && Object.keys(state.pendingDiscardSelection).length > 0) {
