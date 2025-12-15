@@ -1811,11 +1811,11 @@ function clearManaPool(ctx: GameContext) {
         
         // Leyline Tyrant - Red mana doesn't empty
         // Oracle text: "You don't lose unspent red mana as steps and phases end."
-        // Handle different apostrophe styles (straight vs curly)
+        // Handle different apostrophe styles (straight ' vs curly ')
         if (cardName.includes("leyline tyrant") ||
             (oracleText.includes("red mana") && 
-             (oracleText.includes("don't lose") || oracleText.includes("don't lose") || 
-              oracleText.includes("doesn't empty") || oracleText.includes("doesn't empty")))) {
+             (oracleText.includes("don't lose") || oracleText.includes("don’t lose") || 
+              oracleText.includes("doesn't empty") || oracleText.includes("doesn’t empty")))) {
           effects.push({
             permanentId: permanent.id,
             cardName: permanent.card?.name || "Leyline Tyrant",
