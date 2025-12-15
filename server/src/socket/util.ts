@@ -371,11 +371,14 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
     }
     
     // Check for castable commanders from command zone
+    // Partner commanders and backgrounds should be tracked independently in inCommandZone
+    // Each commander can be cast separately while the other remains in the command zone
     const commandZone = (state as any).commandZone?.[playerId];
     if (commandZone) {
       const inCommandZone = (commandZone as any).inCommandZone as string[] || [];
       const commanderCards = (commandZone as any).commanderCards as any[] || [];
-      const commanderTax = (commandZone as any).commanderTax || {};
+      // Fix: Use taxById (the actual field name) instead of commanderTax
+      const taxById = (commandZone as any).taxById || {};
       
       if (inCommandZone.length > 0 && commanderCards.length > 0) {
         console.log(`[getPlayableCardIds] Checking ${inCommandZone.length} commanders in command zone`);
@@ -385,7 +388,8 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           if (!commander) continue;
           
           const manaCost = commander.mana_cost || "";
-          const tax = commanderTax[commanderId] || 0;
+          // Fix: Use taxById with the correct commanderId key
+          const tax = taxById[commanderId] || 0;
           const totalCost = addTaxToManaCost(manaCost, tax);
           const parsedCost = parseManaFromString(totalCost);
           
@@ -1676,10 +1680,12 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
       // Only check if player can act when autoPassForTurn is NOT enabled
       // Use the imported canAct and canRespond functions
       // Create a minimal GameContext with required properties
+      // CRITICAL: Use actual game data (libraries, mana pool) for accurate checks
       const ctx: any = {
         gameId,
         state: game.state,
-        libraries: new Map(),
+        // Use actual libraries from game, not an empty map
+        libraries: (game as any).libraries || new Map(),
         life: stateAny.life || {},
         poison: {},
         experience: {},
@@ -1701,7 +1707,8 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
         landsPlayedThisTurn: stateAny.landsPlayedThisTurn || {},
         maxLandsPerTurn: {},
         additionalDrawsPerTurn: {},
-        manaPool: {},
+        // Use actual mana pool from game state
+        manaPool: stateAny.manaPool || {},
       };
       
       const turnPlayer = stateAny.turnPlayer;
@@ -1762,10 +1769,12 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
       // (e.g., after step advancement gives them priority in their main phase)
       if (!autoPassForTurn) {
         // Recreate context for re-check
+        // CRITICAL: Use actual game data (libraries, mana pool) for accurate checks
         const recheckCtx: any = {
           gameId,
           state: game.state,
-          libraries: new Map(),
+          // Use actual libraries from game, not an empty map
+          libraries: (game as any).libraries || new Map(),
           life: currentState.life || {},
           poison: {},
           experience: {},
@@ -1787,7 +1796,8 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
           landsPlayedThisTurn: currentState.landsPlayedThisTurn || {},
           maxLandsPerTurn: {},
           additionalDrawsPerTurn: {},
-          manaPool: {},
+          // Use actual mana pool from game state
+          manaPool: currentState.manaPool || {},
         };
         
         const turnPlayer = currentState.turnPlayer;

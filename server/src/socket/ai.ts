@@ -1667,42 +1667,55 @@ function detectBeneficialAura(oracleText: string): boolean {
  * Find castable commander from command zone
  * Returns the commander card and cost if castable, null otherwise
  * Uses shared mana calculation for consistency
+ * 
+ * Partner commanders and backgrounds are tracked independently - each can be cast
+ * while the other remains in the command zone.
  */
 function findCastableCommander(game: any, playerId: PlayerID): { card: any; cost: any; isBackground?: boolean } | null {
   const commandZone = game.state?.commandZone?.[playerId];
   if (!commandZone) return null;
   
   const commanderIds = commandZone.commanderIds || [];
-  const commanders = commandZone.commanders || [];
+  // Use commanderCards (the correct field name) instead of commanders
+  const commanderCards = commandZone.commanderCards || commandZone.commanders || [];
+  // Check which commanders are actually in the command zone (important for partner commanders)
+  const inCommandZone = commandZone.inCommandZone || commanderIds;
+  // Use per-commander tax (taxById) instead of a single tax value
+  const taxById = commandZone.taxById || {};
   
-  if (commanderIds.length === 0 && commanders.length === 0) return null;
+  if (inCommandZone.length === 0 || commanderCards.length === 0) return null;
   
   // Use shared mana calculation
   const manaPool = getAvailableMana(game.state, playerId);
-  const commanderTax = (commandZone.commanderTax || 0);
   
-  // Check each commander in the command zone
-  for (let i = 0; i < Math.max(commanderIds.length, commanders.length); i++) {
-    const card = commanders[i] || null;
+  // Check each commander that is still in the command zone
+  for (const commanderId of inCommandZone) {
+    // Find the commander card
+    const card = commanderCards.find((c: any) => c?.id === commanderId || c?.name === commanderId);
     if (!card) continue;
     
-    // Check if commander is already on battlefield
+    // Check if commander is already on battlefield or stack (shouldn't happen if inCommandZone is correct)
     const battlefield = game.state?.battlefield || [];
-    const commanderId = commanderIds[i] || card.id;
+    const stack = game.state?.stack || [];
     const onBattlefield = battlefield.some((p: any) => 
       p.card?.id === commanderId || 
       p.card?.name === card.name ||
       (p.isCommander && p.controller === playerId && p.card?.name === card.name)
     );
+    const onStack = stack.some((s: any) => 
+      s.card?.id === commanderId ||
+      (s.isCommander && s.controller === playerId && s.card?.name === card.name)
+    );
     
-    if (onBattlefield) continue;
+    if (onBattlefield || onStack) continue;
     
     // Get base mana cost
     const manaCost = card.mana_cost;
     if (!manaCost) continue;
     
-    // Parse cost with commander tax using shared function
+    // Parse cost with commander tax using per-commander tax
     const parsedCost = parseManaCost(manaCost);
+    const commanderTax = taxById[commanderId] || 0;
     const totalCost = {
       ...parsedCost,
       generic: parsedCost.generic + commanderTax,
