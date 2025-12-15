@@ -11,6 +11,7 @@ import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 import { getAttackTriggersForCreatures, getTapTriggers, type TriggeredAbility } from "../state/modules/triggered-abilities.js";
 import { creatureHasHaste, permanentHasKeyword } from "./game-actions.js";
+import { getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
 
 /**
  * Process tap triggers for attacking creatures
@@ -696,25 +697,81 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       
       // If there's an attack cost, check if player can pay and consume mana
       if (totalAttackCostRequired > 0) {
-        // Check if player has enough mana
+        // Get total available mana including untapped mana sources (bounce lands, Sol Ring, etc.)
+        // This gives the player credit for mana they could produce by tapping their lands
+        const availableMana = getAvailableMana(game.state, playerId);
+        const totalAvailable = getTotalManaFromPool(availableMana);
+        
+        // Also get current mana pool for actual payment
         const manaPool = game.state.manaPool[playerId] || {
           white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
         };
         
-        const totalMana = manaPool.white + manaPool.blue + manaPool.black + 
+        const totalFloating = manaPool.white + manaPool.blue + manaPool.black + 
                           manaPool.red + manaPool.green + manaPool.colorless;
         
-        if (totalMana < totalAttackCostRequired) {
+        if (totalAvailable < totalAttackCostRequired) {
           socket.emit("error", {
             code: "INSUFFICIENT_MANA_FOR_ATTACK",
-            message: `Cannot attack. Need to pay {${totalAttackCostRequired}} for ${attackCostBreakdown.map(b => b.sources.join(', ')).join('; ')}. You have {${totalMana}}.`,
+            message: `Cannot attack. Need to pay {${totalAttackCostRequired}} for ${attackCostBreakdown.map(b => b.sources.join(', ')).join('; ')}. You have {${totalAvailable}} available.`,
           });
           return;
         }
         
+        // If player doesn't have enough floating mana, they need to tap lands first
+        // For now, we'll auto-tap untapped mana sources to pay the cost
+        if (totalFloating < totalAttackCostRequired) {
+          // Auto-tap untapped mana sources to generate needed mana
+          let manaNeeded = totalAttackCostRequired - totalFloating;
+          const battlefield = game.state.battlefield || [];
+          
+          for (const perm of battlefield) {
+            if (manaNeeded <= 0) break;
+            if (perm.controller !== playerId) continue;
+            if (perm.tapped) continue;
+            if (!perm.card) continue;
+            
+            const oracleText = (perm.card.oracle_text || "").toLowerCase();
+            const cardName = (perm.card.name || "").toLowerCase();
+            
+            // Check if this is a mana-producing permanent
+            const isManaSource = /\{t\}(?:[^:]*)?:\s*add/i.test(oracleText) ||
+                                /^(plains|island|swamp|mountain|forest)$/i.test(cardName);
+            
+            if (isManaSource) {
+              // Calculate how much mana this source produces
+              let manaProduced = 1; // Default for basic lands
+              
+              // Check for multi-mana production (Sol Ring, bounce lands, etc.)
+              const manaTokens = oracleText.match(/\{[wubrgc]\}/gi) || [];
+              if (manaTokens.length >= 2 && !oracleText.includes(' or ')) {
+                // Produces multiple mana (e.g., Sol Ring {C}{C}, bounce lands {B}{R})
+                manaProduced = manaTokens.length;
+              }
+              
+              // Tap the permanent
+              perm.tapped = true;
+              
+              // Add mana to pool (simplified: add as colorless for generic costs)
+              game.state.manaPool[playerId] = game.state.manaPool[playerId] || {
+                white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+              };
+              game.state.manaPool[playerId].colorless += manaProduced;
+              manaNeeded -= manaProduced;
+              
+              console.log(`[combat] Auto-tapped ${perm.card.name} for ${manaProduced} mana to pay attack cost`);
+            }
+          }
+        }
+        
+        // Now consume mana from pool
+        const updatedManaPool = game.state.manaPool[playerId] || {
+          white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
+        };
+        
         // Consume generic mana from pool (prioritize colorless, then colors)
         let remaining = totalAttackCostRequired;
-        const poolCopy = { ...manaPool };
+        const poolCopy = { ...updatedManaPool };
         
         // First use colorless
         const colorlessUsed = Math.min(remaining, poolCopy.colorless);

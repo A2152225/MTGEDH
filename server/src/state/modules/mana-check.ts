@@ -43,10 +43,11 @@ export function parseManaCost(manaCost?: string): {
       // Handle phyrexian mana {W/P} or colored phyrexian {B/P}
       if (parts[1] === "P") {
         // Phyrexian mana can be paid with the color OR 2 life
-        // For cost checking, we need the color OR alternate payment
+        // Track as hybrid with special LIFE payment option
         const firstColor = parts[0];
         if (firstColor.length === 1 && firstColor in result.colors) {
-          result.hybrid.push([firstColor]);
+          // Add both options: the color OR pay 2 life
+          result.hybrid.push([firstColor, 'LIFE:2']);
         }
       } else if (/^\d+$/.test(parts[0])) {
         // Hybrid generic/color: {2/W}, {3/U}, etc.
@@ -76,11 +77,13 @@ export function getTotalManaFromPool(pool: Record<string, number>): number {
  * 
  * @param pool The player's mana pool
  * @param parsedCost The parsed mana cost to check
+ * @param lifeAvailable Optional: player's life total for Phyrexian mana costs (default: Infinity to always allow)
  * @returns true if the cost can be paid
  */
 export function canPayManaCost(
   pool: Record<string, number>,
-  parsedCost: { colors: Record<string, number>; generic: number; hasX: boolean; hybrid?: Array<string[]> }
+  parsedCost: { colors: Record<string, number>; generic: number; hasX: boolean; hybrid?: Array<string[]> },
+  lifeAvailable: number = Infinity
 ): boolean {
   if (!pool) return false;
 
@@ -95,6 +98,7 @@ export function canPayManaCost(
 
   // Make a copy of the pool to track what's been spent
   const remainingPool = { ...pool };
+  let remainingLife = lifeAvailable;
   
   // First, pay all non-hybrid colored costs
   for (const [color, needed] of Object.entries(parsedCost.colors)) {
@@ -116,7 +120,15 @@ export function canPayManaCost(
       
       // Try to pay with one of the hybrid options
       for (const option of hybridOptions) {
-        if (option.startsWith('GENERIC:')) {
+        if (option.startsWith('LIFE:')) {
+          // Phyrexian mana - can pay with life
+          const lifeAmount = parseInt(option.split(':')[1], 10);
+          if (remainingLife >= lifeAmount) {
+            remainingLife -= lifeAmount;
+            paid = true;
+            break;
+          }
+        } else if (option.startsWith('GENERIC:')) {
           // Can pay with N generic mana (e.g., GENERIC:2, GENERIC:3)
           const genericAmount = parseInt(option.split(':')[1], 10);
           const totalRemaining = getTotalManaFromPool(remainingPool);
