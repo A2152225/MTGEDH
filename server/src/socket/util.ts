@@ -1623,6 +1623,14 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
       return;
     }
     
+    // IMPORTANT: Do not auto-pass during pre_game phase
+    // During pre_game, players are selecting decks, commanders, and making mulligan decisions.
+    // Auto-pass should not interfere with these setup steps.
+    if (stateAny?.phase === 'pre_game' || stateAny?.phase === 'PRE_GAME') {
+      console.log(`${ts()} [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: ${debugCallId})`);
+      return;
+    }
+    
     // Prevent re-entry while auto-passing is in progress
     // This avoids recursive calls that might advance steps incorrectly
     if (!stateAny._autoPassInProgress) {
@@ -1936,6 +1944,14 @@ export function schedulePriorityTimeout(
 
   try {
     if (!game.state || !game.state.active) return;
+    
+    // IMPORTANT: Do not auto-advance during pre_game phase
+    // During pre_game, players are selecting decks, commanders, and making mulligan decisions.
+    const currentPhase = String((game.state as any)?.phase || '').toLowerCase();
+    if (currentPhase === 'pre_game') {
+      console.log(`[schedulePriorityTimeout] In pre_game phase, not scheduling timeout for game ${gameId}`);
+      return;
+    }
     
     // If priority is null (no player has priority), auto-advance to next step
     // This happens in steps like DRAW where there are no triggers - only turn-based actions
