@@ -23,6 +23,7 @@ import { exchangePermanentOracleText } from "../state/utils";
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../rules-engine/src/creatureUpgradeAbilities";
 import { isAIPlayer } from "./ai.js";
 import { getActivatedAbilityConfig } from "../../../rules-engine/src/cards/activatedAbilityCards.js";
+import { creatureHasHaste } from "./game-actions.js";
 
 // ============================================================================
 // Tap/Untap Ability Text Parsing
@@ -1926,12 +1927,35 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
-    // Set tapped on the permanent
-    (permanent as any).tapped = true;
-    
-    // Get card info for logging
+    // Get card info early for summoning sickness check
     const card = (permanent as any).card;
     const cardName = card?.name || "Unknown";
+    const typeLine = (card?.type_line || "").toLowerCase();
+    const isCreature = /\bcreature\b/.test(typeLine);
+    const isLand = typeLine.includes("land");
+    
+    // ========================================================================
+    // Rule 302.6 / 702.10: Check summoning sickness for creatures with tap abilities
+    // A creature can't use tap/untap abilities unless it has been continuously controlled
+    // since the turn began OR it has haste (from any source).
+    // Lands and non-creature permanents are NOT affected by summoning sickness.
+    // ========================================================================
+    if (isCreature && !isLand) {
+      const hasHaste = creatureHasHaste(permanent, battlefield, pid);
+      
+      // summoningSickness is set when creatures enter the battlefield
+      // If a creature has summoning sickness and doesn't have haste, it can't use tap abilities
+      if ((permanent as any).summoningSickness && !hasHaste) {
+        socket.emit("error", {
+          code: "SUMMONING_SICKNESS",
+          message: `${cardName} has summoning sickness and cannot use tap abilities this turn`,
+        });
+        return;
+      }
+    }
+    
+    // Set tapped on the permanent
+    (permanent as any).tapped = true;
     
     // Also ensure it's set in the main battlefield array (defensive programming)
     const battlefieldIndex = battlefield.findIndex((p: any) => p?.id === permanentId);
@@ -1943,8 +1967,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     
     // Check if this permanent has mana abilities (intrinsic or granted by effects like Cryptolith Rite)
     // If so, add the produced mana to the player's mana pool
-    const typeLine = (card?.type_line || "").toLowerCase();
-    const isLand = typeLine.includes("land");
     const isBasic = typeLine.includes("basic");
     
     // ========================================================================
