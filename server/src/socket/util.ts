@@ -231,6 +231,10 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
       return playableIds;
     }
     
+    // Create a minimal context object for functions that need GameContext
+    // This provides the required state property for calculating game effects
+    const ctx = { state } as { state: typeof state };
+    
     const pool = getManaPoolFromState(state, playerId);
     // Also calculate available mana (including potential from untapped sources)
     // This is used to highlight cards that COULD be cast if mana sources are tapped
@@ -351,9 +355,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
       const landsPlayedThisTurn = (state.landsPlayedThisTurn as any)?.[playerId] ?? 0;
       // Calculate max lands per turn dynamically from battlefield effects
       // This accounts for Exploration, Azusa, Rites of Flourishing, etc.
-      // Create a minimal context for the calculation
-      const ctx = { state } as any;
-      const maxLandsPerTurn = calculateMaxLandsPerTurn(ctx, playerId);
+      const maxLandsPerTurn = calculateMaxLandsPerTurn(ctx as any, playerId);
       
       console.log(`[getPlayableCardIds] Checking lands: landsPlayed=${landsPlayedThisTurn}, max=${maxLandsPerTurn}`);
       
@@ -563,8 +565,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           if (typeLine.includes("land")) {
             if (isMainPhase && stackIsEmpty) {
               const landsPlayedThisTurn = (state.landsPlayedThisTurn as any)?.[playerId] ?? 0;
-              const ctx = { state } as any;
-              const maxLandsPerTurn = calculateMaxLandsPerTurn(ctx, playerId);
+              const maxLandsPerTurn = calculateMaxLandsPerTurn(ctx as any, playerId);
               if (landsPlayedThisTurn < maxLandsPerTurn) {
                 // Highlight the library zone instead of the individual card
                 playableIds.push(`library-${playerId}`);

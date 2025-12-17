@@ -573,8 +573,13 @@ export function getManaAbilitiesForPermanent(
         dualOrMatch[1].toUpperCase(),
         dualOrMatch[2].toUpperCase()
       ];
-      // Only add if not already covered by another pattern
-      if (!abilities.some(a => a.produces.length >= 2 && !a.producesAllAtOnce)) {
+      // Only add if an ability with these exact colors and choice semantics doesn't already exist
+      const colorKey = colors.slice().sort().join(',');
+      const alreadyHasChoiceAbility = abilities.some(a => 
+        !a.producesAllAtOnce && 
+        a.produces.slice().sort().join(',') === colorKey
+      );
+      if (!alreadyHasChoiceAbility) {
         abilities.push({
           id: 'native_choice_2',
           cost: '{T}',

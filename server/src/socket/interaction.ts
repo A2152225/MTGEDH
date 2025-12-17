@@ -26,6 +26,27 @@ import { getActivatedAbilityConfig } from "../../../rules-engine/src/cards/activ
 import { creatureHasHaste } from "./game-actions.js";
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+/**
+ * Mapping of number words to numeric values for parsing ability text.
+ * Used for interpreting draw counts, damage amounts, etc. in oracle text.
+ */
+const WORD_TO_NUMBER: Record<string, number> = {
+  'one': 1, 'a': 1, 'an': 1, '1': 1,
+  'two': 2, '2': 2,
+  'three': 3, '3': 3,
+  'four': 4, '4': 4,
+  'five': 5, '5': 5,
+  'six': 6, '6': 6,
+  'seven': 7, '7': 7,
+  'eight': 8, '8': 8,
+  'nine': 9, '9': 9,
+  'ten': 10, '10': 10,
+};
+
+// ============================================================================
 // Tap/Untap Ability Text Parsing
 // ============================================================================
 
@@ -2922,12 +2943,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         }
       }
       
-      // Convert word numbers to actual count
-      const wordToNumber: Record<string, number> = {
-        'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
-        'a': 1, 'an': 1, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5,
-      };
-      const drawCount = drawCards ? (wordToNumber[drawCards.toLowerCase()] || 0) : 0;
+      // Convert word numbers to actual count using module-level constant
+      const drawCount = drawCards ? (WORD_TO_NUMBER[drawCards.toLowerCase()] || 0) : 0;
       
       console.log(`[activateBattlefieldAbility] Control change ability on ${cardName}: drawCards=${drawCards}, drawCount=${drawCount}`);
       
