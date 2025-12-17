@@ -96,10 +96,12 @@ export function getTotalManaFromPool(pool: Record<string, number>): number {
   }
   
   // If we have anyColor sources, we need to subtract them from the inflated total
-  // Each "any color" source adds +1 to all 5 colors (W,U,B,R,G) but only produces 1 mana
-  // So the inflated amount is anyColorCount * 4 (since 5 colors - 1 actual = 4 extra per source)
+  // Each "any color" source adds +1 to all 5 colored mana types (W,U,B,R,G) but only produces 1 mana
+  // So the inflated amount is anyColorCount * (NUM_COLORED_MANA_TYPES - 1)
+  // Note: colorless is NOT included because "any color" sources don't add to colorless
+  const NUM_COLORED_MANA_TYPES = 5; // white, blue, black, red, green
   if (anyColorCount > 0) {
-    const inflatedAmount = anyColorCount * 4; // Each "any color" source adds 4 extra to the total
+    const inflatedAmount = anyColorCount * (NUM_COLORED_MANA_TYPES - 1);
     return Math.max(0, specificColorTotal - inflatedAmount);
   }
   

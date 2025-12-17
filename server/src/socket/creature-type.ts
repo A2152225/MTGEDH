@@ -36,6 +36,12 @@ function createConfirmId(): string {
   return `ct_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/** Default creature type fallback for AI when no dominant type is found */
+const DEFAULT_AI_CREATURE_TYPE = 'Shapeshifter';
+
+/** Delay before AI makes creature type selection (allows state to settle) */
+const AI_CREATURE_TYPE_SELECTION_DELAY_MS = 100;
+
 /**
  * Determine the most common creature type in a player's deck/library.
  * Used for AI to make intelligent creature type choices.
@@ -54,9 +60,16 @@ function getDominantCreatureType(game: any, playerId: string): string {
     if (!typeLine.includes('creature')) return;
     
     const types = extractCreatureTypes(card.type_line, card.oracle_text);
+    
+    // Skip if it's a changeling (has ALL types, not useful for counting)
+    // Changelings return all creature types from extractCreatureTypes
+    const oracleText = (card.oracle_text || '').toLowerCase();
+    const isChangeling = oracleText.includes('changeling') || 
+                         typeLine.includes('changeling') ||
+                         types.length >= CREATURE_TYPES.length;
+    if (isChangeling) return;
+    
     for (const type of types) {
-      // Skip if it's a changeling (has ALL types, not useful for counting)
-      if (types.length > 10) return; // Changeling returns all creature types
       creatureTypeCounts[type] = (creatureTypeCounts[type] || 0) + 1;
     }
   };
@@ -91,7 +104,7 @@ function getDominantCreatureType(game: any, playerId: string): string {
   }
   
   // Find the most common type
-  let dominantType = 'Shapeshifter'; // Default fallback
+  let dominantType = DEFAULT_AI_CREATURE_TYPE;
   let maxCount = 0;
   
   for (const [type, count] of Object.entries(creatureTypeCounts)) {
@@ -221,10 +234,10 @@ export function requestCreatureTypeSelection(
   const game = ensureGame(gameId);
   if (game && isAIPlayer(game, playerId)) {
     console.log(`[creatureType] Player ${playerId} is AI, handling selection automatically`);
-    // Use setTimeout to avoid blocking and allow state to settle
+    // Use setTimeout to avoid blocking and allow state to settle after permanent enters battlefield
     setTimeout(() => {
       handleAICreatureTypeSelection(io, game, gameId, playerId, permanentId, cardName, confirmId);
-    }, 100);
+    }, AI_CREATURE_TYPE_SELECTION_DELAY_MS);
     return confirmId;
   }
   
