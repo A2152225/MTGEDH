@@ -155,6 +155,10 @@ export function FreeField(props: {
   onExchangeTextBoxes?: (sourceId: string) => void;
   canActivate?: boolean;
   playerId?: string;
+  // Auto-pass ignore callbacks
+  onIgnoreForAutoPass?: (permanentId: string, cardName: string) => void;
+  onUnignoreForAutoPass?: (permanentId: string) => void;
+  ignoredForAutoPassIds?: Set<string>;
   // Game state for ability activation context
   hasPriority?: boolean;
   isOwnTurn?: boolean;
@@ -176,6 +180,7 @@ export function FreeField(props: {
     onTap, onUntap, onActivateAbility, onAddCounter, onSacrifice, onRemove,
     onExchangeTextBoxes,
     canActivate = true, playerId,
+    onIgnoreForAutoPass, onUnignoreForAutoPass, ignoredForAutoPassIds,
     hasPriority = false,
     isOwnTurn = false,
     isMainPhase = false,
@@ -1118,6 +1123,9 @@ export function FreeField(props: {
           onSacrifice={onSacrifice}
           onRemove={onRemove}
           onExchangeTextBoxes={onExchangeTextBoxes}
+          onIgnoreForAutoPass={onIgnoreForAutoPass}
+          onUnignoreForAutoPass={onUnignoreForAutoPass}
+          isIgnoredForAutoPass={ignoredForAutoPassIds?.has(contextMenu.permanent.id) || false}
           canActivate={canActivate}
           playerId={playerId}
         />

@@ -2911,9 +2911,25 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
        abilityId.includes("control"));
     
     if (hasControlChangeAbility) {
-      // Get effect details from registry or infer from oracle text
-      const drawCards = abilityConfig?.tapAbility?.effect?.match(/draw (\w+) card/i)?.[1];
-      const drawCount = drawCards === 'two' ? 2 : drawCards === 'one' ? 1 : 0;
+      // Get effect details from registry first, then fall back to oracle text parsing
+      let drawCards = abilityConfig?.tapAbility?.effect?.match(/draw (\w+) card/i)?.[1];
+      
+      // Fallback: Parse draw count directly from oracle text if not found in registry
+      if (!drawCards) {
+        const oracleDrawMatch = oracleText.match(/draw (\w+) card/i);
+        if (oracleDrawMatch) {
+          drawCards = oracleDrawMatch[1].toLowerCase();
+        }
+      }
+      
+      // Convert word numbers to actual count
+      const wordToNumber: Record<string, number> = {
+        'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+        'a': 1, 'an': 1, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5,
+      };
+      const drawCount = drawCards ? (wordToNumber[drawCards.toLowerCase()] || 0) : 0;
+      
+      console.log(`[activateBattlefieldAbility] Control change ability on ${cardName}: drawCards=${drawCards}, drawCount=${drawCount}`);
       
       // Parse the cost
       const { requiresTap, manaCost } = parseActivationCost(oracleText, /(?:draw|opponent gains control)/i);
