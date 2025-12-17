@@ -759,7 +759,7 @@ export const KNOWN_END_STEP_TRIGGERS: Record<string, {
   modalOptions?: string[];
 }> = {
   "kynaios and tiro of meletis": { 
-    effect: "Each player may draw a card or play a land (you draw a card)", 
+    effect: "draw a card. Each player may put a land card from their hand onto the battlefield, then each opponent who didn't draws a card", 
     mandatory: true,
     requiresChoice: true,
     affectsAllPlayers: true,

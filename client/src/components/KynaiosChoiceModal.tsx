@@ -165,6 +165,7 @@ export function KynaiosChoiceModal({
                     <img 
                       src={land.imageUrl} 
                       alt={land.name}
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
                       style={{ 
                         width: 40, 
                         height: 56, 
@@ -215,7 +216,7 @@ export function KynaiosChoiceModal({
                 opacity: selectedLandId ? 1 : 0.5,
               }}
             >
-              🏞️ Play {selectedLandId ? landsInHand.find(l => l.id === selectedLandId)?.name : 'Selected Land'}
+              🏞️ {selectedLandId ? `Play ${landsInHand.find(l => l.id === selectedLandId)?.name || 'Land'}` : 'Select a Land to Play'}
             </button>
           )}
 

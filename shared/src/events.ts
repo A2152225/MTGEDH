@@ -211,7 +211,7 @@ export interface ClientToServerEvents {
     gameId: GameID;
     sourceController: PlayerID;
     choice: 'play_land' | 'draw_card' | 'decline';
-    landCardId?: string;  // Required when choice is 'play_land'
+    landCardId?: string;  // Optional but should be provided when choice is 'play_land'
   }) => void;
 
   // ===== GAME MANAGEMENT EVENTS =====
