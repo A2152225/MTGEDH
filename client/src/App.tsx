@@ -2326,13 +2326,15 @@ export function App() {
     };
   }, [safeView?.id, temptingOfferRequest?.id]);
   
-  // Kynaios Choice via Resolution Queue system
-  // Listens for resolution step prompts with type 'kynaios_choice'
+  // Resolution Queue system handler for Kynaios, Join Forces, and Tempting Offer
+  // Listens for resolution step prompts and opens the appropriate modals
   React.useEffect(() => {
     const handleResolutionStepPrompt = (payload: { gameId: string; step: any }) => {
       if (payload.gameId !== safeView?.id) return;
       
       const step = payload.step;
+      
+      // Handle Kynaios choice resolution step
       if (step.type === 'kynaios_choice') {
         // Convert resolution step to KynaiosChoiceRequest format
         const request: KynaiosChoiceRequest = {
@@ -2348,6 +2350,53 @@ export function App() {
         
         setKynaiosChoiceRequest(request);
         setKynaiosChoiceModalOpen(true);
+      }
+      
+      // Handle Join Forces resolution step
+      else if (step.type === 'join_forces') {
+        // Convert to JoinForcesRequest and open the modal
+        const request: JoinForcesRequest = {
+          id: step.id,
+          gameId: payload.gameId,
+          initiator: step.initiator,
+          initiatorName: step.isInitiator ? 'You' : '',  // Will be filled in by modal
+          cardName: step.cardName || step.sourceName || 'Join Forces',
+          effectDescription: step.effectDescription || step.description || '',
+          cardImageUrl: step.cardImageUrl || step.sourceImage,
+          players: [],  // Not needed for single-player prompt
+          timeoutMs: step.timeoutMs || 60000,
+        };
+        
+        // Store stepId for resolution response
+        (request as any).stepId = step.id;
+        (request as any).isInitiator = step.isInitiator;
+        (request as any).availableMana = step.availableMana;
+        
+        setJoinForcesRequest(request);
+        setJoinForcesModalOpen(true);
+      }
+      
+      // Handle Tempting Offer resolution step
+      else if (step.type === 'tempting_offer') {
+        // Convert to TemptingOfferRequest and open the modal
+        const request: TemptingOfferRequest = {
+          id: step.id,
+          gameId: payload.gameId,
+          initiator: step.initiator,
+          initiatorName: '',  // Will be filled in by modal
+          cardName: step.cardName || step.sourceName || 'Tempting Offer',
+          effectDescription: step.effectDescription || step.description || '',
+          cardImageUrl: step.cardImageUrl || step.sourceImage,
+          opponents: [],  // Not needed for single-player prompt
+          timeoutMs: step.timeoutMs || 60000,
+        };
+        
+        // Store stepId for resolution response
+        (request as any).stepId = step.id;
+        (request as any).isOpponent = step.isOpponent;
+        
+        setTemptingOfferRequest(request);
+        setTemptingOfferModalOpen(true);
       }
     };
     
@@ -3866,23 +3915,61 @@ export function App() {
   };
 
   // Join Forces contribution handler
+  // Now uses the unified Resolution Queue system when stepId is present
   const handleJoinForcesContribute = (amount: number) => {
     if (!safeView || !joinForcesRequest) return;
-    socket.emit("contributeJoinForces", {
-      gameId: safeView.id,
-      joinForcesId: joinForcesRequest.id,
-      amount,
-    });
+    
+    // Check if this is using the new resolution system (has stepId)
+    const stepId = (joinForcesRequest as any).stepId;
+    
+    if (stepId) {
+      // Use the new resolution system
+      socket.emit("submitResolutionResponse", {
+        gameId: safeView.id,
+        stepId,
+        selections: { amount },
+        cancelled: false,
+      });
+      // Close modal after responding
+      setJoinForcesModalOpen(false);
+      setJoinForcesRequest(null);
+    } else {
+      // Fall back to legacy event for backward compatibility
+      socket.emit("contributeJoinForces", {
+        gameId: safeView.id,
+        joinForcesId: joinForcesRequest.id,
+        amount,
+      });
+    }
   };
 
   // Tempting Offer response handler
+  // Now uses the unified Resolution Queue system when stepId is present
   const handleTemptingOfferRespond = (accept: boolean) => {
     if (!safeView || !temptingOfferRequest) return;
-    socket.emit("respondTemptingOffer", {
-      gameId: safeView.id,
-      temptingOfferId: temptingOfferRequest.id,
-      accept,
-    });
+    
+    // Check if this is using the new resolution system (has stepId)
+    const stepId = (temptingOfferRequest as any).stepId;
+    
+    if (stepId) {
+      // Use the new resolution system
+      socket.emit("submitResolutionResponse", {
+        gameId: safeView.id,
+        stepId,
+        selections: { accept },
+        cancelled: false,
+      });
+      // Close modal after responding
+      setTemptingOfferModalOpen(false);
+      setTemptingOfferRequest(null);
+    } else {
+      // Fall back to legacy event for backward compatibility
+      socket.emit("respondTemptingOffer", {
+        gameId: safeView.id,
+        temptingOfferId: temptingOfferRequest.id,
+        accept,
+      });
+    }
   };
   
   // Kynaios Choice response handler (Kynaios and Tiro of Meletis style)

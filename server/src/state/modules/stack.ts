@@ -1027,18 +1027,53 @@ function executeTriggerEffect(
   
   // Handle Join Forces triggered abilities (Mana-Charged Dragon)
   // These require all players to contribute mana
+  // Uses the unified ResolutionQueueManager for proper APNAP ordering
   if (triggerItem.triggerType === 'join_forces_attack' || 
       (desc.includes('join forces') && desc.includes('each player may pay'))) {
-    // Set up pending join forces - this signals to the socket layer to initiate the contribution phase
-    (state as any).pendingJoinForces = (state as any).pendingJoinForces || [];
-    (state as any).pendingJoinForces.push({
-      id: uid("jf"),
-      controller,
-      cardName: sourceName || 'Join Forces Ability',
-      effectDescription: description,
-      imageUrl: triggerItem.value?.imageUrl,
+    // Get turn order for APNAP ordering
+    const turnOrder = players.map((p: any) => p.id);
+    const gameId = (ctx as any).gameId || 'unknown';
+    
+    // Create resolution steps for each player using APNAP ordering
+    // "Starting with you" means the controller goes first, then others in turn order
+    const stepConfigs = players.map((p: any) => {
+      const playerId = p.id;
+      const isInitiator = playerId === controller;
+      
+      // Calculate available mana for this player
+      const battlefield = state.battlefield || [];
+      const untappedLands = battlefield.filter((perm: any) => 
+        perm.controller === playerId && 
+        !perm.tapped &&
+        (perm.card?.type_line || '').toLowerCase().includes('land')
+      ).length;
+      
+      return {
+        type: ResolutionStepType.JOIN_FORCES,
+        playerId,
+        description: `${sourceName}: You may pay any amount of mana to contribute to this effect`,
+        mandatory: false,
+        sourceId: triggerItem.permanentId || triggerItem.sourceId,
+        sourceName: sourceName || 'Join Forces Ability',
+        sourceImage: triggerItem.value?.imageUrl || triggerItem.card?.image_uris?.small,
+        cardName: sourceName || 'Join Forces Ability',
+        effectDescription: description,
+        cardImageUrl: triggerItem.value?.imageUrl,
+        initiator: controller,
+        availableMana: untappedLands,
+        isInitiator,
+      };
     });
-    console.log(`[executeTriggerEffect] Join Forces attack trigger from ${sourceName} - waiting for player contributions`);
+    
+    // Add steps with APNAP ordering, starting with the controller
+    ResolutionQueueManager.addStepsWithAPNAP(
+      gameId,
+      stepConfigs,
+      turnOrder,
+      controller
+    );
+    
+    console.log(`[executeTriggerEffect] Join Forces attack trigger from ${sourceName} - created ${players.length} resolution steps`);
     return;
   }
   
@@ -4179,37 +4214,109 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Handle Join Forces spells (Mind's Aglow, Collective Voyage, etc.)
     // These require all players to have the option to contribute mana
+    // Uses the unified ResolutionQueueManager for proper APNAP ordering
     const cardNameLower = (effectiveCard.name || '').toLowerCase();
     console.log(`[resolveTopOfStack] Checking if ${effectiveCard.name} is a Join Forces spell...`);
     if (isJoinForcesSpell(effectiveCard.name, oracleTextLower)) {
-      // Set up pending join forces - this signals to the socket layer to initiate the contribution phase
-      (state as any).pendingJoinForces = (state as any).pendingJoinForces || [];
-      (state as any).pendingJoinForces.push({
-        id: uid("jf"),
-        controller,
-        cardName: effectiveCard.name || 'Join Forces Spell',
-        effectDescription: oracleText,
-        imageUrl: effectiveCard.image_uris?.normal || effectiveCard.image_uris?.small,
+      // Get players from state
+      const allPlayers = (state as any).players || [];
+      
+      // Get turn order for APNAP ordering
+      const turnOrder = allPlayers.map((p: any) => p.id);
+      const activePlayerId = (state as any).activePlayer || controller;
+      const gameId = (ctx as any).gameId || 'unknown';
+      
+      // Create resolution steps for each player using APNAP ordering
+      // "Starting with you" means the caster goes first, then others in turn order
+      const stepConfigs = allPlayers.map((p: any) => {
+        const playerId = p.id;
+        const isInitiator = playerId === controller;
+        
+        // Calculate available mana for this player
+        const battlefield = state.battlefield || [];
+        const untappedLands = battlefield.filter((perm: any) => 
+          perm.controller === playerId && 
+          !perm.tapped &&
+          (perm.card?.type_line || '').toLowerCase().includes('land')
+        ).length;
+        
+        return {
+          type: ResolutionStepType.JOIN_FORCES,
+          playerId,
+          description: `${effectiveCard.name}: You may pay any amount of mana to contribute to this effect`,
+          mandatory: false,
+          sourceId: item.id,
+          sourceName: effectiveCard.name || 'Join Forces Spell',
+          sourceImage: effectiveCard.image_uris?.small,
+          cardName: effectiveCard.name || 'Join Forces Spell',
+          effectDescription: oracleText,
+          cardImageUrl: effectiveCard.image_uris?.normal || effectiveCard.image_uris?.small,
+          initiator: controller,
+          availableMana: untappedLands,
+          isInitiator,
+        };
       });
-      console.log(`[resolveTopOfStack] Join Forces spell ${effectiveCard.name} waiting for player contributions (pendingJoinForces count: ${(state as any).pendingJoinForces.length})`);
+      
+      // Add steps with APNAP ordering, starting with the caster
+      ResolutionQueueManager.addStepsWithAPNAP(
+        gameId,
+        stepConfigs,
+        turnOrder,
+        controller // Start with caster, not active player
+      );
+      
+      console.log(`[resolveTopOfStack] Join Forces spell ${effectiveCard.name} created ${allPlayers.length} resolution steps for contributions`);
     } else {
       console.log(`[resolveTopOfStack] ${effectiveCard.name} is NOT a Join Forces spell (name: "${cardNameLower}", has 'join forces': ${oracleTextLower.includes('join forces')})`);
     }
     
     // Handle Tempting Offer spells (Tempt with Discovery, Tempt with Glory, etc.)
     // These require each opponent to choose whether to accept the offer
+    // Uses the unified ResolutionQueueManager for proper APNAP ordering
     console.log(`[resolveTopOfStack] Checking if ${effectiveCard.name} is a Tempting Offer spell...`);
     if (isTemptingOfferSpell(effectiveCard.name, oracleTextLower)) {
-      // Set up pending tempting offer - this signals to the socket layer to initiate the offer phase
-      (state as any).pendingTemptingOffer = (state as any).pendingTemptingOffer || [];
-      (state as any).pendingTemptingOffer.push({
-        id: uid("tempt"),
-        controller,
-        cardName: effectiveCard.name || 'Tempting Offer Spell',
-        effectDescription: oracleText,
-        imageUrl: effectiveCard.image_uris?.normal || effectiveCard.image_uris?.small,
-      });
-      console.log(`[resolveTopOfStack] Tempting Offer spell ${effectiveCard.name} waiting for opponent responses (pendingTemptingOffer count: ${(state as any).pendingTemptingOffer.length})`);
+      // Get players from state
+      const allPlayers = (state as any).players || [];
+      
+      // Get opponents (non-initiator players)
+      const opponents = allPlayers.filter((p: any) => p.id !== controller);
+      const turnOrder = allPlayers.map((p: any) => p.id);
+      const gameId = (ctx as any).gameId || 'unknown';
+      
+      if (opponents.length > 0) {
+        // Create resolution steps for each opponent using APNAP ordering
+        const stepConfigs = opponents.map((p: any) => {
+          const playerId = p.id;
+          
+          return {
+            type: ResolutionStepType.TEMPTING_OFFER,
+            playerId,
+            description: `${effectiveCard.name}: Do you accept the tempting offer?`,
+            mandatory: false,
+            sourceId: item.id,
+            sourceName: effectiveCard.name || 'Tempting Offer Spell',
+            sourceImage: effectiveCard.image_uris?.small,
+            cardName: effectiveCard.name || 'Tempting Offer Spell',
+            effectDescription: oracleText,
+            cardImageUrl: effectiveCard.image_uris?.normal || effectiveCard.image_uris?.small,
+            initiator: controller,
+            isOpponent: true,
+          };
+        });
+        
+        // Add steps with APNAP ordering
+        ResolutionQueueManager.addStepsWithAPNAP(
+          gameId,
+          stepConfigs,
+          turnOrder,
+          (state as any).activePlayer || controller
+        );
+        
+        console.log(`[resolveTopOfStack] Tempting Offer spell ${effectiveCard.name} created ${opponents.length} resolution steps for opponent responses`);
+      } else {
+        // No opponents - initiator just gets the effect once
+        console.log(`[resolveTopOfStack] Tempting Offer spell ${effectiveCard.name} has no opponents - effect resolves immediately for initiator`);
+      }
     } else {
       console.log(`[resolveTopOfStack] ${effectiveCard.name} is NOT a Tempting Offer spell`);
     }

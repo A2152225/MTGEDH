@@ -293,6 +293,35 @@ export interface KynaiosChoiceStep extends BaseResolutionStep {
 }
 
 /**
+ * Join Forces resolution step
+ * "Join forces — Starting with you, each player may pay any amount of mana."
+ * Each player may contribute mana to increase the effect.
+ */
+export interface JoinForcesStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.JOIN_FORCES;
+  readonly cardName: string;
+  readonly effectDescription: string;
+  readonly cardImageUrl?: string;
+  readonly initiator: string;
+  readonly availableMana: number;
+  readonly isInitiator: boolean;
+}
+
+/**
+ * Tempting Offer resolution step
+ * "Tempting offer — [effect]. Each opponent may [accept]. For each opponent who does, [bonus]"
+ * Each opponent may accept or decline the offer.
+ */
+export interface TemptingOfferStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.TEMPTING_OFFER;
+  readonly cardName: string;
+  readonly effectDescription: string;
+  readonly cardImageUrl?: string;
+  readonly initiator: string;
+  readonly isOpponent: boolean;  // Should be true for opponents making the choice
+}
+
+/**
  * Union of all resolution step types
  */
 export type ResolutionStep = 
@@ -306,6 +335,8 @@ export type ResolutionStep =
   | PonderEffectStep
   | ScryStep
   | KynaiosChoiceStep
+  | JoinForcesStep
+  | TemptingOfferStep
   | BaseResolutionStep;
 
 /**
