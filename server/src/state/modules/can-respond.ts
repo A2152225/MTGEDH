@@ -1389,7 +1389,8 @@ export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
     if (isMainPhase && stackIsEmpty) {
       console.log(`[canAct] ${playerId}: In main phase with empty stack, checking sorcery-speed actions`);
       
-      // Check if player can play a land (already checked above for turn player, but check here for non-turn player edge cases)
+      // Check if player can play a land (Note: This is also checked above for turn player specifically,
+      // but we check here too for completeness in case of unusual game states)
       if (canPlayLand(ctx, playerId)) {
         console.log(`[canAct] ${playerId}: Can play land - returning TRUE`);
         return true;
@@ -1414,7 +1415,6 @@ export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
     
     // Check combat phases - if player has valid attackers/blockers, they can act
     // This prevents auto-pass from skipping combat declaration when creatures are available
-    // Note: isTurnPlayer is already declared above
     
     // GOAD ENFORCEMENT (Rule 701.15b): Goaded creatures MUST attack if able
     // This check ensures that:

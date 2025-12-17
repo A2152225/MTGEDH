@@ -265,8 +265,8 @@ function processCommand(input: string): void {
  * Note on PowerShell compatibility:
  * PowerShell can have issues with readline where each keystroke appears to
  * trigger the 'line' event prematurely. This is due to how PowerShell handles
- * TTY input buffering. We set terminal: false to use raw mode which provides
- * better compatibility across different shells.
+ * TTY input buffering. We set terminal: true to enable proper line editing
+ * and buffering through the readline module.
  * 
  * If you experience issues with the CLI in PowerShell, try using:
  * - cmd.exe instead of PowerShell
@@ -293,23 +293,10 @@ export function initCLI(): void {
     input: process.stdin,
     output: process.stdout,
     prompt: 'mtgedh> ',
-    // Use terminal: true for proper line buffering
-    // This should help with PowerShell issues where each keystroke
-    // was being interpreted as a separate input
+    // Use terminal: true for proper line buffering and editing
+    // This enables readline's built-in line editing capabilities
     terminal: true,
   });
-  
-  // Set raw mode on stdin if available - this helps with proper input handling
-  // on some terminals (including PowerShell)
-  if (typeof process.stdin.setRawMode === 'function') {
-    try {
-      // Note: We DON'T set raw mode here because readline handles it
-      // Just log that it's available for debugging
-      console.log('[CLI] Raw mode available on stdin');
-    } catch (err) {
-      console.log('[CLI] Could not check raw mode:', (err as Error).message);
-    }
-  }
   
   console.log('\n═══════════════════════════════════════════════════════════════════');
   console.log('  MTGEDH Server CLI - Type "help" for available commands');
