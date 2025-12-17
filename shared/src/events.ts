@@ -205,6 +205,14 @@ export interface ClientToServerEvents {
     temptingOfferId: string;
     accept: boolean;
   }) => void;
+  
+  // Respond to a Kynaios and Tiro style choice (play land or draw/decline)
+  kynaiosChoiceResponse: (payload: {
+    gameId: GameID;
+    sourceController: PlayerID;
+    choice: 'play_land' | 'draw_card' | 'decline';
+    landCardId?: string;  // Optional but should be provided when choice is 'play_land'
+  }) => void;
 
   // ===== GAME MANAGEMENT EVENTS =====
   
@@ -829,6 +837,19 @@ export interface ServerToClientEvents {
     acceptedBy: PlayerID[];
     initiator: PlayerID;
     initiatorBonusCount: number; // How many times the initiator gets the effect (1 + acceptedBy.length)
+  }) => void;
+  
+  // ===== KYNAIOS AND TIRO STYLE CHOICE (Multi-player land/draw) =====
+  
+  // Kynaios and Tiro choice - prompts each player to play a land or draw a card
+  kynaiosChoice: (payload: {
+    gameId: GameID;
+    sourceController: PlayerID;
+    sourceName: string;
+    isController: boolean;  // Whether this player is the source controller
+    canPlayLand: boolean;   // Whether this player has lands in hand
+    landsInHand: Array<{ id: string; name: string; imageUrl?: string }>;
+    options: Array<'play_land' | 'draw_card' | 'decline'>;
   }) => void;
 
   // ===== CHOICE EVENTS (Enhanced Decision System) =====

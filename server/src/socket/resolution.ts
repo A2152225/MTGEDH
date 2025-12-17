@@ -341,6 +341,31 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('cards' in step) fields.cards = step.cards;
       if ('scryCount' in step) fields.scryCount = step.scryCount;
       break;
+      
+    case ResolutionStepType.KYNAIOS_CHOICE:
+      if ('isController' in step) fields.isController = step.isController;
+      if ('sourceController' in step) fields.sourceController = step.sourceController;
+      if ('canPlayLand' in step) fields.canPlayLand = step.canPlayLand;
+      if ('landsInHand' in step) fields.landsInHand = step.landsInHand;
+      if ('options' in step) fields.options = step.options;
+      break;
+      
+    case ResolutionStepType.JOIN_FORCES:
+      if ('cardName' in step) fields.cardName = step.cardName;
+      if ('effectDescription' in step) fields.effectDescription = step.effectDescription;
+      if ('cardImageUrl' in step) fields.cardImageUrl = step.cardImageUrl;
+      if ('initiator' in step) fields.initiator = step.initiator;
+      if ('availableMana' in step) fields.availableMana = step.availableMana;
+      if ('isInitiator' in step) fields.isInitiator = step.isInitiator;
+      break;
+      
+    case ResolutionStepType.TEMPTING_OFFER:
+      if ('cardName' in step) fields.cardName = step.cardName;
+      if ('effectDescription' in step) fields.effectDescription = step.effectDescription;
+      if ('cardImageUrl' in step) fields.cardImageUrl = step.cardImageUrl;
+      if ('initiator' in step) fields.initiator = step.initiator;
+      if ('isOpponent' in step) fields.isOpponent = step.isOpponent;
+      break;
   }
   
   return fields;
@@ -379,6 +404,18 @@ function handleStepResponse(
       
     case ResolutionStepType.TRIGGER_ORDER:
       handleTriggerOrderResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.KYNAIOS_CHOICE:
+      handleKynaiosChoiceResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.JOIN_FORCES:
+      handleJoinForcesResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.TEMPTING_OFFER:
+      handleTemptingOfferResponse(io, game, gameId, step, response);
       break;
       
     // Add more handlers as needed
@@ -568,6 +605,506 @@ function handleTriggerOrderResponse(
   if (typeof game.bumpSeq === "function") {
     game.bumpSeq();
   }
+}
+
+/**
+ * Handle Kynaios and Tiro style choice response
+ * Player can either play a land from hand, draw a card (opponents), or decline (controller)
+ */
+function handleKynaiosChoiceResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const selection = response.selections;
+  
+  // Extract choice and landCardId from selection
+  let choice: string;
+  let landCardId: string | undefined;
+  
+  if (typeof selection === 'object' && selection !== null && !Array.isArray(selection)) {
+    choice = (selection as any).choice || 'decline';
+    landCardId = (selection as any).landCardId;
+  } else if (Array.isArray(selection) && selection.length > 0) {
+    choice = selection[0];
+    landCardId = selection[1];
+  } else {
+    choice = String(selection || 'decline');
+  }
+  
+  const stepData = step as any;
+  const isController = stepData.isController || false;
+  const sourceController = stepData.sourceController || pid;
+  const sourceName = step.sourceName || 'Kynaios and Tiro of Meletis';
+  
+  console.log(`[Resolution] Kynaios choice: player=${pid}, choice=${choice}, landCardId=${landCardId}, isController=${isController}`);
+  
+  if (choice === 'play_land' && landCardId) {
+    // Move the land from hand to battlefield
+    const zones = game.state?.zones?.[pid];
+    if (zones?.hand) {
+      const cardIndex = zones.hand.findIndex((c: any) => c.id === landCardId);
+      if (cardIndex !== -1) {
+        const [card] = zones.hand.splice(cardIndex, 1);
+        const cardName = card.name || 'a land';
+        
+        // Create battlefield permanent
+        const permanentId = `perm_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+        const permanent = {
+          id: permanentId,
+          controller: pid,
+          owner: pid,
+          tapped: false,
+          counters: {},
+          card: { ...card, zone: 'battlefield' },
+        };
+        
+        // Add to battlefield
+        game.state.battlefield = game.state.battlefield || [];
+        game.state.battlefield.push(permanent);
+        
+        // Update zone counts
+        zones.handCount = zones.hand.length;
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, pid)} puts ${cardName} onto the battlefield (${sourceName}).`,
+          ts: Date.now(),
+        });
+        
+        console.log(`[Resolution] ${pid} played land ${cardName} via Kynaios choice`);
+      }
+    }
+  } else if (choice === 'draw_card' && !isController) {
+    // Opponent chose to draw a card instead of playing a land
+    game.state.pendingDraws = game.state.pendingDraws || {};
+    game.state.pendingDraws[pid] = (game.state.pendingDraws[pid] || 0) + 1;
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} chooses to draw a card instead of playing a land (${sourceName}).`,
+      ts: Date.now(),
+    });
+    
+    console.log(`[Resolution] ${pid} chose to draw via Kynaios choice`);
+  } else {
+    // Player declined
+    if (!isController) {
+      // Opponent who declined gets to draw
+      game.state.pendingDraws = game.state.pendingDraws || {};
+      game.state.pendingDraws[pid] = (game.state.pendingDraws[pid] || 0) + 1;
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} declines to play a land and draws a card (${sourceName}).`,
+        ts: Date.now(),
+      });
+    } else {
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} declines to play a land (${sourceName}).`,
+        ts: Date.now(),
+      });
+    }
+    
+    console.log(`[Resolution] ${pid} declined Kynaios land play option`);
+  }
+  
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+}
+
+/**
+ * Handle Join Forces mana contribution response
+ * Each player may pay any amount of mana to contribute to the effect
+ */
+function handleJoinForcesResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const selection = response.selections;
+  
+  // Extract contribution amount from selection
+  let contribution = 0;
+  if (typeof selection === 'number') {
+    contribution = Math.max(0, Math.floor(selection));
+  } else if (typeof selection === 'object' && selection !== null && !Array.isArray(selection)) {
+    contribution = Math.max(0, Math.floor((selection as any).amount || 0));
+  }
+  
+  const stepData = step as any;
+  const cardName = stepData.cardName || step.sourceName || 'Join Forces';
+  const initiator = stepData.initiator;
+  
+  console.log(`[Resolution] Join Forces: player=${pid} contributed ${contribution} mana to ${cardName}`);
+  
+  // Track contributions in game state for effect resolution
+  game.state.joinForcesContributions = game.state.joinForcesContributions || {};
+  game.state.joinForcesContributions[cardName] = game.state.joinForcesContributions[cardName] || { 
+    total: 0, 
+    byPlayer: {},
+    initiator,
+    cardName 
+  };
+  game.state.joinForcesContributions[cardName].total += contribution;
+  game.state.joinForcesContributions[cardName].byPlayer[pid] = contribution;
+  
+  // Notify players of the contribution
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message: contribution > 0 
+      ? `${getPlayerName(game, pid)} contributes ${contribution} mana to ${cardName}.`
+      : `${getPlayerName(game, pid)} declines to contribute mana to ${cardName}.`,
+    ts: Date.now(),
+  });
+  
+  // Check if all players have responded - if so, apply the effect
+  const queue = ResolutionQueueManager.getQueue(gameId);
+  const remainingJoinForcesSteps = queue.steps.filter(s => 
+    s.type === ResolutionStepType.JOIN_FORCES && 
+    (s as any).cardName === cardName
+  );
+  
+  if (remainingJoinForcesSteps.length === 0) {
+    // All players have responded - apply the Join Forces effect
+    const contributions = game.state.joinForcesContributions[cardName];
+    const total = contributions.total;
+    
+    applyJoinForcesEffect(io, game, gameId, cardName, total, contributions.byPlayer, initiator);
+    
+    // Clean up
+    delete game.state.joinForcesContributions[cardName];
+  }
+  
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+}
+
+/**
+ * Apply the actual Join Forces effect based on total mana contributed
+ */
+function applyJoinForcesEffect(
+  io: Server,
+  game: any,
+  gameId: string,
+  cardName: string,
+  totalContributions: number,
+  byPlayer: Record<string, number>,
+  initiator: string
+): void {
+  const cardNameLower = cardName.toLowerCase();
+  const players = game.state?.players || [];
+  const battlefield = game.state.battlefield = game.state.battlefield || [];
+  
+  console.log(`[Resolution] Applying Join Forces effect: ${cardName} with ${totalContributions} total mana`);
+  
+  // Minds Aglow: Each player draws X cards
+  if (cardNameLower.includes('minds aglow')) {
+    for (const p of players) {
+      if (p.hasLost) continue;
+      game.state.pendingDraws = game.state.pendingDraws || {};
+      game.state.pendingDraws[p.id] = (game.state.pendingDraws[p.id] || 0) + totalContributions;
+    }
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `📚 Minds Aglow: Each player draws ${totalContributions} cards!`,
+      ts: Date.now(),
+    });
+  }
+  // Collective Voyage: Each player may search for X basic lands
+  else if (cardNameLower.includes('collective voyage')) {
+    for (const p of players) {
+      if (p.hasLost) continue;
+      game.state.pendingLibrarySearch = game.state.pendingLibrarySearch || {};
+      game.state.pendingLibrarySearch[p.id] = {
+        type: 'join-forces-search',
+        searchFor: `up to ${totalContributions} basic land card(s)`,
+        destination: 'battlefield',
+        tapped: true,
+        optional: true,
+        source: 'Collective Voyage',
+        shuffleAfter: true,
+        maxSelections: totalContributions,
+        filter: { types: ['land'], subtypes: ['basic'] },
+      };
+    }
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `🌲 Collective Voyage: Each player may search for up to ${totalContributions} basic land cards!`,
+      ts: Date.now(),
+    });
+  }
+  // Alliance of Arms: Each player creates X Soldier tokens
+  else if (cardNameLower.includes('alliance of arms')) {
+    for (const p of players) {
+      if (p.hasLost) continue;
+      for (let i = 0; i < totalContributions; i++) {
+        const tokenId = `tok_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${i}`;
+        battlefield.push({
+          id: tokenId,
+          controller: p.id,
+          owner: p.id,
+          tapped: false,
+          counters: {},
+          isToken: true,
+          card: {
+            id: tokenId,
+            name: 'Soldier Token',
+            type_line: 'Token Creature — Soldier',
+            power: '1',
+            toughness: '1',
+            colors: ['W'],
+          },
+        });
+      }
+    }
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `⚔️ Alliance of Arms: Each player creates ${totalContributions} 1/1 white Soldier tokens!`,
+      ts: Date.now(),
+    });
+  }
+  // Shared Trauma: Each player mills X cards
+  else if (cardNameLower.includes('shared trauma')) {
+    for (const p of players) {
+      if (p.hasLost) continue;
+      game.state.pendingMill = game.state.pendingMill || {};
+      game.state.pendingMill[p.id] = (game.state.pendingMill[p.id] || 0) + totalContributions;
+    }
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `💀 Shared Trauma: Each player mills ${totalContributions} cards!`,
+      ts: Date.now(),
+    });
+  }
+  
+  // Emit Join Forces complete event
+  io.to(gameId).emit("joinForcesComplete", {
+    id: `jf_${Date.now()}`,
+    gameId,
+    cardName,
+    contributions: byPlayer,
+    totalContributions,
+    initiator,
+  });
+}
+
+/**
+ * Handle Tempting Offer accept/decline response
+ * Each opponent may accept the tempting offer
+ */
+function handleTemptingOfferResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const selection = response.selections;
+  
+  // Extract acceptance from selection
+  let accepted = false;
+  if (typeof selection === 'boolean') {
+    accepted = selection;
+  } else if (typeof selection === 'object' && selection !== null && !Array.isArray(selection)) {
+    accepted = Boolean((selection as any).accept || (selection as any).accepted);
+  } else if (typeof selection === 'string') {
+    accepted = selection === 'accept' || selection === 'true';
+  }
+  
+  const stepData = step as any;
+  const cardName = stepData.cardName || step.sourceName || 'Tempting Offer';
+  const initiator = stepData.initiator;
+  
+  console.log(`[Resolution] Tempting Offer: player=${pid} ${accepted ? 'ACCEPTS' : 'DECLINES'} ${cardName}`);
+  
+  // Track responses in game state for effect resolution
+  game.state.temptingOfferResponses = game.state.temptingOfferResponses || {};
+  game.state.temptingOfferResponses[cardName] = game.state.temptingOfferResponses[cardName] || { 
+    acceptedBy: [],
+    initiator,
+    cardName 
+  };
+  
+  if (accepted) {
+    game.state.temptingOfferResponses[cardName].acceptedBy.push(pid);
+  }
+  
+  // Notify players of the response
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message: accepted 
+      ? `✅ ${getPlayerName(game, pid)} accepts the tempting offer from ${cardName}!`
+      : `❌ ${getPlayerName(game, pid)} declines the tempting offer from ${cardName}.`,
+    ts: Date.now(),
+  });
+  
+  // Check if all opponents have responded - if so, apply the effect
+  const queue = ResolutionQueueManager.getQueue(gameId);
+  const remainingTemptingOfferSteps = queue.steps.filter(s => 
+    s.type === ResolutionStepType.TEMPTING_OFFER && 
+    (s as any).cardName === cardName
+  );
+  
+  if (remainingTemptingOfferSteps.length === 0) {
+    // All opponents have responded - apply the Tempting Offer effect
+    const responses = game.state.temptingOfferResponses[cardName];
+    const acceptedBy = responses.acceptedBy;
+    const initiatorBonusCount = 1 + acceptedBy.length; // Initiator gets effect once plus for each acceptor
+    
+    applyTemptingOfferEffect(io, game, gameId, cardName, acceptedBy, initiator, initiatorBonusCount);
+    
+    // Clean up
+    delete game.state.temptingOfferResponses[cardName];
+  }
+  
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+}
+
+/**
+ * Apply the actual Tempting Offer effect
+ */
+function applyTemptingOfferEffect(
+  io: Server,
+  game: any,
+  gameId: string,
+  cardName: string,
+  acceptedBy: string[],
+  initiator: string,
+  initiatorBonusCount: number
+): void {
+  const cardNameLower = cardName.toLowerCase();
+  const battlefield = game.state.battlefield = game.state.battlefield || [];
+  
+  console.log(`[Resolution] Applying Tempting Offer effect: ${cardName}, ${acceptedBy.length} accepted, initiator gets ${initiatorBonusCount}x`);
+  
+  // Tempt with Discovery: Search for lands
+  if (cardNameLower.includes('discovery')) {
+    // Set up library search for initiator
+    game.state.pendingLibrarySearch = game.state.pendingLibrarySearch || {};
+    game.state.pendingLibrarySearch[initiator] = {
+      type: 'tempting-offer-search',
+      searchFor: `up to ${initiatorBonusCount} land card(s)`,
+      destination: 'battlefield',
+      tapped: false,
+      optional: true,
+      source: 'Tempt with Discovery',
+      shuffleAfter: true,
+      maxSelections: initiatorBonusCount,
+      filter: { types: ['land'] },
+    };
+    
+    // Each accepting opponent also searches
+    for (const opponentId of acceptedBy) {
+      game.state.pendingLibrarySearch[opponentId] = {
+        type: 'tempting-offer-search',
+        searchFor: 'a land card',
+        destination: 'battlefield',
+        tapped: false,
+        optional: true,
+        source: 'Tempt with Discovery',
+        shuffleAfter: true,
+        maxSelections: 1,
+        filter: { types: ['land'] },
+      };
+    }
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `🌲 Tempt with Discovery: ${getPlayerName(game, initiator)} searches for up to ${initiatorBonusCount} land(s).${acceptedBy.length > 0 ? ` ${acceptedBy.length} opponent(s) also search.` : ''}`,
+      ts: Date.now(),
+    });
+  }
+  // Tempt with Glory: +1/+1 counters
+  else if (cardNameLower.includes('glory')) {
+    // Initiator's creatures get counters
+    const initiatorCreatures = battlefield.filter((p: any) => 
+      p.controller === initiator && 
+      (p.card?.type_line || '').toLowerCase().includes('creature')
+    );
+    for (const creature of initiatorCreatures) {
+      creature.counters = creature.counters || {};
+      creature.counters['+1/+1'] = (creature.counters['+1/+1'] || 0) + initiatorBonusCount;
+    }
+    
+    // Each accepting opponent's creatures get 1 counter
+    for (const opponentId of acceptedBy) {
+      const opponentCreatures = battlefield.filter((p: any) => 
+        p.controller === opponentId && 
+        (p.card?.type_line || '').toLowerCase().includes('creature')
+      );
+      for (const creature of opponentCreatures) {
+        creature.counters = creature.counters || {};
+        creature.counters['+1/+1'] = (creature.counters['+1/+1'] || 0) + 1;
+      }
+    }
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `✨ Tempt with Glory: ${getPlayerName(game, initiator)}'s creatures each get ${initiatorBonusCount} +1/+1 counter(s)!${acceptedBy.length > 0 ? ` ${acceptedBy.length} opponent(s)' creatures each get 1 counter.` : ''}`,
+      ts: Date.now(),
+    });
+  }
+  // Add more Tempting Offer cards as needed (Reflections, Vengeance, Immortality, Bunnies, Mayhem)
+  else {
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `🎁 ${cardName}: ${getPlayerName(game, initiator)} gets the effect ${initiatorBonusCount} time(s).${acceptedBy.length > 0 ? ` ${acceptedBy.length} opponent(s) also get the effect.` : ''}`,
+      ts: Date.now(),
+    });
+  }
+  
+  // Emit Tempting Offer complete event
+  io.to(gameId).emit("temptingOfferComplete", {
+    id: `tempt_${Date.now()}`,
+    gameId,
+    cardName,
+    acceptedBy,
+    initiator,
+    initiatorBonusCount,
+  });
 }
 
 export default { registerResolutionHandlers };
