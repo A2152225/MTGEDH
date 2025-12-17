@@ -49,6 +49,7 @@ import { GraveyardViewModal } from "./components/GraveyardViewModal";
 import { ExileViewModal } from "./components/ExileViewModal";
 import { JoinForcesModal, type JoinForcesRequest } from "./components/JoinForcesModal";
 import { TemptingOfferModal, type TemptingOfferRequest } from "./components/TemptingOfferModal";
+import { KynaiosChoiceModal, type KynaiosChoiceRequest } from "./components/KynaiosChoiceModal";
 import { CommanderZoneChoiceModal } from "./components/CommanderZoneChoiceModal";
 import { TapUntapTargetModal } from "./components/TapUntapTargetModal";
 import { CounterMovementModal } from "./components/CounterMovementModal";
@@ -443,6 +444,10 @@ export function App() {
   const [temptingOfferRequest, setTemptingOfferRequest] = useState<TemptingOfferRequest | null>(null);
   const [temptingOfferResponded, setTemptingOfferResponded] = useState<string[]>([]);
   const [temptingOfferAcceptedBy, setTemptingOfferAcceptedBy] = useState<string[]>([]);
+  
+  // Kynaios Choice Modal state (Kynaios and Tiro of Meletis style land/draw choice)
+  const [kynaiosChoiceModalOpen, setKynaiosChoiceModalOpen] = useState(false);
+  const [kynaiosChoiceRequest, setKynaiosChoiceRequest] = useState<KynaiosChoiceRequest | null>(null);
 
   // Ponder Modal state (Ponder, Index, Telling Time, etc.)
   const [ponderModalOpen, setPonderModalOpen] = useState(false);
@@ -2320,6 +2325,22 @@ export function App() {
       socket.off("temptingOfferComplete", handleTemptingOfferComplete);
     };
   }, [safeView?.id, temptingOfferRequest?.id]);
+  
+  // Kynaios Choice socket event handlers (Kynaios and Tiro of Meletis style)
+  React.useEffect(() => {
+    const handleKynaiosChoice = (payload: KynaiosChoiceRequest) => {
+      if (payload.gameId === safeView?.id) {
+        setKynaiosChoiceRequest(payload);
+        setKynaiosChoiceModalOpen(true);
+      }
+    };
+    
+    socket.on("kynaiosChoice", handleKynaiosChoice);
+    
+    return () => {
+      socket.off("kynaiosChoice", handleKynaiosChoice);
+    };
+  }, [safeView?.id]);
 
   // Ponder socket event handlers
   React.useEffect(() => {
@@ -3836,6 +3857,20 @@ export function App() {
       temptingOfferId: temptingOfferRequest.id,
       accept,
     });
+  };
+  
+  // Kynaios Choice response handler (Kynaios and Tiro of Meletis style)
+  const handleKynaiosChoiceRespond = (choice: 'play_land' | 'draw_card' | 'decline', landCardId?: string) => {
+    if (!safeView || !kynaiosChoiceRequest) return;
+    socket.emit("kynaiosChoiceResponse", {
+      gameId: safeView.id,
+      sourceController: kynaiosChoiceRequest.sourceController,
+      choice,
+      landCardId,
+    });
+    // Close modal after responding
+    setKynaiosChoiceModalOpen(false);
+    setKynaiosChoiceRequest(null);
   };
 
   // Graveyard view handler
@@ -5891,6 +5926,18 @@ export function App() {
         acceptedBy={temptingOfferAcceptedBy}
         onRespond={handleTemptingOfferRespond}
         onClose={() => setTemptingOfferModalOpen(false)}
+      />
+      
+      {/* Kynaios Choice Modal (Kynaios and Tiro of Meletis style land/draw choice) */}
+      <KynaiosChoiceModal
+        open={kynaiosChoiceModalOpen}
+        request={kynaiosChoiceRequest}
+        controllerName={useMemo(() => {
+          if (!kynaiosChoiceRequest || !safeView?.players) return '';
+          const controller = safeView.players.find(p => p.id === kynaiosChoiceRequest.sourceController);
+          return controller?.name || kynaiosChoiceRequest.sourceController;
+        }, [kynaiosChoiceRequest, safeView?.players])}
+        onRespond={handleKynaiosChoiceRespond}
       />
 
       {/* Commander Zone Choice Modal (Rule 903.9a/903.9b) */}
