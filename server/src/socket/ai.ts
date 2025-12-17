@@ -991,15 +991,17 @@ export async function handleAIGameFlow(
           return;
         }
         
-        // All conditions met - advance from pre_game to beginning phase (MAIN1)
+        // All conditions met - advance from pre_game to beginning phase
         console.info('[AI] All players ready, AI advancing from pre_game to beginning phase');
         
         try {
-          // Use nextStep to advance from pre_game to the first turn
-          // This will set up UNTAP step and immediately advance to UPKEEP, then to MAIN1
-          if (typeof (game as any).nextStep === 'function') {
-            (game as any).nextStep();
-            console.info('[AI] Advanced game from pre_game to beginning phase');
+          // Use nextTurn to advance from pre_game to the first turn
+          // nextTurn properly sets phase="beginning", step="UNTAP", untaps permanents, 
+          // then advances to step="UPKEEP" and sets priority to the active player.
+          // Note: nextStep() explicitly blocks during pre_game phase, so we must use nextTurn()
+          if (typeof (game as any).nextTurn === 'function') {
+            (game as any).nextTurn();
+            console.info('[AI] Advanced game from pre_game to beginning phase via nextTurn');
             
             // Persist the event
             const gameSeq = (game as any).seq;
@@ -1007,13 +1009,13 @@ export async function handleAIGameFlow(
               console.error('[AI] game.seq is not a number, cannot persist event');
             } else {
               try {
-                await appendEvent(gameId, gameSeq, 'nextStep', {
+                await appendEvent(gameId, gameSeq, 'nextTurn', {
                   playerId,
                   reason: 'ai_pregame_advance',
                   isAI: true,
                 });
               } catch (e) {
-                console.warn('[AI] Failed to persist nextStep event:', e);
+                console.warn('[AI] Failed to persist nextTurn event:', e);
               }
             }
             
@@ -1023,7 +1025,7 @@ export async function handleAIGameFlow(
             // Re-trigger AI game flow to handle the new phase
             setTimeout(() => handleAIGameFlow(io, gameId, playerId), AI_THINK_TIME_MS);
           } else {
-            console.error('[AI] game.nextStep not available');
+            console.error('[AI] game.nextTurn not available');
           }
         } catch (err) {
           console.error('[AI] Error advancing from pre_game:', err);

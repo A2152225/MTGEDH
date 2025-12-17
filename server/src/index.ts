@@ -22,6 +22,7 @@ import type {
   SocketData,
 } from "../../shared/src/events";
 import GameManager from "./GameManager"; // NEW: import GameManager
+import { initCLI, setHttpServer } from "./cli"; // CLI support for server management
 
 // Get the equivalent of __dirname in ES modules
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -316,6 +317,10 @@ async function main() {
   // Start the server bound to localhost only for security (IIS/ARR will reverse-proxy to this)
   httpServer.listen(PORT, "127.0.0.1", () => {
     console.log(`[Server] Running at http://127.0.0.1:${PORT}`);
+    
+    // Initialize CLI interface for server management
+    setHttpServer(httpServer);
+    initCLI();
   });
 }
 
