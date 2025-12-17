@@ -5476,6 +5476,57 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     };
     console.log(`[targetSelectionConfirm] Stored targets in pendingTargets[${effectId}]`);
     
+    // =========================================================================
+    // AUTO-UNIGNORE: Remove targeted permanents from ignore list
+    // When a permanent becomes the target of an opponent's spell/ability,
+    // automatically remove it from the ignore list so the player can respond.
+    // =========================================================================
+    const stateAny = game.state as any;
+    if (stateAny.ignoredCardsForAutoPass) {
+      const battlefield = game.state.battlefield || [];
+      
+      for (const targetId of targetIds) {
+        // Find the target permanent
+        const targetPerm = battlefield.find((p: any) => p.id === targetId);
+        if (!targetPerm) continue;
+        
+        // Check if this is a permanent controlled by another player
+        const targetController = targetPerm.controller;
+        if (targetController && targetController !== pid) {
+          // Check if the target is in the controller's ignore list
+          const controllerIgnored = stateAny.ignoredCardsForAutoPass[targetController];
+          if (controllerIgnored && controllerIgnored[targetId]) {
+            const cardName = controllerIgnored[targetId].cardName;
+            delete controllerIgnored[targetId];
+            
+            console.log(`[targetSelectionConfirm] Auto-unignored ${cardName} (${targetId}) - targeted by opponent's spell`);
+            
+            // Notify the controller that their card was auto-unignored
+            emitToPlayer(io, targetController, "cardUnignoredAutomatically", {
+              gameId,
+              playerId: targetController,
+              permanentId: targetId,
+              cardName,
+              reason: "targeted by opponent's spell or ability",
+            });
+            
+            // Send updated ignored cards list to the controller
+            const updatedList = Object.entries(controllerIgnored).map(([id, data]: [string, any]) => ({
+              permanentId: id,
+              cardName: data.cardName,
+              imageUrl: data.imageUrl,
+            }));
+            
+            emitToPlayer(io, targetController, "ignoredCardsUpdated", {
+              gameId,
+              playerId: targetController,
+              ignoredCards: updatedList,
+            });
+          }
+        }
+      }
+    }
+    
     // Check if this is a spell cast that was waiting for targets (via requestCastSpell)
     // effectId format is "cast_${cardId}_${timestamp}"
     if (effectId && effectId.startsWith('cast_')) {

@@ -529,6 +529,163 @@ export function registerAutomationHandlers(
       (game.state as any).playerStops = playerStops;
     }
   });
+
+  // =========================================================================
+  // IGNORED CARDS FOR AUTO-PASS
+  // =========================================================================
+  
+  /**
+   * Handle adding a card to the ignore list for auto-pass.
+   * When a card is ignored, the auto-pass system will not consider it
+   * as a reason to stop and wait for player action.
+   * 
+   * Example: Elixir of Immortality with no cards in graveyard - player
+   * can ignore it so they don't have to pass priority every phase.
+   */
+  socket.on("ignoreCardForAutoPass", (payload) => {
+    const { gameId, permanentId, cardName } = payload;
+    const playerId = socket.data.playerId;
+    
+    if (!playerId) {
+      socket.emit("error", { message: "Not in a game" });
+      return;
+    }
+    
+    const game = games.get(gameId);
+    if (!game || !game.state) {
+      socket.emit("error", { message: "Game not found" });
+      return;
+    }
+    
+    console.log(`[Automation] Ignoring card ${cardName} (${permanentId}) for auto-pass by ${playerId}`);
+    
+    // Initialize ignored cards structure if needed
+    const stateAny = game.state as any;
+    if (!stateAny.ignoredCardsForAutoPass) {
+      stateAny.ignoredCardsForAutoPass = {};
+    }
+    if (!stateAny.ignoredCardsForAutoPass[playerId]) {
+      stateAny.ignoredCardsForAutoPass[playerId] = {};
+    }
+    
+    // Get image URL from the permanent
+    const battlefield = game.state.battlefield || [];
+    const permanent = battlefield.find((p: any) => p.id === permanentId);
+    const imageUrl = permanent?.card?.image_uris?.small || permanent?.card?.image_uris?.normal;
+    
+    // Add to ignored list
+    stateAny.ignoredCardsForAutoPass[playerId][permanentId] = {
+      cardName,
+      imageUrl,
+      ignoredAt: Date.now(),
+    };
+    
+    // Broadcast updated ignored cards list to the player
+    const ignoredList = Object.entries(stateAny.ignoredCardsForAutoPass[playerId]).map(([id, data]: [string, any]) => ({
+      permanentId: id,
+      cardName: data.cardName,
+      imageUrl: data.imageUrl,
+    }));
+    
+    socket.emit("ignoredCardsUpdated" as any, {
+      gameId,
+      playerId,
+      ignoredCards: ignoredList,
+    });
+    
+    // Bump sequence to trigger state update
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    
+    console.log(`[Automation] Ignored cards for ${playerId}:`, Object.keys(stateAny.ignoredCardsForAutoPass[playerId]));
+  });
+  
+  /**
+   * Handle removing a card from the ignore list.
+   */
+  socket.on("unignoreCardForAutoPass", (payload) => {
+    const { gameId, permanentId } = payload;
+    const playerId = socket.data.playerId;
+    
+    if (!playerId) {
+      socket.emit("error", { message: "Not in a game" });
+      return;
+    }
+    
+    const game = games.get(gameId);
+    if (!game || !game.state) {
+      socket.emit("error", { message: "Game not found" });
+      return;
+    }
+    
+    const stateAny = game.state as any;
+    const ignoredCards = stateAny.ignoredCardsForAutoPass?.[playerId];
+    
+    if (ignoredCards && ignoredCards[permanentId]) {
+      const cardName = ignoredCards[permanentId].cardName;
+      delete ignoredCards[permanentId];
+      
+      console.log(`[Automation] Unignored card ${cardName} (${permanentId}) for ${playerId}`);
+      
+      // Broadcast updated ignored cards list
+      const ignoredList = Object.entries(ignoredCards).map(([id, data]: [string, any]) => ({
+        permanentId: id,
+        cardName: data.cardName,
+        imageUrl: data.imageUrl,
+      }));
+      
+      socket.emit("ignoredCardsUpdated" as any, {
+        gameId,
+        playerId,
+        ignoredCards: ignoredList,
+      });
+      
+      // Bump sequence to trigger state update
+      if (typeof (game as any).bumpSeq === 'function') {
+        (game as any).bumpSeq();
+      }
+    }
+  });
+  
+  /**
+   * Handle clearing all ignored cards.
+   */
+  socket.on("clearIgnoredCards", (payload) => {
+    const { gameId } = payload;
+    const playerId = socket.data.playerId;
+    
+    if (!playerId) {
+      socket.emit("error", { message: "Not in a game" });
+      return;
+    }
+    
+    const game = games.get(gameId);
+    if (!game || !game.state) {
+      socket.emit("error", { message: "Game not found" });
+      return;
+    }
+    
+    const stateAny = game.state as any;
+    if (stateAny.ignoredCardsForAutoPass?.[playerId]) {
+      const count = Object.keys(stateAny.ignoredCardsForAutoPass[playerId]).length;
+      stateAny.ignoredCardsForAutoPass[playerId] = {};
+      
+      console.log(`[Automation] Cleared ${count} ignored cards for ${playerId}`);
+      
+      // Broadcast empty list
+      socket.emit("ignoredCardsUpdated" as any, {
+        gameId,
+        playerId,
+        ignoredCards: [],
+      });
+      
+      // Bump sequence to trigger state update
+      if (typeof (game as any).bumpSeq === 'function') {
+        (game as any).bumpSeq();
+      }
+    }
+  });
 }
 
 // ===== Helper Functions =====

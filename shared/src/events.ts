@@ -116,6 +116,23 @@ export interface ClientToServerEvents {
   setStop: (payload: { gameId: GameID; phase: string; enabled: boolean }) => void;
   checkCanRespond: (payload: { gameId: GameID }) => void;
   
+  // ===== IGNORED CARDS FOR AUTO-PASS =====
+  // Add a card to the ignore list (auto-pass will skip these cards when checking abilities)
+  ignoreCardForAutoPass: (payload: { 
+    gameId: GameID; 
+    permanentId: string;
+    cardName: string;
+  }) => void;
+  
+  // Remove a card from the ignore list
+  unignoreCardForAutoPass: (payload: { 
+    gameId: GameID; 
+    permanentId: string;
+  }) => void;
+  
+  // Clear all ignored cards
+  clearIgnoredCards: (payload: { gameId: GameID }) => void;
+  
   // Combat declarations
   declareAttackers: (payload: { gameId: GameID; attackers: Array<{ attackerId?: string; creatureId?: string; defendingPlayer?: PlayerID; targetPlayerId?: string; targetPermanentId?: string }> }) => void;
   declareBlockers: (payload: { gameId: GameID; blockers: Array<{ blockerId: string; attackerId: string }> }) => void;
@@ -646,6 +663,28 @@ export interface ServerToClientEvents {
     canRespond: boolean;
     canAct: boolean;
     reason?: string;
+  }) => void;
+  
+  // ===== IGNORED CARDS FOR AUTO-PASS =====
+  
+  // Ignored cards list updated (sent to all clients)
+  ignoredCardsUpdated: (payload: {
+    gameId: GameID;
+    playerId: PlayerID;
+    ignoredCards: Array<{
+      permanentId: string;
+      cardName: string;
+      imageUrl?: string;
+    }>;
+  }) => void;
+  
+  // Card automatically removed from ignore list (e.g., when targeted by opponent)
+  cardUnignoredAutomatically: (payload: {
+    gameId: GameID;
+    playerId: PlayerID;
+    permanentId: string;
+    cardName: string;
+    reason: string;  // e.g., "targeted by opponent's spell"
   }) => void;
   
   // Combat state updates
