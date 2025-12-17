@@ -291,8 +291,10 @@ export function initCLI(): void {
   });
   
   // Handle SIGINT (Ctrl+C) gracefully
-  process.on('SIGINT', () => {
+  // Use 'once' to prevent multiple handlers if initCLI is called multiple times
+  process.once('SIGINT', () => {
     console.log('\n\n⚡ Received SIGINT (Ctrl+C)');
+    rl.close(); // Close readline interface for proper cleanup
     stopServer();
   });
 }

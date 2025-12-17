@@ -996,7 +996,8 @@ export async function handleAIGameFlow(
         
         try {
           // Use nextTurn to advance from pre_game to the first turn
-          // nextTurn properly sets phase="beginning", step="UNTAP", then advances to UPKEEP
+          // nextTurn properly sets phase="beginning", step="UNTAP", untaps permanents, 
+          // then advances to step="UPKEEP" and sets priority to the active player.
           // Note: nextStep() explicitly blocks during pre_game phase, so we must use nextTurn()
           if (typeof (game as any).nextTurn === 'function') {
             (game as any).nextTurn();
