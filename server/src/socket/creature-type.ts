@@ -1,6 +1,7 @@
 import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, getPlayerName } from "./util";
 import { appendEvent } from "../db";
+import { extractCreatureTypes, CREATURE_TYPES } from "../../../shared/src/creatureTypes";
 
 /**
  * Creature type selection handlers
@@ -35,8 +36,181 @@ function createConfirmId(): string {
   return `ct_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/** Default creature type fallback for AI when no dominant type is found */
+const DEFAULT_AI_CREATURE_TYPE = 'Shapeshifter';
+
+/** Delay before AI makes creature type selection (allows state to settle) */
+const AI_CREATURE_TYPE_SELECTION_DELAY_MS = 100;
+
 /**
- * Request a creature type selection from a player
+ * Determine the most common creature type in a player's deck/library.
+ * Used for AI to make intelligent creature type choices.
+ * 
+ * Analyzes the player's library, hand, battlefield, and graveyard to find
+ * the creature type that appears most frequently.
+ */
+function getDominantCreatureType(game: any, playerId: string): string {
+  const creatureTypeCounts: Record<string, number> = {};
+  
+  // Helper to count creature types from a card
+  const countTypesFromCard = (card: any) => {
+    if (!card?.type_line) return;
+    const typeLine = card.type_line.toLowerCase();
+    // Only count creature cards (not all cards)
+    if (!typeLine.includes('creature')) return;
+    
+    const types = extractCreatureTypes(card.type_line, card.oracle_text);
+    
+    // Skip if it's a changeling (has ALL types, not useful for counting)
+    // Changelings return all creature types from extractCreatureTypes
+    const oracleText = (card.oracle_text || '').toLowerCase();
+    const isChangeling = oracleText.includes('changeling') || 
+                         typeLine.includes('changeling') ||
+                         types.length >= CREATURE_TYPES.length;
+    if (isChangeling) return;
+    
+    for (const type of types) {
+      creatureTypeCounts[type] = (creatureTypeCounts[type] || 0) + 1;
+    }
+  };
+  
+  // Count from library
+  const zones = game.state?.zones?.[playerId];
+  if (zones?.library && Array.isArray(zones.library)) {
+    for (const card of zones.library) {
+      countTypesFromCard(card);
+    }
+  }
+  
+  // Count from hand
+  if (zones?.hand && Array.isArray(zones.hand)) {
+    for (const card of zones.hand) {
+      countTypesFromCard(card);
+    }
+  }
+  
+  // Count from battlefield (weighted more since these are cards in play)
+  const battlefield = game.state?.battlefield || [];
+  for (const permanent of battlefield) {
+    if (permanent.controller !== playerId) continue;
+    countTypesFromCard(permanent.card);
+  }
+  
+  // Count from graveyard
+  if (zones?.graveyard && Array.isArray(zones.graveyard)) {
+    for (const card of zones.graveyard) {
+      countTypesFromCard(card);
+    }
+  }
+  
+  // Find the most common type
+  let dominantType = DEFAULT_AI_CREATURE_TYPE;
+  let maxCount = 0;
+  
+  for (const [type, count] of Object.entries(creatureTypeCounts)) {
+    if (count > maxCount) {
+      maxCount = count;
+      dominantType = type;
+    }
+  }
+  
+  console.log(`[creatureType] AI dominant creature type analysis for ${playerId}:`, {
+    topTypes: Object.entries(creatureTypeCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([type, count]) => `${type}(${count})`),
+    chosen: dominantType,
+  });
+  
+  return dominantType;
+}
+
+/**
+ * Check if a player is an AI player
+ */
+function isAIPlayer(game: any, playerId: string): boolean {
+  const players = game.state?.players || [];
+  const player = players.find((p: any) => p?.id === playerId);
+  return player?.isAI === true;
+}
+
+/**
+ * Handle AI creature type selection automatically
+ */
+function handleAICreatureTypeSelection(
+  io: Server,
+  game: any,
+  gameId: string,
+  playerId: string,
+  permanentId: string,
+  cardName: string,
+  confirmId: string
+): void {
+  // Determine the best creature type for the AI based on their deck
+  const chosenType = getDominantCreatureType(game, playerId);
+  
+  console.log(`[creatureType] AI ${playerId} automatically choosing ${chosenType} for ${cardName}`);
+  
+  // Apply the selection to the permanent
+  const battlefield = game.state?.battlefield || [];
+  const permanent = battlefield.find((p: any) => p?.id === permanentId);
+  
+  if (permanent) {
+    permanent.chosenCreatureType = chosenType;
+    
+    // For Morophon, also apply cost reduction tracking
+    const permCardName = (permanent.card?.name || "").toLowerCase();
+    if (permCardName.includes("morophon")) {
+      const morophonChosenType = (game.state.morophonChosenType || {}) as Record<string, string>;
+      morophonChosenType[permanentId] = chosenType;
+      game.state.morophonChosenType = morophonChosenType;
+    }
+  }
+  
+  // Persist the event
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, "creatureTypeSelected", {
+      playerId,
+      permanentId,
+      creatureType: chosenType,
+      cardName,
+      isAI: true,
+    });
+  } catch (e) {
+    console.warn("appendEvent(creatureTypeSelected) failed for AI:", e);
+  }
+  
+  // Bump sequence
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+  
+  // Notify all players
+  io.to(gameId).emit("creatureTypeSelectionConfirmed", {
+    confirmId,
+    gameId,
+    permanentId,
+    playerId,
+    creatureType: chosenType,
+    cardName,
+    isAI: true,
+  });
+  
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message: `${getPlayerName(game, playerId)} (AI) chose ${chosenType} for ${cardName}.`,
+    ts: Date.now(),
+  });
+  
+  // Broadcast updated game state
+  broadcastGame(io, game, gameId);
+}
+
+/**
+ * Request a creature type selection from a player.
+ * For AI players, automatically selects the dominant creature type in their deck.
  */
 export function requestCreatureTypeSelection(
   io: Server,
@@ -56,7 +230,18 @@ export function requestCreatureTypeSelection(
   
   const confirmId = createConfirmId();
   
-  // Store pending selection
+  // Check if this is an AI player - handle automatically
+  const game = ensureGame(gameId);
+  if (game && isAIPlayer(game, playerId)) {
+    console.log(`[creatureType] Player ${playerId} is AI, handling selection automatically`);
+    // Use setTimeout to avoid blocking and allow state to settle after permanent enters battlefield
+    setTimeout(() => {
+      handleAICreatureTypeSelection(io, game, gameId, playerId, permanentId, cardName, confirmId);
+    }, AI_CREATURE_TYPE_SELECTION_DELAY_MS);
+    return confirmId;
+  }
+  
+  // Store pending selection for human players
   const pending: PendingCreatureTypeSelection = {
     gameId,
     playerId,

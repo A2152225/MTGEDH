@@ -74,10 +74,38 @@ export function parseManaCost(manaCost?: string): {
 }
 
 /**
- * Get total available mana from a mana pool
+ * Get total available mana from a mana pool.
+ * 
+ * NOTE: This function now handles the 'anyColor' field specially.
+ * When calculating total, we don't count 'anyColor' separately since those 
+ * mana sources already have their potential colors represented in the pool.
+ * The 'anyColor' field is used by canPayManaCost to properly allocate mana.
  */
 export function getTotalManaFromPool(pool: Record<string, number>): number {
-  return Object.values(pool || {}).reduce((sum, val) => sum + (val || 0), 0);
+  if (!pool) return 0;
+  
+  // If the pool has 'anyColor' tracking, we need to calculate correctly
+  // anyColor sources can produce ANY color, but only count as 1 mana each
+  const anyColorCount = pool.anyColor || 0;
+  
+  // Sum specific colors (excluding anyColor marker)
+  let specificColorTotal = 0;
+  for (const [key, val] of Object.entries(pool)) {
+    if (key === 'anyColor') continue; // Skip the anyColor marker
+    specificColorTotal += val || 0;
+  }
+  
+  // If we have anyColor sources, we need to subtract them from the inflated total
+  // Each "any color" source adds +1 to all 5 colored mana types (W,U,B,R,G) but only produces 1 mana
+  // So the inflated amount is anyColorCount * (NUM_COLORED_MANA_TYPES - 1)
+  // Note: colorless is NOT included because "any color" sources don't add to colorless
+  const NUM_COLORED_MANA_TYPES = 5; // white, blue, black, red, green
+  if (anyColorCount > 0) {
+    const inflatedAmount = anyColorCount * (NUM_COLORED_MANA_TYPES - 1);
+    return Math.max(0, specificColorTotal - inflatedAmount);
+  }
+  
+  return specificColorTotal;
 }
 
 /**
@@ -403,12 +431,15 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
       // NOTE: We add 1 to ALL colors because the player can CHOOSE which color to produce.
       // This represents available options, not simultaneous production.
       // The actual mana payment logic (canPayManaCost) handles the choice correctly.
+      // We also track the count in 'anyColor' so getTotalManaFromPool can calculate correctly.
       if (/one mana of any color|add.*any color/i.test(fullManaText)) {
         pool.white = (pool.white || 0) + 1;
         pool.blue = (pool.blue || 0) + 1;
         pool.black = (pool.black || 0) + 1;
         pool.red = (pool.red || 0) + 1;
         pool.green = (pool.green || 0) + 1;
+        // Track how many "any color" sources we have for correct total calculation
+        pool.anyColor = (pool.anyColor || 0) + 1;
       }
     }
   }
