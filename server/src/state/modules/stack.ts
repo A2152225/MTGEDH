@@ -22,6 +22,7 @@ import { drawCards as drawCardsFromZone } from "./zones.js";
 import { runSBA, applyCounterModifications } from "./counters_tokens.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
 import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } from "../../socket/land-helpers.js";
+import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
 
 /**
  * Detect "enters with counters" patterns from a card's oracle text.
@@ -1329,22 +1330,63 @@ function executeTriggerEffect(
   
   // Pattern: Kynaios and Tiro of Meletis style - "draw a card. Each player may put a land...then each opponent who didn't draws a card"
   // This is a complex multi-step effect that requires player choices
+  // Uses the unified Resolution Queue system for proper APNAP ordering
   if (desc.includes('each player may put a land') && desc.includes('opponent') && desc.includes('draws a card')) {
     // First, controller draws a card
     state.pendingDraws = state.pendingDraws || {};
     state.pendingDraws[controller] = (state.pendingDraws[controller] || 0) + 1;
     
-    // Set up pending land play choice for all players, and pending conditional draw for opponents
-    state.pendingKynaiosChoice = state.pendingKynaiosChoice || {};
-    state.pendingKynaiosChoice[controller] = {
-      sourceName,
-      sourceController: controller,
-      playersWhoMayPlayLand: players.map((p: any) => p.id),
-      playersWhoPlayedLand: [],
-      active: true,
-    };
+    // Get turn order for APNAP ordering
+    const turnOrder = players.map((p: any) => p.id);
+    const activePlayerId = state.activePlayer || controller;
     
-    console.log(`[executeTriggerEffect] ${sourceName}: ${controller} draws 1, all players may put a land, opponents who don't will draw`);
+    // Create resolution steps for each player using APNAP ordering
+    // Each player gets a step to choose whether to play a land
+    const stepConfigs = players.map((p: any) => {
+      const playerId = p.id;
+      const isController = playerId === controller;
+      
+      // Get lands in hand for this player
+      const playerZones = state.zones?.[playerId];
+      const hand = playerZones?.hand || [];
+      const landsInHand = hand.filter((card: any) => 
+        card && (card.type_line || '').toLowerCase().includes('land')
+      );
+      
+      return {
+        type: ResolutionStepType.KYNAIOS_CHOICE,
+        playerId,
+        description: `${sourceName}: You may put a land card from your hand onto the battlefield${isController ? '' : ', or draw a card'}`,
+        mandatory: false, // Player may decline
+        sourceId: triggerItem?.permanentId || triggerItem?.sourceId,
+        sourceName,
+        sourceImage: triggerItem?.card?.image_uris?.small,
+        // Custom data for Kynaios choice
+        isController,
+        sourceController: controller,
+        canPlayLand: landsInHand.length > 0,
+        landsInHand: landsInHand.map((card: any) => ({
+          id: card.id,
+          name: card.name,
+          imageUrl: card.image_uris?.small || card.image_uris?.normal,
+        })),
+        options: isController 
+          ? ['play_land', 'decline'] as const
+          : ['play_land', 'draw_card'] as const,
+      };
+    });
+    
+    // Add steps with APNAP ordering using the ResolutionQueueManager
+    // Use the context's gameId if available
+    const gameId = (ctx as any).gameId || 'unknown';
+    ResolutionQueueManager.addStepsWithAPNAP(
+      gameId,
+      stepConfigs,
+      turnOrder,
+      activePlayerId
+    );
+    
+    console.log(`[executeTriggerEffect] ${sourceName}: ${controller} draws 1, created ${players.length} resolution steps for land/draw choices`);
     return;
   }
   

@@ -280,6 +280,19 @@ export interface ScryStep extends BaseResolutionStep {
 }
 
 /**
+ * Kynaios and Tiro style choice resolution step
+ * Player may put a land onto the battlefield, or (for opponents) draw a card
+ */
+export interface KynaiosChoiceStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.KYNAIOS_CHOICE;
+  readonly isController: boolean;
+  readonly sourceController: string;
+  readonly canPlayLand: boolean;
+  readonly landsInHand: readonly { id: string; name: string; imageUrl?: string }[];
+  readonly options: readonly ('play_land' | 'draw_card' | 'decline')[];
+}
+
+/**
  * Union of all resolution step types
  */
 export type ResolutionStep = 
@@ -292,6 +305,7 @@ export type ResolutionStep =
   | OptionChoiceStep
   | PonderEffectStep
   | ScryStep
+  | KynaiosChoiceStep
   | BaseResolutionStep;
 
 /**

@@ -22,6 +22,7 @@ export interface KynaiosChoiceRequest {
   canPlayLand: boolean;   // Whether this player has lands in hand
   landsInHand: Array<{ id: string; name: string; imageUrl?: string }>;
   options: Array<'play_land' | 'draw_card' | 'decline'>;
+  stepId?: string;  // Resolution step ID when using the unified queue system
 }
 
 export interface KynaiosChoiceModalProps {

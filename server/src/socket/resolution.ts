@@ -341,6 +341,14 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('cards' in step) fields.cards = step.cards;
       if ('scryCount' in step) fields.scryCount = step.scryCount;
       break;
+      
+    case ResolutionStepType.KYNAIOS_CHOICE:
+      if ('isController' in step) fields.isController = step.isController;
+      if ('sourceController' in step) fields.sourceController = step.sourceController;
+      if ('canPlayLand' in step) fields.canPlayLand = step.canPlayLand;
+      if ('landsInHand' in step) fields.landsInHand = step.landsInHand;
+      if ('options' in step) fields.options = step.options;
+      break;
   }
   
   return fields;
@@ -379,6 +387,10 @@ function handleStepResponse(
       
     case ResolutionStepType.TRIGGER_ORDER:
       handleTriggerOrderResponse(io, game, gameId, step, response);
+      break;
+      
+    case ResolutionStepType.KYNAIOS_CHOICE:
+      handleKynaiosChoiceResponse(io, game, gameId, step, response);
       break;
       
     // Add more handlers as needed
@@ -564,6 +576,125 @@ function handleTriggerOrderResponse(
   
   // The trigger ordering would be used to reorder triggers on the stack
   // This is typically handled by the stack system
+  
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+}
+
+/**
+ * Handle Kynaios and Tiro style choice response
+ * Player can either play a land from hand, draw a card (opponents), or decline (controller)
+ */
+function handleKynaiosChoiceResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const selection = response.selections;
+  
+  // Extract choice and landCardId from selection
+  let choice: string;
+  let landCardId: string | undefined;
+  
+  if (typeof selection === 'object' && selection !== null && !Array.isArray(selection)) {
+    choice = (selection as any).choice || 'decline';
+    landCardId = (selection as any).landCardId;
+  } else if (Array.isArray(selection) && selection.length > 0) {
+    choice = selection[0];
+    landCardId = selection[1];
+  } else {
+    choice = String(selection || 'decline');
+  }
+  
+  const stepData = step as any;
+  const isController = stepData.isController || false;
+  const sourceController = stepData.sourceController || pid;
+  const sourceName = step.sourceName || 'Kynaios and Tiro of Meletis';
+  
+  console.log(`[Resolution] Kynaios choice: player=${pid}, choice=${choice}, landCardId=${landCardId}, isController=${isController}`);
+  
+  if (choice === 'play_land' && landCardId) {
+    // Move the land from hand to battlefield
+    const zones = game.state?.zones?.[pid];
+    if (zones?.hand) {
+      const cardIndex = zones.hand.findIndex((c: any) => c.id === landCardId);
+      if (cardIndex !== -1) {
+        const [card] = zones.hand.splice(cardIndex, 1);
+        const cardName = card.name || 'a land';
+        
+        // Create battlefield permanent
+        const permanentId = `perm_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+        const permanent = {
+          id: permanentId,
+          controller: pid,
+          owner: pid,
+          tapped: false,
+          counters: {},
+          card: { ...card, zone: 'battlefield' },
+        };
+        
+        // Add to battlefield
+        game.state.battlefield = game.state.battlefield || [];
+        game.state.battlefield.push(permanent);
+        
+        // Update zone counts
+        zones.handCount = zones.hand.length;
+        
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, pid)} puts ${cardName} onto the battlefield (${sourceName}).`,
+          ts: Date.now(),
+        });
+        
+        console.log(`[Resolution] ${pid} played land ${cardName} via Kynaios choice`);
+      }
+    }
+  } else if (choice === 'draw_card' && !isController) {
+    // Opponent chose to draw a card instead of playing a land
+    game.state.pendingDraws = game.state.pendingDraws || {};
+    game.state.pendingDraws[pid] = (game.state.pendingDraws[pid] || 0) + 1;
+    
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} chooses to draw a card instead of playing a land (${sourceName}).`,
+      ts: Date.now(),
+    });
+    
+    console.log(`[Resolution] ${pid} chose to draw via Kynaios choice`);
+  } else {
+    // Player declined
+    if (!isController) {
+      // Opponent who declined gets to draw
+      game.state.pendingDraws = game.state.pendingDraws || {};
+      game.state.pendingDraws[pid] = (game.state.pendingDraws[pid] || 0) + 1;
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} declines to play a land and draws a card (${sourceName}).`,
+        ts: Date.now(),
+      });
+    } else {
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} declines to play a land (${sourceName}).`,
+        ts: Date.now(),
+      });
+    }
+    
+    console.log(`[Resolution] ${pid} declined Kynaios land play option`);
+  }
   
   if (typeof game.bumpSeq === "function") {
     game.bumpSeq();

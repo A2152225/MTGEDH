@@ -2326,19 +2326,45 @@ export function App() {
     };
   }, [safeView?.id, temptingOfferRequest?.id]);
   
-  // Kynaios Choice socket event handlers (Kynaios and Tiro of Meletis style)
+  // Kynaios Choice via Resolution Queue system
+  // Listens for resolution step prompts with type 'kynaios_choice'
   React.useEffect(() => {
-    const handleKynaiosChoice = (payload: KynaiosChoiceRequest) => {
+    const handleResolutionStepPrompt = (payload: { gameId: string; step: any }) => {
+      if (payload.gameId !== safeView?.id) return;
+      
+      const step = payload.step;
+      if (step.type === 'kynaios_choice') {
+        // Convert resolution step to KynaiosChoiceRequest format
+        const request: KynaiosChoiceRequest = {
+          gameId: payload.gameId,
+          sourceController: step.sourceController,
+          sourceName: step.sourceName || 'Kynaios and Tiro of Meletis',
+          isController: step.isController,
+          canPlayLand: step.canPlayLand,
+          landsInHand: step.landsInHand || [],
+          options: step.options || [],
+          stepId: step.id,  // Store the step ID for the response
+        };
+        
+        setKynaiosChoiceRequest(request);
+        setKynaiosChoiceModalOpen(true);
+      }
+    };
+    
+    // Also listen for the legacy kynaiosChoice event for backward compatibility
+    const handleLegacyKynaiosChoice = (payload: KynaiosChoiceRequest) => {
       if (payload.gameId === safeView?.id) {
         setKynaiosChoiceRequest(payload);
         setKynaiosChoiceModalOpen(true);
       }
     };
     
-    socket.on("kynaiosChoice", handleKynaiosChoice);
+    socket.on("resolutionStepPrompt", handleResolutionStepPrompt);
+    socket.on("kynaiosChoice", handleLegacyKynaiosChoice);
     
     return () => {
-      socket.off("kynaiosChoice", handleKynaiosChoice);
+      socket.off("resolutionStepPrompt", handleResolutionStepPrompt);
+      socket.off("kynaiosChoice", handleLegacyKynaiosChoice);
     };
   }, [safeView?.id]);
 
@@ -3860,14 +3886,31 @@ export function App() {
   };
   
   // Kynaios Choice response handler (Kynaios and Tiro of Meletis style)
+  // Now uses the unified Resolution Queue system
   const handleKynaiosChoiceRespond = (choice: 'play_land' | 'draw_card' | 'decline', landCardId?: string) => {
     if (!safeView || !kynaiosChoiceRequest) return;
-    socket.emit("kynaiosChoiceResponse", {
-      gameId: safeView.id,
-      sourceController: kynaiosChoiceRequest.sourceController,
-      choice,
-      landCardId,
-    });
+    
+    // Check if this is using the new resolution system (has stepId)
+    const stepId = kynaiosChoiceRequest.stepId;
+    
+    if (stepId) {
+      // Use the new resolution system
+      socket.emit("submitResolutionResponse", {
+        gameId: safeView.id,
+        stepId,
+        selections: { choice, landCardId },
+        cancelled: false,
+      });
+    } else {
+      // Fall back to legacy event for backward compatibility
+      socket.emit("kynaiosChoiceResponse", {
+        gameId: safeView.id,
+        sourceController: kynaiosChoiceRequest.sourceController,
+        choice,
+        landCardId,
+      });
+    }
+    
     // Close modal after responding
     setKynaiosChoiceModalOpen(false);
     setKynaiosChoiceRequest(null);
