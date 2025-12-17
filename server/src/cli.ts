@@ -261,6 +261,17 @@ function processCommand(input: string): void {
 /**
  * Initialize the CLI interface
  * This sets up readline to listen for stdin commands
+ * 
+ * Note on PowerShell compatibility:
+ * PowerShell can have issues with readline where each keystroke appears to
+ * trigger the 'line' event prematurely. This is due to how PowerShell handles
+ * TTY input buffering. We set terminal: true to enable proper line editing
+ * and buffering through the readline module.
+ * 
+ * If you experience issues with the CLI in PowerShell, try using:
+ * - cmd.exe instead of PowerShell
+ * - Windows Terminal with PowerShell
+ * - Git Bash
  */
 export function initCLI(): void {
   // Skip CLI initialization if stdin is not a TTY (e.g., running in background)
@@ -269,10 +280,22 @@ export function initCLI(): void {
     return;
   }
   
+  // Detect Windows and PowerShell
+  const isWindows = process.platform === 'win32';
+  const isPowerShell = !!(process.env.PSModulePath || process.env.POWERSHELL_DISTRIBUTION_CHANNEL);
+  
+  if (isWindows && isPowerShell) {
+    console.log('[CLI] Detected Windows PowerShell. If CLI commands are not working correctly,');
+    console.log('[CLI] try using cmd.exe, Windows Terminal, or Git Bash instead.');
+  }
+  
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
     prompt: 'mtgedh> ',
+    // Use terminal: true for proper line buffering and editing
+    // This enables readline's built-in line editing capabilities
+    terminal: true,
   });
   
   console.log('\n═══════════════════════════════════════════════════════════════════');

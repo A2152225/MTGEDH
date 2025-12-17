@@ -4552,6 +4552,20 @@ export function resolveTopOfStack(ctx: GameContext) {
     console.warn('[resolveTopOfStack] Error running SBA:', err);
   }
   
+  // CRITICAL FIX: Reset priorityPassedBy after stack resolution
+  // This ensures that after a spell resolves, all players must pass priority again
+  // before the step can advance. This prevents the race condition where auto-pass
+  // immediately advances to the next step before the turn player can play their land.
+  // 
+  // Per MTG rules (117.3b): After a spell or ability resolves, the active player
+  // receives priority again and can perform more actions before passing.
+  try {
+    (state as any).priorityPassedBy = new Set<string>();
+    console.log(`[resolveTopOfStack] Reset priorityPassedBy after spell resolution`);
+  } catch (err) {
+    console.warn('[resolveTopOfStack] Error resetting priorityPassedBy:', err);
+  }
+  
   bumpSeq();
 }
 

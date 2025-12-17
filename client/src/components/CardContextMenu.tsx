@@ -36,6 +36,9 @@ export interface CardContextMenuProps {
   onSacrifice?: (permanentId: string) => void;
   onRemove?: (permanentId: string) => void;
   onExchangeTextBoxes?: (permanentId: string) => void;
+  onIgnoreForAutoPass?: (permanentId: string, cardName: string) => void;
+  onUnignoreForAutoPass?: (permanentId: string) => void;
+  isIgnoredForAutoPass?: boolean;
   canActivate?: boolean;
   playerId?: string;
 }
@@ -77,6 +80,9 @@ export function CardContextMenu({
   onSacrifice,
   onRemove,
   onExchangeTextBoxes,
+  onIgnoreForAutoPass,
+  onUnignoreForAutoPass,
+  isIgnoredForAutoPass = false,
   canActivate = true,
   playerId,
 }: CardContextMenuProps) {
@@ -397,6 +403,61 @@ export function CardContextMenu({
           <span style={{ width: 20, textAlign: 'center' }}>❌</span>
           <span style={{ color: '#f88' }}>Remove from battlefield</span>
         </div>
+      )}
+      
+      {/* Auto-Pass Section */}
+      {(onIgnoreForAutoPass || onUnignoreForAutoPass) && (
+        <>
+          <div
+            style={{
+              padding: '6px 12px',
+              backgroundColor: '#1e1e35',
+              color: '#888',
+              fontSize: 11,
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: 0.5,
+            }}
+          >
+            Auto-Pass
+          </div>
+          {isIgnoredForAutoPass ? (
+            <div
+              style={menuItemStyle}
+              onClick={() => {
+                onUnignoreForAutoPass?.(permanent.id);
+                onClose();
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(34,197,94,0.2)';
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent';
+              }}
+            >
+              <span style={{ width: 20, textAlign: 'center' }}>✅</span>
+              <span style={{ color: '#4ade80' }}>Stop Ignoring</span>
+            </div>
+          ) : (
+            <div
+              style={menuItemStyle}
+              onClick={() => {
+                onIgnoreForAutoPass?.(permanent.id, card?.name || 'Unknown');
+                onClose();
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(250,204,21,0.2)';
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent';
+              }}
+              title="Ignore this card when checking for Smart Auto-Pass. Useful for cards like Elixir of Immortality when you have no cards in graveyard."
+            >
+              <span style={{ width: 20, textAlign: 'center' }}>🔇</span>
+              <span style={{ color: '#facc15' }}>Ignore for Auto-Pass</span>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

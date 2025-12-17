@@ -709,8 +709,17 @@ export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boo
     // Get mana pool (floating + potential from untapped sources)
     const pool = getAvailableMana(state, playerId);
     
+    // Get ignored cards for this player (for auto-pass)
+    const ignoredCards = (state as any).ignoredCardsForAutoPass?.[playerId] || {};
+    
     // Check each permanent on battlefield
     for (const permanent of battlefield) {
+      // Skip ignored permanents - they shouldn't trigger auto-pass prompts
+      if (ignoredCards[permanent.id]) {
+        console.log(`[canActivateAnyAbility] Skipping ignored card: ${permanent.card?.name || permanent.id}`);
+        continue;
+      }
+      
       if (hasActivatableAbility(ctx, playerId, permanent, pool)) {
         return true;
       }
@@ -1339,8 +1348,25 @@ export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
     const currentStep = String((ctx.state as any).step || '').toUpperCase();
     const isMainPhase = currentStep === 'MAIN1' || currentStep === 'MAIN2' || currentStep === 'MAIN';
     const stackIsEmpty = !ctx.state.stack || ctx.state.stack.length === 0;
+    const isTurnPlayer = (ctx.state as any).turnPlayer === playerId;
     
-    console.log(`[canAct] ${playerId}: step=${currentStep}, isMainPhase=${isMainPhase}, stackIsEmpty=${stackIsEmpty}`);
+    console.log(`[canAct] ${playerId}: step=${currentStep}, isMainPhase=${isMainPhase}, stackIsEmpty=${stackIsEmpty}, isTurnPlayer=${isTurnPlayer}`);
+    
+    // CRITICAL: During main phase with empty stack, the turn player should ALWAYS be allowed
+    // to take sorcery-speed actions (play land, cast creatures, etc.) before auto-passing.
+    // This prevents the race condition where auto-pass advances the step before the player
+    // has a chance to play their land or cast sorcery-speed spells.
+    //
+    // Per MTG rules: During a main phase, if the stack is empty, the active player receives
+    // priority and may play lands, cast spells, or activate abilities before passing.
+    if (isMainPhase && stackIsEmpty && isTurnPlayer) {
+      // Check if player can play a land FIRST (highest priority action)
+      // This ensures we never skip the land play opportunity
+      if (canPlayLand(ctx, playerId)) {
+        console.log(`[canAct] ${playerId}: Turn player in main phase can play land - returning TRUE`);
+        return true;
+      }
+    }
     
     // First check instant-speed responses (same as canRespond)
     if (canCastAnySpell(ctx, playerId)) {
@@ -1363,7 +1389,8 @@ export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
     if (isMainPhase && stackIsEmpty) {
       console.log(`[canAct] ${playerId}: In main phase with empty stack, checking sorcery-speed actions`);
       
-      // Check if player can play a land
+      // Check if player can play a land (Note: This is also checked above for turn player specifically,
+      // but we check here too for completeness in case of unusual game states)
       if (canPlayLand(ctx, playerId)) {
         console.log(`[canAct] ${playerId}: Can play land - returning TRUE`);
         return true;
@@ -1388,7 +1415,6 @@ export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
     
     // Check combat phases - if player has valid attackers/blockers, they can act
     // This prevents auto-pass from skipping combat declaration when creatures are available
-    const isTurnPlayer = (ctx.state as any).turnPlayer === playerId;
     
     // GOAD ENFORCEMENT (Rule 701.15b): Goaded creatures MUST attack if able
     // This check ensures that:
