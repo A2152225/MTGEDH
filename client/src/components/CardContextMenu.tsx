@@ -22,6 +22,10 @@ export interface ActivatedAbilityOption {
   requiresSacrifice?: boolean;
   isManaAbility?: boolean;
   isLoyaltyAbility?: boolean;
+  isCrewAbility?: boolean;
+  isStationAbility?: boolean;
+  crewPower?: number;
+  stationThreshold?: number;
 }
 
 export interface CardContextMenuProps {
@@ -36,7 +40,7 @@ export interface CardContextMenuProps {
   onSacrifice?: (permanentId: string) => void;
   onRemove?: (permanentId: string) => void;
   onExchangeTextBoxes?: (permanentId: string) => void;
-  onIgnoreForAutoPass?: (permanentId: string, cardName: string) => void;
+  onIgnoreForAutoPass?: (permanentId: string, cardName: string, imageUrl?: string) => void;
   onUnignoreForAutoPass?: (permanentId: string) => void;
   isIgnoredForAutoPass?: boolean;
   canActivate?: boolean;
@@ -56,6 +60,10 @@ function convertToMenuOption(ability: ParsedActivatedAbility): ActivatedAbilityO
     requiresSacrifice: ability.requiresSacrifice,
     isManaAbility: ability.isManaAbility,
     isLoyaltyAbility: ability.isLoyaltyAbility,
+    isCrewAbility: ability.isCrewAbility,
+    isStationAbility: ability.isStationAbility,
+    crewPower: ability.crewPower,
+    stationThreshold: ability.stationThreshold,
   };
 }
 
@@ -66,6 +74,17 @@ function parseActivatedAbilities(card: KnownCardRef): ActivatedAbilityOption[] {
   // Use the full ability parser for comprehensive coverage
   const parsed = parseAbilitiesFull(card);
   return parsed.map(convertToMenuOption);
+}
+
+/**
+ * Get the appropriate icon for an ability based on its type
+ */
+function getAbilityIcon(ability: ActivatedAbilityOption): string {
+  if (ability.isCrewAbility) return '🚗';
+  if (ability.isStationAbility) return '🚀';
+  if (ability.isManaAbility) return '💎';
+  if (ability.requiresSacrifice) return '⚡';
+  return '✨';
 }
 
 export function CardContextMenu({
@@ -280,7 +299,7 @@ export function CardContextMenu({
                 title={ability.description}
               >
                 <span style={{ width: 20, textAlign: 'center' }}>
-                  {ability.isManaAbility ? '💎' : ability.requiresSacrifice ? '⚡' : '✨'}
+                  {getAbilityIcon(ability)}
                 </span>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 500 }}>{ability.label}</div>
@@ -442,7 +461,8 @@ export function CardContextMenu({
             <div
               style={menuItemStyle}
               onClick={() => {
-                onIgnoreForAutoPass?.(permanent.id, card?.name || 'Unknown');
+                const imageUrl = card?.image_uris?.small || card?.image_uris?.normal;
+                onIgnoreForAutoPass?.(permanent.id, card?.name || 'Unknown', imageUrl);
                 onClose();
               }}
               onMouseEnter={(e) => {

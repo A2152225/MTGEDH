@@ -282,6 +282,9 @@ export function TableLayout(props: {
   }>;
   // Ignored cards for playability checks (auto-pass)
   ignoredCardIds?: Set<string>;
+  // Callbacks for ignoring/unignoring cards for auto-pass from battlefield
+  onIgnoreForAutoPass?: (permanentId: string, cardName: string, imageUrl?: string) => void;
+  onUnignoreForAutoPass?: (permanentId: string) => void;
   isPreGame?: boolean;
   allPlayersKeptHands?: boolean;
   onKeepHand?: () => void;
@@ -327,6 +330,9 @@ export function TableLayout(props: {
     costAdjustments,
     // Ignored cards for playability checks
     ignoredCardIds: propsIgnoredCardIds,
+    // Auto-pass ignore callbacks for battlefield
+    onIgnoreForAutoPass,
+    onUnignoreForAutoPass,
   } = props;
 
   // Snapshot debug
@@ -1330,6 +1336,9 @@ export function TableLayout(props: {
                               console.info('[exchangeTextBoxes] Select a second permanent to complete the text swap.');
                             }
                           } : undefined}
+                          onIgnoreForAutoPass={isYouThis ? onIgnoreForAutoPass : undefined}
+                          onUnignoreForAutoPass={isYouThis ? onUnignoreForAutoPass : undefined}
+                          ignoredForAutoPassIds={propsIgnoredCardIds}
                           canActivate={isYouThis || false}
                           playerId={isYouThis ? you : undefined}
                           hasPriority={hasPriority || false}
@@ -1372,6 +1381,9 @@ export function TableLayout(props: {
                               onUntap={isYouThis && gameId ? (id) => socket.emit('untapPermanent', { gameId, permanentId: id }) : undefined}
                               onActivateAbility={isYouThis && gameId ? (permanentId, abilityId) => socket.emit('activateBattlefieldAbility', { gameId, permanentId, abilityId: typeof abilityId === 'number' ? String(abilityId) : (abilityId || '0') }) : undefined}
                               onSacrifice={isYouThis && gameId ? (id) => socket.emit('sacrificePermanent', { gameId, permanentId: id }) : undefined}
+                              onIgnoreForAutoPass={isYouThis ? onIgnoreForAutoPass : undefined}
+                              onUnignoreForAutoPass={isYouThis ? onUnignoreForAutoPass : undefined}
+                              ignoredForAutoPassIds={propsIgnoredCardIds}
                               canActivate={isYouThis || false}
                               playerId={isYouThis ? you : undefined}
                               hasPriority={hasPriority || false}
@@ -1408,6 +1420,9 @@ export function TableLayout(props: {
                               onUntap={isYouThis && gameId ? (id) => socket.emit('untapPermanent', { gameId, permanentId: id }) : undefined}
                               onActivateAbility={isYouThis && gameId ? (permanentId, abilityId) => socket.emit('activateBattlefieldAbility', { gameId, permanentId, abilityId: typeof abilityId === 'number' ? String(abilityId) : (abilityId || '0') }) : undefined}
                               onSacrifice={isYouThis && gameId ? (id) => socket.emit('sacrificePermanent', { gameId, permanentId: id }) : undefined}
+                              onIgnoreForAutoPass={isYouThis ? onIgnoreForAutoPass : undefined}
+                              onUnignoreForAutoPass={isYouThis ? onUnignoreForAutoPass : undefined}
+                              ignoredForAutoPassIds={propsIgnoredCardIds}
                               canActivate={isYouThis || false}
                               playerId={isYouThis ? you : undefined}
                               hasPriority={hasPriority || false}

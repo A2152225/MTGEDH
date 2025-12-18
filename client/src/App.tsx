@@ -4594,6 +4594,25 @@ export function App() {
               playableCards={(safeView as any)?.playableCards}
               costAdjustments={(safeView as any)?.costAdjustments}
               ignoredCardIds={ignoredCardIds}
+              onIgnoreForAutoPass={(permanentId, cardName, imageUrl) => {
+                if (safeView?.id) {
+                  socket.emit('ignoreCardForAutoPass' as any, {
+                    gameId: safeView.id,
+                    permanentId,
+                    cardName,
+                    zone: 'battlefield',
+                    imageUrl,
+                  });
+                }
+              }}
+              onUnignoreForAutoPass={(permanentId) => {
+                if (safeView?.id) {
+                  socket.emit('unignoreCardForAutoPass' as any, {
+                    gameId: safeView.id,
+                    permanentId,
+                  });
+                }
+              }}
             />
           ) : (
             <div style={{ padding: 20, color: "#666" }}>
