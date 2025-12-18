@@ -20,7 +20,7 @@ import type {
 import type { ImagePref } from './BattlefieldGrid';
 import { AttachmentLines } from './AttachmentLines';
 import { HandGallery } from './HandGallery';
-import { HandCardContextMenu } from './HandCardContextMenu';
+import { ZoneCardContextMenu, type ZoneType } from './ZoneCardContextMenu';
 import { LandRow } from './LandRow';
 import { ZonesPiles } from './ZonesPiles';
 import { FreeField } from './FreeField';
@@ -414,8 +414,10 @@ export function TableLayout(props: {
   const dragRef = useRef<{ id: number; sx: number; sy: number; cx: number; cy: number; active: boolean } | null>(null);
   const [panKey, setPanKey] = useState(false);
   const [pendingTextSwapSource, setPendingTextSwapSource] = useState<string | null>(null);
-  // State for hand card context menu
-  const [handContextMenu, setHandContextMenu] = useState<{ card: KnownCardRef; x: number; y: number } | null>(null);
+  // State for zone card context menu (works for hand, graveyard, exile, commander, library)
+  const [zoneContextMenu, setZoneContextMenu] = useState<{ card: KnownCardRef; zone: ZoneType; x: number; y: number } | null>(null);
+  // Keep track of which cards are ignored for playability checks
+  const [ignoredCardsSet, setIgnoredCardsSet] = useState<Set<string>>(new Set());
   useEffect(() => {
     const kd = (e: KeyboardEvent) => { if (e.code === 'Space') setPanKey(true); };
     const ku = (e: KeyboardEvent) => { if (e.code === 'Space') setPanKey(false); };
@@ -1484,7 +1486,7 @@ export function TableLayout(props: {
                               playableCards={playableCards}
                               costAdjustments={costAdjustments}
                               appearanceSettings={appearanceSettings}
-                              onContextMenu={(card, x, y) => setHandContextMenu({ card, x, y })}
+                              onContextMenu={(card, x, y) => setZoneContextMenu({ card, zone: 'hand', x, y })}
                             />
                           </div>
                         )}
@@ -1952,25 +1954,63 @@ export function TableLayout(props: {
         </div>
       )}
       
-      {/* Hand Card Context Menu */}
-      {handContextMenu && (
-        <HandCardContextMenu
-          card={handContextMenu.card}
-          x={handContextMenu.x}
-          y={handContextMenu.y}
-          onClose={() => setHandContextMenu(null)}
-          onCast={(cardId) => onCastFromHand?.(cardId)}
-          onPlayLand={(cardId) => onPlayLandFromHand?.(cardId)}
+      {/* Zone Card Context Menu (for hand, graveyard, exile, commander, library cards) */}
+      {zoneContextMenu && (
+        <ZoneCardContextMenu
+          card={zoneContextMenu.card}
+          zone={zoneContextMenu.zone}
+          x={zoneContextMenu.x}
+          y={zoneContextMenu.y}
+          onClose={() => setZoneContextMenu(null)}
+          onCast={(cardId) => {
+            if (zoneContextMenu.zone === 'hand') {
+              onCastFromHand?.(cardId);
+            } else if (zoneContextMenu.zone === 'commander') {
+              const cmd = zoneContextMenu.card;
+              onCastCommander?.(cardId, cmd.name, cmd.mana_cost);
+            }
+          }}
+          onPlayLand={(cardId) => {
+            if (zoneContextMenu.zone === 'hand') {
+              onPlayLandFromHand?.(cardId);
+            }
+          }}
           onDiscard={(cardId) => {
-            if (gameId) {
+            if (gameId && zoneContextMenu.zone === 'hand') {
               socket.emit('discard', { gameId, cardId });
             }
           }}
-          canCast={!reasonCannotCast?.(handContextMenu.card)}
-          canPlayLand={!reasonCannotPlayLand?.(handContextMenu.card)}
-          reasonCannotCast={reasonCannotCast?.(handContextMenu.card)}
-          reasonCannotPlayLand={reasonCannotPlayLand?.(handContextMenu.card)}
-          costAdjustment={costAdjustments?.[handContextMenu.card.id]}
+          onIgnoreForPlayability={(cardId, cardName, zone, imageUrl) => {
+            if (gameId && you) {
+              socket.emit('ignoreCardForAutoPass', { 
+                gameId, 
+                cardId,
+                cardName, 
+                zone,
+                imageUrl,
+              });
+              setIgnoredCardsSet(prev => new Set([...prev, cardId]));
+            }
+          }}
+          onUnignoreForPlayability={(cardId) => {
+            if (gameId) {
+              socket.emit('unignoreCardForAutoPass', { 
+                gameId, 
+                cardId,
+              });
+              setIgnoredCardsSet(prev => {
+                const next = new Set(prev);
+                next.delete(cardId);
+                return next;
+              });
+            }
+          }}
+          isIgnoredForPlayability={ignoredCardsSet.has(zoneContextMenu.card.id)}
+          canCast={zoneContextMenu.zone === 'hand' ? !reasonCannotCast?.(zoneContextMenu.card) : true}
+          canPlayLand={zoneContextMenu.zone === 'hand' ? !reasonCannotPlayLand?.(zoneContextMenu.card) : true}
+          reasonCannotCast={zoneContextMenu.zone === 'hand' ? reasonCannotCast?.(zoneContextMenu.card) : null}
+          reasonCannotPlayLand={zoneContextMenu.zone === 'hand' ? reasonCannotPlayLand?.(zoneContextMenu.card) : null}
+          costAdjustment={costAdjustments?.[zoneContextMenu.card.id]}
         />
       )}
     </div>

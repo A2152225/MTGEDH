@@ -5,11 +5,19 @@
  * When a card is ignored, the auto-pass system will not consider it as a reason
  * to stop and wait for player action.
  * 
+ * Supports cards from ALL zones:
+ * - Battlefield (permanents)
+ * - Hand
+ * - Graveyard
+ * - Exile
+ * - Commander zone
+ * - Library (top card if revealed)
+ * 
  * Example use case: Elixir of Immortality with no cards in graveyard - player
  * can ignore it so they don't have to pass priority every phase.
  * 
  * Features:
- * - Shows all ignored cards with their images
+ * - Shows all ignored cards with their images and zone
  * - Click ✕ to remove a card from the ignore list
  * - "Clear All" button to remove all ignored cards
  * - Collapsible/minimizable panel
@@ -18,17 +26,36 @@
 import React, { useState } from 'react';
 import type { PlayerID } from '../../../shared/src';
 
+export type IgnoredCardZone = 'battlefield' | 'hand' | 'graveyard' | 'exile' | 'commander' | 'library';
+
 export interface IgnoredCard {
-  permanentId: string;
+  permanentId: string;  // Can be cardId for non-battlefield zones
+  cardId?: string;      // The actual card ID (useful when permanentId is different)
   cardName: string;
   imageUrl?: string;
+  zone?: IgnoredCardZone;  // Which zone the card is in
 }
 
 interface Props {
   ignoredCards: IgnoredCard[];
-  onUnignore: (permanentId: string) => void;
+  onUnignore: (cardId: string) => void;
   onClearAll: () => void;
   you?: PlayerID;
+}
+
+/**
+ * Get zone display info
+ */
+function getZoneInfo(zone?: IgnoredCardZone): { icon: string; label: string; color: string } {
+  switch (zone) {
+    case 'hand': return { icon: '🖐️', label: 'Hand', color: '#60a5fa' };
+    case 'graveyard': return { icon: '⚰️', label: 'Graveyard', color: '#a78bfa' };
+    case 'exile': return { icon: '🌀', label: 'Exile', color: '#f472b6' };
+    case 'commander': return { icon: '👑', label: 'Commander', color: '#fbbf24' };
+    case 'library': return { icon: '📚', label: 'Library', color: '#34d399' };
+    case 'battlefield': 
+    default: return { icon: '⚔️', label: 'Battlefield', color: '#f87171' };
+  }
 }
 
 export function IgnoredCardsPanel({ ignoredCards, onUnignore, onClearAll, you }: Props) {
@@ -163,83 +190,89 @@ export function IgnoredCardsPanel({ ignoredCards, onUnignore, onClearAll, you }:
 
           {/* Card list */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {ignoredCards.map((card) => (
-              <div
-                key={card.permanentId}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  padding: '10px 12px',
-                  background: 'rgba(250,204,21,0.1)',
-                  border: '1px solid rgba(250,204,21,0.3)',
-                  borderRadius: 8,
-                }}
-              >
-                {/* Card image */}
-                {card.imageUrl && (
-                  <img
-                    src={card.imageUrl}
-                    alt={card.cardName}
-                    style={{
-                      width: 40,
-                      height: 56,
-                      borderRadius: 4,
-                      objectFit: 'cover',
-                      border: '1px solid rgba(255,255,255,0.2)',
-                      flexShrink: 0,
-                    }}
-                  />
-                )}
-
-                {/* Card name */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: '#e5e7eb',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}>
-                    {card.cardName}
-                  </div>
-                  <div style={{
-                    fontSize: 10,
-                    color: '#facc15',
-                    marginTop: 2,
-                    fontStyle: 'italic',
-                  }}>
-                    Ignored for auto-pass
-                  </div>
-                </div>
-
-                {/* Unignore button */}
-                <button
-                  onClick={() => onUnignore(card.permanentId)}
-                  title="Stop ignoring this card"
+            {ignoredCards.map((card) => {
+              const zoneInfo = getZoneInfo(card.zone);
+              return (
+                <div
+                  key={card.cardId || card.permanentId}
                   style={{
-                    padding: '4px 8px',
-                    fontSize: 12,
-                    borderRadius: 4,
-                    border: '1px solid #ef4444',
-                    background: 'rgba(239,68,68,0.2)',
-                    color: '#fca5a5',
-                    cursor: 'pointer',
-                    flexShrink: 0,
-                    transition: 'all 0.2s',
-                  }}
-                  onMouseOver={(e) => {
-                    e.currentTarget.style.background = 'rgba(239,68,68,0.4)';
-                  }}
-                  onMouseOut={(e) => {
-                    e.currentTarget.style.background = 'rgba(239,68,68,0.2)';
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '10px 12px',
+                    background: 'rgba(250,204,21,0.1)',
+                    border: '1px solid rgba(250,204,21,0.3)',
+                    borderRadius: 8,
                   }}
                 >
-                  ✕
-                </button>
-              </div>
-            ))}
+                  {/* Card image */}
+                  {card.imageUrl && (
+                    <img
+                      src={card.imageUrl}
+                      alt={card.cardName}
+                      style={{
+                        width: 40,
+                        height: 56,
+                        borderRadius: 4,
+                        objectFit: 'cover',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        flexShrink: 0,
+                      }}
+                    />
+                  )}
+
+                  {/* Card name and zone */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: '#e5e7eb',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}>
+                      {card.cardName}
+                    </div>
+                    <div style={{
+                      fontSize: 10,
+                      marginTop: 2,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}>
+                      <span style={{ color: zoneInfo.color }}>{zoneInfo.icon}</span>
+                      <span style={{ color: zoneInfo.color }}>{zoneInfo.label}</span>
+                      <span style={{ color: '#facc15', fontStyle: 'italic' }}>• Ignored</span>
+                    </div>
+                  </div>
+
+                  {/* Unignore button */}
+                  <button
+                    onClick={() => onUnignore(card.cardId || card.permanentId)}
+                    title="Stop ignoring this card"
+                    style={{
+                      padding: '4px 8px',
+                      fontSize: 12,
+                      borderRadius: 4,
+                      border: '1px solid #ef4444',
+                      background: 'rgba(239,68,68,0.2)',
+                      color: '#fca5a5',
+                      cursor: 'pointer',
+                      flexShrink: 0,
+                      transition: 'all 0.2s',
+                    }}
+                    onMouseOver={(e) => {
+                      e.currentTarget.style.background = 'rgba(239,68,68,0.4)';
+                    }}
+                    onMouseOut={(e) => {
+                      e.currentTarget.style.background = 'rgba(239,68,68,0.2)';
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              );
+            })}
           </div>
 
           {/* Clear all button */}

@@ -539,11 +539,19 @@ export function registerAutomationHandlers(
    * When a card is ignored, the auto-pass system will not consider it
    * as a reason to stop and wait for player action.
    * 
+   * Supports cards from ALL zones:
+   * - Battlefield (permanents)
+   * - Hand
+   * - Graveyard
+   * - Exile
+   * - Commander zone
+   * - Library (top card if revealed)
+   * 
    * Example: Elixir of Immortality with no cards in graveyard - player
    * can ignore it so they don't have to pass priority every phase.
    */
   socket.on("ignoreCardForAutoPass", (payload) => {
-    const { gameId, permanentId, cardName } = payload;
+    const { gameId, permanentId, cardId, cardName, zone, imageUrl: providedImageUrl } = payload as any;
     const playerId = socket.data.playerId;
     
     if (!playerId) {
@@ -557,7 +565,11 @@ export function registerAutomationHandlers(
       return;
     }
     
-    console.log(`[Automation] Ignoring card ${cardName} (${permanentId}) for auto-pass by ${playerId}`);
+    // Use cardId for zone cards, permanentId for battlefield
+    const effectiveId = cardId || permanentId;
+    const effectiveZone = zone || 'battlefield';
+    
+    console.log(`[Automation] Ignoring card ${cardName} (${effectiveId}) in ${effectiveZone} for auto-pass by ${playerId}`);
     
     // Initialize ignored cards structure if needed
     const stateAny = game.state as any;
@@ -568,23 +580,41 @@ export function registerAutomationHandlers(
       stateAny.ignoredCardsForAutoPass[playerId] = {};
     }
     
-    // Get image URL from the permanent
-    const battlefield = game.state.battlefield || [];
-    const permanent = battlefield.find((p: any) => p.id === permanentId);
-    const imageUrl = permanent?.card?.image_uris?.small || permanent?.card?.image_uris?.normal;
+    // Get image URL - use provided one or look up from the appropriate zone
+    let imageUrl = providedImageUrl;
+    if (!imageUrl) {
+      if (effectiveZone === 'battlefield') {
+        const battlefield = game.state.battlefield || [];
+        const permanent = battlefield.find((p: any) => p.id === permanentId);
+        imageUrl = permanent?.card?.image_uris?.small || permanent?.card?.image_uris?.normal;
+      } else {
+        // Look up in zone
+        const zones = (game.state as any).zones?.[playerId];
+        if (zones) {
+          const zoneCards = zones[effectiveZone] || [];
+          const card = zoneCards.find((c: any) => c.id === effectiveId);
+          imageUrl = card?.image_uris?.small || card?.image_uris?.normal;
+        }
+      }
+    }
     
-    // Add to ignored list
-    stateAny.ignoredCardsForAutoPass[playerId][permanentId] = {
+    // Add to ignored list with zone info
+    stateAny.ignoredCardsForAutoPass[playerId][effectiveId] = {
       cardName,
+      cardId: effectiveId,
+      permanentId: permanentId || effectiveId,
       imageUrl,
+      zone: effectiveZone,
       ignoredAt: Date.now(),
     };
     
     // Broadcast updated ignored cards list to the player
     const ignoredList = Object.entries(stateAny.ignoredCardsForAutoPass[playerId]).map(([id, data]: [string, any]) => ({
-      permanentId: id,
+      permanentId: data.permanentId || id,
+      cardId: data.cardId || id,
       cardName: data.cardName,
       imageUrl: data.imageUrl,
+      zone: data.zone || 'battlefield',
     }));
     
     socket.emit("ignoredCardsUpdated" as any, {
@@ -603,9 +633,10 @@ export function registerAutomationHandlers(
   
   /**
    * Handle removing a card from the ignore list.
+   * Supports both permanentId (battlefield) and cardId (other zones)
    */
   socket.on("unignoreCardForAutoPass", (payload) => {
-    const { gameId, permanentId } = payload;
+    const { gameId, permanentId, cardId } = payload as any;
     const playerId = socket.data.playerId;
     
     if (!playerId) {
@@ -619,20 +650,26 @@ export function registerAutomationHandlers(
       return;
     }
     
+    // Support both cardId and permanentId
+    const effectiveId = cardId || permanentId;
+    
     const stateAny = game.state as any;
     const ignoredCards = stateAny.ignoredCardsForAutoPass?.[playerId];
     
-    if (ignoredCards && ignoredCards[permanentId]) {
-      const cardName = ignoredCards[permanentId].cardName;
-      delete ignoredCards[permanentId];
+    if (ignoredCards && ignoredCards[effectiveId]) {
+      const cardName = ignoredCards[effectiveId].cardName;
+      const zone = ignoredCards[effectiveId].zone || 'battlefield';
+      delete ignoredCards[effectiveId];
       
-      console.log(`[Automation] Unignored card ${cardName} (${permanentId}) for ${playerId}`);
+      console.log(`[Automation] Unignored card ${cardName} (${effectiveId}) from ${zone} for ${playerId}`);
       
-      // Broadcast updated ignored cards list
+      // Broadcast updated ignored cards list with zone info
       const ignoredList = Object.entries(ignoredCards).map(([id, data]: [string, any]) => ({
-        permanentId: id,
+        permanentId: data.permanentId || id,
+        cardId: data.cardId || id,
         cardName: data.cardName,
         imageUrl: data.imageUrl,
+        zone: data.zone || 'battlefield',
       }));
       
       socket.emit("ignoredCardsUpdated" as any, {

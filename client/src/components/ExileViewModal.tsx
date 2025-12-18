@@ -27,6 +27,10 @@ export interface ExileViewModalProps {
   onActivateAbility?: (cardId: string, abilityId: string, card: KnownCardRef) => void;
   playableCards?: string[];
   appearanceSettings?: AppearanceSettings;
+  // Ignore functionality
+  onIgnoreForPlayability?: (cardId: string, cardName: string, imageUrl?: string) => void;
+  onUnignoreForPlayability?: (cardId: string) => void;
+  ignoredCardIds?: Set<string>;
 }
 
 function parseExileAbilities(card: KnownCardRef): ExileAbility[] {
@@ -98,10 +102,14 @@ export function ExileViewModal({
   onActivateAbility,
   playableCards = [],
   appearanceSettings,
+  onIgnoreForPlayability,
+  onUnignoreForPlayability,
+  ignoredCardIds = new Set(),
 }: ExileViewModalProps) {
   const [selectedCard, setSelectedCard] = useState<KnownCardRef | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | 'playable' | 'suspended'>('all');
+  const [contextMenu, setContextMenu] = useState<{ card: KnownCardRef; x: number; y: number } | null>(null);
 
   const cardsWithAbilities = useMemo(() => 
     cards.map(card => ({ card, abilities: parseExileAbilities(card) })),
@@ -202,20 +210,48 @@ export function ExileViewModal({
               {[...filteredCards].reverse().map(({ card, abilities }) => {
                 const isPlayable = playableCards.includes(card.id);
                 const isSuspended = abilities.some(a => a.id === 'suspend');
+                const isIgnored = ignoredCardIds.has(card.id);
                 
                 return (
                   <div
                     key={card.id}
                     style={{
                       position: 'relative', borderRadius: 6, overflow: 'hidden',
-                      border: isSuspended ? '2px solid rgba(245,158,11,0.5)' : abilities.length > 0 ? '2px solid rgba(147,51,234,0.5)' : '1px solid rgba(255,255,255,0.1)',
+                      border: isIgnored 
+                        ? '2px solid rgba(250, 204, 21, 0.5)'
+                        : isSuspended 
+                          ? '2px solid rgba(245,158,11,0.5)' 
+                          : abilities.length > 0 
+                            ? '2px solid rgba(147,51,234,0.5)' 
+                            : '1px solid rgba(255,255,255,0.1)',
                       backgroundColor: '#252540', cursor: 'pointer',
                       boxShadow: isPlayable ? getPlayableCardHighlight(appearanceSettings) : 'none',
                     }}
                     onClick={() => setSelectedCard(selectedCard?.id === card.id ? null : card)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setContextMenu({ card, x: e.clientX, y: e.clientY });
+                    }}
                     onMouseEnter={(e) => showCardPreview(e.currentTarget as HTMLElement, card, { prefer: 'above' })}
                     onMouseLeave={(e) => hideCardPreview(e.currentTarget as HTMLElement)}
                   >
+                    {/* Ignored badge */}
+                    {isIgnored && (
+                      <div style={{
+                        position: 'absolute',
+                        top: 4,
+                        left: 4,
+                        background: 'rgba(250, 204, 21, 0.9)',
+                        borderRadius: 4,
+                        padding: '2px 4px',
+                        fontSize: 10,
+                        color: '#000',
+                        fontWeight: 600,
+                        zIndex: 5,
+                      }}>
+                        🔇
+                      </div>
+                    )}
                     <div style={{ width: '100%', aspectRatio: '0.72', overflow: 'hidden' }}>
                       {card.image_uris?.small || card.image_uris?.normal ? (
                         <img src={card.image_uris.small || card.image_uris.normal} alt={card.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -225,7 +261,7 @@ export function ExileViewModal({
                         </div>
                       )}
                     </div>
-                    {abilities.length > 0 && (
+                    {abilities.length > 0 && !isIgnored && (
                       <div style={{ position: 'absolute', top: 4, right: 4, backgroundColor: isSuspended ? 'rgba(245,158,11,0.9)' : 'rgba(147,51,234,0.9)', color: '#fff', fontSize: 9, padding: '2px 4px', borderRadius: 3, fontWeight: 600 }}>
                         {isSuspended ? '⏱️' : '⚡'}
                       </div>
@@ -271,6 +307,80 @@ export function ExileViewModal({
               </div>
             )}
           </div>
+        )}
+        
+        {/* Context menu for exile cards */}
+        {contextMenu && (
+          <div
+            style={{
+              position: 'fixed',
+              left: contextMenu.x,
+              top: contextMenu.y,
+              backgroundColor: '#1e1e2e',
+              border: '1px solid #444',
+              borderRadius: 8,
+              boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+              minWidth: 180,
+              zIndex: 10001,
+              overflow: 'hidden',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ padding: '10px 16px', borderBottom: '1px solid #444', fontWeight: 600, color: '#fff', fontSize: 13 }}>
+              🌀 {contextMenu.card.name}
+            </div>
+            <div style={{ padding: '4px 0' }}>
+              {ignoredCardIds.has(contextMenu.card.id) ? (
+                <div
+                  style={{
+                    padding: '8px 16px',
+                    cursor: 'pointer',
+                    color: '#fcd34d',
+                    fontSize: 13,
+                  }}
+                  onClick={() => {
+                    onUnignoreForPlayability?.(contextMenu.card.id);
+                    setContextMenu(null);
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(99, 102, 241, 0.2)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  🔔 Stop Ignoring
+                </div>
+              ) : (
+                <div
+                  style={{
+                    padding: '8px 16px',
+                    cursor: 'pointer',
+                    color: '#e5e7eb',
+                    fontSize: 13,
+                  }}
+                  onClick={() => {
+                    onIgnoreForPlayability?.(
+                      contextMenu.card.id, 
+                      contextMenu.card.name,
+                      contextMenu.card.image_uris?.small || contextMenu.card.image_uris?.normal
+                    );
+                    setContextMenu(null);
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(99, 102, 241, 0.2)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  🔇 Ignore for Auto-Pass
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        {contextMenu && (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 10000,
+            }}
+            onClick={() => setContextMenu(null)}
+          />
         )}
       </div>
     </div>

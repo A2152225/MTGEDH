@@ -842,6 +842,12 @@ export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boo
     const zones = state.zones?.[playerId];
     if (zones && Array.isArray(zones.graveyard)) {
       for (const card of zones.graveyard as any[]) {
+        // Skip ignored cards in graveyard
+        if (ignoredCards[card.id]) {
+          console.log(`[canActivateAnyAbility] Skipping ignored graveyard card: ${card.name || card.id}`);
+          continue;
+        }
+        
         // Skip this card if it's also on the battlefield (shouldn't happen, but defensive check)
         // This ensures abilities like Magma Phoenix's graveyard ability are ONLY activatable from graveyard
         const isOnBattlefield = battlefield.some((perm: any) => 
@@ -858,11 +864,103 @@ export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boo
       }
     }
     
+    // Check exile zone for playable cards (foretold, suspended, plotted, etc.)
+    if (zones && Array.isArray(zones.exile)) {
+      for (const card of zones.exile as any[]) {
+        // Skip ignored cards in exile
+        if (ignoredCards[card.id]) {
+          console.log(`[canActivateAnyAbility] Skipping ignored exile card: ${card.name || card.id}`);
+          continue;
+        }
+        
+        if (hasExileActivatedAbility(ctx, playerId, card, pool)) {
+          return true;
+        }
+      }
+    }
+    
+    // Check hand for special abilities (foretell cost from hand, etc.)
+    if (zones && Array.isArray(zones.hand)) {
+      for (const card of zones.hand as any[]) {
+        // Skip ignored cards in hand
+        if (ignoredCards[card.id]) {
+          console.log(`[canActivateAnyAbility] Skipping ignored hand card: ${card.name || card.id}`);
+          continue;
+        }
+        
+        // Note: Regular casting from hand is handled in canCastAnySpell
+        // This is for special hand abilities like foretelling
+        if (hasHandActivatedAbility(ctx, playerId, card, pool)) {
+          return true;
+        }
+      }
+    }
+    
     return false;
   } catch (err) {
     console.warn("[canActivateAnyAbility] Error:", err);
     return false;
   }
+}
+
+/**
+ * Check if a card in exile has an activated ability that can be used
+ */
+function hasExileActivatedAbility(ctx: GameContext, playerId: PlayerID, card: any, pool: any): boolean {
+  if (!card) return false;
+  
+  const oracleText = (card.oracle_text || '').toLowerCase();
+  
+  // Foretell - can be cast from exile for the foretell cost
+  if (oracleText.includes('foretell') && card.isForetold) {
+    return true;
+  }
+  
+  // Plot - can be cast from exile without paying mana cost
+  if (oracleText.includes('plot') && card.isPlotted) {
+    return true;
+  }
+  
+  // Suspend - will cast when last time counter is removed
+  if (oracleText.includes('suspend') && card.isSuspended) {
+    // Check if it's ready to cast (no time counters)
+    if (card.timeCounters === 0) {
+      return true;
+    }
+  }
+  
+  // Adventure - can cast creature from exile after adventure
+  if ((card.layout === 'adventure' || oracleText.includes('adventure')) && card.adventureUsed) {
+    return true;
+  }
+  
+  // Generic "play from exile" effects
+  if (card.canPlayFromExile) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Check if a card in hand has a special activated ability (not regular casting)
+ */
+function hasHandActivatedAbility(ctx: GameContext, playerId: PlayerID, card: any, pool: any): boolean {
+  if (!card) return false;
+  
+  const oracleText = (card.oracle_text || '').toLowerCase();
+  
+  // Foretell - pay {2} to exile face-down
+  if (oracleText.includes('foretell')) {
+    // Check if player can pay {2}
+    const hasTwoMana = (pool.colorless || 0) + (pool.white || 0) + (pool.blue || 0) + 
+                       (pool.black || 0) + (pool.red || 0) + (pool.green || 0) >= 2;
+    if (hasTwoMana) {
+      return true;
+    }
+  }
+  
+  return false;
 }
 
 /**
