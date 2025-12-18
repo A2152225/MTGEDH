@@ -2638,7 +2638,12 @@ export function resolveTopOfStack(ctx: GameContext) {
         cardImageUrl: searchParams.cardImageUrl,
       };
       
-      console.log(`[resolveTopOfStack] Fetch land ${sourceName}: ${controller} may search for ${searchParams.searchDescription || 'a land card'}${searchParams.maxSelections > 1 ? ` (up to ${searchParams.maxSelections})` : ''}${searchParams.entersTapped ? ' (enters tapped)' : ''}`);
+      const searchDesc = searchParams.searchDescription || 'a land card';
+      const maxSel = searchParams.maxSelections || 1;
+      const tappedStatus = searchParams.entersTapped ? ' (enters tapped)' : '';
+      const selectionText = maxSel > 1 ? ` (up to ${maxSel})` : '';
+      
+      console.log(`[resolveTopOfStack] Fetch land ${sourceName}: ${controller} may search for ${searchDesc}${selectionText}${tappedStatus}`);
       bumpSeq();
       return;
     }

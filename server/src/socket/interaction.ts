@@ -2706,8 +2706,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
       
       // Detect if fetched lands enter tapped (Evolving Wilds, Terramorphic Expanse, etc.)
-      // Look for "put it onto the battlefield tapped" or "put them onto the battlefield tapped"
-      const entersTapped = /put (?:it|them) onto the battlefield tapped/i.test(oracleText);
+      // Look for patterns like:
+      // - "put it onto the battlefield tapped"
+      // - "put them onto the battlefield tapped"
+      // - "enters the battlefield tapped"
+      const entersTapped = /(?:put (?:it|them) onto|enters) the battlefield tapped/i.test(oracleText);
       
       // Build description for the ability
       let searchDescription = "Search your library for a land card";
