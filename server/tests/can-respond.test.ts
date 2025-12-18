@@ -412,7 +412,8 @@ describe('canActivateAnyAbility', () => {
       },
     });
     
-    // Even with 1 life, fetchland should be detected (sacrifice check happens before life check)
+    // Fetchland should be detected because sacrifice cost check happens before life cost check
+    // Note: The permanment itself can always be sacrificed (it's sacrificing itself)
     expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(true);
   });
 });

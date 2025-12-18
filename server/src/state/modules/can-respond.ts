@@ -635,6 +635,8 @@ function hasActivatableAbility(
   // - "{T}, Sacrifice ~: Effect" (tap + additional cost after, like fetchlands)
   // - "{2}{R}, {T}: This creature fights..." (mana + tap, like Brash Taunter)
   // Pattern allows for optional comma and text between {T} and colon
+  // Using [^:]* to match any costs between {T} and : (e.g., ", Pay 1 life, Sacrifice ~")
+  // This is safe because ability patterns always end with a colon before the effect
   const hasTapAbility = /\{T\}(?:\s*,?\s*[^:]*)?:/i.test(oracleText);
   
   if (hasTapAbility) {
