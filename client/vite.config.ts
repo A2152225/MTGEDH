@@ -23,16 +23,37 @@ export default defineConfig({
     }
   },
   build: {
-    // Increase chunk size warning limit to 600KB
-    chunkSizeWarningLimit: 600,
+    // Increase chunk size warning limit to 700KB to accommodate main bundle after splitting
+    chunkSizeWarningLimit: 700,
     rollupOptions: {
       output: {
         // Manual chunk splitting to improve bundle size
-        manualChunks: {
-          // Split React into its own chunk
-          'react-vendor': ['react', 'react-dom'],
-          // Split socket.io client
-          'socket-vendor': ['socket.io-client'],
+        manualChunks(id) {
+          // Split React and React-DOM into vendor chunk
+          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom')) {
+            return 'react-vendor';
+          }
+          
+          // Split socket.io client into its own chunk
+          if (id.includes('node_modules/socket.io-client')) {
+            return 'socket-vendor';
+          }
+          
+          // Split modal components into their own chunk
+          // These are conditionally rendered based on game state
+          if (id.includes('/components/') && (id.endsWith('Modal.tsx') || id.includes('Modal.'))) {
+            return 'modals';
+          }
+          
+          // Split utility modules into their own chunk
+          if (id.includes('/src/utils/') || id.match(/\/utils\/[^/]+\.(ts|tsx|js)$/)) {
+            return 'utils';
+          }
+          
+          // Split shared workspace code
+          if (id.includes('/shared/src/') || id.match(/\/shared\/[^/]+\.(ts|tsx|js)$/)) {
+            return 'shared';
+          }
         },
       },
     },
