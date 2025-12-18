@@ -343,6 +343,8 @@ export function getCostAdjustmentInfo(state: any, playerId: string, card: any): 
   ];
   
   // Tax effects table
+  // Note: Trinisphere is intentionally not included as it requires special handling
+  // (minimum mana cost of 3, not an additive increase)
   const taxEffects = [
     { nameMatch: "aura of silence", displayName: "Aura of Silence", textMatch: "artifact and enchantment spells your opponents cast cost {2} more", applies: () => isArtifactOrEnchantment, amount: 2 },
     { nameMatch: "sphere of resistance", displayName: "Sphere of Resistance", textMatch: "spells cost {1} more to cast", applies: () => true, amount: 1 },
@@ -350,7 +352,6 @@ export function getCostAdjustmentInfo(state: any, playerId: string, card: any): 
     { nameMatch: "thalia, guardian of thraben", displayName: "Thalia, Guardian of Thraben", textMatch: "noncreature spells cost {1} more to cast", applies: () => !isCreatureSpell, amount: 1 },
     { nameMatch: "vryn wingmare", displayName: "Vryn Wingmare", textMatch: "noncreature spells cost {1} more to cast", applies: () => !isCreatureSpell, amount: 1 },
     { nameMatch: "lodestone golem", displayName: "Lodestone Golem", textMatch: "nonartifact spells cost {1} more to cast", applies: () => !typeLine.includes("artifact"), amount: 1 },
-    { nameMatch: "trinisphere", displayName: "Trinisphere", textMatch: "spells that would cost less than 3 mana", applies: () => true, amount: 0 }, // Special handling needed
   ];
   
   for (const perm of state.battlefield) {
@@ -373,7 +374,7 @@ export function getCostAdjustmentInfo(state: any, playerId: string, card: any): 
     // Check tax effects (from opponents)
     if (!sameController) {
       for (const tax of taxEffects) {
-        if (tax.applies() && tax.amount !== 0 &&
+        if (tax.applies() &&
             (permName.includes(tax.nameMatch) || permOracle.includes(tax.textMatch))) {
           sources.push({ name: tax.displayName, amount: tax.amount });
           totalAdjustment += tax.amount;
@@ -391,7 +392,10 @@ export function getCostAdjustmentInfo(state: any, playerId: string, card: any): 
   
   // Reconstruct adjusted cost string
   let adjustedCostParts: string[] = [];
-  if (adjustedGeneric > 0 || (parsed.generic === 0 && totalAdjustment === 0)) {
+  // Only add generic mana component if:
+  // 1. The original cost had generic mana (parsed.generic > 0), OR
+  // 2. There's an adjustment that would add generic mana (adjusted > 0)
+  if (adjustedGeneric > 0 || parsed.generic > 0) {
     adjustedCostParts.push(`{${adjustedGeneric}}`);
   }
   // Add color requirements

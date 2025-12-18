@@ -72,14 +72,25 @@ export function HandCardContextMenu({
   const hasForetell = oracleText.includes('foretell');
   
   // Adjust position to keep menu on screen
+  // Use a small delay to ensure the menu is fully rendered before measuring
   useEffect(() => {
-    if (!menuRef.current) return;
-    const rect = menuRef.current.getBoundingClientRect();
-    const newX = Math.min(x, window.innerWidth - rect.width - 10);
-    const newY = Math.min(y, window.innerHeight - rect.height - 10);
-    if (newX !== x || newY !== y) {
-      setPosition({ x: Math.max(10, newX), y: Math.max(10, newY) });
-    }
+    const adjustPosition = () => {
+      if (!menuRef.current) return;
+      const rect = menuRef.current.getBoundingClientRect();
+      // Only adjust if we have valid dimensions
+      if (rect.width === 0 || rect.height === 0) {
+        // Try again after a short delay if dimensions aren't ready
+        requestAnimationFrame(adjustPosition);
+        return;
+      }
+      const newX = Math.min(x, window.innerWidth - rect.width - 10);
+      const newY = Math.min(y, window.innerHeight - rect.height - 10);
+      if (newX !== x || newY !== y) {
+        setPosition({ x: Math.max(10, newX), y: Math.max(10, newY) });
+      }
+    };
+    // Use requestAnimationFrame to ensure layout is complete
+    requestAnimationFrame(adjustPosition);
   }, [x, y]);
   
   // Close on click outside
