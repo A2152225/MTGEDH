@@ -23,6 +23,28 @@ import { exchangePermanentOracleText } from "../state/utils";
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../rules-engine/src/creatureUpgradeAbilities";
 import { isAIPlayer } from "./ai.js";
 import { getActivatedAbilityConfig } from "../../../rules-engine/src/cards/activatedAbilityCards.js";
+import { creatureHasHaste } from "./game-actions.js";
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+/**
+ * Mapping of number words to numeric values for parsing ability text.
+ * Used for interpreting draw counts, damage amounts, etc. in oracle text.
+ */
+const WORD_TO_NUMBER: Record<string, number> = {
+  'one': 1, 'a': 1, 'an': 1, '1': 1,
+  'two': 2, '2': 2,
+  'three': 3, '3': 3,
+  'four': 4, '4': 4,
+  'five': 5, '5': 5,
+  'six': 6, '6': 6,
+  'seven': 7, '7': 7,
+  'eight': 8, '8': 8,
+  'nine': 9, '9': 9,
+  'ten': 10, '10': 10,
+};
 
 // ============================================================================
 // Tap/Untap Ability Text Parsing
@@ -1926,12 +1948,35 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
-    // Set tapped on the permanent
-    (permanent as any).tapped = true;
-    
-    // Get card info for logging
+    // Get card info early for summoning sickness check
     const card = (permanent as any).card;
     const cardName = card?.name || "Unknown";
+    const typeLine = (card?.type_line || "").toLowerCase();
+    const isCreature = /\bcreature\b/.test(typeLine);
+    const isLand = typeLine.includes("land");
+    
+    // ========================================================================
+    // Rule 302.6 / 702.10: Check summoning sickness for creatures with tap abilities
+    // A creature can't use tap/untap abilities unless it has been continuously controlled
+    // since the turn began OR it has haste (from any source).
+    // Lands and non-creature permanents are NOT affected by summoning sickness.
+    // ========================================================================
+    if (isCreature && !isLand) {
+      const hasHaste = creatureHasHaste(permanent, battlefield, pid);
+      
+      // summoningSickness is set when creatures enter the battlefield
+      // If a creature has summoning sickness and doesn't have haste, it can't use tap abilities
+      if ((permanent as any).summoningSickness && !hasHaste) {
+        socket.emit("error", {
+          code: "SUMMONING_SICKNESS",
+          message: `${cardName} has summoning sickness and cannot use tap abilities this turn`,
+        });
+        return;
+      }
+    }
+    
+    // Set tapped on the permanent
+    (permanent as any).tapped = true;
     
     // Also ensure it's set in the main battlefield array (defensive programming)
     const battlefieldIndex = battlefield.findIndex((p: any) => p?.id === permanentId);
@@ -1943,8 +1988,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     
     // Check if this permanent has mana abilities (intrinsic or granted by effects like Cryptolith Rite)
     // If so, add the produced mana to the player's mana pool
-    const typeLine = (card?.type_line || "").toLowerCase();
-    const isLand = typeLine.includes("land");
     const isBasic = typeLine.includes("basic");
     
     // ========================================================================
@@ -2889,9 +2932,21 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
        abilityId.includes("control"));
     
     if (hasControlChangeAbility) {
-      // Get effect details from registry or infer from oracle text
-      const drawCards = abilityConfig?.tapAbility?.effect?.match(/draw (\w+) card/i)?.[1];
-      const drawCount = drawCards === 'two' ? 2 : drawCards === 'one' ? 1 : 0;
+      // Get effect details from registry first, then fall back to oracle text parsing
+      let drawCards = abilityConfig?.tapAbility?.effect?.match(/draw (\w+) card/i)?.[1];
+      
+      // Fallback: Parse draw count directly from oracle text if not found in registry
+      if (!drawCards) {
+        const oracleDrawMatch = oracleText.match(/draw (\w+) card/i);
+        if (oracleDrawMatch) {
+          drawCards = oracleDrawMatch[1].toLowerCase();
+        }
+      }
+      
+      // Convert word numbers to actual count using module-level constant
+      const drawCount = drawCards ? (WORD_TO_NUMBER[drawCards.toLowerCase()] || 0) : 0;
+      
+      console.log(`[activateBattlefieldAbility] Control change ability on ${cardName}: drawCards=${drawCards}, drawCount=${drawCount}`);
       
       // Parse the cost
       const { requiresTap, manaCost } = parseActivationCost(oracleText, /(?:draw|opponent gains control)/i);

@@ -87,6 +87,10 @@ export function LandRow(props: {
   onSacrifice?: (id: string) => void;
   canActivate?: boolean;
   playerId?: string;
+  // Auto-pass ignore callbacks
+  onIgnoreForAutoPass?: (permanentId: string, cardName: string) => void;
+  onUnignoreForAutoPass?: (permanentId: string) => void;
+  ignoredForAutoPassIds?: Set<string>;
   // Game state for ability activation (for double-click feature)
   hasPriority?: boolean;
   isOwnTurn?: boolean;
@@ -105,6 +109,7 @@ export function LandRow(props: {
     onCounter,
     onTap, onUntap, onActivateAbility, onSacrifice,
     canActivate = true, playerId,
+    onIgnoreForAutoPass, onUnignoreForAutoPass, ignoredForAutoPassIds,
     hasPriority = false,
     isOwnTurn = false,
     isMainPhase = false,
@@ -358,6 +363,9 @@ export function LandRow(props: {
         onAddCounter={onCounter}
         onSacrifice={onSacrifice}
         onRemove={onRemove}
+        onIgnoreForAutoPass={onIgnoreForAutoPass}
+        onUnignoreForAutoPass={onUnignoreForAutoPass}
+        isIgnoredForAutoPass={ignoredForAutoPassIds?.has(contextMenu.permanent.id) || false}
         canActivate={canActivate}
         playerId={playerId}
       />

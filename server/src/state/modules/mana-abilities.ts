@@ -541,6 +541,53 @@ export function getManaAbilitiesForPermanent(
         // This case is handled by the fixed multi-mana pattern
       }
     }
+    
+    // ========================================================================
+    // Check for tri-lands and dual lands with "or" format (choice of colors)
+    // Pattern: "{T}: Add {X}, {Y}, or {Z}" - tri-lands like Jungle Shrine
+    // Pattern: "{T}: Add {X} or {Y}" - filter/pain lands
+    // These lands produce ONE color of your choice (not all at once)
+    // ========================================================================
+    
+    // Tri-land pattern: "{t}: add {X}, {Y}, or {Z}" (e.g., Jungle Shrine)
+    const triLandMatch = oracleText.match(/\{t\}:\s*add\s+\{([wubrgc])\},\s*\{([wubrgc])\},\s*or\s+\{([wubrgc])\}/i);
+    if (triLandMatch) {
+      const colors = [
+        triLandMatch[1].toUpperCase(),
+        triLandMatch[2].toUpperCase(),
+        triLandMatch[3].toUpperCase()
+      ];
+      // Tri-land - offers a choice of 3 colors
+      abilities.push({
+        id: 'native_choice_3',
+        cost: '{T}',
+        produces: colors,
+        producesAllAtOnce: false // Choice, not all at once
+      });
+    }
+    
+    // Dual land "or" pattern: "{t}: add {X} or {Y}" (filter/pain lands)
+    const dualOrMatch = oracleText.match(/\{t\}:\s*add\s+\{([wubrgc])\}\s+or\s+\{([wubrgc])\}/i);
+    if (dualOrMatch) {
+      const colors = [
+        dualOrMatch[1].toUpperCase(),
+        dualOrMatch[2].toUpperCase()
+      ];
+      // Only add if an ability with these exact colors and choice semantics doesn't already exist
+      const colorKey = colors.slice().sort().join(',');
+      const alreadyHasChoiceAbility = abilities.some(a => 
+        !a.producesAllAtOnce && 
+        a.produces.slice().sort().join(',') === colorKey
+      );
+      if (!alreadyHasChoiceAbility) {
+        abilities.push({
+          id: 'native_choice_2',
+          cost: '{T}',
+          produces: colors,
+          producesAllAtOnce: false // Choice, not all at once
+        });
+      }
+    }
   }
   
   // Check for creatures/artifacts with explicit tap-for-mana abilities in oracle text

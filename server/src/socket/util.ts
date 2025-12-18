@@ -25,6 +25,7 @@ import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
 import { calculateCostReduction, applyCostReduction } from "./game-actions.js";
 import { checkSpellTimingRestriction, hasValidTargetsForSpell } from "../../../rules-engine/src/castingRestrictions.js";
 import { applyStaticAbilitiesToBattlefield } from "../../../rules-engine/src/staticAbilities.js";
+import { calculateMaxLandsPerTurn } from "../state/modules/game-state-effects.js";
 
 // ============================================================================
 // Constants
@@ -230,6 +231,10 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
       return playableIds;
     }
     
+    // Create a minimal context object for functions that need GameContext
+    // This provides the required state property for calculating game effects
+    const ctx = { state } as { state: typeof state };
+    
     const pool = getManaPoolFromState(state, playerId);
     // Also calculate available mana (including potential from untapped sources)
     // This is used to highlight cards that COULD be cast if mana sources are tapped
@@ -348,8 +353,9 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
     // Check for playable lands in hand (during main phase with empty stack)
     if (isMainPhase && stackIsEmpty && isMyTurn) {
       const landsPlayedThisTurn = (state.landsPlayedThisTurn as any)?.[playerId] ?? 0;
-      // Check the actual max lands per turn from game state (accounts for Exploration, Azusa, etc.)
-      const maxLandsPerTurn = (state as any).maxLandsPerTurn?.[playerId] ?? 1;
+      // Calculate max lands per turn dynamically from battlefield effects
+      // This accounts for Exploration, Azusa, Rites of Flourishing, etc.
+      const maxLandsPerTurn = calculateMaxLandsPerTurn(ctx as any, playerId);
       
       console.log(`[getPlayableCardIds] Checking lands: landsPlayed=${landsPlayedThisTurn}, max=${maxLandsPerTurn}`);
       
@@ -559,7 +565,8 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           if (typeLine.includes("land")) {
             if (isMainPhase && stackIsEmpty) {
               const landsPlayedThisTurn = (state.landsPlayedThisTurn as any)?.[playerId] ?? 0;
-              if (landsPlayedThisTurn < 1) {
+              const maxLandsPerTurn = calculateMaxLandsPerTurn(ctx as any, playerId);
+              if (landsPlayedThisTurn < maxLandsPerTurn) {
                 // Highlight the library zone instead of the individual card
                 playableIds.push(`library-${playerId}`);
               }
