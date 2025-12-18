@@ -6,7 +6,7 @@
  */
 
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, getPlayerName, emitToPlayer } from "./util.js";
+import { ensureGame, broadcastGame, getPlayerName, emitToPlayer, getOrInitManaPool, calculateTotalAvailableMana, consumeManaFromPool } from "./util.js";
 import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 
@@ -758,17 +758,10 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
       const cardName = (permanent as any).card?.name || "Permanent";
 
       if (payMana) {
-        // Player chose to pay - verify they have {1} available
-        // Check mana pool and available mana from lands
-        const manaPool = (game.state as any).manaPool?.[playerId] || {};
-        const availableMana = (game.state as any).availableMana?.[playerId] || {};
-        
-        // Calculate total available mana (pool + untapped lands)
-        const totalMana = 
-          (manaPool.white || 0) + (manaPool.blue || 0) + (manaPool.black || 0) +
-          (manaPool.red || 0) + (manaPool.green || 0) + (manaPool.colorless || 0) +
-          (availableMana.white || 0) + (availableMana.blue || 0) + (availableMana.black || 0) +
-          (availableMana.red || 0) + (availableMana.green || 0) + (availableMana.colorless || 0);
+        // Player chose to pay {1} - use proper mana consumption
+        const manaPool = getOrInitManaPool(game.state, playerId);
+        const totalAvailableByColor = calculateTotalAvailableMana(manaPool, []);
+        const totalMana = Object.values(totalAvailableByColor).reduce((sum, val) => sum + val, 0);
         
         if (totalMana < 1) {
           socket.emit("error", {
@@ -778,49 +771,8 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
           return;
         }
         
-        // Deduct {1} from mana pool/available mana
-        // Try to use mana pool first, then available mana
-        let remaining = 1;
-        const poolColors = ['colorless', 'white', 'blue', 'black', 'red', 'green'] as const;
-        
-        // First try to pay from mana pool
-        for (const color of poolColors) {
-          if (remaining <= 0) break;
-          const available = manaPool[color] || 0;
-          if (available > 0) {
-            const used = Math.min(available, remaining);
-            manaPool[color] = available - used;
-            remaining -= used;
-          }
-        }
-        
-        // If still need to pay, deduct from available mana (will tap lands)
-        if (remaining > 0) {
-          for (const color of poolColors) {
-            if (remaining <= 0) break;
-            const available = availableMana[color] || 0;
-            if (available > 0) {
-              const used = Math.min(available, remaining);
-              availableMana[color] = available - used;
-              remaining -= used;
-              
-              // Tap a land that produces this mana
-              // Find and tap an untapped land
-              for (const perm of battlefield) {
-                if (remaining <= 0) break;
-                if (perm.controller === playerId && !perm.tapped) {
-                  const permCard = perm.card;
-                  const permOracle = (permCard?.oracle_text || '').toLowerCase();
-                  // Simple check: if land can produce this color
-                  if (permCard?.type_line?.toLowerCase().includes('land')) {
-                    perm.tapped = true;
-                    break;
-                  }
-                }
-              }
-            }
-          }
-        }
+        // Consume {1} generic mana from pool
+        consumeManaFromPool(manaPool, {}, 1, `[sacrificeUnlessPayChoice:${cardName}]`);
         
         // Permanent stays on battlefield
         io.to(gameId).emit("chat", {
