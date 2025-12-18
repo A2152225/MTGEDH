@@ -1895,6 +1895,67 @@ function executeTriggerEffect(
     return;
   }
   
+  // Pattern: "put a number of +1/+1 counters on ~ equal to your devotion to [color]" (Reverent Hunter)
+  // or "put X +1/+1 counters on ~ equal to [count]" (various scaling effects)
+  const devotionCounterMatch = desc.match(/put (?:a number of|x) \+1\/\+1 counters? on (?:~|it|this creature) equal to (?:your devotion to (\w+)|(?:the number of )?([^.]+))/i);
+  if (devotionCounterMatch) {
+    const sourceId = triggerItem.source || triggerItem.permanentId;
+    const devotionColor = devotionCounterMatch[1]?.toLowerCase();
+    const otherScaling = devotionCounterMatch[2]?.trim().toLowerCase();
+    
+    let counterCount = 0;
+    
+    if (devotionColor) {
+      // Calculate devotion to the specified color
+      const battlefield = state.battlefield || [];
+      const colorSymbol = devotionColor === 'white' ? 'W' :
+                          devotionColor === 'blue' ? 'U' :
+                          devotionColor === 'black' ? 'B' :
+                          devotionColor === 'red' ? 'R' :
+                          devotionColor === 'green' ? 'G' : '';
+      
+      for (const perm of battlefield) {
+        if (!perm || perm.controller !== controller) continue;
+        const manaCost = perm.card?.mana_cost || '';
+        // Count occurrences of the color symbol in mana cost
+        const matches = manaCost.match(new RegExp(`\\{${colorSymbol}\\}`, 'g'));
+        if (matches) {
+          counterCount += matches.length;
+        }
+      }
+      console.log(`[executeTriggerEffect] ${sourceName}: Devotion to ${devotionColor} = ${counterCount}`);
+    } else if (otherScaling) {
+      // Handle other scaling patterns (can be extended)
+      // Examples: "the number of artifacts you control", "the number of creatures you control"
+      const battlefield = state.battlefield || [];
+      
+      if (otherScaling.includes('artifact') && otherScaling.includes('you control')) {
+        counterCount = battlefield.filter((p: any) => 
+          p?.controller === controller && (p.card?.type_line || '').toLowerCase().includes('artifact')
+        ).length;
+      } else if (otherScaling.includes('creature') && otherScaling.includes('you control')) {
+        counterCount = battlefield.filter((p: any) => 
+          p?.controller === controller && (p.card?.type_line || '').toLowerCase().includes('creature')
+        ).length;
+      } else if (otherScaling.includes('land') && otherScaling.includes('you control')) {
+        counterCount = battlefield.filter((p: any) => 
+          p?.controller === controller && (p.card?.type_line || '').toLowerCase().includes('land')
+        ).length;
+      }
+      console.log(`[executeTriggerEffect] ${sourceName}: Scaling (${otherScaling}) = ${counterCount}`);
+    }
+    
+    if (sourceId && counterCount > 0) {
+      const perm = (state.battlefield || []).find((p: any) => p?.id === sourceId);
+      if (perm) {
+        perm.counters = perm.counters || {};
+        perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + counterCount;
+        console.log(`[executeTriggerEffect] Added ${counterCount} +1/+1 counter(s) to ${perm.card?.name || perm.id} (scaling effect)`);
+      }
+    }
+    return;
+  }
+  
   // Pattern: "put a +1/+1 counter on ~" or "put a +1/+1 counter on it"
   const putCounterOnSelfMatch = desc.match(/put (?:a|an|(\d+)) \+1\/\+1 counters? on (?:~|it|this creature)/i);
   if (putCounterOnSelfMatch) {

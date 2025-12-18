@@ -882,6 +882,14 @@ export function calculateVariablePT(
   
   // ===== SPECIFIC CARD HANDLERS =====
   
+  // Psychosis Crawler - P/T equal to number of cards in controller's hand
+  // Oracle text: "Psychosis Crawler's power and toughness are each equal to the number of cards in your hand."
+  if (name.includes('psychosis crawler')) {
+    const playerZones = zones[controllerId];
+    const handCount = playerZones?.handCount ?? (playerZones?.hand || []).length ?? 0;
+    return { power: handCount, toughness: handCount };
+  }
+  
   // Omnath, Locus of Mana - gets +1/+1 for each green mana in your mana pool
   if (name.includes('omnath, locus of mana') || name.includes('omnath locus of mana')) {
     const manaPool = gameState?.manaPool?.[controllerId] || {};

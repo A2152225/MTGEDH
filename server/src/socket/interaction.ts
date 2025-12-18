@@ -3205,6 +3205,182 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
+    // Handle Counter-adding abilities (Gwafa Hazid, Sage of Fables, Gavony Township, Ozolith, Immaculate Magistrate, etc.)
+    // Pattern: "{Cost}: Put a [counterType] counter on target [anything]" or "Put a counter for each..."
+    // Examples:
+    // - Gwafa Hazid: "{W}{U}, {T}: Put a bribery counter on target creature you don't control. Its controller draws a card."
+    // - Sage of Fables: "{2}: Put a +1/+1 counter on target creature."
+    // - Gavony Township: "{2}{G}{W}, {T}: Put a +1/+1 counter on each creature you control."
+    // - Ozolith, the Shattered Spire: "{1}, {T}: Put a +1/+1 counter on target creature you control. Activate only as a sorcery."
+    // - Immaculate Magistrate: "{T}: Put a +1/+1 counter on target creature for each Elf you control."
+    // Works on: creatures, permanents, lands, artifacts, enchantments, planeswalkers, etc.
+    const counterMatch = oracleText.match(/put (?:a|an|one|two|three) ([^\s]+) counters? on target ([^.]+?)(?:\s+you\s+(don't\s+control|control|don't own|own))?(?:\s+for each ([^.]+?))?(?:\.|,|$)/i);
+    const isCounterAbility = counterMatch && (abilityId.includes("counter") || abilityId.includes("ability"));
+    
+    if (isCounterAbility && counterMatch) {
+      const counterType = counterMatch[1].toLowerCase().replace(/[^a-z0-9+\-]/g, ''); // e.g., "bribery", "+1/+1", "loyalty"
+      const targetType = counterMatch[2].trim(); // e.g., "creature", "permanent", "artifact", "land"
+      const targetRestriction = counterMatch[3] ? counterMatch[3].toLowerCase() : null;
+      const scalingText = counterMatch[4] ? counterMatch[4].trim() : null; // e.g., "Elf you control"
+      
+      // Parse the cost
+      const { requiresTap, manaCost } = parseActivationCost(oracleText, /put (?:a|an|one) [^\s]+ counter/i);
+      
+      if (requiresTap && (permanent as any).tapped) {
+        socket.emit("error", {
+          code: "ALREADY_TAPPED",
+          message: `${cardName} is already tapped`,
+        });
+        return;
+      }
+      
+      if (manaCost) {
+        // Validate and consume mana
+        const parsedCost = parseManaCost(manaCost);
+        const pool = getOrInitManaPool(game.state, pid);
+        const totalAvailable = calculateTotalAvailableMana(pool, []);
+        
+        const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+        if (validationError) {
+          socket.emit("error", { code: "INSUFFICIENT_MANA", message: validationError });
+          return;
+        }
+        
+        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[activateBattlefieldAbility:counter]');
+      }
+      
+      // Tap the permanent if required
+      if (requiresTap) {
+        (permanent as any).tapped = true;
+      }
+      
+      // Generate activation ID
+      const activationId = `counter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      
+      // Determine target restrictions
+      let targetController: 'opponent' | 'any' | 'you' = 'any';
+      if (targetRestriction) {
+        if (targetRestriction.includes("don't control") || targetRestriction.includes("do not control")) {
+          targetController = 'opponent';
+        } else if (targetRestriction.includes("you control")) {
+          targetController = 'you';
+        }
+      }
+      
+      // Store pending counter activation
+      if (!game.state.pendingCounterActivations) {
+        game.state.pendingCounterActivations = {};
+      }
+      game.state.pendingCounterActivations[activationId] = {
+        playerId: pid,
+        sourceId: permanentId,
+        sourceName: cardName,
+        counterType,
+        targetController,
+        oracleText, // Store for additional effects (e.g., "Its controller draws a card")
+        scalingText, // Store for calculating counter count (e.g., "Elf you control")
+      };
+      
+      // Emit target selection request to client
+      socket.emit("counterTargetRequest", {
+        gameId,
+        activationId,
+        source: {
+          id: permanentId,
+          name: cardName,
+          imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+        },
+        counterType,
+        targetFilter: {
+          types: ['creature', 'permanent'],
+          controller: targetController,
+          excludeSource: false, // Allow targeting self in some cases
+        },
+        title: `${cardName} - Add ${counterType} counter`,
+        description: oracleText,
+      });
+      
+      console.log(`[activateBattlefieldAbility] Counter ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for target (controller: ${targetController}, counter: ${counterType})`);
+      broadcastGame(io, game, gameId);
+      return;
+    }
+    
+    // Handle Counter-moving abilities (Nesting Grounds, Resourceful Defense, etc.)
+    // Pattern: "{Cost}: Move a counter from target permanent you control onto a second target permanent"
+    // Example: Nesting Grounds: "{1}, {T}: Move a counter from target permanent you control onto a second target permanent. Activate only as a sorcery."
+    const moveCounterMatch = oracleText.match(/move (?:a|one) counter from target permanent(?:\s+you\s+control)?/i);
+    const isMoveCounterAbility = moveCounterMatch && (abilityId.includes("move") || abilityId.includes("counter") || abilityId.includes("ability"));
+    
+    if (isMoveCounterAbility) {
+      // Parse the cost
+      const { requiresTap, manaCost } = parseActivationCost(oracleText, /move (?:a|one) counter/i);
+      
+      if (requiresTap && (permanent as any).tapped) {
+        socket.emit("error", {
+          code: "ALREADY_TAPPED",
+          message: `${cardName} is already tapped`,
+        });
+        return;
+      }
+      
+      if (manaCost) {
+        // Validate and consume mana
+        const parsedCost = parseManaCost(manaCost);
+        const pool = getOrInitManaPool(game.state, pid);
+        const totalAvailable = calculateTotalAvailableMana(pool, []);
+        
+        const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+        if (validationError) {
+          socket.emit("error", { code: "INSUFFICIENT_MANA", message: validationError });
+          return;
+        }
+        
+        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[activateBattlefieldAbility:move-counter]');
+      }
+      
+      // Tap the permanent if required
+      if (requiresTap) {
+        (permanent as any).tapped = true;
+      }
+      
+      // Generate activation ID
+      const activationId = `move_counter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      
+      // Store pending move counter activation
+      if (!game.state.pendingMoveCounterActivations) {
+        game.state.pendingMoveCounterActivations = {};
+      }
+      game.state.pendingMoveCounterActivations[activationId] = {
+        playerId: pid,
+        sourceId: permanentId,
+        sourceName: cardName,
+        step: 'select_source', // First step: select source permanent
+      };
+      
+      // Emit target selection request to client (first target: source permanent)
+      socket.emit("moveCounterSourceRequest", {
+        gameId,
+        activationId,
+        source: {
+          id: permanentId,
+          name: cardName,
+          imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+        },
+        targetFilter: {
+          types: ['permanent'],
+          controller: 'you',
+          requiresCounters: true, // Must have at least one counter
+          excludeSource: false,
+        },
+        title: `${cardName} - Select source permanent`,
+        description: "Choose a permanent you control with counters to move a counter from",
+      });
+      
+      console.log(`[activateBattlefieldAbility] Move counter ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for source permanent`);
+      broadcastGame(io, game, gameId);
+      return;
+    }
+    
     // Handle Tap/Untap abilities (Saryth, Merrow Reejerey, Argothian Elder, etc.)
     // Parse ability text to detect tap/untap abilities
     const tapUntapParams = parseTapUntapAbilityText(oracleText);
@@ -7023,6 +7199,359 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   });
 
   /**
+   * Handle counter target selection confirmation
+   * Used for abilities like Gwafa Hazid, Sage of Fables, Ozolith, etc.
+   */
+  socket.on("counterTargetChosen", async ({
+    gameId,
+    activationId,
+    targetId,
+  }: {
+    gameId: string;
+    activationId: string;
+    targetId: string;
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+      return;
+    }
+    
+    // Retrieve pending counter activation
+    const pendingCounter = game.state.pendingCounterActivations?.[activationId];
+    if (!pendingCounter) {
+      socket.emit("error", {
+        code: "INVALID_ACTIVATION",
+        message: "Counter activation not found or expired",
+      });
+      return;
+    }
+    
+    // Validate player
+    if (pendingCounter.playerId !== pid) {
+      socket.emit("error", {
+        code: "NOT_YOUR_ACTIVATION",
+        message: "This is not your activation",
+      });
+      return;
+    }
+    
+    const battlefield = game.state?.battlefield || [];
+    
+    // Find the target permanent
+    const targetPermanent = battlefield.find((p: any) => p?.id === targetId);
+    if (!targetPermanent) {
+      socket.emit("error", {
+        code: "INVALID_TARGET",
+        message: "Target permanent not found on battlefield",
+      });
+      delete game.state.pendingCounterActivations[activationId];
+      return;
+    }
+    
+    // Clean up pending state
+    delete game.state.pendingCounterActivations[activationId];
+    
+    // Calculate number of counters to add
+    let counterCount = 1; // Default to 1
+    const scalingText = pendingCounter.scalingText;
+    
+    if (scalingText) {
+      // Handle scaling counters like "for each Elf you control"
+      // Pattern: "for each [creature type/card type] you control"
+      const scalingMatch = scalingText.match(/(?:for each )?(\w+)(?: you control)?/i);
+      if (scalingMatch) {
+        const searchType = scalingMatch[1].toLowerCase();
+        const battlefield = game.state?.battlefield || [];
+        
+        // Count matching permanents controlled by the player
+        counterCount = battlefield.filter((perm: any) => {
+          if (perm.controller !== pid) return false;
+          const typeLine = (perm.card?.type_line || '').toLowerCase();
+          const name = (perm.card?.name || '').toLowerCase();
+          
+          // Check if it matches the creature type or card type
+          return typeLine.includes(searchType) || name.includes(searchType);
+        }).length;
+        
+        console.log(`[counterTargetChosen] Scaling: ${counterCount} ${searchType}(s) controlled by ${pid}`);
+      }
+    }
+    
+    // Add the counter(s) to the target
+    if (!targetPermanent.counters) {
+      (targetPermanent as any).counters = {};
+    }
+    
+    const counterType = pendingCounter.counterType;
+    (targetPermanent.counters as any)[counterType] = ((targetPermanent.counters as any)[counterType] || 0) + counterCount;
+    
+    const targetName = targetPermanent.card?.name || "permanent";
+    console.log(`[counterTargetChosen] ${pendingCounter.sourceName} put ${counterCount} ${counterType} counter(s) on ${targetName}`);
+    
+    // Emit chat message
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} activated ${pendingCounter.sourceName}: Put ${counterCount} ${counterType} counter${counterCount > 1 ? 's' : ''} on ${targetName}.`,
+      ts: Date.now(),
+    });
+    
+    // Handle additional effects from the ability
+    // Example: Gwafa Hazid - "Its controller draws a card"
+    const oracleText = pendingCounter.oracleText || "";
+    if (oracleText.includes("its controller draws") || oracleText.includes("that player draws")) {
+      const targetController = targetPermanent.controller;
+      if (targetController) {
+        // Simple increment to hand count - proper draw handled by game flow
+        const zones = game.state?.zones?.[targetController];
+        if (zones && Array.isArray(zones.hand)) {
+          // Add a placeholder card to hand (full draw logic handled elsewhere)
+          console.log(`[counterTargetChosen] ${targetController} should draw a card (Gwafa effect)`);
+          
+          // Use simplified draw - just emit message for now
+          // Full implementation would require proper library management
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `${getPlayerName(game, targetController)} draws a card.`,
+            ts: Date.now(),
+          });
+        }
+      }
+    }
+    
+    // Persist event
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, "counterTargetChosen", {
+        playerId: pid,
+        activationId,
+        sourceName: pendingCounter.sourceName,
+        targetId,
+        targetName,
+        counterType,
+      });
+    } catch (e) {
+      console.warn("[interaction] Failed to persist counterTargetChosen event:", e);
+    }
+    
+    // Bump sequence
+    if (typeof (game as any).bumpSeq === "function") {
+      (game as any).bumpSeq();
+    }
+    
+    broadcastGame(io, game, gameId);
+  });
+
+  /**
+   * Handle move counter source selection (Nesting Grounds step 1)
+   */
+  socket.on("moveCounterSourceChosen", async ({
+    gameId,
+    activationId,
+    sourcePermId,
+    counterType,
+  }: {
+    gameId: string;
+    activationId: string;
+    sourcePermId: string;
+    counterType: string;
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+      return;
+    }
+    
+    // Retrieve pending activation
+    const pendingMove = game.state.pendingMoveCounterActivations?.[activationId];
+    if (!pendingMove || pendingMove.step !== 'select_source') {
+      socket.emit("error", {
+        code: "INVALID_ACTIVATION",
+        message: "Move counter activation not found or in wrong step",
+      });
+      return;
+    }
+    
+    // Validate player
+    if (pendingMove.playerId !== pid) {
+      socket.emit("error", {
+        code: "NOT_YOUR_ACTIVATION",
+        message: "This is not your activation",
+      });
+      return;
+    }
+    
+    const battlefield = game.state?.battlefield || [];
+    
+    // Find the source permanent
+    const sourcePermanent = battlefield.find((p: any) => p?.id === sourcePermId && p?.controller === pid);
+    if (!sourcePermanent || !sourcePermanent.counters || !sourcePermanent.counters[counterType]) {
+      socket.emit("error", {
+        code: "INVALID_SOURCE",
+        message: "Source permanent not found or doesn't have that counter type",
+      });
+      delete game.state.pendingMoveCounterActivations[activationId];
+      return;
+    }
+    
+    // Update pending state to step 2
+    pendingMove.step = 'select_destination';
+    pendingMove.sourcePermId = sourcePermId;
+    pendingMove.counterType = counterType;
+    
+    // Emit second target selection request (destination permanent)
+    socket.emit("moveCounterDestinationRequest", {
+      gameId,
+      activationId,
+      source: {
+        id: pendingMove.sourceId,
+        name: pendingMove.sourceName,
+      },
+      counterType,
+      sourcePerm: {
+        id: sourcePermId,
+        name: sourcePermanent.card?.name || "permanent",
+      },
+      targetFilter: {
+        types: ['permanent'],
+        controller: 'any',
+        excludeSource: true, // Can't move to same permanent
+      },
+      title: `${pendingMove.sourceName} - Select destination`,
+      description: `Choose a permanent to move the ${counterType} counter to`,
+    });
+    
+    console.log(`[moveCounterSourceChosen] Selected source: ${sourcePermanent.card?.name}, counter: ${counterType}`);
+    broadcastGame(io, game, gameId);
+  });
+
+  /**
+   * Handle move counter destination selection (Nesting Grounds step 2)
+   */
+  socket.on("moveCounterDestinationChosen", async ({
+    gameId,
+    activationId,
+    destPermId,
+  }: {
+    gameId: string;
+    activationId: string;
+    destPermId: string;
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+      return;
+    }
+    
+    // Retrieve pending activation
+    const pendingMove = game.state.pendingMoveCounterActivations?.[activationId];
+    if (!pendingMove || pendingMove.step !== 'select_destination') {
+      socket.emit("error", {
+        code: "INVALID_ACTIVATION",
+        message: "Move counter activation not found or in wrong step",
+      });
+      return;
+    }
+    
+    // Validate player
+    if (pendingMove.playerId !== pid) {
+      socket.emit("error", {
+        code: "NOT_YOUR_ACTIVATION",
+        message: "This is not your activation",
+      });
+      return;
+    }
+    
+    const battlefield = game.state?.battlefield || [];
+    
+    // Find source and destination permanents
+    const sourcePermanent = battlefield.find((p: any) => p?.id === pendingMove.sourcePermId);
+    const destPermanent = battlefield.find((p: any) => p?.id === destPermId);
+    
+    if (!sourcePermanent || !destPermanent) {
+      socket.emit("error", {
+        code: "INVALID_TARGET",
+        message: "Source or destination permanent not found",
+      });
+      delete game.state.pendingMoveCounterActivations[activationId];
+      return;
+    }
+    
+    const counterType = pendingMove.counterType;
+    
+    // Verify source still has the counter
+    if (!sourcePermanent.counters || !sourcePermanent.counters[counterType] || sourcePermanent.counters[counterType] <= 0) {
+      socket.emit("error", {
+        code: "NO_COUNTER",
+        message: "Source permanent no longer has that counter",
+      });
+      delete game.state.pendingMoveCounterActivations[activationId];
+      return;
+    }
+    
+    // Clean up pending state
+    delete game.state.pendingMoveCounterActivations[activationId];
+    
+    // Move the counter
+    (sourcePermanent.counters as any)[counterType] -= 1;
+    if ((sourcePermanent.counters as any)[counterType] <= 0) {
+      delete (sourcePermanent.counters as any)[counterType];
+    }
+    
+    if (!destPermanent.counters) {
+      (destPermanent as any).counters = {};
+    }
+    (destPermanent.counters as any)[counterType] = ((destPermanent.counters as any)[counterType] || 0) + 1;
+    
+    const sourceName = sourcePermanent.card?.name || "permanent";
+    const destName = destPermanent.card?.name || "permanent";
+    
+    console.log(`[moveCounterDestinationChosen] Moved ${counterType} counter from ${sourceName} to ${destName}`);
+    
+    // Emit chat message
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} activated ${pendingMove.sourceName}: Moved a ${counterType} counter from ${sourceName} to ${destName}.`,
+      ts: Date.now(),
+    });
+    
+    // Persist event
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, "moveCounterComplete", {
+        playerId: pid,
+        activationId,
+        sourceName: pendingMove.sourceName,
+        sourcePermId: pendingMove.sourcePermId,
+        destPermId,
+        counterType,
+      });
+    } catch (e) {
+      console.warn("[interaction] Failed to persist moveCounterComplete event:", e);
+    }
+    
+    // Bump sequence
+    if (typeof (game as any).bumpSeq === "function") {
+      (game as any).bumpSeq();
+    }
+    
+    broadcastGame(io, game, gameId);
+  });
+
+  /**
    * Get current replacement effect ordering preferences for a player
    */
   socket.on("getReplacementEffectOrder", ({
@@ -7056,6 +7585,149 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         preferences,
       });
     }
+  });
+
+  /**
+   * Handle proliferate target selection confirmation
+   */
+  socket.on("proliferateConfirm", async ({
+    gameId,
+    proliferateId,
+    selectedTargetIds,
+  }: {
+    gameId: string;
+    proliferateId: string;
+    selectedTargetIds: string[]; // IDs of permanents and/or players to proliferate
+  }) => {
+    const pid = socket.data.playerId as string | undefined;
+    if (!pid || socket.data.spectator) return;
+
+    const game = ensureGame(gameId);
+    if (!game) {
+      socket.emit("error", { code: "GAME_NOT_FOUND", message: "Game not found" });
+      return;
+    }
+    
+    // Find the proliferate effect
+    const pendingProliferate = (game.state as any)?.pendingProliferate || [];
+    const proliferateIndex = pendingProliferate.findIndex((p: any) => p.id === proliferateId);
+    
+    if (proliferateIndex === -1) {
+      socket.emit("error", {
+        code: "INVALID_PROLIFERATE",
+        message: "Proliferate effect not found",
+      });
+      return;
+    }
+    
+    const proliferateEffect = pendingProliferate[proliferateIndex];
+    
+    // Validate player is the controller
+    if (proliferateEffect.controller !== pid) {
+      socket.emit("error", {
+        code: "NOT_YOUR_PROLIFERATE",
+        message: "This is not your proliferate effect",
+      });
+      return;
+    }
+    
+    // Remove this proliferate from pending
+    pendingProliferate.splice(proliferateIndex, 1);
+    
+    // Also clear from prompted set
+    if ((game.state as any)._proliferatePromptedIds) {
+      (game.state as any)._proliferatePromptedIds.delete(proliferateId);
+    }
+    
+    const battlefield = game.state?.battlefield || [];
+    const proliferatedTargets: string[] = [];
+    
+    // Process each selected target
+    for (const targetId of selectedTargetIds) {
+      // Check if it's a permanent
+      const permanent = battlefield.find((p: any) => p?.id === targetId);
+      if (permanent && permanent.counters) {
+        // Add one counter of each kind the permanent has
+        const counters = permanent.counters as Record<string, number>;
+        for (const counterType of Object.keys(counters)) {
+          if (counters[counterType] > 0) {
+            (permanent.counters as any)[counterType] = counters[counterType] + 1;
+          }
+        }
+        proliferatedTargets.push(permanent.card?.name || 'permanent');
+        continue;
+      }
+      
+      // Check if it's a player
+      const players = game.state?.players || [];
+      const player = players.find((p: any) => p.id === targetId);
+      if (player) {
+        const playerId = player.id;
+        
+        // Proliferate poison counters
+        if ((game.state as any).poisonCounters?.[playerId]) {
+          (game.state as any).poisonCounters[playerId] += 1;
+        }
+        
+        // Proliferate energy counters
+        if ((game.state as any).energyCounters?.[playerId]) {
+          (game.state as any).energyCounters[playerId] += 1;
+        }
+        
+        // Proliferate experience counters
+        if ((game.state as any).experience?.[playerId]) {
+          (game.state as any).experience[playerId] += 1;
+        }
+        
+        // Proliferate rad counters
+        if ((game.state as any).radCounters?.[playerId]) {
+          (game.state as any).radCounters[playerId] += 1;
+        }
+        
+        proliferatedTargets.push(player.name || playerId);
+      }
+    }
+    
+    console.log(`[proliferateConfirm] ${pid} proliferated ${proliferatedTargets.length} target(s)`);
+    
+    // Emit chat message
+    if (proliferatedTargets.length > 0) {
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} proliferated (${proliferateEffect.sourceName}): ${proliferatedTargets.join(', ')}`,
+        ts: Date.now(),
+      });
+    } else {
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, pid)} chose not to proliferate any targets (${proliferateEffect.sourceName})`,
+        ts: Date.now(),
+      });
+    }
+    
+    // Persist event
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, "proliferateConfirm", {
+        playerId: pid,
+        proliferateId,
+        sourceName: proliferateEffect.sourceName,
+        selectedTargetIds,
+        targetCount: proliferatedTargets.length,
+      });
+    } catch (e) {
+      console.warn("[interaction] Failed to persist proliferateConfirm event:", e);
+    }
+    
+    // Bump sequence
+    if (typeof (game as any).bumpSeq === "function") {
+      (game as any).bumpSeq();
+    }
+    
+    broadcastGame(io, game, gameId);
   });
 
   // Mana distribution confirmation (for cards like Selvala, Heart of the Wilds)

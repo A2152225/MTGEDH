@@ -1279,6 +1279,9 @@ export function broadcastGame(
   // Check for pending Kynaios and Tiro style choices (play land or draw)
   checkAndEmitKynaiosChoicePrompts(io, game, gameId);
   
+  // Check for pending proliferate and emit prompts
+  checkAndEmitProliferatePrompts(io, game, gameId);
+  
   // Check for newly eliminated players (commander damage, life loss, etc.)
   checkAndEmitPlayerElimination(io, game, gameId);
 }
@@ -1403,6 +1406,17 @@ function checkAndEmitKynaiosChoicePrompts(io: Server, game: InMemoryGame, gameId
 function checkAndEmitTriggerOrderingPrompts(io: Server, game: InMemoryGame, gameId: string): void {
   try {
     const triggerQueue = (game.state as any)?.triggerQueue || [];
+    const pendingTriggerOrdering = (game.state as any)?.pendingTriggerOrdering || {};
+    
+    // CRITICAL FIX: If triggerQueue is empty but pendingTriggerOrdering still has entries,
+    // clear the stale pending state to prevent game from being stuck
+    if (triggerQueue.length === 0 && Object.keys(pendingTriggerOrdering).length > 0) {
+      console.log(`[util] Clearing stale pendingTriggerOrdering - no triggers in queue`);
+      delete (game.state as any).pendingTriggerOrdering;
+      delete (game.state as any)._triggerOrderingPromptedPlayers;
+      return;
+    }
+    
     if (triggerQueue.length === 0) return;
     
     // Track which players have already been prompted for the current trigger set
@@ -1419,6 +1433,15 @@ function checkAndEmitTriggerOrderingPrompts(io: Server, game: InMemoryGame, game
       const existing = triggersByController.get(controller) || [];
       existing.push(trigger);
       triggersByController.set(controller, existing);
+    }
+    
+    // Clean up pendingTriggerOrdering for players who no longer have triggers in the queue
+    for (const playerId of Object.keys(pendingTriggerOrdering)) {
+      const playerTriggersInQueue = triggersByController.get(playerId) || [];
+      if (playerTriggersInQueue.length === 0) {
+        console.log(`[util] Clearing pendingTriggerOrdering for ${playerId} - no triggers in queue`);
+        delete pendingTriggerOrdering[playerId];
+      }
     }
     
     // For each controller with 2+ triggers, emit a prompt to order them
@@ -1452,10 +1475,123 @@ function checkAndEmitTriggerOrderingPrompts(io: Server, game: InMemoryGame, game
             },
           });
         }
+      } else if (playerTriggers.length === 1) {
+        // Single trigger doesn't need ordering - clear any pending state
+        if (pendingTriggerOrdering[playerId]) {
+          console.log(`[util] Clearing pendingTriggerOrdering for ${playerId} - only 1 trigger (no ordering needed)`);
+          delete pendingTriggerOrdering[playerId];
+        }
       }
     }
   } catch (e) {
     console.warn('[util] checkAndEmitTriggerOrderingPrompts error:', e);
+  }
+}
+
+/**
+ * Check for pending proliferate and emit prompts
+ */
+function checkAndEmitProliferatePrompts(io: Server, game: InMemoryGame, gameId: string): void {
+  try {
+    const pendingProliferate = (game.state as any)?.pendingProliferate || [];
+    if (pendingProliferate.length === 0) return;
+    
+    // Track which proliferate prompts have been emitted to avoid duplicates
+    const promptedProliferates = (game.state as any)._proliferatePromptedIds || new Set<string>();
+    (game.state as any)._proliferatePromptedIds = promptedProliferates;
+    
+    // Process each pending proliferate
+    for (const proliferateEffect of pendingProliferate) {
+      if (!proliferateEffect || !proliferateEffect.id) continue;
+      
+      // Skip if already prompted
+      if (promptedProliferates.has(proliferateEffect.id)) {
+        console.log(`[util] Skipping proliferate prompt ${proliferateEffect.id} - already prompted`);
+        continue;
+      }
+      
+      const controller = proliferateEffect.controller;
+      const battlefield = game.state?.battlefield || [];
+      const players = game.state?.players || [];
+      
+      // Collect all targets with counters (permanents and players)
+      const validTargets: Array<{
+        type: 'permanent' | 'player';
+        id: string;
+        name: string;
+        counters: Record<string, number>;
+        imageUrl?: string;
+      }> = [];
+      
+      // Add permanents with counters
+      for (const perm of battlefield) {
+        if (!perm || !perm.counters) continue;
+        const counters = perm.counters as Record<string, number>;
+        const counterTypes = Object.keys(counters).filter(k => counters[k] > 0);
+        if (counterTypes.length > 0) {
+          validTargets.push({
+            type: 'permanent',
+            id: perm.id,
+            name: perm.card?.name || 'Permanent',
+            counters: { ...counters },
+            imageUrl: perm.card?.image_uris?.small || perm.card?.image_uris?.normal,
+          });
+        }
+      }
+      
+      // Add players with counters (poison, energy, experience, rad)
+      for (const player of players) {
+        const playerId = player.id;
+        const playerCounters: Record<string, number> = {};
+        
+        // Check poison counters
+        const poison = (game.state as any).poisonCounters?.[playerId] || 0;
+        if (poison > 0) {
+          playerCounters['poison'] = poison;
+        }
+        
+        // Check energy counters
+        const energy = (game.state as any).energyCounters?.[playerId] || 0;
+        if (energy > 0) {
+          playerCounters['energy'] = energy;
+        }
+        
+        // Check experience counters
+        const experience = (game.state as any).experience?.[playerId] || 0;
+        if (experience > 0) {
+          playerCounters['experience'] = experience;
+        }
+        
+        // Check rad counters
+        const rad = (game.state as any).radCounters?.[playerId] || 0;
+        if (rad > 0) {
+          playerCounters['rad'] = rad;
+        }
+        
+        if (Object.keys(playerCounters).length > 0) {
+          validTargets.push({
+            type: 'player',
+            id: playerId,
+            name: player.name || playerId,
+            counters: playerCounters,
+          });
+        }
+      }
+      
+      console.log(`[util] Emitting proliferate prompt to ${controller} with ${validTargets.length} valid targets`);
+      promptedProliferates.add(proliferateEffect.id);
+      
+      // Emit proliferate prompt to the controller
+      emitToPlayer(io, controller, "proliferatePrompt", {
+        gameId,
+        proliferateId: proliferateEffect.id,
+        sourceName: proliferateEffect.sourceName,
+        imageUrl: proliferateEffect.imageUrl,
+        validTargets,
+      });
+    }
+  } catch (e) {
+    console.warn('[util] checkAndEmitProliferatePrompts error:', e);
   }
 }
 

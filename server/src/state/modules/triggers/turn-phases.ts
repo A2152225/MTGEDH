@@ -78,6 +78,7 @@ export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger
   const controllerId = permanent?.controller || "";
   
   // Check known cards first
+  let foundInKnownCards = false;
   for (const [knownName, info] of Object.entries(KNOWN_END_STEP_TRIGGERS)) {
     if (lowerName.includes(knownName)) {
       triggers.push({
@@ -91,21 +92,26 @@ export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger
         requiresChoice: info.requiresChoice,
         affectsAllPlayers: info.affectsAllPlayers,
       });
+      foundInKnownCards = true;
+      break; // Only match once in known cards
     }
   }
   
   // Generic detection: "At the beginning of each end step" or "At the beginning of your end step"
-  const endStepMatch = oracleText.match(/at the beginning of (?:each|your) end step,?\s*([^.]+)/i);
-  if (endStepMatch && !triggers.some(t => t.description === endStepMatch[1].trim())) {
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      triggerType: 'end_step_effect',
-      description: endStepMatch[1].trim(),
-      effect: endStepMatch[1].trim(),
-      mandatory: true,
-    });
+  // Skip generic detection if we already found this card in known cards to prevent duplicates
+  if (!foundInKnownCards) {
+    const endStepMatch = oracleText.match(/at the beginning of (?:each|your) end step,?\s*([^.]+)/i);
+    if (endStepMatch) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'end_step_effect',
+        description: endStepMatch[1].trim(),
+        effect: endStepMatch[1].trim(),
+        mandatory: true,
+      });
+    }
   }
   
   return triggers;

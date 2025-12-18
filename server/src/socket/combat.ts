@@ -450,6 +450,66 @@ function hasEffectiveAbility(
 }
 
 /**
+ * Check if a permanent has counters that prevent it from attacking/blocking
+ * Uses scalable pattern matching: "creatures with [X] counters on them can't attack/block"
+ * 
+ * @param permanent - The permanent to check
+ * @param battlefield - All permanents on the battlefield
+ * @param action - The action to check: 'attack' or 'block'
+ * @returns Object with isPrevented flag, counterType, and source card name
+ */
+function hasCounterPreventingAction(
+  permanent: any,
+  battlefield: any[],
+  action: 'attack' | 'block'
+): { isPrevented: boolean; counterType?: string; sourceName?: string } {
+  if (!permanent?.counters) {
+    return { isPrevented: false };
+  }
+  
+  // Get all counter types on this permanent
+  const counterTypes = Object.keys(permanent.counters).filter(
+    key => typeof permanent.counters[key] === 'number' && permanent.counters[key] > 0
+  );
+  
+  if (counterTypes.length === 0) {
+    return { isPrevented: false };
+  }
+  
+  // Check battlefield for effects that prevent creatures with specific counters from attacking/blocking
+  // Pattern: "Creatures with [X] counters on them can't [attack/block]"
+  for (const perm of battlefield) {
+    if (!perm?.card?.oracle_text) continue;
+    
+    const oracle = perm.card.oracle_text.toLowerCase();
+    const cardName = perm.card.name || 'Unknown';
+    
+    // Check if this permanent has an effect preventing the action
+    const preventsAction = action === 'attack'
+      ? (oracle.includes("can't attack") || oracle.includes("cannot attack"))
+      : (oracle.includes("can't") || oracle.includes("cannot")) && oracle.includes("block");
+    
+    if (!preventsAction) continue;
+    
+    // Check each counter type this creature has
+    for (const counterType of counterTypes) {
+      // Pattern matching: "creatures with [counterType] counters"
+      // Examples: "bribery counters", "stun counters", "shield counters", etc.
+      const counterPattern = new RegExp(`creatures? with ${counterType} counters? on them`, 'i');
+      if (counterPattern.test(oracle)) {
+        return { 
+          isPrevented: true, 
+          counterType, 
+          sourceName: cardName 
+        };
+      }
+    }
+  }
+  
+  return { isPrevented: false };
+}
+
+/**
  * Check if a permanent can attack (checking for defender and "as though it didn't have defender" effects)
  * 
  * @param permanent - The permanent to check
@@ -462,6 +522,16 @@ function canPermanentAttack(
   battlefield: any[] = [],
   controllerId?: string
 ): { canAttack: boolean; reason?: string } {
+  // Check for counters that prevent attacking (e.g., bribery counters with Gwafa Hazid)
+  // Uses scalable pattern matching instead of hardcoded card checks
+  const counterCheck = hasCounterPreventingAction(permanent, battlefield, 'attack');
+  if (counterCheck.isPrevented) {
+    return { 
+      canAttack: false, 
+      reason: `Has ${counterCheck.counterType} counter (${counterCheck.sourceName} effect)` 
+    };
+  }
+  
   // Check for defender
   const defenderCheck = hasEffectiveAbility(permanent, 'defender', battlefield, controllerId);
   
@@ -515,6 +585,16 @@ function canBlockAttacker(
   battlefield: any[] = [],
   blockerControllerId?: string
 ): { canBlock: boolean; reason?: string } {
+  // Check for counters that prevent blocking (e.g., bribery counters with Gwafa Hazid)
+  // Uses scalable pattern matching instead of hardcoded card checks
+  const counterCheck = hasCounterPreventingAction(blocker, battlefield, 'block');
+  if (counterCheck.isPrevented) {
+    return { 
+      canBlock: false, 
+      reason: `Has ${counterCheck.counterType} counter (${counterCheck.sourceName} effect)` 
+    };
+  }
+  
   // Check flying - can only be blocked by flying or reach
   const attackerFlying = hasEffectiveAbility(attacker, 'flying', battlefield, attacker.controller);
   if (attackerFlying.hasAbility) {
