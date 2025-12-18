@@ -41,17 +41,17 @@ export default defineConfig({
           
           // Split modal components into their own chunk
           // These are conditionally rendered based on game state
-          if (id.includes('/components/') && id.includes('Modal')) {
+          if (id.includes('/components/') && (id.endsWith('Modal.tsx') || id.includes('Modal.'))) {
             return 'modals';
           }
           
           // Split utility modules into their own chunk
-          if (id.includes('/utils/')) {
+          if (id.includes('/src/utils/') || id.match(/\/utils\/[^/]+\.(ts|tsx|js)$/)) {
             return 'utils';
           }
           
           // Split shared workspace code
-          if (id.includes('/shared/')) {
+          if (id.includes('/shared/src/') || id.match(/\/shared\/[^/]+\.(ts|tsx|js)$/)) {
             return 'shared';
           }
         },
