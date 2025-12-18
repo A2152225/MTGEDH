@@ -450,6 +450,66 @@ function hasEffectiveAbility(
 }
 
 /**
+ * Check if a permanent has counters that prevent it from attacking/blocking
+ * Uses scalable pattern matching: "creatures with [X] counters on them can't attack/block"
+ * 
+ * @param permanent - The permanent to check
+ * @param battlefield - All permanents on the battlefield
+ * @param action - The action to check: 'attack' or 'block'
+ * @returns Object with isPrevented flag, counterType, and source card name
+ */
+function hasCounterPreventingAction(
+  permanent: any,
+  battlefield: any[],
+  action: 'attack' | 'block'
+): { isPrevented: boolean; counterType?: string; sourceName?: string } {
+  if (!permanent?.counters) {
+    return { isPrevented: false };
+  }
+  
+  // Get all counter types on this permanent
+  const counterTypes = Object.keys(permanent.counters).filter(
+    key => typeof permanent.counters[key] === 'number' && permanent.counters[key] > 0
+  );
+  
+  if (counterTypes.length === 0) {
+    return { isPrevented: false };
+  }
+  
+  // Check battlefield for effects that prevent creatures with specific counters from attacking/blocking
+  // Pattern: "Creatures with [X] counters on them can't [attack/block]"
+  for (const perm of battlefield) {
+    if (!perm?.card?.oracle_text) continue;
+    
+    const oracle = perm.card.oracle_text.toLowerCase();
+    const cardName = perm.card.name || 'Unknown';
+    
+    // Check if this permanent has an effect preventing the action
+    const preventsAction = action === 'attack'
+      ? (oracle.includes("can't attack") || oracle.includes("cannot attack"))
+      : (oracle.includes("can't") || oracle.includes("cannot")) && oracle.includes("block");
+    
+    if (!preventsAction) continue;
+    
+    // Check each counter type this creature has
+    for (const counterType of counterTypes) {
+      // Pattern matching: "creatures with [counterType] counters"
+      // Examples: "bribery counters", "stun counters", "shield counters", etc.
+      const counterPattern = new RegExp(`creatures? with ${counterType} counters? on them`, 'i');
+      if (counterPattern.test(oracle)) {
+        return { 
+          isPrevented: true, 
+          counterType, 
+          sourceName: cardName 
+        };
+      }
+    }
+  }
+  
+  return { isPrevented: false };
+}
+
+/**
  * Check if a permanent can attack (checking for defender and "as though it didn't have defender" effects)
  * 
  * @param permanent - The permanent to check
@@ -462,23 +522,14 @@ function canPermanentAttack(
   battlefield: any[] = [],
   controllerId?: string
 ): { canAttack: boolean; reason?: string } {
-  // Check for bribery counters - only prevent attack if Gwafa Hazid is on battlefield
-  // Oracle text: "Creatures with bribery counters on them can't attack or block."
-  const briberyCounters = permanent?.counters?.bribery || 0;
-  if (briberyCounters > 0) {
-    // Check if Gwafa Hazid (or similar effect) is on the battlefield
-    // Gwafa Hazid: "Creatures with bribery counters on them can't attack or block."
-    const hasGwafaEffect = battlefield.some((perm: any) => {
-      if (!perm?.card?.oracle_text) return false;
-      const oracle = perm.card.oracle_text.toLowerCase();
-      // Check for the specific effect that makes bribery counters prevent attacking
-      return oracle.includes('bribery counter') && 
-             (oracle.includes("can't attack") || oracle.includes("cannot attack"));
-    });
-    
-    if (hasGwafaEffect) {
-      return { canAttack: false, reason: 'Has bribery counter (Gwafa Hazid effect)' };
-    }
+  // Check for counters that prevent attacking (e.g., bribery counters with Gwafa Hazid)
+  // Uses scalable pattern matching instead of hardcoded card checks
+  const counterCheck = hasCounterPreventingAction(permanent, battlefield, 'attack');
+  if (counterCheck.isPrevented) {
+    return { 
+      canAttack: false, 
+      reason: `Has ${counterCheck.counterType} counter (${counterCheck.sourceName} effect)` 
+    };
   }
   
   // Check for defender
@@ -534,22 +585,14 @@ function canBlockAttacker(
   battlefield: any[] = [],
   blockerControllerId?: string
 ): { canBlock: boolean; reason?: string } {
-  // Check for bribery counters - only prevent block if Gwafa Hazid is on battlefield
-  const briberyCounters = blocker?.counters?.bribery || 0;
-  if (briberyCounters > 0) {
-    // Check if Gwafa Hazid (or similar effect) is on the battlefield
-    const hasGwafaEffect = battlefield.some((perm: any) => {
-      if (!perm?.card?.oracle_text) return false;
-      const oracle = perm.card.oracle_text.toLowerCase();
-      // Check for the specific effect that makes bribery counters prevent blocking
-      return oracle.includes('bribery counter') && 
-             (oracle.includes("can't") || oracle.includes("cannot")) &&
-             oracle.includes("block");
-    });
-    
-    if (hasGwafaEffect) {
-      return { canBlock: false, reason: 'Has bribery counter (Gwafa Hazid effect)' };
-    }
+  // Check for counters that prevent blocking (e.g., bribery counters with Gwafa Hazid)
+  // Uses scalable pattern matching instead of hardcoded card checks
+  const counterCheck = hasCounterPreventingAction(blocker, battlefield, 'block');
+  if (counterCheck.isPrevented) {
+    return { 
+      canBlock: false, 
+      reason: `Has ${counterCheck.counterType} counter (${counterCheck.sourceName} effect)` 
+    };
   }
   
   // Check flying - can only be blocked by flying or reach
