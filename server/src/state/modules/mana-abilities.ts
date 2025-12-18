@@ -1207,12 +1207,31 @@ export function getCreatureCountManaAmount(
     }
     // "creatures you control of the chosen type" (Three Tree City)
     else if (condition.includes('of the chosen type') || condition.includes('chosen type')) {
-      // This needs to track the chosen type - for now estimate
-      amount = battlefield.filter((p: any) => {
-        if (!p || p.controller !== playerId) return false;
-        const typeLine = (p.card?.type_line || "").toLowerCase();
-        return typeLine.includes("creature");
-      }).length;
+      // Get the chosen creature type from the permanent (e.g., "Merfolk")
+      const chosenType = permanent?.chosenCreatureType;
+      
+      if (chosenType) {
+        // Count creatures you control that match the chosen type
+        const chosenTypeLower = chosenType.toLowerCase();
+        amount = battlefield.filter((p: any) => {
+          if (!p || p.controller !== playerId) return false;
+          const typeLine = (p.card?.type_line || "").toLowerCase();
+          if (!typeLine.includes("creature")) return false;
+          
+          // Check if creature has the chosen type
+          // Type line format: "Creature — Merfolk Wizard" or "Legendary Creature — Human"
+          // Split on em dash (—), en dash (–), or hyphen (-) surrounded by spaces
+          const subTypes = (typeLine.split(/\s*[—–-]\s*/)[1] || "").toLowerCase();
+          return subTypes.includes(chosenTypeLower);
+        }).length;
+      } else {
+        // Fallback: if no type chosen yet, estimate by counting all creatures
+        amount = battlefield.filter((p: any) => {
+          if (!p || p.controller !== playerId) return false;
+          const typeLine = (p.card?.type_line || "").toLowerCase();
+          return typeLine.includes("creature");
+        }).length;
+      }
     }
     
     // ========== COUNT-BASED (PERMANENTS) ==========
