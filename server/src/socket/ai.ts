@@ -5537,7 +5537,7 @@ async function handlePendingLibrarySearchAfterResolution(
           moveTo: info.destination || 'hand',
           shuffleAfter: info.shuffleAfter ?? true,
           optional: info.optional || false,
-          tapped: info.tapped || false,
+          entersTapped: info.entersTapped || false,
         };
         
         if (socket) {

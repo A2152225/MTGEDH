@@ -2626,10 +2626,10 @@ export function resolveTopOfStack(ctx: GameContext) {
         type: 'fetch-land',
         searchFor: searchParams.searchDescription || 'a land card',
         destination: 'battlefield',
+        // Use entersTapped from searchParams if available
         // Standard fetch lands (Polluted Delta, Flooded Strand, etc.) put lands onto battlefield untapped.
-        // Only lands like Terramorphic Expanse or Evolving Wilds specify "enters the battlefield tapped".
-        // The search prompt handler can override this based on the specific card's oracle text.
-        tapped: false,
+        // Lands like Terramorphic Expanse or Evolving Wilds specify "enters the battlefield tapped".
+        entersTapped: searchParams.entersTapped || false,
         optional: false,
         source: sourceName,
         shuffleAfter: true,
@@ -2638,7 +2638,12 @@ export function resolveTopOfStack(ctx: GameContext) {
         cardImageUrl: searchParams.cardImageUrl,
       };
       
-      console.log(`[resolveTopOfStack] Fetch land ${sourceName}: ${controller} may search for ${searchParams.searchDescription || 'a land card'}${searchParams.maxSelections > 1 ? ` (up to ${searchParams.maxSelections})` : ''}`);
+      const searchDesc = searchParams.searchDescription || 'a land card';
+      const maxSel = searchParams.maxSelections || 1;
+      const tappedStatus = searchParams.entersTapped ? ' (enters tapped)' : '';
+      const selectionText = maxSel > 1 ? ` (up to ${maxSel})` : '';
+      
+      console.log(`[resolveTopOfStack] Fetch land ${sourceName}: ${controller} may search for ${searchDesc}${selectionText}${tappedStatus}`);
       bumpSeq();
       return;
     }

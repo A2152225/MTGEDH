@@ -2705,6 +2705,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         }
       }
       
+      // Detect if fetched lands enter tapped (Evolving Wilds, Terramorphic Expanse, etc.)
+      // Look for patterns like:
+      // - "put it onto the battlefield tapped"
+      // - "put them onto the battlefield tapped"
+      // - "enters the battlefield tapped"
+      const entersTapped = /(?:put (?:it|them) onto|enters) the battlefield tapped/i.test(oracleText);
+      
       // Build description for the ability
       let searchDescription = "Search your library for a land card";
       if (maxSelections > 1) {
@@ -2731,7 +2738,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         controller: pid,
         source: permanentId,
         sourceName: cardName,
-        description: `${searchDescription}, put ${maxSelections > 1 ? 'them' : 'it'} onto the battlefield, then shuffle`,
+        description: `${searchDescription}, put ${maxSelections > 1 ? 'them' : 'it'} onto the battlefield${entersTapped ? ' tapped' : ''}, then shuffle`,
         abilityType: 'fetch-land',
         // Store search parameters for when the ability resolves
         searchParams: {
@@ -2739,6 +2746,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           searchDescription,
           isTrueFetch,
           maxSelections,
+          entersTapped,
           cardImageUrl: card?.image_uris?.small || card?.image_uris?.normal,
         },
       } as any);
