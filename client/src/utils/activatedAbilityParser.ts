@@ -797,7 +797,8 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
   }
   
   // ======== STATION ABILITIES (Spacecraft) ========
-  // Station N: Put N charge counters on this, becomes creature when threshold met
+  // Station N (Rule 702.184a): Tap another untapped creature you control: Put charge counters
+  // equal to that creature's power on this permanent
   if (typeLine.includes('spacecraft') || lowerOracle.includes('station')) {
     const stationMatch = oracleText.match(/station\s*(\d+)/i);
     if (stationMatch) {
@@ -805,9 +806,9 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
       abilities.push({
         id: `${card.id}-station-${abilityIndex++}`,
         label: `Station ${stationThreshold}`,
-        description: `Add charge counters. Becomes creature at ${stationThreshold} counters`,
-        cost: '',
-        effect: `Put a charge counter on this. When it has ${stationThreshold}+ counters, it becomes a creature`,
+        description: `Tap a creature to add counters equal to its power. Creature at ${stationThreshold}+ counters.`,
+        cost: 'Tap another creature',
+        effect: `Tap another untapped creature: Put charge counters on this equal to that creature's power. Becomes a creature at ${stationThreshold}+ counters.`,
         requiresTap: false,
         requiresUntap: false,
         requiresSacrifice: false,
@@ -816,9 +817,31 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
         isFetchAbility: false,
         isStationAbility: true,
         stationThreshold,
-        timingRestriction: undefined, // Can use station at instant speed
+        timingRestriction: 'sorcery', // Station is sorcery speed (Rule 702.184a)
       });
     }
+  }
+  
+  // ======== LEVEL UP ABILITIES (Rule 702.87) ========
+  // "Level up [cost]" means "[Cost]: Put a level counter on this permanent. Activate only as a sorcery."
+  const levelUpMatch = oracleText.match(/level\s+up\s+(\{[^}]+\}(?:\{[^}]+\})*)/i);
+  if (levelUpMatch) {
+    const levelUpCost = levelUpMatch[1];
+    abilities.push({
+      id: `${card.id}-level-up-${abilityIndex++}`,
+      label: `Level Up ${levelUpCost}`,
+      description: 'Put a level counter on this permanent (sorcery speed)',
+      cost: levelUpCost,
+      effect: 'Put a level counter on this permanent',
+      requiresTap: false,
+      requiresUntap: false,
+      requiresSacrifice: false,
+      manaCost: levelUpCost,
+      isManaAbility: false,
+      isLoyaltyAbility: false,
+      isFetchAbility: false,
+      timingRestriction: 'sorcery', // Level up is sorcery speed only
+    });
   }
   
   // ======== CYCLING ABILITIES ========

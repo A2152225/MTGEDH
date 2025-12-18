@@ -54,6 +54,7 @@ import { CommanderZoneChoiceModal } from "./components/CommanderZoneChoiceModal"
 import { TapUntapTargetModal } from "./components/TapUntapTargetModal";
 import { CounterMovementModal } from "./components/CounterMovementModal";
 import { MultiModeActivationModal, type AbilityMode } from "./components/MultiModeActivationModal";
+import { StationCreatureSelectionModal, type StationCreature, type StationInfo } from "./components/StationCreatureSelectionModal";
 import { PlayerTargetSelectionModal, type PlayerTarget } from "./components/PlayerTargetSelectionModal";
 import { PonderModal, type PeekCard, type PonderVariant } from "./components/PonderModal";
 import { ExploreModal, type ExploreCard } from "./components/ExploreModal";
@@ -627,6 +628,16 @@ export function App() {
     permanentName: string;
     permanentImageUrl?: string;
     modes: AbilityMode[];
+  } | null>(null);
+  
+  // Station Creature Selection Modal state (Rule 702.184a)
+  const [stationCreatureSelectionOpen, setStationCreatureSelectionOpen] = useState(false);
+  const [stationCreatureSelectionData, setStationCreatureSelectionData] = useState<{
+    activationId: string;
+    station: StationInfo;
+    creatures: StationCreature[];
+    title: string;
+    description: string;
   } | null>(null);
   
   // Control Change Opponent Selection Modal state - for Humble Defector, Xantcha, Vislor Turlough, etc.
@@ -2751,12 +2762,34 @@ export function App() {
     };
     socket.on("multiModeActivationRequest", handleMultiModeActivationRequest);
     
+    // Station Creature Selection handler (Rule 702.184a)
+    const handleStationCreatureSelection = (data: {
+      gameId: string;
+      activationId: string;
+      station: StationInfo;
+      creatures: StationCreature[];
+      title: string;
+      description: string;
+    }) => {
+      if (!safeView || data.gameId !== safeView.id) return;
+      setStationCreatureSelectionData({
+        activationId: data.activationId,
+        station: data.station,
+        creatures: data.creatures,
+        title: data.title,
+        description: data.description,
+      });
+      setStationCreatureSelectionOpen(true);
+    };
+    socket.on("stationCreatureSelection", handleStationCreatureSelection);
+    
     return () => {
       socket.off("opponentMayPayPrompt", handleOpponentMayPayPrompt);
       socket.off("tapUntapTargetRequest", handleTapUntapTargetRequest);
       socket.off("fightTargetRequest", handleFightTargetRequest);
       socket.off("counterMovementRequest", handleCounterMovementRequest);
       socket.off("multiModeActivationRequest", handleMultiModeActivationRequest);
+      socket.off("stationCreatureSelection", handleStationCreatureSelection);
     };
   }, [safeView?.id, you]);
 
@@ -5120,6 +5153,32 @@ export function App() {
         onCancel={() => {
           setMultiModeActivationModalOpen(false);
           setMultiModeActivationModalData(null);
+        }}
+      />
+
+      {/* Station Creature Selection Modal (Rule 702.184a) */}
+      <StationCreatureSelectionModal
+        open={stationCreatureSelectionOpen}
+        gameId={safeView?.id || ""}
+        activationId={stationCreatureSelectionData?.activationId || ""}
+        station={stationCreatureSelectionData?.station || { id: "", name: "", threshold: 0, currentCounters: 0 }}
+        creatures={stationCreatureSelectionData?.creatures || []}
+        title={stationCreatureSelectionData?.title || "Station"}
+        description={stationCreatureSelectionData?.description || ""}
+        onConfirm={(creatureId) => {
+          if (stationCreatureSelectionData && safeView) {
+            socket.emit("confirmStationCreatureSelection", {
+              gameId: safeView.id,
+              activationId: stationCreatureSelectionData.activationId,
+              creatureId,
+            });
+            setStationCreatureSelectionOpen(false);
+            setStationCreatureSelectionData(null);
+          }
+        }}
+        onCancel={() => {
+          setStationCreatureSelectionOpen(false);
+          setStationCreatureSelectionData(null);
         }}
       />
 

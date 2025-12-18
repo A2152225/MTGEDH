@@ -3456,7 +3456,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
     
     // Handle Station abilities (Spacecraft cards)
-    // Station N: Add charge counters, becomes creature when threshold is met
+    // Station N (Rule 702.184a): "Tap another untapped creature you control: Put a number of 
+    // charge counters on this permanent equal to the tapped creature's power."
     const isSpacecraft = typeLine.includes("spacecraft");
     const isStationAbility = abilityId.includes("station") || (isSpacecraft && oracleText.includes("station"));
     if (isStationAbility) {
@@ -3464,42 +3465,187 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const stationMatch = oracleText.match(/station\s*(\d+)/i);
       const stationThreshold = stationMatch ? parseInt(stationMatch[1], 10) : 0;
       
-      // Add a charge counter
-      (permanent as any).counters = (permanent as any).counters || {};
-      const currentCounters = (permanent as any).counters.charge || 0;
-      (permanent as any).counters.charge = currentCounters + 1;
+      // Per Rule 702.184a, station is activated at sorcery speed
+      // Check if it's the player's turn and main phase
+      const phase = (game.state as any).phase || '';
+      const isMainPhase = phase.toLowerCase().includes('main');
+      const stack = game.state?.stack || [];
+      const activePlayer = (game.state as any).turnPlayer || (game.state as any).activePlayer;
       
-      const newCounterCount = (permanent as any).counters.charge;
-      
-      // Check if threshold is met
-      if (stationThreshold > 0 && newCounterCount >= stationThreshold) {
-        // Mark as stationed (becomes a creature)
-        (permanent as any).stationed = true;
-        (permanent as any).grantedTypes = (permanent as any).grantedTypes || [];
-        if (!(permanent as any).grantedTypes.includes('Creature')) {
-          (permanent as any).grantedTypes.push('Creature');
-        }
-        
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `🚀 ${cardName} is now stationed! (${newCounterCount}/${stationThreshold} charge counters) It becomes an artifact creature.`,
-          ts: Date.now(),
+      if (activePlayer !== pid) {
+        socket.emit("error", {
+          code: "NOT_YOUR_TURN",
+          message: "Station can only be activated on your turn (sorcery speed)",
         });
-      } else {
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `⚡ ${getPlayerName(game, pid)} added a charge counter to ${cardName}. (${newCounterCount}/${stationThreshold})`,
-          ts: Date.now(),
-        });
+        return;
       }
+      
+      if (!isMainPhase || stack.length > 0) {
+        socket.emit("error", {
+          code: "SORCERY_SPEED_ONLY",
+          message: "Station can only be activated at sorcery speed (main phase, empty stack)",
+        });
+        return;
+      }
+      
+      // Find untapped creatures the player controls (excluding the station itself)
+      const untappedCreatures = battlefield.filter((p: any) => {
+        if (!p || p.controller !== pid) return false;
+        if (p.id === permanentId) return false; // Can't tap itself
+        if (p.tapped) return false;
+        const pTypeLine = (p.card?.type_line || '').toLowerCase();
+        return pTypeLine.includes('creature');
+      });
+      
+      if (untappedCreatures.length === 0) {
+        socket.emit("error", {
+          code: "NO_VALID_TARGETS",
+          message: "No untapped creatures to tap for station ability",
+        });
+        return;
+      }
+      
+      // Generate activation ID
+      const activationId = `station_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      
+      // Store pending activation
+      if (!(game.state as any).pendingStationActivations) {
+        (game.state as any).pendingStationActivations = {};
+      }
+      (game.state as any).pendingStationActivations[activationId] = {
+        playerId: pid,
+        stationId: permanentId,
+        stationName: cardName,
+        stationThreshold,
+      };
+      
+      // Emit creature selection request to client
+      const creatureOptions = untappedCreatures.map((c: any) => {
+        const creaturePower = getEffectivePower(c);
+        return {
+          id: c.id,
+          name: c.card?.name || 'Unknown',
+          power: creaturePower,
+          toughness: getEffectiveToughness(c),
+          imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
+        };
+      });
+      
+      socket.emit("stationCreatureSelection", {
+        gameId,
+        activationId,
+        station: {
+          id: permanentId,
+          name: cardName,
+          imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+          threshold: stationThreshold,
+          currentCounters: (permanent as any).counters?.charge || 0,
+        },
+        creatures: creatureOptions,
+        title: `Station ${stationThreshold}`,
+        description: `Tap another untapped creature you control. Put charge counters on ${cardName} equal to that creature's power.`,
+      });
+      
+      console.log(`[activateBattlefieldAbility] Station ability on ${cardName}: prompting for creature selection (${untappedCreatures.length} valid targets)`);
+      return;
+    }
+    
+    // Handle Level Up abilities (Rule 702.87)
+    // "Level up [cost]" means "[Cost]: Put a level counter on this permanent. Activate only as a sorcery."
+    const levelUpMatch = oracleText.match(/level\s+up\s+(\{[^}]+\}(?:\{[^}]+\})*)/i);
+    const isLevelUpAbility = abilityId.includes("level-up") || abilityId.includes("levelup") || 
+      (levelUpMatch && abilityId.includes("level"));
+    
+    if (isLevelUpAbility && levelUpMatch) {
+      const levelUpCost = levelUpMatch[1];
+      
+      // Level up is sorcery speed only (Rule 702.87a)
+      const phase = (game.state as any).phase || '';
+      const isMainPhase = phase.toLowerCase().includes('main');
+      const stack = game.state?.stack || [];
+      const activePlayer = (game.state as any).turnPlayer || (game.state as any).activePlayer;
+      
+      if (activePlayer !== pid) {
+        socket.emit("error", {
+          code: "NOT_YOUR_TURN",
+          message: "Level up can only be activated on your turn (sorcery speed)",
+        });
+        return;
+      }
+      
+      if (!isMainPhase || stack.length > 0) {
+        socket.emit("error", {
+          code: "SORCERY_SPEED_ONLY",
+          message: "Level up can only be activated at sorcery speed (main phase, empty stack)",
+        });
+        return;
+      }
+      
+      // Parse and pay the mana cost
+      const parsedCost = parseManaCost(levelUpCost);
+      const pool = getOrInitManaPool(game.state, pid);
+      const totalAvailable = calculateTotalAvailableMana(pool, []);
+      
+      const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+      if (validationError) {
+        socket.emit("error", { code: "INSUFFICIENT_MANA", message: validationError });
+        return;
+      }
+      
+      consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[activateBattlefieldAbility:level-up]');
+      
+      // Add a level counter to the permanent
+      (permanent as any).counters = (permanent as any).counters || {};
+      const currentLevel = (permanent as any).counters.level || 0;
+      (permanent as any).counters.level = currentLevel + 1;
+      const newLevel = (permanent as any).counters.level;
+      
+      // Determine which level bracket this puts the creature in
+      // Look for LEVEL N1-N2 and LEVEL N3+ patterns in the oracle text
+      let levelBracket = `Level ${newLevel}`;
+      const levelRangePattern = /level\s+(\d+)-(\d+)/gi;
+      const levelPlusPattern = /level\s+(\d+)\+/gi;
+      
+      // Use matchAll for safe iteration over global regex matches
+      for (const match of oracleText.matchAll(levelRangePattern)) {
+        const minLevel = parseInt(match[1], 10);
+        const maxLevel = parseInt(match[2], 10);
+        if (newLevel >= minLevel && newLevel <= maxLevel) {
+          levelBracket = `Level ${minLevel}-${maxLevel}`;
+          break;
+        }
+      }
+      
+      for (const match of oracleText.matchAll(levelPlusPattern)) {
+        const minLevel = parseInt(match[1], 10);
+        if (newLevel >= minLevel) {
+          levelBracket = `Level ${minLevel}+`;
+          break;
+        }
+      }
+      
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `📊 ${getPlayerName(game, pid)} paid ${levelUpCost} to level up ${cardName}! (${newLevel} level counter${newLevel !== 1 ? 's' : ''}, ${levelBracket})`,
+        ts: Date.now(),
+      });
       
       if (typeof game.bumpSeq === "function") {
         game.bumpSeq();
       }
+      
+      // Append event to game log
+      appendGameEvent(game, gameId, 'level_up', {
+        playerId: pid,
+        permanentId,
+        cardName,
+        cost: levelUpCost,
+        newLevel,
+        levelBracket,
+        ts: Date.now(),
+      });
       
       broadcastGame(io, game, gameId);
       return;
@@ -7245,6 +7391,146 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       targetPermanentId,
       counterType,
       source: pending.sourceName,
+      ts: Date.now(),
+    });
+
+    // Broadcast updates
+    broadcastGame(io, game, gameId);
+  });
+
+  /**
+   * Handle station ability creature selection confirmation (Rule 702.184a)
+   * Station: "Tap another untapped creature you control: Put a number of charge counters
+   * on this permanent equal to the tapped creature's power."
+   */
+  socket.on("confirmStationCreatureSelection", ({
+    gameId,
+    activationId,
+    creatureId,
+  }: {
+    gameId: string;
+    activationId: string;
+    creatureId: string;
+  }) => {
+    const game = ensureGame(gameId);
+    if (!game || !game.state) return;
+
+    const pid = (socket as any).playerId as PlayerID;
+    if (!pid) {
+      socket.emit("error", { code: "NO_PLAYER_ID", message: "No player ID associated with this socket" });
+      return;
+    }
+
+    // Retrieve pending activation
+    const pending = (game.state as any).pendingStationActivations?.[activationId];
+    if (!pending) {
+      socket.emit("error", { code: "INVALID_ACTIVATION", message: "Invalid or expired station activation" });
+      return;
+    }
+
+    // Verify it's the right player
+    if (pending.playerId !== pid) {
+      socket.emit("error", { code: "NOT_YOUR_ACTIVATION", message: "This is not your station activation" });
+      return;
+    }
+
+    const battlefield = game.state.battlefield || [];
+    
+    // Find the station permanent
+    const station = battlefield.find((p: any) => p.id === pending.stationId);
+    if (!station) {
+      socket.emit("error", { code: "STATION_NOT_FOUND", message: "Station permanent not found" });
+      delete (game.state as any).pendingStationActivations[activationId];
+      return;
+    }
+
+    // Find the creature to tap
+    const creature = battlefield.find((p: any) => p.id === creatureId);
+    if (!creature) {
+      socket.emit("error", { code: "CREATURE_NOT_FOUND", message: "Selected creature not found" });
+      return;
+    }
+
+    // Validate the creature
+    if (creature.controller !== pid) {
+      socket.emit("error", { code: "NOT_YOUR_CREATURE", message: "You don't control this creature" });
+      return;
+    }
+
+    if (creature.tapped) {
+      socket.emit("error", { code: "CREATURE_TAPPED", message: "This creature is already tapped" });
+      return;
+    }
+
+    const creatureTypeLine = (creature.card?.type_line || '').toLowerCase();
+    if (!creatureTypeLine.includes('creature')) {
+      socket.emit("error", { code: "NOT_A_CREATURE", message: "Selected permanent is not a creature" });
+      return;
+    }
+
+    // Get the creature's power
+    const creaturePower = getEffectivePower(creature);
+    const creatureName = creature.card?.name || 'creature';
+
+    // Tap the creature
+    (creature as any).tapped = true;
+
+    // Add charge counters equal to the creature's power (Rule 702.184a)
+    // Note: While MTG allows negative power, we use Math.max(0, ...) since tapping a
+    // creature with negative power shouldn't remove counters - it just adds 0.
+    (station as any).counters = (station as any).counters || {};
+    const currentCounters = (station as any).counters.charge || 0;
+    const countersToAdd = Math.max(0, creaturePower); // Negative power = 0 counters added
+    (station as any).counters.charge = currentCounters + countersToAdd;
+
+    const newCounterCount = (station as any).counters.charge;
+    const stationThreshold = pending.stationThreshold || 0;
+
+    // Clean up pending activation
+    delete (game.state as any).pendingStationActivations[activationId];
+
+    // Check if threshold is met
+    if (stationThreshold > 0 && newCounterCount >= stationThreshold && !(station as any).stationed) {
+      // Mark as stationed (becomes a creature)
+      (station as any).stationed = true;
+      (station as any).grantedTypes = (station as any).grantedTypes || [];
+      if (!(station as any).grantedTypes.includes('Creature')) {
+        (station as any).grantedTypes.push('Creature');
+      }
+
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `🚀 ${getPlayerName(game, pid)} tapped ${creatureName} (power ${creaturePower}) to station ${pending.stationName}! It gained ${countersToAdd} charge counter${countersToAdd !== 1 ? 's' : ''} (${newCounterCount}/${stationThreshold}) and is now an artifact creature!`,
+        ts: Date.now(),
+      });
+    } else {
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `⚡ ${getPlayerName(game, pid)} tapped ${creatureName} (power ${creaturePower}) to add ${countersToAdd} charge counter${countersToAdd !== 1 ? 's' : ''} to ${pending.stationName}. (${newCounterCount}/${stationThreshold})`,
+        ts: Date.now(),
+      });
+    }
+
+    if (typeof game.bumpSeq === "function") {
+      game.bumpSeq();
+    }
+
+    // Append event to game log
+    appendGameEvent(game, gameId, 'station_activated', {
+      playerId: pid,
+      stationId: pending.stationId,
+      stationName: pending.stationName,
+      creatureId,
+      creatureName,
+      creaturePower,
+      countersAdded: countersToAdd,
+      totalCounters: newCounterCount,
+      threshold: stationThreshold,
+      stationed: (station as any).stationed,
       ts: Date.now(),
     });
 
