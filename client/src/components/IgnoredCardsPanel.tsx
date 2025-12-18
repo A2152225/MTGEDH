@@ -248,7 +248,7 @@ export function IgnoredCardsPanel({ ignoredCards, onUnignore, onClearAll, you }:
 
                   {/* Unignore button */}
                   <button
-                    onClick={() => onUnignore(card.cardId || card.permanentId)}
+                    onClick={() => onUnignore(card.cardId ?? card.permanentId)}
                     title="Stop ignoring this card"
                     style={{
                       padding: '4px 8px',

@@ -280,6 +280,8 @@ export function TableLayout(props: {
     sources: string[];
     isIncrease?: boolean;
   }>;
+  // Ignored cards for playability checks (auto-pass)
+  ignoredCardIds?: Set<string>;
   isPreGame?: boolean;
   allPlayersKeptHands?: boolean;
   onKeepHand?: () => void;
@@ -323,6 +325,8 @@ export function TableLayout(props: {
     playableCards,
     // Cost adjustments for hand cards
     costAdjustments,
+    // Ignored cards for playability checks
+    ignoredCardIds: propsIgnoredCardIds,
   } = props;
 
   // Snapshot debug
@@ -417,7 +421,10 @@ export function TableLayout(props: {
   // State for zone card context menu (works for hand, graveyard, exile, commander, library)
   const [zoneContextMenu, setZoneContextMenu] = useState<{ card: KnownCardRef; zone: ZoneType; x: number; y: number } | null>(null);
   // Keep track of which cards are ignored for playability checks
-  const [ignoredCardsSet, setIgnoredCardsSet] = useState<Set<string>>(new Set());
+  // Use props if provided, otherwise maintain local state for backward compatibility
+  const [localIgnoredCardsSet, setLocalIgnoredCardsSet] = useState<Set<string>>(new Set());
+  const ignoredCardsSet = propsIgnoredCardIds || localIgnoredCardsSet;
+  const setIgnoredCardsSet = propsIgnoredCardIds ? () => {} : setLocalIgnoredCardsSet;
   useEffect(() => {
     const kd = (e: KeyboardEvent) => { if (e.code === 'Space') setPanKey(true); };
     const ku = (e: KeyboardEvent) => { if (e.code === 'Space') setPanKey(false); };

@@ -62,6 +62,7 @@ import { CascadeModal } from "./components/CascadeModal";
 import { OpponentMayPayModal, type OpponentMayPayPrompt } from "./components/OpponentMayPayModal";
 import { MutateTargetModal, type MutateTarget } from "./components/MutateTargetModal";
 import { AlternateCostSelectionModal, type CastingOption } from "./components/AlternateCostSelectionModal";
+import { IgnoredCardsPanel, type IgnoredCard, type IgnoredCardZone } from "./components/IgnoredCardsPanel";
 import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
 import { useGameSocket } from "./hooks/useGameSocket";
@@ -432,6 +433,10 @@ export function App() {
   
   const [exileModalOpen, setExileModalOpen] = useState(false);
   const [exileModalPlayerId, setExileModalPlayerId] = useState<string | null>(null);
+  
+  // Ignored cards state (for auto-pass and playability checks)
+  const [ignoredCards, setIgnoredCards] = useState<IgnoredCard[]>([]);
+  const ignoredCardIds = useMemo(() => new Set(ignoredCards.map(c => c.cardId || c.permanentId)), [ignoredCards]);
   
   // Join Forces Modal state (Collective Voyage, Minds Aglow, etc.)
   const [joinForcesModalOpen, setJoinForcesModalOpen] = useState(false);
@@ -1377,6 +1382,19 @@ export function App() {
       socket.off("deckValidationResult", handler);
     };
   }, [safeView?.id]);
+
+  // Ignored cards update listener (for auto-pass and playability checks)
+  React.useEffect(() => {
+    const handler = (payload: any) => {
+      if (payload.gameId === safeView?.id && payload.playerId === you) {
+        setIgnoredCards(payload.ignoredCards || []);
+      }
+    };
+    socket.on("ignoredCardsUpdated" as any, handler);
+    return () => {
+      socket.off("ignoredCardsUpdated" as any, handler);
+    };
+  }, [safeView?.id, you]);
 
   // Library search request listener (Tutor effects)
   React.useEffect(() => {
@@ -4568,6 +4586,7 @@ export function App() {
               onBeginGame={() => socket.emit("nextStep", { gameId: safeView?.id })}
               playableCards={(safeView as any)?.playableCards}
               costAdjustments={(safeView as any)?.costAdjustments}
+              ignoredCardIds={ignoredCardIds}
             />
           ) : (
             <div style={{ padding: 20, color: "#666" }}>
@@ -5988,6 +6007,26 @@ export function App() {
         onActivateAbility={handleGraveyardAbility}
         playableCards={you === graveyardModalPlayerId ? (safeView as any)?.playableCards : undefined}
         appearanceSettings={appearanceSettings}
+        onIgnoreForPlayability={(cardId, cardName, imageUrl) => {
+          if (safeView?.id) {
+            socket.emit('ignoreCardForAutoPass' as any, {
+              gameId: safeView.id,
+              cardId,
+              cardName,
+              zone: 'graveyard',
+              imageUrl,
+            });
+          }
+        }}
+        onUnignoreForPlayability={(cardId) => {
+          if (safeView?.id) {
+            socket.emit('unignoreCardForAutoPass' as any, {
+              gameId: safeView.id,
+              cardId,
+            });
+          }
+        }}
+        ignoredCardIds={ignoredCardIds}
       />
 
       {/* Exile View Modal */}
@@ -6007,6 +6046,26 @@ export function App() {
         onActivateAbility={handleExileAbility}
         playableCards={you === exileModalPlayerId ? (safeView as any)?.playableCards : undefined}
         appearanceSettings={appearanceSettings}
+        onIgnoreForPlayability={(cardId, cardName, imageUrl) => {
+          if (safeView?.id) {
+            socket.emit('ignoreCardForAutoPass' as any, {
+              gameId: safeView.id,
+              cardId,
+              cardName,
+              zone: 'exile',
+              imageUrl,
+            });
+          }
+        }}
+        onUnignoreForPlayability={(cardId) => {
+          if (safeView?.id) {
+            socket.emit('unignoreCardForAutoPass' as any, {
+              gameId: safeView.id,
+              cardId,
+            });
+          }
+        }}
+        ignoredCardIds={ignoredCardIds}
       />
 
       {/* Join Forces Modal (Collective Voyage, Minds Aglow, etc.) */}
@@ -6353,6 +6412,25 @@ export function App() {
           playerId={you}
           currentShortcuts={(safeView as any).triggerShortcuts?.[you] || []}
           activeCards={safeView.battlefield?.map((p: any) => p.card?.name || '').filter(Boolean) || []}
+        />
+      )}
+
+      {/* Ignored Cards Panel - Shows cards ignored for auto-pass */}
+      {safeView && you && ignoredCards.length > 0 && (
+        <IgnoredCardsPanel
+          ignoredCards={ignoredCards}
+          you={you}
+          onUnignore={(cardId) => {
+            socket.emit('unignoreCardForAutoPass' as any, {
+              gameId: safeView.id,
+              cardId,
+            });
+          }}
+          onClearAll={() => {
+            socket.emit('clearIgnoredCards' as any, {
+              gameId: safeView.id,
+            });
+          }}
         />
       )}
     </div>
