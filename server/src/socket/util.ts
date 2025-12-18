@@ -1403,6 +1403,17 @@ function checkAndEmitKynaiosChoicePrompts(io: Server, game: InMemoryGame, gameId
 function checkAndEmitTriggerOrderingPrompts(io: Server, game: InMemoryGame, gameId: string): void {
   try {
     const triggerQueue = (game.state as any)?.triggerQueue || [];
+    const pendingTriggerOrdering = (game.state as any)?.pendingTriggerOrdering || {};
+    
+    // CRITICAL FIX: If triggerQueue is empty but pendingTriggerOrdering still has entries,
+    // clear the stale pending state to prevent game from being stuck
+    if (triggerQueue.length === 0 && Object.keys(pendingTriggerOrdering).length > 0) {
+      console.log(`[util] Clearing stale pendingTriggerOrdering - no triggers in queue`);
+      delete (game.state as any).pendingTriggerOrdering;
+      delete (game.state as any)._triggerOrderingPromptedPlayers;
+      return;
+    }
+    
     if (triggerQueue.length === 0) return;
     
     // Track which players have already been prompted for the current trigger set
@@ -1419,6 +1430,15 @@ function checkAndEmitTriggerOrderingPrompts(io: Server, game: InMemoryGame, game
       const existing = triggersByController.get(controller) || [];
       existing.push(trigger);
       triggersByController.set(controller, existing);
+    }
+    
+    // Clean up pendingTriggerOrdering for players who no longer have triggers in the queue
+    for (const playerId of Object.keys(pendingTriggerOrdering)) {
+      const playerTriggersInQueue = triggersByController.get(playerId) || [];
+      if (playerTriggersInQueue.length === 0) {
+        console.log(`[util] Clearing pendingTriggerOrdering for ${playerId} - no triggers in queue`);
+        delete pendingTriggerOrdering[playerId];
+      }
     }
     
     // For each controller with 2+ triggers, emit a prompt to order them
@@ -1451,6 +1471,12 @@ function checkAndEmitTriggerOrderingPrompts(io: Server, game: InMemoryGame, game
               imageUrl: trigger.imageUrl,
             },
           });
+        }
+      } else if (playerTriggers.length === 1) {
+        // Single trigger doesn't need ordering - clear any pending state
+        if (pendingTriggerOrdering[playerId]) {
+          console.log(`[util] Clearing pendingTriggerOrdering for ${playerId} - only 1 trigger (no ordering needed)`);
+          delete pendingTriggerOrdering[playerId];
         }
       }
     }
