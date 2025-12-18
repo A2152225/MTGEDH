@@ -137,17 +137,17 @@ export function requiresColorChoice(card: any): { required: boolean; reason: str
   }
   
   // Generic detection: look for "as ~ enters the battlefield, choose a color" or "as ~ enters, choose a color"
-  const entersChooseColorPattern = /as .+? enters(?: the battlefield)?,? (?:you may )?choose a color/i;
+  // This pattern specifically matches the ETB template where choosing a color is part of the enters clause
+  // Pattern breakdown:
+  // - "as .+? enters" matches "as [card name] enters" 
+  // - "(?: the battlefield)?" optionally matches " the battlefield" (newer template omits this)
+  // - ",?" optionally matches comma
+  // - "(?:you may )?" optionally matches "you may"
+  // - "choose a colou?r" matches "choose a color" or "choose a colour"
+  // - Must be followed by sentence boundary (. or line end) to avoid matching mid-sentence
+  const entersChooseColorPattern = /as .+? enters(?: the battlefield)?,?\s+(?:you may\s+)?choose a colou?r[.\n]/i;
   if (entersChooseColorPattern.test(oracleText)) {
     return { required: true, reason: "Choose a color" };
-  }
-  
-  // Check for "choose a color" in general (might be on cast or activation)
-  if (oracleText.includes("choose a color") || oracleText.includes("choose a colour")) {
-    // Only return true for ETB effects, not activated abilities
-    if (oracleText.includes("enters") || oracleText.includes("as") || oracleText.includes("when")) {
-      return { required: true, reason: "Choose a color" };
-    }
   }
   
   return { required: false, reason: "" };
