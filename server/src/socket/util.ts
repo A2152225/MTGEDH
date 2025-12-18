@@ -2504,12 +2504,11 @@ export function handlePendingLibrarySearch(io: Server, game: any, gameId: string
         moveTo: info.splitDestination ? 'split' : (info.destination || 'hand'),
         shuffleAfter: info.shuffleAfter ?? true,
         optional: info.optional || false,
-        tapped: info.tapped || false,
+        entersTapped: info.entersTapped || false,
         // For split-destination effects (Kodama's Reach, Cultivate)
         splitDestination: info.splitDestination || false,
         toBattlefield: info.toBattlefield,
         toHand: info.toHand,
-        entersTapped: info.entersTapped,
         searchRestrictions: {
           limitedToTop: searchCheck.limitToTop,
           paymentRequired: searchCheck.paymentRequired,
