@@ -559,6 +559,33 @@ export interface GameState {
     cantAttackOwner?: boolean;
   }>;
   /**
+   * Pending counter-adding activations awaiting target selection.
+   * Maps activation ID to activation details.
+   * Used for Gwafa Hazid, Immaculate Magistrate, Sage of Fables, etc.
+   */
+  pendingCounterActivations?: Record<string, {
+    playerId: PlayerID;
+    sourceId: string;
+    sourceName: string;
+    counterType: string;
+    targetController?: 'opponent' | 'any' | 'you';
+    oracleText?: string;
+    scalingText?: string | null;
+  }>;
+  /**
+   * Pending move counter activations awaiting source/destination selection.
+   * Maps activation ID to activation details.
+   * Used for Nesting Grounds and similar abilities.
+   */
+  pendingMoveCounterActivations?: Record<string, {
+    playerId: PlayerID;
+    sourceId: string;
+    sourceName: string;
+    step: 'select_source' | 'select_destination';
+    sourcePermId?: string;
+    counterType?: string;
+  }>;
+  /**
    * Firebending mana tracking - tracks red mana from firebending that lasts until end of combat.
    * Maps playerId to amount of firebending red mana in their pool.
    */
