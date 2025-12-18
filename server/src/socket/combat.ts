@@ -462,6 +462,25 @@ function canPermanentAttack(
   battlefield: any[] = [],
   controllerId?: string
 ): { canAttack: boolean; reason?: string } {
+  // Check for bribery counters - only prevent attack if Gwafa Hazid is on battlefield
+  // Oracle text: "Creatures with bribery counters on them can't attack or block."
+  const briberyCounters = permanent?.counters?.bribery || 0;
+  if (briberyCounters > 0) {
+    // Check if Gwafa Hazid (or similar effect) is on the battlefield
+    // Gwafa Hazid: "Creatures with bribery counters on them can't attack or block."
+    const hasGwafaEffect = battlefield.some((perm: any) => {
+      if (!perm?.card?.oracle_text) return false;
+      const oracle = perm.card.oracle_text.toLowerCase();
+      // Check for the specific effect that makes bribery counters prevent attacking
+      return oracle.includes('bribery counter') && 
+             (oracle.includes("can't attack") || oracle.includes("cannot attack"));
+    });
+    
+    if (hasGwafaEffect) {
+      return { canAttack: false, reason: 'Has bribery counter (Gwafa Hazid effect)' };
+    }
+  }
+  
   // Check for defender
   const defenderCheck = hasEffectiveAbility(permanent, 'defender', battlefield, controllerId);
   
@@ -515,6 +534,24 @@ function canBlockAttacker(
   battlefield: any[] = [],
   blockerControllerId?: string
 ): { canBlock: boolean; reason?: string } {
+  // Check for bribery counters - only prevent block if Gwafa Hazid is on battlefield
+  const briberyCounters = blocker?.counters?.bribery || 0;
+  if (briberyCounters > 0) {
+    // Check if Gwafa Hazid (or similar effect) is on the battlefield
+    const hasGwafaEffect = battlefield.some((perm: any) => {
+      if (!perm?.card?.oracle_text) return false;
+      const oracle = perm.card.oracle_text.toLowerCase();
+      // Check for the specific effect that makes bribery counters prevent blocking
+      return oracle.includes('bribery counter') && 
+             (oracle.includes("can't") || oracle.includes("cannot")) &&
+             oracle.includes("block");
+    });
+    
+    if (hasGwafaEffect) {
+      return { canBlock: false, reason: 'Has bribery counter (Gwafa Hazid effect)' };
+    }
+  }
+  
   // Check flying - can only be blocked by flying or reach
   const attackerFlying = hasEffectiveAbility(attacker, 'flying', battlefield, attacker.controller);
   if (attackerFlying.hasAbility) {
